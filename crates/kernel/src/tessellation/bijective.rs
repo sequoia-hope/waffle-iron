@@ -29,6 +29,15 @@ pub struct BijectiveMap {
 }
 
 impl BijectiveMap {
+    /// Create a BijectiveMap from triangle-to-face mappings.
+    /// vertex_params starts empty; call compute_vertex_params() to populate.
+    pub fn from_tri_face_ids(tri_face_ids: Vec<FaceIdx>) -> Self {
+        BijectiveMap {
+            tri_face_ids,
+            vertex_params: Vec::new(),
+        }
+    }
+
     /// Derive a `BijectiveMap` from a `RenderMesh` and its `face_map`.
     ///
     /// Each `FaceRange` in the mesh tells us which triangle index range belongs

@@ -72,7 +72,25 @@ pub(crate) fn detect_intersections(ts: &TriangleSoup, aux: &mut AuxiliaryStructu
         aabbs.push((min, max));
     }
 
-    // Simple O(n²) broad phase with AABB culling.
+    // Compute per-triangle normals for Gauss map filtering.
+    // Per Yang 2025 Section 4.2.2 (Theorem 4.1): skip pairs whose
+    // normal cones can't produce an intersection (normals point same way).
+    let tri_normals: Vec<[f64; 3]> = (0..num_tris)
+        .map(|t| {
+            let v0 = ts.tri_vert(t, 0);
+            let v1 = ts.tri_vert(t, 1);
+            let v2 = ts.tri_vert(t, 2);
+            let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+            let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+            [
+                e1[1] * e2[2] - e1[2] * e2[1],
+                e1[2] * e2[0] - e1[0] * e2[2],
+                e1[0] * e2[1] - e1[1] * e2[0],
+            ]
+        })
+        .collect();
+
+    // Simple O(n²) broad phase with AABB culling + Gauss map filtering.
     // For production, replace with BVH/octree. Matching the C++ cinolib::Octree
     // semantics: check all pairs within each leaf.
     let mut seen = HashSet::new();
@@ -86,6 +104,21 @@ pub(crate) fn detect_intersections(ts: &TriangleSoup, aux: &mut AuxiliaryStructu
             // AABB overlap test
             if !aabb_overlap(&aabbs[t0], &aabbs[t1]) {
                 continue;
+            }
+
+            // Gauss map filter (Yang 2025 Section 4.2.2):
+            // For same-mesh pairs: skip if normals co-oriented (manifold can't
+            // self-intersect at co-oriented faces).
+            // This reduces false positives from the AABB broad phase.
+            if ts.tri_label(t0) == ts.tri_label(t1) {
+                let n0 = &tri_normals[t0];
+                let n1 = &tri_normals[t1];
+                let dot = n0[0] * n1[0] + n0[1] * n1[1] + n0[2] * n1[2];
+                let len0_sq = n0[0] * n0[0] + n0[1] * n0[1] + n0[2] * n0[2];
+                let len1_sq = n1[0] * n1[0] + n1[1] * n1[1] + n1[2] * n1[2];
+                if dot > 0.0 && len0_sq > 1e-30 && len1_sq > 1e-30 {
+                    continue;
+                }
             }
 
             // Exact tri-tri intersection test using orient3d

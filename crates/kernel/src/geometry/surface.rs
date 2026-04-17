@@ -14,6 +14,43 @@
 use super::point::{Point3, Vector3};
 use crate::units::{TAU_COINCIDENT, TAU_NORMALIZE};
 
+/// A circular cone bounding the normal vectors of a surface patch.
+///
+/// Used for Gauss map filtering per Yang 2025 Section 4.2.2 (Theorem 4.1):
+/// if two patches' normal cones don't overlap, they can't intersect.
+#[derive(Debug, Clone)]
+pub struct NormalCone {
+    /// Center direction of the cone (unit vector).
+    pub axis: [f64; 3],
+    /// Half-angle of the cone in radians. 0 = single direction (planar face),
+    /// π = full hemisphere (sphere), π/2 = equator (cylinder).
+    pub half_angle: f64,
+}
+
+impl NormalCone {
+    /// Check if two normal cones could produce an intersection.
+    ///
+    /// Two surface patches can intersect only if their normal fields overlap
+    /// in the ANTI-PARALLEL sense (normals pointing toward each other).
+    /// Returns true if cones overlap after flipping one cone by π.
+    pub fn may_intersect(&self, other: &NormalCone) -> bool {
+        // Angle between cone axes
+        let dot = self.axis[0] * other.axis[0]
+            + self.axis[1] * other.axis[1]
+            + self.axis[2] * other.axis[2];
+        let angle = dot.clamp(-1.0, 1.0).acos();
+
+        // For intersection, normals must be anti-parallel somewhere.
+        // Flip one cone: the "anti-parallel overlap" condition is
+        // angle < self.half_angle + other.half_angle + π
+        // But since angle ∈ [0, π], this simplifies to:
+        // (π - angle) < self.half_angle + other.half_angle
+        // i.e., the "gap" between the anti-parallel axes < sum of half-angles.
+        let anti_parallel_gap = std::f64::consts::PI - angle;
+        anti_parallel_gap < self.half_angle + other.half_angle
+    }
+}
+
 /// Geometry attached to a B-Rep face.
 #[derive(Debug, Clone)]
 pub enum SurfaceGeom {
@@ -122,6 +159,51 @@ impl SurfaceGeom {
             SurfaceGeom::Conical(c) => c.project_point(pt),
             SurfaceGeom::Spherical(s) => s.project_point(pt),
             SurfaceGeom::Toroidal(t) => t.project_point(pt),
+        }
+    }
+
+    /// Compute the bounding normal cone for this surface.
+    ///
+    /// Per Yang 2025 Section 4.2.2 (Theorem 4.1): the normal vectors of a
+    /// surface patch are contained in a circular cone. For analytic quadrics,
+    /// this can be computed exactly from the surface geometry.
+    pub fn normal_cone(&self) -> NormalCone {
+        match self {
+            SurfaceGeom::Planar(p) => NormalCone {
+                axis: [p.normal.x, p.normal.y, p.normal.z],
+                half_angle: 0.0, // Single direction
+            },
+            SurfaceGeom::Cylindrical(c) => {
+                // Cylinder normals span the full equator perpendicular to axis.
+                // Use an arbitrary radial direction as axis, half_angle = π/2.
+                let (x, _) = make_frame(c.axis);
+                NormalCone {
+                    axis: [x.x, x.y, x.z],
+                    half_angle: std::f64::consts::FRAC_PI_2,
+                }
+            }
+            SurfaceGeom::Spherical(_) => {
+                // Sphere normals span the full sphere.
+                NormalCone {
+                    axis: [0.0, 0.0, 1.0],
+                    half_angle: std::f64::consts::PI,
+                }
+            }
+            SurfaceGeom::Conical(c) => {
+                // Cone normals span a band around the axis.
+                // Half-angle of the normal cone = π/2 - half_angle (complement).
+                NormalCone {
+                    axis: [c.axis.x, c.axis.y, c.axis.z],
+                    half_angle: std::f64::consts::FRAC_PI_2, // conservative
+                }
+            }
+            SurfaceGeom::Toroidal(_) => {
+                // Torus normals span the full sphere (both inner and outer).
+                NormalCone {
+                    axis: [0.0, 0.0, 1.0],
+                    half_angle: std::f64::consts::PI,
+                }
+            }
         }
     }
 

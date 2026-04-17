@@ -2316,12 +2316,10 @@ mod tests {
         dedup_mesh_vertices(&mut verts_b, &mut tris_b);
 
         // Build BijectiveMaps: 6 faces, 2 tris per face → face_idx = tri_idx / 2
-        let bijective_a = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
-        let bijective_b = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
+        let bijective_a =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
+        let bijective_b =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
 
         let result = yang_boolean_pipeline(
             &verts_a,
@@ -2511,12 +2509,10 @@ mod tests {
         dedup_mesh_vertices(&mut verts_a, &mut tris_a);
         dedup_mesh_vertices(&mut verts_b, &mut tris_b);
 
-        let bijective_a = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
-        let bijective_b = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
+        let bijective_a =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
+        let bijective_b =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
 
         let result = yang_boolean_pipeline(
             &verts_a,

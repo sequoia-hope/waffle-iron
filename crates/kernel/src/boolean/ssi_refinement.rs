@@ -1019,12 +1019,10 @@ mod tests {
     fn run_full_pipeline(op: MeshBooleanOp) -> ResultTopology {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
-        let bijective_a = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
-        let bijective_b = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
+        let bijective_a =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
+        let bijective_b =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
         yang_boolean_pipeline(
             &verts_a,
             &tris_a,
@@ -2163,7 +2161,7 @@ mod tests {
             ids.push(FaceIdx(2 + i));
             ids.push(FaceIdx(2 + i));
         }
-        BijectiveMap { tri_face_ids: ids }
+        BijectiveMap::from_tri_face_ids(ids)
     }
 
     #[test]
@@ -2178,9 +2176,8 @@ mod tests {
 
         // Box mesh (mesh A)
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [4.0, 4.0, 4.0]);
-        let bijective_a = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
+        let bijective_a =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
 
         // Cylinder mesh (mesh B): r=1, h=6, centered at (2,2,-1) to (2,2,5)
         // Offset so it pierces the box completely through z=0 and z=4
@@ -2777,9 +2774,8 @@ mod tests {
     fn test_mesh_update_preserves_watertightness() {
         let n = 16;
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [4.0, 4.0, 4.0]);
-        let bijective_a = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
+        let bijective_a =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
         let (cyl_verts_raw, cyl_tris, _) = make_cylinder_mesh(1.0, 6.0, n);
         let verts_b: Vec<[f64; 3]> = cyl_verts_raw
             .iter()
@@ -2825,9 +2821,8 @@ mod tests {
     fn test_mesh_update_preserves_face_count() {
         let n = 16;
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [4.0, 4.0, 4.0]);
-        let bijective_a = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
+        let bijective_a =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
         let (cyl_verts_raw, cyl_tris, _) = make_cylinder_mesh(1.0, 6.0, n);
         let verts_b: Vec<[f64; 3]> = cyl_verts_raw
             .iter()

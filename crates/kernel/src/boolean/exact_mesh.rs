@@ -4772,12 +4772,10 @@ mod tests {
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
         // Build bijective maps: box mesh has 12 tris, 2 per face → face = tri / 2
-        let bijective_a = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
-        let bijective_b = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
+        let bijective_a =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
+        let bijective_b =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
 
         let result = yang_boolean_pipeline(
             &verts_a,
@@ -5491,12 +5489,10 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let bijective_a = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
-        let bijective_b = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
+        let bijective_a =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
+        let bijective_b =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
 
         let result = yang_boolean_pipeline(
             &verts_a,
@@ -6408,12 +6404,10 @@ mod tests {
         let (verts_b, tris_b) = make_rotated_box_mesh([1.0, 1.0, 1.0], 1.0);
 
         // Build bijective maps: 12 tris per box, 2 per face → face = tri / 2
-        let bijective_a = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
-        let bijective_b = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
+        let bijective_a =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
+        let bijective_b =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
 
         // Run full pipeline (subtract — the most topology-demanding operation)
         let result = yang_boolean_pipeline(
@@ -6478,12 +6472,10 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_rotated_box_mesh([1.0, 1.0, 1.0], 1.0);
 
-        let bijective_a = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
-        let bijective_b = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
+        let bijective_a =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
+        let bijective_b =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
 
         let result = yang_boolean_pipeline(
             &verts_a,
@@ -6666,12 +6658,10 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_rotated_box_mesh([1.0, 1.0, 1.0], 1.0);
 
-        let bijective_a = BijectiveMap {
-            tri_face_ids: (0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect(),
-        };
-        let bijective_b = BijectiveMap {
-            tri_face_ids: (0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect(),
-        };
+        let bijective_a =
+            BijectiveMap::from_tri_face_ids((0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect());
+        let bijective_b =
+            BijectiveMap::from_tri_face_ids((0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect());
 
         let result = yang_boolean_pipeline(
             &verts_a,

@@ -1,18 +1,18 @@
 {
-  "errored": 24,
-  "failed": 158,
-  "generated": "2026-04-13",
-  "passed": 8,
+  "errored": 19,
+  "failed": 170,
+  "generated": "2026-04-16",
+  "passed": 1,
   "results": [
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,5), (0,23), (0,35), (0,37), (0,40), ...; mesh_euler_characteristic: V(1368) - E(4059) + F(2706) = 15 (expected 2)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 40 unpaired edges out of 4097 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,18), (0,23), (0,28), (0,28), (0,36), ...; mesh_euler_characteristic: V(1376) - E(4097) + F(2718) = -3 (expected 2)",
       "id": "R0001",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 60 unpaired edges out of 144 total; consistent_normals: 1 of 76 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,3), (0,4), ...; mesh_euler_characteristic: V(58) - E(144) + F(76) = -10 (expected 2)",
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; unit_normals: 16 of 73744 normals are not unit length; face_range_coverage: no face ranges defined; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"gear\")]; volume_magnitude: volume 0.000000e0 outside [1.224280e-7, 1.224280e9] for scale 2.304767e0",
       "id": "R0002",
       "status": "fail"
     },
@@ -24,19 +24,19 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 222 unpaired edges out of 786 total; consistent_normals: 58 of 450 triangles have reversed normals; outward_normals: only 392 of 450 triangles (87.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,119), (0,119), (0,119), (0,123), ...; mesh_euler_characteristic: V(329) - E(786) + F(450) = -7 (expected 2)",
+      "detail": "watertight_mesh: 196 unpaired edges out of 386 total; unit_normals: 32 of 36640 normals are not unit length; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,3), (0,8), (0,12), (0,14), ...; mesh_euler_characteristic: V(132) - E(386) + F(192) = -62 (expected 2)",
       "id": "R0004",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 4f04e2a2-a867-4ffd-b035-4f51fab36903: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 399702720 exceeds limit 5000000; watertight_mesh: 1234 unpaired edges out of 29249 total; consistent_normals: 533 of 19088 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,5), (0,5), (0,20), (0,21), (0,33), ...; mesh_euler_characteristic: V(9972) - E(29249) + F(19088) = -189 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): 4f04e2a2-a867-4ffd-b035-4f51fab36903: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 400037760 exceeds limit 5000000; watertight_mesh: 1248 unpaired edges out of 29280 total; consistent_normals: 379 of 19104 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,5), (0,5), (0,20), (0,21), (0,29), ...; mesh_euler_characteristic: V(9987) - E(29280) + F(19104) = -189 (expected 2)",
       "id": "R0005",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (6,9), (6,9), (6,9), (6,9), (6,9), ...; mesh_euler_characteristic: V(40) - E(102) + F(68) = 6 (expected 2)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 24 unpaired edges out of 102 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (6,8), (6,8), (6,8), (6,8), (6,8), ...; mesh_euler_characteristic: V(40) - E(102) + F(60) = -2 (expected 2)",
       "id": "R0006",
       "status": "fail"
     },
@@ -47,14 +47,14 @@
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 78 unpaired edges out of 249 total; consistent_normals: 29 of 140 triangles have reversed normals; outward_normals: only 111 of 140 triangles (79.3%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,5), (0,6), (0,7), (0,9), ...; mesh_euler_characteristic: V(84) - E(249) + F(140) = -25 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 410 boundary HEs out of 1176 total (81 faces, 793 edges, 328 vertices). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0008",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 24 unpaired edges out of 84 total; mesh_euler_characteristic: V(32) - E(84) + F(48) = -4 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): 6d21d782-3e23-4f52-8ab1-bdb99754b153: operation error: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 20 boundary HEs out of 58 total (9 faces, 38 edges, 31 vertices); watertight_mesh: 20 unpaired edges out of 76 total; mesh_euler_characteristic: V(32) - E(76) + F(44) = 0 (expected 2)",
       "id": "R0009",
       "status": "fail"
     },
@@ -65,8 +65,8 @@
       "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 57 unpaired edges out of 2499 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,2), (0,2), ...; mesh_euler_characteristic: V(850) - E(2499) + F(1647) = -2 (expected 2)",
+      "category": "multiple-failures",
+      "detail": "unit_normals: 16 of 76096 normals are not unit length; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (4,5), (4,5), (4,158), (4,158), ...",
       "id": "R0011",
       "status": "fail"
     },
@@ -78,79 +78,79 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 30 unpaired edges out of 1875 total (29 boundary, 1 non-manifold); no_degenerate_triangles: 4 of 1241 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,9), (0,9), (0,9), (0,9), (0,151), ...; mesh_euler_characteristic: V(633) - E(1875) + F(1241) = -1 (expected 2)",
+      "detail": "watertight_mesh: 13 unpaired edges out of 1982 total (12 boundary, 1 non-manifold); consistent_normals: 27 of 1318 triangles have reversed normals; no_degenerate_triangles: 2 of 1318 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,47), (0,53), (0,53), (0,68), (0,89), ...; mesh_euler_characteristic: V(684) - E(1982) + F(1318) = 20 (expected 2)",
       "id": "R0013",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 29 unpaired edges out of 3826 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,12), (0,12), (0,19), (0,31), (0,31), ...; mesh_euler_characteristic: V(1273) - E(3826) + F(2541) = -12 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 46 boundary HEs out of 4382 total (660 faces, 2214 edges, 1499 vertices). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0014",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: tri_vert_opposite_to: no opposite vertex found. Body created as standalone.; partial rebuild (1 error(s)): 740c9104-1438-4927-bfcf-c915425691f0: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 1.92e-20 from axis (min 1.00e-7); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 740c9104-1438-4927-bfcf-c915425691f0: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 1.92e-20 from axis (min 1.00e-7); watertight_mesh: 559 unpaired edges out of 23184 total (431 boundary, 128 non-manifold); no_degenerate_triangles: 10 of 15644 triangles are degenerate; unit_normals: 20 of 223862 normals are not unit length; mesh_euler_characteristic: V(8672) - E(23184) + F(15644) = 1132 (expected 2)",
       "id": "R0015",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 591b13d7-3d2b-431b-ae6d-63726046923e: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 48537456 exceeds limit 5000000; watertight_mesh: 118 unpaired edges out of 4382 total; no_degenerate_triangles: 9 of 2882 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,6), (0,7), (0,19), (0,32), (0,41), ...; mesh_euler_characteristic: V(1444) - E(4382) + F(2882) = -56 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): 591b13d7-3d2b-431b-ae6d-63726046923e: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 48537456 exceeds limit 5000000; watertight_mesh: 1236 unpaired edges out of 9699 total; consistent_normals: 1599 of 6054 triangles have reversed normals; no_degenerate_triangles: 10 of 6054 triangles are degenerate; outward_normals: only 4442 of 6041 triangles (73.5%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,5), (0,15), (0,17), (0,37), (0,38), ...; mesh_euler_characteristic: V(4470) - E(9699) + F(6054) = 825 (expected 2)",
       "id": "R0016",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 32 unpaired edges out of 235 total; no_degenerate_triangles: 1 of 146 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,3), (0,3), ...; mesh_euler_characteristic: V(82) - E(235) + F(146) = -7 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): 62e958e8-34fe-40fe-81fe-2490fae9d5aa: operation error: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 27 boundary HEs out of 207 total (34 faces, 116 edges, 77 vertices); watertight_mesh: 37 unpaired edges out of 215 total; consistent_normals: 16 of 131 triangles have reversed normals; no_degenerate_triangles: 2 of 131 triangles are degenerate; outward_normals: only 113 of 129 triangles (87.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,7), (0,7), (0,7), (0,7), (0,7), ...; mesh_euler_characteristic: V(80) - E(215) + F(131) = -4 (expected 2)",
       "id": "R0017",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,4), (2,3)",
+      "detail": "no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,3), (1,3)",
       "id": "R0018",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 445 unpaired edges out of 2054 total; consistent_normals: 77 of 1221 triangles have reversed normals; no_degenerate_triangles: 15 of 1221 triangles are degenerate; outward_normals: only 1126 of 1203 triangles (93.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(723) - E(2054) + F(1221) = -110 (expected 2)",
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): 238dbbbb-0077-402a-8d68-7e87b8ad5604: operation error: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris); no_self_intersection: 9 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "R0019",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 203 unpaired edges out of 544 total; consistent_normals: 15 of 295 triangles have reversed normals; no_degenerate_triangles: 1 of 295 triangles are degenerate; outward_normals: only 279 of 294 triangles (94.9%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,14), ...; mesh_euler_characteristic: V(193) - E(544) + F(295) = -56 (expected 2)",
+      "category": "multiple-failures",
+      "detail": "partial rebuild (2 error(s)): c1b3def7-3d82-498f-bbbd-29580508e5b0: operation error: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 46 boundary HEs out of 686 total (19 faces, 365 edges, 226 vertices); eb3bf527-0320-49f7-ba81-b3bbd0e8bac5: operation error: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 108 boundary HEs out of 686 total (15 faces, 396 edges, 235 vertices); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,2), (0,2), ...",
       "id": "R0020",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: tri_vert_opposite_to: no opposite vertex found. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 164 boundary HEs out of 726 total (77 faces, 444 edges, 292 vertices). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "R0021",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 36 unpaired edges out of 3138 total; consistent_normals: 94 of 2080 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,6), (0,6), (0,13), (0,19), (0,21), ...; mesh_euler_characteristic: V(1048) - E(3138) + F(2080) = -10 (expected 2)",
+      "category": "multiple-failures",
+      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,6), (0,6), (0,13), (0,15), (0,24), ...; mesh_euler_characteristic: V(1041) - E(3084) + F(2056) = 13 (expected 2)",
       "id": "R0022",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1 unpaired edges out of 20 total; no_degenerate_triangles: 1 of 13 triangles are degenerate; minimum_triangle_count: 13 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(10) - E(20) + F(13) = 3 (expected 2)",
+      "detail": "watertight_mesh: 3 unpaired edges out of 21 total; no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,2), (2,4); minimum_triangle_count: 13 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(11) - E(21) + F(13) = 3 (expected 2)",
       "id": "R0023",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1 unpaired edges out of 2567 total; consistent_normals: 84 of 1711 triangles have reversed normals; no_degenerate_triangles: 1 of 1711 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,35), (0,40), (0,43), (0,56), (0,56), ...",
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 27 of 1762 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,29), (0,35), (0,37), (0,37), ...; mesh_euler_characteristic: V(913) - E(2643) + F(1762) = 32 (expected 2)",
       "id": "R0024",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 639 unpaired edges out of 4206 total (630 boundary, 9 non-manifold); consistent_normals: 53 of 2597 triangles have reversed normals; no_degenerate_triangles: 10 of 2597 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,47), (0,61), (0,66), (0,70), (0,75), ...; mesh_euler_characteristic: V(1434) - E(4206) + F(2597) = -175 (expected 2)",
+      "category": "multiple-failures",
+      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,121), (8,11), (8,160), (10,13), (10,14), ...; mesh_euler_characteristic: V(1616) - E(4830) + F(3220) = 6 (expected 2)",
       "id": "R0025",
       "status": "fail"
     },
@@ -162,7 +162,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 135 unpaired edges out of 381 total; consistent_normals: 8 of 209 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,12), (0,12), (0,15), (0,15), (0,16), ...; mesh_euler_characteristic: V(155) - E(381) + F(209) = -17 (expected 2)",
+      "detail": "watertight_mesh: 61 unpaired edges out of 283 total (59 boundary, 2 non-manifold); consistent_normals: 29 of 170 triangles have reversed normals; no_degenerate_triangles: 3 of 170 triangles are degenerate; outward_normals: only 138 of 167 triangles (82.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,16), (0,22), (0,23), (0,23), (0,23), ...; mesh_euler_characteristic: V(90) - E(283) + F(170) = -23 (expected 2)",
       "id": "R0027",
       "status": "fail"
     },
@@ -174,127 +174,127 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 4 unpaired edges out of 26 total; mesh_euler_characteristic: V(11) - E(26) + F(16) = 1 (expected 2)",
+      "detail": "watertight_mesh: 3 unpaired edges out of 21 total; no_self_intersection: 1 inter-face triangle penetrations, face pairs: (1,2); mesh_euler_characteristic: V(11) - E(21) + F(13) = 3 (expected 2)",
       "id": "R0029",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 56 unpaired edges out of 139 total; consistent_normals: 8 of 74 triangles have reversed normals; outward_normals: only 58 of 66 triangles (87.9%) have outward normals (need 95%); mesh_euler_characteristic: V(57) - E(139) + F(74) = -8 (expected 2)",
+      "detail": "watertight_mesh: 59 unpaired edges out of 154 total; no_degenerate_triangles: 3 of 83 triangles are degenerate",
       "id": "R0030",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 319 unpaired edges out of 1742 total; consistent_normals: 102 of 1055 triangles have reversed normals; no_degenerate_triangles: 14 of 1055 triangles are degenerate; outward_normals: only 922 of 1024 triangles (90.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,43), (1,162), (1,235), (2,3), (2,3), ...; mesh_euler_characteristic: V(564) - E(1742) + F(1055) = -123 (expected 2)",
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): fa30d7ed-bca7-4338-81ed-2a6e44602ead: operation error: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 90 boundary HEs out of 1602 total (179 faces, 846 edges, 633 vertices); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (3,4), (4,5), (4,5)",
       "id": "R0031",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 79f4ba08-037f-4c8d-9839-90dabad93713: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 43413936 exceeds limit 5000000; watertight_mesh: 226 unpaired edges out of 3266 total; consistent_normals: 63 of 2102 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(1120) - E(3266) + F(2102) = -44 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 140 boundary HEs out of 484 total (7 faces, 311 edges, 172 vertices). Body created as standalone.; partial rebuild (1 error(s)): 79f4ba08-037f-4c8d-9839-90dabad93713: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 43413936 exceeds limit 5000000; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,2), (1,2)",
       "id": "R0032",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 60 unpaired edges out of 165 total; consistent_normals: 3 of 90 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,2), (0,2), ...; mesh_euler_characteristic: V(68) - E(165) + F(90) = -7 (expected 2)",
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; unit_normals: 16 of 73744 normals are not unit length; face_range_coverage: no face ranges defined; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"gear\")]; volume_magnitude: volume 0.000000e0 outside [7.737396e-14, 7.737396e2] for scale 1.977872e-2",
       "id": "R0033",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 603 unpaired edges out of 14141 total (602 boundary, 1 non-manifold); consistent_normals: 234 of 9227 triangles have reversed normals; no_degenerate_triangles: 3 of 9227 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,6), (0,8), (0,8), ...; mesh_euler_characteristic: V(4813) - E(14141) + F(9227) = -101 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...",
       "id": "R0034",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 731 unpaired edges out of 11653 total; consistent_normals: 455 of 7525 triangles have reversed normals; outward_normals: only 7070 of 7525 triangles (94.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(3883) - E(11653) + F(7525) = -245 (expected 2)",
+      "detail": "watertight_mesh: 515 unpaired edges out of 21892 total (512 boundary, 3 non-manifold); unit_normals: 920 of 111188 normals are not unit length; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (3,4), (3,35), (4,5), (4,36), (4,7121), ...; mesh_euler_characteristic: V(7457) - E(21892) + F(14426) = -9 (expected 2)",
       "id": "R0035",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,5), (0,19), (0,19), (0,19), (0,19), ...",
+      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,49), (0,50), (0,61), (0,61), ...",
       "id": "R0036",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 14d0f6bb-ee09-48d4-b4cc-6da794a35ff3: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 48950512 exceeds limit 5000000; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,5), (0,5), (0,5), (0,56), ...",
+      "detail": "partial rebuild (1 error(s)): 14d0f6bb-ee09-48d4-b4cc-6da794a35ff3: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 48950512 exceeds limit 5000000; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,28), (0,35), (0,45), (0,56), ...",
       "id": "R0037",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 7145a15a-6e5b-444f-b984-d2ce5af43efd: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 8.01e-16 from axis (min 1.00e-7); watertight_mesh: 222 unpaired edges out of 611 total (221 boundary, 1 non-manifold); consistent_normals: 43 of 334 triangles have reversed normals; no_degenerate_triangles: 1 of 334 triangles are degenerate; outward_normals: only 290 of 333 triangles (87.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,21), (0,21), (0,21), (0,41), ...; mesh_euler_characteristic: V(202) - E(611) + F(334) = -75 (expected 2)",
+      "category": "revolve-normals",
+      "detail": "partial rebuild (1 error(s)): 7145a15a-6e5b-444f-b984-d2ce5af43efd: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 8.01e-16 from axis (min 1.00e-7); consistent_normals: 0 of 0 triangles have reversed normals; unit_normals: 8 of 71440 normals are not unit length; face_range_coverage: no face ranges defined; outward_normals: no valid triangles; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"rectangle\"), (\"revolve\", \"circle\")]; volume_magnitude: volume 0.000000e0 outside [2.447684e-5, 2.447684e11] for scale 1.347675e1",
       "id": "R0038",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,27), (0,71), (0,71), (0,73), (0,79), ...",
+      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,5), (0,46), (0,47), (0,58), (0,65), ...",
       "id": "R0039",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 106 unpaired edges out of 338 total (103 boundary, 3 non-manifold); consistent_normals: 8 of 192 triangles have reversed normals; no_degenerate_triangles: 5 of 192 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(137) - E(338) + F(192) = -9 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: SSI primitive boolean not yet implemented: cylinder-cylinder SSI: skew (non-intersecting) axes. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 131 unpaired edges out of 15852 total (2 boundary, 129 non-manifold); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,48), (2,4), (3,179), (3,179), (3,179), ...; mesh_euler_characteristic: V(4944) - E(15852) + F(10926) = 18 (expected 2)",
       "id": "R0040",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 34 unpaired edges out of 122 total; consistent_normals: 16 of 70 triangles have reversed normals; outward_normals: only 54 of 70 triangles (77.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,3), (0,3), (0,3), (0,3), ...; mesh_euler_characteristic: V(46) - E(122) + F(70) = -6 (expected 2)",
+      "detail": "watertight_mesh: 22 unpaired edges out of 248 total; consistent_normals: 38 of 158 triangles have reversed normals; no_degenerate_triangles: 1 of 158 triangles are degenerate; outward_normals: only 119 of 157 triangles (75.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(133) - E(248) + F(158) = 43 (expected 2)",
       "id": "R0041",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 24 unpaired edges out of 84 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(32) - E(84) + F(48) = -4 (expected 2)",
+      "detail": "watertight_mesh: 24 unpaired edges out of 57 total; consistent_normals: 5 of 30 triangles have reversed normals; outward_normals: only 25 of 30 triangles (83.3%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; minimum_triangle_count: 30 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\")]; mesh_euler_characteristic: V(27) - E(57) + F(30) = 0 (expected 2)",
       "id": "R0042",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,14), (0,18), (0,18), (0,18), ...",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 13 unpaired edges out of 2237 total; no_degenerate_triangles: 3 of 1487 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,18), (0,18), (0,18), (0,18), ...; mesh_euler_characteristic: V(755) - E(2237) + F(1487) = 5 (expected 2)",
       "id": "R0043",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1801 unpaired edges out of 25439 total; consistent_normals: 765 of 16359 triangles have reversed normals; no_degenerate_triangles: 1 of 16359 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,160), (0,168), (0,179), (0,180), (0,180), ...; mesh_euler_characteristic: V(8085) - E(25439) + F(16359) = -995 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: polygon boolean: 14468 total faces exceeds limit (8000). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 898 unpaired edges out of 43454 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,33), (2,34), (3,35), (6,38), (10,42), ...; mesh_euler_characteristic: V(14784) - E(43454) + F(28670) = 0 (expected 2)",
       "id": "R0044",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 263 unpaired edges out of 3214 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(1088) - E(3214) + F(2055) = -71 (expected 2)",
+      "category": "multiple-failures",
+      "detail": "unit_normals: 256 of 8448 normals are not unit length; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2048), (12,2048), (19,2048), (19,2048), (19,2048), ...",
       "id": "R0045",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 7a2b1dae-9bc8-422b-b956-32db0a99ea84: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 2.78e-17 from axis (min 1.00e-7); watertight_mesh: 54 unpaired edges out of 204 total; consistent_normals: 12 of 118 triangles have reversed normals; no_degenerate_triangles: 2 of 118 triangles are degenerate; outward_normals: only 104 of 116 triangles (89.7%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,8), (0,12), (0,12), (0,12), ...; mesh_euler_characteristic: V(69) - E(204) + F(118) = -17 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): 7a2b1dae-9bc8-422b-b956-32db0a99ea84: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 2.78e-17 from axis (min 1.00e-7); watertight_mesh: 65 unpaired edges out of 317 total (63 boundary, 2 non-manifold); consistent_normals: 54 of 191 triangles have reversed normals; no_degenerate_triangles: 3 of 191 triangles are degenerate; outward_normals: only 133 of 187 triangles (71.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,4), (0,4), (0,4), (0,4), ...; mesh_euler_characteristic: V(137) - E(317) + F(191) = 11 (expected 2)",
       "id": "R0046",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): dce15f20-a156-4e23-a088-4e02e3d85b21: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 2.79e-20 from axis (min 1.00e-7)",
+      "detail": "partial rebuild (2 error(s)): 8b800306-904f-4eb8-b620-79cf04022906: operation error: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris); dce15f20-a156-4e23-a088-4e02e3d85b21: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 2.79e-20 from axis (min 1.00e-7)",
       "id": "R0047",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,5), (1,3), (1,4), (1,5)",
+      "detail": "no_self_intersection: 1 inter-face triangle penetrations, face pairs: (1,2)",
       "id": "R0048",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 130 unpaired edges out of 485 total; consistent_normals: 44 of 280 triangles have reversed normals; no_degenerate_triangles: 3 of 280 triangles are degenerate; outward_normals: only 211 of 255 triangles (82.7%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,3), (0,41), ...; mesh_euler_characteristic: V(172) - E(485) + F(280) = -33 (expected 2)",
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): 7e852144-ce9d-42d5-90aa-1b3afa329f4a: operation error: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 210 boundary HEs out of 966 total (41 faces, 587 edges, 355 vertices); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,2), (0,2), ...",
       "id": "R0049",
       "status": "fail"
     },
@@ -305,8 +305,8 @@
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: tri_vert_offset: vertex not in triangle. Body created as standalone.; partial rebuild (1 error(s)): 1053e663-4d03-4e98-91c7-760d9dd7b954: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 4.85e-19 from axis (min 1.00e-7); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,3), (0,3), ...",
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 1053e663-4d03-4e98-91c7-760d9dd7b954: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 4.85e-19 from axis (min 1.00e-7); watertight_mesh: 18 unpaired edges out of 13383 total; unit_normals: 20 of 115682 normals are not unit length; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,53), (2,53), (2,53), (2,53), (2,53), ...; mesh_euler_characteristic: V(6140) - E(13383) + F(8916) = 1673 (expected 2)",
       "id": "R0051",
       "status": "fail"
     },
@@ -323,20 +323,20 @@
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 2022 unpaired edges out of 26217 total; consistent_normals: 702 of 16804 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,19), (0,19), (0,19), (0,19), (0,22), ...; mesh_euler_characteristic: V(8734) - E(26217) + F(16804) = -679 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...",
       "id": "R0054",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 208 unpaired edges out of 542 total; consistent_normals: 38 of 292 triangles have reversed normals; outward_normals: only 254 of 292 triangles (87.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,44), (0,76), (1,40), (1,40), (1,40), ...; mesh_euler_characteristic: V(181) - E(542) + F(292) = -69 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): 395e40aa-eded-42b7-934b-5b35bb4d9f72: operation error: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 152 boundary HEs out of 420 total (37 faces, 285 edges, 153 vertices); watertight_mesh: 40 unpaired edges out of 300 total (38 boundary, 2 non-manifold); consistent_normals: 55 of 188 triangles have reversed normals; no_degenerate_triangles: 5 of 188 triangles are degenerate; outward_normals: only 128 of 183 triangles (69.9%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,12), (3,11), (4,9), (4,9), (5,6), ...; mesh_euler_characteristic: V(139) - E(300) + F(188) = 27 (expected 2)",
       "id": "R0055",
       "status": "fail"
     },
     {
       "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 44 of 2460 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,31), (0,31), (0,58), (0,58), ...",
+      "detail": "no_degenerate_triangles: 43 of 2460 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,29), (0,29), (0,57), (0,58), (0,74), ...",
       "id": "R0056",
       "status": "fail"
     },
@@ -348,7 +348,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: tri_vert_opposite_to: no opposite vertex found. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,10), (0,12), (0,12), (0,12), (0,13), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 76 boundary HEs out of 5814 total (919 faces, 2945 edges, 2149 vertices). Body created as standalone.; partial rebuild (1 error(s)): 1cd0b11f-a02c-4329-9313-772b24ff5549: operation error: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 72 boundary HEs out of 1010 total (283 faces, 541 edges, 447 vertices); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,10), (0,12), (0,12), (0,12), (0,13), ...",
       "id": "R0058",
       "status": "fail"
     },
@@ -359,32 +359,32 @@
       "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 27 unpaired edges out of 135 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,5), (0,5), (0,7), (0,7), (0,10), ...; mesh_euler_characteristic: V(51) - E(135) + F(81) = -3 (expected 2)",
+      "category": "multiple-failures",
+      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,6), (0,6), (0,7), (0,15), (0,15), ...",
       "id": "R0060",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 103 unpaired edges out of 587 total; consistent_normals: 21 of 357 triangles have reversed normals; outward_normals: only 332 of 353 triangles (94.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,11), (0,14), (0,14), (0,14), (0,15), ...; mesh_euler_characteristic: V(195) - E(587) + F(357) = -35 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]",
       "id": "R0061",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 263 unpaired edges out of 3259 total; consistent_normals: 149 of 2085 triangles have reversed normals; no_degenerate_triangles: 134 of 2085 triangles are degenerate; outward_normals: only 402 of 551 triangles (73.0%) have outward normals (need 95%); mesh_euler_characteristic: V(1096) - E(3259) + F(2085) = -78 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 336 boundary HEs out of 3308 total (92 faces, 1821 edges, 1263 vertices). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0062",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 7ff8f6e5-c0a4-4b7d-be58-0935252b4159: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: tri_vert_opposite_to: no opposite vertex found; watertight_mesh: 17 unpaired edges out of 3862 total; consistent_normals: 125 of 2569 triangles have reversed normals; no_degenerate_triangles: 93 of 2569 triangles are degenerate; outward_normals: only 1959 of 2084 triangles (94.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,3), (4,635), (11,634), (40,641), (40,641), ...; mesh_euler_characteristic: V(1287) - E(3862) + F(2569) = -6 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 9 boundary HEs out of 3877 total (635 faces, 1943 edges, 1316 vertices). Body created as standalone.; partial rebuild (1 error(s)): 7ff8f6e5-c0a4-4b7d-be58-0935252b4159: operation error: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 3 boundary HEs out of 151 total (12 faces, 77 edges, 72 vertices); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_degenerate_triangles: 132 of 2460 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,57), (0,169), (0,169), (0,226), (0,282), ...",
       "id": "R0063",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 13 unpaired edges out of 1751 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,7), (0,32), (0,43), (0,59), ...; mesh_euler_characteristic: V(584) - E(1751) + F(1163) = -4 (expected 2)",
+      "detail": "watertight_mesh: 6 unpaired edges out of 1800 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,13), (0,15), (0,15), (0,32), (0,32), ...; mesh_euler_characteristic: V(602) - E(1800) + F(1198) = 0 (expected 2)",
       "id": "R0064",
       "status": "fail"
     },
@@ -395,26 +395,26 @@
       "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 44 unpaired edges out of 160 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(64) - E(160) + F(92) = -4 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 16 boundary HEs out of 126 total (10 faces, 70 edges, 66 vertices). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,2), (1,2), (1,2), (1,2)",
       "id": "R0066",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 35 unpaired edges out of 85 total; consistent_normals: 8 of 45 triangles have reversed normals; outward_normals: only 37 of 45 triangles (82.2%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,2), ...; mesh_euler_characteristic: V(39) - E(85) + F(45) = -1 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 4 boundary HEs out of 118 total (9 faces, 61 edges, 56 vertices). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0067",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 60 unpaired edges out of 246 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,5), (0,5), (0,5), (0,5), ...; mesh_euler_characteristic: V(100) - E(246) + F(144) = -2 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 139 boundary HEs out of 1365 total (44 faces, 751 edges, 296 vertices). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2)",
       "id": "R0068",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 54 unpaired edges out of 180 total; mesh_euler_characteristic: V(76) - E(180) + F(102) = -2 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 292 boundary HEs out of 936 total (25 faces, 614 edges, 259 vertices). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0069",
       "status": "fail"
     },
@@ -426,85 +426,85 @@
     },
     {
       "category": "tessellation-degenerate",
-      "detail": "partial rebuild (1 error(s)): d924c33c-d9d0-4e2b-bcbf-5bcd71c7bb33: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 11548880 exceeds limit 5000000; no_degenerate_triangles: 648 of 2012 triangles are degenerate",
+      "detail": "partial rebuild (1 error(s)): d924c33c-d9d0-4e2b-bcbf-5bcd71c7bb33: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 11550892 exceeds limit 5000000; no_degenerate_triangles: 648 of 2012 triangles are degenerate",
       "id": "R0071",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 69 unpaired edges out of 237 total; consistent_normals: 5 of 135 triangles have reversed normals; no_self_intersection: 1 inter-face triangle penetrations, face pairs: (5,6); mesh_euler_characteristic: V(84) - E(237) + F(135) = -18 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 6 boundary HEs out of 234 total (28 faces, 120 edges, 104 vertices). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,3), (0,5), (0,5), (1,2); minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0072",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (6,27), (6,36), (6,36), (6,36), (6,40), ...; mesh_euler_characteristic: V(512) - E(1524) + F(1016) = 4 (expected 2)",
+      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (6,12), (6,16), (6,43), (6,47), (6,58), ...; mesh_euler_characteristic: V(512) - E(1524) + F(1016) = 4 (expected 2)",
       "id": "R0073",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: triangle-pair count 5099856 exceeds limit 5000000. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 172 unpaired edges out of 3365 total; consistent_normals: 106 of 2186 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,5), (0,5), (0,7), (0,9), ...; mesh_euler_characteristic: V(1125) - E(3365) + F(2186) = -54 (expected 2)",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: triangle-pair count 5099856 exceeds limit 5000000. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 144 unpaired edges out of 3305 total (142 boundary, 2 non-manifold); consistent_normals: 63 of 2157 triangles have reversed normals; no_degenerate_triangles: 3 of 2157 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,55), (0,60), (0,60), (0,64), (0,64), ...; mesh_euler_characteristic: V(1135) - E(3305) + F(2157) = -13 (expected 2)",
       "id": "R0074",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 1cfa5d4d-9399-476e-8903-e982e0b0dac9: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 7021344 exceeds limit 5000000; watertight_mesh: 20 unpaired edges out of 3934 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,19), (0,29), (0,39), (0,76), ...",
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): 1cfa5d4d-9399-476e-8903-e982e0b0dac9: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 7053552 exceeds limit 5000000; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,34), (0,34), (0,39), (0,49), ...; mesh_euler_characteristic: V(1320) - E(3942) + F(2628) = 6 (expected 2)",
       "id": "R0075",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 66b94f79-0885-42ba-92cf-20f6e6cbd1a3: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: tri_vert_opposite_to: no opposite vertex found; watertight_mesh: 33 unpaired edges out of 131 total (32 boundary, 1 non-manifold); consistent_normals: 7 of 77 triangles have reversed normals; no_degenerate_triangles: 4 of 77 triangles are degenerate; outward_normals: only 66 of 73 triangles (90.4%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,3), (2,4), (2,4), (2,7), (2,7), ...; mesh_euler_characteristic: V(49) - E(131) + F(77) = -5 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): 66b94f79-0885-42ba-92cf-20f6e6cbd1a3: operation error: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 21 boundary HEs out of 707 total (71 faces, 364 edges, 286 vertices); watertight_mesh: 20 unpaired edges out of 259 total (17 boundary, 3 non-manifold); consistent_normals: 28 of 168 triangles have reversed normals; no_degenerate_triangles: 4 of 168 triangles are degenerate; outward_normals: only 136 of 164 triangles (82.9%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,4), (1,4), (1,6), (2,10), (2,10), ...; mesh_euler_characteristic: V(102) - E(259) + F(168) = 11 (expected 2)",
       "id": "R0076",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 394 unpaired edges out of 3236 total; consistent_normals: 123 of 2026 triangles have reversed normals; outward_normals: only 1903 of 2026 triangles (93.9%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(1098) - E(3236) + F(2026) = -112 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 128 boundary HEs out of 884 total (13 faces, 505 edges, 255 vertices). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (0,5); minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0077",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 36 unpaired edges out of 137 total (35 boundary, 1 non-manifold); no_degenerate_triangles: 1 of 80 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,16), (0,17), (0,17), (0,17), ...; mesh_euler_characteristic: V(50) - E(137) + F(80) = -7 (expected 0)",
+      "detail": "watertight_mesh: 58 unpaired edges out of 221 total (57 boundary, 1 non-manifold); consistent_normals: 8 of 129 triangles have reversed normals; no_degenerate_triangles: 2 of 129 triangles are degenerate; outward_normals: only 115 of 123 triangles (93.5%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,8), (0,11), (0,11), (0,11), ...; mesh_euler_characteristic: V(93) - E(221) + F(129) = 1 (expected 0)",
       "id": "R0078",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 72 unpaired edges out of 180 total; consistent_normals: 4 of 96 triangles have reversed normals; no_self_intersection: 5 inter-face triangle penetrations, face pairs: (1,22), (21,22), (21,22), (21,22), (21,22); mesh_euler_characteristic: V(77) - E(180) + F(96) = -7 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 14 boundary HEs out of 116 total (19 faces, 64 edges, 56 vertices). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 11 unpaired edges out of 160 total; consistent_normals: 20 of 103 triangles have reversed normals; outward_normals: only 83 of 103 triangles (80.6%) have outward normals (need 95%); mesh_euler_characteristic: V(69) - E(160) + F(103) = 12 (expected 2)",
       "id": "R0079",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "no_self_intersection: 2 inter-face triangle penetrations, face pairs: (1,3), (1,4)",
+      "detail": "no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,2), (0,4)",
       "id": "R0080",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: triangle-pair count 48151092 exceeds limit 5000000. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; volume_magnitude: volume 1.483912e-11 outside [1.128408e-10, 1.128408e6] for scale 2.242963e-1",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: triangle-pair count 46931824 exceeds limit 5000000. Body created as standalone.; partial rebuild (1 error(s)): 798629c8-1c31-46a1-96d2-24de22a6cdd5: operation error: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 11 boundary HEs out of 3809 total (624 faces, 1910 edges, 1285 vertices); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; volume_magnitude: volume 1.483912e-11 outside [1.128408e-10, 1.128408e6] for scale 2.242963e-1",
       "id": "R0081",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 20 unpaired edges out of 3094 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,3), (0,3), (0,3), (0,3), ...; bbox diagonal 1.969e3 exceeds max 1.921e3",
+      "detail": "watertight_mesh: 16 unpaired edges out of 3089 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,2), (1,2), (1,2), (1,2), (1,2), ...; mesh_euler_characteristic: V(1040) - E(3089) + F(2054) = 5 (expected 2); bbox diagonal 1.969e3 exceeds max 1.921e3",
       "id": "R0082",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(40) - E(102) + F(68) = 6 (expected 2)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 16 unpaired edges out of 89 total; mesh_euler_characteristic: V(40) - E(89) + F(54) = 5 (expected 2)",
       "id": "R0083",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 75 unpaired edges out of 222 total; consistent_normals: 5 of 123 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,4), (0,7), ...; mesh_euler_characteristic: V(94) - E(222) + F(123) = -5 (expected 2)",
+      "category": "multiple-failures",
+      "detail": "unit_normals: 16 of 106576 normals are not unit length; mesh_euler_characteristic: V(64) - E(180) + F(120) = 4 (expected 2)",
       "id": "R0084",
       "status": "fail"
     },
@@ -516,49 +516,49 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 37 unpaired edges out of 98 total; no_degenerate_triangles: 1 of 53 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,2), ...; mesh_euler_characteristic: V(45) - E(98) + F(53) = 0 (expected 2)",
+      "detail": "watertight_mesh: 28 unpaired edges out of 169 total (27 boundary, 1 non-manifold); consistent_normals: 19 of 104 triangles have reversed normals; no_degenerate_triangles: 1 of 104 triangles are degenerate; outward_normals: only 84 of 103 triangles (81.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,5), (0,5), (0,10), (1,5), (2,5), ...; mesh_euler_characteristic: V(62) - E(169) + F(104) = -3 (expected 2)",
       "id": "R0086",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 109 unpaired edges out of 6098 total; consistent_normals: 252 of 4029 triangles have reversed normals; outward_normals: only 3777 of 4029 triangles (93.7%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,516), (0,516), (0,516), (0,518), (1,513), ...; mesh_euler_characteristic: V(1941) - E(6098) + F(4029) = -128 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 447 boundary HEs out of 6287 total (489 faces, 3366 edges, 2331 vertices). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,9), (0,9), (0,33), (0,37), (0,44), ...",
       "id": "R0087",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 14 unpaired edges out of 34 total; no_self_intersection: 3 inter-face triangle penetrations, face pairs: (0,6), (3,5), (3,5); minimum_triangle_count: 18 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(19) - E(34) + F(18) = 3 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): b8118ebc-a847-47e8-bc0b-5ebd2cabb71e: operation error: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 9 boundary HEs out of 549 total (39 faces, 278 edges, 203 vertices); watertight_mesh: 51 unpaired edges out of 168 total; consistent_normals: 21 of 95 triangles have reversed normals; no_degenerate_triangles: 2 of 95 triangles are degenerate; outward_normals: only 72 of 93 triangles (77.4%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,10), (0,10), (0,12), (0,12), (0,12), ...; mesh_euler_characteristic: V(76) - E(168) + F(95) = 3 (expected 2)",
       "id": "R0088",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 45 unpaired edges out of 233 total (42 boundary, 3 non-manifold); consistent_normals: 16 of 143 triangles have reversed normals; no_degenerate_triangles: 6 of 143 triangles are degenerate; outward_normals: only 120 of 136 triangles (88.2%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,10), (0,10), (0,10), (0,10), (0,10), ...; mesh_euler_characteristic: V(80) - E(233) + F(143) = -10 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 6 boundary HEs out of 256 total (46 faces, 131 edges, 75 vertices). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (0,2)",
       "id": "R0089",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 35 unpaired edges out of 2032 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,3), (0,3), (0,3), (0,3), ...; mesh_euler_characteristic: V(686) - E(2032) + F(1343) = -3 (expected 2)",
+      "detail": "watertight_mesh: 59 unpaired edges out of 2016 total (58 boundary, 1 non-manifold); consistent_normals: 19 of 1325 triangles have reversed normals; no_degenerate_triangles: 1 of 1325 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,329), (2,329), (2,329), (2,329), (2,329), ...; mesh_euler_characteristic: V(694) - E(2016) + F(1325) = 3 (expected 2)",
       "id": "R0090",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 535 unpaired edges out of 3524 total; consistent_normals: 94 of 2171 triangles have reversed normals; no_degenerate_triangles: 67 of 2171 triangles are degenerate; outward_normals: only 550 of 644 triangles (85.4%) have outward normals (need 95%); mesh_euler_characteristic: V(1116) - E(3524) + F(2171) = -237 (expected 2)",
+      "category": "revolve-normals",
+      "detail": "partial rebuild (1 error(s)): 449f693a-fbc4-4635-b5e2-7bdcd29f0491: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"circle\")]",
       "id": "R0091",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 8feaa9fa-f637-464f-bc0e-67b206af5dc8: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: tri_vert_opposite_to: no opposite vertex found; no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,2), (0,2), (1,2), (1,2)",
+      "detail": "partial rebuild (1 error(s)): 8feaa9fa-f637-464f-bc0e-67b206af5dc8: operation error: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 26 boundary HEs out of 72 total (20 faces, 48 edges, 41 vertices); no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,2), (0,2), (1,2), (1,2)",
       "id": "R0092",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 9504ef6c-8cc9-43b6-a0ac-195e7707dea9: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 199260372 exceeds limit 5000000; watertight_mesh: 1313 unpaired edges out of 15610 total; consistent_normals: 656 of 9969 triangles have reversed normals; no_degenerate_triangles: 32 of 9969 triangles are degenerate; outward_normals: only 9085 of 9741 triangles (93.3%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,160), (0,160), (0,160), (0,160), (0,160), ...; mesh_euler_characteristic: V(5235) - E(15610) + F(9969) = -406 (expected 2)",
+      "category": "multiple-failures",
+      "detail": "partial rebuild (2 error(s)): 2448820e-b9df-4b6d-bfe3-f340e6327111: operation error: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris); 9504ef6c-8cc9-43b6-a0ac-195e7707dea9: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 209234384 exceeds limit 5000000; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(19844) - E(59541) + F(39694) = -3 (expected 2)",
       "id": "R0093",
       "status": "fail"
     },
@@ -570,7 +570,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 110 unpaired edges out of 628 total; consistent_normals: 4 of 382 triangles have reversed normals; no_degenerate_triangles: 20 of 382 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,7), (0,7), (0,7), (0,7), (0,7), ...; mesh_euler_characteristic: V(225) - E(628) + F(382) = -21 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): c4beab23-59ec-4dd1-ac74-75a7f595dc88: operation error: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 80 boundary HEs out of 930 total (92 faces, 504 edges, 317 vertices); watertight_mesh: 45 unpaired edges out of 945 total; consistent_normals: 100 of 615 triangles have reversed normals; no_degenerate_triangles: 26 of 615 triangles are degenerate; outward_normals: only 384 of 484 triangles (79.3%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,57), (0,57), (0,57), (0,57), (0,57), ...; mesh_euler_characteristic: V(349) - E(945) + F(615) = 19 (expected 2)",
       "id": "R0095",
       "status": "fail"
     },
@@ -582,13 +582,13 @@
     },
     {
       "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (4,5), (6,36), (6,47), (6,97), (6,106), ...; mesh_euler_characteristic: V(1128) - E(3372) + F(2248) = 4 (expected 2)",
+      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,3), (6,16), (6,26), (6,27), (6,36), ...; mesh_euler_characteristic: V(1128) - E(3372) + F(2248) = 4 (expected 2)",
       "id": "R0097",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 24 unpaired edges out of 2925 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,31), (0,32), (0,43), (0,43), (0,47), ...; mesh_euler_characteristic: V(979) - E(2925) + F(1942) = -4 (expected 2)",
+      "detail": "watertight_mesh: 14 unpaired edges out of 3004 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,16), (0,19), (0,19), (0,19), (0,23), ...; mesh_euler_characteristic: V(1004) - E(3004) + F(1998) = -2 (expected 2)",
       "id": "R0098",
       "status": "fail"
     },
@@ -605,56 +605,56 @@
       "status": "fail"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 12 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
       "id": "F0001",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 10 unpaired edges out of 101 total; no_degenerate_triangles: 1 of 64 triangles are degenerate; no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,4), (0,13); mesh_euler_characteristic: V(38) - E(101) + F(64) = 1 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 5 boundary HEs out of 79 total (17 faces, 41 edges, 25 vertices). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "F0002",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 16 unpaired edges out of 95 total; no_degenerate_triangles: 1 of 58 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,3), (2,3), (2,3), (3,9), (3,9), ...; mesh_euler_characteristic: V(35) - E(95) + F(58) = -2 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 21 boundary HEs out of 133 total (24 faces, 77 edges, 54 vertices). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "F0003",
       "status": "fail"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 15 boundary HEs out of 71 total (17 faces, 42 edges, 26 vertices). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "F0004",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 18 boundary HEs out of 36 total (11 faces, 26 edges, 14 vertices). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "F0005",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 19 boundary HEs out of 81 total (20 faces, 50 edges, 37 vertices). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "F0006",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "multiple-failures",
+      "detail": "mesh_euler_characteristic: V(12) - E(24) + F(16) = 4 (expected 2)",
       "id": "F0007",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3 unpaired edges out of 21 total; mesh_euler_characteristic: V(11) - E(21) + F(13) = 3 (expected 2)",
+      "category": "multiple-failures",
+      "detail": "mesh_euler_characteristic: V(12) - E(24) + F(16) = 4 (expected 2)",
       "id": "F0008",
       "status": "fail"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 3 of 68 triangles are degenerate; no_self_intersection: 6 inter-face triangle penetrations, face pairs: (2,8), (2,10), (2,10), (2,17), (4,7), ...",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 6 boundary HEs out of 106 total (22 faces, 56 edges, 35 vertices). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "F0009",
       "status": "fail"
     },
@@ -666,7 +666,7 @@
     },
     {
       "category": "multiple-failures",
-      "detail": "no_self_intersection: 1 inter-face triangle penetrations, face pairs: (1,5); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "detail": "no_self_intersection: 2 inter-face triangle penetrations, face pairs: (1,5), (4,5); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
       "id": "F0011",
       "status": "fail"
     },
@@ -678,121 +678,121 @@
     },
     {
       "category": "multiple-failures",
-      "detail": "no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,2), (2,3), (7,9), (9,10); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "detail": "no_self_intersection: 3 inter-face triangle penetrations, face pairs: (0,3), (0,4), (7,8); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
       "id": "F0013",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "detail": "no_self_intersection: 1 inter-face triangle penetrations, face pairs: (6,9); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
       "id": "F0014",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "no_self_intersection: 1 inter-face triangle penetrations, face pairs: (7,11); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "detail": "mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
       "id": "F0015",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 76 unpaired edges out of 176 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,12), (2,19), (2,19), (2,19), (3,19), ...; mesh_euler_characteristic: V(60) - E(176) + F(92) = -24 (expected 2)",
+      "detail": "watertight_mesh: 23 unpaired edges out of 340 total; consistent_normals: 4 of 219 triangles have reversed normals; no_degenerate_triangles: 2 of 219 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,36), (2,36), (3,29), (6,20), (6,20), ...; mesh_euler_characteristic: V(114) - E(340) + F(219) = -7 (expected 2)",
       "id": "F0016",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 49 unpaired edges out of 146 total; consistent_normals: 1 of 81 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,9), (3,25), (4,13), (4,13), (4,21), ...; mesh_euler_characteristic: V(52) - E(146) + F(81) = -13 (expected 2)",
+      "detail": "watertight_mesh: 3 unpaired edges out of 252 total; consistent_normals: 2 of 167 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (3,5), (4,27), (5,22), (5,22), (6,26), ...; mesh_euler_characteristic: V(86) - E(252) + F(167) = 1 (expected 2)",
       "id": "F0017",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 39 unpaired edges out of 204 total; consistent_normals: 3 of 123 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,18), (2,18), (2,21), (2,21), (2,21), ...; mesh_euler_characteristic: V(62) - E(204) + F(123) = -19 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 1 boundary HEs out of 279 total (35 faces, 140 edges, 107 vertices). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
       "id": "F0018",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 49 unpaired edges out of 200 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,4), (3,14), (4,22), (4,22), (4,35), ...; mesh_euler_characteristic: V(63) - E(200) + F(117) = -20 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 3 boundary HEs out of 265 total (33 faces, 134 edges, 101 vertices). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (0,4), (0,5), (3,4)",
       "id": "F0019",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 17 unpaired edges out of 190 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,20), (1,6), (1,9), (2,3), (2,3), ...; mesh_euler_characteristic: V(65) - E(190) + F(121) = -4 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 13 boundary HEs out of 303 total (40 faces, 158 edges, 97 vertices). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (3,4)",
       "id": "F0020",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 129 unpaired edges out of 507 total; consistent_normals: 6 of 295 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,20), (2,20), (2,20), (2,20), (2,20), ...; mesh_euler_characteristic: V(149) - E(507) + F(295) = -63 (expected 2)",
+      "detail": "watertight_mesh: 33 unpaired edges out of 512 total (32 boundary, 1 non-manifold); consistent_normals: 6 of 331 triangles have reversed normals; no_degenerate_triangles: 3 of 331 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,16), (3,32), (3,43), (4,13), (4,40), ...; mesh_euler_characteristic: V(178) - E(512) + F(331) = -3 (expected 2)",
       "id": "F0021",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 62 unpaired edges out of 318 total (61 boundary, 1 non-manifold); consistent_normals: 25 of 192 triangles have reversed normals; no_degenerate_triangles: 3 of 192 triangles are degenerate; outward_normals: only 164 of 189 triangles (86.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,9), (1,26), (1,26), (1,57), (1,57), ...; mesh_euler_characteristic: V(99) - E(318) + F(192) = -27 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 3 boundary HEs out of 419 total (44 faces, 211 edges, 172 vertices). Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,2), (2,3)",
       "id": "F0022",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 155 unpaired edges out of 438 total (154 boundary, 1 non-manifold); consistent_normals: 13 of 241 triangles have reversed normals; no_degenerate_triangles: 1 of 241 triangles are degenerate; outward_normals: only 226 of 239 triangles (94.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,10), (0,10), (1,2), (1,2), (1,2), ...; mesh_euler_characteristic: V(143) - E(438) + F(241) = -54 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 9 boundary HEs out of 295 total (38 faces, 152 edges, 112 vertices). Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 3 unpaired edges out of 156 total; no_degenerate_triangles: 1 of 103 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (1,13), (1,21), (2,3), (2,3), ...; mesh_euler_characteristic: V(58) - E(156) + F(103) = 5 (expected 2)",
       "id": "F0023",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 80 unpaired edges out of 253 total; consistent_normals: 7 of 142 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,41), (2,41), (3,16), (3,16), (3,28), ...; mesh_euler_characteristic: V(90) - E(253) + F(142) = -21 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 2 boundary HEs out of 458 total (63 faces, 230 edges, 162 vertices). Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged)",
       "id": "F0024",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 75 unpaired edges out of 249 total; no_degenerate_triangles: 1 of 141 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,13), (2,5), (2,5), (2,5), (2,6), ...; mesh_euler_characteristic: V(88) - E(249) + F(141) = -20 (expected 2)",
+      "detail": "watertight_mesh: 10 unpaired edges out of 427 total (9 boundary, 1 non-manifold); consistent_normals: 6 of 282 triangles have reversed normals; no_degenerate_triangles: 3 of 282 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,8), (2,4), (2,10), (3,4), (3,4), ...; mesh_euler_characteristic: V(146) - E(427) + F(282) = 1 (expected 2)",
       "id": "F0025",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(44) - E(114) + F(76) = 6 (expected 2)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 16 unpaired edges out of 89 total; mesh_euler_characteristic: V(40) - E(89) + F(54) = 5 (expected 2)",
       "id": "F0026",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 24 unpaired edges out of 114 total; mesh_euler_characteristic: V(44) - E(114) + F(68) = -2 (expected 2)",
+      "detail": "watertight_mesh: 26 unpaired edges out of 100 total; mesh_euler_characteristic: V(41) - E(100) + F(58) = -1 (expected 2)",
       "id": "F0027",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 24 unpaired edges out of 108 total; mesh_euler_characteristic: V(42) - E(108) + F(64) = -2 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 1 boundary HEs out of 63 total (11 faces, 32 edges, 29 vertices). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "F0028",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 16 unpaired edges out of 101 total; mesh_euler_characteristic: V(44) - E(101) + F(62) = 5 (expected 2)",
+      "detail": "watertight_mesh: 30 unpaired edges out of 105 total; consistent_normals: 12 of 60 triangles have reversed normals; outward_normals: only 48 of 60 triangles (80.0%) have outward normals (need 95%); mesh_euler_characteristic: V(41) - E(105) + F(60) = -4 (expected 2)",
       "id": "F0029",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 17 unpaired edges out of 97 total; consistent_normals: 2 of 59 triangles have reversed normals; no_degenerate_triangles: 1 of 59 triangles are degenerate; mesh_euler_characteristic: V(43) - E(97) + F(59) = 5 (expected 2)",
+      "detail": "watertight_mesh: 27 unpaired edges out of 66 total; no_degenerate_triangles: 3 of 35 triangles are degenerate; mesh_euler_characteristic: V(30) - E(66) + F(35) = -1 (expected 2)",
       "id": "F0030",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 36 unpaired edges out of 72 total; consistent_normals: 12 of 36 triangles have reversed normals; outward_normals: only 24 of 36 triangles (66.7%) have outward normals (need 95%)",
+      "detail": "watertight_mesh: 20 unpaired edges out of 94 total; mesh_euler_characteristic: V(40) - E(94) + F(56) = 2 (expected 4)",
       "id": "F0031",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(40) - E(102) + F(68) = 6 (expected 4)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 16 unpaired edges out of 89 total; mesh_euler_characteristic: V(40) - E(89) + F(54) = 5 (expected 4)",
       "id": "F0032",
       "status": "fail"
     },
@@ -810,13 +810,13 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 24 unpaired edges out of 102 total; mesh_euler_characteristic: V(40) - E(102) + F(60) = -2 (expected 4)",
+      "detail": "watertight_mesh: 20 unpaired edges out of 94 total; mesh_euler_characteristic: V(40) - E(94) + F(56) = 2 (expected 4)",
       "id": "F0035",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 40 unpaired edges out of 86 total; mesh_euler_characteristic: V(40) - E(86) + F(44) = -2 (expected 4)",
+      "category": "multiple-failures",
+      "detail": "mesh_euler_characteristic: V(40) - E(102) + F(68) = 6 (expected 4)",
       "id": "F0036",
       "status": "fail"
     },
@@ -839,140 +839,140 @@
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 16 unpaired edges out of 89 total; mesh_euler_characteristic: V(40) - E(89) + F(54) = 5 (expected 4)",
+      "category": "multiple-failures",
+      "detail": "mesh_euler_characteristic: V(40) - E(102) + F(68) = 6 (expected 4)",
       "id": "F0040",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 19 unpaired edges out of 242 total; consistent_normals: 14 of 155 triangles have reversed normals; no_degenerate_triangles: 1 of 155 triangles are degenerate; outward_normals: only 139 of 153 triangles (90.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,10), (1,15), (1,15), (1,15), (1,15), ...; mesh_euler_characteristic: V(88) - E(242) + F(155) = 1 (expected 2)",
+      "detail": "watertight_mesh: 16 unpaired edges out of 254 total (14 boundary, 2 non-manifold); consistent_normals: 84 of 166 triangles have reversed normals; no_degenerate_triangles: 4 of 166 triangles are degenerate; outward_normals: only 78 of 162 triangles (48.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,4), (2,4), (2,4), (2,5), (2,5), ...; mesh_euler_characteristic: V(131) - E(254) + F(166) = 43 (expected 2)",
       "id": "F0041",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 38 unpaired edges out of 214 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,10), (0,10), (1,4), (1,4), (1,7), ...; mesh_euler_characteristic: V(79) - E(214) + F(130) = -5 (expected 2)",
+      "detail": "watertight_mesh: 92 unpaired edges out of 305 total (90 boundary, 2 non-manifold); consistent_normals: 95 of 174 triangles have reversed normals; no_degenerate_triangles: 2 of 174 triangles are degenerate; outward_normals: only 77 of 172 triangles (44.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,5), (0,5), ...; mesh_euler_characteristic: V(161) - E(305) + F(174) = 30 (expected 2)",
       "id": "F0042",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 26 unpaired edges out of 253 total; consistent_normals: 25 of 160 triangles have reversed normals; outward_normals: only 133 of 158 triangles (84.2%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,8), (2,10), (2,10), (2,14), (2,14), ...",
+      "detail": "watertight_mesh: 54 unpaired edges out of 274 total (52 boundary, 2 non-manifold); consistent_normals: 46 of 166 triangles have reversed normals; no_degenerate_triangles: 3 of 166 triangles are degenerate; outward_normals: only 117 of 163 triangles (71.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (4,5), (4,5), (4,5), (4,5), (4,5), ...; mesh_euler_characteristic: V(130) - E(274) + F(166) = 22 (expected 2)",
       "id": "F0043",
       "status": "fail"
     },
     {
-      "category": "volume-magnitude",
-      "detail": "volume_magnitude: volume 2.255141e-17 outside [1.000000e-8, 1.000000e8] for scale 1.000000e0; mesh_euler_characteristic: V(64) - E(168) + F(112) = 8 (expected 2)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 44 unpaired edges out of 121 total; consistent_normals: 15 of 66 triangles have reversed normals; outward_normals: only 51 of 66 triangles (77.3%) have outward normals (need 95%); mesh_euler_characteristic: V(64) - E(121) + F(66) = 9 (expected 2)",
       "id": "F0044",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 14 unpaired edges out of 262 total; consistent_normals: 27 of 170 triangles have reversed normals; outward_normals: only 140 of 167 triangles (83.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,11), (0,11), (0,11), (0,11), (0,11), ...; mesh_euler_characteristic: V(99) - E(262) + F(170) = 7 (expected 2)",
+      "detail": "watertight_mesh: 12 unpaired edges out of 273 total (11 boundary, 1 non-manifold); consistent_normals: 55 of 179 triangles have reversed normals; no_degenerate_triangles: 3 of 179 triangles are degenerate; outward_normals: only 121 of 176 triangles (68.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (4,6), (4,6), (4,6), (4,7), (4,7), ...; mesh_euler_characteristic: V(132) - E(273) + F(179) = 38 (expected 2)",
       "id": "F0045",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 41 unpaired edges out of 214 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,7), (1,2), (1,2), (2,3), (2,3), ...; mesh_euler_characteristic: V(76) - E(214) + F(129) = -9 (expected 2)",
+      "detail": "watertight_mesh: 39 unpaired edges out of 412 total (37 boundary, 2 non-manifold); consistent_normals: 114 of 263 triangles have reversed normals; no_degenerate_triangles: 4 of 263 triangles are degenerate; outward_normals: only 145 of 259 triangles (56.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,5), (0,5), (0,5), (0,9), ...; mesh_euler_characteristic: V(205) - E(412) + F(263) = 56 (expected 2)",
       "id": "F0046",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 47 unpaired edges out of 184 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,3), (2,3), (2,3), (2,4), (2,8), ...; mesh_euler_characteristic: V(69) - E(184) + F(107) = -8 (expected 2)",
+      "detail": "watertight_mesh: 140 unpaired edges out of 481 total; consistent_normals: 43 of 274 triangles have reversed normals; outward_normals: only 227 of 270 triangles (84.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (2,4), (2,4), (2,4), (2,4), ...; mesh_euler_characteristic: V(205) - E(481) + F(274) = -2 (expected 2); bbox diagonal 3.007e0 exceeds max 3.000e0",
       "id": "F0047",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 48 unpaired edges out of 210 total; consistent_normals: 3 of 124 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,4), (0,10), (0,26), (0,26), ...; mesh_euler_characteristic: V(74) - E(210) + F(124) = -12 (expected 2)",
+      "detail": "watertight_mesh: 29 unpaired edges out of 412 total (27 boundary, 2 non-manifold); consistent_normals: 116 of 267 triangles have reversed normals; no_degenerate_triangles: 5 of 267 triangles are degenerate; outward_normals: only 146 of 262 triangles (55.7%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,3), (0,3), (0,3), (0,3), ...; mesh_euler_characteristic: V(209) - E(412) + F(267) = 64 (expected 2)",
       "id": "F0048",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 37 unpaired edges out of 218 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,9), (2,6), (2,14), (2,32), (2,33), ...; mesh_euler_characteristic: V(73) - E(218) + F(133) = -12 (expected 2)",
+      "detail": "watertight_mesh: 32 unpaired edges out of 334 total; consistent_normals: 68 of 212 triangles have reversed normals; no_degenerate_triangles: 1 of 212 triangles are degenerate; outward_normals: only 143 of 211 triangles (67.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,4), (2,4), (2,4), (2,4), (2,6), ...; mesh_euler_characteristic: V(190) - E(334) + F(212) = 68 (expected 2)",
       "id": "F0049",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 27 unpaired edges out of 240 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,3), (0,8), (0,8), (0,8), ...; mesh_euler_characteristic: V(72) - E(240) + F(151) = -17 (expected 2)",
+      "detail": "watertight_mesh: 176 unpaired edges out of 588 total (172 boundary, 4 non-manifold); consistent_normals: 70 of 336 triangles have reversed normals; no_degenerate_triangles: 6 of 336 triangles are degenerate; outward_normals: only 260 of 330 triangles (78.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(291) - E(588) + F(336) = 39 (expected 2)",
       "id": "F0050",
       "status": "fail"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "multiple-failures",
+      "detail": "mesh_euler_characteristic: V(12) - E(24) + F(16) = 4 (expected 2)",
       "id": "F0051",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 22 unpaired edges out of 44 total; consistent_normals: 11 of 22 triangles have reversed normals; outward_normals: only 11 of 22 triangles (50.0%) have outward normals (need 95%); minimum_triangle_count: 22 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(30) - E(44) + F(22) = 8 (expected 2)",
+      "category": "volume-magnitude",
+      "detail": "volume_magnitude: volume 8.414516e-30 outside [1.000000e-20, 1.000000e-4] for scale 1.000000e-4; mesh_euler_characteristic: V(32) - E(84) + F(56) = 4 (expected 2)",
       "id": "F0052",
       "status": "fail"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "multiple-failures",
+      "detail": "mesh_euler_characteristic: V(12) - E(24) + F(16) = 4 (expected 2)",
       "id": "F0053",
-      "status": "pass"
+      "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 40 unpaired edges out of 131 total; no_degenerate_triangles: 4 of 74 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,4), (0,4), (0,4), (0,5), ...; mesh_euler_characteristic: V(54) - E(131) + F(74) = -3 (expected 2)",
+      "category": "tessellation-degenerate",
+      "detail": "no_degenerate_triangles: 5 of 92 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,6), (0,6), (0,6), (0,6), (0,7), ...; mesh_euler_characteristic: V(52) - E(138) + F(92) = 6 (expected 2)",
       "id": "F0054",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 29 unpaired edges out of 85 total; no_degenerate_triangles: 1 of 47 triangles are degenerate; no_self_intersection: 4 inter-face triangle penetrations, face pairs: (3,4), (3,4), (3,4), (3,4); mesh_euler_characteristic: V(41) - E(85) + F(47) = 3 (expected 2)",
+      "detail": "watertight_mesh: 44 unpaired edges out of 76 total; mesh_euler_characteristic: V(40) - E(76) + F(36) = 0 (expected 2)",
       "id": "F0055",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 27 unpaired edges out of 435 total; consistent_normals: 35 of 281 triangles have reversed normals; outward_normals: only 246 of 281 triangles (87.5%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(142) - E(435) + F(281) = -12 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 55 boundary HEs out of 247 total (61 faces, 151 edges, 134 vertices). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "F0056",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 18 unpaired edges out of 384 total; consistent_normals: 4 of 250 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(123) - E(384) + F(250) = -11 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 44 boundary HEs out of 256 total (62 faces, 150 edges, 134 vertices). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (1,2), ...",
       "id": "F0057",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 35 unpaired edges out of 364 total; consistent_normals: 33 of 231 triangles have reversed normals; outward_normals: only 187 of 228 triangles (82.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,3), (1,3), (1,3), (1,3), (1,14), ...; mesh_euler_characteristic: V(128) - E(364) + F(231) = -5 (expected 2)",
+      "category": "multiple-failures",
+      "detail": "partial rebuild (1 error(s)): fe9c7bc4-a6c0-4330-aaeb-1a016eb8a060: operation error: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 30 boundary HEs out of 224 total (59 faces, 127 edges, 110 vertices)",
       "id": "F0058",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 75 unpaired edges out of 384 total; consistent_normals: 34 of 231 triangles have reversed normals; outward_normals: only 197 of 231 triangles (85.3%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,12), (3,5), (3,18), (4,6), (4,20), ...; mesh_euler_characteristic: V(127) - E(384) + F(231) = -26 (expected 2)",
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\")]",
       "id": "F0059",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 29 unpaired edges out of 256 total; consistent_normals: 24 of 161 triangles have reversed normals; outward_normals: only 137 of 161 triangles (85.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,3), (0,6), (0,6), (0,6), ...; mesh_euler_characteristic: V(88) - E(256) + F(161) = -7 (expected 2)",
+      "detail": "watertight_mesh: 48 unpaired edges out of 78 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,6), (0,9), (0,9), (0,9), (0,9), ...; mesh_euler_characteristic: V(47) - E(78) + F(36) = 5 (expected 2)",
       "id": "F0060",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 23 unpaired edges out of 2056 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,3), (0,3), (0,3), (0,3), ...",
+      "detail": "watertight_mesh: 24 unpaired edges out of 2178 total; consistent_normals: 88 of 1444 triangles have reversed normals; outward_normals: only 1356 of 1444 triangles (93.9%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,10), (0,10), (0,65), (0,65), (0,65), ...; mesh_euler_characteristic: V(786) - E(2178) + F(1444) = 52 (expected 0)",
       "id": "F0061",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(24) - E(69) + F(46) = 1 (expected 0)",
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 52 of 116 triangles have reversed normals; outward_normals: only 64 of 116 triangles (55.2%) have outward normals (need 95%); mesh_euler_characteristic: V(114) - E(174) + F(116) = 56 (expected 0)",
       "id": "F0062",
       "status": "fail"
     },
@@ -984,7 +984,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: tri_vert_opposite_to: no opposite vertex found. Body created as standalone.; merge incomplete: 5 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 6 unpaired edges out of 267 total; no_degenerate_triangles: 1 of 176 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (3,15), (3,16), (3,35), (7,16), (7,16), ...; mesh_euler_characteristic: V(97) - E(267) + F(176) = 6 (expected 2)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: trying to add a 0-length symbolic edge. Body created as standalone.; merge incomplete: 5 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 134 unpaired edges out of 250 total; consistent_normals: 5 of 122 triangles have reversed normals; no_degenerate_triangles: 6 of 122 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (20,22), (20,24), (20,36), (20,36), (20,36), ...; mesh_euler_characteristic: V(115) - E(250) + F(122) = -13 (expected 2)",
       "id": "F0064",
       "status": "fail"
     },
@@ -995,8 +995,8 @@
       "status": "error"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 1 of 524 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (13,24), (13,24), (13,24), (13,24), (13,24), ...; mesh_euler_characteristic: V(274) - E(786) + F(524) = 12 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 8: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: trying to add a 0-length symbolic edge. Body created as standalone.; merge incomplete: 8 operations produced 2 separate solids (expected 1 merged)",
       "id": "F0066",
       "status": "fail"
     },
@@ -1049,56 +1049,56 @@
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 12 unpaired edges out of 195 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,11), (0,11), (1,8), (1,9), (1,11), ...; mesh_euler_characteristic: V(69) - E(195) + F(126) = 0 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Revolve Offset: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 24 boundary HEs out of 202 total (30 faces, 113 edges, 78 vertices). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,3), (2,5), (2,5), (3,4), (3,4), ...",
       "id": "F0075",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 48 unpaired edges out of 264 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,14), (0,14), (0,14), (0,14), (2,14), ...; mesh_euler_characteristic: V(99) - E(264) + F(160) = -5 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: partial topology: 97 boundary HEs out of 551 total (38 faces, 324 edges, 215 vertices). Body created as standalone.; merge incomplete: 5 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,5), (0,8), (2,7), (2,7), (2,7), ...; mesh_euler_characteristic: V(30) - E(78) + F(52) = 4 (expected 2)",
       "id": "F0076",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris). Body created as standalone.; merge incomplete: 5 operations produced 3 separate solids (expected 1 merged); watertight_mesh: 46 unpaired edges out of 311 total; consistent_normals: 3 of 192 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,19), (0,19), (0,48), (1,15), (1,15), ...; mesh_euler_characteristic: V(107) - E(311) + F(192) = -12 (expected 2)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 535 unpaired edges out of 2270 total (526 boundary, 9 non-manifold); consistent_normals: 259 of 1341 triangles have reversed normals; no_degenerate_triangles: 28 of 1341 triangles are degenerate; outward_normals: only 1013 of 1272 triangles (79.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,16), (0,171), (0,174), (1,171), (1,174), ...; mesh_euler_characteristic: V(897) - E(2270) + F(1341) = -32 (expected 2)",
       "id": "F0077",
       "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 535 unpaired edges out of 2410 total (531 boundary, 4 non-manifold); consistent_normals: 189 of 1431 triangles have reversed normals; no_degenerate_triangles: 25 of 1431 triangles are degenerate; outward_normals: only 1181 of 1370 triangles (86.2%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,14), (1,2), (1,2), (1,2), (1,2), ...; mesh_euler_characteristic: V(1004) - E(2410) + F(1431) = 25 (expected 2)",
       "id": "F0078",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris). Body created as standalone.; merge incomplete: 8 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 182 unpaired edges out of 2549 total (171 boundary, 11 non-manifold); consistent_normals: 250 of 1646 triangles have reversed normals; no_degenerate_triangles: 17 of 1646 triangles are degenerate; outward_normals: only 1365 of 1615 triangles (84.5%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,4), (3,11), (3,11), (13,23), (13,23), ...; mesh_euler_characteristic: V(882) - E(2549) + F(1646) = -21 (expected 2)",
       "id": "F0079",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 7: Auto-union failed: kernel error: operation not supported: yang_boolean: triangle-pair count 5480232 exceeds limit 5000000. Body created as standalone.; merge incomplete: 10 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 316 unpaired edges out of 5163 total (314 boundary, 2 non-manifold); consistent_normals: 235 of 3338 triangles have reversed normals; no_degenerate_triangles: 5 of 3338 triangles are degenerate; outward_normals: only 3073 of 3308 triangles (92.9%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,11), ...; mesh_euler_characteristic: V(1796) - E(5163) + F(3338) = -29 (expected 2)",
       "id": "F0080",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 11: Auto-union failed: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris). Body created as standalone.; merge incomplete: 12 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 12 unpaired edges out of 2400 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(804) - E(2400) + F(1596) = 0 (expected 2)",
       "id": "F0081",
-      "status": "error"
-    },
-    {
-      "category": "cascading-failure",
-      "detail": "timeout after 90s",
-      "id": "F0082",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 101 unpaired edges out of 3178 total; no_degenerate_triangles: 3 of 2085 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(1065) - E(3178) + F(2085) = -28 (expected 2)",
+      "detail": "watertight_mesh: 806 unpaired edges out of 4630 total (800 boundary, 6 non-manifold); consistent_normals: 259 of 2822 triangles have reversed normals; no_degenerate_triangles: 23 of 2822 triangles are degenerate; outward_normals: only 2508 of 2767 triangles (90.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,558), (0,558), (0,558), (0,559), (0,645), ...; mesh_euler_characteristic: V(1835) - E(4630) + F(2822) = 27 (expected 2)",
+      "id": "F0082",
+      "status": "fail"
+    },
+    {
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 9: Auto-union failed: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris). Body created as standalone.; merge incomplete: 15 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 21 unpaired edges out of 243 total; consistent_normals: 7 of 155 triangles have reversed normals; no_degenerate_triangles: 1 of 155 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(100) - E(243) + F(155) = 12 (expected 2)",
       "id": "F0083",
       "status": "fail"
     },
@@ -1115,8 +1115,8 @@
       "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 90 unpaired edges out of 360 total; consistent_normals: 10 of 210 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,6), (0,6), ...; mesh_euler_characteristic: V(145) - E(360) + F(210) = -5 (expected -4)",
+      "category": "revolve-normals",
+      "detail": "partial rebuild (3 error(s)): 38637dbc-f380-437c-9bde-fd3eb07b39dc: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; 3b7483a1-ade7-47d0-9857-d034fcdea7a5: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; fe61eb9d-9043-4347-8088-3d41dda0259b: operation error: kernel error: operation not supported: yang_boolean: one or both solids missing face_geometry; consistent_normals: 0 of 0 triangles have reversed normals; face_range_coverage: no face ranges defined; outward_normals: empty mesh; positive_signed_volume: signed volume = 0.000000e0 (should be > 0); empty mesh: no triangles; minimum_triangle_count: 0 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\")]",
       "id": "F0086",
       "status": "fail"
     },

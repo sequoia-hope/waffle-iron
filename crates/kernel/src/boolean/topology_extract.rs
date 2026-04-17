@@ -1674,7 +1674,7 @@ mod tests {
             );
         }
 
-        BijectiveMap { tri_face_ids }
+        BijectiveMap::from_tri_face_ids(tri_face_ids)
     }
 
     // ── Test 1: Conservation ──
@@ -1942,12 +1942,8 @@ mod tests {
             labels_a: vec![],
             labels_b: vec![],
         };
-        let bij_a = BijectiveMap {
-            tri_face_ids: vec![],
-        };
-        let bij_b = BijectiveMap {
-            tri_face_ids: vec![],
-        };
+        let bij_a = BijectiveMap::from_tri_face_ids(vec![]);
+        let bij_b = BijectiveMap::from_tri_face_ids(vec![]);
 
         let survival =
             face_survival_detect(&subdivided, &labeling, MeshBooleanOp::Union, &bij_a, &bij_b);
@@ -3129,12 +3125,10 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
         // Box mesh: 12 tris, 2 per face -> face = tri / 2
-        let bijective_a = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
-        let bijective_b = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
+        let bijective_a =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
+        let bijective_b =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
         yang_boolean_pipeline(
             &verts_a,
             &tris_a,
@@ -3296,9 +3290,7 @@ mod tests {
     fn test_full_pipeline_empty_input() {
         let verts_empty: Vec<[f64; 3]> = vec![];
         let tris_empty: Vec<[usize; 3]> = vec![];
-        let bij_empty = BijectiveMap {
-            tri_face_ids: vec![],
-        };
+        let bij_empty = BijectiveMap::from_tri_face_ids(vec![]);
 
         let result = yang_boolean_pipeline(
             &verts_empty,
@@ -3344,12 +3336,10 @@ mod tests {
     fn test_full_pipeline_conservation() {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
-        let bijective_a = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
-        let bijective_b = BijectiveMap {
-            tri_face_ids: (0..12).map(|i| FaceIdx(i / 2)).collect(),
-        };
+        let bijective_a =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
+        let bijective_b =
+            BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
 
         // Run intermediate stages to get face survival count.
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
@@ -3446,12 +3436,10 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
         let (verts_b, tris_b) = make_box_mesh([5.0, 5.0, 5.0], [6.0, 6.0, 6.0]);
 
-        let bijective_a = BijectiveMap {
-            tri_face_ids: (0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect(),
-        };
-        let bijective_b = BijectiveMap {
-            tri_face_ids: (0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect(),
-        };
+        let bijective_a =
+            BijectiveMap::from_tri_face_ids((0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect());
+        let bijective_b =
+            BijectiveMap::from_tri_face_ids((0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect());
 
         // Intersect of non-overlapping boxes → empty result.
         // This should NOT panic anywhere in the pipeline.
@@ -3504,12 +3492,10 @@ mod tests {
         let (verts_b, tris_b) = make_box_mesh([10.0, 10.0, 10.0], [11.0, 11.0, 11.0]);
 
         // Build bijective maps: 12 triangles, 2 per face (6 faces per box).
-        let bijective_a = BijectiveMap {
-            tri_face_ids: (0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect(),
-        };
-        let bijective_b = BijectiveMap {
-            tri_face_ids: (0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect(),
-        };
+        let bijective_a =
+            BijectiveMap::from_tri_face_ids((0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect());
+        let bijective_b =
+            BijectiveMap::from_tri_face_ids((0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect());
 
         let raw = yang_boolean_pipeline(
             &verts_a,
@@ -3922,12 +3908,10 @@ mod tests {
         eprintln!("Per-face labels A: {:?}", a_labels);
         eprintln!("Per-face labels B: {:?}", b_labels);
 
-        let bijective_a_diag = BijectiveMap {
-            tri_face_ids: (0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect(),
-        };
-        let bijective_b_diag = BijectiveMap {
-            tri_face_ids: (0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect(),
-        };
+        let bijective_a_diag =
+            BijectiveMap::from_tri_face_ids((0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect());
+        let bijective_b_diag =
+            BijectiveMap::from_tri_face_ids((0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect());
 
         let survival = face_survival_detect(
             &subdivided,
@@ -3954,12 +3938,10 @@ mod tests {
         assert_eq!(verts_a.len(), 24, "Per-face box should have 24 vertices");
         assert_eq!(tris_a.len(), 12, "Per-face box should have 12 triangles");
 
-        let bijective_a = BijectiveMap {
-            tri_face_ids: (0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect(),
-        };
-        let bijective_b = BijectiveMap {
-            tri_face_ids: (0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect(),
-        };
+        let bijective_a =
+            BijectiveMap::from_tri_face_ids((0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect());
+        let bijective_b =
+            BijectiveMap::from_tri_face_ids((0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect());
 
         let result = yang_boolean_pipeline(
             &verts_a,
@@ -4009,12 +3991,10 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh_per_face([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
         let (verts_b, tris_b) = make_box_mesh_per_face([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
 
-        let bijective_a = BijectiveMap {
-            tri_face_ids: (0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect(),
-        };
-        let bijective_b = BijectiveMap {
-            tri_face_ids: (0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect(),
-        };
+        let bijective_a =
+            BijectiveMap::from_tri_face_ids((0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect());
+        let bijective_b =
+            BijectiveMap::from_tri_face_ids((0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect());
 
         let result = yang_boolean_pipeline(
             &verts_a,
@@ -4058,12 +4038,10 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let bijective_a = BijectiveMap {
-            tri_face_ids: (0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect(),
-        };
-        let bijective_b = BijectiveMap {
-            tri_face_ids: (0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect(),
-        };
+        let bijective_a =
+            BijectiveMap::from_tri_face_ids((0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect());
+        let bijective_b =
+            BijectiveMap::from_tri_face_ids((0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect());
 
         let result = yang_boolean_pipeline(
             &verts_a,
@@ -4119,9 +4097,7 @@ mod tests {
     /// Helper: build a BijectiveMap for a box mesh with the given triangle count.
     /// Box meshes have 12 triangles, 2 per face, so face = tri_index / 2.
     fn build_bijective_from_tri_count(tri_count: usize) -> BijectiveMap {
-        BijectiveMap {
-            tri_face_ids: (0..tri_count).map(|i| FaceIdx(i / 2)).collect(),
-        }
+        BijectiveMap::from_tri_face_ids((0..tri_count).map(|i| FaceIdx(i / 2)).collect())
     }
 
     /// Two boxes with partial overlap (offset along X).
@@ -4754,12 +4730,10 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh_per_face([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh_per_face([0.5, 0.5, 0.5], [1.5, 1.5, 1.5]);
 
-        let bijective_a = BijectiveMap {
-            tri_face_ids: (0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect(),
-        };
-        let bijective_b = BijectiveMap {
-            tri_face_ids: (0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect(),
-        };
+        let bijective_a =
+            BijectiveMap::from_tri_face_ids((0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect());
+        let bijective_b =
+            BijectiveMap::from_tri_face_ids((0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect());
 
         for op in [
             MeshBooleanOp::Subtract,
