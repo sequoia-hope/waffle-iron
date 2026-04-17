@@ -21,6 +21,7 @@ mod clip;
 pub(crate) mod coplanar_preprocess;
 pub(crate) mod exact_mesh;
 pub(crate) mod indirect_predicates;
+pub(crate) mod intersection_opt;
 #[allow(dead_code)] // Not yet wired into pipeline
 pub(crate) mod mesh_arrangement;
 pub(crate) mod ssi_refinement;
