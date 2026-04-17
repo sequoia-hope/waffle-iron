@@ -130,6 +130,22 @@ impl SurfaceGeom {
         // All current variants are quadric; future BSpline would return false
         true
     }
+
+    /// Returns the characteristic radius governing chord error when discretizing
+    /// this surface into line segments. For a circle of radius r with n segments,
+    /// the sagitta (max chord-to-arc distance) is r*(1 - cos(π/n)).
+    ///
+    /// Returns None for planar surfaces (chord error = 0).
+    /// Ref [#24]: Yang 2025 Section 4.1 — error-bounded surface discretization.
+    pub fn characteristic_radius(&self) -> Option<f64> {
+        match self {
+            SurfaceGeom::Planar(_) => None,
+            SurfaceGeom::Cylindrical(c) => Some(c.radius),
+            SurfaceGeom::Spherical(s) => Some(s.radius),
+            SurfaceGeom::Toroidal(t) => Some(t.major_radius + t.minor_radius),
+            SurfaceGeom::Conical(_) => None, // varies along axis; use ConeParams at call site
+        }
+    }
 }
 
 // ── Plane evaluation ────────────────────────────────────────────────────

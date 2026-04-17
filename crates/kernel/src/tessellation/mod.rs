@@ -34,23 +34,50 @@ const CIRCLE_SEGMENTS_DEFAULT: usize = 64;
 /// computational tool for topology extraction — rendering quality is irrelevant.
 /// Boolean LOD uses far fewer segments, reducing triangle counts by ~16× for
 /// curved surfaces and making O(n·m) subdivision feasible for complex models.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)] // Render variant reserved for future callers needing explicit render LOD
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code)]
 pub(crate) enum TessellationLod {
     /// Full rendering quality (circle_segments = 64).
     Render,
     /// Reduced quality for boolean computation (circle_segments = 16).
     Boolean,
+    /// Error-bounded adaptive segments per Yang 2025 Section 4.1.
+    /// d_epsilon = max allowable surface-to-mesh chord error.
+    Adaptive { d_epsilon: f64 },
 }
 
 impl TessellationLod {
     /// Circle segment count for this LOD level.
+    /// For Adaptive, returns the fallback; use `resolve_adaptive_segments`
+    /// for per-solid computation.
     pub(crate) fn circle_segments(self) -> usize {
         match self {
             TessellationLod::Render => 64,
             TessellationLod::Boolean => 16,
+            TessellationLod::Adaptive { .. } => 16, // fallback; overridden in dispatch
         }
     }
+}
+
+/// Compute minimum circle segment count so that chord error < d_epsilon.
+///
+/// For a circle of radius `r` discretized into `n` equal chords,
+/// the sagitta (max chord-to-arc distance) is: r * (1 - cos(π/n)).
+/// Solving for n: n >= π / acos(1 - d_epsilon/r).
+///
+/// Returns the segment count clamped to [min_segments, 256].
+/// Ref [#24]: Yang 2025 Section 4.1 — error-bounded surface discretization.
+pub(crate) fn adaptive_circle_segments(radius: f64, d_epsilon: f64, min_segments: usize) -> usize {
+    if d_epsilon <= 0.0 || radius <= 0.0 {
+        return min_segments;
+    }
+    let ratio = d_epsilon / radius;
+    if ratio >= 2.0 {
+        return min_segments; // d_epsilon >= diameter; coarse is fine
+    }
+    let n = std::f64::consts::PI / (1.0 - ratio).acos();
+    let n = n.ceil() as usize;
+    n.clamp(min_segments, 256)
 }
 
 use std::cell::Cell;
@@ -118,7 +145,24 @@ pub(crate) fn tessellate_solid_ext_with_lod(
     is_polygon_soup: bool,
     lod: TessellationLod,
 ) -> Result<RenderMesh, KernelError> {
-    let segs = lod.circle_segments();
+    let segs = match lod {
+        TessellationLod::Adaptive { d_epsilon } => {
+            // Compute max segments needed across all curved faces.
+            // Per Yang 2025 Section 4.1: surface-to-mesh distance < d_epsilon.
+            let mut max_segs = 4usize;
+            for geom in face_geometry.values() {
+                let radius = geom
+                    .characteristic_radius()
+                    .or_else(|| cone_params.map(|cp| cp.radius));
+                if let Some(r) = radius {
+                    let n = adaptive_circle_segments(r, d_epsilon, 4);
+                    max_segs = max_segs.max(n);
+                }
+            }
+            max_segs.clamp(4, 256)
+        }
+        other => other.circle_segments(),
+    };
     CIRCLE_SEGMENTS_OVERRIDE.with(|c| {
         let prev = c.get();
         c.set(segs);

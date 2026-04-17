@@ -585,10 +585,31 @@ pub(crate) fn yang_boolean_inner(
     }
 
     // Step 1: Tessellate both (possibly modified) solids.
-    // Use Boolean LOD (16 segments) — the mesh is a computational tool for
-    // topology, not a rendering artifact. This cuts triangle counts ~16× on
-    // curved surfaces and makes O(n·m) subdivision feasible.
-    let lod = tessellation::TessellationLod::Boolean;
+    // Per Yang 2025 Section 4.1: error-bounded discretization with
+    // d_epsilon = 0.01 * d (d = AABB diagonal of combined model).
+    // Adaptive LOD computes per-surface segment counts from d_epsilon.
+    let d_epsilon = {
+        let mut min = [f64::MAX; 3];
+        let mut max = [f64::MIN; 3];
+        for arena in [&solid_a_mod.arena, &solid_b_mod.arena] {
+            for v in &arena.vertices {
+                for i in 0..3 {
+                    if v.position[i] < min[i] {
+                        min[i] = v.position[i];
+                    }
+                    if v.position[i] > max[i] {
+                        max[i] = v.position[i];
+                    }
+                }
+            }
+        }
+        let dx = max[0] - min[0];
+        let dy = max[1] - min[1];
+        let dz = max[2] - min[2];
+        let diag = (dx * dx + dy * dy + dz * dz).sqrt();
+        0.01 * diag
+    };
+    let lod = tessellation::TessellationLod::Adaptive { d_epsilon };
     let mesh_a = tessellate_waffle_solid(&solid_a_mod, lod)?;
     let mesh_b = tessellate_waffle_solid(&solid_b_mod, lod)?;
 
