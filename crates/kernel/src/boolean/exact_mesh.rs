@@ -1094,6 +1094,11 @@ pub(crate) struct SubdividedMesh {
     pub tris_a: Vec<SubTriangle>,
     /// Sub-triangles from mesh B.
     pub tris_b: Vec<SubTriangle>,
+    /// Optimized parametric (u,v) on surface A per vertex.
+    /// Populated by Yang 4.3 optimization for intersection vertices.
+    pub params_a: Vec<Option<(f64, f64)>>,
+    /// Optimized parametric (s,t) on surface B per vertex.
+    pub params_b: Vec<Option<(f64, f64)>>,
 }
 
 // ── Task 2d: Cell labeling via generalized winding numbers ──
@@ -2092,10 +2097,13 @@ fn subdivide_mesh_pair_full_cherchi(
         }
     }
 
+    let n_verts = result.coords.len();
     Ok(SubdividedMesh {
         verts: result.coords,
         tris_a: sub_tris_a,
         tris_b: sub_tris_b,
+        params_a: vec![None; n_verts],
+        params_b: vec![None; n_verts],
     })
 }
 

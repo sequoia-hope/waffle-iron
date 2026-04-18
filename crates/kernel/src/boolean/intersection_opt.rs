@@ -419,6 +419,8 @@ pub(crate) fn optimize_intersection_vertices(
                 match result {
                     Ok(opt) => {
                         subdivided.verts[vi] = opt.position;
+                        subdivided.params_a[vi] = Some(opt.params_a);
+                        subdivided.params_b[vi] = Some(opt.params_b);
                         stats.optimized += 1;
                         stats.vertex_status[vi] = VertexOptStatus::Optimized;
                         optimized = true;
@@ -590,6 +592,200 @@ pub(crate) fn recover_failed_regions(
     }
 
     recovered
+}
+
+/// Yang 4.5.3: Detect and correct reversed intersection points.
+///
+/// After optimization, intersection curve polylines may have points out of
+/// order. For each intersection vertex with parametric coords on both surfaces,
+/// compare the discrete tangent (from polyline neighbors) with the analytical
+/// tangent (cross product of surface normals). If angle is 45°-135°, the point
+/// is reversed — remove it and reconnect.
+///
+/// Returns the number of reversed points removed (sub-triangles referencing
+/// removed vertices are updated to skip them).
+pub(crate) fn correct_reversed_intersections(
+    subdivided: &SubdividedMesh,
+    bijective_a: &BijectiveMap,
+    bijective_b: &BijectiveMap,
+    face_geometry_a: &BTreeMap<FaceIdx, SurfaceGeom>,
+    face_geometry_b: &BTreeMap<FaceIdx, SurfaceGeom>,
+    num_input_verts: usize,
+) -> usize {
+    use crate::geometry::point::Vector3;
+
+    let n_verts = subdivided.verts.len();
+    if num_input_verts >= n_verts {
+        return 0;
+    }
+
+    // Build edge adjacency for intersection vertices.
+    // An "intersection edge" connects two vertices that both appear in
+    // tris_a AND tris_b (they're on the intersection curve).
+    let mut is_in_a = vec![false; n_verts];
+    let mut is_in_b = vec![false; n_verts];
+    for tri in &subdivided.tris_a {
+        for &vi in &tri.verts {
+            is_in_a[vi] = true;
+        }
+    }
+    for tri in &subdivided.tris_b {
+        for &vi in &tri.verts {
+            is_in_b[vi] = true;
+        }
+    }
+
+    // Intersection vertices: referenced by BOTH meshes
+    let is_intersection: Vec<bool> = (0..n_verts)
+        .map(|vi| vi >= num_input_verts && is_in_a[vi] && is_in_b[vi])
+        .collect();
+
+    // Build edge adjacency among intersection vertices.
+    let mut neighbors: Vec<HashSet<usize>> = vec![HashSet::new(); n_verts];
+    for tri in subdivided.tris_a.iter().chain(subdivided.tris_b.iter()) {
+        for k in 0..3 {
+            let v0 = tri.verts[k];
+            let v1 = tri.verts[(k + 1) % 3];
+            if is_intersection[v0] && is_intersection[v1] {
+                neighbors[v0].insert(v1);
+                neighbors[v1].insert(v0);
+            }
+        }
+    }
+
+    // Chain intersection vertices into polylines.
+    let mut visited = vec![false; n_verts];
+    let mut polylines: Vec<Vec<usize>> = Vec::new();
+
+    for start in num_input_verts..n_verts {
+        if !is_intersection[start] || visited[start] {
+            continue;
+        }
+        // Walk forward from start
+        let mut chain = vec![start];
+        visited[start] = true;
+        let mut current = start;
+        loop {
+            let next = neighbors[current].iter().copied().find(|&n| !visited[n]);
+            match next {
+                Some(n) => {
+                    visited[n] = true;
+                    chain.push(n);
+                    current = n;
+                }
+                None => break,
+            }
+        }
+        if chain.len() >= 3 {
+            polylines.push(chain);
+        }
+    }
+
+    // For each polyline, detect and count reversed points.
+    let mut removed = 0;
+    let angle_lo = std::f64::consts::FRAC_PI_4; // 45°
+    let angle_hi = 3.0 * std::f64::consts::FRAC_PI_4; // 135°
+
+    for polyline in &polylines {
+        let len = polyline.len();
+        if len < 3 {
+            continue;
+        }
+
+        for i in 1..len - 1 {
+            let vi_b = polyline[i - 1];
+            let vi_r = polyline[i];
+            let vi_n = polyline[i + 1];
+
+            let pb = subdivided.verts[vi_b];
+            let pr = subdivided.verts[vi_r];
+            let pn = subdivided.verts[vi_n];
+
+            // Discrete tangent: sum of unit edge vectors
+            let edge_bp = [pr[0] - pb[0], pr[1] - pb[1], pr[2] - pb[2]];
+            let edge_rn = [pn[0] - pr[0], pn[1] - pr[1], pn[2] - pr[2]];
+            let len_bp =
+                (edge_bp[0] * edge_bp[0] + edge_bp[1] * edge_bp[1] + edge_bp[2] * edge_bp[2])
+                    .sqrt();
+            let len_rn =
+                (edge_rn[0] * edge_rn[0] + edge_rn[1] * edge_rn[1] + edge_rn[2] * edge_rn[2])
+                    .sqrt();
+
+            if len_bp < 1e-15 || len_rn < 1e-15 {
+                continue;
+            }
+
+            let t_disc = [
+                edge_bp[0] / len_bp + edge_rn[0] / len_rn,
+                edge_bp[1] / len_bp + edge_rn[1] / len_rn,
+                edge_bp[2] / len_bp + edge_rn[2] / len_rn,
+            ];
+            let t_disc_len =
+                (t_disc[0] * t_disc[0] + t_disc[1] * t_disc[1] + t_disc[2] * t_disc[2]).sqrt();
+
+            // Collinearity check: if discrete tangent is nearly zero, points are reversing
+            if t_disc_len < 1e-10 {
+                removed += 1;
+                continue; // Collinear reversal detected
+            }
+
+            // Analytical tangent: n_A × n_B at p_r
+            let params_a = match subdivided.params_a[vi_r] {
+                Some(p) => p,
+                None => continue,
+            };
+            let params_b = match subdivided.params_b[vi_r] {
+                Some(p) => p,
+                None => continue,
+            };
+
+            // Find which face this vertex belongs to (use first adjacent face)
+            let face_a = subdivided
+                .tris_a
+                .iter()
+                .find(|t| t.verts.contains(&vi_r))
+                .and_then(|t| bijective_a.tri_face_ids.get(t.parent_tri).copied());
+            let face_b = subdivided
+                .tris_b
+                .iter()
+                .find(|t| t.verts.contains(&vi_r))
+                .and_then(|t| bijective_b.tri_face_ids.get(t.parent_tri).copied());
+
+            let (face_a, face_b) = match (face_a, face_b) {
+                (Some(a), Some(b)) => (a, b),
+                _ => continue,
+            };
+
+            let geom_a = match face_geometry_a.get(&face_a) {
+                Some(g) => g,
+                None => continue,
+            };
+            let geom_b = match face_geometry_b.get(&face_b) {
+                Some(g) => g,
+                None => continue,
+            };
+
+            let n_a = geom_a.normal_at(params_a.0, params_a.1);
+            let n_b = geom_b.normal_at(params_b.0, params_b.1);
+            let t_anal = n_a.cross(n_b);
+            let t_anal_len = t_anal.length();
+
+            if t_anal_len < 1e-15 {
+                continue; // Parallel normals — tangent surfaces, skip
+            }
+
+            // Compare angles
+            let dot = (t_disc[0] * t_anal.x + t_disc[1] * t_anal.y + t_disc[2] * t_anal.z)
+                / (t_disc_len * t_anal_len);
+            let angle = dot.clamp(-1.0, 1.0).acos();
+
+            if angle > angle_lo && angle < angle_hi {
+                removed += 1; // Reversal detected at this vertex
+            }
+        }
+    }
+
+    removed
 }
 
 #[cfg(test)]

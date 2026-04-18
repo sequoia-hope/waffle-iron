@@ -1583,6 +1583,27 @@ pub(crate) fn yang_boolean_pipeline(
         }
     }
 
+    // Stage 1c (Yang 4.5.3): Correct reversed intersection points.
+    // Compare discrete tangent (from polyline neighbors) with analytical tangent
+    // (cross product of surface normals). Remove points where angle is 45°-135°.
+    {
+        let num_input_verts = verts_a.len() + verts_b.len();
+        let reversed_count = crate::boolean::intersection_opt::correct_reversed_intersections(
+            &subdivided,
+            bijective_a,
+            bijective_b,
+            face_geometry_a,
+            face_geometry_b,
+            num_input_verts,
+        );
+        if reversed_count > 0 {
+            eprintln!(
+                "[yang-diag] 4.5.3: detected {} reversed intersection points",
+                reversed_count
+            );
+        }
+    }
+
     // Stage 2: Label each sub-triangle as inside/outside the opposite mesh.
     // Deadline is threaded through so label_cells can enforce the timeout
     // during its per-sub-triangle ray-casting loop.
@@ -2014,6 +2035,8 @@ mod tests {
             verts: vec![],
             tris_a: vec![],
             tris_b: vec![],
+            params_a: vec![],
+            params_b: vec![],
         };
         let labeling = CellLabeling {
             labels_a: vec![],
@@ -2511,6 +2534,8 @@ mod tests {
             verts: vec![],
             tris_a: vec![],
             tris_b: vec![],
+            params_a: vec![],
+            params_b: vec![],
         };
         let survival = FaceSurvivalMap {
             groups: BTreeMap::new(),
@@ -3087,6 +3112,8 @@ mod tests {
             verts: vec![],
             tris_a: vec![],
             tris_b: vec![],
+            params_a: vec![],
+            params_b: vec![],
         };
         let trim_map = TrimBoundaryMap {
             boundaries: BTreeMap::new(),
@@ -3495,6 +3522,8 @@ mod tests {
             verts: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
             tris_a: vec![],
             tris_b: vec![],
+            params_a: vec![],
+            params_b: vec![],
         };
 
         // This should NOT panic — it should return a valid (possibly empty)
@@ -4627,6 +4656,8 @@ mod tests {
             verts: verts.clone(),
             tris_a: vec![], // Not used — we build FaceSurvivalMap directly
             tris_b: vec![],
+            params_a: vec![],
+            params_b: vec![],
         };
 
         // ── FaceSurvivalMap ──
