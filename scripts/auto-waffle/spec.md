@@ -116,6 +116,20 @@ tolerance escapes, update docs, strengthen tests). They are NOT authorized
 to add new features or change modeling behavior. Changes are committed with
 descriptive messages but not pushed to remote.
 
+### Pass Types
+
+auto-waffle has three pass types:
+
+| Type | Prompt | Purpose | Authorized Actions |
+|------|--------|---------|-------------------|
+| **develop** | `prompts/work.md` | Implement features, fix bugs, build Yang pipeline | Full FIP cycle, commits |
+| **repair** | `prompts/review.md` | Catch governance violations, tolerance escapes, dead code | Reverts, refactoring, test strengthening |
+| **yang_review** | `prompts/yang-review.md` | Audit Yang 2025 pipeline vs paper | Overwrites `docs/audits/yang_2025_audit.md` |
+
+The yang_review type spawns 5 parallel auditor agents, each covering 4
+contiguous pipeline steps. Output is always written to the same file
+(`docs/audits/yang_2025_audit.md`) — each run overwrites the previous.
+
 ### Review Scheduling (Dev:Review Ratio)
 
 By default, auto-waffle runs a repeating cycle of 3 dev passes followed by

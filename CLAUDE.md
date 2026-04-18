@@ -56,6 +56,9 @@ Do NOT skip to lower-priority items because they are easier.
    - Cherchi C++ reference: `github.com/gcherchi/FastAndRobustMeshArrangements`
    - Livesu & Cherchi 2022: "Deterministic Linear Time Constrained Triangulation"
    - Yang fast test: `YANG_BOOLEAN=1 cargo test -p test-harness --test assay_randomized -- yang_fast --ignored --nocapture`
+   - **Implementation audit:** `docs/audits/yang_2025_audit.md` — per-step assessment
+     of what's CORRECT, INCOMPLETE, WRONG, or STUB vs the paper. Read this before
+     working on the Yang pipeline to know what actually needs fixing.
 2. **SSI solvers** — Complete the A15.4 matrix. Solvers feed stage 4 (geometry
    refinement) of the hybrid pipeline. Only work on SSI if Yang pipeline work is
    blocked. Priority: pairs #5, #6, #10 (partial status).
