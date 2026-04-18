@@ -391,7 +391,9 @@ pub(crate) fn update_mesh_along_refined_curves(
                 let p_end = topology.arena.vertices[v_end.0].position;
 
                 // Sample intermediate points along the SSI curve between p_start and p_end.
-                let intermediates = sample_curve_points(curve, &p_start, &p_end);
+                // d_p = TAU_MODEL: geometric precision from Yang 2025 Section 4.3.4.
+                let intermediates =
+                    sample_curve_points(curve, &p_start, &p_end, crate::units::TAU_MODEL);
 
                 let mut prev_local = edge_i; // local index of start vertex
                 for pt in &intermediates {
@@ -524,16 +526,115 @@ pub(crate) fn update_mesh_along_refined_curves(
     }
 }
 
-/// Sample intermediate points along an SSI curve between two endpoints.
+/// Euclidean distance between two 3D points.
+fn dist_3d(a: &[f64; 3], b: &[f64; 3]) -> f64 {
+    let dx = b[0] - a[0];
+    let dy = b[1] - a[1];
+    let dz = b[2] - a[2];
+    (dx * dx + dy * dy + dz * dz).sqrt()
+}
+
+/// Perpendicular distance from point `m` to the line through `p` and `q`.
+fn point_to_line_distance(m: &[f64; 3], p: &[f64; 3], q: &[f64; 3]) -> f64 {
+    let pq = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
+    let pm = [m[0] - p[0], m[1] - p[1], m[2] - p[2]];
+    // Cross product pm × pq
+    let cx = pm[1] * pq[2] - pm[2] * pq[1];
+    let cy = pm[2] * pq[0] - pm[0] * pq[2];
+    let cz = pm[0] * pq[1] - pm[1] * pq[0];
+    let cross_len = (cx * cx + cy * cy + cz * cz).sqrt();
+    let pq_len = (pq[0] * pq[0] + pq[1] * pq[1] + pq[2] * pq[2]).sqrt();
+    if pq_len < 1e-15 {
+        return dist_3d(m, p);
+    }
+    cross_len / pq_len
+}
+
+/// Angle (radians) between two 3D vectors via dot product.
+fn angle_between_vectors(a: &[f64; 3], b: &[f64; 3]) -> f64 {
+    let mag_a = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
+    let mag_b = (b[0] * b[0] + b[1] * b[1] + b[2] * b[2]).sqrt();
+    if mag_a < 1e-15 || mag_b < 1e-15 {
+        return 0.0;
+    }
+    let dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let cos_angle = (dot / (mag_a * mag_b)).clamp(-1.0, 1.0);
+    cos_angle.acos()
+}
+
+/// Recursively subdivide a curve segment between `p` and `q` until the
+/// curvature-based stopping conditions from Yang 2025 Section 4.3.4 are met.
+///
+/// Returns intermediate points (excluding `p` and `q`) in order from p to q.
+///
+/// Stopping conditions (all three must hold):
+///   - Arc height h < d_p × 100
+///   - Max sub-chord length l < d_p × 1000
+///   - Turning angle α < π/18 (10°)
+///
+/// Ref [#24] Yang 2025, Section 4.3.4 — curvature-based refinement.
+fn subdivide_curve_segment(
+    curve: &SSICurve,
+    p: &[f64; 3],
+    q: &[f64; 3],
+    d_p: f64,
+    depth: usize,
+) -> Vec<[f64; 3]> {
+    let mid_3d = [
+        (p[0] + q[0]) * 0.5,
+        (p[1] + q[1]) * 0.5,
+        (p[2] + q[2]) * 0.5,
+    ];
+    let m = curve.closest_point(mid_3d);
+
+    // Arc height: perpendicular distance from m to chord pq
+    let h = point_to_line_distance(&m, p, q);
+
+    // Sub-chord lengths
+    let lpm = dist_3d(p, &m);
+    let lmq = dist_3d(&m, q);
+    let l = lpm.max(lmq);
+
+    // Turning angle between vectors pm and mq
+    let vec_pm = [m[0] - p[0], m[1] - p[1], m[2] - p[2]];
+    let vec_mq = [q[0] - m[0], q[1] - m[1], q[2] - m[2]];
+    let alpha = angle_between_vectors(&vec_pm, &vec_mq);
+
+    // Yang 4.3.4: all three conditions met → stop subdividing
+    if (h < d_p * 100.0 && l < d_p * 1000.0 && alpha < std::f64::consts::PI / 18.0) || depth >= 10 {
+        // m ≈ on chord (collinear) → skip, no useful subdivision point
+        if h < 1e-15 {
+            return vec![];
+        }
+        return vec![m];
+    }
+
+    // Recurse: left half, then m, then right half
+    let mut pts = subdivide_curve_segment(curve, p, &m, d_p, depth + 1);
+    pts.push(m);
+    pts.extend(subdivide_curve_segment(curve, &m, q, d_p, depth + 1));
+    pts
+}
+
+/// Sample intermediate points along an SSI curve between two endpoints using
+/// curvature-adaptive recursive subdivision.
+///
 /// Returns points in order from start to end (exclusive of endpoints).
 ///
-/// Ref [#24] Yang 2025, Section 4.4.1 — curve-following edge subdivision.
-fn sample_curve_points(curve: &SSICurve, p_start: &[f64; 3], p_end: &[f64; 3]) -> Vec<[f64; 3]> {
-    // Chord length between endpoints.
-    let dx = p_end[0] - p_start[0];
-    let dy = p_end[1] - p_start[1];
-    let dz = p_end[2] - p_start[2];
-    let chord = (dx * dx + dy * dy + dz * dz).sqrt();
+/// `d_p` is the geometric precision parameter from Yang 2025 Section 4.3.4.
+/// It controls the stopping conditions for recursive subdivision:
+///   - Arc height h < d_p × 100
+///   - Chord length l < d_p × 1000
+///   - Turning angle α < π/18
+///
+/// Ref [#24] Yang 2025, Section 4.3.4 — curvature-based intersection refinement.
+fn sample_curve_points(
+    curve: &SSICurve,
+    p_start: &[f64; 3],
+    p_end: &[f64; 3],
+    d_p: f64,
+) -> Vec<[f64; 3]> {
+    let chord = dist_3d(p_start, p_end);
 
     if chord < crate::units::MIN_FEATURE_SIZE {
         return Vec::new();
@@ -544,125 +645,8 @@ fn sample_curve_points(curve: &SSICurve, p_start: &[f64; 3], p_end: &[f64; 3]) -
             // Line intersection — mesh edge already follows the line. No subdivision needed.
             Vec::new()
         }
-        SSICurve::Circle {
-            center,
-            normal,
-            radius,
-        } => {
-            // Compute the arc angle between the two endpoints.
-            let v0 = [
-                p_start[0] - center[0],
-                p_start[1] - center[1],
-                p_start[2] - center[2],
-            ];
-            let v1 = [
-                p_end[0] - center[0],
-                p_end[1] - center[1],
-                p_end[2] - center[2],
-            ];
-            // Project onto plane to get in-plane components.
-            let d0 = v0[0] * normal[0] + v0[1] * normal[1] + v0[2] * normal[2];
-            let ip0 = [
-                v0[0] - d0 * normal[0],
-                v0[1] - d0 * normal[1],
-                v0[2] - d0 * normal[2],
-            ];
-            let d1 = v1[0] * normal[0] + v1[1] * normal[1] + v1[2] * normal[2];
-            let ip1 = [
-                v1[0] - d1 * normal[0],
-                v1[1] - d1 * normal[1],
-                v1[2] - d1 * normal[2],
-            ];
-            let len0 = (ip0[0] * ip0[0] + ip0[1] * ip0[1] + ip0[2] * ip0[2]).sqrt();
-            let len1 = (ip1[0] * ip1[0] + ip1[1] * ip1[1] + ip1[2] * ip1[2]).sqrt();
-            if len0 < 1e-15 || len1 < 1e-15 {
-                return Vec::new();
-            }
-            let n0 = [ip0[0] / len0, ip0[1] / len0, ip0[2] / len0];
-            let n1 = [ip1[0] / len1, ip1[1] / len1, ip1[2] / len1];
-
-            let cos_angle = (n0[0] * n1[0] + n0[1] * n1[1] + n0[2] * n1[2]).clamp(-1.0, 1.0);
-            let angle = cos_angle.acos();
-
-            if angle < 0.05 {
-                // Very small arc — no subdivision needed.
-                return Vec::new();
-            }
-
-            // Number of subdivisions: aim for ~10° per segment.
-            let n_segments = ((angle / (10.0_f64.to_radians())).ceil() as usize).max(2);
-
-            // Compute tangent direction (perpendicular to n0, in the plane).
-            // tangent = n1 - cos_angle * n0, then normalize
-            let raw_t = [
-                n1[0] - cos_angle * n0[0],
-                n1[1] - cos_angle * n0[1],
-                n1[2] - cos_angle * n0[2],
-            ];
-            let t_len = (raw_t[0] * raw_t[0] + raw_t[1] * raw_t[1] + raw_t[2] * raw_t[2]).sqrt();
-            if t_len < 1e-15 {
-                return Vec::new();
-            }
-            let tang = [raw_t[0] / t_len, raw_t[1] / t_len, raw_t[2] / t_len];
-
-            let mut points = Vec::with_capacity(n_segments - 1);
-            for i in 1..n_segments {
-                let frac = i as f64 / n_segments as f64;
-                let theta = angle * frac;
-                let ct = theta.cos();
-                let st = theta.sin();
-                // Point on circle: center + radius * (cos(θ)*n0 + sin(θ)*tang)
-                let pt = [
-                    center[0] + radius * (ct * n0[0] + st * tang[0]),
-                    center[1] + radius * (ct * n0[1] + st * tang[1]),
-                    center[2] + radius * (ct * n0[2] + st * tang[2]),
-                ];
-                points.push(pt);
-            }
-            points
-        }
-        SSICurve::Ellipse { .. } => {
-            // For ellipses, sample by subdividing the chord and projecting each
-            // midpoint onto the curve. Simple bisection approach.
-            let mid = [
-                (p_start[0] + p_end[0]) * 0.5,
-                (p_start[1] + p_end[1]) * 0.5,
-                (p_start[2] + p_end[2]) * 0.5,
-            ];
-            let on_curve = curve.closest_point(mid);
-            // Check if midpoint is significantly off the chord.
-            let dev = [
-                on_curve[0] - mid[0],
-                on_curve[1] - mid[1],
-                on_curve[2] - mid[2],
-            ];
-            let dev_dist = (dev[0] * dev[0] + dev[1] * dev[1] + dev[2] * dev[2]).sqrt();
-            if dev_dist < crate::units::TAU_MODEL {
-                return Vec::new();
-            }
-            // Return just the midpoint projected onto the curve.
-            // Future: recursive subdivision for higher accuracy.
-            vec![on_curve]
-        }
-        // For higher-order curves, use chord midpoint projection.
-        _ => {
-            let mid = [
-                (p_start[0] + p_end[0]) * 0.5,
-                (p_start[1] + p_end[1]) * 0.5,
-                (p_start[2] + p_end[2]) * 0.5,
-            ];
-            let on_curve = curve.closest_point(mid);
-            let dev = [
-                on_curve[0] - mid[0],
-                on_curve[1] - mid[1],
-                on_curve[2] - mid[2],
-            ];
-            let dev_dist = (dev[0] * dev[0] + dev[1] * dev[1] + dev[2] * dev[2]).sqrt();
-            if dev_dist < crate::units::TAU_MODEL {
-                return Vec::new();
-            }
-            vec![on_curve]
-        }
+        // All curved types use the same adaptive subdivision
+        _ => subdivide_curve_segment(curve, p_start, p_end, d_p, 0),
     }
 }
 
@@ -2873,5 +2857,121 @@ mod tests {
             faces_before,
             topology.arena.faces.len(),
         );
+    }
+
+    // ── Yang 4.3.4 curvature-based subdivision tests ──
+
+    #[test]
+    fn test_circle_arc_adaptive_subdivision() {
+        // A circle arc with significant curvature should produce points with
+        // arc height h < d_p * 100 for each sub-segment.
+        let curve = SSICurve::Circle {
+            center: [0.0, 0.0, 0.0],
+            normal: [0.0, 0.0, 1.0],
+            radius: 5.0,
+        };
+        // 90° arc: from (5,0,0) to (0,5,0)
+        let p_start = [5.0, 0.0, 0.0];
+        let p_end = [0.0, 5.0, 0.0];
+        let d_p = TAU_MODEL;
+
+        let pts = sample_curve_points(&curve, &p_start, &p_end, d_p);
+        assert!(
+            !pts.is_empty(),
+            "90° circle arc should produce subdivision points"
+        );
+
+        // Verify all points lie on the circle (distance from center ≈ radius)
+        for pt in &pts {
+            let dist = (pt[0] * pt[0] + pt[1] * pt[1] + pt[2] * pt[2]).sqrt();
+            assert!(
+                (dist - 5.0).abs() < 1e-10,
+                "Point {:?} should lie on circle (dist from center = {}, expected 5.0)",
+                pt,
+                dist
+            );
+        }
+
+        // Verify arc height condition: for each consecutive pair of output points,
+        // the midpoint projected onto the curve should be close to the chord.
+        let mut all_pts = vec![p_start];
+        all_pts.extend_from_slice(&pts);
+        all_pts.push(p_end);
+        for w in all_pts.windows(2) {
+            let mid = [
+                (w[0][0] + w[1][0]) * 0.5,
+                (w[0][1] + w[1][1]) * 0.5,
+                (w[0][2] + w[1][2]) * 0.5,
+            ];
+            let m = curve.closest_point(mid);
+            let h = point_to_line_distance(&m, &w[0], &w[1]);
+            assert!(
+                h < d_p * 100.0,
+                "Arc height {} exceeds d_p*100 = {} for segment",
+                h,
+                d_p * 100.0,
+            );
+        }
+    }
+
+    #[test]
+    fn test_nearly_straight_segment_no_subdivision() {
+        // A circle with a very small arc should produce no subdivision when
+        // all three Yang 4.3.4 conditions are already met.
+        let curve = SSICurve::Circle {
+            center: [0.0, 0.0, 0.0],
+            normal: [0.0, 0.0, 1.0],
+            radius: 1.0,
+        };
+        // Tiny arc: ~0.001 radians apart on a unit circle.
+        // Use d_p = 0.01 so thresholds (h < 1.0, l < 10.0, α < π/18) are
+        // easily satisfied by this nearly-straight segment.
+        let p_start = [1.0, 0.0, 0.0];
+        let p_end = [(0.001_f64).cos(), (0.001_f64).sin(), 0.0];
+        let d_p = 0.01;
+
+        let pts = sample_curve_points(&curve, &p_start, &p_end, d_p);
+        // With generous d_p, all three stopping conditions are met at depth 0.
+        // At most one midpoint is returned (no recursive splitting).
+        assert!(
+            pts.len() <= 1,
+            "Nearly-straight segment should not recurse, got {} points",
+            pts.len()
+        );
+    }
+
+    #[test]
+    fn test_sharp_curve_multiple_subdivisions() {
+        // A large circle arc (170°) with tight d_p should trigger multiple
+        // levels of recursive subdivision.
+        let curve = SSICurve::Circle {
+            center: [0.0, 0.0, 0.0],
+            normal: [0.0, 0.0, 1.0],
+            radius: 1.0,
+        };
+        // ~170° arc: from (1,0,0) to nearly (-1,0,0)
+        let angle = 170.0_f64.to_radians();
+        let p_start = [1.0, 0.0, 0.0];
+        let p_end = [angle.cos(), angle.sin(), 0.0];
+        let d_p = TAU_MODEL;
+
+        let pts = sample_curve_points(&curve, &p_start, &p_end, d_p);
+        // A 170° arc on a unit circle with d_p=1e-7 needs many subdivisions
+        assert!(
+            pts.len() >= 3,
+            "Large circle arc should produce multiple subdivisions, got {}",
+            pts.len()
+        );
+
+        // Verify all output points lie on the circle
+        for pt in &pts {
+            let dist_from_center = (pt[0] * pt[0] + pt[1] * pt[1] + pt[2] * pt[2]).sqrt();
+            assert!(
+                (dist_from_center - 1.0).abs() < 1e-10,
+                "Point {:?} should lie on unit circle (dist = {})",
+                pt,
+                dist_from_center
+            );
+        }
     }
 }
