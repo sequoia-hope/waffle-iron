@@ -4786,6 +4786,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .unwrap()
         .topology;
@@ -5503,6 +5506,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .expect("Yang pipeline should succeed for overlapping boxes")
         .topology;
@@ -6419,6 +6425,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Subtract,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .expect("Yang pipeline should succeed for overlapping boxes");
 
@@ -6486,6 +6495,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Intersect,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .expect("Yang pipeline should succeed for overlapping boxes");
 
@@ -6672,6 +6684,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Subtract,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .expect("Yang pipeline should succeed for overlapping boxes");
 

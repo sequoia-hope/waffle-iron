@@ -1032,6 +1032,9 @@ mod tests {
             &bijective_b,
             op,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .unwrap()
         .topology
@@ -2199,6 +2202,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Subtract,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .unwrap()
         .topology;
@@ -2792,6 +2798,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Subtract,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .unwrap()
         .topology;
@@ -2839,6 +2848,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Subtract,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .unwrap()
         .topology;

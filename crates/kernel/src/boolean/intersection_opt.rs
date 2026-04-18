@@ -270,6 +270,160 @@ fn solve_3x3_cramer(a: &[[f64; 3]; 3], b: &[f64; 3]) -> Option<[f64; 3]> {
     Some([x0, x1, x2])
 }
 
+// ── Pipeline integration ─────────────────────────────────────────────────
+
+use crate::boolean::exact_mesh::SubdividedMesh;
+use crate::geometry::point::Point3;
+use crate::tessellation::bijective::BijectiveMap;
+use crate::topology::half_edge::FaceIdx;
+use std::collections::{BTreeMap, HashSet};
+
+/// Statistics from intersection vertex optimization.
+#[derive(Debug, Default)]
+pub(crate) struct OptimizationStats {
+    pub optimized: usize,
+    pub skipped_planar: usize,
+    pub skipped_no_surface: usize,
+    pub skipped_no_inverse: usize,
+    pub not_converged: usize,
+    pub failed: usize,
+}
+
+/// Optimize NEW intersection vertices in the subdivided mesh.
+///
+/// Per Yang 2025 Section 4.3: after mesh intersection (Cherchi), each new
+/// vertex maps to approximate positions on both surfaces. This function
+/// refines each vertex via Newton/geometric optimization until the two
+/// surface evaluations converge to the same 3D point (within d_p).
+///
+/// New vertices are identified by index >= num_input_verts (original mesh
+/// vertices from A and B were indexed 0..num_input_verts).
+pub(crate) fn optimize_intersection_vertices(
+    subdivided: &mut SubdividedMesh,
+    bijective_a: &BijectiveMap,
+    bijective_b: &BijectiveMap,
+    face_geometry_a: &BTreeMap<FaceIdx, SurfaceGeom>,
+    face_geometry_b: &BTreeMap<FaceIdx, SurfaceGeom>,
+    num_input_verts: usize,
+    d_p: f64,
+) -> OptimizationStats {
+    let mut stats = OptimizationStats::default();
+    let n_verts = subdivided.verts.len();
+
+    if num_input_verts >= n_verts {
+        return stats; // No new intersection vertices
+    }
+
+    // Build vertex → face adjacency from sub-triangles.
+    // For each new vertex, find which faces from A and B reference it.
+    let mut vert_faces_a: Vec<HashSet<FaceIdx>> = vec![HashSet::new(); n_verts];
+    let mut vert_faces_b: Vec<HashSet<FaceIdx>> = vec![HashSet::new(); n_verts];
+
+    for sub_tri in &subdivided.tris_a {
+        if sub_tri.parent_tri < bijective_a.tri_face_ids.len() {
+            let face = bijective_a.tri_face_ids[sub_tri.parent_tri];
+            for &vi in &sub_tri.verts {
+                if vi >= num_input_verts && vi < n_verts {
+                    vert_faces_a[vi].insert(face);
+                }
+            }
+        }
+    }
+    for sub_tri in &subdivided.tris_b {
+        if sub_tri.parent_tri < bijective_b.tri_face_ids.len() {
+            let face = bijective_b.tri_face_ids[sub_tri.parent_tri];
+            for &vi in &sub_tri.verts {
+                if vi >= num_input_verts && vi < n_verts {
+                    vert_faces_b[vi].insert(face);
+                }
+            }
+        }
+    }
+
+    // Optimize each new intersection vertex.
+    for vi in num_input_verts..n_verts {
+        if vert_faces_a[vi].is_empty() || vert_faces_b[vi].is_empty() {
+            continue; // Not at an A/B intersection
+        }
+
+        let pos = subdivided.verts[vi];
+        let pt = Point3::new(pos[0], pos[1], pos[2]);
+        let mut optimized = false;
+
+        // Try each face pair (A_face, B_face) that shares this vertex.
+        'pairs: for &face_a in &vert_faces_a[vi] {
+            for &face_b in &vert_faces_b[vi] {
+                let geom_a = match face_geometry_a.get(&face_a) {
+                    Some(g) => g,
+                    None => {
+                        stats.skipped_no_surface += 1;
+                        continue;
+                    }
+                };
+                let geom_b = match face_geometry_b.get(&face_b) {
+                    Some(g) => g,
+                    None => {
+                        stats.skipped_no_surface += 1;
+                        continue;
+                    }
+                };
+
+                // Skip planar-planar: Cherchi's exact predicates already
+                // produce exact intersection points for flat surfaces.
+                if matches!(geom_a, SurfaceGeom::Planar(_))
+                    && matches!(geom_b, SurfaceGeom::Planar(_))
+                {
+                    stats.skipped_planar += 1;
+                    optimized = true; // Not an error, just not needed
+                    break 'pairs;
+                }
+
+                // Compute parametric seeds via inverse evaluation.
+                let seed_a = match geom_a.inverse_evaluate(pt) {
+                    Some(uv) => uv,
+                    None => {
+                        stats.skipped_no_inverse += 1;
+                        continue;
+                    }
+                };
+                let seed_b = match geom_b.inverse_evaluate(pt) {
+                    Some(uv) => uv,
+                    None => {
+                        stats.skipped_no_inverse += 1;
+                        continue;
+                    }
+                };
+
+                // Try geometric method first (better for general loops),
+                // fall back to Newton (better for tangent points).
+                let result = geometric_optimize(geom_a, geom_b, seed_a, seed_b, d_p, 20)
+                    .or_else(|_| newton_optimize(geom_a, geom_b, seed_a, seed_b, d_p, 20));
+
+                match result {
+                    Ok(opt) => {
+                        subdivided.verts[vi] = opt.position;
+                        stats.optimized += 1;
+                        optimized = true;
+                        break 'pairs;
+                    }
+                    Err(OptimError::NotConverged { .. }) => {
+                        stats.not_converged += 1;
+                    }
+                    Err(OptimError::DegenerateJacobian) => {
+                        stats.failed += 1;
+                    }
+                }
+            }
+        }
+
+        if !optimized && !vert_faces_a[vi].is_empty() && !vert_faces_b[vi].is_empty() {
+            stats.failed += 1;
+        }
+    }
+
+    stats
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1497,15 +1497,47 @@ pub(crate) fn yang_boolean_pipeline(
     bijective_b: &BijectiveMap,
     op: MeshBooleanOp,
     deadline: Option<std::time::Instant>,
+    face_geometry_a: &std::collections::BTreeMap<
+        crate::topology::half_edge::FaceIdx,
+        crate::geometry::surface::SurfaceGeom,
+    >,
+    face_geometry_b: &std::collections::BTreeMap<
+        crate::topology::half_edge::FaceIdx,
+        crate::geometry::surface::SurfaceGeom,
+    >,
+    d_p: f64,
 ) -> Result<YangPipelineResult, KernelError> {
     // Stage 1: Subdivide both meshes along their mutual intersections.
-    let subdivided = subdivide_mesh_pair(verts_a, tris_a, verts_b, tris_b, deadline)?;
+    let mut subdivided = subdivide_mesh_pair(verts_a, tris_a, verts_b, tris_b, deadline)?;
     eprintln!(
         "[yang-diag] after subdivide: tris_a={}, tris_b={}, verts={}",
         subdivided.tris_a.len(),
         subdivided.tris_b.len(),
         subdivided.verts.len()
     );
+
+    // Stage 1b (Yang 4.3): Optimize intersection vertices.
+    // New vertices (index >= num_input_verts) are refined via Newton/geometric
+    // optimization to converge approximate mesh positions to exact surface
+    // intersection positions. Per Yang: optimize BEFORE classification.
+    {
+        let num_input_verts = verts_a.len() + verts_b.len();
+        let stats = crate::boolean::intersection_opt::optimize_intersection_vertices(
+            &mut subdivided,
+            bijective_a,
+            bijective_b,
+            face_geometry_a,
+            face_geometry_b,
+            num_input_verts,
+            d_p,
+        );
+        eprintln!(
+            "[yang-diag] intersection optimization: {} optimized, {} planar-skip, {} failed",
+            stats.optimized,
+            stats.skipped_planar,
+            stats.failed + stats.not_converged
+        );
+    }
 
     // Stage 2: Label each sub-triangle as inside/outside the opposite mesh.
     // Deadline is threaded through so label_cells can enforce the timeout
@@ -3138,6 +3170,9 @@ mod tests {
             &bijective_b,
             op,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .unwrap()
         .topology
@@ -3301,6 +3336,9 @@ mod tests {
             &bij_empty,
             MeshBooleanOp::Subtract,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .unwrap()
         .topology;
@@ -3365,6 +3403,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Subtract,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .unwrap()
         .topology;
@@ -3452,6 +3493,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Intersect,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .unwrap()
         .topology;
@@ -3506,6 +3550,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Intersect,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         );
 
         // Use std::any to check the return type at runtime.
@@ -3952,6 +3999,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .expect("pipeline should not error")
         .topology;
@@ -4005,6 +4055,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .expect("pipeline should not error")
         .topology;
@@ -4052,6 +4105,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .expect("pipeline should not error")
         .topology;
@@ -4119,6 +4175,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .expect("Yang pipeline should not error")
         .topology;
@@ -4171,6 +4230,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .expect("Yang pipeline should not error")
         .topology;
@@ -4364,6 +4426,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .expect("Yang pipeline should not error")
         .topology;
@@ -4415,6 +4480,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .expect("Yang pipeline should not error")
         .topology;
@@ -4749,6 +4817,9 @@ mod tests {
                 &bijective_b,
                 op,
                 None,
+                &std::collections::BTreeMap::new(),
+                &std::collections::BTreeMap::new(),
+                1e-7,
             )
             .unwrap_or_else(|e| panic!("{op:?} pipeline failed: {e}"));
 
@@ -4827,6 +4898,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .expect("Yang pipeline should not error")
         .topology;
@@ -4890,6 +4964,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .expect("Yang pipeline should not error for identical boxes")
         .topology;
@@ -4954,6 +5031,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Intersect,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .expect("Yang pipeline should not error for contained box intersect")
         .topology;

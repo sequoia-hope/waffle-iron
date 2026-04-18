@@ -680,6 +680,7 @@ pub(crate) fn yang_boolean_inner(
         + std::time::Duration::from_secs(crate::units::YANG_PIPELINE_TIMEOUT_SECS);
 
     // Step 4: Run Yang pipeline (Phases 1-3): mesh boolean → topology extract.
+    // Passes face geometry for Yang 4.3 intersection optimization.
     let mut pipeline_result = yang_boolean_pipeline(
         &verts_a,
         &tris_a,
@@ -689,6 +690,9 @@ pub(crate) fn yang_boolean_inner(
         &bijective_b,
         mesh_op,
         Some(deadline),
+        &solid_a_mod.face_geometry,
+        &solid_b_mod.face_geometry,
+        d_epsilon,
     )?;
 
     #[cfg(test)]
@@ -2330,6 +2334,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         );
 
         match &result {
@@ -2523,6 +2530,9 @@ mod tests {
             &bijective_b,
             MeshBooleanOp::Union,
             None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .expect("Yang pipeline must succeed for identical box union");
 
@@ -3034,6 +3044,9 @@ mod tests {
             &bb,
             bool_op_to_mesh_op(BoolOp::Union),
             Some(dl),
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
         )
         .unwrap();
         let refinement = crate::boolean::ssi_refinement::EdgeRefinementMap {
