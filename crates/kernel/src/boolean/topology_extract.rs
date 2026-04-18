@@ -1516,13 +1516,13 @@ pub(crate) fn yang_boolean_pipeline(
         subdivided.verts.len()
     );
 
-    // Stage 1b (Yang 4.3): Optimize intersection vertices.
-    // New vertices (index >= num_input_verts) are refined via Newton/geometric
-    // optimization to converge approximate mesh positions to exact surface
-    // intersection positions. Per Yang: optimize BEFORE classification.
+    // Stage 1b (Yang 4.3 + 4.5.1): Optimize intersection vertices with
+    // failure recovery loop. First pass optimizes all new vertices. If any
+    // fail, recover_failed_regions replaces them with midpoints of successful
+    // neighbors and re-optimizes with clamped steps. Per Yang Section 4.5.1.
     {
         let num_input_verts = verts_a.len() + verts_b.len();
-        let stats = crate::boolean::intersection_opt::optimize_intersection_vertices(
+        let mut stats = crate::boolean::intersection_opt::optimize_intersection_vertices(
             &mut subdivided,
             bijective_a,
             bijective_b,
@@ -1537,6 +1537,32 @@ pub(crate) fn yang_boolean_pipeline(
             stats.skipped_planar,
             stats.failed + stats.not_converged
         );
+
+        // Yang 4.5.1: iterative recovery for failed vertices.
+        const MAX_RECOVERY_ITERATIONS: usize = 3;
+        let total_failed = stats.failed + stats.not_converged;
+        if total_failed > 0 {
+            for iteration in 0..MAX_RECOVERY_ITERATIONS {
+                let recovered = crate::boolean::intersection_opt::recover_failed_regions(
+                    &mut subdivided,
+                    &mut stats.vertex_status,
+                    bijective_a,
+                    bijective_b,
+                    face_geometry_a,
+                    face_geometry_b,
+                    num_input_verts,
+                    d_p,
+                );
+                if recovered == 0 {
+                    break; // No progress — accept remaining failures
+                }
+                eprintln!(
+                    "[yang-diag] recovery iteration {}: {} vertices recovered",
+                    iteration + 1,
+                    recovered
+                );
+            }
+        }
     }
 
     // Stage 2: Label each sub-triangle as inside/outside the opposite mesh.

@@ -278,6 +278,19 @@ use crate::tessellation::bijective::BijectiveMap;
 use crate::topology::half_edge::FaceIdx;
 use std::collections::{BTreeMap, HashSet};
 
+/// Per-vertex optimization status.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum VertexOptStatus {
+    /// Not an intersection vertex (original mesh vertex).
+    NotIntersection,
+    /// Both surfaces are planar — Cherchi exact predicates already give exact position.
+    Planar,
+    /// Successfully optimized to within d_p tolerance.
+    Optimized,
+    /// Optimization failed (did not converge or degenerate Jacobian).
+    Failed,
+}
+
 /// Statistics from intersection vertex optimization.
 #[derive(Debug, Default)]
 pub(crate) struct OptimizationStats {
@@ -287,6 +300,8 @@ pub(crate) struct OptimizationStats {
     pub skipped_no_inverse: usize,
     pub not_converged: usize,
     pub failed: usize,
+    /// Per-vertex status (indexed by vertex index in subdivided mesh).
+    pub vertex_status: Vec<VertexOptStatus>,
 }
 
 /// Optimize NEW intersection vertices in the subdivided mesh.
@@ -309,6 +324,7 @@ pub(crate) fn optimize_intersection_vertices(
 ) -> OptimizationStats {
     let mut stats = OptimizationStats::default();
     let n_verts = subdivided.verts.len();
+    stats.vertex_status = vec![VertexOptStatus::NotIntersection; n_verts];
 
     if num_input_verts >= n_verts {
         return stats; // No new intersection vertices
@@ -374,7 +390,8 @@ pub(crate) fn optimize_intersection_vertices(
                     && matches!(geom_b, SurfaceGeom::Planar(_))
                 {
                     stats.skipped_planar += 1;
-                    optimized = true; // Not an error, just not needed
+                    stats.vertex_status[vi] = VertexOptStatus::Planar;
+                    optimized = true;
                     break 'pairs;
                 }
 
@@ -403,6 +420,7 @@ pub(crate) fn optimize_intersection_vertices(
                     Ok(opt) => {
                         subdivided.verts[vi] = opt.position;
                         stats.optimized += 1;
+                        stats.vertex_status[vi] = VertexOptStatus::Optimized;
                         optimized = true;
                         break 'pairs;
                     }
@@ -417,11 +435,161 @@ pub(crate) fn optimize_intersection_vertices(
         }
 
         if !optimized && !vert_faces_a[vi].is_empty() && !vert_faces_b[vi].is_empty() {
+            stats.vertex_status[vi] = VertexOptStatus::Failed;
             stats.failed += 1;
         }
     }
 
     stats
+}
+
+/// Yang 4.5.1: Recover failed vertices by replacing with midpoints of
+/// neighboring successful vertices, then re-optimizing with step clamping.
+///
+/// For each FAILED vertex, finds the nearest SUCCESSFUL or PLANAR vertices
+/// that share an edge in the subdivided mesh. Replaces the failed vertex's
+/// position with the midpoint of those neighbors, then re-runs optimization.
+///
+/// Returns the number of vertices recovered.
+pub(crate) fn recover_failed_regions(
+    subdivided: &mut SubdividedMesh,
+    vertex_status: &mut [VertexOptStatus],
+    bijective_a: &BijectiveMap,
+    bijective_b: &BijectiveMap,
+    face_geometry_a: &BTreeMap<FaceIdx, SurfaceGeom>,
+    face_geometry_b: &BTreeMap<FaceIdx, SurfaceGeom>,
+    num_input_verts: usize,
+    d_p: f64,
+) -> usize {
+    let n_verts = subdivided.verts.len();
+    if num_input_verts >= n_verts {
+        return 0;
+    }
+
+    // Build edge adjacency: for each vertex, collect neighboring vertices.
+    let mut neighbors: Vec<HashSet<usize>> = vec![HashSet::new(); n_verts];
+    for tri in subdivided.tris_a.iter().chain(subdivided.tris_b.iter()) {
+        for k in 0..3 {
+            let v0 = tri.verts[k];
+            let v1 = tri.verts[(k + 1) % 3];
+            neighbors[v0].insert(v1);
+            neighbors[v1].insert(v0);
+        }
+    }
+
+    // Build vertex→face adjacency for new vertices (same as in optimize_intersection_vertices).
+    let mut vert_faces_a: Vec<HashSet<FaceIdx>> = vec![HashSet::new(); n_verts];
+    let mut vert_faces_b: Vec<HashSet<FaceIdx>> = vec![HashSet::new(); n_verts];
+    for sub_tri in &subdivided.tris_a {
+        if sub_tri.parent_tri < bijective_a.tri_face_ids.len() {
+            let face = bijective_a.tri_face_ids[sub_tri.parent_tri];
+            for &vi in &sub_tri.verts {
+                if vi >= num_input_verts {
+                    vert_faces_a[vi].insert(face);
+                }
+            }
+        }
+    }
+    for sub_tri in &subdivided.tris_b {
+        if sub_tri.parent_tri < bijective_b.tri_face_ids.len() {
+            let face = bijective_b.tri_face_ids[sub_tri.parent_tri];
+            for &vi in &sub_tri.verts {
+                if vi >= num_input_verts {
+                    vert_faces_b[vi].insert(face);
+                }
+            }
+        }
+    }
+
+    let mut recovered = 0;
+
+    for vi in num_input_verts..n_verts {
+        if vertex_status[vi] != VertexOptStatus::Failed {
+            continue;
+        }
+
+        // Find neighboring vertices that are Optimized or Planar.
+        let good_neighbors: Vec<usize> = neighbors[vi]
+            .iter()
+            .copied()
+            .filter(|&ni| {
+                matches!(
+                    vertex_status[ni],
+                    VertexOptStatus::Optimized | VertexOptStatus::Planar
+                ) || ni < num_input_verts // Original vertices are reliable
+            })
+            .collect();
+
+        if good_neighbors.is_empty() {
+            continue; // No anchor points for midpoint replacement
+        }
+
+        // Replace with midpoint of good neighbors (Yang 4.5.1: "midpoint of v0 and v1").
+        let mut mid = [0.0f64; 3];
+        for &ni in &good_neighbors {
+            mid[0] += subdivided.verts[ni][0];
+            mid[1] += subdivided.verts[ni][1];
+            mid[2] += subdivided.verts[ni][2];
+        }
+        let n = good_neighbors.len() as f64;
+        mid[0] /= n;
+        mid[1] /= n;
+        mid[2] /= n;
+        subdivided.verts[vi] = mid;
+
+        // Re-optimize from the new midpoint position.
+        let pt = Point3::new(mid[0], mid[1], mid[2]);
+        let mut success = false;
+
+        for &face_a in &vert_faces_a[vi] {
+            for &face_b in &vert_faces_b[vi] {
+                let geom_a = match face_geometry_a.get(&face_a) {
+                    Some(g) => g,
+                    None => continue,
+                };
+                let geom_b = match face_geometry_b.get(&face_b) {
+                    Some(g) => g,
+                    None => continue,
+                };
+                if matches!(geom_a, SurfaceGeom::Planar(_))
+                    && matches!(geom_b, SurfaceGeom::Planar(_))
+                {
+                    vertex_status[vi] = VertexOptStatus::Planar;
+                    success = true;
+                    break;
+                }
+
+                let seed_a = match geom_a.inverse_evaluate(pt) {
+                    Some(uv) => uv,
+                    None => continue,
+                };
+                let seed_b = match geom_b.inverse_evaluate(pt) {
+                    Some(uv) => uv,
+                    None => continue,
+                };
+
+                // Try with clamped parameters (Yang 4.5.1 step truncation).
+                let (cu, cv, _) = geom_a.clamp_params(seed_a.0, seed_a.1);
+                let (cs, ct, _) = geom_b.clamp_params(seed_b.0, seed_b.1);
+
+                let result = geometric_optimize(geom_a, geom_b, (cu, cv), (cs, ct), d_p, 30)
+                    .or_else(|_| newton_optimize(geom_a, geom_b, (cu, cv), (cs, ct), d_p, 30));
+
+                if let Ok(opt) = result {
+                    subdivided.verts[vi] = opt.position;
+                    vertex_status[vi] = VertexOptStatus::Optimized;
+                    recovered += 1;
+                    success = true;
+                    break;
+                }
+            }
+            if success {
+                break;
+            }
+        }
+    }
+
+    recovered
 }
 
 #[cfg(test)]

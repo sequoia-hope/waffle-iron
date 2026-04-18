@@ -237,6 +237,43 @@ impl SurfaceGeom {
         true
     }
 
+    /// Clamp parametric coordinates to the surface's valid domain.
+    ///
+    /// Returns (clamped_u, clamped_v, was_clamped). Used by Yang 4.5.1
+    /// step truncation: when optimization moves params outside the domain,
+    /// clamp to the boundary and switch to the adjacent surface.
+    pub fn clamp_params(&self, u: f64, v: f64) -> (f64, f64, bool) {
+        match self {
+            SurfaceGeom::Planar(_) => (u, v, false), // Infinite domain
+            SurfaceGeom::Cylindrical(_) => {
+                // u ∈ [0, 2π) periodic, v ∈ ℝ
+                let cu = u.rem_euclid(std::f64::consts::TAU);
+                (cu, v, (cu - u).abs() > 1e-12)
+            }
+            SurfaceGeom::Spherical(_) => {
+                // u ∈ [0, 2π) periodic, v ∈ [-π/2, π/2]
+                let cu = u.rem_euclid(std::f64::consts::TAU);
+                let cv = v.clamp(-std::f64::consts::FRAC_PI_2, std::f64::consts::FRAC_PI_2);
+                let clamped = (cu - u).abs() > 1e-12 || (cv - v).abs() > 1e-12;
+                (cu, cv, clamped)
+            }
+            SurfaceGeom::Conical(_) => {
+                // u ∈ [0, 2π) periodic, v > 0 (distance from apex)
+                let cu = u.rem_euclid(std::f64::consts::TAU);
+                let cv = v.max(1e-12);
+                let clamped = (cu - u).abs() > 1e-12 || (cv - v).abs() > 1e-12;
+                (cu, cv, clamped)
+            }
+            SurfaceGeom::Toroidal(_) => {
+                // u, v ∈ [0, 2π) both periodic
+                let cu = u.rem_euclid(std::f64::consts::TAU);
+                let cv = v.rem_euclid(std::f64::consts::TAU);
+                let clamped = (cu - u).abs() > 1e-12 || (cv - v).abs() > 1e-12;
+                (cu, cv, clamped)
+            }
+        }
+    }
+
     /// Compute parametric (u, v) coordinates for a point on this surface.
     ///
     /// Returns None for planar surfaces (parametric coords not meaningful
