@@ -680,7 +680,10 @@ pub(crate) fn yang_boolean_inner(
         + std::time::Duration::from_secs(crate::units::YANG_PIPELINE_TIMEOUT_SECS);
 
     // Step 4: Run Yang pipeline (Phases 1-3): mesh boolean → topology extract.
-    // Passes face geometry for Yang 4.3 intersection optimization.
+    // Yang 4.5.2: if optimization leaves failed vertices, halve d_epsilon and
+    // retry with finer tessellation (up to MAX_REFINEMENT_ROUNDS).
+    const MAX_REFINEMENT_ROUNDS: usize = 2;
+    let mut d_epsilon_local = d_epsilon;
     let mut pipeline_result = yang_boolean_pipeline(
         &verts_a,
         &tris_a,
@@ -692,8 +695,49 @@ pub(crate) fn yang_boolean_inner(
         Some(deadline),
         &solid_a_mod.face_geometry,
         &solid_b_mod.face_geometry,
-        d_epsilon,
+        d_epsilon_local,
     )?;
+
+    for refinement_round in 0..MAX_REFINEMENT_ROUNDS {
+        if pipeline_result.remaining_failed_verts == 0 {
+            break;
+        }
+        // Yang 4.5.2: increase mesh resolution by halving d_epsilon.
+        d_epsilon_local /= 2.0;
+        eprintln!(
+            "[yang-diag] Strategy 2 (4.5.2): {} failed verts, refining with d_epsilon={:.2e} (round {})",
+            pipeline_result.remaining_failed_verts,
+            d_epsilon_local,
+            refinement_round + 1
+        );
+
+        // Re-tessellate at finer resolution.
+        let lod_refined = tessellation::TessellationLod::Adaptive {
+            d_epsilon: d_epsilon_local,
+        };
+        let mesh_a_ref = tessellate_waffle_solid(&solid_a_mod, lod_refined)?;
+        let mesh_b_ref = tessellate_waffle_solid(&solid_b_mod, lod_refined)?;
+        let (mut va_ref, mut ta_ref) = render_mesh_to_arrays(&mesh_a_ref);
+        let (mut vb_ref, mut tb_ref) = render_mesh_to_arrays(&mesh_b_ref);
+        dedup_mesh_vertices(&mut va_ref, &mut ta_ref);
+        dedup_mesh_vertices(&mut vb_ref, &mut tb_ref);
+        let bij_a_ref = BijectiveMap::from_render_mesh(&mesh_a_ref, &solid_a_mod.face_map);
+        let bij_b_ref = BijectiveMap::from_render_mesh(&mesh_b_ref, &solid_b_mod.face_map);
+
+        pipeline_result = yang_boolean_pipeline(
+            &va_ref,
+            &ta_ref,
+            &vb_ref,
+            &tb_ref,
+            &bij_a_ref,
+            &bij_b_ref,
+            mesh_op,
+            Some(deadline),
+            &solid_a_mod.face_geometry,
+            &solid_b_mod.face_geometry,
+            d_epsilon_local,
+        )?;
+    }
 
     #[cfg(test)]
     {

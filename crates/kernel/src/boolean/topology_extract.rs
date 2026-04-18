@@ -1485,6 +1485,9 @@ pub(crate) struct YangPipelineResult {
     pub topology: ResultTopology,
     pub survival: FaceSurvivalMap,
     pub subdivided: SubdividedMesh,
+    /// Number of intersection vertices that failed optimization after all
+    /// recovery attempts. Non-zero triggers Yang 4.5.2 mesh refinement.
+    pub remaining_failed_verts: usize,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1508,6 +1511,7 @@ pub(crate) fn yang_boolean_pipeline(
     d_p: f64,
 ) -> Result<YangPipelineResult, KernelError> {
     // Stage 1: Subdivide both meshes along their mutual intersections.
+    let mut remaining_failed_verts = 0usize;
     let mut subdivided = subdivide_mesh_pair(verts_a, tris_a, verts_b, tris_b, deadline)?;
     eprintln!(
         "[yang-diag] after subdivide: tris_a={}, tris_b={}, verts={}",
@@ -1562,6 +1566,20 @@ pub(crate) fn yang_boolean_pipeline(
                     recovered
                 );
             }
+        }
+
+        // Count remaining failures for Yang 4.5.2 refinement signal.
+        remaining_failed_verts = stats
+            .vertex_status
+            .iter()
+            .filter(|s| matches!(s, crate::boolean::intersection_opt::VertexOptStatus::Failed))
+            .count();
+        if remaining_failed_verts > 0 {
+            eprintln!(
+                "[yang-diag] {} vertices still Failed after recovery — \
+                 would benefit from Strategy 2 (mesh refinement)",
+                remaining_failed_verts
+            );
         }
     }
 
@@ -1625,6 +1643,7 @@ pub(crate) fn yang_boolean_pipeline(
         topology,
         survival,
         subdivided,
+        remaining_failed_verts,
     })
 }
 
