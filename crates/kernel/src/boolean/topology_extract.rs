@@ -1589,7 +1589,7 @@ pub(crate) fn yang_boolean_pipeline(
     {
         let num_input_verts = verts_a.len() + verts_b.len();
         let reversed_count = crate::boolean::intersection_opt::correct_reversed_intersections(
-            &subdivided,
+            &mut subdivided,
             bijective_a,
             bijective_b,
             face_geometry_a,

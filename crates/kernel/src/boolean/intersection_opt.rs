@@ -691,20 +691,21 @@ pub(crate) fn recover_failed_regions(
 /// order. For each intersection vertex with parametric coords on both surfaces,
 /// compare the discrete tangent (from polyline neighbors) with the analytical
 /// tangent (cross product of surface normals). If angle is 45°-135°, the point
-/// is reversed — remove it and reconnect.
+/// is reversed — collapse it into its next point (or previous point if no next works).
 ///
-/// Returns the number of reversed points removed (sub-triangles referencing
-/// removed vertices are updated to skip them).
+/// Collapse operation: when vi_r is reversed, move its next point vi_n into vi_r's
+/// position and reroute all triangle references from vi_n → vi_r. This preserves
+/// the intersection curve topology while avoiding index shifts.
+///
+/// Returns the number of reversed points collapsed.
 pub(crate) fn correct_reversed_intersections(
-    subdivided: &SubdividedMesh,
+    subdivided: &mut SubdividedMesh,
     bijective_a: &BijectiveMap,
     bijective_b: &BijectiveMap,
     face_geometry_a: &BTreeMap<FaceIdx, SurfaceGeom>,
     face_geometry_b: &BTreeMap<FaceIdx, SurfaceGeom>,
     num_input_verts: usize,
 ) -> usize {
-    use crate::geometry::point::Vector3;
-
     let n_verts = subdivided.verts.len();
     if num_input_verts >= n_verts {
         return 0;
@@ -772,22 +773,19 @@ pub(crate) fn correct_reversed_intersections(
         }
     }
 
-    // For each polyline, detect and count reversed points.
-    let mut removed = 0;
+    // For each polyline, detect and collapse reversed points.
+    // Algorithm: for each middle point p_r:
+    //   1. If collinear or angle is 45°-135°, p_r is reversed
+    //   2. Collapse next point p_n into p_r (copy position/params, reroute triangles)
+    //   3. Re-check p_r with its new next point
+    //   4. If no next point works, collapse p_r into previous point p_b
+    let mut collapsed = 0;
     let angle_lo = std::f64::consts::FRAC_PI_4; // 45°
     let angle_hi = 3.0 * std::f64::consts::FRAC_PI_4; // 135°
 
-    for polyline in &polylines {
-        let len = polyline.len();
-        if len < 3 {
-            continue;
-        }
-
-        for i in 1..len - 1 {
-            let vi_b = polyline[i - 1];
-            let vi_r = polyline[i];
-            let vi_n = polyline[i + 1];
-
+    // Helper: check if point vi_r is reversed given neighbors vi_b and vi_n
+    let is_reversed_point =
+        |subdivided: &SubdividedMesh, vi_b: usize, vi_r: usize, vi_n: usize| -> bool {
             let pb = subdivided.verts[vi_b];
             let pr = subdivided.verts[vi_r];
             let pn = subdivided.verts[vi_n];
@@ -803,7 +801,7 @@ pub(crate) fn correct_reversed_intersections(
                     .sqrt();
 
             if len_bp < 1e-15 || len_rn < 1e-15 {
-                continue;
+                return false; // Degenerate edge
             }
 
             let t_disc = [
@@ -814,20 +812,19 @@ pub(crate) fn correct_reversed_intersections(
             let t_disc_len =
                 (t_disc[0] * t_disc[0] + t_disc[1] * t_disc[1] + t_disc[2] * t_disc[2]).sqrt();
 
-            // Collinearity check: if discrete tangent is nearly zero, points are reversing
+            // Collinear check: if discrete tangent is nearly zero, points are reversing
             if t_disc_len < 1e-10 {
-                removed += 1;
-                continue; // Collinear reversal detected
+                return true;
             }
 
             // Analytical tangent: n_A × n_B at p_r
             let params_a = match subdivided.params_a[vi_r] {
                 Some(p) => p,
-                None => continue,
+                None => return false,
             };
             let params_b = match subdivided.params_b[vi_r] {
                 Some(p) => p,
-                None => continue,
+                None => return false,
             };
 
             // Find which face this vertex belongs to (use first adjacent face)
@@ -844,16 +841,16 @@ pub(crate) fn correct_reversed_intersections(
 
             let (face_a, face_b) = match (face_a, face_b) {
                 (Some(a), Some(b)) => (a, b),
-                _ => continue,
+                _ => return false,
             };
 
             let geom_a = match face_geometry_a.get(&face_a) {
                 Some(g) => g,
-                None => continue,
+                None => return false,
             };
             let geom_b = match face_geometry_b.get(&face_b) {
                 Some(g) => g,
-                None => continue,
+                None => return false,
             };
 
             let n_a = geom_a.normal_at(params_a.0, params_a.1);
@@ -862,7 +859,7 @@ pub(crate) fn correct_reversed_intersections(
             let t_anal_len = t_anal.length();
 
             if t_anal_len < 1e-15 {
-                continue; // Parallel normals — tangent surfaces, skip
+                return false; // Parallel normals — tangent surfaces, skip
             }
 
             // Compare angles
@@ -870,13 +867,84 @@ pub(crate) fn correct_reversed_intersections(
                 / (t_disc_len * t_anal_len);
             let angle = dot.clamp(-1.0, 1.0).acos();
 
-            if angle > angle_lo && angle < angle_hi {
-                removed += 1; // Reversal detected at this vertex
+            angle > angle_lo && angle < angle_hi
+        };
+
+    // Helper: collapse vi_n into vi_r by copying position/params and rerouting triangles
+    let collapse_into = |subdivided: &mut SubdividedMesh, vi_r: usize, vi_n: usize| {
+        // Copy position and parameters from vi_n to vi_r
+        subdivided.verts[vi_r] = subdivided.verts[vi_n];
+        subdivided.params_a[vi_r] = subdivided.params_a[vi_n];
+        subdivided.params_b[vi_r] = subdivided.params_b[vi_n];
+
+        // Reroute all triangle references: vi_n → vi_r
+        for tri in &mut subdivided.tris_a {
+            for vi in &mut tri.verts {
+                if *vi == vi_n {
+                    *vi = vi_r;
+                }
             }
+        }
+        for tri in &mut subdivided.tris_b {
+            for vi in &mut tri.verts {
+                if *vi == vi_n {
+                    *vi = vi_r;
+                }
+            }
+        }
+    };
+
+    use std::collections::HashSet;
+
+    for polyline in &polylines {
+        if polyline.len() < 3 {
+            continue;
+        }
+
+        // Track orphaned vertices (collapsed away) so we can skip them
+        let mut orphaned = HashSet::new();
+
+        // Process each position in the polyline, skipping orphaned vertices
+        let mut i = 1;
+        while i < polyline.len() {
+            // Find the previous non-orphaned vertex
+            let mut prev_idx = i - 1;
+            while prev_idx > 0 && orphaned.contains(&polyline[prev_idx]) {
+                prev_idx -= 1;
+            }
+
+            // Find the next non-orphaned vertex
+            let mut next_idx = i + 1;
+            while next_idx < polyline.len() && orphaned.contains(&polyline[next_idx]) {
+                next_idx += 1;
+            }
+
+            // Skip if this is an orphaned vertex or if we don't have both neighbors
+            if orphaned.contains(&polyline[i]) || next_idx >= polyline.len() {
+                i += 1;
+                continue;
+            }
+
+            let vi_b = polyline[prev_idx];
+            let vi_r = polyline[i];
+            let vi_n = polyline[next_idx];
+
+            if is_reversed_point(subdivided, vi_b, vi_r, vi_n) {
+                // Reversal detected: collapse vi_n into vi_r
+                collapse_into(subdivided, vi_r, vi_n);
+                orphaned.insert(vi_n);
+                collapsed += 1;
+
+                // Don't increment i — re-check vi_r with its new next neighbor
+                // (which may have changed due to orphaning vi_n)
+                continue;
+            }
+
+            i += 1;
         }
     }
 
-    removed
+    collapsed
 }
 
 #[cfg(test)]
@@ -1101,5 +1169,106 @@ mod tests {
             result.is_err(),
             "Should fail on parallel non-intersecting planes"
         );
+    }
+
+    #[test]
+    fn correct_reversed_intersections_collapses_middle_point() {
+        // Test Yang 4.5.3: detect and collapse a reversed vertex via collinear
+        // detection.
+        //
+        // Layout: 2 original verts (v0, v1) + 3 intersection verts (v2, v3, v4).
+        // Triangles create a strict chain: v2-v3 edge, v3-v4 edge, but NO v2-v4 edge.
+        // This forces polyline order [v2, v3, v4].
+        //
+        // v2=(0,0,0) → v3=(2,0,0) → v4=(1,0,0)
+        //   edge v2→v3 = (+2,0,0), unit = (+1,0,0)
+        //   edge v3→v4 = (-1,0,0), unit = (-1,0,0)
+        //   discrete tangent at v3 = (+1,0,0)+(-1,0,0) = (0,0,0) → collinear reversal
+        //
+        // After collapse: v3 gets v4's position (1,0,0), triangle refs to v4 → v3.
+        use crate::boolean::exact_mesh::{SubTriangle, SubdividedMesh};
+        use crate::tessellation::bijective::BijectiveMap;
+        use crate::topology::half_edge::FaceIdx;
+        use std::collections::BTreeMap;
+
+        let mut subdivided = SubdividedMesh {
+            verts: vec![
+                [10.0, 10.0, 10.0], // v0: original (not intersection)
+                [20.0, 20.0, 20.0], // v1: original (not intersection)
+                [0.0, 0.0, 0.0],    // v2: intersection start
+                [2.0, 0.0, 0.0],    // v3: REVERSED (overshoots past v4)
+                [1.0, 0.0, 0.0],    // v4: intersection end
+            ],
+            // Two triangles per mesh, creating chain edges v2-v3 and v3-v4
+            // but NOT v2-v4 (v0/v1 are non-intersection anchors).
+            tris_a: vec![
+                SubTriangle {
+                    verts: [0, 2, 3],
+                    parent_tri: 0,
+                },
+                SubTriangle {
+                    verts: [0, 3, 4],
+                    parent_tri: 0,
+                },
+            ],
+            tris_b: vec![
+                SubTriangle {
+                    verts: [1, 2, 3],
+                    parent_tri: 0,
+                },
+                SubTriangle {
+                    verts: [1, 3, 4],
+                    parent_tri: 0,
+                },
+            ],
+            params_a: vec![
+                None,
+                None,
+                Some((0.0, 0.0)),
+                Some((2.0, 0.0)),
+                Some((1.0, 0.0)),
+            ],
+            params_b: vec![
+                None,
+                None,
+                Some((0.0, 0.0)),
+                Some((2.0, 0.0)),
+                Some((1.0, 0.0)),
+            ],
+        };
+
+        let bijective_a = BijectiveMap {
+            tri_face_ids: vec![FaceIdx(0)],
+            vertex_params: vec![],
+        };
+        let bijective_b = BijectiveMap {
+            tri_face_ids: vec![FaceIdx(0)],
+            vertex_params: vec![],
+        };
+        let face_geometry_a: BTreeMap<FaceIdx, SurfaceGeom> = BTreeMap::new();
+        let face_geometry_b: BTreeMap<FaceIdx, SurfaceGeom> = BTreeMap::new();
+
+        let collapsed = correct_reversed_intersections(
+            &mut subdivided,
+            &bijective_a,
+            &bijective_b,
+            &face_geometry_a,
+            &face_geometry_b,
+            2, // v0, v1 are original
+        );
+
+        assert_eq!(collapsed, 1, "Should collapse 1 reversed vertex");
+        // v3 should now have v4's position
+        assert_eq!(
+            subdivided.verts[3],
+            [1.0, 0.0, 0.0],
+            "v3 should be moved to v4's position"
+        );
+        // All triangle references to v4 should be rerouted to v3
+        for tri in subdivided.tris_a.iter().chain(subdivided.tris_b.iter()) {
+            for &v in &tri.verts {
+                assert_ne!(v, 4, "All refs to v4 should be rerouted to v3");
+            }
+        }
     }
 }
