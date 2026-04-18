@@ -204,19 +204,109 @@ pub(crate) fn geometric_optimize(
             );
         }
 
-        // Project midpoint of (pA, pB) onto line L.
-        // Line passes through midpoint in direction line_dir.
-        let mid = [
+        // === Yang 4.3.2: Compute tangent plane intersection line L_k ===
+        // Tangent planes: P_A_k: n_A · (P - p_A) = 0, P_B_k: n_B · (P - p_B) = 0
+        // This is a 2×3 linear system:
+        //   n_A · P = d_A, where d_A = n_A · p_A
+        //   n_B · P = d_B, where d_B = n_B · p_B
+        //
+        // Choose coordinate to eliminate by finding largest |d| component.
+        // Solve the 2×2 subsystem via Cramer's rule.
+
+        let d_a = na.x * pa.x + na.y * pa.y + na.z * pa.z;
+        let d_b = nb.x * pb.x + nb.y * pb.y + nb.z * pb.z;
+
+        let abs_dx = line_dir[0].abs();
+        let abs_dy = line_dir[1].abs();
+        let abs_dz = line_dir[2].abs();
+
+        let line_point = if abs_dx >= abs_dy && abs_dx >= abs_dz {
+            // x is largest component: eliminate x, solve 2×2 for y, z
+            // [n_A_y  n_A_z] [y]     [d_A]
+            // [n_B_y  n_B_z] [z]  =  [d_B]
+            let det = na.y * nb.z - na.z * nb.y;
+            if det.abs() < 1e-30 {
+                return newton_optimize(
+                    surface_a,
+                    surface_b,
+                    (ua, va),
+                    (sb, tb),
+                    d_p,
+                    max_iter - iter,
+                );
+            }
+            let y = (d_a * nb.z - na.z * d_b) / det;
+            let z = (na.y * d_b - d_a * nb.y) / det;
+            [0.0, y, z]
+        } else if abs_dy >= abs_dz {
+            // y is largest component: eliminate y, solve 2×2 for x, z
+            // [n_A_x  n_A_z] [x]     [d_A]
+            // [n_B_x  n_B_z] [z]  =  [d_B]
+            let det = na.x * nb.z - na.z * nb.x;
+            if det.abs() < 1e-30 {
+                return newton_optimize(
+                    surface_a,
+                    surface_b,
+                    (ua, va),
+                    (sb, tb),
+                    d_p,
+                    max_iter - iter,
+                );
+            }
+            let x = (d_a * nb.z - na.z * d_b) / det;
+            let z = (na.x * d_b - d_a * nb.x) / det;
+            [x, 0.0, z]
+        } else {
+            // z is largest component: eliminate z (set z=0), solve 2×2 for x, y
+            // [n_A_x  n_A_y] [x]     [d_A]
+            // [n_B_x  n_B_y] [y]  =  [d_B]
+            let det = na.x * nb.y - na.y * nb.x;
+            if det.abs() < 1e-30 {
+                return newton_optimize(
+                    surface_a,
+                    surface_b,
+                    (ua, va),
+                    (sb, tb),
+                    d_p,
+                    max_iter - iter,
+                );
+            }
+            let x = (d_a * nb.y - na.y * d_b) / det;
+            let y = (na.x * d_b - d_a * nb.x) / det;
+            [x, y, 0.0]
+        };
+
+        // Normalize line direction
+        let line_len = line_len_sq.sqrt();
+        let d_hat = [
+            line_dir[0] / line_len,
+            line_dir[1] / line_len,
+            line_dir[2] / line_len,
+        ];
+
+        // Project midpoint r1 onto line L to get r2
+        let r1 = [
             (pa.x + pb.x) * 0.5,
             (pa.y + pb.y) * 0.5,
             (pa.z + pb.z) * 0.5,
         ];
+        let r_to_line = [
+            r1[0] - line_point[0],
+            r1[1] - line_point[1],
+            r1[2] - line_point[2],
+        ];
+        let proj_len = r_to_line[0] * d_hat[0] + r_to_line[1] * d_hat[1] + r_to_line[2] * d_hat[2];
+        let r2 = [
+            line_point[0] + proj_len * d_hat[0],
+            line_point[1] + proj_len * d_hat[1],
+            line_point[2] + proj_len * d_hat[2],
+        ];
 
-        // Back-project the midpoint onto both surfaces to get new params.
+        // Back-project r2 onto both surfaces
         let proj_a =
-            surface_a.project_point(crate::geometry::point::Point3::new(mid[0], mid[1], mid[2]));
+            surface_a.project_point(crate::geometry::point::Point3::new(r2[0], r2[1], r2[2]));
         let proj_b =
-            surface_b.project_point(crate::geometry::point::Point3::new(mid[0], mid[1], mid[2]));
+            surface_b.project_point(crate::geometry::point::Point3::new(r2[0], r2[1], r2[2]));
 
         // Update parametric coordinates via inverse evaluation.
         if let Some((new_ua, new_va)) = surface_a.inverse_evaluate(proj_a) {
@@ -411,10 +501,10 @@ pub(crate) fn optimize_intersection_vertices(
                     }
                 };
 
-                // Try geometric method first (better for general loops),
-                // fall back to Newton (better for tangent points).
-                let result = geometric_optimize(geom_a, geom_b, seed_a, seed_b, d_p, 20)
-                    .or_else(|_| newton_optimize(geom_a, geom_b, seed_a, seed_b, d_p, 20));
+                // Per Yang 4.3.3: Newton first (for tangent points, boundary cases),
+                // geometric fallback (for general intersection loops).
+                let result = newton_optimize(geom_a, geom_b, seed_a, seed_b, d_p, 20)
+                    .or_else(|_| geometric_optimize(geom_a, geom_b, seed_a, seed_b, d_p, 20));
 
                 match result {
                     Ok(opt) => {
@@ -574,8 +664,9 @@ pub(crate) fn recover_failed_regions(
                 let (cu, cv, _) = geom_a.clamp_params(seed_a.0, seed_a.1);
                 let (cs, ct, _) = geom_b.clamp_params(seed_b.0, seed_b.1);
 
-                let result = geometric_optimize(geom_a, geom_b, (cu, cv), (cs, ct), d_p, 30)
-                    .or_else(|_| newton_optimize(geom_a, geom_b, (cu, cv), (cs, ct), d_p, 30));
+                // Per Yang 4.3.3: Newton first, geometric fallback.
+                let result = newton_optimize(geom_a, geom_b, (cu, cv), (cs, ct), d_p, 30)
+                    .or_else(|_| geometric_optimize(geom_a, geom_b, (cu, cv), (cs, ct), d_p, 30));
 
                 if let Ok(opt) = result {
                     subdivided.verts[vi] = opt.position;
@@ -886,5 +977,129 @@ mod tests {
         let a = [[1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]];
         let b = [1.0, 1.0, 1.0];
         assert!(solve_3x3_cramer(&a, &b).is_none());
+    }
+
+    #[test]
+    fn geometric_sphere_cylinder_intersection_line_projection() {
+        // Test Yang 4.3.2 geometric method: tangent plane intersection + projection
+        // Sphere: center (0,0,0), radius 1
+        // Cylinder: axis along z, radius 0.8, centered at origin
+        // Intersection: circle at z=√(1-0.64)=0.6, x²+y²=0.64
+        let sphere = SurfaceGeom::Spherical(Sphere {
+            center: Point3::new(0.0, 0.0, 0.0),
+            radius: 1.0,
+        });
+        let cylinder = SurfaceGeom::Cylindrical(Cylinder {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            axis: Vector3::new(0.0, 0.0, 1.0),
+            radius: 0.8,
+        });
+
+        // Seed near intersection point (~0.8, 0, 0.6)
+        // For sphere: (u,v) → (sin(v)cos(u), sin(v)sin(u), cos(v))
+        // For cylinder: (u,v) → (0.8*cos(u), 0.8*sin(u), v)
+        // At point (0.8, 0, 0.6):
+        // - Sphere: u≈0, v=acos(0.6)≈0.927 radians (about 53°)
+        // - Cylinder: u≈0, v≈0.6
+
+        let result = geometric_optimize(&sphere, &cylinder, (0.1, 0.93), (0.05, 0.6), 1e-6, 50);
+        let opt = result.expect("Geometric should converge for sphere-cylinder");
+
+        // The optimized position should be on both surfaces.
+        let p_opt = opt.position;
+
+        // Check sphere: distance from origin should be ≈ 1.0
+        let r_sphere = (p_opt[0] * p_opt[0] + p_opt[1] * p_opt[1] + p_opt[2] * p_opt[2]).sqrt();
+        assert!(
+            (r_sphere - 1.0).abs() < 1e-4,
+            "Optimized point should be on sphere (r=1), got r={r_sphere}"
+        );
+
+        // Check cylinder: x²+y² should be ≈ 0.64
+        let r_cyl_sq = p_opt[0] * p_opt[0] + p_opt[1] * p_opt[1];
+        assert!(
+            (r_cyl_sq - 0.64).abs() < 1e-4,
+            "Optimized point should be on cylinder (r²=0.64), got r²={r_cyl_sq}"
+        );
+
+        // The z-coordinate should be positive (intersection is above xy-plane)
+        assert!(
+            p_opt[2] > 0.0,
+            "z should be positive for upper intersection"
+        );
+    }
+
+    #[test]
+    fn geometric_offset_sphere_cylinder_nontrivial_intersection_line() {
+        // Test Yang 4.3.2 with non-trivial tangent plane intersection line.
+        // Sphere: center (0.5, 0, 0), radius 1 — offset so normals are non-axis-aligned.
+        // Cylinder: radius 0.8 along z-axis at origin.
+        // Both have working inverse_evaluate, so both params update each iteration.
+        let sa = SurfaceGeom::Spherical(Sphere {
+            center: Point3::new(0.5, 0.0, 0.0),
+            radius: 1.0,
+        });
+        let sb = SurfaceGeom::Cylindrical(Cylinder {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            axis: Vector3::new(0.0, 0.0, 1.0),
+            radius: 0.8,
+        });
+
+        // A point near the intersection: on the cylinder at (0.8, 0, 0).
+        // Distance from sphere center (0.5, 0, 0) to (0.8, 0, 0) = 0.3, which is
+        // inside the sphere. The sphere-cylinder intersection is a curve where
+        // (x-0.5)²+y²+z² = 1 AND x²+y² = 0.64.
+        // At z=0, (x-0.5)²+y² = 1 and x²+y² = 0.64
+        //   → x²-x+0.25+y² = 1 → 0.64-x+0.25 = 1 → x = -0.11
+        // So intersection at z=0 is near x=-0.11, y²=0.64-0.0121≈0.628, y≈0.792.
+        // Point ≈ (-0.11, 0.792, 0).
+        //
+        // Sphere inverse_evaluate at (-0.11, 0.792, 0):
+        //   d = (-0.11-0.5, 0.792, 0) = (-0.61, 0.792, 0), len=1.0
+        //   u = atan2(0.792, -0.61) ≈ 2.23, v = asin(0) = 0
+        // Cylinder inverse_evaluate at (-0.11, 0.792, 0):
+        //   u = atan2(0.792/0.8, -0.11/0.8) ≈ atan2(0.99, -0.1375) ≈ 1.71, v = 0
+
+        // Start with seeds slightly off the intersection.
+        let result = geometric_optimize(&sa, &sb, (2.2, 0.05), (1.7, 0.05), 1e-6, 50);
+        let opt = result.expect("Geometric should converge for offset sphere-cylinder");
+
+        // Check sphere: distance from center (0.5,0,0) should be ≈ 1.0
+        let dx = opt.position[0] - 0.5;
+        let dy = opt.position[1];
+        let dz = opt.position[2];
+        let r_sphere = (dx * dx + dy * dy + dz * dz).sqrt();
+        assert!(
+            (r_sphere - 1.0).abs() < 1e-4,
+            "Point should be on sphere (r=1), got r={r_sphere}"
+        );
+
+        // Check cylinder: x²+y² should be ≈ 0.64
+        let r_cyl_sq = opt.position[0] * opt.position[0] + opt.position[1] * opt.position[1];
+        assert!(
+            (r_cyl_sq - 0.64).abs() < 1e-4,
+            "Point should be on cylinder (r²=0.64), got r²={r_cyl_sq}"
+        );
+    }
+
+    #[test]
+    fn geometric_parallel_tangent_planes_fallback_to_newton() {
+        // Two parallel planes: should detect parallel normals and fall back to Newton
+        let plane_a = SurfaceGeom::Planar(Plane {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+        });
+        let plane_b = SurfaceGeom::Planar(Plane {
+            origin: Point3::new(0.0, 0.0, 1.0),
+            normal: Vector3::new(0.0, 0.0, 1.0), // Parallel
+        });
+
+        let result = geometric_optimize(&plane_a, &plane_b, (0.5, 0.5), (0.5, 0.5), 1e-6, 20);
+        // Should detect parallel planes and delegate to Newton, which should fail
+        // because planes don't intersect (parallel, offset by 1.0)
+        assert!(
+            result.is_err(),
+            "Should fail on parallel non-intersecting planes"
+        );
     }
 }
