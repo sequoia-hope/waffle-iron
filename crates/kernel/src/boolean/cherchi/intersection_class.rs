@@ -106,18 +106,38 @@ pub(crate) fn detect_intersections(ts: &TriangleSoup, aux: &mut AuxiliaryStructu
                 continue;
             }
 
-            // Gauss map filter (Yang 2025 Section 4.2.2):
-            // For same-mesh pairs: skip if normals co-oriented (manifold can't
-            // self-intersect at co-oriented faces).
-            // This reduces false positives from the AABB broad phase.
-            if ts.tri_label(t0) == ts.tri_label(t1) {
+            // Gauss map filter (Yang 2025 Section 4.2.2, Theorem 4.1):
+            // For flat triangles (half_angle=0), NormalCone::may_intersect()
+            // has a strict-inequality bug (0 < 0 → false always), so we use
+            // a direct dot-product check instead.
+            //
+            // Same-mesh: co-oriented normals on a manifold can't self-intersect.
+            // Cross-mesh: co-oriented normals can't produce a transversal
+            // intersection, BUT coplanar overlap is possible (e.g., box faces
+            // on the same plane). Guard with orient3d: only skip if all
+            // vertices of t1 are strictly on one side of t0's plane.
+            {
                 let n0 = &tri_normals[t0];
                 let n1 = &tri_normals[t1];
                 let dot = n0[0] * n1[0] + n0[1] * n1[1] + n0[2] * n1[2];
                 let len0_sq = n0[0] * n0[0] + n0[1] * n0[1] + n0[2] * n0[2];
                 let len1_sq = n1[0] * n1[0] + n1[1] * n1[1] + n1[2] * n1[2];
                 if dot > 0.0 && len0_sq > 1e-30 && len1_sq > 1e-30 {
-                    continue;
+                    if ts.tri_label(t0) == ts.tri_label(t1) {
+                        // Same-mesh: safe to skip co-oriented pairs.
+                        continue;
+                    }
+                    // Cross-mesh: skip only if t1 is strictly on one side
+                    // of t0's plane (not coplanar, no straddling).
+                    let a = ts.tri_vert(t0, 0);
+                    let b = ts.tri_vert(t0, 1);
+                    let c = ts.tri_vert(t0, 2);
+                    let o0 = orient3d(a, b, c, ts.tri_vert(t1, 0));
+                    let o1 = orient3d(a, b, c, ts.tri_vert(t1, 1));
+                    let o2 = orient3d(a, b, c, ts.tri_vert(t1, 2));
+                    if (o0 > 0.0 && o1 > 0.0 && o2 > 0.0) || (o0 < 0.0 && o1 < 0.0 && o2 < 0.0) {
+                        continue;
+                    }
                 }
             }
 
