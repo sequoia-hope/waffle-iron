@@ -2166,7 +2166,7 @@ mod tests {
         let (verts_a, tris_a) = make_test_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_test_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -2218,7 +2218,7 @@ mod tests {
         let expired = std::time::Instant::now() - std::time::Duration::from_secs(1);
         let (va, ta) = make_test_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
         let (vb, tb) = make_test_box_mesh([0.5, 0.0, 0.0], [1.5, 1.0, 1.0]);
-        let result = subdivide_mesh_pair(&va, &ta, &vb, &tb, Some(expired));
+        let result = subdivide_mesh_pair(&va, &ta, &vb, &tb, Some(expired), 0.0);
         assert!(
             result.is_err(),
             "expired deadline should cause timeout error"

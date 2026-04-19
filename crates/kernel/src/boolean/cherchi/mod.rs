@@ -54,6 +54,7 @@ pub(crate) fn solve_intersections(
     in_coords: &[f64],
     in_tris: &[usize],
     in_labels: &[u32],
+    d_epsilon: f64,
 ) -> Result<SolveResult, String> {
     if in_tris.is_empty() {
         return Ok(SolveResult {
@@ -91,7 +92,7 @@ pub(crate) fn solve_intersections(
     // Step 5: Detect intersecting triangle pairs (broad-phase BVH + exact predicates)
     let mut aux = AuxiliaryStructure::new();
     aux.init_from_triangle_soup(&ts);
-    detect_intersections(&ts, &mut aux);
+    detect_intersections(&ts, &mut aux, d_epsilon);
 
     // Step 6: Classify intersections — populate edge2pts, tri2pts, tri2segs
     classify_intersections(&mut ts, &mut aux);
@@ -173,7 +174,7 @@ mod tests {
         ];
         let labels: Vec<u32> = vec![0; 36];
 
-        let result = solve_intersections(&coords, &tris, &labels);
+        let result = solve_intersections(&coords, &tris, &labels, 0.0);
         assert!(result.is_ok(), "should not panic: {:?}", result.err());
 
         let r = result.unwrap();
@@ -264,7 +265,7 @@ mod tests {
         let mut labels = vec![0u32; num_tris_a];
         labels.extend(vec![1u32; tris_b.len() / 3]);
 
-        let result = solve_intersections(&coords, &tris, &labels);
+        let result = solve_intersections(&coords, &tris, &labels, 0.0);
         assert!(result.is_ok(), "should not panic: {:?}", result.err());
     }
 
@@ -286,7 +287,7 @@ mod tests {
         let mut labels = vec![1u32; 12]; // box A
         labels.extend(vec![2u32; 12]); // box B
 
-        let result = solve_intersections(&coords, &tris, &labels);
+        let result = solve_intersections(&coords, &tris, &labels, 0.0);
         assert!(result.is_ok(), "should not panic: {:?}", result.err());
         let r = result.unwrap();
 
@@ -338,7 +339,7 @@ mod tests {
         let mut labels = vec![0u32; num_tris_a];
         labels.extend(vec![1u32; tris_b.len() / 3]);
 
-        let result = solve_intersections(&coords, &tris, &labels);
+        let result = solve_intersections(&coords, &tris, &labels, 0.0);
         assert!(result.is_ok(), "should not panic: {:?}", result.err());
     }
 }

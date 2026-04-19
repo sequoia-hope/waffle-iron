@@ -2017,8 +2017,9 @@ pub(crate) fn subdivide_mesh_pair(
     verts_b: &[[f64; 3]],
     tris_b: &[[usize; 3]],
     deadline: Option<std::time::Instant>,
+    d_epsilon: f64,
 ) -> Result<SubdividedMesh, crate::types::KernelError> {
-    subdivide_mesh_pair_full_cherchi(verts_a, tris_a, verts_b, tris_b, deadline)
+    subdivide_mesh_pair_full_cherchi(verts_a, tris_a, verts_b, tris_b, deadline, d_epsilon)
 }
 
 /// Full Cherchi mesh arrangement pipeline via `solve_intersections`.
@@ -2033,6 +2034,7 @@ fn subdivide_mesh_pair_full_cherchi(
     verts_b: &[[f64; 3]],
     tris_b: &[[usize; 3]],
     _deadline: Option<std::time::Instant>,
+    d_epsilon: f64,
 ) -> Result<SubdividedMesh, crate::types::KernelError> {
     // 1. Merge into flat arrays with labels
     let mut in_coords: Vec<f64> = Vec::with_capacity((verts_a.len() + verts_b.len()) * 3);
@@ -2055,8 +2057,9 @@ fn subdivide_mesh_pair_full_cherchi(
     }
 
     // 2. Call Cherchi pipeline
-    let result = crate::boolean::cherchi::solve_intersections(&in_coords, &in_tris, &in_labels)
-        .map_err(|e| crate::types::KernelError::BooleanFailed { reason: e })?;
+    let result =
+        crate::boolean::cherchi::solve_intersections(&in_coords, &in_tris, &in_labels, d_epsilon)
+            .map_err(|e| crate::types::KernelError::BooleanFailed { reason: e })?;
 
     // 3. Split output by label into tris_a and tris_b, tracking parent_tri
     //
@@ -3010,7 +3013,7 @@ mod tests {
         let verts_b = [[0.0, 0.0, 5.0], [1.0, 0.0, 5.0], [0.0, 1.0, 5.0]];
         let tris_b = [[0, 1, 2]];
 
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
 
         // Non-intersected triangles pass through unchanged
@@ -3042,7 +3045,7 @@ mod tests {
         let verts_b = [[1.0, 1.0, -2.0], [1.0, 1.0, 2.0], [3.0, 1.0, 0.0]];
         let tris_b = [[0, 1, 2]];
 
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
 
         // Each triangle is split by an intersection segment. When both endpoints
@@ -3133,7 +3136,7 @@ mod tests {
         let verts_b = [[0.0, 0.0, 0.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0]];
         let tris_b = [[0, 1, 2]];
 
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
 
         // Point intersections don't split triangles — both pass through unchanged
@@ -3172,7 +3175,7 @@ mod tests {
         ];
         let tris_b = [[0, 1, 2]];
 
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
 
         // The first A triangle (index 0) is intersected and should be split (>1 sub-tri)
@@ -3212,7 +3215,7 @@ mod tests {
         let verts_b = [[2.0, -1.0, -1.0], [2.0, 2.0, -1.0], [2.0, -1.0, 1.0]];
         let tris_b = [[0, 1, 2]];
 
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
 
         // Area conservation for mesh A
@@ -3304,7 +3307,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([5.0, 0.0, 0.0], [7.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -3348,7 +3351,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -3418,7 +3421,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([5.0, 0.0, 0.0], [7.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -3453,7 +3456,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -3492,7 +3495,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -3531,7 +3534,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([5.0, 0.0, 0.0], [7.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -4266,7 +4269,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh_fine([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh_fine([0.75, 0.75, 0.75], [2.75, 2.75, 2.75]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -4483,7 +4486,7 @@ mod tests {
         let (va, ta) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (vb, tb) = make_box_mesh_fine([0.75, 0.75, 0.75], [2.75, 2.75, 2.75]);
         let sub =
-            subdivide_mesh_pair(&va, &ta, &vb, &tb, None).expect("subdivision should succeed");
+            subdivide_mesh_pair(&va, &ta, &vb, &tb, None, 0.0).expect("subdivision should succeed");
         let lab = label_cells(&sub, &va, &ta, &vb, &tb, None).unwrap();
         for op in [
             MeshBooleanOp::Union,
@@ -4539,7 +4542,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh_fine([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh_fine([0.75, 0.75, 0.75], [2.75, 2.75, 2.75]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
 
         // For each mesh (A and B), build a map from original edges to the set of
@@ -4722,7 +4725,7 @@ mod tests {
         // Single triangle — it intersects mesh A's shared edge (1,2) near y=0
         let tris_b: Vec<[usize; 3]> = vec![[0, 1, 2]];
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
 
         // The shared edge of mesh A is between vertices 1 and 2 (y=-1 to y=+1).
@@ -4854,7 +4857,7 @@ mod tests {
         ];
         let tris_b = [[0, 1, 2]];
 
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
 
         // Area conservation for mesh A (both parent triangles combined).
@@ -4962,7 +4965,7 @@ mod tests {
         ];
         let tris_b = [[0, 1, 2], [3, 4, 5]];
 
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
 
         // Area conservation for mesh A.
@@ -5082,7 +5085,7 @@ mod tests {
         ];
         let tris_b = [[0, 1, 2]];
 
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
 
         // Area conservation.
@@ -5236,7 +5239,7 @@ mod tests {
         ];
         let tris_b = [[0, 1, 2]];
 
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
 
         // Per-parent area conservation for mesh A.
@@ -5438,7 +5441,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
 
         let total_a = subdivided.tris_a.len();
@@ -5462,7 +5465,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -5756,7 +5759,7 @@ mod tests {
         let (verts_a, tris_a) = make_unit_box([0.0, 0.0, 0.0]);
         let (verts_b, tris_b) = make_unit_box([0.5, 0.5, 0.0]);
 
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
 
         // Both meshes must produce sub-triangles
@@ -5874,7 +5877,7 @@ mod tests {
         let (verts_b, tris_b) = make_sphere_mesh(500, [0.5, 0.0, 0.0], 1.0);
 
         let start = std::time::Instant::now();
-        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let result = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let elapsed = start.elapsed();
 
@@ -5900,7 +5903,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 1.0, 1.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 1.0, 1.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
 
         // Collect all vertex indices used by both A and B sub-triangles
@@ -5938,7 +5941,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 1.0, 1.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 1.0, 1.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
 
         let tau_work = crate::units::TAU_WORK;
@@ -6152,7 +6155,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -6295,7 +6298,7 @@ mod tests {
     fn label_cells_respects_deadline() {
         let (va, ta) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
         let (vb, tb) = make_box_mesh([0.5, 0.5, 0.5], [1.5, 1.5, 1.5]);
-        let subdivided = subdivide_mesh_pair(&va, &ta, &vb, &tb, None).unwrap();
+        let subdivided = subdivide_mesh_pair(&va, &ta, &vb, &tb, None, 0.0).unwrap();
 
         // Deadline already expired → should return Err immediately
         let expired = std::time::Instant::now() - std::time::Duration::from_secs(1);
@@ -6315,7 +6318,7 @@ mod tests {
     fn label_cells_no_deadline_still_works() {
         let (va, ta) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
         let (vb, tb) = make_box_mesh([0.5, 0.5, 0.5], [1.5, 1.5, 1.5]);
-        let subdivided = subdivide_mesh_pair(&va, &ta, &vb, &tb, None).unwrap();
+        let subdivided = subdivide_mesh_pair(&va, &ta, &vb, &tb, None, 0.0).unwrap();
         let labeling = label_cells(&subdivided, &va, &ta, &vb, &tb, None).unwrap();
         assert_eq!(labeling.labels_a.len(), subdivided.tris_a.len());
         assert_eq!(labeling.labels_b.len(), subdivided.tris_b.len());
@@ -6325,7 +6328,7 @@ mod tests {
     fn label_cells_generous_deadline_succeeds() {
         let (va, ta) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
         let (vb, tb) = make_box_mesh([0.5, 0.5, 0.5], [1.5, 1.5, 1.5]);
-        let subdivided = subdivide_mesh_pair(&va, &ta, &vb, &tb, None).unwrap();
+        let subdivided = subdivide_mesh_pair(&va, &ta, &vb, &tb, None, 0.0).unwrap();
 
         // Generous deadline (60s) — should succeed
         let future = std::time::Instant::now() + std::time::Duration::from_secs(60);
@@ -6561,7 +6564,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_rotated_box_mesh([1.0, 1.0, 1.0], 1.0);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
 
         let n_orig_a = verts_a.len();

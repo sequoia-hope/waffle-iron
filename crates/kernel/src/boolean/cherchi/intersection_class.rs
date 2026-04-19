@@ -47,7 +47,11 @@ use crate::boolean::indirect_predicates::ImplicitPoint;
 /// Ported from intersection_classification.cpp:84-93 (detectIntersections)
 /// and intersection_classification.cpp:46-82 (find_intersections)
 #[allow(dead_code)]
-pub(crate) fn detect_intersections(ts: &TriangleSoup, aux: &mut AuxiliaryStructure) {
+pub(crate) fn detect_intersections(
+    ts: &TriangleSoup,
+    aux: &mut AuxiliaryStructure,
+    d_epsilon: f64,
+) {
     let num_tris = ts.num_tris();
     if num_tris == 0 {
         return;
@@ -59,15 +63,16 @@ pub(crate) fn detect_intersections(ts: &TriangleSoup, aux: &mut AuxiliaryStructu
         let v0 = ts.tri_vert(t_id, 0);
         let v1 = ts.tri_vert(t_id, 1);
         let v2 = ts.tri_vert(t_id, 2);
+        // Yang 2025 §4.2.1 Eq. 1: expand AABBs by d_epsilon for conservative detection
         let min = [
-            v0[0].min(v1[0]).min(v2[0]),
-            v0[1].min(v1[1]).min(v2[1]),
-            v0[2].min(v1[2]).min(v2[2]),
+            v0[0].min(v1[0]).min(v2[0]) - d_epsilon,
+            v0[1].min(v1[1]).min(v2[1]) - d_epsilon,
+            v0[2].min(v1[2]).min(v2[2]) - d_epsilon,
         ];
         let max = [
-            v0[0].max(v1[0]).max(v2[0]),
-            v0[1].max(v1[1]).max(v2[1]),
-            v0[2].max(v1[2]).max(v2[2]),
+            v0[0].max(v1[0]).max(v2[0]) + d_epsilon,
+            v0[1].max(v1[1]).max(v2[1]) + d_epsilon,
+            v0[2].max(v1[2]).max(v2[2]) + d_epsilon,
         ];
         aabbs.push((min, max));
     }
@@ -1674,7 +1679,7 @@ mod tests {
     #[test]
     fn test_detect_intersections_two_boxes() {
         let (ts, mut aux) = make_two_boxes_soup();
-        detect_intersections(&ts, &mut aux);
+        detect_intersections(&ts, &mut aux, 0.0);
         // Should find at least some intersection pairs between the overlapping box faces
         // The exact count depends on face orientations but should be > 0
         assert!(
@@ -1686,7 +1691,7 @@ mod tests {
     #[test]
     fn test_classify_intersections_populates_edge2pts() {
         let (mut ts, mut aux) = make_two_boxes_soup();
-        detect_intersections(&ts, &mut aux);
+        detect_intersections(&ts, &mut aux, 0.0);
 
         if !aux.intersection_list().is_empty() {
             classify_intersections(&mut ts, &mut aux);

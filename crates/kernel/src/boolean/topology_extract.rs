@@ -1512,7 +1512,7 @@ pub(crate) fn yang_boolean_pipeline(
 ) -> Result<YangPipelineResult, KernelError> {
     // Stage 1: Subdivide both meshes along their mutual intersections.
     let mut remaining_failed_verts = 0usize;
-    let mut subdivided = subdivide_mesh_pair(verts_a, tris_a, verts_b, tris_b, deadline)?;
+    let mut subdivided = subdivide_mesh_pair(verts_a, tris_a, verts_b, tris_b, deadline, d_p)?;
     eprintln!(
         "[yang-diag] after subdivide: tris_a={}, tris_b={}, verts={}",
         subdivided.tris_a.len(),
@@ -1738,7 +1738,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -2016,7 +2016,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh(min_a, max_a);
         let (verts_b, tris_b) = make_box_mesh(min_b, max_b);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -3452,7 +3452,7 @@ mod tests {
             BijectiveMap::from_tri_face_ids((0..12).map(|i| FaceIdx(i / 2)).collect());
 
         // Run intermediate stages to get face survival count.
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -3662,7 +3662,7 @@ mod tests {
         let (verts_b, tris_b) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
 
         // Stage 1: Subdivide
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
 
         // Diagnostic: Check if coplanar pairs created any new sub-triangles
@@ -3776,7 +3776,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -3862,7 +3862,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [4.0, 4.0, 4.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 1.0, 0.0], [3.0, 3.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -4005,7 +4005,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh_per_face([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_box_mesh_per_face([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         eprintln!(
             "Per-face subdivide: tris_a={}, tris_b={}, verts={}",
@@ -4346,7 +4346,7 @@ mod tests {
         let bijective_a = build_bijective_from_tri_count(tris_a.len());
         let bijective_b = build_bijective_from_tri_count(tris_b.len());
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -5156,7 +5156,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [10.0, 10.0, 10.0]);
         let (verts_b, tris_b) = make_box_mesh([5.0, 5.0, 0.0], [15.0, 15.0, 10.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -5190,7 +5190,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
         let (verts_b, tris_b) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -5224,7 +5224,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
         let (verts_b, tris_b) = make_box_mesh([10.0, 10.0, 10.0], [11.0, 11.0, 11.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -5258,7 +5258,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
         let (verts_b, tris_b) = make_box_mesh([10.0, 10.0, 10.0], [11.0, 11.0, 11.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -5301,7 +5301,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [6.0, 4.0, 3.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [5.0, 4.0, 5.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -5351,7 +5351,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [6.0, 4.0, 3.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [5.0, 4.0, 5.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -5404,7 +5404,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh(min_a, max_a);
         let (verts_b, tris_b) = make_box_mesh(min_b, max_b);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
@@ -5518,7 +5518,7 @@ mod tests {
         let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [3.0, 1.0, 1.0]);
         let (verts_b, tris_b) = make_box_mesh([1.0, -1.0, 0.0], [2.0, 2.0, 1.0]);
 
-        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None)
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
             label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
