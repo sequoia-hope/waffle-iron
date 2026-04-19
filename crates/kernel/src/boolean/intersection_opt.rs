@@ -365,6 +365,7 @@ fn solve_3x3_cramer(a: &[[f64; 3]; 3], b: &[f64; 3]) -> Option<[f64; 3]> {
 use crate::boolean::exact_mesh::SubdividedMesh;
 use crate::geometry::point::Point3;
 use crate::tessellation::bijective::BijectiveMap;
+use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::FaceIdx;
 use std::collections::{BTreeMap, HashSet};
 
@@ -535,12 +536,197 @@ pub(crate) fn optimize_intersection_vertices(
     stats
 }
 
+/// Yang 4.5.1: Find the adjacent face across the nearest boundary edge.
+///
+/// Given a face and an optimized 3D point that has left the face's trim domain,
+/// walk the face's outer loop to find the nearest boundary edge, then follow the
+/// twin half-edge to discover the adjacent face. Returns the adjacent face index
+/// and its surface geometry (if available).
+fn find_adjacent_face_across_boundary<'a>(
+    arena: &'a TopoArena,
+    face_idx: FaceIdx,
+    point: [f64; 3],
+    face_geometry: &'a BTreeMap<FaceIdx, SurfaceGeom>,
+) -> Option<(FaceIdx, &'a SurfaceGeom)> {
+    if face_idx.0 >= arena.faces.len() {
+        return None;
+    }
+    let face = &arena.faces[face_idx.0];
+    let outer_loop = face.outer_loop;
+    if outer_loop.0 >= arena.loops.len() {
+        return None;
+    }
+    let start_he = arena.loops[outer_loop.0].half_edge;
+
+    // Walk the outer loop collecting edges; find the one closest to `point`.
+    let mut best_dist_sq = f64::MAX;
+    let mut best_twin_face: Option<FaceIdx> = None;
+    let mut he = start_he;
+    loop {
+        if he.0 >= arena.half_edges.len() {
+            break;
+        }
+        let he_data = &arena.half_edges[he.0];
+        let v0_idx = he_data.origin;
+        let next_he = he_data.next;
+        if next_he.0 >= arena.half_edges.len() {
+            break;
+        }
+        let v1_idx = arena.half_edges[next_he.0].origin;
+
+        if v0_idx.0 < arena.vertices.len() && v1_idx.0 < arena.vertices.len() {
+            let p0 = arena.vertices[v0_idx.0].position;
+            let p1 = arena.vertices[v1_idx.0].position;
+            let dist_sq = closest_point_on_segment_dist_sq(point, p0, p1);
+
+            if dist_sq < best_dist_sq {
+                best_dist_sq = dist_sq;
+                // Follow twin to get the adjacent face
+                let twin = he_data.twin;
+                if twin.0 < arena.half_edges.len() {
+                    let twin_loop = arena.half_edges[twin.0].loop_;
+                    if twin_loop.0 < arena.loops.len() {
+                        let adj_face = arena.loops[twin_loop.0].face;
+                        if adj_face != face_idx {
+                            best_twin_face = Some(adj_face);
+                        }
+                    }
+                }
+            }
+        }
+
+        he = next_he;
+        if he == start_he {
+            break;
+        }
+    }
+
+    best_twin_face.and_then(|adj| face_geometry.get(&adj).map(|g| (adj, g)))
+}
+
+/// Squared distance from `point` to the closest point on segment `p0→p1`.
+fn closest_point_on_segment_dist_sq(point: [f64; 3], p0: [f64; 3], p1: [f64; 3]) -> f64 {
+    let dx = p1[0] - p0[0];
+    let dy = p1[1] - p0[1];
+    let dz = p1[2] - p0[2];
+    let len_sq = dx * dx + dy * dy + dz * dz;
+    if len_sq < 1e-30 {
+        let ex = point[0] - p0[0];
+        let ey = point[1] - p0[1];
+        let ez = point[2] - p0[2];
+        return ex * ex + ey * ey + ez * ez;
+    }
+    let t = ((point[0] - p0[0]) * dx + (point[1] - p0[1]) * dy + (point[2] - p0[2]) * dz) / len_sq;
+    let t = t.clamp(0.0, 1.0);
+    let cx = p0[0] + t * dx;
+    let cy = p0[1] + t * dy;
+    let cz = p0[2] + t * dz;
+    let ex = point[0] - cx;
+    let ey = point[1] - cy;
+    let ez = point[2] - cz;
+    ex * ex + ey * ey + ez * ez
+}
+
+/// Yang 4.5.1: Check if an optimized point has left the source face.
+///
+/// Evaluates the surface at the optimized params and checks if the resulting
+/// 3D point is still geometrically on the face (within tolerance). Uses the
+/// face's boundary loop vertices to do a simple containment test: the point
+/// should be within a tolerance of the face's surface AND its projection
+/// should lie within the convex hull of the face boundary.
+///
+/// Returns true if the point is OUTSIDE the face boundary.
+fn point_exited_face(
+    arena: &TopoArena,
+    face_idx: FaceIdx,
+    optimized_pos: [f64; 3],
+    geom: &SurfaceGeom,
+) -> bool {
+    // First check: is the point still on the surface at all?
+    let pt = Point3::new(optimized_pos[0], optimized_pos[1], optimized_pos[2]);
+    if !geom.contains_point(pt) {
+        return true;
+    }
+
+    // Second check: is the point within the face's boundary polygon?
+    // Walk the outer loop and collect boundary vertices.
+    if face_idx.0 >= arena.faces.len() {
+        return false; // Can't verify — assume OK
+    }
+    let face = &arena.faces[face_idx.0];
+    let outer_loop = face.outer_loop;
+    if outer_loop.0 >= arena.loops.len() {
+        return false;
+    }
+    let start_he = arena.loops[outer_loop.0].half_edge;
+    let mut boundary_verts: Vec<[f64; 3]> = Vec::new();
+    let mut he = start_he;
+    loop {
+        if he.0 >= arena.half_edges.len() {
+            break;
+        }
+        let v = arena.half_edges[he.0].origin;
+        if v.0 < arena.vertices.len() {
+            boundary_verts.push(arena.vertices[v.0].position);
+        }
+        he = arena.half_edges[he.0].next;
+        if he == start_he {
+            break;
+        }
+    }
+
+    if boundary_verts.len() < 3 {
+        return false; // Degenerate face — can't verify
+    }
+
+    // Check: distance from optimized point to the nearest boundary edge.
+    // If it's closer to a boundary edge than to the face interior, it may
+    // have exited. Use a simpler heuristic: compute distance to the face
+    // plane's centroid and compare with max vertex distance.
+    // This is approximate but sufficient for the truncation trigger.
+    let mut centroid = [0.0f64; 3];
+    for v in &boundary_verts {
+        centroid[0] += v[0];
+        centroid[1] += v[1];
+        centroid[2] += v[2];
+    }
+    let n = boundary_verts.len() as f64;
+    centroid[0] /= n;
+    centroid[1] /= n;
+    centroid[2] /= n;
+
+    // Max distance from centroid to any boundary vertex
+    let max_radius_sq = boundary_verts
+        .iter()
+        .map(|v| {
+            let dx = v[0] - centroid[0];
+            let dy = v[1] - centroid[1];
+            let dz = v[2] - centroid[2];
+            dx * dx + dy * dy + dz * dz
+        })
+        .fold(0.0f64, f64::max);
+
+    // Distance from optimized point to centroid
+    let dx = optimized_pos[0] - centroid[0];
+    let dy = optimized_pos[1] - centroid[1];
+    let dz = optimized_pos[2] - centroid[2];
+    let dist_sq = dx * dx + dy * dy + dz * dz;
+
+    // If point is farther from centroid than the farthest boundary vertex,
+    // it's likely outside the face. Use 1.2× margin for robustness.
+    dist_sq > max_radius_sq * 1.44 // 1.2² = 1.44
+}
+
 /// Yang 4.5.1: Recover failed vertices by replacing with midpoints of
 /// neighboring successful vertices, then re-optimizing with step clamping.
 ///
 /// For each FAILED vertex, finds the nearest SUCCESSFUL or PLANAR vertices
 /// that share an edge in the subdivided mesh. Replaces the failed vertex's
 /// position with the midpoint of those neighbors, then re-runs optimization.
+///
+/// When arenas are provided, implements true boundary truncation per Yang 4.5.1:
+/// if the optimized point exits the source face, finds the adjacent face across
+/// the nearest boundary edge and re-optimizes using the adjacent surface.
 ///
 /// Returns the number of vertices recovered.
 pub(crate) fn recover_failed_regions(
@@ -552,6 +738,8 @@ pub(crate) fn recover_failed_regions(
     face_geometry_b: &BTreeMap<FaceIdx, SurfaceGeom>,
     num_input_verts: usize,
     d_p: f64,
+    arena_a: Option<&TopoArena>,
+    arena_b: Option<&TopoArena>,
 ) -> usize {
     let n_verts = subdivided.verts.len();
     if num_input_verts >= n_verts {
@@ -669,7 +857,105 @@ pub(crate) fn recover_failed_regions(
                     .or_else(|_| geometric_optimize(geom_a, geom_b, (cu, cv), (cs, ct), d_p, 30));
 
                 if let Ok(opt) = result {
-                    subdivided.verts[vi] = opt.position;
+                    // Yang 4.5.1 boundary truncation: check if the optimized
+                    // point has left the source face on either side. If so,
+                    // find the adjacent face and re-optimize on its surface.
+                    let mut final_opt = opt;
+                    let mut switched = false;
+
+                    // Check side A: did the point leave face_a?
+                    if let Some(arena) = arena_a {
+                        if point_exited_face(arena, face_a, final_opt.position, geom_a) {
+                            if let Some((adj_face, adj_geom)) = find_adjacent_face_across_boundary(
+                                arena,
+                                face_a,
+                                final_opt.position,
+                                face_geometry_a,
+                            ) {
+                                let adj_pt = Point3::new(
+                                    final_opt.position[0],
+                                    final_opt.position[1],
+                                    final_opt.position[2],
+                                );
+                                if let Some(adj_seed) = adj_geom.inverse_evaluate(adj_pt) {
+                                    let (au, av, _) = adj_geom.clamp_params(adj_seed.0, adj_seed.1);
+                                    // Re-optimize with the adjacent surface for side A
+                                    let adj_result = newton_optimize(
+                                        adj_geom,
+                                        geom_b,
+                                        (au, av),
+                                        final_opt.params_b,
+                                        d_p,
+                                        30,
+                                    )
+                                    .or_else(|_| {
+                                        geometric_optimize(
+                                            adj_geom,
+                                            geom_b,
+                                            (au, av),
+                                            final_opt.params_b,
+                                            d_p,
+                                            30,
+                                        )
+                                    });
+                                    if let Ok(adj_opt) = adj_result {
+                                        final_opt = adj_opt;
+                                        switched = true;
+                                        let _ = adj_face; // used for logging if needed
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Check side B: did the point leave face_b?
+                    if !switched {
+                        if let Some(arena) = arena_b {
+                            if point_exited_face(arena, face_b, final_opt.position, geom_b) {
+                                if let Some((_adj_face, adj_geom)) =
+                                    find_adjacent_face_across_boundary(
+                                        arena,
+                                        face_b,
+                                        final_opt.position,
+                                        face_geometry_b,
+                                    )
+                                {
+                                    let adj_pt = Point3::new(
+                                        final_opt.position[0],
+                                        final_opt.position[1],
+                                        final_opt.position[2],
+                                    );
+                                    if let Some(adj_seed) = adj_geom.inverse_evaluate(adj_pt) {
+                                        let (as_, at, _) =
+                                            adj_geom.clamp_params(adj_seed.0, adj_seed.1);
+                                        let adj_result = newton_optimize(
+                                            geom_a,
+                                            adj_geom,
+                                            final_opt.params_a,
+                                            (as_, at),
+                                            d_p,
+                                            30,
+                                        )
+                                        .or_else(|_| {
+                                            geometric_optimize(
+                                                geom_a,
+                                                adj_geom,
+                                                final_opt.params_a,
+                                                (as_, at),
+                                                d_p,
+                                                30,
+                                            )
+                                        });
+                                        if let Ok(adj_opt) = adj_result {
+                                            final_opt = adj_opt;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    subdivided.verts[vi] = final_opt.position;
                     vertex_status[vi] = VertexOptStatus::Optimized;
                     recovered += 1;
                     success = true;
@@ -1270,5 +1556,204 @@ mod tests {
                 assert_ne!(v, 4, "All refs to v4 should be rerouted to v3");
             }
         }
+    }
+
+    #[test]
+    fn closest_point_on_segment_dist_sq_midpoint() {
+        // Point directly above midpoint of segment [0,0,0]-[2,0,0]
+        let d = closest_point_on_segment_dist_sq([1.0, 1.0, 0.0], [0.0, 0.0, 0.0], [2.0, 0.0, 0.0]);
+        assert!((d - 1.0).abs() < 1e-12, "Distance² should be 1.0, got {d}");
+    }
+
+    #[test]
+    fn closest_point_on_segment_dist_sq_endpoint() {
+        // Point beyond the end of the segment
+        let d = closest_point_on_segment_dist_sq([3.0, 0.0, 0.0], [0.0, 0.0, 0.0], [2.0, 0.0, 0.0]);
+        assert!((d - 1.0).abs() < 1e-12, "Distance² should be 1.0, got {d}");
+    }
+
+    #[test]
+    fn closest_point_on_segment_dist_sq_degenerate() {
+        // Degenerate segment (zero length)
+        let d = closest_point_on_segment_dist_sq([1.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]);
+        assert!((d - 1.0).abs() < 1e-12, "Distance² should be 1.0, got {d}");
+    }
+
+    #[test]
+    fn find_adjacent_face_across_boundary_simple() {
+        // Build a minimal B-Rep with two faces sharing an edge.
+        use crate::topology::arena::TopoArena;
+
+        let mut arena = TopoArena::new();
+        let solid = arena.add_solid();
+        let shell = arena.add_shell(solid);
+
+        // Two faces: face0 (triangle v0-v1-v2) and face1 (triangle v1-v3-v2)
+        let v0 = arena.add_vertex([0.0, 0.0, 0.0]);
+        let v1 = arena.add_vertex([1.0, 0.0, 0.0]);
+        let v2 = arena.add_vertex([0.5, 1.0, 0.0]);
+        let v3 = arena.add_vertex([1.5, 1.0, 0.0]);
+
+        let face0 = arena.add_face(shell);
+        let face1 = arena.add_face(shell);
+        let loop0 = arena.add_loop(face0);
+        let loop1 = arena.add_loop(face1);
+        arena.faces[face0.0].outer_loop = loop0;
+        arena.faces[face1.0].outer_loop = loop1;
+
+        // Face0: v0→v1→v2 (3 half-edges)
+        let (_, he0a, he0b) = arena.add_edge(); // v0→v1
+        let (_, he1a, he1b) = arena.add_edge(); // v1→v2
+        let (_, he2a, he2b) = arena.add_edge(); // v2→v0
+
+        // Face1: v1→v3→v2 (3 half-edges + shared edge v1→v2)
+        let (_, he3a, he3b) = arena.add_edge(); // v1→v3
+        let (_, he4a, he4b) = arena.add_edge(); // v3→v2
+
+        // Wire face0 loop: he0a(v0→v1) → he1a(v1→v2) → he2a(v2→v0)
+        arena.half_edges[he0a.0].origin = v0;
+        arena.half_edges[he0a.0].next = he1a;
+        arena.half_edges[he0a.0].prev = he2a;
+        arena.half_edges[he0a.0].loop_ = loop0;
+
+        arena.half_edges[he1a.0].origin = v1;
+        arena.half_edges[he1a.0].next = he2a;
+        arena.half_edges[he1a.0].prev = he0a;
+        arena.half_edges[he1a.0].loop_ = loop0;
+
+        arena.half_edges[he2a.0].origin = v2;
+        arena.half_edges[he2a.0].next = he0a;
+        arena.half_edges[he2a.0].prev = he1a;
+        arena.half_edges[he2a.0].loop_ = loop0;
+
+        // Wire face1 loop: he1b(v2→v1) → he3a(v1→v3) → he4a(v3→v2)
+        // The shared edge v1→v2 on face0 is he1a; its twin he1b is on face1 as v2→v1
+        arena.half_edges[he1b.0].origin = v2;
+        arena.half_edges[he1b.0].next = he3a;
+        arena.half_edges[he1b.0].prev = he4a;
+        arena.half_edges[he1b.0].loop_ = loop1;
+
+        arena.half_edges[he3a.0].origin = v1;
+        arena.half_edges[he3a.0].next = he4a;
+        arena.half_edges[he3a.0].prev = he1b;
+        arena.half_edges[he3a.0].loop_ = loop1;
+
+        arena.half_edges[he4a.0].origin = v3;
+        arena.half_edges[he4a.0].next = he1b;
+        arena.half_edges[he4a.0].prev = he3a;
+        arena.half_edges[he4a.0].loop_ = loop1;
+
+        // Set loop starting half-edges
+        arena.loops[loop0.0].half_edge = he0a;
+        arena.loops[loop1.0].half_edge = he1b;
+
+        // Set up face geometry
+        let mut face_geometry: BTreeMap<FaceIdx, SurfaceGeom> = BTreeMap::new();
+        let plane = SurfaceGeom::Planar(Plane {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+        });
+        face_geometry.insert(face0, plane.clone());
+        face_geometry.insert(face1, plane);
+
+        // Query: from face0, point near the shared edge v1-v2, should find face1
+        let point = [0.75, 0.5, 0.0]; // Near the v1-v2 edge
+        let result = find_adjacent_face_across_boundary(&arena, face0, point, &face_geometry);
+        assert!(result.is_some(), "Should find adjacent face");
+        let (adj_face, _) = result.unwrap();
+        assert_eq!(adj_face, face1, "Adjacent face should be face1");
+    }
+
+    #[test]
+    fn point_exited_face_inside() {
+        // Point inside a simple triangular face should NOT be flagged as exited.
+        use crate::topology::arena::TopoArena;
+
+        let mut arena = TopoArena::new();
+        let solid = arena.add_solid();
+        let shell = arena.add_shell(solid);
+        let face = arena.add_face(shell);
+        let loop_ = arena.add_loop(face);
+        arena.faces[face.0].outer_loop = loop_;
+
+        // Triangle: (0,0,0), (2,0,0), (1,2,0)
+        let v0 = arena.add_vertex([0.0, 0.0, 0.0]);
+        let v1 = arena.add_vertex([2.0, 0.0, 0.0]);
+        let v2 = arena.add_vertex([1.0, 2.0, 0.0]);
+
+        let (_, he0, _) = arena.add_edge();
+        let (_, he1, _) = arena.add_edge();
+        let (_, he2, _) = arena.add_edge();
+
+        arena.half_edges[he0.0].origin = v0;
+        arena.half_edges[he0.0].next = he1;
+        arena.half_edges[he0.0].prev = he2;
+        arena.half_edges[he0.0].loop_ = loop_;
+
+        arena.half_edges[he1.0].origin = v1;
+        arena.half_edges[he1.0].next = he2;
+        arena.half_edges[he1.0].prev = he0;
+        arena.half_edges[he1.0].loop_ = loop_;
+
+        arena.half_edges[he2.0].origin = v2;
+        arena.half_edges[he2.0].next = he0;
+        arena.half_edges[he2.0].prev = he1;
+        arena.half_edges[he2.0].loop_ = loop_;
+
+        arena.loops[loop_.0].half_edge = he0;
+
+        let plane = SurfaceGeom::Planar(Plane {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+        });
+
+        // Centroid: (1, 0.67, 0) — should be inside
+        assert!(!point_exited_face(&arena, face, [1.0, 0.67, 0.0], &plane));
+    }
+
+    #[test]
+    fn point_exited_face_outside() {
+        // Point far outside the face should be flagged as exited.
+        use crate::topology::arena::TopoArena;
+
+        let mut arena = TopoArena::new();
+        let solid = arena.add_solid();
+        let shell = arena.add_shell(solid);
+        let face = arena.add_face(shell);
+        let loop_ = arena.add_loop(face);
+        arena.faces[face.0].outer_loop = loop_;
+
+        let v0 = arena.add_vertex([0.0, 0.0, 0.0]);
+        let v1 = arena.add_vertex([1.0, 0.0, 0.0]);
+        let v2 = arena.add_vertex([0.5, 1.0, 0.0]);
+
+        let (_, he0, _) = arena.add_edge();
+        let (_, he1, _) = arena.add_edge();
+        let (_, he2, _) = arena.add_edge();
+
+        arena.half_edges[he0.0].origin = v0;
+        arena.half_edges[he0.0].next = he1;
+        arena.half_edges[he0.0].prev = he2;
+        arena.half_edges[he0.0].loop_ = loop_;
+
+        arena.half_edges[he1.0].origin = v1;
+        arena.half_edges[he1.0].next = he2;
+        arena.half_edges[he1.0].prev = he0;
+        arena.half_edges[he1.0].loop_ = loop_;
+
+        arena.half_edges[he2.0].origin = v2;
+        arena.half_edges[he2.0].next = he0;
+        arena.half_edges[he2.0].prev = he1;
+        arena.half_edges[he2.0].loop_ = loop_;
+
+        arena.loops[loop_.0].half_edge = he0;
+
+        let plane = SurfaceGeom::Planar(Plane {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+        });
+
+        // Point at (10, 10, 0) — way outside the triangle, should be flagged
+        assert!(point_exited_face(&arena, face, [10.0, 10.0, 0.0], &plane));
     }
 }

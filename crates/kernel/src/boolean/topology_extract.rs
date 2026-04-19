@@ -1509,6 +1509,8 @@ pub(crate) fn yang_boolean_pipeline(
         crate::geometry::surface::SurfaceGeom,
     >,
     d_p: f64,
+    arena_a: Option<&crate::topology::arena::TopoArena>,
+    arena_b: Option<&crate::topology::arena::TopoArena>,
 ) -> Result<YangPipelineResult, KernelError> {
     // Stage 1: Subdivide both meshes along their mutual intersections.
     let mut remaining_failed_verts = 0usize;
@@ -1556,6 +1558,8 @@ pub(crate) fn yang_boolean_pipeline(
                     face_geometry_b,
                     num_input_verts,
                     d_p,
+                    arena_a,
+                    arena_b,
                 );
                 if recovered == 0 {
                     break; // No progress — accept remaining failures
@@ -3245,6 +3249,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .unwrap()
         .topology
@@ -3411,6 +3417,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .unwrap()
         .topology;
@@ -3478,6 +3486,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .unwrap()
         .topology;
@@ -3570,6 +3580,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .unwrap()
         .topology;
@@ -3627,6 +3639,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         );
 
         // Use std::any to check the return type at runtime.
@@ -4076,6 +4090,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .expect("pipeline should not error")
         .topology;
@@ -4132,6 +4148,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .expect("pipeline should not error")
         .topology;
@@ -4182,6 +4200,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .expect("pipeline should not error")
         .topology;
@@ -4252,6 +4272,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .expect("Yang pipeline should not error")
         .topology;
@@ -4307,6 +4329,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .expect("Yang pipeline should not error")
         .topology;
@@ -4503,6 +4527,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .expect("Yang pipeline should not error")
         .topology;
@@ -4557,6 +4583,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .expect("Yang pipeline should not error")
         .topology;
@@ -4896,6 +4924,8 @@ mod tests {
                 &std::collections::BTreeMap::new(),
                 &std::collections::BTreeMap::new(),
                 1e-7,
+                None,
+                None,
             )
             .unwrap_or_else(|e| panic!("{op:?} pipeline failed: {e}"));
 
@@ -4977,6 +5007,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .expect("Yang pipeline should not error")
         .topology;
@@ -5043,6 +5075,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .expect("Yang pipeline should not error for identical boxes")
         .topology;
@@ -5110,6 +5144,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .expect("Yang pipeline should not error for contained box intersect")
         .topology;

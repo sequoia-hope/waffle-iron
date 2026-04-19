@@ -696,6 +696,8 @@ pub(crate) fn yang_boolean_inner(
         &solid_a_mod.face_geometry,
         &solid_b_mod.face_geometry,
         d_epsilon_local,
+        Some(&solid_a_mod.arena),
+        Some(&solid_b_mod.arena),
     )?;
 
     for refinement_round in 0..MAX_REFINEMENT_ROUNDS {
@@ -736,6 +738,8 @@ pub(crate) fn yang_boolean_inner(
             &solid_a_mod.face_geometry,
             &solid_b_mod.face_geometry,
             d_epsilon_local,
+            Some(&solid_a_mod.arena),
+            Some(&solid_b_mod.arena),
         )?;
     }
 
@@ -2381,6 +2385,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         );
 
         match &result {
@@ -2577,6 +2583,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .expect("Yang pipeline must succeed for identical box union");
 
@@ -3091,6 +3099,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .unwrap();
         let refinement = crate::boolean::ssi_refinement::EdgeRefinementMap {

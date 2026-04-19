@@ -1019,6 +1019,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .unwrap()
         .topology
@@ -2189,6 +2191,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .unwrap()
         .topology;
@@ -2785,6 +2789,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .unwrap()
         .topology;
@@ -2835,6 +2841,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .unwrap()
         .topology;

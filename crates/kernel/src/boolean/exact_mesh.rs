@@ -4800,6 +4800,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .unwrap()
         .topology;
@@ -5520,6 +5522,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .expect("Yang pipeline should succeed for overlapping boxes")
         .topology;
@@ -6439,6 +6443,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .expect("Yang pipeline should succeed for overlapping boxes");
 
@@ -6509,6 +6515,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .expect("Yang pipeline should succeed for overlapping boxes");
 
@@ -6698,6 +6706,8 @@ mod tests {
             &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
             1e-7,
+            None,
+            None,
         )
         .expect("Yang pipeline should succeed for overlapping boxes");
 
