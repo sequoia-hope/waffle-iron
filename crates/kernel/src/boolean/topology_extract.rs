@@ -37,6 +37,8 @@ pub(crate) struct SurvivingSubTri {
     pub verts: [usize; 3],
     /// Whether winding was flipped (Subtract B-inside-A).
     pub flipped: bool,
+    /// Whether this sub-tri was classified as co-surface (on the other mesh's surface).
+    pub is_cosurface: bool,
 }
 
 /// Maps each surviving source face to its contributing sub-triangles.
@@ -371,6 +373,7 @@ pub(crate) fn flood_fill_patches(
     struct FlatSubTri {
         verts: [usize; 3], // canonical vertex indices
         source: SourceFace,
+        is_cosurface: bool,
     }
 
     let mut all_tris: Vec<FlatSubTri> = Vec::new();
@@ -384,6 +387,7 @@ pub(crate) fn flood_fill_patches(
             all_tris.push(FlatSubTri {
                 verts: [canon_v(raw[0]), canon_v(raw[1]), canon_v(raw[2])],
                 source: *sf,
+                is_cosurface: tri.is_cosurface,
             });
         }
     }
@@ -416,12 +420,21 @@ pub(crate) fn flood_fill_patches(
                     .iter()
                     .any(|&rt| all_tris[rt].source == all_tris[ti].source);
                 if !has_same_source {
-                    boundary_edges.insert((v0, v1));
-                    let has_diff_mesh = reverse_tris
-                        .iter()
-                        .any(|&rt| all_tris[rt].source.mesh_id != all_tris[ti].source.mesh_id);
-                    if has_diff_mesh {
-                        intersection_edges.insert((v0, v1));
+                    // CoSurface pairs from different meshes are INTERIOR (not boundary).
+                    // Both A and B have tris at the same location — they merge into one patch.
+                    let is_cosurface_pair = all_tris[ti].is_cosurface
+                        && reverse_tris.iter().any(|&rt| {
+                            all_tris[rt].is_cosurface
+                                && all_tris[rt].source.mesh_id != all_tris[ti].source.mesh_id
+                        });
+                    if !is_cosurface_pair {
+                        boundary_edges.insert((v0, v1));
+                        let has_diff_mesh = reverse_tris
+                            .iter()
+                            .any(|&rt| all_tris[rt].source.mesh_id != all_tris[ti].source.mesh_id);
+                        if has_diff_mesh {
+                            intersection_edges.insert((v0, v1));
+                        }
                     }
                 }
             } else {
@@ -1423,6 +1436,25 @@ pub(crate) fn face_survival_detect(
         }
     };
 
+    // B uses the same co-surface survival logic as A (symmetric rules).
+    // This ensures co-surface tris exist from BOTH meshes, enabling proper
+    // twin pairing at shared planes. Ref: Cherchi 2022 co-surface rules.
+    let b_keeps_label = |label: &CellLabel| -> bool {
+        if *label == keep_b {
+            return true;
+        }
+        match op {
+            MeshBooleanOp::Union => {
+                matches!(
+                    label,
+                    CellLabel::CoSurfaceInside | CellLabel::CoSurfaceOutside
+                )
+            }
+            MeshBooleanOp::Subtract => *label == CellLabel::CoSurfaceOutside,
+            MeshBooleanOp::Intersect => *label == CellLabel::CoSurfaceInside,
+        }
+    };
+
     // Process A sub-triangles: look up source face via bijective_a.
     // Ref #9: Cherchi 2020 — parent triangle provenance through subdivision.
     for (sub_tri, label) in subdivided.tris_a.iter().zip(labeling.labels_a.iter()) {
@@ -1435,6 +1467,10 @@ pub(crate) fn face_survival_detect(
             groups.entry(key).or_default().push(SurvivingSubTri {
                 verts: sub_tri.verts,
                 flipped: false, // A sub-triangles are never flipped
+                is_cosurface: matches!(
+                    label,
+                    CellLabel::CoSurfaceInside | CellLabel::CoSurfaceOutside
+                ),
             });
         }
     }
@@ -1443,7 +1479,11 @@ pub(crate) fn face_survival_detect(
     // For Subtract, B-inside-A triangles get flipped winding to point normals outward.
     // Ref #24: Yang 2025 — Subtract reverses B-face normals.
     for (sub_tri, label) in subdivided.tris_b.iter().zip(labeling.labels_b.iter()) {
-        if *label == keep_b {
+        if b_keeps_label(label) {
+            let is_cosurface = matches!(
+                label,
+                CellLabel::CoSurfaceInside | CellLabel::CoSurfaceOutside
+            );
             let face_idx = bijective_b.tri_face_ids[sub_tri.parent_tri];
             let key = SourceFace {
                 mesh_id: MeshId::B,
@@ -1452,6 +1492,7 @@ pub(crate) fn face_survival_detect(
             groups.entry(key).or_default().push(SurvivingSubTri {
                 verts: sub_tri.verts,
                 flipped: flip_b, // Only true for Subtract B-inside-A
+                is_cosurface,
             });
         }
     }
@@ -1728,10 +1769,38 @@ mod tests {
         labeling: &CellLabeling,
         op: MeshBooleanOp,
     ) -> usize {
-        let result = select_boolean_result(subdivided, labeling, op);
-        // Each selected triangle emits 3 vertices of 3 floats = 9 values per tri,
-        // but result is Vec<[f64;3]>, so 3 entries per triangle.
-        result.len() / 3
+        // Must match face_survival_detect's symmetric co-surface logic:
+        // Both A and B keep CoSurface tris (for twin pairing in flood_fill).
+        let (keep_a, keep_b) = match op {
+            MeshBooleanOp::Union => (CellLabel::Outside, CellLabel::Outside),
+            MeshBooleanOp::Subtract => (CellLabel::Outside, CellLabel::Inside),
+            MeshBooleanOp::Intersect => (CellLabel::Inside, CellLabel::Inside),
+        };
+
+        let keeps_cosurface = |label: &CellLabel, op: MeshBooleanOp| -> bool {
+            match op {
+                MeshBooleanOp::Union => {
+                    matches!(
+                        label,
+                        CellLabel::CoSurfaceInside | CellLabel::CoSurfaceOutside
+                    )
+                }
+                MeshBooleanOp::Subtract => *label == CellLabel::CoSurfaceOutside,
+                MeshBooleanOp::Intersect => *label == CellLabel::CoSurfaceInside,
+            }
+        };
+
+        let a_count = labeling
+            .labels_a
+            .iter()
+            .filter(|l| **l == keep_a || keeps_cosurface(l, op))
+            .count();
+        let b_count = labeling
+            .labels_b
+            .iter()
+            .filter(|l| **l == keep_b || keeps_cosurface(l, op))
+            .count();
+        a_count + b_count
     }
 
     /// Run the full Phase 2 pipeline for two overlapping boxes and return
@@ -4711,10 +4780,12 @@ mod tests {
                 SurvivingSubTri {
                     verts: [0, 1, 2],
                     flipped: true,
+                    is_cosurface: false,
                 },
                 SurvivingSubTri {
                     verts: [0, 2, 3],
                     flipped: true,
+                    is_cosurface: false,
                 },
             ],
         );
@@ -4731,18 +4802,22 @@ mod tests {
                 SurvivingSubTri {
                     verts: [1, 5, 4],
                     flipped: true,
+                    is_cosurface: false,
                 },
                 SurvivingSubTri {
                     verts: [5, 7, 4],
                     flipped: true,
+                    is_cosurface: false,
                 },
                 SurvivingSubTri {
                     verts: [7, 6, 4],
                     flipped: true,
+                    is_cosurface: false,
                 },
                 SurvivingSubTri {
                     verts: [6, 2, 4],
                     flipped: true,
+                    is_cosurface: false,
                 },
             ],
         );
@@ -4757,10 +4832,12 @@ mod tests {
                 SurvivingSubTri {
                     verts: [8, 9, 10],
                     flipped: false,
+                    is_cosurface: false,
                 },
                 SurvivingSubTri {
                     verts: [8, 10, 11],
                     flipped: false,
+                    is_cosurface: false,
                 },
             ],
         );
@@ -4776,10 +4853,12 @@ mod tests {
                 SurvivingSubTri {
                     verts: [0, 8, 9],
                     flipped: true,
+                    is_cosurface: false,
                 },
                 SurvivingSubTri {
                     verts: [0, 9, 5],
                     flipped: true,
+                    is_cosurface: false,
                 },
             ],
         );
@@ -4795,10 +4874,12 @@ mod tests {
                 SurvivingSubTri {
                     verts: [3, 6, 10],
                     flipped: true,
+                    is_cosurface: false,
                 },
                 SurvivingSubTri {
                     verts: [3, 10, 11],
                     flipped: true,
+                    is_cosurface: false,
                 },
             ],
         );
@@ -4814,10 +4895,12 @@ mod tests {
                 SurvivingSubTri {
                     verts: [0, 3, 11],
                     flipped: true,
+                    is_cosurface: false,
                 },
                 SurvivingSubTri {
                     verts: [0, 11, 8],
                     flipped: true,
+                    is_cosurface: false,
                 },
             ],
         );
@@ -4832,10 +4915,12 @@ mod tests {
                 SurvivingSubTri {
                     verts: [5, 6, 10],
                     flipped: false,
+                    is_cosurface: false,
                 },
                 SurvivingSubTri {
                     verts: [5, 10, 9],
                     flipped: false,
+                    is_cosurface: false,
                 },
             ],
         );
