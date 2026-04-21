@@ -6085,4 +6085,280 @@ mod tests {
         assert!(n_faces >= 6, "Should have at least 6 faces");
         assert!(n_verts >= 8, "Should have at least 8 vertices");
     }
+
+    #[test]
+    fn yang_pipeline_two_overlapping_cubes_stage_verification() {
+        // === GEOMETRY: Two 2×2×2 cubes overlapping by 1 unit in X ===
+        // A = [0,0,0]→[2,2,2], B = [1,0,0]→[3,2,2]
+        // Overlap region: [1,0,0]→[2,2,2], Union result: 3×2×2 box
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
+        assert_eq!(verts_a.len(), 8);
+        assert_eq!(tris_a.len(), 12);
+
+        // === STAGE 2: Cherchi subdivision ===
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
+            .expect("subdivide should succeed");
+
+        // Check conformality: every directed edge should have a reverse
+        let mut edge_counts: HashMap<(usize, usize), usize> = HashMap::new();
+        for tri in subdivided.tris_a.iter().chain(subdivided.tris_b.iter()) {
+            for k in 0..3 {
+                *edge_counts
+                    .entry((tri.verts[k], tri.verts[(k + 1) % 3]))
+                    .or_insert(0) += 1;
+            }
+        }
+        let nc = edge_counts
+            .keys()
+            .filter(|&&(v0, v1)| !edge_counts.contains_key(&(v1, v0)))
+            .count();
+        assert_eq!(nc, 0, "Cherchi output must be conformal (0 NC edges)");
+
+        eprintln!(
+            "STAGE 2: {} verts, {} tris_a, {} tris_b, {} NC",
+            subdivided.verts.len(),
+            subdivided.tris_a.len(),
+            subdivided.tris_b.len(),
+            nc
+        );
+
+        // === STAGE 3: label_cells ===
+        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("label_cells should succeed");
+
+        let a_outside = labeling
+            .labels_a
+            .iter()
+            .filter(|l| matches!(l, CellLabel::Outside))
+            .count();
+        let a_inside = labeling
+            .labels_a
+            .iter()
+            .filter(|l| matches!(l, CellLabel::Inside))
+            .count();
+        let a_cosurface_in = labeling
+            .labels_a
+            .iter()
+            .filter(|l| matches!(l, CellLabel::CoSurfaceInside))
+            .count();
+        let a_cosurface_out = labeling
+            .labels_a
+            .iter()
+            .filter(|l| matches!(l, CellLabel::CoSurfaceOutside))
+            .count();
+
+        let b_outside = labeling
+            .labels_b
+            .iter()
+            .filter(|l| matches!(l, CellLabel::Outside))
+            .count();
+        let b_inside = labeling
+            .labels_b
+            .iter()
+            .filter(|l| matches!(l, CellLabel::Inside))
+            .count();
+        let b_cosurface_in = labeling
+            .labels_b
+            .iter()
+            .filter(|l| matches!(l, CellLabel::CoSurfaceInside))
+            .count();
+        let b_cosurface_out = labeling
+            .labels_b
+            .iter()
+            .filter(|l| matches!(l, CellLabel::CoSurfaceOutside))
+            .count();
+
+        eprintln!(
+            "STAGE 3: A outside={} inside={} cosurface_in={} cosurface_out={}",
+            a_outside, a_inside, a_cosurface_in, a_cosurface_out
+        );
+        eprintln!(
+            "STAGE 3: B outside={} inside={} cosurface_in={} cosurface_out={}",
+            b_outside, b_inside, b_cosurface_in, b_cosurface_out
+        );
+
+        // Overlapping boxes: MUST have Inside tris (faces buried inside other solid)
+        assert!(
+            a_inside > 0,
+            "Overlapping boxes: A should have Inside tris (right face x=2 is inside B)"
+        );
+        assert!(
+            b_inside > 0,
+            "Overlapping boxes: B should have Inside tris (left face x=1 is inside A)"
+        );
+
+        // === STAGE 4: face_survival for Union ===
+        let bij_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
+        let bij_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
+
+        let survival =
+            face_survival_detect(&subdivided, &labeling, MeshBooleanOp::Union, &bij_a, &bij_b);
+
+        let n_groups = survival.groups.len();
+        let n_surviving: usize = survival.groups.values().map(|v| v.len()).sum();
+
+        eprintln!(
+            "STAGE 4: {} groups, {} surviving tris",
+            n_groups, n_surviving
+        );
+        for (sf, tris) in &survival.groups {
+            eprintln!(
+                "  {:?}: {} tris (cosurface: {})",
+                sf,
+                tris.len(),
+                tris.iter().filter(|t| t.is_cosurface).count()
+            );
+        }
+
+        assert!(n_surviving > 0, "Should have surviving tris for Union");
+
+        // === DIAGNOSTIC 1: Surviving tri dump ===
+        eprintln!("\n=== DIAGNOSTIC 1: Surviving tri vertex positions ===");
+        for (sf, tris) in &survival.groups {
+            eprintln!(
+                "  Group {:?} ({} tris, cosurface={}):",
+                sf,
+                tris.len(),
+                tris.iter().filter(|t| t.is_cosurface).count()
+            );
+            for tri in tris {
+                let v0 = subdivided.verts[tri.verts[0]];
+                let v1 = subdivided.verts[tri.verts[1]];
+                let v2 = subdivided.verts[tri.verts[2]];
+                eprintln!(
+                    "    [{:.3},{:.3},{:.3}] [{:.3},{:.3},{:.3}] [{:.3},{:.3},{:.3}] cosurface={}",
+                    v0[0], v0[1], v0[2], v1[0], v1[1], v1[2], v2[0], v2[1], v2[2], tri.is_cosurface
+                );
+            }
+        }
+
+        // === DIAGNOSTIC 4: Pre-flood_fill edge pairing check ===
+        eprintln!("\n=== DIAGNOSTIC 4: Pre-flood_fill directed edge analysis ===");
+        {
+            let mut directed_edges: HashMap<(usize, usize), Vec<SourceFace>> = HashMap::new();
+            for (sf, tris) in &survival.groups {
+                for tri in tris {
+                    for k in 0..3 {
+                        let e = (tri.verts[k], tri.verts[(k + 1) % 3]);
+                        directed_edges.entry(e).or_default().push(*sf);
+                    }
+                }
+            }
+            let total_directed = directed_edges.len();
+            let with_reverse = directed_edges
+                .keys()
+                .filter(|&&(v0, v1)| directed_edges.contains_key(&(v1, v0)))
+                .count();
+            let without_reverse = total_directed - with_reverse;
+            eprintln!(
+                "  Total directed edges: {}, with reverse: {}, WITHOUT reverse (boundary): {}",
+                total_directed, with_reverse, without_reverse
+            );
+            if without_reverse > 0 {
+                eprintln!("  Unpaired directed edges (no reverse):");
+                for (&(v0, v1), sources) in &directed_edges {
+                    if !directed_edges.contains_key(&(v1, v0)) {
+                        let p0 = subdivided.verts[v0];
+                        let p1 = subdivided.verts[v1];
+                        eprintln!(
+                            "    edge ({}->{}) [{:.4},{:.4},{:.4}]->[{:.4},{:.4},{:.4}] from {:?}",
+                            v0, v1, p0[0], p0[1], p0[2], p1[0], p1[1], p1[2], sources
+                        );
+                    }
+                }
+            }
+        }
+
+        // === STAGE 5: flood_fill_patches ===
+        let topology = flood_fill_patches(&survival, &subdivided);
+
+        let n_verts = topology.arena.vertices.len();
+        let n_edges = topology.arena.edges.len();
+        let n_faces = topology.arena.faces.len();
+        let n_he = topology.arena.half_edges.len();
+
+        // Count unpaired HEs
+        let unpaired = (0..n_he)
+            .filter(|&i| {
+                let twin = topology.arena.half_edges[i].twin.0;
+                twin >= n_he || topology.arena.half_edges[twin].twin.0 != i
+            })
+            .count();
+
+        eprintln!(
+            "STAGE 5: V={} E={} F={} HE={} unpaired={}",
+            n_verts, n_edges, n_faces, n_he, unpaired
+        );
+
+        // === DIAGNOSTIC 2: Face provenance ===
+        eprintln!("\n=== DIAGNOSTIC 2: Face provenance ===");
+        for (face_idx, source) in &topology.face_provenance {
+            eprintln!("  Face {:?} ← {:?}", face_idx, source);
+        }
+
+        // === DIAGNOSTIC 3: Unpaired HE details ===
+        if unpaired > 0 {
+            eprintln!("\n=== DIAGNOSTIC 3: Unpaired half-edge details ===");
+            let mut he_to_face: HashMap<usize, FaceIdx> = HashMap::new();
+            for (li, lp) in topology.arena.loops.iter().enumerate() {
+                let face_idx = lp.face;
+                let start = lp.half_edge.0;
+                let mut cur = start;
+                for _ in 0..n_he {
+                    he_to_face.insert(cur, face_idx);
+                    cur = topology.arena.half_edges[cur].next.0;
+                    if cur == start {
+                        break;
+                    }
+                }
+            }
+            for i in 0..n_he {
+                let he = &topology.arena.half_edges[i];
+                let twin_idx = he.twin.0;
+                let is_unpaired =
+                    twin_idx >= n_he || topology.arena.half_edges[twin_idx].twin.0 != i;
+                if is_unpaired {
+                    let origin_vidx = he.origin.0;
+                    let next_he = &topology.arena.half_edges[he.next.0];
+                    let end_vidx = next_he.origin.0;
+                    let face_idx = he_to_face.get(&i);
+                    let source = face_idx.and_then(|fi| topology.face_provenance.get(fi));
+                    eprintln!(
+                        "  HE[{}]: origin_v={} end_v={} twin={} face={:?} source={:?}",
+                        i, origin_vidx, end_vidx, twin_idx, face_idx, source
+                    );
+                    if origin_vidx < topology.arena.vertices.len()
+                        && end_vidx < topology.arena.vertices.len()
+                    {
+                        let p0 = topology.arena.vertices[origin_vidx].position;
+                        let p1 = topology.arena.vertices[end_vidx].position;
+                        eprintln!(
+                            "    pos: [{:.4},{:.4},{:.4}] -> [{:.4},{:.4},{:.4}]",
+                            p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]
+                        );
+                    }
+                }
+            }
+        }
+
+        // CRITICAL: 0 unpaired half-edges
+        assert_eq!(
+            unpaired, 0,
+            "flood_fill should produce 0 unpaired HEs for overlapping boxes"
+        );
+
+        // === STAGE 6: Final topology check ===
+        let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+        eprintln!(
+            "STAGE 6: Euler = {} - {} + {} = {}",
+            n_verts, n_edges, n_faces, euler
+        );
+
+        assert_eq!(euler, 2, "Euler V-E+F must equal 2 for a closed solid");
+
+        // For a 3×2×2 box: expect at least 6 faces, 8 vertices
+        assert!(n_faces >= 6, "Should have at least 6 faces");
+        assert!(n_verts >= 8, "Should have at least 8 vertices");
+    }
 }
