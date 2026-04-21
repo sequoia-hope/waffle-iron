@@ -5822,6 +5822,63 @@ mod tests {
         );
         assert!(n_surviving > 0, "Should have surviving tris");
 
+        // === DIAGNOSTIC 1: Surviving tri dump ===
+        eprintln!("\n=== DIAGNOSTIC 1: Surviving tri vertex positions ===");
+        for (sf, tris) in &survival.groups {
+            eprintln!(
+                "  Group {:?} ({} tris, cosurface={}):",
+                sf,
+                tris.len(),
+                tris.iter().filter(|t| t.is_cosurface).count()
+            );
+            for tri in tris {
+                let v0 = subdivided.verts[tri.verts[0]];
+                let v1 = subdivided.verts[tri.verts[1]];
+                let v2 = subdivided.verts[tri.verts[2]];
+                eprintln!(
+                    "    [{:.3},{:.3},{:.3}] [{:.3},{:.3},{:.3}] [{:.3},{:.3},{:.3}] cosurface={}",
+                    v0[0], v0[1], v0[2], v1[0], v1[1], v1[2], v2[0], v2[1], v2[2], tri.is_cosurface
+                );
+            }
+        }
+
+        // === DIAGNOSTIC 4: Pre-flood_fill edge pairing check ===
+        eprintln!("\n=== DIAGNOSTIC 4: Pre-flood_fill directed edge analysis ===");
+        {
+            let mut directed_edges: HashMap<(usize, usize), Vec<SourceFace>> = HashMap::new();
+            for (sf, tris) in &survival.groups {
+                for tri in tris {
+                    for k in 0..3 {
+                        let e = (tri.verts[k], tri.verts[(k + 1) % 3]);
+                        directed_edges.entry(e).or_default().push(*sf);
+                    }
+                }
+            }
+            let total_directed = directed_edges.len();
+            let with_reverse = directed_edges
+                .keys()
+                .filter(|&&(v0, v1)| directed_edges.contains_key(&(v1, v0)))
+                .count();
+            let without_reverse = total_directed - with_reverse;
+            eprintln!(
+                "  Total directed edges: {}, with reverse: {}, WITHOUT reverse (boundary): {}",
+                total_directed, with_reverse, without_reverse
+            );
+            if without_reverse > 0 {
+                eprintln!("  Unpaired directed edges (no reverse):");
+                for (&(v0, v1), sources) in &directed_edges {
+                    if !directed_edges.contains_key(&(v1, v0)) {
+                        let p0 = subdivided.verts[v0];
+                        let p1 = subdivided.verts[v1];
+                        eprintln!(
+                            "    edge ({}->{}) [{:.4},{:.4},{:.4}]->[{:.4},{:.4},{:.4}] from {:?}",
+                            v0, v1, p0[0], p0[1], p0[2], p1[0], p1[1], p1[2], sources
+                        );
+                    }
+                }
+            }
+        }
+
         // === STAGE 5: flood_fill_patches ===
         let topology = flood_fill_patches(&survival, &subdivided);
 
@@ -5842,6 +5899,58 @@ mod tests {
             "STAGE 5: V={} E={} F={} HE={} unpaired={}",
             n_verts, n_edges, n_faces, n_he, unpaired
         );
+
+        // === DIAGNOSTIC 2: Face provenance ===
+        eprintln!("\n=== DIAGNOSTIC 2: Face provenance ===");
+        for (face_idx, source) in &topology.face_provenance {
+            eprintln!("  Face {:?} ← {:?}", face_idx, source);
+        }
+
+        // === DIAGNOSTIC 3: Unpaired HE details ===
+        if unpaired > 0 {
+            eprintln!("\n=== DIAGNOSTIC 3: Unpaired half-edge details ===");
+            // Build HE→face map via loops
+            let mut he_to_face: HashMap<usize, FaceIdx> = HashMap::new();
+            for (li, lp) in topology.arena.loops.iter().enumerate() {
+                let face_idx = lp.face;
+                let start = lp.half_edge.0;
+                let mut cur = start;
+                for _ in 0..n_he {
+                    he_to_face.insert(cur, face_idx);
+                    cur = topology.arena.half_edges[cur].next.0;
+                    if cur == start {
+                        break;
+                    }
+                }
+            }
+            for i in 0..n_he {
+                let he = &topology.arena.half_edges[i];
+                let twin_idx = he.twin.0;
+                let is_unpaired =
+                    twin_idx >= n_he || topology.arena.half_edges[twin_idx].twin.0 != i;
+                if is_unpaired {
+                    let origin_vidx = he.origin.0;
+                    let next_he = &topology.arena.half_edges[he.next.0];
+                    let end_vidx = next_he.origin.0;
+                    let face_idx = he_to_face.get(&i);
+                    let source = face_idx.and_then(|fi| topology.face_provenance.get(fi));
+                    eprintln!(
+                        "  HE[{}]: origin_v={} end_v={} twin={} face={:?} source={:?}",
+                        i, origin_vidx, end_vidx, twin_idx, face_idx, source
+                    );
+                    if origin_vidx < topology.arena.vertices.len()
+                        && end_vidx < topology.arena.vertices.len()
+                    {
+                        let p0 = topology.arena.vertices[origin_vidx].position;
+                        let p1 = topology.arena.vertices[end_vidx].position;
+                        eprintln!(
+                            "    pos: [{:.4},{:.4},{:.4}] -> [{:.4},{:.4},{:.4}]",
+                            p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]
+                        );
+                    }
+                }
+            }
+        }
 
         // CRITICAL: 0 unpaired half-edges
         assert_eq!(
