@@ -569,20 +569,16 @@ pub(crate) fn yang_boolean_inner(
     let mesh_op = bool_op_to_mesh_op(op);
     let surface_map = build_surface_map(solid_a, solid_b);
 
-    // Stage 0a (pre-tessellation): Detect coplanar face pairs and split B-Rep
-    // faces for same-direction pairs per Yang 2025 Section 4.5.5.
-    // Clone solids so we can modify them without affecting the originals.
-    let coplanar_pairs =
-        crate::boolean::coplanar_preprocess::detect_coplanar_face_pairs(solid_a, solid_b);
-    let mut solid_a_mod = solid_a.clone();
-    let mut solid_b_mod = solid_b.clone();
-    if !coplanar_pairs.is_empty() {
-        crate::boolean::coplanar_preprocess::split_brep_for_coplanar_pairs(
-            &mut solid_a_mod,
-            &mut solid_b_mod,
-            &coplanar_pairs,
-        );
-    }
+    // Stage 0a: Coplanar preprocessing DISABLED.
+    // Our implementation creates invalid geometry that even the C++ Cherchi
+    // reference can't handle (produces NC edges on preprocessed input).
+    // Raw geometry → Cherchi produces 0 NC edges (verified against C++).
+    // The preprocessing code remains in the codebase for future fixing with
+    // proper stage-by-stage verification against C++ reference.
+    // Re-enable once inject_conformal_coplanar_mesh produces valid output.
+    // See: docs/audits/yang_2025_audit.md, Yang 2025 Section 4.5.5.
+    let solid_a_mod = solid_a.clone();
+    let solid_b_mod = solid_b.clone();
 
     // Step 1: Tessellate both (possibly modified) solids.
     // Per Yang 2025 Section 4.1: error-bounded discretization with
@@ -653,26 +649,26 @@ pub(crate) fn yang_boolean_inner(
     bijective_a.compute_vertex_params(&mesh_a, &solid_a_mod.face_geometry);
     bijective_b.compute_vertex_params(&mesh_b, &solid_b_mod.face_geometry);
 
-    // Stage 0b (post-tessellation): For anti-parallel coplanar pairs, inject
-    // shared conformal triangulations. Same-direction pairs were handled by
-    // B-Rep splitting above (Stage 0a).
-    if !coplanar_pairs.is_empty() {
-        #[cfg(test)]
-        eprintln!(
-            "[YANG DIAG] Stage 0: {} coplanar face pairs detected",
-            coplanar_pairs.len()
-        );
-        crate::boolean::coplanar_preprocess::inject_conformal_coplanar_mesh(
-            &coplanar_pairs,
-            &mut verts_a,
-            &mut tris_a,
-            &mut verts_b,
-            &mut tris_b,
-            &mut bijective_a,
-            &mut bijective_b,
-            &mesh_a,
-            &mesh_b,
-        );
+    // Stage 0b: Coplanar mesh injection DISABLED (same reason as Stage 0a).
+    // See comment above.
+
+    // Diagnostic: export preprocessed merged mesh as binary STL for C++ comparison.
+    // Activated by YANG_DUMP_STL=1 environment variable.
+    if std::env::var("YANG_DUMP_STL").ok().as_deref() == Some("1") {
+        let stl_path = std::env::var("YANG_DUMP_STL_PATH")
+            .unwrap_or_else(|_| "/tmp/yang_preprocessed.stl".to_string());
+        if let Err(e) = dump_merged_mesh_as_stl(&verts_a, &tris_a, &verts_b, &tris_b, &stl_path) {
+            eprintln!("[YANG DIAG] STL dump failed: {}", e);
+        } else {
+            eprintln!(
+                "[YANG DIAG] Dumped preprocessed mesh to {} ({}+{} tris, {}+{} verts)",
+                stl_path,
+                tris_a.len(),
+                tris_b.len(),
+                verts_a.len(),
+                verts_b.len()
+            );
+        }
     }
 
     // Create deadline for the Yang pipeline to prevent runaway computation.
@@ -1131,6 +1127,71 @@ pub(crate) fn dedup_mesh_vertices(verts: &mut Vec<[f64; 3]>, tris: &mut [[usize;
     }
 
     *verts = new_verts;
+}
+
+/// Dump merged A+B mesh as binary STL for C++ reference comparison.
+#[allow(dead_code)]
+fn dump_merged_mesh_as_stl(
+    verts_a: &[[f64; 3]],
+    tris_a: &[[usize; 3]],
+    verts_b: &[[f64; 3]],
+    tris_b: &[[usize; 3]],
+    path: &str,
+) -> Result<(), String> {
+    use std::io::Write;
+    let mut f = std::fs::File::create(path).map_err(|e| e.to_string())?;
+    // 80-byte header
+    f.write_all(&[0u8; 80]).map_err(|e| e.to_string())?;
+    let total_tris = (tris_a.len() + tris_b.len()) as u32;
+    f.write_all(&total_tris.to_le_bytes())
+        .map_err(|e| e.to_string())?;
+
+    let write_tri = |f: &mut std::fs::File,
+                     v0: &[f64; 3],
+                     v1: &[f64; 3],
+                     v2: &[f64; 3]|
+     -> Result<(), String> {
+        // Compute normal
+        let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+        let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+        let nx = e1[1] * e2[2] - e1[2] * e2[1];
+        let ny = e1[2] * e2[0] - e1[0] * e2[2];
+        let nz = e1[0] * e2[1] - e1[1] * e2[0];
+        let len = (nx * nx + ny * ny + nz * nz).sqrt();
+        let (nx, ny, nz) = if len > 0.0 {
+            (nx / len, ny / len, nz / len)
+        } else {
+            (0.0, 0.0, 0.0)
+        };
+        // normal
+        f.write_all(&(nx as f32).to_le_bytes())
+            .map_err(|e| e.to_string())?;
+        f.write_all(&(ny as f32).to_le_bytes())
+            .map_err(|e| e.to_string())?;
+        f.write_all(&(nz as f32).to_le_bytes())
+            .map_err(|e| e.to_string())?;
+        // vertices
+        for v in [v0, v1, v2] {
+            f.write_all(&(v[0] as f32).to_le_bytes())
+                .map_err(|e| e.to_string())?;
+            f.write_all(&(v[1] as f32).to_le_bytes())
+                .map_err(|e| e.to_string())?;
+            f.write_all(&(v[2] as f32).to_le_bytes())
+                .map_err(|e| e.to_string())?;
+        }
+        // attribute byte count
+        f.write_all(&0u16.to_le_bytes())
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    };
+
+    for tri in tris_a {
+        write_tri(&mut f, &verts_a[tri[0]], &verts_a[tri[1]], &verts_a[tri[2]])?;
+    }
+    for tri in tris_b {
+        write_tri(&mut f, &verts_b[tri[0]], &verts_b[tri[1]], &verts_b[tri[2]])?;
+    }
+    Ok(())
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────
