@@ -1437,23 +1437,12 @@ pub(crate) fn face_survival_detect(
     };
 
     // B uses the same co-surface survival logic as A (symmetric rules).
-    // This ensures co-surface tris exist from BOTH meshes, enabling proper
-    // twin pairing at shared planes. Ref: Cherchi 2022 co-surface rules.
-    let b_keeps_label = |label: &CellLabel| -> bool {
-        if *label == keep_b {
-            return true;
-        }
-        match op {
-            MeshBooleanOp::Union => {
-                matches!(
-                    label,
-                    CellLabel::CoSurfaceInside | CellLabel::CoSurfaceOutside
-                )
-            }
-            MeshBooleanOp::Subtract => *label == CellLabel::CoSurfaceOutside,
-            MeshBooleanOp::Intersect => *label == CellLabel::CoSurfaceInside,
-        }
-    };
+    // B keeps only its primary label (Outside/Inside), NOT co-surface.
+    // A provides the co-surface fill at shared planes by convention.
+    // This is safe because the label=3 split fix (commit 461c35d) ensures
+    // both meshes have copies of shared-face tris from Cherchi — dropping
+    // B's CoSurface from survival doesn't create edge gaps.
+    let b_keeps_label = |label: &CellLabel| -> bool { *label == keep_b };
 
     // Process A sub-triangles: look up source face via bijective_a.
     // Ref #9: Cherchi 2020 — parent triangle provenance through subdivision.
