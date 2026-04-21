@@ -198,13 +198,31 @@ fn triangulate_single_triangle(
     let mut e1_points: Vec<usize> = aux.edge_points_list(e1_id).to_vec();
     let mut e2_points: Vec<usize> = aux.edge_points_list(e2_id).to_vec();
 
+    let mut t_segments: Vec<UIPair> = aux.triangle_segments_list(t_id).to_vec();
+
+    // Guard against falsely-marked triangles: if set_triangle_has_intersections
+    // was called before check_triangle_triangle_intersections (matching C++ order)
+    // but the classification found no actual data, emit the original triangle
+    // unchanged rather than running the splitting/constraint machinery on empty input.
+    if t_points.is_empty()
+        && e0_points.is_empty()
+        && e1_points.is_empty()
+        && e2_points.is_empty()
+        && t_segments.is_empty()
+        && !aux.triangle_has_coplanars(t_id)
+    {
+        new_tris.push(subm.vert_orig_id(0));
+        new_tris.push(subm.vert_orig_id(1));
+        new_tris.push(subm.vert_orig_id(2));
+        new_labels.push(ts.tri_label(t_id));
+        return;
+    }
+
     // Sort edge points along each edge using the dominant axis.
     // This matches the C++ sortEdgePoints (triangulation.cpp:40-55).
     sort_edge_points(ts, e0_id, &mut e0_points);
     sort_edge_points(ts, e1_id, &mut e1_points);
     sort_edge_points(ts, e2_id, &mut e2_points);
-
-    let mut t_segments: Vec<UIPair> = aux.triangle_segments_list(t_id).to_vec();
 
     let estimated_vert_num =
         3 + t_points.len() + e0_points.len() + e1_points.len() + e2_points.len();

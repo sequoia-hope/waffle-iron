@@ -753,3 +753,51 @@ fn yang_pipeline_comparison() {
 
     println!("\nWrote: yang_comparison.json + specs/yang_assay_5b_comparison.md");
 }
+
+/// Trace F0002 with Yang pipeline to diagnose flood_fill_patches twin pairing failures.
+///
+/// Run with: cargo test -p test-harness --test assay_randomized -- yang_trace_f0002 --ignored --nocapture
+#[test]
+#[ignore]
+fn yang_trace_f0002() {
+    let dir = Path::new(ASSAY_DIR);
+    if !dir.exists() {
+        eprintln!("Assay corpus not generated yet");
+        return;
+    }
+    std::env::set_var("YANG_BOOLEAN", "1");
+    let result = run_single_case(dir, "F0002", true);
+    match result {
+        Some(r) => {
+            eprintln!("\n=== F0002 Yang Trace ===");
+            eprintln!("Status: {:?}", r.status);
+            eprintln!("Detail: {}", r.detail);
+            eprintln!("Description: {}", r.description);
+        }
+        None => eprintln!("F0002 not found in corpus"),
+    }
+}
+
+/// Trace F0003 with Yang pipeline (secondary regression case).
+///
+/// Run with: cargo test -p test-harness --test assay_randomized -- yang_trace_f0003 --ignored --nocapture
+#[test]
+#[ignore]
+fn yang_trace_f0003() {
+    let dir = Path::new(ASSAY_DIR);
+    if !dir.exists() {
+        eprintln!("Assay corpus not generated yet");
+        return;
+    }
+    std::env::set_var("YANG_BOOLEAN", "1");
+    let result = run_single_case(dir, "F0003", true);
+    match result {
+        Some(r) => {
+            eprintln!("\n=== F0003 Yang Trace ===");
+            eprintln!("Status: {:?}", r.status);
+            eprintln!("Detail: {}", r.detail);
+            eprintln!("Description: {}", r.description);
+        }
+        None => eprintln!("F0003 not found in corpus"),
+    }
+}
