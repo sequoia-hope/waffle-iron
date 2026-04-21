@@ -927,9 +927,12 @@ pub(crate) fn flood_fill_patches(
     }
 
     // Create faces, loops, half-edges.
-    let mut directed_he: HashMap<(usize, usize), Vec<HalfEdgeIdx>> = HashMap::new();
+    // Key directed_he by BRep vertex indices (not canonical mesh indices) so that
+    // edges sharing the same geometric position always use the same key, even when
+    // multiple canonical mesh indices map to the same BRep vertex.
+    let mut directed_he: HashMap<(BrepVIdx, BrepVIdx), Vec<HalfEdgeIdx>> = HashMap::new();
     let mut face_provenance: BTreeMap<FaceIdx, SourceFace> = BTreeMap::new();
-    let mut edge_is_int_map: HashMap<(usize, usize), bool> = HashMap::new();
+    let mut edge_is_int_map: HashMap<(BrepVIdx, BrepVIdx), bool> = HashMap::new();
     let mut he_to_face: HashMap<HalfEdgeIdx, FaceIdx> = HashMap::new();
 
     for pb in &patch_boundaries {
@@ -957,15 +960,19 @@ pub(crate) fn flood_fill_patches(
                     prev: prev_idx,
                     loop_: loop_idx,
                 });
-                directed_he.entry((v0, v1)).or_default().push(he_idx);
+                let v0_brep = canon_to_brep[&v0];
+                let v1_brep = canon_to_brep[&v1];
+                directed_he
+                    .entry((v0_brep, v1_brep))
+                    .or_default()
+                    .push(he_idx);
                 he_to_face.insert(he_idx, face_idx);
 
-                let undir = (v0.min(v1), v0.max(v1));
+                let undir = (v0_brep.min(v1_brep), v0_brep.max(v1_brep));
                 let entry = edge_is_int_map.entry(undir).or_insert(false);
                 *entry |= is_int;
 
-                let v_brep = canon_to_brep[&v0];
-                arena.vertices[v_brep.0].half_edge = Some(he_idx);
+                arena.vertices[v0_brep.0].half_edge = Some(he_idx);
             }
 
             arena.loops[loop_idx.0].half_edge = he_base;
@@ -983,9 +990,9 @@ pub(crate) fn flood_fill_patches(
     let mut edge_is_intersection: BTreeMap<EdgeIdx, bool> = BTreeMap::new();
     let mut paired_he: HashSet<HalfEdgeIdx> = HashSet::new();
 
-    let mut undirected_edges: HashSet<(usize, usize)> = HashSet::new();
-    for &(cv0, cv1) in directed_he.keys() {
-        undirected_edges.insert((cv0.min(cv1), cv0.max(cv1)));
+    let mut undirected_edges: HashSet<(BrepVIdx, BrepVIdx)> = HashSet::new();
+    for &(bv0, bv1) in directed_he.keys() {
+        undirected_edges.insert((bv0.min(bv1), bv0.max(bv1)));
     }
 
     for &(lo, hi) in &undirected_edges {
@@ -1018,6 +1025,16 @@ pub(crate) fn flood_fill_patches(
                         if prev_same && !same_face {
                             best_rev = Some((ri, he_rev));
                         }
+                    }
+                }
+            }
+
+            // Fallback: if no different-face reverse found, accept any unused reverse HE
+            if best_rev.is_none() {
+                for (ri, he_rev) in rev_hes.iter().enumerate() {
+                    if !rev_used[ri] && !paired_he.contains(he_rev) {
+                        best_rev = Some((ri, he_rev));
+                        break;
                     }
                 }
             }
@@ -1083,30 +1100,16 @@ pub(crate) fn flood_fill_patches(
                         }
                         None
                     });
-                    // Check if reverse directed HE exists
+                    // Check if reverse directed HE exists (now using BRep keys)
                     let rev_exists = directed_he
-                        .get(&(dest_brep, origin_brep))
+                        .get(&(BrepVIdx(dest_brep), BrepVIdx(origin_brep)))
                         .map(|v| v.len())
                         .unwrap_or(0);
-                    // Also check by canonical vertex
-                    let canon_rev = canon_to_brep
-                        .iter()
-                        .find(|(_, &bv)| bv.0 == origin_brep)
-                        .map(|(&cv, _)| cv);
-                    let canon_dest = canon_to_brep
-                        .iter()
-                        .find(|(_, &bv)| bv.0 == dest_brep)
-                        .map(|(&cv, _)| cv);
-                    let canon_rev_exists = if let (Some(cd), Some(co)) = (canon_dest, canon_rev) {
-                        directed_he.get(&(cd, co)).map(|v| v.len()).unwrap_or(0)
-                    } else {
-                        0
-                    };
                     eprintln!(
-                        "  HE[{}]: v{}->{} [{:.4},{:.4},{:.4}]->[{:.4},{:.4},{:.4}] face={:?} source={:?} patch={:?} rev_he_count={} canon_rev_he_count={}",
+                        "  HE[{}]: v{}->{} [{:.4},{:.4},{:.4}]->[{:.4},{:.4},{:.4}] face={:?} source={:?} patch={:?} rev_he_count={}",
                         i, origin_brep, dest_brep,
                         p0[0], p0[1], p0[2], p1[0], p1[1], p1[2],
-                        face_idx, source, patch_idx, rev_exists, canon_rev_exists
+                        face_idx, source, patch_idx, rev_exists
                     );
                 }
             }
@@ -1531,16 +1534,16 @@ pub(crate) fn face_survival_detect(
             return true;
         }
         match op {
-            // Union: keep both CoSurfaceInside and CoSurfaceOutside.
-            // Matches select_boolean_result (exact_mesh.rs line 1774-1779).
-            // A provides the co-surface fill at shared planes; B uses only
-            // primary labels (Outside). Ref: Cherchi 2022 co-surface rules.
-            MeshBooleanOp::Union => {
-                matches!(
-                    label,
-                    CellLabel::CoSurfaceInside | CellLabel::CoSurfaceOutside
-                )
-            }
+            // Union: keep CoSurfaceInside only (offset into own solid lands inside
+            // the other → solids overlap at this face → face is on the combined
+            // boundary). Drop CoSurfaceOutside (offset into own solid is outside
+            // the other → face is between the two solids → interior to union).
+            // For touching solids, both cosurface faces are CoSurfaceOutside
+            // (offset into each solid goes away from the other) so the shared
+            // face correctly vanishes from the union result.
+            // For identical solids, all faces are CoSurfaceInside → one copy kept.
+            // Ref: Yang 2025 Section 4.5.5 co-surface selection rules.
+            MeshBooleanOp::Union => *label == CellLabel::CoSurfaceInside,
             MeshBooleanOp::Subtract => *label == CellLabel::CoSurfaceOutside,
             MeshBooleanOp::Intersect => *label == CellLabel::CoSurfaceInside,
         }
