@@ -124,7 +124,9 @@ pub(crate) fn triangulation_with_parents(
     let mut tris_to_split: Vec<usize> = Vec::new();
 
     for t_id in 0..ts.num_tris() {
-        if aux.triangle_has_intersections(t_id) || aux.triangle_has_coplanars(t_id) {
+        if (aux.triangle_has_intersections(t_id) && aux.triangle_has_actual_intersection_data(t_id))
+            || aux.triangle_has_coplanars(t_id)
+        {
             tris_to_split.push(t_id);
         } else {
             // Triangle without intersections directly goes to the output list

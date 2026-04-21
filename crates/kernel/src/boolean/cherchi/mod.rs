@@ -71,10 +71,19 @@ pub(crate) fn solve_intersections(
 
     // Step 2: Merge duplicated vertices
     let (deduped_verts, deduped_tris) = merge_duplicated_vertices_flat(in_coords, in_tris);
+    eprintln!(
+        "[cherchi-trace] STAGE1 merge: {} verts, {} tris",
+        deduped_verts.len(),
+        deduped_tris.len() / 3
+    );
 
     // Step 3: Remove degenerate and duplicated triangles
     let (clean_tris, clean_labels, clean_to_orig) =
         remove_degenerate_and_duplicated_triangles(&deduped_verts, &deduped_tris, in_labels);
+    eprintln!(
+        "[cherchi-trace] STAGE2 degenerate: {} tris",
+        clean_tris.len() / 3
+    );
 
     if clean_tris.is_empty() {
         return Ok(SolveResult {
@@ -88,17 +97,41 @@ pub(crate) fn solve_intersections(
 
     // Step 4: Create TriangleSoup (scales vertices by multiplier, adds jolly points)
     let mut ts = TriangleSoup::new(deduped_verts, clean_tris, clean_labels, multiplier);
+    eprintln!(
+        "[cherchi-trace] STAGE3 soup: {} verts, {} edges, {} tris",
+        ts.num_verts(),
+        ts.num_edges(),
+        ts.num_tris()
+    );
 
     // Step 5: Detect intersecting triangle pairs (broad-phase BVH + exact predicates)
     let mut aux = AuxiliaryStructure::new();
     aux.init_from_triangle_soup(&ts);
     detect_intersections(&ts, &mut aux, d_epsilon);
+    eprintln!(
+        "[cherchi-trace] STAGE4 pairs: {}",
+        aux.intersection_list().len()
+    );
 
     // Step 6: Classify intersections — populate edge2pts, tri2pts, tri2segs
     classify_intersections(&mut ts, &mut aux);
+    let tris_with_int = (0..ts.num_tris())
+        .filter(|&t| aux.triangle_has_intersections(t))
+        .count();
+    let tris_with_cop = (0..ts.num_tris())
+        .filter(|&t| aux.triangle_has_coplanars(t))
+        .count();
+    eprintln!(
+        "[cherchi-trace] STAGE5 classify: {} with_intersections, {} with_coplanars",
+        tris_with_int, tris_with_cop
+    );
 
     // Step 7: Triangulate — subdivide intersected triangles
     let (new_tris_flat, new_labels, parent_tris) = triangulation_with_parents(&mut ts, &mut aux);
+    eprintln!(
+        "[cherchi-trace] STAGE6 triangulation: {} tris",
+        new_tris_flat.len() / 3
+    );
 
     // Step 8: Compute approximate coordinates (inverse scale by multiplier,
     // exclude jolly points)

@@ -265,6 +265,19 @@ impl AuxiliaryStructure {
         self.tri_has_intersections[t_id]
     }
 
+    /// Check if triangle t_id has actual intersection data recorded
+    /// (interior points, constraint segments, or coplanar neighbors).
+    ///
+    /// This guards against the pre-marking pattern where
+    /// `set_triangle_has_intersections` is called before classification
+    /// determines whether actual data exists. A triangle may be marked
+    /// but have no data if classification found no geometric crossing.
+    pub fn triangle_has_actual_intersection_data(&self, t_id: usize) -> bool {
+        !self.triangle_points_list(t_id).is_empty()
+            || !self.triangle_segments_list(t_id).is_empty()
+            || self.triangle_has_coplanars(t_id)
+    }
+
     /// Get interior intersection points for triangle t_id.
     ///
     /// Ported from aux_structure.cpp:194-198

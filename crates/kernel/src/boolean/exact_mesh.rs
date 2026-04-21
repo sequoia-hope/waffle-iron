@@ -2067,7 +2067,37 @@ fn subdivide_mesh_pair_full_cherchi(
     // *preprocessed* triangle indices (after degenerate/duplicate removal).
     // We use clean_to_orig to map back to the original merged input indices,
     // then subtract num_a for mesh B triangles.
+    //
+    // label=3 (both bits set): coplanar duplicate — triangle belongs to BOTH
+    // meshes. clean_to_orig always stores the A parent (A is inserted first).
+    // For B's parent, we look up the matching triangle by sorted vertex triple.
     let num_a = tris_a.len();
+
+    // Build reverse lookup for B triangles by sorted vertex positions.
+    // Used to find B's parent_tri for label=3 (coplanar duplicate) triangles,
+    // where clean_to_orig only stores the A parent index.
+    //
+    // Key: sorted triple of quantized vertex positions (to avoid f64 hashing issues).
+    // We quantize to 1e-15 resolution which is well below any geometric tolerance.
+    fn quantize_pos(p: &[f64; 3]) -> [i64; 3] {
+        [
+            (p[0] * 1e15).round() as i64,
+            (p[1] * 1e15).round() as i64,
+            (p[2] * 1e15).round() as i64,
+        ]
+    }
+    let mut b_pos_lookup: std::collections::HashMap<[[i64; 3]; 3], usize> =
+        std::collections::HashMap::with_capacity(tris_b.len());
+    for (j, tri) in tris_b.iter().enumerate() {
+        let mut key = [
+            quantize_pos(&verts_b[tri[0]]),
+            quantize_pos(&verts_b[tri[1]]),
+            quantize_pos(&verts_b[tri[2]]),
+        ];
+        key.sort();
+        b_pos_lookup.insert(key, j);
+    }
+
     let mut sub_tris_a = Vec::new();
     let mut sub_tris_b = Vec::new();
     for (i, tri) in result.tris.iter().enumerate() {
@@ -2081,19 +2111,43 @@ fn subdivide_mesh_pair_full_cherchi(
             clean_parent
         };
 
-        if label & 2 != 0 {
-            // Mesh B: original index is offset by num_a in the merged input
-            let local_parent = orig_parent
-                .saturating_sub(num_a)
-                .min(tris_b.len().saturating_sub(1));
-            sub_tris_b.push(SubTriangle {
+        if label & 1 != 0 {
+            // Mesh A
+            let local_parent = if orig_parent < num_a {
+                orig_parent
+            } else {
+                // label=3 but orig_parent is from B — shouldn't happen with
+                // current insertion order, but clamp defensively
+                orig_parent
+                    .saturating_sub(num_a)
+                    .min(tris_a.len().saturating_sub(1))
+            };
+            let local_parent = local_parent.min(tris_a.len().saturating_sub(1));
+            sub_tris_a.push(SubTriangle {
                 verts: *tri,
                 parent_tri: local_parent,
             });
-        } else {
-            // Mesh A
-            let local_parent = orig_parent.min(tris_a.len().saturating_sub(1));
-            sub_tris_a.push(SubTriangle {
+        }
+        if label & 2 != 0 {
+            // Mesh B
+            let local_parent = if orig_parent >= num_a {
+                // Normal case: orig_parent is from B's range in merged input
+                orig_parent - num_a
+            } else {
+                // label=3 coplanar duplicate: orig_parent is from A (first inserted).
+                // Look up the matching B triangle by vertex positions.
+                let a_parent = orig_parent.min(tris_a.len().saturating_sub(1));
+                let a_tri = &tris_a[a_parent];
+                let mut key = [
+                    quantize_pos(&verts_a[a_tri[0]]),
+                    quantize_pos(&verts_a[a_tri[1]]),
+                    quantize_pos(&verts_a[a_tri[2]]),
+                ];
+                key.sort();
+                b_pos_lookup.get(&key).copied().unwrap_or(0)
+            };
+            let local_parent = local_parent.min(tris_b.len().saturating_sub(1));
+            sub_tris_b.push(SubTriangle {
                 verts: *tri,
                 parent_tri: local_parent,
             });
