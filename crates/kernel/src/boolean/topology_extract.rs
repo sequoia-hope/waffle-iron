@@ -5712,4 +5712,166 @@ mod tests {
              (multiple partial faces from each box arm), got {n_faces}"
         );
     }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Stage-by-stage pipeline verification: two touching unit cubes
+    // ══════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn yang_pipeline_two_touching_cubes_stage_verification() {
+        // === GEOMETRY: Two unit cubes touching at x=1 ===
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let (verts_b, tris_b) = make_box_mesh([1.0, 0.0, 0.0], [2.0, 1.0, 1.0]);
+        assert_eq!(verts_a.len(), 8);
+        assert_eq!(tris_a.len(), 12);
+
+        // === STAGE 2: Cherchi subdivision ===
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
+            .expect("subdivide should succeed");
+
+        // Check conformality: every directed edge should have a reverse
+        let mut edge_counts: HashMap<(usize, usize), usize> = HashMap::new();
+        for tri in subdivided.tris_a.iter().chain(subdivided.tris_b.iter()) {
+            for k in 0..3 {
+                *edge_counts
+                    .entry((tri.verts[k], tri.verts[(k + 1) % 3]))
+                    .or_insert(0) += 1;
+            }
+        }
+        let nc = edge_counts
+            .keys()
+            .filter(|&&(v0, v1)| !edge_counts.contains_key(&(v1, v0)))
+            .count();
+        assert_eq!(nc, 0, "Cherchi output must be conformal (0 NC edges)");
+
+        eprintln!(
+            "STAGE 2: {} verts, {} tris_a, {} tris_b, {} NC",
+            subdivided.verts.len(),
+            subdivided.tris_a.len(),
+            subdivided.tris_b.len(),
+            nc
+        );
+
+        // === STAGE 3: label_cells ===
+        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("label_cells should succeed");
+
+        // Count labels for A
+        let a_outside = labeling
+            .labels_a
+            .iter()
+            .filter(|l| matches!(l, CellLabel::Outside))
+            .count();
+        let a_inside = labeling
+            .labels_a
+            .iter()
+            .filter(|l| matches!(l, CellLabel::Inside))
+            .count();
+        let a_cosurface = labeling.labels_a.len() - a_outside - a_inside;
+
+        // Count labels for B
+        let b_outside = labeling
+            .labels_b
+            .iter()
+            .filter(|l| matches!(l, CellLabel::Outside))
+            .count();
+        let b_inside = labeling
+            .labels_b
+            .iter()
+            .filter(|l| matches!(l, CellLabel::Inside))
+            .count();
+        let b_cosurface = labeling.labels_b.len() - b_outside - b_inside;
+
+        eprintln!(
+            "STAGE 3: A outside={} inside={} cosurface={}, B outside={} inside={} cosurface={}",
+            a_outside, a_inside, a_cosurface, b_outside, b_inside, b_cosurface
+        );
+
+        // For touching boxes Union: NO tris should be Inside (they touch, don't overlap)
+        // (This is the key analytical assertion)
+        assert_eq!(a_inside, 0, "Touching boxes: A should have 0 Inside tris");
+        assert_eq!(b_inside, 0, "Touching boxes: B should have 0 Inside tris");
+
+        // Each box should have CoSurface tris at x=1 shared face (triangulated as 2-4 tris)
+        assert!(
+            a_cosurface > 0,
+            "A should have CoSurface tris at x=1 shared face"
+        );
+        assert!(
+            b_cosurface > 0,
+            "B should have CoSurface tris at x=1 shared face"
+        );
+
+        // === STAGE 4: face_survival for Union ===
+        let bij_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
+        let bij_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
+
+        let survival =
+            face_survival_detect(&subdivided, &labeling, MeshBooleanOp::Union, &bij_a, &bij_b);
+
+        let n_groups = survival.groups.len();
+        let n_surviving: usize = survival.groups.values().map(|v| v.len()).sum();
+
+        eprintln!(
+            "STAGE 4: {} groups, {} surviving tris",
+            n_groups, n_surviving
+        );
+        for (sf, tris) in &survival.groups {
+            eprintln!(
+                "  {:?}: {} tris (cosurface: {})",
+                sf,
+                tris.len(),
+                tris.iter().filter(|t| t.is_cosurface).count()
+            );
+        }
+
+        // Should have face groups from both meshes (minus B's shared face)
+        assert!(
+            n_groups >= 6,
+            "Should have at least 6 face groups (5 A-faces + 5 B-faces + A-shared), got {}",
+            n_groups
+        );
+        assert!(n_surviving > 0, "Should have surviving tris");
+
+        // === STAGE 5: flood_fill_patches ===
+        let topology = flood_fill_patches(&survival, &subdivided);
+
+        let n_verts = topology.arena.vertices.len();
+        let n_edges = topology.arena.edges.len();
+        let n_faces = topology.arena.faces.len();
+        let n_he = topology.arena.half_edges.len();
+
+        // Count unpaired HEs
+        let unpaired = (0..n_he)
+            .filter(|&i| {
+                let twin = topology.arena.half_edges[i].twin.0;
+                twin >= n_he || topology.arena.half_edges[twin].twin.0 != i
+            })
+            .count();
+
+        eprintln!(
+            "STAGE 5: V={} E={} F={} HE={} unpaired={}",
+            n_verts, n_edges, n_faces, n_he, unpaired
+        );
+
+        // CRITICAL: 0 unpaired half-edges
+        assert_eq!(
+            unpaired, 0,
+            "flood_fill should produce 0 unpaired HEs for touching boxes"
+        );
+
+        // === STAGE 6: Final topology check ===
+        let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+        eprintln!(
+            "STAGE 6: Euler = {} - {} + {} = {}",
+            n_verts, n_edges, n_faces, euler
+        );
+
+        assert_eq!(euler, 2, "Euler V-E+F must equal 2 for a closed solid");
+
+        // For a 2×1×1 box: expect at least 6 faces, 8 vertices
+        // (exact counts depend on how Cherchi subdivides the shared face)
+        assert!(n_faces >= 6, "Should have at least 6 faces");
+        assert!(n_verts >= 8, "Should have at least 8 vertices");
+    }
 }
