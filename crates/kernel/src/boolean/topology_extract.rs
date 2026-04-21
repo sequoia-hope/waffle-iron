@@ -444,6 +444,45 @@ pub(crate) fn flood_fill_patches(
         }
     }
 
+    // ── [DIAG] Post-Step-4 boundary edge analysis ──
+    {
+        let n_boundary = boundary_edges.len();
+        let n_intersection = intersection_edges.len();
+        let mut at_x1: Vec<((usize, usize), Vec<SourceFace>, Vec<SourceFace>)> = Vec::new();
+        for &(v0, v1) in &boundary_edges {
+            let p0 = subdivided.verts[v0];
+            let p1 = subdivided.verts[v1];
+            if (p0[0] - 1.0).abs() < 1e-6 && (p1[0] - 1.0).abs() < 1e-6 {
+                // Both vertices at x≈1.0
+                let fwd_sources: Vec<SourceFace> = directed_edge_to_tris
+                    .get(&(v0, v1))
+                    .map(|tis| tis.iter().map(|&ti| all_tris[ti].source).collect())
+                    .unwrap_or_default();
+                let rev_sources: Vec<SourceFace> = directed_edge_to_tris
+                    .get(&(v1, v0))
+                    .map(|tis| tis.iter().map(|&ti| all_tris[ti].source).collect())
+                    .unwrap_or_default();
+                at_x1.push(((v0, v1), fwd_sources, rev_sources));
+            }
+        }
+        eprintln!(
+            "[flood_fill DIAG Step4] boundary_edges={}, intersection_edges={}, boundary_at_x1={}",
+            n_boundary,
+            n_intersection,
+            at_x1.len()
+        );
+        for ((v0, v1), fwd_src, rev_src) in &at_x1 {
+            let p0 = subdivided.verts[*v0];
+            let p1 = subdivided.verts[*v1];
+            eprintln!(
+                "  x=1 boundary ({}->{}) [{:.3},{:.3},{:.3}]->[{:.3},{:.3},{:.3}]",
+                v0, v1, p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]
+            );
+            eprintln!("    fwd sources: {:?}", fwd_src);
+            eprintln!("    rev sources: {:?}", rev_src);
+        }
+    }
+
     // ── Step 5: Flood-fill patches ──
     // BFS from each unvisited triangle, expanding across non-boundary edges.
     let mut visited = vec![false; all_tris.len()];
@@ -486,6 +525,22 @@ pub(crate) fn flood_fill_patches(
             source: all_tris[seed].source,
             tris: patch_tris,
         });
+    }
+
+    // ── [DIAG] Post-Step-5 patch composition ──
+    eprintln!("[flood_fill DIAG Step5] {} patches:", patches.len());
+    for (pi, patch) in patches.iter().enumerate() {
+        eprintln!(
+            "  Patch {}: source={:?} tris={} cosurface={}",
+            pi,
+            patch.source,
+            patch.tris.len(),
+            patch
+                .tris
+                .iter()
+                .filter(|&&ti| all_tris[ti].is_cosurface)
+                .count()
+        );
     }
 
     // ── Step 6: Extract boundary loops per patch ──
@@ -1000,6 +1055,61 @@ pub(crate) fn flood_fill_patches(
                 "[yang-diag] flood_fill_patches: {} unpaired HEs out of {} total",
                 unpaired_count, n_he
             );
+
+            // ── [DIAG] Post-Step-7 unpaired HE details ──
+            eprintln!("[flood_fill DIAG Step7] Unpaired HE details:");
+            for (i, he) in arena.half_edges.iter().enumerate() {
+                let twin_idx = he.twin.0;
+                if twin_idx >= n_he || arena.half_edges[twin_idx].twin.0 != i {
+                    let origin_brep = he.origin.0;
+                    let next_he = &arena.half_edges[he.next.0];
+                    let dest_brep = next_he.origin.0;
+                    let p0 = arena.vertices[origin_brep].position;
+                    let p1 = arena.vertices[dest_brep].position;
+                    let face_idx = he_to_face.get(&HalfEdgeIdx(i));
+                    let source = face_idx.and_then(|fi| face_provenance.get(fi));
+                    // Find which patch this HE belongs to
+                    let patch_idx = patch_boundaries.iter().enumerate().find_map(|(pi, pb)| {
+                        for loop_edges in &pb.loops {
+                            for &(v0, v1, _) in loop_edges {
+                                let bv0 = canon_to_brep.get(&v0);
+                                let bv1 = canon_to_brep.get(&v1);
+                                if bv0.map(|v| v.0) == Some(origin_brep)
+                                    && bv1.map(|v| v.0) == Some(dest_brep)
+                                {
+                                    return Some(pi);
+                                }
+                            }
+                        }
+                        None
+                    });
+                    // Check if reverse directed HE exists
+                    let rev_exists = directed_he
+                        .get(&(dest_brep, origin_brep))
+                        .map(|v| v.len())
+                        .unwrap_or(0);
+                    // Also check by canonical vertex
+                    let canon_rev = canon_to_brep
+                        .iter()
+                        .find(|(_, &bv)| bv.0 == origin_brep)
+                        .map(|(&cv, _)| cv);
+                    let canon_dest = canon_to_brep
+                        .iter()
+                        .find(|(_, &bv)| bv.0 == dest_brep)
+                        .map(|(&cv, _)| cv);
+                    let canon_rev_exists = if let (Some(cd), Some(co)) = (canon_dest, canon_rev) {
+                        directed_he.get(&(cd, co)).map(|v| v.len()).unwrap_or(0)
+                    } else {
+                        0
+                    };
+                    eprintln!(
+                        "  HE[{}]: v{}->{} [{:.4},{:.4},{:.4}]->[{:.4},{:.4},{:.4}] face={:?} source={:?} patch={:?} rev_he_count={} canon_rev_he_count={}",
+                        i, origin_brep, dest_brep,
+                        p0[0], p0[1], p0[2], p1[0], p1[1], p1[2],
+                        face_idx, source, patch_idx, rev_exists, canon_rev_exists
+                    );
+                }
+            }
 
             // Collect unpaired HEs and build endpoint map
             let mut unpaired_hes: Vec<usize> = Vec::new();
