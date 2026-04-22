@@ -6669,4 +6669,273 @@ mod tests {
         );
         assert!(n_faces >= 10, "F0003: cross union should have >= 10 faces");
     }
+
+    /// F0004: "Thin cross" — same depth, scale=1.0.
+    /// Box A: [-0.4,-0.1,0]→[0.4,0.1,0.5], Box B: [-0.1,-0.4,0]→[0.1,0.4,0.5].
+    /// Both extrude to same height (0.5), creating TWO coplanar face pairs (z=0 and z=0.5).
+    #[test]
+    fn yang_pipeline_f0004_thin_cross_stage_verification() {
+        let (verts_a, tris_a) = make_box_mesh([-0.4, -0.1, 0.0], [0.4, 0.1, 0.5]);
+        let (verts_b, tris_b) = make_box_mesh([-0.1, -0.4, 0.0], [0.1, 0.4, 0.5]);
+        assert_eq!(verts_a.len(), 8);
+        assert_eq!(tris_a.len(), 12);
+
+        // === STAGE 2: Cherchi subdivision ===
+        let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
+            .expect("F0004: subdivide should succeed");
+
+        let mut edge_counts: HashMap<(usize, usize), usize> = HashMap::new();
+        for tri in subdivided.tris_a.iter().chain(subdivided.tris_b.iter()) {
+            for k in 0..3 {
+                *edge_counts
+                    .entry((tri.verts[k], tri.verts[(k + 1) % 3]))
+                    .or_insert(0) += 1;
+            }
+        }
+        let nc = edge_counts
+            .keys()
+            .filter(|&&(v0, v1)| !edge_counts.contains_key(&(v1, v0)))
+            .count();
+
+        eprintln!(
+            "F0004 STAGE 2: {} verts, {} tris_a, {} tris_b, {} NC edges",
+            subdivided.verts.len(),
+            subdivided.tris_a.len(),
+            subdivided.tris_b.len(),
+            nc
+        );
+
+        if nc > 0 {
+            eprintln!("  Non-conformal edges:");
+            for &(v0, v1) in edge_counts.keys() {
+                if !edge_counts.contains_key(&(v1, v0)) {
+                    let p0 = subdivided.verts[v0];
+                    let p1 = subdivided.verts[v1];
+                    eprintln!(
+                        "    ({}->{}) [{:.4},{:.4},{:.4}]->[{:.4},{:.4},{:.4}]",
+                        v0, v1, p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]
+                    );
+                }
+            }
+        }
+
+        assert_eq!(
+            nc, 0,
+            "F0004: Cherchi output must be conformal (0 NC edges), got {}",
+            nc
+        );
+
+        // === STAGE 3: label_cells ===
+        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None)
+            .expect("F0004: label_cells should succeed");
+
+        let a_outside = labeling
+            .labels_a
+            .iter()
+            .filter(|l| matches!(l, CellLabel::Outside))
+            .count();
+        let a_inside = labeling
+            .labels_a
+            .iter()
+            .filter(|l| matches!(l, CellLabel::Inside))
+            .count();
+        let a_cosurface_in = labeling
+            .labels_a
+            .iter()
+            .filter(|l| matches!(l, CellLabel::CoSurfaceInside))
+            .count();
+        let a_cosurface_out = labeling
+            .labels_a
+            .iter()
+            .filter(|l| matches!(l, CellLabel::CoSurfaceOutside))
+            .count();
+
+        let b_outside = labeling
+            .labels_b
+            .iter()
+            .filter(|l| matches!(l, CellLabel::Outside))
+            .count();
+        let b_inside = labeling
+            .labels_b
+            .iter()
+            .filter(|l| matches!(l, CellLabel::Inside))
+            .count();
+        let b_cosurface_in = labeling
+            .labels_b
+            .iter()
+            .filter(|l| matches!(l, CellLabel::CoSurfaceInside))
+            .count();
+        let b_cosurface_out = labeling
+            .labels_b
+            .iter()
+            .filter(|l| matches!(l, CellLabel::CoSurfaceOutside))
+            .count();
+
+        eprintln!(
+            "F0004 STAGE 3: A outside={} inside={} cosurface_in={} cosurface_out={}",
+            a_outside, a_inside, a_cosurface_in, a_cosurface_out
+        );
+        eprintln!(
+            "F0004 STAGE 3: B outside={} inside={} cosurface_in={} cosurface_out={}",
+            b_outside, b_inside, b_cosurface_in, b_cosurface_out
+        );
+
+        assert!(
+            a_inside > 0,
+            "F0004: A should have Inside tris (faces buried in B)"
+        );
+        assert!(
+            b_inside > 0,
+            "F0004: B should have Inside tris (faces buried in A)"
+        );
+
+        // === STAGE 4: face_survival for Union ===
+        let bij_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
+        let bij_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
+
+        let survival =
+            face_survival_detect(&subdivided, &labeling, MeshBooleanOp::Union, &bij_a, &bij_b);
+
+        let n_groups = survival.groups.len();
+        let n_surviving: usize = survival.groups.values().map(|v| v.len()).sum();
+
+        eprintln!(
+            "F0004 STAGE 4: {} groups, {} surviving tris",
+            n_groups, n_surviving
+        );
+        for (sf, tris) in &survival.groups {
+            eprintln!(
+                "  {:?}: {} tris (cosurface: {})",
+                sf,
+                tris.len(),
+                tris.iter().filter(|t| t.is_cosurface).count()
+            );
+        }
+
+        assert!(n_surviving > 0, "F0004: should have surviving tris");
+
+        // === DIAGNOSTIC 4: Pre-flood_fill directed edge analysis ===
+        eprintln!("\n=== F0004 DIAGNOSTIC 4: Pre-flood_fill directed edge analysis ===");
+        let pre_unpaired = {
+            let mut directed_edges: HashMap<(usize, usize), Vec<SourceFace>> = HashMap::new();
+            for (sf, tris) in &survival.groups {
+                for tri in tris {
+                    for k in 0..3 {
+                        let e = (tri.verts[k], tri.verts[(k + 1) % 3]);
+                        directed_edges.entry(e).or_default().push(*sf);
+                    }
+                }
+            }
+            let total_directed = directed_edges.len();
+            let with_reverse = directed_edges
+                .keys()
+                .filter(|&&(v0, v1)| directed_edges.contains_key(&(v1, v0)))
+                .count();
+            let without_reverse = total_directed - with_reverse;
+            eprintln!(
+                "  Total directed edges: {}, with reverse: {}, WITHOUT reverse: {}",
+                total_directed, with_reverse, without_reverse
+            );
+            if without_reverse > 0 {
+                eprintln!("  Unpaired directed edges:");
+                for (&(v0, v1), sources) in &directed_edges {
+                    if !directed_edges.contains_key(&(v1, v0)) {
+                        let p0 = subdivided.verts[v0];
+                        let p1 = subdivided.verts[v1];
+                        eprintln!(
+                            "    ({}->{}) [{:.4},{:.4},{:.4}]->[{:.4},{:.4},{:.4}] from {:?}",
+                            v0, v1, p0[0], p0[1], p0[2], p1[0], p1[1], p1[2], sources
+                        );
+                    }
+                }
+            }
+            without_reverse
+        };
+
+        // === STAGE 5: flood_fill_patches ===
+        let topology = flood_fill_patches(&survival, &subdivided);
+
+        let n_verts = topology.arena.vertices.len();
+        let n_edges = topology.arena.edges.len();
+        let n_faces = topology.arena.faces.len();
+        let n_he = topology.arena.half_edges.len();
+
+        let unpaired = (0..n_he)
+            .filter(|&i| {
+                let twin = topology.arena.half_edges[i].twin.0;
+                twin >= n_he || topology.arena.half_edges[twin].twin.0 != i
+            })
+            .count();
+
+        eprintln!(
+            "F0004 STAGE 5: V={} E={} F={} HE={} unpaired={}",
+            n_verts, n_edges, n_faces, n_he, unpaired
+        );
+
+        if unpaired > 0 {
+            eprintln!("\n=== F0004 DIAGNOSTIC 3: Unpaired half-edge details ===");
+            let mut he_to_face: HashMap<usize, FaceIdx> = HashMap::new();
+            for lp in topology.arena.loops.iter() {
+                let face_idx = lp.face;
+                let start = lp.half_edge.0;
+                let mut cur = start;
+                for _ in 0..n_he {
+                    he_to_face.insert(cur, face_idx);
+                    cur = topology.arena.half_edges[cur].next.0;
+                    if cur == start {
+                        break;
+                    }
+                }
+            }
+            for i in 0..n_he {
+                let he = &topology.arena.half_edges[i];
+                let twin_idx = he.twin.0;
+                let is_unpaired =
+                    twin_idx >= n_he || topology.arena.half_edges[twin_idx].twin.0 != i;
+                if is_unpaired {
+                    let origin_vidx = he.origin.0;
+                    let next_he = &topology.arena.half_edges[he.next.0];
+                    let end_vidx = next_he.origin.0;
+                    let face_idx = he_to_face.get(&i);
+                    let source = face_idx.and_then(|fi| topology.face_provenance.get(fi));
+                    eprintln!(
+                        "  HE[{}]: v{}->v{} face={:?} source={:?}",
+                        i, origin_vidx, end_vidx, face_idx, source
+                    );
+                    if origin_vidx < topology.arena.vertices.len()
+                        && end_vidx < topology.arena.vertices.len()
+                    {
+                        let p0 = topology.arena.vertices[origin_vidx].position;
+                        let p1 = topology.arena.vertices[end_vidx].position;
+                        eprintln!(
+                            "    pos: [{:.4},{:.4},{:.4}] -> [{:.4},{:.4},{:.4}]",
+                            p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]
+                        );
+                    }
+                }
+            }
+        }
+
+        if pre_unpaired > 0 {
+            eprintln!("\nNOTE: {} pre-flood_fill unpaired edges", pre_unpaired);
+        }
+
+        assert_eq!(
+            unpaired, 0,
+            "F0004: flood_fill should produce 0 unpaired HEs"
+        );
+
+        // === STAGE 6: Final topology check ===
+        let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+        eprintln!(
+            "F0004 STAGE 6: Euler = {} - {} + {} = {}",
+            n_verts, n_edges, n_faces, euler
+        );
+
+        assert_eq!(
+            euler, 2,
+            "F0004: Euler V-E+F must equal 2 for a closed solid"
+        );
+        assert!(n_faces >= 10, "F0004: cross union should have >= 10 faces");
+    }
 }
