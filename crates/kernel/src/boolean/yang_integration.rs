@@ -567,18 +567,23 @@ pub(crate) fn yang_boolean_inner(
     }
 
     let mesh_op = bool_op_to_mesh_op(op);
-    let surface_map = build_surface_map(solid_a, solid_b);
 
-    // Stage 0a: Coplanar preprocessing DISABLED.
-    // Our implementation creates invalid geometry that even the C++ Cherchi
-    // reference can't handle (produces NC edges on preprocessed input).
-    // Raw geometry → Cherchi produces 0 NC edges (verified against C++).
-    // The preprocessing code remains in the codebase for future fixing with
-    // proper stage-by-stage verification against C++ reference.
-    // Re-enable once inject_conformal_coplanar_mesh produces valid output.
-    // See: docs/audits/yang_2025_audit.md, Yang 2025 Section 4.5.5.
-    let solid_a_mod = solid_a.clone();
-    let solid_b_mod = solid_b.clone();
+    // Stage 0a: Coplanar preprocessing — split B-Rep faces along overlap
+    // boundaries BEFORE tessellation (Yang 2025 Section 4.5.5).
+    let mut solid_a_mod = solid_a.clone();
+    let mut solid_b_mod = solid_b.clone();
+    let coplanar_pairs =
+        crate::boolean::coplanar_preprocess::detect_coplanar_face_pairs(&solid_a_mod, &solid_b_mod);
+    if !coplanar_pairs.is_empty() {
+        crate::boolean::coplanar_preprocess::split_brep_for_coplanar_pairs(
+            &mut solid_a_mod,
+            &mut solid_b_mod,
+            &coplanar_pairs,
+        );
+    }
+
+    // Build surface map AFTER coplanar splitting so new sub-faces are included.
+    let surface_map = build_surface_map(&solid_a_mod, &solid_b_mod);
 
     // Step 1: Tessellate both (possibly modified) solids.
     // Per Yang 2025 Section 4.1: error-bounded discretization with
