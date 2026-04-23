@@ -1845,8 +1845,13 @@ pub(crate) fn select_boolean_result(
         }
         match op {
             MeshBooleanOp::Union => {
-                // Union keeps B co-surface-inside (symmetric with A)
-                *label == CellLabel::CoSurfaceInside
+                // Union keeps ALL B co-surface tris (fully symmetric with A).
+                // At perpendicular junction corners, B's reverse triangle may be
+                // CoSurfaceOutside — dropping it breaks conformality (rev_he_count=0).
+                matches!(
+                    label,
+                    CellLabel::CoSurfaceInside | CellLabel::CoSurfaceOutside
+                )
             }
             MeshBooleanOp::Subtract => {
                 // Subtract: B-inside-A are kept (flipped). CoSurfaceInside means
