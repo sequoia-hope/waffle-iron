@@ -404,10 +404,15 @@ pub(crate) fn flood_fill_patches(
         }
     }
 
-    // ── Step 4: Classify boundary edges ──
-    // An edge is interior if ANY reverse-direction triangle has the SAME source
-    // face. It's boundary only if ALL reverse-direction triangles have DIFFERENT
-    // source faces (or no reverse exists).
+    // ── Step 4: Classify boundary and intersection edges ──
+    // boundary_edges: edges where ALL reverse tris have DIFFERENT source faces
+    //   (or no reverse exists). Used in Step 5a for splitting patches.
+    // intersection_edges: subset of boundary_edges where the reverse tri is from
+    //   a different MESH (cross-mesh). Used in Step 5 for flood-fill stopping.
+    //
+    // Yang 2025 Section 4.4.2: patch segmentation stops at intersection curves
+    // (cross-mesh edges). Same-mesh source-face boundaries are NOT flood-fill
+    // barriers — Step 5 uses intersection_edges, Step 5a splits by source face.
     let mut boundary_edges: HashSet<(usize, usize)> = HashSet::new();
     let mut intersection_edges: HashSet<(usize, usize)> = HashSet::new();
 
@@ -483,8 +488,11 @@ pub(crate) fn flood_fill_patches(
         }
     }
 
-    // ── Step 5: Flood-fill patches ──
-    // BFS from each unvisited triangle, expanding across non-boundary edges.
+    // ── Step 5: Flood-fill patches (Yang 2025 Section 4.4.2) ──
+    // BFS from each unvisited triangle. Per Yang, flood-fill stops only at
+    // intersection edges (cross-mesh boundaries), NOT at same-mesh source-face
+    // boundaries. This allows patches to span multiple source faces of the same
+    // mesh at junction corners (F0004). Step 5a splits by source face afterward.
     let mut visited = vec![false; all_tris.len()];
     struct Patch {
         tris: Vec<usize>,
@@ -507,7 +515,11 @@ pub(crate) fn flood_fill_patches(
             for ei in 0..3 {
                 let v0 = sub.verts[ei];
                 let v1 = sub.verts[(ei + 1) % 3];
-                if boundary_edges.contains(&(v0, v1)) {
+                // Stop at intersection edges (cross-mesh) and exposed edges.
+                // Same-mesh source-face boundaries are NOT barriers here.
+                if intersection_edges.contains(&(v0, v1))
+                    || !directed_edge_to_tris.contains_key(&(v1, v0))
+                {
                     continue;
                 }
                 if let Some(neighbors) = directed_edge_to_tris.get(&(v1, v0)) {
@@ -527,8 +539,79 @@ pub(crate) fn flood_fill_patches(
         });
     }
 
-    // ── [DIAG] Post-Step-5 patch composition ──
-    eprintln!("[flood_fill DIAG Step5] {} patches:", patches.len());
+    // ── Step 5a: Split patches into connected components per source face ──
+    // After intersection-edge-only flood-fill, patches may span multiple source
+    // faces from the same mesh. Split into connected components within each
+    // source face to ensure each patch maps to one analytical surface for
+    // B-Rep assembly.
+    {
+        let mut split_patches: Vec<Patch> = Vec::new();
+        for patch in patches {
+            let mut by_source: BTreeMap<SourceFace, Vec<usize>> = BTreeMap::new();
+            for &ti in &patch.tris {
+                by_source.entry(all_tris[ti].source).or_default().push(ti);
+            }
+
+            for (source, source_tris) in by_source {
+                if source_tris.len() <= 1 {
+                    split_patches.push(Patch {
+                        tris: source_tris,
+                        source,
+                    });
+                    continue;
+                }
+
+                // Find connected components: two same-source tris are connected
+                // if they share a reverse edge and that edge is not an
+                // intersection edge.
+                let tri_set: HashSet<usize> = source_tris.iter().copied().collect();
+                let mut component_id: HashMap<usize, usize> = HashMap::new();
+                let mut components: Vec<Vec<usize>> = Vec::new();
+
+                for &ti in &source_tris {
+                    if component_id.contains_key(&ti) {
+                        continue;
+                    }
+                    let comp_idx = components.len();
+                    let mut comp = Vec::new();
+                    let mut queue = VecDeque::new();
+                    queue.push_back(ti);
+                    component_id.insert(ti, comp_idx);
+
+                    while let Some(cur) = queue.pop_front() {
+                        comp.push(cur);
+                        let sub = &all_tris[cur];
+                        for ei in 0..3 {
+                            let v0 = sub.verts[ei];
+                            let v1 = sub.verts[(ei + 1) % 3];
+                            // Respect both intersection edges and source-face
+                            // boundary edges as barriers during splitting.
+                            if boundary_edges.contains(&(v0, v1)) {
+                                continue;
+                            }
+                            if let Some(neighbors) = directed_edge_to_tris.get(&(v1, v0)) {
+                                for &ni in neighbors {
+                                    if tri_set.contains(&ni) && !component_id.contains_key(&ni) {
+                                        component_id.insert(ni, comp_idx);
+                                        queue.push_back(ni);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    components.push(comp);
+                }
+
+                for comp in components {
+                    split_patches.push(Patch { tris: comp, source });
+                }
+            }
+        }
+        patches = split_patches;
+    }
+
+    // ── [DIAG] Post-Step-5a patch composition ──
+    eprintln!("[flood_fill DIAG Step5a] {} patches:", patches.len());
     for (pi, patch) in patches.iter().enumerate() {
         eprintln!(
             "  Patch {}: source={:?} tris={} cosurface={}",
