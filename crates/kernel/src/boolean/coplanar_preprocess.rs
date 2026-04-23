@@ -53,6 +53,13 @@ pub(crate) fn detect_coplanar_face_pairs(
     let planes_a = extract_planar_faces(solid_a);
     let planes_b = extract_planar_faces(solid_b);
 
+    #[cfg(test)]
+    eprintln!(
+        "[COPLANAR DETECT] Planar faces: solid_a={}, solid_b={}",
+        planes_a.len(),
+        planes_b.len()
+    );
+
     for &(face_a, normal_a, offset_a) in &planes_a {
         for &(face_b, normal_b, offset_b) in &planes_b {
             let dot = v3_dot(normal_a, normal_b);
@@ -69,6 +76,11 @@ pub(crate) fn detect_coplanar_face_pairs(
             let aligned_offset_b = if dot < 0.0 { -offset_b } else { offset_b };
 
             if (offset_a - aligned_offset_b).abs() < TAU_MODEL {
+                #[cfg(test)]
+                eprintln!(
+                    "[COPLANAR DETECT] Pair: face_a={:?} face_b={:?} normal=[{:.4},{:.4},{:.4}] offset={:.6} same_dir={}",
+                    face_a, face_b, normal_a[0], normal_a[1], normal_a[2], offset_a, dot > 0.0
+                );
                 pairs.push(CoplanarFacePair {
                     face_a,
                     face_b,
@@ -139,8 +151,16 @@ pub(crate) fn split_brep_for_coplanar_pairs(
     solid_b: &mut WaffleSolid,
     coplanar_pairs: &[CoplanarFacePair],
 ) {
-    for pair in coplanar_pairs {
+    for (pair_idx, pair) in coplanar_pairs.iter().enumerate() {
         // Both same-direction and anti-parallel pairs need B-Rep splitting.
+
+        #[cfg(test)]
+        eprintln!(
+            "[COPLANAR SPLIT] Processing pair {}: face_a={:?} face_b={:?} normal=[{:.4},{:.4},{:.4}] offset={:.6} same_dir={}",
+            pair_idx, pair.face_a, pair.face_b,
+            pair.plane_normal[0], pair.plane_normal[1], pair.plane_normal[2],
+            pair.plane_offset, pair.same_direction
+        );
 
         // 1. Get face boundary polygons in 2D.
         let (u_axis, v_axis) = compute_plane_basis(pair.plane_normal);
@@ -156,6 +176,12 @@ pub(crate) fn split_brep_for_coplanar_pairs(
             collect_face_loop_2d(&solid_b.arena, pair.face_b, &plane_origin, &u_axis, &v_axis);
 
         if poly_a.is_empty() || poly_b.is_empty() {
+            #[cfg(test)]
+            eprintln!(
+                "[COPLANAR SPLIT]   -> Skipped: empty polygon (A={}, B={})",
+                poly_a.len(),
+                poly_b.len()
+            );
             continue;
         }
 
@@ -166,7 +192,20 @@ pub(crate) fn split_brep_for_coplanar_pairs(
             shape_a.overlay(&shape_b, OverlayRule::Intersect, FillRule::EvenOdd);
 
         if overlap.is_empty() || overlap[0].is_empty() {
+            #[cfg(test)]
+            eprintln!("[COPLANAR SPLIT]   -> Skipped: no overlap");
             continue; // Coplanar but non-overlapping
+        }
+
+        #[cfg(test)]
+        {
+            eprintln!(
+                "[COPLANAR SPLIT]   Overlap polygon: {} vertices",
+                overlap[0][0].len()
+            );
+            for (i, pt) in overlap[0][0].iter().enumerate() {
+                eprintln!("[COPLANAR SPLIT]     ov{}: ({:.6}, {:.6})", i, pt[0], pt[1]);
+            }
         }
 
         // Check if overlap covers entire face (identical footprint) → skip
@@ -177,8 +216,18 @@ pub(crate) fn split_brep_for_coplanar_pairs(
         let a_only_empty = a_only.is_empty() || a_only[0].is_empty();
         let b_only_empty = b_only.is_empty() || b_only[0].is_empty();
         if a_only_empty && b_only_empty {
+            #[cfg(test)]
+            eprintln!(
+                "[COPLANAR SPLIT]   -> Skipped: identical footprint (both A-only and B-only empty)"
+            );
             continue; // Identical footprint — tessellation already produces matching mesh
         }
+
+        #[cfg(test)]
+        eprintln!(
+            "[COPLANAR SPLIT]   A-only empty={}, B-only empty={}",
+            a_only_empty, b_only_empty
+        );
 
         // 3. Project overlap boundary to 3D.
         let overlap_3d: Vec<[f64; 3]> = overlap[0][0]
@@ -192,7 +241,20 @@ pub(crate) fn split_brep_for_coplanar_pairs(
             })
             .collect();
 
+        #[cfg(test)]
+        {
+            eprintln!("[COPLANAR SPLIT]   Overlap 3D vertices:");
+            for (i, pt) in overlap_3d.iter().enumerate() {
+                eprintln!(
+                    "[COPLANAR SPLIT]     ov3d_{}: [{:.6}, {:.6}, {:.6}]",
+                    i, pt[0], pt[1], pt[2]
+                );
+            }
+        }
+
         // 4. Split each face along the overlap boundary.
+        #[cfg(test)]
+        eprintln!("[COPLANAR SPLIT]   Splitting face_a={:?}...", pair.face_a);
         split_face_along_boundary(
             &mut solid_a.arena,
             &mut solid_a.face_geometry,
@@ -200,6 +262,8 @@ pub(crate) fn split_brep_for_coplanar_pairs(
             pair.face_a,
             &overlap_3d,
         );
+        #[cfg(test)]
+        eprintln!("[COPLANAR SPLIT]   Splitting face_b={:?}...", pair.face_b);
         split_face_along_boundary(
             &mut solid_b.arena,
             &mut solid_b.face_geometry,
@@ -257,7 +321,16 @@ fn split_face_along_boundary(
     face_idx: FaceIdx,
     overlap_boundary_3d: &[[f64; 3]],
 ) {
+    #[cfg(test)]
+    eprintln!(
+        "[SPLIT BOUNDARY] Entry: face={:?}, overlap_verts={}",
+        face_idx,
+        overlap_boundary_3d.len()
+    );
+
     if overlap_boundary_3d.len() < 3 {
+        #[cfg(test)]
+        eprintln!("[SPLIT BOUNDARY]   -> Early return: fewer than 3 overlap vertices");
         return;
     }
 
@@ -268,7 +341,7 @@ fn split_face_along_boundary(
     // each split to avoid stale EdgeIdx references.
     let mut boundary_verts: Vec<VertexIdx> = Vec::new();
 
-    for &ov in overlap_boundary_3d {
+    for (ov_idx, &ov) in overlap_boundary_3d.iter().enumerate() {
         // Re-collect face edges fresh (may have changed from previous splits).
         let loop_idx = arena.faces[face_idx.0].outer_loop;
         let edges = collect_face_edges(arena, loop_idx);
@@ -281,6 +354,11 @@ fn split_face_along_boundary(
             let dy = ov[1] - p[1];
             let dz = ov[2] - p[2];
             if dx * dx + dy * dy + dz * dz < tol_sq {
+                #[cfg(test)]
+                eprintln!(
+                    "[SPLIT BOUNDARY]   ov{}: EXISTING vertex {:?} at [{:.6},{:.6},{:.6}]",
+                    ov_idx, v0, p[0], p[1], p[2]
+                );
                 boundary_verts.push(v0);
                 found_existing = true;
                 break;
@@ -291,7 +369,8 @@ fn split_face_along_boundary(
         }
 
         // Check if this vertex lies on a face edge.
-        for &(_, edge_idx, p0, p1, _, _) in &edges {
+        let mut found_on_edge = false;
+        for &(_, edge_idx, p0, p1, v0, v1) in &edges {
             let d = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
             let d_len_sq = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
             if d_len_sq < crate::units::TAU_WORK_SQ {
@@ -309,14 +388,37 @@ fn split_face_along_boundary(
             }
             let t = (d[0] * to_ov[0] + d[1] * to_ov[1] + d[2] * to_ov[2]) / d_len_sq;
             if t > TAU_PARALLEL && t < 1.0 - TAU_PARALLEL {
+                #[cfg(test)]
+                eprintln!(
+                    "[SPLIT BOUNDARY]   ov{}: SPLIT edge {:?} ({:?}->{:?}) at t={:.6}, pos=[{:.6},{:.6},{:.6}]",
+                    ov_idx, edge_idx, v0, v1, t, ov[0], ov[1], ov[2]
+                );
                 let v_new = split_edge_at(arena, edge_idx, ov);
                 boundary_verts.push(v_new);
+                found_on_edge = true;
                 break;
             }
         }
+
+        #[cfg(test)]
+        if !found_on_edge {
+            eprintln!(
+                "[SPLIT BOUNDARY]   ov{}: NOT FOUND on any edge! pos=[{:.6},{:.6},{:.6}]",
+                ov_idx, ov[0], ov[1], ov[2]
+            );
+        }
     }
 
+    #[cfg(test)]
+    eprintln!(
+        "[SPLIT BOUNDARY]   Total boundary_verts: {} (from {} overlap vertices)",
+        boundary_verts.len(),
+        overlap_boundary_3d.len()
+    );
+
     if boundary_verts.len() < 2 {
+        #[cfg(test)]
+        eprintln!("[SPLIT BOUNDARY]   -> Early return: fewer than 2 boundary vertices");
         return; // Not enough boundary vertices to form a polygon split
     }
 
@@ -338,6 +440,11 @@ fn split_face_along_boundary(
 
         // Check if va and vb are already adjacent in their loop.
         if are_adjacent_in_any_loop(arena, va, vb) {
+            #[cfg(test)]
+            eprintln!(
+                "[SPLIT BOUNDARY]   mef skip: {:?} and {:?} already adjacent",
+                va, vb
+            );
             continue;
         }
 
@@ -346,6 +453,11 @@ fn split_face_along_boundary(
         all_faces.extend(&new_faces);
         let target_loop = find_loop_containing_both_in_faces(arena, &all_faces, va, vb);
         if let Some(lp) = target_loop {
+            #[cfg(test)]
+            eprintln!(
+                "[SPLIT BOUNDARY]   mef({:?}, {:?}) in loop {:?}",
+                va, vb, lp
+            );
             let (_, new_face) = mef(arena, va, vb, lp);
             if let Some(geom) = face_geometry.get(&face_idx).cloned() {
                 face_geometry.insert(new_face, geom);
@@ -354,8 +466,26 @@ fn split_face_along_boundary(
             face_map.insert(next_face_id, new_face);
             next_face_id += 1;
             new_faces.push(new_face);
+            #[cfg(test)]
+            eprintln!(
+                "[SPLIT BOUNDARY]   -> Created new face {:?} (face_map id={})",
+                new_face,
+                next_face_id - 1
+            );
+        } else {
+            #[cfg(test)]
+            eprintln!(
+                "[SPLIT BOUNDARY]   mef FAILED: no loop contains both {:?} and {:?}",
+                va, vb
+            );
         }
     }
+
+    #[cfg(test)]
+    eprintln!(
+        "[SPLIT BOUNDARY]   Done: {} new faces created",
+        new_faces.len()
+    );
 }
 
 /// Collect face edges from a loop: (half_edge_idx, edge_idx, v0_pos, v1_pos, v0_idx, v1_idx).
@@ -1696,5 +1826,116 @@ mod tests {
         eprintln!("     the overlap sub-face from the parent face");
         eprintln!("  3. The overlap has 4 corners — need to check how many are at existing");
         eprintln!("     vertices vs how many need edge splits");
+    }
+
+    // ── F0004 Diagnostic: Thin cross coplanar preprocessing ──────────
+
+    /// F0004 "Thin cross": two crossed boxes sharing z=0 and z=0.5 coplanar faces.
+    ///
+    /// Box A: centered (0,0), 0.8×0.2, extruded 0.5 → [-0.4,-0.1,0]→[0.4,0.1,0.5]
+    /// Box B: centered (0,0), 0.2×0.8, extruded 0.5 → [-0.1,-0.4,0]→[0.1,0.4,0.5]
+    ///
+    /// Both share z=0 bottom AND z=0.5 top faces (TWO coplanar pairs, same-direction).
+    /// The overlap on each coplanar plane is [-0.1,-0.1]→[0.1,0.1].
+    ///
+    /// This test traces the full coplanar preprocessing + pipeline to diagnose
+    /// the "6 boundary HEs" failure.
+    #[test]
+    fn test_f0004_coplanar_trace() {
+        eprintln!("\n======================================================================");
+        eprintln!("=== F0004 THIN CROSS COPLANAR DIAGNOSTIC ===");
+        eprintln!("======================================================================\n");
+
+        // Box A: 0.8×0.2, depth 0.5
+        let (k_a, h_a) = make_stacked_box(0.0, 0.0, 0.8, 0.2, 0.0, 0.5);
+        // Box B: 0.2×0.8, depth 0.5
+        let (k_b, h_b) = make_stacked_box(0.0, 0.0, 0.2, 0.8, 0.0, 0.5);
+
+        let solid_a = k_a.get_solid(&h_a).expect("solid_a");
+        let solid_b = k_b.get_solid(&h_b).expect("solid_b");
+
+        // ── Step 1: Dump face geometry for both solids ──
+        eprintln!("--- Solid A face geometry ---");
+        for (&fi, geom) in &solid_a.face_geometry {
+            if let SurfaceGeom::Planar(plane) = geom {
+                let offset = plane.origin.x * plane.normal.x
+                    + plane.origin.y * plane.normal.y
+                    + plane.origin.z * plane.normal.z;
+                eprintln!(
+                    "  Face {:?}: normal=[{:.4},{:.4},{:.4}] offset={:.6}",
+                    fi, plane.normal.x, plane.normal.y, plane.normal.z, offset
+                );
+                let positions = collect_face_loop_positions(&solid_a.arena, fi);
+                for (i, p) in positions.iter().enumerate() {
+                    eprintln!("    v{}: [{:.4}, {:.4}, {:.4}]", i, p[0], p[1], p[2]);
+                }
+            }
+        }
+        eprintln!("\n--- Solid B face geometry ---");
+        for (&fi, geom) in &solid_b.face_geometry {
+            if let SurfaceGeom::Planar(plane) = geom {
+                let offset = plane.origin.x * plane.normal.x
+                    + plane.origin.y * plane.normal.y
+                    + plane.origin.z * plane.normal.z;
+                eprintln!(
+                    "  Face {:?}: normal=[{:.4},{:.4},{:.4}] offset={:.6}",
+                    fi, plane.normal.x, plane.normal.y, plane.normal.z, offset
+                );
+                let positions = collect_face_loop_positions(&solid_b.arena, fi);
+                for (i, p) in positions.iter().enumerate() {
+                    eprintln!("    v{}: [{:.4}, {:.4}, {:.4}]", i, p[0], p[1], p[2]);
+                }
+            }
+        }
+
+        // ── Step 2: Detect coplanar pairs ──
+        let pairs = detect_coplanar_face_pairs(solid_a, solid_b);
+        eprintln!("\n=== Coplanar Pair Detection ===");
+        eprintln!("Total pairs detected: {}", pairs.len());
+        for (i, p) in pairs.iter().enumerate() {
+            eprintln!(
+                "  Pair {}: face_a={:?} face_b={:?} normal=[{:.4},{:.4},{:.4}] offset={:.6} same_dir={}",
+                i, p.face_a, p.face_b,
+                p.plane_normal[0], p.plane_normal[1], p.plane_normal[2],
+                p.plane_offset, p.same_direction
+            );
+        }
+
+        // Expect 2 coplanar pairs: z=0 and z=0.5
+        let z0_pairs: Vec<_> = pairs
+            .iter()
+            .filter(|p| p.plane_normal[2].abs() > 0.99 && p.plane_offset.abs() < 1e-4)
+            .collect();
+        let z05_pairs: Vec<_> = pairs
+            .iter()
+            .filter(|p| p.plane_normal[2].abs() > 0.99 && (p.plane_offset.abs() - 0.5).abs() < 1e-4)
+            .collect();
+        eprintln!("\nz=0 coplanar pairs: {}", z0_pairs.len());
+        eprintln!("z=0.5 coplanar pairs: {}", z05_pairs.len());
+
+        // ── Step 3: Run full pipeline ──
+        eprintln!("\n=== Running full Yang pipeline ===");
+        let mut next_id = 100u64;
+        let mut id_alloc = || {
+            next_id += 1;
+            next_id
+        };
+
+        let result = yang_boolean_inner(solid_a, solid_b, BoolOp::Union, &mut id_alloc);
+
+        match &result {
+            Ok(r) => {
+                let n_faces = r.arena.faces.len();
+                let n_edges = r.arena.edges.len();
+                let n_verts = r.arena.vertices.len();
+                let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+                eprintln!(
+                    "\nPipeline SUCCEEDED: V={n_verts}, E={n_edges}, F={n_faces}, Euler={euler}"
+                );
+            }
+            Err(e) => {
+                eprintln!("\nPipeline FAILED: {e}");
+            }
+        }
     }
 }
