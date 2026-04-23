@@ -24,10 +24,7 @@
 
 use geometry_predicates::{orient2d, orient3d};
 
-use crate::units::{
-    TAU_EXACT_MESH_CLASSIFY, TAU_NORMALIZE_SQ, TAU_WORK, WINDING_INSIDE_THRESHOLD,
-    WINDING_OUTSIDE_THRESHOLD,
-};
+use crate::units::{TAU_EXACT_MESH_CLASSIFY, TAU_NORMALIZE_SQ, TAU_WORK, WINDING_INSIDE_THRESHOLD};
 
 /// Which mesh a triangle belongs to in a boolean operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -1109,20 +1106,10 @@ pub(crate) struct SubdividedMesh {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)] // Phase 2 building block — task 2d
 pub(crate) enum CellLabel {
-    /// Clearly inside the other mesh (winding number > 0.7).
+    /// Inside the other mesh.
     Inside,
-    /// Clearly outside the other mesh (winding number < 0.3).
+    /// Outside the other mesh.
     Outside,
-    /// Co-surface: initial winding ≈ 0.5, offset resolves to Inside.
-    /// The sub-tri lies on the other mesh's surface with its solid interior
-    /// facing into the other solid. Example: shared y=0 plane of overlapping
-    /// boxes where -normal offset enters the other box.
-    CoSurfaceInside,
-    /// Co-surface: initial winding ≈ 0.5, offset resolves to Outside.
-    /// The sub-tri lies on the other mesh's surface but its solid interior
-    /// faces away from the other solid. Example: touching boxes at x=2 where
-    /// -normal offset stays outside the other box.
-    CoSurfaceOutside,
 }
 
 /// Boolean operation to perform on the labeled cells.
@@ -1356,15 +1343,11 @@ fn ray_cast_inside(
 
 /// Label a single sub-triangle using BVH-accelerated ray casting, with GWN fallback.
 ///
-/// This is the ray-cast replacement for `label_sub_tri`. It:
-/// 1. Computes the sub-triangle centroid.
-/// 2. Uses `ray_cast_inside` for O(log n) classification.
-/// 3. Falls back to GWN-based `label_sub_tri` if ray casting is degenerate on all axes.
-/// 4. Detects co-surface situations by checking point-to-plane distance of nearby
-///    target triangles. If co-surface, offsets along -normal and re-casts.
+/// Yang 2025 Section 4.4.2: ray-cast centroid → if degenerate (on surface),
+/// offset along -normal and re-cast → if still degenerate, GWN fallback.
+/// All results are binary Inside/Outside.
 ///
 /// Ref #24: Yang 2025 — cell classification via point-in-mesh.
-/// Ref #9: Cherchi 2020 — coplanar face disambiguation via normal offset.
 fn label_sub_tri_raycast(
     verts: &[[f64; 3]],
     sub_tri: &SubTriangle,
@@ -1376,133 +1359,33 @@ fn label_sub_tri_raycast(
 ) -> CellLabel {
     let centroid = sub_tri_centroid(verts, sub_tri);
 
-    // Check co-surface: query BVH for triangles near the centroid and check
-    // point-to-plane distance. Uses d_epsilon per Yang 2025 Section 4.4.2.
-    let is_co_surface = check_co_surface(&centroid, target_verts, target_tris, bvh, d_epsilon);
-
-    if is_co_surface {
-        // Offset centroid along -normal (into sub-tri's solid) and re-classify.
-        let normal = sub_tri_unit_normal(verts, sub_tri);
-        let eps = d_epsilon.max(1e-6);
-        let offset_pt = [
-            centroid[0] - eps * normal[0],
-            centroid[1] - eps * normal[1],
-            centroid[2] - eps * normal[2],
-        ];
-
-        let inside = match ray_cast_inside(offset_pt, target_verts, target_tris, bvh, global_max) {
-            Some(v) => v,
-            None => {
-                // Degenerate on all axes from offset point too — fall back to GWN.
-                let w = winding_number_mesh(offset_pt, target_verts, target_tris);
-                w >= WINDING_INSIDE_THRESHOLD
-            }
-        };
-
-        if inside {
-            CellLabel::CoSurfaceInside
-        } else {
-            CellLabel::CoSurfaceOutside
-        }
-    } else {
-        // Standard classification: ray cast from centroid.
-        match ray_cast_inside(centroid, target_verts, target_tris, bvh, global_max) {
-            Some(true) => CellLabel::Inside,
-            Some(false) => CellLabel::Outside,
-            None => {
-                // Per Yang/Cherchi: degenerate ray cast → point near surface → offset and retry
-                let normal = sub_tri_unit_normal(verts, sub_tri);
-                let eps = d_epsilon.max(1e-6);
-                let offset = [
-                    centroid[0] - eps * normal[0],
-                    centroid[1] - eps * normal[1],
-                    centroid[2] - eps * normal[2],
-                ];
-                match ray_cast_inside(offset, target_verts, target_tris, bvh, global_max) {
-                    Some(true) => CellLabel::CoSurfaceInside,
-                    Some(false) => CellLabel::CoSurfaceOutside,
-                    None => {
-                        // Truly degenerate — last resort GWN on offset point
-                        let w = winding_number_mesh(offset, target_verts, target_tris);
-                        if w >= WINDING_INSIDE_THRESHOLD {
-                            CellLabel::CoSurfaceInside
-                        } else {
-                            CellLabel::CoSurfaceOutside
-                        }
+    // Primary: ray-cast from centroid
+    match ray_cast_inside(centroid, target_verts, target_tris, bvh, global_max) {
+        Some(true) => CellLabel::Inside,
+        Some(false) => CellLabel::Outside,
+        None => {
+            // Degenerate (on surface) — offset along -normal and re-ray-cast
+            let normal = sub_tri_unit_normal(verts, sub_tri);
+            let eps = d_epsilon.max(1e-6);
+            let offset = [
+                centroid[0] - eps * normal[0],
+                centroid[1] - eps * normal[1],
+                centroid[2] - eps * normal[2],
+            ];
+            match ray_cast_inside(offset, target_verts, target_tris, bvh, global_max) {
+                Some(true) => CellLabel::Inside,
+                Some(false) => CellLabel::Outside,
+                None => {
+                    // Last resort: GWN on offset point
+                    let w = winding_number_mesh(offset, target_verts, target_tris);
+                    if w >= WINDING_INSIDE_THRESHOLD {
+                        CellLabel::Inside
+                    } else {
+                        CellLabel::Outside
                     }
                 }
             }
         }
-    }
-}
-
-/// Check whether a point is co-surface with the target mesh.
-///
-/// Queries the BVH for triangles whose AABB contains the point (with small expansion),
-/// then computes the point-to-plane distance for each. If any distance is below
-/// `d_epsilon`, the point is considered co-surface.
-fn check_co_surface(
-    p: &[f64; 3],
-    target_verts: &[[f64; 3]],
-    target_tris: &[[usize; 3]],
-    bvh: &BvhNode,
-    d_epsilon: f64,
-) -> bool {
-    // Use d_epsilon (mesh discretization error) for co-surface detection.
-    // Per Yang 2025 Section 4.4.2: points within d_epsilon of the target
-    // mesh surface are co-surface and need normal-offset disambiguation.
-    let expand = d_epsilon.max(1e-6);
-    let query_aabb = Aabb {
-        min: [p[0] - expand, p[1] - expand, p[2] - expand],
-        max: [p[0] + expand, p[1] + expand, p[2] + expand],
-    };
-
-    let mut candidates = Vec::new();
-    bvh.query_overlapping(&query_aabb, &mut candidates);
-
-    for &tri_idx in &candidates {
-        let tri = target_tris[tri_idx];
-        let v0 = target_verts[tri[0]];
-        let v1 = target_verts[tri[1]];
-        let v2 = target_verts[tri[2]];
-
-        // Compute triangle normal (unnormalized).
-        let e1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
-        let e2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
-        let n = [
-            e1[1] * e2[2] - e1[2] * e2[1],
-            e1[2] * e2[0] - e1[0] * e2[2],
-            e1[0] * e2[1] - e1[1] * e2[0],
-        ];
-        let n_len_sq = n[0] * n[0] + n[1] * n[1] + n[2] * n[2];
-        if n_len_sq < TAU_NORMALIZE_SQ {
-            continue; // Degenerate triangle — skip.
-        }
-
-        // Signed distance from point to triangle plane = dot(n, p - v0) / |n|.
-        let d = [p[0] - v0[0], p[1] - v0[1], p[2] - v0[2]];
-        let dot = n[0] * d[0] + n[1] * d[1] + n[2] * d[2];
-        let dist_sq = (dot * dot) / n_len_sq;
-
-        if dist_sq < d_epsilon * d_epsilon {
-            return true;
-        }
-    }
-
-    false
-}
-
-/// Classify a winding number as Inside or Outside.
-///
-/// Threshold at 0.5: w >= 0.5 → Inside, w < 0.5 → Outside.
-/// Consistent with the units.rs WINDING_INSIDE_THRESHOLD = 0.5.
-/// Ref #7: Jacobson et al. 2013.
-#[allow(dead_code)] // Phase 2 building block — task 2d
-fn classify_winding(w: f64) -> CellLabel {
-    if w >= WINDING_INSIDE_THRESHOLD {
-        CellLabel::Inside
-    } else {
-        CellLabel::Outside
     }
 }
 
@@ -1538,84 +1421,6 @@ fn sub_tri_unit_normal(verts: &[[f64; 3]], tri: &SubTriangle) -> [f64; 3] {
         return [0.0, 0.0, 1.0];
     }
     [n[0] / len, n[1] / len, n[2] / len]
-}
-
-/// Label a single sub-triangle as inside or outside a target mesh.
-///
-/// When the winding number is ambiguous (near 0.5, indicating the centroid is
-/// on or very near the target mesh's surface), offsets the evaluation point
-/// along the INWARD normal (-normal, into the sub-triangle's own solid) and
-/// re-evaluates. Returns `CoSurfaceInside` or `CoSurfaceOutside` to distinguish
-/// co-surface tris that face INTO the other solid from those facing AWAY.
-///
-/// The offset direction matters:
-/// - Touching boxes at x=2: -normal → AWAY from other solid → CoSurfaceOutside
-/// - Overlapping boxes shared y=0: -normal → INTO other solid → CoSurfaceInside
-///
-/// Selection rules use this distinction:
-/// - Subtract: keep A-Outside + A-CoSurfaceOutside (touching faces stay)
-/// - Union: keep A-Outside + A-CoSurfaceOutside + A-CoSurfaceInside (fill gap)
-/// - Intersect: keep A-Inside + A-CoSurfaceInside (shared boundary)
-///
-/// Ref #7: Jacobson 2013 — generalized winding number.
-/// Ref #9: Cherchi 2020 — coplanar face disambiguation via normal offset.
-fn label_sub_tri(
-    verts: &[[f64; 3]],
-    sub_tri: &SubTriangle,
-    target_verts: &[[f64; 3]],
-    target_tris: &[[usize; 3]],
-) -> CellLabel {
-    let centroid = sub_tri_centroid(verts, sub_tri);
-    let w = winding_number_mesh(centroid, target_verts, target_tris);
-    if w > WINDING_OUTSIDE_THRESHOLD && w < (1.0 - WINDING_OUTSIDE_THRESHOLD) {
-        // Ambiguous — centroid is near the target mesh surface.
-        // Offset along -normal (INTO this sub-triangle's own solid) to break tie.
-        // Ref #4: Shewchuk 1997 — robust evaluation via multi-axis fallback.
-        let normal = sub_tri_unit_normal(verts, sub_tri);
-        let eps = TAU_WORK.sqrt(); // ~1e-6, geometric mean of model/working precision
-
-        // Check if the normal is well-defined (non-degenerate triangle).
-        let normal_len_sq = normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2];
-        let has_valid_normal = normal_len_sq > 0.5; // unit normal should have len ~1
-
-        if has_valid_normal {
-            let offset = [
-                centroid[0] - eps * normal[0],
-                centroid[1] - eps * normal[1],
-                centroid[2] - eps * normal[2],
-            ];
-            let w2 = winding_number_mesh(offset, target_verts, target_tris);
-            if w2 >= WINDING_INSIDE_THRESHOLD {
-                CellLabel::CoSurfaceInside
-            } else {
-                CellLabel::CoSurfaceOutside
-            }
-        } else {
-            // Degenerate triangle — normal is unreliable. Try all three
-            // coordinate axes as offset directions and use majority vote.
-            // Ref #4: Shewchuk 1997 — perturbation along coordinate axes.
-            let axes: [[f64; 3]; 3] = [[eps, 0.0, 0.0], [0.0, eps, 0.0], [0.0, 0.0, eps]];
-            let mut inside_votes = 0u32;
-            for axis in &axes {
-                let offset = [
-                    centroid[0] + axis[0],
-                    centroid[1] + axis[1],
-                    centroid[2] + axis[2],
-                ];
-                let w_off = winding_number_mesh(offset, target_verts, target_tris);
-                if w_off >= WINDING_INSIDE_THRESHOLD {
-                    inside_votes += 1;
-                }
-            }
-            if inside_votes >= 2 {
-                CellLabel::CoSurfaceInside
-            } else {
-                CellLabel::CoSurfaceOutside
-            }
-        }
-    } else {
-        classify_winding(w)
-    }
 }
 
 /// Weld coincident vertices in a triangle mesh by quantizing positions to a
@@ -1686,10 +1491,8 @@ pub(crate) fn label_cells(
     deadline: Option<std::time::Instant>,
     d_epsilon: f64,
 ) -> Result<CellLabeling, crate::types::KernelError> {
-    // Effective co-surface detection epsilon per Yang 2025 Section 4.4.2.
-    // d_epsilon is the mesh discretization error bound; if not provided (0.0),
-    // fall back to a reasonable default.
-    let co_surface_eps = if d_epsilon > 0.0 { d_epsilon } else { 1e-6 };
+    // Epsilon for offset-based disambiguation per Yang 2025 Section 4.4.2.
+    let effective_eps = if d_epsilon > 0.0 { d_epsilon } else { 1e-6 };
     // Weld coincident vertices in the original meshes to close T-junction cracks.
     // WaffleKernel tessellation produces per-face vertices (non-shared boundary
     // vertices for normal interpolation), creating micro-cracks at face boundaries.
@@ -1728,7 +1531,7 @@ pub(crate) fn label_cells(
                 &welded_tris_b,
                 bvh,
                 global_max_b,
-                co_surface_eps,
+                effective_eps,
             )
         } else {
             // Empty target mesh — everything is outside.
@@ -1757,7 +1560,7 @@ pub(crate) fn label_cells(
                 &welded_tris_a,
                 bvh,
                 global_max_a,
-                co_surface_eps,
+                effective_eps,
             )
         } else {
             // Empty target mesh — everything is outside.
@@ -1788,45 +1591,19 @@ pub(crate) fn select_boolean_result(
 
     // Determine which labels to keep for A and B sub-triangles.
     // Ref #24: Yang 2025 — boolean op cell selection table.
-    //
-    // Co-surface handling (sub-tris on the other mesh's surface):
-    // A selection:
-    //   Union:     Outside + CoSurfaceOutside + CoSurfaceInside (fill shared-plane gap)
-    //   Subtract:  Outside + CoSurfaceOutside (touching faces stay; overlap faces removed)
-    //   Intersect: Inside + CoSurfaceInside (shared boundary included)
-    // B selection: always only the primary label (Outside/Inside), never co-surface.
+    // Binary classification only: Inside/Outside.
+    //   Union:     A keeps Outside, B keeps Outside
+    //   Subtract:  A keeps Outside, B keeps Inside (flipped)
+    //   Intersect: A keeps Inside, B keeps Inside
     let (keep_a, keep_b, flip_b) = match op {
         MeshBooleanOp::Union => (CellLabel::Outside, CellLabel::Outside, false),
         MeshBooleanOp::Subtract => (CellLabel::Outside, CellLabel::Inside, true),
         MeshBooleanOp::Intersect => (CellLabel::Inside, CellLabel::Inside, false),
     };
 
-    let a_keeps_label = |label: &CellLabel| -> bool {
-        if *label == keep_a {
-            return true;
-        }
-        match op {
-            MeshBooleanOp::Union => {
-                // Union keeps all A co-surface tris (fills gap on shared planes)
-                matches!(
-                    label,
-                    CellLabel::CoSurfaceInside | CellLabel::CoSurfaceOutside
-                )
-            }
-            MeshBooleanOp::Subtract => {
-                // Subtract keeps only CoSurfaceOutside (touching face stays, overlap drops)
-                *label == CellLabel::CoSurfaceOutside
-            }
-            MeshBooleanOp::Intersect => {
-                // Intersect keeps only CoSurfaceInside (shared boundary)
-                *label == CellLabel::CoSurfaceInside
-            }
-        }
-    };
-
     // Emit selected A sub-triangles (normal winding order).
     for (sub_tri, label) in subdivided.tris_a.iter().zip(labeling.labels_a.iter()) {
-        if a_keeps_label(label) {
+        if *label == keep_a {
             let v0 = subdivided.verts[sub_tri.verts[0]];
             let v1 = subdivided.verts[sub_tri.verts[1]];
             let v2 = subdivided.verts[sub_tri.verts[2]];
@@ -1836,38 +1613,9 @@ pub(crate) fn select_boolean_result(
         }
     }
 
-    // B-side co-surface predicate: symmetric with A for Union/Intersect.
-    // Per Yang 2025 Section 4.4.2: co-surface faces from both meshes must be
-    // treated symmetrically to avoid holes in the result.
-    let b_keeps_label = |label: &CellLabel| -> bool {
-        if *label == keep_b {
-            return true;
-        }
-        match op {
-            MeshBooleanOp::Union => {
-                // Union keeps ALL B co-surface tris (fully symmetric with A).
-                // At perpendicular junction corners, B's reverse triangle may be
-                // CoSurfaceOutside — dropping it breaks conformality (rev_he_count=0).
-                matches!(
-                    label,
-                    CellLabel::CoSurfaceInside | CellLabel::CoSurfaceOutside
-                )
-            }
-            MeshBooleanOp::Subtract => {
-                // Subtract: B-inside-A are kept (flipped). CoSurfaceInside means
-                // the B tri is on A's surface facing into A → should be kept+flipped.
-                *label == CellLabel::CoSurfaceInside
-            }
-            MeshBooleanOp::Intersect => {
-                // Intersect keeps B co-surface-inside (shared boundary)
-                *label == CellLabel::CoSurfaceInside
-            }
-        }
-    };
-
     // Emit selected B sub-triangles (possibly flipped for Subtract)
     for (sub_tri, label) in subdivided.tris_b.iter().zip(labeling.labels_b.iter()) {
-        if b_keeps_label(label) {
+        if *label == keep_b {
             let v0 = subdivided.verts[sub_tri.verts[0]];
             let v1 = subdivided.verts[sub_tri.verts[1]];
             let v2 = subdivided.verts[sub_tri.verts[2]];
@@ -6288,10 +6036,10 @@ mod tests {
         let mut outside_count = 0usize;
         for label in &labeling.labels_a {
             match label {
-                CellLabel::Inside | CellLabel::CoSurfaceInside => {
+                CellLabel::Inside => {
                     inside_count += 1;
                 }
-                CellLabel::Outside | CellLabel::CoSurfaceOutside => {
+                CellLabel::Outside => {
                     outside_count += 1;
                 }
             }
