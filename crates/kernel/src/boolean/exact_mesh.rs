@@ -25,8 +25,8 @@
 use geometry_predicates::{orient2d, orient3d};
 
 use crate::units::{
-    TAU_EXACT_MESH_BOUNDARY_EPS, TAU_EXACT_MESH_CLASSIFY, TAU_NORMALIZE_SQ, TAU_WORK,
-    WINDING_INSIDE_THRESHOLD, WINDING_OUTSIDE_THRESHOLD,
+    TAU_EXACT_MESH_CLASSIFY, TAU_NORMALIZE_SQ, TAU_WORK, WINDING_INSIDE_THRESHOLD,
+    WINDING_OUTSIDE_THRESHOLD,
 };
 
 /// Which mesh a triangle belongs to in a boolean operation.
@@ -1372,17 +1372,18 @@ fn label_sub_tri_raycast(
     target_tris: &[[usize; 3]],
     bvh: &BvhNode,
     global_max: [f64; 3],
+    d_epsilon: f64,
 ) -> CellLabel {
     let centroid = sub_tri_centroid(verts, sub_tri);
 
     // Check co-surface: query BVH for triangles near the centroid and check
-    // point-to-plane distance.
-    let is_co_surface = check_co_surface(&centroid, target_verts, target_tris, bvh);
+    // point-to-plane distance. Uses d_epsilon per Yang 2025 Section 4.4.2.
+    let is_co_surface = check_co_surface(&centroid, target_verts, target_tris, bvh, d_epsilon);
 
     if is_co_surface {
         // Offset centroid along -normal (into sub-tri's solid) and re-classify.
         let normal = sub_tri_unit_normal(verts, sub_tri);
-        let eps = TAU_WORK.sqrt(); // ~1e-6
+        let eps = d_epsilon.max(1e-6);
         let offset_pt = [
             centroid[0] - eps * normal[0],
             centroid[1] - eps * normal[1],
@@ -1409,8 +1410,27 @@ fn label_sub_tri_raycast(
             Some(true) => CellLabel::Inside,
             Some(false) => CellLabel::Outside,
             None => {
-                // All axes degenerate — fall back to GWN-based label_sub_tri.
-                label_sub_tri(verts, sub_tri, target_verts, target_tris)
+                // Per Yang/Cherchi: degenerate ray cast → point near surface → offset and retry
+                let normal = sub_tri_unit_normal(verts, sub_tri);
+                let eps = d_epsilon.max(1e-6);
+                let offset = [
+                    centroid[0] - eps * normal[0],
+                    centroid[1] - eps * normal[1],
+                    centroid[2] - eps * normal[2],
+                ];
+                match ray_cast_inside(offset, target_verts, target_tris, bvh, global_max) {
+                    Some(true) => CellLabel::CoSurfaceInside,
+                    Some(false) => CellLabel::CoSurfaceOutside,
+                    None => {
+                        // Truly degenerate — last resort GWN on offset point
+                        let w = winding_number_mesh(offset, target_verts, target_tris);
+                        if w >= WINDING_INSIDE_THRESHOLD {
+                            CellLabel::CoSurfaceInside
+                        } else {
+                            CellLabel::CoSurfaceOutside
+                        }
+                    }
+                }
             }
         }
     }
@@ -1420,15 +1440,18 @@ fn label_sub_tri_raycast(
 ///
 /// Queries the BVH for triangles whose AABB contains the point (with small expansion),
 /// then computes the point-to-plane distance for each. If any distance is below
-/// `TAU_EXACT_MESH_BOUNDARY_EPS`, the point is considered co-surface.
+/// `d_epsilon`, the point is considered co-surface.
 fn check_co_surface(
     p: &[f64; 3],
     target_verts: &[[f64; 3]],
     target_tris: &[[usize; 3]],
     bvh: &BvhNode,
+    d_epsilon: f64,
 ) -> bool {
-    // Small AABB around the query point to find nearby triangles.
-    let expand = TAU_WORK.sqrt(); // ~1e-6
+    // Use d_epsilon (mesh discretization error) for co-surface detection.
+    // Per Yang 2025 Section 4.4.2: points within d_epsilon of the target
+    // mesh surface are co-surface and need normal-offset disambiguation.
+    let expand = d_epsilon.max(1e-6);
     let query_aabb = Aabb {
         min: [p[0] - expand, p[1] - expand, p[2] - expand],
         max: [p[0] + expand, p[1] + expand, p[2] + expand],
@@ -1461,7 +1484,7 @@ fn check_co_surface(
         let dot = n[0] * d[0] + n[1] * d[1] + n[2] * d[2];
         let dist_sq = (dot * dot) / n_len_sq;
 
-        if dist_sq < TAU_EXACT_MESH_BOUNDARY_EPS * TAU_EXACT_MESH_BOUNDARY_EPS {
+        if dist_sq < d_epsilon * d_epsilon {
             return true;
         }
     }
@@ -1661,7 +1684,12 @@ pub(crate) fn label_cells(
     original_verts_b: &[[f64; 3]],
     original_tris_b: &[[usize; 3]],
     deadline: Option<std::time::Instant>,
+    d_epsilon: f64,
 ) -> Result<CellLabeling, crate::types::KernelError> {
+    // Effective co-surface detection epsilon per Yang 2025 Section 4.4.2.
+    // d_epsilon is the mesh discretization error bound; if not provided (0.0),
+    // fall back to a reasonable default.
+    let co_surface_eps = if d_epsilon > 0.0 { d_epsilon } else { 1e-6 };
     // Weld coincident vertices in the original meshes to close T-junction cracks.
     // WaffleKernel tessellation produces per-face vertices (non-shared boundary
     // vertices for normal interpolation), creating micro-cracks at face boundaries.
@@ -1700,6 +1728,7 @@ pub(crate) fn label_cells(
                 &welded_tris_b,
                 bvh,
                 global_max_b,
+                co_surface_eps,
             )
         } else {
             // Empty target mesh — everything is outside.
@@ -1728,6 +1757,7 @@ pub(crate) fn label_cells(
                 &welded_tris_a,
                 bvh,
                 global_max_a,
+                co_surface_eps,
             )
         } else {
             // Empty target mesh — everything is outside.
@@ -1806,9 +1836,33 @@ pub(crate) fn select_boolean_result(
         }
     }
 
+    // B-side co-surface predicate: symmetric with A for Union/Intersect.
+    // Per Yang 2025 Section 4.4.2: co-surface faces from both meshes must be
+    // treated symmetrically to avoid holes in the result.
+    let b_keeps_label = |label: &CellLabel| -> bool {
+        if *label == keep_b {
+            return true;
+        }
+        match op {
+            MeshBooleanOp::Union => {
+                // Union keeps B co-surface-inside (symmetric with A)
+                *label == CellLabel::CoSurfaceInside
+            }
+            MeshBooleanOp::Subtract => {
+                // Subtract: B-inside-A are kept (flipped). CoSurfaceInside means
+                // the B tri is on A's surface facing into A → should be kept+flipped.
+                *label == CellLabel::CoSurfaceInside
+            }
+            MeshBooleanOp::Intersect => {
+                // Intersect keeps B co-surface-inside (shared boundary)
+                *label == CellLabel::CoSurfaceInside
+            }
+        }
+    };
+
     // Emit selected B sub-triangles (possibly flipped for Subtract)
     for (sub_tri, label) in subdivided.tris_b.iter().zip(labeling.labels_b.iter()) {
-        if *label == keep_b {
+        if b_keeps_label(label) {
             let v0 = subdivided.verts[sub_tri.verts[0]];
             let v1 = subdivided.verts[sub_tri.verts[1]];
             let v2 = subdivided.verts[sub_tri.verts[2]];
@@ -3364,7 +3418,7 @@ mod tests {
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
 
         // Labels must have correct length
         assert_eq!(
@@ -3408,7 +3462,7 @@ mod tests {
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
 
         assert_eq!(
             labeling.labels_a.len(),
@@ -3478,7 +3532,7 @@ mod tests {
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
         let result = select_boolean_result(&subdivided, &labeling, MeshBooleanOp::Union);
 
         // Union of non-overlapping: all A triangles + all B triangles.
@@ -3513,7 +3567,7 @@ mod tests {
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
         let result = select_boolean_result(&subdivided, &labeling, MeshBooleanOp::Subtract);
 
         assert!(
@@ -3552,7 +3606,7 @@ mod tests {
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
         let result = select_boolean_result(&subdivided, &labeling, MeshBooleanOp::Intersect);
 
         assert!(
@@ -3591,7 +3645,7 @@ mod tests {
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
 
         // Verify all labels are Outside (non-overlapping)
         assert!(
@@ -4326,7 +4380,7 @@ mod tests {
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
         select_boolean_result(&subdivided, &labeling, op)
     }
 
@@ -4541,7 +4595,7 @@ mod tests {
         let (vb, tb) = make_box_mesh_fine([0.75, 0.75, 0.75], [2.75, 2.75, 2.75]);
         let sub =
             subdivide_mesh_pair(&va, &ta, &vb, &tb, None, 0.0).expect("subdivision should succeed");
-        let lab = label_cells(&sub, &va, &ta, &vb, &tb, None).unwrap();
+        let lab = label_cells(&sub, &va, &ta, &vb, &tb, None, 0.0).unwrap();
         for op in [
             MeshBooleanOp::Union,
             MeshBooleanOp::Subtract,
@@ -5524,7 +5578,7 @@ mod tests {
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
 
         // Both meshes should be subdivided (more than 12 original tris)
         assert!(
@@ -6216,7 +6270,7 @@ mod tests {
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
 
         assert_eq!(
             labeling.labels_a.len(),
@@ -6360,7 +6414,7 @@ mod tests {
 
         // Deadline already expired → should return Err immediately
         let expired = std::time::Instant::now() - std::time::Duration::from_secs(1);
-        let result = label_cells(&subdivided, &va, &ta, &vb, &tb, Some(expired));
+        let result = label_cells(&subdivided, &va, &ta, &vb, &tb, Some(expired), 0.0);
         assert!(
             result.is_err(),
             "label_cells should error on expired deadline"
@@ -6377,7 +6431,7 @@ mod tests {
         let (va, ta) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
         let (vb, tb) = make_box_mesh([0.5, 0.5, 0.5], [1.5, 1.5, 1.5]);
         let subdivided = subdivide_mesh_pair(&va, &ta, &vb, &tb, None, 0.0).unwrap();
-        let labeling = label_cells(&subdivided, &va, &ta, &vb, &tb, None).unwrap();
+        let labeling = label_cells(&subdivided, &va, &ta, &vb, &tb, None, 0.0).unwrap();
         assert_eq!(labeling.labels_a.len(), subdivided.tris_a.len());
         assert_eq!(labeling.labels_b.len(), subdivided.tris_b.len());
     }
@@ -6390,7 +6444,7 @@ mod tests {
 
         // Generous deadline (60s) — should succeed
         let future = std::time::Instant::now() + std::time::Duration::from_secs(60);
-        let result = label_cells(&subdivided, &va, &ta, &vb, &tb, Some(future));
+        let result = label_cells(&subdivided, &va, &ta, &vb, &tb, Some(future), 0.0);
         assert!(
             result.is_ok(),
             "label_cells should succeed with generous deadline"

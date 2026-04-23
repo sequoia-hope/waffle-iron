@@ -2239,7 +2239,7 @@ mod tests {
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
         let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None).unwrap();
+            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
 
         let mut a_outside = 0usize;
         let mut b_outside = 0usize;
