@@ -9,7 +9,7 @@
 //! Ref [#24]: Yang, Jia & Yan (2025) — Stage 3 of the hybrid pipeline.
 //! Ref [#9]: Cherchi et al. (2020) — parent triangle provenance.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::boolean::exact_mesh::{
     label_cells, subdivide_mesh_pair, CellLabel, CellLabeling, MeshBooleanOp, MeshId,
@@ -1013,7 +1013,7 @@ pub(crate) fn flood_fill_patches(
     // Key directed_he by BRep vertex indices (not canonical mesh indices) so that
     // edges sharing the same geometric position always use the same key, even when
     // multiple canonical mesh indices map to the same BRep vertex.
-    let mut directed_he: HashMap<(BrepVIdx, BrepVIdx), Vec<HalfEdgeIdx>> = HashMap::new();
+    let mut directed_he: BTreeMap<(BrepVIdx, BrepVIdx), Vec<HalfEdgeIdx>> = BTreeMap::new();
     let mut face_provenance: BTreeMap<FaceIdx, SourceFace> = BTreeMap::new();
     let mut edge_is_int_map: HashMap<(BrepVIdx, BrepVIdx), bool> = HashMap::new();
     let mut he_to_face: HashMap<HalfEdgeIdx, FaceIdx> = HashMap::new();
@@ -1073,7 +1073,7 @@ pub(crate) fn flood_fill_patches(
     let mut edge_is_intersection: BTreeMap<EdgeIdx, bool> = BTreeMap::new();
     let mut paired_he: HashSet<HalfEdgeIdx> = HashSet::new();
 
-    let mut undirected_edges: HashSet<(BrepVIdx, BrepVIdx)> = HashSet::new();
+    let mut undirected_edges: BTreeSet<(BrepVIdx, BrepVIdx)> = BTreeSet::new();
     for &(bv0, bv1) in directed_he.keys() {
         undirected_edges.insert((bv0.min(bv1), bv0.max(bv1)));
     }
