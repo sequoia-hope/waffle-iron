@@ -1119,7 +1119,11 @@ pub(crate) fn dedup_mesh_vertices(verts: &mut Vec<[f64; 3]>, tris: &mut [[usize;
         ];
         let new_idx = *pos_to_new.entry(key).or_insert_with(|| {
             let idx = new_verts.len();
-            new_verts.push(*v);
+            new_verts.push([
+                key[0] as f64 / scale,
+                key[1] as f64 / scale,
+                key[2] as f64 / scale,
+            ]);
             idx
         });
         old_to_new.push(new_idx);
