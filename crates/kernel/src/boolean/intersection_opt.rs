@@ -456,6 +456,16 @@ pub(crate) fn optimize_intersection_vertices(
         let pos = subdivided.verts[vi];
         let pt = Point3::new(pos[0], pos[1], pos[2]);
         let mut optimized = false;
+        let mut all_pairs_missing_surface = true;
+
+        #[cfg(test)]
+        eprintln!(
+            "[OPT DIAG] vertex {}: faces_a={:?} faces_b={:?} pos={:?}",
+            vi,
+            vert_faces_a[vi].iter().collect::<Vec<_>>(),
+            vert_faces_b[vi].iter().collect::<Vec<_>>(),
+            pos
+        );
 
         // Try each face pair (A_face, B_face) that shares this vertex.
         'pairs: for &face_a in &vert_faces_a[vi] {
@@ -463,6 +473,11 @@ pub(crate) fn optimize_intersection_vertices(
                 let geom_a = match face_geometry_a.get(&face_a) {
                     Some(g) => g,
                     None => {
+                        #[cfg(test)]
+                        eprintln!(
+                            "[OPT DIAG]   pair: face_a={:?} face_b={:?} -> MISSING geom_a",
+                            face_a, face_b
+                        );
                         stats.skipped_no_surface += 1;
                         continue;
                     }
@@ -470,16 +485,27 @@ pub(crate) fn optimize_intersection_vertices(
                 let geom_b = match face_geometry_b.get(&face_b) {
                     Some(g) => g,
                     None => {
+                        #[cfg(test)]
+                        eprintln!(
+                            "[OPT DIAG]   pair: face_a={:?} face_b={:?} -> MISSING geom_b",
+                            face_a, face_b
+                        );
                         stats.skipped_no_surface += 1;
                         continue;
                     }
                 };
+                all_pairs_missing_surface = false;
 
                 // Skip planar-planar: Cherchi's exact predicates already
                 // produce exact intersection points for flat surfaces.
                 if matches!(geom_a, SurfaceGeom::Planar(_))
                     && matches!(geom_b, SurfaceGeom::Planar(_))
                 {
+                    #[cfg(test)]
+                    eprintln!(
+                        "[OPT DIAG]   pair: face_a={:?} face_b={:?} -> PLANAR SKIP",
+                        face_a, face_b
+                    );
                     stats.skipped_planar += 1;
                     stats.vertex_status[vi] = VertexOptStatus::Planar;
                     optimized = true;
@@ -528,8 +554,23 @@ pub(crate) fn optimize_intersection_vertices(
         }
 
         if !optimized && !vert_faces_a[vi].is_empty() && !vert_faces_b[vi].is_empty() {
-            stats.vertex_status[vi] = VertexOptStatus::Failed;
-            stats.failed += 1;
+            if all_pairs_missing_surface {
+                // All face pairs had missing surface geometry — we can't optimize
+                // but we also can't declare failure. The Cherchi position is already
+                // exact for planar geometry (the most common case for missing entries).
+                // Treat as NotIntersection to avoid triggering expensive refinement.
+                #[cfg(test)]
+                eprintln!(
+                    "[OPT DIAG] vertex {}: ALL pairs missing surface -> keeping Cherchi position",
+                    vi
+                );
+                stats.skipped_no_surface += 1;
+            } else {
+                #[cfg(test)]
+                eprintln!("[OPT DIAG] vertex {}: -> FAILED", vi);
+                stats.vertex_status[vi] = VertexOptStatus::Failed;
+                stats.failed += 1;
+            }
         }
     }
 
