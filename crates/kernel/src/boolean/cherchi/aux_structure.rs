@@ -28,8 +28,9 @@
 //! Ported from Cherchi aux_structure.h + aux_structure.cpp
 //! MIT License (c) 2022 Cherchi, Livesu, Scateni, Attene, Pellacini
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
+use super::super::indirect_predicates::ImplicitPoint;
 use super::triangle_soup::TriangleSoup;
 
 /// A pair of vertex IDs, used for segments and edge keys.
@@ -73,12 +74,11 @@ pub(crate) struct AuxiliaryStructure {
     /// Ported from aux_structure.h:193
     tri_has_intersections: Vec<bool>,
 
-    /// Sorted vertex map: materialized coordinates → vertex ID (for dedup).
-    /// In C++, v_map is btree_map<genericPoint*, uint> where genericPoint::operator<
-    /// compares geometric content via exact predicates. We approximate this by
-    /// keying on bit-exact materialized coordinates.
+    /// Sorted vertex map: ImplicitPoint → vertex ID (for dedup).
+    /// Matches C++ btree_map<genericPoint*, uint> where genericPoint::operator<
+    /// compares geometric content via exact predicates (less_than_indirect).
     /// Ported from aux_structure.h:194 (v_map)
-    v_map: HashMap<[u64; 3], usize>,
+    v_map: BTreeMap<ImplicitPoint, usize>,
 
     /// Visited polygon pockets for dedup during classification.
     /// Ported from aux_structure.h:196
@@ -100,7 +100,7 @@ impl AuxiliaryStructure {
             tri2segs: Vec::new(),
             seg2tris: HashMap::new(),
             tri_has_intersections: Vec::new(),
-            v_map: HashMap::new(),
+            v_map: BTreeMap::new(),
             pockets_map: HashMap::new(),
         }
     }
@@ -118,16 +118,12 @@ impl AuxiliaryStructure {
         self.tri2segs.resize(ts.num_tris(), Vec::new());
         self.tri_has_intersections.resize(ts.num_tris(), false);
 
-        // Populate v_map with original vertex coordinates.
-        // In C++ this inserts genericPoint* → uint; here we key on bit-exact coords.
+        // Populate v_map with original vertex coordinates as Explicit ImplicitPoints.
+        // Matches C++ insertion of genericPoint* → uint with exact predicate ordering.
         for v_id in 0..ts.num_verts() {
             let coords = ts.vert(v_id);
-            let key = [
-                coords[0].to_bits(),
-                coords[1].to_bits(),
-                coords[2].to_bits(),
-            ];
-            self.v_map.insert(key, v_id);
+            let point = ImplicitPoint::Explicit(coords);
+            self.v_map.insert(point, v_id);
         }
     }
 
@@ -314,27 +310,21 @@ impl AuxiliaryStructure {
             .expect("segment not found in seg2tris")
     }
 
-    /// Add a vertex to the sorted vertex map, keyed by materialized coordinates.
+    /// Add a vertex to the sorted vertex map, keyed by ImplicitPoint.
     /// Returns (vertex_id, is_new). If a geometrically identical point already
     /// exists, returns the existing vertex ID.
     ///
-    /// In C++, v_map is btree_map<genericPoint*, uint> where operator< compares
-    /// geometric content via exact predicates. We approximate this by keying on
-    /// bit-exact materialized coordinates.
+    /// Matches C++ btree_map<genericPoint*, uint> where operator< compares
+    /// geometric content via exact predicates (less_than_indirect).
     ///
     /// Ported from aux_structure.cpp:230-236
-    pub fn add_vertex_in_sorted_list(&mut self, coords: [f64; 3], pos: usize) -> (usize, bool) {
-        let key = [
-            coords[0].to_bits(),
-            coords[1].to_bits(),
-            coords[2].to_bits(),
-        ];
-        match self.v_map.entry(key) {
-            std::collections::hash_map::Entry::Vacant(e) => {
+    pub fn add_vertex_in_sorted_list(&mut self, point: ImplicitPoint, pos: usize) -> (usize, bool) {
+        match self.v_map.entry(point) {
+            std::collections::btree_map::Entry::Vacant(e) => {
                 e.insert(pos);
                 (pos, true)
             }
-            std::collections::hash_map::Entry::Occupied(e) => (*e.get(), false),
+            std::collections::btree_map::Entry::Occupied(e) => (*e.get(), false),
         }
     }
 
@@ -355,13 +345,13 @@ impl AuxiliaryStructure {
 
     /// Get reference to the vertex map.
     /// Ported from aux_structure.h:178
-    pub fn get_vmap(&self) -> &HashMap<[u64; 3], usize> {
+    pub fn get_vmap(&self) -> &BTreeMap<ImplicitPoint, usize> {
         &self.v_map
     }
 
     /// Get mutable reference to the vertex map.
     /// Ported from aux_structure.h:179
-    pub fn get_vmap_mut(&mut self) -> &mut HashMap<[u64; 3], usize> {
+    pub fn get_vmap_mut(&mut self) -> &mut BTreeMap<ImplicitPoint, usize> {
         &mut self.v_map
     }
 

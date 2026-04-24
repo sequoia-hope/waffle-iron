@@ -72,6 +72,26 @@ pub(crate) enum ImplicitPoint {
     },
 }
 
+impl Eq for ImplicitPoint {}
+
+impl PartialEq for ImplicitPoint {
+    fn eq(&self, other: &Self) -> bool {
+        less_than_indirect(self, other) == std::cmp::Ordering::Equal
+    }
+}
+
+impl PartialOrd for ImplicitPoint {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ImplicitPoint {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        less_than_indirect(self, other)
+    }
+}
+
 impl ImplicitPoint {
     /// Compute explicit coordinates for this implicit point.
     ///

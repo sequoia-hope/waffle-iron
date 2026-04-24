@@ -27,7 +27,9 @@
 //! Ported from Cherchi processing.h + processing.cpp
 //! MIT License (c) 2022 Cherchi, Livesu, Scateni, Attene, Pellacini
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+
+use super::super::indirect_predicates::ImplicitPoint;
 
 /// Compute the multiplier (power-of-2 scaling factor) for predicate stability.
 ///
@@ -123,16 +125,16 @@ pub(crate) fn merge_duplicated_vertices(
     let mut verts: Vec<[f64; 3]> = Vec::with_capacity(in_coords.len());
     let mut tris: Vec<usize> = Vec::with_capacity(in_tris.len());
 
-    // Use a HashMap keyed on bitwise-exact f64 triples for dedup.
-    // We convert [f64; 3] to [u64; 3] via to_bits() for exact hashing.
-    let mut v_map: HashMap<[u64; 3], usize> = HashMap::with_capacity(in_tris.len() * 3);
+    // Use a BTreeMap keyed on ImplicitPoint::Explicit for exact predicate-based dedup.
+    // Matches C++ btree_map<genericPoint*, uint> with exact geometric ordering.
+    let mut v_map: BTreeMap<ImplicitPoint, usize> = BTreeMap::new();
 
     for &v_id in in_tris {
         let v = in_coords[v_id];
-        let key = [v[0].to_bits(), v[1].to_bits(), v[2].to_bits()];
+        let point = ImplicitPoint::Explicit(v);
 
         let next_id = verts.len();
-        let entry = v_map.entry(key).or_insert_with(|| {
+        let entry = v_map.entry(point).or_insert_with(|| {
             verts.push(v);
             next_id
         });
@@ -156,7 +158,7 @@ pub(crate) fn merge_duplicated_vertices_flat(
     let mut verts: Vec<[f64; 3]> = Vec::with_capacity(in_coords.len() / 3);
     let mut tris: Vec<usize> = Vec::with_capacity(in_tris.len());
 
-    let mut v_map: HashMap<[u64; 3], usize> = HashMap::with_capacity(in_tris.len() * 3);
+    let mut v_map: BTreeMap<ImplicitPoint, usize> = BTreeMap::new();
 
     for &v_id in in_tris {
         let v = [
@@ -164,10 +166,10 @@ pub(crate) fn merge_duplicated_vertices_flat(
             in_coords[3 * v_id + 1],
             in_coords[3 * v_id + 2],
         ];
-        let key = [v[0].to_bits(), v[1].to_bits(), v[2].to_bits()];
+        let point = ImplicitPoint::Explicit(v);
 
         let next_id = verts.len();
-        let entry = v_map.entry(key).or_insert_with(|| {
+        let entry = v_map.entry(point).or_insert_with(|| {
             verts.push(v);
             next_id
         });
