@@ -1211,6 +1211,26 @@ pub(crate) struct YangPipelineResult {
     pub remaining_failed_verts: usize,
 }
 
+/// Count non-conformal edges: directed edges with no reverse in the combined mesh.
+#[cfg(test)]
+fn count_nc_edges(
+    _verts: &[[f64; 3]],
+    tris_a: &[crate::boolean::exact_mesh::SubTriangle],
+    tris_b: &[crate::boolean::exact_mesh::SubTriangle],
+) -> usize {
+    use std::collections::HashMap;
+    let mut ec: HashMap<(usize, usize), usize> = HashMap::new();
+    for tri in tris_a.iter().chain(tris_b.iter()) {
+        for k in 0..3 {
+            *ec.entry((tri.verts[k], tri.verts[(k + 1) % 3]))
+                .or_insert(0) += 1;
+        }
+    }
+    ec.keys()
+        .filter(|&&(v0, v1)| !ec.contains_key(&(v1, v0)))
+        .count()
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn yang_boolean_pipeline(
     verts_a: &[[f64; 3]],
@@ -1242,6 +1262,18 @@ pub(crate) fn yang_boolean_pipeline(
         subdivided.tris_b.len(),
         subdivided.verts.len()
     );
+
+    // [CONFORM CHECK 1] Post-Cherchi conformality
+    #[cfg(test)]
+    {
+        let nc = count_nc_edges(&subdivided.verts, &subdivided.tris_a, &subdivided.tris_b);
+        eprintln!(
+            "[CONFORM CHECK 1] Post-Cherchi: {} NC edges ({} tris_a, {} tris_b)",
+            nc,
+            subdivided.tris_a.len(),
+            subdivided.tris_b.len()
+        );
+    }
 
     // Stage 1b (Yang 4.3 + 4.5.1): Optimize intersection vertices with
     // failure recovery loop. First pass optimizes all new vertices. If any
@@ -1329,6 +1361,13 @@ pub(crate) fn yang_boolean_pipeline(
         }
     }
 
+    // [CONFORM CHECK 2] Post-optimization conformality
+    #[cfg(test)]
+    {
+        let nc = count_nc_edges(&subdivided.verts, &subdivided.tris_a, &subdivided.tris_b);
+        eprintln!("[CONFORM CHECK 2] Post-optimization: {} NC edges", nc);
+    }
+
     // Stage 2: Label each sub-triangle as inside/outside the opposite mesh.
     // Deadline is threaded through so label_cells can enforce the timeout
     // during its per-sub-triangle ray-casting loop.
@@ -1362,6 +1401,35 @@ pub(crate) fn yang_boolean_pipeline(
         );
     }
 
+    // [CONFORM CHECK 3] Label distribution
+    #[cfg(test)]
+    {
+        let a_in = labeling
+            .labels_a
+            .iter()
+            .filter(|l| matches!(l, CellLabel::Inside))
+            .count();
+        let a_out = labeling
+            .labels_a
+            .iter()
+            .filter(|l| matches!(l, CellLabel::Outside))
+            .count();
+        let b_in = labeling
+            .labels_b
+            .iter()
+            .filter(|l| matches!(l, CellLabel::Inside))
+            .count();
+        let b_out = labeling
+            .labels_b
+            .iter()
+            .filter(|l| matches!(l, CellLabel::Outside))
+            .count();
+        eprintln!(
+            "[CONFORM CHECK 3] Labels: A in={} out={}, B in={} out={}",
+            a_in, a_out, b_in, b_out
+        );
+    }
+
     // Stage 3a: Determine which sub-triangles survive the boolean op.
     let survival = face_survival_detect(&subdivided, &labeling, op, bijective_a, bijective_b);
 
@@ -1371,6 +1439,92 @@ pub(crate) fn yang_boolean_pipeline(
         "[yang-diag] after survival: {} groups, {} tris",
         n_survival_groups, n_survival_tris
     );
+
+    // [CONFORM CHECK 4] Post-survival conformality with missing-reverse diagnosis
+    #[cfg(test)]
+    {
+        use std::collections::HashMap as CheckMap;
+        let mut directed: CheckMap<(usize, usize), SourceFace> = CheckMap::new();
+        for (sf, tris) in &survival.groups {
+            for tri in tris {
+                for k in 0..3 {
+                    directed.insert((tri.verts[k], tri.verts[(k + 1) % 3]), *sf);
+                }
+            }
+        }
+        let missing: Vec<_> = directed
+            .keys()
+            .filter(|&&(v0, v1)| !directed.contains_key(&(v1, v0)))
+            .copied()
+            .collect();
+        eprintln!(
+            "[CONFORM CHECK 4] Post-survival: {} directed edges, {} missing reverse",
+            directed.len(),
+            missing.len()
+        );
+
+        if !missing.is_empty() {
+            for &(v0, v1) in missing.iter().take(10) {
+                let p0 = subdivided.verts[v0];
+                let p1 = subdivided.verts[v1];
+                let sf = directed[&(v0, v1)];
+                eprintln!(
+                    "  MISSING ({}->{}) [{:.4},{:.4},{:.4}]->[{:.4},{:.4},{:.4}] from {:?}",
+                    v0, v1, p0[0], p0[1], p0[2], p1[0], p1[1], p1[2], sf
+                );
+
+                // Search full Cherchi output for the reverse
+                for (ti, tri) in subdivided.tris_a.iter().enumerate() {
+                    for k in 0..3 {
+                        if tri.verts[k] == v1 && tri.verts[(k + 1) % 3] == v0 {
+                            let c = [
+                                (subdivided.verts[tri.verts[0]][0]
+                                    + subdivided.verts[tri.verts[1]][0]
+                                    + subdivided.verts[tri.verts[2]][0])
+                                    / 3.0,
+                                (subdivided.verts[tri.verts[0]][1]
+                                    + subdivided.verts[tri.verts[1]][1]
+                                    + subdivided.verts[tri.verts[2]][1])
+                                    / 3.0,
+                                (subdivided.verts[tri.verts[0]][2]
+                                    + subdivided.verts[tri.verts[1]][2]
+                                    + subdivided.verts[tri.verts[2]][2])
+                                    / 3.0,
+                            ];
+                            eprintln!(
+                                "    -> REVERSE in tris_a[{}] label={:?} centroid=[{:.4},{:.4},{:.4}]",
+                                ti, labeling.labels_a[ti], c[0], c[1], c[2]
+                            );
+                        }
+                    }
+                }
+                for (ti, tri) in subdivided.tris_b.iter().enumerate() {
+                    for k in 0..3 {
+                        if tri.verts[k] == v1 && tri.verts[(k + 1) % 3] == v0 {
+                            let c = [
+                                (subdivided.verts[tri.verts[0]][0]
+                                    + subdivided.verts[tri.verts[1]][0]
+                                    + subdivided.verts[tri.verts[2]][0])
+                                    / 3.0,
+                                (subdivided.verts[tri.verts[0]][1]
+                                    + subdivided.verts[tri.verts[1]][1]
+                                    + subdivided.verts[tri.verts[2]][1])
+                                    / 3.0,
+                                (subdivided.verts[tri.verts[0]][2]
+                                    + subdivided.verts[tri.verts[1]][2]
+                                    + subdivided.verts[tri.verts[2]][2])
+                                    / 3.0,
+                            ];
+                            eprintln!(
+                                "    -> REVERSE in tris_b[{}] label={:?} centroid=[{:.4},{:.4},{:.4}]",
+                                ti, labeling.labels_b[ti], c[0], c[1], c[2]
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // Stage 3b+3c: Flood-fill patch segmentation per Yang 2025 Section 4.4.2.
     // BFS groups surviving sub-triangles into patches separated by B-Rep
