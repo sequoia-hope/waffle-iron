@@ -1878,12 +1878,12 @@ pub(crate) fn orient2d_indirect(
         }
 
         // ── TTT multiset ─────────────────────────────────────────────
+        // Cherchi 2020 §4.2: the 27 (E,L,T)³ patterns are exhaustive.
+        // No `_` arm — adding a new ImplicitPoint variant must fail to
+        // compile and force the dispatcher to be extended.
         (ImplicitPoint::TPI { .. }, ImplicitPoint::TPI { .. }, ImplicitPoint::TPI { .. }) => {
             orient2d_ttt(a, b, c, i, j)
         }
-        // Cherchi 2020 §4.2: the 27 (E,L,T)³ patterns above are exhaustive.
-        // No `_` arm — adding a new ImplicitPoint variant must fail to compile
-        // and force the dispatcher to be extended.
     }
 }
 
