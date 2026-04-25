@@ -19,11 +19,9 @@ use crate::tessellation::bijective::BijectiveMap;
 use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::{EdgeIdx, FaceIdx};
 use crate::types::KernelError;
-use crate::units::TAU_EXACT_MESH_CLASSIFY;
 
 /// Key identifying a source B-Rep face in the boolean result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[allow(dead_code)] // Phase 3 building block — task 3a
 pub(crate) struct SourceFace {
     pub mesh_id: MeshId,
     pub face_idx: FaceIdx,
@@ -31,28 +29,28 @@ pub(crate) struct SourceFace {
 
 /// A surviving sub-triangle in the boolean result, with provenance.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Phase 3 building block — task 3a
 pub(crate) struct SurvivingSubTri {
     /// Vertex indices in SubdividedMesh.verts.
     pub verts: [usize; 3],
     /// Whether winding was flipped (Subtract B-inside-A).
     pub flipped: bool,
-    /// Unused — kept for struct compatibility, always false.
-    pub is_cosurface: bool,
 }
 
 /// Maps each surviving source face to its contributing sub-triangles.
 /// Produced by face_survival_detect(), consumed by Phase 3b trim boundary extraction.
 #[derive(Debug)]
-#[allow(dead_code)] // Phase 3 building block — task 3a
 pub(crate) struct FaceSurvivalMap {
     /// Keyed by (MeshId, FaceIdx), value is the sub-triangles from that face.
     pub groups: BTreeMap<SourceFace, Vec<SurvivingSubTri>>,
 }
 
 /// A directed edge in a trim boundary.
+// dead_code in lib build: used only by this module's #[cfg(test)] tests.
+// Phase 3 building block per yang_2025_audit.md; may be wired into the
+// production pipeline in PR4+ or deleted if redundant. Re-suppression is
+// intentional, not lossy.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(dead_code)] // Phase 3 building block — task 3b
 pub(crate) struct TrimEdge {
     pub v0: usize,
     pub v1: usize,
@@ -60,15 +58,23 @@ pub(crate) struct TrimEdge {
 }
 
 /// A closed loop of directed trim edges.
+// dead_code in lib build: used only by this module's #[cfg(test)] tests.
+// Phase 3 building block per yang_2025_audit.md; may be wired into the
+// production pipeline in PR4+ or deleted if redundant. Re-suppression is
+// intentional, not lossy.
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // Phase 3 building block — task 3b
 pub(crate) struct TrimLoop {
     pub edges: Vec<TrimEdge>,
 }
 
 /// Maps each surviving source face to its trim boundary loops.
+// dead_code in lib build: used only by this module's #[cfg(test)] tests.
+// Phase 3 building block per yang_2025_audit.md; may be wired into the
+// production pipeline in PR4+ or deleted if redundant. Re-suppression is
+// intentional, not lossy.
+#[allow(dead_code)]
 #[derive(Debug)]
-#[allow(dead_code)] // Phase 3 building block — task 3b
 pub(crate) struct TrimBoundaryMap {
     pub boundaries: BTreeMap<SourceFace, Vec<TrimLoop>>,
 }
@@ -77,7 +83,6 @@ pub(crate) struct TrimBoundaryMap {
 /// Ref [#24]: Yang 2025 — Stage 3 topology reconstruction.
 /// Ref [#16]: Mantyla 1988 — Euler operator construction.
 #[derive(Debug)]
-#[allow(dead_code)] // Phase 3 building block — task 3c
 pub(crate) struct ResultTopology {
     /// Half-edge topology of the result solid.
     pub arena: TopoArena,
@@ -97,7 +102,11 @@ pub(crate) struct ResultTopology {
 /// Ref [#24]: Yang 2025 — Stage 3 B-Rep reconstruction.
 /// Ref [#16]: Mantyla 1988 — half-edge data structure construction.
 /// Ref [#33]: Stroud 2006 — B-Rep topological validation.
-#[allow(dead_code)] // Phase 3 building block — task 3c
+// dead_code in lib build: used only by this module's #[cfg(test)] tests.
+// Phase 3 building block per yang_2025_audit.md; may be wired into the
+// production pipeline in PR4+ or deleted if redundant. Re-suppression is
+// intentional, not lossy.
+#[allow(dead_code)]
 pub(crate) fn build_result_brep(
     trim_map: &TrimBoundaryMap,
     subdivided: &SubdividedMesh,
@@ -328,7 +337,6 @@ pub(crate) fn build_result_brep(
 ///
 /// Flood-fill patch segmentation per Yang 2025 Section 4.4.2.
 /// Replaces build_result_brep_from_mesh.
-#[allow(dead_code)]
 pub(crate) fn flood_fill_patches(
     survival: &FaceSurvivalMap,
     subdivided: &SubdividedMesh,
@@ -373,7 +381,6 @@ pub(crate) fn flood_fill_patches(
     struct FlatSubTri {
         verts: [usize; 3], // canonical vertex indices
         source: SourceFace,
-        is_cosurface: bool,
     }
 
     let mut all_tris: Vec<FlatSubTri> = Vec::new();
@@ -387,7 +394,6 @@ pub(crate) fn flood_fill_patches(
             all_tris.push(FlatSubTri {
                 verts: [canon_v(raw[0]), canon_v(raw[1]), canon_v(raw[2])],
                 source: *sf,
-                is_cosurface: tri.is_cosurface,
             });
         }
     }
@@ -437,45 +443,6 @@ pub(crate) fn flood_fill_patches(
                 boundary_edges.insert((v0, v1));
                 intersection_edges.insert((v0, v1));
             }
-        }
-    }
-
-    // ── [DIAG] Post-Step-4 boundary edge analysis ──
-    {
-        let n_boundary = boundary_edges.len();
-        let n_intersection = intersection_edges.len();
-        let mut at_x1: Vec<((usize, usize), Vec<SourceFace>, Vec<SourceFace>)> = Vec::new();
-        for &(v0, v1) in &boundary_edges {
-            let p0 = subdivided.verts[v0];
-            let p1 = subdivided.verts[v1];
-            if (p0[0] - 1.0).abs() < 1e-6 && (p1[0] - 1.0).abs() < 1e-6 {
-                // Both vertices at x≈1.0
-                let fwd_sources: Vec<SourceFace> = directed_edge_to_tris
-                    .get(&(v0, v1))
-                    .map(|tis| tis.iter().map(|&ti| all_tris[ti].source).collect())
-                    .unwrap_or_default();
-                let rev_sources: Vec<SourceFace> = directed_edge_to_tris
-                    .get(&(v1, v0))
-                    .map(|tis| tis.iter().map(|&ti| all_tris[ti].source).collect())
-                    .unwrap_or_default();
-                at_x1.push(((v0, v1), fwd_sources, rev_sources));
-            }
-        }
-        eprintln!(
-            "[flood_fill DIAG Step4] boundary_edges={}, intersection_edges={}, boundary_at_x1={}",
-            n_boundary,
-            n_intersection,
-            at_x1.len()
-        );
-        for ((v0, v1), fwd_src, rev_src) in &at_x1 {
-            let p0 = subdivided.verts[*v0];
-            let p1 = subdivided.verts[*v1];
-            eprintln!(
-                "  x=1 boundary ({}->{}) [{:.3},{:.3},{:.3}]->[{:.3},{:.3},{:.3}]",
-                v0, v1, p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]
-            );
-            eprintln!("    fwd sources: {:?}", fwd_src);
-            eprintln!("    rev sources: {:?}", rev_src);
         }
     }
 
@@ -605,15 +572,10 @@ pub(crate) fn flood_fill_patches(
     eprintln!("[flood_fill DIAG Step5a] {} patches:", patches.len());
     for (pi, patch) in patches.iter().enumerate() {
         eprintln!(
-            "  Patch {}: source={:?} tris={} cosurface={}",
+            "  Patch {}: source={:?} tris={}",
             pi,
             patch.source,
-            patch.tris.len(),
-            patch
-                .tris
-                .iter()
-                .filter(|&&ti| all_tris[ti].is_cosurface)
-                .count()
+            patch.tris.len()
         );
     }
 
@@ -773,10 +735,10 @@ pub(crate) fn flood_fill_patches(
         arena.shells[shell_idx.0].face = FaceIdx(0);
     }
 
-    // ── Twin pairing (multi-entry aware) ──
-    // At perpendicular junctions or after coplanar merge, multiple face groups
-    // may produce boundary edges at the same canonical directed edge. Match
-    // forward and reverse HEs by face: each twin pair connects DIFFERENT faces.
+    // ── Twin pairing — deterministic 1:1 lookup ──
+    // Yang §4.4.2 + Cherchi §5.5: in a conformal mesh post-flood-fill, each
+    // directed edge has exactly one reverse counterpart. PR3 removes the greedy
+    // fallback that masked upstream conformality bugs; surface them via diagnostics.
     let mut edge_is_intersection: BTreeMap<EdgeIdx, bool> = BTreeMap::new();
     let mut paired_he: HashSet<HalfEdgeIdx> = HashSet::new();
 
@@ -785,67 +747,67 @@ pub(crate) fn flood_fill_patches(
         undirected_edges.insert((bv0.min(bv1), bv0.max(bv1)));
     }
 
+    let mut unpaired_count: usize = 0;
+    let mut ambiguous_count: usize = 0;
+    let mut paired_count: usize = 0;
+
     for &(lo, hi) in &undirected_edges {
         let empty = Vec::new();
         let fwd_hes = directed_he.get(&(lo, hi)).unwrap_or(&empty);
         let rev_hes = directed_he.get(&(hi, lo)).unwrap_or(&empty);
 
-        let mut rev_used: Vec<bool> = vec![false; rev_hes.len()];
-
         for &he_fwd in fwd_hes {
             if paired_he.contains(&he_fwd) {
                 continue;
             }
-            let fwd_face = he_to_face.get(&he_fwd);
 
-            // Find best unmatched reverse HE: prefer different face.
-            let mut best_rev: Option<(usize, &HalfEdgeIdx)> = None;
-            for (ri, he_rev) in rev_hes.iter().enumerate() {
-                if rev_used[ri] || paired_he.contains(he_rev) {
-                    continue;
+            let candidates: Vec<HalfEdgeIdx> = rev_hes
+                .iter()
+                .copied()
+                .filter(|he| !paired_he.contains(he))
+                .collect();
+
+            match candidates.as_slice() {
+                [the_one] => {
+                    let he_rev = *the_one;
+                    let edge_idx = EdgeIdx(arena.edges.len());
+                    arena.edges.push(Edge { half_edge: he_fwd });
+                    arena.half_edges[he_fwd.0].edge = edge_idx;
+                    arena.half_edges[he_fwd.0].twin = he_rev;
+                    arena.half_edges[he_rev.0].edge = edge_idx;
+                    arena.half_edges[he_rev.0].twin = he_fwd;
+
+                    let is_int = edge_is_int_map.get(&(lo, hi)).copied().unwrap_or(false);
+                    edge_is_intersection.insert(edge_idx, is_int);
+
+                    paired_he.insert(he_fwd);
+                    paired_he.insert(he_rev);
+                    paired_count += 1;
                 }
-                let rev_face = he_to_face.get(he_rev);
-                let same_face = fwd_face.is_some() && fwd_face == rev_face;
-                match best_rev {
-                    None => {
-                        best_rev = Some((ri, he_rev));
-                    }
-                    Some((_, prev_best)) => {
-                        let prev_same = fwd_face.is_some() && fwd_face == he_to_face.get(prev_best);
-                        if prev_same && !same_face {
-                            best_rev = Some((ri, he_rev));
-                        }
-                    }
+                [] => {
+                    eprintln!(
+                        "[topo-extract] unpaired forward HE ({:?} -> {:?}): no reverse candidate",
+                        lo, hi
+                    );
+                    unpaired_count += 1;
                 }
-            }
-
-            // Fallback: if no different-face reverse found, accept any unused reverse HE
-            if best_rev.is_none() {
-                for (ri, he_rev) in rev_hes.iter().enumerate() {
-                    if !rev_used[ri] && !paired_he.contains(he_rev) {
-                        best_rev = Some((ri, he_rev));
-                        break;
-                    }
+                multiple => {
+                    eprintln!(
+                        "[topo-extract] ambiguous twin for ({:?} -> {:?}): {} reverse candidates",
+                        lo,
+                        hi,
+                        multiple.len()
+                    );
+                    ambiguous_count += 1;
                 }
-            }
-
-            if let Some((ri, &he_rev)) = best_rev {
-                let edge_idx = EdgeIdx(arena.edges.len());
-                arena.edges.push(Edge { half_edge: he_fwd });
-                arena.half_edges[he_fwd.0].edge = edge_idx;
-                arena.half_edges[he_fwd.0].twin = he_rev;
-                arena.half_edges[he_rev.0].edge = edge_idx;
-                arena.half_edges[he_rev.0].twin = he_fwd;
-
-                let is_int = edge_is_int_map.get(&(lo, hi)).copied().unwrap_or(false);
-                edge_is_intersection.insert(edge_idx, is_int);
-
-                paired_he.insert(he_fwd);
-                paired_he.insert(he_rev);
-                rev_used[ri] = true;
             }
         }
     }
+
+    eprintln!(
+        "[topo-extract] summary: paired={}, unpaired={}, ambiguous={}",
+        paired_count, unpaired_count, ambiguous_count
+    );
 
     // ── Unpaired HE diagnostics (no synthesis — per P9, let pipeline fail honestly) ──
     let n_he = arena.half_edges.len();
@@ -880,7 +842,11 @@ pub(crate) fn flood_fill_patches(
 ///
 /// Ref [#24]: Yang 2025 — Stage 3 trim boundary extraction.
 /// Ref [#9]: Cherchi 2020 — edge adjacency from subdivided mesh.
-#[allow(dead_code)] // Phase 3 building block — task 3b
+// dead_code in lib build: used only by this module's #[cfg(test)] tests.
+// Phase 3 building block per yang_2025_audit.md; may be wired into the
+// production pipeline in PR4+ or deleted if redundant. Re-suppression is
+// intentional, not lossy.
+#[allow(dead_code)]
 pub(crate) fn extract_trim_boundaries(
     subdivided: &SubdividedMesh,
     survival: &FaceSurvivalMap,
@@ -1029,17 +995,30 @@ pub(crate) fn extract_trim_boundaries(
                 let outgoing = adj.get_mut(&current);
                 let outgoing = match outgoing {
                     Some(v) if !v.is_empty() => v,
-                    _ => break, // Dead end
+                    _ => {
+                        eprintln!(
+                            "[topo-extract] dead-end at vertex {} (partial loop {} edges)",
+                            current,
+                            chain.len()
+                        );
+                        break;
+                    }
                 };
 
                 let (next, is_int) = if outgoing.len() == 1 {
                     // Only one outgoing edge — no branch point.
                     outgoing.pop().unwrap()
                 } else if let Some(prev) = prev_vertex {
+                    eprintln!(
+                        "[topo-extract] branch at vertex {}: {} outgoing edges",
+                        current,
+                        outgoing.len()
+                    );
                     // Branch point: use angular sorting to select successor.
                     // Rule: choose the outgoing edge with the smallest CW angle
                     // from the reverse incoming direction, in the face's local
-                    // 2D frame (where u × v = outward normal).
+                    // 2D frame (where u × v = outward normal). Ties broken
+                    // deterministically by target vertex index.
                     // Ref [#24]: Yang 2025 — Stage 3 boundary traversal.
                     let p_prev = subdivided.verts[prev];
                     let p_curr = subdivided.verts[current];
@@ -1055,10 +1034,7 @@ pub(crate) fn extract_trim_boundaries(
                         -(in_dir[0] * face_v[0] + in_dir[1] * face_v[1] + in_dir[2] * face_v[2]);
                     let rev_angle = rev_v.atan2(rev_u);
 
-                    // Score each outgoing edge by CW angle from reverse incoming
-                    let mut best_idx = 0;
-                    let mut best_cw_angle = f64::MAX;
-                    for (idx, &(out_v, _)) in outgoing.iter().enumerate() {
+                    let cw_angle = |out_v: usize| -> f64 {
                         let p_out = subdivided.verts[out_v];
                         let out_dir = [
                             p_out[0] - p_curr[0],
@@ -1072,17 +1048,23 @@ pub(crate) fn extract_trim_boundaries(
                             + out_dir[1] * face_v[1]
                             + out_dir[2] * face_v[2];
                         let out_angle = ov.atan2(ou);
-
-                        // CW angle = (rev_angle - out_angle) mod 2π
+                        // CW angle in [0, TAU): no tolerance widening.
                         let mut cw = rev_angle - out_angle;
-                        if cw <= TAU_EXACT_MESH_CLASSIFY {
+                        if cw < 0.0 {
                             cw += std::f64::consts::TAU;
                         }
-                        if cw < best_cw_angle {
-                            best_cw_angle = cw;
-                            best_idx = idx;
-                        }
-                    }
+                        cw
+                    };
+
+                    let best_idx = (0..outgoing.len())
+                        .min_by(|&a, &b| {
+                            let cw_a = cw_angle(outgoing[a].0);
+                            let cw_b = cw_angle(outgoing[b].0);
+                            cw_a.partial_cmp(&cw_b)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                                .then_with(|| outgoing[a].0.cmp(&outgoing[b].0))
+                        })
+                        .unwrap();
                     outgoing.swap_remove(best_idx)
                 } else {
                     // First edge in chain — no incoming direction. Pick any.
@@ -1120,7 +1102,6 @@ pub(crate) fn extract_trim_boundaries(
 /// Walks the subdivided mesh's sub-triangles, applies the boolean selection
 /// table (same logic as `select_boolean_result`), and groups surviving
 /// sub-triangles by their source B-Rep face using the bijective maps.
-#[allow(dead_code)] // Phase 3 building block — task 3a
 pub(crate) fn face_survival_detect(
     subdivided: &SubdividedMesh,
     labeling: &CellLabeling,
@@ -1154,7 +1135,6 @@ pub(crate) fn face_survival_detect(
             groups.entry(key).or_default().push(SurvivingSubTri {
                 verts: sub_tri.verts,
                 flipped: false,
-                is_cosurface: false,
             });
         }
     }
@@ -1172,7 +1152,6 @@ pub(crate) fn face_survival_detect(
             groups.entry(key).or_default().push(SurvivingSubTri {
                 verts: sub_tri.verts,
                 flipped: flip_b,
-                is_cosurface: false,
             });
         }
     }
@@ -1199,12 +1178,21 @@ pub(crate) fn face_survival_detect(
 ///    trim boundaries.
 ///
 /// Ref [#24]: Yang, Jia & Yan (2025) — stages 1-3 of the hybrid pipeline.
-#[allow(dead_code)] // Phase 3 building block — task 3d
 /// Full result of the Yang boolean pipeline, including intermediates needed
 /// for sub-triangle render mesh construction (test-only).
 pub(crate) struct YangPipelineResult {
     pub topology: ResultTopology,
+    // dead_code in lib build: used only by this module's #[cfg(test)] tests.
+    // Phase 3 building block per yang_2025_audit.md; may be wired into the
+    // production pipeline in PR4+ or deleted if redundant. Re-suppression is
+    // intentional, not lossy.
+    #[allow(dead_code)]
     pub survival: FaceSurvivalMap,
+    // dead_code in lib build: used only by this module's #[cfg(test)] tests.
+    // Phase 3 building block per yang_2025_audit.md; may be wired into the
+    // production pipeline in PR4+ or deleted if redundant. Re-suppression is
+    // intentional, not lossy.
+    #[allow(dead_code)]
     pub subdivided: SubdividedMesh,
     /// Number of intersection vertices that failed optimization after all
     /// recovery attempts. Non-zero triggers Yang 4.5.2 mesh refinement.
@@ -4590,12 +4578,10 @@ mod tests {
                 SurvivingSubTri {
                     verts: [0, 1, 2],
                     flipped: true,
-                    is_cosurface: false,
                 },
                 SurvivingSubTri {
                     verts: [0, 2, 3],
                     flipped: true,
-                    is_cosurface: false,
                 },
             ],
         );
@@ -4612,22 +4598,18 @@ mod tests {
                 SurvivingSubTri {
                     verts: [1, 5, 4],
                     flipped: true,
-                    is_cosurface: false,
                 },
                 SurvivingSubTri {
                     verts: [5, 7, 4],
                     flipped: true,
-                    is_cosurface: false,
                 },
                 SurvivingSubTri {
                     verts: [7, 6, 4],
                     flipped: true,
-                    is_cosurface: false,
                 },
                 SurvivingSubTri {
                     verts: [6, 2, 4],
                     flipped: true,
-                    is_cosurface: false,
                 },
             ],
         );
@@ -4642,12 +4624,10 @@ mod tests {
                 SurvivingSubTri {
                     verts: [8, 9, 10],
                     flipped: false,
-                    is_cosurface: false,
                 },
                 SurvivingSubTri {
                     verts: [8, 10, 11],
                     flipped: false,
-                    is_cosurface: false,
                 },
             ],
         );
@@ -4663,12 +4643,10 @@ mod tests {
                 SurvivingSubTri {
                     verts: [0, 8, 9],
                     flipped: true,
-                    is_cosurface: false,
                 },
                 SurvivingSubTri {
                     verts: [0, 9, 5],
                     flipped: true,
-                    is_cosurface: false,
                 },
             ],
         );
@@ -4684,12 +4662,10 @@ mod tests {
                 SurvivingSubTri {
                     verts: [3, 6, 10],
                     flipped: true,
-                    is_cosurface: false,
                 },
                 SurvivingSubTri {
                     verts: [3, 10, 11],
                     flipped: true,
-                    is_cosurface: false,
                 },
             ],
         );
@@ -4705,12 +4681,10 @@ mod tests {
                 SurvivingSubTri {
                     verts: [0, 3, 11],
                     flipped: true,
-                    is_cosurface: false,
                 },
                 SurvivingSubTri {
                     verts: [0, 11, 8],
                     flipped: true,
-                    is_cosurface: false,
                 },
             ],
         );
@@ -4725,12 +4699,10 @@ mod tests {
                 SurvivingSubTri {
                     verts: [5, 6, 10],
                     flipped: false,
-                    is_cosurface: false,
                 },
                 SurvivingSubTri {
                     verts: [5, 10, 9],
                     flipped: false,
-                    is_cosurface: false,
                 },
             ],
         );
@@ -5604,12 +5576,7 @@ mod tests {
             n_groups, n_surviving
         );
         for (sf, tris) in &survival.groups {
-            eprintln!(
-                "  {:?}: {} tris (cosurface: {})",
-                sf,
-                tris.len(),
-                tris.iter().filter(|t| t.is_cosurface).count()
-            );
+            eprintln!("  {:?}: {} tris (cosurface: {})", sf, tris.len(), 0usize);
         }
 
         // Should have face groups from both meshes (minus B's shared face)
@@ -5627,7 +5594,7 @@ mod tests {
                 "  Group {:?} ({} tris, cosurface={}):",
                 sf,
                 tris.len(),
-                tris.iter().filter(|t| t.is_cosurface).count()
+                0usize
             );
             for tri in tris {
                 let v0 = subdivided.verts[tri.verts[0]];
@@ -5635,7 +5602,7 @@ mod tests {
                 let v2 = subdivided.verts[tri.verts[2]];
                 eprintln!(
                     "    [{:.3},{:.3},{:.3}] [{:.3},{:.3},{:.3}] [{:.3},{:.3},{:.3}] cosurface={}",
-                    v0[0], v0[1], v0[2], v1[0], v1[1], v1[2], v2[0], v2[1], v2[2], tri.is_cosurface
+                    v0[0], v0[1], v0[2], v1[0], v1[1], v1[2], v2[0], v2[1], v2[2], false
                 );
             }
         }
@@ -5871,12 +5838,7 @@ mod tests {
             n_groups, n_surviving
         );
         for (sf, tris) in &survival.groups {
-            eprintln!(
-                "  {:?}: {} tris (cosurface: {})",
-                sf,
-                tris.len(),
-                tris.iter().filter(|t| t.is_cosurface).count()
-            );
+            eprintln!("  {:?}: {} tris (cosurface: {})", sf, tris.len(), 0usize);
         }
 
         assert!(n_surviving > 0, "Should have surviving tris for Union");
@@ -5888,7 +5850,7 @@ mod tests {
                 "  Group {:?} ({} tris, cosurface={}):",
                 sf,
                 tris.len(),
-                tris.iter().filter(|t| t.is_cosurface).count()
+                0usize
             );
             for tri in tris {
                 let v0 = subdivided.verts[tri.verts[0]];
@@ -5896,7 +5858,7 @@ mod tests {
                 let v2 = subdivided.verts[tri.verts[2]];
                 eprintln!(
                     "    [{:.3},{:.3},{:.3}] [{:.3},{:.3},{:.3}] [{:.3},{:.3},{:.3}] cosurface={}",
-                    v0[0], v0[1], v0[2], v1[0], v1[1], v1[2], v2[0], v2[1], v2[2], tri.is_cosurface
+                    v0[0], v0[1], v0[2], v1[0], v1[1], v1[2], v2[0], v2[1], v2[2], false
                 );
             }
         }
@@ -6157,12 +6119,7 @@ mod tests {
             n_groups, n_surviving
         );
         for (sf, tris) in &survival.groups {
-            eprintln!(
-                "  {:?}: {} tris (cosurface: {})",
-                sf,
-                tris.len(),
-                tris.iter().filter(|t| t.is_cosurface).count()
-            );
+            eprintln!("  {:?}: {} tris (cosurface: {})", sf, tris.len(), 0usize);
         }
 
         assert!(n_surviving > 0, "F0003: should have surviving tris");
@@ -6174,7 +6131,7 @@ mod tests {
                 "  Group {:?} ({} tris, cosurface={}):",
                 sf,
                 tris.len(),
-                tris.iter().filter(|t| t.is_cosurface).count()
+                0usize
             );
             for tri in tris {
                 let v0 = subdivided.verts[tri.verts[0]];
@@ -6182,7 +6139,7 @@ mod tests {
                 let v2 = subdivided.verts[tri.verts[2]];
                 eprintln!(
                     "    [{:.2},{:.2},{:.2}] [{:.2},{:.2},{:.2}] [{:.2},{:.2},{:.2}] cos={}",
-                    v0[0], v0[1], v0[2], v1[0], v1[1], v1[2], v2[0], v2[1], v2[2], tri.is_cosurface
+                    v0[0], v0[1], v0[2], v1[0], v1[1], v1[2], v2[0], v2[1], v2[2], false
                 );
             }
         }
@@ -6433,12 +6390,7 @@ mod tests {
             n_groups, n_surviving
         );
         for (sf, tris) in &survival.groups {
-            eprintln!(
-                "  {:?}: {} tris (cosurface: {})",
-                sf,
-                tris.len(),
-                tris.iter().filter(|t| t.is_cosurface).count()
-            );
+            eprintln!("  {:?}: {} tris (cosurface: {})", sf, tris.len(), 0usize);
         }
 
         assert!(n_surviving > 0, "F0004: should have surviving tris");
