@@ -369,6 +369,145 @@ fn lpi_lambda_expansion(
     Some((d_l_sign, d_l_exp, lx, ly, lz))
 }
 
+/// Compute TPI lambda parameters using full expansion arithmetic.
+///
+/// Returns `(d_T_sign, d_T_expansion, λ_Tx, λ_Ty, λ_Tz)` or `None` if the
+/// three planes are not linearly independent (`d_T_sign == 0`).
+///
+/// Cherchi 2020 §4.1 — Type T (TPI) point representation from 9 explicit
+/// vertices defining three triangles.
+///
+/// ```text
+/// nv = (v2-v1) × (v3-v2),  nw = (w2-w1) × (w3-w2),  nu = (u2-u1) × (u3-u2)
+/// d_T = det |nv; nw; nu|
+/// pv = nv · v1,  pw = nw · w1,  pu = nu · u1
+/// λ_Tx = det |pv nvy nvz; pw nwy nwz; pu nuy nuz|     (Cramer column 0)
+/// λ_Ty = det |nvx pv nvz; nwx pw nwz; nux pu nuz|     (Cramer column 1)
+/// λ_Tz = det |nvx nvy pv; nwx nwy pw; nux nuy pu|     (Cramer column 2)
+/// ```
+///
+/// All input subtractions use `two_diff` (exact). Cross products use
+/// `two_product` + `two_two_diff` (exact). All multiplications and
+/// additions use Shewchuk expansion arithmetic.
+///
+/// Ref: Cherchi 2020 §4.1 (eq. for pT); Shewchuk 1997 [#4] for expansion algebra.
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
+#[allow(dead_code)] // Used by orient2d/orient3d/pointCompare TPI variants (Phases B–D).
+fn tpi_lambda_expansion(
+    v1: &[f64; 3],
+    v2: &[f64; 3],
+    v3: &[f64; 3],
+    w1: &[f64; 3],
+    w2: &[f64; 3],
+    w3: &[f64; 3],
+    u1: &[f64; 3],
+    u2: &[f64; 3],
+    u3: &[f64; 3],
+) -> Option<(i32, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>)> {
+    // Triangle normals as exact expansion vectors (one expansion per coord).
+    let nv = cross_sub_expansion(v1, v2, v3);
+    let nw = cross_sub_expansion(w1, w2, w3);
+    let nu = cross_sub_expansion(u1, u2, u3);
+
+    // d_T = det|nv; nw; nu| with rows of expansions.
+    let d_t_exp = det3x3_expansion(&nv, &nw, &nu);
+    let d_t_sign = expansion_sign(&d_t_exp);
+    if d_t_sign == 0 {
+        return None;
+    }
+
+    // pv = nv · v1,  pw = nw · w1,  pu = nu · u1 (each an expansion).
+    let pv = dot_exp_with_explicit(&nv, v1);
+    let pw = dot_exp_with_explicit(&nw, w1);
+    let pu = dot_exp_with_explicit(&nu, u1);
+
+    // λ_Tx = det |pv nv[1] nv[2]; pw nw[1] nw[2]; pu nu[1] nu[2]|
+    let lambda_x = det3x3_expansion(
+        &[pv.clone(), nv[1].clone(), nv[2].clone()],
+        &[pw.clone(), nw[1].clone(), nw[2].clone()],
+        &[pu.clone(), nu[1].clone(), nu[2].clone()],
+    );
+    // λ_Ty = det |nv[0] pv nv[2]; nw[0] pw nw[2]; nu[0] pu nu[2]|
+    let lambda_y = det3x3_expansion(
+        &[nv[0].clone(), pv.clone(), nv[2].clone()],
+        &[nw[0].clone(), pw.clone(), nw[2].clone()],
+        &[nu[0].clone(), pu.clone(), nu[2].clone()],
+    );
+    // λ_Tz = det |nv[0] nv[1] pv; nw[0] nw[1] pw; nu[0] nu[1] pu|
+    let lambda_z = det3x3_expansion(
+        &[nv[0].clone(), nv[1].clone(), pv],
+        &[nw[0].clone(), nw[1].clone(), pw],
+        &[nu[0].clone(), nu[1].clone(), pu],
+    );
+
+    Some((d_t_sign, d_t_exp, lambda_x, lambda_y, lambda_z))
+}
+
+/// Compute (b-a) × (c-b) as a 3-component expansion vector.
+/// Each component is an exact Shewchuk expansion built from the input f64s
+/// via `two_diff` + `two_product` + `two_two_diff`.
+#[allow(dead_code)] // Used by tpi_lambda_expansion (consumed in Phases B–D).
+fn cross_sub_expansion(a: &[f64; 3], b: &[f64; 3], c: &[f64; 3]) -> [Vec<f64>; 3] {
+    // ab = b - a, bc = c - b — each component a 2-component expansion.
+    let ab_x = two_diff_exp(b[0], a[0]);
+    let ab_y = two_diff_exp(b[1], a[1]);
+    let ab_z = two_diff_exp(b[2], a[2]);
+    let bc_x = two_diff_exp(c[0], b[0]);
+    let bc_y = two_diff_exp(c[1], b[1]);
+    let bc_z = two_diff_exp(c[2], b[2]);
+
+    // cross = (ab_y*bc_z - ab_z*bc_y, ab_z*bc_x - ab_x*bc_z, ab_x*bc_y - ab_y*bc_x)
+    let cx = expansion_add(
+        &expansion_mul_expansion(&ab_y, &bc_z),
+        &expansion_negate(&expansion_mul_expansion(&ab_z, &bc_y)),
+    );
+    let cy = expansion_add(
+        &expansion_mul_expansion(&ab_z, &bc_x),
+        &expansion_negate(&expansion_mul_expansion(&ab_x, &bc_z)),
+    );
+    let cz = expansion_add(
+        &expansion_mul_expansion(&ab_x, &bc_y),
+        &expansion_negate(&expansion_mul_expansion(&ab_y, &bc_x)),
+    );
+    [cx, cy, cz]
+}
+
+/// Dot product of an expansion-row vector with an explicit f64 vector.
+/// Returns `r[0]*v[0] + r[1]*v[1] + r[2]*v[2]` as an exact expansion.
+#[allow(dead_code)] // Used by tpi_lambda_expansion (consumed in Phases B–D).
+fn dot_exp_with_explicit(r: &[Vec<f64>; 3], v: &[f64; 3]) -> Vec<f64> {
+    let t0 = expansion_scale(&r[0], v[0]);
+    let t1 = expansion_scale(&r[1], v[1]);
+    let t2 = expansion_scale(&r[2], v[2]);
+    expansion_add(&expansion_add(&t0, &t1), &t2)
+}
+
+/// Compute exact 3×3 determinant where each row is a 3-component expansion vector.
+///
+/// `det = r0[0]*(r1[1]*r2[2] - r1[2]*r2[1])
+///      - r0[1]*(r1[0]*r2[2] - r1[2]*r2[0])
+///      + r0[2]*(r1[0]*r2[1] - r1[1]*r2[0])`
+#[allow(dead_code)] // Used by tpi_lambda_expansion (consumed in Phases B–D).
+fn det3x3_expansion(r0: &[Vec<f64>; 3], r1: &[Vec<f64>; 3], r2: &[Vec<f64>; 3]) -> Vec<f64> {
+    let m0 = expansion_add(
+        &expansion_mul_expansion(&r1[1], &r2[2]),
+        &expansion_negate(&expansion_mul_expansion(&r1[2], &r2[1])),
+    );
+    let m1 = expansion_add(
+        &expansion_mul_expansion(&r1[0], &r2[2]),
+        &expansion_negate(&expansion_mul_expansion(&r1[2], &r2[0])),
+    );
+    let m2 = expansion_add(
+        &expansion_mul_expansion(&r1[0], &r2[1]),
+        &expansion_negate(&expansion_mul_expansion(&r1[1], &r2[0])),
+    );
+    let t0 = expansion_mul_expansion(&r0[0], &m0);
+    let t1 = expansion_negate(&expansion_mul_expansion(&r0[1], &m1));
+    let t2 = expansion_mul_expansion(&r0[2], &m2);
+    expansion_add(&expansion_add(&t0, &t1), &t2)
+}
+
 /// Max absolute value across all coordinates of the 5 LPI-defining points
 /// plus 2 explicit points (21 coordinates total).
 #[allow(dead_code)] // Used by disabled float filter in orient2d_lee
@@ -816,6 +955,667 @@ fn orient2d_lll_exact(
     (da_sign * db_sign * det_sign) as f64
 }
 
+// ── True indirect orient2d: TPI variants (Phase B) ──────────────────────
+//
+// The 6 TPI-bearing orient2d variants substitute `tpi_lambda_expansion`
+// into the same homogeneous-coordinate framework used for LPI variants.
+//
+// Common derivation (Cherchi 2020 §4.4 — generalized for any pair of
+// homogeneous points (α/A), (β/B), (γ/C)):
+//
+//     sign(orient2d(a,b,c)) = sign(A) * sign(B) * sign(det)
+//     det = (α_i*C - γ_i*A)(β_j*C - γ_j*B) - (α_j*C - γ_j*A)(β_i*C - γ_i*B)
+//
+// because the C² factor that appears after expansion is always positive.
+//
+// For the single-implicit case (TEE) the cofactor form mirrors LEE:
+//
+//     sign(orient2d(T,e1,e2)) = sign(d_T) * sign(det)
+//     det = λ_i*(e1_j-e2_j) + λ_j*(e2_i-e1_i) + d_T*(e1_i*e2_j - e1_j*e2_i)
+
+/// Stub dispatcher — TPI, Explicit, Explicit. Mirrors `orient2d_lee`.
+///
+/// TEE filter: 9.06e-13 * δ⁸ (Cherchi 2020 Table 1, degree 8). Float filter
+/// is deferred to a follow-up PR; always uses exact expansion arithmetic.
+#[allow(clippy::too_many_arguments)]
+#[allow(dead_code)]
+fn orient2d_tee(
+    v1: &[f64; 3],
+    v2: &[f64; 3],
+    v3: &[f64; 3],
+    w1: &[f64; 3],
+    w2: &[f64; 3],
+    w3: &[f64; 3],
+    u1: &[f64; 3],
+    u2: &[f64; 3],
+    u3: &[f64; 3],
+    e1: &[f64; 3],
+    e2: &[f64; 3],
+    i: usize,
+    j: usize,
+) -> f64 {
+    orient2d_tee_exact(v1, v2, v3, w1, w2, w3, u1, u2, u3, e1, e2, i, j)
+}
+
+/// Exact orient2d for (TPI, Explicit, Explicit).
+///
+/// Substitutes TPI homogeneous coords into the LEE cofactor form:
+///   det = λ_i*(e1[j]-e2[j]) + λ_j*(e2[i]-e1[i]) + d_T*(e1[i]*e2[j]-e1[j]*e2[i])
+///   sign(orient2d) = sign(d_T) * sign(det)
+///
+/// Ref: Cherchi 2020 §4.2, Table 1 row TEE (filter 9.06e-13 * δ⁸).
+#[allow(clippy::too_many_arguments)]
+fn orient2d_tee_exact(
+    v1: &[f64; 3],
+    v2: &[f64; 3],
+    v3: &[f64; 3],
+    w1: &[f64; 3],
+    w2: &[f64; 3],
+    w3: &[f64; 3],
+    u1: &[f64; 3],
+    u2: &[f64; 3],
+    u3: &[f64; 3],
+    e1: &[f64; 3],
+    e2: &[f64; 3],
+    i: usize,
+    j: usize,
+) -> f64 {
+    let (d_t_sign, d_t_exp, lx, ly, lz) =
+        match tpi_lambda_expansion(v1, v2, v3, w1, w2, w3, u1, u2, u3) {
+            Some(v) => v,
+            None => return 0.0,
+        };
+    let lambda = [lx, ly, lz];
+
+    // det = λ_i*(e1[j]-e2[j]) + λ_j*(e2[i]-e1[i]) + d_T*(e1[i]*e2[j]-e1[j]*e2[i])
+    let term1 = expansion_mul_expansion(&lambda[i], &two_diff_exp(e1[j], e2[j]));
+    let term2 = expansion_mul_expansion(&lambda[j], &two_diff_exp(e2[i], e1[i]));
+
+    // e1[i]*e2[j] - e1[j]*e2[i] — exact cross product
+    let [pr_lo, pr_hi] = gp::two_product(e1[i], e2[j]);
+    let [nr_lo, nr_hi] = gp::two_product(e1[j], e2[i]);
+    let cross_e = gp::two_two_diff(pr_hi, pr_lo, nr_hi, nr_lo);
+    let term3 = expansion_mul_expansion(&d_t_exp, &cross_e);
+
+    let sum12 = expansion_add(&term1, &term2);
+    let det_exp = expansion_add(&sum12, &term3);
+    let det_sign = expansion_sign(&det_exp);
+    (det_sign * d_t_sign) as f64
+}
+
+/// Stub dispatcher — LPI, TPI, Explicit. Mirrors `orient2d_lle` pattern.
+///
+/// LTE filter: 2.18e-10 * δ¹⁴ (Cherchi 2020 Table 1, degree 14). Float
+/// filter is deferred to a follow-up PR; always uses exact expansion arithmetic.
+#[allow(dead_code)]
+fn orient2d_lte(
+    la: &ImplicitPoint,
+    tb: &ImplicitPoint,
+    ec: &ImplicitPoint,
+    i: usize,
+    j: usize,
+) -> f64 {
+    let (q1a, q2a, ra, sa, ta) = match la {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!("orient2d_lte: arg 0 must be LPI"),
+    };
+    let (v1, v2, v3, w1, w2, w3, u1, u2, u3) = match tb {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!("orient2d_lte: arg 1 must be TPI"),
+    };
+    let e = match ec {
+        ImplicitPoint::Explicit(e) => e,
+        _ => unreachable!("orient2d_lte: arg 2 must be Explicit"),
+    };
+    orient2d_lte_exact(
+        q1a, q2a, ra, sa, ta, v1, v2, v3, w1, w2, w3, u1, u2, u3, e, i, j,
+    )
+}
+
+/// Exact orient2d for (LPI, TPI, Explicit).
+///
+/// Substitutes LPI and TPI homogeneous coords; explicit point is C with C=1.
+///   det = (α_i*C - γ_i*A)(β_j*C - γ_j*B) - (α_j*C - γ_j*A)(β_i*C - γ_i*B)
+///   with C=1, γ=e, A=d_L, α=λ_L, B=d_T, β=λ_T
+///   sign(orient2d) = sign(d_L) * sign(d_T) * sign(det)
+///
+/// Ref: Cherchi 2020 §4.2, Table 1 row LTE (filter 2.18e-10 * δ¹⁴).
+#[allow(clippy::too_many_arguments)]
+fn orient2d_lte_exact(
+    q1a: &[f64; 3],
+    q2a: &[f64; 3],
+    ra: &[f64; 3],
+    sa: &[f64; 3],
+    ta: &[f64; 3],
+    v1: &[f64; 3],
+    v2: &[f64; 3],
+    v3: &[f64; 3],
+    w1: &[f64; 3],
+    w2: &[f64; 3],
+    w3: &[f64; 3],
+    u1: &[f64; 3],
+    u2: &[f64; 3],
+    u3: &[f64; 3],
+    e: &[f64; 3],
+    i: usize,
+    j: usize,
+) -> f64 {
+    let (da_sign, da_exp, lax, lay, laz) = match lpi_lambda_expansion(q1a, q2a, ra, sa, ta) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (db_sign, db_exp, lbx, lby, lbz) =
+        match tpi_lambda_expansion(v1, v2, v3, w1, w2, w3, u1, u2, u3) {
+            Some(v) => v,
+            None => return 0.0,
+        };
+    let la = [lax, lay, laz];
+    let lb = [lbx, lby, lbz];
+
+    // p1 = α_i - γ_i*A = λa[i] - e[i]*da
+    let p1 = expansion_add(&la[i], &expansion_negate(&expansion_scale(&da_exp, e[i])));
+    // p2 = β_j - γ_j*B = λb[j] - e[j]*db
+    let p2 = expansion_add(&lb[j], &expansion_negate(&expansion_scale(&db_exp, e[j])));
+    // p3 = α_j - γ_j*A = λa[j] - e[j]*da
+    let p3 = expansion_add(&la[j], &expansion_negate(&expansion_scale(&da_exp, e[j])));
+    // p4 = β_i - γ_i*B = λb[i] - e[i]*db
+    let p4 = expansion_add(&lb[i], &expansion_negate(&expansion_scale(&db_exp, e[i])));
+
+    let term1 = expansion_mul_expansion(&p1, &p2);
+    let term2 = expansion_mul_expansion(&p3, &p4);
+    let det_exp = expansion_add(&term1, &expansion_negate(&term2));
+    let det_sign = expansion_sign(&det_exp);
+    (da_sign * db_sign * det_sign) as f64
+}
+
+/// Stub dispatcher — LPI, LPI, TPI.
+///
+/// LLT filter: 2.14e-9 * δ¹⁷ (Cherchi 2020 Table 1, degree 17). Float
+/// filter is deferred; always uses exact expansion arithmetic.
+#[allow(dead_code)]
+fn orient2d_llt(
+    la: &ImplicitPoint,
+    lb: &ImplicitPoint,
+    tc: &ImplicitPoint,
+    i: usize,
+    j: usize,
+) -> f64 {
+    let (q1a, q2a, ra, sa, ta) = match la {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!("orient2d_llt: arg 0 must be LPI"),
+    };
+    let (q1b, q2b, rb, sb, tb) = match lb {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!("orient2d_llt: arg 1 must be LPI"),
+    };
+    let (v1, v2, v3, w1, w2, w3, u1, u2, u3) = match tc {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!("orient2d_llt: arg 2 must be TPI"),
+    };
+    orient2d_llt_exact(
+        q1a, q2a, ra, sa, ta, q1b, q2b, rb, sb, tb, v1, v2, v3, w1, w2, w3, u1, u2, u3, i, j,
+    )
+}
+
+/// Exact orient2d for (LPI_a, LPI_b, TPI_c). Same difference-form derivation as LLL.
+///   sign(orient2d) = sign(d_La) * sign(d_Lb) * sign(det)
+///
+/// Ref: Cherchi 2020 §4.2, Table 1 row LLT (filter 2.14e-9 * δ¹⁷).
+#[allow(clippy::too_many_arguments)]
+fn orient2d_llt_exact(
+    q1a: &[f64; 3],
+    q2a: &[f64; 3],
+    ra: &[f64; 3],
+    sa: &[f64; 3],
+    ta: &[f64; 3],
+    q1b: &[f64; 3],
+    q2b: &[f64; 3],
+    rb: &[f64; 3],
+    sb: &[f64; 3],
+    tb: &[f64; 3],
+    v1: &[f64; 3],
+    v2: &[f64; 3],
+    v3: &[f64; 3],
+    w1: &[f64; 3],
+    w2: &[f64; 3],
+    w3: &[f64; 3],
+    u1: &[f64; 3],
+    u2: &[f64; 3],
+    u3: &[f64; 3],
+    i: usize,
+    j: usize,
+) -> f64 {
+    let (da_sign, da_exp, lax, lay, laz) = match lpi_lambda_expansion(q1a, q2a, ra, sa, ta) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (db_sign, db_exp, lbx, lby, lbz) = match lpi_lambda_expansion(q1b, q2b, rb, sb, tb) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (_, dc_exp, lcx, lcy, lcz) = match tpi_lambda_expansion(v1, v2, v3, w1, w2, w3, u1, u2, u3)
+    {
+        Some(v) => v,
+        None => return 0.0,
+    };
+
+    let la = [lax, lay, laz];
+    let lb = [lbx, lby, lbz];
+    let lc = [lcx, lcy, lcz];
+
+    let p1 = expansion_add(
+        &expansion_mul_expansion(&la[i], &dc_exp),
+        &expansion_negate(&expansion_mul_expansion(&lc[i], &da_exp)),
+    );
+    let p2 = expansion_add(
+        &expansion_mul_expansion(&lb[j], &dc_exp),
+        &expansion_negate(&expansion_mul_expansion(&lc[j], &db_exp)),
+    );
+    let p3 = expansion_add(
+        &expansion_mul_expansion(&la[j], &dc_exp),
+        &expansion_negate(&expansion_mul_expansion(&lc[j], &da_exp)),
+    );
+    let p4 = expansion_add(
+        &expansion_mul_expansion(&lb[i], &dc_exp),
+        &expansion_negate(&expansion_mul_expansion(&lc[i], &db_exp)),
+    );
+
+    let term1 = expansion_mul_expansion(&p1, &p2);
+    let term2 = expansion_mul_expansion(&p3, &p4);
+    let det_exp = expansion_add(&term1, &expansion_negate(&term2));
+    let det_sign = expansion_sign(&det_exp);
+    (da_sign * db_sign * det_sign) as f64
+}
+
+/// Stub dispatcher — LPI, TPI, TPI.
+///
+/// LTT filter: 2.54e-8 * δ²⁰ (Cherchi 2020 Table 1, degree 20). Float
+/// filter is deferred; always uses exact expansion arithmetic.
+#[allow(dead_code)]
+fn orient2d_ltt(
+    la: &ImplicitPoint,
+    tb: &ImplicitPoint,
+    tc: &ImplicitPoint,
+    i: usize,
+    j: usize,
+) -> f64 {
+    let (q1a, q2a, ra, sa, ta) = match la {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!("orient2d_ltt: arg 0 must be LPI"),
+    };
+    let (bv1, bv2, bv3, bw1, bw2, bw3, bu1, bu2, bu3) = match tb {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!("orient2d_ltt: arg 1 must be TPI"),
+    };
+    let (cv1, cv2, cv3, cw1, cw2, cw3, cu1, cu2, cu3) = match tc {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!("orient2d_ltt: arg 2 must be TPI"),
+    };
+    orient2d_ltt_exact(
+        q1a, q2a, ra, sa, ta, bv1, bv2, bv3, bw1, bw2, bw3, bu1, bu2, bu3, cv1, cv2, cv3, cw1, cw2,
+        cw3, cu1, cu2, cu3, i, j,
+    )
+}
+
+/// Exact orient2d for (LPI_a, TPI_b, TPI_c). Same difference-form derivation as LLT.
+///
+/// Ref: Cherchi 2020 §4.2, Table 1 row LTT (filter 2.54e-8 * δ²⁰).
+#[allow(clippy::too_many_arguments)]
+fn orient2d_ltt_exact(
+    q1a: &[f64; 3],
+    q2a: &[f64; 3],
+    ra: &[f64; 3],
+    sa: &[f64; 3],
+    ta: &[f64; 3],
+    bv1: &[f64; 3],
+    bv2: &[f64; 3],
+    bv3: &[f64; 3],
+    bw1: &[f64; 3],
+    bw2: &[f64; 3],
+    bw3: &[f64; 3],
+    bu1: &[f64; 3],
+    bu2: &[f64; 3],
+    bu3: &[f64; 3],
+    cv1: &[f64; 3],
+    cv2: &[f64; 3],
+    cv3: &[f64; 3],
+    cw1: &[f64; 3],
+    cw2: &[f64; 3],
+    cw3: &[f64; 3],
+    cu1: &[f64; 3],
+    cu2: &[f64; 3],
+    cu3: &[f64; 3],
+    i: usize,
+    j: usize,
+) -> f64 {
+    let (da_sign, da_exp, lax, lay, laz) = match lpi_lambda_expansion(q1a, q2a, ra, sa, ta) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (db_sign, db_exp, lbx, lby, lbz) =
+        match tpi_lambda_expansion(bv1, bv2, bv3, bw1, bw2, bw3, bu1, bu2, bu3) {
+            Some(v) => v,
+            None => return 0.0,
+        };
+    let (_, dc_exp, lcx, lcy, lcz) =
+        match tpi_lambda_expansion(cv1, cv2, cv3, cw1, cw2, cw3, cu1, cu2, cu3) {
+            Some(v) => v,
+            None => return 0.0,
+        };
+
+    let la = [lax, lay, laz];
+    let lb = [lbx, lby, lbz];
+    let lc = [lcx, lcy, lcz];
+
+    let p1 = expansion_add(
+        &expansion_mul_expansion(&la[i], &dc_exp),
+        &expansion_negate(&expansion_mul_expansion(&lc[i], &da_exp)),
+    );
+    let p2 = expansion_add(
+        &expansion_mul_expansion(&lb[j], &dc_exp),
+        &expansion_negate(&expansion_mul_expansion(&lc[j], &db_exp)),
+    );
+    let p3 = expansion_add(
+        &expansion_mul_expansion(&la[j], &dc_exp),
+        &expansion_negate(&expansion_mul_expansion(&lc[j], &da_exp)),
+    );
+    let p4 = expansion_add(
+        &expansion_mul_expansion(&lb[i], &dc_exp),
+        &expansion_negate(&expansion_mul_expansion(&lc[i], &db_exp)),
+    );
+
+    let term1 = expansion_mul_expansion(&p1, &p2);
+    let term2 = expansion_mul_expansion(&p3, &p4);
+    let det_exp = expansion_add(&term1, &expansion_negate(&term2));
+    let det_sign = expansion_sign(&det_exp);
+    (da_sign * db_sign * det_sign) as f64
+}
+
+/// Stub dispatcher — TPI, TPI, Explicit.
+///
+/// TTE filter: 3.31e-8 * δ²⁰ (Cherchi 2020 Table 1, degree 20). Float
+/// filter is deferred; always uses exact expansion arithmetic.
+#[allow(dead_code)]
+fn orient2d_tte(
+    ta: &ImplicitPoint,
+    tb: &ImplicitPoint,
+    ec: &ImplicitPoint,
+    i: usize,
+    j: usize,
+) -> f64 {
+    let (av1, av2, av3, aw1, aw2, aw3, au1, au2, au3) = match ta {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!("orient2d_tte: arg 0 must be TPI"),
+    };
+    let (bv1, bv2, bv3, bw1, bw2, bw3, bu1, bu2, bu3) = match tb {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!("orient2d_tte: arg 1 must be TPI"),
+    };
+    let e = match ec {
+        ImplicitPoint::Explicit(e) => e,
+        _ => unreachable!("orient2d_tte: arg 2 must be Explicit"),
+    };
+    orient2d_tte_exact(
+        av1, av2, av3, aw1, aw2, aw3, au1, au2, au3, bv1, bv2, bv3, bw1, bw2, bw3, bu1, bu2, bu3,
+        e, i, j,
+    )
+}
+
+/// Exact orient2d for (TPI_a, TPI_b, Explicit_c).
+///
+/// γ=e, C=1; α=λ_Ta, A=d_Ta; β=λ_Tb, B=d_Tb. Same difference-form derivation as LTE.
+///
+/// Ref: Cherchi 2020 §4.2, Table 1 row TTE (filter 3.31e-8 * δ²⁰).
+#[allow(clippy::too_many_arguments)]
+fn orient2d_tte_exact(
+    av1: &[f64; 3],
+    av2: &[f64; 3],
+    av3: &[f64; 3],
+    aw1: &[f64; 3],
+    aw2: &[f64; 3],
+    aw3: &[f64; 3],
+    au1: &[f64; 3],
+    au2: &[f64; 3],
+    au3: &[f64; 3],
+    bv1: &[f64; 3],
+    bv2: &[f64; 3],
+    bv3: &[f64; 3],
+    bw1: &[f64; 3],
+    bw2: &[f64; 3],
+    bw3: &[f64; 3],
+    bu1: &[f64; 3],
+    bu2: &[f64; 3],
+    bu3: &[f64; 3],
+    e: &[f64; 3],
+    i: usize,
+    j: usize,
+) -> f64 {
+    let (da_sign, da_exp, lax, lay, laz) =
+        match tpi_lambda_expansion(av1, av2, av3, aw1, aw2, aw3, au1, au2, au3) {
+            Some(v) => v,
+            None => return 0.0,
+        };
+    let (db_sign, db_exp, lbx, lby, lbz) =
+        match tpi_lambda_expansion(bv1, bv2, bv3, bw1, bw2, bw3, bu1, bu2, bu3) {
+            Some(v) => v,
+            None => return 0.0,
+        };
+
+    let la = [lax, lay, laz];
+    let lb = [lbx, lby, lbz];
+
+    // C=1, γ=e.
+    let p1 = expansion_add(&la[i], &expansion_negate(&expansion_scale(&da_exp, e[i])));
+    let p2 = expansion_add(&lb[j], &expansion_negate(&expansion_scale(&db_exp, e[j])));
+    let p3 = expansion_add(&la[j], &expansion_negate(&expansion_scale(&da_exp, e[j])));
+    let p4 = expansion_add(&lb[i], &expansion_negate(&expansion_scale(&db_exp, e[i])));
+
+    let term1 = expansion_mul_expansion(&p1, &p2);
+    let term2 = expansion_mul_expansion(&p3, &p4);
+    let det_exp = expansion_add(&term1, &expansion_negate(&term2));
+    let det_sign = expansion_sign(&det_exp);
+    (da_sign * db_sign * det_sign) as f64
+}
+
+/// Stub dispatcher — TPI, TPI, TPI.
+///
+/// TTT filter: 3.10e-6 * δ²⁶ (Cherchi 2020 Table 1, degree 26). Float
+/// filter is deferred; always uses exact expansion arithmetic.
+#[allow(dead_code)]
+fn orient2d_ttt(
+    ta: &ImplicitPoint,
+    tb: &ImplicitPoint,
+    tc: &ImplicitPoint,
+    i: usize,
+    j: usize,
+) -> f64 {
+    let (av1, av2, av3, aw1, aw2, aw3, au1, au2, au3) = match ta {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!("orient2d_ttt: arg 0 must be TPI"),
+    };
+    let (bv1, bv2, bv3, bw1, bw2, bw3, bu1, bu2, bu3) = match tb {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!("orient2d_ttt: arg 1 must be TPI"),
+    };
+    let (cv1, cv2, cv3, cw1, cw2, cw3, cu1, cu2, cu3) = match tc {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!("orient2d_ttt: arg 2 must be TPI"),
+    };
+    orient2d_ttt_exact(
+        av1, av2, av3, aw1, aw2, aw3, au1, au2, au3, bv1, bv2, bv3, bw1, bw2, bw3, bu1, bu2, bu3,
+        cv1, cv2, cv3, cw1, cw2, cw3, cu1, cu2, cu3, i, j,
+    )
+}
+
+/// Exact orient2d for (TPI_a, TPI_b, TPI_c). Same difference form as LLT/LTT.
+///
+/// Ref: Cherchi 2020 §4.2, Table 1 row TTT (filter 3.10e-6 * δ²⁶).
+#[allow(clippy::too_many_arguments)]
+fn orient2d_ttt_exact(
+    av1: &[f64; 3],
+    av2: &[f64; 3],
+    av3: &[f64; 3],
+    aw1: &[f64; 3],
+    aw2: &[f64; 3],
+    aw3: &[f64; 3],
+    au1: &[f64; 3],
+    au2: &[f64; 3],
+    au3: &[f64; 3],
+    bv1: &[f64; 3],
+    bv2: &[f64; 3],
+    bv3: &[f64; 3],
+    bw1: &[f64; 3],
+    bw2: &[f64; 3],
+    bw3: &[f64; 3],
+    bu1: &[f64; 3],
+    bu2: &[f64; 3],
+    bu3: &[f64; 3],
+    cv1: &[f64; 3],
+    cv2: &[f64; 3],
+    cv3: &[f64; 3],
+    cw1: &[f64; 3],
+    cw2: &[f64; 3],
+    cw3: &[f64; 3],
+    cu1: &[f64; 3],
+    cu2: &[f64; 3],
+    cu3: &[f64; 3],
+    i: usize,
+    j: usize,
+) -> f64 {
+    let (da_sign, da_exp, lax, lay, laz) =
+        match tpi_lambda_expansion(av1, av2, av3, aw1, aw2, aw3, au1, au2, au3) {
+            Some(v) => v,
+            None => return 0.0,
+        };
+    let (db_sign, db_exp, lbx, lby, lbz) =
+        match tpi_lambda_expansion(bv1, bv2, bv3, bw1, bw2, bw3, bu1, bu2, bu3) {
+            Some(v) => v,
+            None => return 0.0,
+        };
+    let (_, dc_exp, lcx, lcy, lcz) =
+        match tpi_lambda_expansion(cv1, cv2, cv3, cw1, cw2, cw3, cu1, cu2, cu3) {
+            Some(v) => v,
+            None => return 0.0,
+        };
+
+    let la = [lax, lay, laz];
+    let lb = [lbx, lby, lbz];
+    let lc = [lcx, lcy, lcz];
+
+    let p1 = expansion_add(
+        &expansion_mul_expansion(&la[i], &dc_exp),
+        &expansion_negate(&expansion_mul_expansion(&lc[i], &da_exp)),
+    );
+    let p2 = expansion_add(
+        &expansion_mul_expansion(&lb[j], &dc_exp),
+        &expansion_negate(&expansion_mul_expansion(&lc[j], &db_exp)),
+    );
+    let p3 = expansion_add(
+        &expansion_mul_expansion(&la[j], &dc_exp),
+        &expansion_negate(&expansion_mul_expansion(&lc[j], &da_exp)),
+    );
+    let p4 = expansion_add(
+        &expansion_mul_expansion(&lb[i], &dc_exp),
+        &expansion_negate(&expansion_mul_expansion(&lc[i], &db_exp)),
+    );
+
+    let term1 = expansion_mul_expansion(&p1, &p2);
+    let term2 = expansion_mul_expansion(&p3, &p4);
+    let det_exp = expansion_add(&term1, &expansion_negate(&term2));
+    let det_sign = expansion_sign(&det_exp);
+    (da_sign * db_sign * det_sign) as f64
+}
+
 // ── True indirect point comparison: LL ──────────────────────────────────
 //
 // Compare two LPI points on a single axis without materializing:
@@ -891,12 +1691,17 @@ fn point_compare_ll_exact(
 /// - Negative (-1.0) → clockwise (CW)
 /// - Zero (0.0) → collinear
 ///
-/// Uses true indirect predicates for LEE (LPI, Explicit, Explicit) — the
-/// most common case in mesh arrangement. Avoids the precision-losing
-/// materialization (division by d_L) that caused non-conformal edges.
+/// Uses true indirect predicates for all 27 ordered combinations of
+/// (Explicit, LPI, TPI) point types via the 10 base multisets in Cherchi
+/// 2020 §4.2 (EEE, LEE, LLE, LLL, TEE, LTE, LLT, LTT, TTE, TTT).
+/// Permutations are routed by antisymmetry (swap → negate) and
+/// cyclic-rotation parity (3-cycle preserves sign).
 ///
-/// For other combinations (LLE, LLL, TEE, etc.), falls back to
-/// materialize + Shewchuk exact orient2d.
+/// Avoids the precision-losing materialization (division by d_L / d_T) by
+/// keeping all arithmetic in homogeneous coords + Shewchuk expansions.
+///
+/// Materialize fallback retained as a defensive safety net (every case
+/// should now be covered explicitly).
 pub(crate) fn orient2d_indirect(
     a: &ImplicitPoint,
     b: &ImplicitPoint,
@@ -909,53 +1714,177 @@ pub(crate) fn orient2d_indirect(
         ProjectionAxis::ZX => (2, 0),
     };
 
-    // Dispatch based on point type combination.
-    // Use true indirect for LEE; materialize fallback for others.
     match (a, b, c) {
-        // LEE: one LPI, two explicit
+        // ── EEE ──────────────────────────────────────────────────────
+        (ImplicitPoint::Explicit(ea), ImplicitPoint::Explicit(eb), ImplicitPoint::Explicit(ec)) => {
+            geometry_predicates::orient2d([ea[i], ea[j]], [eb[i], eb[j]], [ec[i], ec[j]])
+        }
+
+        // ── LEE multiset (canonical: L, E, E) ────────────────────────
+        // (L, E, E): identity
         (
             ImplicitPoint::LPI { q1, q2, r, s, t },
             ImplicitPoint::Explicit(e1),
             ImplicitPoint::Explicit(e2),
         ) => orient2d_lee(q1, q2, r, s, t, e1, e2, i, j),
-
-        // ELE → -orient2d(L, E, E) via antisymmetry: swap first two args
+        // (E, L, E): swap arg 0,1 → negate
         (
             ImplicitPoint::Explicit(e1),
             ImplicitPoint::LPI { q1, q2, r, s, t },
             ImplicitPoint::Explicit(e2),
         ) => -orient2d_lee(q1, q2, r, s, t, e1, e2, i, j),
-
-        // EEL → orient2d(L, E, E) via cyclic permutation (even permutation)
+        // (E, E, L): even cyclic rotation (E,E,L)→(L,E,E)
         (
             ImplicitPoint::Explicit(e1),
             ImplicitPoint::Explicit(e2),
             ImplicitPoint::LPI { q1, q2, r, s, t },
         ) => orient2d_lee(q1, q2, r, s, t, e1, e2, i, j),
 
-        // EEE: all explicit — use Shewchuk directly
-        (ImplicitPoint::Explicit(ea), ImplicitPoint::Explicit(eb), ImplicitPoint::Explicit(ec)) => {
-            geometry_predicates::orient2d([ea[i], ea[j]], [eb[i], eb[j]], [ec[i], ec[j]])
-        }
-
-        // LLE: two LPIs + one explicit
+        // ── LLE multiset (canonical: L, L, E) ────────────────────────
+        // (L, L, E): identity
         (ImplicitPoint::LPI { .. }, ImplicitPoint::LPI { .. }, ImplicitPoint::Explicit(_)) => {
             orient2d_lle(a, b, c, i, j)
         }
-        // LLE permutations via antisymmetry
+        // (L, E, L): swap arg 1,2 → negate
         (ImplicitPoint::LPI { .. }, ImplicitPoint::Explicit(_), ImplicitPoint::LPI { .. }) => {
-            -orient2d_lle(a, c, b, i, j) // swap b,c → negate
+            -orient2d_lle(a, c, b, i, j)
         }
+        // (E, L, L): even cyclic rotation
         (ImplicitPoint::Explicit(_), ImplicitPoint::LPI { .. }, ImplicitPoint::LPI { .. }) => {
-            orient2d_lle(b, c, a, i, j) // rotate: (E,L,L) → orient2d(L,L,E)
+            orient2d_lle(b, c, a, i, j)
         }
 
-        // LLL: three LPIs
+        // ── LLL multiset (only 1 ordering) ───────────────────────────
         (ImplicitPoint::LPI { .. }, ImplicitPoint::LPI { .. }, ImplicitPoint::LPI { .. }) => {
             orient2d_lll(a, b, c, i, j)
         }
 
-        // All other combinations: materialize and delegate
+        // ── TEE multiset (canonical: T, E, E) ────────────────────────
+        // (T, E, E): identity
+        (
+            ImplicitPoint::TPI {
+                v1,
+                v2,
+                v3,
+                w1,
+                w2,
+                w3,
+                u1,
+                u2,
+                u3,
+            },
+            ImplicitPoint::Explicit(e1),
+            ImplicitPoint::Explicit(e2),
+        ) => orient2d_tee(v1, v2, v3, w1, w2, w3, u1, u2, u3, e1, e2, i, j),
+        // (E, T, E): swap arg 0,1 → negate
+        (
+            ImplicitPoint::Explicit(e1),
+            ImplicitPoint::TPI {
+                v1,
+                v2,
+                v3,
+                w1,
+                w2,
+                w3,
+                u1,
+                u2,
+                u3,
+            },
+            ImplicitPoint::Explicit(e2),
+        ) => -orient2d_tee(v1, v2, v3, w1, w2, w3, u1, u2, u3, e1, e2, i, j),
+        // (E, E, T): even cyclic rotation (E,E,T)→(T,E,E)
+        (
+            ImplicitPoint::Explicit(e1),
+            ImplicitPoint::Explicit(e2),
+            ImplicitPoint::TPI {
+                v1,
+                v2,
+                v3,
+                w1,
+                w2,
+                w3,
+                u1,
+                u2,
+                u3,
+            },
+        ) => orient2d_tee(v1, v2, v3, w1, w2, w3, u1, u2, u3, e1, e2, i, j),
+
+        // ── LTE multiset (canonical: L, T, E) ────────────────────────
+        // (L, T, E): identity
+        (ImplicitPoint::LPI { .. }, ImplicitPoint::TPI { .. }, ImplicitPoint::Explicit(_)) => {
+            orient2d_lte(a, b, c, i, j)
+        }
+        // (L, E, T): swap arg 1,2 → negate
+        (ImplicitPoint::LPI { .. }, ImplicitPoint::Explicit(_), ImplicitPoint::TPI { .. }) => {
+            -orient2d_lte(a, c, b, i, j)
+        }
+        // (T, L, E): swap arg 0,1 → negate
+        (ImplicitPoint::TPI { .. }, ImplicitPoint::LPI { .. }, ImplicitPoint::Explicit(_)) => {
+            -orient2d_lte(b, a, c, i, j)
+        }
+        // (T, E, L): even cyclic rotation (T,E,L)→(L,T,E)
+        (ImplicitPoint::TPI { .. }, ImplicitPoint::Explicit(_), ImplicitPoint::LPI { .. }) => {
+            orient2d_lte(c, a, b, i, j)
+        }
+        // (E, L, T): even cyclic rotation (E,L,T)→(L,T,E)
+        (ImplicitPoint::Explicit(_), ImplicitPoint::LPI { .. }, ImplicitPoint::TPI { .. }) => {
+            orient2d_lte(b, c, a, i, j)
+        }
+        // (E, T, L): odd permutation (swap 0,2) → negate
+        (ImplicitPoint::Explicit(_), ImplicitPoint::TPI { .. }, ImplicitPoint::LPI { .. }) => {
+            -orient2d_lte(c, b, a, i, j)
+        }
+
+        // ── LLT multiset (canonical: L, L, T) ────────────────────────
+        // (L, L, T): identity
+        (ImplicitPoint::LPI { .. }, ImplicitPoint::LPI { .. }, ImplicitPoint::TPI { .. }) => {
+            orient2d_llt(a, b, c, i, j)
+        }
+        // (L, T, L): swap arg 1,2 → negate
+        (ImplicitPoint::LPI { .. }, ImplicitPoint::TPI { .. }, ImplicitPoint::LPI { .. }) => {
+            -orient2d_llt(a, c, b, i, j)
+        }
+        // (T, L, L): even cyclic rotation (T,L,L)→(L,L,T)
+        (ImplicitPoint::TPI { .. }, ImplicitPoint::LPI { .. }, ImplicitPoint::LPI { .. }) => {
+            orient2d_llt(b, c, a, i, j)
+        }
+
+        // ── LTT multiset (canonical: L, T, T) ────────────────────────
+        // (L, T, T): identity
+        (ImplicitPoint::LPI { .. }, ImplicitPoint::TPI { .. }, ImplicitPoint::TPI { .. }) => {
+            orient2d_ltt(a, b, c, i, j)
+        }
+        // (T, L, T): swap arg 0,1 → negate
+        (ImplicitPoint::TPI { .. }, ImplicitPoint::LPI { .. }, ImplicitPoint::TPI { .. }) => {
+            -orient2d_ltt(b, a, c, i, j)
+        }
+        // (T, T, L): even cyclic rotation (T,T,L)→(L,T,T)
+        (ImplicitPoint::TPI { .. }, ImplicitPoint::TPI { .. }, ImplicitPoint::LPI { .. }) => {
+            orient2d_ltt(c, a, b, i, j)
+        }
+
+        // ── TTE multiset (canonical: T, T, E) ────────────────────────
+        // (T, T, E): identity
+        (ImplicitPoint::TPI { .. }, ImplicitPoint::TPI { .. }, ImplicitPoint::Explicit(_)) => {
+            orient2d_tte(a, b, c, i, j)
+        }
+        // (T, E, T): swap arg 1,2 → negate
+        (ImplicitPoint::TPI { .. }, ImplicitPoint::Explicit(_), ImplicitPoint::TPI { .. }) => {
+            -orient2d_tte(a, c, b, i, j)
+        }
+        // (E, T, T): even cyclic rotation (E,T,T)→(T,T,E)
+        (ImplicitPoint::Explicit(_), ImplicitPoint::TPI { .. }, ImplicitPoint::TPI { .. }) => {
+            orient2d_tte(b, c, a, i, j)
+        }
+
+        // ── TTT multiset ─────────────────────────────────────────────
+        (ImplicitPoint::TPI { .. }, ImplicitPoint::TPI { .. }, ImplicitPoint::TPI { .. }) => {
+            orient2d_ttt(a, b, c, i, j)
+        }
+
+        // Defensive safety net — every (E,L,T)³ combination is covered above.
+        // Reachable only if a future point type is added to ImplicitPoint.
+        #[allow(unreachable_patterns)]
         _ => orient2d_materialize_fallback(a, b, c, i, j),
     }
 }
@@ -1003,54 +1932,90 @@ pub(crate) fn orient3d_indirect(
     c: &ImplicitPoint,
     d: &ImplicitPoint,
 ) -> f64 {
-    // Count LPI points and their positions to dispatch
-    let types = (
-        matches!(a, ImplicitPoint::LPI { .. }),
-        matches!(b, ImplicitPoint::LPI { .. }),
-        matches!(c, ImplicitPoint::LPI { .. }),
-        matches!(d, ImplicitPoint::LPI { .. }),
-    );
+    // Type code: 0 = Explicit, 1 = LPI, 2 = TPI. Canonical multiset order
+    // sorts by ascending code so the dispatch only matches 15 base cases.
+    let type_code = |p: &ImplicitPoint| -> u8 {
+        match p {
+            ImplicitPoint::Explicit(_) => 0,
+            ImplicitPoint::LPI { .. } => 1,
+            ImplicitPoint::TPI { .. } => 2,
+        }
+    };
+    let mut codes = [type_code(a), type_code(b), type_code(c), type_code(d)];
+    let mut args: [&ImplicitPoint; 4] = [a, b, c, d];
 
-    match types {
-        // EEEE: all explicit — use Shewchuk directly
-        (false, false, false, false) => {
-            let ea = match a {
+    // Bubble-sort ascending by code, tracking parity. Each adjacent swap of
+    // an orient3d argument flips the determinant's sign.
+    let mut parity: i32 = 1;
+    for i in 0..4 {
+        for j in 0..(3 - i) {
+            if codes[j] > codes[j + 1] {
+                codes.swap(j, j + 1);
+                args.swap(j, j + 1);
+                parity = -parity;
+            }
+        }
+    }
+
+    let raw = match codes {
+        // EEEE — direct Shewchuk on the original args (no implicit points,
+        // sorting was a no-op so order is preserved).
+        [0, 0, 0, 0] => {
+            let ea = match args[0] {
                 ImplicitPoint::Explicit(e) => e,
                 _ => unreachable!(),
             };
-            let eb = match b {
+            let eb = match args[1] {
                 ImplicitPoint::Explicit(e) => e,
                 _ => unreachable!(),
             };
-            let ec = match c {
+            let ec = match args[2] {
                 ImplicitPoint::Explicit(e) => e,
                 _ => unreachable!(),
             };
-            let ed = match d {
+            let ed = match args[3] {
                 ImplicitPoint::Explicit(e) => e,
                 _ => unreachable!(),
             };
             geometry_predicates::orient3d(*ea, *eb, *ec, *ed)
         }
-
-        // LEEE: one LPI + three explicit
-        (true, false, false, false) => orient3d_leee(a, b, c, d),
-        // Permutations: use orient3d antisymmetry (swap two args → negate)
-        (false, true, false, false) => -orient3d_leee(b, a, c, d),
-        (false, false, true, false) => -orient3d_leee(c, b, a, d),
-        (false, false, false, true) => -orient3d_leee(d, b, c, a),
-
-        // LLEE: two LPIs + two explicit (6 permutations)
-        (true, true, false, false) => orient3d_llee(a, b, c, d),
-        (true, false, true, false) => -orient3d_llee(a, c, b, d),
-        (true, false, false, true) => -orient3d_llee(a, d, c, b),
-        (false, true, true, false) => orient3d_llee(b, c, a, d),
-        (false, true, false, true) => orient3d_llee(b, d, a, c),
-        (false, false, true, true) => orient3d_llee(c, d, a, b),
-
-        // LLLE, LLLL: materialize fallback (TPI combinations also)
+        // LEEE — 1 LPI + 3 Explicit. Canonical order: (L, E, E, E).
+        [0, 0, 0, 1] => {
+            // After sorting ascending, the LPI is at position 3. Move it to
+            // position 0 with three adjacent swaps (parity * (-1)^3 = -parity)
+            // — equivalently call leee with (L, E, E, E) and absorb -1 here.
+            -orient3d_leee(args[3], args[0], args[1], args[2])
+        }
+        // TEEE — 1 TPI + 3 Explicit. Canonical order: (T, E, E, E).
+        [0, 0, 0, 2] => -orient3d_teee(args[3], args[0], args[1], args[2]),
+        // LLEE — 2 LPI + 2 Explicit. Canonical order: (L, L, E, E).
+        [0, 0, 1, 1] => orient3d_llee(args[2], args[3], args[0], args[1]),
+        // LTEE — 1 LPI + 1 TPI + 2 Explicit. Canonical order: (L, T, E, E).
+        [0, 0, 1, 2] => orient3d_ltee(args[2], args[3], args[0], args[1]),
+        // TTEE — 2 TPI + 2 Explicit. Canonical order: (T, T, E, E).
+        [0, 0, 2, 2] => orient3d_ttee(args[2], args[3], args[0], args[1]),
+        // LLLE — 3 LPI + 1 Explicit. Canonical order: (L, L, L, E).
+        [0, 1, 1, 1] => -orient3d_llle(args[1], args[2], args[3], args[0]),
+        // LLTE — 2 LPI + 1 TPI + 1 Explicit. Canonical order: (L, L, T, E).
+        [0, 1, 1, 2] => -orient3d_llte(args[1], args[2], args[3], args[0]),
+        // LTTE — 1 LPI + 2 TPI + 1 Explicit. Canonical order: (L, T, T, E).
+        [0, 1, 2, 2] => -orient3d_ltte(args[1], args[2], args[3], args[0]),
+        // TTTE — 3 TPI + 1 Explicit. Canonical order: (T, T, T, E).
+        [0, 2, 2, 2] => -orient3d_ttte(args[1], args[2], args[3], args[0]),
+        // LLLL — 4 LPI.
+        [1, 1, 1, 1] => orient3d_llll(args[0], args[1], args[2], args[3]),
+        // LLLT — 3 LPI + 1 TPI. Canonical order: (L, L, L, T).
+        [1, 1, 1, 2] => orient3d_lllt(args[0], args[1], args[2], args[3]),
+        // LLTT — 2 LPI + 2 TPI. Canonical order: (L, L, T, T).
+        [1, 1, 2, 2] => orient3d_lltt(args[0], args[1], args[2], args[3]),
+        // LTTT — 1 LPI + 3 TPI. Canonical order: (L, T, T, T).
+        [1, 2, 2, 2] => orient3d_lttt(args[0], args[1], args[2], args[3]),
+        // TTTT — 4 TPI.
+        [2, 2, 2, 2] => orient3d_tttt(args[0], args[1], args[2], args[3]),
+        // Defensive: bubble-sort always yields one of the 15 ascending codes.
         _ => orient3d_materialize_fallback(a, b, c, d),
-    }
+    };
+    raw * (parity as f64)
 }
 
 /// Fallback: materialize implicit points and use Shewchuk orient3d.
@@ -1314,6 +2279,1306 @@ fn orient3d_llee_exact(
     (da_sign * db_sign * det_sign) as f64
 }
 
+// ── Orient3d TPI variants (Cherchi 2020 §4.2) ────────────────────────────
+//
+// Twelve true-indirect orient3d functions covering every multiset of point
+// types that contains at least one TPI or three-or-more LPIs (the LEEE/LLEE
+// cases above are the LPI-only ones already in place; EEEE goes through
+// `geometry_predicates::orient3d` directly in the dispatch).
+//
+// All variants share the same homogeneous 4×4 strategy. The orient3d sign is
+// the sign of:
+//
+// ```text
+//     | ax  ay  az  1 |
+//     | bx  by  bz  1 |
+//     | cx  cy  cz  1 |
+//     | dx  dy  dz  1 |
+// ```
+//
+// For each implicit point `pi = (λi_x/di, λi_y/di, λi_z/di)` we multiply the
+// corresponding row by `di`, which scales the determinant by `di`. Explicit
+// rows stay unscaled (their fourth column is the literal `1`). After
+// substitution the determinant becomes a 4×4 over exact expansions, and
+//
+// ```text
+//     sign(orient3d) = sign(det_scaled) · ∏ sign(d_i)
+// ```
+//
+// Every multiplication, addition and subtraction is done with Shewchuk-style
+// expansion arithmetic, so the result is exact regardless of input
+// magnitude.
+//
+// Float-filter (Cherchi 2020 Table 1) constants for orient3d TPI variants
+// are not in our reference doc — they live only in the C++ reference at
+// github.com/gcherchi/FastAndRobustMeshArrangements. Until those constants
+// are ported, these dispatchers always evaluate the exact path; the stub
+// names mirror the LEEE/LLEE pattern so a future PR can slot the float
+// filter in without touching call sites.
+
+/// Build the 4-component homogeneous expansion row for an Explicit point.
+fn orient3d_row_explicit(e: &[f64; 3]) -> [Vec<f64>; 4] {
+    [vec![e[0]], vec![e[1]], vec![e[2]], vec![1.0]]
+}
+
+/// Build the 4-component homogeneous expansion row for an LPI point.
+/// Returns `(d_sign, row)` where the row is `(λx, λy, λz, d_L)`.
+/// Returns `None` if d_L = 0.
+fn orient3d_row_lpi(
+    q1: &[f64; 3],
+    q2: &[f64; 3],
+    r: &[f64; 3],
+    s: &[f64; 3],
+    t: &[f64; 3],
+) -> Option<(i32, [Vec<f64>; 4])> {
+    let (d_sign, d_exp, lx, ly, lz) = lpi_lambda_expansion(q1, q2, r, s, t)?;
+    Some((d_sign, [lx, ly, lz, d_exp]))
+}
+
+/// Build the 4-component homogeneous expansion row for a TPI point.
+/// Returns `(d_sign, row)` where the row is `(λx, λy, λz, d_T)`.
+/// Returns `None` if d_T = 0.
+#[allow(clippy::too_many_arguments)]
+fn orient3d_row_tpi(
+    v1: &[f64; 3],
+    v2: &[f64; 3],
+    v3: &[f64; 3],
+    w1: &[f64; 3],
+    w2: &[f64; 3],
+    w3: &[f64; 3],
+    u1: &[f64; 3],
+    u2: &[f64; 3],
+    u3: &[f64; 3],
+) -> Option<(i32, [Vec<f64>; 4])> {
+    let (d_sign, d_exp, lx, ly, lz) = tpi_lambda_expansion(v1, v2, v3, w1, w2, w3, u1, u2, u3)?;
+    Some((d_sign, [lx, ly, lz, d_exp]))
+}
+
+/// Exact 4×4 determinant where each row is a 4-component expansion vector.
+///
+/// Cofactor expansion along row 0:
+///   det = + r0[0] · |minor(0,0)|
+///         - r0[1] · |minor(0,1)|
+///         + r0[2] · |minor(0,2)|
+///         - r0[3] · |minor(0,3)|
+///
+/// Each minor is a 3×3 determinant over expansions, evaluated by the existing
+/// `det3x3_expansion` helper.
+fn det4x4_expansion(
+    r0: &[Vec<f64>; 4],
+    r1: &[Vec<f64>; 4],
+    r2: &[Vec<f64>; 4],
+    r3: &[Vec<f64>; 4],
+) -> Vec<f64> {
+    let cols_for = |skip: usize| -> [usize; 3] {
+        match skip {
+            0 => [1, 2, 3],
+            1 => [0, 2, 3],
+            2 => [0, 1, 3],
+            _ => [0, 1, 2],
+        }
+    };
+
+    let mut acc: Vec<f64> = vec![0.0];
+    for j in 0..4 {
+        let cols = cols_for(j);
+        let m1 = [
+            r1[cols[0]].clone(),
+            r1[cols[1]].clone(),
+            r1[cols[2]].clone(),
+        ];
+        let m2 = [
+            r2[cols[0]].clone(),
+            r2[cols[1]].clone(),
+            r2[cols[2]].clone(),
+        ];
+        let m3 = [
+            r3[cols[0]].clone(),
+            r3[cols[1]].clone(),
+            r3[cols[2]].clone(),
+        ];
+        let minor = det3x3_expansion(&m1, &m2, &m3);
+        let term = expansion_mul_expansion(&r0[j], &minor);
+        let signed = if j % 2 == 0 {
+            term
+        } else {
+            expansion_negate(&term)
+        };
+        acc = expansion_add(&acc, &signed);
+    }
+    acc
+}
+
+/// Combine 4 row-builder results into the orient3d sign.
+///
+/// `signs` are the sign-of-d for each row (1 for Explicit, sign(d_L)/sign(d_T)
+/// for implicit). The final orient3d sign is `sign(det_4x4) · ∏ signs`.
+fn orient3d_combine(rows: [&[Vec<f64>; 4]; 4], signs: [i32; 4]) -> f64 {
+    let det_exp = det4x4_expansion(rows[0], rows[1], rows[2], rows[3]);
+    let det_sign = expansion_sign(&det_exp);
+    let prod = signs[0] * signs[1] * signs[2] * signs[3];
+    (det_sign * prod) as f64
+}
+
+// ── orient3d_LLLE: 3 LPI + 1 Explicit ───────────────────────────────────
+
+/// True indirect orient3d for (LPI_a, LPI_b, LPI_c, Explicit).
+///
+/// Filter constants for orient3d TPI/multi-LPI variants are not in our
+/// reference doc — filter deferred — always exact for now.
+///
+/// Ref: Cherchi 2020 §4.2, orient3D_LLLE.
+fn orient3d_llle(
+    la: &ImplicitPoint,
+    lb: &ImplicitPoint,
+    lc: &ImplicitPoint,
+    e: &ImplicitPoint,
+) -> f64 {
+    let (q1a, q2a, ra, sa, ta) = match la {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let (q1b, q2b, rb, sb, tb) = match lb {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let (q1c, q2c, rc, sc, tc) = match lc {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let ec = match e {
+        ImplicitPoint::Explicit(coords) => coords,
+        _ => unreachable!(),
+    };
+    orient3d_llle_exact(
+        q1a, q2a, ra, sa, ta, q1b, q2b, rb, sb, tb, q1c, q2c, rc, sc, tc, ec,
+    )
+}
+
+/// Exact orient3d_LLLE — 3 LPI rows + 1 Explicit row.
+#[allow(clippy::too_many_arguments)]
+fn orient3d_llle_exact(
+    q1a: &[f64; 3],
+    q2a: &[f64; 3],
+    ra: &[f64; 3],
+    sa: &[f64; 3],
+    ta: &[f64; 3],
+    q1b: &[f64; 3],
+    q2b: &[f64; 3],
+    rb: &[f64; 3],
+    sb: &[f64; 3],
+    tb: &[f64; 3],
+    q1c: &[f64; 3],
+    q2c: &[f64; 3],
+    rc: &[f64; 3],
+    sc: &[f64; 3],
+    tc: &[f64; 3],
+    e: &[f64; 3],
+) -> f64 {
+    let (sa_d, ra_row) = match orient3d_row_lpi(q1a, q2a, ra, sa, ta) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (sb_d, rb_row) = match orient3d_row_lpi(q1b, q2b, rb, sb, tb) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (sc_d, rc_row) = match orient3d_row_lpi(q1c, q2c, rc, sc, tc) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let re_row = orient3d_row_explicit(e);
+    orient3d_combine([&ra_row, &rb_row, &rc_row, &re_row], [sa_d, sb_d, sc_d, 1])
+}
+
+// ── orient3d_LLLL: 4 LPI ────────────────────────────────────────────────
+
+/// True indirect orient3d for (LPI, LPI, LPI, LPI).
+///
+/// Filter constants for orient3d TPI/multi-LPI variants are not in our
+/// reference doc — filter deferred — always exact for now.
+///
+/// Ref: Cherchi 2020 §4.2, orient3D_LLLL.
+fn orient3d_llll(
+    la: &ImplicitPoint,
+    lb: &ImplicitPoint,
+    lc: &ImplicitPoint,
+    ld: &ImplicitPoint,
+) -> f64 {
+    let (q1a, q2a, ra, sa, ta) = match la {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let (q1b, q2b, rb, sb, tb) = match lb {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let (q1c, q2c, rc, sc, tc) = match lc {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let (q1d, q2d, rd, sd, td) = match ld {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    orient3d_llll_exact(
+        q1a, q2a, ra, sa, ta, q1b, q2b, rb, sb, tb, q1c, q2c, rc, sc, tc, q1d, q2d, rd, sd, td,
+    )
+}
+
+/// Exact orient3d_LLLL — 4 LPI rows.
+#[allow(clippy::too_many_arguments)]
+fn orient3d_llll_exact(
+    q1a: &[f64; 3],
+    q2a: &[f64; 3],
+    ra: &[f64; 3],
+    sa: &[f64; 3],
+    ta: &[f64; 3],
+    q1b: &[f64; 3],
+    q2b: &[f64; 3],
+    rb: &[f64; 3],
+    sb: &[f64; 3],
+    tb: &[f64; 3],
+    q1c: &[f64; 3],
+    q2c: &[f64; 3],
+    rc: &[f64; 3],
+    sc: &[f64; 3],
+    tc: &[f64; 3],
+    q1d: &[f64; 3],
+    q2d: &[f64; 3],
+    rd: &[f64; 3],
+    sd: &[f64; 3],
+    td: &[f64; 3],
+) -> f64 {
+    let (sa_d, ra_row) = match orient3d_row_lpi(q1a, q2a, ra, sa, ta) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (sb_d, rb_row) = match orient3d_row_lpi(q1b, q2b, rb, sb, tb) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (sc_d, rc_row) = match orient3d_row_lpi(q1c, q2c, rc, sc, tc) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (sd_d, rd_row) = match orient3d_row_lpi(q1d, q2d, rd, sd, td) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    orient3d_combine(
+        [&ra_row, &rb_row, &rc_row, &rd_row],
+        [sa_d, sb_d, sc_d, sd_d],
+    )
+}
+
+// ── orient3d_TEEE: 1 TPI + 3 Explicit ───────────────────────────────────
+
+/// True indirect orient3d for (TPI, Explicit, Explicit, Explicit).
+///
+/// Filter constants for orient3d TPI variants are not in our reference doc —
+/// filter deferred — always exact for now.
+///
+/// Ref: Cherchi 2020 §4.2, orient3D_TEEE.
+fn orient3d_teee(
+    t: &ImplicitPoint,
+    e1: &ImplicitPoint,
+    e2: &ImplicitPoint,
+    e3: &ImplicitPoint,
+) -> f64 {
+    let (v1, v2, v3, w1, w2, w3, u1, u2, u3) = match t {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!(),
+    };
+    let e1c = match e1 {
+        ImplicitPoint::Explicit(coords) => coords,
+        _ => unreachable!(),
+    };
+    let e2c = match e2 {
+        ImplicitPoint::Explicit(coords) => coords,
+        _ => unreachable!(),
+    };
+    let e3c = match e3 {
+        ImplicitPoint::Explicit(coords) => coords,
+        _ => unreachable!(),
+    };
+    orient3d_teee_exact(v1, v2, v3, w1, w2, w3, u1, u2, u3, e1c, e2c, e3c)
+}
+
+/// Exact orient3d_TEEE — 1 TPI row + 3 Explicit rows.
+#[allow(clippy::too_many_arguments)]
+fn orient3d_teee_exact(
+    v1: &[f64; 3],
+    v2: &[f64; 3],
+    v3: &[f64; 3],
+    w1: &[f64; 3],
+    w2: &[f64; 3],
+    w3: &[f64; 3],
+    u1: &[f64; 3],
+    u2: &[f64; 3],
+    u3: &[f64; 3],
+    e1: &[f64; 3],
+    e2: &[f64; 3],
+    e3: &[f64; 3],
+) -> f64 {
+    let (st_d, rt_row) = match orient3d_row_tpi(v1, v2, v3, w1, w2, w3, u1, u2, u3) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let r1_row = orient3d_row_explicit(e1);
+    let r2_row = orient3d_row_explicit(e2);
+    let r3_row = orient3d_row_explicit(e3);
+    orient3d_combine([&rt_row, &r1_row, &r2_row, &r3_row], [st_d, 1, 1, 1])
+}
+
+// ── orient3d_LTEE: 1 LPI + 1 TPI + 2 Explicit ───────────────────────────
+
+/// True indirect orient3d for (LPI, TPI, Explicit, Explicit).
+///
+/// Filter constants for orient3d TPI variants are not in our reference doc —
+/// filter deferred — always exact for now.
+///
+/// Ref: Cherchi 2020 §4.2, orient3D_LTEE.
+fn orient3d_ltee(
+    l: &ImplicitPoint,
+    t: &ImplicitPoint,
+    e1: &ImplicitPoint,
+    e2: &ImplicitPoint,
+) -> f64 {
+    let (q1, q2, r, s, tt) = match l {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let (v1, v2, v3, w1, w2, w3, u1, u2, u3) = match t {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!(),
+    };
+    let e1c = match e1 {
+        ImplicitPoint::Explicit(coords) => coords,
+        _ => unreachable!(),
+    };
+    let e2c = match e2 {
+        ImplicitPoint::Explicit(coords) => coords,
+        _ => unreachable!(),
+    };
+    orient3d_ltee_exact(
+        q1, q2, r, s, tt, v1, v2, v3, w1, w2, w3, u1, u2, u3, e1c, e2c,
+    )
+}
+
+/// Exact orient3d_LTEE — 1 LPI + 1 TPI + 2 Explicit rows.
+#[allow(clippy::too_many_arguments)]
+fn orient3d_ltee_exact(
+    q1: &[f64; 3],
+    q2: &[f64; 3],
+    r: &[f64; 3],
+    s: &[f64; 3],
+    tt: &[f64; 3],
+    v1: &[f64; 3],
+    v2: &[f64; 3],
+    v3: &[f64; 3],
+    w1: &[f64; 3],
+    w2: &[f64; 3],
+    w3: &[f64; 3],
+    u1: &[f64; 3],
+    u2: &[f64; 3],
+    u3: &[f64; 3],
+    e1: &[f64; 3],
+    e2: &[f64; 3],
+) -> f64 {
+    let (sl_d, rl_row) = match orient3d_row_lpi(q1, q2, r, s, tt) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (st_d, rt_row) = match orient3d_row_tpi(v1, v2, v3, w1, w2, w3, u1, u2, u3) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let r1_row = orient3d_row_explicit(e1);
+    let r2_row = orient3d_row_explicit(e2);
+    orient3d_combine([&rl_row, &rt_row, &r1_row, &r2_row], [sl_d, st_d, 1, 1])
+}
+
+// ── orient3d_LLTE: 2 LPI + 1 TPI + 1 Explicit ───────────────────────────
+
+/// True indirect orient3d for (LPI, LPI, TPI, Explicit).
+///
+/// Filter constants for orient3d TPI variants are not in our reference doc —
+/// filter deferred — always exact for now.
+///
+/// Ref: Cherchi 2020 §4.2, orient3D_LLTE.
+fn orient3d_llte(
+    la: &ImplicitPoint,
+    lb: &ImplicitPoint,
+    t: &ImplicitPoint,
+    e: &ImplicitPoint,
+) -> f64 {
+    let (q1a, q2a, ra, sa, ta) = match la {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let (q1b, q2b, rb, sb, tb) = match lb {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let (v1, v2, v3, w1, w2, w3, u1, u2, u3) = match t {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!(),
+    };
+    let ec = match e {
+        ImplicitPoint::Explicit(coords) => coords,
+        _ => unreachable!(),
+    };
+    orient3d_llte_exact(
+        q1a, q2a, ra, sa, ta, q1b, q2b, rb, sb, tb, v1, v2, v3, w1, w2, w3, u1, u2, u3, ec,
+    )
+}
+
+/// Exact orient3d_LLTE — 2 LPI + 1 TPI + 1 Explicit rows.
+#[allow(clippy::too_many_arguments)]
+fn orient3d_llte_exact(
+    q1a: &[f64; 3],
+    q2a: &[f64; 3],
+    ra: &[f64; 3],
+    sa: &[f64; 3],
+    ta: &[f64; 3],
+    q1b: &[f64; 3],
+    q2b: &[f64; 3],
+    rb: &[f64; 3],
+    sb: &[f64; 3],
+    tb: &[f64; 3],
+    v1: &[f64; 3],
+    v2: &[f64; 3],
+    v3: &[f64; 3],
+    w1: &[f64; 3],
+    w2: &[f64; 3],
+    w3: &[f64; 3],
+    u1: &[f64; 3],
+    u2: &[f64; 3],
+    u3: &[f64; 3],
+    e: &[f64; 3],
+) -> f64 {
+    let (sa_d, ra_row) = match orient3d_row_lpi(q1a, q2a, ra, sa, ta) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (sb_d, rb_row) = match orient3d_row_lpi(q1b, q2b, rb, sb, tb) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (st_d, rt_row) = match orient3d_row_tpi(v1, v2, v3, w1, w2, w3, u1, u2, u3) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let re_row = orient3d_row_explicit(e);
+    orient3d_combine([&ra_row, &rb_row, &rt_row, &re_row], [sa_d, sb_d, st_d, 1])
+}
+
+// ── orient3d_TTEE: 2 TPI + 2 Explicit ───────────────────────────────────
+
+/// True indirect orient3d for (TPI, TPI, Explicit, Explicit).
+///
+/// Filter constants for orient3d TPI variants are not in our reference doc —
+/// filter deferred — always exact for now.
+///
+/// Ref: Cherchi 2020 §4.2, orient3D_TTEE.
+fn orient3d_ttee(
+    ta: &ImplicitPoint,
+    tb: &ImplicitPoint,
+    e1: &ImplicitPoint,
+    e2: &ImplicitPoint,
+) -> f64 {
+    let (va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3) = match ta {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!(),
+    };
+    let (vb1, vb2, vb3, wb1, wb2, wb3, ub1, ub2, ub3) = match tb {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!(),
+    };
+    let e1c = match e1 {
+        ImplicitPoint::Explicit(coords) => coords,
+        _ => unreachable!(),
+    };
+    let e2c = match e2 {
+        ImplicitPoint::Explicit(coords) => coords,
+        _ => unreachable!(),
+    };
+    orient3d_ttee_exact(
+        va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3, vb1, vb2, vb3, wb1, wb2, wb3, ub1, ub2, ub3,
+        e1c, e2c,
+    )
+}
+
+/// Exact orient3d_TTEE — 2 TPI + 2 Explicit rows.
+#[allow(clippy::too_many_arguments)]
+fn orient3d_ttee_exact(
+    va1: &[f64; 3],
+    va2: &[f64; 3],
+    va3: &[f64; 3],
+    wa1: &[f64; 3],
+    wa2: &[f64; 3],
+    wa3: &[f64; 3],
+    ua1: &[f64; 3],
+    ua2: &[f64; 3],
+    ua3: &[f64; 3],
+    vb1: &[f64; 3],
+    vb2: &[f64; 3],
+    vb3: &[f64; 3],
+    wb1: &[f64; 3],
+    wb2: &[f64; 3],
+    wb3: &[f64; 3],
+    ub1: &[f64; 3],
+    ub2: &[f64; 3],
+    ub3: &[f64; 3],
+    e1: &[f64; 3],
+    e2: &[f64; 3],
+) -> f64 {
+    let (sa_d, ra_row) = match orient3d_row_tpi(va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (sb_d, rb_row) = match orient3d_row_tpi(vb1, vb2, vb3, wb1, wb2, wb3, ub1, ub2, ub3) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let r1_row = orient3d_row_explicit(e1);
+    let r2_row = orient3d_row_explicit(e2);
+    orient3d_combine([&ra_row, &rb_row, &r1_row, &r2_row], [sa_d, sb_d, 1, 1])
+}
+
+// ── orient3d_LTTE: 1 LPI + 2 TPI + 1 Explicit ───────────────────────────
+
+/// True indirect orient3d for (LPI, TPI, TPI, Explicit).
+///
+/// Filter constants for orient3d TPI variants are not in our reference doc —
+/// filter deferred — always exact for now.
+///
+/// Ref: Cherchi 2020 §4.2, orient3D_LTTE.
+fn orient3d_ltte(
+    l: &ImplicitPoint,
+    ta: &ImplicitPoint,
+    tb: &ImplicitPoint,
+    e: &ImplicitPoint,
+) -> f64 {
+    let (q1, q2, r, s, tt) = match l {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let (va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3) = match ta {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!(),
+    };
+    let (vb1, vb2, vb3, wb1, wb2, wb3, ub1, ub2, ub3) = match tb {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!(),
+    };
+    let ec = match e {
+        ImplicitPoint::Explicit(coords) => coords,
+        _ => unreachable!(),
+    };
+    orient3d_ltte_exact(
+        q1, q2, r, s, tt, va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3, vb1, vb2, vb3, wb1, wb2,
+        wb3, ub1, ub2, ub3, ec,
+    )
+}
+
+/// Exact orient3d_LTTE — 1 LPI + 2 TPI + 1 Explicit rows.
+#[allow(clippy::too_many_arguments)]
+fn orient3d_ltte_exact(
+    q1: &[f64; 3],
+    q2: &[f64; 3],
+    r: &[f64; 3],
+    s: &[f64; 3],
+    tt: &[f64; 3],
+    va1: &[f64; 3],
+    va2: &[f64; 3],
+    va3: &[f64; 3],
+    wa1: &[f64; 3],
+    wa2: &[f64; 3],
+    wa3: &[f64; 3],
+    ua1: &[f64; 3],
+    ua2: &[f64; 3],
+    ua3: &[f64; 3],
+    vb1: &[f64; 3],
+    vb2: &[f64; 3],
+    vb3: &[f64; 3],
+    wb1: &[f64; 3],
+    wb2: &[f64; 3],
+    wb3: &[f64; 3],
+    ub1: &[f64; 3],
+    ub2: &[f64; 3],
+    ub3: &[f64; 3],
+    e: &[f64; 3],
+) -> f64 {
+    let (sl_d, rl_row) = match orient3d_row_lpi(q1, q2, r, s, tt) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (sa_d, ra_row) = match orient3d_row_tpi(va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (sb_d, rb_row) = match orient3d_row_tpi(vb1, vb2, vb3, wb1, wb2, wb3, ub1, ub2, ub3) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let re_row = orient3d_row_explicit(e);
+    orient3d_combine([&rl_row, &ra_row, &rb_row, &re_row], [sl_d, sa_d, sb_d, 1])
+}
+
+// ── orient3d_LLTT: 2 LPI + 2 TPI ────────────────────────────────────────
+
+/// True indirect orient3d for (LPI, LPI, TPI, TPI).
+///
+/// Filter constants for orient3d TPI variants are not in our reference doc —
+/// filter deferred — always exact for now.
+///
+/// Ref: Cherchi 2020 §4.2, orient3D_LLTT.
+fn orient3d_lltt(
+    la: &ImplicitPoint,
+    lb: &ImplicitPoint,
+    ta: &ImplicitPoint,
+    tb: &ImplicitPoint,
+) -> f64 {
+    let (q1a, q2a, ra, sa, ta_pl) = match la {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let (q1b, q2b, rb, sb, tb_pl) = match lb {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let (va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3) = match ta {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!(),
+    };
+    let (vb1, vb2, vb3, wb1, wb2, wb3, ub1, ub2, ub3) = match tb {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!(),
+    };
+    orient3d_lltt_exact(
+        q1a, q2a, ra, sa, ta_pl, q1b, q2b, rb, sb, tb_pl, va1, va2, va3, wa1, wa2, wa3, ua1, ua2,
+        ua3, vb1, vb2, vb3, wb1, wb2, wb3, ub1, ub2, ub3,
+    )
+}
+
+/// Exact orient3d_LLTT — 2 LPI + 2 TPI rows.
+#[allow(clippy::too_many_arguments)]
+fn orient3d_lltt_exact(
+    q1a: &[f64; 3],
+    q2a: &[f64; 3],
+    ra: &[f64; 3],
+    sa: &[f64; 3],
+    ta_pl: &[f64; 3],
+    q1b: &[f64; 3],
+    q2b: &[f64; 3],
+    rb: &[f64; 3],
+    sb: &[f64; 3],
+    tb_pl: &[f64; 3],
+    va1: &[f64; 3],
+    va2: &[f64; 3],
+    va3: &[f64; 3],
+    wa1: &[f64; 3],
+    wa2: &[f64; 3],
+    wa3: &[f64; 3],
+    ua1: &[f64; 3],
+    ua2: &[f64; 3],
+    ua3: &[f64; 3],
+    vb1: &[f64; 3],
+    vb2: &[f64; 3],
+    vb3: &[f64; 3],
+    wb1: &[f64; 3],
+    wb2: &[f64; 3],
+    wb3: &[f64; 3],
+    ub1: &[f64; 3],
+    ub2: &[f64; 3],
+    ub3: &[f64; 3],
+) -> f64 {
+    let (sla_d, rla_row) = match orient3d_row_lpi(q1a, q2a, ra, sa, ta_pl) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (slb_d, rlb_row) = match orient3d_row_lpi(q1b, q2b, rb, sb, tb_pl) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (sta_d, rta_row) = match orient3d_row_tpi(va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (stb_d, rtb_row) = match orient3d_row_tpi(vb1, vb2, vb3, wb1, wb2, wb3, ub1, ub2, ub3) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    orient3d_combine(
+        [&rla_row, &rlb_row, &rta_row, &rtb_row],
+        [sla_d, slb_d, sta_d, stb_d],
+    )
+}
+
+// ── orient3d_LTTT: 1 LPI + 3 TPI ────────────────────────────────────────
+
+/// True indirect orient3d for (LPI, TPI, TPI, TPI).
+///
+/// Filter constants for orient3d TPI variants are not in our reference doc —
+/// filter deferred — always exact for now.
+///
+/// Ref: Cherchi 2020 §4.2, orient3D_LTTT.
+fn orient3d_lttt(
+    l: &ImplicitPoint,
+    ta: &ImplicitPoint,
+    tb: &ImplicitPoint,
+    tc: &ImplicitPoint,
+) -> f64 {
+    let (q1, q2, r, s, tt) = match l {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let (va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3) = match ta {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!(),
+    };
+    let (vb1, vb2, vb3, wb1, wb2, wb3, ub1, ub2, ub3) = match tb {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!(),
+    };
+    let (vc1, vc2, vc3, wc1, wc2, wc3, uc1, uc2, uc3) = match tc {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!(),
+    };
+    orient3d_lttt_exact(
+        q1, q2, r, s, tt, va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3, vb1, vb2, vb3, wb1, wb2,
+        wb3, ub1, ub2, ub3, vc1, vc2, vc3, wc1, wc2, wc3, uc1, uc2, uc3,
+    )
+}
+
+/// Exact orient3d_LTTT — 1 LPI + 3 TPI rows.
+#[allow(clippy::too_many_arguments)]
+fn orient3d_lttt_exact(
+    q1: &[f64; 3],
+    q2: &[f64; 3],
+    r: &[f64; 3],
+    s: &[f64; 3],
+    tt: &[f64; 3],
+    va1: &[f64; 3],
+    va2: &[f64; 3],
+    va3: &[f64; 3],
+    wa1: &[f64; 3],
+    wa2: &[f64; 3],
+    wa3: &[f64; 3],
+    ua1: &[f64; 3],
+    ua2: &[f64; 3],
+    ua3: &[f64; 3],
+    vb1: &[f64; 3],
+    vb2: &[f64; 3],
+    vb3: &[f64; 3],
+    wb1: &[f64; 3],
+    wb2: &[f64; 3],
+    wb3: &[f64; 3],
+    ub1: &[f64; 3],
+    ub2: &[f64; 3],
+    ub3: &[f64; 3],
+    vc1: &[f64; 3],
+    vc2: &[f64; 3],
+    vc3: &[f64; 3],
+    wc1: &[f64; 3],
+    wc2: &[f64; 3],
+    wc3: &[f64; 3],
+    uc1: &[f64; 3],
+    uc2: &[f64; 3],
+    uc3: &[f64; 3],
+) -> f64 {
+    let (sl_d, rl_row) = match orient3d_row_lpi(q1, q2, r, s, tt) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (sa_d, ra_row) = match orient3d_row_tpi(va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (sb_d, rb_row) = match orient3d_row_tpi(vb1, vb2, vb3, wb1, wb2, wb3, ub1, ub2, ub3) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (sc_d, rc_row) = match orient3d_row_tpi(vc1, vc2, vc3, wc1, wc2, wc3, uc1, uc2, uc3) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    orient3d_combine(
+        [&rl_row, &ra_row, &rb_row, &rc_row],
+        [sl_d, sa_d, sb_d, sc_d],
+    )
+}
+
+// ── orient3d_TTTE: 3 TPI + 1 Explicit ───────────────────────────────────
+
+/// True indirect orient3d for (TPI, TPI, TPI, Explicit).
+///
+/// Filter constants for orient3d TPI variants are not in our reference doc —
+/// filter deferred — always exact for now.
+///
+/// Ref: Cherchi 2020 §4.2, orient3D_TTTE.
+fn orient3d_ttte(
+    ta: &ImplicitPoint,
+    tb: &ImplicitPoint,
+    tc: &ImplicitPoint,
+    e: &ImplicitPoint,
+) -> f64 {
+    let (va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3) = match ta {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!(),
+    };
+    let (vb1, vb2, vb3, wb1, wb2, wb3, ub1, ub2, ub3) = match tb {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!(),
+    };
+    let (vc1, vc2, vc3, wc1, wc2, wc3, uc1, uc2, uc3) = match tc {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!(),
+    };
+    let ec = match e {
+        ImplicitPoint::Explicit(coords) => coords,
+        _ => unreachable!(),
+    };
+    orient3d_ttte_exact(
+        va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3, vb1, vb2, vb3, wb1, wb2, wb3, ub1, ub2, ub3,
+        vc1, vc2, vc3, wc1, wc2, wc3, uc1, uc2, uc3, ec,
+    )
+}
+
+/// Exact orient3d_TTTE — 3 TPI + 1 Explicit rows.
+#[allow(clippy::too_many_arguments)]
+fn orient3d_ttte_exact(
+    va1: &[f64; 3],
+    va2: &[f64; 3],
+    va3: &[f64; 3],
+    wa1: &[f64; 3],
+    wa2: &[f64; 3],
+    wa3: &[f64; 3],
+    ua1: &[f64; 3],
+    ua2: &[f64; 3],
+    ua3: &[f64; 3],
+    vb1: &[f64; 3],
+    vb2: &[f64; 3],
+    vb3: &[f64; 3],
+    wb1: &[f64; 3],
+    wb2: &[f64; 3],
+    wb3: &[f64; 3],
+    ub1: &[f64; 3],
+    ub2: &[f64; 3],
+    ub3: &[f64; 3],
+    vc1: &[f64; 3],
+    vc2: &[f64; 3],
+    vc3: &[f64; 3],
+    wc1: &[f64; 3],
+    wc2: &[f64; 3],
+    wc3: &[f64; 3],
+    uc1: &[f64; 3],
+    uc2: &[f64; 3],
+    uc3: &[f64; 3],
+    e: &[f64; 3],
+) -> f64 {
+    let (sa_d, ra_row) = match orient3d_row_tpi(va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (sb_d, rb_row) = match orient3d_row_tpi(vb1, vb2, vb3, wb1, wb2, wb3, ub1, ub2, ub3) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (sc_d, rc_row) = match orient3d_row_tpi(vc1, vc2, vc3, wc1, wc2, wc3, uc1, uc2, uc3) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let re_row = orient3d_row_explicit(e);
+    orient3d_combine([&ra_row, &rb_row, &rc_row, &re_row], [sa_d, sb_d, sc_d, 1])
+}
+
+// ── orient3d_TTTT: 4 TPI ────────────────────────────────────────────────
+
+/// True indirect orient3d for (TPI, TPI, TPI, TPI).
+///
+/// Filter constants for orient3d TPI variants are not in our reference doc —
+/// filter deferred — always exact for now.
+///
+/// Ref: Cherchi 2020 §4.2, orient3D_TTTT.
+fn orient3d_tttt(
+    ta: &ImplicitPoint,
+    tb: &ImplicitPoint,
+    tc: &ImplicitPoint,
+    td: &ImplicitPoint,
+) -> f64 {
+    let (va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3) = match ta {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!(),
+    };
+    let (vb1, vb2, vb3, wb1, wb2, wb3, ub1, ub2, ub3) = match tb {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!(),
+    };
+    let (vc1, vc2, vc3, wc1, wc2, wc3, uc1, uc2, uc3) = match tc {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!(),
+    };
+    let (vd1, vd2, vd3, wd1, wd2, wd3, ud1, ud2, ud3) = match td {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!(),
+    };
+    orient3d_tttt_exact(
+        va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3, vb1, vb2, vb3, wb1, wb2, wb3, ub1, ub2, ub3,
+        vc1, vc2, vc3, wc1, wc2, wc3, uc1, uc2, uc3, vd1, vd2, vd3, wd1, wd2, wd3, ud1, ud2, ud3,
+    )
+}
+
+/// Exact orient3d_TTTT — 4 TPI rows.
+#[allow(clippy::too_many_arguments)]
+fn orient3d_tttt_exact(
+    va1: &[f64; 3],
+    va2: &[f64; 3],
+    va3: &[f64; 3],
+    wa1: &[f64; 3],
+    wa2: &[f64; 3],
+    wa3: &[f64; 3],
+    ua1: &[f64; 3],
+    ua2: &[f64; 3],
+    ua3: &[f64; 3],
+    vb1: &[f64; 3],
+    vb2: &[f64; 3],
+    vb3: &[f64; 3],
+    wb1: &[f64; 3],
+    wb2: &[f64; 3],
+    wb3: &[f64; 3],
+    ub1: &[f64; 3],
+    ub2: &[f64; 3],
+    ub3: &[f64; 3],
+    vc1: &[f64; 3],
+    vc2: &[f64; 3],
+    vc3: &[f64; 3],
+    wc1: &[f64; 3],
+    wc2: &[f64; 3],
+    wc3: &[f64; 3],
+    uc1: &[f64; 3],
+    uc2: &[f64; 3],
+    uc3: &[f64; 3],
+    vd1: &[f64; 3],
+    vd2: &[f64; 3],
+    vd3: &[f64; 3],
+    wd1: &[f64; 3],
+    wd2: &[f64; 3],
+    wd3: &[f64; 3],
+    ud1: &[f64; 3],
+    ud2: &[f64; 3],
+    ud3: &[f64; 3],
+) -> f64 {
+    let (sa_d, ra_row) = match orient3d_row_tpi(va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (sb_d, rb_row) = match orient3d_row_tpi(vb1, vb2, vb3, wb1, wb2, wb3, ub1, ub2, ub3) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (sc_d, rc_row) = match orient3d_row_tpi(vc1, vc2, vc3, wc1, wc2, wc3, uc1, uc2, uc3) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (sd_d, rd_row) = match orient3d_row_tpi(vd1, vd2, vd3, wd1, wd2, wd3, ud1, ud2, ud3) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    orient3d_combine(
+        [&ra_row, &rb_row, &rc_row, &rd_row],
+        [sa_d, sb_d, sc_d, sd_d],
+    )
+}
+
+// ── orient3d_LLLT: 3 LPI + 1 TPI ────────────────────────────────────────
+
+/// True indirect orient3d for (LPI, LPI, LPI, TPI).
+///
+/// Filter constants for orient3d TPI variants are not in our reference doc —
+/// filter deferred — always exact for now.
+///
+/// Ref: Cherchi 2020 §4.2, orient3D_LLLT.
+fn orient3d_lllt(
+    la: &ImplicitPoint,
+    lb: &ImplicitPoint,
+    lc: &ImplicitPoint,
+    t: &ImplicitPoint,
+) -> f64 {
+    let (q1a, q2a, ra, sa, ta) = match la {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let (q1b, q2b, rb, sb, tb) = match lb {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let (q1c, q2c, rc, sc, tc) = match lc {
+        ImplicitPoint::LPI { q1, q2, r, s, t } => (q1, q2, r, s, t),
+        _ => unreachable!(),
+    };
+    let (v1, v2, v3, w1, w2, w3, u1, u2, u3) = match t {
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        } => (v1, v2, v3, w1, w2, w3, u1, u2, u3),
+        _ => unreachable!(),
+    };
+    orient3d_lllt_exact(
+        q1a, q2a, ra, sa, ta, q1b, q2b, rb, sb, tb, q1c, q2c, rc, sc, tc, v1, v2, v3, w1, w2, w3,
+        u1, u2, u3,
+    )
+}
+
+/// Exact orient3d_LLLT — 3 LPI + 1 TPI rows.
+#[allow(clippy::too_many_arguments)]
+fn orient3d_lllt_exact(
+    q1a: &[f64; 3],
+    q2a: &[f64; 3],
+    ra: &[f64; 3],
+    sa: &[f64; 3],
+    ta: &[f64; 3],
+    q1b: &[f64; 3],
+    q2b: &[f64; 3],
+    rb: &[f64; 3],
+    sb: &[f64; 3],
+    tb: &[f64; 3],
+    q1c: &[f64; 3],
+    q2c: &[f64; 3],
+    rc: &[f64; 3],
+    sc: &[f64; 3],
+    tc: &[f64; 3],
+    v1: &[f64; 3],
+    v2: &[f64; 3],
+    v3: &[f64; 3],
+    w1: &[f64; 3],
+    w2: &[f64; 3],
+    w3: &[f64; 3],
+    u1: &[f64; 3],
+    u2: &[f64; 3],
+    u3: &[f64; 3],
+) -> f64 {
+    let (sla_d, rla_row) = match orient3d_row_lpi(q1a, q2a, ra, sa, ta) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (slb_d, rlb_row) = match orient3d_row_lpi(q1b, q2b, rb, sb, tb) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (slc_d, rlc_row) = match orient3d_row_lpi(q1c, q2c, rc, sc, tc) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    let (st_d, rt_row) = match orient3d_row_tpi(v1, v2, v3, w1, w2, w3, u1, u2, u3) {
+        Some(v) => v,
+        None => return 0.0,
+    };
+    orient3d_combine(
+        [&rla_row, &rlb_row, &rlc_row, &rt_row],
+        [sla_d, slb_d, slc_d, st_d],
+    )
+}
+
 // ── Point comparison ─────────────────────────────────────────────────────
 
 /// Compare two implicit points along a single coordinate axis.
@@ -1337,7 +3602,14 @@ pub(crate) fn point_compare_on_axis(
         Axis::Z => 2,
     };
 
-    // Dispatch on point types
+    // Dispatch on point types. The 9 (E,L,T) × (E,L,T) ordered cases below
+    // are exhaustive, so the trailing `_` materialize fallback is unreachable
+    // by structural matching today. It is kept intentionally as a safety net
+    // during the cutover from materialize-fallback to true-indirect dispatch:
+    // if a future ImplicitPoint variant is added, callers fall back to
+    // materialize rather than panicking. Deletion is deferred to PR2 once
+    // assay reports zero fallback hits — see specs/cherchi_indirect_predicates.md.
+    #[allow(unreachable_patterns)]
     match (a, b) {
         // EE: exact subtraction, no indirect needed
         (ImplicitPoint::Explicit(ea), ImplicitPoint::Explicit(eb)) => ea[idx].total_cmp(&eb[idx]),
@@ -1370,7 +3642,102 @@ pub(crate) fn point_compare_on_axis(
             },
         ) => point_compare_ll(q1a, q2a, ra, sa, ta, q1b, q2b, rb, sb, tb, idx),
 
-        // All others: materialize fallback
+        // TE: TPI vs Explicit — true indirect (Cherchi 2020 §4.3, Phase D)
+        (
+            ImplicitPoint::TPI {
+                v1,
+                v2,
+                v3,
+                w1,
+                w2,
+                w3,
+                u1,
+                u2,
+                u3,
+            },
+            ImplicitPoint::Explicit(e),
+        ) => point_compare_te(v1, v2, v3, w1, w2, w3, u1, u2, u3, e, idx),
+
+        // ET: Explicit vs TPI — reverse the comparison
+        (
+            ImplicitPoint::Explicit(e),
+            ImplicitPoint::TPI {
+                v1,
+                v2,
+                v3,
+                w1,
+                w2,
+                w3,
+                u1,
+                u2,
+                u3,
+            },
+        ) => point_compare_te(v1, v2, v3, w1, w2, w3, u1, u2, u3, e, idx).reverse(),
+
+        // LT: LPI vs TPI — true indirect (Cherchi 2020 §4.3, Phase D)
+        (
+            ImplicitPoint::LPI { q1, q2, r, s, t },
+            ImplicitPoint::TPI {
+                v1,
+                v2,
+                v3,
+                w1,
+                w2,
+                w3,
+                u1,
+                u2,
+                u3,
+            },
+        ) => point_compare_lt(q1, q2, r, s, t, v1, v2, v3, w1, w2, w3, u1, u2, u3, idx),
+
+        // TL: TPI vs LPI — reverse the comparison
+        (
+            ImplicitPoint::TPI {
+                v1,
+                v2,
+                v3,
+                w1,
+                w2,
+                w3,
+                u1,
+                u2,
+                u3,
+            },
+            ImplicitPoint::LPI { q1, q2, r, s, t },
+        ) => point_compare_lt(q1, q2, r, s, t, v1, v2, v3, w1, w2, w3, u1, u2, u3, idx).reverse(),
+
+        // TT: two TPIs — true indirect (Cherchi 2020 §4.3, Phase D)
+        (
+            ImplicitPoint::TPI {
+                v1: va1,
+                v2: va2,
+                v3: va3,
+                w1: wa1,
+                w2: wa2,
+                w3: wa3,
+                u1: ua1,
+                u2: ua2,
+                u3: ua3,
+            },
+            ImplicitPoint::TPI {
+                v1: vb1,
+                v2: vb2,
+                v3: vb3,
+                w1: wb1,
+                w2: wb2,
+                w3: wb3,
+                u1: ub1,
+                u2: ub2,
+                u3: ub3,
+            },
+        ) => point_compare_tt(
+            va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3, vb1, vb2, vb3, wb1, wb2, wb3, ub1, ub2,
+            ub3, idx,
+        ),
+
+        // All remaining cases: materialize fallback (kept as a safety net while
+        // T-point dispatch matures; deletion deferred to PR2 once assay reports
+        // zero fallback hits — see specs/cherchi_indirect_predicates.md).
         _ => {
             let a_c = match a.materialize() {
                 Some(c) => c,
@@ -1475,6 +3842,244 @@ fn point_compare_le_exact(
 
     let kx_sign = expansion_sign(&kx_exp);
     let combined = d_l_sign * kx_sign;
+    match combined {
+        x if x > 0 => std::cmp::Ordering::Greater,
+        x if x < 0 => std::cmp::Ordering::Less,
+        _ => std::cmp::Ordering::Equal,
+    }
+}
+
+// ── Point comparison: T-point variants (Cherchi 2020 §4.3) ──────────────
+//
+// The three predicates below are direct analogues of `point_compare_le` and
+// `point_compare_ll`, with one or both LPI points swapped for TPI points.
+// All three are expansion-only (no Stage 1 float filter); the Cherchi 2020
+// Table 1 filter constants are noted in each function's doc comment and are
+// reserved for a future PR (see `specs/cherchi_indirect_predicates.md`).
+
+/// True indirect comparison: TPI vs Explicit on a single coordinate axis.
+///
+/// `pT[idx] = λ_T[idx] / d_T` compared with `e[idx]`. The sign of the
+/// difference is `sign(d_T) * sign(λ_T[idx] - d_T * e[idx])`.
+///
+/// Filter constant (deferred): epsilon = 3.98e-13 · delta^7 (Cherchi 2020
+/// Table 1, pointCompare_TE). This stub always uses the exact path.
+///
+/// Ref: Cherchi 2020 §4.3, pointCompare_on_X_TE.
+#[allow(clippy::too_many_arguments)]
+fn point_compare_te(
+    v1: &[f64; 3],
+    v2: &[f64; 3],
+    v3: &[f64; 3],
+    w1: &[f64; 3],
+    w2: &[f64; 3],
+    w3: &[f64; 3],
+    u1: &[f64; 3],
+    u2: &[f64; 3],
+    u3: &[f64; 3],
+    e: &[f64; 3],
+    idx: usize,
+) -> std::cmp::Ordering {
+    point_compare_te_exact(v1, v2, v3, w1, w2, w3, u1, u2, u3, e, idx)
+}
+
+/// Exact TE point comparison using expansion arithmetic.
+///
+/// Uses `tpi_lambda_expansion` so all subtractions and products are exact.
+#[allow(clippy::too_many_arguments)]
+fn point_compare_te_exact(
+    v1: &[f64; 3],
+    v2: &[f64; 3],
+    v3: &[f64; 3],
+    w1: &[f64; 3],
+    w2: &[f64; 3],
+    w3: &[f64; 3],
+    u1: &[f64; 3],
+    u2: &[f64; 3],
+    u3: &[f64; 3],
+    e: &[f64; 3],
+    idx: usize,
+) -> std::cmp::Ordering {
+    let (d_t_sign, d_t_exp, lx, ly, lz) =
+        match tpi_lambda_expansion(v1, v2, v3, w1, w2, w3, u1, u2, u3) {
+            Some(v) => v,
+            None => return std::cmp::Ordering::Equal,
+        };
+    let lambda = [lx, ly, lz];
+
+    // kx = λ[idx] - d_T * e[idx]
+    let d_t_e = expansion_scale(&d_t_exp, e[idx]);
+    let kx_exp = expansion_add(&lambda[idx], &expansion_negate(&d_t_e));
+
+    let kx_sign = expansion_sign(&kx_exp);
+    let combined = d_t_sign * kx_sign;
+    match combined {
+        x if x > 0 => std::cmp::Ordering::Greater,
+        x if x < 0 => std::cmp::Ordering::Less,
+        _ => std::cmp::Ordering::Equal,
+    }
+}
+
+/// True indirect comparison: LPI vs TPI on a single coordinate axis.
+///
+/// `pL[idx] = λ_L[idx] / d_L` vs `pT[idx] = λ_T[idx] / d_T`. The sign of the
+/// difference is `sign(d_L) * sign(d_T) * sign(d_T * λ_L[idx] - d_L * λ_T[idx])`.
+///
+/// Filter constant (deferred): epsilon = 4.32e-12 · delta^10 (Cherchi 2020
+/// Table 1, pointCompare_LT). This stub always uses the exact path.
+///
+/// Ref: Cherchi 2020 §4.3, pointCompare_on_X_LT.
+#[allow(clippy::too_many_arguments)]
+fn point_compare_lt(
+    q1: &[f64; 3],
+    q2: &[f64; 3],
+    r: &[f64; 3],
+    s: &[f64; 3],
+    t: &[f64; 3],
+    v1: &[f64; 3],
+    v2: &[f64; 3],
+    v3: &[f64; 3],
+    w1: &[f64; 3],
+    w2: &[f64; 3],
+    w3: &[f64; 3],
+    u1: &[f64; 3],
+    u2: &[f64; 3],
+    u3: &[f64; 3],
+    idx: usize,
+) -> std::cmp::Ordering {
+    point_compare_lt_exact(q1, q2, r, s, t, v1, v2, v3, w1, w2, w3, u1, u2, u3, idx)
+}
+
+/// Exact LT point comparison using expansion arithmetic.
+#[allow(clippy::too_many_arguments)]
+fn point_compare_lt_exact(
+    q1: &[f64; 3],
+    q2: &[f64; 3],
+    r: &[f64; 3],
+    s: &[f64; 3],
+    t: &[f64; 3],
+    v1: &[f64; 3],
+    v2: &[f64; 3],
+    v3: &[f64; 3],
+    w1: &[f64; 3],
+    w2: &[f64; 3],
+    w3: &[f64; 3],
+    u1: &[f64; 3],
+    u2: &[f64; 3],
+    u3: &[f64; 3],
+    idx: usize,
+) -> std::cmp::Ordering {
+    let (d_l_sign, d_l_exp, lx, ly, lz) = match lpi_lambda_expansion(q1, q2, r, s, t) {
+        Some(v) => v,
+        None => return std::cmp::Ordering::Equal,
+    };
+    let (d_t_sign, d_t_exp, tx, ty, tz) =
+        match tpi_lambda_expansion(v1, v2, v3, w1, w2, w3, u1, u2, u3) {
+            Some(v) => v,
+            None => return std::cmp::Ordering::Equal,
+        };
+
+    let l = [lx, ly, lz];
+    let t_lambda = [tx, ty, tz];
+
+    // diff = d_T * λ_L[idx] - d_L * λ_T[idx]
+    let diff_exp = expansion_add(
+        &expansion_mul_expansion(&d_t_exp, &l[idx]),
+        &expansion_negate(&expansion_mul_expansion(&d_l_exp, &t_lambda[idx])),
+    );
+
+    let diff_sign = expansion_sign(&diff_exp);
+    let combined = d_l_sign * d_t_sign * diff_sign;
+    match combined {
+        x if x > 0 => std::cmp::Ordering::Greater,
+        x if x < 0 => std::cmp::Ordering::Less,
+        _ => std::cmp::Ordering::Equal,
+    }
+}
+
+/// True indirect comparison: TPI_a vs TPI_b on a single coordinate axis.
+///
+/// `pTa[idx] = λ_Ta[idx] / d_Ta` vs `pTb[idx] = λ_Tb[idx] / d_Tb`. The sign
+/// of the difference is `sign(d_Ta) * sign(d_Tb) * sign(d_Tb * λ_Ta[idx] -
+/// d_Ta * λ_Tb[idx])`.
+///
+/// Filter constant (deferred): epsilon = 5.50e-11 · delta^13 (Cherchi 2020
+/// Table 1, pointCompare_TT). This stub always uses the exact path.
+///
+/// Ref: Cherchi 2020 §4.3, pointCompare_on_X_TT.
+#[allow(clippy::too_many_arguments)]
+fn point_compare_tt(
+    va1: &[f64; 3],
+    va2: &[f64; 3],
+    va3: &[f64; 3],
+    wa1: &[f64; 3],
+    wa2: &[f64; 3],
+    wa3: &[f64; 3],
+    ua1: &[f64; 3],
+    ua2: &[f64; 3],
+    ua3: &[f64; 3],
+    vb1: &[f64; 3],
+    vb2: &[f64; 3],
+    vb3: &[f64; 3],
+    wb1: &[f64; 3],
+    wb2: &[f64; 3],
+    wb3: &[f64; 3],
+    ub1: &[f64; 3],
+    ub2: &[f64; 3],
+    ub3: &[f64; 3],
+    idx: usize,
+) -> std::cmp::Ordering {
+    point_compare_tt_exact(
+        va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3, vb1, vb2, vb3, wb1, wb2, wb3, ub1, ub2, ub3,
+        idx,
+    )
+}
+
+/// Exact TT point comparison using expansion arithmetic.
+#[allow(clippy::too_many_arguments)]
+fn point_compare_tt_exact(
+    va1: &[f64; 3],
+    va2: &[f64; 3],
+    va3: &[f64; 3],
+    wa1: &[f64; 3],
+    wa2: &[f64; 3],
+    wa3: &[f64; 3],
+    ua1: &[f64; 3],
+    ua2: &[f64; 3],
+    ua3: &[f64; 3],
+    vb1: &[f64; 3],
+    vb2: &[f64; 3],
+    vb3: &[f64; 3],
+    wb1: &[f64; 3],
+    wb2: &[f64; 3],
+    wb3: &[f64; 3],
+    ub1: &[f64; 3],
+    ub2: &[f64; 3],
+    ub3: &[f64; 3],
+    idx: usize,
+) -> std::cmp::Ordering {
+    let (da_sign, da_exp, ax, ay, az) =
+        match tpi_lambda_expansion(va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3) {
+            Some(v) => v,
+            None => return std::cmp::Ordering::Equal,
+        };
+    let (db_sign, db_exp, bx, by, bz) =
+        match tpi_lambda_expansion(vb1, vb2, vb3, wb1, wb2, wb3, ub1, ub2, ub3) {
+            Some(v) => v,
+            None => return std::cmp::Ordering::Equal,
+        };
+
+    let la = [ax, ay, az];
+    let lb = [bx, by, bz];
+
+    // diff = d_Tb * λ_Ta[idx] - d_Ta * λ_Tb[idx]
+    let diff_exp = expansion_add(
+        &expansion_mul_expansion(&db_exp, &la[idx]),
+        &expansion_negate(&expansion_mul_expansion(&da_exp, &lb[idx])),
+    );
+
+    let diff_sign = expansion_sign(&diff_exp);
+    let combined = da_sign * db_sign * diff_sign;
     match combined {
         x if x > 0 => std::cmp::Ordering::Greater,
         x if x < 0 => std::cmp::Ordering::Less,
@@ -2529,5 +5134,1237 @@ mod tests {
             less_than_indirect(&lpi_origin, &lpi_origin),
             std::cmp::Ordering::Equal,
         );
+    }
+
+    // ── TPI lambda expansion tests (Phase A) ────────────────────────
+
+    /// Validate `tpi_lambda_expansion` against `materialize_tpi` on three
+    /// perpendicular planes meeting at (1,0,0):
+    ///   plane z=0 (triangle in XY through origin)
+    ///   plane x=1 (triangle in YZ at x=1)
+    ///   plane y=0 (triangle in XZ through origin)
+    ///
+    /// Expected exact intersection: (1, 0, 0). With this construction,
+    /// d_T = ±1 and λ = (±1, 0, 0); ratio λ/d_T = (1, 0, 0).
+    #[test]
+    fn test_tpi_lambda_expansion_matches_materialize() {
+        // Triangle (v) on plane z=0
+        let v1 = [0.0, 0.0, 0.0];
+        let v2 = [1.0, 0.0, 0.0];
+        let v3 = [0.0, 1.0, 0.0];
+        // Triangle (w) on plane x=1
+        let w1 = [1.0, 0.0, 0.0];
+        let w2 = [1.0, 1.0, 0.0];
+        let w3 = [1.0, 0.0, 1.0];
+        // Triangle (u) on plane y=0
+        let u1 = [0.0, 0.0, 0.0];
+        let u2 = [0.0, 0.0, 1.0];
+        let u3 = [1.0, 0.0, 0.0];
+
+        let (d_sign, d_exp, lx, ly, lz) =
+            tpi_lambda_expansion(&v1, &v2, &v3, &w1, &w2, &w3, &u1, &u2, &u3)
+                .expect("three perpendicular planes must yield non-zero d_T");
+        assert_ne!(d_sign, 0, "d_T sign must be nonzero for independent planes");
+
+        // Materialize via division and compare with tpi materialize.
+        let mat = materialize_tpi(&v1, &v2, &v3, &w1, &w2, &w3, &u1, &u2, &u3)
+            .expect("materialize_tpi must succeed for independent planes");
+
+        // Reconstruct each coordinate from expansions: λ_k summed / d_T summed.
+        // For Shewchuk expansions, the sum of components is the exact value
+        // representable in f64 — for these small-integer inputs the result is exact.
+        let d_t: f64 = d_exp.iter().sum();
+        let lx_val: f64 = lx.iter().sum();
+        let ly_val: f64 = ly.iter().sum();
+        let lz_val: f64 = lz.iter().sum();
+        let recon = [lx_val / d_t, ly_val / d_t, lz_val / d_t];
+
+        // Recon should match materialize within tight tolerance, and both
+        // should be (1, 0, 0).
+        for k in 0..3 {
+            assert!(
+                (recon[k] - mat[k]).abs() < 1e-12,
+                "axis {k}: recon={}, mat={}",
+                recon[k],
+                mat[k]
+            );
+        }
+        assert!(
+            (recon[0] - 1.0).abs() < 1e-12,
+            "x should be 1, got {}",
+            recon[0]
+        );
+        assert!(recon[1].abs() < 1e-12, "y should be 0, got {}", recon[1]);
+        assert!(recon[2].abs() < 1e-12, "z should be 0, got {}", recon[2]);
+
+        // Sign of d_T from expansion must agree with sign of f64 d_T.
+        let d_t_f64 = det3x3_tpi(&v1, &v2, &v3, &w1, &w2, &w3, &u1, &u2, &u3);
+        assert_eq!(
+            d_sign,
+            if d_t_f64 > 0.0 {
+                1
+            } else if d_t_f64 < 0.0 {
+                -1
+            } else {
+                0
+            },
+            "d_T sign from expansion must match f64 sign",
+        );
+    }
+
+    /// `tpi_lambda_expansion` returns `None` for three coplanar (parallel) triangles.
+    /// All three on z=0 → d_T = 0.
+    #[test]
+    fn test_tpi_lambda_expansion_degenerate() {
+        let v1 = [0.0, 0.0, 0.0];
+        let v2 = [1.0, 0.0, 0.0];
+        let v3 = [0.0, 1.0, 0.0];
+        let w1 = [0.0, 0.0, 0.0];
+        let w2 = [2.0, 0.0, 0.0];
+        let w3 = [0.0, 2.0, 0.0];
+        let u1 = [1.0, 1.0, 0.0];
+        let u2 = [3.0, 1.0, 0.0];
+        let u3 = [1.0, 3.0, 0.0];
+        assert!(tpi_lambda_expansion(&v1, &v2, &v3, &w1, &w2, &w3, &u1, &u2, &u3).is_none());
+    }
+
+    /// Cross-check `tpi_lambda_expansion` on a tilted/offset case where
+    /// materialize is the only ground truth. Verifies sign(d_T) and
+    /// reconstructs coords approximately.
+    #[test]
+    fn test_tpi_lambda_expansion_tilted() {
+        let v1 = [0.5, 0.5, 0.0];
+        let v2 = [1.5, 0.5, 0.0];
+        let v3 = [0.5, 1.5, 0.0];
+        // Tilted plane through (0,0,1): triangle with normal (1,1,1)/√3 area
+        let w1 = [1.0, 0.0, 0.0];
+        let w2 = [0.0, 1.0, 0.0];
+        let w3 = [0.0, 0.0, 1.0];
+        let u1 = [0.0, -1.0, 0.0];
+        let u2 = [1.0, -1.0, 0.0];
+        let u3 = [0.0, -1.0, 1.0];
+
+        let (d_sign, d_exp, lx, ly, lz) =
+            tpi_lambda_expansion(&v1, &v2, &v3, &w1, &w2, &w3, &u1, &u2, &u3)
+                .expect("tilted independent planes");
+        let mat = materialize_tpi(&v1, &v2, &v3, &w1, &w2, &w3, &u1, &u2, &u3).expect("");
+
+        let d_t: f64 = d_exp.iter().sum();
+        let recon = [
+            lx.iter().sum::<f64>() / d_t,
+            ly.iter().sum::<f64>() / d_t,
+            lz.iter().sum::<f64>() / d_t,
+        ];
+        for k in 0..3 {
+            assert!(
+                (recon[k] - mat[k]).abs() < 1e-10,
+                "axis {k}: recon={}, mat={}",
+                recon[k],
+                mat[k]
+            );
+        }
+        let d_t_f64 = det3x3_tpi(&v1, &v2, &v3, &w1, &w2, &w3, &u1, &u2, &u3);
+        let expected_sign = if d_t_f64 > 0.0 {
+            1
+        } else if d_t_f64 < 0.0 {
+            -1
+        } else {
+            0
+        };
+        assert_eq!(d_sign, expected_sign);
+    }
+
+    /// `two_diff_exp` returns `vec![hi]` (1 component) when `lo == 0`,
+    /// otherwise `vec![lo, hi]`. Verify `expansion_mul_expansion` handles
+    /// this canonicality variation correctly: a 1-component expansion that
+    /// happens to be zero (i.e. `vec![0.0]`) and a non-trivial one must
+    /// agree with reference computations.
+    #[test]
+    fn test_two_diff_exp_canonicality_in_mul() {
+        // Case 1: equal inputs produce vec![0.0] — multiplying by anything
+        // must yield vec![0.0] (a sign-zero expansion).
+        let zero_exp = two_diff_exp(3.5, 3.5);
+        assert_eq!(
+            zero_exp,
+            vec![0.0],
+            "two_diff(a,a) should canonicalize to vec![0.0]"
+        );
+
+        let nontrivial = two_diff_exp(7.0, 1.0); // = 6.0, single component
+        let prod = expansion_mul_expansion(&zero_exp, &nontrivial);
+        assert_eq!(expansion_sign(&prod), 0, "0 * nontrivial = 0");
+
+        // Case 2: 1-component (lo=0) × 1-component must agree with f64 product.
+        // two_diff(7, 1) = [0, 6] → vec![6.0] (1 element).
+        let a = two_diff_exp(7.0, 1.0);
+        let b = two_diff_exp(5.0, 2.0); // = vec![3.0]
+        assert_eq!(a, vec![6.0]);
+        assert_eq!(b, vec![3.0]);
+        let prod = expansion_mul_expansion(&a, &b);
+        let val: f64 = prod.iter().sum();
+        assert_eq!(val, 18.0, "6*3 = 18 exactly");
+        assert_eq!(expansion_sign(&prod), 1);
+
+        // Case 3: 2-component × 2-component (lo != 0 cases) — exercises
+        // the full Shewchuk path.
+        // two_diff(0.1, 0.2) requires multiple bits → 2-component.
+        let p = two_diff_exp(0.1, 0.2);
+        let q = two_diff_exp(0.3, 0.5);
+        // Expected: p ≈ -0.1, q ≈ -0.2, p*q ≈ 0.02 — but with expansion exactness.
+        let prod = expansion_mul_expansion(&p, &q);
+        let val: f64 = prod.iter().sum();
+        // p*q is positive (negative × negative), close to 0.02.
+        assert!(val > 0.0, "(-0.1)*(-0.2) = positive");
+        assert!((val - 0.02).abs() < 1e-15, "got {val}");
+        assert_eq!(expansion_sign(&prod), 1);
+
+        // Case 4: 1-component (lo=0) × 2-component — mixing canonicality forms.
+        let one_comp = two_diff_exp(10.0, 4.0); // = vec![6.0]
+        let two_comp = two_diff_exp(0.1, 0.2); // 2 components, ≈ -0.1
+        let prod = expansion_mul_expansion(&one_comp, &two_comp);
+        let val: f64 = prod.iter().sum();
+        assert!((val - (-0.6)).abs() < 1e-14, "6 * -0.1 ≈ -0.6, got {val}");
+        assert_eq!(expansion_sign(&prod), -1);
+    }
+
+    /// Sanity check for `cross_sub_expansion` and `det3x3_expansion`:
+    /// helper subroutines used by `tpi_lambda_expansion`.
+    #[test]
+    fn test_cross_sub_expansion_basic() {
+        // (v1, v2, v3) = (0,0,0), (1,0,0), (0,1,0) — normal should be (0,0,1).
+        let v1 = [0.0, 0.0, 0.0];
+        let v2 = [1.0, 0.0, 0.0];
+        let v3 = [0.0, 1.0, 0.0];
+        let n = cross_sub_expansion(&v1, &v2, &v3);
+        let nx: f64 = n[0].iter().sum();
+        let ny: f64 = n[1].iter().sum();
+        let nz: f64 = n[2].iter().sum();
+        // (b-a) × (c-b) = (1,0,0) × (-1,1,0) = (0*0-0*1, 0*(-1)-1*0, 1*1-0*(-1)) = (0,0,1)
+        assert_eq!(nx, 0.0);
+        assert_eq!(ny, 0.0);
+        assert_eq!(nz, 1.0);
+    }
+
+    // ── Phase F: property tests + red-phase TPI stress ───────────────
+    // Author: test-author. These exercise the dispatch table for orient2d,
+    // orient3d, and less_than_indirect across implicit-point type mixes
+    // (E/L/T) using a deterministic seeded LCG. The red test
+    // (`test_perturbed_coplanar_tpi_exact_is_zero`) is the FIP §8 failing
+    // case: it must FAIL with the materialize fallback (current code) and
+    // PASS once Phases B/C/D land exact TPI predicates.
+
+    /// Deterministic linear congruential generator for property tests.
+    /// Numerical Recipes parameters; not for cryptography, but reproducible
+    /// across compilers/platforms (no `rand` dependency needed).
+    struct Lcg(u64);
+    impl Lcg {
+        fn new(seed: u64) -> Self {
+            Self(seed)
+        }
+        fn next_u64(&mut self) -> u64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            self.0
+        }
+        /// Random integer in `[-range, range]`.
+        fn next_int(&mut self, range: i32) -> i32 {
+            let n = self.next_u64() % ((2 * range as u64) + 1);
+            (n as i32) - range
+        }
+        /// Uniform f64 in `[-1.0, 1.0]`.
+        fn next_unit(&mut self) -> f64 {
+            let bits = self.next_u64();
+            // Map top 53 bits to [0, 1), then shift to [-1, 1).
+            let u = (bits >> 11) as f64 / (1u64 << 53) as f64;
+            2.0 * u - 1.0
+        }
+    }
+
+    /// Build a non-degenerate explicit point with small-integer coords.
+    fn rand_explicit(rng: &mut Lcg) -> ImplicitPoint {
+        ImplicitPoint::Explicit([
+            rng.next_int(5) as f64,
+            rng.next_int(5) as f64,
+            rng.next_int(5) as f64,
+        ])
+    }
+
+    /// Build an LPI from a Z-axis edge and a non-vertical plane.
+    /// d_L is guaranteed non-zero by construction.
+    fn rand_lpi(rng: &mut Lcg) -> ImplicitPoint {
+        let qx = rng.next_int(3) as f64;
+        let qy = rng.next_int(3) as f64;
+        // Edge along z, varying xy
+        let q1 = [qx, qy, -1.0 - rng.next_unit().abs()];
+        let q2 = [qx, qy, 1.0 + rng.next_unit().abs()];
+        // A non-vertical plane (z varies, so the edge is not parallel)
+        let r = [1.0, 0.0, 0.0];
+        let s = [0.0, 1.0, 0.0];
+        let t = [-1.0, -1.0, 0.0];
+        ImplicitPoint::LPI { q1, q2, r, s, t }
+    }
+
+    /// Build a TPI from three small-integer triangles meeting at a known
+    /// (cx, cy, cz). Three axis-aligned planes guarantee d_T != 0.
+    fn rand_tpi(rng: &mut Lcg) -> ImplicitPoint {
+        let cx = rng.next_int(2) as f64;
+        let cy = rng.next_int(2) as f64;
+        let cz = rng.next_int(2) as f64;
+        let v1 = [cx, 0.0, 0.0];
+        let v2 = [cx, 1.0, 0.0];
+        let v3 = [cx, 0.0, 1.0];
+        let w1 = [0.0, cy, 0.0];
+        let w2 = [1.0, cy, 0.0];
+        let w3 = [0.0, cy, 1.0];
+        let u1 = [0.0, 0.0, cz];
+        let u2 = [1.0, 0.0, cz];
+        let u3 = [0.0, 1.0, cz];
+        ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        }
+    }
+
+    /// FIP §8 RED TEST — fails with current materialize fallback; must pass
+    /// with exact TPI orient3d (Phase C).
+    ///
+    /// Construction: three planes with linearly independent normals all
+    /// passing through P = (1/3, 1/3, 1/3) (the rational point that is NOT
+    /// f64-exact). A 4th explicit plane with normal (1,1,-2) also contains P.
+    /// Rational arithmetic on the integer-coord input gives the exact answer
+    /// orient3d(TPI, e1, e2, e3) = 0.
+    ///
+    /// With the current materialize fallback: TPI is computed as
+    /// (λx/d_T, λy/d_T, λz/d_T) ≈ (0.333..., 0.333..., 0.333...). The cofactor
+    /// expansion of the orient3d 4×4 determinant on those f64 values yields a
+    /// small nonzero number — the sign is whatever the rounding cascade
+    /// produces. The exact path (Phase C) must return 0.
+    ///
+    /// Plane equations:
+    ///   T1: x + y + z = 1     (vertices (1,0,0), (0,1,0), (0,0,1))
+    ///   T2: x - y = 0         (vertices (0,0,0), (1,1,0), (0,0,1))
+    ///   T3: y - z = 0         (vertices (0,0,0), (1,0,0), (0,1,1))
+    /// solving: y = z, x = y, x + y + z = 1 → P = (1/3, 1/3, 1/3).
+    ///
+    /// 4th plane (containing P): x + y - 2z = 0, vertices
+    ///   e1 = (1,1,1)  → 1+1-2 = 0  ✓
+    ///   e2 = (2,0,1)  → 2+0-2 = 0  ✓
+    ///   e3 = (0,0,0)  → 0          ✓
+    /// Rationally, P=(1/3,1/3,1/3) gives 1/3+1/3-2/3 = 0 ✓ — coplanar.
+    #[test]
+    fn test_perturbed_coplanar_tpi_exact_is_zero() {
+        // T1: plane x+y+z=1
+        let v1 = [1.0, 0.0, 0.0];
+        let v2 = [0.0, 1.0, 0.0];
+        let v3 = [0.0, 0.0, 1.0];
+        // T2: plane x-y=0
+        let w1 = [0.0, 0.0, 0.0];
+        let w2 = [1.0, 1.0, 0.0];
+        let w3 = [0.0, 0.0, 1.0];
+        // T3: plane y-z=0
+        let u1 = [0.0, 0.0, 0.0];
+        let u2 = [1.0, 0.0, 0.0];
+        let u3 = [0.0, 1.0, 1.0];
+
+        let tpi = ImplicitPoint::TPI {
+            v1,
+            v2,
+            v3,
+            w1,
+            w2,
+            w3,
+            u1,
+            u2,
+            u3,
+        };
+        // 4th plane: x+y-2z = 0, passes through P=(1/3,1/3,1/3).
+        let e1 = ImplicitPoint::Explicit([1.0, 1.0, 1.0]);
+        let e2 = ImplicitPoint::Explicit([2.0, 0.0, 1.0]);
+        let e3 = ImplicitPoint::Explicit([0.0, 0.0, 0.0]);
+
+        // Sanity: TPI is well-defined (d_T != 0).
+        assert!(tpi.is_defined(), "TPI must be defined");
+
+        // Sanity: e1, e2, e3 must not be collinear (otherwise orient3d is
+        // identically 0 and the test is vacuous).
+        let n_xy = orient2d_indirect(&e1, &e2, &e3, ProjectionAxis::XY);
+        let n_yz = orient2d_indirect(&e1, &e2, &e3, ProjectionAxis::YZ);
+        let n_zx = orient2d_indirect(&e1, &e2, &e3, ProjectionAxis::ZX);
+        assert!(
+            n_xy != 0.0 || n_yz != 0.0 || n_zx != 0.0,
+            "e1, e2, e3 must not be collinear (would make test vacuous)"
+        );
+
+        // materialize_tpi gives a near-(1/3, 1/3, 1/3) f64 — this is the
+        // ROOT CAUSE of why materialize fallback fails.
+        let mat = tpi.materialize().expect("TPI materializes");
+        assert!(
+            (mat[0] - 1.0 / 3.0).abs() < 1e-15
+                && (mat[1] - 1.0 / 3.0).abs() < 1e-15
+                && (mat[2] - 1.0 / 3.0).abs() < 1e-15,
+            "materialize_tpi ≈ (1/3, 1/3, 1/3): got {mat:?}"
+        );
+
+        // The exact answer: orient3d(P, e1, e2, e3) = 0 — TPI is exactly
+        // on the 4th plane in rational arithmetic.
+        let result = orient3d_indirect(&tpi, &e1, &e2, &e3);
+        assert_eq!(
+            result, 0.0,
+            "orient3d_indirect(TPI=(1/3,1/3,1/3), e1, e2, e3) on 4th plane \
+             x+y-2z=0 must be exactly 0 (TPI lies on plane). \
+             Materialize fallback rounds to ±epsilon. Got {result}. \
+             This is the FIP §8 red test — must pass when Phase C lands \
+             exact TPI orient3d predicates."
+        );
+    }
+
+    /// Property: orient2d antisymmetry over the (E, L, T) dispatch.
+    ///
+    /// `orient2d(a, b, c) == -orient2d(b, a, c)` for all defined points.
+    /// Random tuples with independently chosen point types so that every
+    /// multiset (EEE, LEE, TEE, LLE, LTE, TTE, LLL, LLT, LTT, TTT) is
+    /// statistically exercised across the runs.
+    #[test]
+    fn test_orient2d_antisymmetry() {
+        let mut rng = Lcg::new(0xCAFE_F00D_DEAD_BEEF);
+        const N: usize = 80;
+        let mut tested = 0usize;
+        for trial in 0..N {
+            let a = match rng.next_u64() % 3 {
+                0 => rand_explicit(&mut rng),
+                1 => rand_lpi(&mut rng),
+                _ => rand_tpi(&mut rng),
+            };
+            let b = match rng.next_u64() % 3 {
+                0 => rand_explicit(&mut rng),
+                1 => rand_lpi(&mut rng),
+                _ => rand_tpi(&mut rng),
+            };
+            let c = match rng.next_u64() % 3 {
+                0 => rand_explicit(&mut rng),
+                1 => rand_lpi(&mut rng),
+                _ => rand_tpi(&mut rng),
+            };
+            if !a.is_defined() || !b.is_defined() || !c.is_defined() {
+                continue;
+            }
+            // Use a tri-state sign that handles ±0 correctly. f64::signum
+            // returns ±1.0 even for ±0.0, which makes naive antisymmetry
+            // checks spurious when the value is exactly zero (collinear).
+            let sign3 = |x: f64| -> i32 {
+                if x > 0.0 {
+                    1
+                } else if x < 0.0 {
+                    -1
+                } else {
+                    0
+                }
+            };
+            for proj in [ProjectionAxis::XY, ProjectionAxis::YZ, ProjectionAxis::ZX] {
+                let abc = orient2d_indirect(&a, &b, &c, proj);
+                let bac = orient2d_indirect(&b, &a, &c, proj);
+                assert_eq!(
+                    sign3(abc),
+                    -sign3(bac),
+                    "trial {trial}, proj {proj:?}: orient2d(a,b,c)={abc}, \
+                     orient2d(b,a,c)={bac}; must be antisymmetric"
+                );
+            }
+            tested += 1;
+        }
+        assert!(
+            tested > N / 2,
+            "expected most trials defined; got {tested}/{N}"
+        );
+    }
+
+    /// Property: orient2d(p, p, c) == 0 for any defined p, c.
+    /// Two coincident inputs make the orientation determinant degenerate.
+    #[test]
+    fn test_orient2d_self_coincidence() {
+        let mut rng = Lcg::new(0xBEEF_F00D);
+        const N: usize = 40;
+        for trial in 0..N {
+            let p = match rng.next_u64() % 3 {
+                0 => rand_explicit(&mut rng),
+                1 => rand_lpi(&mut rng),
+                _ => rand_tpi(&mut rng),
+            };
+            let c = match rng.next_u64() % 3 {
+                0 => rand_explicit(&mut rng),
+                1 => rand_lpi(&mut rng),
+                _ => rand_tpi(&mut rng),
+            };
+            if !p.is_defined() || !c.is_defined() {
+                continue;
+            }
+            for proj in [ProjectionAxis::XY, ProjectionAxis::YZ, ProjectionAxis::ZX] {
+                let r = orient2d_indirect(&p, &p, &c, proj);
+                assert_eq!(
+                    r, 0.0,
+                    "trial {trial}, proj {proj:?}: orient2d(p,p,c) must be 0; got {r}"
+                );
+            }
+        }
+    }
+
+    /// Property: when all 3 inputs are Explicit, `orient2d_indirect` must
+    /// equal `geometry_predicates::orient2d` (the EEE path is direct
+    /// Shewchuk and must agree exactly).
+    #[test]
+    fn test_orient2d_eee_exact_matches_shewchuk() {
+        let mut rng = Lcg::new(0xF00D_BEEF);
+        const N: usize = 60;
+        for trial in 0..N {
+            let make = |rng: &mut Lcg, integer: bool| -> [f64; 3] {
+                if integer {
+                    [
+                        rng.next_int(10) as f64,
+                        rng.next_int(10) as f64,
+                        rng.next_int(10) as f64,
+                    ]
+                } else {
+                    [rng.next_unit(), rng.next_unit(), rng.next_unit()]
+                }
+            };
+            let integer = trial % 2 == 0;
+            let a = make(&mut rng, integer);
+            let b = make(&mut rng, integer);
+            let c = make(&mut rng, integer);
+            let pa = ImplicitPoint::Explicit(a);
+            let pb = ImplicitPoint::Explicit(b);
+            let pc = ImplicitPoint::Explicit(c);
+            for proj in [ProjectionAxis::XY, ProjectionAxis::YZ, ProjectionAxis::ZX] {
+                let (i, j) = match proj {
+                    ProjectionAxis::XY => (0, 1),
+                    ProjectionAxis::YZ => (1, 2),
+                    ProjectionAxis::ZX => (2, 0),
+                };
+                let indirect = orient2d_indirect(&pa, &pb, &pc, proj);
+                let direct =
+                    geometry_predicates::orient2d([a[i], a[j]], [b[i], b[j]], [c[i], c[j]]);
+                assert_eq!(
+                    indirect, direct,
+                    "trial {trial}, proj {proj:?}: indirect={indirect}, direct={direct} — \
+                     EEE path must equal Shewchuk exactly"
+                );
+            }
+        }
+    }
+
+    /// Property: `less_than_indirect` is a strict total order.
+    ///
+    /// 1. Antisymmetric: cmp(a,b) == cmp(b,a).reverse().
+    /// 2. Reflexive equality: cmp(a, a) == Equal.
+    /// 3. Transitive: if cmp(a,b)=Less and cmp(b,c)=Less, then cmp(a,c)=Less.
+    #[test]
+    fn test_less_than_total_order() {
+        use std::cmp::Ordering;
+        let mut rng = Lcg::new(0xDEAD_BEEF_CAFE_F00D);
+        const N: usize = 30;
+
+        // Build a sample population mixing Explicit, LPI, TPI.
+        let mut sample: Vec<ImplicitPoint> = Vec::with_capacity(N);
+        while sample.len() < N {
+            let p = match rng.next_u64() % 3 {
+                0 => rand_explicit(&mut rng),
+                1 => rand_lpi(&mut rng),
+                _ => rand_tpi(&mut rng),
+            };
+            if p.is_defined() {
+                sample.push(p);
+            }
+        }
+
+        // (1) Antisymmetry + (2) reflexivity.
+        for (i, p) in sample.iter().enumerate() {
+            assert_eq!(
+                less_than_indirect(p, p),
+                Ordering::Equal,
+                "i={i}: less_than_indirect(p, p) must be Equal"
+            );
+            for (j, q) in sample.iter().enumerate().skip(i + 1) {
+                let pq = less_than_indirect(p, q);
+                let qp = less_than_indirect(q, p);
+                assert_eq!(
+                    pq,
+                    qp.reverse(),
+                    "i={i}, j={j}: cmp(p,q)={pq:?}, cmp(q,p)={qp:?} — must be reversed"
+                );
+            }
+        }
+
+        // (3) Transitivity — exhaustive over the sample.
+        for (i, a) in sample.iter().enumerate() {
+            for (j, b) in sample.iter().enumerate() {
+                if i == j {
+                    continue;
+                }
+                let ab = less_than_indirect(a, b);
+                if ab != Ordering::Less {
+                    continue;
+                }
+                for (k, c) in sample.iter().enumerate() {
+                    if k == i || k == j {
+                        continue;
+                    }
+                    let bc = less_than_indirect(b, c);
+                    if bc != Ordering::Less {
+                        continue;
+                    }
+                    let ac = less_than_indirect(a, c);
+                    assert_eq!(
+                        ac,
+                        Ordering::Less,
+                        "transitivity: i={i}, j={j}, k={k}: a<b<c but a vs c = {ac:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    // ── Phase D: pointCompare TPI variants (Cherchi 2020 §4.3) ───────
+
+    /// TPI built from the three axis planes x=cx, y=cy, z=cz. Materializes
+    /// to (cx, cy, cz). d_T is non-zero by construction (the three normals
+    /// are the standard basis).
+    fn axis_tpi(cx: f64, cy: f64, cz: f64) -> ImplicitPoint {
+        ImplicitPoint::TPI {
+            v1: [cx, 0.0, 0.0],
+            v2: [cx, 1.0, 0.0],
+            v3: [cx, 0.0, 1.0],
+            w1: [0.0, cy, 0.0],
+            w2: [1.0, cy, 0.0],
+            w3: [0.0, cy, 1.0],
+            u1: [0.0, 0.0, cz],
+            u2: [1.0, 0.0, cz],
+            u3: [0.0, 1.0, cz],
+        }
+    }
+
+    /// Phase D, TE: TPI(1,2,3) vs Explicit(5,5,5). On every axis TPI < E.
+    /// Equal case: TPI(1,2,3) vs Explicit(1,2,3) → Equal on every axis.
+    /// Verifies the dispatch in `point_compare_on_axis` reaches the new
+    /// `point_compare_te` arm (was previously the materialize fallback).
+    #[test]
+    fn test_point_compare_te_canonical() {
+        let tpi = axis_tpi(1.0, 2.0, 3.0);
+        let e_far = ImplicitPoint::Explicit([5.0, 5.0, 5.0]);
+        assert_eq!(
+            point_compare_on_axis(&tpi, &e_far, Axis::X),
+            std::cmp::Ordering::Less,
+            "TPI.x = 1 < e.x = 5"
+        );
+        assert_eq!(
+            point_compare_on_axis(&tpi, &e_far, Axis::Y),
+            std::cmp::Ordering::Less,
+            "TPI.y = 2 < e.y = 5"
+        );
+        assert_eq!(
+            point_compare_on_axis(&tpi, &e_far, Axis::Z),
+            std::cmp::Ordering::Less,
+            "TPI.z = 3 < e.z = 5"
+        );
+        // Reverse direction (ET arm): explicit > TPI on every axis.
+        assert_eq!(
+            point_compare_on_axis(&e_far, &tpi, Axis::X),
+            std::cmp::Ordering::Greater
+        );
+
+        // Equal-on-all-axes regression case.
+        let e_eq = ImplicitPoint::Explicit([1.0, 2.0, 3.0]);
+        assert_eq!(
+            point_compare_on_axis(&tpi, &e_eq, Axis::X),
+            std::cmp::Ordering::Equal
+        );
+        assert_eq!(
+            point_compare_on_axis(&tpi, &e_eq, Axis::Y),
+            std::cmp::Ordering::Equal
+        );
+        assert_eq!(
+            point_compare_on_axis(&tpi, &e_eq, Axis::Z),
+            std::cmp::Ordering::Equal
+        );
+    }
+
+    /// Phase D, LT: LPI vs TPI. Use the existing oracle LPI at (0,0,0)
+    /// (edge along z, plane through (1,0,0)/(0,1,0)/(-1,-1,0)) vs TPI(1,2,3).
+    /// LPI < TPI on every axis. Equal case: LPI at (1,1,1) (existing oracle)
+    /// vs TPI(1,1,1) → Equal.
+    #[test]
+    fn test_point_compare_lt_canonical() {
+        let lpi_origin = ImplicitPoint::LPI {
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, -1.0, 0.0],
+        };
+        let tpi_far = axis_tpi(1.0, 2.0, 3.0);
+        assert_eq!(
+            point_compare_on_axis(&lpi_origin, &tpi_far, Axis::X),
+            std::cmp::Ordering::Less,
+            "LPI.x = 0 < TPI.x = 1"
+        );
+        assert_eq!(
+            point_compare_on_axis(&lpi_origin, &tpi_far, Axis::Y),
+            std::cmp::Ordering::Less,
+            "LPI.y = 0 < TPI.y = 2"
+        );
+        assert_eq!(
+            point_compare_on_axis(&lpi_origin, &tpi_far, Axis::Z),
+            std::cmp::Ordering::Less,
+            "LPI.z = 0 < TPI.z = 3"
+        );
+        // Reverse direction (TL arm).
+        assert_eq!(
+            point_compare_on_axis(&tpi_far, &lpi_origin, Axis::X),
+            std::cmp::Ordering::Greater
+        );
+
+        // Equal-on-all-axes regression case: LPI(1,1,1) vs TPI(1,1,1).
+        let lpi_unit = ImplicitPoint::LPI {
+            q1: [1.0, 1.0, 0.0],
+            q2: [1.0, 1.0, 2.0],
+            r: [0.0, 0.0, 1.0],
+            s: [10.0, 0.0, 1.0],
+            t: [0.0, 10.0, 1.0],
+        };
+        let tpi_unit = axis_tpi(1.0, 1.0, 1.0);
+        assert_eq!(
+            point_compare_on_axis(&lpi_unit, &tpi_unit, Axis::X),
+            std::cmp::Ordering::Equal
+        );
+        assert_eq!(
+            point_compare_on_axis(&lpi_unit, &tpi_unit, Axis::Y),
+            std::cmp::Ordering::Equal
+        );
+        assert_eq!(
+            point_compare_on_axis(&lpi_unit, &tpi_unit, Axis::Z),
+            std::cmp::Ordering::Equal
+        );
+    }
+
+    /// Phase D, TT: two TPIs at known points. (0,0,0) < (1,2,3) on all axes.
+    /// Equal case: two distinct TPI constructions both materializing to the
+    /// same point → Equal.
+    #[test]
+    fn test_point_compare_tt_canonical() {
+        let tpi_origin = axis_tpi(0.0, 0.0, 0.0);
+        let tpi_far = axis_tpi(1.0, 2.0, 3.0);
+        assert_eq!(
+            point_compare_on_axis(&tpi_origin, &tpi_far, Axis::X),
+            std::cmp::Ordering::Less,
+            "TPI.x = 0 < TPI.x = 1"
+        );
+        assert_eq!(
+            point_compare_on_axis(&tpi_origin, &tpi_far, Axis::Y),
+            std::cmp::Ordering::Less
+        );
+        assert_eq!(
+            point_compare_on_axis(&tpi_origin, &tpi_far, Axis::Z),
+            std::cmp::Ordering::Less
+        );
+        // Reverse direction.
+        assert_eq!(
+            point_compare_on_axis(&tpi_far, &tpi_origin, Axis::X),
+            std::cmp::Ordering::Greater
+        );
+
+        // Equal: two TPIs both at the origin, different defining triangles.
+        // First uses the standard axis planes; second uses the slanted plane
+        // x+y+z=0 with the yz and xz axis planes — also materializes to (0,0,0).
+        let tpi_origin_alt = ImplicitPoint::TPI {
+            v1: [0.0, 0.0, 0.0],
+            v2: [0.0, 1.0, 0.0],
+            v3: [0.0, 0.0, 1.0],
+            w1: [0.0, 0.0, 0.0],
+            w2: [1.0, 0.0, 0.0],
+            w3: [0.0, 0.0, 1.0],
+            u1: [0.0, 0.0, 0.0],
+            u2: [1.0, -1.0, 0.0],
+            u3: [1.0, 0.0, -1.0],
+        };
+        assert_eq!(
+            point_compare_on_axis(&tpi_origin, &tpi_origin_alt, Axis::X),
+            std::cmp::Ordering::Equal
+        );
+        assert_eq!(
+            point_compare_on_axis(&tpi_origin, &tpi_origin_alt, Axis::Y),
+            std::cmp::Ordering::Equal
+        );
+        assert_eq!(
+            point_compare_on_axis(&tpi_origin, &tpi_origin_alt, Axis::Z),
+            std::cmp::Ordering::Equal
+        );
+    }
+
+    // ── Phase B: orient2d TPI variants — canonical-case tests ─────────
+
+    /// Helper: TPI fixture for three perpendicular planes meeting at (1,0,0).
+    fn tpi_at_100() -> ImplicitPoint {
+        ImplicitPoint::TPI {
+            // plane z=0 through origin
+            v1: [0.0, 0.0, 0.0],
+            v2: [1.0, 0.0, 0.0],
+            v3: [0.0, 1.0, 0.0],
+            // plane x=1 (offset)
+            w1: [1.0, 0.0, 0.0],
+            w2: [1.0, 1.0, 0.0],
+            w3: [1.0, 0.0, 1.0],
+            // plane y=0 through origin
+            u1: [0.0, 0.0, 0.0],
+            u2: [0.0, 0.0, 1.0],
+            u3: [1.0, 0.0, 0.0],
+        }
+    }
+
+    /// Helper: TPI fixture for three perpendicular planes meeting at (0,0,0).
+    fn tpi_at_origin() -> ImplicitPoint {
+        ImplicitPoint::TPI {
+            v1: [0.0, 0.0, 0.0],
+            v2: [1.0, 0.0, 0.0],
+            v3: [0.0, 1.0, 0.0],
+            w1: [0.0, 0.0, 0.0],
+            w2: [0.0, 1.0, 0.0],
+            w3: [0.0, 0.0, 1.0],
+            u1: [0.0, 0.0, 0.0],
+            u2: [0.0, 0.0, 1.0],
+            u3: [1.0, 0.0, 0.0],
+        }
+    }
+
+    /// orient2d_TEE: TPI at (1,0,0) + (0,0,0) + (0,1,0) in XY.
+    /// Materialized: orient2d((1,0), (0,0), (0,1)) = 1*0 - 0*1 - 1*0 + 0*0 + 0*1 - 0*0 ... compute:
+    /// Standard: (1-0)*(0-1) - (0-1)*(0-0) = -1 - 0 = -1 (CW).
+    #[test]
+    fn test_orient2d_tee_basic() {
+        let t = tpi_at_100();
+        let e1 = ImplicitPoint::Explicit([0.0, 0.0, 0.0]);
+        let e2 = ImplicitPoint::Explicit([0.0, 1.0, 0.0]);
+        let result = orient2d_indirect(&t, &e1, &e2, ProjectionAxis::XY);
+        // Verify against materialized
+        let mat = t.materialize().unwrap();
+        let direct = geometry_predicates::orient2d([mat[0], mat[1]], [0.0, 0.0], [0.0, 1.0]);
+        assert_eq!(
+            result.signum(),
+            direct.signum(),
+            "TEE indirect={} vs materialized={}",
+            result,
+            direct
+        );
+        assert!(result < 0.0, "TPI(1,0,0)→(0,0,0)→(0,1,0) is CW");
+    }
+
+    /// orient2d_TEE permutations: antisymmetry across all 3 positions.
+    #[test]
+    fn test_orient2d_tee_permutations() {
+        let t = tpi_at_100();
+        let e1 = ImplicitPoint::Explicit([0.5, -0.5, 0.0]);
+        let e2 = ImplicitPoint::Explicit([0.0, 1.0, 0.0]);
+
+        let tee = orient2d_indirect(&t, &e1, &e2, ProjectionAxis::XY);
+        let ete = orient2d_indirect(&e1, &t, &e2, ProjectionAxis::XY);
+        let eet = orient2d_indirect(&e1, &e2, &t, ProjectionAxis::XY);
+
+        assert_ne!(tee, 0.0);
+        assert_eq!(tee.signum(), -ete.signum(), "swap → negate");
+        assert_eq!(tee.signum(), eet.signum(), "cyclic → preserve");
+    }
+
+    /// orient2d_LTE: LPI at (0,0,0) + TPI at (1,0,0) + Explicit (0,1,0).
+    /// orient2d((0,0), (1,0), (0,1)) = (0-0)*(0-1) - (0-1)*(1-0) = 0 - (-1) = 1 (CCW).
+    #[test]
+    fn test_orient2d_lte_basic() {
+        let l = ImplicitPoint::LPI {
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, -1.0, 0.0],
+        };
+        let t = tpi_at_100();
+        let e = ImplicitPoint::Explicit([0.0, 1.0, 0.0]);
+        let result = orient2d_indirect(&l, &t, &e, ProjectionAxis::XY);
+        let lm = l.materialize().unwrap();
+        let tm = t.materialize().unwrap();
+        let direct = geometry_predicates::orient2d([lm[0], lm[1]], [tm[0], tm[1]], [0.0, 1.0]);
+        assert_eq!(
+            result.signum(),
+            direct.signum(),
+            "LTE indirect={} vs materialized={}",
+            result,
+            direct
+        );
+        assert!(result > 0.0, "(0,0)→(1,0)→(0,1) is CCW");
+    }
+
+    /// orient2d_LLT: two LPIs + one TPI in XY.
+    #[test]
+    fn test_orient2d_llt_basic() {
+        let l1 = ImplicitPoint::LPI {
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, -1.0, 0.0],
+        }; // materializes (0,0,0)
+        let l2 = ImplicitPoint::LPI {
+            q1: [2.0, 0.0, -1.0],
+            q2: [2.0, 0.0, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, -1.0, 0.0],
+        }; // materializes (2,0,0)
+        let t = tpi_at_100(); // (1,0,0)
+                              // orient2d((0,0),(2,0),(1,0)) = (0-0)(0-0) - (0-0)(2-1) = 0 (collinear on y=0)
+        let result = orient2d_indirect(&l1, &l2, &t, ProjectionAxis::XY);
+        let m1 = l1.materialize().unwrap();
+        let m2 = l2.materialize().unwrap();
+        let mt = t.materialize().unwrap();
+        let direct = geometry_predicates::orient2d([m1[0], m1[1]], [m2[0], m2[1]], [mt[0], mt[1]]);
+        assert_eq!(
+            result, 0.0,
+            "all three on y=0 → collinear; got {} (direct {})",
+            result, direct
+        );
+    }
+
+    /// orient2d_LLT non-collinear: should match materialized.
+    #[test]
+    fn test_orient2d_llt_matches_materialize() {
+        let l1 = ImplicitPoint::LPI {
+            q1: [0.3, 0.2, -1.0],
+            q2: [0.3, 0.2, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, -1.0, 0.0],
+        };
+        let l2 = ImplicitPoint::LPI {
+            q1: [0.7, 0.1, -1.0],
+            q2: [0.7, 0.1, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, -1.0, 0.0],
+        };
+        let tpi = tpi_at_100();
+        let result = orient2d_indirect(&l1, &l2, &tpi, ProjectionAxis::XY);
+        let m1 = l1.materialize().unwrap();
+        let m2 = l2.materialize().unwrap();
+        let mt = tpi.materialize().unwrap();
+        let direct = geometry_predicates::orient2d([m1[0], m1[1]], [m2[0], m2[1]], [mt[0], mt[1]]);
+        assert_eq!(
+            result.signum(),
+            direct.signum(),
+            "LLT indirect={} vs materialized={}",
+            result,
+            direct
+        );
+    }
+
+    /// orient2d_LTT: LPI + two TPIs.
+    #[test]
+    fn test_orient2d_ltt_matches_materialize() {
+        let l = ImplicitPoint::LPI {
+            q1: [0.5, 0.5, -1.0],
+            q2: [0.5, 0.5, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, -1.0, 0.0],
+        };
+        let t1 = tpi_at_100();
+        let t2 = tpi_at_origin();
+        let result = orient2d_indirect(&l, &t1, &t2, ProjectionAxis::XY);
+        let lm = l.materialize().unwrap();
+        let t1m = t1.materialize().unwrap();
+        let t2m = t2.materialize().unwrap();
+        let direct =
+            geometry_predicates::orient2d([lm[0], lm[1]], [t1m[0], t1m[1]], [t2m[0], t2m[1]]);
+        assert_eq!(
+            result.signum(),
+            direct.signum(),
+            "LTT indirect={} vs materialized={}",
+            result,
+            direct
+        );
+    }
+
+    /// orient2d_TTE: two TPIs + one explicit.
+    #[test]
+    fn test_orient2d_tte_matches_materialize() {
+        let t1 = tpi_at_100(); // (1, 0, 0)
+        let t2 = tpi_at_origin(); // (0, 0, 0)
+        let e = ImplicitPoint::Explicit([0.5, 1.0, 0.0]);
+        let result = orient2d_indirect(&t1, &t2, &e, ProjectionAxis::XY);
+        let m1 = t1.materialize().unwrap();
+        let m2 = t2.materialize().unwrap();
+        let direct = geometry_predicates::orient2d([m1[0], m1[1]], [m2[0], m2[1]], [0.5, 1.0]);
+        assert_eq!(
+            result.signum(),
+            direct.signum(),
+            "TTE indirect={} vs materialized={}",
+            result,
+            direct
+        );
+    }
+
+    /// orient2d_TTT: three TPIs.
+    #[test]
+    fn test_orient2d_ttt_matches_materialize() {
+        let t1 = tpi_at_origin(); // (0, 0, 0)
+        let t2 = tpi_at_100(); // (1, 0, 0)
+                               // Construct another TPI at (0, 1, 0): planes z=0, x=0, y=1.
+        let t3 = ImplicitPoint::TPI {
+            // z=0 through origin
+            v1: [0.0, 0.0, 0.0],
+            v2: [1.0, 0.0, 0.0],
+            v3: [0.0, 1.0, 0.0],
+            // x=0 through origin
+            w1: [0.0, 0.0, 0.0],
+            w2: [0.0, 1.0, 0.0],
+            w3: [0.0, 0.0, 1.0],
+            // y=1
+            u1: [0.0, 1.0, 0.0],
+            u2: [1.0, 1.0, 0.0],
+            u3: [0.0, 1.0, 1.0],
+        };
+        let result = orient2d_indirect(&t1, &t2, &t3, ProjectionAxis::XY);
+        let m1 = t1.materialize().unwrap();
+        let m2 = t2.materialize().unwrap();
+        let m3 = t3.materialize().unwrap();
+        let direct = geometry_predicates::orient2d([m1[0], m1[1]], [m2[0], m2[1]], [m3[0], m3[1]]);
+        // Expected: orient2d((0,0),(1,0),(0,1)) = 1 (CCW).
+        assert!(
+            result > 0.0,
+            "TTT (0,0)→(1,0)→(0,1) should be CCW, got {result}"
+        );
+        assert_eq!(
+            result.signum(),
+            direct.signum(),
+            "TTT indirect={} vs materialized={}",
+            result,
+            direct
+        );
+    }
+
+    /// Phase B sanity: every (E,L,T)³ combination dispatches without panicking.
+    /// Self-coincidence: orient2d(p, p, q) must be 0 for any types.
+    #[test]
+    fn test_orient2d_dispatch_self_coincidence() {
+        let e = ImplicitPoint::Explicit([0.5, 0.5, 0.5]);
+        let l = ImplicitPoint::LPI {
+            q1: [0.0, 0.0, -1.0],
+            q2: [0.0, 0.0, 1.0],
+            r: [1.0, 0.0, 0.0],
+            s: [0.0, 1.0, 0.0],
+            t: [-1.0, -1.0, 0.0],
+        };
+        let t = tpi_at_100();
+
+        for (a, b) in [(&e, &l), (&e, &t), (&l, &t), (&l, &l), (&t, &t)] {
+            // orient2d(a, a, b) should be 0 (two points coincide).
+            assert_eq!(
+                orient2d_indirect(a, a, b, ProjectionAxis::XY),
+                0.0,
+                "orient2d(a,a,b) must be 0"
+            );
+        }
+    }
+
+    // ── Phase C: orient3d TPI variants — canonical-case tests ─────────
+    //
+    // Strategy: build implicit (LPI/TPI) representations of a known explicit
+    // point, then plug them into the orient3d unit-tetrahedron formula
+    //
+    //     orient3d((0,0,0), (1,0,0), (0,1,0), (0,0,1)) > 0  (CCW tet)
+    //
+    // The expected sign is +1 in every variant. Each test replaces a specific
+    // subset of the four vertices with an implicit point that materializes to
+    // the same coordinate.
+
+    /// Helper: LPI fixture that materializes to a given (x, y, z) — uses a
+    /// vertical edge through (x, y, *) and the z=0 plane (so the plane is the
+    /// xy-plane and the edge intersects at (x, y, 0)).
+    fn lpi_at(x: f64, y: f64, z: f64) -> ImplicitPoint {
+        // Edge from (x, y, z-1) to (x, y, z+1); plane z = z (defined by three
+        // distinct points at height z).
+        ImplicitPoint::LPI {
+            q1: [x, y, z - 1.0],
+            q2: [x, y, z + 1.0],
+            r: [0.0, 0.0, z],
+            s: [1.0, 0.0, z],
+            t: [0.0, 1.0, z],
+        }
+    }
+
+    /// Helper: TPI fixture for three perpendicular planes meeting at (x, y, z).
+    fn tpi_at(x: f64, y: f64, z: f64) -> ImplicitPoint {
+        ImplicitPoint::TPI {
+            // plane x = x
+            v1: [x, 0.0, 0.0],
+            v2: [x, 1.0, 0.0],
+            v3: [x, 0.0, 1.0],
+            // plane y = y
+            w1: [0.0, y, 0.0],
+            w2: [1.0, y, 0.0],
+            w3: [0.0, y, 1.0],
+            // plane z = z
+            u1: [0.0, 0.0, z],
+            u2: [1.0, 0.0, z],
+            u3: [0.0, 1.0, z],
+        }
+    }
+
+    /// Reference unit-tet orient3d sign — expected positive on
+    /// ((0,0,0), (1,0,0), (0,1,0), (0,0,1)).
+    fn expected_unit_tet_sign() -> f64 {
+        geometry_predicates::orient3d(
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+        )
+        .signum()
+    }
+
+    /// orient3d_LLLE — three LPIs (at the first three tet vertices) + one Explicit.
+    #[test]
+    fn test_orient3d_llle_unit_tet() {
+        let a = lpi_at(0.0, 0.0, 0.0);
+        let b = lpi_at(1.0, 0.0, 0.0);
+        let c = lpi_at(0.0, 1.0, 0.0);
+        let d = ImplicitPoint::Explicit([0.0, 0.0, 1.0]);
+        let result = orient3d_indirect(&a, &b, &c, &d);
+        assert_eq!(result.signum(), expected_unit_tet_sign(), "LLLE: {result}");
+    }
+
+    /// orient3d_LLLL — four LPIs, one per tet vertex.
+    #[test]
+    fn test_orient3d_llll_unit_tet() {
+        let a = lpi_at(0.0, 0.0, 0.0);
+        let b = lpi_at(1.0, 0.0, 0.0);
+        let c = lpi_at(0.0, 1.0, 0.0);
+        let d = lpi_at(0.0, 0.0, 1.0);
+        let result = orient3d_indirect(&a, &b, &c, &d);
+        assert_eq!(result.signum(), expected_unit_tet_sign(), "LLLL: {result}");
+    }
+
+    /// orient3d_TEEE — one TPI + three Explicit.
+    #[test]
+    fn test_orient3d_teee_unit_tet() {
+        let a = tpi_at(0.0, 0.0, 0.0);
+        let b = ImplicitPoint::Explicit([1.0, 0.0, 0.0]);
+        let c = ImplicitPoint::Explicit([0.0, 1.0, 0.0]);
+        let d = ImplicitPoint::Explicit([0.0, 0.0, 1.0]);
+        let result = orient3d_indirect(&a, &b, &c, &d);
+        assert_eq!(result.signum(), expected_unit_tet_sign(), "TEEE: {result}");
+    }
+
+    /// orient3d_LTEE — one LPI + one TPI + two Explicit.
+    #[test]
+    fn test_orient3d_ltee_unit_tet() {
+        let a = lpi_at(0.0, 0.0, 0.0);
+        let b = tpi_at(1.0, 0.0, 0.0);
+        let c = ImplicitPoint::Explicit([0.0, 1.0, 0.0]);
+        let d = ImplicitPoint::Explicit([0.0, 0.0, 1.0]);
+        let result = orient3d_indirect(&a, &b, &c, &d);
+        assert_eq!(result.signum(), expected_unit_tet_sign(), "LTEE: {result}");
+    }
+
+    /// orient3d_LLTE — two LPI + one TPI + one Explicit.
+    #[test]
+    fn test_orient3d_llte_unit_tet() {
+        let a = lpi_at(0.0, 0.0, 0.0);
+        let b = lpi_at(1.0, 0.0, 0.0);
+        let c = tpi_at(0.0, 1.0, 0.0);
+        let d = ImplicitPoint::Explicit([0.0, 0.0, 1.0]);
+        let result = orient3d_indirect(&a, &b, &c, &d);
+        assert_eq!(result.signum(), expected_unit_tet_sign(), "LLTE: {result}");
+    }
+
+    /// orient3d_TTEE — two TPI + two Explicit.
+    #[test]
+    fn test_orient3d_ttee_unit_tet() {
+        let a = tpi_at(0.0, 0.0, 0.0);
+        let b = tpi_at(1.0, 0.0, 0.0);
+        let c = ImplicitPoint::Explicit([0.0, 1.0, 0.0]);
+        let d = ImplicitPoint::Explicit([0.0, 0.0, 1.0]);
+        let result = orient3d_indirect(&a, &b, &c, &d);
+        assert_eq!(result.signum(), expected_unit_tet_sign(), "TTEE: {result}");
+    }
+
+    /// orient3d_LTTE — one LPI + two TPI + one Explicit.
+    #[test]
+    fn test_orient3d_ltte_unit_tet() {
+        let a = lpi_at(0.0, 0.0, 0.0);
+        let b = tpi_at(1.0, 0.0, 0.0);
+        let c = tpi_at(0.0, 1.0, 0.0);
+        let d = ImplicitPoint::Explicit([0.0, 0.0, 1.0]);
+        let result = orient3d_indirect(&a, &b, &c, &d);
+        assert_eq!(result.signum(), expected_unit_tet_sign(), "LTTE: {result}");
+    }
+
+    /// orient3d_LLTT — two LPI + two TPI.
+    #[test]
+    fn test_orient3d_lltt_unit_tet() {
+        let a = lpi_at(0.0, 0.0, 0.0);
+        let b = lpi_at(1.0, 0.0, 0.0);
+        let c = tpi_at(0.0, 1.0, 0.0);
+        let d = tpi_at(0.0, 0.0, 1.0);
+        let result = orient3d_indirect(&a, &b, &c, &d);
+        assert_eq!(result.signum(), expected_unit_tet_sign(), "LLTT: {result}");
+    }
+
+    /// orient3d_LTTT — one LPI + three TPI.
+    #[test]
+    fn test_orient3d_lttt_unit_tet() {
+        let a = lpi_at(0.0, 0.0, 0.0);
+        let b = tpi_at(1.0, 0.0, 0.0);
+        let c = tpi_at(0.0, 1.0, 0.0);
+        let d = tpi_at(0.0, 0.0, 1.0);
+        let result = orient3d_indirect(&a, &b, &c, &d);
+        assert_eq!(result.signum(), expected_unit_tet_sign(), "LTTT: {result}");
+    }
+
+    /// orient3d_TTTE — three TPI + one Explicit.
+    #[test]
+    fn test_orient3d_ttte_unit_tet() {
+        let a = tpi_at(0.0, 0.0, 0.0);
+        let b = tpi_at(1.0, 0.0, 0.0);
+        let c = tpi_at(0.0, 1.0, 0.0);
+        let d = ImplicitPoint::Explicit([0.0, 0.0, 1.0]);
+        let result = orient3d_indirect(&a, &b, &c, &d);
+        assert_eq!(result.signum(), expected_unit_tet_sign(), "TTTE: {result}");
+    }
+
+    /// orient3d_TTTT — four TPI, one per tet vertex.
+    #[test]
+    fn test_orient3d_tttt_unit_tet() {
+        let a = tpi_at(0.0, 0.0, 0.0);
+        let b = tpi_at(1.0, 0.0, 0.0);
+        let c = tpi_at(0.0, 1.0, 0.0);
+        let d = tpi_at(0.0, 0.0, 1.0);
+        let result = orient3d_indirect(&a, &b, &c, &d);
+        assert_eq!(result.signum(), expected_unit_tet_sign(), "TTTT: {result}");
+    }
+
+    /// orient3d_LLLT — three LPI + one TPI.
+    #[test]
+    fn test_orient3d_lllt_unit_tet() {
+        let a = lpi_at(0.0, 0.0, 0.0);
+        let b = lpi_at(1.0, 0.0, 0.0);
+        let c = lpi_at(0.0, 1.0, 0.0);
+        let d = tpi_at(0.0, 0.0, 1.0);
+        let result = orient3d_indirect(&a, &b, &c, &d);
+        assert_eq!(result.signum(), expected_unit_tet_sign(), "LLLT: {result}");
     }
 }
