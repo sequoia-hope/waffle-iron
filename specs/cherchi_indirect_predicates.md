@@ -54,9 +54,10 @@ Undefined if d_T = 0 (planes not linearly independent).
 
 Each operates on a 2D projection (drop one coordinate axis).
 
-A `materialize`-fallback catch-all in `orient2d_indirect` remains as a safety net
-during cutover; once the assay corpus reports zero fallback hits, a follow-up PR
-deletes it.
+Dispatch over (E,L,T)³ is exhaustive; PR2 telemetry verified zero
+materialize-fallback hits across the yang_fast assay corpus, and the prior
+fallback was deleted. Reaching the dispatcher's `_` arm now panics via
+`unreachable!()`.
 
 ## Orient3d Predicates (Section 4.2)
 
@@ -150,8 +151,18 @@ This spec was partially implemented across multiple PRs:
   orient2d, orient3d, and pointCompare (Phases A–D). Expansion-only — no
   float filter. Oracle vectors extended with TPI cases (Phase E). See plan
   `/home/claude/.claude/plans/fluttering-rolling-crystal.md`.
-- **PR2 (planned)**: Add Stage 1 float filters to T-point variants using the
+- **PR2 (`cherchi-fallback-deletion` branch)**: Added telemetry counters
+  (`ORIENT2D_FALLBACK_HITS`, `ORIENT3D_FALLBACK_HITS`,
+  `POINT_COMPARE_FALLBACK_HITS`, `JOLLY_POINT_CREATIONS`) and ran the
+  yang_fast assay (157 cases). Result: zero fallback hits across the corpus;
+  332/333 cherchi calls had zero jolly creations, 1 call needed exactly one.
+  With the gate cleared, deleted `orient2d_materialize_fallback`,
+  `orient3d_materialize_fallback`, and the `point_compare_on_axis` materialize
+  catch-all body. The dispatchers' `_` arms now contain `unreachable!()` with
+  a Cherchi-citing message. Counters and the conditional `[cherchi-tele]
+  FALLBACK HIT` emit were also removed; the `JOLLY_POINT_CREATIONS` counter
+  and `[cherchi-tele] jolly_creations:` per-call emit remain (informational
+  signal for future coplanar-pipeline work).
+- **PR3 (planned)**: Add Stage 1 float filters to T-point variants using the
   Cherchi 2020 Table 1 constants for orient2d/pointCompare and the C++
-  reference constants for orient3d. Delete `orient2d_materialize_fallback`,
-  `orient3d_materialize_fallback`, and the `point_compare_on_axis`
-  materialize catch-all once assay corpus reports zero fallback hits.
+  reference constants for orient3d.

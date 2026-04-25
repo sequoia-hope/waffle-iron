@@ -1881,36 +1881,10 @@ pub(crate) fn orient2d_indirect(
         (ImplicitPoint::TPI { .. }, ImplicitPoint::TPI { .. }, ImplicitPoint::TPI { .. }) => {
             orient2d_ttt(a, b, c, i, j)
         }
-
-        // Defensive safety net — every (E,L,T)³ combination is covered above.
-        // Reachable only if a future point type is added to ImplicitPoint.
-        #[allow(unreachable_patterns)]
-        _ => orient2d_materialize_fallback(a, b, c, i, j),
+        // Cherchi 2020 §4.2: the 27 (E,L,T)³ patterns above are exhaustive.
+        // No `_` arm — adding a new ImplicitPoint variant must fail to compile
+        // and force the dispatcher to be extended.
     }
-}
-
-/// Fallback: materialize implicit points and use Shewchuk orient2d.
-/// Used for LLE, LLL, TEE, TTE, TTT, etc.
-fn orient2d_materialize_fallback(
-    a: &ImplicitPoint,
-    b: &ImplicitPoint,
-    c: &ImplicitPoint,
-    i: usize,
-    j: usize,
-) -> f64 {
-    let a_c = match a.materialize() {
-        Some(c) => c,
-        None => return 0.0,
-    };
-    let b_c = match b.materialize() {
-        Some(c) => c,
-        None => return 0.0,
-    };
-    let c_c = match c.materialize() {
-        Some(c) => c,
-        None => return 0.0,
-    };
-    geometry_predicates::orient2d([a_c[i], a_c[j]], [b_c[i], b_c[j]], [c_c[i], c_c[j]])
 }
 
 // ── Orient3d: dispatch + implementation ──────────────────────────────────
@@ -2012,36 +1986,15 @@ pub(crate) fn orient3d_indirect(
         [1, 2, 2, 2] => orient3d_lttt(args[0], args[1], args[2], args[3]),
         // TTTT — 4 TPI.
         [2, 2, 2, 2] => orient3d_tttt(args[0], args[1], args[2], args[3]),
-        // Defensive: bubble-sort always yields one of the 15 ascending codes.
-        _ => orient3d_materialize_fallback(a, b, c, d),
+        // Cherchi 2020 §4.2: bubble-sort always yields one of the 15 ascending
+        // multiset codes; the match above is exhaustive. PR2 telemetry verified
+        // zero materialize-fallback hits across the yang_fast assay corpus.
+        _ => unreachable!(
+            "orient3d_indirect: 15-multiset dispatch is exhaustive post-PR1; \
+             PR2 telemetry verified zero fallback hits across yang_fast corpus"
+        ),
     };
     raw * (parity as f64)
-}
-
-/// Fallback: materialize implicit points and use Shewchuk orient3d.
-fn orient3d_materialize_fallback(
-    a: &ImplicitPoint,
-    b: &ImplicitPoint,
-    c: &ImplicitPoint,
-    d: &ImplicitPoint,
-) -> f64 {
-    let a_c = match a.materialize() {
-        Some(c) => c,
-        None => return 0.0,
-    };
-    let b_c = match b.materialize() {
-        Some(c) => c,
-        None => return 0.0,
-    };
-    let c_c = match c.materialize() {
-        Some(c) => c,
-        None => return 0.0,
-    };
-    let d_c = match d.materialize() {
-        Some(c) => c,
-        None => return 0.0,
-    };
-    geometry_predicates::orient3d(a_c, b_c, c_c, d_c)
 }
 
 /// True indirect orient3d for (LPI, Explicit, Explicit, Explicit).
@@ -3602,14 +3555,9 @@ pub(crate) fn point_compare_on_axis(
         Axis::Z => 2,
     };
 
-    // Dispatch on point types. The 9 (E,L,T) × (E,L,T) ordered cases below
-    // are exhaustive, so the trailing `_` materialize fallback is unreachable
-    // by structural matching today. It is kept intentionally as a safety net
-    // during the cutover from materialize-fallback to true-indirect dispatch:
-    // if a future ImplicitPoint variant is added, callers fall back to
-    // materialize rather than panicking. Deletion is deferred to PR2 once
-    // assay reports zero fallback hits — see specs/cherchi_indirect_predicates.md.
-    #[allow(unreachable_patterns)]
+    // Cherchi 2020 §4.3: the 9 (E,L,T) × (E,L,T) ordered cases below are
+    // exhaustive. PR2 telemetry verified zero materialize-fallback hits across
+    // the yang_fast assay corpus, so the prior fallback was deleted.
     match (a, b) {
         // EE: exact subtraction, no indirect needed
         (ImplicitPoint::Explicit(ea), ImplicitPoint::Explicit(eb)) => ea[idx].total_cmp(&eb[idx]),
@@ -3734,21 +3682,9 @@ pub(crate) fn point_compare_on_axis(
             va1, va2, va3, wa1, wa2, wa3, ua1, ua2, ua3, vb1, vb2, vb3, wb1, wb2, wb3, ub1, ub2,
             ub3, idx,
         ),
-
-        // All remaining cases: materialize fallback (kept as a safety net while
-        // T-point dispatch matures; deletion deferred to PR2 once assay reports
-        // zero fallback hits — see specs/cherchi_indirect_predicates.md).
-        _ => {
-            let a_c = match a.materialize() {
-                Some(c) => c,
-                None => return std::cmp::Ordering::Equal,
-            };
-            let b_c = match b.materialize() {
-                Some(c) => c,
-                None => return std::cmp::Ordering::Equal,
-            };
-            a_c[idx].total_cmp(&b_c[idx])
-        }
+        // Cherchi 2020 §4.3: the 9 (E,L,T) × (E,L,T) cases above are exhaustive.
+        // No `_` arm — adding a new ImplicitPoint variant must fail to compile
+        // and force the dispatcher to be extended.
     }
 }
 

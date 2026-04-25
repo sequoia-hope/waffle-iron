@@ -25,6 +25,12 @@ use self::processing::{
 };
 use self::triangle_soup::TriangleSoup;
 use self::triangulation::triangulation_with_parents;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+// PR2 telemetry: count `solve_intersections` calls where any output triangle
+// references a jolly vertex. Jolly points are a Cherchi 2020 §5.4 algorithmic
+// construct (5 fixed utility points) — informational only, not a hack.
+pub(crate) static JOLLY_POINT_CREATIONS: AtomicUsize = AtomicUsize::new(0);
 
 /// Result of the mesh arrangement pipeline.
 #[allow(dead_code)]
@@ -65,6 +71,10 @@ pub(crate) fn solve_intersections(
             clean_to_orig: Vec::new(),
         });
     }
+
+    // PR2 telemetry: snapshot jolly counter at entry; emit per-call delta after
+    // STAGE6. Tracks how often Cherchi §5.4 coplanar-disambiguation fires.
+    let jolly_before = JOLLY_POINT_CREATIONS.load(Ordering::Relaxed);
 
     // Step 1: Compute multiplier for predicate stability
     let multiplier = compute_multiplier_flat(in_coords);
@@ -133,6 +143,12 @@ pub(crate) fn solve_intersections(
         new_tris_flat.len() / 3
     );
 
+    // PR2 telemetry: emit per-call jolly delta. Tracks how often Cherchi §5.4
+    // coplanar-disambiguation fires across the assay corpus.
+    let jolly_after = JOLLY_POINT_CREATIONS.load(Ordering::Relaxed);
+    let jolly_d = jolly_after - jolly_before;
+    eprintln!("[cherchi-tele] jolly_creations: {}", jolly_d);
+
     // Step 8: Compute approximate coordinates (inverse scale by multiplier,
     // exclude jolly points)
     let mut out_coords = compute_approximate_coordinates(&ts.vertices, multiplier);
@@ -153,7 +169,12 @@ pub(crate) fn solve_intersections(
         let v1 = new_tris_flat[3 * i + 1];
         let v2 = new_tris_flat[3 * i + 2];
         if v0 >= num_non_jolly || v1 >= num_non_jolly || v2 >= num_non_jolly {
-            needs_jolly = true;
+            // PR2 telemetry: count once per solve_intersections call where any
+            // jolly is actually needed (false→true transition).
+            if !needs_jolly {
+                JOLLY_POINT_CREATIONS.fetch_add(1, Ordering::Relaxed);
+                needs_jolly = true;
+            }
         }
         out_tris.push([v0, v1, v2]);
     }
