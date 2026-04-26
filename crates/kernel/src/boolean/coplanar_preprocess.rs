@@ -17,10 +17,23 @@ use crate::units::{TAU_MODEL, TAU_PARALLEL};
 use crate::vecmath::{compute_plane_basis, v3_dot};
 use crate::waffle_kernel::WaffleSolid;
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use i_overlay::core::fill_rule::FillRule;
 use i_overlay::core::overlay_rule::OverlayRule;
 use i_overlay::float::single::SingleFloatOverlay;
+
+// `[coplanar-tele]` always-on diagnostics for Yang §4.5.5 preprocessing.
+// Mirrors the `[topo-extract]` pattern from PR3. Phase A of PR4
+// (coplanar-preprocess-555). See plan: fluttering-rolling-crystal.md.
+pub(crate) static COPLANAR_PAIRS_PROCESSED: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static COPLANAR_VERTS_SNAPPED_EXISTING: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static COPLANAR_VERTS_VIA_SPLIT_EDGE: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static COPLANAR_VERTS_DROPPED: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static COPLANAR_MEF_OK: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static COPLANAR_MEF_NO_LOOP: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static COPLANAR_OVERLAY_GROUPS: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static COPLANAR_OVERLAY_HOLES_IGNORED: AtomicUsize = AtomicUsize::new(0);
 
 /// A detected coplanar face pair between two solids.
 #[derive(Debug, Clone)]
@@ -151,8 +164,19 @@ pub(crate) fn split_brep_for_coplanar_pairs(
     solid_b: &mut WaffleSolid,
     coplanar_pairs: &[CoplanarFacePair],
 ) {
+    // `[coplanar-tele]` snapshot — emit per-call delta at function exit.
+    let snap_pairs = COPLANAR_PAIRS_PROCESSED.load(Ordering::Relaxed);
+    let snap_v_existing = COPLANAR_VERTS_SNAPPED_EXISTING.load(Ordering::Relaxed);
+    let snap_v_split = COPLANAR_VERTS_VIA_SPLIT_EDGE.load(Ordering::Relaxed);
+    let snap_v_dropped = COPLANAR_VERTS_DROPPED.load(Ordering::Relaxed);
+    let snap_mef_ok = COPLANAR_MEF_OK.load(Ordering::Relaxed);
+    let snap_mef_no_loop = COPLANAR_MEF_NO_LOOP.load(Ordering::Relaxed);
+    let snap_groups = COPLANAR_OVERLAY_GROUPS.load(Ordering::Relaxed);
+    let snap_holes = COPLANAR_OVERLAY_HOLES_IGNORED.load(Ordering::Relaxed);
+
     for (pair_idx, pair) in coplanar_pairs.iter().enumerate() {
         // Both same-direction and anti-parallel pairs need B-Rep splitting.
+        COPLANAR_PAIRS_PROCESSED.fetch_add(1, Ordering::Relaxed);
 
         #[cfg(test)]
         eprintln!(
@@ -195,6 +219,15 @@ pub(crate) fn split_brep_for_coplanar_pairs(
             #[cfg(test)]
             eprintln!("[COPLANAR SPLIT]   -> Skipped: no overlap");
             continue; // Coplanar but non-overlapping
+        }
+
+        // Telemetry: total disjoint shape groups in the overlap result, and
+        // the count of holes in the primary group that this code currently
+        // ignores (uses only overlap[0][0]). Disjoint groups beyond [0]
+        // are similarly not consumed here.
+        COPLANAR_OVERLAY_GROUPS.fetch_add(overlap.len(), Ordering::Relaxed);
+        if overlap[0].len() > 1 {
+            COPLANAR_OVERLAY_HOLES_IGNORED.fetch_add(overlap[0].len() - 1, Ordering::Relaxed);
         }
 
         #[cfg(test)]
@@ -270,6 +303,24 @@ pub(crate) fn split_brep_for_coplanar_pairs(
             &mut solid_b.face_map,
             pair.face_b,
             &overlap_3d,
+        );
+    }
+
+    // `[coplanar-tele]` summary: per-call deltas for this invocation.
+    // Suppressed when no pairs were processed (most cherchi calls have no
+    // coplanar work; keeps the log quiet).
+    let pairs_delta = COPLANAR_PAIRS_PROCESSED.load(Ordering::Relaxed) - snap_pairs;
+    if pairs_delta > 0 {
+        let v_existing = COPLANAR_VERTS_SNAPPED_EXISTING.load(Ordering::Relaxed) - snap_v_existing;
+        let v_split = COPLANAR_VERTS_VIA_SPLIT_EDGE.load(Ordering::Relaxed) - snap_v_split;
+        let v_dropped = COPLANAR_VERTS_DROPPED.load(Ordering::Relaxed) - snap_v_dropped;
+        let mef_ok = COPLANAR_MEF_OK.load(Ordering::Relaxed) - snap_mef_ok;
+        let mef_no_loop = COPLANAR_MEF_NO_LOOP.load(Ordering::Relaxed) - snap_mef_no_loop;
+        let groups = COPLANAR_OVERLAY_GROUPS.load(Ordering::Relaxed) - snap_groups;
+        let holes = COPLANAR_OVERLAY_HOLES_IGNORED.load(Ordering::Relaxed) - snap_holes;
+        eprintln!(
+            "[coplanar-tele] pairs={} verts_existing={} verts_split={} verts_dropped={} mef_ok={} mef_no_loop={} overlay_groups={} overlay_holes_ignored={}",
+            pairs_delta, v_existing, v_split, v_dropped, mef_ok, mef_no_loop, groups, holes
         );
     }
 }
@@ -354,6 +405,7 @@ fn split_face_along_boundary(
             let dy = ov[1] - p[1];
             let dz = ov[2] - p[2];
             if dx * dx + dy * dy + dz * dz < tol_sq {
+                COPLANAR_VERTS_SNAPPED_EXISTING.fetch_add(1, Ordering::Relaxed);
                 #[cfg(test)]
                 eprintln!(
                     "[SPLIT BOUNDARY]   ov{}: EXISTING vertex {:?} at [{:.6},{:.6},{:.6}]",
@@ -394,14 +446,16 @@ fn split_face_along_boundary(
                     ov_idx, edge_idx, v0, v1, t, ov[0], ov[1], ov[2]
                 );
                 let v_new = split_edge_at(arena, edge_idx, ov);
+                COPLANAR_VERTS_VIA_SPLIT_EDGE.fetch_add(1, Ordering::Relaxed);
                 boundary_verts.push(v_new);
                 found_on_edge = true;
                 break;
             }
         }
 
-        #[cfg(test)]
         if !found_on_edge {
+            COPLANAR_VERTS_DROPPED.fetch_add(1, Ordering::Relaxed);
+            #[cfg(test)]
             eprintln!(
                 "[SPLIT BOUNDARY]   ov{}: NOT FOUND on any edge! pos=[{:.6},{:.6},{:.6}]",
                 ov_idx, ov[0], ov[1], ov[2]
@@ -459,6 +513,7 @@ fn split_face_along_boundary(
                 va, vb, lp
             );
             let (_, new_face) = mef(arena, va, vb, lp);
+            COPLANAR_MEF_OK.fetch_add(1, Ordering::Relaxed);
             if let Some(geom) = face_geometry.get(&face_idx).cloned() {
                 face_geometry.insert(new_face, geom);
             }
@@ -473,6 +528,7 @@ fn split_face_along_boundary(
                 next_face_id - 1
             );
         } else {
+            COPLANAR_MEF_NO_LOOP.fetch_add(1, Ordering::Relaxed);
             #[cfg(test)]
             eprintln!(
                 "[SPLIT BOUNDARY]   mef FAILED: no loop contains both {:?} and {:?}",
