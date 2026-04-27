@@ -25,14 +25,30 @@ downstream label_cells boundary-coincident classification.
   Union/Intersect/Subtract keep tables). Regression test
   `test_label_cells_boundary_coincident_classifies_inside` is the green
   deliverable. Commit: `<TBD-by-team-lead-at-merge>`.
-- **PR8 (or PR9) follow-up — STILL PENDING**: PR5 inject overlap polygon
-  geometry bug. PR6 surfaced it via the canary-still-red diagnostic.
-  See "PR8 follow-up" below.
-- **Canary status**: `test_stacked_box_union_correct_topology` STAYS RED
-  until the PR8 inject geometry bug is fixed. Do NOT silence the canary;
-  it now tracks the next compliance gap (PR3 surfaced twin-pairing; PR5
-  improved to 2 ambiguous + 2 unpaired; PR6 ships correct Hoffmann
-  classification; PR8 will fix inject geometry).
+- **PR8 outcome**: Anti-parallel polygon-winding gap RESOLVED.
+  `split_brep_for_coplanar_pairs` and `inject_partial_overlap_mesh` now
+  reverse face B's 2D polygon (`poly_b.reverse()`) when
+  `!pair.same_direction` so both polygons walk CCW in A's basis frame
+  before entering i_overlay. `inject_identical_footprint_mesh` was
+  audited and required no change (it extracts only face A's boundary;
+  the per-triangle B-winding flip at line 958 already handles the
+  anti-parallel case at the triangle layer). Regression test
+  `test_anti_parallel_polygon_winding_canonical` is the green
+  deliverable — it asserts that `signed_area_2d(poly_a)` and
+  `signed_area_2d(poly_b)` have matching signs after the reversal. The
+  PR8 fix reduced the canary's residual unpaired half-edges from 4 → 2
+  and surviving sub-tris from 23 → 22, but did NOT close the canary.
+  Commit: `<TBD-by-team-lead-at-merge>`.
+- **PR9 follow-up — STILL PENDING**: cosurface-annihilation
+  incompleteness post PR5 inject. The canary's residual 2 unpaired + 2
+  ambiguous half-edges trace to Cherchi STAGE2 not deduplicating PR5's
+  canonical-injected triangles. See "PR9 follow-up" below.
+- **Canary status**: `test_stacked_box_union_correct_topology` STAYS
+  RED until PR9 closes cosurface annihilation. Do NOT silence the
+  canary; it now tracks the next compliance gap (PR3 surfaced
+  twin-pairing; PR5 improved to 2 ambiguous + 2 unpaired; PR6 added
+  correct Hoffmann classification; PR8 closed the polygon-winding gap;
+  PR9 will close cosurface annihilation).
 - **Research basis**: Yang et al. 2025 [#24] Section 4.5.5 (coplanarity
   handling) + §4.4.2 (binary inside/outside classification) +
   Hoffmann 1989 §5.3 (perturb-and-classify, the canonical CSG technique
@@ -345,120 +361,184 @@ geometry; see the PR8 follow-up section below for details.
 Per `feedback_no_last_bug.md`: PR6 is not "the fix" for the canary.
 It fixes Hoffmann classification, full stop.
 
-## PR8 follow-up — PR5 inject overlap polygon geometry bug
+## PR8 resolution — anti-parallel polygon-winding fix
 
-PR6's diagnostic surfaced a SEPARATE bug in PR5's identical-footprint
-inject pathway. The canary STAYS RED until PR8 fixes inject geometry.
+The original "PR8 follow-up" framing in PR4-PR6 of this spec interpreted
+the canary's overlap-polygon vertices `(0,-1), (1,-1)` as outside A's
+`[0,1]²` XY footprint and called it an inject-geometry bug. **That
+interpretation was wrong.** Direct instrumentation of `poly_a` and
+`poly_b` during PR8 surfaced the actual mechanism.
 
-### Smoking-gun diagnostic
+### Audit correction
 
-PR5's `[COPLANAR SPLIT]` log on the canary:
+`compute_plane_basis([0,0,1])` returns `u_axis = [0,1,0]` (Y-axis) and
+`v_axis = [-1,0,0]` (-X-axis). Under this basis, A's `[0,1]³` z=1 face
+projects to `u∈[0,1], v∈[-1,0]`. The `(0,-1), (1,-1)` overlap vertices
+are inside A's actual footprint **in this basis**, not outside. The
+PR4-PR6 audit assumed `[0,1]²` was the canonical 2D footprint and
+flagged any negative coordinate as a bug; the actual geometry is
+basis-dependent.
+
+### Real bug — polygon-winding mismatch
+
+`pair.plane_normal` is always face A's outward normal (per
+`detect_coplanar_face_pairs`). `compute_plane_basis(pair.plane_normal)`
+derives the shared 2D basis from A's frame. `collect_face_loop_2d` /
+`extract_face_boundary_2d` walk each face's loop in its STORED order:
+B-Rep half-edge order for `collect_face_loop_2d`, and CCW-winding-
+order for the mesh-triangle boundary chains in `extract_face_boundary_2d`.
+
+For anti-parallel pairs (`same_direction = false`), B's outward normal
+is opposite to A's. B's loop walks CCW-from-(-A's-normal) = CW in A's
+basis. Without correction, A's polygon is CCW and B's polygon is CW
+in the shared frame. i_overlay's `Intersect` / `Difference` with
+`FillRule::EvenOdd` treats one CCW input and one CW input as
+outer-vs-hole, not two outer contours, producing inconsistent boolean
+output that propagates through the inject pipeline as residual
+unpaired half-edges at the boundary corners.
+
+### PR8 fix
+
+Three sites in `crates/kernel/src/boolean/coplanar_preprocess.rs`:
+
+1. **`split_brep_for_coplanar_pairs` (~line 219)**: after
+   `collect_face_loop_2d` for face B, `if !pair.same_direction {
+   poly_b.reverse(); }`.
+
+2. **`inject_identical_footprint_mesh` (~line 920)**: AUDITED, NO
+   CHANGE NEEDED. This helper extracts ONLY face A's boundary
+   (`extract_face_boundary_2d` returns `poly_a`; no `poly_b`). It
+   triangulates `poly_a` once and copies the canonical 3D vertex set
+   to BOTH meshes via `replace_face_triangles`. The B-winding flip
+   happens at the per-triangle level (line 958
+   `[t[0], t[2], t[1]]`), not on a 2D polygon.
+
+3. **`inject_partial_overlap_mesh` (~line 1077)**: same pattern as
+   site 1 — `poly_b.reverse()` when `!pair.same_direction`.
+
+Each call site cites Yang §4.5.5 + Fig. 16 ("The common part and the
+other two parts share identical sampling points on their
+boundaries.") inline.
+
+### Regression test — `test_anti_parallel_polygon_winding_canonical`
+
+FIP §8 red-before-green deliverable. Asserts that `poly_a` and
+`poly_b` have matching signed-area signs in the shared 2D basis after
+the reversal. Basis-coordinate-independent: avoids the trap the
+PR4-PR6 audit fell into. Mathematically reliable — i_overlay needs
+both inputs CCW (or both CW) regardless of the basis sign convention.
+
+Red phase (with the reversal commented out):
 
 ```
-[COPLANAR SPLIT] Processing pair 0: face_a=FaceIdx(0) face_b=FaceIdx(1)
-                 normal=[0.0000,0.0000,1.0000] offset=1.000000 same_dir=false
-[COPLANAR SPLIT]   Overlap polygon: 4 vertices
-[COPLANAR SPLIT]     ov0: (0.000000, 0.000000)
-[COPLANAR SPLIT]     ov1: (0.000000, -1.000000)
-[COPLANAR SPLIT]     ov2: (1.000000, -1.000000)
-[COPLANAR SPLIT]     ov3: (1.000000, 0.000000)
-[COPLANAR SPLIT]   -> Marked identical_footprint=true (will inject post-tessellation)
+assertion `left == right` failed: ...
+Got area_a=1.000000, area_b=-1.000000
+  left: 1.0
+ right: -1.0
 ```
 
-A is the unit cube `[0,1]³`; its z=1 face footprint in 2D should be
-`[0,1] × [0,1]` (or a sign-flipped variant of the same). The reported
-overlap polygon has y-coordinates `0` and `-1`, NOT `0` and `+1`.
-The vertices `(0,-1)` and `(1,-1)` are OUTSIDE A's actual XY footprint.
+Green phase (with the reversal applied): both areas have signum `+1`.
+
+### Canary impact
+
+PR8 reduced the canary's residual symptom but did NOT close it.
+
+| Metric                          | PR6 baseline | PR8 (this PR) |
+|---------------------------------|--------------|---------------|
+| label_cells A inside / outside  | 1 / 11       | 2 / 10        |
+| label_cells B inside / outside  | 0 / 12       | 0 / 12        |
+| Surviving sub-tris              | 23           | 22            |
+| Patches                         | 12           | 11            |
+| Paired / unpaired / ambiguous   | 18 / 4 / 2   | 18 / 2 / 2    |
+| Validation failure              | `half_edge[2].twin = 0 but twin.twin = 0 (expected 2)` | `half_edge[18].twin = 0 but twin.twin = 16 (expected 18)` |
+
+50% reduction in unpaired half-edges. One additional A z=1 sub-tri
+correctly classified `Inside` under PR6's Hoffmann classifier (now
+that the polygon-winding alignment lets `label_sub_tri_raycast` see
+the canonical injected boundary on the right side). Per
+`feedback_no_last_bug.md`: PR8 is NOT "the fix" for the canary. It
+closes the polygon-winding gap, full stop. The canary's residual
+failure tracks PR9.
+
+## PR9 follow-up — cosurface annihilation incompleteness
+
+After PR8, the canary still fails with 2 unpaired + 2 ambiguous
+half-edges:
+
+```
+[topo-extract] ambiguous twin for (VertexIdx(4) -> VertexIdx(5)): 2 reverse candidates
+[topo-extract] unpaired forward HE (VertexIdx(4) -> VertexIdx(6)): no reverse candidate
+[topo-extract] ambiguous twin for (VertexIdx(5) -> VertexIdx(7)): 2 reverse candidates
+[topo-extract] unpaired forward HE (VertexIdx(6) -> VertexIdx(7)): no reverse candidate
+```
+
+Both ambiguous events report 2 reverse candidates on A's z=1 corner
+edges — the signature of two surviving boundary triangles sharing an
+edge.
 
 ### Hypothesis
 
-2D-basis sign flip in `extract_face_boundary_2d` or
-`compute_plane_basis` for B's anti-parallel face. B's z=1 face has
-outward normal `-z`, so the canonical 2D basis chosen for it likely has
-its v-axis pointing in `-y` (instead of `+y`). When the inject code
-extracts B's boundary and intersects it with A's boundary in the
-"shared 2D frame", the frame happens to be B's frame (because B was
-the anti-parallel face under §4.5.5 conventions), so A's `[0,1] × [0,1]`
-gets re-expressed as `[0,1] × [-1,0]` in B's frame.
+PR5's `inject_identical_footprint_mesh` produces "identical meshes"
+in the bitwise-vertex-position sense (PR5's
+`test_identical_footprint_inject_produces_consistent_meshes`
+asserts this). But the mesh-level boolean (Cherchi STAGE2 dedup)
+deduplicates triangles by some other recognition logic — possibly
+canonical-triangle-key based, which is sensitive to vertex order
+within the triangle, not just the position-multiset. PR5's per-
+triangle winding flip (line 958: `[t[0], t[2], t[1]]`) writes the
+B-side triangles with reversed indices but identical positions; if
+STAGE2's recognition keys on `(idx0, idx1, idx2)` rather than the
+unordered position-set, it sees two distinct triangles instead of one
+canonical pair, and both survive into the patch graph.
 
-The 3D-projection roundtrip via `verts_2d_to_3d` may be canceling the
-basis sign so the inject TRIANGLES land in the right 3D location
-geometrically (which is why PR5's
-`test_identical_footprint_inject_produces_consistent_meshes` passes —
-that test only checks bitwise vertex equality and triangle equivalence,
-both of which can hold even if the canonical 2D coordinates differ from
-A's original footprint).
+Survival data confirms 11 patches (vs the expected ≤6 for a stacked
+elongated box), one of which corresponds to the un-annihilated z=1
+canonical surface. With both A's and B's z=1 canonical tris in the
+patch graph, half-edge twin pairing sees 2 candidates per boundary
+edge → ambiguous, and the boundary corners produce orphan unpaired
+HEs.
 
-### Why this exposes a §4.5.5 compliance gap
-
-Yang §4.5.5 requires "identical sampling points" — the canonical mesh
-must REPLACE both A's and B's z=1 face triangulations with the same
-canonical triangle set. PR5's inject produces canonical triangles whose
-vertex POSITIONS are correct, but Cherchi STAGE2 dedupes against A's
-ORIGINAL z=1 face triangulation (which was canonical-mapped from A's
-own basis). If the bits are subtly different (vertex order, winding,
-or one triangle's diagonal), STAGE2 dedups one duplicate but leaves
-another non-shared triangle in place.
-
-### Diagnostic data from PR6 canary run (with Hoffmann fix applied)
+### Diagnostic data (post-PR8 canary)
 
 ```
 [cherchi-trace] STAGE1 merge: 12 verts, 24 tris
-[cherchi-trace] STAGE2 degenerate: 22 tris       # 2 dupes dropped
+[cherchi-trace] STAGE2 degenerate: 22 tris       # only 2 dupes dropped (expected 4)
 [yang-diag] after subdivide: tris_a=12, tris_b=12, verts=12
-[yang-diag] after label_cells: A outside=11 inside=1 cosurface=0,
+[yang-diag] after label_cells: A outside=10 inside=2 cosurface=0,
                                 B outside=12 inside=0 cosurface=0
-[yang-diag] after survival: 12 groups, 23 tris
-[flood_fill DIAG Step5a] 12 patches:
-  Patch 0: source=SourceFace { mesh_id: A, face_idx: FaceIdx(0) } tris=1
-  ... (A FaceIdx(0) is now PARTIALLY surviving — only 1 of 2 sub-tris) ...
-  Patch 11: source=SourceFace { mesh_id: B, face_idx: FaceIdx(1) } tris=2
-[topo-extract] summary: paired=18, unpaired=4, ambiguous=2
+[yang-diag] after survival: 11 groups, 22 tris
+[topo-extract] summary: paired=18, unpaired=2, ambiguous=2
 A ∪ B should succeed: NotSupported {
   operation: "yang_boolean: result validation failed:
-              half_edge[2].twin = 0 but twin.twin = 0 (expected 2)" }
+              half_edge[18].twin = 0 but twin.twin = 16 (expected 18)" }
 ```
 
-Comparison to the PR5-only baseline (without PR6's Hoffmann fix):
+`cosurface=0` for both A and B — STAGE2 is dedup'ing some pairs but
+NOT classifying the remaining z=1 boundary tris as cosurface
+(annihilable) duplicates.
 
-| Metric                | PR5 baseline | PR5 + PR6 (Hoffmann) |
-|-----------------------|--------------|----------------------|
-| A label_cells inside  | 2            | 1                    |
-| A label_cells outside | 10           | 11                   |
-| B label_cells inside  | 0            | 0                    |
-| B label_cells outside | 12           | 12                   |
-| Surviving sub-tris    | 22           | 23                   |
-| Patches               | 11           | 12                   |
-| Paired / unpaired / ambiguous | 18 / 2 / 2 | 18 / 4 / 2  |
+### PR9 scope (proposed)
 
-PR6's Hoffmann fix correctly classifies the two A z=1 sub-triangles
-ASYMMETRICALLY (one Inside, one Outside) — which is GEOMETRICALLY
-consistent with the malformed overlap polygon: the overlap region in
-B's frame is `[0,1] × [-1,0]`, which intersects A's actual footprint
-`[0,1] × [0,1]` only along the line segment y=0. So one of A's z=1
-sub-triangles overlaps the (broken) injected canonical region (→
-boundary-coincident → Inside under Hoffmann), and the other doesn't (→
-Outside → survives, contributing the 23rd triangle and the 4-unpaired
-half-edge count).
+1. Investigate Cherchi STAGE2 dedup in
+   `crates/kernel/src/boolean/cherchi/processing.rs` (or wherever
+   STAGE2's degenerate-triangle classification lives). Determine
+   whether it uses canonical-vertex-key or position-multiset matching.
+2. If keying on vertex-index order, change PR5's inject so the per-
+   triangle B winding flip preserves the canonical key; OR add a
+   cosurface-annihilation pass that operates on position-multisets
+   independent of triangle winding.
+3. Validate that `test_stacked_box_union_correct_topology` flips
+   RED→GREEN with PR9.
 
-### PR8 scope (proposed)
+### Files PR9 will likely touch
 
-1. Audit `extract_face_boundary_2d` and `compute_plane_basis` in
-   `crates/kernel/src/boolean/coplanar_preprocess.rs` for the
-   anti-parallel (`same_dir = false`) case. Confirm whether the 2D
-   basis chosen for B's face cancels out via `verts_2d_to_3d`'s reverse
-   or whether the bug is in the basis itself.
-2. Add a regression test asserting that for the stacked-box canary,
-   the inject overlap polygon vertices ALL lie within A's true 2D
-   footprint `[0,1]²` (or B's, whichever the canonical frame is).
-3. Re-run the canary; with both PR6 (Hoffmann) and PR8 (correct inject
-   geometry), it MUST flip RED→GREEN.
-
-### Files PR8 will likely touch
-
-- `crates/kernel/src/boolean/coplanar_preprocess.rs` (basis +
-  boundary-extraction)
-- Regression test in `coplanar_preprocess.rs` `mod tests`
+- `crates/kernel/src/boolean/cherchi/processing.rs` (STAGE2 dedup
+  logic)
+- `crates/kernel/src/boolean/coplanar_preprocess.rs` (PR5 winding-
+  flip mechanics — only if the fix needs to live there instead of
+  Cherchi)
+- Regression test in `coplanar_preprocess.rs` `mod tests` (or
+  Cherchi tests)
 
 ## References
 
@@ -475,3 +555,6 @@ half-edge count).
 - PR4 commit (coplanar-preprocess-555) — Phase A counters.
 - PR5 commit (coplanar-identical-footprint) — §4.5.5 mesh-injection.
 - PR6 commit (label-cells-hoffmann) — Hoffmann perturb-and-classify.
+- PR8 commit (coplanar-polygon-winding) — anti-parallel polygon-
+  winding reversal in `split_brep_for_coplanar_pairs` and
+  `inject_partial_overlap_mesh`.

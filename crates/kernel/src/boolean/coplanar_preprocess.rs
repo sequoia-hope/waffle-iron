@@ -216,8 +216,22 @@ pub(crate) fn split_brep_for_coplanar_pairs(
 
         let poly_a =
             collect_face_loop_2d(&solid_a.arena, pair.face_a, &plane_origin, &u_axis, &v_axis);
-        let poly_b =
+        let mut poly_b =
             collect_face_loop_2d(&solid_b.arena, pair.face_b, &plane_origin, &u_axis, &v_axis);
+
+        // Yang §4.5.5 + Fig. 16: "The common part and the other two parts
+        // share identical sampling points on their boundaries." Both faces
+        // must project into the SAME 2D frame with consistent winding for
+        // i_overlay's Intersect/Difference (with FillRule::EvenOdd) to
+        // produce a bounded overlap polygon. `pair.plane_normal` is always
+        // face A's outward normal, so `compute_plane_basis` derives the
+        // basis from A's frame. For anti-parallel coplanar pairs, B's
+        // boundary loop / mesh triangles are wound CCW-from-B's-outward-
+        // normal (= CW in A's basis). Reverse to align with A's CCW
+        // winding before passing to i_overlay.
+        if !pair.same_direction {
+            poly_b.reverse();
+        }
 
         if poly_a.is_empty() || poly_b.is_empty() {
             #[cfg(test)]
@@ -1074,7 +1088,7 @@ pub(crate) fn inject_partial_overlap_mesh(
             &u_axis,
             &v_axis,
         );
-        let poly_b = extract_face_boundary_2d(
+        let mut poly_b = extract_face_boundary_2d(
             verts_b,
             tris_b,
             &face_tri_indices_b,
@@ -1082,6 +1096,20 @@ pub(crate) fn inject_partial_overlap_mesh(
             &u_axis,
             &v_axis,
         );
+
+        // Yang §4.5.5 + Fig. 16: "The common part and the other two parts
+        // share identical sampling points on their boundaries." Both faces
+        // must project into the SAME 2D frame with consistent winding for
+        // i_overlay's Intersect/Difference (with FillRule::EvenOdd) to
+        // produce a bounded overlap polygon. `pair.plane_normal` is always
+        // face A's outward normal, so `compute_plane_basis` derives the
+        // basis from A's frame. For anti-parallel coplanar pairs, B's
+        // boundary loop / mesh triangles are wound CCW-from-B's-outward-
+        // normal (= CW in A's basis). Reverse to align with A's CCW
+        // winding before passing to i_overlay.
+        if !pair.same_direction {
+            poly_b.reverse();
+        }
 
         if poly_a.is_empty() || poly_b.is_empty() {
             #[cfg(test)]
@@ -2865,6 +2893,120 @@ mod tests {
             "Yang §4.5.5: per-triangle vertex-position triples in the \
              shared overlap region must match between mesh A and mesh B \
              (modulo winding)"
+        );
+    }
+
+    /// Yang §4.5.5 anti-parallel polygon-winding regression test (PR8).
+    ///
+    /// `pair.plane_normal` is always face A's outward normal (per
+    /// `detect_coplanar_face_pairs`), so `compute_plane_basis` derives the
+    /// shared 2D basis from A's frame. `collect_face_loop_2d` walks each
+    /// face's B-Rep half-edge loop in its STORED order (CCW from each face's
+    /// own outward normal). For anti-parallel coplanar pairs, B's outward
+    /// normal points opposite to A's, so B's loop walks CCW-from-(-A's-normal)
+    /// = CW in A's basis frame. Without correction, A's polygon is CCW and
+    /// B's polygon is CW in the shared basis, and i_overlay's
+    /// `Intersect`/`Difference` with `EvenOdd` produces inconsistent
+    /// boolean output (a CCW input vs a CW input is treated as
+    /// outer-vs-hole, not two outer contours).
+    ///
+    /// PR8's fix: reverse `poly_b` when `!pair.same_direction` so both
+    /// polygons walk CCW in A's basis frame. This test exercises that
+    /// invariant directly via the signed-area sign — basis-coordinate
+    /// independent.
+    ///
+    /// Per Yang 2025 Fig. 16: "The common part and the other two parts
+    /// share identical sampling points on their boundaries."
+    ///
+    /// FIP §8 red-before-green:
+    /// - Red phase (with `if !pair.same_direction { poly_b.reverse(); }`
+    ///   commented out): `area_a` and `area_b` have opposite signs →
+    ///   assertion fails.
+    /// - Green phase (with PR8 fix): both have the same sign → test passes.
+    #[test]
+    fn test_anti_parallel_polygon_winding_canonical() {
+        // Canary geometry: A=[0,1]³ and B at z∈[1,2] — the z=1 caps form
+        // an anti-parallel coplanar pair.
+        let (k_a, h_a) = make_stacked_box(0.5, 0.5, 1.0, 1.0, 0.0, 1.0);
+        let (k_b, h_b) = make_stacked_box(0.5, 0.5, 1.0, 1.0, 1.0, 1.0);
+
+        let solid_a = k_a.get_solid(&h_a).expect("solid_a must exist");
+        let solid_b = k_b.get_solid(&h_b).expect("solid_b must exist");
+
+        let pairs = detect_coplanar_face_pairs(solid_a, solid_b);
+
+        // Find the z=1 anti-parallel pair specifically.
+        let pair = pairs
+            .iter()
+            .find(|p| {
+                p.plane_normal[2].abs() > 0.99
+                    && (p.plane_offset.abs() - 1.0).abs() < 1e-6
+                    && !p.same_direction
+            })
+            .expect("z=1 anti-parallel coplanar pair must be detected");
+
+        // Compute the shared 2D basis from A's normal.
+        let (u_axis, v_axis) = compute_plane_basis(pair.plane_normal);
+        let plane_origin = [
+            pair.plane_normal[0] * pair.plane_offset,
+            pair.plane_normal[1] * pair.plane_offset,
+            pair.plane_normal[2] * pair.plane_offset,
+        ];
+
+        // Extract both face boundary loops in the shared basis.
+        let poly_a =
+            collect_face_loop_2d(&solid_a.arena, pair.face_a, &plane_origin, &u_axis, &v_axis);
+        let mut poly_b =
+            collect_face_loop_2d(&solid_b.arena, pair.face_b, &plane_origin, &u_axis, &v_axis);
+
+        // Apply PR8's fix manually (mirror what `split_brep_for_coplanar_pairs`
+        // and `inject_partial_overlap_mesh` now do internally).
+        if !pair.same_direction {
+            poly_b.reverse();
+        }
+
+        // Signed area via the shoelace formula. Sign indicates winding
+        // (positive = CCW in standard math, negative = CW). Two polygons
+        // bounding the same 2D region must have the same sign for i_overlay
+        // to treat them as compatible inputs.
+        fn signed_area_2d(poly: &[(VertexIdx, [f64; 2])]) -> f64 {
+            let n = poly.len();
+            let mut sum = 0.0;
+            for i in 0..n {
+                let (_, [x1, y1]) = poly[i];
+                let (_, [x2, y2]) = poly[(i + 1) % n];
+                sum += x1 * y2 - x2 * y1;
+            }
+            sum * 0.5
+        }
+
+        let area_a = signed_area_2d(&poly_a);
+        let area_b = signed_area_2d(&poly_b);
+
+        // Sanity: both polygons must be non-degenerate.
+        assert!(
+            area_a.abs() > 1e-9,
+            "poly_a must be a non-degenerate polygon, got signed area {area_a}",
+        );
+        assert!(
+            area_b.abs() > 1e-9,
+            "poly_b must be a non-degenerate polygon, got signed area {area_b}",
+        );
+
+        // PR8 assertion: signed-area signs match.
+        assert_eq!(
+            area_a.signum(),
+            area_b.signum(),
+            "Yang §4.5.5 anti-parallel polygon-winding invariant: poly_a \
+             and poly_b must have matching winding (same signed-area sign) \
+             after PR8's reversal. \
+             Got area_a={area_a:.6}, area_b={area_b:.6}. \
+             Without the fix, poly_a is CCW and poly_b is CW in A's basis \
+             frame because B's B-Rep loop is stored CCW-from-B's-outward-\
+             normal (= CW in A's basis). i_overlay then treats them as \
+             outer-vs-hole instead of two outer contours, producing \
+             inconsistent boolean output (the symptom that surfaced in the \
+             stacked-box canary's residual unpaired half-edges)."
         );
     }
 }
