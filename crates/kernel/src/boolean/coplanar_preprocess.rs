@@ -35,6 +35,7 @@ pub(crate) static COPLANAR_MEF_NO_LOOP: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static COPLANAR_OVERLAY_GROUPS: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static COPLANAR_OVERLAY_HOLES_IGNORED: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static COPLANAR_IDENTICAL_FOOTPRINT: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static COPLANAR_PARTIAL_OVERLAP: AtomicUsize = AtomicUsize::new(0);
 
 /// A detected coplanar face pair between two solids.
 #[derive(Debug, Clone)]
@@ -57,6 +58,13 @@ pub(crate) struct CoplanarFacePair {
     /// for this case so both meshes have bitwise-identical triangles in
     /// the overlap region.
     pub is_identical_footprint: bool,
+    /// true if overlap is non-empty AND at least one of A-only / B-only is
+    /// non-empty AND `same_direction == false` (anti-parallel). Set during
+    /// `split_brep_for_coplanar_pairs` and consumed by
+    /// `inject_partial_overlap_mesh` after tessellation. Same-direction
+    /// partial-overlap is deferred to PR8 — it requires cascading
+    /// T-junction repair across coplanar pairs.
+    pub is_partial_overlap: bool,
 }
 
 /// Detect coplanar face pairs between two solids.
@@ -109,6 +117,7 @@ pub(crate) fn detect_coplanar_face_pairs(
                     plane_offset: offset_a,
                     same_direction: dot > 0.0,
                     is_identical_footprint: false,
+                    is_partial_overlap: false,
                 });
             }
         }
@@ -183,6 +192,7 @@ pub(crate) fn split_brep_for_coplanar_pairs(
     let snap_groups = COPLANAR_OVERLAY_GROUPS.load(Ordering::Relaxed);
     let snap_holes = COPLANAR_OVERLAY_HOLES_IGNORED.load(Ordering::Relaxed);
     let snap_identical = COPLANAR_IDENTICAL_FOOTPRINT.load(Ordering::Relaxed);
+    let snap_partial = COPLANAR_PARTIAL_OVERLAP.load(Ordering::Relaxed);
 
     for (pair_idx, pair) in coplanar_pairs.iter_mut().enumerate() {
         // Both same-direction and anti-parallel pairs need B-Rep splitting.
@@ -273,10 +283,21 @@ pub(crate) fn split_brep_for_coplanar_pairs(
             continue;
         }
 
+        // Yang §4.5.5: overlap is non-empty AND at least one exclusive region
+        // is non-empty → partial-overlap case. Mark anti-parallel pairs for
+        // `inject_partial_overlap_mesh` post-tessellation. Same-direction
+        // partial-overlap requires cascading T-junction repair (deferred to
+        // PR8). The B-Rep split (split_face_along_boundary) below continues
+        // to run for partial-overlap pairs so the exclusive regions get
+        // clean B-Rep face sub-divisions.
+        if !pair.same_direction {
+            pair.is_partial_overlap = true;
+        }
+
         #[cfg(test)]
         eprintln!(
-            "[COPLANAR SPLIT]   A-only empty={}, B-only empty={}",
-            a_only_empty, b_only_empty
+            "[COPLANAR SPLIT]   A-only empty={}, B-only empty={}, partial_overlap={}",
+            a_only_empty, b_only_empty, pair.is_partial_overlap
         );
 
         // 3. Project overlap boundary to 3D.
@@ -336,9 +357,10 @@ pub(crate) fn split_brep_for_coplanar_pairs(
         let groups = COPLANAR_OVERLAY_GROUPS.load(Ordering::Relaxed) - snap_groups;
         let holes = COPLANAR_OVERLAY_HOLES_IGNORED.load(Ordering::Relaxed) - snap_holes;
         let identical = COPLANAR_IDENTICAL_FOOTPRINT.load(Ordering::Relaxed) - snap_identical;
+        let partial_overlap = COPLANAR_PARTIAL_OVERLAP.load(Ordering::Relaxed) - snap_partial;
         eprintln!(
-            "[coplanar-tele] pairs={} verts_existing={} verts_split={} verts_dropped={} mef_ok={} mef_no_loop={} overlay_groups={} overlay_holes_ignored={} identical_footprint={}",
-            pairs_delta, v_existing, v_split, v_dropped, mef_ok, mef_no_loop, groups, holes, identical
+            "[coplanar-tele] pairs={} verts_existing={} verts_split={} verts_dropped={} mef_ok={} mef_no_loop={} overlay_groups={} overlay_holes_ignored={} identical_footprint={} partial_overlap={}",
+            pairs_delta, v_existing, v_split, v_dropped, mef_ok, mef_no_loop, groups, holes, identical, partial_overlap
         );
     }
 }
@@ -968,6 +990,214 @@ pub(crate) fn inject_identical_footprint_mesh(
     }
 }
 
+/// Yang §4.5.5 partial-overlap pass: for coplanar pairs where overlap is
+/// non-empty AND at least one exclusive region (A-only or B-only) is
+/// non-empty, segment the shared plane into three regions per Fig. 16:
+///
+///   - overlap: triangulated ONCE, identical 3D vertex set in both meshes
+///   - A-only: triangulated independently from A's exclusive boundary
+///   - B-only: triangulated independently from B's exclusive boundary
+///
+/// Yang's "identical sampling points on their boundaries" requirement is
+/// satisfied because the overlap polygon vertices are computed once via
+/// i_overlay and projected to 3D once.
+///
+/// Anti-parallel only. Same-direction partial-overlap requires cascading
+/// T-junction repair across coplanar pairs sharing vertices/edges, which
+/// is deferred to PR8. The double-guard on `same_direction == false`
+/// matches the detection condition in `split_brep_for_coplanar_pairs`.
+///
+/// After region replacement, runs `repair_tjunctions_after_injection` on
+/// each mesh: the new overlap-boundary diagonal may meet adjacent
+/// (non-coplanar) face triangulation edges at a T-junction, which the
+/// existing single-pair repair can split. Multi-pair cascading is PR8.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn inject_partial_overlap_mesh(
+    coplanar_pairs: &[CoplanarFacePair],
+    verts_a: &mut Vec<[f64; 3]>,
+    tris_a: &mut Vec<[usize; 3]>,
+    bijective_a: &mut BijectiveMap,
+    verts_b: &mut Vec<[f64; 3]>,
+    tris_b: &mut Vec<[usize; 3]>,
+    bijective_b: &mut BijectiveMap,
+) {
+    for pair in coplanar_pairs {
+        if !pair.is_partial_overlap {
+            continue;
+        }
+        // Double-guard: same-direction partial-overlap is PR8 territory.
+        if pair.same_direction {
+            continue;
+        }
+
+        // 1. Locate face triangles on the coplanar plane in each mesh.
+        let face_tri_indices_a = find_plane_triangles(
+            verts_a,
+            tris_a,
+            bijective_a,
+            pair.face_a,
+            &pair.plane_normal,
+            pair.plane_offset,
+        );
+        let face_tri_indices_b = find_plane_triangles(
+            verts_b,
+            tris_b,
+            bijective_b,
+            pair.face_b,
+            &pair.plane_normal,
+            pair.plane_offset,
+        );
+
+        if face_tri_indices_a.is_empty() || face_tri_indices_b.is_empty() {
+            #[cfg(test)]
+            eprintln!(
+                "[COPLANAR INJECT-PO] Skipped pair {:?}/{:?}: no plane triangles found (A={}, B={})",
+                pair.face_a, pair.face_b, face_tri_indices_a.len(), face_tri_indices_b.len()
+            );
+            continue;
+        }
+
+        // 2. Compute plane basis for 2D projection.
+        let (u_axis, v_axis) = compute_plane_basis(pair.plane_normal);
+        let plane_origin = [
+            pair.plane_normal[0] * pair.plane_offset,
+            pair.plane_normal[1] * pair.plane_offset,
+            pair.plane_normal[2] * pair.plane_offset,
+        ];
+
+        // 3. Extract 2D boundary polygons for each face.
+        let poly_a = extract_face_boundary_2d(
+            verts_a,
+            tris_a,
+            &face_tri_indices_a,
+            &plane_origin,
+            &u_axis,
+            &v_axis,
+        );
+        let poly_b = extract_face_boundary_2d(
+            verts_b,
+            tris_b,
+            &face_tri_indices_b,
+            &plane_origin,
+            &u_axis,
+            &v_axis,
+        );
+
+        if poly_a.is_empty() || poly_b.is_empty() {
+            #[cfg(test)]
+            eprintln!(
+                "[COPLANAR INJECT-PO] Skipped pair {:?}/{:?}: empty face boundary",
+                pair.face_a, pair.face_b
+            );
+            continue;
+        }
+
+        // 4. Compute three regions per Yang 2025 §4.5.5 Fig. 16:
+        //    overlap = poly_a ∩ poly_b (shared canonical mesh)
+        //    a_only  = poly_a \ poly_b (only in mesh A)
+        //    b_only  = poly_b \ poly_a (only in mesh B)
+        let shape_a: Vec<Vec<[f64; 2]>> = vec![poly_a];
+        let shape_b: Vec<Vec<[f64; 2]>> = vec![poly_b];
+
+        let overlap_result: Vec<Vec<Vec<[f64; 2]>>> =
+            shape_a.overlay(&shape_b, OverlayRule::Intersect, FillRule::EvenOdd);
+        if overlap_result.is_empty() || overlap_result[0].is_empty() {
+            continue; // Coplanar but non-overlapping — nothing to inject.
+        }
+
+        let a_only_result: Vec<Vec<Vec<[f64; 2]>>> =
+            shape_a.overlay(&shape_b, OverlayRule::Difference, FillRule::EvenOdd);
+        let b_only_result: Vec<Vec<Vec<[f64; 2]>>> =
+            shape_b.overlay(&shape_a, OverlayRule::Difference, FillRule::EvenOdd);
+
+        let a_only_empty = a_only_result.is_empty() || a_only_result[0].is_empty();
+        let b_only_empty = b_only_result.is_empty() || b_only_result[0].is_empty();
+
+        // 5. Triangulate the overlap region ONCE — shared 3D vertex set.
+        let (shared_2d_verts, shared_tri_indices) =
+            triangulate_polygon_with_holes(&overlap_result[0]);
+        if shared_tri_indices.is_empty() {
+            continue;
+        }
+        let shared_3d = verts_2d_to_3d(&shared_2d_verts, &plane_origin, &u_axis, &v_axis);
+        let shared_tris_a: Vec<[usize; 3]> = shared_tri_indices
+            .chunks(3)
+            .map(|c| [c[0], c[1], c[2]])
+            .collect();
+        // Anti-parallel: flip B's per-triangle winding so face B's outward
+        // orientation is preserved (mirrors PR5's identical-footprint logic).
+        let shared_tris_b: Vec<[usize; 3]> =
+            shared_tris_a.iter().map(|t| [t[0], t[2], t[1]]).collect();
+
+        // 6. Triangulate A-only region (independent — exclusive to mesh A).
+        let (a_only_3d, a_only_tris) = if !a_only_empty {
+            let (verts_2d, tri_idx) = triangulate_polygon_with_holes(&a_only_result[0]);
+            let verts_3d = verts_2d_to_3d(&verts_2d, &plane_origin, &u_axis, &v_axis);
+            let tris: Vec<[usize; 3]> = tri_idx.chunks(3).map(|c| [c[0], c[1], c[2]]).collect();
+            (verts_3d, tris)
+        } else {
+            (vec![], vec![])
+        };
+
+        // 7. Triangulate B-only region (independent — exclusive to mesh B).
+        let (b_only_3d, b_only_tris) = if !b_only_empty {
+            let (verts_2d, tri_idx) = triangulate_polygon_with_holes(&b_only_result[0]);
+            let verts_3d = verts_2d_to_3d(&verts_2d, &plane_origin, &u_axis, &v_axis);
+            let tris: Vec<[usize; 3]> = tri_idx.chunks(3).map(|c| [c[0], c[1], c[2]]).collect();
+            (verts_3d, tris)
+        } else {
+            (vec![], vec![])
+        };
+
+        // 8. Replace mesh A's face triangles. Yang §4.5.5 requires the
+        // overlap region to use bitwise-identical 3D positions in both
+        // meshes. The shared verts (from i_overlay Intersect projected
+        // to 3D once) are the canonical source. Append shared verts to
+        // mesh A WITHOUT snap-to-existing so the canonical bits survive.
+        // The A-only region's overlap-boundary points (which may have
+        // slightly different bits from i_overlay's Difference output)
+        // then snap onto the just-appended shared verts.
+        let new_verts_a = inject_face_with_shared_first(
+            verts_a,
+            tris_a,
+            bijective_a,
+            &face_tri_indices_a,
+            pair.face_a,
+            &shared_3d,
+            &shared_tris_a,
+            &a_only_3d,
+            &a_only_tris,
+        );
+
+        // 9. Same for mesh B (with B's overlap-winding already flipped).
+        let new_verts_b = inject_face_with_shared_first(
+            verts_b,
+            tris_b,
+            bijective_b,
+            &face_tri_indices_b,
+            pair.face_b,
+            &shared_3d,
+            &shared_tris_b,
+            &b_only_3d,
+            &b_only_tris,
+        );
+
+        // 10. Repair T-junctions: overlap-boundary vertices may lie on edges
+        // of adjacent (non-coplanar) face triangles.
+        repair_tjunctions_after_injection(verts_a, tris_a, bijective_a, pair.face_a, &new_verts_a);
+        repair_tjunctions_after_injection(verts_b, tris_b, bijective_b, pair.face_b, &new_verts_b);
+
+        COPLANAR_PARTIAL_OVERLAP.fetch_add(1, Ordering::Relaxed);
+
+        #[cfg(test)]
+        eprintln!(
+            "[COPLANAR INJECT-PO] Injected pair {:?}/{:?}: {} shared overlap tris, A-only={} tris, B-only={} tris",
+            pair.face_a, pair.face_b,
+            shared_tris_a.len(), a_only_tris.len(), b_only_tris.len()
+        );
+    }
+}
+
 /// Triangulate a polygon with holes using earcutr.
 ///
 /// Returns (2D vertices, triangle indices). The first contour is the outer
@@ -1321,6 +1551,99 @@ fn replace_face_triangles(
     added_verts
 }
 
+/// Replace a face's triangles using shared-overlap-first vertex ordering.
+///
+/// Yang §4.5.5 requires the overlap region to reference bitwise-identical
+/// 3D positions in both meshes. To achieve this, the shared verts (computed
+/// once from i_overlay Intersect, identical for both meshes) must be
+/// appended verbatim — never snapped to the mesh's pre-existing tessellation
+/// verts whose bits may differ slightly. The exclusive region's
+/// overlap-boundary verts (from i_overlay Difference, possibly different
+/// bits) then snap to the just-appended shared verts.
+///
+/// Differs from `replace_face_triangles` in two ways:
+///   1. Shared verts are appended unconditionally (no snap-to-existing).
+///   2. Exclusive verts then snap to existing mesh verts AND to the
+///      just-appended shared verts (within TAU_MODEL).
+///
+/// Returns indices of newly-added verts (for downstream T-junction repair).
+#[allow(clippy::too_many_arguments)]
+fn inject_face_with_shared_first(
+    verts: &mut Vec<[f64; 3]>,
+    tris: &mut Vec<[usize; 3]>,
+    bijective: &mut BijectiveMap,
+    old_tri_indices: &[usize],
+    face_idx: FaceIdx,
+    shared_verts: &[[f64; 3]],
+    shared_tris: &[[usize; 3]],
+    exclusive_verts: &[[f64; 3]],
+    exclusive_tris: &[[usize; 3]],
+) -> Vec<usize> {
+    // 1. Mark old triangles for removal and compact tris/bijective.
+    let mut keep = vec![true; tris.len()];
+    for &ti in old_tri_indices {
+        keep[ti] = false;
+    }
+    let mut new_tris_vec: Vec<[usize; 3]> = Vec::with_capacity(tris.len());
+    let mut new_bmap: Vec<FaceIdx> = Vec::with_capacity(bijective.tri_face_ids.len());
+    for (i, tri) in tris.iter().enumerate() {
+        if keep[i] {
+            new_tris_vec.push(*tri);
+            new_bmap.push(bijective.tri_face_ids[i]);
+        }
+    }
+
+    // 2. Append shared verts verbatim — preserves canonical bits.
+    let shared_offset = verts.len();
+    let mut added_verts: Vec<usize> = Vec::new();
+    for sv in shared_verts {
+        verts.push(*sv);
+        added_verts.push(verts.len() - 1);
+    }
+    let shared_index = |i: usize| -> usize { shared_offset + i };
+
+    // 3. Snap each exclusive vert to existing mesh vert (incl. just-added
+    //    shared verts) within TAU_MODEL, else append.
+    let tol_sq = TAU_MODEL * TAU_MODEL;
+    let mut excl_map: Vec<usize> = Vec::with_capacity(exclusive_verts.len());
+    for ev in exclusive_verts {
+        let existing = verts.iter().enumerate().find(|(_, mv)| {
+            let dx = ev[0] - mv[0];
+            let dy = ev[1] - mv[1];
+            let dz = ev[2] - mv[2];
+            dx * dx + dy * dy + dz * dz < tol_sq
+        });
+        match existing {
+            Some((idx, _)) => excl_map.push(idx),
+            None => {
+                let idx = verts.len();
+                verts.push(*ev);
+                excl_map.push(idx);
+                added_verts.push(idx);
+            }
+        }
+    }
+
+    // 4. Append shared tris (using shared-vert offsets).
+    for tri in shared_tris {
+        new_tris_vec.push([
+            shared_index(tri[0]),
+            shared_index(tri[1]),
+            shared_index(tri[2]),
+        ]);
+        new_bmap.push(face_idx);
+    }
+    // 5. Append exclusive tris (using exclusive-vert remapped indices).
+    for tri in exclusive_tris {
+        new_tris_vec.push([excl_map[tri[0]], excl_map[tri[1]], excl_map[tri[2]]]);
+        new_bmap.push(face_idx);
+    }
+
+    *tris = new_tris_vec;
+    bijective.tri_face_ids = new_bmap;
+    added_verts
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1467,6 +1790,7 @@ mod tests {
             plane_offset: 1.0,
             same_direction: false, // anti-parallel stacked caps
             is_identical_footprint: false,
+            is_partial_overlap: false,
         };
 
         inject_conformal_coplanar_mesh(
@@ -2327,6 +2651,220 @@ mod tests {
             "Yang §4.5.5: per-triangle vertex-position triples on the \
              shared plane must match between mesh A and mesh B (modulo \
              winding)"
+        );
+    }
+
+    /// Yang §4.5.5 partial-overlap regression test (PR7).
+    ///
+    /// Box A at x∈[0,1], y∈[0,1], z∈[0,1]; Box B at x∈[0.3, 1.3], y∈[0,1],
+    /// z∈[1, 2]. The z=1 cap pair is anti-parallel with rectangular partial
+    /// overlap at x∈[0.3, 1.0], y∈[0,1]. After `inject_partial_overlap_mesh`,
+    /// the triangles in mesh A and mesh B that fall within the overlap
+    /// rectangle must reference bitwise-identical 3D vertex positions
+    /// (modulo per-triangle winding for B), satisfying Fig. 16's "the
+    /// common part and the other two parts share identical sampling points
+    /// on their boundaries."
+    ///
+    /// FIP §8 red-before-green: with the inject call elided in
+    /// yang_integration.rs (Phase C wiring), the overlap rectangles in the
+    /// two meshes have divergent diagonals and the bitwise-position
+    /// equality assertions fail. With Phase C wired, this test passes.
+    #[test]
+    fn test_partial_overlap_inject_produces_consistent_overlap_mesh() {
+        // Box A: x∈[0,1], y∈[0,1], z∈[0,1].
+        let (k_a, h_a) = make_stacked_box(0.5, 0.5, 1.0, 1.0, 0.0, 1.0);
+        // Box B: x∈[0.3, 1.3], y∈[0,1], z∈[1, 2] — shifted X gives partial
+        // overlap on z=1.
+        let (k_b, h_b) = make_stacked_box(0.8, 0.5, 1.0, 1.0, 1.0, 1.0);
+
+        let solid_a = k_a.get_solid(&h_a).expect("solid_a must exist");
+        let solid_b = k_b.get_solid(&h_b).expect("solid_b must exist");
+
+        // Tessellate both solids.
+        let lod = tessellation::TessellationLod::Boolean;
+        let mesh_a = tessellate_waffle_solid(solid_a, lod).expect("tessellate A");
+        let mesh_b = tessellate_waffle_solid(solid_b, lod).expect("tessellate B");
+
+        let (mut verts_a, mut tris_a) = render_mesh_to_arrays(&mesh_a);
+        let (mut verts_b, mut tris_b) = render_mesh_to_arrays(&mesh_b);
+        dedup_mesh_vertices(&mut verts_a, &mut tris_a);
+        dedup_mesh_vertices(&mut verts_b, &mut tris_b);
+
+        let mut bijective_a = BijectiveMap::from_render_mesh(&mesh_a, &solid_a.face_map);
+        let mut bijective_b = BijectiveMap::from_render_mesh(&mesh_b, &solid_b.face_map);
+
+        // Run Stage 0a: detect → split (which marks partial-overlap pairs).
+        let mut solid_a_mut = solid_a.clone();
+        let mut solid_b_mut = solid_b.clone();
+        let mut pairs = detect_coplanar_face_pairs(&solid_a_mut, &solid_b_mut);
+        split_brep_for_coplanar_pairs(&mut solid_a_mut, &mut solid_b_mut, &mut pairs);
+
+        // Exactly one pair must be marked partial-overlap (the z=1
+        // anti-parallel pair). Side-face pairs (x=0/x=1/y=0/y=1) either
+        // have no overlap on their plane or are same-direction → not
+        // partial-overlap.
+        let partial_overlap_count = pairs.iter().filter(|p| p.is_partial_overlap).count();
+        assert_eq!(
+            partial_overlap_count,
+            1,
+            "Expected exactly 1 partial-overlap pair (z=1 anti-parallel), got {}: {:?}",
+            partial_overlap_count,
+            pairs
+                .iter()
+                .filter(|p| p.is_partial_overlap)
+                .collect::<Vec<_>>()
+        );
+        let z1_pair = pairs
+            .iter()
+            .find(|p| p.is_partial_overlap)
+            .expect("partial-overlap pair must exist");
+        assert!(
+            z1_pair.plane_normal[2].abs() > 0.99 && (z1_pair.plane_offset.abs() - 1.0).abs() < 1e-6,
+            "partial-overlap pair must be on z=1, got normal={:?} offset={}",
+            z1_pair.plane_normal,
+            z1_pair.plane_offset
+        );
+        assert!(
+            !z1_pair.same_direction,
+            "PR7 partial-overlap pair must be anti-parallel; same-direction is PR8"
+        );
+
+        // Run the inject helper.
+        inject_partial_overlap_mesh(
+            &pairs,
+            &mut verts_a,
+            &mut tris_a,
+            &mut bijective_a,
+            &mut verts_b,
+            &mut tris_b,
+            &mut bijective_b,
+        );
+
+        // Yang §4.5.5 deliverable assertions for partial-overlap pairs:
+        // bitwise-identical 3D positions in the OVERLAP region of both
+        // meshes. The exclusive A-only and B-only regions are independently
+        // triangulated and need NOT match each other — that's the point.
+
+        // Overlap rectangle: x∈[0.3, 1.0], y∈[0, 1] at z=1.
+        let in_overlap = |v: &[f64; 3]| -> bool {
+            (v[2] - 1.0).abs() < f64::EPSILON
+                && v[0] >= 0.3 - 1e-9
+                && v[0] <= 1.0 + 1e-9
+                && v[1] >= 0.0 - 1e-9
+                && v[1] <= 1.0 + 1e-9
+        };
+
+        // Collect z=1 triangles that fall entirely inside the overlap rectangle.
+        let z1_overlap_a: Vec<[[f64; 3]; 3]> = tris_a
+            .iter()
+            .filter_map(|tri| {
+                let v0 = verts_a[tri[0]];
+                let v1 = verts_a[tri[1]];
+                let v2 = verts_a[tri[2]];
+                if in_overlap(&v0) && in_overlap(&v1) && in_overlap(&v2) {
+                    Some([v0, v1, v2])
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let z1_overlap_b: Vec<[[f64; 3]; 3]> = tris_b
+            .iter()
+            .filter_map(|tri| {
+                let v0 = verts_b[tri[0]];
+                let v1 = verts_b[tri[1]];
+                let v2 = verts_b[tri[2]];
+                if in_overlap(&v0) && in_overlap(&v1) && in_overlap(&v2) {
+                    Some([v0, v1, v2])
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // 1. Both meshes have triangles in the overlap rectangle.
+        assert!(
+            !z1_overlap_a.is_empty(),
+            "mesh A must have triangles inside the z=1 overlap rectangle after inject"
+        );
+        assert!(
+            !z1_overlap_b.is_empty(),
+            "mesh B must have triangles inside the z=1 overlap rectangle after inject"
+        );
+
+        // 2. Same triangle count in the overlap region.
+        assert_eq!(
+            z1_overlap_a.len(),
+            z1_overlap_b.len(),
+            "Yang §4.5.5: partial-overlap meshes must have the same triangle \
+             count in the shared overlap region (A={}, B={})",
+            z1_overlap_a.len(),
+            z1_overlap_b.len()
+        );
+
+        // 3. Same set of bitwise-identical 3D vertex positions in the
+        //    overlap region. Both meshes pass through the same
+        //    `verts_2d_to_3d` call on the overlap polygon.
+        let mut overlap_verts_a: Vec<[u64; 3]> = z1_overlap_a
+            .iter()
+            .flat_map(|tri| {
+                tri.iter()
+                    .map(|v| [v[0].to_bits(), v[1].to_bits(), v[2].to_bits()])
+            })
+            .collect();
+        let mut overlap_verts_b: Vec<[u64; 3]> = z1_overlap_b
+            .iter()
+            .flat_map(|tri| {
+                tri.iter()
+                    .map(|v| [v[0].to_bits(), v[1].to_bits(), v[2].to_bits()])
+            })
+            .collect();
+        overlap_verts_a.sort();
+        overlap_verts_a.dedup();
+        overlap_verts_b.sort();
+        overlap_verts_b.dedup();
+        assert_eq!(
+            overlap_verts_a,
+            overlap_verts_b,
+            "Yang §4.5.5: partial-overlap meshes must reference the same \
+             set of bitwise-identical 3D vertex positions in the shared \
+             overlap region (got {} unique in A, {} unique in B)",
+            overlap_verts_a.len(),
+            overlap_verts_b.len()
+        );
+
+        // 4. Triangle vertex-position triples match between A and B in the
+        //    overlap region modulo per-triangle winding reversal
+        //    (anti-parallel canonical case).
+        let mut sorted_overlap_a: Vec<[[u64; 3]; 3]> = z1_overlap_a
+            .iter()
+            .map(|tri| {
+                let mut v: Vec<[u64; 3]> = tri
+                    .iter()
+                    .map(|p| [p[0].to_bits(), p[1].to_bits(), p[2].to_bits()])
+                    .collect();
+                v.sort();
+                [v[0], v[1], v[2]]
+            })
+            .collect();
+        let mut sorted_overlap_b: Vec<[[u64; 3]; 3]> = z1_overlap_b
+            .iter()
+            .map(|tri| {
+                let mut v: Vec<[u64; 3]> = tri
+                    .iter()
+                    .map(|p| [p[0].to_bits(), p[1].to_bits(), p[2].to_bits()])
+                    .collect();
+                v.sort();
+                [v[0], v[1], v[2]]
+            })
+            .collect();
+        sorted_overlap_a.sort();
+        sorted_overlap_b.sort();
+        assert_eq!(
+            sorted_overlap_a, sorted_overlap_b,
+            "Yang §4.5.5: per-triangle vertex-position triples in the \
+             shared overlap region must match between mesh A and mesh B \
+             (modulo winding)"
         );
     }
 }

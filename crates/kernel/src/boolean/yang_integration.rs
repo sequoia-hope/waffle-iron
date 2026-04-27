@@ -670,6 +670,22 @@ pub(crate) fn yang_boolean_inner(
         );
     }
 
+    // Stage 0c: Yang §4.5.5 partial-overlap coplanar pairs — three-region
+    // segmentation (overlap + A-only + B-only) per Fig. 16. Anti-parallel
+    // only; same-direction T-junction cascading deferred to PR8. The marker
+    // is set during `split_brep_for_coplanar_pairs` (Stage 0a).
+    if !coplanar_pairs.is_empty() {
+        crate::boolean::coplanar_preprocess::inject_partial_overlap_mesh(
+            &coplanar_pairs,
+            &mut verts_a,
+            &mut tris_a,
+            &mut bijective_a,
+            &mut verts_b,
+            &mut tris_b,
+            &mut bijective_b,
+        );
+    }
+
     // Diagnostic: export preprocessed merged mesh as binary STL for C++ comparison.
     // Activated by YANG_DUMP_STL=1 environment variable.
     if std::env::var("YANG_DUMP_STL").ok().as_deref() == Some("1") {
