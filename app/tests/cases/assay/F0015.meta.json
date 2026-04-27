@@ -60,7 +60,7 @@
       "increase",
       "increase"
     ],
-    "expect_rebuild_error": true
+    "expect_rebuild_error": false
   },
   "generator_version": 4,
   "featured": true

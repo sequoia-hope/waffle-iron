@@ -3,31 +3,31 @@
   "version": 3,
   "document": {
     "name": "Assay R0033",
-    "created": "2026-04-27T21:10:38.809377579Z",
-    "modified": "2026-04-27T21:10:38.809377579Z"
+    "created": "2026-04-27T21:48:59.840995560Z",
+    "modified": "2026-04-27T21:48:59.840995560Z"
   },
   "tabs": [
     {
-      "id": "78cc1737-a09a-4385-b29d-05d813039267",
+      "id": "690e0c49-8d81-40f1-9c65-60858ab09495",
       "name": "Part 1",
       "kind": {
         "type": "Part",
         "features": {
           "features": [
             {
-              "id": "8b041d1f-87a8-4019-a0e2-6be252fdab01",
+              "id": "c6bd6037-d6d6-4922-9cd1-592101228a64",
               "name": "Sketch 1",
               "operation": {
                 "type": "Sketch",
                 "sketch": {
-                  "id": "8b041d1f-87a8-4019-a0e2-6be252fdab01",
+                  "id": "c6bd6037-d6d6-4922-9cd1-592101228a64",
                   "plane": {
                     "kind": {
                       "type": "Face"
                     },
                     "anchor": {
                       "type": "Datum",
-                      "datum_id": "97d45313-6146-4fd1-9d6c-04a26b27cb9a"
+                      "datum_id": "dd37d232-e0d0-485c-8e34-6d7a6f49f0f3"
                     },
                     "selector": {
                       "type": "Role",
@@ -113,21 +113,21 @@
                     "type": "FullyConstrained"
                   },
                   "solved_positions": {
-                    "4": [
-                      -0.004244813808165038,
-                      0.003962898560207567
-                    ],
                     "2": [
                       0.004244813808165038,
                       -0.003962898560207567
                     ],
-                    "1": [
+                    "4": [
                       -0.004244813808165038,
-                      -0.003962898560207567
+                      0.003962898560207567
                     ],
                     "3": [
                       0.004244813808165038,
                       0.003962898560207567
+                    ],
+                    "1": [
+                      -0.004244813808165038,
+                      -0.003962898560207567
                     ]
                   },
                   "solved_profiles": [
@@ -153,12 +153,12 @@
               "references": []
             },
             {
-              "id": "738abedb-4ae9-4778-91d6-4a632b227fc9",
+              "id": "fcdf2168-9a67-4081-9676-f7b0db34fdd1",
               "name": "Revolve 1",
               "operation": {
                 "type": "Revolve",
                 "params": {
-                  "sketch_id": "8b041d1f-87a8-4019-a0e2-6be252fdab01",
+                  "sketch_id": "c6bd6037-d6d6-4922-9cd1-592101228a64",
                   "profile_index": 0,
                   "axis_origin": [
                     0.012661524642551247,
@@ -179,19 +179,19 @@
               "references": []
             },
             {
-              "id": "ea622277-2754-4ce7-97d8-8860df552125",
+              "id": "9e4bf6c7-707b-484c-a33d-ba23a500b9bd",
               "name": "Sketch 2",
               "operation": {
                 "type": "Sketch",
                 "sketch": {
-                  "id": "ea622277-2754-4ce7-97d8-8860df552125",
+                  "id": "9e4bf6c7-707b-484c-a33d-ba23a500b9bd",
                   "plane": {
                     "kind": {
                       "type": "Face"
                     },
                     "anchor": {
                       "type": "Datum",
-                      "datum_id": "79d888dc-c1ed-4538-8e4f-5448ea44a54e"
+                      "datum_id": "f56a6f99-e7f3-499f-acc0-c8145044150f"
                     },
                     "selector": {
                       "type": "Role",
@@ -240,12 +240,12 @@
               "references": []
             },
             {
-              "id": "20a9cb34-7d58-44a0-9f74-e5db678db3a9",
+              "id": "a48bab7b-1098-4734-8ec1-e8e917e220a2",
               "name": "Revolve 2",
               "operation": {
                 "type": "Revolve",
                 "params": {
-                  "sketch_id": "ea622277-2754-4ce7-97d8-8860df552125",
+                  "sketch_id": "9e4bf6c7-707b-484c-a33d-ba23a500b9bd",
                   "profile_index": 0,
                   "axis_origin": [
                     0.0004177644039150292,
@@ -271,5 +271,5 @@
       }
     }
   ],
-  "active_tab": "78cc1737-a09a-4385-b29d-05d813039267"
+  "active_tab": "690e0c49-8d81-40f1-9c65-60858ab09495"
 }
