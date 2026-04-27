@@ -39,10 +39,17 @@ downstream label_cells boundary-coincident classification.
   PR8 fix reduced the canary's residual unpaired half-edges from 4 → 2
   and surviving sub-tris from 23 → 22, but did NOT close the canary.
   Commit: `<TBD-by-team-lead-at-merge>`.
-- **PR9 follow-up — STILL PENDING**: cosurface-annihilation
-  incompleteness post PR5 inject. The canary's residual 2 unpaired + 2
-  ambiguous half-edges trace to Cherchi STAGE2 not deduplicating PR5's
-  canonical-injected triangles. See "PR9 follow-up" below.
+- **PR9 outcome — instrumentation only; fix deferred to PR10**:
+  Phase A added 3 `CHERCHI_DEBUG=1`-gated emit sites; Phase B
+  identified the root cause (`ray_cast_inside` returns `Some(_)`
+  rather than `None` for cosurface centroids when a non-degenerate
+  axis is available; PR6's gated Hoffmann never fires). The Option 2
+  attempt (run Hoffmann unconditionally with XOR override) flipped
+  the canary GREEN but regressed 5 parallel-cosurface tests. Path C
+  approved: ship instrumentation, defer fix to PR10. The
+  parallel-vs-anti-parallel cosurface distinction is a real
+  architectural insight that PR10 must address. See "PR9 outcome —
+  instrumentation only; fix deferred to PR10" below.
 - **Canary status**: `test_stacked_box_union_correct_topology` STAYS
   RED until PR9 closes cosurface annihilation. Do NOT silence the
   canary; it now tracks the next compliance gap (PR3 surfaced
@@ -540,6 +547,315 @@ NOT classifying the remaining z=1 boundary tris as cosurface
 - Regression test in `coplanar_preprocess.rs` `mod tests` (or
   Cherchi tests)
 
+## PR9 outcome — instrumentation only; fix deferred to PR10
+
+PR9 shipped Phase A instrumentation and a Phase B investigation that
+revealed a deeper architectural issue than the proposed scope above
+anticipated. The proposed fix (Option 2: run Hoffmann perturbation
+unconditionally; XOR overrides primary) was implemented, flipped the
+canary GREEN, but introduced 5 regressions in parallel-cosurface
+configurations. PR9 reverts the fix attempt and ships only:
+
+1. Phase A instrumentation (3 emit sites, gated on `CHERCHI_DEBUG=1`).
+2. New regression test `test_label_cells_cosurface_centroid_with_non_degenerate_ray_axis`
+   in `exact_mesh.rs` `mod tests`, marked `#[ignore]` with a doc
+   comment pointing here. Tracks the red phase for PR10.
+3. This spec note's PR10 scope section below.
+
+Branch: `cosurface-annihilation`. Path C decision (defer fix to PR10).
+
+### Phase A instrumentation summary
+
+Three diagnostic emit sites, all gated on `std::env::var("CHERCHI_DEBUG").as_deref() == Ok("1")`,
+zero-cost when off:
+
+1. **`crates/kernel/src/boolean/exact_mesh.rs`** —
+   `label_sub_tri_raycast` gained a `target_label: &str` parameter.
+   Both `label_cells` callers pass `"B"` (when classifying A's
+   sub-tris against mesh B) and `"A"` (vice-versa); the standalone
+   PR6 regression test passes `"test"`. Two emits: one in the
+   primary-resolved fast path (`primary=Some(_)`, `above=N/A,
+   below=N/A`); one after the Hoffmann perturbation (`primary=None,
+   above={:?}, below={:?}`). Format:
+   ```
+   [label-cells-trace] target=A sub_verts=[v0,v1,v2]
+       centroid=[x,y,z] normal=[nx,ny,nz]
+       primary=Some(true)|Some(false)|None
+       above=Some(_)|None|N/A below=Some(_)|None|N/A → Inside|Outside
+   ```
+
+2. **`crates/kernel/src/boolean/cherchi/processing.rs`** —
+   `remove_degenerate_and_duplicated_triangles` STAGE2 `Occupied`
+   merge arm. Emits when a duplicate triangle's labels are merged:
+   ```
+   [stage2-merge] sorted_key=[a,b,c]
+       dropped=tri{i} dropped_label=0bNNNN
+       survivor=tri{j} prev_label=0bNNNN merged_label=0bNNNN
+   ```
+
+3. **`crates/kernel/src/boolean/cherchi/triangulation.rs`** — STAGE6
+   final output emits at all 4 sites that push to `new_tris`:
+   - `passthrough` (no intersection, no coplanars)
+   - `split-noop` (split path with no work)
+   - `split-non-coplanar` (split with intersection)
+   - `pocket-new` and `pocket-merge` (coplanar pocket dedup)
+   ```
+   [cherchi-stage6] out_tri={i} site={tag}
+       parent_t={t}|pocket={p} verts=[v0,v1,v2] label=0bNNNN
+   ```
+
+The instrumentation does not change behavior when `CHERCHI_DEBUG` is
+unset. Baselines confirm: `boolean::indirect_predicates` 68/68;
+`boolean::cherchi` 58/58; all other suites match PR8 counts exactly.
+
+### Phase B finding — root cause
+
+`ray_cast_inside` in `exact_mesh.rs:1273` returns `None` ONLY when
+all THREE axes are degenerate. For a centroid on an axis-aligned
+face (e.g., `z=1.0`):
+
+- The `+z` ray slab IS degenerate against the z=1 face.
+- The `+x` and `+y` rays are NOT degenerate — their slabs cross the
+  operand's perpendicular side faces and resolve to `Some(_)`.
+
+So `ray_cast_inside` returns `Some(_)` from the FIRST non-degenerate
+axis (`+x`), not `None`. PR6's Hoffmann perturb-and-classify
+(`label_sub_tri_raycast`'s degenerate fallback) is gated behind
+`primary == None` and never fires for this case.
+
+The `+x`-axis result is **asymmetric between A-target and B-target**
+because A and B treat the cosurface plane as a boundary on opposite
+sides:
+
+```
+[label-cells-trace] target=B sub_verts=[4,6,7] centroid=[0.667,0.667,1.000] normal=[0,0,1] primary=Some(true)  → Inside ✓
+[label-cells-trace] target=A sub_verts=[4,6,7] centroid=[0.667,0.667,1.000] normal=[0,0,1] primary=Some(false) → Outside ✗
+```
+
+A's view (target=B, B occupies z∈[1,2]): `+x` ray from (0.667, 0.667, 1.0)
+crosses B's `x=1` right face once → `Some(true)` → Inside.
+B's view (target=A, A occupies z∈[0,1]): `+x` ray from same centroid
+grazes A's `x=1` top edge → parity flips to 0 → `Some(false)` → Outside.
+
+Same point, same operand structure, but the ray-cast parity hinges on
+which side of the operand's z range the cosurface lies on. Result:
+3 z=1 boundary tris survive into Union output (A's [4,6,7] dropped
+because Inside; both [7,5,4] kept because both Outside; B's [4,6,7]
+and [7,5,4] both kept because both Outside) when ZERO should
+survive. Topology validation fails: 4 unpaired + 2 ambiguous
+half-edges, paired=18.
+
+### Option 2 attempt — what was tried, what broke
+
+**Option 2 implementation**: run Hoffmann two-sided perturbation
+**unconditionally** in `label_sub_tri_raycast`. When `above XOR below`
+(formal Hoffmann §5.3 boundary-coincidence test fires), return
+`Inside` regardless of primary. When `above == below` (perturbations
+agree, not boundary-coincident), trust primary if `Some(_)`,
+otherwise the agreed perturbation, GWN as final fallback.
+
+**Result**:
+| Test                                              | PR8 baseline | PR9 Option 2 |
+|--------------------------------------------------|--------------|--------------|
+| canary `test_stacked_box_union_correct_topology` | RED          | **GREEN**    |
+| `boolean::indirect_predicates`                    | 68/68        | 68/68        |
+| `boolean::cherchi`                                | 58/58        | 58/58        |
+| `boolean::exact_mesh`                             | 93p / 6f     | 94p / 6f     |
+| `boolean::topology_extract`                       | 55p / 16f    | 52p / 19f    |
+| `boolean::yang_integration`                       | 23p / 17f    | 21p / 19f    |
+
+Net delta: +2 passes (canary + new regression test); −5 passes
+(parallel-cosurface tests).
+
+**The 5 specific Option 2 regressions**:
+1. `topology_extract::test_boundary_detection_identical_box_union`
+2. `topology_extract::test_full_pipeline_conservation`
+3. `topology_extract::yang_per_face_vertex_identical_union`
+4. `yang_integration::test_per_face_vertex_box_union`
+5. `yang_integration::test_yang_render_mesh_normals_per_face`
+
+All 5 involve operands that share a face with the SAME outward
+normal direction.
+
+### The architectural insight — Hoffmann §5.3 cosurface has TWO sub-modes
+
+This is the key discovery PR9 surfaced. Boundary-coincident
+("cosurface") triangles between two operands fall into two
+geometrically distinct sub-cases:
+
+1. **Anti-parallel cosurface** (canary stacked boxes): A's outward
+   normal at the shared plane opposes B's outward normal. Both
+   operand surfaces are interior to A∪B. Annihilate both → both
+   classify Inside under Hoffmann closed-solid convention. This is
+   the case Option 2 fixes correctly; it matches the canary's
+   expected behavior.
+
+2. **Parallel cosurface** (identical boxes, offset overlap): A's
+   outward normal at the shared plane aligns with B's outward
+   normal. The cosurface IS part of A∪B's boundary; one operand
+   contributes the boundary face, the other's matching face is
+   redundant. Preserve one side (Outside on the contributing
+   operand), annihilate the other (Inside on the redundant
+   operand). This is the case Option 2 over-annihilates: both views
+   classify Inside under Hoffmann, both get dropped, the boundary
+   surface vanishes.
+
+**Hoffmann §5.3 XOR alone cannot distinguish these two sub-cases.**
+It fires identically:
+
+```
+# Anti-parallel canary (A z=[0,1] with B z=[1,2], cosurface at z=1):
+[label-cells-trace] target=B sub_verts=[4,6,7] centroid=[0.667,0.667,1.000] normal=[0,0,1] primary=Some(true)  above=Some(true)  below=Some(false) → Inside (XOR fires)
+[label-cells-trace] target=A sub_verts=[4,6,7] centroid=[0.667,0.667,1.000] normal=[0,0,1] primary=Some(false) above=Some(false) below=Some(true)  → Inside (XOR fires)
+
+# Parallel identical-box (A=B=[0,1]³, cosurface at z=1, all 6 faces):
+[label-cells-trace] target=B sub_verts=[4,5,6] centroid=[0.667,0.333,1.000] normal=[0,0,1] primary=Some(false) above=Some(false) below=Some(true) → Inside (XOR fires)
+[label-cells-trace] target=A sub_verts=[4,5,6] centroid=[0.667,0.333,1.000] normal=[0,0,1] primary=Some(false) above=Some(false) below=Some(true) → Inside (XOR fires)
+```
+
+Both modes produce above XOR below. The required signal for
+distinguishing them is the **relative orientation of the candidate
+sub-tri's normal vs the matching target tri's normal**:
+
+- Anti-parallel: candidate normal `+z`, target's matching face normal
+  `-z` (target's outward normal points the opposite way) → dot product
+  `< 0` → annihilate (return Inside).
+- Parallel: candidate normal `+z`, target's matching face normal `+z`
+  (both point the same way) → dot product `> 0` → asymmetric keep
+  (one operand returns Inside, the other Outside; the choice fixes
+  which side contributes the boundary face).
+
+PR8's `inject_identical_footprint_mesh` flips B's per-triangle winding
+(`[t[0], t[2], t[1]]`) when `same_direction == false`, so in the
+canary B's z=1 face is stored with `+z` normal (matching A's). But A
+and B have solid bodies on OPPOSITE sides of z=1, so the geometric
+"outward from solid" still differs. In identical-box union, both
+solids occupy the same body and outward-from-solid agrees. The
+stored triangle normal alone cannot distinguish these without
+context about the operand's body.
+
+### Recommended PR10 scope — Path A-refined
+
+**Goal**: classify cosurface triangles by their orientation
+relationship at the source (Cherchi STAGE2 merge) and propagate the
+distinction through to `label_sub_tri_raycast`.
+
+**Approach**:
+
+1. **STAGE2 winding analysis** in `cherchi/processing.rs`
+   `remove_degenerate_and_duplicated_triangles`. When the dedup
+   `Occupied` arm fires (two triangles share the same sorted vertex
+   triple), additionally inspect the original windings:
+   - Two CCW orderings `[a,b,c]` and a cyclic permutation
+     `[b,c,a]`/`[c,a,b]` are PARALLEL (same orientation).
+   - `[a,b,c]` paired with its reverse `[a,c,b]` (or any cyclic
+     permutation of the reverse) is ANTI-PARALLEL.
+   - Implement as: `Orientation::same(t1, t2)` returns
+     `Parallel | AntiParallel` based on whether the rotation that
+     maps t1's vertex ordering onto t2 is even (parallel) or odd
+     (anti-parallel) — equivalent to the sign of the permutation.
+
+2. **Plumb cosurface orientation through Cherchi labels and
+   `SubdividedMesh`**:
+   - Augment STAGE2's label vector with a parallel orientation map
+     `cosurface_orientation: Vec<Option<Orientation>>` (length =
+     output triangle count). `Some(Parallel)` for parallel-cosurface
+     merges; `Some(AntiParallel)` for anti-parallel; `None` for
+     non-merged tris.
+   - Propagate through `triangulation.rs` STAGE6 emit sites (parent
+     triangle inherits its orientation; new sub-tris from splitting
+     inherit the parent's orientation).
+   - Plumb into `SubTriangle` (currently `{verts: [usize; 3],
+     parent_tri: usize}`) as
+     `cosurface_orientation: Option<Orientation>`. Set in
+     `subdivide_mesh_pair_full_cherchi` from the Cherchi output.
+
+3. **Use the orientation in `label_sub_tri_raycast`**:
+   ```rust
+   match sub_tri.cosurface_orientation {
+       Some(Orientation::AntiParallel) => CellLabel::Inside,
+       // Parallel cosurface: each operand keeps its own face.
+       // For A-view, the face contributes A's boundary → Outside.
+       // For B-view, the face is redundant → Inside (drop one side).
+       // Determination of which view is "primary" follows the
+       // STAGE2 survivor: the dropped tri's mesh side is Inside;
+       // the survivor's mesh side is Outside.
+       Some(Orientation::Parallel) => /* per-side rule, see below */,
+       None => /* PR6 logic — primary then Hoffmann fallback */,
+   }
+   ```
+
+   The parallel-cosurface per-side rule needs more care: STAGE2
+   merges two tris with bitwise-OR'd labels (e.g., `0b0011`). The
+   `SubdividedMesh.tris_a` and `tris_b` arrays both contain the
+   merged tri, but only ONE side should classify Outside (boundary
+   contributor). The choice is somewhat arbitrary but must be
+   consistent between A-view and B-view to maintain twin pairing.
+   Recommended convention: STAGE2 survivor's source mesh contributes
+   Outside; the dropped tri's source mesh contributes Inside.
+
+**Estimated scope**: ~40 lines.
+- `cherchi/processing.rs` (~10 lines): orientation detection in the
+  merge arm; new return tuple includes
+  `cosurface_orientation: Vec<Option<Orientation>>`.
+- `cherchi/triangulation.rs` (~10 lines): plumb orientation through
+  STAGE6 emit sites; new return field.
+- `exact_mesh.rs` (~20 lines): augment `SubTriangle` struct;
+  `subdivide_mesh_pair_full_cherchi` writes the field;
+  `label_sub_tri_raycast` short-circuits on
+  `Some(AntiParallel)` and `Some(Parallel)`.
+
+**Open questions for PR10's investigation phase**:
+
+1. **Does offset-overlap (`test_full_pipeline_conservation`) produce
+   STAGE2 merges?** Suspect: NO. The offset-overlapping boxes
+   `[0,2]³` and `[1,0,0]-[3,2,2]` share the y=0, y=2, z=0, z=2 faces
+   in the x∈[1,2] sub-region, but those shared sub-regions only
+   become identical triangles AFTER `i_overlay` partial-overlap
+   injection (`inject_partial_overlap_mesh`), which is a different
+   code path than `inject_identical_footprint_mesh`. STAGE2 may or
+   may not see identical canonical tris depending on whether
+   `inject_partial_overlap_mesh` produces bitwise-identical
+   triangulations. PR10 must run `[stage2-merge]` instrumentation
+   on `test_full_pipeline_conservation` first to determine whether
+   Path A-refined alone closes that test, or whether PR11+ is needed
+   for the i_overlay-driven case.
+
+2. **Anti-parallel detection robustness**: STAGE2 currently keys on
+   the SORTED vertex triple. Both `[a,b,c]` and `[a,c,b]` produce
+   the same sorted key. The orientation check must look at the
+   ORIGINAL un-sorted triples (preserved in `in_tris[3*t_id..]`),
+   not the sorted key. Verify this in PR10's design phase.
+
+3. **Per-side rule for parallel cosurface**: the recommendation
+   above (STAGE2 survivor → Outside; dropped → Inside) is a
+   heuristic. Alternative: use the operand mesh_id ordering (A
+   always survives, B annihilates) for determinism. Pick whichever
+   matches `select_boolean_result`'s existing keep tables.
+
+### PR10 files
+
+- `crates/kernel/src/boolean/cherchi/processing.rs` — orientation
+  detection in STAGE2 merge.
+- `crates/kernel/src/boolean/cherchi/triangulation.rs` — plumb
+  orientation through STAGE6 (parent → children).
+- `crates/kernel/src/boolean/exact_mesh.rs` — `SubTriangle` field;
+  `label_sub_tri_raycast` short-circuit.
+- New test in `exact_mesh.rs`: ungate
+  `test_label_cells_cosurface_centroid_with_non_degenerate_ray_axis`
+  (currently `#[ignore]`d in PR9).
+- New test asserting parallel-cosurface returns Outside on A-view,
+  Inside on B-view (or whichever side rule lands).
+
+### PR10 verification
+
+Same checklist as PR1-PR8 plus:
+
+- Canary `test_stacked_box_union_correct_topology` GREEN.
+- `topology_extract` and `yang_integration` parallel-cosurface
+  baselines preserved (no Option 2-style regressions).
+- New regression tests in red-before-green per FIP §8.
+
 ## References
 
 - Yang et al. 2025 [#24] §4.5.5 — the paper, the spec.
@@ -558,3 +874,12 @@ NOT classifying the remaining z=1 boundary tris as cosurface
 - PR8 commit (coplanar-polygon-winding) — anti-parallel polygon-
   winding reversal in `split_brep_for_coplanar_pairs` and
   `inject_partial_overlap_mesh`.
+- PR9 commit (cosurface-annihilation, instrumentation-only) —
+  Phase A telemetry in `exact_mesh.rs`, `cherchi/processing.rs`,
+  `cherchi/triangulation.rs`; Phase B audit identifying the
+  `ray_cast_inside` `Some(_)`-bypasses-Hoffmann root cause and the
+  parallel-vs-anti-parallel cosurface architectural distinction.
+  Option 2 attempt reverted (5 parallel-cosurface regressions).
+  Pending regression test
+  `test_label_cells_cosurface_centroid_with_non_degenerate_ray_axis`
+  added with `#[ignore]` for PR10 to ungate.

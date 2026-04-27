@@ -130,10 +130,25 @@ pub(crate) fn triangulation_with_parents(
             tris_to_split.push(t_id);
         } else {
             // Triangle without intersections directly goes to the output list
-            new_tris.push(ts.tri_vert_id(t_id, 0));
-            new_tris.push(ts.tri_vert_id(t_id, 1));
-            new_tris.push(ts.tri_vert_id(t_id, 2));
-            new_labels.push(ts.tri_label(t_id));
+            let v0 = ts.tri_vert_id(t_id, 0);
+            let v1 = ts.tri_vert_id(t_id, 1);
+            let v2 = ts.tri_vert_id(t_id, 2);
+            let label = ts.tri_label(t_id);
+            if std::env::var("CHERCHI_DEBUG").as_deref() == Ok("1") {
+                eprintln!(
+                    "[cherchi-stage6] out_tri={} site=passthrough parent_t={} verts=[{},{},{}] label={:#06b}",
+                    new_labels.len(),
+                    t_id,
+                    v0,
+                    v1,
+                    v2,
+                    label
+                );
+            }
+            new_tris.push(v0);
+            new_tris.push(v1);
+            new_tris.push(v2);
+            new_labels.push(label);
             parent_tris.push(t_id);
         }
     }
@@ -213,10 +228,25 @@ fn triangulate_single_triangle(
         && t_segments.is_empty()
         && !aux.triangle_has_coplanars(t_id)
     {
-        new_tris.push(subm.vert_orig_id(0));
-        new_tris.push(subm.vert_orig_id(1));
-        new_tris.push(subm.vert_orig_id(2));
-        new_labels.push(ts.tri_label(t_id));
+        let v0 = subm.vert_orig_id(0);
+        let v1 = subm.vert_orig_id(1);
+        let v2 = subm.vert_orig_id(2);
+        let label = ts.tri_label(t_id);
+        if std::env::var("CHERCHI_DEBUG").as_deref() == Ok("1") {
+            eprintln!(
+                "[cherchi-stage6] out_tri={} site=split-noop parent_t={} verts=[{},{},{}] label={:#06b}",
+                new_labels.len(),
+                t_id,
+                v0,
+                v1,
+                v2,
+                label
+            );
+        }
+        new_tris.push(v0);
+        new_tris.push(v1);
+        new_tris.push(v2);
+        new_labels.push(label);
         return;
     }
 
@@ -246,10 +276,25 @@ fn triangulate_single_triangle(
         // Ported from triangulation.cpp:118-133
         for ti in 0..subm.num_tris() {
             let tri = subm.tri(ti);
-            new_tris.push(subm.vert_orig_id(tri[0]));
-            new_tris.push(subm.vert_orig_id(tri[1]));
-            new_tris.push(subm.vert_orig_id(tri[2]));
-            new_labels.push(ts.tri_label(t_id));
+            let v0 = subm.vert_orig_id(tri[0]);
+            let v1 = subm.vert_orig_id(tri[1]);
+            let v2 = subm.vert_orig_id(tri[2]);
+            let label = ts.tri_label(t_id);
+            if std::env::var("CHERCHI_DEBUG").as_deref() == Ok("1") {
+                eprintln!(
+                    "[cherchi-stage6] out_tri={} site=split-non-coplanar parent_t={} verts=[{},{},{}] label={:#06b}",
+                    new_labels.len(),
+                    t_id,
+                    v0,
+                    v1,
+                    v2,
+                    label
+                );
+            }
+            new_tris.push(v0);
+            new_tris.push(v1);
+            new_tris.push(v2);
+            new_labels.push(label);
         }
     }
 }
@@ -1413,15 +1458,35 @@ fn solve_pockets_in_coplanar_triangle(
                 // Pocket not added yet — output its triangles
                 for &t in &tri_pockets[p_id] {
                     let tri = subm.tri(t);
-                    new_tris.push(subm.vert_orig_id(tri[0]));
-                    new_tris.push(subm.vert_orig_id(tri[1]));
-                    new_tris.push(subm.vert_orig_id(tri[2]));
+                    let v0 = subm.vert_orig_id(tri[0]);
+                    let v1 = subm.vert_orig_id(tri[1]);
+                    let v2 = subm.vert_orig_id(tri[2]);
+                    if std::env::var("CHERCHI_DEBUG").as_deref() == Ok("1") {
+                        eprintln!(
+                            "[cherchi-stage6] out_tri={} site=pocket-new pocket={} verts=[{},{},{}] label={:#06b}",
+                            new_labels.len(),
+                            p_id,
+                            v0,
+                            v1,
+                            v2,
+                            label
+                        );
+                    }
+                    new_tris.push(v0);
+                    new_tris.push(v1);
+                    new_tris.push(v2);
                     new_labels.push(label);
                 }
             }
             Some(existing_pos) => {
                 // Pocket already present — merge labels
                 let num_tris = curr_p.len().saturating_sub(2);
+                if std::env::var("CHERCHI_DEBUG").as_deref() == Ok("1") {
+                    eprintln!(
+                        "[cherchi-stage6] pocket-merge pocket={} existing_pos={} num_tris={} extra_label={:#06b}",
+                        p_id, existing_pos, num_tris, label
+                    );
+                }
                 for i in 0..num_tris {
                     new_labels[existing_pos + i] |= label;
                 }

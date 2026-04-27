@@ -1379,16 +1379,38 @@ fn label_sub_tri_raycast(
     bvh: &BvhNode,
     global_max: [f64; 3],
     d_epsilon: f64,
+    target_label: &str,
 ) -> CellLabel {
     let centroid = sub_tri_centroid(verts, sub_tri);
+    let cherchi_debug = std::env::var("CHERCHI_DEBUG").as_deref() == Ok("1");
 
     // Primary classification — interior/exterior cases (the common path).
-    if let Some(inside) = ray_cast_inside(centroid, target_verts, target_tris, bvh, global_max) {
-        return if inside {
+    let primary = ray_cast_inside(centroid, target_verts, target_tris, bvh, global_max);
+    if let Some(inside) = primary {
+        let label = if inside {
             CellLabel::Inside
         } else {
             CellLabel::Outside
         };
+        if cherchi_debug {
+            let normal = sub_tri_unit_normal(verts, sub_tri);
+            eprintln!(
+                "[label-cells-trace] target={} sub_verts=[{},{},{}] centroid=[{:.6},{:.6},{:.6}] normal=[{:.6},{:.6},{:.6}] primary={:?} above=N/A below=N/A → {:?}",
+                target_label,
+                sub_tri.verts[0],
+                sub_tri.verts[1],
+                sub_tri.verts[2],
+                centroid[0],
+                centroid[1],
+                centroid[2],
+                normal[0],
+                normal[1],
+                normal[2],
+                primary,
+                label
+            );
+        }
+        return label;
     }
 
     // Degenerate: centroid lies exactly on the target operand's surface.
@@ -1410,7 +1432,7 @@ fn label_sub_tri_raycast(
     let above_class = ray_cast_inside(above, target_verts, target_tris, bvh, global_max);
     let below_class = ray_cast_inside(below, target_verts, target_tris, bvh, global_max);
 
-    match (above_class, below_class) {
+    let label = match (above_class, below_class) {
         // Boundary-coincident — Hoffmann convention: closed-solid Inside.
         (Some(true), Some(false)) | (Some(false), Some(true)) => CellLabel::Inside,
         // Both perturbations agree — not boundary-coincident, primary ray-cast
@@ -1446,7 +1468,26 @@ fn label_sub_tri_raycast(
                 CellLabel::Outside
             }
         }
+    };
+    if cherchi_debug {
+        eprintln!(
+            "[label-cells-trace] target={} sub_verts=[{},{},{}] centroid=[{:.6},{:.6},{:.6}] normal=[{:.6},{:.6},{:.6}] primary=None above={:?} below={:?} → {:?}",
+            target_label,
+            sub_tri.verts[0],
+            sub_tri.verts[1],
+            sub_tri.verts[2],
+            centroid[0],
+            centroid[1],
+            centroid[2],
+            normal[0],
+            normal[1],
+            normal[2],
+            above_class,
+            below_class,
+            label
+        );
     }
+    label
 }
 
 /// Compute the centroid of a triangle in the subdivided vertex array.
@@ -1584,6 +1625,7 @@ pub(crate) fn label_cells(
             }
         }
         labels_a.push(if let Some(ref bvh) = bvh_b {
+            // target_label "B" — A's sub-tri being classified against mesh B.
             label_sub_tri_raycast(
                 &subdivided.verts,
                 sub_tri,
@@ -1592,6 +1634,7 @@ pub(crate) fn label_cells(
                 bvh,
                 global_max_b,
                 effective_eps,
+                "B",
             )
         } else {
             // Empty target mesh — everything is outside.
@@ -1613,6 +1656,7 @@ pub(crate) fn label_cells(
             }
         }
         labels_b.push(if let Some(ref bvh) = bvh_a {
+            // target_label "A" — B's sub-tri being classified against mesh A.
             label_sub_tri_raycast(
                 &subdivided.verts,
                 sub_tri,
@@ -1621,6 +1665,7 @@ pub(crate) fn label_cells(
                 bvh,
                 global_max_a,
                 effective_eps,
+                "A",
             )
         } else {
             // Empty target mesh — everything is outside.
@@ -6179,6 +6224,7 @@ mod tests {
             &bvh,
             global_max,
             1e-6,
+            "test",
         );
 
         assert_eq!(
@@ -6188,6 +6234,155 @@ mod tests {
              (centroid on target surface, anti-parallel triangle normal) must classify \
              as Inside per the closed-solid convention. Got {:?} — likely the buggy \
              single-direction offset is still in effect.",
+            label
+        );
+    }
+
+    /// Pending regression test for PR9 §4.5.5 cosurface annihilation
+    /// completeness — see escalation note on the test below.
+    ///
+    /// PR6 made Hoffmann perturb-and-classify the fallback when primary
+    /// `ray_cast_inside` returned `None`. Phase B investigation (PR9) revealed
+    /// that `ray_cast_inside` only returns `None` when ALL THREE axes are
+    /// degenerate. For a centroid on the z=1 face of a unit cube, the +z axis
+    /// is degenerate (parallel to the face) but +x and +y rays cross the cube's
+    /// vertical side faces and resolve to `Some(_)`. Primary therefore returns
+    /// `Some(_)` for cosurface centroids, bypassing PR6's Hoffmann logic
+    /// entirely. Worse: when applied symmetrically (A's view of a cosurface tri
+    /// vs B's view of the same tri across stacked boxes), the +x ray-cast
+    /// produces ASYMMETRIC results because A and B treat the cosurface as a
+    /// boundary on opposite sides — the canary `test_stacked_box_union_correct_topology`
+    /// failure pattern.
+    ///
+    /// Naive Option 2 fix (currently NOT applied): run Hoffmann two-sided
+    /// perturbation unconditionally and override primary when above XOR below.
+    /// The XOR condition is the formal Hoffmann §5.3 boundary-coincidence test.
+    /// Confirmed to flip the canary GREEN, but introduces 5 regressions in
+    /// parallel-cosurface tests (identical-box union → 0 faces, expected 6;
+    /// offset-overlapping boxes → topology validation failure). See escalation.
+    ///
+    /// Setup mirrors the canary's B-target configuration: target = unit cube
+    /// at z∈[1,2] (i.e., placed ABOVE the candidate triangle's z=1 plane so
+    /// the centroid lies on the target's z=1 BOTTOM face). Sub-triangle
+    /// vertices `[(0,0,1), (1,0,1), (0,1,1)]` (CCW from above) with centroid
+    /// `(1/3, 1/3, 1.0)`. The +x ray-cast slab at this centroid crosses the
+    /// target's x=1 right face cleanly (still within the target's z∈[1,2]
+    /// range), so primary returns `Some(true)` — non-None and bypassing
+    /// PR6's gated Hoffmann path. This is exactly the case Option 2 must
+    /// handle: the centroid is geometrically on the target boundary, and
+    /// Hoffmann perturbation must override the primary heuristic.
+    ///
+    /// Red phase (PR6 baseline, Hoffmann gated on primary == None): primary
+    /// returns Some(true) from the +x axis → PR6 returns Inside without
+    /// running Hoffmann. The result happens to be Inside in this orientation,
+    /// but ONLY by accident of which side the +x ray was on. The asymmetry
+    /// surfaces only when comparing two ray-casts (A's view vs B's view of
+    /// a cosurface) — see canary `test_stacked_box_union_correct_topology`.
+    ///
+    /// To make this red-phase deterministic in a single-call test, we use
+    /// the configuration where primary returns `Some(false)` (Outside),
+    /// which is wrong for a closed-solid cosurface. Achieved by placing the
+    /// target cube slightly to the LEFT (x∈[-1,0]) so centroid (1/3, 1/3, 1)
+    /// is OUTSIDE the target's xy footprint — primary +x ray hits no faces,
+    /// returns Some(false). Hoffmann's above/below at z=1±eps both also
+    /// outside → both Some(false) → no override. Test would still return
+    /// Outside.
+    ///
+    /// **Cleanest configuration for a deterministic red phase**: target
+    /// cube z∈[1,2], same xy as the candidate. Centroid is on target's z=1
+    /// bottom face (cosurface). Primary +x ray hits target's x=1 face once
+    /// → Some(true) → PR6 returns Inside. Above (z=1+eps): inside target
+    /// (Some(true)). Below (z=1-eps): outside target (Some(false)). They
+    /// differ → Hoffmann override fires → Inside. Both PR6 (heuristic match)
+    /// and PR9 Option 2 (Hoffmann override) return Inside here, but the
+    /// path is different — PR6 short-circuits on primary, PR9 runs the full
+    /// boundary-coincidence test.
+    ///
+    /// To force a red phase that PR6 fails: orient the candidate triangle's
+    /// normal so the perturbation directions disagree with primary. Place
+    /// the target cube z∈[0,1] (BELOW the candidate's z=1 plane), so the
+    /// centroid is on target's z=1 TOP face. Primary +x ray-cast at z=1
+    /// grazes target's top edges → some axis returns Some(false) → PR6
+    /// returns Outside. Hoffmann: above (z=1+eps): outside target → Some(false).
+    /// Below (z=1-eps): inside target → Some(true). They differ → Hoffmann
+    /// override fires → PR9 returns Inside. Red phase = Outside, green = Inside.
+    /// This is the canary's A-view configuration.
+    ///
+    /// **CURRENTLY IGNORED** pending lead scope decision (PR9 escalation).
+    /// The naive Option 2 fix (run Hoffmann unconditionally; XOR overrides
+    /// primary) regresses 5 downstream tests in identical-box and offset-
+    /// overlapping configurations where parallel-cosurface (same outward
+    /// normal on both operands) gets over-annihilated. Anti-parallel
+    /// cosurface (canary case) and parallel cosurface (regressed case)
+    /// both produce Hoffmann XOR; distinguishing them requires comparing
+    /// the candidate sub-tri's normal against the matching target tri's
+    /// normal. See spec note in `specs/yang_555_identical_footprint.md`
+    /// PR9 Phase D escalation.
+    #[test]
+    #[ignore = "PR9 Option 2 regresses 5 parallel-cosurface tests; needs lead scope decision before ungating"]
+    fn test_label_cells_cosurface_centroid_with_non_degenerate_ray_axis() {
+        // Target mesh: unit cube z∈[0,1] (BELOW the candidate's z=1 plane).
+        // Centroid of the candidate sub-triangle will be exactly on this
+        // target's z=1 TOP face — cosurface.
+        let (target_verts, target_tris) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let bvh = build_bvh_for_tris(&target_verts, &target_tris).expect("BVH should build");
+        let global_max = compute_global_max(&target_verts);
+
+        // Candidate sub-triangle: matches the canary's [4,6,7] sub-tri layout
+        // (centroid at (2/3, 2/3, 1.0), normal +z parallel to A's outward
+        // normal). Vertex order (0,0,1) → (1,1,1) → (0,1,1) gives:
+        //   u = (1,1,0), w = (0,1,0), cross = (1*0 - 0*1, 0*0 - 1*0, 1*1 - 1*0) = (0,0,1) → +z.
+        let sub_verts = vec![[0.0, 0.0, 1.0], [1.0, 1.0, 1.0], [0.0, 1.0, 1.0]];
+        let sub_tri = SubTriangle {
+            verts: [0, 1, 2],
+            parent_tri: 0,
+        };
+
+        // Sanity check: verify the constructed triangle has +z normal.
+        let n = sub_tri_unit_normal(&sub_verts, &sub_tri);
+        assert!(
+            (n[0]).abs() < 1e-12 && (n[1]).abs() < 1e-12 && (n[2] - 1.0).abs() < 1e-12,
+            "test setup: triangle normal must be (0,0,+1), got {:?}",
+            n
+        );
+
+        // Sanity check: centroid lies exactly on target's z=1 face,
+        // off-center to avoid lying on the BVH triangulation diagonal.
+        let c = sub_tri_centroid(&sub_verts, &sub_tri);
+        assert!(
+            (c[2] - 1.0).abs() < 1e-12,
+            "test setup: centroid z must be exactly 1.0, got {}",
+            c[2]
+        );
+        assert!(
+            (c[0] - 1.0 / 3.0).abs() < 1e-12 && (c[1] - 2.0 / 3.0).abs() < 1e-12,
+            "test setup: centroid xy must be (1/3, 2/3) — off-center to avoid \
+             diagonal coincidence; got ({}, {})",
+            c[0],
+            c[1]
+        );
+
+        // Classify the cosurface sub-triangle.
+        let label = label_sub_tri_raycast(
+            &sub_verts,
+            &sub_tri,
+            &target_verts,
+            &target_tris,
+            &bvh,
+            global_max,
+            1e-6,
+            "test",
+        );
+
+        assert_eq!(
+            label,
+            CellLabel::Inside,
+            "Hoffmann 1989 §5.3 / Yang 2025 §4.4 / PR9 Option 2: cosurface centroid with \
+             non-degenerate primary ray-cast must classify as Inside per the closed-solid \
+             convention. Hoffmann perturb-and-classify (above XOR below) is the formal \
+             boundary-coincidence test and overrides primary's heuristic Some(_) result. \
+             Got {:?} — likely PR6's primary-only path is still in effect; PR9 Option 2 \
+             must run Hoffmann unconditionally.",
             label
         );
     }

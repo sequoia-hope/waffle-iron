@@ -231,7 +231,21 @@ pub(crate) fn remove_degenerate_and_duplicated_triangles(
             std::collections::hash_map::Entry::Occupied(e) => {
                 // Merge labels for duplicate triangle
                 let pos = *e.get();
+                let prev_label = labels[pos];
                 labels[pos] |= l;
+                if std::env::var("CHERCHI_DEBUG").as_deref() == Ok("1") {
+                    eprintln!(
+                        "[stage2-merge] sorted_key=[{},{},{}] dropped=tri{} dropped_label={:#06b} survivor=tri{} prev_label={:#06b} merged_label={:#06b}",
+                        tri_key[0],
+                        tri_key[1],
+                        tri_key[2],
+                        t_id,
+                        l,
+                        clean_to_orig[pos],
+                        prev_label,
+                        labels[pos]
+                    );
+                }
             }
         }
     }
