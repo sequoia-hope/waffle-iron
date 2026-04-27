@@ -3,31 +3,31 @@
   "version": 3,
   "document": {
     "name": "Assay F0006",
-    "created": "2026-03-28T08:18:15.787640448Z",
-    "modified": "2026-03-28T08:18:15.787640448Z"
+    "created": "2026-04-27T21:10:38.828096035Z",
+    "modified": "2026-04-27T21:10:38.828096035Z"
   },
   "tabs": [
     {
-      "id": "8afc9350-f336-4ca4-8fba-6a9c3d1608c0",
+      "id": "e3a88496-981c-4873-8ae9-491af9f57556",
       "name": "Part 1",
       "kind": {
         "type": "Part",
         "features": {
           "features": [
             {
-              "id": "506c5b64-01a7-43d2-9dd1-30cc7ba5539f",
+              "id": "d4b2fed4-26ef-4526-a292-30c72366f022",
               "name": "Sketch 1",
               "operation": {
                 "type": "Sketch",
                 "sketch": {
-                  "id": "506c5b64-01a7-43d2-9dd1-30cc7ba5539f",
+                  "id": "d4b2fed4-26ef-4526-a292-30c72366f022",
                   "plane": {
                     "kind": {
                       "type": "Face"
                     },
                     "anchor": {
                       "type": "Datum",
-                      "datum_id": "9d2db7bb-e899-408b-9e72-fb62e96beb0b"
+                      "datum_id": "eee664f5-8885-4ef3-9357-b8d745e2d041"
                     },
                     "selector": {
                       "type": "Role",
@@ -117,13 +117,13 @@
                       0.0002,
                       0.0002
                     ],
-                    "1": [
-                      -0.0002,
-                      -0.0002
-                    ],
                     "4": [
                       -0.0002,
                       0.0002
+                    ],
+                    "1": [
+                      -0.0002,
+                      -0.0002
                     ],
                     "2": [
                       0.0002,
@@ -153,12 +153,12 @@
               "references": []
             },
             {
-              "id": "efc72e9f-4c99-4adb-b7dc-89caab4c3d97",
+              "id": "e65496d2-c683-4808-862b-f07226f0a8c0",
               "name": "Extrude 1",
               "operation": {
                 "type": "Extrude",
                 "params": {
-                  "sketch_id": "506c5b64-01a7-43d2-9dd1-30cc7ba5539f",
+                  "sketch_id": "d4b2fed4-26ef-4526-a292-30c72366f022",
                   "profile_index": 0,
                   "depth": 0.0003,
                   "direction": null,
@@ -176,19 +176,19 @@
               "references": []
             },
             {
-              "id": "18ab155e-64d8-49ae-bdc6-7d34fadd9283",
+              "id": "6cc8d579-7d74-4876-a4c9-5cd530018d15",
               "name": "Sketch 2",
               "operation": {
                 "type": "Sketch",
                 "sketch": {
-                  "id": "18ab155e-64d8-49ae-bdc6-7d34fadd9283",
+                  "id": "6cc8d579-7d74-4876-a4c9-5cd530018d15",
                   "plane": {
                     "kind": {
                       "type": "Face"
                     },
                     "anchor": {
                       "type": "Datum",
-                      "datum_id": "62576dab-c72f-4d88-91a2-d6f6c5717d56"
+                      "datum_id": "8bad6c4c-bd86-4b2e-a9d0-e3d5ddc9d7ac"
                     },
                     "selector": {
                       "type": "Role",
@@ -314,12 +314,12 @@
               "references": []
             },
             {
-              "id": "9e077c12-328a-40d6-a100-f916abc6329a",
+              "id": "c1916b67-1f3d-4c2f-8a3b-4af4454aa9b6",
               "name": "Extrude 2",
               "operation": {
                 "type": "Extrude",
                 "params": {
-                  "sketch_id": "18ab155e-64d8-49ae-bdc6-7d34fadd9283",
+                  "sketch_id": "6cc8d579-7d74-4876-a4c9-5cd530018d15",
                   "profile_index": 0,
                   "depth": 0.0003,
                   "direction": null,
@@ -342,5 +342,5 @@
       }
     }
   ],
-  "active_tab": "8afc9350-f336-4ca4-8fba-6a9c3d1608c0"
+  "active_tab": "e3a88496-981c-4873-8ae9-491af9f57556"
 }

@@ -1,6 +1,6 @@
 {
   "id": "F0073",
-  "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+revolve(rectangle,axis-through-center) \u2014 self-intersection error",
+  "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+revolve(rectangle,axis-through-center) — self-intersection error",
   "master_seed": 0,
   "test_seed": 20001,
   "scale": 1.0,
@@ -40,7 +40,7 @@
       "increase",
       "error"
     ],
-    "expect_rebuild_error": false
+    "expect_rebuild_error": true
   },
   "generator_version": 4,
   "featured": true

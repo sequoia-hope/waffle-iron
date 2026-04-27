@@ -3,31 +3,31 @@
   "version": 3,
   "document": {
     "name": "Assay R0033",
-    "created": "2026-03-28T08:18:15.765205358Z",
-    "modified": "2026-03-28T08:18:15.765205358Z"
+    "created": "2026-04-27T21:10:38.809377579Z",
+    "modified": "2026-04-27T21:10:38.809377579Z"
   },
   "tabs": [
     {
-      "id": "edc86df7-2b4b-46d4-b760-27b321292da5",
+      "id": "78cc1737-a09a-4385-b29d-05d813039267",
       "name": "Part 1",
       "kind": {
         "type": "Part",
         "features": {
           "features": [
             {
-              "id": "43790696-7c4b-483d-b744-c38507d5b0e1",
+              "id": "8b041d1f-87a8-4019-a0e2-6be252fdab01",
               "name": "Sketch 1",
               "operation": {
                 "type": "Sketch",
                 "sketch": {
-                  "id": "43790696-7c4b-483d-b744-c38507d5b0e1",
+                  "id": "8b041d1f-87a8-4019-a0e2-6be252fdab01",
                   "plane": {
                     "kind": {
                       "type": "Face"
                     },
                     "anchor": {
                       "type": "Datum",
-                      "datum_id": "23e63297-ba47-4497-9392-4c82bf6e322d"
+                      "datum_id": "97d45313-6146-4fd1-9d6c-04a26b27cb9a"
                     },
                     "selector": {
                       "type": "Role",
@@ -153,17 +153,17 @@
               "references": []
             },
             {
-              "id": "400cb2d9-55f5-4c25-8427-36e5b90f341a",
+              "id": "738abedb-4ae9-4778-91d6-4a632b227fc9",
               "name": "Revolve 1",
               "operation": {
                 "type": "Revolve",
                 "params": {
-                  "sketch_id": "43790696-7c4b-483d-b744-c38507d5b0e1",
+                  "sketch_id": "8b041d1f-87a8-4019-a0e2-6be252fdab01",
                   "profile_index": 0,
                   "axis_origin": [
-                    0.022551571262547754,
-                    0.01964916197496517,
-                    0.0035509568777163554
+                    0.012661524642551247,
+                    0.011487646342666035,
+                    -0.009094541816515792
                   ],
                   "axis_direction": [
                     0.691397721582513,
@@ -179,19 +179,19 @@
               "references": []
             },
             {
-              "id": "d48b7d78-8d7c-40b8-861c-95181474836b",
+              "id": "ea622277-2754-4ce7-97d8-8860df552125",
               "name": "Sketch 2",
               "operation": {
                 "type": "Sketch",
                 "sketch": {
-                  "id": "d48b7d78-8d7c-40b8-861c-95181474836b",
+                  "id": "ea622277-2754-4ce7-97d8-8860df552125",
                   "plane": {
                     "kind": {
                       "type": "Face"
                     },
                     "anchor": {
                       "type": "Datum",
-                      "datum_id": "ae527964-9685-42a1-896c-c6f33a251225"
+                      "datum_id": "79d888dc-c1ed-4538-8e4f-5448ea44a54e"
                     },
                     "selector": {
                       "type": "Role",
@@ -240,17 +240,17 @@
               "references": []
             },
             {
-              "id": "95a178f2-031b-47dd-810a-6dbac8345b81",
+              "id": "20a9cb34-7d58-44a0-9f74-e5db678db3a9",
               "name": "Revolve 2",
               "operation": {
                 "type": "Revolve",
                 "params": {
-                  "sketch_id": "d48b7d78-8d7c-40b8-861c-95181474836b",
+                  "sketch_id": "ea622277-2754-4ce7-97d8-8860df552125",
                   "profile_index": 0,
                   "axis_origin": [
-                    0.012261238029855119,
-                    -0.005448135283519933,
-                    0.01997337414293127
+                    0.0004177644039150292,
+                    -0.016949770806710465,
+                    0.016955589750671053
                   ],
                   "axis_direction": [
                     0.8818647275151694,
@@ -271,5 +271,5 @@
       }
     }
   ],
-  "active_tab": "edc86df7-2b4b-46d4-b760-27b321292da5"
+  "active_tab": "78cc1737-a09a-4385-b29d-05d813039267"
 }

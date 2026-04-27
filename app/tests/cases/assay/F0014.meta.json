@@ -1,6 +1,6 @@
 {
   "id": "F0014",
-  "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Oblique planes (seed 7004)",
+  "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — Oblique planes (seed 7004)",
   "master_seed": 0,
   "test_seed": 7004,
   "scale": 1.0,
@@ -60,7 +60,7 @@
       "increase",
       "increase"
     ],
-    "expect_rebuild_error": false
+    "expect_rebuild_error": true
   },
   "generator_version": 4,
   "featured": true
