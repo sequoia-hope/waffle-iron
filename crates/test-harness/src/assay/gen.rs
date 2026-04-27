@@ -611,7 +611,29 @@ pub fn generate_case(master_seed: u64, index: usize) -> GeneratedCase {
                 let len = (tx * tx + ty * ty + tz * tz).sqrt();
                 [tx / len, ty / len, tz / len]
             };
-            // Offset axis 1.5× profile_size along tangent to keep entire profile on one side
+            // PR15: offset axis_origin along the in-plane perpendicular to the
+            // axis tangent, NOT along the tangent itself. PR14 Phase A finding
+            // (Defect 2): `tangent` IS the axis direction, so `axis_origin +
+            // k*tangent` parameterizes the same line — geometrically a no-op
+            // for line position. Yang 2025 §4.1 requires the revolve profile
+            // to lie entirely on one side of the axis (bijective face↔mesh
+            // tessellation precondition). The correct offset direction is
+            // `cross(op_normal, tangent)`, which lies in the sketch plane and
+            // is perpendicular to the axis line.
+            let perp_in_plane = cross3(op_normal, tangent);
+            let perp_len = (perp_in_plane[0] * perp_in_plane[0]
+                + perp_in_plane[1] * perp_in_plane[1]
+                + perp_in_plane[2] * perp_in_plane[2])
+                .sqrt();
+            let perp_unit = if perp_len > 1e-12 {
+                [
+                    perp_in_plane[0] / perp_len,
+                    perp_in_plane[1] / perp_len,
+                    perp_in_plane[2] / perp_len,
+                ]
+            } else {
+                perp_in_plane
+            };
             let axis_offset = profile_size * 1.5;
             Feature {
                 id: Uuid::new_v4(),
@@ -621,9 +643,9 @@ pub fn generate_case(master_seed: u64, index: usize) -> GeneratedCase {
                         sketch_id,
                         profile_index: 0,
                         axis_origin: [
-                            op_origin[0] + axis_offset * tangent[0],
-                            op_origin[1] + axis_offset * tangent[1],
-                            op_origin[2] + axis_offset * tangent[2],
+                            op_origin[0] + axis_offset * perp_unit[0],
+                            op_origin[1] + axis_offset * perp_unit[1],
+                            op_origin[2] + axis_offset * perp_unit[2],
                         ],
                         axis_direction: tangent,
                         angle: depth_or_angle,
@@ -3808,5 +3830,78 @@ mod tests {
             },
         ];
         assert_eq!(compute_euler_target(&ops), 2);
+    }
+
+    /// Geometric invariant: a revolve's `axis_origin` must be offset from the
+    /// sketch plane origin in a direction perpendicular to `axis_direction`.
+    ///
+    /// Rationale: for a line in 3D, only the perpendicular component of an
+    /// offset shifts the line. Adding `k * axis_direction` to `axis_origin`
+    /// leaves the axis line unchanged — the parametric family
+    /// `axis_origin + t * axis_direction` is invariant under such offsets.
+    /// Therefore offsetting the axis origin along `axis_direction` itself
+    /// is geometrically a no-op and fails to translate the revolution axis
+    /// off the sketched profile, causing the profile to self-intersect the
+    /// axis at θ=0 (PR14 Phase A engineer-a Defect 2; see
+    /// `specs/revolve_self_intersection.md` Generator Status section).
+    ///
+    /// Currently FAILS at gen.rs:614-628, which sets
+    ///   `axis_origin = op_origin + axis_offset * tangent`
+    ///   `axis_direction = tangent`
+    /// so `(axis_origin - op_origin) · axis_direction = axis_offset` ≈ 1.5 *
+    /// profile_size, far above the 1e-9 threshold.
+    #[test]
+    fn test_revolve_axis_offset_perpendicular_to_tangent() {
+        // Scan a window of cases to find at least one revolve operation.
+        // R0002 (index 1) is known to have revolves, but we scan a range
+        // to be robust to seed/index shifts and to exercise more samples.
+        let mut checked = 0usize;
+        for index in 0..20 {
+            let case = generate_case(42, index);
+            let (tree, _meta) =
+                file_format::load_project(&case.waffle_json).expect("waffle_json should parse");
+
+            // Build a sketch_id -> plane_origin map from sketch features.
+            let mut sketch_origin: HashMap<Uuid, [f64; 3]> = HashMap::new();
+            for f in &tree.features {
+                if let Operation::Sketch { sketch } = &f.operation {
+                    sketch_origin.insert(sketch.id, sketch.plane_origin);
+                }
+            }
+
+            for f in &tree.features {
+                if let Operation::Revolve { params } = &f.operation {
+                    let op_origin = *sketch_origin
+                        .get(&params.sketch_id)
+                        .expect("revolve sketch_id must reference a sketch in the same case");
+                    let tangent = params.axis_direction;
+                    let offset = [
+                        params.axis_origin[0] - op_origin[0],
+                        params.axis_origin[1] - op_origin[1],
+                        params.axis_origin[2] - op_origin[2],
+                    ];
+                    let dot =
+                        offset[0] * tangent[0] + offset[1] * tangent[1] + offset[2] * tangent[2];
+                    assert!(
+                        dot.abs() < 1e-9,
+                        "case R{:04}: axis_origin offset must be perpendicular to \
+                         axis_direction, but dot(offset, axis_direction) = {} \
+                         (|offset| ≈ axis_offset, indicating offset is parallel to \
+                         axis_direction — see gen.rs:614-628). \
+                         offset = {:?}, axis_direction = {:?}",
+                        index + 1,
+                        dot,
+                        offset,
+                        tangent,
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(
+            checked > 0,
+            "test scanned 20 cases but found no revolve operations — \
+             generator distribution may have shifted; widen the scan range"
+        );
     }
 }

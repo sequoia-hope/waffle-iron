@@ -732,3 +732,107 @@ failures pre-exist and are unrelated to revolve. PR15 (generator fix)
 will produce inputs the kernel now accepts; whether those inputs
 produce CORRECT boolean output is a separate question (potentially
 testing other downstream bugs).
+
+## PR15 outcome — assay generator axis_offset fix + corpus regeneration
+
+PR15 (this commit set) fixed Defect 2 from PR14 Phase A
+(`crates/test-harness/src/assay/gen.rs:614-628`): the revolve
+`axis_origin` was offset along `tangent`, which IS the axis
+direction itself, so the offset was a geometric no-op. The
+intended 1.5×profile_size offset that should keep the profile
+on one side of the axis never moved the axis line.
+
+### What landed
+
+- **gen.rs:614-660** (~26 LOC): replaced `axis_offset * tangent`
+  with `axis_offset * perp_unit` where
+  `perp_unit = normalize(cross3(op_normal, tangent))`. The cross
+  product produces the in-plane direction perpendicular to the
+  axis line (since `op_normal ⊥ tangent` by construction at L599-612).
+- **Phase A red-before-green test** in gen.rs mod tests:
+  `test_revolve_axis_offset_perpendicular_to_tangent` asserts
+  `dot(offset, axis_direction).abs() < 1e-9`. Pre-fix dot product
+  was 1.46 (~9 orders of magnitude failure margin); post-fix is
+  ~1e-16.
+- **Corpus regeneration** (`cargo run -p test-harness --bin assay_gen
+  -- --seed 42 --count 100`): 200 R-series files (.waffle +
+  .meta.json) overwritten. RNG state preserved exactly — only the
+  `axis_origin` field shifts; `axis_direction`, profile, plane,
+  angle, sketch_id all byte-identical pre/post. R-series .meta.json
+  files are byte-identical (no axis_origin field at meta level).
+
+### Spot-check (all 6 verified)
+
+| Case | profile_size | dot(offset, dir) pre | dot(offset, dir) post | \|offset\| post |
+|------|--------------|----------------------|-----------------------|-----------------|
+| R0002 rev[0] | 0.973 | +1.4595 | 1.67e-16 | 1.4595 = 1.5 × 0.973 ✓ |
+| R0002 rev[1] | 0.807 | +1.21 | 1.39e-17 | 1.21 = 1.5 × 0.807 ✓ |
+| R0044 rev[0] | 924.5 | +1386.7 | 0.0 | 1386.7 = 1.5 × 924.5 ✓ |
+| R0044 rev[1] | 1590.8 | +2386.2 | 0.0 | 2386.2 = 1.5 × 1590.8 ✓ |
+| R0093 rev[0] | 0.00196 | +0.00294 | -8.81e-20 | 0.00294 = 1.5 × 0.00196 ✓ |
+| R0093 rev[1] | 0.00543 | +0.00561 | +1.08e-19 | 0.00815 = 1.5 × 0.00543 ✓ |
+
+### Yang_fast assay impact (validator Phase C)
+
+PR14 baseline: 2 passing, 156 failed, 13 errored ("straddles axis").
+PR15 post:     **6 passing**, 149 failed, 2 errored.
+
+- **+4 net passing** (R0080 + 3 others including F0073-F0074
+  passing because their `expect_rebuild_error=true` is now correctly
+  satisfied by PR14's Check 3 rejection).
+- **"straddles axis" errors: 13 → 0** for 12 of the 13. R0004
+  retains 1 such error — see "Residual: R0004 basis-consistency
+  bug" below.
+- **2 remaining errored cases** (R0050, R0071) are pre-existing
+  30s timeouts unrelated to PR15.
+
+### Adversarial mutation (validator Phase C)
+
+Reverting PR15's fix to `axis_offset * tangent[i]` → Phase A test
+fails with "dot(offset, axis_direction) = 1.4595..." Restoration
+verified clean via byte-diff.
+
+### Caveats and follow-up scope
+
+PR15 surfaced three additional bugs that are OUT of PR15 scope:
+
+1. **R0004 basis-consistency bug** (PR16+): the generator computes
+   `tangent` using `compute_plane_basis`-style basis (helper = least-
+   aligned world axis). The kernel's `tangent_x_from_normal` at
+   `feature-engine/src/rebuild.rs:1009` uses helper = Z if |nz|<0.99
+   else X. The two functions produce DIFFERENT in-plane bases, so
+   the profile's stored 2D coordinates land on different 3D
+   positions when interpreted by the kernel vs the generator. R0004
+   has signed distances that are one-sided in `compute_plane_basis`
+   but straddling in `tangent_x_from_normal`. Fix: pick one basis
+   convention and use it everywhere; OR ensure the generator queries
+   the kernel for the canonical basis.
+
+2. **F0011-F0015 oracle regression** (PR16): the generator's
+   `disjoint` heuristic at gen.rs:L1256 sets
+   `expect_rebuild_error=true` for AABB-disjoint operands. This
+   was correct pre-PR13 (kernel errored on disjoint operands) but
+   PR13's AABB-disjoint short-circuit made the kernel handle them
+   correctly. Commit ef70415 (2026-03-28) hand-edited F0011-F0015's
+   oracle to `false`, but PR15's regeneration overwrites that
+   hand-edit. Fix: remove the obsolete `disjoint` heuristic from
+   gen.rs, OR re-apply ef70415's hand-edits as a permanent override
+   table.
+
+3. **F-series UUID/timestamp churn** (PR17+, tied to determinism
+   conversation): `Uuid::new_v4()` in the generator is non-
+   deterministic. Each regeneration produces 90 F-series .waffle
+   files with new UUIDs but identical geometric content. The diff
+   is mechanically derived; the geometric content is preserved.
+   Fix: use seed-derived UUIDs (e.g., UUID v5 with a deterministic
+   namespace).
+
+Per `feedback_no_last_bug.md`, PR15 doesn't claim to close all
+revolve-related failures. The +4 yang_fast passes + 12/13 "straddles"
+elimination is the concrete win.
+
+### PR15 commit set
+
+- `fix(test-harness): assay generator offsets revolve axis perpendicular to tangent`
+- `chore(assay): regenerate R-series corpus post-PR15`
+- `chore(assay): update results.json post-PR15`

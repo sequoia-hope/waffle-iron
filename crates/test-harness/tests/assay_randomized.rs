@@ -604,11 +604,10 @@ fn yang_fast() {
 
     // Known timeout cases (>90s with Yang pipeline) — skip entirely.
     let skip: HashSet<&str> = [
-        "R0003", "R0010", "R0012", "R0026", "R0028", "R0053", "R0059",
-        "R0065", "R0070", "R0085", "R0099", "R0100",
-        "F0063", "F0065", "F0067", "F0068", "F0069", "F0070", "F0071",
-        "F0072", "F0077", "F0078", "F0079", "F0080", "F0081", "F0082",
-        "F0083", "F0084", "F0085", "F0087", "F0088", "F0089", "F0090",
+        "R0003", "R0010", "R0012", "R0026", "R0028", "R0053", "R0059", "R0065", "R0070", "R0085",
+        "R0099", "R0100", "F0063", "F0065", "F0067", "F0068", "F0069", "F0070", "F0071", "F0072",
+        "F0077", "F0078", "F0079", "F0080", "F0081", "F0082", "F0083", "F0084", "F0085", "F0087",
+        "F0088", "F0089", "F0090",
     ]
     .iter()
     .copied()
@@ -637,7 +636,12 @@ fn yang_fast() {
             Ok(Some(r)) => {
                 let _ = handle.join();
                 if r.status != AssayStatus::Passed {
-                    println!("  {} {:?}: {}", r.id, r.status, &r.detail[..r.detail.len().min(150)]);
+                    println!(
+                        "  {} {:?}: {}",
+                        r.id,
+                        r.status,
+                        &r.detail[..r.detail.len().min(150)]
+                    );
                 }
                 match r.status {
                     AssayStatus::Passed => passed += 1,
