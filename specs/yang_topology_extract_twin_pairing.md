@@ -206,4 +206,148 @@ PR12's investigation should:
   `label_sub_tri_raycast`).
 - PR1-PR10 commit refs: `9fccebc`, `6695be1`, `12cf789`, `35ee814`,
   `17216a7`, `2b625f2`, `3d88fab`, `14f402f`, `0e526ef`, `5801571`.
-- PR11 commit ref: TBD (this commit).
+- PR11 commit ref: `f2272d5`.
+- PR12 commit ref: TBD (this commit).
+
+## PR12 outcome — `label_cells` is innocent for R0002; PR11's diagnosis was wrong
+
+PR12 (this commit) instrumented `ray_cast_inside` and
+`label_sub_tri_raycast` with `RAYCAST_DEBUG=1` per-axis traces and
+`fallback_path` tagging, then ran R0002 with full instrumentation
+(`RAYCAST_DEBUG=1 CHERCHI_DEBUG=1 TWIN_DEBUG=1`).
+
+**Finding**: PR11's R0002 diagnosis ("B's revolve cuts into A; B's
+interior wall-tris should be Inside A") was based on a false premise.
+**A and B are spatially disjoint operands.**
+
+```
+A sub-tri centroids (n=650):  x∈[-2.278,-0.958] y∈[1.400,2.697] z∈[1.514,2.356]
+B sub-tri centroids (n=12872): x∈[ 0.507,2.300] y∈[-1.259,0.573] z∈[-1.488,0.303]
+```
+
+The two revolve operands sit ~4.6 m apart per the meta JSON; profile
+sizes ~0.97 m and ~0.81 m respectively. A and B can't touch. Their
+bounding boxes are disjoint on all three axes.
+
+For Subtract of disjoint operands, the geometric truth is:
+- All 650 A-sub-tris are Outside B → all classify Outside ✓ correct
+- All 12872 B-sub-tris are Outside A → all classify Outside ✓ correct
+- Survival keep_a=Outside, keep_b=Inside → 650 A-tris kept, 0 B-tris kept
+- Result: A unchanged. **That is the correct answer for `A − B` when
+  A∩B = ∅.**
+
+`label_cells` is innocent. The output is geometrically correct.
+
+### Fallback-path distribution (R0002, 13522 ray-casts)
+
+```
+fallback_path=primary       13522
+fallback_path=hoffmann_*        0
+fallback_path=gwn               0
+fallback_path=cosurface_*       0
+
+primary=Some(true)              0
+primary=Some(false)         13522
+primary=None                    0
+
+axis=0(+x): used 13522 times, degenerate=N, candidates=0 → hit_count=0
+axis=1, axis=2: never reached (early-return on first non-degenerate axis)
+```
+
+Every ray query received zero BVH triangles because the ray's slab
+(1e-14 thick around centroid y/z) lay entirely outside the target
+mesh's y/z bbox. The candidates=0 result is correct — there ARE no
+triangles to test against.
+
+ULP analysis: at |x|=2.3, slab_eps 1e-14 ≈ 40 ULPs — well-resolved,
+not tolerance-degenerate. None of the 5 PR12 hypotheses (axis-pick
+degeneracy, tolerance/epsilon mismatch, BVH bug, GWN misfire,
+position bug) fires.
+
+### The 6th unanticipated cause
+
+**The actual bug is upstream of `label_cells`** in one of:
+
+1. **Revolve tessellation produces self-intersecting input meshes.**
+   The R0002 assay error message itself reports
+   `no_self_intersection: 10 inter-face triangle penetrations,
+   face pairs: (0,1), (0,1), (0,1), (0,2), (0,2), ...` — A's own
+   faces (face 0 vs face 1, face 0 vs face 2) penetrate each other in
+   the OUTPUT mesh. With A and B spatially disjoint, the boolean is
+   a no-op pass-through; if the OUTPUT mesh has self-intersections,
+   they came from A's INPUT mesh (or from Cherchi's processing of
+   A's input).
+
+2. **Pipeline orchestration: missing AABB-disjoint short-circuit.**
+   For Subtract of disjoint operands, the boolean should return A
+   unchanged without running Cherchi at all. Currently, R0002's
+   pipeline pushes 650 A-tris + 12872 B-tris through
+   `subdivide_mesh_pair_full_cherchi`, which reports STAGE4: 2253
+   intersecting pairs and STAGE5: 1519 with_intersections. With A and
+   B spatially disjoint, ALL of those pairs must be intra-A or intra-B
+   (input-mesh self-intersections) — Cherchi is correctly faithful to
+   pathological input.
+
+The 12 unpaired half-edges PR11 detected (signature `fwd_count=2,
+rev_count=0`, all on A-vs-A boundaries) are A's own intra-mesh
+boundary collisions from input self-intersections — NOT missing
+B-side reverse counterparts as PR11 hypothesized.
+
+### PR13+ scope
+
+Two parallel investigation threads:
+
+1. **Revolve tessellation audit**. `crates/kernel/src/feature/revolve.rs`
+   (and its triangulation pipeline) needs auditing for inter-face
+   self-intersections. The `no_self_intersection` oracle in the assay
+   captures this — count how many R-series cases have non-zero
+   inter-face penetrations even before any boolean is run. Fix the
+   tessellation source if the count is non-trivial.
+
+2. **AABB-disjoint short-circuit in pipeline orchestration**.
+   `crates/kernel/src/boolean/yang_integration.rs`'s
+   `yang_boolean_pipeline()` should compute A's bbox vs B's bbox; if
+   disjoint, return per-op:
+   - Union: A and B unchanged, side-by-side merge.
+   - Subtract: A unchanged.
+   - Intersect: empty.
+   No Cherchi pass needed. ~30-60 lines, single-file fix. PR13
+   candidate.
+
+### Generalization caveat (per `feedback_no_last_bug.md`)
+
+PR12's finding is specific to R0002 — disjoint operands. **Other
+R-series cases may have different root causes**: genuine `label_cells`
+bugs (operands DO overlap but classification is wrong), genuine
+cherchi STAGE bugs, or genuine twin-pairing bugs.
+
+PR13+'s investigation should pick a case where bounding boxes
+ACTUALLY overlap before assuming `label_cells` is suspect. Quick
+filter: look at the assay results.json `no_self_intersection: 0
+inter-face triangle penetrations` cases — those have clean input
+meshes, so any boolean failure is genuinely in the boolean pipeline,
+not the input. Conversely, cases with non-zero `inter-face triangle
+penetrations` are revolve-tessellation problems that any downstream
+fix can't address without first fixing the input.
+
+### What PR12 ships — instrumentation only
+
+#### Files modified
+
+- `crates/kernel/src/boolean/exact_mesh.rs`:
+  - `ray_cast_inside`: per-axis trace recorded into a fixed-size
+    `[Option<(degenerate, candidates_len, hit_count)>; 3]` and emitted
+    on `RAYCAST_DEBUG=1`. Behavior preserved (early-return on first
+    non-degenerate axis is unchanged).
+  - `label_sub_tri_raycast`: `fallback_path` tagging on each emit
+    site (`primary`, `hoffmann_above_below`, `hoffmann_one_side`,
+    `gwn`, `cosurface_antiparallel`, `cosurface_parallel`). Gated
+    on `CHERCHI_DEBUG=1 OR RAYCAST_DEBUG=1`.
+
+#### Verification
+
+- `RAYCAST_DEBUG` and `CHERCHI_DEBUG` unset = no behavior change.
+  `cargo test -p kernel --lib boolean::exact_mesh`: 95 passes / 6
+  fails / 2 ignored — matches PR11 baseline exactly.
+- `cargo fmt --check -p kernel`: clean.
+- Clippy: 93 errors (matches PR11 baseline; zero new warnings).

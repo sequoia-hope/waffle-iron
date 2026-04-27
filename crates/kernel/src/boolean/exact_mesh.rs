@@ -1294,6 +1294,18 @@ fn ray_cast_inside(
     // Centralised in units.rs per A8 (Tolerance Governance).
     let slab_eps = crate::units::TAU_EXACT_MESH_SLAB_EPS;
 
+    // PR12 instrumentation: per-axis trace of degenerate flag, candidate count,
+    // and hit count. Gated on RAYCAST_DEBUG=1; zero cost when off (no allocations,
+    // no formatting, no behavior change). Ref [#24] Yang 2025 §4.4 binary
+    // classification by ray-cast; Ref [#4] Shewchuk 1997 exact orient2d basis
+    // of the degenerate detection in `ray_tri_intersect_axis`.
+    let raycast_debug = std::env::var("RAYCAST_DEBUG").as_deref() == Ok("1");
+    // axis -> (degenerate, candidates_len, hit_count); None for axes not visited
+    // due to early-return on first non-degenerate axis.
+    let mut per_axis: [Option<(bool, usize, usize)>; 3] = [None, None, None];
+    let mut chosen_axis: Option<usize> = None;
+    let mut result: Option<bool> = None;
+
     for axis in 0..3 {
         // Build a ray slab AABB: extends from p along +axis to past the mesh.
         // The two perpendicular dimensions are a thin slab around p.
@@ -1341,12 +1353,51 @@ fn ray_cast_inside(
             }
         }
 
+        if raycast_debug {
+            per_axis[axis] = Some((degenerate, candidates.len(), hit_count));
+        }
+
         if degenerate {
             // Try next axis.
             continue;
         }
 
-        return Some(hit_count % 2 == 1);
+        if raycast_debug {
+            chosen_axis = Some(axis);
+            result = Some(hit_count % 2 == 1);
+        }
+        if !raycast_debug {
+            return Some(hit_count % 2 == 1);
+        }
+        // With instrumentation on, fall through to emit + return (semantics
+        // preserved: subsequent axes are NOT evaluated, just like production).
+        break;
+    }
+
+    if raycast_debug {
+        let fmt_axis = |a: usize| -> String {
+            match per_axis[a] {
+                Some((deg, cands, hits)) => format!(
+                    "degenerate={} candidates={} hit_count={}",
+                    if deg { "Y" } else { "N" },
+                    cands,
+                    hits
+                ),
+                None => "skipped".to_string(),
+            }
+        };
+        eprintln!(
+            "[raycast-debug] centroid=[{:.6},{:.6},{:.6}] axis=0(x): {} | axis=1(y): {} | axis=2(z): {} | chosen_axis={:?} result={:?}",
+            p[0],
+            p[1],
+            p[2],
+            fmt_axis(0),
+            fmt_axis(1),
+            fmt_axis(2),
+            chosen_axis,
+            result
+        );
+        return result;
     }
 
     // All three axes degenerate — caller must fall back to GWN.
@@ -1394,7 +1445,11 @@ fn label_sub_tri_raycast(
     target_label: &str,
 ) -> CellLabel {
     let centroid = sub_tri_centroid(verts, sub_tri);
-    let cherchi_debug = std::env::var("CHERCHI_DEBUG").as_deref() == Ok("1");
+    // PR12: gate on CHERCHI_DEBUG=1 OR RAYCAST_DEBUG=1 so that fallback_path
+    // emission is correlated with the per-axis ray-cast trace from
+    // `ray_cast_inside`. Either env var enables the [label-cells-trace] line.
+    let cherchi_debug = std::env::var("CHERCHI_DEBUG").as_deref() == Ok("1")
+        || std::env::var("RAYCAST_DEBUG").as_deref() == Ok("1");
 
     // PR10 Path A-refined: cosurface orientation short-circuit. Cherchi 2020
     // §5.4 / Hoffmann 1989 §5.3: when STAGE2 has classified the parent
@@ -1408,7 +1463,7 @@ fn label_sub_tri_raycast(
         Some(CosurfaceOrientation::AntiParallel) => {
             if cherchi_debug {
                 eprintln!(
-                    "[label-cells-trace] target={} sub_verts=[{},{},{}] orient=AntiParallel → Inside",
+                    "[label-cells-trace] target={} sub_verts=[{},{},{}] orient=AntiParallel fallback_path=cosurface_antiparallel → Inside",
                     target_label, sub_tri.verts[0], sub_tri.verts[1], sub_tri.verts[2]
                 );
             }
@@ -1422,7 +1477,7 @@ fn label_sub_tri_raycast(
             };
             if cherchi_debug {
                 eprintln!(
-                    "[label-cells-trace] target={} sub_verts=[{},{},{}] orient=Parallel → {:?}",
+                    "[label-cells-trace] target={} sub_verts=[{},{},{}] orient=Parallel fallback_path=cosurface_parallel → {:?}",
                     target_label, sub_tri.verts[0], sub_tri.verts[1], sub_tri.verts[2], label
                 );
             }
@@ -1442,7 +1497,7 @@ fn label_sub_tri_raycast(
         if cherchi_debug {
             let normal = sub_tri_unit_normal(verts, sub_tri);
             eprintln!(
-                "[label-cells-trace] target={} sub_verts=[{},{},{}] centroid=[{:.6},{:.6},{:.6}] normal=[{:.6},{:.6},{:.6}] primary={:?} above=N/A below=N/A → {:?}",
+                "[label-cells-trace] target={} sub_verts=[{},{},{}] centroid=[{:.6},{:.6},{:.6}] normal=[{:.6},{:.6},{:.6}] primary={:?} above=N/A below=N/A fallback_path=primary → {:?}",
                 target_label,
                 sub_tri.verts[0],
                 sub_tri.verts[1],
@@ -1479,46 +1534,54 @@ fn label_sub_tri_raycast(
     let above_class = ray_cast_inside(above, target_verts, target_tris, bvh, global_max);
     let below_class = ray_cast_inside(below, target_verts, target_tris, bvh, global_max);
 
-    let label = match (above_class, below_class) {
+    let (label, fallback_path) = match (above_class, below_class) {
         // Boundary-coincident — Hoffmann convention: closed-solid Inside.
-        (Some(true), Some(false)) | (Some(false), Some(true)) => CellLabel::Inside,
+        (Some(true), Some(false)) | (Some(false), Some(true)) => {
+            (CellLabel::Inside, "hoffmann_above_below")
+        }
         // Both perturbations agree — not boundary-coincident, primary ray-cast
         // was just unlucky on a grazing edge. Use the agreed classification.
-        (Some(a), Some(_)) => {
+        (Some(a), Some(_)) => (
             if a {
                 CellLabel::Inside
             } else {
                 CellLabel::Outside
-            }
-        }
+            },
+            "hoffmann_above_below",
+        ),
         // One perturbation degenerate, the other resolved — use the resolved one.
-        (Some(a), None) => {
+        (Some(a), None) => (
             if a {
                 CellLabel::Inside
             } else {
                 CellLabel::Outside
-            }
-        }
-        (None, Some(b)) => {
+            },
+            "hoffmann_one_side",
+        ),
+        (None, Some(b)) => (
             if b {
                 CellLabel::Inside
             } else {
                 CellLabel::Outside
-            }
-        }
+            },
+            "hoffmann_one_side",
+        ),
         // Both perturbations also degenerate — GWN fallback on centroid.
         (None, None) => {
             let w = winding_number_mesh(centroid, target_verts, target_tris);
-            if w >= WINDING_INSIDE_THRESHOLD {
-                CellLabel::Inside
-            } else {
-                CellLabel::Outside
-            }
+            (
+                if w >= WINDING_INSIDE_THRESHOLD {
+                    CellLabel::Inside
+                } else {
+                    CellLabel::Outside
+                },
+                "gwn",
+            )
         }
     };
     if cherchi_debug {
         eprintln!(
-            "[label-cells-trace] target={} sub_verts=[{},{},{}] centroid=[{:.6},{:.6},{:.6}] normal=[{:.6},{:.6},{:.6}] primary=None above={:?} below={:?} → {:?}",
+            "[label-cells-trace] target={} sub_verts=[{},{},{}] centroid=[{:.6},{:.6},{:.6}] normal=[{:.6},{:.6},{:.6}] primary=None above={:?} below={:?} fallback_path={} → {:?}",
             target_label,
             sub_tri.verts[0],
             sub_tri.verts[1],
@@ -1531,6 +1594,7 @@ fn label_sub_tri_raycast(
             normal[2],
             above_class,
             below_class,
+            fallback_path,
             label
         );
     }
