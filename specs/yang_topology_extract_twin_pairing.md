@@ -351,3 +351,249 @@ fix can't address without first fixing the input.
   fails / 2 ignored — matches PR11 baseline exactly.
 - `cargo fmt --check -p kernel`: clean.
 - Clippy: 93 errors (matches PR11 baseline; zero new warnings).
+
+## PR13 Phase A — Investigation + red-phase evidence
+
+### Insertion-point investigation
+
+- **Yang pipeline entry**: `crates/kernel/src/boolean/topology_extract.rs`,
+  `yang_boolean_pipeline` at L1340 (signature L1340–1360, body starts L1361).
+  Short-circuit must slot in before `subdivide_mesh_pair` at L1363.
+- **Analytical-path precedent**: `crates/kernel/src/boolean/mod.rs:1304-1329`
+  inside `boolean_op_from_polys_inner`. Pattern verified — per-axis bbox
+  disjoint check with `tau` margin, then per-op trivial result construction.
+
+### Caller chain — outcome (b): Yang path is fully separate
+
+The dispatch in `crates/kernel/src/waffle_kernel.rs:do_boolean` (L978) tries
+the Yang path FIRST inside `catch_unwind` (L1008–1015), via
+`yang_boolean_from_solids` → `yang_boolean_inner` → `yang_boolean_pipeline`.
+
+`yang_boolean_from_solids` at `yang_integration.rs:532` gates on the
+`YANG_BOOLEAN=1` env var: when set, the Yang pipeline runs and any error
+*other than* the "not enabled" gate aborts the request (per A15.6, line
+1042–1049 in `waffle_kernel.rs` — Yang errors must not silently degrade).
+When `YANG_BOOLEAN=1`, the analytical short-circuit at `mod.rs:1310` is
+**never reached** — control returns from `do_boolean` before the legacy
+dispatch.
+
+PR13 is therefore **outcome (b)** in the plan's risk register: the Yang-path
+short-circuit is the only line of defense for disjoint operands when
+`YANG_BOOLEAN=1`. Full scope, not belt-and-suspenders.
+
+### `de1_disjoint_boxes_union` baseline
+
+- **Default path** (no env var): `cargo test -p test-harness --test
+  boolean_edge_cases -- de1_disjoint_boxes_union --nocapture` → **PASS**
+  (analytical short-circuit at `mod.rs:1310` fires for 5×5×5 boxes 15
+  units apart, returns combined-faces compound).
+- **Yang path** (`YANG_BOOLEAN=1`): same test → **PASS** (slow path —
+  Cherchi runs but reports STAGE4 pairs=0 and STAGE5 with_intersections=0
+  for clean disjoint box meshes; flood-fill produces 12 faces / 24 tris
+  forming two valid disconnected manifolds).
+
+The Yang path passes *for clean disjoint boxes* because the input mesh
+has no self-intersections to amplify. R0002's failure mode is specific
+to revolve-tessellated input that already contains inter-face penetrations
+(per PR12 spec note above): in that case Cherchi faithfully reports
+intra-A and intra-B self-intersection pairs, which propagate to
+twin-pairing failures downstream.
+
+### Red tests written (Phase A artifact)
+
+Four tests added. All four are RED via compile failure (FIP §8 bug-fix
+variant accepts compile-failure red).
+
+| # | Test                                              | Location                                           | Red signal             |
+|---|---------------------------------------------------|----------------------------------------------------|------------------------|
+| 1 | `test_yang_disjoint_union_returns_two_bodies`     | `topology_extract.rs` `mod tests`                  | Compile-blocked by #4  |
+| 2 | `test_yang_disjoint_subtract_returns_a_unchanged` | `topology_extract.rs` `mod tests`                  | Compile-blocked by #4  |
+| 3 | `test_yang_disjoint_intersect_returns_empty`      | `topology_extract.rs` `mod tests`                  | Compile-blocked by #4  |
+| 4 | `test_aabb_compute_from_mesh`                     | `exact_mesh.rs` `mod tests`                        | `Aabb::from_mesh` does not exist |
+
+```
+$ cargo test -p kernel --lib boolean::exact_mesh::tests::test_aabb_compute_from_mesh 2>&1 | grep "^error\[E0599\]" | head -3
+error[E0599]: no function or associated item named `from_mesh` found for struct `exact_mesh::Aabb` in the current scope
+error[E0599]: no function or associated item named `from_mesh` found for struct `exact_mesh::Aabb` in the current scope
+error[E0599]: no function or associated item named `from_mesh` found for struct `exact_mesh::Aabb` in the current scope
+```
+
+Phase A probe (Test 4 body temporarily commented out, then restored):
+Tests 1, 2, and 3 currently **PASS** under the slow path on clean
+disjoint inputs (de1-class boxes 9 units apart). Their assertions are
+tight enough that a Phase B short-circuit must reproduce the same
+counts: Union → 6 A-faces + 6 B-faces, Euler 4, 0 unpaired HEs;
+Subtract → 6 A-faces + 0 B-faces, Euler 2, 0 unpaired HEs; Intersect →
+0 faces / 0 edges / empty `face_provenance`. Tests 1–3 therefore lock
+in the **target green** for both the slow path on clean inputs and the
+short-circuit Phase B will add. The red-phase signal lives in Test 4
+(compile failure), which is FIP §8-acceptable. Red-phase log:
+`/tmp/pr13_red_phase.log`.
+
+### Recommended scope for Phase B (implementer)
+
+- **Helpers needed**:
+  1. `Aabb::from_mesh(verts: &[[f64; 3]]) -> Option<Aabb>` in `exact_mesh.rs`
+     (single-pass min/max scan, returns None on empty input). Plan body
+     is ~10 LOC.
+  2. `yang_pipeline_result_for_disjoint(...)` in `topology_extract.rs`
+     (or inline) — per-op trivial `YangPipelineResult`. Two viable shapes:
+     - **Shape A — call existing helpers**: build a `SubdividedMesh`
+       manually (Subtract: A only, B-empty; Union: both, with B verts
+       offset; Intersect: empty), then run `label_cells` →
+       `face_survival_detect` → `flood_fill_patches` → `build_result_brep`.
+       Re-uses the production assembly. ~30–40 LOC.
+     - **Shape B — direct `ResultTopology` construction**: build the
+       arena directly from the input mesh tris via `build_result_brep`
+       on synthetic trim boundaries. Smaller for Subtract/Intersect,
+       grows for Union (two disconnected solids). ~50+ LOC.
+- **Insertion-point**: top of `yang_boolean_pipeline`
+  (`topology_extract.rs:1361`), before the `subdivide_mesh_pair` call
+  at L1363.
+- **Tau choice**: match `mod.rs:1310` — uses the `tau` returned by
+  `compute_adaptive_tau_weld`. The Yang path doesn't currently compute
+  this; safer choice is `crate::units::TAU_MODEL = 1e-7` (Yang-paper
+  `d_p` per `yang_integration.rs:541`). Document the rationale in the
+  short-circuit comment.
+- **Estimated lines**: ~50–80 LOC total (helper + short-circuit +
+  per-op trivial construction). Per the plan risk register (line 333),
+  if the Union path grows beyond ~100 LOC scope-creep should be
+  flagged to lead.
+- **Blocker for implementer (Union path complexity)**: the Phase B
+  plan flags a question — does `flood_fill_patches` correctly handle a
+  `SubdividedMesh` containing two disconnected components (no
+  cross-mesh intersections)? On clean disjoint box probes during Phase
+  A, the existing slow path *does* succeed: Cherchi reports 0 STAGE4
+  pairs, label_cells gives all-Outside, flood-fill produces 12 valid
+  faces. So Shape A above (call existing helpers with a manually
+  constructed `SubdividedMesh`) is the path of least resistance — the
+  short-circuit's only job is to skip Cherchi.
+
+## PR13 outcome — short-circuit shipped; +2 yang_fast, 57 short-circuit firings
+
+PR13 (this commit) shipped the AABB-disjoint short-circuit at
+`yang_boolean_pipeline` per the locked Phase A design. Path A-shape
+implemented as recommended.
+
+### What landed
+
+- **`Aabb::from_mesh(verts) -> Option<Aabb>`** in `exact_mesh.rs`
+  near the existing Aabb methods. Single-pass min/max scan; returns
+  `None` on empty input. ~22 LOC including doc comment.
+- **`Aabb` struct + fields** elevated from private to `pub(crate)` so
+  `topology_extract.rs` can read `min`/`max` in the disjointness
+  predicate.
+- **AABB-disjoint short-circuit** at the top of
+  `yang_boolean_pipeline` body (`topology_extract.rs:1361+`). Pattern
+  mirrors the analytical-path precedent at `mod.rs:1310-1329`:
+  ```rust
+  if let (Some(aabb_a), Some(aabb_b)) = (Aabb::from_mesh(verts_a), Aabb::from_mesh(verts_b)) {
+      let tau = crate::units::TAU_MODEL;
+      let disjoint = (0..3).any(|i| aabb_a.max[i] + tau < aabb_b.min[i] || aabb_b.max[i] + tau < aabb_a.min[i]);
+      if disjoint { return yang_pipeline_result_for_disjoint(...); }
+  }
+  ```
+- **`yang_pipeline_result_for_disjoint` helper** in
+  `topology_extract.rs`. Per-op:
+  - **Union**: build a `SubdividedMesh` containing A-tris and B-tris
+    with offset vertex indices, no cross-mesh intersections; reuse
+    existing `label_cells → face_survival_detect → flood_fill_patches → build_result_brep`.
+    Both bodies survive (each is Outside the other).
+  - **Subtract**: pass A only with empty B; existing empty-target
+    path at `exact_mesh.rs:1738-1752` returns Outside for all A.
+    Survival: A only. Topology: A's BRep unchanged.
+  - **Intersect**: return empty `YangPipelineResult` directly. No
+    SubdividedMesh needed.
+- ~150 LOC total (~108 helper + ~17 short-circuit + ~22 `Aabb::from_mesh`).
+
+### Test results
+
+| Test | Result |
+|------|--------|
+| `test_yang_disjoint_union_returns_two_bodies` | GREEN |
+| `test_yang_disjoint_subtract_returns_a_unchanged` | GREEN |
+| `test_yang_disjoint_intersect_returns_empty` | GREEN |
+| `test_aabb_compute_from_mesh` (6 cases) | GREEN |
+| canary `test_stacked_box_union_correct_topology` | GREEN |
+| `boolean::indirect_predicates` | 68/68 |
+| `boolean::cherchi` | 59/59 |
+| **kernel total** | **1175p/28f → 1179p/28f (+4 net)** |
+| Clippy | 93 errors → 93 errors (zero new warnings) |
+| Fmt | clean |
+
+### Yang_fast assay
+
+- PR12 baseline: **2 passing** of 157 non-timeout cases.
+- PR13 post: **4 passing**, 151 failed, 2 errored, 33 known timeouts.
+- **Net +2 passes.**
+- Short-circuit fired **57 times** across the assay run (visible via
+  `[yang-diag] AABB-disjoint short-circuit: skipping Cherchi for X`).
+  This means 57 disjoint-pair operations now skip Cherchi entirely.
+
+### Adversarial mutation results (validator Phase C)
+
+- **Mutation #1** (invert disjoint check `any` → `all`): the 4 disjoint
+  tests still PASS — Phase A test fixture is disjoint on ALL three
+  axes simultaneously, so `any` and `all` produce identical results
+  for this fixture. The disjoint check is mathematically correct
+  (per Yang §4.2.1 + analytical-path precedent at `mod.rs:1310`); the
+  test suite simply doesn't differentiate. **Test-coverage gap, not
+  bug.** Optional follow-up PR could add a "disjoint on x only,
+  overlapping on y/z" probe.
+- **Mutation #2** (Union ↔ Subtract paths): 1/3 disjoint tests fail
+  (Union test). Subtract still passes because flipping is_union under
+  Subtract just adds B's mesh which gets labeled Outside under
+  Subtract's keep-table — still 6 A-faces, 0 B-faces. Intersect
+  bypasses this branch (early return). **Per-op semantics ARE
+  load-bearing for the Union path.**
+- **Mutation #3** (bypass short-circuit entirely): 4/4 still pass via
+  slow path. Confirms slow-path-equivalence regression guarantee for
+  clean disjoint inputs.
+
+### R0002 status — still failing, root cause unchanged from PR12
+
+R0002's failure mode after PR13 is consistent with PR12's diagnosis:
+input mesh A has intra-A self-intersections (revolve tessellation
+produces inter-face penetrations for face pairs (0,1)x3, (0,2)x2,
+etc.). Trace:
+
+```
+[yang-diag] AABB-disjoint short-circuit: skipping Cherchi for Subtract
+result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1)
+```
+
+The short-circuit fires correctly (Cherchi is skipped). The
+`flood_fill_patches` invocation on A's input alone faithfully reports
+the 12 unpaired half-edges from A's intra-mesh boundary collisions.
+**PR13 is innocent for R0002**; the upstream root cause (revolve
+tessellation) remains a PR14+ concern.
+
+Per `feedback_no_last_bug.md` and `feedback_no_regression_chasing.md`:
+PR13's win is closing the boolean-pipeline-amplification contribution
+for ALL future disjoint-operand cases. The 57 short-circuit firings
+in the assay represent 57 fewer cases where Cherchi might amplify
+upstream input pathologies. PR13 does NOT claim to fix R0002.
+
+### Edge case behavior
+
+- **Touching operands** (A=[0,1]³, B=[1,2]³ sharing x=1 face): NOT
+  disjoint per `1+1e-7 < 1` = false. Falls through to Cherchi.
+  Correct (cosurface case must run through full pipeline).
+- **tau-close gap** (gap of 5e-8, below tau=1e-7): NOT disjoint.
+  Falls through. Correct.
+- **tau-far gap** (gap of 1.0, far above tau): IS disjoint.
+  Short-circuit fires. Correct.
+
+### PR14+ scope
+
+The dominant remaining yang_fast failure mode is unchanged from PR12:
+input mesh self-intersections from `revolve` tessellation. Two parallel
+follow-up threads:
+
+1. **Revolve tessellation audit** — fix `crates/kernel/src/feature/revolve.rs`
+   to not produce inter-face penetrations. Likely scope: investigate
+   cap+side stitching, axis-of-rotation handling, profile self-intersection
+   detection in the input.
+2. **Optional follow-up**: add a "partial-axis disjoint" red test
+   (operands disjoint on x but overlapping on y and z) to close the
+   Mutation #1 test-coverage gap surfaced by validator.

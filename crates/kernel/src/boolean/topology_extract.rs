@@ -13,8 +13,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::boolean::cherchi::Orientation as CosurfaceOrientation;
 use crate::boolean::exact_mesh::{
-    label_cells, subdivide_mesh_pair, CellLabel, CellLabeling, MeshBooleanOp, MeshId,
-    SubdividedMesh,
+    label_cells, subdivide_mesh_pair, Aabb, CellLabel, CellLabeling, MeshBooleanOp, MeshId,
+    SubTriangle, SubdividedMesh,
 };
 use crate::tessellation::bijective::BijectiveMap;
 use crate::topology::arena::TopoArena;
@@ -1336,6 +1336,137 @@ fn count_nc_edges(
         .count()
 }
 
+/// Build the trivial Yang pipeline result for spatially-disjoint operands.
+///
+/// Disjoint AABBs ⇒ disjoint solids ⇒ no intersections to compute. We
+/// construct a `SubdividedMesh` directly from the input meshes (one
+/// `SubTriangle` per input triangle, no Cherchi-introduced subdivision)
+/// and reuse the standard `label_cells → face_survival_detect →
+/// flood_fill_patches` chain. With disjoint operands, every label
+/// resolves to `Outside`, which gives the correct per-op result:
+///
+/// - Union     → both meshes survive (two disconnected bodies).
+/// - Subtract  → A survives, B drops out (A − ∅ = A under the empty-B
+///   view passed to `label_cells`).
+/// - Intersect → empty (returns immediately without invoking the chain).
+///
+/// Ref Yang 2025 §4.2.1 (conservative intersection detection — Octree
+/// analog) and Cherchi 2020 §5.1 (KdTree pre-filter).
+#[allow(clippy::too_many_arguments)]
+fn yang_pipeline_result_for_disjoint(
+    verts_a: &[[f64; 3]],
+    tris_a: &[[usize; 3]],
+    verts_b: &[[f64; 3]],
+    tris_b: &[[usize; 3]],
+    bijective_a: &BijectiveMap,
+    bijective_b: &BijectiveMap,
+    op: MeshBooleanOp,
+    d_p: f64,
+) -> Result<YangPipelineResult, KernelError> {
+    // Intersect: the result is empty regardless of input topology.
+    if matches!(op, MeshBooleanOp::Intersect) {
+        return Ok(YangPipelineResult {
+            topology: ResultTopology {
+                arena: TopoArena::new(),
+                face_provenance: BTreeMap::new(),
+                edge_is_intersection: BTreeMap::new(),
+            },
+            survival: FaceSurvivalMap {
+                groups: BTreeMap::new(),
+            },
+            subdivided: SubdividedMesh {
+                verts: Vec::new(),
+                tris_a: Vec::new(),
+                tris_b: Vec::new(),
+                params_a: Vec::new(),
+                params_b: Vec::new(),
+            },
+            remaining_failed_verts: 0,
+        });
+    }
+
+    // For Union and Subtract, route through the normal labeling/survival
+    // chain so the resulting B-Rep mirrors what an intersection-free run
+    // would produce. The shape of the SubdividedMesh depends on the op:
+    //
+    //   - Union:    include both A and B. label_cells sees both originals
+    //               so each side is correctly labeled "Outside" the other.
+    //   - Subtract: include A only, with empty B passed to label_cells so
+    //               every A sub-tri gets `Outside` (A − ∅ ⇒ A).
+    let sub_tris_a: Vec<SubTriangle> = tris_a
+        .iter()
+        .enumerate()
+        .map(|(i, t)| SubTriangle {
+            verts: *t,
+            parent_tri: i,
+            cosurface_orientation: None,
+        })
+        .collect();
+
+    // For Union we include both meshes in the combined SubdividedMesh and
+    // pass B's originals to label_cells; for Subtract we include only A
+    // and pass empty B-originals so every A sub-tri labels as `Outside`.
+    let is_union = matches!(op, MeshBooleanOp::Union);
+    let combined_verts: Vec<[f64; 3]> = if is_union {
+        let mut v = Vec::with_capacity(verts_a.len() + verts_b.len());
+        v.extend_from_slice(verts_a);
+        v.extend_from_slice(verts_b);
+        v
+    } else {
+        verts_a.to_vec()
+    };
+    let sub_tris_b: Vec<SubTriangle> = if is_union {
+        let offset_b = verts_a.len();
+        tris_b
+            .iter()
+            .enumerate()
+            .map(|(i, t)| SubTriangle {
+                verts: [t[0] + offset_b, t[1] + offset_b, t[2] + offset_b],
+                parent_tri: i,
+                cosurface_orientation: None,
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let (ext_verts_b, ext_tris_b): (&[[f64; 3]], &[[usize; 3]]) = if is_union {
+        (verts_b, tris_b)
+    } else {
+        (&[][..], &[][..])
+    };
+
+    let n_combined = combined_verts.len();
+    let subdivided = SubdividedMesh {
+        verts: combined_verts,
+        tris_a: sub_tris_a,
+        tris_b: sub_tris_b,
+        params_a: vec![None; n_combined],
+        params_b: vec![None; n_combined],
+    };
+
+    // Reuse the normal labeling pass. With disjoint inputs and the
+    // op-specific external mesh selection above, every sub-triangle is
+    // labeled `Outside`.
+    let labeling = label_cells(
+        &subdivided,
+        verts_a,
+        tris_a,
+        ext_verts_b,
+        ext_tris_b,
+        None,
+        d_p,
+    )?;
+    let survival = face_survival_detect(&subdivided, &labeling, op, bijective_a, bijective_b);
+    let topology = flood_fill_patches(&survival, &subdivided);
+
+    Ok(YangPipelineResult {
+        topology,
+        survival,
+        subdivided,
+        remaining_failed_verts: 0,
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn yang_boolean_pipeline(
     verts_a: &[[f64; 3]],
@@ -1358,6 +1489,40 @@ pub(crate) fn yang_boolean_pipeline(
     arena_a: Option<&crate::topology::arena::TopoArena>,
     arena_b: Option<&crate::topology::arena::TopoArena>,
 ) -> Result<YangPipelineResult, KernelError> {
+    // PR13: AABB-disjoint pre-filter per Yang 2025 §4.2.1 (conservative
+    // intersection detection — Octree/Gauss-map analog). Mirrors the
+    // analytical-path precedent at boolean::mod.rs:1304-1329. When the
+    // operand bounding boxes do not overlap on at least one axis (with a
+    // TAU_MODEL margin), the operands are spatially disjoint and the
+    // result is geometrically trivial — Cherchi is skipped entirely.
+    //
+    // Strictly conservative: disjoint AABBs ⇒ disjoint solids ⇒ the
+    // trivial per-op result IS the geometric truth. The inclusive-margin
+    // form (`max + tau < min`) errs on the side of running Cherchi when
+    // boxes are within tau of touching, so cosurface-coplanar-by-touch
+    // cases are still routed through the normal pipeline.
+    if let (Some(aabb_a), Some(aabb_b)) = (Aabb::from_mesh(verts_a), Aabb::from_mesh(verts_b)) {
+        let tau = crate::units::TAU_MODEL;
+        let disjoint = (0..3)
+            .any(|i| aabb_a.max[i] + tau < aabb_b.min[i] || aabb_b.max[i] + tau < aabb_a.min[i]);
+        if disjoint {
+            eprintln!(
+                "[yang-diag] AABB-disjoint short-circuit: skipping Cherchi for {:?}",
+                op
+            );
+            return yang_pipeline_result_for_disjoint(
+                verts_a,
+                tris_a,
+                verts_b,
+                tris_b,
+                bijective_a,
+                bijective_b,
+                op,
+                d_p,
+            );
+        }
+    }
+
     // Stage 1: Subdivide both meshes along their mutual intersections.
     let mut remaining_failed_verts = 0usize;
     let mut subdivided = subdivide_mesh_pair(verts_a, tris_a, verts_b, tris_b, deadline, d_p)?;
@@ -6644,5 +6809,273 @@ mod tests {
         );
 
         assert!(n_faces > 0, "F0004: should have some faces");
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // PR13 — AABB-disjoint short-circuit red tests.
+    //
+    // For spatially disjoint operands (bounding boxes do not overlap on
+    // any axis), the boolean result is geometrically trivial:
+    //
+    //   - Union     → A and B side-by-side as two disconnected bodies
+    //   - Subtract  → A unchanged
+    //   - Intersect → empty
+    //
+    // The Yang pipeline currently runs Cherchi on disjoint inputs anyway,
+    // which is wasteful and (per spec note PR12) amplifies upstream
+    // input-mesh self-intersections into twin-pairing failures. Phase B
+    // adds a short-circuit at the top of `yang_boolean_pipeline` that
+    // produces these trivial results without invoking Cherchi.
+    //
+    // These tests assert the *result-state* invariants that must hold
+    // both today (slow path on clean inputs) and after the short-circuit
+    // is added (fast path). On clean disjoint boxes the slow path may
+    // already satisfy some assertions; the tests still serve as the
+    // green target for Phase B and as regression guards thereafter.
+    //
+    // Refs:
+    //   - Yang 2025 §4.2.1 (conservative intersection detection — bbox pre-filter)
+    //   - mod.rs:1304-1329 (analytical-path precedent)
+    //   - specs/yang_topology_extract_twin_pairing.md (PR12 R0002 finding)
+    // ══════════════════════════════════════════════════════════════════
+
+    /// Helpers shared by the three PR13 disjoint tests.
+    fn pr13_disjoint_inputs() -> (
+        Vec<[f64; 3]>,
+        Vec<[usize; 3]>,
+        Vec<[f64; 3]>,
+        Vec<[usize; 3]>,
+        BijectiveMap,
+        BijectiveMap,
+    ) {
+        // A = [0,1]³, B = [10,11]³ — disjoint on x by ~9 units.
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let (verts_b, tris_b) = make_box_mesh([10.0, 10.0, 10.0], [11.0, 11.0, 11.0]);
+        // Box mesh: 12 tris, 2 per face → face = tri / 2.
+        let bijective_a =
+            BijectiveMap::from_tri_face_ids((0..tris_a.len()).map(|i| FaceIdx(i / 2)).collect());
+        let bijective_b =
+            BijectiveMap::from_tri_face_ids((0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect());
+        (verts_a, tris_a, verts_b, tris_b, bijective_a, bijective_b)
+    }
+
+    /// Count half-edges whose twin pointer is not symmetric (i.e.
+    /// `arena.half_edges[he.twin].twin != he`). This is the same check
+    /// `validate_yang_result_topology` performs in `yang_integration.rs`,
+    /// inlined here so this test mod has no dependency on yang_integration.
+    fn count_unpaired_half_edges(arena: &crate::topology::arena::TopoArena) -> usize {
+        let n_he = arena.half_edges.len();
+        if n_he == 0 {
+            return 0;
+        }
+        (0..n_he)
+            .filter(|&i| {
+                let twin_idx = arena.half_edges[i].twin.0;
+                twin_idx >= n_he || arena.half_edges[twin_idx].twin.0 != i
+            })
+            .count()
+    }
+
+    /// PR13 Test 1: Union of two disjoint boxes.
+    ///
+    /// A = [0,1]³, B = [10,11]³. The result must be two disconnected
+    /// closed manifold bodies: 12 source faces (6 per box), Euler = 4
+    /// (two bodies × χ=2), and no unpaired half-edges.
+    #[test]
+    fn test_yang_disjoint_union_returns_two_bodies() {
+        let (verts_a, tris_a, verts_b, tris_b, bijective_a, bijective_b) = pr13_disjoint_inputs();
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Union,
+            None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
+            None,
+            None,
+        )
+        .expect("yang_boolean_pipeline must not error for disjoint Union")
+        .topology;
+
+        let n_faces = result.arena.faces.len();
+        let n_edges = result.arena.edges.len();
+        let n_verts = result.arena.vertices.len();
+        let unpaired = count_unpaired_half_edges(&result.arena);
+
+        // Both meshes must contribute faces (two-body Union).
+        let a_faces = result
+            .face_provenance
+            .values()
+            .filter(|s| s.mesh_id == MeshId::A)
+            .count();
+        let b_faces = result
+            .face_provenance
+            .values()
+            .filter(|s| s.mesh_id == MeshId::B)
+            .count();
+
+        assert_eq!(
+            a_faces, 6,
+            "Disjoint Union must include all 6 A-source faces, got {a_faces}. \
+             face_provenance={:?}",
+            result.face_provenance,
+        );
+        assert_eq!(
+            b_faces, 6,
+            "Disjoint Union must include all 6 B-source faces, got {b_faces}. \
+             face_provenance={:?}",
+            result.face_provenance,
+        );
+        assert_eq!(
+            n_faces, 12,
+            "Disjoint Union must have exactly 12 faces (6 per box), got {n_faces}",
+        );
+
+        // No twin-pairing failures — every half-edge's twin must be symmetric.
+        assert_eq!(
+            unpaired, 0,
+            "Disjoint Union must have zero unpaired half-edges, got {unpaired} \
+             (V={n_verts}, E={n_edges}, F={n_faces})",
+        );
+
+        // Euler characteristic = 2 × χ(box) = 4 for two disconnected closed
+        // manifold bodies.
+        let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+        assert_eq!(
+            euler, 4,
+            "Two disconnected closed manifolds must have Euler V-E+F = 4, \
+             got {euler} (V={n_verts}, E={n_edges}, F={n_faces})",
+        );
+    }
+
+    /// PR13 Test 2: Subtract A − B with disjoint operands.
+    ///
+    /// A = [0,1]³, B = [10,11]³. The result must be A unchanged: only
+    /// A-source faces appear in `face_provenance`, the arena is a single
+    /// closed manifold (Euler = 2), and there are no unpaired half-edges.
+    #[test]
+    fn test_yang_disjoint_subtract_returns_a_unchanged() {
+        let (verts_a, tris_a, verts_b, tris_b, bijective_a, bijective_b) = pr13_disjoint_inputs();
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Subtract,
+            None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
+            None,
+            None,
+        )
+        .expect("yang_boolean_pipeline must not error for disjoint Subtract")
+        .topology;
+
+        let n_faces = result.arena.faces.len();
+        let n_edges = result.arena.edges.len();
+        let n_verts = result.arena.vertices.len();
+        let unpaired = count_unpaired_half_edges(&result.arena);
+
+        let a_faces = result
+            .face_provenance
+            .values()
+            .filter(|s| s.mesh_id == MeshId::A)
+            .count();
+        let b_faces = result
+            .face_provenance
+            .values()
+            .filter(|s| s.mesh_id == MeshId::B)
+            .count();
+
+        assert_eq!(
+            a_faces, 6,
+            "Disjoint Subtract must include all 6 A-source faces (A unchanged), \
+             got {a_faces}. face_provenance={:?}",
+            result.face_provenance,
+        );
+        assert_eq!(
+            b_faces, 0,
+            "Disjoint Subtract must have ZERO B-source faces (B is empty in \
+             A − B when disjoint), got {b_faces}. face_provenance={:?}",
+            result.face_provenance,
+        );
+        assert_eq!(
+            n_faces, 6,
+            "Disjoint Subtract must have exactly 6 faces (A unchanged), got {n_faces}",
+        );
+
+        assert_eq!(
+            unpaired, 0,
+            "Disjoint Subtract must have zero unpaired half-edges, got {unpaired} \
+             (V={n_verts}, E={n_edges}, F={n_faces})",
+        );
+
+        // Euler V-E+F = 2 (single closed manifold = A's box).
+        let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+        assert_eq!(
+            euler, 2,
+            "Disjoint Subtract result is one closed manifold; Euler must be 2, \
+             got {euler} (V={n_verts}, E={n_edges}, F={n_faces})",
+        );
+    }
+
+    /// PR13 Test 3: Intersect of disjoint operands → empty.
+    ///
+    /// A = [0,1]³, B = [10,11]³. A ∩ B = ∅ when their bounding boxes are
+    /// disjoint, so the result topology must be empty.
+    #[test]
+    fn test_yang_disjoint_intersect_returns_empty() {
+        let (verts_a, tris_a, verts_b, tris_b, bijective_a, bijective_b) = pr13_disjoint_inputs();
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Intersect,
+            None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
+            None,
+            None,
+        )
+        .expect("yang_boolean_pipeline must not error for disjoint Intersect")
+        .topology;
+
+        assert_eq!(
+            result.arena.faces.len(),
+            0,
+            "Disjoint Intersect must produce zero faces, got {}",
+            result.arena.faces.len(),
+        );
+        assert_eq!(
+            result.arena.edges.len(),
+            0,
+            "Disjoint Intersect must produce zero edges, got {}",
+            result.arena.edges.len(),
+        );
+        assert!(
+            result.face_provenance.is_empty(),
+            "Disjoint Intersect must produce empty face_provenance, got {} entries",
+            result.face_provenance.len(),
+        );
+        assert_eq!(
+            count_unpaired_half_edges(&result.arena),
+            0,
+            "Disjoint Intersect must have zero unpaired half-edges (empty arena)",
+        );
     }
 }

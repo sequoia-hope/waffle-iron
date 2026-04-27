@@ -60,12 +60,35 @@ pub(crate) struct IndirectPoint {
 
 /// Axis-aligned bounding box for broad-phase triangle pair culling.
 #[derive(Debug, Clone, Copy)]
-struct Aabb {
-    min: [f64; 3],
-    max: [f64; 3],
+pub(crate) struct Aabb {
+    pub(crate) min: [f64; 3],
+    pub(crate) max: [f64; 3],
 }
 
 impl Aabb {
+    /// Compute the AABB enclosing every vertex in `verts`. Returns `None`
+    /// for an empty input. Used by the Yang-pipeline AABB-disjoint
+    /// short-circuit (Yang 2025 §4.2.1: conservative intersection
+    /// detection — Octree/Gauss-map analog).
+    pub(crate) fn from_mesh(verts: &[[f64; 3]]) -> Option<Self> {
+        if verts.is_empty() {
+            return None;
+        }
+        let mut min = verts[0];
+        let mut max = verts[0];
+        for v in &verts[1..] {
+            for i in 0..3 {
+                if v[i] < min[i] {
+                    min[i] = v[i];
+                }
+                if v[i] > max[i] {
+                    max[i] = v[i];
+                }
+            }
+        }
+        Some(Aabb { min, max })
+    }
+
     /// Build AABB from a triangle's three vertex positions.
     fn from_triangle(v0: &[f64; 3], v1: &[f64; 3], v2: &[f64; 3]) -> Self {
         Aabb {
@@ -5708,6 +5731,72 @@ mod tests {
         let m = a.merge(&b);
         assert_eq!(m.min, [0.0, -1.0, 0.0]);
         assert_eq!(m.max, [3.0, 1.0, 2.0]);
+    }
+
+    /// PR13 red test: `Aabb::from_mesh` does not yet exist. This test
+    /// exercises the helper that the disjoint short-circuit needs to compute
+    /// the bbox of an entire vertex set in one pass. Compile-failure red per
+    /// FIP §8 (bug-fix variant) — Phase B implementer adds the method.
+    ///
+    /// Refs:
+    ///   - Yang 2025 §4.2.1 (conservative intersection detection — bbox pre-filter)
+    ///   - mod.rs:1288-1310 (analytical-path precedent: per-mesh bbox loop).
+    #[test]
+    fn test_aabb_compute_from_mesh() {
+        // Case 1: empty mesh → None.
+        let empty: Vec<[f64; 3]> = vec![];
+        assert!(
+            Aabb::from_mesh(&empty).is_none(),
+            "empty mesh must yield None"
+        );
+
+        // Case 2: single triangle.
+        let single = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+        let aabb = Aabb::from_mesh(&single).expect("non-empty mesh must yield Some");
+        assert_eq!(aabb.min, [0.0, 0.0, 0.0]);
+        assert_eq!(aabb.max, [1.0, 1.0, 0.0]);
+
+        // Case 3: two non-overlapping triangles → combined bbox.
+        let two_tris = vec![
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [10.0, 10.0, 10.0],
+            [11.0, 10.0, 10.0],
+            [10.0, 11.0, 10.0],
+        ];
+        let aabb = Aabb::from_mesh(&two_tris).expect("non-empty mesh must yield Some");
+        assert_eq!(aabb.min, [0.0, 0.0, 0.0]);
+        assert_eq!(aabb.max, [11.0, 11.0, 10.0]);
+
+        // Case 4: axis-aligned cube (8 verts).
+        let cube = vec![
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [0.0, 1.0, 1.0],
+        ];
+        let aabb = Aabb::from_mesh(&cube).expect("non-empty mesh must yield Some");
+        assert_eq!(aabb.min, [0.0, 0.0, 0.0]);
+        assert_eq!(aabb.max, [1.0, 1.0, 1.0]);
+
+        // Case 5: rotated mesh — AABB still encloses all verts (axis-aligned,
+        // not the OBB). Triangle rotated ~45° about z.
+        let s = std::f64::consts::FRAC_1_SQRT_2;
+        let rotated = vec![[s, s, 0.0], [-s, s, 0.0], [0.0, -1.0, 1.0]];
+        let aabb = Aabb::from_mesh(&rotated).expect("non-empty mesh must yield Some");
+        assert_eq!(aabb.min, [-s, -1.0, 0.0]);
+        assert_eq!(aabb.max, [s, s, 1.0]);
+
+        // Case 6: single-point degenerate mesh — min == max.
+        let point = vec![[2.5, -3.7, 1.1]];
+        let aabb = Aabb::from_mesh(&point).expect("single-point mesh must yield Some");
+        assert_eq!(aabb.min, [2.5, -3.7, 1.1]);
+        assert_eq!(aabb.max, [2.5, -3.7, 1.1]);
     }
 
     // ── BVH tests ───────────────────────────────────────────────────────
