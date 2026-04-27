@@ -27,6 +27,11 @@ use self::triangle_soup::TriangleSoup;
 use self::triangulation::triangulation_with_parents;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+// PR10 Path A-refined: re-export the cosurface orientation enum so consumers
+// (e.g. `exact_mesh::SubTriangle`) can plumb it through. Cherchi 2020 §5.4 /
+// Hoffmann 1989 §5.3.
+pub(crate) use processing::Orientation;
+
 // PR2 telemetry: count `solve_intersections` calls where any output triangle
 // references a jolly vertex. Jolly points are a Cherchi 2020 §5.4 algorithmic
 // construct (5 fixed utility points) — informational only, not a hack.
@@ -46,6 +51,11 @@ pub(crate) struct SolveResult {
     /// Mapping from preprocessed triangle index → original input triangle index.
     /// Use this to convert `parent_tris` back to original indices.
     pub clean_to_orig: Vec<usize>,
+    /// PR10 Path A-refined: per-output-triangle cosurface orientation (parallel
+    /// to `labels`). `Some(Parallel)` / `Some(AntiParallel)` when the parent
+    /// preprocessed triangle was a STAGE2 cosurface merge; `None` otherwise.
+    /// Cherchi 2020 §5.4 / Hoffmann 1989 §5.3.
+    pub cosurface_orientation: Vec<Option<Orientation>>,
 }
 
 /// Top-level mesh arrangement pipeline.
@@ -69,6 +79,7 @@ pub(crate) fn solve_intersections(
             labels: Vec::new(),
             parent_tris: Vec::new(),
             clean_to_orig: Vec::new(),
+            cosurface_orientation: Vec::new(),
         });
     }
 
@@ -88,7 +99,7 @@ pub(crate) fn solve_intersections(
     );
 
     // Step 3: Remove degenerate and duplicated triangles
-    let (clean_tris, clean_labels, clean_to_orig) =
+    let (clean_tris, clean_labels, clean_to_orig, clean_orientations) =
         remove_degenerate_and_duplicated_triangles(&deduped_verts, &deduped_tris, in_labels);
     eprintln!(
         "[cherchi-trace] STAGE2 degenerate: {} tris",
@@ -102,6 +113,7 @@ pub(crate) fn solve_intersections(
             labels: Vec::new(),
             parent_tris: Vec::new(),
             clean_to_orig: Vec::new(),
+            cosurface_orientation: Vec::new(),
         });
     }
 
@@ -136,8 +148,11 @@ pub(crate) fn solve_intersections(
         tris_with_int, tris_with_cop
     );
 
-    // Step 7: Triangulate — subdivide intersected triangles
-    let (new_tris_flat, new_labels, parent_tris) = triangulation_with_parents(&mut ts, &mut aux);
+    // Step 7: Triangulate — subdivide intersected triangles. PR10:
+    // `clean_orientations` is keyed by preprocessed-triangle index and is
+    // propagated into a parallel-to-`new_labels` vec by STAGE6.
+    let (new_tris_flat, new_labels, parent_tris, new_cosurface_orientation) =
+        triangulation_with_parents(&mut ts, &mut aux, &clean_orientations);
     eprintln!(
         "[cherchi-trace] STAGE6 triangulation: {} tris",
         new_tris_flat.len() / 3
@@ -198,6 +213,7 @@ pub(crate) fn solve_intersections(
         labels: new_labels,
         parent_tris,
         clean_to_orig,
+        cosurface_orientation: new_cosurface_orientation,
     })
 }
 

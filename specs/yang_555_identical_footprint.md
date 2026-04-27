@@ -883,3 +883,228 @@ Same checklist as PR1-PR8 plus:
   Pending regression test
   `test_label_cells_cosurface_centroid_with_non_degenerate_ray_axis`
   added with `#[ignore]` for PR10 to ungate.
+
+### PR10 red phase evidence (Phase B)
+
+Three tests added per the locked Phase A design (Convention C1: A=survivor
+=Outside on A-view; B=dropped=Inside on B-view). All three are
+compile-failure red — they reference the `Orientation` enum and the
+`cosurface_orientation` field on `SubTriangle` that Phase C will introduce.
+Per FIP §8 bug-fix variant, compile failure is a valid red signal (any
+non-passing state).
+
+**Test 1** — `test_label_cells_cosurface_centroid_with_non_degenerate_ray_axis`
+(`exact_mesh.rs` `mod tests`): un-`#[ignore]`d and updated for the PR10
+short-circuit semantics. Setup: target = unit cube z∈[1,2] (ABOVE the
+candidate's z=1 plane), so target's outward normal at the shared z=1 face
+is `-z`. Candidate sub-tri vertices `(0,0,1) → (1,1,1) → (0,1,1)` give +z
+normal. Candidate +z opposes target -z → genuinely AntiParallel geometry.
+The struct literal sets `cosurface_orientation: Some(Orientation::AntiParallel)`.
+Asserts `CellLabel::Inside`. Compile-failure red:
+
+```
+error[E0432]: unresolved import `crate::boolean::cherchi::Orientation`
+  --> crates/kernel/src/boolean/exact_mesh.rs:6274:13
+       use crate::boolean::cherchi::Orientation;
+       no `Orientation` in `boolean::cherchi`
+error[E0560]: struct `exact_mesh::SubTriangle` has no field named `cosurface_orientation`
+  --> crates/kernel/src/boolean/exact_mesh.rs:6289:13
+       cosurface_orientation: Some(Orientation::AntiParallel),
+```
+
+Phase C must short-circuit `Some(Orientation::AntiParallel)` → `Inside`
+at the top of `label_sub_tri_raycast`.
+
+**Test 2** — `test_label_cells_parallel_cosurface_per_side_rule`
+(`exact_mesh.rs` `mod tests`): asserts identical-box union (A=B=[0,1]³)
+classifies the shared +z face as `Outside` from A-view (`target_label="B"`)
+and `Inside` from B-view (`target_label="A"`). Compile-failure red:
+
+```
+error[E0432]: unresolved import `crate::boolean::cherchi::Orientation`
+  --> crates/kernel/src/boolean/exact_mesh.rs:6368:13
+       no `Orientation` in `boolean::cherchi`
+error[E0560]: struct `exact_mesh::SubTriangle` has no field named `cosurface_orientation`
+```
+
+**Test 3** — `test_orientation_detect_parallel_and_antiparallel`
+(`cherchi/processing.rs` `mod tests`): asserts all 6 permutations of
+`[7, 4, 6]` — 3 cyclic rotations of `t1` are `Parallel`; 3 cyclic
+rotations of `reverse(t1) = [6,4,7]` are `AntiParallel`. Compile-failure
+red:
+
+```
+error[E0433]: cannot find type `Orientation` in this scope
+  --> crates/kernel/src/boolean/cherchi/processing.rs:493:13
+       use of undeclared type `Orientation`
+(... repeats for all 12 Orientation references in the test body — 6
+ type-position uses + 6 detect calls)
+```
+
+Phase C lands the `Orientation` enum + `detect` helper, the
+`cosurface_orientation` field on `SubTriangle`, and the
+`Some(Orientation::AntiParallel)` / `Some(Orientation::Parallel)`
+short-circuits in `label_sub_tri_raycast` to flip all three tests GREEN
+without further test edits (P5 holds — implementer cannot modify Phase B
+tests).
+
+## PR10 outcome — Path A-refined shipped; canary GREEN; 5 of 5 closures
+
+PR10 shipped the Path A-refined fix as designed. All 3 Phase B red tests
+flipped GREEN, the canary `test_stacked_box_union_correct_topology`
+flipped GREEN, and all 5 of the Option 2 regressions flipped GREEN
+(including the `test_full_pipeline_conservation` offset-overlap case
+that Phase A predicted would stay RED — see "Bonus closure" below).
+
+Branch: `cosurface-orientation`. Path A-refined per the plan: 5 source
+touch points, ~40 lines of net implementation work, ~210 lines of tests
++ spec.
+
+### What landed
+
+1. **`Orientation` enum + `detect` helper** in `cherchi/processing.rs`
+   (cites Cherchi 2020 §5.4 / Hoffmann 1989 §5.3). Re-exported from
+   `cherchi/mod.rs`. Algorithm: parity of permutation — find offset `i`
+   where `t1[i] == t2[0]`; if `t1[(i+1) % 3] == t2[1]` → Parallel, else
+   AntiParallel.
+
+2. **STAGE2 orientation tracking** in
+   `remove_degenerate_and_duplicated_triangles`. Return type expanded to
+   4-tuple `(tris, labels, clean_to_orig, orientations)`. `Vacant` arm
+   pushes `None`; `Occupied` arm reads survivor's un-sorted triple from
+   `tris[3*pos..3*pos+3]`, computes `Orientation::detect`, reconciles
+   via `debug_assert_eq!` if a previous orientation existed. The
+   `[stage2-merge]` instrumentation now prints `orient={:?}`.
+
+3. **STAGE6 plumbing** in `cherchi/triangulation.rs` and `mod.rs`.
+   `SolveResult.cosurface_orientation: Vec<Option<Orientation>>` parallel
+   to `labels`. `triangulation_with_parents` threads through 4 emit
+   sites (passthrough, split-noop, split-non-coplanar, pocket-new).
+   Pocket-merge reconciliation: `(None, x) | (x, None) → x`;
+   `(Some(a), Some(b)) → debug_assert_eq!(a, b); Some(a)`.
+
+4. **`SubTriangle.cosurface_orientation: Option<CosurfaceOrientation>`**
+   field in `exact_mesh.rs`. Populated in
+   `subdivide_mesh_pair_full_cherchi` from `SolveResult.cosurface_orientation`.
+   Other `SubTriangle` constructions (test fixtures, the PR6 standalone
+   test) default to `None`.
+
+5. **`label_sub_tri_raycast` short-circuit** at the top of the function:
+   ```
+   match sub_tri.cosurface_orientation {
+       Some(AntiParallel) => return CellLabel::Inside,
+       Some(Parallel) => return if target_label == "B" { Outside } else { Inside },
+       None => {} // fall through to PR6 primary + Hoffmann fallback
+   }
+   ```
+
+### Implementer deviations (both approved)
+
+1. **`Orientation` import alias** — `exact_mesh.rs` already had a
+   file-level `Orientation` enum (Above/Below/Coplanar — orient3d sign).
+   To avoid the name collision, the cherchi `Orientation` is imported
+   as `CosurfaceOrientation` at the file level. Phase B tests use an
+   inner `use crate::boolean::cherchi::Orientation;` which resolves to
+   the same underlying type — no test edits needed (P5 preserved).
+
+2. **Relaxed `debug_assert!` for A-first ordering** — the plan called
+   for `debug_assert!(in_labels.first().is_none_or(|l| l & 1 != 0))` at
+   STAGE2 entry to enforce "A-mesh tris come first." Three pre-existing
+   cherchi tests use label `0` (no A/B distinction; e.g.
+   `test_solve_intersections_three_cubes`) and trip the strict assert.
+   Relaxed form: `!(any_a && any_b) || in_labels.first().is_none_or(|l| l & 1 != 0)`
+   — semantically equivalent for the production path
+   (`subdivide_mesh_pair_full_cherchi` always satisfies the strict form
+   since both A and B labels are always present). The relaxed form
+   permits the legacy single-label tests to keep passing without
+   modification.
+
+### Bonus closure of `test_full_pipeline_conservation`
+
+Phase A measurement: this test produces 0 STAGE2 merges (offset-overlap
+boxes don't share bitwise-identical sorted-vertex triples;
+`inject_partial_overlap_mesh` / i_overlay path is bypass-distinct from
+`inject_identical_footprint_mesh`).
+
+Phase D measurement: the test passes post-PR10.
+
+Reconciling: PR10's STAGE2 changes don't change which tris MERGE (only
+add an `Option<Orientation>` track-and-emit); they don't introduce new
+merges. The closure must therefore flow from a downstream cascade —
+PR10's correct cosurface annihilation elsewhere (e.g., on shared
+sub-faces from coplanar preprocessing) propagates a more-correct
+classification into the topology assembly that the offset-overlap
+assertions depend on. The closure is empirical, not via the AntiParallel
+short-circuit firing on this test's STAGE2-merged tris (there are
+none).
+
+Status: **load-bearing for now**. PR11+ work on i_overlay
+parallel-cosurface (the original PR11 scope) is no longer urgent for
+this single test, but the i_overlay code path remains unchanged and
+its parallel-cosurface configuration is still untested directly.
+
+### Final test counts
+
+| Suite | PR9 baseline | PR10 | Δ |
+|-------|--------------|------|---|
+| `boolean::indirect_predicates` | 68p | 68p | parity |
+| `boolean::cherchi` | 58p | 59p | +1 (Test 3 added) |
+| `boolean::exact_mesh` | 93p / 6f / 2i | 95p / 6f / 2i | +2 (Tests 1+2 added; one was `#[ignore]`d) |
+| `boolean::topology_extract` | 55p / 16f / 2i | 57p / 14f / 2i | +2 / -2 |
+| `boolean::yang_integration` | 23p / 17f / 7i | 32p / 8f / 7i | +9 / -9 |
+| `boolean::coplanar_preprocess` | 8p / 1f | 9p / 0f | +1 / -1 (canary) |
+| **kernel total** | **1163p / 40f / 37i** | **1175p / 28f / 37i** | **+12 / -12** |
+
+Zero regressions (`comm -13` of failing test names produces empty
+diff). Clippy: 93 errors → 93 errors (no new warnings). `cargo fmt
+--check` clean.
+
+### Adversarial mutation results (Phase D §6.3)
+
+- **AntiParallel removal** (return `Outside` instead of `Inside` in the
+  AntiParallel arm): canary `test_stacked_box_union_correct_topology`
+  fails. Confirms the AntiParallel→Inside short-circuit is load-bearing.
+
+- **Parallel per-side swap** (invert the `target_label == "B"` branch):
+  4 of 4 lead-listed parallel-cosurface integration tests still pass; 1
+  of 1 dedicated unit test (`test_label_cells_parallel_cosurface_per_side_rule`)
+  fails. **The Parallel convention is enforced by ONE test, not five.**
+  This is a coverage gap, not a PR10 blocker — see follow-ups below.
+
+### Follow-up tickets (out of scope for PR10)
+
+1. **Parallel-arm integration coverage**: only the dedicated unit test
+   exercises the Parallel cosurface convention. The lead-listed
+   integration tests use AntiParallel geometry (stacked boxes, identical
+   boxes with one shared face — both fall into the AntiParallel sub-mode
+   in current configurations). Add an integration test that exercises a
+   genuine parallel-cosurface configuration end-to-end (two coplanar
+   same-direction faces from different operands surviving as a single
+   boundary).
+
+2. **3+ tri pocket-merge `(Some(a), Some(b))` edge case**: zero existing
+   tests trigger the relaxed `debug_assert_eq!` path. Theoretically
+   reachable if 3 operands share a coplanar face; not exercised in the
+   current 2-operand pipeline. Add a test or document the path as
+   unreachable in 2-op contexts.
+
+3. **Yang_fast assay regression** (~9 → 2 of 157 non-timeout cases).
+   Per `feedback_no_regression_chasing.md` not a PR10 blocker. Root
+   cause per validator: dominant failure mode is `topology_extract`
+   half-edge twin pairing for boundary half-edges with no manifold
+   mate (`half_edge[X].twin = 0 but twin.twin = expected_X`, 133 of
+   221 Yang failures). PR10's more-correct cosurface classification
+   exposes pre-existing topology validation gaps. Track for a future
+   PR scoped to `topology_extract` half-edge twin pairing.
+
+### Closure of the §4.5.5 thread
+
+PR3 surfaced the canary failure. PR4–PR8 progressively built the
+identical-footprint and partial-overlap injection machinery. PR9
+investigated the cosurface annihilation root cause and introduced the
+instrumentation that mapped the parallel-vs-anti-parallel architectural
+distinction. **PR10 closes the thread** for the configurations the
+canary represents (stacked boxes — anti-parallel cosurface) and the
+identical-box configurations (parallel cosurface). The i_overlay
+partial-overlap path is empirically passing but mechanistically
+unverified; flagged as the lone hot follow-up.

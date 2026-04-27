@@ -31,6 +31,41 @@ use std::collections::{BTreeMap, HashMap};
 
 use super::super::indirect_predicates::ImplicitPoint;
 
+/// Cosurface orientation classification per Cherchi 2020 §5.4 / Hoffmann
+/// 1989 §5.3.
+///
+/// Two coplanar triangles that share a sorted vertex key are either
+/// rotations of each other (`Parallel` — outward normals align, the
+/// cosurface IS A∪B's boundary) or rotations of each other's reverse
+/// (`AntiParallel` — outward normals oppose, both surfaces are interior to
+/// A∪B and must annihilate).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Orientation {
+    Parallel,
+    AntiParallel,
+}
+
+impl Orientation {
+    /// Detect orientation between two triangles known to share a sorted
+    /// vertex key (i.e. the same 3 distinct vertex IDs as a multiset).
+    /// Triangles are passed as un-sorted windings.
+    ///
+    /// Algorithm: find the offset `i` where `t1[i] == t2[0]`. If
+    /// `t1[(i+1) % 3] == t2[1]`, `t2` is a cyclic rotation of `t1` (even
+    /// permutation) → `Parallel`. Otherwise `t2` is a cyclic rotation of
+    /// `t1`'s reverse (odd permutation) → `AntiParallel`.
+    pub(crate) fn detect(t1: [usize; 3], t2: [usize; 3]) -> Self {
+        let i = (0..3)
+            .find(|&i| t1[i] == t2[0])
+            .expect("Orientation::detect: t1 and t2 must share vertex set");
+        if t1[(i + 1) % 3] == t2[1] {
+            Orientation::Parallel
+        } else {
+            Orientation::AntiParallel
+        }
+    }
+}
+
 /// Compute the multiplier (power-of-2 scaling factor) for predicate stability.
 ///
 /// Scales coordinates so the max absolute coordinate is near
@@ -184,8 +219,11 @@ pub(crate) fn merge_duplicated_vertices_flat(
 /// Degenerate triangles have collinear vertices. Duplicated triangles (same sorted
 /// vertex triple) get their labels merged via bitwise OR.
 ///
-/// Returns `(tris, labels, clean_to_orig)` where `clean_to_orig[i]` is the
-/// original triangle index that surviving triangle `i` came from.
+/// Returns `(tris, labels, clean_to_orig, orientations)` where
+/// `clean_to_orig[i]` is the original triangle index that surviving triangle
+/// `i` came from, and `orientations[i]` records the cosurface orientation
+/// (Cherchi §5.4 / Hoffmann §5.3) when triangle `i` was merged with at
+/// least one duplicate (`None` otherwise). PR10 Path A-refined.
 ///
 /// Ported from processing.cpp:125-173
 #[allow(dead_code)]
@@ -193,12 +231,26 @@ pub(crate) fn remove_degenerate_and_duplicated_triangles(
     verts: &[[f64; 3]],
     in_tris: &[usize],
     in_labels: &[u32],
-) -> (Vec<usize>, Vec<u32>, Vec<usize>) {
+) -> (Vec<usize>, Vec<u32>, Vec<usize>, Vec<Option<Orientation>>) {
     let num_orig_tris = in_tris.len() / 3;
+
+    // PR10 invariant: when both A (label bit 0) and B (label bit 1) are
+    // present in the input, A must come first. The STAGE2-survivor
+    // convention used downstream by the cosurface short-circuit is "A is
+    // the survivor"; this assert pins the ordering for the boolean path.
+    // Legacy single-mesh / non-boolean tests use label==0 throughout and
+    // are exempt (no A/B distinction).
+    let any_a = in_labels.iter().any(|l| l & 1 != 0);
+    let any_b = in_labels.iter().any(|l| l & 2 != 0);
+    debug_assert!(
+        !(any_a && any_b) || in_labels.first().is_none_or(|l| l & 1 != 0),
+        "PR10: when both A and B labels are present, A-mesh tris must come first in in_labels"
+    );
 
     let mut tris = Vec::with_capacity(in_tris.len());
     let mut labels = Vec::with_capacity(num_orig_tris);
     let mut clean_to_orig: Vec<usize> = Vec::with_capacity(num_orig_tris);
+    let mut orientations: Vec<Option<Orientation>> = Vec::with_capacity(num_orig_tris);
 
     // Map from sorted vertex triple → index in output labels
     let mut tris_map: HashMap<[usize; 3], usize> = HashMap::with_capacity(num_orig_tris);
@@ -224,6 +276,7 @@ pub(crate) fn remove_degenerate_and_duplicated_triangles(
                 e.insert(label_idx);
                 labels.push(l);
                 clean_to_orig.push(t_id);
+                orientations.push(None);
                 tris.push(v0_id);
                 tris.push(v1_id);
                 tris.push(v2_id);
@@ -233,9 +286,30 @@ pub(crate) fn remove_degenerate_and_duplicated_triangles(
                 let pos = *e.get();
                 let prev_label = labels[pos];
                 labels[pos] |= l;
+
+                // PR10: detect cosurface orientation between the survivor
+                // (already in `tris` at offset 3*pos) and this dropped
+                // triangle. Both reference the same sorted vertex triple by
+                // construction, so `Orientation::detect` is well-defined.
+                // Refs: Cherchi 2020 §5.4 / Hoffmann 1989 §5.3.
+                let surv_tri = [tris[3 * pos], tris[3 * pos + 1], tris[3 * pos + 2]];
+                let dropped_tri = [v0_id, v1_id, v2_id];
+                let detected = Orientation::detect(surv_tri, dropped_tri);
+                orientations[pos] = match orientations[pos] {
+                    None => Some(detected),
+                    Some(prev) => {
+                        debug_assert_eq!(
+                            prev, detected,
+                            "PR10: STAGE2 orientation conflict for sorted_key={:?}",
+                            tri_key
+                        );
+                        Some(prev)
+                    }
+                };
+
                 if std::env::var("CHERCHI_DEBUG").as_deref() == Ok("1") {
                     eprintln!(
-                        "[stage2-merge] sorted_key=[{},{},{}] dropped=tri{} dropped_label={:#06b} survivor=tri{} prev_label={:#06b} merged_label={:#06b}",
+                        "[stage2-merge] sorted_key=[{},{},{}] dropped=tri{} dropped_label={:#06b} survivor=tri{} prev_label={:#06b} merged_label={:#06b} orient={:?}",
                         tri_key[0],
                         tri_key[1],
                         tri_key[2],
@@ -243,14 +317,15 @@ pub(crate) fn remove_degenerate_and_duplicated_triangles(
                         l,
                         clean_to_orig[pos],
                         prev_label,
-                        labels[pos]
+                        labels[pos],
+                        orientations[pos]
                     );
                 }
             }
         }
     }
 
-    (tris, labels, clean_to_orig)
+    (tris, labels, clean_to_orig, orientations)
 }
 
 /// Compute approximate coordinates from the vertex list, dividing by the multiplier.
@@ -386,7 +461,7 @@ mod tests {
         // tri0: good triangle  tri1: degenerate (v0,v1,v3 are collinear)
         let tris = vec![0, 1, 2, 0, 1, 3];
         let labels = vec![1, 2];
-        let (new_tris, new_labels, clean_to_orig) =
+        let (new_tris, new_labels, clean_to_orig, orientations) =
             remove_degenerate_and_duplicated_triangles(&verts, &tris, &labels);
 
         // Only tri0 survives
@@ -394,6 +469,7 @@ mod tests {
         assert_eq!(new_labels.len(), 1);
         assert_eq!(new_labels[0], 1);
         assert_eq!(clean_to_orig, vec![0]); // tri0 (original index 0) survived
+        assert_eq!(orientations, vec![None]); // no merge → orientation unset
     }
 
     #[test]
@@ -402,7 +478,7 @@ mod tests {
         // Same triangle twice with different labels
         let tris = vec![0, 1, 2, 0, 2, 1]; // reversed winding but same sorted triple
         let labels = vec![1, 2];
-        let (new_tris, new_labels, clean_to_orig) =
+        let (new_tris, new_labels, clean_to_orig, orientations) =
             remove_degenerate_and_duplicated_triangles(&verts, &tris, &labels);
 
         // One triangle with merged label (1 | 2 = 3)
@@ -410,6 +486,9 @@ mod tests {
         assert_eq!(new_labels.len(), 1);
         assert_eq!(new_labels[0], 3);
         assert_eq!(clean_to_orig, vec![0]); // first occurrence kept
+                                            // Survivor [0,1,2] vs dropped [0,2,1]: dropped is reverse of survivor.
+                                            // Cherchi §5.4 / Hoffmann §5.3 → AntiParallel.
+        assert_eq!(orientations, vec![Some(Orientation::AntiParallel)]);
     }
 
     #[test]
@@ -424,13 +503,14 @@ mod tests {
         // tri0: good, tri1: degenerate (collinear), tri2: good
         let tris = vec![0, 1, 2, 0, 1, 3, 0, 2, 4];
         let labels = vec![1, 1, 2];
-        let (new_tris, new_labels, clean_to_orig) =
+        let (new_tris, new_labels, clean_to_orig, orientations) =
             remove_degenerate_and_duplicated_triangles(&verts, &tris, &labels);
 
         // tri0 and tri2 survive, tri1 removed
         assert_eq!(new_tris.len(), 6); // 2 triangles × 3 verts
         assert_eq!(new_labels.len(), 2);
         assert_eq!(clean_to_orig, vec![0, 2]); // original indices 0 and 2
+        assert_eq!(orientations, vec![None, None]); // no merges
     }
 
     #[test]
@@ -468,5 +548,58 @@ mod tests {
             &[1.0, 0.0, 0.0],
             &[0.0, 1.0, 0.0],
         ));
+    }
+
+    /// PR10 Phase B red test — Orientation::detect for all 6 permutations.
+    ///
+    /// **RED phase (PR10 Phase B): does not compile until Phase C defines
+    /// the `Orientation` enum and its `detect` helper.** Compile failure IS
+    /// the red signal per FIP §8 bug-fix variant.
+    ///
+    /// Two triangles share a sorted vertex key (STAGE2 dedup match). The
+    /// un-sorted windings carry the orientation signal:
+    ///
+    ///   - Cyclic rotation of `t1` ⇒ same outward normal ⇒ Parallel.
+    ///   - Cyclic rotation of `t1`'s reverse ⇒ opposite normal ⇒ AntiParallel.
+    ///
+    /// Refs: Cherchi 2020 §5.4 (coplanar pocket map); Hoffmann 1989 §5.3
+    /// (cosurface sub-modes).
+    #[test]
+    fn test_orientation_detect_parallel_and_antiparallel() {
+        let t1 = [7, 4, 6];
+
+        // 3 cyclic rotations of t1 → Parallel (same outward normal).
+        assert_eq!(
+            Orientation::detect(t1, [7, 4, 6]),
+            Orientation::Parallel,
+            "identity rotation of t1 must be Parallel"
+        );
+        assert_eq!(
+            Orientation::detect(t1, [4, 6, 7]),
+            Orientation::Parallel,
+            "cyclic rotation of t1 must be Parallel"
+        );
+        assert_eq!(
+            Orientation::detect(t1, [6, 7, 4]),
+            Orientation::Parallel,
+            "cyclic rotation of t1 must be Parallel"
+        );
+
+        // 3 cyclic rotations of reverse(t1)=[6,4,7] → AntiParallel.
+        assert_eq!(
+            Orientation::detect(t1, [6, 4, 7]),
+            Orientation::AntiParallel,
+            "reverse of t1 must be AntiParallel"
+        );
+        assert_eq!(
+            Orientation::detect(t1, [4, 7, 6]),
+            Orientation::AntiParallel,
+            "cyclic rotation of reverse(t1) must be AntiParallel"
+        );
+        assert_eq!(
+            Orientation::detect(t1, [7, 6, 4]),
+            Orientation::AntiParallel,
+            "cyclic rotation of reverse(t1) must be AntiParallel"
+        );
     }
 }

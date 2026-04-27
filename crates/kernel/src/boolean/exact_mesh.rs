@@ -24,6 +24,12 @@
 
 use geometry_predicates::{orient2d, orient3d};
 
+// Aliased to avoid collision with the file-level `Orientation` predicate
+// enum (Above/Below/Coplanar). PR10 plumbs Cherchi 2020 §5.4 cosurface
+// orientation through `SubTriangle.cosurface_orientation`. Phase B tests
+// `use crate::boolean::cherchi::Orientation;` inside their fn scope; that
+// resolves to the same underlying type as `CosurfaceOrientation` here.
+use crate::boolean::cherchi::Orientation as CosurfaceOrientation;
 use crate::units::{TAU_EXACT_MESH_CLASSIFY, TAU_NORMALIZE_SQ, TAU_WORK, WINDING_INSIDE_THRESHOLD};
 
 /// Which mesh a triangle belongs to in a boolean operation.
@@ -1077,6 +1083,12 @@ pub(crate) struct SubTriangle {
     pub verts: [usize; 3],
     /// Index of the parent triangle in the original mesh.
     pub parent_tri: usize,
+    /// PR10 Path A-refined: cosurface orientation propagated from Cherchi
+    /// STAGE2. `Some(Parallel)` / `Some(AntiParallel)` when the parent
+    /// preprocessed triangle was a STAGE2 cosurface merge; `None`
+    /// otherwise. Drives the short-circuit in `label_sub_tri_raycast` per
+    /// Cherchi 2020 §5.4 / Hoffmann 1989 §5.3.
+    pub cosurface_orientation: Option<CosurfaceOrientation>,
 }
 
 /// Result of subdividing both meshes along their intersections.
@@ -1383,6 +1395,41 @@ fn label_sub_tri_raycast(
 ) -> CellLabel {
     let centroid = sub_tri_centroid(verts, sub_tri);
     let cherchi_debug = std::env::var("CHERCHI_DEBUG").as_deref() == Ok("1");
+
+    // PR10 Path A-refined: cosurface orientation short-circuit. Cherchi 2020
+    // §5.4 / Hoffmann 1989 §5.3: when STAGE2 has classified the parent
+    // triangle's coplanar match as anti-parallel (operands on opposite
+    // sides of the shared plane) both views annihilate; when parallel
+    // (operands on the same side, e.g. identical-footprint union) the
+    // STAGE2-survivor (A) keeps its boundary face and the dropped (B) is
+    // redundant. Phase A C1 convention: A-view (target_label="B") →
+    // Outside; B-view (target_label="A" or anything else) → Inside.
+    match sub_tri.cosurface_orientation {
+        Some(CosurfaceOrientation::AntiParallel) => {
+            if cherchi_debug {
+                eprintln!(
+                    "[label-cells-trace] target={} sub_verts=[{},{},{}] orient=AntiParallel → Inside",
+                    target_label, sub_tri.verts[0], sub_tri.verts[1], sub_tri.verts[2]
+                );
+            }
+            return CellLabel::Inside;
+        }
+        Some(CosurfaceOrientation::Parallel) => {
+            let label = if target_label == "B" {
+                CellLabel::Outside
+            } else {
+                CellLabel::Inside
+            };
+            if cherchi_debug {
+                eprintln!(
+                    "[label-cells-trace] target={} sub_verts=[{},{},{}] orient=Parallel → {:?}",
+                    target_label, sub_tri.verts[0], sub_tri.verts[1], sub_tri.verts[2], label
+                );
+            }
+            return label;
+        }
+        None => {} // Fall through to PR6 primary + Hoffmann fallback.
+    }
 
     // Primary classification — interior/exterior cases (the common path).
     let primary = ray_cast_inside(centroid, target_verts, target_tris, bvh, global_max);
@@ -2015,6 +2062,11 @@ fn subdivide_mesh_pair_full_cherchi(
     for (i, tri) in result.tris.iter().enumerate() {
         let label = result.labels[i];
         let clean_parent = result.parent_tris[i];
+        // PR10 Path A-refined: propagate STAGE2 cosurface orientation onto
+        // each sub-triangle. Both A-view and B-view sub-tris derived from
+        // the same merged parent see the same orientation; the per-side
+        // rule lives in `label_sub_tri_raycast`.
+        let orient = result.cosurface_orientation[i];
 
         // Map preprocessed index → original merged index
         let orig_parent = if clean_parent < result.clean_to_orig.len() {
@@ -2038,6 +2090,7 @@ fn subdivide_mesh_pair_full_cherchi(
             sub_tris_a.push(SubTriangle {
                 verts: *tri,
                 parent_tri: local_parent,
+                cosurface_orientation: orient,
             });
         }
         if label & 2 != 0 {
@@ -2062,6 +2115,7 @@ fn subdivide_mesh_pair_full_cherchi(
             sub_tris_b.push(SubTriangle {
                 verts: *tri,
                 parent_tri: local_parent,
+                cosurface_orientation: orient,
             });
         }
     }
@@ -6197,6 +6251,11 @@ mod tests {
         let sub_tri = SubTriangle {
             verts: [0, 1, 2],
             parent_tri: 0,
+            // PR6 test exercises the Hoffmann fallback path; orientation
+            // unset so `label_sub_tri_raycast` does NOT take the PR10
+            // short-circuit and falls through to the perturb-and-classify
+            // logic this test is asserting.
+            cosurface_orientation: None,
         };
 
         // Sanity check: verify the constructed triangle has the expected -z normal.
@@ -6238,104 +6297,55 @@ mod tests {
         );
     }
 
-    /// Pending regression test for PR9 §4.5.5 cosurface annihilation
-    /// completeness — see escalation note on the test below.
+    /// PR10 Phase B red test — anti-parallel cosurface short-circuit.
     ///
-    /// PR6 made Hoffmann perturb-and-classify the fallback when primary
-    /// `ray_cast_inside` returned `None`. Phase B investigation (PR9) revealed
-    /// that `ray_cast_inside` only returns `None` when ALL THREE axes are
-    /// degenerate. For a centroid on the z=1 face of a unit cube, the +z axis
-    /// is degenerate (parallel to the face) but +x and +y rays cross the cube's
-    /// vertical side faces and resolve to `Some(_)`. Primary therefore returns
-    /// `Some(_)` for cosurface centroids, bypassing PR6's Hoffmann logic
-    /// entirely. Worse: when applied symmetrically (A's view of a cosurface tri
-    /// vs B's view of the same tri across stacked boxes), the +x ray-cast
-    /// produces ASYMMETRIC results because A and B treat the cosurface as a
-    /// boundary on opposite sides — the canary `test_stacked_box_union_correct_topology`
-    /// failure pattern.
+    /// **RED phase (PR10 Phase B): does not compile until Phase C defines
+    /// the `Orientation` enum and adds `cosurface_orientation` field to
+    /// `SubTriangle`.** Compile failure IS the red signal per FIP §8 bug-fix
+    /// variant (any non-passing state is acceptable as red).
     ///
-    /// Naive Option 2 fix (currently NOT applied): run Hoffmann two-sided
-    /// perturbation unconditionally and override primary when above XOR below.
-    /// The XOR condition is the formal Hoffmann §5.3 boundary-coincidence test.
-    /// Confirmed to flip the canary GREEN, but introduces 5 regressions in
-    /// parallel-cosurface tests (identical-box union → 0 faces, expected 6;
-    /// offset-overlapping boxes → topology validation failure). See escalation.
+    /// Anti-parallel cosurface (operands on opposite sides of the shared
+    /// plane): candidate's outward normal opposes the target's outward
+    /// normal at the cosurface plane. The canary `test_stacked_box_union_correct_topology`
+    /// (A=[0,1]³ + B=[1,2]³ stacked on z; shared z=1 face) is the
+    /// archetypal anti-parallel case — A's outward at z=1 is `+z`, B's
+    /// outward at z=1 is `-z`. Both surfaces are *interior* to A∪B and
+    /// must annihilate (both classify Inside).
     ///
-    /// Setup mirrors the canary's B-target configuration: target = unit cube
-    /// at z∈[1,2] (i.e., placed ABOVE the candidate triangle's z=1 plane so
-    /// the centroid lies on the target's z=1 BOTTOM face). Sub-triangle
-    /// vertices `[(0,0,1), (1,0,1), (0,1,1)]` (CCW from above) with centroid
-    /// `(1/3, 1/3, 1.0)`. The +x ray-cast slab at this centroid crosses the
-    /// target's x=1 right face cleanly (still within the target's z∈[1,2]
-    /// range), so primary returns `Some(true)` — non-None and bypassing
-    /// PR6's gated Hoffmann path. This is exactly the case Option 2 must
-    /// handle: the centroid is geometrically on the target boundary, and
-    /// Hoffmann perturbation must override the primary heuristic.
+    /// Setup: target = unit cube z∈[1,2] (ABOVE candidate's z=1 plane), so
+    /// target's outward normal at the shared z=1 face is `-z`. Candidate
+    /// sub-tri vertices `(0,0,1) → (1,1,1) → (0,1,1)` give +z normal.
+    /// Candidate +z opposes target -z at the shared plane → AntiParallel.
+    /// Centroid `(1/3, 2/3, 1.0)` is on the target's bottom face footprint
+    /// (off-center to avoid the BVH triangulation diagonal).
     ///
-    /// Red phase (PR6 baseline, Hoffmann gated on primary == None): primary
-    /// returns Some(true) from the +x axis → PR6 returns Inside without
-    /// running Hoffmann. The result happens to be Inside in this orientation,
-    /// but ONLY by accident of which side the +x ray was on. The asymmetry
-    /// surfaces only when comparing two ray-casts (A's view vs B's view of
-    /// a cosurface) — see canary `test_stacked_box_union_correct_topology`.
+    /// PR6's primary-ray-cast path returns Outside or some heuristic value
+    /// here; only PR10's orientation short-circuit reliably classifies this
+    /// as Inside. Phase C must short-circuit
+    /// `Some(Orientation::AntiParallel)` → `CellLabel::Inside` at the top
+    /// of `label_sub_tri_raycast` BEFORE the primary ray-cast runs.
     ///
-    /// To make this red-phase deterministic in a single-call test, we use
-    /// the configuration where primary returns `Some(false)` (Outside),
-    /// which is wrong for a closed-solid cosurface. Achieved by placing the
-    /// target cube slightly to the LEFT (x∈[-1,0]) so centroid (1/3, 1/3, 1)
-    /// is OUTSIDE the target's xy footprint — primary +x ray hits no faces,
-    /// returns Some(false). Hoffmann's above/below at z=1±eps both also
-    /// outside → both Some(false) → no override. Test would still return
-    /// Outside.
-    ///
-    /// **Cleanest configuration for a deterministic red phase**: target
-    /// cube z∈[1,2], same xy as the candidate. Centroid is on target's z=1
-    /// bottom face (cosurface). Primary +x ray hits target's x=1 face once
-    /// → Some(true) → PR6 returns Inside. Above (z=1+eps): inside target
-    /// (Some(true)). Below (z=1-eps): outside target (Some(false)). They
-    /// differ → Hoffmann override fires → Inside. Both PR6 (heuristic match)
-    /// and PR9 Option 2 (Hoffmann override) return Inside here, but the
-    /// path is different — PR6 short-circuits on primary, PR9 runs the full
-    /// boundary-coincidence test.
-    ///
-    /// To force a red phase that PR6 fails: orient the candidate triangle's
-    /// normal so the perturbation directions disagree with primary. Place
-    /// the target cube z∈[0,1] (BELOW the candidate's z=1 plane), so the
-    /// centroid is on target's z=1 TOP face. Primary +x ray-cast at z=1
-    /// grazes target's top edges → some axis returns Some(false) → PR6
-    /// returns Outside. Hoffmann: above (z=1+eps): outside target → Some(false).
-    /// Below (z=1-eps): inside target → Some(true). They differ → Hoffmann
-    /// override fires → PR9 returns Inside. Red phase = Outside, green = Inside.
-    /// This is the canary's A-view configuration.
-    ///
-    /// **CURRENTLY IGNORED** pending lead scope decision (PR9 escalation).
-    /// The naive Option 2 fix (run Hoffmann unconditionally; XOR overrides
-    /// primary) regresses 5 downstream tests in identical-box and offset-
-    /// overlapping configurations where parallel-cosurface (same outward
-    /// normal on both operands) gets over-annihilated. Anti-parallel
-    /// cosurface (canary case) and parallel cosurface (regressed case)
-    /// both produce Hoffmann XOR; distinguishing them requires comparing
-    /// the candidate sub-tri's normal against the matching target tri's
-    /// normal. See spec note in `specs/yang_555_identical_footprint.md`
-    /// PR9 Phase D escalation.
+    /// Refs: Cherchi 2020 §5.4 (coplanar pocket map); Hoffmann 1989 §5.3
+    /// (cosurface sub-modes); Yang 2025 §4.4.2 + §4.5.5 (binary
+    /// classification + identical-footprint preprocessing).
     #[test]
-    #[ignore = "PR9 Option 2 regresses 5 parallel-cosurface tests; needs lead scope decision before ungating"]
     fn test_label_cells_cosurface_centroid_with_non_degenerate_ray_axis() {
-        // Target mesh: unit cube z∈[0,1] (BELOW the candidate's z=1 plane).
-        // Centroid of the candidate sub-triangle will be exactly on this
-        // target's z=1 TOP face — cosurface.
-        let (target_verts, target_tris) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        use crate::boolean::cherchi::Orientation;
+
+        // Target mesh: unit cube z∈[1,2] (ABOVE candidate's z=1 plane).
+        // Target's outward normal at the shared z=1 face is `-z`, opposing
+        // candidate's `+z` → genuine anti-parallel cosurface geometry.
+        let (target_verts, target_tris) = make_box_mesh([0.0, 0.0, 1.0], [1.0, 1.0, 2.0]);
         let bvh = build_bvh_for_tris(&target_verts, &target_tris).expect("BVH should build");
         let global_max = compute_global_max(&target_verts);
 
-        // Candidate sub-triangle: matches the canary's [4,6,7] sub-tri layout
-        // (centroid at (2/3, 2/3, 1.0), normal +z parallel to A's outward
-        // normal). Vertex order (0,0,1) → (1,1,1) → (0,1,1) gives:
-        //   u = (1,1,0), w = (0,1,0), cross = (1*0 - 0*1, 0*0 - 1*0, 1*1 - 1*0) = (0,0,1) → +z.
+        // Candidate sub-triangle: vertex order (0,0,1) → (1,1,1) → (0,1,1):
+        //   u = (1,1,0), w = (0,1,0), cross = (0,0,1) → +z normal.
         let sub_verts = vec![[0.0, 0.0, 1.0], [1.0, 1.0, 1.0], [0.0, 1.0, 1.0]];
         let sub_tri = SubTriangle {
             verts: [0, 1, 2],
             parent_tri: 0,
+            cosurface_orientation: Some(Orientation::AntiParallel),
         };
 
         // Sanity check: verify the constructed triangle has +z normal.
@@ -6346,7 +6356,7 @@ mod tests {
             n
         );
 
-        // Sanity check: centroid lies exactly on target's z=1 face,
+        // Sanity check: centroid lies exactly on the shared z=1 plane,
         // off-center to avoid lying on the BVH triangulation diagonal.
         let c = sub_tri_centroid(&sub_verts, &sub_tri);
         assert!(
@@ -6377,13 +6387,121 @@ mod tests {
         assert_eq!(
             label,
             CellLabel::Inside,
-            "Hoffmann 1989 §5.3 / Yang 2025 §4.4 / PR9 Option 2: cosurface centroid with \
-             non-degenerate primary ray-cast must classify as Inside per the closed-solid \
-             convention. Hoffmann perturb-and-classify (above XOR below) is the formal \
-             boundary-coincidence test and overrides primary's heuristic Some(_) result. \
-             Got {:?} — likely PR6's primary-only path is still in effect; PR9 Option 2 \
-             must run Hoffmann unconditionally.",
+            "Cherchi 2020 §5.4 / Hoffmann 1989 §5.3 / PR10 Path A-refined: \
+             anti-parallel cosurface (operands on opposite sides of the shared \
+             plane) must classify as Inside via the orientation short-circuit. \
+             The candidate's `+z` normal opposes the target's outward `-z` at \
+             the cosurface plane → AntiParallel → Inside per closed-solid \
+             convention. Got {:?} — likely the AntiParallel short-circuit at \
+             the top of `label_sub_tri_raycast` is missing; Phase C must add it.",
             label
+        );
+    }
+
+    /// PR10 Phase B red test — parallel-cosurface per-side rule.
+    ///
+    /// **RED phase (PR10 Phase B): does not compile until Phase C defines
+    /// the `Orientation` enum and adds `cosurface_orientation` field to
+    /// `SubTriangle`.** Compile failure IS the red signal per FIP §8 bug-fix
+    /// variant (any non-passing state is acceptable as red).
+    ///
+    /// Phase A locked Convention C1: in the current 2-op pipeline A is the
+    /// survivor (boundary contributor) and B is dropped (redundant). The
+    /// caller convention is:
+    ///
+    ///   - `target_label="B"` ⇒ A-view (sub_tri is from A, classified vs B)
+    ///     ⇒ A is the survivor ⇒ Outside.
+    ///   - `target_label="A"` ⇒ B-view (sub_tri is from B, classified vs A)
+    ///     ⇒ B is dropped ⇒ Inside.
+    ///
+    /// Setup: identical unit cubes (A=B=[0,1]³). The +z face is a parallel
+    /// cosurface (both outward normals point +z). A sub-triangle on that
+    /// face with +z normal must classify Outside from A's view and Inside
+    /// from B's view, matching the C1 partition.
+    ///
+    /// Refs: Cherchi 2020 §5.4 (coplanar pocket map); Hoffmann 1989 §5.3
+    /// (cosurface sub-modes); Yang 2025 §4.5.5 (identical-footprint
+    /// preprocessing).
+    #[test]
+    fn test_label_cells_parallel_cosurface_per_side_rule() {
+        use crate::boolean::cherchi::Orientation;
+
+        // Target = unit cube [0,1]³ (identical to candidate's source). The
+        // candidate sub-triangle's centroid lies on the target's z=1 TOP
+        // face, and the candidate's +z normal AGREES with the target's
+        // outward +z normal at that face → parallel cosurface.
+        let (target_verts, target_tris) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let bvh = build_bvh_for_tris(&target_verts, &target_tris).expect("BVH should build");
+        let global_max = compute_global_max(&target_verts);
+
+        // Sub-triangle on the shared z=1 face. Vertex order
+        // (0,0,1) → (1,0,1) → (0,1,1) gives:
+        //   u = (1,0,0), w = (0,1,0), cross = (0,0,1) → +z (parallel to A's
+        //   AND B's outward normal at z=1).
+        // Centroid = (1/3, 1/3, 1.0) — strictly interior to the target's
+        // top face footprint, off-center to avoid lying on the BVH
+        // triangulation diagonal.
+        let sub_verts = vec![[0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0]];
+        let sub_tri = SubTriangle {
+            verts: [0, 1, 2],
+            parent_tri: 0,
+            cosurface_orientation: Some(Orientation::Parallel),
+        };
+
+        // Sanity check: verify the constructed triangle has +z normal.
+        let n = sub_tri_unit_normal(&sub_verts, &sub_tri);
+        assert!(
+            (n[0]).abs() < 1e-12 && (n[1]).abs() < 1e-12 && (n[2] - 1.0).abs() < 1e-12,
+            "test setup: triangle normal must be (0,0,+1), got {:?}",
+            n
+        );
+
+        // Sanity check: centroid lies exactly on target's z=1 face.
+        let c = sub_tri_centroid(&sub_verts, &sub_tri);
+        assert!(
+            (c[2] - 1.0).abs() < 1e-12,
+            "test setup: centroid z must be exactly 1.0, got {}",
+            c[2]
+        );
+
+        // A-view: sub_tri is from A, target is B → target_label = "B".
+        // Per Phase A C1 convention with A-as-survivor → Outside.
+        let label_a_view = label_sub_tri_raycast(
+            &sub_verts,
+            &sub_tri,
+            &target_verts,
+            &target_tris,
+            &bvh,
+            global_max,
+            1e-6,
+            "B",
+        );
+        assert_eq!(
+            label_a_view,
+            CellLabel::Outside,
+            "A-view of parallel cosurface must be Outside per Phase A C1 \
+             convention (A=survivor=boundary contributor). Got {:?}",
+            label_a_view
+        );
+
+        // B-view: sub_tri is from B, target is A → target_label = "A".
+        // Per Phase A C1 convention with B-as-dropped → Inside.
+        let label_b_view = label_sub_tri_raycast(
+            &sub_verts,
+            &sub_tri,
+            &target_verts,
+            &target_tris,
+            &bvh,
+            global_max,
+            1e-6,
+            "A",
+        );
+        assert_eq!(
+            label_b_view,
+            CellLabel::Inside,
+            "B-view of parallel cosurface must be Inside per Phase A C1 \
+             convention (B=dropped=redundant). Got {:?}",
+            label_b_view
         );
     }
 

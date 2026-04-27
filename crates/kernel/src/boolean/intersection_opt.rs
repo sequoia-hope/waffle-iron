@@ -1532,20 +1532,24 @@ mod tests {
                 SubTriangle {
                     verts: [0, 2, 3],
                     parent_tri: 0,
+                    cosurface_orientation: None,
                 },
                 SubTriangle {
                     verts: [0, 3, 4],
                     parent_tri: 0,
+                    cosurface_orientation: None,
                 },
             ],
             tris_b: vec![
                 SubTriangle {
                     verts: [1, 2, 3],
                     parent_tri: 0,
+                    cosurface_orientation: None,
                 },
                 SubTriangle {
                     verts: [1, 3, 4],
                     parent_tri: 0,
+                    cosurface_orientation: None,
                 },
             ],
             params_a: vec![

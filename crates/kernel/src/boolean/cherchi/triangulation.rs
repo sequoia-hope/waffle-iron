@@ -35,6 +35,7 @@ use geometry_predicates::orient2d;
 use super::aux_structure::AuxiliaryStructure;
 use super::common::Plane;
 use super::fast_trimesh::FastTrimesh;
+use super::processing::Orientation;
 use super::triangle_soup::TriangleSoup;
 use crate::boolean::indirect_predicates::ImplicitPoint;
 
@@ -104,25 +105,45 @@ pub(crate) fn triangulation(
     ts: &mut TriangleSoup,
     aux: &mut AuxiliaryStructure,
 ) -> (Vec<usize>, Vec<u32>) {
-    let (new_tris, new_labels, _parents) = triangulation_with_parents(ts, aux);
+    let empty_orientations: Vec<Option<Orientation>> = vec![None; ts.num_tris()];
+    let (new_tris, new_labels, _parents, _orient) =
+        triangulation_with_parents(ts, aux, &empty_orientations);
     (new_tris, new_labels)
 }
 
 /// Like `triangulation`, but also returns a per-output-triangle parent ID
-/// indicating which input triangle produced each output triangle.
+/// indicating which input triangle produced each output triangle, plus the
+/// PR10 cosurface-orientation vec parallel to `new_labels`.
 ///
-/// Returns (new_tris, new_labels, parent_tris).
+/// `clean_orientations[t_id]` is the cosurface orientation (Cherchi §5.4 /
+/// Hoffmann §5.3) attached to preprocessed triangle `t_id` by STAGE2 dedup.
+/// Each output triangle inherits its parent's orientation.
+///
+/// Returns `(new_tris, new_labels, parent_tris, new_cosurface_orientation)`.
 #[allow(dead_code)]
 pub(crate) fn triangulation_with_parents(
     ts: &mut TriangleSoup,
     aux: &mut AuxiliaryStructure,
-) -> (Vec<usize>, Vec<u32>, Vec<usize>) {
+    clean_orientations: &[Option<Orientation>],
+) -> (Vec<usize>, Vec<u32>, Vec<usize>, Vec<Option<Orientation>>) {
+    debug_assert_eq!(
+        clean_orientations.len(),
+        ts.num_tris(),
+        "PR10: clean_orientations must be parallel to TriangleSoup tris"
+    );
+
     let mut new_tris: Vec<usize> = Vec::with_capacity(2 * 3 * ts.num_tris());
     let mut new_labels: Vec<u32> = Vec::with_capacity(2 * ts.num_tris());
     let mut parent_tris: Vec<usize> = Vec::with_capacity(2 * ts.num_tris());
+    let mut new_cosurface_orientation: Vec<Option<Orientation>> =
+        Vec::with_capacity(2 * ts.num_tris());
 
     let mut tris_to_split: Vec<usize> = Vec::new();
 
+    // `t_id` is used to index multiple parallel structures (`ts`, `aux`,
+    // `clean_orientations`); refactoring to enumerate over a single
+    // iterator would obscure intent.
+    #[allow(clippy::needless_range_loop)]
     for t_id in 0..ts.num_tris() {
         if (aux.triangle_has_intersections(t_id) && aux.triangle_has_actual_intersection_data(t_id))
             || aux.triangle_has_coplanars(t_id)
@@ -150,6 +171,7 @@ pub(crate) fn triangulation_with_parents(
             new_tris.push(v2);
             new_labels.push(label);
             parent_tris.push(t_id);
+            new_cosurface_orientation.push(clean_orientations[t_id]);
         }
     }
 
@@ -169,7 +191,16 @@ pub(crate) fn triangulation_with_parents(
         );
 
         let before = new_labels.len();
-        triangulate_single_triangle(ts, &mut subm, t_id, aux, &mut new_tris, &mut new_labels);
+        triangulate_single_triangle(
+            ts,
+            &mut subm,
+            t_id,
+            aux,
+            &mut new_tris,
+            &mut new_labels,
+            &mut new_cosurface_orientation,
+            clean_orientations,
+        );
         let after = new_labels.len();
         // All output triangles from this split came from input triangle t_id
         for _ in before..after {
@@ -177,7 +208,13 @@ pub(crate) fn triangulation_with_parents(
         }
     }
 
-    (new_tris, new_labels, parent_tris)
+    debug_assert_eq!(
+        new_cosurface_orientation.len(),
+        new_labels.len(),
+        "PR10: cosurface orientation must stay parallel to labels"
+    );
+
+    (new_tris, new_labels, parent_tris, new_cosurface_orientation)
 }
 
 /// Triangulate a single triangle that has intersections.
@@ -189,6 +226,7 @@ pub(crate) fn triangulation_with_parents(
 ///
 /// Ported from triangulation.cpp:53-134 (triangulateSingleTriangle)
 #[allow(dead_code)]
+#[allow(clippy::too_many_arguments)]
 fn triangulate_single_triangle(
     ts: &mut TriangleSoup,
     subm: &mut FastTrimesh,
@@ -196,6 +234,8 @@ fn triangulate_single_triangle(
     aux: &mut AuxiliaryStructure,
     new_tris: &mut Vec<usize>,
     new_labels: &mut Vec<u32>,
+    new_cosurface_orientation: &mut Vec<Option<Orientation>>,
+    clean_orientations: &[Option<Orientation>],
 ) {
     // ── Points and segments recovery ──
     // Ported from triangulation.cpp:58-76
@@ -247,6 +287,7 @@ fn triangulate_single_triangle(
         new_tris.push(v1);
         new_tris.push(v2);
         new_labels.push(label);
+        new_cosurface_orientation.push(clean_orientations[t_id]);
         return;
     }
 
@@ -271,7 +312,15 @@ fn triangulate_single_triangle(
     // ── Output ──
     if aux.triangle_has_coplanars(t_id) {
         // Ported from triangulation.cpp:108-115
-        solve_pockets_in_coplanar_triangle(subm, aux, new_tris, new_labels, ts.tri_label(t_id));
+        solve_pockets_in_coplanar_triangle(
+            subm,
+            aux,
+            new_tris,
+            new_labels,
+            new_cosurface_orientation,
+            ts.tri_label(t_id),
+            clean_orientations[t_id],
+        );
     } else {
         // Ported from triangulation.cpp:118-133
         for ti in 0..subm.num_tris() {
@@ -295,6 +344,7 @@ fn triangulate_single_triangle(
             new_tris.push(v1);
             new_tris.push(v2);
             new_labels.push(label);
+            new_cosurface_orientation.push(clean_orientations[t_id]);
         }
     }
 }
@@ -1433,12 +1483,15 @@ fn split_segment_in_sub_segments(
 ///
 /// Ported from triangulation.cpp:1231-1270 (solvePocketsInCoplanarTriangle)
 #[allow(dead_code)]
+#[allow(clippy::too_many_arguments)]
 fn solve_pockets_in_coplanar_triangle(
     subm: &FastTrimesh,
     aux: &mut AuxiliaryStructure,
     new_tris: &mut Vec<usize>,
     new_labels: &mut Vec<u32>,
+    new_cosurface_orientation: &mut Vec<Option<Orientation>>,
     label: u32,
+    orient: Option<Orientation>,
 ) {
     let (tri_pockets, polygons) = find_pockets_in_triangle(subm);
     debug_assert_eq!(tri_pockets.len(), polygons.len());
@@ -1476,6 +1529,7 @@ fn solve_pockets_in_coplanar_triangle(
                     new_tris.push(v1);
                     new_tris.push(v2);
                     new_labels.push(label);
+                    new_cosurface_orientation.push(orient);
                 }
             }
             Some(existing_pos) => {
@@ -1489,6 +1543,18 @@ fn solve_pockets_in_coplanar_triangle(
                 }
                 for i in 0..num_tris {
                     new_labels[existing_pos + i] |= label;
+                    // PR10: reconcile cosurface orientation. Phase A locked
+                    // pocket-merge convention: take Some when the other side
+                    // is None; debug_assert_eq when both are Some.
+                    new_cosurface_orientation[existing_pos + i] =
+                        match (new_cosurface_orientation[existing_pos + i], orient) {
+                            (None, Some(o)) => Some(o),
+                            (existing, None) => existing,
+                            (Some(a), Some(b)) => {
+                                debug_assert_eq!(a, b, "PR10: pocket-merge orientation conflict");
+                                Some(a)
+                            }
+                        };
                 }
             }
         }
