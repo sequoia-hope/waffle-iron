@@ -249,77 +249,6 @@ pub fn random_plane(rng: &mut impl Rng, scale: f64) -> ([f64; 3], [f64; 3]) {
     }
 }
 
-/// Compute the 3D AABB of an extruded rectangle on an oblique plane.
-///
-/// The rectangle is centered at the origin on the plane, with half-extents w/2 and h/2
-/// along the plane's local X and Y axes. The extrusion goes along the normal by depth.
-fn extrude_rect_aabb(
-    origin: [f64; 3],
-    normal: [f64; 3],
-    w: f64,
-    h: f64,
-    depth: f64,
-) -> ([f64; 3], [f64; 3]) {
-    // Build a local frame matching the kernel's tangent_x_from_normal()
-    // (feature-engine/src/rebuild.rs). Must use the same algorithm so
-    // the AABB prediction matches the actual geometry.
-    let n = normal;
-    let ref_vec = if n[2].abs() < 0.99 {
-        [0.0, 0.0, 1.0] // Z
-    } else {
-        [1.0, 0.0, 0.0] // X
-    };
-    // Cross product: ref × n (same order as kernel)
-    let x_axis = {
-        let cx = ref_vec[1] * n[2] - ref_vec[2] * n[1];
-        let cy = ref_vec[2] * n[0] - ref_vec[0] * n[2];
-        let cz = ref_vec[0] * n[1] - ref_vec[1] * n[0];
-        let len = (cx * cx + cy * cy + cz * cz).sqrt();
-        if len < 1e-12 {
-            [1.0, 0.0, 0.0]
-        } else {
-            [cx / len, cy / len, cz / len]
-        }
-    };
-    let y_axis = [
-        n[1] * x_axis[2] - n[2] * x_axis[1],
-        n[2] * x_axis[0] - n[0] * x_axis[2],
-        n[0] * x_axis[1] - n[1] * x_axis[0],
-    ];
-
-    let hw = w / 2.0;
-    let hh = h / 2.0;
-
-    // 4 corners of the rectangle on the plane, plus 4 corners extruded by depth
-    let mut mn = [f64::INFINITY; 3];
-    let mut mx = [f64::NEG_INFINITY; 3];
-    for &dz in &[0.0, depth] {
-        for &(du, dv) in &[(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)] {
-            let pt = [
-                origin[0] + x_axis[0] * du + y_axis[0] * dv + n[0] * dz,
-                origin[1] + x_axis[1] * du + y_axis[1] * dv + n[1] * dz,
-                origin[2] + x_axis[2] * du + y_axis[2] * dv + n[2] * dz,
-            ];
-            for j in 0..3 {
-                mn[j] = mn[j].min(pt[j]);
-                mx[j] = mx[j].max(pt[j]);
-            }
-        }
-    }
-    (mn, mx)
-}
-
-/// Check if two 3D AABBs are disjoint (no overlap in any axis).
-///
-/// Uses a generous margin (1e-4) to match the kernel's adaptive tau, which
-/// can be significantly larger than the geometric epsilon. The generator's
-/// AABB is approximate (frame mismatch, profile simplification), so a wider
-/// margin avoids false disjointness predictions.
-fn aabb_disjoint_3d(a: &([f64; 3], [f64; 3]), b: &([f64; 3], [f64; 3])) -> bool {
-    let tau = 1e-4; // generous margin to match kernel's adaptive tolerance
-    (0..3).any(|i| a.1[i] + tau < b.0[i] || b.1[i] + tau < a.0[i])
-}
-
 /// Generate a random sketch primitive. Returns (ProfileData, profile_type_name, characteristic_size).
 ///
 /// Weighted 33/33/33: rectangle, true circle, gear.
@@ -1213,11 +1142,6 @@ fn generate_oblique_plane_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
             seed
         );
 
-        // Detect disjoint operands: compute 3D AABBs of both extrusions
-        let aabb1 = extrude_rect_aabb(origin1, normal1, w1, h1, d1);
-        let aabb2 = extrude_rect_aabb(origin2, normal2, w2, h2, d2);
-        let disjoint = aabb_disjoint_3d(&aabb1, &aabb2);
-
         let meta = AssayMeta {
             id: case_id.clone(),
             description: description.clone(),
@@ -1253,7 +1177,15 @@ fn generate_oblique_plane_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
                 max_bbox_extent: 3.0,
                 expect_positive_volume: true,
                 volume_monotonicity: vec!["increase".to_string(), "increase".to_string()],
-                expect_rebuild_error: disjoint,
+                // PR16: removed AABB-disjoint heuristic. Pre-PR13 (commit aee32d8),
+                // the kernel errored on disjoint operands; commit ef70415
+                // (2026-03-28) hand-edited F0011-F0015's oracle to false after
+                // PR13's AABB-disjoint short-circuit at topology_extract.rs:1504-1523
+                // made disjoint booleans produce trivial correct results
+                // (Yang 2025 §4.5.5: A∪B with A∩B=∅ is a compound solid, not an
+                // error; A−B with A∩B=∅ is A unchanged; A∩B with A∩B=∅ is empty).
+                // PR16 codifies that hand-edit in the generator.
+                expect_rebuild_error: false,
             },
             generator_version: GENERATOR_VERSION,
             featured: true,
@@ -3903,5 +3835,122 @@ mod tests {
             "test scanned 20 cases but found no revolve operations — \
              generator distribution may have shifted; widen the scan range"
         );
+    }
+
+    /// PR16: F0011-F0015 oracles must have `expect_rebuild_error: false`.
+    ///
+    /// These five "oblique-plane" cases each contain two extrudes on different
+    /// random oblique planes. PR13 (commit `aee32d8`) added an AABB-disjoint
+    /// short-circuit to `yang_boolean_pipeline` (`topology_extract.rs:1504-1523`)
+    /// that returns trivial results without erroring when operands are spatially
+    /// disjoint:
+    ///
+    /// - `Union`: two side-by-side bodies (compound solid, two shells)
+    /// - `Subtract`: A unchanged
+    /// - `Intersect`: empty
+    ///
+    /// This matches Yang 2025 §4.5.5 / Cherchi 2020 §5.1 semantics: A∪B with
+    /// A∩B=∅ is a valid compound solid, not an error. The Cherchi pipeline
+    /// trivially handles disjoint inputs at the AABB pre-filter stage —
+    /// no triangle pairs intersect, so Algorithm 1 (segment insertion) has
+    /// nothing to do.
+    ///
+    /// Commit ef70415 (2026-03-28) hand-edited F0011-F0015's `.meta.json` from
+    /// `expect_rebuild_error=true` to `false` to reflect this. PR15's corpus
+    /// regeneration reverted those hand-edits because the generator at
+    /// `gen.rs:1216-1256` still computes `expect_rebuild_error: disjoint`
+    /// from `aabb_disjoint_3d`. PR16 removes that obsolete heuristic so the
+    /// generator unconditionally emits `false`, codifying ef70415's intent.
+    ///
+    /// This test FAILS on the current generator (red phase): `disjoint=true`
+    /// for all five cases at the seeded RNG values 7001-7005, so the oracle
+    /// is `true` instead of the required `false`.
+    #[test]
+    fn test_f0011_to_f0015_oracle_no_disjoint_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let entries = generate_oblique_plane_cases(dir.path());
+
+        let ids: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
+        for expected in ["F0011", "F0012", "F0013", "F0014", "F0015"] {
+            assert!(
+                ids.contains(&expected),
+                "generate_oblique_plane_cases must produce {}; got {:?}",
+                expected,
+                ids
+            );
+        }
+
+        for entry in &entries {
+            assert!(
+                ["F0011", "F0012", "F0013", "F0014", "F0015"].contains(&entry.id.as_str()),
+                "unexpected case id from generate_oblique_plane_cases: {}",
+                entry.id
+            );
+
+            let meta_path = dir.path().join(&entry.meta_filename);
+            let meta_json = fs::read_to_string(&meta_path)
+                .unwrap_or_else(|e| panic!("failed to read {}: {}", meta_path.display(), e));
+            let meta: AssayMeta = serde_json::from_str(&meta_json)
+                .unwrap_or_else(|e| panic!("failed to parse meta for {}: {}", entry.id, e));
+
+            assert!(
+                !meta.oracles.expect_rebuild_error,
+                "{} oracle expect_rebuild_error must be false (PR13 AABB-disjoint \
+                 short-circuit handles disjoint operands as a valid compound solid \
+                 per Yang 2025 §4.5.5; obsolete `disjoint` heuristic at gen.rs:1256 \
+                 produced true). See ef70415 (2026-03-28) for the original hand-edit \
+                 this test codifies.",
+                entry.id
+            );
+        }
+    }
+
+    /// PR16 regression guard: F0073 and F0074 must keep `expect_rebuild_error: true`.
+    ///
+    /// These two cases pair an extrude with a revolve whose axis intersects the
+    /// profile interior (F0073) or passes through a profile vertex (F0074).
+    /// Both genuinely produce a self-intersecting solid that the kernel rejects
+    /// at the revolve operation (PR14 Check 3). The `true` value is hard-coded
+    /// at `gen.rs:3175` and `gen.rs:3273` — it is NOT produced by the obsolete
+    /// `disjoint` heuristic and must remain `true` after PR16 removes that
+    /// heuristic.
+    ///
+    /// This test PASSES on the current generator and must continue to pass
+    /// after PR16's implementation phase.
+    #[test]
+    fn test_f0073_to_f0074_oracle_revolve_self_intersection_preserved() {
+        let dir = tempfile::tempdir().unwrap();
+        let entries = generate_revolve_self_intersection_cases(dir.path());
+
+        let ids: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
+        for expected in ["F0073", "F0074"] {
+            assert!(
+                ids.contains(&expected),
+                "generate_revolve_self_intersection_cases must produce {}; got {:?}",
+                expected,
+                ids
+            );
+        }
+
+        for entry in entries
+            .iter()
+            .filter(|e| e.id == "F0073" || e.id == "F0074")
+        {
+            let meta_path = dir.path().join(&entry.meta_filename);
+            let meta_json = fs::read_to_string(&meta_path)
+                .unwrap_or_else(|e| panic!("failed to read {}: {}", meta_path.display(), e));
+            let meta: AssayMeta = serde_json::from_str(&meta_json)
+                .unwrap_or_else(|e| panic!("failed to parse meta for {}: {}", entry.id, e));
+
+            assert!(
+                meta.oracles.expect_rebuild_error,
+                "{} oracle expect_rebuild_error must remain true after PR16 — \
+                 this case genuinely errors at the revolve operation due to \
+                 self-intersection (PR14 Check 3), independent of the `disjoint` \
+                 heuristic that PR16 removes. The `true` is hard-coded at \
+                 gen.rs:3175 (F0073) / gen.rs:3273 (F0074).",
+                entry.id
+            );
+        }
     }
 }

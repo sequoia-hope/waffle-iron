@@ -836,3 +836,107 @@ elimination is the concrete win.
 - `fix(test-harness): assay generator offsets revolve axis perpendicular to tangent`
 - `chore(assay): regenerate R-series corpus post-PR15`
 - `chore(assay): update results.json post-PR15`
+
+## PR16 outcome — disjoint heuristic removed (codifies ef70415's hand-edit)
+
+PR16 (this commit set) removes the obsolete `disjoint` heuristic from
+`crates/test-harness/src/assay/gen.rs:1216-1256` and ~65 LOC of dead
+helper code (`extrude_rect_aabb`, `aabb_disjoint_3d`). Pre-PR13, the
+heuristic correctly anticipated kernel errors on AABB-disjoint
+operands; PR13 (commit `aee32d8`) made disjoint operands produce
+trivial correct results (Yang 2025 §4.5.5: A∪B with A∩B=∅ is a
+compound solid; A−B with A∩B=∅ is A unchanged; A∩B with A∩B=∅ is
+empty). Commit ef70415 (2026-03-28) hand-edited F0011-F0015's oracle
+to `false` after PR13's fix; PR15's regeneration mistakenly reverted
+that hand-edit. PR16 codifies it.
+
+### What landed
+
+- **gen.rs:1216-1256** — removed 3-line heuristic computation; replaced
+  `expect_rebuild_error: disjoint` with `expect_rebuild_error: false`
+  + 9-line citation comment (Yang §4.5.5 + PR13 + ef70415).
+- **gen.rs:256-321** — removed 65 LOC of dead helpers
+  (`extrude_rect_aabb` + `aabb_disjoint_3d`), verified dead via
+  `grep -rn "extrude_rect_aabb\|aabb_disjoint_3d"`.
+- **Phase A red-before-green tests** at gen.rs L3908+:
+  - `test_f0011_to_f0015_oracle_no_disjoint_error`: asserts
+    F0011-F0015 oracles all have `expect_rebuild_error: false`.
+    Pre-fix: panic for F0011 ("must be false ... obsolete `disjoint`
+    heuristic produced true"). Post-fix: GREEN.
+  - `test_f0073_to_f0074_oracle_revolve_self_intersection_preserved`:
+    regression guard. Pre/post: GREEN (independent of the heuristic).
+- **Corpus regenerated** (200 R+F-series files via assay_gen).
+  RNG-state preserved exactly: only F0011-F0015 .meta.json's
+  `expect_rebuild_error` field differs vs PR15. R-series and other
+  F-series .meta.json byte-identical. F-series .waffle have
+  pre-existing UUID/timestamp churn (PR17+ scope, tied to assay
+  determinism).
+
+### Adversarial mutation results (validator Phase C)
+
+Restoring the heuristic (revert PR16) → Phase A test 1 fails as
+expected with the panic message naming the obsolete heuristic. Byte-
+diff of restored gen.rs vs current: BYTE_IDENTICAL_RESTORED.
+
+### Yang_fast assay impact
+
+PR15 baseline: 2/157 passing.
+PR16 post:    **5/157 passing**, 149 failed, 3 errored (33 timeouts).
+
+- **+3 net passing**: F0001, F0005, F0073, F0074, R0018 (the 5).
+- F0073-F0074 pass via "expected error matched" path (PR14's revolve
+  Check 3 errors satisfy `expect_rebuild_error: true`).
+- F0001 and F0005 pass via mesh-oracle path (likely benefited from
+  PR15's axis-offset fix removing geometry pathologies that
+  previously made these fail).
+
+### F0011-F0015: oracle correct, kernel produces compound solid
+
+After PR16, F0011-F0015 fail the assay with:
+```
+mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)
+```
+plus various `no_self_intersection` violations.
+
+V-E+F=4 = 2 disconnected solids' Euler characteristic (2 per body × 2
+bodies), which is **exactly the geometrically correct output** for
+PR13's Union short-circuit of AABB-disjoint operands per Yang 2025
+§4.5.5. The oracle expects single-solid Euler=2; the kernel correctly
+produces compound-solid Euler=4. The mismatch is in the oracle, not
+the kernel.
+
+PR17+ scope (out of PR16):
+- **Option A**: relax `mesh_euler_characteristic` oracle to accept
+  Euler = 2 × N for compound solids with N components.
+- **Option B**: change `expect_rebuild_error: false` cases like
+  F0011-F0015 to wrap the boolean in an outer "produce single solid
+  even if disconnected" semantic — would require kernel change.
+- **Option C**: leave F0011-F0015 as known-failing with honest
+  category (current state). Their failure mode is geometrically
+  honest (compound-solid topology mismatch with single-solid oracle),
+  not a false oracle.
+
+Per `feedback_no_regression_chasing.md`, the +3 assay improvement
+is the win; the Euler mismatch is documented for follow-up.
+
+### Spec / governance notes
+
+- **P3 / FIP §8**: red-before-green satisfied (Phase A red, Phase B
+  green).
+- **P5 / FIP §1**: test-author, implementer, validator are 3
+  distinct agents.
+- **P8** (cite research): code comment at gen.rs:1256 cites Yang
+  2025 §4.5.5 + PR13 (commit `aee32d8`) + ef70415 hand-edit.
+- **P9** (no hack-to-green): the fix REMOVES wrong code rather than
+  adding a workaround. The right answer (`false` unconditionally) is
+  produced by the generator at the source instead of by a manual
+  override.
+- **P10**: each agent stayed in scope; F0011-F0015 Euler mismatch
+  (oracle vs compound-solid) was diagnosed and deferred per plan
+  risk register.
+
+### PR16 commit set
+
+- `fix(test-harness): remove obsolete disjoint heuristic from assay generator (PR13 made AABB-disjoint operands work)`
+- `chore(assay): regenerate corpus post-PR16 (F0011-F0015 expect_rebuild_error false)`
+- `chore(assay): update results.json post-PR16 (5/157 passing, +3 net)`
