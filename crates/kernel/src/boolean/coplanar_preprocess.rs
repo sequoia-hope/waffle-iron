@@ -34,6 +34,7 @@ pub(crate) static COPLANAR_MEF_OK: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static COPLANAR_MEF_NO_LOOP: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static COPLANAR_OVERLAY_GROUPS: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static COPLANAR_OVERLAY_HOLES_IGNORED: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static COPLANAR_IDENTICAL_FOOTPRINT: AtomicUsize = AtomicUsize::new(0);
 
 /// A detected coplanar face pair between two solids.
 #[derive(Debug, Clone)]
@@ -49,6 +50,13 @@ pub(crate) struct CoplanarFacePair {
     /// true if normals point in the same direction (dot ≈ +1),
     /// false if anti-parallel (dot ≈ -1).
     pub same_direction: bool,
+    /// true if A's face footprint == B's face footprint (overlap covers
+    /// both faces entirely). Set during `split_brep_for_coplanar_pairs`
+    /// and consumed by `inject_identical_footprint_mesh` after
+    /// tessellation. Yang §4.5.5 prescribes a single shared triangulation
+    /// for this case so both meshes have bitwise-identical triangles in
+    /// the overlap region.
+    pub is_identical_footprint: bool,
 }
 
 /// Detect coplanar face pairs between two solids.
@@ -100,6 +108,7 @@ pub(crate) fn detect_coplanar_face_pairs(
                     plane_normal: normal_a,
                     plane_offset: offset_a,
                     same_direction: dot > 0.0,
+                    is_identical_footprint: false,
                 });
             }
         }
@@ -162,7 +171,7 @@ fn extract_planar_faces(solid: &WaffleSolid) -> Vec<(FaceIdx, [f64; 3], f64)> {
 pub(crate) fn split_brep_for_coplanar_pairs(
     solid_a: &mut WaffleSolid,
     solid_b: &mut WaffleSolid,
-    coplanar_pairs: &[CoplanarFacePair],
+    coplanar_pairs: &mut [CoplanarFacePair],
 ) {
     // `[coplanar-tele]` snapshot — emit per-call delta at function exit.
     let snap_pairs = COPLANAR_PAIRS_PROCESSED.load(Ordering::Relaxed);
@@ -173,8 +182,9 @@ pub(crate) fn split_brep_for_coplanar_pairs(
     let snap_mef_no_loop = COPLANAR_MEF_NO_LOOP.load(Ordering::Relaxed);
     let snap_groups = COPLANAR_OVERLAY_GROUPS.load(Ordering::Relaxed);
     let snap_holes = COPLANAR_OVERLAY_HOLES_IGNORED.load(Ordering::Relaxed);
+    let snap_identical = COPLANAR_IDENTICAL_FOOTPRINT.load(Ordering::Relaxed);
 
-    for (pair_idx, pair) in coplanar_pairs.iter().enumerate() {
+    for (pair_idx, pair) in coplanar_pairs.iter_mut().enumerate() {
         // Both same-direction and anti-parallel pairs need B-Rep splitting.
         COPLANAR_PAIRS_PROCESSED.fetch_add(1, Ordering::Relaxed);
 
@@ -249,11 +259,18 @@ pub(crate) fn split_brep_for_coplanar_pairs(
         let a_only_empty = a_only.is_empty() || a_only[0].is_empty();
         let b_only_empty = b_only.is_empty() || b_only[0].is_empty();
         if a_only_empty && b_only_empty {
+            // Yang §4.5.5: identical-footprint coplanar pairs need post-
+            // tessellation injection of a canonical shared triangulation.
+            // Mark for `inject_identical_footprint_mesh` to handle later.
+            // The B-Rep split itself has nothing to do here — there are no
+            // edges to split and no `mef` calls; the existing face IS the
+            // overlap.
+            pair.is_identical_footprint = true;
             #[cfg(test)]
             eprintln!(
-                "[COPLANAR SPLIT]   -> Skipped: identical footprint (both A-only and B-only empty)"
+                "[COPLANAR SPLIT]   -> Marked identical_footprint=true (will inject post-tessellation)"
             );
-            continue; // Identical footprint — tessellation already produces matching mesh
+            continue;
         }
 
         #[cfg(test)]
@@ -318,9 +335,10 @@ pub(crate) fn split_brep_for_coplanar_pairs(
         let mef_no_loop = COPLANAR_MEF_NO_LOOP.load(Ordering::Relaxed) - snap_mef_no_loop;
         let groups = COPLANAR_OVERLAY_GROUPS.load(Ordering::Relaxed) - snap_groups;
         let holes = COPLANAR_OVERLAY_HOLES_IGNORED.load(Ordering::Relaxed) - snap_holes;
+        let identical = COPLANAR_IDENTICAL_FOOTPRINT.load(Ordering::Relaxed) - snap_identical;
         eprintln!(
-            "[coplanar-tele] pairs={} verts_existing={} verts_split={} verts_dropped={} mef_ok={} mef_no_loop={} overlay_groups={} overlay_holes_ignored={}",
-            pairs_delta, v_existing, v_split, v_dropped, mef_ok, mef_no_loop, groups, holes
+            "[coplanar-tele] pairs={} verts_existing={} verts_split={} verts_dropped={} mef_ok={} mef_no_loop={} overlay_groups={} overlay_holes_ignored={} identical_footprint={}",
+            pairs_delta, v_existing, v_split, v_dropped, mef_ok, mef_no_loop, groups, holes, identical
         );
     }
 }
@@ -800,6 +818,153 @@ pub(crate) fn inject_conformal_coplanar_mesh(
         // overlap-boundary vertices were introduced by the injection.
         repair_tjunctions_after_injection(verts_a, tris_a, bijective_a, pair.face_a, &new_verts_a);
         repair_tjunctions_after_injection(verts_b, tris_b, bijective_b, pair.face_b, &new_verts_b);
+    }
+}
+
+/// Yang §4.5.5 identical-footprint pass: replace mesh A's and mesh B's
+/// triangulation of each marked coplanar face with a single canonical
+/// triangulation, derived from face A's boundary, so both meshes have
+/// bitwise-identical triangles in the overlap region.
+///
+/// Only acts on pairs where `is_identical_footprint == true` (set by
+/// `split_brep_for_coplanar_pairs`). For each such pair:
+///   1. Locate the face's existing triangles in each mesh.
+///   2. Extract face A's 2D boundary polygon on the shared plane.
+///   3. Triangulate the polygon ONCE with `triangulate_polygon_with_holes`
+///      (no holes — identical footprint has a single contour).
+///   4. Map 2D vertices back to 3D via `verts_2d_to_3d`.
+///   5. Replace mesh A's face triangles with the canonical triangulation,
+///      preserving A's winding.
+///   6. Replace mesh B's face triangles with the same triangulation; flip
+///      per-triangle winding when the pair is anti-parallel (so B's outward
+///      normal still points opposite to A's).
+///
+/// Skips T-junction repair: identical-footprint = the overlap IS the entire
+/// face on both sides, so there are no adjacent faces with mismatched edges
+/// to fix up.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn inject_identical_footprint_mesh(
+    coplanar_pairs: &[CoplanarFacePair],
+    verts_a: &mut Vec<[f64; 3]>,
+    tris_a: &mut Vec<[usize; 3]>,
+    bijective_a: &mut BijectiveMap,
+    verts_b: &mut Vec<[f64; 3]>,
+    tris_b: &mut Vec<[usize; 3]>,
+    bijective_b: &mut BijectiveMap,
+) {
+    for pair in coplanar_pairs {
+        if !pair.is_identical_footprint {
+            continue;
+        }
+
+        // 1. Find triangles on the coplanar plane in each mesh.
+        let face_tri_indices_a = find_plane_triangles(
+            verts_a,
+            tris_a,
+            bijective_a,
+            pair.face_a,
+            &pair.plane_normal,
+            pair.plane_offset,
+        );
+        let face_tri_indices_b = find_plane_triangles(
+            verts_b,
+            tris_b,
+            bijective_b,
+            pair.face_b,
+            &pair.plane_normal,
+            pair.plane_offset,
+        );
+
+        if face_tri_indices_a.is_empty() || face_tri_indices_b.is_empty() {
+            #[cfg(test)]
+            eprintln!(
+                "[COPLANAR INJECT-IF] Skipped pair {:?}/{:?}: no plane triangles found (A={}, B={})",
+                pair.face_a, pair.face_b, face_tri_indices_a.len(), face_tri_indices_b.len()
+            );
+            continue;
+        }
+
+        // 2. Compute plane basis for 2D projection.
+        let (u_axis, v_axis) = compute_plane_basis(pair.plane_normal);
+        let plane_origin = [
+            pair.plane_normal[0] * pair.plane_offset,
+            pair.plane_normal[1] * pair.plane_offset,
+            pair.plane_normal[2] * pair.plane_offset,
+        ];
+
+        // 3. Extract face A's 2D boundary. This is the canonical contour;
+        // since the footprint is identical, face B's boundary projects to
+        // the same polygon.
+        let poly_a = extract_face_boundary_2d(
+            verts_a,
+            tris_a,
+            &face_tri_indices_a,
+            &plane_origin,
+            &u_axis,
+            &v_axis,
+        );
+        if poly_a.is_empty() {
+            #[cfg(test)]
+            eprintln!(
+                "[COPLANAR INJECT-IF] Skipped pair {:?}/{:?}: face A boundary empty",
+                pair.face_a, pair.face_b
+            );
+            continue;
+        }
+
+        // 4. Triangulate ONCE — single contour, no holes.
+        let (shared_2d_verts, shared_tri_indices) = triangulate_polygon_with_holes(&[poly_a]);
+        if shared_tri_indices.is_empty() {
+            #[cfg(test)]
+            eprintln!(
+                "[COPLANAR INJECT-IF] Skipped pair {:?}/{:?}: triangulation produced no triangles",
+                pair.face_a, pair.face_b
+            );
+            continue;
+        }
+        let shared_3d = verts_2d_to_3d(&shared_2d_verts, &plane_origin, &u_axis, &v_axis);
+        let shared_tris_a: Vec<[usize; 3]> = shared_tri_indices
+            .chunks(3)
+            .map(|c| [c[0], c[1], c[2]])
+            .collect();
+
+        // For mesh B, flip per-triangle winding when normals are anti-parallel
+        // so face B's outward orientation is preserved.
+        let shared_tris_b: Vec<[usize; 3]> = if pair.same_direction {
+            shared_tris_a.clone()
+        } else {
+            shared_tris_a.iter().map(|t| [t[0], t[2], t[1]]).collect()
+        };
+
+        // 5. Replace mesh A's face triangles.
+        let _ = replace_face_triangles(
+            verts_a,
+            tris_a,
+            bijective_a,
+            &face_tri_indices_a,
+            pair.face_a,
+            &shared_3d,
+            &shared_tris_a,
+        );
+
+        // 6. Replace mesh B's face triangles with the same vertex set.
+        let _ = replace_face_triangles(
+            verts_b,
+            tris_b,
+            bijective_b,
+            &face_tri_indices_b,
+            pair.face_b,
+            &shared_3d,
+            &shared_tris_b,
+        );
+
+        COPLANAR_IDENTICAL_FOOTPRINT.fetch_add(1, Ordering::Relaxed);
+
+        #[cfg(test)]
+        eprintln!(
+            "[COPLANAR INJECT-IF] Injected pair {:?}/{:?}: {} canonical tris (B winding flipped: {})",
+            pair.face_a, pair.face_b, shared_tris_a.len(), !pair.same_direction
+        );
     }
 }
 
@@ -1301,6 +1466,7 @@ mod tests {
             plane_normal: [0.0, 0.0, 1.0],
             plane_offset: 1.0,
             same_direction: false, // anti-parallel stacked caps
+            is_identical_footprint: false,
         };
 
         inject_conformal_coplanar_mesh(
@@ -1834,13 +2000,14 @@ mod tests {
         let mut solid_b_mut = solid_b.clone();
 
         // Only run split on same-direction pairs (that's what split_brep does).
-        let same_dir_pairs: Vec<_> = pairs.iter().filter(|p| p.same_direction).cloned().collect();
+        let mut same_dir_pairs: Vec<_> =
+            pairs.iter().filter(|p| p.same_direction).cloned().collect();
         eprintln!(
             "\n=== Running split_brep_for_coplanar_pairs ({} same-dir pairs) ===",
             same_dir_pairs.len()
         );
 
-        split_brep_for_coplanar_pairs(&mut solid_a_mut, &mut solid_b_mut, &same_dir_pairs);
+        split_brep_for_coplanar_pairs(&mut solid_a_mut, &mut solid_b_mut, &mut same_dir_pairs);
 
         // Count faces and loop vertices after splitting.
         let faces_a_after = solid_a_mut.arena.face_count();
@@ -1993,5 +2160,173 @@ mod tests {
                 eprintln!("\nPipeline FAILED: {e}");
             }
         }
+    }
+
+    // ── Test 5: Phase D regression — identical-footprint inject ──────────
+
+    /// Phase D regression test (PR5).
+    ///
+    /// `inject_identical_footprint_mesh` must produce **bitwise-identical**
+    /// triangulations on the shared coplanar plane: same set of 3D vertex
+    /// positions, same triangle count, same vertex-position triples (modulo
+    /// per-triangle winding reversal for the anti-parallel canonical case).
+    /// This is the Yang §4.5.5 deliverable: "identical meshes are generated
+    /// for both models in this part."
+    ///
+    /// FIP §8 red-before-green: with Phase B's wiring removed (no inject
+    /// call after tessellation), tessellation produces independent diagonals
+    /// on each mesh and the assertions below fail. After Phase B is wired,
+    /// the assertions pass.
+    ///
+    /// Note: this test does NOT assert downstream topology validity. The
+    /// canary `test_stacked_box_union_correct_topology` continues to track
+    /// the label_cells boundary-coincident classification fix (PR6).
+    #[test]
+    fn test_identical_footprint_inject_produces_consistent_meshes() {
+        // Two unit cubes A=[0,1]³ and B at z∈[1,2] — identical XY footprint.
+        let (k_a, h_a) = make_stacked_box(0.5, 0.5, 1.0, 1.0, 0.0, 1.0);
+        let (k_b, h_b) = make_stacked_box(0.5, 0.5, 1.0, 1.0, 1.0, 1.0);
+
+        let solid_a = k_a.get_solid(&h_a).expect("solid_a must exist");
+        let solid_b = k_b.get_solid(&h_b).expect("solid_b must exist");
+
+        // Tessellate both solids.
+        let lod = tessellation::TessellationLod::Boolean;
+        let mesh_a = tessellate_waffle_solid(solid_a, lod).expect("tessellate A");
+        let mesh_b = tessellate_waffle_solid(solid_b, lod).expect("tessellate B");
+
+        let (mut verts_a, mut tris_a) = render_mesh_to_arrays(&mesh_a);
+        let (mut verts_b, mut tris_b) = render_mesh_to_arrays(&mesh_b);
+        dedup_mesh_vertices(&mut verts_a, &mut tris_a);
+        dedup_mesh_vertices(&mut verts_b, &mut tris_b);
+
+        let mut bijective_a = BijectiveMap::from_render_mesh(&mesh_a, &solid_a.face_map);
+        let mut bijective_b = BijectiveMap::from_render_mesh(&mesh_b, &solid_b.face_map);
+
+        // Run the integration path Yang Stage 0a uses: detect → split (which
+        // marks identical-footprint pairs) → inject. We must clone the
+        // solids because `split_brep_for_coplanar_pairs` takes `&mut`.
+        let mut solid_a_mut = solid_a.clone();
+        let mut solid_b_mut = solid_b.clone();
+        let mut pairs = detect_coplanar_face_pairs(&solid_a_mut, &solid_b_mut);
+        split_brep_for_coplanar_pairs(&mut solid_a_mut, &mut solid_b_mut, &mut pairs);
+
+        // The z=1 anti-parallel pair MUST be marked identical-footprint.
+        let z1_pair = pairs
+            .iter()
+            .find(|p| {
+                p.plane_normal[2].abs() > 0.99
+                    && (p.plane_offset.abs() - 1.0).abs() < 1e-6
+                    && !p.same_direction
+            })
+            .expect("z=1 anti-parallel coplanar pair must be detected");
+        assert!(
+            z1_pair.is_identical_footprint,
+            "z=1 anti-parallel pair between two unit-cube stacked boxes \
+             must be marked is_identical_footprint=true"
+        );
+
+        // Run the inject helper.
+        inject_identical_footprint_mesh(
+            &pairs,
+            &mut verts_a,
+            &mut tris_a,
+            &mut bijective_a,
+            &mut verts_b,
+            &mut tris_b,
+            &mut bijective_b,
+        );
+
+        // Yang §4.5.5 deliverable assertions — bitwise-identical mesh on the
+        // shared plane.
+
+        // 1. Both meshes have triangles on z=1.
+        let z1_tris_a = collect_plane_triangles(&verts_a, &tris_a, 2, 1.0, f64::EPSILON);
+        let z1_tris_b = collect_plane_triangles(&verts_b, &tris_b, 2, 1.0, f64::EPSILON);
+        assert!(
+            !z1_tris_a.is_empty(),
+            "mesh A must have triangles on z=1 plane after inject"
+        );
+        assert!(
+            !z1_tris_b.is_empty(),
+            "mesh B must have triangles on z=1 plane after inject"
+        );
+
+        // 2. Same triangle count.
+        assert_eq!(
+            z1_tris_a.len(),
+            z1_tris_b.len(),
+            "Yang §4.5.5: identical-footprint meshes must have the same \
+             triangle count on the shared plane (A={}, B={})",
+            z1_tris_a.len(),
+            z1_tris_b.len()
+        );
+
+        // 3. Same set of 3D vertex positions on z=1 — bitwise (each f64 bit
+        //    pattern equal). The injection passes through the same
+        //    `verts_2d_to_3d` call for both meshes, so the positions ARE
+        //    bitwise identical.
+        let mut z1_verts_a: Vec<[u64; 3]> = z1_tris_a
+            .iter()
+            .flat_map(|tri| {
+                tri.iter()
+                    .map(|v| [v[0].to_bits(), v[1].to_bits(), v[2].to_bits()])
+            })
+            .collect();
+        let mut z1_verts_b: Vec<[u64; 3]> = z1_tris_b
+            .iter()
+            .flat_map(|tri| {
+                tri.iter()
+                    .map(|v| [v[0].to_bits(), v[1].to_bits(), v[2].to_bits()])
+            })
+            .collect();
+        z1_verts_a.sort();
+        z1_verts_a.dedup();
+        z1_verts_b.sort();
+        z1_verts_b.dedup();
+        assert_eq!(
+            z1_verts_a,
+            z1_verts_b,
+            "Yang §4.5.5: identical-footprint meshes must reference the \
+             same set of bitwise-identical 3D vertex positions on the \
+             shared plane (got {} unique in A, {} unique in B)",
+            z1_verts_a.len(),
+            z1_verts_b.len()
+        );
+
+        // 4. Triangle vertex-position triples match between A and B modulo
+        //    per-triangle winding reversal (anti-parallel case). Normalize
+        //    each triangle by sorting its three vertex bit-patterns; the
+        //    resulting set must be equal.
+        let mut sorted_a: Vec<[[u64; 3]; 3]> = z1_tris_a
+            .iter()
+            .map(|tri| {
+                let mut v: Vec<[u64; 3]> = tri
+                    .iter()
+                    .map(|p| [p[0].to_bits(), p[1].to_bits(), p[2].to_bits()])
+                    .collect();
+                v.sort();
+                [v[0], v[1], v[2]]
+            })
+            .collect();
+        let mut sorted_b: Vec<[[u64; 3]; 3]> = z1_tris_b
+            .iter()
+            .map(|tri| {
+                let mut v: Vec<[u64; 3]> = tri
+                    .iter()
+                    .map(|p| [p[0].to_bits(), p[1].to_bits(), p[2].to_bits()])
+                    .collect();
+                v.sort();
+                [v[0], v[1], v[2]]
+            })
+            .collect();
+        sorted_a.sort();
+        sorted_b.sort();
+        assert_eq!(
+            sorted_a, sorted_b,
+            "Yang §4.5.5: per-triangle vertex-position triples on the \
+             shared plane must match between mesh A and mesh B (modulo \
+             winding)"
+        );
     }
 }

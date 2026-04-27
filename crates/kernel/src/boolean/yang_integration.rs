@@ -572,13 +572,13 @@ pub(crate) fn yang_boolean_inner(
     // boundaries BEFORE tessellation (Yang 2025 Section 4.5.5).
     let mut solid_a_mod = solid_a.clone();
     let mut solid_b_mod = solid_b.clone();
-    let coplanar_pairs =
+    let mut coplanar_pairs =
         crate::boolean::coplanar_preprocess::detect_coplanar_face_pairs(&solid_a_mod, &solid_b_mod);
     if !coplanar_pairs.is_empty() {
         crate::boolean::coplanar_preprocess::split_brep_for_coplanar_pairs(
             &mut solid_a_mod,
             &mut solid_b_mod,
-            &coplanar_pairs,
+            &mut coplanar_pairs,
         );
     }
 
@@ -654,8 +654,21 @@ pub(crate) fn yang_boolean_inner(
     bijective_a.compute_vertex_params(&mesh_a, &solid_a_mod.face_geometry);
     bijective_b.compute_vertex_params(&mesh_b, &solid_b_mod.face_geometry);
 
-    // Stage 0b: Coplanar mesh injection DISABLED (same reason as Stage 0a).
-    // See comment above.
+    // Stage 0b: Yang §4.5.5 identical-footprint coplanar pairs need post-
+    // tessellation injection of a canonical shared triangulation so both
+    // meshes have bitwise-identical triangles in the overlap region. The
+    // marker is set during `split_brep_for_coplanar_pairs` (Stage 0a).
+    if !coplanar_pairs.is_empty() {
+        crate::boolean::coplanar_preprocess::inject_identical_footprint_mesh(
+            &coplanar_pairs,
+            &mut verts_a,
+            &mut tris_a,
+            &mut bijective_a,
+            &mut verts_b,
+            &mut tris_b,
+            &mut bijective_b,
+        );
+    }
 
     // Diagnostic: export preprocessed merged mesh as binary STL for C++ comparison.
     // Activated by YANG_DUMP_STL=1 environment variable.
