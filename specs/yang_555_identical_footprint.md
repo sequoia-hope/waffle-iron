@@ -9,21 +9,36 @@ downstream label_cells boundary-coincident classification.
 
 - **PR4 outcome**: Phase A `[coplanar-tele]` counters in
   `crates/kernel/src/boolean/coplanar_preprocess.rs`. No fix attempt.
-- **PR5 outcome (this PR)**: Yang §4.5.5 mesh-injection RESOLVED. New
+- **PR5 outcome**: Yang §4.5.5 mesh-injection RESOLVED. New
   `inject_identical_footprint_mesh` helper produces bitwise-identical
   triangulations on identical-footprint coplanar pairs. Cherchi STAGE2
   dedup confirms (24 → 22 tris on the canary). Test
   `test_identical_footprint_inject_produces_consistent_meshes` is the
   green deliverable.
-- **PR6 follow-up (still pending)**: Downstream `label_cells` classification
-  of boundary-coincident triangles after Cherchi dedup. The canary
-  `test_stacked_box_union_correct_topology` REMAINS RED until PR6 lands —
-  the §4.5.5 piece improves it from 8 ambiguous twins → 2 ambiguous + 2
-  unpaired, but does not fully resolve it. See "PR6 follow-up" below.
+- **PR6 outcome (this PR)**: Hoffmann classifier (label_cells
+  boundary-coincident) RESOLVED. `label_sub_tri_raycast` in
+  `crates/kernel/src/boolean/exact_mesh.rs` now applies Hoffmann 1989 §5.3
+  perturb-and-classify when the primary ray-cast returns degenerate
+  (centroid on target surface): both `+eps * normal` and `-eps * normal`
+  are sampled; differing classifications → boundary-coincident → `Inside`
+  (closed-solid convention compatible with `select_boolean_result`'s
+  Union/Intersect/Subtract keep tables). Regression test
+  `test_label_cells_boundary_coincident_classifies_inside` is the green
+  deliverable. Commit: `<TBD-by-team-lead-at-merge>`.
+- **PR8 (or PR9) follow-up — STILL PENDING**: PR5 inject overlap polygon
+  geometry bug. PR6 surfaced it via the canary-still-red diagnostic.
+  See "PR8 follow-up" below.
+- **Canary status**: `test_stacked_box_union_correct_topology` STAYS RED
+  until the PR8 inject geometry bug is fixed. Do NOT silence the canary;
+  it now tracks the next compliance gap (PR3 surfaced twin-pairing; PR5
+  improved to 2 ambiguous + 2 unpaired; PR6 ships correct Hoffmann
+  classification; PR8 will fix inject geometry).
 - **Research basis**: Yang et al. 2025 [#24] Section 4.5.5 (coplanarity
-  handling) + §4.4.2 (binary inside/outside classification). The paper IS
-  the spec — see `refs/yang2025_hybrid_boolean.pdf` lines 1281–1322 +
-  Figure 16.
+  handling) + §4.4.2 (binary inside/outside classification) +
+  Hoffmann 1989 §5.3 (perturb-and-classify, the canonical CSG technique
+  Yang's binary classification implicitly relies on for boundary cases).
+  The paper IS the spec — see `refs/yang2025_hybrid_boolean.pdf` lines
+  1281–1322 + Figure 16.
 
 ## Problem
 
@@ -203,10 +218,19 @@ case across the assay corpus before designing the fix.
 ## Test that surfaces this
 
 `crates/kernel/src/boolean/coplanar_preprocess.rs` —
-`test_stacked_box_union_correct_topology`. Stays red until PR6 lands the
-label_cells fix; PR5 reduces severity from 8 → 4 ambiguous half-edges but
-does not turn it green. P9 enforces: do not silence, do not widen
-tolerance, do not add a fallback path.
+`test_stacked_box_union_correct_topology`. Stays red until PR8 fixes
+the inject geometry bug. Severity progression:
+
+- Pre-PR5 baseline: 8 ambiguous-twin events.
+- After PR5 (§4.5.5 mesh-injection): 2 ambiguous + 2 unpaired
+  half-edges.
+- After PR6 (Hoffmann boundary-coincident classification): 2
+  ambiguous + 4 unpaired half-edges, exposing the PR8 inject geometry
+  defect (overlap polygon at y∈[-1,0] instead of y∈[0,1]).
+- After PR8 (inject geometry fix, planned): expected GREEN.
+
+P9 enforces: do not silence, do not widen tolerance, do not add a
+fallback path. The canary tracks the next compliance gap at each PR.
 
 ## PR5 resolution — §4.5.5 mesh-injection
 
@@ -250,82 +274,204 @@ PR5's inject, STAGE2 reduces 24 → 22 tris (2 antiparallel duplicates
 correctly dropped). Without PR5, STAGE2 keeps all 24 because the
 diagonals diverge.
 
-## PR6 follow-up — label_cells boundary-coincident classification
+## PR6 resolution — Hoffmann boundary-coincident classification
 
-PR5 leaves the canary failing with a diagnostically narrower defect:
+PR5 left the canary failing with a diagnostically narrower defect:
 
 - **Before PR5** (baseline): 8 ambiguous-twin events on the 4 z=1
   boundary edges. Validation: `half_edge[1].twin = 0 but twin.twin = 0`.
 - **After PR5**: 2 ambiguous + 2 unpaired half-edges. Validation:
   `half_edge[6].twin = 0 but twin.twin = 10 (expected 6)`.
 
-### Root cause for PR6
+### Root cause addressed in PR6
 
-After Cherchi STAGE2 correctly dedups the antiparallel duplicate
-triangles, **only one mesh's surface representation survives** on the
-shared plane. On the canary that surviving triangle belongs to mesh B's
-face 1 (A's face 0 was the duplicate that got dropped). `label_cells`
-ray-casts and labels the surviving triangle ambiguously: it's
-boundary-coincident to A, so a strict ray-cast can flip either way.
+After PR5's identical-mesh injection, Cherchi STAGE2 correctly dedups
+the antiparallel duplicate triangles, leaving exactly ONE surviving
+boundary-coincident triangle on the shared plane. `label_cells`'s
+`label_sub_tri_raycast` previously offset along a single direction
+(`-eps * normal`) when the primary ray-cast returned `None` (degenerate,
+centroid on target surface). For anti-parallel boundary cases, that
+single direction picked one side of the surface arbitrarily and could
+return `Outside`, causing the boundary triangle to survive Union
+selection (`keep = Outside`) and produce asymmetric half-edge twins.
 
-For UNION of stacked boxes, the z=1 cap should NOT survive in the
-result (it's interior). Yang §4.4.2's binary inside/outside
-classification expects coplanar-shared surfaces to be REMOVED for
-union. Our `select_boolean_result` no longer does this because PR1
-(`cfc7b8`) deleted the CoSurface label vocabulary; today
-`cosurface=0` after labeling and the surviving triangle is treated as
-a regular outward-facing surface.
+### What landed in PR6
 
-### Diagnostic snapshot (PR5 state)
+`crates/kernel/src/boolean/exact_mesh.rs:label_sub_tri_raycast`
+replaces the single-direction offset with **Hoffmann 1989 §5.3
+perturb-and-classify**:
+
+1. Primary `ray_cast_inside(centroid)` — returns immediately for
+   `Some(_)` cases (interior/exterior; the common path, zero impact on
+   existing classifications).
+2. If `None` (degenerate): sample BOTH `+eps * normal` and
+   `-eps * normal` along the sub-triangle's own normal.
+3. Differing classifications → boundary-coincident → return
+   `CellLabel::Inside` per the closed-solid convention. This integrates
+   correctly with `select_boolean_result`:
+   - Union (keep=Outside): Inside boundary triangle dropped → boundary
+     surface eliminated.
+   - Intersect (keep=Inside): Inside boundary triangle kept →
+     intersection surface preserved.
+   - Subtract (keep_a=Outside, keep_b=Inside flipped): B's boundary
+     triangle kept with flipped winding → correct subtraction surface.
+4. Agreeing classifications → use the agreed result (primary was
+   unlucky on a grazing edge, not boundary-coincident).
+5. Both perturbations also degenerate → GWN fallback on centroid
+   (defense-in-depth).
+
+The doc comment cites Hoffmann 1989 §5.3 + Yang 2025 §4.4 explicitly
+per P8.
+
+### Mechanical proof of correctness
+
+`test_label_cells_boundary_coincident_classifies_inside` in
+`exact_mesh.rs` `mod tests`. Setup: target = unit cube A; sub-triangle
+vertices `[(0,0,1), (0,1,1), (1,0,1)]` with normal `-z` (anti-parallel
+to A's z=1 outward normal `+z`); centroid exactly on A's z=1 face.
+
+- Red phase (single-direction-offset baseline): `Outside` (the buggy
+  result for anti-parallel boundary cases). Captured as part of PR6's
+  red-before-green compliance with FIP §8.
+- Green phase (Hoffmann two-sided): `Inside` (boundary-coincident).
+
+### PR6 did NOT close the canary — see PR8 follow-up
+
+PR6 ships correct Hoffmann classification, full stop. It does NOT
+make `test_stacked_box_union_correct_topology` go green. The canary
+diagnostic data revealed a SEPARATE upstream bug in PR5's inject
+geometry; see the PR8 follow-up section below for details.
+
+Per `feedback_no_last_bug.md`: PR6 is not "the fix" for the canary.
+It fixes Hoffmann classification, full stop.
+
+## PR8 follow-up — PR5 inject overlap polygon geometry bug
+
+PR6's diagnostic surfaced a SEPARATE bug in PR5's identical-footprint
+inject pathway. The canary STAYS RED until PR8 fixes inject geometry.
+
+### Smoking-gun diagnostic
+
+PR5's `[COPLANAR SPLIT]` log on the canary:
+
+```
+[COPLANAR SPLIT] Processing pair 0: face_a=FaceIdx(0) face_b=FaceIdx(1)
+                 normal=[0.0000,0.0000,1.0000] offset=1.000000 same_dir=false
+[COPLANAR SPLIT]   Overlap polygon: 4 vertices
+[COPLANAR SPLIT]     ov0: (0.000000, 0.000000)
+[COPLANAR SPLIT]     ov1: (0.000000, -1.000000)
+[COPLANAR SPLIT]     ov2: (1.000000, -1.000000)
+[COPLANAR SPLIT]     ov3: (1.000000, 0.000000)
+[COPLANAR SPLIT]   -> Marked identical_footprint=true (will inject post-tessellation)
+```
+
+A is the unit cube `[0,1]³`; its z=1 face footprint in 2D should be
+`[0,1] × [0,1]` (or a sign-flipped variant of the same). The reported
+overlap polygon has y-coordinates `0` and `-1`, NOT `0` and `+1`.
+The vertices `(0,-1)` and `(1,-1)` are OUTSIDE A's actual XY footprint.
+
+### Hypothesis
+
+2D-basis sign flip in `extract_face_boundary_2d` or
+`compute_plane_basis` for B's anti-parallel face. B's z=1 face has
+outward normal `-z`, so the canonical 2D basis chosen for it likely has
+its v-axis pointing in `-y` (instead of `+y`). When the inject code
+extracts B's boundary and intersects it with A's boundary in the
+"shared 2D frame", the frame happens to be B's frame (because B was
+the anti-parallel face under §4.5.5 conventions), so A's `[0,1] × [0,1]`
+gets re-expressed as `[0,1] × [-1,0]` in B's frame.
+
+The 3D-projection roundtrip via `verts_2d_to_3d` may be canceling the
+basis sign so the inject TRIANGLES land in the right 3D location
+geometrically (which is why PR5's
+`test_identical_footprint_inject_produces_consistent_meshes` passes —
+that test only checks bitwise vertex equality and triangle equivalence,
+both of which can hold even if the canonical 2D coordinates differ from
+A's original footprint).
+
+### Why this exposes a §4.5.5 compliance gap
+
+Yang §4.5.5 requires "identical sampling points" — the canonical mesh
+must REPLACE both A's and B's z=1 face triangulations with the same
+canonical triangle set. PR5's inject produces canonical triangles whose
+vertex POSITIONS are correct, but Cherchi STAGE2 dedupes against A's
+ORIGINAL z=1 face triangulation (which was canonical-mapped from A's
+own basis). If the bits are subtly different (vertex order, winding,
+or one triangle's diagonal), STAGE2 dedups one duplicate but leaves
+another non-shared triangle in place.
+
+### Diagnostic data from PR6 canary run (with Hoffmann fix applied)
 
 ```
 [cherchi-trace] STAGE1 merge: 12 verts, 24 tris
-[cherchi-trace] STAGE2 degenerate: 22 tris       # 2 antiparallel dupes dropped
-[cherchi-trace] STAGE3 soup: 17 verts, 31 edges, 22 tris
-[yang-diag] after label_cells: A outside=10 inside=2 cosurface=0,
+[cherchi-trace] STAGE2 degenerate: 22 tris       # 2 dupes dropped
+[yang-diag] after subdivide: tris_a=12, tris_b=12, verts=12
+[yang-diag] after label_cells: A outside=11 inside=1 cosurface=0,
                                 B outside=12 inside=0 cosurface=0
-[flood_fill DIAG Step5a] 11 patches:
-  ... (A face 0 missing — correctly dropped) ...
-  Patch 10: source=SourceFace { mesh_id: B, face_idx: FaceIdx(1) } tris=2
-[topo-extract] ambiguous twin for (VertexIdx(4) -> VertexIdx(5)): 2 reverse candidates
-[topo-extract] unpaired forward HE (VertexIdx(4) -> VertexIdx(6)): no reverse candidate
-[topo-extract] ambiguous twin for (VertexIdx(5) -> VertexIdx(7)): 2 reverse candidates
-[topo-extract] unpaired forward HE (VertexIdx(6) -> VertexIdx(7)): no reverse candidate
-[topo-extract] summary: paired=18, unpaired=2, ambiguous=2
+[yang-diag] after survival: 12 groups, 23 tris
+[flood_fill DIAG Step5a] 12 patches:
+  Patch 0: source=SourceFace { mesh_id: A, face_idx: FaceIdx(0) } tris=1
+  ... (A FaceIdx(0) is now PARTIALLY surviving — only 1 of 2 sub-tris) ...
+  Patch 11: source=SourceFace { mesh_id: B, face_idx: FaceIdx(1) } tris=2
+[topo-extract] summary: paired=18, unpaired=4, ambiguous=2
 A ∪ B should succeed: NotSupported {
   operation: "yang_boolean: result validation failed:
-              half_edge[6].twin = 0 but twin.twin = 10 (expected 6)" }
+              half_edge[2].twin = 0 but twin.twin = 0 (expected 2)" }
 ```
 
-### PR6 scope (proposed; out of PR5's branch boundary)
+Comparison to the PR5-only baseline (without PR6's Hoffmann fix):
 
-PR6 needs to make `label_cells` (or the survival selection step in
-`select_boolean_result`) recognize triangles that lie exactly on a
-boundary shared with the OTHER mesh — those triangles need to be
-classified by Yang §4.4.2's "infinitesimal inward perturbation" rule
-rather than by raw ray-cast. Concretely: if a surviving triangle is
-coplanar with a boundary that Cherchi STAGE2 deduplicated away, it's
-either "shared boundary, drop" (Union) or "shared boundary, keep one"
-(Intersect/Subtract). Implementation likely needs a side-channel from
-Cherchi STAGE2 telling label_cells which triangles were "the
-survivors" of an antiparallel-duplicate pair. PR1 deleted CoSurface
-variants from the label vocabulary; PR6 must either reintroduce them
-or thread the information through differently. Architectural
-discussion deferred to PR6's design phase.
+| Metric                | PR5 baseline | PR5 + PR6 (Hoffmann) |
+|-----------------------|--------------|----------------------|
+| A label_cells inside  | 2            | 1                    |
+| A label_cells outside | 10           | 11                   |
+| B label_cells inside  | 0            | 0                    |
+| B label_cells outside | 12           | 12                   |
+| Surviving sub-tris    | 22           | 23                   |
+| Patches               | 11           | 12                   |
+| Paired / unpaired / ambiguous | 18 / 2 / 2 | 18 / 4 / 2  |
 
-### Files PR6 will touch (out of PR5 branch)
+PR6's Hoffmann fix correctly classifies the two A z=1 sub-triangles
+ASYMMETRICALLY (one Inside, one Outside) — which is GEOMETRICALLY
+consistent with the malformed overlap polygon: the overlap region in
+B's frame is `[0,1] × [-1,0]`, which intersects A's actual footprint
+`[0,1] × [0,1]` only along the line segment y=0. So one of A's z=1
+sub-triangles overlaps the (broken) injected canonical region (→
+boundary-coincident → Inside under Hoffmann), and the other doesn't (→
+Outside → survives, contributing the 23rd triangle and the 4-unpaired
+half-edge count).
 
-- `crates/kernel/src/boolean/exact_mesh.rs` (label_cells, Cherchi STAGE2)
-- `crates/kernel/src/boolean/topology_extract.rs` (survival selection)
+### PR8 scope (proposed)
+
+1. Audit `extract_face_boundary_2d` and `compute_plane_basis` in
+   `crates/kernel/src/boolean/coplanar_preprocess.rs` for the
+   anti-parallel (`same_dir = false`) case. Confirm whether the 2D
+   basis chosen for B's face cancels out via `verts_2d_to_3d`'s reverse
+   or whether the bug is in the basis itself.
+2. Add a regression test asserting that for the stacked-box canary,
+   the inject overlap polygon vertices ALL lie within A's true 2D
+   footprint `[0,1]²` (or B's, whichever the canonical frame is).
+3. Re-run the canary; with both PR6 (Hoffmann) and PR8 (correct inject
+   geometry), it MUST flip RED→GREEN.
+
+### Files PR8 will likely touch
+
+- `crates/kernel/src/boolean/coplanar_preprocess.rs` (basis +
+  boundary-extraction)
+- Regression test in `coplanar_preprocess.rs` `mod tests`
 
 ## References
 
 - Yang et al. 2025 [#24] §4.5.5 — the paper, the spec.
 - Yang et al. 2025 [#24] §4.4.2 — binary inside/outside classification
-  (PR6 deliverable).
+  (PR6 deliverable, RESOLVED).
+- Hoffmann 1989 §5.3 — perturb-and-classify, the canonical CSG
+  technique for boundary-coincident classification (PR6 implementation
+  basis).
 - Cherchi et al. 2020 §5.4 — coplanar triangle handling reference.
 - `specs/yang_coplanar_preprocessing.md` — the original Stage 0 design.
 - `specs/yang_hybrid_migration.md` — overall pipeline migration plan.
 - `/tmp/pr4_phaseB.log` — full diagnostic trace (361 lines, ephemeral).
 - PR4 commit (coplanar-preprocess-555) — Phase A counters.
 - PR5 commit (coplanar-identical-footprint) — §4.5.5 mesh-injection.
+- PR6 commit (label-cells-hoffmann) — Hoffmann perturb-and-classify.

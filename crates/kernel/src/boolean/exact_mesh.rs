@@ -1341,13 +1341,36 @@ fn ray_cast_inside(
     None
 }
 
-/// Label a single sub-triangle using BVH-accelerated ray casting, with GWN fallback.
+/// Label a single sub-triangle using BVH-accelerated ray casting, with
+/// Hoffmann perturb-and-classify for boundary-coincident centroids.
 ///
-/// Yang 2025 Section 4.4.2: ray-cast centroid → if degenerate (on surface),
-/// offset along -normal and re-cast → if still degenerate, GWN fallback.
-/// All results are binary Inside/Outside.
+/// Yang 2025 §4.4 (Booleans) prescribes binary inside/outside classification
+/// per sub-triangle via point-in-mesh ray casting. The paper assumes (after
+/// §4.5.5 coplanar preprocessing) that boundary cases are pre-resolved into
+/// shared trimmed surfaces, but Cherchi STAGE2 deduplication can still leave
+/// a single surviving boundary-coincident triangle whose centroid lies exactly
+/// on the target operand's surface — primary `ray_cast_inside` returns `None`.
 ///
-/// Ref #24: Yang 2025 — cell classification via point-in-mesh.
+/// For that degenerate case we apply the canonical CSG technique from
+/// **Hoffmann 1989 §5.3 (perturb-and-classify)** / Requicha 1980: sample the
+/// classification at BOTH `+eps * normal` and `-eps * normal` along the
+/// sub-triangle's own normal. If the two perturbations classify differently,
+/// the sub-triangle is boundary-coincident and is treated as `Inside` per the
+/// closed-solid convention (boundary points belong to the closure of the
+/// closed solid). This integrates correctly with `select_boolean_result`:
+///   * Union (`keep = Outside`): Inside boundary triangle dropped → boundary
+///     surface eliminated, as required.
+///   * Intersect (`keep = Inside`): Inside boundary triangle kept → intersection
+///     surface preserved.
+///   * Subtract (`keep_a = Outside`, `keep_b = Inside flipped`): B's boundary
+///     triangle kept with flipped winding → correct subtraction surface.
+///
+/// If both perturbations agree, the centroid was unlucky on a grazing edge
+/// (not boundary-coincident); we use the agreed classification. If both are
+/// also degenerate, fall back to GWN on the centroid as defense-in-depth.
+///
+/// Refs: #24 Yang 2025 §4.4 (binary point-in-mesh); Hoffmann 1989 §5.3
+/// (perturb-and-classify for boundary-coincident classification).
 fn label_sub_tri_raycast(
     verts: &[[f64; 3]],
     sub_tri: &SubTriangle,
@@ -1359,31 +1382,68 @@ fn label_sub_tri_raycast(
 ) -> CellLabel {
     let centroid = sub_tri_centroid(verts, sub_tri);
 
-    // Primary: ray-cast from centroid
-    match ray_cast_inside(centroid, target_verts, target_tris, bvh, global_max) {
-        Some(true) => CellLabel::Inside,
-        Some(false) => CellLabel::Outside,
-        None => {
-            // Degenerate (on surface) — offset along -normal and re-ray-cast
-            let normal = sub_tri_unit_normal(verts, sub_tri);
-            let eps = d_epsilon.max(1e-6);
-            let offset = [
-                centroid[0] - eps * normal[0],
-                centroid[1] - eps * normal[1],
-                centroid[2] - eps * normal[2],
-            ];
-            match ray_cast_inside(offset, target_verts, target_tris, bvh, global_max) {
-                Some(true) => CellLabel::Inside,
-                Some(false) => CellLabel::Outside,
-                None => {
-                    // Last resort: GWN on offset point
-                    let w = winding_number_mesh(offset, target_verts, target_tris);
-                    if w >= WINDING_INSIDE_THRESHOLD {
-                        CellLabel::Inside
-                    } else {
-                        CellLabel::Outside
-                    }
-                }
+    // Primary classification — interior/exterior cases (the common path).
+    if let Some(inside) = ray_cast_inside(centroid, target_verts, target_tris, bvh, global_max) {
+        return if inside {
+            CellLabel::Inside
+        } else {
+            CellLabel::Outside
+        };
+    }
+
+    // Degenerate: centroid lies exactly on the target operand's surface.
+    // Hoffmann 1989 §5.3 perturb-and-classify: sample BOTH sides; if they
+    // classify differently the sub-triangle is boundary-coincident; treat as
+    // Inside per the closed-solid convention.
+    let normal = sub_tri_unit_normal(verts, sub_tri);
+    let eps = d_epsilon.max(1e-6);
+    let above = [
+        centroid[0] + eps * normal[0],
+        centroid[1] + eps * normal[1],
+        centroid[2] + eps * normal[2],
+    ];
+    let below = [
+        centroid[0] - eps * normal[0],
+        centroid[1] - eps * normal[1],
+        centroid[2] - eps * normal[2],
+    ];
+    let above_class = ray_cast_inside(above, target_verts, target_tris, bvh, global_max);
+    let below_class = ray_cast_inside(below, target_verts, target_tris, bvh, global_max);
+
+    match (above_class, below_class) {
+        // Boundary-coincident — Hoffmann convention: closed-solid Inside.
+        (Some(true), Some(false)) | (Some(false), Some(true)) => CellLabel::Inside,
+        // Both perturbations agree — not boundary-coincident, primary ray-cast
+        // was just unlucky on a grazing edge. Use the agreed classification.
+        (Some(a), Some(_)) => {
+            if a {
+                CellLabel::Inside
+            } else {
+                CellLabel::Outside
+            }
+        }
+        // One perturbation degenerate, the other resolved — use the resolved one.
+        (Some(a), None) => {
+            if a {
+                CellLabel::Inside
+            } else {
+                CellLabel::Outside
+            }
+        }
+        (None, Some(b)) => {
+            if b {
+                CellLabel::Inside
+            } else {
+                CellLabel::Outside
+            }
+        }
+        // Both perturbations also degenerate — GWN fallback on centroid.
+        (None, None) => {
+            let w = winding_number_mesh(centroid, target_verts, target_tris);
+            if w >= WINDING_INSIDE_THRESHOLD {
+                CellLabel::Inside
+            } else {
+                CellLabel::Outside
             }
         }
     }
@@ -6055,6 +6115,80 @@ mod tests {
         assert!(
             inside_frac > 0.15 && inside_frac < 0.85,
             "expected roughly half inside, got {inside_count}/{total} = {inside_frac:.2}"
+        );
+    }
+
+    /// Regression test for PR6 §4.5.5 boundary-coincident classification.
+    ///
+    /// Per Hoffmann 1989 §5.3 perturb-and-classify (the canonical CSG technique
+    /// Yang 2025 §4.4 implicitly relies on for binary classification): a
+    /// sub-triangle whose centroid lies exactly on the target operand's surface
+    /// is boundary-coincident and must classify as `Inside` per the closed-solid
+    /// convention. The previous single-direction-offset code arbitrarily picked
+    /// one side of the surface and returned `Outside` for anti-parallel boundary
+    /// cases, causing the sub-tri to survive Union (`keep = Outside`) and produce
+    /// asymmetric half-edge twins (the canary `test_stacked_box_union_correct_topology`
+    /// failure pattern: `half_edge[N].twin = M but twin.twin = K`).
+    ///
+    /// Setup: target mesh A = unit cube [0,1]³. Candidate sub-triangle has
+    /// vertices on A's z=1 face with normal `-z` (pointing INTO A) — this is
+    /// the anti-parallel case. With the buggy single-direction offset, the
+    /// centroid `(1/3,1/3,1)` is degenerate, the offset `-eps * (-z)` moves
+    /// to `(1/3,1/3,1+eps)` (OUTSIDE A) → returns `Outside`. With Hoffmann
+    /// two-sided perturbation, `+eps * normal` and `-eps * normal` straddle
+    /// the surface; classifications differ → boundary-coincident → `Inside`.
+    #[test]
+    fn test_label_cells_boundary_coincident_classifies_inside() {
+        // Target mesh A: unit cube, outward-facing normals.
+        let (target_verts, target_tris) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let bvh = build_bvh_for_tris(&target_verts, &target_tris).expect("BVH should build");
+        let global_max = compute_global_max(&target_verts);
+
+        // Candidate sub-triangle on A's z=1 face with normal `-z`
+        // (anti-parallel to A's z=1 face outward normal `+z`).
+        // Vertex ordering: (0,0,1) → (0,1,1) → (1,0,1) gives:
+        //   u = (0,1,0), w = (1,0,0), cross = (0,0,-1) → normal = -z.
+        let sub_verts = vec![[0.0, 0.0, 1.0], [0.0, 1.0, 1.0], [1.0, 0.0, 1.0]];
+        let sub_tri = SubTriangle {
+            verts: [0, 1, 2],
+            parent_tri: 0,
+        };
+
+        // Sanity check: verify the constructed triangle has the expected -z normal.
+        let n = sub_tri_unit_normal(&sub_verts, &sub_tri);
+        assert!(
+            (n[0]).abs() < 1e-12 && (n[1]).abs() < 1e-12 && (n[2] + 1.0).abs() < 1e-12,
+            "test setup: triangle normal must be (0,0,-1), got {:?}",
+            n
+        );
+
+        // Sanity check: centroid lies exactly on A's z=1 face.
+        let c = sub_tri_centroid(&sub_verts, &sub_tri);
+        assert!(
+            (c[2] - 1.0).abs() < 1e-12,
+            "test setup: centroid z must be exactly 1.0, got {}",
+            c[2]
+        );
+
+        // Classify the boundary-coincident sub-triangle.
+        let label = label_sub_tri_raycast(
+            &sub_verts,
+            &sub_tri,
+            &target_verts,
+            &target_tris,
+            &bvh,
+            global_max,
+            1e-6,
+        );
+
+        assert_eq!(
+            label,
+            CellLabel::Inside,
+            "Hoffmann 1989 §5.3 / Yang 2025 §4.4: boundary-coincident sub-triangle \
+             (centroid on target surface, anti-parallel triangle normal) must classify \
+             as Inside per the closed-solid convention. Got {:?} — likely the buggy \
+             single-direction offset is still in effect.",
+            label
         );
     }
 
