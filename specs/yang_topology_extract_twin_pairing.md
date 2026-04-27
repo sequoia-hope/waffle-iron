@@ -597,3 +597,138 @@ follow-up threads:
 2. **Optional follow-up**: add a "partial-axis disjoint" red test
    (operands disjoint on x but overlapping on y and z) to close the
    Mutation #1 test-coverage gap surfaced by validator.
+
+## PR14 outcome — kernel revolve_polygon rejects axis-straddling profiles
+
+PR14 (this commit) shipped Defect 1 of two defects identified by Phase
+A investigation. The kernel `revolve_polygon` validator at
+`waffle_kernel.rs:1407-1486` now rejects profiles that straddle the
+revolve axis with `KernelError::Other { message: "revolve
+self-intersection: profile straddles the revolve axis" }`.
+
+### What landed
+
+- **Phase A instrumentation** in `crates/kernel/src/tessellation/mod.rs`
+  (`tessellate_revolve_lateral` per-triangle emits, `tessellate_polygon_face`
+  per-cap emits gated on `REVOLVE_DEBUG=1`). Per-emit format:
+  `[revolve-tess] face={kid} face_kind=lateral|cap parent_edge={idx}
+  ring_idx={i} verts=[v0,v1,v2] coords=[(x,y,z),(x,y,z),(x,y,z)]`.
+- **Phase A reproducer**: `pr14_r0002_repro` module in `waffle_kernel.rs`
+  with two `#[ignore]` tests:
+  `pr14_r0002_first_revolve_repro` (R0002's exact rectangle revolve at
+  347.34° — produces 5280 inter-face penetrations on pre-fix code) and
+  `pr14_r0002_control_shifted_profile` (same axis/plane/angle, profile
+  shifted to one side — 0 penetrations). Documentary evidence; not the
+  red-before-green test.
+- **Phase C red-before-green tests** in `pr14_validator_tests` module:
+  `test_revolve_axis_straddling_profile_rejected` (asserts `Err(...)`
+  with substring "self-intersection"/"straddle"/"axis") and
+  `test_revolve_one_sided_profile_succeeds` (regression guard:
+  `Ok(...)` + non-empty + watertight).
+- **Phase D validator fix** at `waffle_kernel.rs:1407-1486`. After
+  the existing on-axis check (Check 2: `dist < TAU_MODEL`), compute
+  signed projection of each profile vertex's perpendicular component
+  onto a reference direction `ref_dir = axis_dir × plane_normal`
+  (with fallback to `perps[0]` when the cross product degenerates).
+  If any vertex has `signed > +TAU_MODEL` AND any other has
+  `signed < -TAU_MODEL`, the profile straddles the axis — return
+  `KernelError::Other`.
+- ~70 LOC of new validator code, additive only. Cite Yang 2025 §4.1
+  (tessellation requires bijective mapping between B-Rep face and
+  triangle mesh; straddling violates this).
+
+### Reference-direction choice — `axis_dir × plane_normal`
+
+Geometrically intrinsic: the in-plane direction perpendicular to the
+axis. Stable under profile rotation/reordering. Validator
+adversarial-mutation test confirmed this choice is load-bearing —
+collapsing `ref_dir = axis_dir` zeros all signed projections (since
+`perp ⊥ axis_dir` by Check 2 construction), and the new check never
+fires.
+
+### Phase A trace evidence
+
+R0002 first revolve (rectangle profile, signed perpendicular distances
+`[-0.31, -0.58, +0.31, +0.58]`) produces 5280 inter-face penetrations
+across face-range pairs:
+- `(start_cap, end_cap) = 3` (matches assay's `(0,1)×3` exactly)
+- `(start_cap, lateral_*) = 178`
+- `(end_cap, lateral_*) = 159`
+- `(lateral_bottom, lateral_top) = 2276` (opposite rectangle edges)
+- `(lateral_bottom, lateral_left) = 1332`
+- `(lateral_right, lateral_top) = 1332`
+
+Control test (rectangle shifted to `v ∈ [0.7, 1.7]`, profile fully on
+one side of axis): 0 penetrations. Differential test confirmed root
+cause.
+
+### Test results
+
+| Test | Result |
+|------|--------|
+| `pr14_validator_tests::test_revolve_axis_straddling_profile_rejected` | GREEN (was RED) |
+| `pr14_validator_tests::test_revolve_one_sided_profile_succeeds` | GREEN |
+| `waffle_kernel::tests::l1_revolve_half_turn_volume` | GREEN |
+| `waffle_kernel::tests::l3_revolve_half_turn_watertight` | GREEN |
+| `waffle_kernel::tests::l5_revolve_euler_characteristic` | GREEN |
+| `waffle_kernel::tests::l6_revolve_topology_counts` | GREEN |
+| `waffle_kernel::tests::l7_revolve_face_geometry_types` | GREEN |
+| `waffle_kernel::tests::rc1_revolve_start_cap_normal_outward` | GREEN |
+| canary `test_stacked_box_union_correct_topology` | GREEN |
+| `boolean::indirect_predicates` | 68/68 |
+| `boolean::cherchi` | 59/59 |
+| **kernel total** | **1179p/28f → 1181p/28f (+2 net)** |
+| Clippy | 93 errors → 93 errors (zero new warnings; +2 instrumentation lints fixed in Phase F integration) |
+| Fmt | clean (Phase F applied `cargo fmt -p kernel` mechanically) |
+
+### Adversarial mutation results (validator Phase E)
+
+- **Mutation #1** (invert sign-check `!(saw_pos && saw_neg)`): Test 1
+  fails. Conjunction is the actual rejection criterion.
+- **Mutation #2** (remove the entire check block): Test 1 fails. The
+  new check is the only line of defense.
+- **Mutation #3** (`ref_dir = axis_dir`): Test 1 fails. Cross-product
+  reference direction is geometrically load-bearing — collapsing it
+  zeros all signed projections.
+
+### Yang_fast assay impact
+
+PR13 baseline: 2/157 passing.
+PR14: 2/157 passing (unchanged), 141 failed, 13 newly errored.
+
+**13 R-series cases shifted from silent broken output to explicit
+"revolve self-intersection: profile straddles" error**: R0002, R0004,
+R0005, R0020, R0033, R0038, R0044, R0045, R0049, R0050, R0093, R0094,
+R0096.
+
+This is the expected category shift per `feedback_no_regression_chasing.md`:
+the kernel is now correctly rejecting invalid input. The corpus
+generator (Defect 2 at `gen.rs:614-628`) produces axis-straddling
+profiles by mistake; once PR15 fixes the generator and regenerates
+the corpus, most of these 13 cases should turn into actual passes.
+
+### PR15 scope — assay generator axis_offset bug (already documented in PR14 Phase A memo)
+
+Engineer-a's Phase A investigation also identified Defect 2 at
+`crates/test-harness/src/assay/gen.rs:614-628`:
+
+> "axis_direction = tangent AND axis_origin = op_origin + axis_offset
+> × tangent — i.e., axis_origin is offset along the axis line itself,
+> which does NOT shift the line in space. The 1.5× offset is
+> geometrically a no-op."
+
+Fix: offset along an in-plane perpendicular to `tangent`. ~5 LOC change
+in test-harness, plus corpus regeneration (rerun `assay_gen --seed 42
+--count 100`). Track for PR15.
+
+PR14 must land first because PR15's fix removes the input that
+exercises PR14's red test (axis-straddling rectangle). Order matters.
+
+### Known caveat (per `feedback_no_last_bug.md`)
+
+PR14 fixes ONE defect in revolve geometry validation. It does NOT
+claim to fix all R-series failures. The remaining 28 boolean-pipeline
+failures pre-exist and are unrelated to revolve. PR15 (generator fix)
+will produce inputs the kernel now accepts; whether those inputs
+produce CORRECT boolean output is a separate question (potentially
+testing other downstream bugs).

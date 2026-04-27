@@ -274,7 +274,12 @@ pub(crate) fn tessellate_solid_ext(
 
         // Check if this face is a revolve lateral face
         if let Some(rp) = revolve_params {
-            if let Some(lateral) = rp.lateral_faces.iter().find(|(fi, _, _)| *fi == face_idx) {
+            if let Some((lateral_idx, lateral)) = rp
+                .lateral_faces
+                .iter()
+                .enumerate()
+                .find(|(_, (fi, _, _))| *fi == face_idx)
+            {
                 let start_index = indices.len() as u32;
                 tessellate_revolve_lateral(
                     &lateral.1,
@@ -287,6 +292,8 @@ pub(crate) fn tessellate_solid_ext(
                     &mut vertices,
                     &mut normals,
                     &mut indices,
+                    kid,
+                    lateral_idx,
                 );
                 let end_index = indices.len() as u32;
                 face_ranges.push(FaceRange {
@@ -1071,9 +1078,42 @@ fn tessellate_revolve_lateral(
     vertices: &mut Vec<f32>,
     normals: &mut Vec<f32>,
     indices: &mut Vec<u32>,
+    kid: u64,
+    lateral_idx: usize,
 ) {
+    // PR14 instrumentation: REVOLVE_DEBUG=1 emits per-triangle traces for
+    // revolve tessellation. Used to diagnose intra-face/inter-face penetrations
+    // surfaced by `check_no_self_intersection` (Yang 2025 §4.1; Cherchi 2020 §5.1
+    // — input meshes must be self-consistent before mesh arrangement).
+    let revolve_debug = std::env::var("REVOLVE_DEBUG").as_deref() == Ok("1");
+
     let n = circle_segments();
     let base_vertex = vertices.len() as u32 / 3;
+    if revolve_debug {
+        eprintln!(
+            "[revolve-tess] face={} face_kind=lateral parent_edge={} angle_rad={:.6} \
+             full_rev={} ring_count={} start_v0=({:.6},{:.6},{:.6}) start_v1=({:.6},{:.6},{:.6}) \
+             axis_origin=({:.6},{:.6},{:.6}) axis_dir=({:.6},{:.6},{:.6}) base_vertex={}",
+            kid,
+            lateral_idx,
+            angle_rad,
+            full_revolution,
+            if full_revolution { n } else { n + 1 },
+            start_v0[0],
+            start_v0[1],
+            start_v0[2],
+            start_v1[0],
+            start_v1[1],
+            start_v1[2],
+            axis_origin[0],
+            axis_origin[1],
+            axis_origin[2],
+            axis_dir[0],
+            axis_dir[1],
+            axis_dir[2],
+            base_vertex,
+        );
+    }
 
     // For full revolution, generate N rings (last wraps to first).
     // For partial, generate N+1 rings (start and end are distinct).
@@ -1160,6 +1200,37 @@ fn tessellate_revolve_lateral(
         indices.push(v10);
         indices.push(v01);
         indices.push(v11);
+
+        if revolve_debug {
+            let read_v = |idx: u32| -> [f64; 3] {
+                let i = idx as usize * 3;
+                [
+                    vertices[i] as f64,
+                    vertices[i + 1] as f64,
+                    vertices[i + 2] as f64,
+                ]
+            };
+            let p00 = read_v(v00);
+            let p01 = read_v(v01);
+            let p10 = read_v(v10);
+            let p11 = read_v(v11);
+            eprintln!(
+                "[revolve-tess] face={} face_kind=lateral parent_edge={} ring_idx={} tri=A \
+                 verts=[{},{},{}] coords=[({:.6},{:.6},{:.6}),({:.6},{:.6},{:.6}),({:.6},{:.6},{:.6})]",
+                kid, lateral_idx, i, v00, v01, v10,
+                p00[0], p00[1], p00[2],
+                p01[0], p01[1], p01[2],
+                p10[0], p10[1], p10[2],
+            );
+            eprintln!(
+                "[revolve-tess] face={} face_kind=lateral parent_edge={} ring_idx={} tri=B \
+                 verts=[{},{},{}] coords=[({:.6},{:.6},{:.6}),({:.6},{:.6},{:.6}),({:.6},{:.6},{:.6})]",
+                kid, lateral_idx, i, v10, v01, v11,
+                p10[0], p10[1], p10[2],
+                p01[0], p01[1], p01[2],
+                p11[0], p11[1], p11[2],
+            );
+        }
     }
 
     // Post-fix: check first triangle's geometric normal against stored normal.
@@ -1217,6 +1288,11 @@ fn tessellate_polygon_face(
     indices: &mut Vec<u32>,
     face_ranges: &mut Vec<FaceRange>,
 ) {
+    // PR14 instrumentation: REVOLVE_DEBUG=1 emits per-triangle traces for
+    // planar polygon tessellation. Used to diagnose cap-fan / cap-lateral
+    // overlap hypotheses (a, e) per the PR14 plan.
+    let revolve_debug = std::env::var("REVOLVE_DEBUG").as_deref() == Ok("1");
+
     let loop_idx = arena.faces[face_idx.0].outer_loop;
     let start_he = arena.loops[loop_idx.0].half_edge;
 
@@ -1233,6 +1309,27 @@ fn tessellate_polygon_face(
 
     if loop_verts.len() < 3 {
         return;
+    }
+
+    if revolve_debug {
+        eprintln!(
+            "[revolve-tess] face={} face_kind=cap loop_n={} plane_origin=({:.6},{:.6},{:.6}) \
+             plane_normal=({:.6},{:.6},{:.6})",
+            kid,
+            loop_verts.len(),
+            plane.origin.x,
+            plane.origin.y,
+            plane.origin.z,
+            plane.normal.x,
+            plane.normal.y,
+            plane.normal.z,
+        );
+        for (i, v) in loop_verts.iter().enumerate() {
+            eprintln!(
+                "[revolve-tess] face={} face_kind=cap loop_vert[{}]=({:.6},{:.6},{:.6})",
+                kid, i, v[0], v[1], v[2],
+            );
+        }
     }
 
     let normal = [
@@ -1306,6 +1403,12 @@ fn tessellate_polygon_face(
             })
         });
         if let Some(fc) = fan_center {
+            if revolve_debug {
+                eprintln!(
+                    "[revolve-tess] face={} face_kind=cap strategy=fan fan_center={}",
+                    kid, fc,
+                );
+            }
             for i in 1..n - 1 {
                 let a = (fc + i) % n;
                 let b = (fc + i + 1) % n;
@@ -1314,6 +1417,12 @@ fn tessellate_polygon_face(
                 indices.push(base_vertex + b as u32);
             }
         } else {
+            if revolve_debug {
+                eprintln!(
+                    "[revolve-tess] face={} face_kind=cap strategy=earcut_convex_fallback",
+                    kid,
+                );
+            }
             // All fan centers produce degenerate triangles; fall back to ear-clip
             let (u_axis, v_axis) = compute_plane_basis(stored_normal);
             let coords_2d: Vec<f64> = loop_verts
@@ -1332,6 +1441,12 @@ fn tessellate_polygon_face(
             }
         }
     } else {
+        if revolve_debug {
+            eprintln!(
+                "[revolve-tess] face={} face_kind=cap strategy=earcut_nonconvex",
+                kid,
+            );
+        }
         // Non-convex path: ear-clipping via earcutr
         // Project onto 2D using stored face normal as the projection axis
         let (u_axis, v_axis) = compute_plane_basis(stored_normal);
@@ -1396,6 +1511,43 @@ fn tessellate_polygon_face(
         };
         if should_flip {
             indices.swap(t + 1, t + 2);
+        }
+    }
+
+    if revolve_debug {
+        let read_v = |idx: u32| -> [f64; 3] {
+            let i = idx as usize * 3;
+            [
+                vertices[i] as f64,
+                vertices[i + 1] as f64,
+                vertices[i + 2] as f64,
+            ]
+        };
+        for (tri_idx, t) in (tri_start..tri_end).step_by(3).enumerate() {
+            let i0 = indices[t];
+            let i1 = indices[t + 1];
+            let i2 = indices[t + 2];
+            let p0 = read_v(i0);
+            let p1 = read_v(i1);
+            let p2 = read_v(i2);
+            eprintln!(
+                "[revolve-tess] face={} face_kind=cap tri_idx={} verts=[{},{},{}] \
+                 coords=[({:.6},{:.6},{:.6}),({:.6},{:.6},{:.6}),({:.6},{:.6},{:.6})]",
+                kid,
+                tri_idx,
+                i0,
+                i1,
+                i2,
+                p0[0],
+                p0[1],
+                p0[2],
+                p1[0],
+                p1[1],
+                p1[2],
+                p2[0],
+                p2[1],
+                p2[2],
+            );
         }
     }
 

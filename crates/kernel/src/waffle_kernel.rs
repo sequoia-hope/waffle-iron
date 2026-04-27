@@ -1407,6 +1407,28 @@ impl WaffleKernel {
         let axis_dir = v3_normalize(axis_direction);
         let n = standalone.vertices.len();
 
+        // Yang 2025 §4.1: tessellation requires bijective mapping between B-Rep face
+        // and triangle mesh. A profile straddling the revolve axis violates this — the
+        // sweep maps the negative-side region 180° onto the positive-side region,
+        // producing volumetric overlap (5280 inter-face penetrations in R0002 per
+        // PR14 Phase A investigation). Rejecting before tessellation per the
+        // `feedback_yang_only.md` constraint that meshes are exact computational
+        // tools, not approximations of broken geometry.
+        //
+        // Reference direction: `axis_dir × plane_normal` is the in-plane direction
+        // perpendicular to the axis (when the axis lies in the profile plane this is
+        // the natural splitting direction; when it is off-plane the cross product
+        // still yields a well-defined direction orthogonal to the axis). If that
+        // cross product is degenerate (axis parallel to plane_normal — revolve about
+        // an axis perpendicular to the profile, which is itself geometrically
+        // pathological), fall back to the first vertex's perpendicular component,
+        // which is guaranteed non-zero by the on-axis check below.
+        let plane_normal = standalone.plane_normal;
+        let mut ref_dir = v3_cross(axis_dir, plane_normal);
+        let mut ref_len = v3_length(ref_dir);
+
+        let mut perps: Vec<[f64; 3]> = Vec::with_capacity(n);
+
         // Check 2: Reject profiles with vertices on (or too close to) the axis
         for v in &standalone.vertices {
             let to_v = v3_sub(*v, axis_origin);
@@ -1421,6 +1443,42 @@ impl WaffleKernel {
                     ),
                 });
             }
+            perps.push(perp);
+        }
+
+        // Fallback for the degenerate case where axis_dir ∥ plane_normal: use the
+        // first vertex's perp as the reference direction. By the check above, its
+        // length is ≥ tau_model.
+        if ref_len < TAU_NORMALIZE {
+            ref_dir = perps[0];
+            ref_len = v3_length(ref_dir);
+        }
+        let ref_unit = v3_scale(ref_dir, 1.0 / ref_len);
+
+        // Check 3: Reject profiles whose vertices straddle the revolve axis.
+        // Compute the signed projection of each vertex's perp component onto the
+        // reference direction. If signs disagree, the profile spans both sides of
+        // the axis — sweeping it produces a self-intersecting solid (R0002
+        // pathology: corners at signed distances ≈ [-0.31, -0.58, +0.31, +0.58]).
+        // The TAU_MODEL band around zero is treated as "on the axis" and counts as
+        // either sign, matching the tolerance of Check 2.
+        let mut saw_pos = false;
+        let mut saw_neg = false;
+        for perp in &perps {
+            let signed = v3_dot(*perp, ref_unit);
+            if signed > tau_model {
+                saw_pos = true;
+            } else if signed < -tau_model {
+                saw_neg = true;
+            }
+        }
+        if saw_pos && saw_neg {
+            return Err(KernelError::Other {
+                message: "revolve self-intersection: profile straddles the revolve axis \
+                          (vertices lie on both sides); sweeping a straddling profile \
+                          produces a self-intersecting solid"
+                    .to_string(),
+            });
         }
 
         // Profile edge validation removed: all edge orientations are now valid.
@@ -2947,4 +3005,778 @@ fn compute_vertex_signature(ws: &WaffleSolid, vert_idx: VertexIdx) -> TopoSignat
 #[cfg(test)]
 mod tests {
     include!("waffle_kernel_tests.rs");
+}
+
+// PR14 instrumentation reproducer: builds R0002's first revolve in isolation
+// (rectangle profile, 347.34° around an off-plane axis) using the kernel API
+// directly, tessellates it, and dumps face_ranges plus a pairwise inter-face
+// triangle penetration count so we can diagnose the
+// `no_self_intersection: 10 inter-face triangle penetrations, face pairs:
+// (0,1)x3, (0,2)x2, ...` failure surfaced by the assay oracle.
+//
+// Run with:
+//   REVOLVE_DEBUG=1 cargo test -p kernel --lib pr14_r0002_first_revolve_repro \
+//     --ignored --nocapture
+#[cfg(test)]
+mod pr14_r0002_repro {
+    use super::*;
+    use crate::traits::Kernel;
+    use crate::types::ClosedProfile;
+    use std::collections::HashMap;
+
+    /// Möller-style triangle-triangle intersection used only by the in-test
+    /// penetration count (independent of the test-harness oracle which lives
+    /// in another crate). Returns true for any geometric overlap; coplanar
+    /// triangles are treated as non-intersecting (matches oracle behavior).
+    fn tri_tri_penetrate(a: &[[f64; 3]; 3], b: &[[f64; 3]; 3]) -> bool {
+        // Plane of A
+        let e1 = sub(a[1], a[0]);
+        let e2 = sub(a[2], a[0]);
+        let na = cross(e1, e2);
+        let dna = dot(na, a[0]);
+        let db = [
+            dot(na, b[0]) - dna,
+            dot(na, b[1]) - dna,
+            dot(na, b[2]) - dna,
+        ];
+        if (db[0] > 0.0 && db[1] > 0.0 && db[2] > 0.0)
+            || (db[0] < 0.0 && db[1] < 0.0 && db[2] < 0.0)
+        {
+            return false;
+        }
+        // Plane of B
+        let f1 = sub(b[1], b[0]);
+        let f2 = sub(b[2], b[0]);
+        let nb = cross(f1, f2);
+        let dnb = dot(nb, b[0]);
+        let da = [
+            dot(nb, a[0]) - dnb,
+            dot(nb, a[1]) - dnb,
+            dot(nb, a[2]) - dnb,
+        ];
+        if (da[0] > 0.0 && da[1] > 0.0 && da[2] > 0.0)
+            || (da[0] < 0.0 && da[1] < 0.0 && da[2] < 0.0)
+        {
+            return false;
+        }
+        // Coplanar fast-rejection (matches oracle convention)
+        if na.iter().all(|x| x.abs() < 1e-30) {
+            return false;
+        }
+        // Direction of intersection line
+        let dir = cross(na, nb);
+        let dlen2 = dot(dir, dir);
+        if dlen2 < 1e-30 {
+            return false; // Parallel planes: ignore (coplanar/parallel)
+        }
+        // Project each triangle's vertices onto `dir` and compute interval
+        let proj_a: [f64; 3] = [dot(dir, a[0]), dot(dir, a[1]), dot(dir, a[2])];
+        let proj_b: [f64; 3] = [dot(dir, b[0]), dot(dir, b[1]), dot(dir, b[2])];
+
+        // For each tri, find the two edges that straddle the other plane
+        let interval = |proj: &[f64; 3], d: &[f64; 3]| -> Option<(f64, f64)> {
+            let mut t_lo = f64::INFINITY;
+            let mut t_hi = f64::NEG_INFINITY;
+            for i in 0..3 {
+                let j = (i + 1) % 3;
+                if (d[i] > 0.0) != (d[j] > 0.0) || (d[i] == 0.0 && d[j] != 0.0) {
+                    if d[i] != d[j] {
+                        let alpha = d[i] / (d[i] - d[j]);
+                        let t = proj[i] + alpha * (proj[j] - proj[i]);
+                        t_lo = t_lo.min(t);
+                        t_hi = t_hi.max(t);
+                    }
+                }
+                if d[i] == 0.0 {
+                    t_lo = t_lo.min(proj[i]);
+                    t_hi = t_hi.max(proj[i]);
+                }
+            }
+            if t_lo.is_finite() && t_hi.is_finite() && t_lo <= t_hi {
+                Some((t_lo, t_hi))
+            } else {
+                None
+            }
+        };
+        let ia = interval(&proj_a, &db);
+        let ib = interval(&proj_b, &da);
+        match (ia, ib) {
+            (Some((al, ah)), Some((bl, bh))) => {
+                let lo = al.max(bl);
+                let hi = ah.min(bh);
+                hi > lo + 1e-9
+            }
+            _ => false,
+        }
+    }
+
+    fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+        [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+    }
+    fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
+        a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+    }
+    fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+    }
+
+    fn shared_edge_quantized(a: &[[f64; 3]; 3], b: &[[f64; 3]; 3], max_abs: f64) -> bool {
+        let grid = (max_abs * 1e-5).max(1e-9);
+        let inv = 1.0 / grid;
+        let q = |p: [f64; 3]| -> (i64, i64, i64) {
+            (
+                (p[0] * inv).round() as i64,
+                (p[1] * inv).round() as i64,
+                (p[2] * inv).round() as i64,
+            )
+        };
+        let qa = [q(a[0]), q(a[1]), q(a[2])];
+        let qb = [q(b[0]), q(b[1]), q(b[2])];
+        qa.iter().filter(|v| qb.contains(v)).count() >= 2
+    }
+
+    /// Control: same axis + plane as R0002 but profile shifted to one side
+    /// of the axis. If the axis-straddling hypothesis is correct, this should
+    /// produce ZERO penetrations.
+    #[test]
+    #[ignore]
+    fn pr14_r0002_control_shifted_profile() {
+        let plane_origin: [f64; 3] = [-1.6180633893959449, 2.0489258805830994, 1.9349493605708323];
+        let plane_normal: [f64; 3] = [
+            -0.5196280932912005,
+            -0.7470903432281938,
+            -0.4145390979361667,
+        ];
+        let pn = plane_normal;
+        let mut x_seed: [f64; 3] = [1.0, 0.0, 0.0];
+        if pn[0].abs() > 0.9 {
+            x_seed = [0.0, 1.0, 0.0];
+        }
+        let pn_dot_x = dot(x_seed, pn);
+        let plane_x_axis = {
+            let mut v = [
+                x_seed[0] - pn[0] * pn_dot_x,
+                x_seed[1] - pn[1] * pn_dot_x,
+                x_seed[2] - pn[2] * pn_dot_x,
+            ];
+            let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+            v[0] /= l;
+            v[1] /= l;
+            v[2] /= l;
+            v
+        };
+
+        // Shift the rectangle in v so all corners have v > 0.7 → entirely on
+        // the positive side of the axis (signed distance > 0).
+        let mut positions = HashMap::new();
+        positions.insert(1u32, (-0.48649840839876, 0.7));
+        positions.insert(2u32, (0.48649840839876, 0.7));
+        positions.insert(3u32, (0.48649840839876, 1.7));
+        positions.insert(4u32, (-0.48649840839876, 1.7));
+
+        let profile = ClosedProfile {
+            entity_ids: vec![10, 11, 12, 13],
+            is_outer: true,
+            vertex_ids: vec![],
+            circle: None,
+            spline_segments: vec![],
+            arc_segments: vec![],
+        };
+        let profiles = vec![profile];
+
+        let mut k = WaffleKernel::new();
+        let faces = k
+            .make_faces_from_profiles(
+                &profiles,
+                plane_origin,
+                plane_normal,
+                plane_x_axis,
+                &positions,
+            )
+            .expect("make faces");
+
+        let axis_origin = [-2.816235963915955, 2.8822978227786784, 1.9349493605708323];
+        let axis_direction = [-0.820949979030506, 0.5710001155252173, 0.0];
+        let angle = 347.3374027211539;
+
+        let solid = k
+            .revolve_face(faces[0], axis_origin, axis_direction, angle)
+            .expect("revolve");
+
+        let mesh = k.tessellate(&solid, 0.023).expect("tessellate");
+
+        let vert_pos = |idx: u32| -> [f64; 3] {
+            let i = idx as usize * 3;
+            [
+                mesh.vertices[i] as f64,
+                mesh.vertices[i + 1] as f64,
+                mesh.vertices[i + 2] as f64,
+            ]
+        };
+        let mut max_abs = 0.0f32;
+        for v in &mesh.vertices {
+            if v.abs() > max_abs {
+                max_abs = v.abs();
+            }
+        }
+        let max_abs_f64 = (max_abs as f64).max(1.0);
+        struct FaceTris {
+            tris: Vec<[u32; 3]>,
+            aabb_min: [f64; 3],
+            aabb_max: [f64; 3],
+        }
+        let mut faces_tris: Vec<FaceTris> = Vec::new();
+        for fr in &mesh.face_ranges {
+            let mut tris = Vec::new();
+            let mut amin = [f64::MAX; 3];
+            let mut amax = [f64::MIN; 3];
+            for tri in mesh.indices[fr.start_index as usize..fr.end_index as usize].chunks(3) {
+                if tri.len() < 3 {
+                    continue;
+                }
+                tris.push([tri[0], tri[1], tri[2]]);
+                for &idx in tri {
+                    let p = vert_pos(idx);
+                    for d in 0..3 {
+                        if p[d] < amin[d] {
+                            amin[d] = p[d];
+                        }
+                        if p[d] > amax[d] {
+                            amax[d] = p[d];
+                        }
+                    }
+                }
+            }
+            faces_tris.push(FaceTris {
+                tris,
+                aabb_min: amin,
+                aabb_max: amax,
+            });
+        }
+        let aabb_overlap = |a: &FaceTris, b: &FaceTris| -> bool {
+            for d in 0..3 {
+                if a.aabb_max[d] < b.aabb_min[d] || b.aabb_max[d] < a.aabb_min[d] {
+                    return false;
+                }
+            }
+            true
+        };
+        let mut total_pen = 0usize;
+        for i in 0..faces_tris.len() {
+            for j in (i + 1)..faces_tris.len() {
+                if !aabb_overlap(&faces_tris[i], &faces_tris[j]) {
+                    continue;
+                }
+                for ta in &faces_tris[i].tris {
+                    for tb in &faces_tris[j].tris {
+                        let pa = [vert_pos(ta[0]), vert_pos(ta[1]), vert_pos(ta[2])];
+                        let pb = [vert_pos(tb[0]), vert_pos(tb[1]), vert_pos(tb[2])];
+                        if shared_edge_quantized(&pa, &pb, max_abs_f64) {
+                            continue;
+                        }
+                        if tri_tri_penetrate(&pa, &pb) {
+                            total_pen += 1;
+                        }
+                    }
+                }
+            }
+        }
+        eprintln!(
+            "[pr14-control] shifted profile (entirely positive side): TOTAL PENETRATIONS: {}",
+            total_pen
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn pr14_r0002_first_revolve_repro() {
+        // R0002 sketch plane (from app/tests/cases/assay/R0002.meta.json)
+        let plane_origin: [f64; 3] = [-1.6180633893959449, 2.0489258805830994, 1.9349493605708323];
+        let plane_normal: [f64; 3] = [
+            -0.5196280932912005,
+            -0.7470903432281938,
+            -0.4145390979361667,
+        ];
+
+        // Build orthonormal sketch frame: pick any X-axis perpendicular to normal
+        // (project world +X onto the plane). Matches how engine builds frames.
+        let pn = plane_normal;
+        let mut x_seed: [f64; 3] = [1.0, 0.0, 0.0];
+        if pn[0].abs() > 0.9 {
+            x_seed = [0.0, 1.0, 0.0];
+        }
+        let pn_dot_x = dot(x_seed, pn);
+        let plane_x_axis = {
+            let mut v = [
+                x_seed[0] - pn[0] * pn_dot_x,
+                x_seed[1] - pn[1] * pn_dot_x,
+                x_seed[2] - pn[2] * pn_dot_x,
+            ];
+            let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+            v[0] /= l;
+            v[1] /= l;
+            v[2] /= l;
+            v
+        };
+
+        // Sketch entities (rectangle):
+        //   1: (-0.4865, -0.4683)
+        //   2: ( 0.4865, -0.4683)
+        //   3: ( 0.4865,  0.4683)
+        //   4: (-0.4865,  0.4683)
+        let mut positions = HashMap::new();
+        positions.insert(1u32, (-0.48649840839876, -0.46833190755614607));
+        positions.insert(2u32, (0.48649840839876, -0.46833190755614607));
+        positions.insert(3u32, (0.48649840839876, 0.46833190755614607));
+        positions.insert(4u32, (-0.48649840839876, 0.46833190755614607));
+
+        let profile = ClosedProfile {
+            entity_ids: vec![10, 11, 12, 13],
+            is_outer: true,
+            vertex_ids: vec![],
+            circle: None,
+            spline_segments: vec![],
+            arc_segments: vec![],
+        };
+        let profiles = vec![profile];
+
+        let mut k = WaffleKernel::new();
+        let faces = k
+            .make_faces_from_profiles(
+                &profiles,
+                plane_origin,
+                plane_normal,
+                plane_x_axis,
+                &positions,
+            )
+            .expect("make faces");
+
+        let axis_origin = [-2.816235963915955, 2.8822978227786784, 1.9349493605708323];
+        let axis_direction = [-0.820949979030506, 0.5710001155252173, 0.0];
+        let angle = 347.3374027211539;
+
+        let solid = k
+            .revolve_face(faces[0], axis_origin, axis_direction, angle)
+            .expect("revolve");
+
+        let tess_tol = 0.023; // matches assay tess_tol = scale * 0.01 ≈ 0.023
+        let mesh = k.tessellate(&solid, tess_tol).expect("tessellate");
+
+        // Compute mesh AABB max-abs
+        let mut max_abs = 0.0f32;
+        for v in &mesh.vertices {
+            if v.abs() > max_abs {
+                max_abs = v.abs();
+            }
+        }
+        eprintln!(
+            "[pr14-repro] R0002 first revolve: face_ranges.len={} verts={} indices={} max_abs={:.4}",
+            mesh.face_ranges.len(),
+            mesh.vertices.len() / 3,
+            mesh.indices.len(),
+            max_abs,
+        );
+        for (i, fr) in mesh.face_ranges.iter().enumerate() {
+            let n_tris = (fr.end_index - fr.start_index) / 3;
+            eprintln!(
+                "[pr14-repro] face_range[{}] face_id={} tri_count={}",
+                i, fr.face_id.0, n_tris,
+            );
+        }
+
+        // Pairwise face-pair penetration count (oracle-style, simplified)
+        let vert_pos = |idx: u32| -> [f64; 3] {
+            let i = idx as usize * 3;
+            [
+                mesh.vertices[i] as f64,
+                mesh.vertices[i + 1] as f64,
+                mesh.vertices[i + 2] as f64,
+            ]
+        };
+        struct FaceTris {
+            tris: Vec<[u32; 3]>,
+            aabb_min: [f64; 3],
+            aabb_max: [f64; 3],
+        }
+        let mut faces_tris: Vec<FaceTris> = Vec::new();
+        for fr in &mesh.face_ranges {
+            let mut tris = Vec::new();
+            let mut amin = [f64::MAX; 3];
+            let mut amax = [f64::MIN; 3];
+            for tri in mesh.indices[fr.start_index as usize..fr.end_index as usize].chunks(3) {
+                if tri.len() < 3 {
+                    continue;
+                }
+                tris.push([tri[0], tri[1], tri[2]]);
+                for &idx in tri {
+                    let p = vert_pos(idx);
+                    for d in 0..3 {
+                        if p[d] < amin[d] {
+                            amin[d] = p[d];
+                        }
+                        if p[d] > amax[d] {
+                            amax[d] = p[d];
+                        }
+                    }
+                }
+            }
+            faces_tris.push(FaceTris {
+                tris,
+                aabb_min: amin,
+                aabb_max: amax,
+            });
+        }
+
+        let aabb_overlap = |a: &FaceTris, b: &FaceTris| -> bool {
+            for d in 0..3 {
+                if a.aabb_max[d] < b.aabb_min[d] || b.aabb_max[d] < a.aabb_min[d] {
+                    return false;
+                }
+            }
+            true
+        };
+
+        let mut total_pen = 0usize;
+        let mut pair_counts: Vec<((usize, usize), usize)> = Vec::new();
+        let mut max_abs_f64 = max_abs as f64;
+        if max_abs_f64 < 1.0 {
+            max_abs_f64 = 1.0;
+        }
+        for i in 0..faces_tris.len() {
+            for j in (i + 1)..faces_tris.len() {
+                if !aabb_overlap(&faces_tris[i], &faces_tris[j]) {
+                    continue;
+                }
+                let mut pair_pen = 0usize;
+                for ta in &faces_tris[i].tris {
+                    for tb in &faces_tris[j].tris {
+                        let pa = [vert_pos(ta[0]), vert_pos(ta[1]), vert_pos(ta[2])];
+                        let pb = [vert_pos(tb[0]), vert_pos(tb[1]), vert_pos(tb[2])];
+                        if shared_edge_quantized(&pa, &pb, max_abs_f64) {
+                            continue;
+                        }
+                        if tri_tri_penetrate(&pa, &pb) {
+                            pair_pen += 1;
+                            if pair_pen <= 5 {
+                                eprintln!(
+                                    "[pr14-repro] PEN pair=({},{}) tri_a=[{},{},{}] tri_b=[{},{},{}] \
+                                     pa=[({:.4},{:.4},{:.4}),({:.4},{:.4},{:.4}),({:.4},{:.4},{:.4})] \
+                                     pb=[({:.4},{:.4},{:.4}),({:.4},{:.4},{:.4}),({:.4},{:.4},{:.4})]",
+                                    i, j,
+                                    ta[0], ta[1], ta[2],
+                                    tb[0], tb[1], tb[2],
+                                    pa[0][0], pa[0][1], pa[0][2],
+                                    pa[1][0], pa[1][1], pa[1][2],
+                                    pa[2][0], pa[2][1], pa[2][2],
+                                    pb[0][0], pb[0][1], pb[0][2],
+                                    pb[1][0], pb[1][1], pb[1][2],
+                                    pb[2][0], pb[2][1], pb[2][2],
+                                );
+                            }
+                        }
+                    }
+                }
+                if pair_pen > 0 {
+                    total_pen += pair_pen;
+                    pair_counts.push(((i, j), pair_pen));
+                }
+            }
+        }
+
+        eprintln!(
+            "[pr14-repro] TOTAL PENETRATIONS: {}  pairs: {:?}",
+            total_pen, pair_counts
+        );
+
+        // Diagnostic: signed distances of profile vertices from the axis,
+        // along the perpendicular-in-plane direction.
+        // axis_dir × plane_normal → in-plane perpendicular to axis.
+        let perp = cross(axis_direction, plane_normal);
+        let perp_len = (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt();
+        let perp = [perp[0] / perp_len, perp[1] / perp_len, perp[2] / perp_len];
+        eprintln!(
+            "[pr14-repro] perp_in_plane=({:.4},{:.4},{:.4})",
+            perp[0], perp[1], perp[2]
+        );
+        // World-space profile vertices (3D positions of the start ring).
+        // Build them from sketch (u,v) positions and the orthonormal frame.
+        let plane_y_axis = cross(plane_normal, plane_x_axis);
+        for i in 1..=4u32 {
+            let (u, v) = positions[&i];
+            let w = [
+                plane_origin[0] + plane_x_axis[0] * u + plane_y_axis[0] * v,
+                plane_origin[1] + plane_x_axis[1] * u + plane_y_axis[1] * v,
+                plane_origin[2] + plane_x_axis[2] * u + plane_y_axis[2] * v,
+            ];
+            let rel = sub(w, axis_origin);
+            let signed = dot(rel, perp);
+            eprintln!(
+                "[pr14-repro] profile_vert[{}]=(uv={:.4},{:.4}) world=({:.4},{:.4},{:.4}) \
+                 signed_axis_dist={:.4}",
+                i, u, v, w[0], w[1], w[2], signed,
+            );
+        }
+    }
+}
+
+// PR14 Phase C — red-before-green tests for the kernel revolve_polygon validator.
+//
+// Defect: revolve_polygon currently checks only unsigned distance from the axis
+// (`dist > TAU_MODEL` at L1410-1424) and accepts profiles whose vertices straddle
+// the revolve axis. Sweeping such a profile produces a self-intersecting solid
+// (the profile sweeps through itself on the opposite side of the axis), which
+// surfaces in the assay as the R0002 `no_self_intersection` failure.
+//
+// These tests are the official Phase C red signal. Engineer-a's
+// `pr14_r0002_repro` module above is documentary evidence (prints penetration
+// counts; no assertions on revolve_face's return value).
+//
+// Refs:
+//   - Yang 2025 §4.1 (Tessellation, surface discretization with bijective
+//     mapping): a self-intersecting input mesh violates the bijective-mapping
+//     precondition before the Cherchi mesh-intersection step (§4.2).
+//   - ENGINEERING_CONSTITUTION P3 (red before green), P5 (test author distinct
+//     from implementer), P9 (root-cause fix in the validator layer where the
+//     defect lives).
+//   - FIP §8 (bug-fix variant): reproduce-bug-with-failing-test-first.
+#[cfg(test)]
+mod pr14_validator_tests {
+    use super::*;
+    use crate::traits::Kernel;
+    use crate::types::ClosedProfile;
+    use std::collections::HashMap;
+
+    /// Build R0002's sketch frame (plane_origin, plane_normal, plane_x_axis).
+    /// Values copied verbatim from `app/tests/cases/assay/R0002.meta.json`
+    /// via engineer-a's `pr14_r0002_first_revolve_repro` (documentary).
+    fn r0002_sketch_frame() -> ([f64; 3], [f64; 3], [f64; 3]) {
+        let plane_origin = [-1.6180633893959449, 2.0489258805830994, 1.9349493605708323];
+        let plane_normal = [
+            -0.5196280932912005,
+            -0.7470903432281938,
+            -0.4145390979361667,
+        ];
+        // Project world +X onto the plane to build an orthonormal frame
+        // (matches how the engine constructs sketch frames).
+        let pn: [f64; 3] = plane_normal;
+        let mut x_seed: [f64; 3] = [1.0, 0.0, 0.0];
+        if pn[0].abs() > 0.9 {
+            x_seed = [0.0, 1.0, 0.0];
+        }
+        let pn_dot_x = x_seed[0] * pn[0] + x_seed[1] * pn[1] + x_seed[2] * pn[2];
+        let mut v = [
+            x_seed[0] - pn[0] * pn_dot_x,
+            x_seed[1] - pn[1] * pn_dot_x,
+            x_seed[2] - pn[2] * pn_dot_x,
+        ];
+        let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+        v[0] /= l;
+        v[1] /= l;
+        v[2] /= l;
+        (plane_origin, plane_normal, v)
+    }
+
+    /// R0002's revolve axis (off-plane, tilted) and angle. Verbatim from the
+    /// assay meta JSON via engineer-a's reproducer.
+    fn r0002_axis_and_angle() -> ([f64; 3], [f64; 3], f64) {
+        let axis_origin = [-2.816235963915955, 2.8822978227786784, 1.9349493605708323];
+        let axis_direction = [-0.820949979030506, 0.5710001155252173, 0.0];
+        let angle_deg = 347.3374027211539;
+        (axis_origin, axis_direction, angle_deg)
+    }
+
+    fn rect_profile_at(
+        positions: HashMap<u32, (f64, f64)>,
+    ) -> (Vec<ClosedProfile>, HashMap<u32, (f64, f64)>) {
+        let profile = ClosedProfile {
+            entity_ids: vec![10, 11, 12, 13],
+            is_outer: true,
+            vertex_ids: vec![],
+            circle: None,
+            spline_segments: vec![],
+            arc_segments: vec![],
+        };
+        (vec![profile], positions)
+    }
+
+    /// Watertight check using oracle-compatible scale-adaptive quantization.
+    /// (Mirrors `check_watertight` in `waffle_kernel_tests.rs`; cannot be
+    /// reused from there because tests in `mod tests` and tests in this
+    /// module are separate compilation units after `include!`.)
+    fn mesh_is_watertight(mesh: &crate::types::RenderMesh) -> bool {
+        use std::collections::HashMap as Map;
+        let max_abs = mesh
+            .vertices
+            .iter()
+            .map(|v| v.abs())
+            .fold(0.0_f32, f32::max);
+        let grid = (max_abs as f64 * crate::units::TAU_TESS_GRID_FACTOR)
+            .max(crate::units::TAU_TESS_GRID_MIN);
+        let inv_grid = 1.0 / grid;
+        let quantize = |idx: u32| -> (i64, i64, i64) {
+            let base = idx as usize * 3;
+            (
+                (mesh.vertices[base] as f64 * inv_grid).round() as i64,
+                (mesh.vertices[base + 1] as f64 * inv_grid).round() as i64,
+                (mesh.vertices[base + 2] as f64 * inv_grid).round() as i64,
+            )
+        };
+        let mut edge_count: Map<((i64, i64, i64), (i64, i64, i64)), u32> = Map::new();
+        let n_tris = mesh.indices.len() / 3;
+        for i in 0..n_tris {
+            let tri = [
+                mesh.indices[i * 3],
+                mesh.indices[i * 3 + 1],
+                mesh.indices[i * 3 + 2],
+            ];
+            for j in 0..3 {
+                let pa = quantize(tri[j]);
+                let pb = quantize(tri[(j + 1) % 3]);
+                let key = if pa <= pb { (pa, pb) } else { (pb, pa) };
+                *edge_count.entry(key).or_insert(0) += 1;
+            }
+        }
+        edge_count.values().all(|&c| c == 2)
+    }
+
+    /// Phase C RED test for the validator gap.
+    ///
+    /// R0002's rectangle profile straddles the revolve axis: signed
+    /// perpendicular distances of the four corners are approximately
+    /// `[-0.31, -0.58, +0.31, +0.58]` along the axis-perpendicular in-plane
+    /// direction (engineer-a's Phase A finding). This produces a sweep that
+    /// passes through itself on the far side of the axis, generating
+    /// inter-face triangle penetrations after tessellation
+    /// (assay R0002: 10 inter-face penetrations).
+    ///
+    /// The validator should reject this input. Today it does not — the
+    /// unsigned-distance check at L1410-1424 only catches vertices ON the
+    /// axis (within TAU_MODEL), not vertices straddling it.
+    ///
+    /// Expected (after the Phase D fix): `revolve_face(...)` returns
+    /// `Err(KernelError::Other { message })` whose message names the
+    /// straddling pathology (e.g., contains "self-intersection" or
+    /// "straddle"/"straddles").
+    #[test]
+    fn test_revolve_axis_straddling_profile_rejected() {
+        let (plane_origin, plane_normal, plane_x_axis) = r0002_sketch_frame();
+
+        // R0002's exact rectangle corners (sketch-plane uv): centered on the
+        // axis projection so signed distances are ±0.31 / ±0.58.
+        let mut positions = HashMap::new();
+        positions.insert(1u32, (-0.48649840839876, -0.46833190755614607));
+        positions.insert(2u32, (0.48649840839876, -0.46833190755614607));
+        positions.insert(3u32, (0.48649840839876, 0.46833190755614607));
+        positions.insert(4u32, (-0.48649840839876, 0.46833190755614607));
+        let (profiles, positions) = rect_profile_at(positions);
+
+        let mut k = WaffleKernel::new();
+        let faces = k
+            .make_faces_from_profiles(
+                &profiles,
+                plane_origin,
+                plane_normal,
+                plane_x_axis,
+                &positions,
+            )
+            .expect("make_faces_from_profiles should succeed for a valid rectangle profile");
+
+        let (axis_origin, axis_direction, angle_deg) = r0002_axis_and_angle();
+
+        let result = k.revolve_face(faces[0], axis_origin, axis_direction, angle_deg);
+
+        assert!(
+            result.is_err(),
+            "revolve_face must reject a profile whose vertices straddle the revolve axis \
+             (R0002 rectangle: signed perpendicular distances span both sides of the axis). \
+             Sweeping a straddling profile produces a self-intersecting solid; the validator \
+             must catch this before tessellation. Got Ok(_)."
+        );
+
+        // Be lenient about the exact message wording so the implementer has
+        // room to phrase it. We only require that the error names the
+        // pathology so it is actionable in assay logs.
+        if let Err(e) = result {
+            let msg = format!("{}", e).to_lowercase();
+            assert!(
+                msg.contains("self-intersection")
+                    || msg.contains("self intersection")
+                    || msg.contains("straddle")
+                    || msg.contains("axis"),
+                "Validator error message should describe the axis-straddling pathology; got: {}",
+                e
+            );
+        }
+    }
+
+    /// Phase C regression-guard test (currently GREEN; must remain GREEN
+    /// after the Phase D fix).
+    ///
+    /// Same axis, plane, and angle as R0002, but the rectangle is shifted in
+    /// `v` so all four corners have signed perpendicular distance > 0
+    /// (entirely on the positive side of the axis). Engineer-a's control
+    /// reproducer (`pr14_r0002_control_shifted_profile`) confirmed this
+    /// produces zero inter-face penetrations.
+    ///
+    /// This guards against the Phase D fix being too aggressive (e.g., a
+    /// fix that rejects ALL revolves with off-plane axes, or one that has
+    /// off-by-one signed-distance comparisons rejecting one-sided profiles
+    /// near the axis).
+    #[test]
+    fn test_revolve_one_sided_profile_succeeds() {
+        let (plane_origin, plane_normal, plane_x_axis) = r0002_sketch_frame();
+
+        // Rectangle shifted in v so all four corners have v >= 0.7 → entirely
+        // on the positive side of the axis (signed perpendicular distance > 0
+        // for every corner). This matches engineer-a's
+        // `pr14_r0002_control_shifted_profile` setup.
+        let mut positions = HashMap::new();
+        positions.insert(1u32, (-0.48649840839876, 0.7));
+        positions.insert(2u32, (0.48649840839876, 0.7));
+        positions.insert(3u32, (0.48649840839876, 1.7));
+        positions.insert(4u32, (-0.48649840839876, 1.7));
+        let (profiles, positions) = rect_profile_at(positions);
+
+        let mut k = WaffleKernel::new();
+        let faces = k
+            .make_faces_from_profiles(
+                &profiles,
+                plane_origin,
+                plane_normal,
+                plane_x_axis,
+                &positions,
+            )
+            .expect("make_faces_from_profiles should succeed for a valid rectangle profile");
+
+        let (axis_origin, axis_direction, angle_deg) = r0002_axis_and_angle();
+
+        let solid = k
+            .revolve_face(faces[0], axis_origin, axis_direction, angle_deg)
+            .expect(
+                "revolve_face must succeed for a one-sided profile (rectangle entirely on the \
+                 positive side of the revolve axis); the Phase D validator fix must not reject \
+                 valid one-sided revolves",
+            );
+
+        // Tessellation tolerance matches the assay's `tess_tol = scale * 0.01`
+        // for R0002's scale ≈ 2.3. A one-sided revolve must produce a
+        // watertight closed mesh.
+        let mesh = k
+            .tessellate(&solid, 0.023)
+            .expect("tessellate one-sided revolve");
+
+        assert!(
+            !mesh.indices.is_empty(),
+            "one-sided revolve must produce a non-empty mesh"
+        );
+        assert!(
+            mesh_is_watertight(&mesh),
+            "one-sided revolve mesh must be watertight (every quantized edge shared by \
+             exactly 2 triangles)"
+        );
+    }
 }
