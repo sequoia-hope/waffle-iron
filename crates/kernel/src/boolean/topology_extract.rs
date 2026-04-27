@@ -11,6 +11,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
+use crate::boolean::cherchi::Orientation as CosurfaceOrientation;
 use crate::boolean::exact_mesh::{
     label_cells, subdivide_mesh_pair, CellLabel, CellLabeling, MeshBooleanOp, MeshId,
     SubdividedMesh,
@@ -28,12 +29,20 @@ pub(crate) struct SourceFace {
 }
 
 /// A surviving sub-triangle in the boolean result, with provenance.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct SurvivingSubTri {
     /// Vertex indices in SubdividedMesh.verts.
     pub verts: [usize; 3],
     /// Whether winding was flipped (Subtract B-inside-A).
     pub flipped: bool,
+    /// Cosurface orientation propagated from `SubTriangle` for diagnostics
+    /// only (PR11 twin-pairing investigation). Not used by face_survival_detect
+    /// classification logic — that lives in `label_sub_tri_raycast`.
+    /// Ref #9 Cherchi 2020 §5.4, Hoffmann 1989 §5.3 (cosurface annihilation).
+    pub cosurface_orientation: Option<CosurfaceOrientation>,
+    /// Parent triangle index in the original mesh (pre-subdivision).
+    /// Used for trace provenance only.
+    pub parent_tri: usize,
 }
 
 /// Maps each surviving source face to its contributing sub-triangles.
@@ -344,6 +353,11 @@ pub(crate) fn flood_fill_patches(
     use crate::topology::half_edge::{Edge, HalfEdge, HalfEdgeIdx, VertexIdx as BrepVIdx};
     use std::collections::VecDeque;
 
+    // PR11 twin-debug gate: instrumentation runs only under TWIN_DEBUG=1.
+    // No behavior change when unset. Mirrors the CHERCHI_DEBUG pattern from
+    // PR9 (cherchi/processing.rs). Ref Yang §4.4.2 / Cherchi §5.5.
+    let twin_debug = std::env::var("TWIN_DEBUG").as_deref() == Ok("1");
+
     if survival.groups.is_empty() {
         return ResultTopology {
             arena: TopoArena::new(),
@@ -381,6 +395,10 @@ pub(crate) fn flood_fill_patches(
     struct FlatSubTri {
         verts: [usize; 3], // canonical vertex indices
         source: SourceFace,
+        // PR11 twin-debug: provenance for tracing each HE back to its source
+        // SubTriangle. Not used by topology construction; emitted under TWIN_DEBUG.
+        cosurface_orientation: Option<CosurfaceOrientation>,
+        parent_tri: usize,
     }
 
     let mut all_tris: Vec<FlatSubTri> = Vec::new();
@@ -394,6 +412,8 @@ pub(crate) fn flood_fill_patches(
             all_tris.push(FlatSubTri {
                 verts: [canon_v(raw[0]), canon_v(raw[1]), canon_v(raw[2])],
                 source: *sf,
+                cosurface_orientation: tri.cosurface_orientation,
+                parent_tri: tri.parent_tri,
             });
         }
     }
@@ -568,15 +588,17 @@ pub(crate) fn flood_fill_patches(
         patches = split_patches;
     }
 
-    // ── [DIAG] Post-Step-5a patch composition ──
-    eprintln!("[flood_fill DIAG Step5a] {} patches:", patches.len());
-    for (pi, patch) in patches.iter().enumerate() {
-        eprintln!(
-            "  Patch {}: source={:?} tris={}",
-            pi,
-            patch.source,
-            patch.tris.len()
-        );
+    // ── [DIAG] Post-Step-5a patch composition (gated on TWIN_DEBUG=1) ──
+    if twin_debug {
+        eprintln!("[flood_fill DIAG Step5a] {} patches:", patches.len());
+        for (pi, patch) in patches.iter().enumerate() {
+            eprintln!(
+                "  Patch {}: source={:?} tris={}",
+                pi,
+                patch.source,
+                patch.tris.len()
+            );
+        }
     }
 
     // ── Step 6: Extract boundary loops per patch ──
@@ -686,6 +708,19 @@ pub(crate) fn flood_fill_patches(
     let mut face_provenance: BTreeMap<FaceIdx, SourceFace> = BTreeMap::new();
     let mut edge_is_int_map: HashMap<(BrepVIdx, BrepVIdx), bool> = HashMap::new();
     let mut he_to_face: HashMap<HalfEdgeIdx, FaceIdx> = HashMap::new();
+    // PR11 twin-debug provenance: HE → source FlatSubTri (mesh A/B, parent_tri,
+    // cosurface_orientation). Built only when TWIN_DEBUG=1; consulted by the
+    // pairing-loop traces and the validation FAIL emit. Ref Yang §4.4.2.
+    let mut he_provenance: HashMap<
+        HalfEdgeIdx,
+        (
+            SourceFace,
+            usize,
+            Option<CosurfaceOrientation>,
+            usize,
+            usize,
+        ),
+    > = HashMap::new();
 
     for pb in &patch_boundaries {
         for loop_edges in &pb.loops {
@@ -725,6 +760,38 @@ pub(crate) fn flood_fill_patches(
                 *entry |= is_int;
 
                 arena.vertices[v0_brep.0].half_edge = Some(he_idx);
+
+                // PR11 twin-debug: record provenance of this HE. Look up which
+                // FlatSubTri produced the directed edge (v0→v1) within the
+                // current patch's source. Pick the first matching tri — any tri
+                // is sufficient for diagnostic purposes since they share source.
+                if twin_debug {
+                    let mut chosen: Option<usize> = None;
+                    if let Some(tris) = directed_edge_to_tris.get(&(v0, v1)) {
+                        chosen = tris
+                            .iter()
+                            .copied()
+                            .find(|&ti| all_tris[ti].source == pb.source);
+                    }
+                    if let Some(ti) = chosen {
+                        let ft = &all_tris[ti];
+                        he_provenance.insert(
+                            he_idx,
+                            (ft.source, ft.parent_tri, ft.cosurface_orientation, v0, v1),
+                        );
+                        eprintln!(
+                            "[twin-debug] insert HE[{}] (v{}→v{}) source={:?} parent_tri={} cosurface={:?}",
+                            he_idx.0, v0, v1, ft.source, ft.parent_tri, ft.cosurface_orientation
+                        );
+                    } else {
+                        // No matching tri — record vertices only.
+                        he_provenance.insert(he_idx, (pb.source, usize::MAX, None, v0, v1));
+                        eprintln!(
+                            "[twin-debug] insert HE[{}] (v{}→v{}) source={:?} parent_tri=? cosurface=? (no tri match)",
+                            he_idx.0, v0, v1, pb.source
+                        );
+                    }
+                }
             }
 
             arena.loops[loop_idx.0].half_edge = he_base;
@@ -756,6 +823,20 @@ pub(crate) fn flood_fill_patches(
         let fwd_hes = directed_he.get(&(lo, hi)).unwrap_or(&empty);
         let rev_hes = directed_he.get(&(hi, lo)).unwrap_or(&empty);
 
+        // PR11 twin-debug: per-edge fwd/rev candidate counts.
+        // Hypothesis (d): same-direction contribution → fwd_count >= 2, rev_count = 0.
+        if twin_debug {
+            eprintln!(
+                "[twin-debug] edge ({:?},{:?}) fwd_count={} rev_count={} fwd_hes={:?} rev_hes={:?}",
+                lo,
+                hi,
+                fwd_hes.len(),
+                rev_hes.len(),
+                fwd_hes.iter().map(|h| h.0).collect::<Vec<_>>(),
+                rev_hes.iter().map(|h| h.0).collect::<Vec<_>>(),
+            );
+        }
+
         for &he_fwd in fwd_hes {
             if paired_he.contains(&he_fwd) {
                 continue;
@@ -783,47 +864,79 @@ pub(crate) fn flood_fill_patches(
                     paired_he.insert(he_fwd);
                     paired_he.insert(he_rev);
                     paired_count += 1;
+
+                    if twin_debug {
+                        eprintln!("[twin-debug]   paired HE[{}] ↔ HE[{}]", he_fwd.0, he_rev.0);
+                    }
                 }
                 [] => {
-                    eprintln!(
-                        "[topo-extract] unpaired forward HE ({:?} -> {:?}): no reverse candidate",
-                        lo, hi
-                    );
+                    if twin_debug {
+                        let prov = he_provenance.get(&he_fwd);
+                        eprintln!(
+                            "[twin-debug]   UNPAIRED HE[{}] ({:?} -> {:?}): no reverse candidate. provenance={:?}",
+                            he_fwd.0, lo, hi, prov
+                        );
+                        eprintln!(
+                            "[topo-extract] unpaired forward HE ({:?} -> {:?}): no reverse candidate",
+                            lo, hi
+                        );
+                    }
                     unpaired_count += 1;
                 }
                 multiple => {
-                    eprintln!(
-                        "[topo-extract] ambiguous twin for ({:?} -> {:?}): {} reverse candidates",
-                        lo,
-                        hi,
-                        multiple.len()
-                    );
+                    if twin_debug {
+                        let prov_fwd = he_provenance.get(&he_fwd);
+                        let prov_revs: Vec<_> = multiple
+                            .iter()
+                            .map(|h| (h.0, he_provenance.get(h)))
+                            .collect();
+                        eprintln!(
+                            "[twin-debug]   AMBIGUOUS HE[{}] ({:?} -> {:?}): {} reverse candidates. fwd_prov={:?} rev_prov={:?}",
+                            he_fwd.0,
+                            lo,
+                            hi,
+                            multiple.len(),
+                            prov_fwd,
+                            prov_revs
+                        );
+                        eprintln!(
+                            "[topo-extract] ambiguous twin for ({:?} -> {:?}): {} reverse candidates",
+                            lo,
+                            hi,
+                            multiple.len()
+                        );
+                    }
                     ambiguous_count += 1;
                 }
             }
         }
     }
 
-    eprintln!(
-        "[topo-extract] summary: paired={}, unpaired={}, ambiguous={}",
-        paired_count, unpaired_count, ambiguous_count
-    );
+    if twin_debug {
+        eprintln!(
+            "[topo-extract] summary: paired={}, unpaired={}, ambiguous={}",
+            paired_count, unpaired_count, ambiguous_count
+        );
+    }
 
     // ── Unpaired HE diagnostics (no synthesis — per P9, let pipeline fail honestly) ──
-    let n_he = arena.half_edges.len();
-    if n_he > 0 {
-        let mut unpaired_count = 0;
-        for (i, he) in arena.half_edges.iter().enumerate() {
-            let twin_idx = he.twin.0;
-            if twin_idx >= n_he || arena.half_edges[twin_idx].twin.0 != i {
-                unpaired_count += 1;
+    // Gated on TWIN_DEBUG=1 per PR11 to keep assay logs clean.
+    if twin_debug {
+        let n_he = arena.half_edges.len();
+        if n_he > 0 {
+            let mut unpaired_count = 0;
+            for (i, he) in arena.half_edges.iter().enumerate() {
+                let twin_idx = he.twin.0;
+                if twin_idx >= n_he || arena.half_edges[twin_idx].twin.0 != i {
+                    unpaired_count += 1;
+                }
             }
-        }
-        if unpaired_count > 0 {
-            eprintln!(
-                "[yang-diag] flood_fill_patches: {} unpaired HEs out of {} total",
-                unpaired_count, n_he
-            );
+            if unpaired_count > 0 {
+                eprintln!(
+                    "[yang-diag] flood_fill_patches: {} unpaired HEs out of {} total",
+                    unpaired_count, n_he
+                );
+            }
         }
     }
 
@@ -1135,6 +1248,8 @@ pub(crate) fn face_survival_detect(
             groups.entry(key).or_default().push(SurvivingSubTri {
                 verts: sub_tri.verts,
                 flipped: false,
+                cosurface_orientation: sub_tri.cosurface_orientation,
+                parent_tri: sub_tri.parent_tri,
             });
         }
     }
@@ -1152,6 +1267,8 @@ pub(crate) fn face_survival_detect(
             groups.entry(key).or_default().push(SurvivingSubTri {
                 verts: sub_tri.verts,
                 flipped: flip_b,
+                cosurface_orientation: sub_tri.cosurface_orientation,
+                parent_tri: sub_tri.parent_tri,
             });
         }
     }
@@ -4578,10 +4695,12 @@ mod tests {
                 SurvivingSubTri {
                     verts: [0, 1, 2],
                     flipped: true,
+                    ..Default::default()
                 },
                 SurvivingSubTri {
                     verts: [0, 2, 3],
                     flipped: true,
+                    ..Default::default()
                 },
             ],
         );
@@ -4598,18 +4717,22 @@ mod tests {
                 SurvivingSubTri {
                     verts: [1, 5, 4],
                     flipped: true,
+                    ..Default::default()
                 },
                 SurvivingSubTri {
                     verts: [5, 7, 4],
                     flipped: true,
+                    ..Default::default()
                 },
                 SurvivingSubTri {
                     verts: [7, 6, 4],
                     flipped: true,
+                    ..Default::default()
                 },
                 SurvivingSubTri {
                     verts: [6, 2, 4],
                     flipped: true,
+                    ..Default::default()
                 },
             ],
         );
@@ -4624,10 +4747,12 @@ mod tests {
                 SurvivingSubTri {
                     verts: [8, 9, 10],
                     flipped: false,
+                    ..Default::default()
                 },
                 SurvivingSubTri {
                     verts: [8, 10, 11],
                     flipped: false,
+                    ..Default::default()
                 },
             ],
         );
@@ -4643,10 +4768,12 @@ mod tests {
                 SurvivingSubTri {
                     verts: [0, 8, 9],
                     flipped: true,
+                    ..Default::default()
                 },
                 SurvivingSubTri {
                     verts: [0, 9, 5],
                     flipped: true,
+                    ..Default::default()
                 },
             ],
         );
@@ -4662,10 +4789,12 @@ mod tests {
                 SurvivingSubTri {
                     verts: [3, 6, 10],
                     flipped: true,
+                    ..Default::default()
                 },
                 SurvivingSubTri {
                     verts: [3, 10, 11],
                     flipped: true,
+                    ..Default::default()
                 },
             ],
         );
@@ -4681,10 +4810,12 @@ mod tests {
                 SurvivingSubTri {
                     verts: [0, 3, 11],
                     flipped: true,
+                    ..Default::default()
                 },
                 SurvivingSubTri {
                     verts: [0, 11, 8],
                     flipped: true,
+                    ..Default::default()
                 },
             ],
         );
@@ -4699,10 +4830,12 @@ mod tests {
                 SurvivingSubTri {
                     verts: [5, 6, 10],
                     flipped: false,
+                    ..Default::default()
                 },
                 SurvivingSubTri {
                     verts: [5, 10, 9],
                     flipped: false,
+                    ..Default::default()
                 },
             ],
         );

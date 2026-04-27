@@ -1025,9 +1025,31 @@ fn validate_yang_result_topology(arena: &crate::topology::arena::TopoArena) -> R
     // Twin symmetry: every half-edge's twin must point back to it.
     // Manifold B-Rep requires he.twin.twin == he for all half-edges.
     // Ref: Mantyla §4.2, Stroud §3.3.
+    let twin_debug = std::env::var("TWIN_DEBUG").as_deref() == Ok("1");
     for (i, he) in arena.half_edges.iter().enumerate() {
         let twin_he = &arena.half_edges[he.twin.0];
         if twin_he.twin.0 != i {
+            // PR11 twin-debug: emit richer detail (origin pair of HE[i] and
+            // HE[twin_idx]) to aid investigation. Production error is unchanged.
+            if twin_debug {
+                eprintln!(
+                    "[twin-debug] FAIL HE[{}].twin={} twin.twin={} (expected {}) \
+                     HE[{}].origin=v{} HE[{}].next.origin=v{} \
+                     HE[{}].origin=v{} HE[{}].next.origin=v{}",
+                    i,
+                    he.twin.0,
+                    twin_he.twin.0,
+                    i,
+                    i,
+                    he.origin.0,
+                    i,
+                    arena.half_edges[he.next.0].origin.0,
+                    he.twin.0,
+                    twin_he.origin.0,
+                    he.twin.0,
+                    arena.half_edges[twin_he.next.0].origin.0,
+                );
+            }
             return Err(format!(
                 "half_edge[{i}].twin = {} but twin.twin = {} (expected {i})",
                 he.twin.0, twin_he.twin.0
