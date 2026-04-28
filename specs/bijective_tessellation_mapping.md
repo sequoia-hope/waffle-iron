@@ -90,8 +90,14 @@ output. The `RenderMesh` continues to be produced identically. A new
 - [#24] Yang, Jia & Yan (2025) — Bijective mapping is stage 1 of the hybrid
   B-Rep/mesh boolean pipeline. Each mesh triangle must map back to its source
   B-Rep face for topology extraction in stage 3.
-- [#9] Cherchi et al. (2020) — The exact mesh boolean operates on triangles;
-  bijective mapping enables tracing results back to original B-Rep faces.
+- [#38] Cherchi et al. (2022, "Interactive and Robust Mesh Booleans") — The
+  exact mesh boolean (full pipeline: arrangement + ray-cast in/out) operates
+  on triangles; bijective mapping enables tracing results back to original
+  B-Rep faces. Yang 2025 §4.2 cites this paper as the mesh-intersection
+  backbone of the hybrid pipeline.
+- [#9] Cherchi et al. (2020, arrangement + indirect predicates) — Foundational
+  arrangement algorithm that Cherchi 2022 §4 extends; provides the E/L/T
+  implicit point representations used throughout.
 
 ### 7a. Analytical vs. Approximate Method Justification
 

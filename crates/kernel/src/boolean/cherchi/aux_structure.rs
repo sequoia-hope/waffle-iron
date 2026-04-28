@@ -20,12 +20,14 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-//! AuxiliaryStructure — intersection bookkeeping for Cherchi mesh arrangement.
+//! AuxiliaryStructure — intersection bookkeeping for the Cherchi 2020 §5.4
+//! mesh-arrangement algorithm (auxiliary tetrahedron / coplanar pocket map).
 //!
 //! Tracks per-triangle interior intersection points, per-edge sorted intersection
 //! points, per-triangle constraint segments, and coplanar triangle relationships.
 //!
-//! Ported from Cherchi aux_structure.h + aux_structure.cpp
+//! Ported from aux_structure.h + aux_structure.cpp in
+//! github.com/gcherchi/InteractiveAndRobustMeshBooleans
 //! MIT License (c) 2022 Cherchi, Livesu, Scateni, Attene, Pellacini
 
 use std::collections::{BTreeMap, HashMap};

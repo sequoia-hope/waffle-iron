@@ -487,8 +487,11 @@ is critical — coplanarity must be handled BEFORE tessellation, not after:
    become intersection curves. Without this, tessellation produces non-identical
    meshes on coplanar faces → conformal edge explosion → timeout or wrong topology.
 1. **Tessellate** B-Rep faces with bijective mapping (each triangle maps to one face)
-2. **Exact mesh intersection** via indirect predicates [#9 Cherchi] — conformal subdivision
-3. **Inside/outside classification** — label each sub-triangle via ray-casting + winding
+2. **Exact mesh intersection** via indirect predicates [#9 Cherchi 2020 §4 / Cherchi 2022 §4
+   arrangement; #39 Livesu et al. 2021 simplified earcut CDT for segment insertion] —
+   conformal subdivision
+3. **Inside/outside classification** [#38 Cherchi 2022 §5 (ray-cast in/out, Algorithm 1)] —
+   label each sub-triangle via ray-casting + winding
 4. **Face survival** — select sub-triangles per boolean operation (Union/Subtract/Intersect)
 5. **Flood-fill patch segmentation** (Section 4.4.2) — BFS from seed triangles, expand
    across non-boundary edges. Each connected component = one B-Rep face. Boundary edges
@@ -526,7 +529,10 @@ convergence loops, fill_boundary_holes, close_near_boundary_chains). These will
 be removed when the hybrid pipeline is operational.
 
 **Implementation references**: [#24] Yang 2025 (pipeline), [#9] Cherchi 2020
-(indirect predicates), [#10] Levy 2025 (exact constructions + radial sort),
+(indirect predicates + arrangement), [#38] Cherchi 2022 (Interactive Boolean
+pipeline — ray-cast in/out classification, Algorithm 1; Yang §4.2 cites this),
+[#39] Livesu et al. 2021 (simplified earcut CDT for segment insertion),
+[#10] Levy 2025 (exact constructions + radial sort),
 [#4] Shewchuk 1997 (adaptive precision predicates).
 
 ---

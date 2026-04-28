@@ -1490,7 +1490,7 @@ fn boolean_op_from_polys_inner(
 
     // Intersection cache: ensures that the same geometric edge clipped by the
     // same plane produces bitwise-identical intersection points across all faces.
-    // Ref [#9] Cherchi: indirect predicates avoid recomputation.
+    // Ref [#9] Cherchi 2020 §4 (indirect predicates) — avoid recomputation.
     let mut cache: Option<IntersectionCache> = Some(IntersectionCache::new(tau));
 
     let mut a_classified: Vec<(FacePoly, FaceClass)> = Vec::with_capacity(a_faces.len());

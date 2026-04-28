@@ -20,12 +20,20 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-//! Triangulation — Algorithm 1 and the full per-triangle pipeline.
+//! Triangulation — Cherchi 2020 §5.3 segment insertion and the full
+//! per-triangle pipeline.
 //!
 //! For each intersected triangle: insert interior + edge points via stack-based
 //! splitting, then insert constraint segments via topological walk + earcut.
+//! The CDT used by `earcut_linear` is **Livesu et al. 2021** (the simplified
+//! linear-time earcut adopted by Cherchi 2022 §4).
 //!
-//! Ported from Cherchi triangulation.cpp/.h
+//! NOTE: "Algorithm 1" in this file refers to the Cherchi 2020 §5.3 segment
+//! insertion algorithm, NOT Cherchi 2022 §5 Algorithm 1 (which is the
+//! ray-cast in/out classifier — see `boolean/exact_mesh.rs::label_sub_tri_raycast`).
+//!
+//! Ported from triangulation.cpp/.h in
+//! github.com/gcherchi/InteractiveAndRobustMeshBooleans
 //! MIT License (c) 2022 Cherchi, Livesu, Scateni, Attene, Pellacini
 
 use std::collections::{HashMap, HashSet};
@@ -115,8 +123,8 @@ pub(crate) fn triangulation(
 /// indicating which input triangle produced each output triangle, plus the
 /// PR10 cosurface-orientation vec parallel to `new_labels`.
 ///
-/// `clean_orientations[t_id]` is the cosurface orientation (Cherchi §5.4 /
-/// Hoffmann §5.3) attached to preprocessed triangle `t_id` by STAGE2 dedup.
+/// `clean_orientations[t_id]` is the cosurface orientation (Cherchi 2020 §5.4 /
+/// Hoffmann 1989 §5.3) attached to preprocessed triangle `t_id` by STAGE2 dedup.
 /// Each output triangle inherits its parent's orientation.
 ///
 /// Returns `(new_tris, new_labels, parent_tris, new_cosurface_orientation)`.
@@ -1080,9 +1088,12 @@ fn boundary_walker_reverse(
 
 /// Linear-time earcut for simple polygons.
 ///
-/// Simplified earcut per Livesu & Cherchi 2022.
-/// Doubly linked list via prev/next arrays.
-/// All internal convex vertices are safe ears.
+/// Simplified earcut per **Livesu et al. 2021** (deterministic linear-time
+/// CDT). Adopted by Cherchi 2022 §4 as the segment-insertion CDT, replacing
+/// the original O(n²) earcut used in Cherchi 2020. (Older comments labeled
+/// this "Livesu & Cherchi 2022" — same algorithm, bibliographically the 2021
+/// IEEE TVCG paper.) Doubly linked list via prev/next arrays. All internal
+/// convex vertices are safe ears.
 ///
 /// Ported from triangulation.cpp:917-1008 (earcutLinear)
 #[allow(dead_code)]
@@ -1730,7 +1741,7 @@ fn segments_intersect_inside(
 /// betweenness — fully exact, no materialization.
 ///
 /// Ported from triangulation.cpp:1183-1186 (pointInsideSegment).
-/// Ref: Cherchi 2020 Section 4.3, pointInInnerSegment.
+/// Ref #9: Cherchi 2020 §4.3 (pointCompare / pointInInnerSegment).
 fn point_inside_segment(subm: &FastTrimesh, ev0_id: usize, ev1_id: usize, p_id: usize) -> bool {
     let proj = match subm.ref_plane() {
         Plane::XY => crate::boolean::indirect_predicates::ProjectionAxis::XY,

@@ -67,5 +67,14 @@ pub(crate) fn update_mesh_along_refined_curves(
 ## References
 
 - [#24] Yang, Jia & Yan (2025) — Section 4.4.1, Mesh Updating
-- Cherchi et al. (2020) — CDT for mesh arrangements
-- Livesu & Cherchi (2022) — Deterministic linear time constrained triangulation
+- [#9] Cherchi et al. (2020) §5 (arrangement) — Mesh arrangement that uses
+  CDT (originally earcut, replaced in [#38] Cherchi 2022 §4 with the
+  [#39] Livesu et al. 2021 simplified earcut for linear-time CDT).
+- [#39] Livesu et al. (2021) — Deterministic linear-time constrained
+  triangulation using simplified earcut. (Sometimes referenced in older
+  project docs as "Livesu & Cherchi 2022" — same paper. Cherchi 2022's own
+  bibliography cites this as [Livesu et al. 2021].) Yang 2025 §4.4.1 mesh
+  updating relies on this CDT to retriangulate trimmed mesh patches around
+  refined SSI curves.
+- [#38] Cherchi et al. (2022) — Full mesh-Boolean pipeline that Yang 2025
+  §4.2 / §4.4.2 cites for mesh intersection and in/out classification.

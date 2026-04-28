@@ -32,8 +32,11 @@ Test R2 (`test_r2_box_box_subtract_all_planar_skipped`) confirms:
 
 - [#4] Shewchuk (1997) — Adaptive precision predicates give exact geometric
   results for plane-plane intersections.
-- [#9] Cherchi et al. (2020) — Exact mesh boolean preserves intersection
-  point precision through indirect predicates.
+- [#9] Cherchi et al. (2020) — Indirect predicates (§4); foundational
+  arrangement (§5) preserving intersection-point precision symbolically.
+- [#38] Cherchi et al. (2022) — Full Boolean pipeline as cited by Yang 2025
+  §4.2 / §4.4.2 — preserves indirect-point precision through the ray-cast
+  classification step.
 - [#24] Yang et al. (2025) — Stage 4 SSI refinement is needed only for curved
   surfaces; planar results pass through unchanged.
 

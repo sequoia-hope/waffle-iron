@@ -10,9 +10,9 @@ Find references by topic. Numbers refer to reference entries below.
 **Boolean pipeline architecture** → #2 Ch.3, #3 (GFA), #8 (mesh arrangements), #17 (PADL), #24 (6-stage hybrid), #33 §6.1 (SSI→sew→merge→separate)
 **BSP trees** → #11 (EMBER), #18 (Bernstein)
 **B-rep foundations** → #2 Ch.2, #16 (Euler ops), #17 (set membership classification), #33 Ch.3 (datastructures/traversals), #33 Ch.4 (Euler ops spanning sets)
-**CDT / constrained Delaunay** → #10 (optimized CDT), #12 (per-triangle CDT)
+**CDT / constrained Delaunay** → #10 (optimized CDT), #12 (per-triangle CDT), #39 (Livesu et al. 2021, deterministic linear-time simplified earcut)
 **Chained booleans** → #24 (bijective re-mapping preserves topology across chains)
-**Classification (face/in-out)** → #7 (winding number), #8 (winding number vectors), #12 (radial sort), #17 (set membership), #20 (4-way/8-way), #30 (GWN on trimmed NURBS, no tessellation)
+**Classification (face/in-out)** → #7 (winding number), #8 (winding number vectors), #12 (radial sort), #17 (set membership), #20 (4-way/8-way), #30 (GWN on trimmed NURBS, no tessellation), #38 (Cherchi 2022 §5 / Algorithm 1, exact ray-cast per-patch)
 **Convergent modeling** → #36 (Parasolid v26+, mixed mesh+analytic bodies, boolean on faceted+parametric)
 **Coplanar / overlap regions** → #3 (same-domain analysis), #8 (coplanar CDT clustering), #10 (coplanar-heavy perf), #11 (plane-based repr), #26 (overlap as 2D phenomenon, bilevel optimization), #33 §6.1 (coincident surface imprinting)
 **Curve-face intersection classification** → #33 §6.1.1 (ENTERS/LEAVES/INOSCUL/OUTOSCUL/WIRE/ONEDGE, sequencing rules)
@@ -27,7 +27,7 @@ Find references by topic. Numbers refer to reference entries below.
 **Dixon resultant / implicitization** → #25 (Dixon matrix for SSI topology), #27 (algebraic methods survey)
 **Edge splitting / pave blocks** → #3 (OCCT pave blocks, shrunk ranges)
 **Euler operators** → #2 Ch.2, #16 (completeness proof), #20 (MEV/MEF/MEKL), #33 Ch.4 (spanning sets, matrix decomposition, 99 operators)
-**Exact arithmetic** → #4 (adaptive expansions), #9 (indirect predicates), #10 (exact constructions), #13 (lazy exact), #15 (Nef, exact throughout), #19 (filter thresholds)
+**Exact arithmetic** → #4 (adaptive expansions), #9 (indirect predicates), #10 (exact constructions), #13 (lazy exact), #15 (Nef, exact throughout), #19 (filter thresholds), #38 (Cherchi 2022 — exact ray-cast in/out via implicit-point comparators)
 **Floating-point robustness** → #1 Ch.4, #2 Ch.4, #4, #19 (filter failure probabilities)
 **Homology / topological invariants** → #23 Ch.IV–V (Euler characteristic, Betti numbers)
 **Hybrid B-Rep/mesh boolean** → #14 (Sheng 2018), #24 (Yang 2025, bijective mapping)
@@ -35,8 +35,8 @@ Find references by topic. Numbers refer to reference entries below.
 **Feature modelling** → #33 Ch.9 (facesets, frames, design-by-features, recognition, verification)
 **Gluing / face joining** → #33 §6.4 (identical topology), #33 §6.13 (non-matching faces via local boolean)
 **Manifoldness** → #6 (topology-first guarantees), #16 (Euler ops preserve), #17 (regularization)
-**Mesh arrangements** → #8 (Zhou), #9 (Cherchi), #10 (Levy), #12 (Barki)
-**Mesh booleans (exact)** → #8, #9, #10, #11, #12, #18
+**Mesh arrangements** → #8 (Zhou), #9 (Cherchi 2020 arrangement), #10 (Levy), #12 (Barki), #38 (Cherchi 2022 — speedups + ray-cast in/out)
+**Mesh booleans (exact)** → #8, #9, #10, #11, #12, #18, #38 (Cherchi 2022 full pipeline — Yang stage-2 backbone)
 **Morse theory** → #23 Ch.VI
 **Nef polyhedra** → #15 (CGAL Nef 3D, sphere maps, non-manifold)
 **Knot insertion / refinement / degree elevation** → #32 Ch.5 (algorithms A5.1-A5.9)
@@ -878,6 +878,28 @@ https://www.cad-journal.net/files/vol_12/CAD_12(2)_2015_181-191.pdf
 **Citation**: Mistry, J.B., Sarkar, A.K. and Ranjan, R. "Swept Volume B-Rep Computation." Computer-Aided Design and Applications 12(2):181–191, 2015.
 
 **Relevance**: Formalizes swept solid construction as profile + spine + orientation law, producing B-Rep boundaries directly without tessellation intermediate. The construction recipe consists of: a 2D cross-section profile (wire or face), a 3D spine curve, and an orientation law (Frenet, fixed, or user-specified frame propagation). The resulting surface is computed by transporting the profile along the spine, with the orientation law controlling twist. Self-intersection detection at concave spine regions prevents invalid sweeps. Directly applicable to our Tier 2 procedural surface representation — the (profile, spine, orientation) triple is the stored definition for swept surfaces.
+
+### 38. Cherchi, Pellacini, Attene & Livesu — "Interactive and Robust Mesh Booleans" (2022)
+
+**Access**: arXiv preprint: https://arxiv.org/abs/2205.14151 (arXiv:2205.14151v1 [cs.CG] 26 May 2022)
+
+**Code**: https://github.com/gcherchi/InteractiveAndRobustMeshBooleans (C++, MIT)
+
+**Local copy**: `docs/references/cherchi-interactive-booleans-2022.md` (full paper notes, citation guide, codebase map). Plain-text extract maintained at `docs/references/cherchi2022_interactive_robust_mesh_booleans.txt` (lead integration step).
+
+**Citation**: Cherchi, G., Pellacini, F., Attene, M., and Livesu, M. "Interactive and Robust Mesh Booleans." ACM Transactions on Graphics (SIGGRAPH Asia 2022).
+
+**Relevance**: The **full Boolean pipeline paper** that Yang et al. 2025 [#24] §4.2 cites as the mesh-intersection backbone of the hybrid pipeline ("We refer to [Cherchi et al. 2022; Livesu 2019] as the mesh intersection computation method") and §4.4.2 cites for inside/outside classification ("we directly apply a standard inside/outside classification step [Cherchi et al. 2022]"). The paper builds on [#9] Cherchi 2020's arrangement (which it explicitly states it bases its implementation on, §4 lines 309-311) by adding two contributions: (1) speed improvements to the arrangement step — cached `orient3d` predicates, replacement of earcut with the linear-time deterministic CDT of [#39] Livesu et al. 2021, and parallelization-friendly data structures (≈5× speedup over Cherchi 2020); (2) a new exact ray-casting **inside/outside classification** (§5, Algorithm 1) — for each arrangement patch, cast one axis-aligned ray and analyze its first intersection with each input mesh, with cascaded float → `std::nextafter` perturbation → exact-rational fallback strategy. Up to 100× faster than prior in/out classification. **Citation hygiene**: cite #38 (this paper) for the whole Boolean pipeline, Algorithm 1, ray-casting in/out, the 2022 cached-predicate / data-structure / parallelization speedups, and Yang stage-2 mesh boolean / stage-4a in/out classification. Cite #9 (Cherchi 2020) for the indirect-predicate definitions, E/L/T implicit point representations, and the base mesh-arrangement algorithm itself. Cite #39 (Livesu et al. 2021) for the simplified-earcut CDT used in segment insertion.
+
+### 39. Livesu, Cherchi, Scateni & Attene — "Deterministic Linear Time Constrained Triangulation Using Simplified Earcut" (2021)
+
+**Access**: IEEE TVCG. arXiv preprint also available.
+
+**Local copy**: `docs/references/livesu-cherchi-cdt-2022.md` (citation guide and properties summary derived from Cherchi 2022 §4's description).
+
+**Citation**: Livesu, M., Cherchi, G., Scateni, R., and Attene, M. "Deterministic Linear Time Constrained Triangulation Using Simplified Earcut." IEEE Transactions on Visualization and Computer Graphics (TVCG), 2021. (Sometimes referred to as "Livesu & Cherchi 2022" in older project documents because the paper volume carried a 2022 publication date; both refer to the same algorithm. The Cherchi 2022 paper's bibliography itself cites this as **[Livesu et al. 2021]**.)
+
+**Relevance**: A constrained Delaunay triangulation (CDT) algorithm for simple polygons with **deterministic O(n) worst-case complexity**, ~100× faster in practice than the previous best [Shewchuk and Brown 2015]. Cherchi 2022 [#38] §4 substituted this in for the original O(n²) earcut used in [#9] Cherchi 2020's segment-insertion step. Yang 2025 [#24] §4.4.1 (mesh updating) also relies on CDT to obtain valid trimmed-mesh discretizations. **Citation hygiene**: cite #39 for any "linear-time CDT for simple polygons given a constrained edge set" claim — including segment insertion in the arrangement and CDT-based mesh trimming around refined SSI curves. **Do not** use the older "Livesu & Cherchi 2022" label in new code/specs; use `Livesu et al. 2021` to match Cherchi 2022's bibliography.
 
 ## How to Reference During Development
 

@@ -804,7 +804,8 @@ pub(crate) fn inject_conformal_coplanar_mesh(
         // introduces new edges that create T-junctions with adjacent faces.
         // T-junction repair handles simple cases, but complex geometries
         // (multiple coplanar pairs sharing vertices) need cascading repair that
-        // isn't yet implemented. Cherchi handles these via exact mesh boolean.
+        // isn't yet implemented. The Cherchi 2022 pipeline handles these via
+        // exact mesh boolean (arrangement + Algorithm 1 ray-cast in/out).
         // TODO: implement cascading T-junction repair or pre-tessellation B-Rep
         // face splitting per Yang 2025 Section 4.5.5.
         if pair.same_direction {

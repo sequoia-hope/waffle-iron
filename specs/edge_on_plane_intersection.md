@@ -12,10 +12,12 @@ Euler characteristic in the Yang boolean pipeline.
 
 ## Research Basis
 
-- **Ref #9**: Cherchi et al. 2020 — Edge-on-plane is a degenerate intersection
-  configuration requiring 2D intersection of the coplanar edge segment with the
-  other triangle's boundary. The conformal mesh arrangement requires all such
-  intersections to be detected.
+- **Ref #9**: Cherchi et al. 2020 §5 (arrangement) — Edge-on-plane is a
+  degenerate intersection configuration requiring 2D intersection of the
+  coplanar edge segment with the other triangle's boundary. The conformal
+  mesh arrangement requires all such intersections to be detected.
+- **Ref #38**: Cherchi et al. 2022 — Full mesh-Boolean pipeline (arrangement
+  speedups + ray-cast in/out, §5). Yang 2025 stage 2 builds on this paper.
 - **Ref #4**: Shewchuk 1997 — `orient2d` predicates provide exact classification
   of point vs edge in the projected plane.
 - **Ref #24**: Yang 2025 — Stage 2 (exact mesh boolean) must handle all
@@ -159,8 +161,9 @@ indices that map to the same position. Results:
   not duplicate positions with different indices.
 - The real issue is not duplicate positions but missing conformal vertex sharing:
   the same geometric point needs to be split into ALL adjacent triangles sharing the
-  edge, which requires cross-mesh edge-split propagation or the full Cherchi 2020
-  conformal mesh arrangement algorithm.
+  edge, which requires cross-mesh edge-split propagation or the full Cherchi
+  2020 §5 conformal mesh arrangement algorithm (with [#38] Cherchi 2022 §4
+  speed-ups).
 
 ### Investigated: cross-mesh edge-split propagation
 
@@ -171,8 +174,9 @@ vertices on this mesh's edges. Results:
   propagated splits were not themselves propagated to further adjacent tris
 - Iterating the propagation (up to 4 rounds) didn't converge
 - Root cause: the simplified triangle splitting doesn't produce conformal meshes.
-  The proper solution is the Cherchi 2020 conformal mesh arrangement algorithm,
-  which ensures all intersection points create shared vertices across all
+  The proper solution is the Cherchi 2020 §5 conformal mesh arrangement algorithm
+  (with [#38] Cherchi 2022 §4 speed-ups), which ensures all intersection
+  points create shared vertices across all
   adjacent triangles. This is a substantial implementation effort.
 
 ### Remaining blockers for axis-aligned box boolean
@@ -200,7 +204,8 @@ Two of the 3 original blockers have been partially addressed:
    This creates non-conformal meshes where trim loops have 5+ edges per face
    instead of the expected 4, and twin pairing fails for boundary edges.
 
-The conformal mesh arrangement (Cherchi 2020) remains the prerequisite for the
+The conformal mesh arrangement (Cherchi 2020 §5 [#9] / Cherchi 2022 §4 [#38])
+remains the prerequisite for the
 topology_extract Euler/manifold tests. Current topology: V=20, E=16, F=10,
 HE=48 for overlapping box subtract (target: V-E+F=2, HE=2*E).
 
@@ -216,7 +221,7 @@ HE=48 for overlapping box subtract (target: V-E+F=2, HE=2*E).
 
 **Not completed**:
 - Coplanar face dedup (regressions in conservation tests)
-- Conformal vertex sharing (requires Cherchi 2020 mesh arrangement)
+- Conformal vertex sharing (requires Cherchi 2020 §5 / Cherchi 2022 §4 mesh arrangement)
 - Un-ignoring the 3 topology_extract tests (V-E+F=2, manifold, all-ops)
 
 ### Test status

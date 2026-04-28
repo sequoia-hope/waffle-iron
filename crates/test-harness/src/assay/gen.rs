@@ -3850,10 +3850,10 @@ mod tests {
     /// - `Intersect`: empty
     ///
     /// This matches Yang 2025 §4.5.5 / Cherchi 2020 §5.1 semantics: A∪B with
-    /// A∩B=∅ is a valid compound solid, not an error. The Cherchi pipeline
-    /// trivially handles disjoint inputs at the AABB pre-filter stage —
-    /// no triangle pairs intersect, so Algorithm 1 (segment insertion) has
-    /// nothing to do.
+    /// A∩B=∅ is a valid compound solid, not an error. The Cherchi 2022
+    /// pipeline trivially handles disjoint inputs at the AABB pre-filter
+    /// stage — no triangle pairs intersect, so Cherchi 2020 §5.3 segment
+    /// insertion has nothing to do.
     ///
     /// Commit ef70415 (2026-03-28) hand-edited F0011-F0015's `.meta.json` from
     /// `expect_rebuild_error=true` to `false` to reflect this. PR15's corpus

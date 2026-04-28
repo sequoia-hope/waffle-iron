@@ -1,9 +1,10 @@
-//! FastTrimesh — adjacency-aware triangle mesh.
+//! FastTrimesh — adjacency-aware triangle mesh used by Cherchi 2020 §5.2–5.3
+//! (sub-triangle insertion + segment insertion).
 //!
-//! Ported from Cherchi fast_trimesh.cpp/.h
+//! Ported from fast_trimesh.cpp/.h in the
+//! github.com/gcherchi/FastAndRobustMeshArrangements (2020) and
+//! github.com/gcherchi/InteractiveAndRobustMeshBooleans (2022) repos.
 //! MIT License (c) 2020/2022 Cherchi, Livesu, Scateni, Attene, Pellacini
-//!
-//! github.com/gcherchi/FastAndRobustMeshArrangements
 
 use std::collections::HashMap;
 
@@ -43,9 +44,10 @@ struct Triangle {
     info: usize,
 }
 
-/// FastTrimesh — adjacency-aware triangle mesh for mesh arrangement.
+/// FastTrimesh — adjacency-aware triangle mesh for the Cherchi 2020 §5
+/// arrangement (sub-triangle insertion + segment insertion).
 ///
-/// Ported from Cherchi fast_trimesh.h:86-235
+/// Ported from fast_trimesh.h:86-235 (Cherchi 2020/2022 codebases)
 /// MIT License (c) 2020/2022 Cherchi, Livesu, Scateni, Attene, Pellacini
 #[allow(dead_code)]
 pub(crate) struct FastTrimesh {

@@ -70,8 +70,10 @@ regressions from the legacy baseline. Three changes:
 ## Research Basis
 
 - [#24] Yang et al. 2025 — hybrid B-Rep/mesh boolean pipeline
-- [#9] Cherchi et al. 2020 — BVH acceleration for mesh arrangements (motivates
-  the triangle-count guard as a temporary measure until BVH is implemented)
+- [#9] Cherchi et al. 2020 / [#38] Cherchi et al. 2022 — spatial-acceleration
+  structures for mesh arrangements (Cherchi 2020 §5.1 KdTree; Cherchi 2022 §4
+  describes octree improvements). Motivates the triangle-count guard as a
+  temporary measure until spatial acceleration is implemented.
 - Standard Rust panic safety: `std::panic::catch_unwind` + `AssertUnwindSafe`
 
 ## Analytical vs. Approximate Method Justification

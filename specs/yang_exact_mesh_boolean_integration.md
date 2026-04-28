@@ -60,7 +60,13 @@ Verify structural correctness using numeric oracles, not just "it produces outpu
 ## 7. Research Basis
 
 - [#24] Yang, Jia & Yan 2025: Hybrid B-Rep/mesh boolean pipeline
-- [#9] Cherchi et al. 2020: Indirect predicates for exact mesh arrangements
+- [#9] Cherchi et al. 2020: Indirect predicates and arrangement (§4 predicates,
+  §5 single-mesh arrangement)
+- [#38] Cherchi et al. 2022: Full Boolean pipeline — speed-improved arrangement
+  + ray-cast in/out classification (Algorithm 1 / §5). Yang 2025 §4.2 / §4.4.2
+  cites this paper directly.
+- [#39] Livesu et al. 2021: Simplified-earcut deterministic linear-time CDT
+  used in Cherchi 2022 segment insertion.
 - [#4] Shewchuk 1997: Adaptive precision predicates
 - [#10] Levy 2025: Exact constructions + radial sort
 

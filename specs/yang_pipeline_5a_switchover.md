@@ -69,7 +69,11 @@ yang_boolean_integrated(kernel, solid_a, solid_b, op, id_alloc):
 ## Research Basis
 
 - [#24] Yang et al. (2025) — Full pipeline integration
-- [#9] Cherchi et al. (2020) — Bijective tessellation mapping
+- [#9] Cherchi et al. (2020) — Indirect predicates and mesh arrangement
+  (foundational substrate)
+- [#38] Cherchi et al. (2022) — Full Boolean pipeline (arrangement + ray-cast
+  in/out, Algorithm 1). This is the paper Yang 2025 §4.2 cites for the
+  mesh-Boolean stage of the hybrid pipeline.
 - [#16] Mantyla (1988) — B-Rep construction from topology
 
 ---

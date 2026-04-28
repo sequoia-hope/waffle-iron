@@ -1,8 +1,9 @@
 //! Yang 2025 Section 4.3: Intersection optimization.
 //!
-//! After mesh intersection (Cherchi), each intersection point maps to approximate
-//! parametric positions on both surfaces. These generally don't coincide in 3D.
-//! This module iteratively refines them until they converge to the same point.
+//! After mesh intersection (Cherchi 2022 §4 arrangement, per Yang §4.2), each
+//! intersection point maps to approximate parametric positions on both
+//! surfaces. These generally don't coincide in 3D. This module iteratively
+//! refines them until they converge to the same point.
 //!
 //! Two methods per Yang Appendix C:
 //! - Newton: algebraic root-finding on D(u,v,s,t) = S_A(u,v) - S_B(s,t)
@@ -374,7 +375,7 @@ use std::collections::{BTreeMap, HashSet};
 pub(crate) enum VertexOptStatus {
     /// Not an intersection vertex (original mesh vertex).
     NotIntersection,
-    /// Both surfaces are planar — Cherchi exact predicates already give exact position.
+    /// Both surfaces are planar — Cherchi 2020 §4 indirect predicates already give exact position.
     Planar,
     /// Successfully optimized to within d_p tolerance.
     Optimized,
@@ -397,7 +398,7 @@ pub(crate) struct OptimizationStats {
 
 /// Optimize NEW intersection vertices in the subdivided mesh.
 ///
-/// Per Yang 2025 Section 4.3: after mesh intersection (Cherchi), each new
+/// Per Yang 2025 Section 4.3: after mesh intersection (Cherchi 2022, per Yang §4.2), each new
 /// vertex maps to approximate positions on both surfaces. This function
 /// refines each vertex via Newton/geometric optimization until the two
 /// surface evaluations converge to the same 3D point (within d_p).
@@ -496,8 +497,8 @@ pub(crate) fn optimize_intersection_vertices(
                 };
                 all_pairs_missing_surface = false;
 
-                // Skip planar-planar: Cherchi's exact predicates already
-                // produce exact intersection points for flat surfaces.
+                // Skip planar-planar: Cherchi 2020 §4 indirect predicates
+                // already produce exact intersection points for flat surfaces.
                 if matches!(geom_a, SurfaceGeom::Planar(_))
                     && matches!(geom_b, SurfaceGeom::Planar(_))
                 {
@@ -556,7 +557,7 @@ pub(crate) fn optimize_intersection_vertices(
         if !optimized && !vert_faces_a[vi].is_empty() && !vert_faces_b[vi].is_empty() {
             if all_pairs_missing_surface {
                 // All face pairs had missing surface geometry — we can't optimize
-                // but we also can't declare failure. The Cherchi position is already
+                // but we also can't declare failure. The Cherchi 2020 position is already
                 // exact for planar geometry (the most common case for missing entries).
                 // Treat as NotIntersection to avoid triggering expensive refinement.
                 #[cfg(test)]

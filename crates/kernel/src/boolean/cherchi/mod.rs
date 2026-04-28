@@ -4,8 +4,21 @@
 //! Riccardo Scateni e Marco Attene.
 //!
 //! Ported from: github.com/gcherchi/FastAndRobustMeshArrangements
-//! Paper: Cherchi et al. 2020 "Fast and Robust Mesh Arrangements"
-//! Paper: Cherchi et al. 2022 "Interactive and Robust Mesh Booleans"
+//!
+//! Paper lineage (see specs/cherchi_indirect_predicates.md "Paper Lineage and
+//! Codebase Map" for full details):
+//!   - Cherchi 2020 [#9] "Fast and Robust Mesh Arrangements" — the arrangement
+//!     algorithm (§5) and indirect predicates (§4) implemented here.
+//!   - Cherchi 2022 "Interactive and Robust Mesh Booleans" — speed improvements
+//!     (cached `orient3d`, parallelism, octree refinements) on top of the 2020
+//!     arrangement; introduces Algorithm 1 ray-cast in/out (§5), implemented
+//!     in `boolean/exact_mesh.rs::label_sub_tri_raycast`. Several files in this
+//!     module (processing.rs, aux_structure.rs, intersection_class.rs,
+//!     triangulation.rs) were ported from the InteractiveAndRobustMeshBooleans
+//!     codebase that combines both papers.
+//!   - Livesu et al. 2021 "Deterministic Linear Time Constrained Triangulation
+//!     Using Simplified Earcut" — the linear-time CDT used by Cherchi 2022 §4
+//!     for segment insertion (`triangulation.rs::earcut_linear`).
 
 pub(crate) mod common;
 pub(crate) mod fast_trimesh;
@@ -84,7 +97,7 @@ pub(crate) fn solve_intersections(
     }
 
     // PR2 telemetry: snapshot jolly counter at entry; emit per-call delta after
-    // STAGE6. Tracks how often Cherchi §5.4 coplanar-disambiguation fires.
+    // STAGE6. Tracks how often Cherchi 2020 §5.4 coplanar-disambiguation fires.
     let jolly_before = JOLLY_POINT_CREATIONS.load(Ordering::Relaxed);
 
     // Step 1: Compute multiplier for predicate stability
@@ -158,8 +171,8 @@ pub(crate) fn solve_intersections(
         new_tris_flat.len() / 3
     );
 
-    // PR2 telemetry: emit per-call jolly delta. Tracks how often Cherchi §5.4
-    // coplanar-disambiguation fires across the assay corpus.
+    // PR2 telemetry: emit per-call jolly delta. Tracks how often Cherchi 2020
+    // §5.4 coplanar-disambiguation fires across the assay corpus.
     let jolly_after = JOLLY_POINT_CREATIONS.load(Ordering::Relaxed);
     let jolly_d = jolly_after - jolly_before;
     eprintln!("[cherchi-tele] jolly_creations: {}", jolly_d);

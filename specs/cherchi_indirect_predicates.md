@@ -1,5 +1,91 @@
 # Spec: Cherchi 2020 Indirect Predicates for Mesh Arrangement
 
+## Paper Lineage and Codebase Map
+
+This spec covers **only the Cherchi 2020 indirect predicates** (#9 in
+`REFERENCES.md`). Two additional papers from the same author group constitute
+the rest of the mesh-Boolean stack we depend on, and citations across the
+codebase have historically conflated them. This section establishes the
+canonical disambiguation.
+
+### Three Distinct Papers
+
+| Short label             | Full reference                                                                                                                      | Local doc                                                       | Where it sits in the pipeline                                                                                                                                                                  |
+|-------------------------|-------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Cherchi 2020** (#9)   | Cherchi, Livesu, Scateni & Attene. *Fast and Robust Mesh Arrangements using Floating-point Arithmetic.* SIGGRAPH Asia 2020.         | `docs/references/cherchi-indirect-predicates-2020.md`           | **Predicates + arrangement.** Sections 4.1–4.3 define the indirect predicates (E/L/T points, orient2d/3d, pointCompare). Sections 5.1–5.4 define the *single-mesh* arrangement algorithm.       |
+| **Livesu et al. 2021**  | Livesu, Cherchi, Scateni & Attene. *Deterministic Linear Time Constrained Triangulation Using Simplified Earcut.* IEEE TVCG.        | `docs/references/livesu-cherchi-cdt-2022.md`                    | **Linear-time CDT.** Replaces the O(n²) earcut used in the original Cherchi 2020 segment-insertion step. (Sometimes referred to in our older plans as "Livesu & Cherchi 2022" — same paper.)   |
+| **Cherchi 2022**        | Cherchi, Pellacini, Attene & Livesu. *Interactive and Robust Mesh Booleans.* SIGGRAPH Asia 2022. arXiv:2205.14151.                  | `docs/references/cherchi-interactive-booleans-2022.md`          | **Full Boolean pipeline.** Reuses Cherchi 2020 arrangement (with speed-ups + Livesu 2021 CDT) and adds the new exact ray-cast inside/outside classification (Algorithm 1, §5). **Yang 2025 §4.2 cites this paper for mesh intersection and §4.4.2 for in/out classification.** |
+
+### Citation Hygiene Rules
+
+When writing or updating a citation in **code, specs, plans, or governance docs**:
+
+1. **Indirect predicates / E-L-T points / filter constants / arrangement step
+   (intersection-detection → point-insertion → segment-insertion → coplanar
+   pockets)** → cite **Cherchi 2020** (#9). This spec is the local authority.
+2. **Linear-time CDT used in segment insertion (`earcut_linear`)** → cite
+   **Livesu et al. 2021**. (The Cherchi 2022 paper substituted this in for the
+   original earcut; the algorithm itself is from the 2021 paper.)
+3. **Whole Boolean pipeline (arrangement + filtering by Boolean op)** or the
+   **per-patch ray-cast inside/outside classification (Algorithm 1)** →
+   cite **Cherchi 2022** (the new doc-id). For Yang stage 2 / stage 4a, this is
+   the correct primary citation.
+4. **`Cherchi §5.4` references in code** → these almost always mean
+   **Cherchi 2020 §5.4** (coplanar / cosurface-orientation pocket map).
+   Cherchi 2022 §5.4 is the *Section 6 lead-in*, not coplanar handling. When
+   in doubt, use the explicit form `Cherchi 2020 §5.4` for clarity.
+5. **`Cherchi 2022; Livesu 2019` (Yang's citation in §4.2)** — the "Livesu
+   2019" half is **CinoLib** (the C++ data-structure library), not an
+   algorithmic paper. When porting Yang stage 2, cite **Cherchi 2022 + Cherchi
+   2020 (predicates) + Livesu et al. 2021 (CDT)**, not the CinoLib library.
+
+### Codebase Map
+
+```
+crates/kernel/src/boolean/
+├── indirect_predicates.rs      ← Cherchi 2020 §4.1–4.3 (this spec)
+├── cherchi/
+│   ├── mod.rs                  ← Cherchi 2020 arrangement entry point
+│   │                             (with Cherchi 2022 §4 speedups where applicable)
+│   ├── triangulation.rs
+│   │   ├── earcut_linear()     ← Livesu et al. 2021 simplified earcut
+│   │   └── earcut()            ← classical earcut (Eberly 2008) fallback
+│   ├── intersection_class.rs   ← Cherchi 2020 §5.1 intersection classification
+│   ├── processing.rs           ← Cherchi 2020 §5.4 coplanar handling
+│   ├── tree.rs                 ← Cherchi 2020 §5.1 KdTree (with Cherchi 2022
+│   │                             §4 octree improvements where ported)
+│   ├── triangle_soup.rs        ← Cherchi 2020 §5.0 triangle soup input
+│   ├── fast_trimesh.rs         ← Cherchi 2020 §5.2-5.3 mesh data structure
+│   ├── aux_structure.rs        ← Cherchi 2020 §5.4 auxiliary tetrahedron
+│   └── common.rs               ← shared types
+└── exact_mesh.rs
+    ├── label_sub_tri_raycast() ← Cherchi 2022 §5 / Algorithm 1 ray-cast
+    │                             (with Hoffmann 1989 §5.3 perturbation
+    │                             fallback for boundary-coincident faces)
+    └── label_cells()           ← Yang 2025 §4.4 / Cherchi 2022 §5
+                                  per-patch in/out classification
+```
+
+The `Copyright (c) 2022` headers on `triangulation.rs`,
+`intersection_class.rs`, and `processing.rs` are the **MIT license** of the
+[InteractiveAndRobustMeshBooleans](https://github.com/gcherchi/InteractiveAndRobustMeshBooleans)
+codebase from which they were ported. The license year reflects the source
+repository's copyright, not which algorithmic paper introduced the contents.
+The algorithmic citations on each function should follow the rules in the
+Citation Hygiene section above.
+
+### Cross-References
+
+- For the Cherchi 2022 Boolean pipeline as a whole, see
+  `specs/cherchi_2022_boolean_pipeline.md`.
+- For the Yang hybrid pipeline that integrates Cherchi 2022 as stage 2, see
+  Architectural Invariant **A15.6** in
+  `governance/ARCHITECTURAL_INVARIANTS.md`.
+- For the indirect-predicate spec details (the rest of this document), see
+  the Goal section below.
+
+---
+
 ## Goal
 
 Implement indirect geometric predicates per Cherchi et al. 2020 [#9] Sections 4.1-4.3.

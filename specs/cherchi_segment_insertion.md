@@ -8,9 +8,19 @@ by construction, eliminating the 58 watertight + 41 self-intersection failures.
 
 ## Research Basis
 
-- Cherchi et al. 2020 [#9] Sections 5.2 (Point Insertion) and 5.3 (Segment Insertion)
-- Local reference: `docs/references/cherchi-indirect-predicates-2020.md`
-- Original algorithm from Shewchuk & Brown 2015 (adapted for implicit points)
+- Cherchi et al. 2020 [#9] §5.2 (Point Insertion) and §5.3 (Segment Insertion).
+  The topological-walk algorithm that builds left/right polygonal pockets
+  around an inserted segment originates in this paper.
+- Cherchi et al. 2022 [#38] §4 — speed-improved variant of the same arrangement
+  pipeline. Cherchi 2022 §4 substitutes the [#39] Livesu et al. 2021
+  simplified-earcut CDT for the original O(n²) earcut used inside Cherchi 2020
+  §5.3 to triangulate each polygonal pocket.
+- Livesu et al. 2021 [#39] — Deterministic linear-time CDT (substitute earcut)
+  used inside the segment-insertion pocket triangulation in Cherchi 2022.
+- Local reference: `docs/references/cherchi-indirect-predicates-2020.md`,
+  `docs/references/cherchi-interactive-booleans-2022.md`,
+  `docs/references/livesu-cherchi-cdt-2022.md`.
+- Original algorithm from Shewchuk & Brown 2015 (adapted for implicit points).
 
 ## Data Structure: TriMesh
 

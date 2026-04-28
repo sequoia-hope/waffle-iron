@@ -53,6 +53,10 @@ alternative that doesn't conflict.
 
 - Edge flipping is fundamental to Delaunay refinement [#4 Shewchuk 1997].
 - Non-manifold edge repair in mesh processing literature typically uses edge
-  collapse or edge flip operations [#31 Cherchi et al. 2025].
+  collapse or edge flip operations. Cherchi 2022 [#38] discusses non-manifold
+  edges as the natural boundary between patches in the arrangement output.
+  (Note: a prior `#31 Cherchi et al. 2025` reference here was a citation typo —
+  #31 in REFERENCES.md is Li, Jia & Chen 2025 on NURBS self-intersection,
+  not a Cherchi paper.)
 - The selective targeting of interior diagonals (vs. B-Rep boundaries) is
   specific to our hybrid B-Rep/mesh tessellation pipeline.

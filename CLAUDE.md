@@ -37,9 +37,9 @@ Do NOT skip to lower-priority items because they are easier.
    **Current architecture (what's built):**
    - Stage 0: Coplanar preprocessing (`coplanar_preprocess.rs`) — infrastructure
    - Stage 1: Tessellate with bijective mapping — working
-   - Stage 2: Mesh arrangement via Cherchi (`mesh_arrangement.rs`) — per-triangle
-     LocalMesh + Algorithm 1, wired into `subdivide_mesh_pair` via
-     `triangulate_single_triangle()`
+   - Stage 2: Mesh arrangement via Cherchi 2022 §4 / Cherchi 2020 §5 (arrangement)
+     (`mesh_arrangement.rs`) — per-triangle LocalMesh + Algorithm 1, wired into
+     `subdivide_mesh_pair` via `triangulate_single_triangle()`
    - Stage 3: SSI refinement — wired but optional fallback
    - Stage 4b: Inside/outside classification (`label_cells`) — working
    - Stage 5: Flood-fill patch segmentation (`flood_fill_patches`) — working
@@ -53,8 +53,10 @@ Do NOT skip to lower-priority items because they are easier.
      using CDT to restore bijectivity
 
    **Key references:**
-   - Cherchi C++ reference: `github.com/gcherchi/FastAndRobustMeshArrangements`
-   - Livesu & Cherchi 2022: "Deterministic Linear Time Constrained Triangulation"
+   - Cherchi 2020 C++ reference (arrangement): `github.com/gcherchi/FastAndRobustMeshArrangements`
+   - Cherchi 2022 C++ reference (full Boolean pipeline + ray-cast in/out):
+     `github.com/gcherchi/InteractiveAndRobustMeshBooleans`
+   - Livesu et al. 2021 (simplified earcut CDT): "Deterministic Linear Time Constrained Triangulation Using Simplified Earcut"
    - Yang fast test: `YANG_BOOLEAN=1 cargo test -p test-harness --test assay_randomized -- yang_fast --ignored --nocapture`
    - **Implementation audit:** `docs/audits/yang_2025_audit.md` — per-step assessment
      of what's CORRECT, INCOMPLETE, WRONG, or STUB vs the paper. Read this before
@@ -147,8 +149,8 @@ See `docs/TESTING.md` for tier definitions and how to add tests.
   causing conformal edge explosions and incorrect face survival.
 
   Stage 1: Tessellate with bijective mapping → Stage 2: exact mesh boolean
-  (Cherchi indirect predicates) → Stage 3: extract topology → Stage 4: refine
-  to SSI curves → Stage 5: assemble B-Rep.
+  (Cherchi 2020 §4 indirect predicates + Cherchi 2022 §5 ray-cast in/out) →
+  Stage 3: extract topology → Stage 4: refine to SSI curves → Stage 5: assemble B-Rep.
 
   Analytical surfaces survive through the pipeline. The paper is the blueprint
   — read it (`refs/yang2025_hybrid_boolean.pdf`) before working on the pipeline.

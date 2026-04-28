@@ -1,17 +1,23 @@
-//! Clean Cherchi mesh arrangement module.
+//! Clean Cherchi 2020 mesh arrangement module.
 //!
 //! Implements per-triangle constrained triangulation per Cherchi et al. 2020 [#9]
-//! and Livesu & Cherchi 2022 "Deterministic Linear Time Constrained Triangulation
-//! Using Simplified Earcut".
+//! arrangement (§5) and **Livesu et al. 2021** "Deterministic Linear Time
+//! Constrained Triangulation Using Simplified Earcut" (the linear-time CDT
+//! adopted by Cherchi 2022 §4 for segment insertion).
 //!
 //! C++ reference: github.com/gcherchi/FastAndRobustMeshArrangements
 //! Key files: triangulation.cpp, fast_trimesh.cpp
 //!
 //! Architecture: Each intersected input triangle is processed INDEPENDENTLY with
 //! its own LocalMesh. Points are inserted first (edge points sorted along edges,
-//! then interior points), then constraint segments via Algorithm 1 (boundary
-//! walker + linear earcut). This per-triangle approach avoids cross-parent
-//! boundary issues that broke previous global-mesh attempts.
+//! then interior points), then constraint segments via Cherchi 2020 §5.3
+//! segment insertion (boundary walker + Livesu et al. 2021 linear earcut).
+//! This per-triangle approach avoids cross-parent boundary issues that broke
+//! previous global-mesh attempts.
+//!
+//! NOTE: "Algorithm 1" in this file refers to Cherchi 2020 §5.3 segment
+//! insertion (NOT Cherchi 2022 §5 Algorithm 1, which is the in/out ray-cast
+//! classifier in `boolean/exact_mesh.rs`).
 
 /// Local sub-mesh for triangulating a single original triangle.
 /// Ported from Cherchi FastTrimesh (fast_trimesh.h).
@@ -448,9 +454,10 @@ impl LocalMesh {
     ///   triangulation.cpp:812-854 (boundaryWalker)
     ///   github.com/gcherchi/FastAndRobustMeshArrangements
     ///
-    /// Ref [#9] Cherchi 2020, Section 5.3
-    /// Ref: Livesu & Cherchi 2022 "Deterministic Linear Time Constrained
-    ///   Triangulation Using Simplified Earcut"
+    /// Ref [#9] Cherchi 2020 §5.3 (segment insertion / boundary walker)
+    /// Ref: Livesu et al. 2021 "Deterministic Linear Time Constrained
+    ///   Triangulation Using Simplified Earcut" (the linear-time CDT used
+    ///   by Cherchi 2022 §4 for segment insertion).
     pub fn boundary_walker(
         &self,
         v_start: usize,
@@ -678,8 +685,9 @@ fn tri_orientation(all_verts: &[[f64; 3]], mesh: &LocalMesh, proj: (usize, usize
 ///   triangulation.cpp:917-970 (earcutLinear)
 ///   github.com/gcherchi/FastAndRobustMeshArrangements
 ///
-/// Ref: Livesu & Cherchi 2022 "Deterministic Linear Time Constrained
-///   Triangulation Using Simplified Earcut", Algorithm 1
+/// Ref: Livesu et al. 2021 "Deterministic Linear Time Constrained
+///   Triangulation Using Simplified Earcut", Algorithm 1 (the linear-time
+///   CDT adopted by Cherchi 2022 §4 for segment insertion).
 ///
 /// `poly` — polygon vertex indices (into `all_verts`)
 /// `all_verts` — coordinate array indexed by `poly` entries

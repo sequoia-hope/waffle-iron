@@ -1,6 +1,7 @@
-//! Triangle refinement tree for the Cherchi mesh arrangement.
+//! Triangle refinement tree — Cherchi 2020 §5.2 (sub-triangle insertion tree
+//! for point-and-segment refinement).
 //!
-//! Ported from Cherchi tree.h
+//! Ported from tree.h in github.com/gcherchi/FastAndRobustMeshArrangements
 //! MIT License (c) 2020 Cherchi, Livesu, Scateni, Attene
 
 /// A node in the triangle refinement tree.

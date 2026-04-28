@@ -1,7 +1,9 @@
 # Stable Edge-Point Ordering for Conformal Mesh Arrangement
 
 **Status:** Proposed
-**Related:** Yang 2025 Section 4.2, Cherchi 2020 `aux_structure.h:190`
+**Related:** Yang 2025 §4.2, Cherchi 2020 [#9] §5 arrangement
+(`aux_structure.h:190` in the C++ reference); also Cherchi 2022 [#38] §4 which
+inherits the same edge-centric architecture from 2020.
 
 ## Problem
 

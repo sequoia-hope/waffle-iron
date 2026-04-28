@@ -81,9 +81,14 @@ step in `tessellate_solid_bounded`.
 - **Steiner point insertion** [Shewchuk 1997, REFERENCES.md #4]: Adding interior
   points to control triangulation topology. The centroid is the simplest
   Steiner point that guarantees uniqueness across faces.
-- **Mesh repair** [Cherchi et al. 2025, REFERENCES.md #31]: Non-manifold edge
-  elimination in mesh arrangements. Our approach is simpler (no edge collapse)
-  because we can re-tessellate from the B-Rep boundary.
+- **Mesh repair** [Cherchi et al. 2022, REFERENCES.md #38]: Non-manifold edge
+  handling in the Cherchi 2022 mesh-Boolean pipeline (arrangement output is a
+  well-formed simplicial complex with non-manifold edges between patches; the
+  in/out classification labels patches around each non-manifold edge). Our
+  approach is simpler (no edge collapse) because we can re-tessellate from the
+  B-Rep boundary. (Note: the prior `[Cherchi et al. 2025, #31]` citation was
+  a typo — #31 in REFERENCES.md is Li, Jia & Chen 2025 on NURBS self-intersection,
+  not a Cherchi paper.)
 
 ## Analytical vs. Approximate Method Justification
 

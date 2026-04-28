@@ -196,8 +196,15 @@ PR12's investigation should:
 
 - Yang et al. 2025 [#24] §4.4 (binary classification), §4.5 (B-rep
   extraction from labeled mesh), §4.5.5 (coplanar handling).
-- Cherchi et al. 2020 §5.1 (Algorithm 1), §5.4 (coplanar pocket map),
-  §5.5 (region growing — relevant to flood_fill_patches).
+- Cherchi et al. 2020 [#9] §5.1 (Algorithm 1 — segment insertion topological
+  walk), §5.4 (coplanar pocket map / auxiliary tetrahedron), §5.5 (region
+  growing — relevant to flood_fill_patches). (Note: Cherchi 2020's
+  Algorithm 1 in §5.1 is segment insertion. Cherchi 2022 §5 also defines an
+  Algorithm 1, but for ray-cast in/out classification — different paper,
+  different algorithm.)
+- Cherchi et al. 2022 [#38] — full Boolean pipeline (arrangement speedups +
+  ray-cast in/out classification, §5). Yang 2025 §4.2 / §4.4.2 cites this
+  paper for mesh intersection and in/out classification.
 - ARCHITECTURAL_INVARIANTS A15.6 (Yang hybrid pipeline; flood-fill
   patch segmentation; do NOT use boundary-edge-chaining or greedy
   twin-pairing — already followed correctly in `flood_fill_patches`).

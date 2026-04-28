@@ -58,10 +58,14 @@ tests continue to pass. The mapping is the key enabler for topology extraction
 exact predicates, producing a topologically correct result mesh.
 
 **Why**: This is the core algorithm that replaces S-H clipping + tolerance
-escalation. Uses Cherchi 2020 indirect predicates for exactness.
+escalation. Uses Cherchi 2020 §4 indirect predicates plus the Cherchi 2022
+full pipeline (arrangement + ray-cast in/out classification) — the latter is
+what Yang 2025 §4.2 / §4.4.2 explicitly cites.
 
-**Research basis**: [#9] Cherchi et al. 2020, [#4] Shewchuk 1997,
-[#10] Levy 2025 (radial sort).
+**Research basis**: [#9] Cherchi et al. 2020 (predicates + arrangement),
+[#38] Cherchi et al. 2022 (full Boolean pipeline; ray-cast in/out, Algorithm 1),
+[#39] Livesu et al. 2021 (simplified-earcut linear-time CDT used in Cherchi
+2022 segment insertion), [#4] Shewchuk 1997, [#10] Levy 2025 (radial sort).
 
 **Dependencies**: `robust` crate (already integrated), `geometry-predicates`
 crate (add to Cargo.toml for expansion arithmetic primitives).
@@ -159,9 +163,11 @@ reviewed independently.
 
 ### Indirect Predicates vs. Exact Arithmetic
 
-Use Cherchi's indirect predicate approach: intersection points stored as symbolic
-references to input geometry, predicates evaluated without materializing coordinates.
-The `geometry-predicates` crate provides expansion arithmetic primitives.
+Use the Cherchi 2020 §4 indirect-predicate approach (E/L/T implicit points):
+intersection points stored as symbolic references to input geometry, predicates
+evaluated without materializing coordinates. Cherchi 2022 [#38] reuses these
+representations unchanged. The `geometry-predicates` crate provides expansion
+arithmetic primitives.
 
 Do NOT use full exact rational arithmetic (e.g., `dashu`) for the core pipeline —
 it's too slow for interactive CAD. Reserve exact rationals for validation/testing.
@@ -183,7 +189,13 @@ primitive pairs) continues to exist and feeds Phase 4 refinement.
 ## References
 
 - [#24] Yang, Jia & Yan (2025) — Hybrid B-Rep/mesh boolean pipeline
-- [#9] Cherchi et al. (2020) — Fast exact mesh arrangements, indirect predicates
+- [#9] Cherchi et al. (2020) — Fast exact mesh arrangements (single-mesh),
+  indirect predicates (§4)
+- [#38] Cherchi et al. (2022) — Interactive and Robust Mesh Booleans: full
+  Boolean pipeline (arrangement speedups + Algorithm 1 ray-cast in/out
+  classification, §5). Yang 2025 §4.2 / §4.4.2 cites this paper.
+- [#39] Livesu et al. (2021) — Deterministic linear-time CDT (simplified
+  earcut) used by Cherchi 2022 §4 in segment insertion.
 - [#10] Levy (2025) — Exact constructions + radial sort
 - [#4] Shewchuk (1997) — Adaptive precision predicates
 - [#25] Yang, Jia & Yan (2023) — Topology-guaranteed SSI

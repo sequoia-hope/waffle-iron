@@ -2,8 +2,9 @@
 //! classification, and pre-processing (dedup, merge, resolve T-junctions).
 //!
 //! **DEPRECATED (A15.6):** Part of the S-H clipping pipeline. Will be replaced
-//! by exact mesh boolean (Cherchi indirect predicates). Do NOT improve — see
-//! `specs/yang_hybrid_migration.md`.
+//! by the exact mesh boolean pipeline (Cherchi 2022 §4 arrangement +
+//! Algorithm 1 ray-cast in/out, built on Cherchi 2020 §4 indirect predicates).
+//! Do NOT improve — see `specs/yang_hybrid_migration.md`.
 
 use crate::units::{
     TAU_CACHE_STEP_FACTOR, TAU_CLASSIFY_FACTOR, TAU_NORMALIZE, TAU_PARALLEL,
@@ -28,7 +29,7 @@ use super::{polygon_area_3d, FacePoly};
 /// Quantization at tau * 1e-3 — coarse enough to match "same" geometric edges,
 /// fine enough to distinguish genuinely different edges.
 ///
-/// Ref [#9] Cherchi 2020: indirect predicates — same principle of avoiding
+/// Ref [#9] Cherchi 2020 §4 (indirect predicates) — same principle of avoiding
 /// recomputation. Ref [#10] Levy 2025: exact constructions cached per-edge.
 pub(crate) struct IntersectionCache {
     cache: BTreeMap<([i64; 6], [i64; 4]), [f64; 3]>,

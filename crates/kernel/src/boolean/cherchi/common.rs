@@ -1,6 +1,7 @@
-//! Common types and utilities for the Cherchi mesh arrangement port.
+//! Common types and utilities for the Cherchi 2020 mesh arrangement port.
 //!
-//! Ported from Cherchi common.h + utils.h
+//! Ported from common.h + utils.h in
+//! github.com/gcherchi/FastAndRobustMeshArrangements
 //! MIT License (c) 2020 Cherchi, Livesu, Scateni, Attene
 
 /// Number of bits for coordinate representation.

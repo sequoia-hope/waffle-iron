@@ -90,9 +90,13 @@ tessellation → **subdivision** → cell labeling → topology extraction.
 
 - [#24] Yang, Jia & Yan (2025) — Pipeline architecture: subdivision follows
   exact tri-tri intersection.
-- [#9] Cherchi et al. (2020) — Mesh arrangement: constrained subdivision of
-  triangles is the "arrangement computation" step. Their approach uses
-  constrained Delaunay triangulation (CDT) within each triangle.
+- [#9] Cherchi et al. (2020, arrangement) — Mesh arrangement: constrained
+  subdivision of triangles is the "arrangement computation" step. The 2020
+  paper's segment insertion used a (non-linear) earcut algorithm.
+- [#39] Livesu et al. (2021, simplified earcut CDT) — Deterministic linear-time
+  constrained Delaunay triangulation. Cherchi 2022 §4 substitutes this for the
+  earcut used in Cherchi 2020 segment insertion. This is the algorithm we
+  port as `earcut_linear` in `cherchi/triangulation.rs`.
 - [#10] Levy (2025) — Exact constructions for subdivision point placement.
 
 For task 2c, we use a polygon-with-chords approach: build the boundary polygon

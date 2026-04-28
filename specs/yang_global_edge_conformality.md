@@ -13,8 +13,12 @@ This is the root cause of ~100/148 Yang boolean watertight failures.
 
 ## Reference
 
-Cherchi et al. 2020 C++ reference (`aux_structure.h:190`, `intersection_classification.cpp:464`)
-uses a **global edge-centric architecture**:
+Cherchi et al. 2020 C++ reference (`aux_structure.h:190`,
+`intersection_classification.cpp:464` in
+`github.com/gcherchi/FastAndRobustMeshArrangements`) uses a **global
+edge-centric architecture**. (The Cherchi 2022 [#38] codebase
+`InteractiveAndRobustMeshBooleans` inherits this same architecture from
+2020.):
 
 1. Every shared edge gets ONE global ID (canonicalized as `(min(v0,v1), max(v0,v1))`)
 2. Constraint points are stored **per-edge** (not per-triangle)

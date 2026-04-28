@@ -69,7 +69,8 @@ This is exacerbated by:
 - Ref #33 (Stroud Ch.4): B-Rep visualization requires manifold triangle meshes.
 - The fix applies standard mesh post-processing: detect and remove non-manifold
   edges caused by overlapping triangles. This is a well-known issue in boolean
-  result tessellation (see Cherchi et al. 2020 mesh arrangements).
+  result tessellation (see Cherchi et al. 2020 §5 [arrangement, #9] and
+  Cherchi et al. 2022 [#38, full pipeline incl. patch ray-cast]).
 
 ## Fix Strategy
 

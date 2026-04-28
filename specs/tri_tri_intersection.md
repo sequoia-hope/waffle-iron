@@ -10,7 +10,7 @@
 
 Implement exact triangle-triangle intersection detection and intersection
 segment computation using Shewchuk adaptive predicates. The output uses
-**indirect points** (Cherchi 2020) — symbolic references to input geometry —
+**indirect points** (Cherchi 2020 §4.1, [#9]) — symbolic references to input geometry —
 so that downstream predicates can evaluate exactly without materializing
 floating-point coordinates.
 
@@ -99,10 +99,11 @@ reliable — there are no "near zero" ambiguities.
   exact sign computation for point-plane orientation. Used for all
   classification decisions.
 
-- **[#9] Cherchi et al. 2020**: Indirect predicates for mesh arrangements.
-  Defines the `ImplicitPoint3T_LPI` (Line-Plane Intersection) indirect point
-  type. Our `IndirectPoint` is a simplified version storing vertex indices
-  rather than coordinate arrays, since we operate on indexed meshes.
+- **[#9] Cherchi et al. 2020 §4.1 (indirect predicates)**: Defines the
+  `ImplicitPoint3T_LPI` (Line-Plane Intersection) indirect point type. Our
+  `IndirectPoint` is a simplified version storing vertex indices rather than
+  coordinate arrays, since we operate on indexed meshes. (Reused in the
+  [#38] Cherchi 2022 pipeline that Yang 2025 cites.)
 
 - **Guigue & Devillers 2003**: "Fast and Robust Triangle-Triangle Overlap
   Test Using Orientation Predicates." Defines the classification-based

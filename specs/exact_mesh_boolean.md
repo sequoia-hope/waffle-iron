@@ -129,9 +129,22 @@ single box (shared face removed). Verify `V - E + F = 2` and correct volume.
   Key insight: bijective mapping eliminates ambiguity in face survival detection.
 
 - **[#9] Cherchi et al. (SIGGRAPH Asia 2020)**: Indirect predicates for exact
-  mesh arrangements. Intersection points stored as symbolic references to input
+  mesh arrangements (paper §4.1-4.3 — predicates; §5.1-5.4 — single-mesh
+  arrangement). Intersection points stored as symbolic references to input
   triangles (not materialized coordinates). Three-stage filtering. We adapt their
   approach for our `FacePoly`-based mesh representation.
+
+- **[#38] Cherchi et al. (SIGGRAPH Asia 2022, "Interactive and Robust Mesh
+  Booleans")**: The full Boolean pipeline that wraps the Cherchi 2020 arrangement
+  with (a) speed-improvements to arrangement (cached `orient3d`, [#39] Livesu
+  et al. 2021 simplified-earcut CDT replacing earcut) and (b) the new exact
+  ray-cast inside/outside classification (§5, Algorithm 1) implemented in
+  `boolean/exact_mesh.rs::label_sub_tri_raycast`. Yang 2025 §4.2 cites this
+  paper for mesh intersection, §4.4.2 for in/out classification.
+
+- **[#39] Livesu et al. (TVCG 2021, simplified earcut CDT)**: Deterministic
+  linear-time constrained Delaunay triangulation used by Cherchi 2022 §4 for
+  segment insertion. Implemented as `cherchi/triangulation.rs::earcut_linear`.
 
 - **[#10] Levy (ACM TOG 2025)**: Radial sort for non-manifold edge resolution.
   When multiple triangles meet at an intersection edge, angular sort using exact

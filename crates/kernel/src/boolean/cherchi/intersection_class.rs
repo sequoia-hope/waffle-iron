@@ -20,13 +20,15 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-//! Intersection classification for Cherchi mesh arrangement.
+//! Intersection classification — Cherchi 2020 §5.1 (intersection detection
+//! + classification step of the arrangement algorithm).
 //!
 //! Detects intersecting triangle pairs (broad-phase BVH + exact predicates),
 //! then classifies each intersection: edge×edge, edge×triangle, vertex-in-triangle,
 //! coplanar, recording results into AuxiliaryStructure.
 //!
-//! Ported from Cherchi intersection_classification.cpp/.h
+//! Ported from intersection_classification.cpp/.h in
+//! github.com/gcherchi/InteractiveAndRobustMeshBooleans
 //! MIT License (c) 2022 Cherchi, Livesu, Scateni, Attene, Pellacini
 
 use std::collections::HashSet;

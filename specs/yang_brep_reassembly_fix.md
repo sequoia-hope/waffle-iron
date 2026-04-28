@@ -67,7 +67,9 @@ Failure modes:
 - [#24] Yang et al. 2025 — Stage 3 B-Rep reconstruction requires conformal mesh
 - [#16] Mantyla 1988 — Euler formula V-E+F=2 for closed manifold solids
 - [#33] Stroud 2006 — B-Rep topological consistency validation
-- [#9] Cherchi 2020 — conformal subdivision ensures vertex sharing at boundaries
+- [#9] Cherchi 2020 §5 (arrangement) — conformal subdivision ensures vertex
+  sharing at boundaries. The whole-pipeline 2022 variant ([#38] Cherchi 2022)
+  is what Yang 2025 §4.2/§4.4.2 cites.
 
 ## Analytical vs. Approximate Method Justification
 

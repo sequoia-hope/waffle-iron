@@ -281,7 +281,7 @@ pub(crate) fn waffle_solid_to_boolean_result(solid: WaffleSolid) -> BooleanResul
 /// for faces without surface geometry.
 ///
 /// Ref [#24]: Yang 2025 — mesh output as computational tool.
-/// Ref [#9]: Cherchi 2020 — conformal subdivision preserves manifoldness.
+/// Ref [#9]: Cherchi 2020 §5 (arrangement) — conformal subdivision preserves manifoldness.
 #[cfg(test)]
 pub(crate) fn build_render_mesh_from_survival(
     survival: &FaceSurvivalMap,
@@ -1154,7 +1154,7 @@ pub(crate) fn check_yang_triangle_count(n_a: usize, n_b: usize) -> Result<(), Ke
 /// pipeline receives shared-vertex meshes identical to the E2E test structure.
 ///
 /// Uses the same `QUANT_NANOMETER_SCALE` quantization used throughout the
-/// pipeline for consistency. Ref [#9]: Cherchi 2020 — conformal vertex sharing.
+/// pipeline for consistency. Ref [#9]: Cherchi 2020 §5 — conformal vertex sharing.
 pub(crate) fn dedup_mesh_vertices(verts: &mut Vec<[f64; 3]>, tris: &mut [[usize; 3]]) {
     use std::collections::HashMap;
     let scale = crate::units::QUANT_NANOMETER_SCALE;

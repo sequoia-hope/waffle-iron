@@ -18,6 +18,11 @@
 //! # Research basis
 //!
 //! - [#9] Cherchi et al. 2020: Indirect predicates for exact mesh arrangements
+//!   (E/L/T points, orient2d/3d, pointCompare; arrangement algorithm §5).
+//! - Cherchi et al. 2022: Interactive and Robust Mesh Booleans — full Boolean
+//!   pipeline (arrangement w/ 2022 speed-ups + Algorithm 1 ray-cast in/out, §5).
+//! - Livesu et al. 2021: Simplified earcut linear-time CDT (used by
+//!   Cherchi 2022 §4 for segment insertion).
 //! - [#4] Shewchuk 1997: Adaptive precision predicates (orient3d, orient2d)
 //! - [#10] Levy 2025: Exact constructions + radial sort
 //! - [#24] Yang, Jia & Yan 2025: Hybrid B-Rep/mesh boolean pipeline
@@ -25,8 +30,9 @@
 use geometry_predicates::{orient2d, orient3d};
 
 // Aliased to avoid collision with the file-level `Orientation` predicate
-// enum (Above/Below/Coplanar). PR10 plumbs Cherchi 2020 §5.4 cosurface
-// orientation through `SubTriangle.cosurface_orientation`. Phase B tests
+// enum (Above/Below/Coplanar). PR10 plumbs Cherchi 2020 §5.4 (coplanar pocket
+// map / cosurface orientation) through `SubTriangle.cosurface_orientation`.
+// Phase B tests
 // `use crate::boolean::cherchi::Orientation;` inside their fn scope; that
 // resolves to the same underlying type as `CosurfaceOrientation` here.
 use crate::boolean::cherchi::Orientation as CosurfaceOrientation;
@@ -43,7 +49,7 @@ pub(crate) enum MeshId {
 /// Symbolic representation of an intersection point — Line-Plane Intersection.
 /// The point is the intersection of edge (verts[edge[0]], verts[edge[1]]) with
 /// the plane of triangle (verts[plane_tri[0]], verts[plane_tri[1]], verts[plane_tri[2]]).
-/// Ref #9: Cherchi 2020 indirect predicates.
+/// Ref #9: Cherchi 2020 §4.1 (indirect predicates — L point).
 #[derive(Debug, Clone)]
 #[allow(dead_code)] // Phase 2 building block — task 2b
 pub(crate) struct IndirectPoint {
@@ -55,7 +61,9 @@ pub(crate) struct IndirectPoint {
 
 // ── AABB + BVH for broad-phase triangle pair culling ────────────────────
 //
-// Ref #9: Cherchi 2020 — uses AABB trees for O(n log n + k) pair filtering.
+// Ref #9: Cherchi 2020 §5.1 (arrangement) — AABB/octree spatial acceleration
+// for O(n log n + k) pair filtering. (Cherchi 2022 §4 added octree improvements
+// + parallelization; the algorithmic structure is unchanged from 2020.)
 // Ref: Ericson 2005 — top-down BVH construction (median split on longest axis).
 
 /// Axis-aligned bounding box for broad-phase triangle pair culling.
@@ -240,10 +248,10 @@ pub(crate) enum TriTriIsect {
 /// Compute exact triangle-triangle intersection.
 ///
 /// Uses orient3d adaptive predicates [#4 Shewchuk] for classification.
-/// Returns intersection as indirect points [#9 Cherchi] — symbolic
+/// Returns intersection as indirect points [#9 Cherchi 2020 §4.1] — symbolic
 /// references to input geometry, not materialized coordinates.
 ///
-/// Algorithm follows Guigue-Devillers with Cherchi indirect points:
+/// Algorithm follows Guigue-Devillers with Cherchi 2020 indirect points:
 /// 1. Classify T_B vertices against plane(T_A) — exact via orient3d
 /// 2. Classify T_A vertices against plane(T_B) — exact via orient3d
 /// 3. If all coplanar → Coplanar
@@ -258,7 +266,7 @@ pub(crate) enum TriTriIsect {
 ///
 /// # Research basis
 /// - Ref #4: Shewchuk 1997 — exact orient3d predicates
-/// - Ref #9: Cherchi 2020 — indirect predicates for mesh arrangements
+/// - Ref #9: Cherchi 2020 §4.1–4.3 (indirect predicates for mesh arrangements)
 #[allow(dead_code)] // Phase 2 building block — task 2b
 pub(crate) fn tri_tri_intersect(
     tri_a: [usize; 3],
@@ -302,7 +310,7 @@ pub(crate) fn tri_tri_intersect(
     // Step 3b: Edge-on-plane detection — handle n_coplanar==2 before standard
     // crossing edge logic. When two vertices of one triangle lie exactly on the
     // other's plane, the coplanar edge may intersect the other triangle.
-    // Ref #9: Cherchi 2020 — degenerate intersection configurations.
+    // Ref #9: Cherchi 2020 §5.1 (intersection classification) — degenerate cases.
     // Ref: specs/edge_on_plane_intersection.md
     let ob_coplanar = ob.iter().filter(|o| **o == Orientation::Coplanar).count();
     let oa_coplanar = oa.iter().filter(|o| **o == Orientation::Coplanar).count();
@@ -356,7 +364,8 @@ pub(crate) fn tri_tri_intersect(
         (CrossingResult::TwoEdges(p1, p2), CrossingResult::TwoEdges(q1, q2)) => {
             // Step 5: Determine interval overlap along the intersection line.
             // Materialize points and compare parametrically along the line.
-            // Topology is exact (orient3d); position along line uses f64. Ref #9: Cherchi.
+            // Topology is exact (orient3d); position along line uses f64.
+            // Ref #9: Cherchi 2020 §4.1 (L-point representation, exact topology).
             compute_segment_overlap(p1, p2, q1, q2, verts, &va, &vb)
         }
     }
@@ -613,7 +622,7 @@ fn point_in_triangle_3d(pt: &[f64; 3], tri: &[[f64; 3]; 3]) -> bool {
 /// Returns Some(TriTriIsect) if there is a non-trivial intersection, None if the
 /// edge misses the triangle entirely.
 ///
-/// Ref #9: Cherchi 2020 — degenerate intersection cases.
+/// Ref #9: Cherchi 2020 §5.1 (intersection classification) — degenerate cases.
 /// Ref #4: Shewchuk 1997 — orient2d for exact 2D classification.
 #[allow(dead_code)]
 fn clip_edge_on_plane(
@@ -751,7 +760,7 @@ fn clip_edge_on_plane(
     // Neither endpoint inside — the edge might still clip through the triangle.
     // Check if any triangle edge intersects the coplanar segment in 2D.
     // (Edge endpoints outside but edge crosses through triangle interior.)
-    // Ref #9: Cherchi 2020 — degenerate intersection configurations.
+    // Ref #9: Cherchi 2020 §5.1 (intersection classification) — degenerate cases.
 
     // Project to 2D: reuse the same axis-selection logic as the one-inside case.
     let n_pts = [tri_plane_verts[0], tri_plane_verts[1], tri_plane_verts[2]];
@@ -868,7 +877,8 @@ fn clip_edge_on_plane(
 
 /// Compute the overlap of two intervals [p1,p2] and [q1,q2] on the intersection line.
 /// Returns Segment if overlap exists, None otherwise.
-/// Uses f64 materialization for parametric comparison — topology is exact. Ref #9: Cherchi.
+/// Uses f64 materialization for parametric comparison — topology is exact.
+/// Ref #9: Cherchi 2020 §4.1 (L-point representation, exact topology).
 #[allow(dead_code)]
 fn compute_segment_overlap(
     p1: IndirectPoint,
@@ -1080,22 +1090,24 @@ pub(crate) fn orient2d_classify(a: &[f64; 2], b: &[f64; 2], point: &[f64; 2]) ->
     }
 }
 
-// ── Cherchi Algorithm 1: Per-triangle mesh arrangement ──
-// Ref #9: Cherchi 2020 Sections 5.2-5.3 — adjacency-aware triangle mesh
-// required by the walking algorithm for segment insertion.
+// ── Cherchi 2020 segment insertion (per-triangle mesh arrangement) ──
+// Ref #9: Cherchi 2020 §5.2–5.3 — adjacency-aware triangle mesh required by
+// the walking algorithm for segment insertion. (NOTE: distinct from Cherchi
+// 2022 §5 "Algorithm 1", which is the inside/outside ray-cast classifier —
+// see `label_sub_tri_raycast` below.)
 
-// Adjacency-aware triangle mesh for Cherchi Algorithm 1 segment insertion.
+// Adjacency-aware triangle mesh for Cherchi 2020 §5.3 segment insertion.
 //
 // Edge j of triangle i is the edge OPPOSITE vertex j:
 // - Edge 0: (verts[1], verts[2])
 // - Edge 1: (verts[0], verts[2])
 // - Edge 2: (verts[0], verts[1])
 //
-// Ref #9: Cherchi 2020 Section 5.3 (Algorithm 1: addSegment).
+// Ref #9: Cherchi 2020 §5.3 (segment insertion / addSegment).
 
 // ── Task 2c: Constrained triangulation ──
 // Ref #24: Yang 2025 — subdivide mesh pair along intersection segments.
-// Ref #9: Cherchi 2020 — indirect predicates for exact mesh arrangements.
+// Ref #9: Cherchi 2020 §4.1–4.3 (indirect predicates) and §5 (arrangement).
 
 /// A sub-triangle in the subdivided mesh.
 /// Ref #24: Yang 2025 — constrained triangulation of mesh boolean operands.
@@ -1430,12 +1442,16 @@ fn ray_cast_inside(
 /// Label a single sub-triangle using BVH-accelerated ray casting, with
 /// Hoffmann perturb-and-classify for boundary-coincident centroids.
 ///
-/// Yang 2025 §4.4 (Booleans) prescribes binary inside/outside classification
-/// per sub-triangle via point-in-mesh ray casting. The paper assumes (after
-/// §4.5.5 coplanar preprocessing) that boundary cases are pre-resolved into
-/// shared trimmed surfaces, but Cherchi STAGE2 deduplication can still leave
-/// a single surviving boundary-coincident triangle whose centroid lies exactly
-/// on the target operand's surface — primary `ray_cast_inside` returns `None`.
+/// **Primary reference: Cherchi 2022 §5 / Algorithm 1** — per-patch exact
+/// ray-cast inside/outside classification (the new contribution of the 2022
+/// paper over Cherchi 2020). Yang 2025 §4.4.2 cites Cherchi 2022 explicitly
+/// for this step: "we directly apply a standard inside/outside classification
+/// step [Cherchi et al. 2022] to identify the triangles that need to be
+/// retained." The paper assumes (after Yang §4.5.5 coplanar preprocessing)
+/// that boundary cases are pre-resolved into shared trimmed surfaces, but
+/// Cherchi STAGE2 deduplication can still leave a single surviving
+/// boundary-coincident triangle whose centroid lies exactly on the target
+/// operand's surface — primary `ray_cast_inside` returns `None`.
 ///
 /// For that degenerate case we apply the canonical CSG technique from
 /// **Hoffmann 1989 §5.3 (perturb-and-classify)** / Requicha 1980: sample the
@@ -1455,8 +1471,9 @@ fn ray_cast_inside(
 /// (not boundary-coincident); we use the agreed classification. If both are
 /// also degenerate, fall back to GWN on the centroid as defense-in-depth.
 ///
-/// Refs: #24 Yang 2025 §4.4 (binary point-in-mesh); Hoffmann 1989 §5.3
-/// (perturb-and-classify for boundary-coincident classification).
+/// Refs: Cherchi 2022 §5 / Algorithm 1 (per-patch ray-cast in/out — primary
+/// algorithm); #24 Yang 2025 §4.4.2 (cites Cherchi 2022 for in/out classify);
+/// Hoffmann 1989 §5.3 (perturb-and-classify for boundary-coincident centroids).
 fn label_sub_tri_raycast(
     verts: &[[f64; 3]],
     sub_tri: &SubTriangle,
@@ -1639,7 +1656,7 @@ fn sub_tri_centroid(verts: &[[f64; 3]], tri: &SubTriangle) -> [f64; 3] {
 
 /// Compute the unit normal of a sub-triangle. Returns (0,0,1) for degenerate tris.
 /// Used by `label_sub_tri` for winding-number offset disambiguation.
-/// Ref #9: Cherchi 2020 — face normal for coplanar disambiguation.
+/// Ref #9: Cherchi 2020 §5.4 — face normal for coplanar/cosurface disambiguation.
 fn sub_tri_unit_normal(verts: &[[f64; 3]], tri: &SubTriangle) -> [f64; 3] {
     let v0 = verts[tri.verts[0]];
     let v1 = verts[tri.verts[1]];
@@ -2056,7 +2073,8 @@ fn segment_segment_intersect_3d(
 /// Subdivide two triangle meshes at their intersections using the full Cherchi
 /// mesh arrangement pipeline (`solve_intersections`).
 ///
-/// Ref #9: Cherchi et al. 2020 — global mesh arrangement for watertight guarantee.
+/// Ref #9: Cherchi 2020 §5 — global mesh arrangement for watertight guarantee
+/// (with Cherchi 2022 §4 speed improvements where applicable).
 pub(crate) fn subdivide_mesh_pair(
     verts_a: &[[f64; 3]],
     tris_a: &[[usize; 3]],
@@ -2073,7 +2091,8 @@ pub(crate) fn subdivide_mesh_pair(
 /// Merges both meshes into flat arrays, runs the complete Cherchi pipeline
 /// (preprocess → detect → classify → triangulate), then splits output by label.
 ///
-/// Ref #9: Cherchi 2020 — global mesh arrangement for watertight guarantee.
+/// Ref #9: Cherchi 2020 §5 — global mesh arrangement for watertight guarantee
+/// (with Cherchi 2022 §4 speed improvements where applicable).
 fn subdivide_mesh_pair_full_cherchi(
     verts_a: &[[f64; 3]],
     tris_a: &[[usize; 3]],
@@ -2394,7 +2413,7 @@ pub(crate) fn radial_sort_around_edge(
     indices
 }
 
-// ── Global edge conformality (Yang Section 4.2 / Cherchi aux_structure.h:190) ──
+// ── Global edge conformality (Yang §4.2 / Cherchi 2020 §5.4 aux_structure.h:190) ──
 //
 // Ensures that triangles sharing an original mesh edge receive identical
 // constraint points on that edge, guaranteeing conformal subdivision.
@@ -2402,7 +2421,8 @@ pub(crate) fn radial_sort_around_edge(
 /// Enriched constraint data for a single triangle, including shared edge points
 /// from the global edge map.
 ///
-/// Ref: Cherchi aux_structure.h:190 (edge2pts)
+/// Ref #9: Cherchi 2020 §5.4 (auxiliary structure / coplanar pocket map);
+/// C++ port from InteractiveAndRobustMeshBooleans aux_structure.h:190 (edge2pts).
 #[derive(Debug, Clone)]
 struct EnrichedConstraints {
     /// Constraint segments (pairs of vertex indices) for this triangle.
@@ -2420,7 +2440,9 @@ struct EnrichedConstraints {
 /// it lies on (if any) and adds it to the map. Both triangles sharing an edge
 /// will receive the same points, ensuring conformal subdivision.
 ///
-/// Ref: Cherchi aux_structure.h:190 (edge2pts), intersection_classification.cpp:464
+/// Ref #9: Cherchi 2020 §5.4 (auxiliary structure / coplanar pocket map);
+/// C++ port from InteractiveAndRobustMeshBooleans aux_structure.h:190 (edge2pts),
+/// intersection_classification.cpp:464.
 
 #[cfg(test)]
 mod tests {
@@ -2878,7 +2900,7 @@ mod tests {
     /// accepted because point_in_triangle_3d may reject one endpoint when
     /// materialized f64 coordinates lose precision (see known limitation in
     /// compute_segment_overlap). Requires exact containment via indirect
-    /// predicates (Ref #9 Cherchi) to fix.
+    /// predicates (Ref #9 Cherchi 2020 §4.1–4.3) to fix.
     #[test]
     fn adversarial_shared_edge() {
         // Shared edge: vertex 0 → vertex 1
@@ -2949,7 +2971,7 @@ mod tests {
     /// (orient3d) correctly classify the crossing, but point_in_triangle_3d
     /// rejects one endpoint because it applies exact orient2d to materialized
     /// (f64) intersection coordinates that lose precision at small scales.
-    /// Requires exact containment via indirect predicates (Ref #9 Cherchi).
+    /// Requires exact containment via indirect predicates (Ref #9 Cherchi 2020 §4.1–4.3).
     #[test]
     fn adversarial_small_coordinates() {
         let s = 1e-6;
@@ -2998,7 +3020,7 @@ mod tests {
     /// the tiny penetration, but point_in_triangle_3d rejects one endpoint
     /// due to containment testing on materialized f64 coordinates. Same root
     /// cause as adversarial_small_coordinates. Requires exact containment
-    /// via indirect predicates (Ref #9 Cherchi).
+    /// via indirect predicates (Ref #9 Cherchi 2020 §4.1–4.3).
     #[test]
     fn adversarial_grazing_intersection() {
         // T1 in z=0, T2 has one vertex barely below z=0
@@ -6807,12 +6829,12 @@ mod tests {
         assert_eq!(labeling.labels_b.len(), subdivided.tris_b.len());
     }
 
-    // ── Cherchi Algorithm 1: Conformality & watertightness tests ─────────
+    // ── Cherchi 2020 arrangement: Conformality & watertightness tests ────
     //
     // These tests exercise `subdivide_mesh_pair()` on overlapping meshes
     // and assert properties (conformal edges, shared vertices, watertight
-    // topology, no self-intersections) that the Cherchi segment insertion
-    // algorithm guarantees by construction. The current implementation fails
+    // topology, no self-intersections) that the Cherchi 2020 §5.3 segment
+    // insertion algorithm guarantees by construction. The current implementation fails
     // these — the implementer will fix `subdivide_mesh_pair()` to pass them.
     //
     // Key: we use a ROTATED box (45° around Y) so that intersection segments

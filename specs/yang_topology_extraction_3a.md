@@ -119,8 +119,10 @@ Additional branches:
 - **[#24] Yang, Jia & Yan (2025)**: Stage 3 of the hybrid pipeline — topology
   extraction from exact mesh boolean result. The bijective mapping enables
   unambiguous assignment of result triangles to source B-Rep faces.
-- **[#9] Cherchi et al. (2020)**: The subdivided mesh preserves parent triangle
-  provenance via `SubTriangle.parent_tri`, enabling this face grouping.
+- **[#9] Cherchi et al. (2020) §5 (arrangement)**: The subdivided mesh preserves
+  parent triangle provenance via `SubTriangle.parent_tri`, enabling this face
+  grouping. The Cherchi 2022 [#38] full pipeline used for Yang stage 2 inherits
+  this provenance unchanged.
 
 ### 7a. Analytical vs. Approximate Method Justification
 

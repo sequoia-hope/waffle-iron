@@ -864,7 +864,11 @@ Same checklist as PR1-PR8 plus:
 - Hoffmann 1989 §5.3 — perturb-and-classify, the canonical CSG
   technique for boundary-coincident classification (PR6 implementation
   basis).
-- Cherchi et al. 2020 §5.4 — coplanar triangle handling reference.
+- Cherchi et al. 2020 [#9] §5.4 — coplanar triangle handling (auxiliary
+  tetrahedron trick for non-degenerate T-point representation of coplanar
+  pairs). The Cherchi 2022 [#38] full pipeline inherits this unchanged. (Note:
+  "§5.4" here is unambiguously **Cherchi 2020 §5.4**, not Cherchi 2022 §5
+  which is in/out classification.)
 - `specs/yang_coplanar_preprocessing.md` — the original Stage 0 design.
 - `specs/yang_hybrid_migration.md` — overall pipeline migration plan.
 - `/tmp/pr4_phaseB.log` — full diagnostic trace (361 lines, ephemeral).
@@ -963,7 +967,8 @@ touch points, ~40 lines of net implementation work, ~210 lines of tests
 ### What landed
 
 1. **`Orientation` enum + `detect` helper** in `cherchi/processing.rs`
-   (cites Cherchi 2020 §5.4 / Hoffmann 1989 §5.3). Re-exported from
+   (cites Cherchi 2020 [#9] §5.4 (coplanar pocket map) / Hoffmann 1989 §5.3).
+   Re-exported from
    `cherchi/mod.rs`. Algorithm: parity of permutation — find offset `i`
    where `t1[i] == t2[0]`; if `t1[(i+1) % 3] == t2[1]` → Parallel, else
    AntiParallel.

@@ -80,7 +80,10 @@ Returns: `ResultTopology` (arena + face_provenance + edge_is_intersection).
 ## 7. Research Basis
 
 - [#24] Yang, Jia & Yan (2025) — Full 6-stage pipeline. This test validates stages 1-3.
-- [#9] Cherchi et al. (2020) — Indirect predicates, parent triangle provenance.
+- [#9] Cherchi et al. (2020) — Indirect predicates (§4) and arrangement (§5);
+  parent triangle provenance.
+- [#38] Cherchi et al. (2022) — Full Boolean pipeline; per-patch ray-cast
+  in/out classification (§5 / Algorithm 1). Yang 2025 stage 2 cites this paper.
 - [#4] Shewchuk (1997) — Exact orient3d predicates used in stage 2.
 - [#16] Mantyla (1988) — Half-edge B-Rep construction in stage 3.
 

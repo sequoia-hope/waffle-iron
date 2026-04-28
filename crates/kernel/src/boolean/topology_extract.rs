@@ -7,7 +7,9 @@
 //! and build the result B-Rep.
 //!
 //! Ref [#24]: Yang, Jia & Yan (2025) — Stage 3 of the hybrid pipeline.
-//! Ref [#9]: Cherchi et al. (2020) — parent triangle provenance.
+//! Ref [#9]: Cherchi et al. 2020 §5 (arrangement) — parent triangle provenance.
+//! Ref: Cherchi et al. 2022 §5 / Algorithm 1 — per-patch ray-cast in/out
+//! classification used by `label_sub_tri_raycast`.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -142,7 +144,7 @@ pub(crate) fn build_result_brep(
     // (e.g., intersection vertices from A's subdivision and B's original corners).
     // Merge by position so the B-Rep shares vertices correctly, enabling twin
     // pairing across face boundaries from different source meshes.
-    // Ref #9: Cherchi 2020 — conformal mesh vertex sharing.
+    // Ref #9: Cherchi 2020 §5 (arrangement) — conformal mesh vertex sharing.
     let mut pos_to_brep: HashMap<[i64; 3], BrepVIdx> = HashMap::new();
     let mut mesh_to_brep: HashMap<usize, BrepVIdx> = HashMap::new();
     // Also map mesh vertex index → canonical mesh vertex index (lowest index
@@ -355,7 +357,8 @@ pub(crate) fn flood_fill_patches(
 
     // PR11 twin-debug gate: instrumentation runs only under TWIN_DEBUG=1.
     // No behavior change when unset. Mirrors the CHERCHI_DEBUG pattern from
-    // PR9 (cherchi/processing.rs). Ref Yang §4.4.2 / Cherchi §5.5.
+    // PR9 (cherchi/processing.rs). Ref Yang §4.4.2 / Cherchi 2020 §5.5
+    // (explicit arrangements / patch extraction via region growing).
     let twin_debug = std::env::var("TWIN_DEBUG").as_deref() == Ok("1");
 
     if survival.groups.is_empty() {
@@ -803,7 +806,8 @@ pub(crate) fn flood_fill_patches(
     }
 
     // ── Twin pairing — deterministic 1:1 lookup ──
-    // Yang §4.4.2 + Cherchi §5.5: in a conformal mesh post-flood-fill, each
+    // Yang §4.4.2 + Cherchi 2020 §5.5 (explicit arrangements / patch
+    // extraction): in a conformal mesh post-flood-fill, each
     // directed edge has exactly one reverse counterpart. PR3 removes the greedy
     // fallback that masked upstream conformality bugs; surface them via diagnostics.
     let mut edge_is_intersection: BTreeMap<EdgeIdx, bool> = BTreeMap::new();
@@ -954,7 +958,7 @@ pub(crate) fn flood_fill_patches(
 /// Chains these into closed TrimLoop structures.
 ///
 /// Ref [#24]: Yang 2025 — Stage 3 trim boundary extraction.
-/// Ref [#9]: Cherchi 2020 — edge adjacency from subdivided mesh.
+/// Ref [#9]: Cherchi 2020 §5 (arrangement) — edge adjacency from subdivided mesh.
 // dead_code in lib build: used only by this module's #[cfg(test)] tests.
 // Phase 3 building block per yang_2025_audit.md; may be wired into the
 // production pipeline in PR4+ or deleted if redundant. Re-suppression is
@@ -1237,7 +1241,7 @@ pub(crate) fn face_survival_detect(
     };
 
     // Process A sub-triangles: look up source face via bijective_a.
-    // Ref #9: Cherchi 2020 — parent triangle provenance through subdivision.
+    // Ref #9: Cherchi 2020 §5 — parent triangle provenance through subdivision.
     for (sub_tri, label) in subdivided.tris_a.iter().zip(labeling.labels_a.iter()) {
         if *label == keep_a {
             let face_idx = bijective_a.tri_face_ids[sub_tri.parent_tri];
@@ -1284,7 +1288,8 @@ pub(crate) fn face_survival_detect(
 /// # Pipeline stages
 ///
 /// 1. `subdivide_mesh_pair` — subdivide both input meshes along their
-///    mutual intersections using exact predicates [#9 Cherchi 2020].
+///    mutual intersections using exact predicates [#9 Cherchi 2020 §4]
+///    and the arrangement algorithm [Cherchi 2020 §5 / Cherchi 2022 §4].
 /// 2. `label_cells` — classify each sub-triangle as inside/outside
 ///    the opposite mesh via generalized winding numbers [#7 Jacobson 2013].
 /// 3. `face_survival_detect` — select surviving sub-triangles per the
@@ -5056,7 +5061,7 @@ mod tests {
     /// to A's face groups that lie on B's boundary edges.
     ///
     /// Ref [#24]: Yang 2025 — T-junction resolution in conformal mesh.
-    /// Ref [#9]: Cherchi 2020 — conformal subdivision vertex sharing.
+    /// Ref [#9]: Cherchi 2020 §5 — conformal subdivision vertex sharing.
     #[test]
     fn test_tjunction_interior_vertex_per_face() {
         let (verts_a, tris_a) = make_box_mesh_per_face([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);

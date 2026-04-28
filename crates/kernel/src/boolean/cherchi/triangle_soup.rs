@@ -20,9 +20,11 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-//! TriangleSoup — input mesh wrapper for Cherchi mesh arrangement.
+//! TriangleSoup — input mesh wrapper for the Cherchi 2020 §5 mesh
+//! arrangement algorithm.
 //!
-//! Ported from Cherchi triangle_soup.h + triangle_soup.cpp
+//! Ported from triangle_soup.h + triangle_soup.cpp in
+//! github.com/gcherchi/FastAndRobustMeshArrangements
 //! MIT License (c) 2020 Cherchi, Livesu, Scateni, Attene
 
 use std::collections::HashMap;

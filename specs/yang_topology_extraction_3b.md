@@ -109,8 +109,10 @@ No new tolerance constants. This is topological (index-based) edge extraction.
 
 - **[#24] Yang, Jia & Yan (2025)**: Stage 3 topology extraction — trim boundaries
   are the interface between surviving face regions and define the new B-Rep edges.
-- **[#9] Cherchi et al. (2020)**: The subdivided mesh's edge adjacency enables
-  exact determination of which edges are intersection curves vs original boundaries.
+- **[#9] Cherchi et al. (2020) §5 (arrangement)**: The subdivided mesh's edge
+  adjacency enables exact determination of which edges are intersection curves
+  vs original boundaries. (See also [#38] Cherchi 2022 §5 for the per-patch
+  arrangement output that Yang 2025 stage 2 produces.)
 
 ### 7a. Analytical vs. Approximate Method Justification
 

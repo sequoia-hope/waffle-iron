@@ -18,9 +18,11 @@ triangles (manifold) are verified.
 
 ## Research Basis
 
-- **Ref #9**: Cherchi et al. 2020 — Conformal mesh arrangements require split
-  propagation to all incident triangles. Edge-on-plane is a degenerate case
-  requiring 2D intersection.
+- **Ref #9**: Cherchi et al. 2020 §5 (arrangement) — Conformal mesh
+  arrangements require split propagation to all incident triangles.
+  Edge-on-plane is a degenerate case requiring 2D intersection. (See also
+  [#38] Cherchi 2022 §4 for the speed-improved variant of this arrangement
+  used by Yang 2025.)
 - **Ref #24**: Yang 2025 — Hybrid B-Rep/mesh boolean pipeline, Stage 2.
 - **Ref #4**: Shewchuk 1997 — Exact predicates for point classification.
 

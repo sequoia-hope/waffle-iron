@@ -65,8 +65,13 @@ in the subdivision).
 - **Ref #24**: Yang et al. 2025 — Hybrid B-Rep/mesh boolean pipeline. Uses
   cell labeling via winding numbers; recommends evaluating at points away from
   the mesh surface.
-- **Ref #9**: Cherchi et al. 2020 — Mesh arrangements. Uses exact predicates
-  for cell labeling; our offset approach approximates this.
+- **Ref #38**: Cherchi et al. 2022 ("Interactive and Robust Mesh Booleans") —
+  §5 / Algorithm 1 exact ray-cast inside/outside classification on
+  arrangement patches. Our offset approach approximates this with a winding
+  number evaluated at a guaranteed-interior point. Yang 2025 §4.4.2 cites this
+  paper for mesh-Boolean inside/outside classification.
+- **Ref #9**: Cherchi et al. 2020 — Foundational arrangement and indirect
+  predicates; substrate on which Cherchi 2022's §5 ray-cast operates.
 
 ### 7a. Analytical vs. Approximate Method Justification
 

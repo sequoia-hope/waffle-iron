@@ -222,7 +222,7 @@ pub(crate) fn merge_duplicated_vertices_flat(
 /// Returns `(tris, labels, clean_to_orig, orientations)` where
 /// `clean_to_orig[i]` is the original triangle index that surviving triangle
 /// `i` came from, and `orientations[i]` records the cosurface orientation
-/// (Cherchi §5.4 / Hoffmann §5.3) when triangle `i` was merged with at
+/// (Cherchi 2020 §5.4 / Hoffmann 1989 §5.3) when triangle `i` was merged with at
 /// least one duplicate (`None` otherwise). PR10 Path A-refined.
 ///
 /// Ported from processing.cpp:125-173
@@ -487,7 +487,7 @@ mod tests {
         assert_eq!(new_labels[0], 3);
         assert_eq!(clean_to_orig, vec![0]); // first occurrence kept
                                             // Survivor [0,1,2] vs dropped [0,2,1]: dropped is reverse of survivor.
-                                            // Cherchi §5.4 / Hoffmann §5.3 → AntiParallel.
+                                            // Cherchi 2020 §5.4 / Hoffmann 1989 §5.3 → AntiParallel.
         assert_eq!(orientations, vec![Some(Orientation::AntiParallel)]);
     }
 
