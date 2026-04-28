@@ -6824,21 +6824,13 @@ mod tests {
     fn test_ray_cast_inside_first_hit_respects_triangle_winding() {
         // Outward winding: CCW when viewed from +X side. Visiting v0 → v1 → v2
         // traces a +X-facing normal: (v1-v0) × (v2-v0) = (0,1,0) × (0,0,1) = (1,0,0).
-        let outward_verts: Vec<[f64; 3]> = vec![
-            [1.0, 0.0, 0.0],
-            [1.0, 1.0, 0.0],
-            [1.0, 0.0, 1.0],
-        ];
+        let outward_verts: Vec<[f64; 3]> = vec![[1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [1.0, 0.0, 1.0]];
         let outward_tris: Vec<[usize; 3]> = vec![[0, 1, 2]];
 
         // Inward winding: same three points, vertex order swapped (v1 and v2 traded).
         // Visiting v0 → v1 → v2 now traces a -X-facing normal:
         // (v1-v0) × (v2-v0) = (0,0,1) × (0,1,0) = (-1,0,0).
-        let inward_verts: Vec<[f64; 3]> = vec![
-            [1.0, 0.0, 0.0],
-            [1.0, 0.0, 1.0],
-            [1.0, 1.0, 0.0],
-        ];
+        let inward_verts: Vec<[f64; 3]> = vec![[1.0, 0.0, 0.0], [1.0, 0.0, 1.0], [1.0, 1.0, 0.0]];
         let inward_tris: Vec<[usize; 3]> = vec![[0, 1, 2]];
 
         let bvh_outward = build_bvh_for_tris(&outward_verts, &outward_tris)
@@ -6861,13 +6853,8 @@ mod tests {
             &bvh_outward,
             global_max,
         );
-        let result_inward = ray_cast_inside(
-            origin,
-            &inward_verts,
-            &inward_tris,
-            &bvh_inward,
-            global_max,
-        );
+        let result_inward =
+            ray_cast_inside(origin, &inward_verts, &inward_tris, &bvh_inward, global_max);
 
         // PRIMARY: results must differ. Parity gives same answer (Some(true) for
         // both windings — 1 hit modulo 2 == 1 either way). First-hit signed-volume
