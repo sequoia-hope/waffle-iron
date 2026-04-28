@@ -6796,12 +6796,18 @@ mod tests {
     /// windings.
     ///
     /// **Fixture**: A single triangle on the plane x = 1.0, in two configurations
-    /// differing only in vertex coordinate order:
-    /// - **Outward** (CCW from +X): normal = +X, far ray endpoint at x = global_max+1
-    ///   is on the outward side of the plane → `orient3d > 0` → C++ `(res<0)?1:0`
-    ///   returns 0 → Outside.
-    /// - **Inward** (CW from +X): normal = -X, far ray endpoint is on the inward side
-    ///   → `orient3d < 0` → returns 1 → Inside.
+    /// differing only in vertex coordinate order. The `robust` crate's `orient3d`
+    /// (matching Shewchuk's published convention) returns **negative** when `pd`
+    /// is "above" the plane — where "above" is the side from which the triangle's
+    /// `pa, pb, pc` appear in counterclockwise order (see
+    /// `robust::orient3d` doc, robust-1.2.0/src/lib.rs:169-172).
+    /// - **Outward** (CCW from +X): the `pa, pb, pc` order appears CCW when
+    ///   viewed from +X, so the +X side is "above". The far ray endpoint at
+    ///   x = global_max+1 is on the +X (above) side → `orient3d < 0` → C++
+    ///   `(res < 0) ? 1 : 0` returns 1 → Inside.
+    /// - **Inward** (CW from +X): swapping vertices flips which side is "above"
+    ///   to the -X side. The far endpoint at +X is now "below" → `orient3d > 0`
+    ///   → returns 0 → Outside.
     ///
     /// **Origin** `[0.0, 0.25, 0.25]`: the +X ray's projection onto YZ is the point
     /// (0.25, 0.25), which lies strictly inside the projected triangle
@@ -6812,7 +6818,7 @@ mod tests {
     ///
     /// **Red on main**: parity counts 1 hit for both → both return `Some(true)` →
     /// `assert_ne!` fails.
-    /// **Green after fix**: outward → `Some(false)`, inward → `Some(true)` →
+    /// **Green after fix**: outward → `Some(true)`, inward → `Some(false)` →
     /// `assert_ne!` passes.
     #[test]
     fn test_ray_cast_inside_first_hit_respects_triangle_winding() {
@@ -6874,20 +6880,28 @@ mod tests {
         );
 
         // SECONDARY: explicit sign convention checks per C++ checkTriangleOrientation.
-        // For outward winding (CCW from +X): far endpoint past +X is on the outward
-        // side of the plane. orient3d(tv0,tv1,tv2,far) > 0 because far is on the +X
-        // side relative to the CCW triangle. C++ returns (res < 0) ? 1 : 0, so res > 0
-        // → 0 (Outside). For inward winding (CW from +X): orient3d gives the opposite
-        // sign → res < 0 → 1 (Inside).
+        // The `robust` crate's `orient3d` (matching Shewchuk) returns NEGATIVE when
+        // `pd` is "above" the plane — where "above" is the side from which
+        // `pa, pb, pc` appear counterclockwise (robust-1.2.0/src/lib.rs:169-172).
+        //
+        // For outward winding (CCW from +X): the +X side is "above", and the far
+        // ray endpoint at x = global_max+1 is on the +X side → orient3d < 0. C++
+        // checkTriangleOrientation: `(res < 0) ? 1 : 0` returns 1 → Inside.
+        //
+        // For inward winding (CW from +X): the swap flips "above" to the -X side,
+        // so the far endpoint at +X is now "below" → orient3d > 0. C++ returns 0
+        // → Outside.
         assert_eq!(
             result_outward,
-            Some(false),
-            "outward (CCW from +X) winding: orient3d(tv0,tv1,tv2,ray.v1) > 0 → Outside"
+            Some(true),
+            "outward (CCW from +X) winding: far endpoint is 'above' → \
+             orient3d(tv0,tv1,tv2,ray.v1) < 0 → C++ (res<0)?1:0 → Inside"
         );
         assert_eq!(
             result_inward,
-            Some(true),
-            "inward (CW from +X) winding: orient3d(tv0,tv1,tv2,ray.v1) < 0 → Inside"
+            Some(false),
+            "inward (CW from +X) winding: far endpoint is 'below' → \
+             orient3d(tv0,tv1,tv2,ray.v1) > 0 → C++ (res<0)?1:0 → Outside"
         );
     }
 
