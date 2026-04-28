@@ -1083,4 +1083,57 @@ mod tests {
         let shared_e = mesh.edge_id(1, 2).expect("shared edge 1-2 not found");
         assert!(mesh.edge_is_manifold(shared_e));
     }
+
+    /// Audit C-09 (cherchi_port_audit.md): `add_tri` must return `Option<usize>`
+    /// and yield `None` on degenerate input (any pair of vertex IDs equal).
+    ///
+    /// Pre-fix behavior at `fast_trimesh.rs:608-622` returns the bare `usize`
+    /// `0` on degenerate — a valid triangle ID — which silently corrupts mesh
+    /// state in tree-variant callers (`split_edge_with_tree`,
+    /// `split_tri_with_tree`) via subsequent `set_tri_node_id(0, n_id)` calls.
+    /// C++ upstream asserts on degenerate at `fast_trimesh.cpp:627`:
+    /// `assert((tv0_id != tv1_id && tv0_id != tv2_id && tv1_id != tv2_id) && "degenerate triangle")`.
+    ///
+    /// This test compiles only after `add_tri`'s return type is changed to
+    /// `Option<usize>` per the C-09 fix. Pre-fix, the test fails at compile
+    /// time because the production return type is `usize` and `assert_eq!(_, None)`
+    /// has no matching impl. Compile failure is the red-before-green signal
+    /// (FIP §2): `cargo test -p kernel` exits non-zero until production is fixed.
+    #[test]
+    fn test_add_tri_returns_none_for_degenerate_input() {
+        let mut mesh = make_single_tri();
+        // Sanity: the seed triangle in make_single_tri uses distinct vertex
+        // IDs (0, 1, 2). After construction, num_tris() should be 1 already,
+        // so re-adding (0, 1, 2) hits the `tri_id` idempotency branch.
+        assert_eq!(
+            mesh.add_tri(0, 1, 2),
+            Some(0),
+            "non-degenerate add (idempotent re-add of seed tri 0) must return Some(0)"
+        );
+
+        // Degenerate cases: each violates the C++ invariant at
+        // fast_trimesh.cpp:627. Per audit C-09, must return None.
+        assert_eq!(
+            mesh.add_tri(0, 0, 1),
+            None,
+            "degenerate (tv0 == tv1): must return None per C++ assert at \
+             fast_trimesh.cpp:627; previous behavior was silent return 0 \
+             which corrupts mesh state in tree-variant callers"
+        );
+        assert_eq!(
+            mesh.add_tri(0, 1, 0),
+            None,
+            "degenerate (tv0 == tv2): must return None"
+        );
+        assert_eq!(
+            mesh.add_tri(1, 2, 1),
+            None,
+            "degenerate (tv1 == tv2): must return None"
+        );
+        assert_eq!(
+            mesh.add_tri(1, 1, 1),
+            None,
+            "degenerate (all equal): must return None"
+        );
+    }
 }
