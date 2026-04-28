@@ -602,28 +602,41 @@ impl FastTrimesh {
         self.v2e.push(FmVec::new());
     }
 
-    /// Add a triangle. Idempotent — returns existing tri ID if already present.
-    /// Creates missing edges and updates e2t adjacency.
+    /// Add a triangle. Idempotent — returns `Some(existing_t_id)` if already
+    /// present. Creates missing edges and updates e2t adjacency.
+    ///
+    /// Returns `None` if the input is degenerate (any pair of vertex IDs
+    /// equal). With exact indirect predicates (C++ reference at
+    /// `fast_trimesh.cpp:627`) this branch should be unreachable — the C++
+    /// port asserts on degenerate. The Rust port returns `None` instead so
+    /// callers can handle the case explicitly without aborting the whole
+    /// pipeline. This is a localized correctness fix for audit finding
+    /// C-09 (`docs/audits/cherchi_port_audit.md`); the underlying
+    /// predicate-kernel issues that produce degenerate inputs (Cluster I:
+    /// A-01 inexact `points_are_collinear_3d` + A-02 inexact
+    /// `max_component_in_triangle_normal`) are tracked as separate
+    /// to-fix items.
+    ///
+    /// Replaces the previous "silently return 0" behavior, which corrupted
+    /// triangle 0's metadata when the return value was used in
+    /// `split_edge_with_tree` / `split_tri_with_tree` via
+    /// `set_tri_node_id(0, n_id)` (audit C-09 worked example).
+    ///
     /// Ported from fast_trimesh.cpp:624-646
-    pub fn add_tri(&mut self, tv0_id: usize, tv1_id: usize, tv2_id: usize) -> usize {
+    pub fn add_tri(&mut self, tv0_id: usize, tv1_id: usize, tv2_id: usize) -> Option<usize> {
         assert!(
             tv0_id < self.vertices.len()
                 && tv1_id < self.vertices.len()
                 && tv2_id < self.vertices.len(),
             "vtx id out of range"
         );
-        // Skip degenerate triangles (can arise from approximate coordinate
-        // rounding causing earcut or edge splits to produce duplicate vertex
-        // IDs). With exact predicates (C++ reference) this never happens.
-        // Return 0 as a safe fallback — callers that use the return value
-        // (e.g., set_tri_node_id) will harmlessly write to triangle 0.
         if tv0_id == tv1_id || tv0_id == tv2_id || tv1_id == tv2_id {
-            return 0;
+            return None;
         }
 
         // Check if triangle already exists
         if let Some(t_id) = self.tri_id(tv0_id, tv1_id, tv2_id) {
-            return t_id;
+            return Some(t_id);
         }
 
         let t_id = self.triangles.len();
@@ -641,7 +654,7 @@ impl FastTrimesh {
         self.e2t[e1_id].push(t_id);
         self.e2t[e2_id].push(t_id);
 
-        t_id
+        Some(t_id)
     }
 
     /// Remove an edge and all its adjacent triangles.
@@ -758,8 +771,8 @@ impl FastTrimesh {
                 std::mem::swap(&mut ev0, &mut ev1);
             }
 
-            let t0_id = self.add_tri(v_opp, ev0, v_id);
-            let t1_id = self.add_tri(v_opp, v_id, ev1);
+            let t0_id_opt = self.add_tri(v_opp, ev0, v_id);
+            let t1_id_opt = self.add_tri(v_opp, v_id, ev1);
 
             let n0_id = tree.add_node(v_opp, ev0, v_id);
             let n1_id = tree.add_node(v_opp, v_id, ev1);
@@ -767,8 +780,17 @@ impl FastTrimesh {
             let node_id = self.tri_node_id(t_id);
             tree.add_children_2(node_id, n0_id, n1_id);
 
-            self.set_tri_node_id(t0_id, n0_id);
-            self.set_tri_node_id(t1_id, n1_id);
+            // Audit C-09: degenerate sub-triangles (where add_tri returned None)
+            // are not added to the mesh and have no slot to receive a tree node
+            // ID. Skipping is the safe action — pre-fix, add_tri returned 0 on
+            // degenerate, causing set_tri_node_id(0, n_id) to overwrite
+            // triangle 0's metadata.
+            if let Some(t0_id) = t0_id_opt {
+                self.set_tri_node_id(t0_id, n0_id);
+            }
+            if let Some(t1_id) = t1_id_opt {
+                self.set_tri_node_id(t1_id, n1_id);
+            }
         }
 
         self.remove_tris(&adj_tris);
@@ -802,18 +824,27 @@ impl FastTrimesh {
         let v1 = self.tri_vert_id(t_id, 1);
         let v2 = self.tri_vert_id(t_id, 2);
 
-        let t0_id = self.add_tri(v0, v1, v_id);
-        let t1_id = self.add_tri(v1, v2, v_id);
-        let t2_id = self.add_tri(v2, v0, v_id);
+        let t0_id_opt = self.add_tri(v0, v1, v_id);
+        let t1_id_opt = self.add_tri(v1, v2, v_id);
+        let t2_id_opt = self.add_tri(v2, v0, v_id);
 
         let n0_id = tree.add_node(v0, v1, v_id);
         let n1_id = tree.add_node(v1, v2, v_id);
         let n2_id = tree.add_node(v2, v0, v_id);
         tree.add_children_3(node_id, n0_id, n1_id, n2_id);
 
-        self.set_tri_node_id(t0_id, n0_id);
-        self.set_tri_node_id(t1_id, n1_id);
-        self.set_tri_node_id(t2_id, n2_id);
+        // Audit C-09: skip set_tri_node_id for degenerate sub-triangles
+        // (add_tri returned None). Pre-fix, the bare 0 return clobbered
+        // triangle 0's metadata via set_tri_node_id(0, n_id).
+        if let Some(t0_id) = t0_id_opt {
+            self.set_tri_node_id(t0_id, n0_id);
+        }
+        if let Some(t1_id) = t1_id_opt {
+            self.set_tri_node_id(t1_id, n1_id);
+        }
+        if let Some(t2_id) = t2_id_opt {
+            self.set_tri_node_id(t2_id, n2_id);
+        }
 
         self.remove_tri(t_id);
     }
