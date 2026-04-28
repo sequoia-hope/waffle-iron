@@ -103,11 +103,6 @@ pub(crate) fn detect_intersections(
     let mut seen = HashSet::new();
     for t0 in 0..num_tris {
         for t1 in (t0 + 1)..num_tris {
-            // Skip pairs sharing a vertex (simplicial complex)
-            if triangles_share_vertex(ts, t0, t1) {
-                continue;
-            }
-
             // AABB overlap test
             if !aabb_overlap(&aabbs[t0], &aabbs[t1]) {
                 continue;
@@ -1412,19 +1407,6 @@ fn point_on_segment_2d(p: &[f64; 2], a: &[f64; 2], b: &[f64; 2]) -> bool {
     p[0] >= min_x && p[0] <= max_x && p[1] >= min_y && p[1] <= max_y
 }
 
-/// Check if two triangles share a vertex.
-fn triangles_share_vertex(ts: &TriangleSoup, t0: usize, t1: usize) -> bool {
-    for i in 0..3 {
-        let v = ts.tri_vert_id(t0, i);
-        for j in 0..3 {
-            if v == ts.tri_vert_id(t1, j) {
-                return true;
-            }
-        }
-    }
-    false
-}
-
 /// AABB overlap test.
 fn aabb_overlap(a: &([f64; 3], [f64; 3]), b: &([f64; 3], [f64; 3])) -> bool {
     a.0[0] <= b.1[0]
@@ -1436,11 +1418,17 @@ fn aabb_overlap(a: &([f64; 3], [f64; 3]), b: &([f64; 3], [f64; 3])) -> bool {
 }
 
 /// Exact triangle-triangle intersection test using orient3d.
-/// Returns true if the two triangles properly intersect (not just a simplicial complex).
+/// Returns true if the two triangles properly intersect.
 ///
-/// Matches cinolib's triangle_triangle_intersect_3d for the no-shared-vertex case
-/// (t0_count == 0). Since detect_intersections already skips shared-vertex pairs
-/// via triangles_share_vertex, we only need this path.
+/// Matches the C++ Cherchi 2022 upstream `customDetectIntersections`
+/// (`gcherchi/InteractiveAndRobustMeshBooleans/code/booleans.cpp:288-324`),
+/// which performs only an AABB pre-filter before this exact test — it does NOT
+/// skip pairs that share a vertex. Yang 2025 §4.2 cites Cherchi 2022 as the
+/// mesh-intersection method, and Yang's coplanar preprocessing (§4.5.5)
+/// produces shared boundary vertices across mesh tags, so shared-vertex pairs
+/// must reach this function. Edge-on-segment and vertex-in-triangle
+/// configurations are handled by the existing branches in
+/// `detect_seg_tri_intersect` / `detect_seg_tri_coplanar`.
 ///
 /// Ported from cinolib/predicates.cpp:1222-1234
 fn triangles_intersect_exact(ts: &TriangleSoup, t0: usize, t1: usize) -> bool {
