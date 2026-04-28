@@ -1687,6 +1687,64 @@ mod tests {
         );
     }
 
+    /// Cross-mesh L-corner: two triangles from distinct meshes share one
+    /// vertex AND have a real interior edge-edge crossing. This mirrors the
+    /// vertex-sharing topology produced by Yang 2025 §4.5.5 coplanar
+    /// preprocessing, where identical meshes are generated on coplanar
+    /// overlap regions and the two solids end up sharing vertices at the
+    /// overlap's boundary edges.
+    ///
+    /// In Cherchi 2022's multi-mesh triangle-soup model (§3, §4), shared
+    /// vertices between distinct input meshes are legitimate and may have
+    /// real cross-mesh intersections that must be detected. The reference
+    /// C++ implementation at booleans.cpp::customDetectIntersections
+    /// (lines 288-324) tests every AABB-overlapping pair without a
+    /// shared-vertex skip.
+    ///
+    /// Geometry:
+    ///   t0 (mesh A, label=1): [0,0,0], [1,0,0], [0,1,0] — XY plane.
+    ///   t1 (mesh B, label=2): [0,0,0], [0,0,1], [1,1,-1].
+    ///   Shared vertex: [0,0,0]. Edge (0,0,1)→(1,1,-1) of t1 crosses t0's
+    ///   interior at roughly (0.5, 0.5, 0).
+    ///
+    /// The shared coordinate is given a single TriangleSoup vertex ID (0)
+    /// referenced by both triangles. This matches the post-tessellation
+    /// state Yang §4.5.5 produces — coplanar-overlap boundary samples are
+    /// shared vertices in the merged soup, not coincident-but-distinct
+    /// vertices — and is the configuration that triggers the existing
+    /// `triangles_share_vertex` skip at line 107.
+    #[test]
+    fn test_detect_intersections_shared_vertex_cross_mesh_l_corner() {
+        let coords = vec![
+            [0.0, 0.0, 0.0],  // v0 — shared between t0 and t1
+            [1.0, 0.0, 0.0],  // v1 — t0 only
+            [0.0, 1.0, 0.0],  // v2 — t0 only
+            [0.0, 0.0, 1.0],  // v3 — t1 only
+            [1.0, 1.0, -1.0], // v4 — t1 only
+        ];
+        let tris = vec![
+            0, 1, 2, // t0 (mesh A) in XY plane
+            0, 3, 4, // t1 (mesh B) — edge v3→v4 pierces t0's interior
+        ];
+        // Bit-encoded labels: mesh A = bit 0 = 1, mesh B = bit 1 = 2.
+        // Matches the cross-mesh convention used by make_two_boxes_soup.
+        let labels = vec![1, 2];
+
+        let ts = TriangleSoup::new(coords, tris, labels, 1.0);
+        let mut aux = AuxiliaryStructure::new();
+        aux.init_from_triangle_soup(&ts);
+
+        detect_intersections(&ts, &mut aux, 0.0);
+
+        assert_eq!(
+            aux.intersection_list().len(),
+            1,
+            "shared-vertex cross-mesh L-corner: edge-edge interior crossing must be detected; \
+             the Cherchi 2020 simplicial-complex skip is incorrect for Cherchi 2022's \
+             multi-mesh soup model"
+        );
+    }
+
     #[test]
     fn test_classify_intersections_populates_edge2pts() {
         let (mut ts, mut aux) = make_two_boxes_soup();
