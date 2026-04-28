@@ -6,13 +6,13 @@
   "results": [
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 12 unpaired edges out of 4068 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,21), (0,21), (0,37), (0,50), (0,70), ...",
+      "detail": "watertight_mesh: 9 unpaired edges out of 4068 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,7), (0,10), (0,13), (0,36), (0,36), ...; mesh_euler_characteristic: V(1362) - E(4068) + F(2709) = 3 (expected 2)",
       "id": "R0001",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 27 unpaired edges out of 138 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,4), (0,4), (1,2), (1,4), ...; mesh_euler_characteristic: V(52) - E(138) + F(83) = -3 (expected 2)",
+      "detail": "watertight_mesh: 39 unpaired edges out of 132 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,4), (0,4), (1,2), (1,4), ...; mesh_euler_characteristic: V(52) - E(132) + F(75) = -5 (expected 2)",
       "id": "R0002",
       "status": "fail"
     },
@@ -24,7 +24,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 63633bdd-9ad7-4f2e-b1e0-d195797e95aa: operation error: kernel error: kernel error: revolve self-intersection: profile straddles the revolve axis (vertices lie on both sides); sweeping a straddling profile produces a self-intersecting solid; watertight_mesh: 12 unpaired edges out of 54 total; no_self_intersection: 8 inter-face triangle penetrations, face pairs: (2,5), (2,5), (2,5), (2,5), (3,4), ...; minimum_triangle_count: 32 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"rectangle\"), (\"extrude\", \"gear\")]; mesh_euler_characteristic: V(20) - E(54) + F(32) = -2 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): 63633bdd-9ad7-4f2e-b1e0-d195797e95aa: operation error: kernel error: kernel error: revolve self-intersection: profile straddles the revolve axis (vertices lie on both sides); sweeping a straddling profile produces a self-intersecting solid; watertight_mesh: 14 unpaired edges out of 52 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (2,5), (3,4), (3,4), (3,5), ...; minimum_triangle_count: 30 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"rectangle\"), (\"extrude\", \"gear\")]; mesh_euler_characteristic: V(20) - E(52) + F(30) = -2 (expected 2)",
       "id": "R0004",
       "status": "fail"
     },
@@ -36,25 +36,25 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 14 unpaired edges out of 64 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (3,4), (6,8), (6,8), (7,9), ...",
+      "detail": "watertight_mesh: 10 unpaired edges out of 59 total; no_self_intersection: 8 inter-face triangle penetrations, face pairs: (6,8), (6,8), (6,8), (6,8), (6,8), ...; mesh_euler_characteristic: V(28) - E(59) + F(36) = 5 (expected 2)",
       "id": "R0006",
       "status": "fail"
     },
     {
       "category": "revolve-normals",
-      "detail": "partial rebuild (2 error(s)): 282b97fd-7f4e-454a-82a0-f81dcc1f1ebe: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[7].twin = 0 but twin.twin = 23 (expected 7); e37f2bcc-225b-4613-b693-d37261699f51: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1); outward_normals: no valid triangles",
+      "detail": "partial rebuild (2 error(s)): 282b97fd-7f4e-454a-82a0-f81dcc1f1ebe: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[5].twin = 0 but twin.twin = 38 (expected 5); e37f2bcc-225b-4613-b693-d37261699f51: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[5].twin = 0 but twin.twin = 0 (expected 5); outward_normals: no valid triangles",
       "id": "R0007",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = 0 but twin.twin = 34 (expected 13). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[11].twin = 0 but twin.twin = 5 (expected 11). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0008",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): e8f47324-eb20-44c1-ba99-9cba7531cd12: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 6 (expected 3); watertight_mesh: 3 unpaired edges out of 18 total; minimum_triangle_count: 11 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(10) - E(18) + F(11) = 3 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): e8f47324-eb20-44c1-ba99-9cba7531cd12: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1); watertight_mesh: 6 unpaired edges out of 18 total; minimum_triangle_count: 10 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0009",
       "status": "fail"
     },
@@ -78,79 +78,79 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 0 (expected 4). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,3), (0,4), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,3), (0,4), ...",
       "id": "R0013",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[620].twin = 0 but twin.twin = 2303 (expected 620). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[624].twin = 0 but twin.twin = 1151 (expected 624). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0014",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[44].twin = 0 but twin.twin = 29 (expected 44). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged); watertight_mesh: 192 unpaired edges out of 12474 total; mesh_euler_characteristic: V(4160) - E(12474) + F(8252) = -62 (expected 2)",
+      "detail": "auto-union-failed (2 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[44].twin = 0 but twin.twin = 16 (expected 44). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged); watertight_mesh: 192 unpaired edges out of 12474 total; mesh_euler_characteristic: V(4160) - E(12474) + F(8252) = -62 (expected 2)",
       "id": "R0015",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[196].twin = 0 but twin.twin = 1471 (expected 196). Body created as standalone.; partial rebuild (1 error(s)): 9019b316-6a4a-4ae9-9240-e61a4e650e51: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 14268144 exceeds limit 5000000; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[579].twin = 0 but twin.twin = 2688 (expected 579). Body created as standalone.; partial rebuild (1 error(s)): 9019b316-6a4a-4ae9-9240-e61a4e650e51: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 14268144 exceeds limit 5000000; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "R0016",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[33].twin = 0 but twin.twin = 28 (expected 33). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[38].twin = 0 but twin.twin = 8 (expected 38). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0017",
       "status": "fail"
     },
     {
-      "category": "pass-genuine",
-      "detail": "9 oracles passed",
+      "category": "multiple-failures",
+      "detail": "no_self_intersection: 1 inter-face triangle penetrations, face pairs: (0,2)",
       "id": "R0018",
-      "status": "pass"
+      "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 5091f85d-64c4-491b-bb6a-ad2a85adb80c: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[10].twin = 0 but twin.twin = 119 (expected 10); no_self_intersection: 9 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "detail": "partial rebuild (1 error(s)): 5091f85d-64c4-491b-bb6a-ad2a85adb80c: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1); no_self_intersection: 9 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "R0019",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (2 error(s)): 9c120c13-7e45-4927-b655-c79a3ded1ec4: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 42 (expected 8); 767e7667-d14f-4017-9d73-e863a4d6f6e9: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 0 (expected 6); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,3), (2,3), (2,3), (2,3), (2,5), ...",
+      "detail": "partial rebuild (2 error(s)): 9c120c13-7e45-4927-b655-c79a3ded1ec4: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[5].twin = 0 but twin.twin = 26 (expected 5); 767e7667-d14f-4017-9d73-e863a4d6f6e9: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 0 (expected 4); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,3), (2,3), (2,3), (2,3), (2,5), ...",
       "id": "R0020",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 42 (expected 3). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[24].twin = 0 but twin.twin = 124 (expected 24). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "detail": "auto-union-failed (2 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 0 (expected 3). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2].twin = 0 but twin.twin = 0 (expected 2). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "R0021",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): ed7970ff-e031-4fce-b2d6-19bf876b1764: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1009].twin = 0 but twin.twin = 2291 (expected 1009); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,5), (0,9), (0,11), (0,13), ...",
+      "detail": "partial rebuild (1 error(s)): ed7970ff-e031-4fce-b2d6-19bf876b1764: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1008].twin = 0 but twin.twin = 2250 (expected 1008); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,5), (0,9), (0,11), (0,13), ...",
       "id": "R0022",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; partial rebuild (1 error(s)): f68e125b-a408-428b-b7b3-348dbd7aa467: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2].twin = 0 but twin.twin = 0 (expected 2); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (0,3), (0,4), (0,5); minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 39 (expected 1). Body created as standalone.; partial rebuild (1 error(s)): f68e125b-a408-428b-b7b3-348dbd7aa467: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (0,3), (0,4), (0,5); minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0023",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[840].twin = 0 but twin.twin = 1930 (expected 840). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[840].twin = 0 but twin.twin = 1983 (expected 840). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "R0024",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[562].twin = 0 but twin.twin = 1013 (expected 562). Body created as standalone.; partial rebuild (1 error(s)): aa386512-2ca8-4946-88e7-831532802329: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[121].twin = 0 but twin.twin = 245 (expected 121); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 7 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (1,2), (1,2), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[560].twin = 0 but twin.twin = 1108 (expected 560). Body created as standalone.; partial rebuild (1 error(s)): aa386512-2ca8-4946-88e7-831532802329: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[120].twin = 0 but twin.twin = 203 (expected 120); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 7 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (1,2), (1,2), ...",
       "id": "R0025",
       "status": "fail"
     },
@@ -161,8 +161,8 @@
       "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): ee06ff04-16c2-4c2f-9202-1443c15f41ab: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 19 (expected 8); watertight_mesh: 3 unpaired edges out of 12 total; no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,1), (0,1); minimum_triangle_count: 7 triangles < expected minimum 12 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"gear\"), (\"revolve\", \"circle\")]; mesh_euler_characteristic: V(6) - E(12) + F(7) = 1 (expected 2)",
+      "category": "mesh-too-simple",
+      "detail": "partial rebuild (1 error(s)): ee06ff04-16c2-4c2f-9202-1443c15f41ab: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[15].twin = 0 but twin.twin = 9 (expected 15); no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1); minimum_triangle_count: 8 triangles < expected minimum 12 for operations [(\"extrude\", \"rectangle\"), (\"extrude\", \"gear\"), (\"revolve\", \"circle\")]; volume_magnitude: volume 1.743844e2 outside [4.774040e3, 4.774040e19] for scale 7.815594e3",
       "id": "R0027",
       "status": "fail"
     },
@@ -174,25 +174,25 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3 unpaired edges out of 21 total; no_self_intersection: 3 inter-face triangle penetrations, face pairs: (1,2), (2,3), (2,4); mesh_euler_characteristic: V(11) - E(21) + F(13) = 3 (expected 2)",
+      "detail": "watertight_mesh: 3 unpaired edges out of 21 total; no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,5), (1,2); mesh_euler_characteristic: V(11) - E(21) + F(13) = 3 (expected 2)",
       "id": "R0029",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[29].twin = 0 but twin.twin = 16 (expected 29). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[24].twin = 0 but twin.twin = 17 (expected 24). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
       "id": "R0030",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 928dac13-3f25-4663-995b-95e5c33bfcf3: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[18].twin = 0 but twin.twin = 300 (expected 18); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (3,4), (4,5), (4,5)",
+      "detail": "partial rebuild (1 error(s)): 928dac13-3f25-4663-995b-95e5c33bfcf3: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[5].twin = 0 but twin.twin = 227 (expected 5); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (3,4), (4,5), (4,5)",
       "id": "R0031",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 089554e1-2746-405d-9c0d-70e00e9097a2: operation error: kernel error: operation not supported: yang_boolean: label_cells timeout (A sub-tris); watertight_mesh: 38 unpaired edges out of 970 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,6), (0,9), (0,9), (0,10), ...; mesh_euler_characteristic: V(332) - E(970) + F(634) = -4 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): 089554e1-2746-405d-9c0d-70e00e9097a2: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1); watertight_mesh: 32 unpaired edges out of 973 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,7), (0,10), (0,18), ...; mesh_euler_characteristic: V(332) - E(973) + F(638) = -3 (expected 2)",
       "id": "R0032",
       "status": "fail"
     },
@@ -210,19 +210,19 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[7].twin = 0 but twin.twin = 32 (expected 7). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (0,2)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[5].twin = 0 but twin.twin = 108 (expected 5). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (0,2)",
       "id": "R0035",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,5), (0,13), (0,34), (0,60), (0,64), ...",
+      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,7), (0,9), (0,17), (0,34), (0,44), ...",
       "id": "R0036",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): f6b85cd1-3786-4649-90f6-d3d8517ab7cb: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 14390896 exceeds limit 5000000; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,18), (0,18), (0,18), (0,62), (0,62), ...",
+      "detail": "partial rebuild (1 error(s)): f6b85cd1-3786-4649-90f6-d3d8517ab7cb: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 14390896 exceeds limit 5000000; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,39), ...",
       "id": "R0037",
       "status": "fail"
     },
@@ -234,49 +234,49 @@
     },
     {
       "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,26), (0,66), (0,66), (0,78), (0,85), ...",
+      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,22), (0,41), (0,64), (0,66), (0,66), ...",
       "id": "R0039",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[29].twin = 0 but twin.twin = 25 (expected 29). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,3), (2,3), (2,3), (2,3), (2,3), ...",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 20 (expected 8). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,3), (2,3), (2,3), (2,3), (2,3), ...",
       "id": "R0040",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): e507f696-a1f4-4c34-b7fb-2f836f29eb02: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[70].twin = 0 but twin.twin = 63 (expected 70); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (0,2), (0,2), (1,2)",
+      "detail": "partial rebuild (1 error(s)): e507f696-a1f4-4c34-b7fb-2f836f29eb02: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[49].twin = 0 but twin.twin = 96 (expected 49); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (0,2), (0,2), (1,2)",
       "id": "R0041",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 12 unpaired edges out of 51 total; no_self_intersection: 1 inter-face triangle penetrations, face pairs: (0,2); minimum_triangle_count: 30 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\")]; mesh_euler_characteristic: V(24) - E(51) + F(30) = 3 (expected 2)",
+      "category": "volume-magnitude",
+      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (1,3), (1,3), (1,3), ...; volume_magnitude: volume 4.104082e0 outside [6.340544e0, 6.340544e16] for scale 8.590969e2; mesh_euler_characteristic: V(24) - E(60) + F(40) = 4 (expected 2)",
       "id": "R0042",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): c99882c0-c80c-4106-85a5-33fdf0817ccb: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2184].twin = 0 but twin.twin = 917 (expected 2184); watertight_mesh: 9 unpaired edges out of 2199 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,15), (0,17), (0,18), (0,18), ...; mesh_euler_characteristic: V(740) - E(2199) + F(1463) = 4 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): c99882c0-c80c-4106-85a5-33fdf0817ccb: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2184].twin = 0 but twin.twin = 1101 (expected 2184); watertight_mesh: 6 unpaired edges out of 2199 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,41), (0,42), (0,42), (0,57), ...; mesh_euler_characteristic: V(740) - E(2199) + F(1464) = 5 (expected 2)",
       "id": "R0043",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[77].twin = 0 but twin.twin = 188 (expected 77). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 651 unpaired edges out of 6642 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,7), (0,12), (0,12), (0,12), (0,14), ...; mesh_euler_characteristic: V(2242) - E(6642) + F(4211) = -189 (expected 2)",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[108].twin = 0 but twin.twin = 61 (expected 108). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 651 unpaired edges out of 6642 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,7), (0,12), (0,12), (0,12), (0,14), ...; mesh_euler_characteristic: V(2242) - E(6642) + F(4211) = -189 (expected 2)",
       "id": "R0044",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 88 unpaired edges out of 950 total; consistent_normals: 10 of 604 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,12), (0,24), (0,24), (0,25), (0,36), ...; mesh_euler_characteristic: V(320) - E(950) + F(604) = -26 (expected 2)",
+      "detail": "watertight_mesh: 88 unpaired edges out of 950 total; consistent_normals: 10 of 604 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,19), (0,23), (0,27), (0,43), (0,45), ...; mesh_euler_characteristic: V(320) - E(950) + F(604) = -26 (expected 2)",
       "id": "R0045",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (2 error(s)): 3071deb9-4fab-4209-b01c-9bc4bd7aae35: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[70].twin = 0 but twin.twin = 184 (expected 70); 81386d33-9388-425f-b09f-5dc1c63a818b: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 436 (expected 6); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (1,2), (1,2), ...",
+      "detail": "partial rebuild (2 error(s)): 3071deb9-4fab-4209-b01c-9bc4bd7aae35: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[72].twin = 0 but twin.twin = 220 (expected 72); 81386d33-9388-425f-b09f-5dc1c63a818b: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[19].twin = 0 but twin.twin = 423 (expected 19); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (1,2), (1,2), ...",
       "id": "R0046",
       "status": "fail"
     },
@@ -288,13 +288,13 @@
     },
     {
       "category": "multiple-failures",
-      "detail": "no_self_intersection: 3 inter-face triangle penetrations, face pairs: (1,3), (1,4), (4,5)",
+      "detail": "no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,5), (1,3), (1,4), (1,5)",
       "id": "R0048",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): d77f3528-7297-490c-abb3-74aee23c46f5: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[27].twin = 0 but twin.twin = 19 (expected 27); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,2), (2,3), (2,3), (2,3), (2,3), ...",
+      "detail": "partial rebuild (1 error(s)): d77f3528-7297-490c-abb3-74aee23c46f5: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[20].twin = 0 but twin.twin = 108 (expected 20); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,2), (2,3), (2,3), (2,3), (2,3), ...",
       "id": "R0049",
       "status": "fail"
     },
@@ -306,7 +306,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = 0 but twin.twin = 258 (expected 13). Body created as standalone.; partial rebuild (1 error(s)): bc380f5a-df85-4599-9edd-f37bc9a64c68: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 407 (expected 3); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (1,2), (3,4), (3,4), (3,4), (3,4), ...",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[118].twin = 0 but twin.twin = 75 (expected 118). Body created as standalone.; partial rebuild (1 error(s)): bc380f5a-df85-4599-9edd-f37bc9a64c68: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[24].twin = 0 but twin.twin = 227 (expected 24); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (1,2), (3,4), (3,4), (3,4), (3,4), ...",
       "id": "R0051",
       "status": "fail"
     },
@@ -324,31 +324,31 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[27].twin = 0 but twin.twin = 25 (expected 27). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,22), (0,32), (0,46), (0,52), ...",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[18].twin = 0 but twin.twin = 28 (expected 18). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,22), (0,32), (0,46), (0,52), ...",
       "id": "R0054",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): e1bbe8fb-fcf1-4eba-b0f6-18712d4b1010: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 0 (expected 3); no_self_intersection: 2 inter-face triangle penetrations, face pairs: (1,5), (3,4)",
+      "category": "tessellation-degenerate",
+      "detail": "partial rebuild (1 error(s)): e1bbe8fb-fcf1-4eba-b0f6-18712d4b1010: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1); no_degenerate_triangles: 1 of 20 triangles are degenerate; no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,2), (1,4)",
       "id": "R0055",
       "status": "fail"
     },
     {
       "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 44 of 2460 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,14), (0,14), (0,38), (0,38), (0,66), ...",
+      "detail": "no_degenerate_triangles: 43 of 2460 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,43), (0,121), (0,130), (0,130), (0,130), ...",
       "id": "R0056",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 59 (expected 4). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,15), (0,22), (0,23), (0,39), (0,46), ...",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2].twin = 0 but twin.twin = 11 (expected 2). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,15), (0,22), (0,23), (0,39), (0,46), ...",
       "id": "R0057",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[152].twin = 0 but twin.twin = 493 (expected 152). Body created as standalone.; partial rebuild (1 error(s)): 14c8d47a-d667-435e-902f-c7745c307a90: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 0 (expected 6); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,10), (0,12), (0,12), (0,12), (0,13), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[153].twin = 0 but twin.twin = 1368 (expected 153). Body created as standalone.; partial rebuild (1 error(s)): 14c8d47a-d667-435e-902f-c7745c307a90: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2].twin = 0 but twin.twin = 1532 (expected 2); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,10), (0,12), (0,12), (0,12), (0,13), ...",
       "id": "R0058",
       "status": "fail"
     },
@@ -360,13 +360,13 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 18 unpaired edges out of 123 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,7), (0,7), (0,7), (0,10), (0,10), ...",
+      "detail": "watertight_mesh: 15 unpaired edges out of 129 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,8), (0,8), (0,8), (0,8), ...; mesh_euler_characteristic: V(49) - E(129) + F(81) = 1 (expected 2)",
       "id": "R0060",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): c032f2e8-9766-4502-9430-29829c8e2a31: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[138].twin = 0 but twin.twin = 551 (expected 138); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (1,3), ...; mesh_euler_characteristic: V(22) - E(48) + F(32) = 6 (expected 2)",
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): c032f2e8-9766-4502-9430-29829c8e2a31: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[138].twin = 0 but twin.twin = 569 (expected 138); watertight_mesh: 6 unpaired edges out of 48 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; minimum_triangle_count: 30 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(22) - E(48) + F(30) = 4 (expected 2)",
       "id": "R0061",
       "status": "fail"
     },
@@ -378,13 +378,13 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 785 (expected 6). Body created as standalone.; partial rebuild (1 error(s)): 8eeba1df-ba26-434b-b13f-a2d9f219b438: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = 0 but twin.twin = 192 (expected 13); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_degenerate_triangles: 132 of 2460 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,57), (0,169), (0,169), (0,226), (0,282), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[11].twin = 0 but twin.twin = 1400 (expected 11). Body created as standalone.; partial rebuild (1 error(s)): 8eeba1df-ba26-434b-b13f-a2d9f219b438: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[31].twin = 0 but twin.twin = 0 (expected 31); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_degenerate_triangles: 132 of 2460 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,57), (0,169), (0,169), (0,226), (0,282), ...",
       "id": "R0063",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 6 unpaired edges out of 1800 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,10), (0,10), (0,10), (0,15), (0,15), ...; mesh_euler_characteristic: V(602) - E(1800) + F(1198) = 0 (expected 2)",
+      "detail": "watertight_mesh: 6 unpaired edges out of 1800 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,6), (0,10), (0,10), (0,10), ...; mesh_euler_characteristic: V(602) - E(1800) + F(1198) = 0 (expected 2)",
       "id": "R0064",
       "status": "fail"
     },
@@ -395,14 +395,14 @@
       "status": "error"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 9 unpaired edges out of 39 total; no_self_intersection: 2 inter-face triangle penetrations, face pairs: (1,2), (4,5); minimum_triangle_count: 23 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(22) - E(39) + F(23) = 6 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 9 (expected 4). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,2), (1,2), (1,2), (1,2)",
       "id": "R0066",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 26 unpaired edges out of 118 total; no_degenerate_triangles: 1 of 70 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(46) - E(118) + F(70) = -2 (expected 2)",
+      "detail": "watertight_mesh: 20 unpaired edges out of 115 total; consistent_normals: 1 of 70 triangles have reversed normals; no_degenerate_triangles: 1 of 70 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(45) - E(115) + F(70) = 0 (expected 2)",
       "id": "R0067",
       "status": "fail"
     },
@@ -432,61 +432,61 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[32].twin = 0 but twin.twin = 126 (expected 32). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,3), (0,5), (0,5), (1,2); minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[29].twin = 0 but twin.twin = 215 (expected 29). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,3), (0,5), (0,5), (1,2); minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0072",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (4,5), (6,24), (6,27), (6,38), ...; mesh_euler_characteristic: V(512) - E(1524) + F(1016) = 4 (expected 2)",
+      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (6,26), (6,29), (6,44), (6,47), ...; mesh_euler_characteristic: V(512) - E(1524) + F(1016) = 4 (expected 2)",
       "id": "R0073",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[9].twin = 0 but twin.twin = 1284 (expected 9). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged); no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,2), (1,2)",
+      "detail": "auto-union-failed (2 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[337].twin = 0 but twin.twin = 2440 (expected 337). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged); no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,2), (1,2)",
       "id": "R0074",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 80a0905f-8a98-48c5-a505-475f18a473b3: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 6932772 exceeds limit 5000000; watertight_mesh: 9 unpaired edges out of 3879 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,15), (0,41), (0,47), (0,51), (0,61), ...; mesh_euler_characteristic: V(1300) - E(3879) + F(2583) = 4 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): 80a0905f-8a98-48c5-a505-475f18a473b3: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 6924720 exceeds limit 5000000; watertight_mesh: 12 unpaired edges out of 3876 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,8), (0,10), (0,15), (0,34), ...; mesh_euler_characteristic: V(1300) - E(3876) + F(2580) = 4 (expected 2)",
       "id": "R0075",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 27 (expected 4). Body created as standalone.; partial rebuild (1 error(s)): bc2f620d-b753-47c0-9f31-c66e10b01613: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[95].twin = 0 but twin.twin = 348 (expected 95); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 7 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (1,2), (1,2), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 42 (expected 8). Body created as standalone.; partial rebuild (1 error(s)): bc2f620d-b753-47c0-9f31-c66e10b01613: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[90].twin = 0 but twin.twin = 338 (expected 90); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 7 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (1,2), (1,2), ...",
       "id": "R0076",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[136].twin = 0 but twin.twin = 658 (expected 136). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (0,5); minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"extrude\", \"rectangle\")]",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[136].twin = 0 but twin.twin = 461 (expected 136). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (0,5); minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"revolve\", \"circle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0077",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 15f16cc9-bee8-49fa-80fb-1516f33eccc8: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 30 (expected 1); mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected 0)",
+      "detail": "partial rebuild (1 error(s)): 15f16cc9-bee8-49fa-80fb-1516f33eccc8: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 68 (expected 1); mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected 0)",
       "id": "R0078",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2].twin = 0 but twin.twin = 0 (expected 2). Body created as standalone.; partial rebuild (1 error(s)): 39b1c7c4-f107-4b35-8f35-aaa29d059d99: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 0 (expected 3); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 5 inter-face triangle penetrations, face pairs: (0,2), (1,2), (1,2), (1,2), (1,2)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2].twin = 0 but twin.twin = 0 (expected 2). Body created as standalone.; partial rebuild (1 error(s)): 39b1c7c4-f107-4b35-8f35-aaa29d059d99: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 5 inter-face triangle penetrations, face pairs: (0,2), (1,2), (1,2), (1,2), (1,2)",
       "id": "R0079",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 1 inter-face triangle penetrations, face pairs: (1,4)",
+      "category": "pass-genuine",
+      "detail": "9 oracles passed",
       "id": "R0080",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: triangle-pair count 13876800 exceeds limit 5000000. Body created as standalone.; partial rebuild (1 error(s)): 72ce3e9a-5ff4-43d6-8777-d96db7d1dd4d: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1043].twin = 0 but twin.twin = 2317 (expected 1043); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,48), (0,80), (0,80), (0,84), (0,84), ...",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: triangle-pair count 13876800 exceeds limit 5000000. Body created as standalone.; partial rebuild (1 error(s)): 72ce3e9a-5ff4-43d6-8777-d96db7d1dd4d: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1514].twin = 0 but twin.twin = 1502 (expected 1514); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,48), (0,80), (0,80), (0,84), (0,84), ...",
       "id": "R0081",
       "status": "fail"
     },
@@ -498,7 +498,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3 unpaired edges out of 54 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (1,3), (1,3), ...; mesh_euler_characteristic: V(24) - E(54) + F(35) = 5 (expected 2)",
+      "detail": "watertight_mesh: 8 unpaired edges out of 49 total; no_self_intersection: 6 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; minimum_triangle_count: 30 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(24) - E(49) + F(30) = 5 (expected 2)",
       "id": "R0083",
       "status": "fail"
     },
@@ -516,31 +516,31 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 26 unpaired edges out of 124 total; no_degenerate_triangles: 1 of 74 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,5), (0,5), (0,5), ...; mesh_euler_characteristic: V(48) - E(124) + F(74) = -2 (expected 2)",
+      "detail": "watertight_mesh: 21 unpaired edges out of 126 total; no_degenerate_triangles: 1 of 77 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,3), (0,3), (0,3), ...; mesh_euler_characteristic: V(48) - E(126) + F(77) = -1 (expected 2)",
       "id": "R0086",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,13), (0,19), (0,23), (0,24), (0,30), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,20), (0,21), (0,24), (0,44), (0,65), ...",
       "id": "R0087",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (2 error(s)): d1d97c73-794c-42de-90bf-3a044a05ac9d: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 43 (expected 1); f2076600-1597-4345-98d9-a609f15f25cf: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[27].twin = 0 but twin.twin = 105 (expected 27); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (1,2), ...",
+      "detail": "partial rebuild (2 error(s)): d1d97c73-794c-42de-90bf-3a044a05ac9d: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 0 (expected 4); f2076600-1597-4345-98d9-a609f15f25cf: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[29].twin = 0 but twin.twin = 109 (expected 29); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (1,2), ...",
       "id": "R0088",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[20].twin = 0 but twin.twin = 74 (expected 20). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[20].twin = 0 but twin.twin = 18 (expected 20). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (0,2)",
+      "detail": "auto-union-failed (2 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[14].twin = 0 but twin.twin = 60 (expected 14). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[48].twin = 0 but twin.twin = 15 (expected 48). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (0,2)",
       "id": "R0089",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 20 (expected 4). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "R0090",
       "status": "fail"
     },
@@ -552,13 +552,13 @@
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): f0b5d322-fb7e-45e5-ac87-fd95fc973c13: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 9 (expected 6); no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,2), (0,2), (1,2), (1,2)",
+      "detail": "partial rebuild (1 error(s)): f0b5d322-fb7e-45e5-ac87-fd95fc973c13: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 16 (expected 6); no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,2), (0,2), (1,2), (1,2)",
       "id": "R0092",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 0af1f6a6-52d1-42e2-badf-2bcbcd271c7a: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 85043024 exceeds limit 5000000; watertight_mesh: 286 unpaired edges out of 9185 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,12), (0,12), (0,42), (0,100), (0,112), ...; mesh_euler_characteristic: V(3074) - E(9185) + F(6028) = -83 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): 0af1f6a6-52d1-42e2-badf-2bcbcd271c7a: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 85184104 exceeds limit 5000000; watertight_mesh: 280 unpaired edges out of 9197 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,12), (0,12), (0,42), (0,85), (0,100), ...; mesh_euler_characteristic: V(3078) - E(9197) + F(6038) = -81 (expected 2)",
       "id": "R0093",
       "status": "fail"
     },
@@ -570,25 +570,25 @@
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (2 error(s)): 2bc1b3fa-aa25-4363-b3c2-a2f517452344: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[206].twin = 0 but twin.twin = 192 (expected 206); ac392209-5719-4ea0-9e48-3d2680bc2542: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[73].twin = 0 but twin.twin = 290 (expected 73)",
+      "detail": "partial rebuild (2 error(s)): 2bc1b3fa-aa25-4363-b3c2-a2f517452344: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[206].twin = 0 but twin.twin = 185 (expected 206); ac392209-5719-4ea0-9e48-3d2680bc2542: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[68].twin = 0 but twin.twin = 269 (expected 68)",
       "id": "R0095",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 161a3f91-2ab7-4b09-bae5-85c893acf989: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 87 (expected 4); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,6), (0,32), (0,41), (0,42), ...",
+      "detail": "partial rebuild (1 error(s)): 161a3f91-2ab7-4b09-bae5-85c893acf989: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,6), (0,32), (0,41), (0,42), ...",
       "id": "R0096",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,5), (1,3), (1,5), (4,5), (6,16), ...; mesh_euler_characteristic: V(1128) - E(3372) + F(2248) = 4 (expected 2)",
+      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (6,8), (6,8), (6,8), (6,8), ...; mesh_euler_characteristic: V(1128) - E(3372) + F(2248) = 4 (expected 2)",
       "id": "R0097",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 14 unpaired edges out of 2995 total; no_degenerate_triangles: 1 of 1992 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,35), (0,35), (0,43), (0,46), (0,58), ...; mesh_euler_characteristic: V(1001) - E(2995) + F(1992) = -2 (expected 2)",
+      "detail": "watertight_mesh: 15 unpaired edges out of 2993 total (14 boundary, 1 non-manifold); no_degenerate_triangles: 4 of 1991 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,14), (0,14), (0,20), (0,23), (0,28), ...; mesh_euler_characteristic: V(1000) - E(2993) + F(1991) = -2 (expected 2)",
       "id": "R0098",
       "status": "fail"
     },
@@ -612,7 +612,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 9 (expected 3). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 68 (expected 3). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "F0002",
       "status": "fail"
     },
@@ -624,7 +624,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 31 (expected 4). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 68 (expected 3). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "F0004",
       "status": "fail"
     },
@@ -636,7 +636,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[5].twin = 0 but twin.twin = 0 (expected 5). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2].twin = 0 but twin.twin = 51 (expected 2). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "F0006",
       "status": "fail"
     },
@@ -654,139 +654,139 @@
     },
     {
       "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 11 of 76 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,10), (2,10), (2,17), (2,17), (4,12), ...",
+      "detail": "no_degenerate_triangles: 8 of 74 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,8), (2,8), (2,11), (2,11), (2,11), ...",
       "id": "F0009",
       "status": "fail"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 5 of 76 triangles have reversed normals; no_degenerate_triangles: 3 of 76 triangles are degenerate; outward_normals: only 68 of 73 triangles (93.2%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,13), (0,13), (0,13), (3,16), (3,16), ...",
+      "category": "tessellation-degenerate",
+      "detail": "no_degenerate_triangles: 3 of 72 triangles are degenerate; no_self_intersection: 5 inter-face triangle penetrations, face pairs: (0,15), (0,15), (0,15), (3,15), (3,15)",
       "id": "F0010",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "detail": "no_self_intersection: 3 inter-face triangle penetrations, face pairs: (3,4), (4,5), (7,11); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
       "id": "F0011",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "no_self_intersection: 3 inter-face triangle penetrations, face pairs: (6,9), (6,9), (7,9); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "detail": "no_self_intersection: 1 inter-face triangle penetrations, face pairs: (6,10); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
       "id": "F0012",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "no_self_intersection: 3 inter-face triangle penetrations, face pairs: (1,2), (1,5), (7,10); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "detail": "no_self_intersection: 1 inter-face triangle penetrations, face pairs: (7,9); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
       "id": "F0013",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "no_self_intersection: 1 inter-face triangle penetrations, face pairs: (6,9); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "detail": "no_self_intersection: 3 inter-face triangle penetrations, face pairs: (0,3), (1,3), (2,5); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
       "id": "F0014",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "detail": "no_self_intersection: 1 inter-face triangle penetrations, face pairs: (8,9); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
       "id": "F0015",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[23].twin = 0 but twin.twin = 51 (expected 23). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (0,3), (0,4), (3,4)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[27].twin = 0 but twin.twin = 40 (expected 27). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (0,3), (0,4), (3,4)",
       "id": "F0016",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[9].twin = 0 but twin.twin = 34 (expected 9). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[56].twin = 0 but twin.twin = 14 (expected 56). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged); no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,5), (1,3)",
+      "detail": "auto-union-failed (2 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[15].twin = 0 but twin.twin = 19 (expected 15). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[54].twin = 0 but twin.twin = 23 (expected 54). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged); no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,5), (1,3)",
       "id": "F0017",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[25].twin = 0 but twin.twin = 78 (expected 25). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[18].twin = 0 but twin.twin = 11 (expected 18). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
       "id": "F0018",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 83 (expected 1). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (0,4), (0,5), (3,4)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[5].twin = 0 but twin.twin = 30 (expected 5). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (0,4), (0,5), (3,4)",
       "id": "F0019",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[17].twin = 0 but twin.twin = 9 (expected 17). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); consistent_normals: 2 of 84 triangles have reversed normals; no_degenerate_triangles: 3 of 84 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,3), (2,5), (2,10), (2,10), (3,10), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[32].twin = 0 but twin.twin = 9 (expected 32). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 3 unpaired edges out of 129 total; consistent_normals: 5 of 85 triangles have reversed normals; no_degenerate_triangles: 3 of 85 triangles are degenerate; outward_normals: only 78 of 83 triangles (94.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,3), (2,10), (2,10), (3,8), (3,8), ...; mesh_euler_characteristic: V(45) - E(129) + F(85) = 1 (expected 2)",
       "id": "F0020",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[25].twin = 0 but twin.twin = 4 (expected 25). Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 6 unpaired edges out of 153 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,22), (1,4), (6,18), (6,18), ...; mesh_euler_characteristic: V(57) - E(153) + F(100) = 4 (expected 2)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[23].twin = 0 but twin.twin = 13 (expected 23). Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 3 unpaired edges out of 153 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,22), (1,4), (1,17), (6,18), ...; mesh_euler_characteristic: V(57) - E(153) + F(101) = 5 (expected 2)",
       "id": "F0021",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[12].twin = 0 but twin.twin = 38 (expected 12). Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); consistent_normals: 1 of 90 triangles have reversed normals; no_degenerate_triangles: 3 of 90 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,14), (1,14), (3,17), (3,17), (3,17), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 28 (expected 6). Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); consistent_normals: 1 of 90 triangles have reversed normals; no_degenerate_triangles: 4 of 90 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,14), (1,14), (1,14), (3,17), (3,17), ...",
       "id": "F0022",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[5].twin = 0 but twin.twin = 30 (expected 5). Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 3 unpaired edges out of 156 total; no_degenerate_triangles: 1 of 103 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,19), (1,18), (1,20), (2,12), ...; mesh_euler_characteristic: V(58) - E(156) + F(103) = 5 (expected 2)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 29 (expected 6). Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 3 unpaired edges out of 156 total; no_degenerate_triangles: 1 of 103 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,3), (0,18), (0,20), (1,19), ...; mesh_euler_characteristic: V(58) - E(156) + F(103) = 5 (expected 2)",
       "id": "F0023",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 10 (expected 6). Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[44].twin = 0 but twin.twin = 8 (expected 44). Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); consistent_normals: 1 of 84 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,15), (1,5), (1,8), (1,8), (1,8), ...",
       "id": "F0024",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[24].twin = 0 but twin.twin = 10 (expected 24). Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,12), (0,13), (1,10), (2,3), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[19].twin = 0 but twin.twin = 40 (expected 19). Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,12), (0,13), (1,10), (2,3), (2,3), ...",
       "id": "F0025",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 18 (expected 4). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 21 (expected 4). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "F0026",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[24].twin = 0 but twin.twin = 21 (expected 24). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[24].twin = 0 but twin.twin = 17 (expected 24). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "F0027",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 27 (expected 4). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[5].twin = 0 but twin.twin = 20 (expected 5). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "F0028",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 67 (expected 1). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 6 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[5].twin = 0 but twin.twin = 33 (expected 5). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 6 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "F0029",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2].twin = 0 but twin.twin = 65 (expected 2). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 7 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 7 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "F0030",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 6 unpaired edges out of 60 total",
+      "detail": "watertight_mesh: 9 unpaired edges out of 60 total; mesh_euler_characteristic: V(26) - E(60) + F(37) = 3 (expected 4)",
       "id": "F0031",
       "status": "fail"
     },
@@ -804,103 +804,103 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 15 unpaired edges out of 66 total; mesh_euler_characteristic: V(28) - E(66) + F(39) = 1 (expected 4)",
+      "detail": "watertight_mesh: 24 unpaired edges out of 57 total; mesh_euler_characteristic: V(28) - E(57) + F(30) = 1 (expected 4)",
       "id": "F0034",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 8 unpaired edges out of 49 total; mesh_euler_characteristic: V(24) - E(49) + F(30) = 5 (expected 4)",
+      "category": "multiple-failures",
+      "detail": "mesh_euler_characteristic: V(24) - E(54) + F(36) = 6 (expected 4)",
       "id": "F0035",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 27 unpaired edges out of 114 total; mesh_euler_characteristic: V(44) - E(114) + F(67) = -3 (expected 4)",
+      "detail": "watertight_mesh: 16 unpaired edges out of 62 total; consistent_normals: 12 of 36 triangles have reversed normals; outward_normals: only 24 of 36 triangles (66.7%) have outward normals (need 95%); mesh_euler_characteristic: V(38) - E(62) + F(36) = 12 (expected 4)",
       "id": "F0036",
-      "status": "fail"
-    },
-    {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 12 unpaired edges out of 66 total; consistent_normals: 14 of 40 triangles have reversed normals; outward_normals: only 26 of 40 triangles (65.0%) have outward normals (need 95%); mesh_euler_characteristic: V(42) - E(66) + F(40) = 16 (expected 4)",
-      "id": "F0037",
-      "status": "fail"
-    },
-    {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 15 unpaired edges out of 66 total; consistent_normals: 15 of 39 triangles have reversed normals; outward_normals: only 24 of 39 triangles (61.5%) have outward normals (need 95%); mesh_euler_characteristic: V(40) - E(66) + F(39) = 13 (expected 4)",
-      "id": "F0038",
-      "status": "fail"
-    },
-    {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(40) - E(102) + F(68) = 6 (expected 4)",
-      "id": "F0039",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
       "detail": "mesh_euler_characteristic: V(44) - E(114) + F(76) = 6 (expected 4)",
+      "id": "F0037",
+      "status": "fail"
+    },
+    {
+      "category": "multiple-failures",
+      "detail": "mesh_euler_characteristic: V(44) - E(114) + F(76) = 6 (expected 4)",
+      "id": "F0038",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 20 unpaired edges out of 94 total; mesh_euler_characteristic: V(40) - E(94) + F(56) = 2 (expected 4)",
+      "id": "F0039",
+      "status": "fail"
+    },
+    {
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 46 unpaired edges out of 98 total; mesh_euler_characteristic: V(44) - E(98) + F(50) = -4 (expected 4)",
       "id": "F0040",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[58].twin = 0 but twin.twin = 157 (expected 58). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (1,2)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[67].twin = 0 but twin.twin = 123 (expected 67). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (1,2)",
       "id": "F0041",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): b2170b0b-0c14-44f4-8723-44d951dc8d42: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[92].twin = 0 but twin.twin = 246 (expected 92); no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2)",
+      "detail": "partial rebuild (1 error(s)): b2170b0b-0c14-44f4-8723-44d951dc8d42: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[100].twin = 0 but twin.twin = 263 (expected 100); no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2)",
       "id": "F0042",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[42].twin = 0 but twin.twin = 80 (expected 42). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,2), (0,2), (1,2), (1,2)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[40].twin = 0 but twin.twin = 87 (expected 40). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,2), (0,2), (1,2), (1,2)",
       "id": "F0043",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 12 unpaired edges out of 105 total; consistent_normals: 18 of 66 triangles have reversed normals; outward_normals: only 48 of 66 triangles (72.7%) have outward normals (need 95%); mesh_euler_characteristic: V(62) - E(105) + F(66) = 23 (expected 2)",
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 13 of 86 triangles have reversed normals; outward_normals: only 73 of 86 triangles (84.9%) have outward normals (need 95%); volume_magnitude: volume 7.517135e-18 outside [1.000000e-8, 1.000000e8] for scale 1.000000e0; mesh_euler_characteristic: V(62) - E(129) + F(86) = 19 (expected 2)",
       "id": "F0044",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[42].twin = 0 but twin.twin = 193 (expected 42). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 5 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (1,2), (1,2)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[42].twin = 0 but twin.twin = 210 (expected 42). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 5 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (1,2), (1,2)",
       "id": "F0045",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[14].twin = 0 but twin.twin = 43 (expected 14). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[11].twin = 0 but twin.twin = 44 (expected 11). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "F0046",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[14].twin = 0 but twin.twin = 11 (expected 14). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[14].twin = 0 but twin.twin = 34 (expected 14). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "F0047",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[9].twin = 0 but twin.twin = 85 (expected 9). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 5 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 36 (expected 8). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 5 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2)",
       "id": "F0048",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[12].twin = 0 but twin.twin = 22 (expected 12). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = 0 but twin.twin = 28 (expected 13). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "F0049",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2].twin = 0 but twin.twin = 58 (expected 2). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "F0050",
       "status": "fail"
     },
@@ -924,55 +924,55 @@
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 3798e4f2-5768-44b9-ab32-6431c73c9d7d: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[41].twin = 0 but twin.twin = 69 (expected 41)",
+      "detail": "partial rebuild (1 error(s)): 3798e4f2-5768-44b9-ab32-6431c73c9d7d: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[41].twin = 0 but twin.twin = 67 (expected 41)",
       "id": "F0054",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): f08ea688-e714-45fe-ad30-6b90f2f52e9f: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[20].twin = 0 but twin.twin = 38 (expected 20)",
+      "detail": "partial rebuild (1 error(s)): f08ea688-e714-45fe-ad30-6b90f2f52e9f: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[20].twin = 0 but twin.twin = 50 (expected 20)",
       "id": "F0055",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[5].twin = 0 but twin.twin = 0 (expected 5). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 55 (expected 4). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "F0056",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2].twin = 0 but twin.twin = 72 (expected 2). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (1,2), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 46 (expected 3). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (1,2), ...",
       "id": "F0057",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 559e354e-a36a-4c6a-b998-fe93a4590c52: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2].twin = 0 but twin.twin = 40 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): 559e354e-a36a-4c6a-b998-fe93a4590c52: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[10].twin = 0 but twin.twin = 0 (expected 10)",
       "id": "F0058",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[40].twin = 0 but twin.twin = 64 (expected 40). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[24].twin = 0 but twin.twin = 280 (expected 24). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "F0059",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 764a62d5-ed3f-407f-845d-c1577ef9cc13: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 53 (expected 3); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (1,2), ...",
+      "detail": "partial rebuild (1 error(s)): 764a62d5-ed3f-407f-845d-c1577ef9cc13: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 35 (expected 1); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (1,2), ...",
       "id": "F0060",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 3b2757e2-1105-4cdd-88c7-020a0c4cb863: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[336].twin = 0 but twin.twin = 1986 (expected 336); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,13), (0,25), (0,25), (0,43), (0,49), ...; mesh_euler_characteristic: V(672) - E(2010) + F(1340) = 2 (expected 0)",
+      "detail": "partial rebuild (1 error(s)): 3b2757e2-1105-4cdd-88c7-020a0c4cb863: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[336].twin = 0 but twin.twin = 757 (expected 336); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,13), (0,25), (0,25), (0,43), (0,49), ...; mesh_euler_characteristic: V(672) - E(2010) + F(1340) = 2 (expected 0)",
       "id": "F0061",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 0dd82986-b702-4394-962a-a02b5fe7b901: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 29 (expected 4); mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected 0)",
+      "detail": "partial rebuild (1 error(s)): 0dd82986-b702-4394-962a-a02b5fe7b901: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1); mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected 0)",
       "id": "F0062",
       "status": "fail"
     },
@@ -984,7 +984,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (4 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[588].twin = 0 but twin.twin = 3323 (expected 588). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2].twin = 0 but twin.twin = 87 (expected 2). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[18].twin = 0 but twin.twin = 46 (expected 18). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 39 (expected 8). Body created as standalone.; merge incomplete: 5 operations produced 5 separate solids (expected 1 merged); minimum_triangle_count: 28 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"polygon\"), (\"extrude\", \"circle\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\")]",
+      "detail": "auto-union-failed (4 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[588].twin = 0 but twin.twin = 2495 (expected 588). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 83 (expected 3). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[17].twin = 0 but twin.twin = 86 (expected 17). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[9].twin = 0 but twin.twin = 47 (expected 9). Body created as standalone.; merge incomplete: 5 operations produced 5 separate solids (expected 1 merged); minimum_triangle_count: 28 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"polygon\"), (\"extrude\", \"circle\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\")]",
       "id": "F0064",
       "status": "fail"
     },
@@ -996,7 +996,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (7 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 0 (expected 3). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[12].twin = 0 but twin.twin = 14 (expected 12). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2].twin = 0 but twin.twin = 0 (expected 2). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = 0 but twin.twin = 28 (expected 13). Body created as standalone.; Extrude 6: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = 0 but twin.twin = 41 (expected 13). Body created as standalone.; Extrude 7: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 101 (expected 4). Body created as standalone.; Extrude 8: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[12].twin = 0 but twin.twin = 22 (expected 12). Body created as standalone.; merge incomplete: 8 operations produced 8 separate solids (expected 1 merged)",
+      "detail": "auto-union-failed (7 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = 0 but twin.twin = 69 (expected 13). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[12].twin = 0 but twin.twin = 25 (expected 12). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 40 (expected 1). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[14].twin = 0 but twin.twin = 74 (expected 14). Body created as standalone.; Extrude 6: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[12].twin = 0 but twin.twin = 54 (expected 12). Body created as standalone.; Extrude 7: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 83 (expected 1). Body created as standalone.; Extrude 8: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[12].twin = 0 but twin.twin = 96 (expected 12). Body created as standalone.; merge incomplete: 8 operations produced 8 separate solids (expected 1 merged)",
       "id": "F0066",
       "status": "fail"
     },
@@ -1050,13 +1050,13 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve Offset: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[16].twin = 0 but twin.twin = 200 (expected 16). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,3), (2,5), (2,5), (3,4), (3,4), ...",
+      "detail": "auto-union-failed (1 warning(s)): Revolve Offset: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[14].twin = 0 but twin.twin = 175 (expected 14). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,3), (2,5), (2,5), (3,4), (3,4), ...",
       "id": "F0075",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (3 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[12].twin = 0 but twin.twin = 32 (expected 12). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[27].twin = 0 but twin.twin = 60 (expected 27). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[29].twin = 0 but twin.twin = 31 (expected 29). Body created as standalone.; merge incomplete: 5 operations produced 4 separate solids (expected 1 merged); no_self_intersection: 5 inter-face triangle penetrations, face pairs: (0,2), (1,3), (1,4), (1,5), (3,4)",
+      "detail": "auto-union-failed (3 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[15].twin = 0 but twin.twin = 72 (expected 15). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[34].twin = 0 but twin.twin = 57 (expected 34). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[30].twin = 0 but twin.twin = 25 (expected 30). Body created as standalone.; merge incomplete: 5 operations produced 4 separate solids (expected 1 merged); no_self_intersection: 5 inter-face triangle penetrations, face pairs: (0,2), (1,3), (1,4), (1,5), (3,4)",
       "id": "F0076",
       "status": "fail"
     },
@@ -1116,7 +1116,7 @@
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (5 error(s)): eeadb4da-e68d-4f96-bcc7-e1687f1059a2: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[9].twin = 0 but twin.twin = 167 (expected 9); 5f972110-a034-443e-ac83-67c10803dd1d: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[58].twin = 0 but twin.twin = 174 (expected 58); 515c09a8-b9fd-42ef-8f73-d2e3b039f2a1: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[50].twin = 0 but twin.twin = 148 (expected 50); 6b500242-98e3-4108-875b-289135532aa0: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[7].twin = 0 but twin.twin = 143 (expected 7); 8f009a73-3027-4a3e-a4bb-992311835d2e: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[29].twin = 0 but twin.twin = 75 (expected 29); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(130) - E(384) + F(256) = 2 (expected -4)",
+      "detail": "partial rebuild (5 error(s)): eeadb4da-e68d-4f96-bcc7-e1687f1059a2: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[45].twin = 0 but twin.twin = 133 (expected 45); 5f972110-a034-443e-ac83-67c10803dd1d: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[18].twin = 0 but twin.twin = 226 (expected 18); 515c09a8-b9fd-42ef-8f73-d2e3b039f2a1: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[50].twin = 0 but twin.twin = 109 (expected 50); 6b500242-98e3-4108-875b-289135532aa0: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[34].twin = 0 but twin.twin = 63 (expected 34); 8f009a73-3027-4a3e-a4bb-992311835d2e: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[29].twin = 0 but twin.twin = 86 (expected 29); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(130) - E(384) + F(256) = 2 (expected -4)",
       "id": "F0086",
       "status": "fail"
     },
