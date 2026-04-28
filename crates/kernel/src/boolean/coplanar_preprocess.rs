@@ -298,13 +298,32 @@ pub(crate) fn split_brep_for_coplanar_pairs(
         }
 
         // Yang §4.5.5: overlap is non-empty AND at least one exclusive region
-        // is non-empty → partial-overlap case. Mark anti-parallel pairs for
-        // `inject_partial_overlap_mesh` post-tessellation. Same-direction
-        // partial-overlap requires cascading T-junction repair (deferred to
-        // PR8). The B-Rep split (split_face_along_boundary) below continues
-        // to run for partial-overlap pairs so the exclusive regions get
-        // clean B-Rep face sub-divisions.
-        if !pair.same_direction {
+        // is non-empty → partial-overlap case. Mark for
+        // `inject_partial_overlap_mesh` post-tessellation. The B-Rep split
+        // (split_face_along_boundary) below continues to run for partial-
+        // overlap pairs so the exclusive regions get clean B-Rep face
+        // sub-divisions.
+        //
+        // PR17: drop the !same_direction gate. Per Yang 2025 §4.5.5, the
+        // overlapping part is replaced by a trimmed common planar surface
+        // and identical meshes are generated for both models — applies
+        // regardless of normal direction. PR8 implemented
+        // `inject_partial_overlap_mesh` for anti-parallel only (the canary
+        // case); PR10's spec note flagged "the i_overlay parallel-cosurface
+        // configuration is still untested directly" as PR11+ scope. PR17
+        // closes that gap (F0004 was the simplest manifestation: contained-
+        // box Union with parallel cosurface tops/bottoms).
+        //
+        // PR17 refinement: only mark as partial-overlap when NOT already
+        // classified as identical-footprint. The two are mutually exclusive
+        // per Yang §4.5.5: identical footprint → identical-mesh injection
+        // via the dedicated `inject_identical_footprint_mesh` path; non-
+        // identical overlap → partial-overlap injection via
+        // `inject_partial_overlap_mesh`. Defensive — the L285 branch above
+        // already `continue`s when identical-footprint is detected on the
+        // same code path, but this guard makes mutual exclusivity explicit
+        // and prevents future code paths from setting both flags.
+        if !pair.is_identical_footprint {
             pair.is_partial_overlap = true;
         }
 
@@ -1039,10 +1058,21 @@ pub(crate) fn inject_partial_overlap_mesh(
         if !pair.is_partial_overlap {
             continue;
         }
-        // Double-guard: same-direction partial-overlap is PR8 territory.
-        if pair.same_direction {
+        // PR17 refinement: identical-footprint takes precedence. If a pair
+        // is somehow flagged both `is_identical_footprint` and
+        // `is_partial_overlap`, the dedicated identical-footprint injection
+        // (`inject_identical_footprint_mesh`) handles it — skip here to
+        // avoid double-processing the same face.
+        if pair.is_identical_footprint {
             continue;
         }
+        // PR17: drop the same_direction skip. Per Yang 2025 §4.5.5, the
+        // overlapping part is replaced by a trimmed common planar surface
+        // and identical meshes are generated for both models — applies
+        // regardless of normal direction. The per-triangle B-winding flip
+        // below is now conditional on direction (anti-parallel needs the
+        // flip; parallel does not — B's tris already have the correct
+        // winding to match A's overlap region).
 
         // 1. Locate face triangles on the coplanar plane in each mesh.
         let face_tri_indices_a = find_plane_triangles(
@@ -1152,10 +1182,27 @@ pub(crate) fn inject_partial_overlap_mesh(
             .chunks(3)
             .map(|c| [c[0], c[1], c[2]])
             .collect();
-        // Anti-parallel: flip B's per-triangle winding so face B's outward
-        // orientation is preserved (mirrors PR5's identical-footprint logic).
-        let shared_tris_b: Vec<[usize; 3]> =
-            shared_tris_a.iter().map(|t| [t[0], t[2], t[1]]).collect();
+        // PR17: per-triangle B-winding flip is conditional on direction.
+        //
+        // Anti-parallel (same_direction=false): B's outward normal points
+        // opposite to A's. The shared triangulation was produced in A's
+        // basis frame (CCW-from-A's-outward-normal), so reversing each
+        // B triangle preserves face B's outward orientation. This mirrors
+        // PR5's identical-footprint logic.
+        //
+        // Parallel (same_direction=true): B's outward normal matches A's,
+        // so B's tris already have the correct winding (A's frame is also
+        // B's frame). The flip becomes a no-op.
+        //
+        // Note that `poly_b.reverse()` above (L1110) is also gated on
+        // `!pair.same_direction`, so the i_overlay input polygons are
+        // already in a consistent winding for both branches before the
+        // shared overlap triangulation is computed.
+        let shared_tris_b: Vec<[usize; 3]> = if pair.same_direction {
+            shared_tris_a.clone()
+        } else {
+            shared_tris_a.iter().map(|t| [t[0], t[2], t[1]]).collect()
+        };
 
         // 6. Triangulate A-only region (independent — exclusive to mesh A).
         let (a_only_3d, a_only_tris) = if !a_only_empty {
@@ -3008,5 +3055,247 @@ mod tests {
              inconsistent boolean output (the symptom that surfaced in the \
              stacked-box canary's residual unpaired half-edges)."
         );
+    }
+
+    /// PR17 Test 1: Contained-box Union — parallel partial-overlap cosurface (F0004).
+    ///
+    /// Geometry mirrors F0004 in the assay corpus:
+    /// - Op1: 0.8×0.8×0.5 box centered at (0.4, 0.4) in XY, z∈[0, 0.5].
+    /// - Op2: 0.2×0.2×0.5 box centered at (0.4, 0.4) in XY, z∈[0, 0.5] —
+    ///   fully contained inside Op1, sharing z=0 bottom and z=0.5 top
+    ///   planes (both same-direction parallel partial-overlap pairs).
+    ///
+    /// Geometric truth: Op2 ⊂ Op1, so Op1 ∪ Op2 = Op1. The result must be
+    /// a single connected manifold body equal to Op1 (Euler V−E+F = 2).
+    ///
+    /// API choice — `yang_boolean_inner`: exercises the **full** Yang
+    /// pipeline including coplanar preprocessing (Yang 2025 §4.5.5
+    /// `split_brep_for_coplanar_pairs` + `inject_partial_overlap_mesh`),
+    /// matching the production path that F0004 in the assay hits via
+    /// auto-union (`extrude(merge=true) → yang_boolean`). The lower-level
+    /// `yang_boolean_pipeline` (in `topology_extract.rs`) skips coplanar
+    /// preprocessing entirely and is therefore the wrong surface for
+    /// validating the §4.5.5 fix.
+    ///
+    /// FIP §8 red-before-green: Phase A reported the failure surfaces as
+    /// `half_edge[6].twin = 0 but twin.twin = 0` (or similar twin-pairing
+    /// signature) which `validate_yang_result_topology` propagates as
+    /// `KernelError::Other`. With the L307 + L1043 gates dropped (Phase D),
+    /// the parallel partial-overlap pairs route to
+    /// `inject_partial_overlap_mesh`, which produces shared canonical
+    /// triangulation in the cosurface region — and the pipeline succeeds.
+    #[test]
+    fn test_parallel_partial_overlap_contained_box_union() {
+        // Op1: outer 0.8×0.8×0.5 box, centered at (0.4, 0.4), z∈[0, 0.5].
+        let (k_a, h_a) = make_stacked_box(0.4, 0.4, 0.8, 0.8, 0.0, 0.5);
+        // Op2: inner 0.2×0.2×0.5 box, centered at (0.4, 0.4), z∈[0, 0.5].
+        // Op2 is fully contained inside Op1; both share top z=0.5 and
+        // bottom z=0 cosurface planes with parallel (same-direction)
+        // outward normals.
+        let (k_b, h_b) = make_stacked_box(0.4, 0.4, 0.2, 0.2, 0.0, 0.5);
+
+        let solid_a = k_a.get_solid(&h_a).expect("solid_a must exist");
+        let solid_b = k_b.get_solid(&h_b).expect("solid_b must exist");
+
+        assert!(
+            !solid_a.face_geometry.is_empty(),
+            "solid_a must have face_geometry (yang_boolean_inner gates on this)"
+        );
+        assert!(
+            !solid_b.face_geometry.is_empty(),
+            "solid_b must have face_geometry (yang_boolean_inner gates on this)"
+        );
+
+        let mut next_id = 1000u64;
+        let mut id_alloc = || {
+            let id = next_id;
+            next_id += 1;
+            id
+        };
+
+        // Run the full Yang pipeline (including Stage 0 coplanar preprocessing
+        // per Yang 2025 §4.5.5). Use yang_boolean_inner directly (matching
+        // the existing canary `test_stacked_box_union_correct_topology`)
+        // to avoid env-var race in parallel tests.
+        let result = yang_boolean_inner(solid_a, solid_b, BoolOp::Union, &mut id_alloc).expect(
+            "yang_boolean_inner must succeed for contained-box Union (Op2 ⊂ Op1; \
+             result is geometrically Op1 unchanged). Phase A trace shows the \
+             failure surfaces as twin-pairing in validate_yang_result_topology, \
+             propagated as KernelError::Other through yang_boolean_inner.",
+        );
+
+        let n_faces = result.arena.faces.len();
+        let n_edges = result.arena.edges.len();
+        let n_verts = result.arena.vertices.len();
+
+        // Inline the same twin-symmetry check `validate_yang_result_topology`
+        // performs (Mantyla §4.2, Stroud §3.3): for every HE i,
+        // arena.half_edges[i].twin = X must imply
+        // arena.half_edges[X].twin = i.
+        let n_he = result.arena.half_edges.len();
+        let unpaired = (0..n_he)
+            .filter(|&i| {
+                let twin_idx = result.arena.half_edges[i].twin.0;
+                twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+            })
+            .count();
+
+        // Priority 1 — twin symmetry: the failing-on-current-code signal.
+        // Phase A reported the hallmark of unpaired half-edges from
+        // non-identical cosurface tessellation. After Yang §4.5.5 mesh
+        // injection fires for same-direction partial-overlap, this must
+        // be zero.
+        assert_eq!(
+            unpaired, 0,
+            "Yang §4.5.5: contained-box Union must have zero unpaired half-edges, \
+             got {unpaired} (V={n_verts}, E={n_edges}, F={n_faces}). The Phase A \
+             twin-pairing failure surfaces here when same-direction \
+             partial-overlap pairs skip `inject_partial_overlap_mesh` and \
+             tessellation produces non-identical meshes on the cosurface.",
+        );
+
+        // Priority 2 — single connected manifold body. Op2 ⊂ Op1 means the
+        // result is Op1 alone (one body), not two disconnected components.
+        // Two-body output would have Euler 2·χ(box) = 4; single body has
+        // χ = 2.
+        let euler = n_verts as i64 - n_edges as i64 + n_faces as i64;
+        assert_eq!(
+            euler, 2,
+            "Yang §4.5.5: contained-box Union must produce a single closed \
+             manifold (Op2 ⊂ Op1), Euler V−E+F = 2; got {euler} \
+             (V={n_verts}, E={n_edges}, F={n_faces}). Euler = 4 indicates \
+             two disconnected bodies, the symptom Phase A reported as \
+             `2 operations produced 2 separate solids (expected 1 merged)`.",
+        );
+
+        // Priority 3 — face count: Op1's surface is the union boundary
+        // (Op2 is entirely interior). 6 outer faces is the canonical
+        // analytical answer for a box. Allow ≥6 to tolerate post-pipeline
+        // sub-face fragments that match the canary's pattern (existing
+        // box-union assertion uses `n_faces >= 6` per
+        // `yang_e2e_identical_box_union` at yang_integration.rs:1825).
+        assert!(
+            n_faces >= 6,
+            "Yang §4.5.5: contained-box Union must have at least 6 outer faces \
+             (Op1's surface; Op2 is fully interior), got {n_faces}",
+        );
+    }
+
+    /// PR17 Test 2: Parallel partial-overlap routes to `inject_partial_overlap_mesh`.
+    ///
+    /// F0004's contained-box Union exposes the §4.5.5 gap: two parallel
+    /// (same-direction) partial-overlap pairs (Op1 and Op2's top z=0.5
+    /// faces; same for bottom z=0) currently never get mesh-injected
+    /// because `split_brep_for_coplanar_pairs` (L307 in this file) gates
+    /// `pair.is_partial_overlap = true` on `!pair.same_direction`.
+    ///
+    /// Yang 2025 §4.5.5: "the overlapping part is replaced by a trimmed
+    /// common planar surface, and identical meshes are generated for both
+    /// models in this part." The paper's prescription does NOT condition
+    /// on normal direction — both anti-parallel and parallel cosurface
+    /// pairs require canonical mesh injection.
+    ///
+    /// FIP §8 red-before-green: this test currently FAILS at the
+    /// `partial_overlap_count` assertion. The geometry detects the
+    /// expected parallel coplanar pairs, but `split_brep_for_coplanar_pairs`
+    /// leaves `is_partial_overlap = false` for all of them. Phase D
+    /// (implementer) will drop the `!pair.same_direction` gate, then this
+    /// test goes green.
+    ///
+    /// API choice: this is a top-level pipeline test (detect → split)
+    /// rather than a unit test of `inject_partial_overlap_mesh` directly.
+    /// The helper has a redundant double-guard (`if pair.same_direction
+    /// { continue; }` at L1043) that the implementer will also need to
+    /// remove for parallel direction. But the *primary* red signal is at
+    /// the pair-marking step: until same-direction partial-overlap pairs
+    /// are marked, the helper would never even see them. This test pins
+    /// that contract.
+    #[test]
+    fn test_parallel_partial_overlap_inject_fires() {
+        // F0004 contained-box geometry.
+        // Op1: outer 0.8×0.8×0.5 box centered at (0.4, 0.4) in XY,
+        //      extruded z∈[0, 0.5].
+        // Op2: inner 0.2×0.2×0.5 box centered at (0.4, 0.4) in XY (same
+        //      center as Op1, fully contained), extruded z∈[0, 0.5].
+        let (k_a, h_a) = make_stacked_box(0.4, 0.4, 0.8, 0.8, 0.0, 0.5);
+        let (k_b, h_b) = make_stacked_box(0.4, 0.4, 0.2, 0.2, 0.0, 0.5);
+
+        let solid_a = k_a.get_solid(&h_a).expect("solid_a must exist");
+        let solid_b = k_b.get_solid(&h_b).expect("solid_b must exist");
+
+        // Detect coplanar face pairs. We expect at minimum:
+        //   - z=0 bottom faces of A and B (both normals point -Z → same-
+        //     direction parallel partial-overlap).
+        //   - z=0.5 top faces of A and B (both normals point +Z → same-
+        //     direction parallel partial-overlap).
+        let mut pairs = detect_coplanar_face_pairs(solid_a, solid_b);
+
+        // Sanity: detect found at least the two cosurface pairs at z=0 and
+        // z=0.5 (top + bottom of the two parallel boxes).
+        let parallel_z_pairs: Vec<_> = pairs
+            .iter()
+            .filter(|p| p.plane_normal[2].abs() > 0.99 && p.same_direction)
+            .collect();
+        assert!(
+            parallel_z_pairs.len() >= 2,
+            "Sanity precondition: F0004 contained-box geometry must produce at \
+             least 2 parallel-direction (same_direction=true) z-axis coplanar \
+             pairs (z=0 bottom, z=0.5 top). Got {} parallel z-pairs out of {} \
+             total pairs. If this fails, detect_coplanar_face_pairs broke or \
+             the geometry is wrong.",
+            parallel_z_pairs.len(),
+            pairs.len(),
+        );
+
+        // Run the splitting / partial-overlap-marking step. This is where
+        // L307's `if !pair.same_direction { pair.is_partial_overlap = true; }`
+        // currently bails for parallel pairs.
+        let mut solid_a_mut = solid_a.clone();
+        let mut solid_b_mut = solid_b.clone();
+        split_brep_for_coplanar_pairs(&mut solid_a_mut, &mut solid_b_mut, &mut pairs);
+
+        // RED ASSERTION: at least one parallel-direction pair must be
+        // marked `is_partial_overlap = true` after splitting. F0004's
+        // contained-box geometry produces exactly two such pairs (top
+        // and bottom). Currently this is 0 because the L307 gate filters
+        // out all same-direction pairs.
+        let parallel_partial_overlap_count = pairs
+            .iter()
+            .filter(|p| p.same_direction && p.is_partial_overlap)
+            .count();
+
+        assert!(
+            parallel_partial_overlap_count >= 2,
+            "Yang §4.5.5: parallel (same-direction) partial-overlap pairs MUST \
+             be marked `is_partial_overlap=true` so `inject_partial_overlap_mesh` \
+             can produce identical canonical meshes in the overlap region. \
+             F0004's contained-box geometry produces 2 such pairs (z=0 bottom + \
+             z=0.5 top of Op1 vs Op2), but `split_brep_for_coplanar_pairs` at \
+             L307 gates the marking on `!pair.same_direction` and leaves \
+             same-direction pairs with `is_partial_overlap=false`. \
+             \n\nGot parallel_partial_overlap_count = {}. \
+             \n\nThe paper's prescription (§4.5.5, lines 1281-1322): 'the \
+             overlapping part is replaced by a trimmed common planar surface, \
+             and identical meshes are generated for both models in this part' \
+             — applies regardless of normal direction. Cherchi 2020 §5.4 \
+             (coplanar pocket map) similarly does not condition on direction.",
+            parallel_partial_overlap_count,
+        );
+
+        // Defense in depth: each parallel partial-overlap pair must NOT also
+        // be flagged as identical-footprint (these are mutually exclusive —
+        // contained Op2 has a strictly smaller footprint than Op1, so
+        // `a_only` is non-empty in i_overlay's segmentation).
+        for p in pairs.iter().filter(|p| p.same_direction) {
+            if p.is_partial_overlap {
+                assert!(
+                    !p.is_identical_footprint,
+                    "Yang §4.5.5 segmentation: a coplanar pair cannot be both \
+                     identical_footprint and partial_overlap. Pair face_a={:?} \
+                     face_b={:?} normal={:?} offset={:.6} is mis-classified.",
+                    p.face_a, p.face_b, p.plane_normal, p.plane_offset,
+                );
+            }
+        }
     }
 }

@@ -782,6 +782,30 @@ fn yang_trace_f0002() {
     }
 }
 
+/// Trace F0004 with Yang pipeline (PR17 partial-overlap-cosurface investigation).
+///
+/// Run with: cargo test -p test-harness --test assay_randomized -- yang_trace_f0004 --ignored --nocapture
+#[test]
+#[ignore]
+fn yang_trace_f0004() {
+    let dir = Path::new(ASSAY_DIR);
+    if !dir.exists() {
+        eprintln!("Assay corpus not generated yet");
+        return;
+    }
+    std::env::set_var("YANG_BOOLEAN", "1");
+    let result = run_single_case(dir, "F0004", true);
+    match result {
+        Some(r) => {
+            eprintln!("\n=== F0004 Yang Trace ===");
+            eprintln!("Status: {:?}", r.status);
+            eprintln!("Detail: {}", r.detail);
+            eprintln!("Description: {}", r.description);
+        }
+        None => eprintln!("F0004 not found in corpus"),
+    }
+}
+
 /// Trace F0003 with Yang pipeline (secondary regression case).
 ///
 /// Run with: cargo test -p test-harness --test assay_randomized -- yang_trace_f0003 --ignored --nocapture

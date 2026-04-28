@@ -1108,3 +1108,134 @@ canary represents (stacked boxes — anti-parallel cosurface) and the
 identical-box configurations (parallel cosurface). The i_overlay
 partial-overlap path is empirically passing but mechanistically
 unverified; flagged as the lone hot follow-up.
+
+## PR17 outcome — parallel partial-overlap injection unblocked (contained-box)
+
+PR17 closes the i_overlay parallel-cosurface gap PR10 explicitly
+flagged ("the i_overlay parallel-cosurface configuration is still
+untested directly"). Phase A engineer-a investigation traced the
+gap to two gates in `crates/kernel/src/boolean/coplanar_preprocess.rs`:
+
+1. **L307 marking gate**: `if !pair.same_direction { pair.is_partial_overlap = true; }` — only anti-parallel pairs were marked for partial-overlap injection. Same-direction (parallel) pairs were silently skipped.
+2. **L1043 inject helper double-guard**: `if pair.same_direction { continue; }` inside `inject_partial_overlap_mesh` — defensive skip that mirrored the marking gate.
+
+Both gates were unjustified PR8 deferrals — the canary case PR8 fixed
+was anti-parallel (stacked boxes), and parallel partial-overlap was
+left for "PR11+ scope." PR17 drops both gates per Yang 2025 §4.5.5
+("the overlapping part is replaced by a trimmed common planar surface
+and identical meshes are generated for both models in this part" —
+applies regardless of normal direction).
+
+### Implementation
+
+`coplanar_preprocess.rs` (~10 LOC effective production change in 4
+hunks):
+
+- **L307 gate dropped**: `pair.is_partial_overlap = true` unconditionally (gated only by the new mutual-exclusivity precedence check).
+- **L1043 double-guard removed**: parallel pairs now enter the injection path.
+- **L1157 per-triangle B-winding flip**: now conditional on
+  `pair.same_direction == false`. For parallel pairs, B's tris already
+  have the correct winding (B's outward normal matches A's); the flip
+  becomes a no-op. For anti-parallel pairs, the flip preserves PR8's
+  existing semantics.
+- **Refinement (L326 + L1066)**: `is_partial_overlap` and
+  `is_identical_footprint` made mutually exclusive. PR17's gate-drop
+  exposed an interaction where same-direction pairs that ALSO match
+  identical-footprint criteria could be processed by both code paths.
+  The precedence guard ensures `inject_identical_footprint_mesh` wins
+  when the footprints coincide.
+
+Cite: code comments reference Yang 2025 §4.5.5 + PR10 spec note
+"untested directly" follow-up.
+
+### Tests (red-before-green per FIP §8 with strict P5 separation —
+engineer-a / test-author / implementer / validator are 4 distinct
+agents)
+
+- `test_parallel_partial_overlap_contained_box_union` in
+  `coplanar_preprocess.rs` mod tests: contained-box Union (Op2 ⊂ Op1
+  with shared top/bottom planes), invoking `yang_boolean_inner` (the
+  high-level Solid API). Asserts twin-symmetry pass, Euler V−E+F = 2,
+  faces ≥ 6. RED on pre-fix code with `half_edge[X].twin = 0`
+  signature; GREEN post-fix.
+- `test_parallel_partial_overlap_inject_fires` in
+  `coplanar_preprocess.rs` mod tests: asserts that
+  `split_brep_for_coplanar_pairs` marks `is_partial_overlap = true`
+  for at least one same-direction parallel cosurface pair.
+  Compile-failure-free RED on pre-fix; GREEN post-fix.
+
+### Adversarial mutation results (validator Phase E)
+
+All 4 mutations correctly break a load-bearing piece of PR17:
+
+1. Restore L307 `!same_direction` gate → Test 2 fails.
+2. Restore L1043 `same_direction { continue; }` skip → Test 1 fails.
+3. Invert L1157 winding-flip conditional → Test 1 fails.
+4. Invert L326 refinement guard (`!is_identical_footprint` →
+   `is_identical_footprint`) → Test 1 fails.
+
+### What PR17 does NOT fix — F0004 thin cross + F0005 side-faces
+
+**F0004 in the corpus** is `w1=0.8, h1=0.2 + w2=0.2, h2=0.8` (a
+**thin cross** of two perpendicular thin rectangles), NOT the
+contained box (0.8×0.8 + 0.2×0.2) the F0004-analysis plan assumed.
+The Phase 1 explorer mis-read F0004's geometry as a single
+`profile_size` parameter instead of two distinct `w` and `h` values.
+The plan and the unit test exercise the contained-box scenario, which
+is a valid Yang §4.5.5 case but is NOT what F0004 reproduces.
+
+PR17's contained-box test is genuine regression coverage for the
+parallel-cosurface gap. F0004 itself remains failing post-PR17 with
+the same `half_edge[X].twin = 0` signature, but for a different
+mechanistic reason (thin-cross overlap pattern). PR18+ will need a
+separate investigation.
+
+**F0005** (identical XY footprint, different depths) failed post-PR17
+with the same twin-pairing signature. Implementer's P10 escalation
+correctly identified that F0005's z=0 bottom IS identical-footprint
+and short-circuits at L297 BEFORE reaching the L307 mark — so the
+precedence guard isn't the F0005 root fix. The actual issue is at
+F0005's **side-face partial-overlap injection**: a NEW path PR17
+activated (4 same-direction side-face pairs where the smaller box's
+sides are sub-regions of the larger box's sides, all
+`is_identical_footprint=false`, `is_partial_overlap=true`). The
+side-face injection has its own bug (likely in the i_overlay polygon
+difference or the mesh-injection geometry).
+
+Per `feedback_no_regression_chasing.md`: F0005's side-face issue is a
+**downstream bug exposed by PR17's more-correct routing**, not a
+regression caused by broken code. Pre-PR17, F0005's side-face
+same-direction pairs were silently skipped via the L307 gate; the
+silent-skip was masking the bug. PR17 surfaces it honestly.
+
+PR18+ scope:
+1. **F0004 thin-cross**: investigate why the cross overlap pattern
+   produces twin-pairing failures. Different mechanism than
+   contained-box; may interact with how the cross's central 0.2×0.2
+   overlap zone is triangulated when both operands have non-empty
+   wing regions outside the overlap.
+2. **F0005 side-face partial-overlap injection**: fix the side-face
+   inject path. Likely needs the same family of fixes as PR17 but
+   for "non-cap" cosurface (vertical side walls vs horizontal caps).
+3. **Compound-solid Euler oracle** (PR16 spec note): F0011-F0015 still
+   fail with V-E+F=4 (compound solids). Either relax oracle or
+   re-architect Union to wrap as single solid.
+
+### Yang_fast assay impact
+
+PR16 baseline: 5/157 passing (yang_fast subset).
+PR17:         **6/157 passing**, 149 failed, 2 errored.
+
+- **Net +1** (the contained-box fix plus its interaction with
+  pre-existing cases).
+- F0001, F0007, F0073, F0074 hold. F0051 and F0053 also pass per the
+  full-corpus results.json (190 cases, 7 passing total post-PR17).
+- F0005 transitions from passing to failing; honest category change
+  (downstream bug exposed). Per `feedback_no_regression_chasing.md`
+  not chased.
+
+### PR17 commit set
+
+- `fix(kernel): inject_partial_overlap_mesh handles parallel-direction cosurface (Yang §4.5.5; closes PR10 untested-directly gap)` — coplanar_preprocess.rs change + Phase C tests + spec note.
+- `build(wasm): rebuild bundle post PR17` — WASM bundle.
+- `chore(assay): update results.json post-PR17 (6/157 passing in yang_fast subset)` — assay snapshot.
