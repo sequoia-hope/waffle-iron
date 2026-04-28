@@ -1367,7 +1367,11 @@ fn ray_cast_inside(
         let mut candidates = Vec::new();
         bvh.query_overlapping(&slab_aabb, &mut candidates);
 
-        let mut hit_count = 0usize;
+        // Cherchi 2022 §5.3 / booleans.cpp:1290-1300 (`checkTriangleOrientation`):
+        // accumulate the FIRST hit (smallest positive t) along the ray; classify
+        // inside/outside from the orientation of that triangle vs. the ray's far
+        // endpoint. (res < 0) → Inside per the C++ convention.
+        let mut best_hit: Option<(f64, usize)> = None;
         let mut degenerate = false;
 
         for &tri_idx in &candidates {
@@ -1377,8 +1381,10 @@ fn ray_cast_inside(
             let v2 = target_verts[tri[2]];
 
             match ray_tri_intersect_axis(axis, p, v0, v1, v2) {
-                RayHit::Hit(_t) => {
-                    hit_count += 1;
+                RayHit::Hit(t) => {
+                    if t > 0.0 && best_hit.is_none_or(|(t_min, _)| t < t_min) {
+                        best_hit = Some((t, tri_idx));
+                    }
                 }
                 RayHit::Degenerate => {
                     degenerate = true;
@@ -1389,7 +1395,10 @@ fn ray_cast_inside(
         }
 
         if raycast_debug {
-            per_axis[axis] = Some((degenerate, candidates.len(), hit_count));
+            // Hit-count column reused for first-hit indicator (0 = no hit / Outside,
+            // 1 = a first hit was found and classified by orient3d).
+            let hit_indicator = if best_hit.is_some() { 1 } else { 0 };
+            per_axis[axis] = Some((degenerate, candidates.len(), hit_indicator));
         }
 
         if degenerate {
@@ -1397,12 +1406,54 @@ fn ray_cast_inside(
             continue;
         }
 
+        // Apply the orient3d signed-volume test on the first-hit triangle.
+        // Ref: Cherchi 2022 §5.3 + booleans.cpp:1290-1300 — `res = orient3d(tv0, tv1,
+        // tv2, ray.v1)`; `(res < 0) ? 1 : 0`. The far endpoint matches the slab AABB
+        // upper bound (`global_max[axis] + 1.0`) used to bound the ray. If no hits
+        // occurred along this axis, the ray escaped to infinity → Outside.
+        let inside = if let Some((_t_hit, tri_idx)) = best_hit {
+            let tri = target_tris[tri_idx];
+            let tv0 = target_verts[tri[0]];
+            let tv1 = target_verts[tri[1]];
+            let tv2 = target_verts[tri[2]];
+            let mut ray_v1 = p;
+            ray_v1[axis] = global_max[axis] + 1.0;
+            // Ref #4: Shewchuk exact orient3d via `robust` crate (matching
+            // classify.rs:60-87 pattern). C++ uses `cinolib::orient3d`; both are
+            // implementations of the same Shewchuk adaptive predicate.
+            let res = robust::orient3d(
+                robust::Coord3D {
+                    x: tv0[0],
+                    y: tv0[1],
+                    z: tv0[2],
+                },
+                robust::Coord3D {
+                    x: tv1[0],
+                    y: tv1[1],
+                    z: tv1[2],
+                },
+                robust::Coord3D {
+                    x: tv2[0],
+                    y: tv2[1],
+                    z: tv2[2],
+                },
+                robust::Coord3D {
+                    x: ray_v1[0],
+                    y: ray_v1[1],
+                    z: ray_v1[2],
+                },
+            );
+            res < 0.0
+        } else {
+            false
+        };
+
         if raycast_debug {
             chosen_axis = Some(axis);
-            result = Some(hit_count % 2 == 1);
+            result = Some(inside);
         }
         if !raycast_debug {
-            return Some(hit_count % 2 == 1);
+            return Some(inside);
         }
         // With instrumentation on, fall through to emit + return (semantics
         // preserved: subsequent axes are NOT evaluated, just like production).
