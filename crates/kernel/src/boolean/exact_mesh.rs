@@ -6781,6 +6781,116 @@ mod tests {
         );
     }
 
+    /// D-05 RED test: `ray_cast_inside` must be winding-sensitive per Cherchi 2022 §5.3.
+    ///
+    /// Cherchi 2022 §5.3 (Figure 5, left) classifies the patch using the orientation
+    /// of the FIRST intersected triangle relative to the ray direction — not parity:
+    /// the C++ upstream `checkTriangleOrientation` (booleans.cpp:1290-1300) computes
+    /// `orient3d(tv0, tv1, tv2, ray.v1)` and returns `Inside` iff `res < 0`. Yang
+    /// 2025 §4.4.2 cites Cherchi 2022 verbatim for inside/outside classification.
+    ///
+    /// Today's `ray_cast_inside` returns `Some(hit_count % 2 == 1)`. Parity counting
+    /// is winding-blind: a triangle with CCW winding and the same triangle with CW
+    /// winding both contribute 1 hit and both produce `Some(true)`. A first-hit
+    /// signed-volume orientation test produces opposite results for opposite
+    /// windings.
+    ///
+    /// **Fixture**: A single triangle on the plane x = 1.0, in two configurations
+    /// differing only in vertex coordinate order:
+    /// - **Outward** (CCW from +X): normal = +X, far ray endpoint at x = global_max+1
+    ///   is on the outward side of the plane → `orient3d > 0` → C++ `(res<0)?1:0`
+    ///   returns 0 → Outside.
+    /// - **Inward** (CW from +X): normal = -X, far ray endpoint is on the inward side
+    ///   → `orient3d < 0` → returns 1 → Inside.
+    ///
+    /// **Origin** `[0.0, 0.25, 0.25]`: the +X ray's projection onto YZ is the point
+    /// (0.25, 0.25), which lies strictly inside the projected triangle
+    /// (vertices project to (0,0), (1,0), (0,1) for outward; same set, different
+    /// order for inward) and off all edges (0.25 + 0.25 = 0.5 < 1, away from the
+    /// y+z=1 hypotenuse). This avoids `RayHit::Degenerate` and produces a clean
+    /// hit on axis 0 for both configurations.
+    ///
+    /// **Red on main**: parity counts 1 hit for both → both return `Some(true)` →
+    /// `assert_ne!` fails.
+    /// **Green after fix**: outward → `Some(false)`, inward → `Some(true)` →
+    /// `assert_ne!` passes.
+    #[test]
+    fn test_ray_cast_inside_first_hit_respects_triangle_winding() {
+        // Outward winding: CCW when viewed from +X side. Visiting v0 → v1 → v2
+        // traces a +X-facing normal: (v1-v0) × (v2-v0) = (0,1,0) × (0,0,1) = (1,0,0).
+        let outward_verts: Vec<[f64; 3]> = vec![
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [1.0, 0.0, 1.0],
+        ];
+        let outward_tris: Vec<[usize; 3]> = vec![[0, 1, 2]];
+
+        // Inward winding: same three points, vertex order swapped (v1 and v2 traded).
+        // Visiting v0 → v1 → v2 now traces a -X-facing normal:
+        // (v1-v0) × (v2-v0) = (0,0,1) × (0,1,0) = (-1,0,0).
+        let inward_verts: Vec<[f64; 3]> = vec![
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 1.0],
+            [1.0, 1.0, 0.0],
+        ];
+        let inward_tris: Vec<[usize; 3]> = vec![[0, 1, 2]];
+
+        let bvh_outward = build_bvh_for_tris(&outward_verts, &outward_tris)
+            .expect("BVH should build for non-empty mesh (outward)");
+        let bvh_inward = build_bvh_for_tris(&inward_verts, &inward_tris)
+            .expect("BVH should build for non-empty mesh (inward)");
+
+        // global_max anywhere past x=1.0 works; pick something well past so the
+        // ray slab spans the full triangle along +X.
+        let global_max: [f64; 3] = [2.0, 2.0, 2.0];
+
+        // Origin: +X ray emanates from x=0 toward x=2. Projected to YZ is
+        // (0.25, 0.25) — strictly inside the projected triangle, off all edges.
+        let origin: [f64; 3] = [0.0, 0.25, 0.25];
+
+        let result_outward = ray_cast_inside(
+            origin,
+            &outward_verts,
+            &outward_tris,
+            &bvh_outward,
+            global_max,
+        );
+        let result_inward = ray_cast_inside(
+            origin,
+            &inward_verts,
+            &inward_tris,
+            &bvh_inward,
+            global_max,
+        );
+
+        // PRIMARY: results must differ. Parity gives same answer (Some(true) for
+        // both windings — 1 hit modulo 2 == 1 either way). First-hit signed-volume
+        // orientation must produce opposite results.
+        assert_ne!(
+            result_outward, result_inward,
+            "first-hit signed-volume orientation must differ for opposite triangle \
+             windings; parity counting gives Some(true)==Some(true). \
+             Cherchi 2022 §5.3 / booleans.cpp:1290-1300 checkTriangleOrientation."
+        );
+
+        // SECONDARY: explicit sign convention checks per C++ checkTriangleOrientation.
+        // For outward winding (CCW from +X): far endpoint past +X is on the outward
+        // side of the plane. orient3d(tv0,tv1,tv2,far) > 0 because far is on the +X
+        // side relative to the CCW triangle. C++ returns (res < 0) ? 1 : 0, so res > 0
+        // → 0 (Outside). For inward winding (CW from +X): orient3d gives the opposite
+        // sign → res < 0 → 1 (Inside).
+        assert_eq!(
+            result_outward,
+            Some(false),
+            "outward (CCW from +X) winding: orient3d(tv0,tv1,tv2,ray.v1) > 0 → Outside"
+        );
+        assert_eq!(
+            result_inward,
+            Some(true),
+            "inward (CW from +X) winding: orient3d(tv0,tv1,tv2,ray.v1) < 0 → Inside"
+        );
+    }
+
     #[test]
     fn label_cells_respects_deadline() {
         let (va, ta) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
