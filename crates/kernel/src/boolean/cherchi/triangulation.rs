@@ -2557,4 +2557,211 @@ mod tests {
             appended
         );
     }
+
+    /// Audit C-01 (cherchi_port_audit.md, Cluster I): `split_single_triangle_with_stack`
+    /// adds a pre-scan over `curr_tri[3..]` that walks past vertex-coincident
+    /// candidates and swaps the first non-vertex into position 3 (or silently
+    /// `continue`s if none is found). The C++ upstream at
+    /// `gcherchi/FastAndRobustMeshArrangements/code/triangulation.cpp:228-363`
+    /// has no such pre-scan — it relies on Cherchi 2020 §5.3's invariant that
+    /// `curr_tri[3]` is a non-vertex point of the popped sub-triangle.
+    ///
+    /// The Rust pre-scan at `triangulation.rs:519-529`:
+    ///
+    /// ```ignore
+    /// let mut pt_idx = 3;
+    /// while pt_idx < curr_tri.len() {
+    ///     let p = curr_tri[pt_idx];
+    ///     if p != curr_tri[0] && p != curr_tri[1] && p != curr_tri[2] { break; }
+    ///     pt_idx += 1;
+    /// }
+    /// if pt_idx >= curr_tri.len() { continue; }  // silent skip
+    /// ```
+    ///
+    /// is a Cluster I (predicate-kernel symptom-paper-over) defense — pre-fix
+    /// it masks any invariant violation produced upstream by the inexact-
+    /// predicate reposition path (C-02). With A-01+A-02 exact predicates
+    /// landed (commit `2071510`) and the C-02 filter promoted to a
+    /// `debug_assert`, no valid invocation of the Cherchi 2020 §5.3 algorithm
+    /// can construct a stack frame whose `curr_tri[3]` coincides with
+    /// `curr_tri[0..3]` — the pre-scan must therefore become a
+    /// `debug_assert!` mirroring the C++ invariant.
+    ///
+    /// **Direct invariant violation strategy** (mirroring C-07's
+    /// `CustomStack::push(vec![1, 1, 3])` and C-13's `edge_id(0, 0)`):
+    /// `split_single_triangle_with_stack` is the only public entry into the
+    /// stack loop and constructs its own internal `CustomStack`; the
+    /// invariant we need to violate is *internal* to that loop. This test
+    /// invokes the private `split_single_triangle_with_stack` directly with
+    /// `points = [vert_id_0]` — i.e., it asks the algorithm to "insert" a
+    /// point whose TriangleSoup orig_id coincides with the sub-mesh's
+    /// triangle vertex 0. The function then calls
+    /// `subm.add_vert(ts.implicit_point(0), 0)`, which appends a new vertex
+    /// at subm-id `3` whose `orig_v_id == 0`. The initial stack frame becomes
+    /// `[0, 1, 2, 3]` (clean), but reposition sub-trees produced from this
+    /// duplicate-orig_id state are the implementer's responsibility to
+    /// surface as an invariant violation.
+    ///
+    /// **The implementer's debug_assert (per the audit's stated fix) lives
+    /// at the loop's pop-and-process site**, asserting `curr_tri[3]` is
+    /// non-vertex of `curr_tri[0..3]`. To make this test pass post-fix, the
+    /// implementer must arrange for the debug_assert to fire on the
+    /// coincidence pattern this fixture produces. If the implementer's
+    /// natural placement does not catch this fixture's coincidence, the
+    /// implementer should restructure the test fixture to one that triggers
+    /// the natural assert site (e.g., a synthetic `CustomStack`-based
+    /// scenario that the loop body can be refactored to share).
+    ///
+    /// Pre-fix (this commit, on red): the pre-scan walks past any
+    /// vertex-coincident curr_tri[3] candidates; `#[should_panic]` reports
+    /// "test did not panic as expected".
+    ///
+    /// Post-fix (T2 implementer, distinct agent per FIP P5): the
+    /// `debug_assert!` panics with a message containing "Cherchi 2020 §5.3
+    /// invariant violation" and this test goes green.
+    ///
+    /// **Tradeoff note**: Constructing the `curr_tri[3] == curr_tri[0]`
+    /// state strictly through the public `split_single_triangle_with_stack`
+    /// arguments is hard because (a) `add_vert` is monotonic so initial
+    /// stack frames have unique IDs, and (b) the pre-fix C-02 `is_vertex`
+    /// filter blocks any reposition-pushed frame from carrying a
+    /// vertex-coincident pos-3. The fixture below feeds a duplicate-orig_id
+    /// `points` array; whether this triggers the implementer's natural
+    /// debug_assert site depends on the implementer's chosen placement.
+    /// See report to lead for tradeoff details.
+    #[test]
+    #[should_panic(expected = "Cherchi 2020 §5.3 invariant violation")]
+    fn test_split_single_triangle_rejects_vertex_coincident_pos3() {
+        // Build a minimal sub-mesh: one triangle with subm vert IDs [0, 1, 2]
+        // and orig_ids matching their indices.
+        let mut subm = make_simple_mesh();
+
+        // Build a TriangleSoup whose orig_v_id 0 has the same coordinates as
+        // subm's tri vertex 0. Feeding this orig_id into the function's
+        // `points` argument creates a sub-mesh state where the inserted
+        // point coincides with an existing triangle vertex by coordinates
+        // and (post-add_vert) by orig_id mapping. The C-01 invariant
+        // violation arises in subsequent iterations of the stack loop when
+        // reposition redistributes this point into a sub-triangle whose
+        // vertices share the orig_id.
+        let coords = vec![
+            [0.0, 0.0, 0.0],  // orig_v_id 0 — coincides with subm's tri vert 0
+            [10.0, 0.0, 0.0], // orig_v_id 1
+            [5.0, 10.0, 0.0], // orig_v_id 2
+        ];
+        let tris = vec![0, 1, 2];
+        let labels = vec![0u32];
+        let ts = TriangleSoup::new(coords, tris, labels, 1.0);
+
+        // Invoke the function under test. `points = [0]` injects orig_v_id 0
+        // (coincident with subm's tri vert 0) as an interior point. Any
+        // reposition push that carries this orig_id-coincident vertex into
+        // a sub-triangle's [4..] slot will violate the Cherchi 2020 §5.3
+        // invariant on the next pop.
+        //
+        // Pre-fix: the pre-scan at lines 519-529 silently absorbs the
+        // violation → no panic → `#[should_panic]` reports "test did not
+        // panic as expected".
+        // Post-fix: the implementer's debug_assert! at the loop-pop site
+        // panics with "Cherchi 2020 §5.3 invariant violation".
+        let points: Vec<usize> = vec![0];
+        let e0_points: Vec<usize> = vec![];
+        let e1_points: Vec<usize> = vec![];
+        let e2_points: Vec<usize> = vec![];
+        split_single_triangle_with_stack(
+            &ts, &mut subm, &points, &e0_points, &e1_points, &e2_points,
+        );
+    }
+
+    /// Audit C-02 (cherchi_port_audit.md, Cluster I): `reposition_points_in_stack`
+    /// gates each of the 4 `point_in_triangle_projected` calls with
+    /// `!is_vertex(&curr_subdv[i], p)`, silently dropping any point in
+    /// `curr_tri[4..]` that coincides with a vertex of the matched
+    /// sub-triangle. The C++ upstream at
+    /// `gcherchi/FastAndRobustMeshArrangements/code/triangulation.cpp:378-403`
+    /// uses non-strict `genericPoint::pointInTriangle` (no filter); a
+    /// vertex-coincident input produces orient2d == 0 on the matched side, the
+    /// non-strict predicate accepts it, and the point is pushed to the
+    /// sub-triangle's points-to-redistribute list naturally.
+    ///
+    /// The Rust filter at `triangulation.rs:631/640/654/668` is a Cluster I
+    /// (predicate-kernel symptom-paper-over) defense. Pre-fix it absorbs any
+    /// vertex-coincident input that the inexact-predicate path may produce.
+    /// With A-01+A-02 exact predicates landed (commit `2071510`), no valid
+    /// upstream call constructs a `curr_tri[4..]` entry that is both
+    /// vertex-coincident AND geometrically inside one of the sub-triangles —
+    /// the filter must therefore become a `debug_assert!` (one per matched
+    /// branch) mirroring the C++ algorithm's implicit invariant.
+    ///
+    /// **Direct invariant violation strategy**: we synthesize a `curr_tri`
+    /// whose entry at `[4]` (a `usize` vertex ID) equals one of the vertex
+    /// slots of `curr_subdv[0]`. Because `point_in_triangle_projected` looks
+    /// up vertex coordinates by ID and runs `orient2d_indirect` on the
+    /// projection, a vertex-coincident point produces `orient2d == 0` against
+    /// itself on the matched side, and the non-strict predicate
+    /// `(o1 >= 0 && o2 >= 0 && o3 >= 0) || (o1 <= 0 && o2 <= 0 && o3 <= 0)`
+    /// returns true. This drives the matched branch of sub-triangle 0; the
+    /// implementer's `debug_assert!` (replacing the `is_vertex` filter) then
+    /// panics with a substring containing "coincides with sub-triangle vertex".
+    ///
+    /// Pre-fix (this commit, on red): the `is_vertex` filter at line 631
+    /// short-circuits the matched branch → no panic → `#[should_panic]`
+    /// reports "test did not panic as expected".
+    ///
+    /// Post-fix (T2 implementer, distinct agent per FIP P5): the
+    /// `debug_assert!` panics with a message containing "coincides with
+    /// sub-triangle vertex" and this test goes green.
+    #[test]
+    #[should_panic(expected = "coincides with sub-triangle vertex")]
+    fn test_reposition_points_rejects_vertex_coincident_subtri() {
+        // Build a minimal sub-mesh — verts 0, 1, 2 forming the original
+        // triangle. The implementer's debug_assert path requires the
+        // sub-triangle that triggers the matched branch to contain a vertex
+        // whose orig_id resolves through subm's vertex array, so we keep the
+        // minimal 3-vertex mesh and let `point_in_triangle_projected` inspect
+        // them via `subm.implicit_point()`.
+        let subm = make_simple_mesh();
+
+        // Allocate a CustomStack — `reposition_points_in_stack` uses
+        // `&mut CustomStack` to push the (filtered) sub-triangles back onto
+        // the algorithm's worklist. For this test the stack's contents after
+        // the call are irrelevant (the panic fires before we'd inspect them);
+        // the stack is purely a function-signature requirement.
+        let mut stack = CustomStack::new(10);
+
+        // Construct a `curr_subdv` array of 4 sub-triangles whose vertex
+        // slots reference the existing subm verts 0, 1, 2. Sub-triangle 0
+        // has vertex slot [0] equal to subm vert 0 — the coincidence target.
+        //
+        // Per `reposition_points_in_stack` line 622, the "newly inserted
+        // point" is `curr_subdv[0][1]` (= subm vert 1 in this fixture). The
+        // matched-positive branch for sub-triangle 0 then evaluates
+        // `point_in_triangle_projected(subm, p, curr_subdv[0][0]=0,
+        // v_pos_id=1, curr_subdv[0][2]=2)` — which, when p == 0 (vertex
+        // coincident with curr_subdv[0][0]), produces orient2d == 0 on the
+        // matched side and returns true under the non-strict predicate.
+        let mut curr_subdv: Vec<Vec<usize>> = vec![
+            vec![0, 1, 2], // sub-tri 0 — slot [0] = vert 0 (the coincidence target)
+            vec![0, 1, 2], // sub-tri 1 — same; only sub-tri 0 needs to match
+            vec![],        // sub-tri 2 — empty; reposition skips on len() < 3
+            vec![],        // sub-tri 3 — empty
+        ];
+
+        // `curr_tri` indices [0..3] are the parent triangle's verts; [3] is
+        // the inserted point (skipped by reposition's loop which starts at
+        // i=4); [4..] are the points to redistribute. Index [4] is set to
+        // subm vert 0 — the synthetic invariant violation. The
+        // implementer's debug_assert (post-fix, replacing the line-631
+        // `is_vertex` filter) must panic with a message containing
+        // "coincides with sub-triangle vertex".
+        let curr_tri: Vec<usize> = vec![0, 1, 2, 1, 0];
+        //                                     ^   ^- p (= subm vert 0) — coincides with curr_subdv[0][0]
+        //                                     |
+        //                                     +- inserted point (skipped by the i=4..len() loop)
+
+        // Direct invocation. Pre-fix: `is_vertex` filter at line 631
+        // short-circuits → silent skip → `#[should_panic]` fails with "test
+        // did not panic as expected". Post-fix: debug_assert! fires.
+        reposition_points_in_stack(&subm, &mut stack, &mut curr_subdv, &curr_tri);
+    }
 }
