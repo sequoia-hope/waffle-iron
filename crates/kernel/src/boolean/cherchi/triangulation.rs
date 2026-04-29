@@ -378,12 +378,25 @@ impl CustomStack {
         Self { stack, cursor: -1 }
     }
 
+    /// Push a sub-triangle (with optional interior points) onto the stack.
+    ///
+    /// Mirrors C++ `CustomStack::push` at
+    /// `gcherchi/FastAndRobustMeshArrangements/code/custom_stack.h:27-35`
+    /// (no filter; degeneracy is the algorithm's invariant violation).
+    /// Audit finding C-07 in `docs/audits/cherchi_port_audit.md`
+    /// (Cluster I cleanup, unblocked by A-01+A-02 exact predicates at
+    /// commit 2071510). Pre-fix the Rust port silently dropped degenerate
+    /// triples to mask inexact-predicate failures; with exact predicates
+    /// landed, no degenerate triple should reach this site. If this
+    /// assertion fires, the upstream predicate path or C-01/C-02 guards
+    /// are insufficient and require root-cause investigation.
     fn push(&mut self, vec: Vec<usize>) {
-        // Skip degenerate sub-triangles (can arise from approximate
-        // coordinates causing imprecise point distribution)
-        if vec.len() >= 3 && (vec[0] == vec[1] || vec[0] == vec[2] || vec[1] == vec[2]) {
-            return;
-        }
+        debug_assert!(
+            vec.len() < 3 || (vec[0] != vec[1] && vec[0] != vec[2] && vec[1] != vec[2]),
+            "CustomStack::push: degenerate sub-triangle (duplicate vertex IDs in {:?}); \
+             predicate-path failure or C-01/C-02 guard insufficient",
+            &vec[..3.min(vec.len())]
+        );
         let idx = (self.cursor + 1) as usize;
         if idx >= self.stack.len() {
             self.stack.push(vec);
