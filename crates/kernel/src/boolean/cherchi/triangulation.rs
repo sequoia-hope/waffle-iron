@@ -2281,4 +2281,196 @@ mod tests {
              going through aux.add_vertex_in_sorted_list."
         );
     }
+
+    /// Audit C-05 (cherchi_port_audit.md, Cluster I) — REGRESSION GUARD for
+    /// `find_intersecting_elements` tail-append path.
+    ///
+    /// The Rust port at `triangulation.rs:929-936` ends with a nested if-let
+    /// chain that silently skips the tail-triangle append if `tri_opp_to_edge`
+    /// returns None. The C++ upstream at
+    /// `gcherchi/FastAndRobustMeshArrangements/code/triangulation.cpp:796-805`
+    /// has TWO `assert!`s instead:
+    ///   1. `assert(t_id != -1 && "tri opposite to edge not found");`
+    ///   2. `assert(triContainsVert(t_id, v_start) || triContainsVert(t_id, v_stop));`
+    ///
+    /// Per Cluster I theme (defensive guards papering over inexact-predicate
+    /// fallout) and the post-A-01+A-02 invariant ("the silent-None case is
+    /// unreachable in valid pipelines"), C-05's fix replaces the if-let chain
+    /// with `debug_assert!` macros mirroring the C++ asserts.
+    ///
+    /// **Why this is a regression-guard test (Option B per
+    /// `/home/claude/.claude/plans/fluttering-rolling-crystal.md`) and not a
+    /// `#[should_panic]` red-before-green test (Option A):**
+    ///
+    /// With A-01+A-02 exact predicates landed (commit 08e24d5), the silent-None
+    /// case at line 932 is *mathematically unreachable* through any valid
+    /// invocation of `find_intersecting_elements`:
+    /// - The walk loop reaches the tail-append only via the `break` at line 894
+    ///   (taken only when `v2 == v_stop`).
+    /// - `break` is taken inside the `!edge_is_constr(e_id)` branch, AFTER a
+    ///   successful `tri_opp_to_edge(e_id, last_t) = Some(t_id)` at line 867.
+    /// - The tail-append at line 932 calls the SAME `tri_opp_to_edge` with the
+    ///   SAME arguments (mesh state unchanged between break and tail-append,
+    ///   `intersected_tris` not pushed in the `v2 == v_stop` branch).
+    /// - `tri_opp_to_edge` is pure (`fast_trimesh.rs:464-482`); it returns the
+    ///   same value for the same arguments.
+    ///
+    /// Therefore Option A's `#[should_panic]` test is impossible to construct
+    /// without injecting semantically-impossible state (e.g. directly fabricating
+    /// `intersected_edges` containing a boundary edge — but the loop body's
+    /// line-867 success precondition would prevent that input from reaching
+    /// tail-append). Option B (this test) instead pins down the *correct
+    /// post-walk shape* of `intersected_edges` / `intersected_tris` for a
+    /// canonical 2-triangle walk, ensuring the C-05 fix preserves it.
+    ///
+    /// Pre-fix AND post-fix behavior on this fixture:
+    ///   - intersected_edges = [edge(1,2)]
+    ///   - intersected_tris  = [T0, T1]
+    /// The fix is behavior-preserving for valid input; this test would catch a
+    /// regression where the fix is misapplied (e.g. the `unwrap()` panics or
+    /// the appended `t_id` is wrong).
+    ///
+    /// Fixture geometry — quad split into 2 CCW triangles on Plane::XY:
+    ///   v3(2,2)              v2(0,2)
+    ///       *--------------------*
+    ///       |\         T1       /|  T1 = (1,3,2)
+    ///       |  \              /  |
+    ///       |    \          /    |
+    ///       |      \      /      |
+    ///       |   T0   \  /        |  T0 = (0,1,2)
+    ///       |          *         |
+    ///   v0(0,0)     edge(1,2)    v1(2,0)
+    ///
+    /// Walk from v_start = v0 (=0) to v_stop = v3 (=3):
+    ///   - Initial scan over adj_v2t(0) = [T0]:
+    ///       edge_opp_to_vert(T0, 0) = edge(1,2). ev0=1, ev1=2.
+    ///       segments_intersect_inside([0,3], 1, 2) → TRUE (cross at (1,1)).
+    ///       push intersected_edges = [edge(1,2)], intersected_tris = [T0].
+    ///   - Loop iter 1:
+    ///       e_id = edge(1,2). edge_is_constr → false.
+    ///       tri_opp_to_edge(edge(1,2), T0) = Some(T1). t_id = T1.
+    ///       v2 = tri_vert_opposite_to(T1, 1, 2) = vertex 3.
+    ///       v2 == v_stop → break.
+    ///   - Tail-append:
+    ///       tri_opp_to_edge(edge(1,2), T0) = Some(T1) → push T1.
+    ///       (Pre-fix: silent if-let chain succeeds → push T1.
+    ///        Post-fix: debug_assert!(Some).is_some() passes →
+    ///                  debug_assert!(tri_contains_vert(T1, v_start=0) ||
+    ///                                tri_contains_vert(T1, v_stop=3)) →
+    ///                  T1 = (1,3,2), contains 3 → passes → push T1.
+    ///        Both: same final state.)
+    #[test]
+    fn test_find_intersecting_elements_tail_append_regression_guard() {
+        // ── Build the FastTrimesh: quad split into T0 + T1. ──────────────
+        let mut subm = FastTrimesh::new(
+            [0.0, 0.0, 0.0], // v0
+            [2.0, 0.0, 0.0], // v1
+            [0.0, 2.0, 0.0], // v2
+            [0, 1, 2],
+            Plane::XY,
+        );
+        // FastTrimesh::new gives us v0,v1,v2 + T0=(0,1,2). Add v3 + T1=(1,3,2).
+        let v3 = subm.add_vert(ImplicitPoint::Explicit([2.0, 2.0, 0.0]), 3);
+        let t1 = subm.add_tri(1, v3, 2).expect("T1=(1,3,2) should be added");
+        assert_eq!(subm.num_tris(), 2, "fixture must have exactly 2 triangles");
+        assert_eq!(t1, 1, "T1's id must be 1");
+
+        // The shared edge is edge(1,2). Verify it's manifold (e2t.len() == 2).
+        let e_shared = subm.edge_id(1, 2).expect("edge (1,2) must exist");
+        assert!(
+            subm.edge_is_manifold(e_shared),
+            "edge(1,2) must be shared between T0 and T1 (cavity walk \
+             precondition; without manifoldness the loop's tri_opp_to_edge \
+             returns None at line 867 → early return → tail-append never \
+             reached)"
+        );
+
+        // ── Build a minimal TriangleSoup for the function signature. ─────
+        // The walk's normal path doesn't allocate TPIs, so `ts` is unused
+        // except by `subm.vert_orig_id` (which doesn't touch ts). A small
+        // valid TriangleSoup keeps invariants satisfied.
+        let coords = vec![
+            [0.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [2.0, 2.0, 0.0],
+        ];
+        let tris = vec![0, 1, 2, 1, 3, 2];
+        let labels = vec![0u32, 0u32];
+        let mut ts = TriangleSoup::new(coords, tris, labels, 1.0);
+        let mut aux = AuxiliaryStructure::new();
+        aux.init_from_triangle_soup(&ts);
+
+        // ── Invoke find_intersecting_elements directly. ─────────────────
+        let mut intersected_edges: Vec<usize> = Vec::new();
+        let mut intersected_tris: Vec<usize> = Vec::new();
+        let mut segment_list: Vec<UIPair> = Vec::new();
+        let mut sub_seg_map: HashMap<UIPair, UIPair> = HashMap::new();
+
+        find_intersecting_elements(
+            &mut ts,
+            &mut subm,
+            0,  // v_start = v0
+            v3, // v_stop  = v3
+            &mut intersected_edges,
+            &mut intersected_tris,
+            &mut aux,
+            &mut segment_list,
+            &mut sub_seg_map,
+        );
+
+        // ── Assert the cavity-walk's terminal state. ────────────────────
+        // Per Cherchi 2020 §5.3 (segment insertion), the walk must produce
+        // a chain of intersected edges + adjacent triangles. For this fixture:
+        //   - exactly 1 intersected edge (the shared diagonal edge(1,2));
+        //   - exactly 2 triangles (T0 entered, T1 appended at the tail).
+        //
+        // Pre-fix (silent if-let): T1 is appended → intersected_tris.len() == 2.
+        // Post-fix (debug_assert + Option<usize>): same — T1 is appended.
+        // A future regression that drops the tail-append (intersected_tris.len()
+        // == 1) or pushes the wrong triangle would fail this test.
+        assert_eq!(
+            intersected_edges.len(),
+            1,
+            "single-crossing walk must produce exactly 1 intersected edge \
+             (the shared diagonal); got {:?}",
+            intersected_edges
+        );
+        assert_eq!(
+            intersected_edges[0], e_shared,
+            "the intersected edge must be the shared diagonal edge(1,2)"
+        );
+        assert_eq!(
+            intersected_tris.len(),
+            2,
+            "tail-append must produce exactly 2 intersected triangles \
+             (T0 from initial scan + T1 from tail-append per C-05); got {:?}. \
+             A drop to len()==1 would mean the tail-append was silently \
+             skipped — exactly the C-05 silent-skip regression.",
+            intersected_tris
+        );
+        assert_eq!(
+            intersected_tris[0], 0,
+            "first intersected triangle must be T0 (=0) from initial scan"
+        );
+        assert_eq!(
+            intersected_tris[1], 1,
+            "tail-appended triangle must be T1 (=1), the one opposite \
+             edge(1,2) from T0. Per C++ triangulation.cpp:796-805, the \
+             appended triangle must contain v_start (=0) or v_stop (={}); \
+             T1=(1,3,2) contains v_stop=3.",
+            v3
+        );
+
+        // Sanity check the C-05 second-assert invariant directly: the
+        // appended triangle contains v_start or v_stop.
+        let appended = intersected_tris[1];
+        assert!(
+            subm.tri_contains_vert(appended, 0) || subm.tri_contains_vert(appended, v3),
+            "C-05 invariant: appended triangle must contain v_start or v_stop \
+             (cf. C++ triangulation.cpp:802-803 second assert). \
+             Triangle {} fails this — fixture geometry corrupt.",
+            appended
+        );
+    }
 }
