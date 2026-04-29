@@ -1833,4 +1833,74 @@ mod tests {
         assert!(generic_point_inside_triangle(&ts, 3, 0, true));
         assert!(!generic_point_inside_triangle(&ts, 4, 0, true));
     }
+
+    /// Audit B-06 (cherchi_port_audit.md): `finalize_intersection` silently
+    /// skips when `v_tmp.len() != 2`. The current Rust port at
+    /// `intersection_class.rs:381-401` comments this as a "Soft-check
+    /// instead of hard assert to avoid debug-mode panics" and relies on the
+    /// `if v_tmp.len() == 2` branch to act as a quiet filter.
+    ///
+    /// The C++ upstream at
+    /// `gcherchi/FastAndRobustMeshArrangements/code/intersection_classification.cpp:267-279`
+    /// has hard assertions:
+    ///
+    /// ```cpp
+    /// if(coplanar_tris)
+    ///     assert(v_tmp.size() <= 3 && "more than 3 intersection points in coplanar triangles");
+    /// else
+    ///     assert((!coplanar_tris && v_tmp.size() <= 2) && "more than 2 intersection points in 2 no-coplanar traingles");
+    /// ```
+    ///
+    /// These invariants come from the algorithm's geometry: two non-coplanar
+    /// triangles produce at most 2 intersection points (a single line
+    /// segment); two coplanar triangles produce at most 3 (a triangular
+    /// overlap region). Anything more is a predicate-kernel failure.
+    ///
+    /// Per audit Cluster I (predicate-kernel symptom-paper-over) and the
+    /// post-A-01+A-02 invariant (commit 2071510, exact predicates landed),
+    /// the masked materialize-fallback orient2d issue should no longer
+    /// produce oversize `v_tmp` from valid input. The soft-skip must
+    /// become two `debug_assert!`s (gated on `coplanar_tris`) so any
+    /// caller that hits this state crashes loudly during development
+    /// instead of silently dropping a real intersection segment.
+    ///
+    /// This is the red phase (FIP §2): pre-fix the soft-skip silently
+    /// returns and `#[should_panic]` reports "test did not panic as
+    /// expected"; post-fix the `debug_assert!` panics with a message
+    /// containing "more than 2 intersection points in non-coplanar"
+    /// (or "more than 3 intersection points in coplanar" for the coplanar
+    /// variant).
+    #[test]
+    #[should_panic(expected = "more than 2 intersection points in non-coplanar")]
+    fn test_finalize_intersection_rejects_oversize_noncoplanar() {
+        let (ts, mut aux) = make_two_boxes_soup();
+        // Synthetic invariant violation: 3 elements when non-coplanar must be ≤2.
+        // The C++ assert only inspects `v_tmp.size()`, so even arbitrary IDs
+        // panic before any soup contents are read past the format-string.
+        let mut v_tmp: HashSet<usize> = HashSet::new();
+        v_tmp.insert(0);
+        v_tmp.insert(1);
+        v_tmp.insert(2);
+        finalize_intersection(
+            &ts, &mut aux, &v_tmp, /* coplanar_tris = */ false, 0, 1,
+        );
+    }
+
+    /// Audit B-06 (cherchi_port_audit.md): companion to
+    /// `test_finalize_intersection_rejects_oversize_noncoplanar` covering
+    /// the coplanar branch. C++ asserts `v_tmp.size() <= 3` for coplanar
+    /// triangles; we feed 4 elements to violate the invariant. See that
+    /// test's doc comment for the full rationale.
+    #[test]
+    #[should_panic(expected = "more than 3 intersection points in coplanar")]
+    fn test_finalize_intersection_rejects_oversize_coplanar() {
+        let (ts, mut aux) = make_two_boxes_soup();
+        // Synthetic invariant violation: 4 elements when coplanar must be ≤3.
+        let mut v_tmp: HashSet<usize> = HashSet::new();
+        v_tmp.insert(0);
+        v_tmp.insert(1);
+        v_tmp.insert(2);
+        v_tmp.insert(3);
+        finalize_intersection(&ts, &mut aux, &v_tmp, /* coplanar_tris = */ true, 0, 1);
+    }
 }
