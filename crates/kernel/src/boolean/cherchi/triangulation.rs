@@ -926,13 +926,46 @@ fn find_intersecting_elements(
         }
     }
 
-    // Append the last triangle
-    if let Some(last_e) = intersected_edges.last() {
-        if let Some(last_t) = intersected_tris.last() {
-            if let Some(t_id) = subm.tri_opp_to_edge(*last_e, *last_t) {
-                intersected_tris.push(t_id);
-            }
-        }
+    // Append the last triangle. Per Cherchi 2020 §5.3 cavity-walk termination
+    // invariant, when the walk converges (v2 == v_stop), the cavity must close
+    // cleanly:
+    //   1. intersected_edges and intersected_tris are non-empty.
+    //   2. tri_opp_to_edge at the tail returns Some (interior edge, not boundary).
+    //   3. The appended triangle is adjacent to v_start or v_stop.
+    // Pre-fix this was a silent if-let chain that could produce wrong cavity
+    // polygons downstream. Per audit C-05 (Cluster I cleanup, unblocked by
+    // A-01+A-02 at commit 08e24d5), now matches C++ at
+    // `gcherchi/FastAndRobustMeshArrangements/code/triangulation.cpp:796-805`
+    // via debug_assert! macros. test-author proved (commit fba3aeb) that the
+    // silent-None case is unreachable through any valid cavity-walk
+    // convergence, but the assertions remain as forward-looking guards.
+    debug_assert!(
+        !intersected_edges.is_empty(),
+        "find_intersecting_elements: intersected_edges empty at tail-append"
+    );
+    debug_assert!(
+        !intersected_tris.is_empty(),
+        "find_intersecting_elements: intersected_tris empty at tail-append"
+    );
+    let last_e = *intersected_edges.last().unwrap();
+    let last_t = *intersected_tris.last().unwrap();
+    let t_id_opt = subm.tri_opp_to_edge(last_e, last_t);
+    debug_assert!(
+        t_id_opt.is_some(),
+        "find_intersecting_elements: tri_opp_to_edge returned None at \
+         cavity-walk tail (edge {} on mesh boundary?)",
+        last_e
+    );
+    if let Some(t_id) = t_id_opt {
+        debug_assert!(
+            subm.tri_contains_vert(t_id, v_start) || subm.tri_contains_vert(t_id, v_stop),
+            "find_intersecting_elements: appended triangle {} must contain \
+             v_start={} or v_stop={}; cavity-walk convergence invariant violated",
+            t_id,
+            v_start,
+            v_stop
+        );
+        intersected_tris.push(t_id);
     }
 }
 
