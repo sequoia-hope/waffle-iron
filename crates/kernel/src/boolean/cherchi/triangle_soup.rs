@@ -358,24 +358,76 @@ fn add_edge_to(edges: &mut Vec<Edge>, edge_map: &mut HashMap<Edge, usize>, v0: u
 /// Compute the axis with the largest component of the triangle normal.
 /// Returns 0 (X), 1 (Y), or 2 (Z).
 ///
+/// The returned axis drives 2D projection for ALL downstream `orient2d`
+/// calls on this triangle, so picking the wrong axis flips orientation
+/// signs and breaks the arrangement algorithm's topological invariants.
+///
+/// Cherchi 2020 §3 demands exact predicates. The C++ filter
+/// (`maxComponentInTriangleNormal_filtered`, `implicit_point.hpp:937-978`)
+/// is a performance optimization that's correct only when the dominant
+/// component is well-separated; for nearly-equal components it commits to
+/// the wrong axis. The C++ "exact" path
+/// (`maxComponentInTriangleNormal_exact`, `implicit_point.hpp:980-1022`)
+/// then compares the most-significant f64 component of each Shewchuk
+/// expansion (`nvx[nvx_len - 1]`), which is itself an f64 approximation
+/// — so a verbatim port still misclassifies axes that differ by 1 ULP.
+///
+/// We use **direct exact magnitude comparison** via `|a| > |b| iff
+/// a² - b² > 0`, computed in Shewchuk expansion arithmetic. Each
+/// cross-product component is built as an exact expansion from the
+/// per-coordinate `two_diff` differences and `two_product` products;
+/// pairs are compared by computing `a*a - b*b` as an expansion and taking
+/// `expansion_sign`. This is faithful to Cherchi 2020 §3 and resolves the
+/// 1-ULP cases that defeat the C++ cascade.
+///
+/// Tie-break order on equal magnitudes: X over Y over Z (matches the
+/// previous f64 `>=`-chain behavior for axis-aligned regression cases).
+///
+/// Audit finding A-02 (Cluster I) in `docs/audits/cherchi_port_audit.md`.
 /// Replaces `genericPoint::maxComponentInTriangleNormal` from the C++ code.
-/// Ported from triangle_soup.cpp:65-67, implicit_point.h
 fn max_component_in_triangle_normal(v0: [f64; 3], v1: [f64; 3], v2: [f64; 3]) -> u32 {
-    // Cross product of (v1 - v0) × (v2 - v0)
-    let ux = v1[0] - v0[0];
-    let uy = v1[1] - v0[1];
-    let uz = v1[2] - v0[2];
-    let vx = v2[0] - v0[0];
-    let vy = v2[1] - v0[1];
-    let vz = v2[2] - v0[2];
+    use crate::boolean::indirect_predicates::{
+        expansion_add, expansion_mul_expansion, expansion_negate, expansion_sign, two_diff_exp,
+    };
 
-    let nx = (uy * vz - uz * vy).abs();
-    let ny = (uz * vx - ux * vz).abs();
-    let nz = (ux * vy - uy * vx).abs();
+    // u = v1 - v0, v = v2 - v0  (exact 2-component expansions per coord)
+    let ux = two_diff_exp(v1[0], v0[0]);
+    let uy = two_diff_exp(v1[1], v0[1]);
+    let uz = two_diff_exp(v1[2], v0[2]);
+    let vx = two_diff_exp(v2[0], v0[0]);
+    let vy = two_diff_exp(v2[1], v0[1]);
+    let vz = two_diff_exp(v2[2], v0[2]);
 
-    if nx >= ny && nx >= nz {
+    // Cross-product components as exact expansions:
+    //   nx = uy*vz - uz*vy
+    //   ny = uz*vx - ux*vz
+    //   nz = ux*vy - uy*vx
+    let nx = expansion_add(
+        &expansion_mul_expansion(&uy, &vz),
+        &expansion_negate(&expansion_mul_expansion(&uz, &vy)),
+    );
+    let ny = expansion_add(
+        &expansion_mul_expansion(&uz, &vx),
+        &expansion_negate(&expansion_mul_expansion(&ux, &vz)),
+    );
+    let nz = expansion_add(
+        &expansion_mul_expansion(&ux, &vy),
+        &expansion_negate(&expansion_mul_expansion(&uy, &vx)),
+    );
+
+    // Squared magnitudes (sign-free): |a|² = a*a.
+    let nx2 = expansion_mul_expansion(&nx, &nx);
+    let ny2 = expansion_mul_expansion(&ny, &ny);
+    let nz2 = expansion_mul_expansion(&nz, &nz);
+
+    // Compare |a| vs |b| via sign(a² - b²): non-negative result ⇒ |a| ≥ |b|.
+    let cmp =
+        |a: &[f64], b: &[f64]| -> i32 { expansion_sign(&expansion_add(a, &expansion_negate(b))) };
+
+    // Tie-break: X over Y over Z (X first wins on equal, matching prior `>=`).
+    if cmp(&nx2, &ny2) >= 0 && cmp(&nx2, &nz2) >= 0 {
         0 // X axis → YZ plane
-    } else if ny >= nx && ny >= nz {
+    } else if cmp(&ny2, &nz2) >= 0 {
         1 // Y axis → ZX plane
     } else {
         2 // Z axis → XY plane

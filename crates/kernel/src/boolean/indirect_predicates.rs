@@ -659,7 +659,7 @@ fn det3x3_exact_pairs(
 }
 
 /// Create a 2-component expansion from two_diff.
-fn two_diff_exp(a: f64, b: f64) -> Vec<f64> {
+pub(crate) fn two_diff_exp(a: f64, b: f64) -> Vec<f64> {
     let [lo, hi] = gp::two_diff(a, b);
     if lo == 0.0 {
         vec![hi]
@@ -669,7 +669,7 @@ fn two_diff_exp(a: f64, b: f64) -> Vec<f64> {
 }
 
 /// Negate an expansion.
-fn expansion_negate(e: &[f64]) -> Vec<f64> {
+pub(crate) fn expansion_negate(e: &[f64]) -> Vec<f64> {
     e.iter().map(|&v| -v).collect()
 }
 
@@ -713,7 +713,7 @@ fn cross_product_2d(a: f64, b: f64, c: f64, d: f64) -> Vec<f64> {
 }
 
 /// Scale an expansion by a scalar (exact).
-fn expansion_scale(e: &[f64], b: f64) -> Vec<f64> {
+pub(crate) fn expansion_scale(e: &[f64], b: f64) -> Vec<f64> {
     if e.is_empty() || b == 0.0 {
         return vec![0.0];
     }
@@ -727,7 +727,7 @@ fn expansion_scale(e: &[f64], b: f64) -> Vec<f64> {
 }
 
 /// Add two expansions (exact).
-fn expansion_add(e: &[f64], f: &[f64]) -> Vec<f64> {
+pub(crate) fn expansion_add(e: &[f64], f: &[f64]) -> Vec<f64> {
     let mut h = vec![0.0; e.len() + f.len()];
     let len = gp::fast_expansion_sum_zeroelim(e, f, &mut h);
     h.truncate(len);
@@ -739,7 +739,7 @@ fn expansion_add(e: &[f64], f: &[f64]) -> Vec<f64> {
 
 /// Multiply two expansions (exact).
 /// Uses the identity: e * f = sum_i(f_i * e) accumulated.
-fn expansion_mul_expansion(e: &[f64], f: &[f64]) -> Vec<f64> {
+pub(crate) fn expansion_mul_expansion(e: &[f64], f: &[f64]) -> Vec<f64> {
     if e.is_empty() || f.is_empty() {
         return vec![0.0];
     }
@@ -753,7 +753,7 @@ fn expansion_mul_expansion(e: &[f64], f: &[f64]) -> Vec<f64> {
 
 /// Sign of an expansion: +1, -1, or 0.
 /// The most significant (last) nonzero component determines the sign.
-fn expansion_sign(e: &[f64]) -> i32 {
+pub(crate) fn expansion_sign(e: &[f64]) -> i32 {
     for &v in e.iter().rev() {
         if v > 0.0 {
             return 1;

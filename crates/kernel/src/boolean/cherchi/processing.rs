@@ -368,24 +368,35 @@ pub(crate) fn compute_approximate_coordinates(
 
 /// Check if three 3D points are collinear (degenerate triangle test).
 ///
-/// Uses cross-product magnitude. Replaces `cinolib::points_are_colinear_3d`.
+/// Three points are collinear iff `orient2d(p0, p1, p2) == 0` for all three
+/// orthogonal 2D projections (drop X, drop Y, drop Z). This is the
+/// Shewchuk-exact predicate per Cherchi 2020 §3 / §4.1, mirroring
+/// `cinolib::points_are_colinear_3d` (predicates.cpp:244-266).
 ///
-/// Ported from processing.cpp:144-146 (cinolib dependency replaced)
+/// Replaces a previous inexact f64 cross-product implementation that
+/// produced wrong answers on f64-rounding-sensitive inputs in BOTH
+/// directions: missed-collinearity AND false-positive-collinearity. Audit
+/// finding A-01 (Cluster I predicate-kernel symptom-paper-over) in
+/// `docs/audits/cherchi_port_audit.md`. The reachable failure direction
+/// under IEEE-754 round-to-nearest is f64 falsely reporting collinear when
+/// the products `ux*vy` and `uy*vx` coincidentally round to equal values
+/// while the exact reals differ; `geometry_predicates::orient2d` uses
+/// adaptive expansion arithmetic and resolves both directions correctly.
 fn points_are_collinear_3d(a: &[f64; 3], b: &[f64; 3], c: &[f64; 3]) -> bool {
-    // Cross product of (b - a) × (c - a)
-    let ux = b[0] - a[0];
-    let uy = b[1] - a[1];
-    let uz = b[2] - a[2];
-    let vx = c[0] - a[0];
-    let vy = c[1] - a[1];
-    let vz = c[2] - a[2];
-
-    let cx = uy * vz - uz * vy;
-    let cy = uz * vx - ux * vz;
-    let cz = ux * vy - uy * vx;
-
-    // If cross product is zero, points are collinear
-    cx == 0.0 && cy == 0.0 && cz == 0.0
+    use geometry_predicates::orient2d;
+    // Drop X (project to YZ), drop Y (project to XZ), drop Z (project to XY).
+    let a_dx = [a[1], a[2]];
+    let b_dx = [b[1], b[2]];
+    let c_dx = [c[1], c[2]];
+    let a_dy = [a[0], a[2]];
+    let b_dy = [b[0], b[2]];
+    let c_dy = [c[0], c[2]];
+    let a_dz = [a[0], a[1]];
+    let b_dz = [b[0], b[1]];
+    let c_dz = [c[0], c[1]];
+    orient2d(a_dx, b_dx, c_dx) == 0.0
+        && orient2d(a_dy, b_dy, c_dy) == 0.0
+        && orient2d(a_dz, b_dz, c_dz) == 0.0
 }
 
 #[cfg(test)]
