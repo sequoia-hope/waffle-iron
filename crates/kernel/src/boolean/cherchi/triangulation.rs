@@ -2171,4 +2171,95 @@ mod tests {
         assert_eq!(found[1], 2);
         assert_eq!(found[2], 3);
     }
+
+    /// Audit C-10 (cherchi_port_audit.md): `create_tpi` must dedup identical
+    /// TPI inputs against the existing-vertex map. C++ upstream
+    /// (`triangulation.cpp:1027-1041` in
+    /// github.com/gcherchi/FastAndRobustMeshArrangements) calls
+    /// `addVertexInSortedList`; the Rust port has the primitive at
+    /// `aux_structure.rs:323::add_vertex_in_sorted_list` (already used at
+    /// three LPI sites in `intersection_class.rs:427-445/467-486/505-524`)
+    /// but the TPI creation site appends unconditionally via
+    /// `ts.add_impl_point(tpi)`.
+    ///
+    /// Two `create_tpi` calls with identical (e0, e1, t0_ids) inputs must
+    /// return the same vertex ID — Cherchi 2020 §5.3 segment insertion
+    /// requires TPI dedup so segments crossing at a TPI shared by multiple
+    /// triangles converge to a single vertex.
+    ///
+    /// **Pre-fix behavior**: id1 != id2 (sequential IDs); test fails on the
+    /// `assert_eq!`. **Post-fix behavior**: id1 == id2; test passes.
+    ///
+    /// Fixture: a TriangleSoup with one local triangle (verts 0,1,2 on XY
+    /// plane) plus two supporting triangles — one non-coplanar with the
+    /// local triangle that shares segment e0 = (0,1), another non-coplanar
+    /// that shares segment e1 = (1,2). The AuxiliaryStructure has
+    /// `seg2tris` populated for both segments so
+    /// `compute_triangle_of_segment` finds a non-coplanar supporting
+    /// triangle for each.
+    #[test]
+    fn test_create_tpi_dedups_identical_tpi() {
+        // Local triangle (verts 0,1,2) on XY plane.
+        // Supporting tri for e0 = (0,1): verts 0,1,3 with v3 above XY plane.
+        // Supporting tri for e1 = (1,2): verts 1,2,4 with v4 above XY plane.
+        let coords = vec![
+            [0.0, 0.0, 0.0],  // v0
+            [10.0, 0.0, 0.0], // v1
+            [5.0, 10.0, 0.0], // v2
+            [5.0, 0.0, 5.0],  // v3 — above XY, non-coplanar with local tri
+            [7.5, 5.0, 5.0],  // v4 — above XY, non-coplanar with local tri
+        ];
+        let tris = vec![
+            0, 1, 2, // tri 0 — local
+            0, 1, 3, // tri 1 — supports e0 = (0,1)
+            1, 2, 4, // tri 2 — supports e1 = (1,2)
+        ];
+        let labels = vec![0u32, 0u32, 0u32];
+        let mut ts = TriangleSoup::new(coords, tris, labels, 1.0);
+
+        let mut aux = AuxiliaryStructure::new();
+        aux.init_from_triangle_soup(&ts);
+
+        // Populate seg2tris so compute_triangle_of_segment can find supporting tris.
+        // e0 = (0,1) is shared by local tri 0 and supporting tri 1.
+        // e1 = (1,2) is shared by local tri 0 and supporting tri 2.
+        aux.add_triangles_in_segment((0, 1), 0, 1);
+        aux.add_triangles_in_segment((1, 2), 0, 2);
+
+        // Local sub-mesh — the FastTrimesh that create_tpi treats as the
+        // "current" triangle. orig_ids must match the local triangle's
+        // vertex IDs in TriangleSoup so subm.vert_orig_id(i) returns i.
+        let subm = FastTrimesh::new(
+            ts.tri_vert(0, 0),
+            ts.tri_vert(0, 1),
+            ts.tri_vert(0, 2),
+            [0, 1, 2],
+            Plane::XY,
+        );
+
+        let sub_segs_map: HashMap<UIPair, UIPair> = HashMap::new();
+        let e0: UIPair = (0, 1);
+        let e1: UIPair = (1, 2);
+
+        let verts_before = ts.num_verts();
+        let id1 = create_tpi(&mut ts, &subm, e0, e1, &aux, &sub_segs_map);
+        let id2 = create_tpi(&mut ts, &subm, e0, e1, &aux, &sub_segs_map);
+
+        // Sanity: the first call must produce a vertex with ID >= original count.
+        assert!(
+            id1 >= verts_before,
+            "create_tpi must produce a vertex ID >= pre-call count"
+        );
+
+        // Primary red-before-green assertion: identical inputs → same vertex ID.
+        // Pre-fix: id1 != id2 (sequential, so id2 == id1 + 1).
+        // Post-fix (wire in aux.add_vertex_in_sorted_list): id1 == id2.
+        assert_eq!(
+            id1, id2,
+            "create_tpi must dedup identical TPI inputs per Cherchi 2020 §5.3 / \
+             triangulation.cpp:1027-1041 / audit C-10. Pre-fix produces id1 != id2 \
+             because the TPI creation site calls ts.add_impl_point(tpi) without \
+             going through aux.add_vertex_in_sorted_list."
+        );
+    }
 }
