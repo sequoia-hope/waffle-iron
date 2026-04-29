@@ -718,17 +718,40 @@ impl FastTrimesh {
 
     /// Split an edge by inserting a vertex. Each adjacent triangle is replaced
     /// by 2 new triangles. The original triangles are removed.
-    /// Ported from fast_trimesh.cpp:708-726
+    ///
+    /// Ported from `gcherchi/FastAndRobustMeshArrangements/code/fast_trimesh.cpp:708-726`.
+    /// C++ upstream has no guards on `v_id` — it relies on the implicit array-index
+    /// assertions in `addTri` / `removeTri` and on the predicate kernel never
+    /// producing degenerate splitting requests.
+    ///
+    /// Audit `docs/audits/cherchi_port_audit.md` finding C-08 + Cluster I: the
+    /// previous Rust port carried two defensive guards (`v_id == ev0_id || v_id ==
+    /// ev1_id` → silent return; `v_opp == v_id` → silent triangle removal that
+    /// opened cavity holes) papering over fallout from the inexact predicate
+    /// path. With A-01 + A-02 (commit `08e24d5`) replacing the inexact f64
+    /// collinearity / max-axis tests with `geometry-predicates` exact arithmetic,
+    /// neither degenerate state is reachable from a valid call site. The guards
+    /// are now `debug_assert!`s so a regression in the predicate path crashes
+    /// loudly during development instead of silently corrupting the cavity.
     pub fn split_edge(&mut self, e_id: usize, v_id: usize) {
         assert!(e_id < self.edges.len(), "edge id out of range");
 
         let ev0_id = self.edges[e_id].v.0;
         let ev1_id = self.edges[e_id].v.1;
 
-        // Skip if v_id is already an endpoint of the edge
-        if v_id == ev0_id || v_id == ev1_id {
-            return;
-        }
+        // Cluster I (audit C-08): with exact predicates (A-01 + A-02 landed at
+        // commit 08e24d5), the splitting vertex is guaranteed distinct from
+        // edge endpoints. Pre-fix the inexact predicate path could deliver
+        // v_id == ev_X; that's now unreachable in valid call sites. If this
+        // fires, the predicate path is broken — investigate at root.
+        debug_assert!(
+            v_id != ev0_id && v_id != ev1_id,
+            "split_edge: splitting vertex {} coincides with edge endpoint \
+             (ev0={}, ev1={}); predicate path failure",
+            v_id,
+            ev0_id,
+            ev1_id
+        );
 
         let adj_tris: FmVec = self.e2t[e_id].clone();
         let mut tris_to_remove: FmVec = FmVec::new();
@@ -736,13 +759,16 @@ impl FastTrimesh {
             let mut ev0 = ev0_id;
             let mut ev1 = ev1_id;
             let v_opp = self.tri_vert_opposite_to(t_id, ev0, ev1);
-            if v_opp == v_id {
-                // v_id is already the opposite vertex — remove the triangle
-                // (its shared edge is being split) but don't create degenerate
-                // replacement triangles.
-                tris_to_remove.push(t_id);
-                continue;
-            }
+            // Cluster I (audit C-08): with exact predicates, v_id (a fresh
+            // on-edge vertex) cannot coincide with v_opp. Pre-fix this silently
+            // dropped triangles, opening cavity holes.
+            debug_assert!(
+                v_opp != v_id,
+                "split_edge: splitting vertex {} coincides with opposite vertex \
+                 of adjacent triangle {}; degenerate input from predicate path",
+                v_id,
+                t_id
+            );
             if self.tri_verts_are_ccw(t_id, ev0, ev1) {
                 std::mem::swap(&mut ev0, &mut ev1);
             }
