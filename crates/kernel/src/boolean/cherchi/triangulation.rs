@@ -449,7 +449,24 @@ impl CustomStack {
 /// a stack-based approach. Points on edges are handled by edge splitting,
 /// interior points by triangle splitting.
 ///
-/// Ported from triangulation.cpp:228-363 (splitSingleTriangleWithStack)
+/// Ported from triangulation.cpp:228-363 (splitSingleTriangleWithStack).
+///
+/// Cherchi 2020 §5.3 stack invariant: `curr_tri[3]` is a non-vertex point of
+/// the parent triangle `curr_tri[0..3]`. The C++ upstream
+/// (`gcherchi/FastAndRobustMeshArrangements/code/triangulation.cpp:228-363`)
+/// assumes this and indexes `curr_tri[3]` directly without a pre-scan.
+///
+/// Audit C-01 in `docs/audits/cherchi_port_audit.md` (Cluster I cleanup,
+/// unblocked by A-01+A-02 exact predicates at commit `2071510`). Pre-fix the
+/// Rust port had a pre-scan that walked `pt_idx` from 3..len() looking for
+/// the first non-vertex candidate and swapped it to position 3 — silently
+/// absorbing the invariant violation that C-02's `is_vertex` filter could
+/// produce. With exact predicates, valid call paths cannot construct a frame
+/// where `curr_tri[3]` coincides (by ID) with `curr_tri[0..3]`, and the
+/// coordinate-coincident input check at function entry catches the upstream
+/// `add_vert` duplicate that would lead there. If either assert fires, the
+/// upstream predicate path or call site has a bug requiring root-cause
+/// investigation.
 #[allow(dead_code)]
 fn split_single_triangle_with_stack(
     ts: &TriangleSoup,
@@ -461,6 +478,41 @@ fn split_single_triangle_with_stack(
 ) {
     if points.is_empty() && e0_points.is_empty() && e1_points.is_empty() && e2_points.is_empty() {
         return;
+    }
+
+    // Cherchi 2020 §5.3 input-constraint invariant: no entry in `points`,
+    // `e0_points`, `e1_points`, or `e2_points` may coincide by coordinates
+    // with any of the parent-triangle vertices. A coincidence here would
+    // produce a duplicate `add_vert` below whose new subm-id resolves to a
+    // distinct integer but whose coordinates equal an existing tri-vertex —
+    // downstream `fast_point_on_line` / `split_edge` would silently corrupt
+    // the cavity. The C++ port has no such input; valid Yang-pipeline call
+    // paths cannot produce this state with A-01+A-02 exact predicates landed.
+    #[cfg(debug_assertions)]
+    {
+        let tri_v0 = subm.vert(subm.tri_vert_id(0, 0));
+        let tri_v1 = subm.vert(subm.tri_vert_id(0, 1));
+        let tri_v2 = subm.vert(subm.tri_vert_id(0, 2));
+        let assert_non_coincident = |bucket: &[usize], bucket_name: &str| {
+            for &p in bucket {
+                if let Some(coords) = ts.implicit_point(p).materialize() {
+                    debug_assert!(
+                        coords != tri_v0 && coords != tri_v1 && coords != tri_v2,
+                        "Cherchi 2020 §5.3 invariant violation: input point {} (bucket {}) \
+                         coincides by coordinates with a parent-triangle vertex \
+                         (coords={:?}); valid Yang call paths cannot produce this — \
+                         upstream predicate-path or duplicate add_vert bug",
+                        p,
+                        bucket_name,
+                        coords
+                    );
+                }
+            }
+        };
+        assert_non_coincident(points, "points");
+        assert_non_coincident(e0_points, "e0_points");
+        assert_non_coincident(e1_points, "e1_points");
+        assert_non_coincident(e2_points, "e2_points");
     }
 
     let size_p2ins = 3 + points.len() + e0_points.len() + e1_points.len() + e2_points.len();
@@ -512,34 +564,32 @@ fn split_single_triangle_with_stack(
             None => continue,
         };
 
-        // Find the first valid point to insert (skip points that are
-        // already vertices of this triangle — can happen when a point
-        // gets assigned to a sub-triangle where it's already a vertex
-        // during reposition_points_in_stack).
-        let mut pt_idx = 3;
-        while pt_idx < curr_tri.len() {
-            let p = curr_tri[pt_idx];
-            if p != curr_tri[0] && p != curr_tri[1] && p != curr_tri[2] {
-                break;
-            }
-            pt_idx += 1;
-        }
-        if pt_idx >= curr_tri.len() {
-            continue; // no valid points to insert
-        }
+        // Cherchi 2020 §5.3 stack invariant: `curr_tri[3]` is a non-vertex
+        // of `curr_tri[0..3]`. Pre-fix the port walked `pt_idx` from 3..len()
+        // skipping vertex-coincident candidates (audit C-01); this masked the
+        // upstream invariant violation that C-02's `is_vertex` filter could
+        // produce in `reposition_points_in_stack`. The C++ upstream
+        // (`triangulation.cpp:281`) indexes `curr_tri[3]` directly with no
+        // pre-scan. With C-01+C-02 paired (this commit), the assert encodes
+        // the C++ invariant; valid call paths cannot violate it.
+        debug_assert!(
+            curr_tri[3] != curr_tri[0] && curr_tri[3] != curr_tri[1] && curr_tri[3] != curr_tri[2],
+            "Cherchi 2020 §5.3 invariant violation: curr_tri[3]={} coincides with \
+             parent-triangle vertex curr_tri[0..3]=[{}, {}, {}] — predicate-path \
+             failure in reposition_points_in_stack or upstream add_vert duplicate",
+            curr_tri[3],
+            curr_tri[0],
+            curr_tri[1],
+            curr_tri[2]
+        );
 
-        let v_pos = curr_tri[pt_idx];
+        let v_pos = curr_tri[3];
         let mut on_edge = false;
 
         // Merged points buffer — populated with curr_tri's points plus any
         // adjacent triangle's points when splitting on a shared edge.
         // In C++, this is done by mutating `curr_tri` (a reference) in place.
-        // Swap the valid point to position [3] so the remaining points start
-        // at position [4].
         let mut merged = curr_tri;
-        if pt_idx != 3 {
-            merged.swap(3, pt_idx);
-        }
 
         // Check if v_pos is on any edge of the triangle
         // Ported from triangulation.cpp:283-337
@@ -607,7 +657,21 @@ fn split_single_triangle_with_stack(
 
 /// Redistribute remaining points from curr_tri into the sub-triangles.
 ///
-/// Ported from triangulation.cpp:366-413 (repositionPointsInStack)
+/// Ported from triangulation.cpp:366-413 (repositionPointsInStack).
+///
+/// C++ uses non-strict `genericPoint::pointInTriangle` with no `is_vertex`
+/// filter on any of the four sub-triangle gates. Audit C-02 in
+/// `docs/audits/cherchi_port_audit.md` (Cluster I cleanup, unblocked by
+/// A-01+A-02 exact predicates at commit `2071510`). Pre-fix the Rust port
+/// gated each `point_in_triangle_projected` call with `!is_vertex(...)`,
+/// silently dropping any `curr_tri[4..]` entry whose subm-id matched a
+/// vertex of the matched sub-triangle. This was a Cluster I defense paired
+/// with C-01's pre-scan: C-02 could push a vertex-coincident frame onto
+/// the stack, then C-01 absorbed the resulting invariant violation. With
+/// exact predicates landed, no valid upstream call can construct a
+/// `curr_tri[4..]` entry that is both vertex-coincident AND inside one of
+/// the sub-triangles — the filter becomes a `debug_assert!` per-gate
+/// inside the matched-positive branch.
 fn reposition_points_in_stack(
     subm: &FastTrimesh,
     stack: &mut CustomStack,
@@ -621,25 +685,38 @@ fn reposition_points_in_stack(
         // The newly inserted point is at curr_subdv[0][1]
         let v_pos_id = curr_subdv[0][1];
 
-        // Helper: check if p is already a vertex of the sub-triangle
-        let is_vertex = |subdv: &[usize], p: usize| -> bool {
-            subdv.len() >= 3 && (p == subdv[0] || p == subdv[1] || p == subdv[2])
-        };
-
         // Check sub-triangle 0
         if !curr_subdv[0].is_empty()
-            && !is_vertex(&curr_subdv[0], p)
             && point_in_triangle_projected(subm, p, curr_subdv[0][0], v_pos_id, curr_subdv[0][2])
         {
+            debug_assert!(
+                p != curr_subdv[0][0] && p != curr_subdv[0][1] && p != curr_subdv[0][2],
+                "reposition_points_in_stack: point {} in sub-triangle [{}, {}, {}] coincides \
+                 with sub-triangle vertex; non-strict point_in_triangle accepted but Cluster I \
+                 invariant rejects (predicate-path failure or upstream invariant violation)",
+                p,
+                curr_subdv[0][0],
+                curr_subdv[0][1],
+                curr_subdv[0][2]
+            );
             n_insertions += 1;
             curr_subdv[0].push(p);
         }
 
         // Check sub-triangle 1
         if !curr_subdv[1].is_empty()
-            && !is_vertex(&curr_subdv[1], p)
             && point_in_triangle_projected(subm, p, curr_subdv[1][0], v_pos_id, curr_subdv[1][2])
         {
+            debug_assert!(
+                p != curr_subdv[1][0] && p != curr_subdv[1][1] && p != curr_subdv[1][2],
+                "reposition_points_in_stack: point {} in sub-triangle [{}, {}, {}] coincides \
+                 with sub-triangle vertex; non-strict point_in_triangle accepted but Cluster I \
+                 invariant rejects (predicate-path failure or upstream invariant violation)",
+                p,
+                curr_subdv[1][0],
+                curr_subdv[1][1],
+                curr_subdv[1][2]
+            );
             n_insertions += 1;
             curr_subdv[1].push(p);
         }
@@ -651,9 +728,18 @@ fn reposition_points_in_stack(
         // Check sub-triangle 2
         if curr_subdv.len() > 2
             && !curr_subdv[2].is_empty()
-            && !is_vertex(&curr_subdv[2], p)
             && point_in_triangle_projected(subm, p, curr_subdv[2][0], v_pos_id, curr_subdv[2][2])
         {
+            debug_assert!(
+                p != curr_subdv[2][0] && p != curr_subdv[2][1] && p != curr_subdv[2][2],
+                "reposition_points_in_stack: point {} in sub-triangle [{}, {}, {}] coincides \
+                 with sub-triangle vertex; non-strict point_in_triangle accepted but Cluster I \
+                 invariant rejects (predicate-path failure or upstream invariant violation)",
+                p,
+                curr_subdv[2][0],
+                curr_subdv[2][1],
+                curr_subdv[2][2]
+            );
             n_insertions += 1;
             curr_subdv[2].push(p);
         }
@@ -665,9 +751,18 @@ fn reposition_points_in_stack(
         // Check sub-triangle 3
         if curr_subdv.len() > 3
             && !curr_subdv[3].is_empty()
-            && !is_vertex(&curr_subdv[3], p)
             && point_in_triangle_projected(subm, p, curr_subdv[3][0], v_pos_id, curr_subdv[3][2])
         {
+            debug_assert!(
+                p != curr_subdv[3][0] && p != curr_subdv[3][1] && p != curr_subdv[3][2],
+                "reposition_points_in_stack: point {} in sub-triangle [{}, {}, {}] coincides \
+                 with sub-triangle vertex; non-strict point_in_triangle accepted but Cluster I \
+                 invariant rejects (predicate-path failure or upstream invariant violation)",
+                p,
+                curr_subdv[3][0],
+                curr_subdv[3][1],
+                curr_subdv[3][2]
+            );
             curr_subdv[3].push(p);
         }
     }
