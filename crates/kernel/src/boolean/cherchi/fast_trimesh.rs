@@ -458,21 +458,34 @@ impl FastTrimesh {
         panic!("tri_vert_opposite_to: should not happen");
     }
 
-    /// Find the triangle opposite to a given triangle across an edge.
-    /// Returns None for boundary edges.
-    /// Ported from fast_trimesh.cpp:470-485
+    /// Return the triangle on the opposite side of edge `e_id` from `t_id`,
+    /// or `None` if `e_id` is a boundary edge (only 1 adjacent triangle).
+    ///
+    /// Mirrors C++ `FastTrimesh::triOppToEdge` in
+    /// `gcherchi/FastAndRobustMeshArrangements/code/fast_trimesh.cpp:470-485`
+    /// (asserts manifold-or-boundary: `e2t[e_id].size() <= 2`).
+    /// Audit finding C-11 in `docs/audits/cherchi_port_audit.md` (Cluster I cleanup,
+    /// unblocked by A-01+A-02 exact predicates at commit `2071510`). Pre-fix the
+    /// Rust port silently accepted non-manifold edges (`len > 2`) and returned the
+    /// first non-self triangle, sending the cavity-walk in an unpredictable
+    /// direction; with exact predicates landed, the upstream split paths cannot
+    /// produce non-manifold edges.
     pub fn tri_opp_to_edge(&self, e_id: usize, t_id: usize) -> Option<usize> {
         assert!(e_id < self.edges.len(), "edge id out of range");
         assert!(t_id < self.triangles.len(), "tri id out of range");
 
         let adj = &self.e2t[e_id];
+        debug_assert!(
+            adj.len() <= 2,
+            "tri_opp_to_edge: non-manifold edge e_id={} has {} adjacent triangles \
+             (expected ≤ 2); predicate-path failure or upstream split-edge invariant violation",
+            e_id,
+            adj.len()
+        );
+
         if adj.len() == 1 {
             return None; // boundary edge
         }
-        // Search all adjacent triangles for one that isn't t_id.
-        // For manifold edges (len==2) this is O(1); for non-manifold edges
-        // (len>2, can arise with approximate-coordinate edge splits) it
-        // returns the first other triangle found.
         for &other in adj {
             if other != t_id {
                 return Some(other);
