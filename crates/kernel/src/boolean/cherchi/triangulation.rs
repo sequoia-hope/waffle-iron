@@ -2197,6 +2197,16 @@ mod tests {
     /// `seg2tris` populated for both segments so
     /// `compute_triangle_of_segment` finds a non-coplanar supporting
     /// triangle for each.
+    ///
+    /// **Geometric note**: in this fixture the three supporting planes
+    /// (local tri + e0-supporter + e1-supporter) all pass through v1
+    /// because both e0=(0,1) and e1=(1,2) share v1 with the local
+    /// triangle. The TPI therefore lands at v1 = (10, 0, 0) exactly.
+    /// Post-fix `aux.add_vertex_in_sorted_list` recognises this via
+    /// `less_than_indirect` and returns the existing vertex id=1 rather
+    /// than creating a fresh point. Dedup-against-existing-vertex is
+    /// geometrically equivalent to dedup-against-another-fresh-TPI for
+    /// reproducing C-10's signature (two IDs vs one ID).
     #[test]
     fn test_create_tpi_dedups_identical_tpi() {
         // Local triangle (verts 0,1,2) on XY plane.
@@ -2241,17 +2251,10 @@ mod tests {
         let e0: UIPair = (0, 1);
         let e1: UIPair = (1, 2);
 
-        let verts_before = ts.num_verts();
         let id1 = create_tpi(&mut ts, &subm, e0, e1, &aux, &sub_segs_map);
         let id2 = create_tpi(&mut ts, &subm, e0, e1, &aux, &sub_segs_map);
 
-        // Sanity: the first call must produce a vertex with ID >= original count.
-        assert!(
-            id1 >= verts_before,
-            "create_tpi must produce a vertex ID >= pre-call count"
-        );
-
-        // Primary red-before-green assertion: identical inputs → same vertex ID.
+        // Red-before-green assertion: identical inputs → same vertex ID.
         // Pre-fix: id1 != id2 (sequential, so id2 == id1 + 1).
         // Post-fix (wire in aux.add_vertex_in_sorted_list): id1 == id2.
         assert_eq!(
