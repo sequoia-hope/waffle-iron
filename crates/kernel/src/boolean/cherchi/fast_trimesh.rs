@@ -1167,4 +1167,71 @@ mod tests {
             "degenerate (all equal): must return None"
         );
     }
+
+    /// Audit C-08 (cherchi_port_audit.md): `split_edge` Guard 1 — when the
+    /// splitting vertex `v_id` equals one of the edge endpoints `ev0_id` /
+    /// `ev1_id`, the call is degenerate by definition (you cannot split an
+    /// edge by inserting one of its own endpoints). The current Rust port
+    /// silently `return`s; the C++ upstream at `fast_trimesh.cpp:708-726`
+    /// has no such guard — it relies on the implicit array-index assertion
+    /// in `addTri`/`removeTri`.
+    ///
+    /// Per audit Cluster I (predicate-kernel symptom-paper-over) and the
+    /// post-A-01+A-02 invariant ("with exact predicates this is unreachable
+    /// in valid call paths"), the guard must become a `debug_assert!` so
+    /// that any caller that hits this state crashes loudly during
+    /// development instead of silently no-op-ing. This is the red phase
+    /// (FIP §2): pre-fix the test fails with "test did not panic"; post-fix
+    /// the `debug_assert!` panics with a message containing "splitting
+    /// vertex".
+    #[test]
+    #[should_panic(expected = "splitting vertex")]
+    fn test_split_edge_panics_on_endpoint_v_id() {
+        let mut mesh = make_single_tri();
+        let e_id = mesh.edge_id(0, 1).expect("edge 0-1 should exist");
+        // v_id == ev0_id (vertex 0 is one of the edge's endpoints).
+        // Pre-fix: silent early return. Post-fix: debug_assert! panics.
+        mesh.split_edge(e_id, 0);
+    }
+
+    /// Audit C-08 (cherchi_port_audit.md): `split_edge` Guard 2 — when the
+    /// splitting vertex `v_id` equals the triangle's vertex opposite the
+    /// edge being split (`v_opp`), the current Rust port silently appends
+    /// the triangle to `tris_to_remove` and `continue`s — opening a hole
+    /// in the cavity (the triangle is removed without being replaced by
+    /// the two children that the algorithm should produce). C++ upstream
+    /// has no such guard.
+    ///
+    /// Per audit Cluster I, this is masking inexact-predicate fallout
+    /// rather than addressing it. With A-01+A-02 exact predicates landed,
+    /// this state is unreachable in valid call paths; the guard must
+    /// become a `debug_assert!`.
+    ///
+    /// Fixture: two triangles sharing edge (1,2):
+    ///   - Triangle 0: (0, 1, 2) — opposite to edge (1,2) is vertex 0.
+    ///   - Triangle 1: (1, 3, 2) — opposite to edge (1,2) is vertex 3.
+    /// Calling `split_edge(edge_1_2, v_id=0)`:
+    ///   - Guard 1 does NOT fire: ev0=1, ev1=2, v_id=0 — distinct.
+    ///   - For triangle 0: v_opp = 0 == v_id → Guard 2 fires.
+    ///
+    /// Pre-fix: silent triangle removal. Post-fix: debug_assert! panics
+    /// with a message containing "opposite vertex".
+    #[test]
+    #[should_panic(expected = "opposite vertex")]
+    fn test_split_edge_panics_on_v_opp_v_id() {
+        // Two triangles sharing edge (1, 2) on the XY plane.
+        // Triangle 0 = (0, 1, 2); Triangle 1 = (1, 3, 2).
+        let verts = vec![
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0],
+        ];
+        let tris = vec![0, 1, 2, 1, 3, 2];
+        let mut mesh = FastTrimesh::from_verts_and_tris(&verts, &tris, Plane::XY);
+
+        let e_id = mesh.edge_id(1, 2).expect("shared edge 1-2 should exist");
+        // v_id = 0 == v_opp(triangle 0, edge 1-2). Guard 2 fires.
+        mesh.split_edge(e_id, 0);
+    }
 }
