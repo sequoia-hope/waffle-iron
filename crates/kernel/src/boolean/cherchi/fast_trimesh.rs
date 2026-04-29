@@ -286,12 +286,38 @@ impl FastTrimesh {
         }
     }
 
-    /// Find edge ID by its two endpoint vertex IDs. Returns None if not found.
-    /// Ported from fast_trimesh.cpp:296-308
+    /// Look up the edge ID connecting two vertices, or `None` if no such edge
+    /// exists in the mesh.
+    ///
+    /// Mirrors C++ `FastTrimesh::edgeID` in
+    /// `gcherchi/FastAndRobustMeshArrangements/code/fast_trimesh.cpp:296-308`
+    /// (asserts distinct endpoints + in-range vertex IDs, then searches v2e).
+    /// Audit finding C-13 in `docs/audits/cherchi_port_audit.md` (Cluster I cleanup,
+    /// unblocked by A-01+A-02 exact predicates at commit `2071510`). Pre-fix the
+    /// Rust port silently returned `None` on equal endpoints / out-of-range IDs,
+    /// which `add_edge` (line 905) treated as "edge not present" and would have
+    /// fallen through to create a degenerate self-loop edge; with exact predicates
+    /// landed, the algorithm cannot construct invariant-violating edge queries.
+    ///
+    /// The terminal `None` from the search loop (at the function's end) remains —
+    /// that is the legitimate "edge not yet present" answer used by `add_edge`'s
+    /// idempotency check.
     pub fn edge_id(&self, ev0_id: usize, ev1_id: usize) -> Option<usize> {
-        if ev0_id == ev1_id || ev0_id >= self.vertices.len() || ev1_id >= self.vertices.len() {
-            return None;
-        }
+        debug_assert!(
+            ev0_id != ev1_id,
+            "edge_id: edge with equal endpoints (ev0_id == ev1_id == {}); \
+             predicate-path failure or upstream invariant violation",
+            ev0_id
+        );
+        debug_assert!(
+            ev0_id < self.vertices.len() && ev1_id < self.vertices.len(),
+            "edge_id: vtx id out of range (ev0_id={}, ev1_id={}, vertices.len()={}); \
+             predicate-path failure or upstream invariant violation",
+            ev0_id,
+            ev1_id,
+            self.vertices.len()
+        );
+
         for &e_id in &self.v2e[ev0_id] {
             if self.edge_contains_vert(e_id, ev0_id) && self.edge_contains_vert(e_id, ev1_id) {
                 return Some(e_id);
