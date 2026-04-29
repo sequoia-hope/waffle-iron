@@ -2209,6 +2209,44 @@ mod tests {
         assert!(stack.is_empty());
     }
 
+    /// Audit C-07 (cherchi_port_audit.md): `CustomStack::push` silently
+    /// skips degenerate sub-triangles whose first three slots contain a
+    /// duplicate vertex ID. The current Rust port at
+    /// `triangulation.rs:381-394` filters them out:
+    ///
+    /// ```ignore
+    /// if vec.len() >= 3 && (vec[0] == vec[1] || vec[0] == vec[2] || vec[1] == vec[2]) {
+    ///     return;
+    /// }
+    /// ```
+    ///
+    /// The C++ upstream at
+    /// `gcherchi/FastAndRobustMeshArrangements/code/custom_stack.h:27-35`
+    /// has no such filter — it relies on the predicate kernel never
+    /// producing a degenerate triple in valid call paths.
+    ///
+    /// Per audit Cluster I (predicate-kernel symptom-paper-over) and the
+    /// post-A-01+A-02 invariant ("with exact predicates this is
+    /// unreachable in valid call paths"), the filter must become a
+    /// `debug_assert!` so any caller that hits this state crashes loudly
+    /// during development instead of silently dropping a sub-triangle
+    /// from the cavity-walk stack.
+    ///
+    /// This is the red phase (FIP §2): pre-fix the test fails with
+    /// "test did not panic"; post-fix the `debug_assert!` panics with a
+    /// message containing "degenerate sub-triangle".
+    #[test]
+    #[should_panic(expected = "degenerate sub-triangle")]
+    fn test_custom_stack_rejects_degenerate() {
+        let mut stack = CustomStack::new(10);
+        // Push a degenerate triangle (vec[0] == vec[1] == 1).
+        // Pre-fix: filter silently skips → no panic → test fails with
+        // "test did not panic as expected".
+        // Post-fix: debug_assert! panics with message containing
+        // "degenerate sub-triangle".
+        stack.push(vec![1, 1, 3]);
+    }
+
     #[test]
     fn test_custom_stack_get_triangle() {
         let mut stack = CustomStack::new(10);
