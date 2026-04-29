@@ -1335,4 +1335,35 @@ mod tests {
         // Post-fix: debug_assert!(adj.len() <= 2, "non-manifold edge ...") panics.
         let _ = mesh.tri_opp_to_edge(e_id, 0);
     }
+
+    /// Audit C-13 (cherchi_port_audit.md): `edge_id` collapses two distinct C++
+    /// upstream assertions into a single silent `None` return. The C++ at
+    /// `fast_trimesh.cpp:296-308` asserts:
+    ///
+    /// ```cpp
+    /// assert(ev0_id != ev1_id && "edge with equal endpoints");
+    /// assert((ev0_id < vertices.size() && ev1_id < vertices.size()) && "vtx id out of range");
+    /// ```
+    ///
+    /// The Rust port at `fast_trimesh.rs:289-301` early-returns `None` on either
+    /// condition — a Cluster I (predicate-kernel symptom-paper-over) silent
+    /// fallback. With A-01+A-02 exact predicates landed (commit `2071510`), no
+    /// valid call path can construct an `edge_id(v, v)` query: every call site
+    /// derives the two endpoints from a triangle's distinct vertex slots, and
+    /// `add_tri` (post-C-09) refuses degenerate triangles.
+    ///
+    /// Per audit C-13 the equal-endpoints branch must become a `debug_assert!`
+    /// mirroring the C++ assert message verbatim. This is the red phase
+    /// (FIP §2): pre-fix the test fails with "test did not panic"; post-fix the
+    /// `debug_assert!` panics with a message containing "equal endpoints".
+    /// (The vtx-out-of-range branch is symmetric and lower-priority — not
+    /// covered by this test per the audit's request scope.)
+    #[test]
+    #[should_panic(expected = "equal endpoints")]
+    fn test_edge_id_rejects_equal_endpoints() {
+        let fm = make_single_tri();
+        // ev0_id == ev1_id (vertex 0 queried against itself). Pre-fix: silent
+        // None return. Post-fix: debug_assert!(ev0_id != ev1_id, "...") panics.
+        let _ = fm.edge_id(0, 0);
+    }
 }
