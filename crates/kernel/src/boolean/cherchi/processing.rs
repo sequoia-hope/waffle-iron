@@ -550,6 +550,81 @@ mod tests {
         ));
     }
 
+    /// A-01 RED test (audit `docs/audits/cherchi_port_audit.md` Cluster I).
+    ///
+    /// Three points where the inexact f64 cross-product rounds to exactly
+    /// (0, 0, 0) — so the current implementation reports them as collinear —
+    /// but they are NOT collinear in exact arithmetic on the f64 inputs.
+    /// The Shewchuk-exact `orient2d` on the XY projection returns `-6.0`,
+    /// not `0.0`, so a Cherchi 2020 §3 / `cinolib::points_are_colinear_3d`
+    /// faithful port must return `false`.
+    ///
+    /// Fixture construction (verified):
+    ///   `a = (0, 0, 0)`, `b = (3e8, 7, 0)`, `c = (9e16/7, 3e8, 0)`.
+    ///   The inexact f64 cross has z-component
+    ///   `b[0]*c[1] - b[1]*c[0] = 3e8 * 3e8 - 7 * round_to_f64(9e16/7)`.
+    ///   `3e8 * 3e8` rounds to exactly `9e16` and `7 * round_to_f64(9e16/7)`
+    ///   also rounds to exactly `9e16`, so the f64 subtraction is `0.0`.
+    ///   The other two cross components vanish trivially because
+    ///   `a.z = b.z = c.z = 0`. Pre-fix returns `true`.
+    ///
+    ///   The exact 2D `orient2d` on the XY projection computes the
+    ///   determinant in adaptive expansion arithmetic and returns `-6.0`,
+    ///   exposing that `c` is not exactly on the line through `a` and `b`
+    ///   (since `9e16/7` cannot be exactly represented in f64). Post-fix
+    ///   returns `false`.
+    ///
+    /// Note on direction: the audit text described the opposite divergence
+    /// (exact says collinear, f64 misses it). Per IEEE-754 round-to-nearest-
+    /// even, that direction is unreachable: if `ux*vy = uy*vx` as exact reals
+    /// on the f64 inputs, then `round(ux*vy) = round(uy*vx)` (rounding is a
+    /// deterministic function of the exact value), so `cross = 0` in f64 too.
+    /// The reachable direction — and the one this fixture exercises — is the
+    /// reverse: f64 falsely says collinear because two products coincidentally
+    /// round to equal values while the exact reals differ.
+    ///
+    /// Both directions are predicate-kernel bugs of the same class (Cluster I):
+    /// the inexact f64 path disagrees with Shewchuk-exact `orient2d`, and
+    /// downstream code relying on this predicate cannot trust its answers.
+    /// The audit's recommended fix (three calls to `geometry_predicates::
+    /// orient2d` on orthogonal projections, AND-ing `== 0.0`) addresses both
+    /// directions.
+    ///
+    /// Ref: `cinolib::points_are_colinear_3d` (predicates.cpp:244-266) calls
+    /// Shewchuk's exact `orient2d` on three orthogonal projections.
+    #[test]
+    fn test_points_are_collinear_3d_handles_f64_rounding() {
+        let a = [0.0_f64, 0.0, 0.0];
+        let b = [3.0e8_f64, 7.0, 0.0];
+        let c = [9.0e16_f64 / 7.0, 3.0e8, 0.0];
+
+        // Sanity: confirm the fixture is on a plane (z=0) and the inexact f64
+        // cross product really rounds to zero.
+        let ux = b[0] - a[0];
+        let uy = b[1] - a[1];
+        let vx = c[0] - a[0];
+        let vy = c[1] - a[1];
+        let cz_f64 = ux * vy - uy * vx;
+        assert_eq!(
+            cz_f64, 0.0,
+            "fixture sanity: f64 cross product z-component must round to 0.0 \
+             (this is what causes the pre-fix function to falsely return true)"
+        );
+
+        // The actual red-vs-green assertion. Pre-fix: f64 cross == (0,0,0)
+        // ⇒ returns true (incorrect). Post-fix: orient2d on XY projection
+        // returns -6.0, not 0.0 ⇒ returns false (correct).
+        assert!(
+            !points_are_collinear_3d(&a, &b, &c),
+            "post-fix Shewchuk-exact orient2d on XY projection returns -6.0 \
+             (not zero), so points are NOT collinear in exact arithmetic on \
+             these f64 inputs. The f64 cross product happens to round to 0 \
+             because 3e8*3e8 and 7*round(9e16/7) both round to 9e16. The \
+             current inexact implementation reports collinear (true), which \
+             is a Cluster I predicate-kernel bug per audit A-01."
+        );
+    }
+
     /// PR10 Phase B red test — Orientation::detect for all 6 permutations.
     ///
     /// **RED phase (PR10 Phase B): does not compile until Phase C defines

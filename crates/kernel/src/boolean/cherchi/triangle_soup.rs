@@ -542,4 +542,148 @@ mod tests {
             1
         );
     }
+
+    /// A-02 RED test (audit `docs/audits/cherchi_port_audit.md` Cluster I).
+    ///
+    /// Demonstrates that the current inexact f64 cross-product disagrees
+    /// with Shewchuk-exact `geometry_predicates::orient2d` on the choice
+    /// of triangle-normal max-magnitude axis. The Plane returned drives 2D
+    /// projection for ALL downstream `orient2d` calls on this triangle, so
+    /// picking the wrong axis flips orientation signs and breaks the
+    /// arrangement algorithm's topological invariants.
+    ///
+    /// Fixture (verified in cargo's debug profile, no FMA):
+    ///   `v0 = (0, 0, 0)`, `v1 = (2*0.11, 3*0.19, 7*0.1)`, `v2 = (3*0.19, 7*0.1, 2*0.13)`.
+    ///   The integer-times-fraction construction guarantees specific f64
+    ///   bit patterns so the test reproduces deterministically across
+    ///   platforms.
+    ///
+    ///   Computed `(v1 - v0) × (v2 - v0)` magnitudes:
+    ///     - f64 path: `|nx| = |ny| = 3.41800000000000103739e-1` (the two
+    ///       products `uy*vz` and `uz*vy` happen to round to identical f64
+    ///       values), `|nz| = 1.70900000000000051870e-1`. f64 reports
+    ///       `|nx| >= |ny| >= |nz|`, breaks the tie in favor of axis 0 (X),
+    ///       so returns `0`.
+    ///     - Shewchuk-exact `orient2d` on three orthogonal projections:
+    ///       `|dx| = 3.41800000000000048228e-1`, `|dy| = 3.41800000000000103739e-1`
+    ///       — exact arithmetic distinguishes them by 1 ULP. So `|dy| > |dx|`
+    ///       and a Shewchuk-exact-faithful predicate must return `1` (Y axis).
+    ///
+    /// **Pre-fix behavior:** returns 0 (X axis) — wrong axis selection driven
+    /// by an f64 rounding tie that exact arithmetic resolves.
+    ///
+    /// **Post-fix expected behavior (this test asserts):** returns 1 (Y axis)
+    /// to match the Shewchuk-exact answer. The audit's recommended fix is to
+    /// port `genericPoint::maxComponentInTriangleNormal` from C++
+    /// `implicit_point.hpp:937-1029` — a cascaded filtered+exact predicate.
+    /// The C++ filtered path uses an `8.88395e-016 * max_var^2` epsilon
+    /// commit-test; for this fixture, `max_var ≈ 0.7` so `epsilon ≈ 4.4e-16`,
+    /// far below the cross magnitudes of `~3.4e-1`. The C++ filtered path
+    /// would commit. C++'s filtered path uses different edge ordering than
+    /// current Rust (`(v3-v2) × (v2-v1)` vs Rust's `(v1-v0) × (v2-v0)`),
+    /// which may resolve the f64 tie differently. If the C++ cascade
+    /// committed in the filtered path with the same answer as current Rust
+    /// (axis 0), this test would correctly fail and force the implementer
+    /// to honor the exact answer instead.
+    ///
+    /// **Note on the stronger-vs-weaker correctness target:** this test
+    /// asserts the **stronger** target — match Shewchuk-exact `orient2d`
+    /// regardless of whether C++'s filtered path would commit. Per
+    /// `feedback_yang_only.md`, the goal is faithful Cherchi 2020 §3
+    /// implementation; per analytical-primacy invariant A15.6, indirect
+    /// predicates are the foundation of the Yang pipeline. If the
+    /// implementer can defend a weaker C++-cascade-faithful target on
+    /// audit-grounds and the test fails, that's a legitimate signal to
+    /// the team-lead — but they must NOT silently accept the f64 tie-break
+    /// answer (which is what current code does and what the audit flags
+    /// as the bug).
+    ///
+    /// Refs: audit A-02; C++ `genericPoint::maxComponentInTriangleNormal`
+    /// (`implicit_point.hpp:1024-1029`) and its filtered+exact helpers
+    /// (`implicit_point.hpp:937-1022`); `geometry_predicates::orient2d`
+    /// usage pattern in `mesh_arrangement.rs:600-604`.
+    #[test]
+    fn test_max_component_in_triangle_normal_handles_f64_rounding() {
+        // Integer-times-fraction construction for deterministic f64 bit patterns.
+        let v0 = [0.0_f64, 0.0, 0.0];
+        let v1 = [2.0_f64 * 0.11, 3.0 * 0.19, 7.0 * 0.1];
+        let v2 = [3.0_f64 * 0.19, 7.0 * 0.1, 2.0 * 0.13];
+
+        // Sanity: confirm the f64 path produces an exact tie between |nx| and
+        // |ny|, with both well above |nz|. This documents the pre-fix
+        // tie-break behavior (returns 0 because nx is checked first with `>=`).
+        let ux = v1[0] - v0[0];
+        let uy = v1[1] - v0[1];
+        let uz = v1[2] - v0[2];
+        let vx = v2[0] - v0[0];
+        let vy = v2[1] - v0[1];
+        let vz = v2[2] - v0[2];
+        let nx_inexact = (uy * vz - uz * vy).abs();
+        let ny_inexact = (uz * vx - ux * vz).abs();
+        let nz_inexact = (ux * vy - uy * vx).abs();
+        assert_eq!(
+            nx_inexact, ny_inexact,
+            "fixture sanity (debug profile, no FMA): f64 |nx| and |ny| must \
+             round to identical values — this is the rounding-induced tie \
+             that pre-fix breaks toward X. If this assertion fires, the f64 \
+             rounding behavior on this platform differs from what was \
+             verified during fixture construction (likely FMA enabled)."
+        );
+        assert!(
+            nx_inexact > nz_inexact,
+            "fixture sanity: f64 |nx| must exceed |nz| (so X-vs-Z is unambiguous)"
+        );
+
+        // Independently confirm the exact answer differs from the f64 answer,
+        // by computing both and comparing. We compute the exact answer via
+        // `geometry_predicates::orient2d` on the three orthogonal projections
+        // (the same approach used in `mesh_arrangement.rs:600-604`).
+        let dx =
+            geometry_predicates::orient2d([v0[1], v0[2]], [v1[1], v1[2]], [v2[1], v2[2]]).abs();
+        let dy =
+            geometry_predicates::orient2d([v0[0], v0[2]], [v1[0], v1[2]], [v2[0], v2[2]]).abs();
+        assert!(
+            dy > dx,
+            "fixture sanity: Shewchuk-exact |dy| must exceed |dx| — this is \
+             the disagreement with f64 (where they tie). If this assertion \
+             fires, geometry_predicates' orient2d behavior on this platform \
+             does not match what was verified during fixture construction."
+        );
+
+        // The actual red-vs-green assertion. Pre-fix: f64 returns axis 0
+        // (X) due to the rounding tie. Post-fix (Shewchuk-exact): exact
+        // arithmetic resolves the tie in favor of Y, so the function must
+        // return 1.
+        let result = max_component_in_triangle_normal(v0, v1, v2);
+        assert_eq!(
+            result, 1,
+            "post-fix Shewchuk-exact predicates resolve the f64 tie between \
+             |nx| and |ny| in favor of Y — so the max-component axis is 1 \
+             (Y), not 0 (X). The current inexact implementation falsely \
+             reports a tie between |nx| and |ny| because the products \
+             `uy*vz` and `uz*vy` round to identical f64 values, and the \
+             tie-break picks 0. This is a Cluster I predicate-kernel bug \
+             per audit A-02."
+        );
+
+        // Regression guard: axis-aligned triangles (the existing test cases)
+        // must continue to return the right axis under the new exact
+        // implementation. Re-asserted here so a single test run catches both
+        // the new bug fix and basic-case regressions.
+        assert_eq!(
+            max_component_in_triangle_normal([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]),
+            2,
+            "regression guard: XY-plane triangle → normal along Z → axis 2"
+        );
+        assert_eq!(
+            max_component_in_triangle_normal([0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]),
+            0,
+            "regression guard: YZ-plane triangle → normal along X → axis 0"
+        );
+        assert_eq!(
+            max_component_in_triangle_normal([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]),
+            1,
+            "regression guard: ZX-plane triangle → normal along Y → axis 1"
+        );
+    }
 }
