@@ -376,21 +376,46 @@ fn check_triangle_triangle_intersections(
     finalize_intersection(ts, aux, &v_tmp, coplanar_tris, t_a_id, t_b_id);
 }
 
-/// Final check: if exactly 2 intersection vertices found, create symbolic segment.
-/// Ported from intersection_classification.cpp:265-279
+/// Finalize per-triangle-pair classification: assert v_tmp invariant and emit
+/// the symbolic segment when exactly 2 intersection vertices were collected.
+///
+/// Mirrors C++ `final_check` block in
+/// `gcherchi/FastAndRobustMeshArrangements/code/intersection_classification.cpp:267-279`
+/// (assert on `v_tmp.size()` upper bound, then conditional `addSymbolicSegment`).
+/// Audit finding B-06 in `docs/audits/cherchi_port_audit.md` (Cluster I cleanup,
+/// unblocked by A-01+A-02 exact predicates at commit `2071510`). Pre-fix the
+/// Rust port silently skipped the symbolic-segment emit when `v_tmp.len() != 2`
+/// to mask the materialize-fallback orient2d producing spurious extra vertices;
+/// with exact predicates landed, no oversize set should reach this site from
+/// valid input. If this assertion fires, the upstream predicate path has a
+/// bug that requires root-cause investigation.
 fn finalize_intersection(
     ts: &TriangleSoup,
     aux: &mut AuxiliaryStructure,
     v_tmp: &HashSet<usize>,
-    _coplanar_tris: bool,
+    coplanar_tris: bool,
     t_a_id: usize,
     t_b_id: usize,
 ) {
-    // With exact indirect predicates (C++ reference), non-coplanar triangles
-    // produce ≤2 intersection vertices and coplanar ones ≤3. Our materialize-
-    // fallback orient2d can produce extra vertices due to rounding; the
-    // pipeline still works — finalize_intersection only acts when len==2.
-    // Soft-check instead of hard assert to avoid debug-mode panics.
+    if coplanar_tris {
+        debug_assert!(
+            v_tmp.len() <= 3,
+            "finalize_intersection: more than 3 intersection points in coplanar triangles \
+             (got {}, t_a={}, t_b={}); predicate-path failure (materialize-fallback orient2d)",
+            v_tmp.len(),
+            t_a_id,
+            t_b_id
+        );
+    } else {
+        debug_assert!(
+            v_tmp.len() <= 2,
+            "finalize_intersection: more than 2 intersection points in non-coplanar triangles \
+             (got {}, t_a={}, t_b={}); predicate-path failure (materialize-fallback orient2d)",
+            v_tmp.len(),
+            t_a_id,
+            t_b_id
+        );
+    }
 
     if v_tmp.len() == 2 {
         let mut iter = v_tmp.iter();
