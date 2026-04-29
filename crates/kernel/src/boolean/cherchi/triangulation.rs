@@ -676,7 +676,7 @@ fn reposition_points_in_stack(
 fn add_constraint_segments_in_single_triangle(
     ts: &mut TriangleSoup,
     subm: &mut FastTrimesh,
-    aux: &AuxiliaryStructure,
+    aux: &mut AuxiliaryStructure,
     segment_list: &mut Vec<UIPair>,
 ) {
     let orientation = subm.tri_orientation(0);
@@ -719,7 +719,7 @@ fn add_constraint_segment(
     v0_id: usize,
     v1_id: usize,
     orientation: i32,
-    aux: &AuxiliaryStructure,
+    aux: &mut AuxiliaryStructure,
     segment_list: &mut Vec<UIPair>,
     sub_segs_map: &mut HashMap<UIPair, UIPair>,
 ) {
@@ -805,7 +805,7 @@ fn find_intersecting_elements(
     v_stop: usize,
     intersected_edges: &mut Vec<usize>,
     intersected_tris: &mut Vec<usize>,
-    aux: &AuxiliaryStructure,
+    aux: &mut AuxiliaryStructure,
     segment_list: &mut Vec<UIPair>,
     sub_seg_map: &mut HashMap<UIPair, UIPair>,
 ) {
@@ -1276,6 +1276,14 @@ fn earcut(
 /// Create a TPI (Three-Plane Intersection) point where two constraint
 /// segments cross.
 ///
+/// Dedup invariant (Cherchi 2020 §5.3, audit finding C-10, C++ upstream
+/// `triangulation.cpp:1027-1041`): TPI vertex dedup is required for the
+/// segment-insertion algorithm to produce one vertex per shared TPI
+/// rather than two coincident vertices. Without dedup, two adjacent
+/// triangles whose constraint segments cross at the same TPI produce two
+/// distinct but geometrically identical vertices, orphaning one in
+/// `rev_vtx_map` and breaking edge-pairing downstream.
+///
 /// Ported from triangulation.cpp:1012-1042 (createTPI)
 #[allow(dead_code)]
 fn create_tpi(
@@ -1283,7 +1291,7 @@ fn create_tpi(
     subm: &FastTrimesh,
     e0: UIPair,
     e1: UIPair,
-    aux: &AuxiliaryStructure,
+    aux: &mut AuxiliaryStructure,
     sub_segs_map: &HashMap<UIPair, UIPair>,
 ) -> usize {
     let t0_ids = [
@@ -1312,9 +1320,17 @@ fn create_tpi(
         u3: tv1[2],
     };
 
-    let v_id = ts.add_impl_point(tpi);
-
-    v_id
+    // C-10: dedup against existing TPI vertices via aux.add_vertex_in_sorted_list,
+    // mirroring the LPI pattern at intersection_class.rs:432, :472, :510.
+    let pos = ts.num_verts();
+    let (existing_id, is_new) = aux.add_vertex_in_sorted_list(tpi.clone(), pos);
+    if is_new {
+        let id = ts.add_impl_point(tpi);
+        debug_assert_eq!(id, pos);
+        id
+    } else {
+        existing_id
+    }
 }
 
 /// Find the supporting triangle for a segment (for TPI computation).
@@ -2251,8 +2267,8 @@ mod tests {
         let e0: UIPair = (0, 1);
         let e1: UIPair = (1, 2);
 
-        let id1 = create_tpi(&mut ts, &subm, e0, e1, &aux, &sub_segs_map);
-        let id2 = create_tpi(&mut ts, &subm, e0, e1, &aux, &sub_segs_map);
+        let id1 = create_tpi(&mut ts, &subm, e0, e1, &mut aux, &sub_segs_map);
+        let id2 = create_tpi(&mut ts, &subm, e0, e1, &mut aux, &sub_segs_map);
 
         // Red-before-green assertion: identical inputs → same vertex ID.
         // Pre-fix: id1 != id2 (sequential, so id2 == id1 + 1).
