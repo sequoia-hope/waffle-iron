@@ -1260,4 +1260,66 @@ mod tests {
         // v_id = 0 == v_opp(triangle 0, edge 1-2). Guard 2 fires.
         mesh.split_edge(e_id, 0);
     }
+
+    /// Audit C-11 (cherchi_port_audit.md): `tri_opp_to_edge` silently accepts
+    /// non-manifold edges (`adj.len() > 2`) and returns the first non-self
+    /// triangle in the adjacency list. The pre-fix Rust comment explicitly
+    /// acknowledges the deviation: "for non-manifold edges (len>2, can arise
+    /// with approximate-coordinate edge splits) it returns the first other
+    /// triangle found." The C++ upstream at `fast_trimesh.cpp:470-485` asserts
+    /// `e2t[e_id].size() <= 2` — for the topological walk over an edge,
+    /// non-manifoldness is undefined behavior (the walk goes off in an
+    /// unpredictable direction).
+    ///
+    /// Per audit Cluster I (predicate-kernel symptom-paper-over) and the
+    /// post-A-01+A-02 invariant (commit 2071510 — exact predicates landed,
+    /// so no upstream split path can produce non-manifold edges), the silent
+    /// accept must become a `debug_assert!` mirroring the C++ upstream
+    /// assertion. This is the red phase (FIP §2): pre-fix the test fails
+    /// with "test did not panic"; post-fix the `debug_assert!` panics with
+    /// a message containing "non-manifold edge".
+    ///
+    /// Fixture: a 3-triangle fan sharing edge (v0, v1) — geometrically a
+    /// non-manifold configuration that `add_tri` (line 626-657) accepts
+    /// without a manifoldness check. After construction,
+    /// `e2t[edge(v0, v1)].len() == 3` (each `add_tri` call appends to the
+    /// shared edge's adjacency list).
+    ///
+    /// - T0 = (0, 1, 2): vertices (0,0,0), (1,0,0), (0,1,0)
+    /// - T1 = (0, 1, 3): vertices (0,0,0), (1,0,0), (0,-1,0)
+    /// - T2 = (0, 1, 4): vertices (0,0,0), (1,0,0), (0,2,0)
+    ///
+    /// All three triangles share edge (0, 1); the third vertex of each is
+    /// distinct so `add_tri`'s idempotency check (`tri_id` lookup) doesn't
+    /// short-circuit.
+    #[test]
+    #[should_panic(expected = "non-manifold edge")]
+    fn test_tri_opp_to_edge_rejects_non_manifold_edge() {
+        // 3-triangle fan sharing edge (0, 1) — non-manifold by construction.
+        let verts = vec![
+            [0.0, 0.0, 0.0],  // v0
+            [1.0, 0.0, 0.0],  // v1 — shared edge endpoint with v0
+            [0.0, 1.0, 0.0],  // v2 — third vert of T0
+            [0.0, -1.0, 0.0], // v3 — third vert of T1
+            [0.0, 2.0, 0.0],  // v4 — third vert of T2
+        ];
+        let tris = vec![
+            0, 1, 2, // T0
+            0, 1, 3, // T1
+            0, 1, 4, // T2
+        ];
+        let mesh = FastTrimesh::from_verts_and_tris(&verts, &tris, Plane::XY);
+
+        // Sanity: the shared edge is non-manifold (3 incident triangles).
+        let e_id = mesh.edge_id(0, 1).expect("shared edge 0-1 should exist");
+        assert_eq!(
+            mesh.e2t[e_id].len(),
+            3,
+            "fixture must produce a non-manifold edge with 3 incident triangles"
+        );
+
+        // Pre-fix: silently returns Some(1) (first non-self triangle).
+        // Post-fix: debug_assert!(adj.len() <= 2, "non-manifold edge ...") panics.
+        let _ = mesh.tri_opp_to_edge(e_id, 0);
+    }
 }
