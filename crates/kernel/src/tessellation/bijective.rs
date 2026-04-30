@@ -1224,4 +1224,237 @@ mod tests {
             .expect("extrude_face for box");
         ((), solid)
     }
+
+    /// Yang 2025 §4.1.1 bijectivity check on a partial-revolve solid built
+    /// from a multi-segment "gear-like" profile.
+    ///
+    /// Fixture: an 8-vertex stepped profile in the XY sketch plane (all
+    /// vertices on the +x side of an offset Y-axis at x=-2.0), revolved
+    /// 90° around that axis. The profile alternates between two radial
+    /// distances to model the multi-segment outline that R0005-class gear
+    /// inputs exhibit. The +x-only constraint satisfies revolve_polygon's
+    /// "no straddling axis" check.
+    ///
+    /// Topology after revolve_polygon (8-vertex profile, partial sweep):
+    ///   - 1 start cap face (planar, at θ=0)
+    ///   - 1 end cap face (planar, at θ=π/2)
+    ///   - 8 lateral faces (one per profile edge — cylindrical when the
+    ///     edge is parallel to the axis, planar when perpendicular,
+    ///     conical otherwise; here the stepped profile produces a mix
+    ///     of cylindrical and planar laterals)
+    /// All 16 cap-to-lateral B-Rep edges (8 each on start cap + end cap)
+    /// are linear (cap edges between consecutive profile vertices at θ=0
+    /// or θ=angle_rad). Each is shared between one cap face and one
+    /// lateral face — these are the pairs the oracle examines.
+    ///
+    /// Expected dispatch path (`tessellation/mod.rs:217-235`): because
+    /// `revolve_params.is_some()`, the solid is gated AWAY from the
+    /// bounded path (which would share an `EdgeDiscretization.positions`
+    /// pool across faces). It enters the per-face dispatch loop, where
+    /// caps go through `tessellate_polygon_face` and laterals through
+    /// `tessellate_revolve_lateral`. The two emitters allocate vertices
+    /// independently — `tessellate_polygon_face` walks `arena.faces[i]
+    /// .outer_loop` and pushes f64-rounded-to-f32 cap loop vertices,
+    /// while `tessellate_revolve_lateral` rotates `start_v0/start_v1`
+    /// via Rodrigues and pushes the resulting f64-rounded-to-f32
+    /// positions for ring 0 and ring n on each lateral. The two
+    /// trajectories diverge at the f32 rounding step.
+    ///
+    /// Currently RED on main: `needs_fan_welding` stays false for partial
+    /// revolves (`tessellation/mod.rs:215, 217-235` — revolve_params is
+    /// Some so the `has_arcs` branch is never taken; spherical-fallback
+    /// branch at line 264-270 also skipped), so
+    /// `weld_shared_edge_vertices` does NOT run on this fixture. The
+    /// boundary-only welds that DO run (`weld_boundary_vertices*` at
+    /// line 624, 687, 721; `close_near_boundary_chains` at 618, 664)
+    /// quantize at TAU_MODEL=1e-7 = 100nm, which per PR1 measurement is
+    /// insufficient to converge cap↔lateral boundaries for R0005-class
+    /// inputs.
+    ///
+    /// GREEN after PR2 fix: a pre-computed profile/end-ring pool — built
+    /// once in `tessellate_solid_ext` from `arena.vertices` of cap loop
+    /// vertices and re-used by both `tessellate_polygon_face` and
+    /// `tessellate_revolve_lateral` for boundary positions — guarantees
+    /// byte-identical f64 → f32 rounding because the source position
+    /// is identical.
+    ///
+    /// PR2 of multi-PR tessellation work. References:
+    ///   - Yang 2025 §4.1.1 (bijective tessellation contract)
+    ///   - audit D-10 in `docs/audits/cherchi_port_audit.md` (Cluster I,
+    ///     blocked-by-tessellation)
+    ///   - PR1 oracle landing commit 5f5423c
+    ///   - PR1 corpus baseline a445c18
+    #[test]
+    fn test_revolve_partial_gear_is_bijective() {
+        use crate::types::ClosedProfile;
+
+        let mut k = WaffleKernel::new();
+
+        // Profile in XY plane (sketch normal = +Z, sketch x-axis = +X).
+        // Revolve axis: along world +Y at x=-2.0, z=0 — lies IN the
+        // sketch plane, fully on the −x side of every profile vertex.
+        // Stepped 8-vertex profile, all at x ≥ 1.07 (so saw_neg never
+        // triggers in revolve_polygon's straddle-check). Two distinct
+        // radii (1.07 and 2.83 from sketch origin → 3.07 and 4.83
+        // from axis at x=-2.0) producing alternating outer/inner rim
+        // segments, modeling a multi-segment gear-like outline.
+        //
+        // Coordinate values are deliberately NON-round (avoiding 1.0,
+        // 2.0, 3.0) so f64 → f32 rounding produces lossy positions on
+        // the cap loop, while Rodrigues rotation in
+        // tessellate_revolve_lateral produces a SECOND lossy f32
+        // trajectory along the start ring (theta=0) and end ring
+        // (theta=angle_rad). The cap's lossy f64→f32 trajectory and
+        // the lateral's lossy Rodrigues→f32 trajectory diverge —
+        // surfacing the position-side of the bijectivity violation
+        // (Yang §4.1.1) that PR2 must close.
+        //
+        // Vertex layout (counter-clockwise on +Z plane), closed loop:
+        //   1: (1.07, 0.13)  ── inner-left, bottom
+        //   2: (2.83, 0.13)  ── outer-left, bottom (outer rim)
+        //   3: (2.83, 1.21)  ── outer-left, top
+        //   4: (1.93, 1.21)  ── valley step inward
+        //   5: (1.93, 2.07)  ── valley climb
+        //   6: (2.83, 2.07)  ── outer-right step out (peak)
+        //   7: (2.83, 2.91)  ── outer-right, top
+        //   8: (1.07, 2.91)  ── inner-right (closing back to v1)
+        // 8 edges → 8 lateral faces; cap polygon has 8 vertices.
+        let mut positions: HashMap<u32, (f64, f64)> = HashMap::new();
+        positions.insert(1, (1.07, 0.13));
+        positions.insert(2, (2.83, 0.13));
+        positions.insert(3, (2.83, 1.21));
+        positions.insert(4, (1.93, 1.21));
+        positions.insert(5, (1.93, 2.07));
+        positions.insert(6, (2.83, 2.07));
+        positions.insert(7, (2.83, 2.91));
+        positions.insert(8, (1.07, 2.91));
+
+        let profile = ClosedProfile {
+            entity_ids: vec![1, 2, 3, 4, 5, 6, 7, 8],
+            is_outer: true,
+            vertex_ids: vec![],
+            circle: None,
+            spline_segments: vec![],
+            arc_segments: vec![],
+        };
+
+        let face_ids = k
+            .make_faces_from_profiles(&[profile], XY_ORIGIN, XY_NORMAL, XY_X_AXIS, &positions)
+            .expect("make_faces_from_profiles for partial-gear profile");
+
+        // Revolve axis: origin (-2.0, 0, 0), direction +Y, sweep
+        // ≈87.4° (non-round so cos/sin land at lossy f64 values that
+        // don't round-trip exactly to f32). Axis lies in the sketch
+        // plane (XY), so axis_dir × plane_normal = (0,1,0) × (0,0,1)
+        // = (1,0,0) — the splitting reference is +X, and every
+        // profile vertex has positive +X component, so the straddle
+        // check (revolve_polygon line 1465-1482) passes.
+        //
+        // The non-round angle is the second leg of the f32-divergence
+        // trap: even if cap loop f64 vertices happened to round-trip
+        // exactly, Rodrigues at non-round theta values produces lossy
+        // start-ring and end-ring f64 positions which then take a
+        // second f32-rounding hit. The cap's f32 cap-loop positions
+        // and the lateral's f32 ring-end positions therefore diverge.
+        let axis_origin = [-2.0, 0.0, 0.0];
+        let axis_direction = [0.0, 1.0, 0.0];
+        let angle_deg: f64 = 87.41;
+
+        let solid = k
+            .revolve_face(face_ids[0], axis_origin, axis_direction, angle_deg)
+            .expect("revolve_face for partial-gear profile");
+
+        // Tessellate via the kernel's primitive-dispatch path.
+        // tess_tol is irrelevant for revolve dispatch — circle_segments
+        // controls the lateral ring count via thread-local override
+        // default of 64; the cap fan triangulation walks the loop vertex
+        // list directly. Tolerance only affects analytic paths
+        // (sphere/cone/torus) and bounded fallback.
+        let mesh = k
+            .tessellate(&solid, 0.05)
+            .expect("tessellate partial-gear revolve");
+
+        let ws = k
+            .get_solid(&solid)
+            .expect("get_solid for partial-gear revolve");
+
+        let report = check_face_pair_bijective(&mesh, &ws.face_map, &ws.arena);
+
+        // Sanity: the oracle must be examining real face pairs. With 8
+        // profile edges + 2 caps, B-Rep mode walks `arena.edges`,
+        // identifies adjacent face pairs sharing a manifold edge, and
+        // examines each pair once. Every cap edge (8 on start cap,
+        // 8 on end cap) is shared with exactly one lateral face — that
+        // already gives 16 cap-lateral pair instances. Adjacent
+        // laterals also share lateral-lateral edges. We require strictly
+        // > 0 to confirm the fixture exercises the oracle.
+        assert!(
+            report.total_pairs_examined > 0,
+            "Fixture must produce face pairs sharing B-Rep edges; \
+             the oracle examined zero pairs. \
+             Either revolve_polygon failed to allocate per-edge faces \
+             or face_map/arena are inconsistent."
+        );
+
+        // Diagnostic dump BEFORE the bijectivity assertion so the red
+        // signal magnitude is captured in test output even when the
+        // assertion fails. The implementer uses this count as a PR2
+        // regression target — the fix is GREEN when non_bijective_pairs
+        // drops to 0.
+        eprintln!(
+            "[partial-gear-bijective] total_pairs_examined={} bijective_pairs={} \
+             non_bijective_pairs={}",
+            report.total_pairs_examined,
+            report.bijective_pairs,
+            report.non_bijective_pairs.len(),
+        );
+        for (i, p) in report.non_bijective_pairs.iter().take(8).enumerate() {
+            eprintln!(
+                "[partial-gear-bijective] pair[{}] face_a={:?} face_b={:?} edge={:?} \
+                 unmatched_a={} unmatched_b={}",
+                i, p.face_a, p.face_b, p.edge, p.unmatched_a_count, p.unmatched_b_count,
+            );
+            for (j, (s, e)) in p.sample_unmatched_a.iter().enumerate() {
+                eprintln!(
+                    "[partial-gear-bijective]   sample_a[{}] ({:.10}, {:.10}, {:.10}) → \
+                     ({:.10}, {:.10}, {:.10})",
+                    j, s[0], s[1], s[2], e[0], e[1], e[2],
+                );
+            }
+            for (j, (s, e)) in p.sample_unmatched_b.iter().enumerate() {
+                eprintln!(
+                    "[partial-gear-bijective]   sample_b[{}] ({:.10}, {:.10}, {:.10}) → \
+                     ({:.10}, {:.10}, {:.10})",
+                    j, s[0], s[1], s[2], e[0], e[1], e[2],
+                );
+            }
+        }
+
+        // The Yang 2025 §4.1.1 bijective contract: every shared B-Rep
+        // edge must emit byte-identical reciprocal directed mesh edges
+        // on both adjacent faces. RED on main: the cap-to-lateral and
+        // side-cap-to-lateral boundaries are emitted independently by
+        // tessellate_polygon_face (caps via fan triangulation walking
+        // arena.faces[i].outer_loop) and tessellate_revolve_lateral
+        // (laterals via Rodrigues rotation of start_v0/start_v1 at
+        // theta=0 and theta=angle_rad). The two trajectories diverge
+        // at the f64 → f32 rounding step; the 100nm
+        // weld_shared_edge_vertices quantization is gated off for
+        // partial revolves (revolve_params.is_some() routes around the
+        // welding branch), and the boundary-only welds that DO run are
+        // insufficient at TAU_MODEL=1e-7.
+        //
+        // GREEN after PR2 fix: a pre-computed profile/end-ring pool
+        // shares boundary vertex IDs across cap and lateral faces.
+        assert!(
+            report.non_bijective_pairs.is_empty(),
+            "Yang §4.1.1 bijectivity violated on partial-revolve \
+             primitive-dispatch tessellation: {} of {} face pairs \
+             non-bijective (cap↔lateral boundary divergence). See \
+             stderr [partial-gear-bijective] dump above for per-pair \
+             unmatched directed-edge samples.",
+            report.non_bijective_pairs.len(),
+            report.total_pairs_examined,
+        );
+    }
 }
