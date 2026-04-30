@@ -140,6 +140,23 @@ impl WaffleKernel {
         self.solids.get(&handle.id())
     }
 
+    /// Diagnostic view of a stored solid's B-Rep arena and face_map.
+    ///
+    /// Read-only diagnostic instrumentation only — not part of the stable
+    /// API. Added in PR4 of the multi-PR tessellation-bijectivity work so
+    /// external test crates can run the bijective oracle
+    /// (`tessellation::bijective::check_face_pair_bijective`) on a loaded
+    /// solid and walk half-edge topology to diagnose non-bijective face
+    /// pairs. Pure `&`-reference access; no mutation, no behavior change.
+    pub fn brep_diagnostic_view(
+        &self,
+        handle: &KernelSolidHandle,
+    ) -> Option<(&TopoArena, &BTreeMap<u64, FaceIdx>)> {
+        self.solids
+            .get(&handle.id())
+            .map(|ws| (&ws.arena, &ws.face_map))
+    }
+
     fn alloc_id(&mut self) -> u64 {
         let id = self.next_id;
         self.next_id += 1;

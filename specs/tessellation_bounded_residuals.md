@@ -158,3 +158,167 @@ for the offending face pair.
   no shortcuts; faithful Yang implementation only
 - `~/.claude/projects/-home-claude-workspace/memory/feedback_no_last_bug.md` —
   no claims of "the last gap"
+
+## 8. PR4 empirical R0033 diagnostic dump
+
+Captured stderr from
+`crates/test-harness/tests/pr4_r0033_t_junction_diagnosis.rs::diagnose_r0033_t_junction_pattern`.
+
+R0033 = 2-op partial-revolve gear: revolve(rectangle, boss, ~199°) then
+revolve(gear, cut, ~74°) on a non-canonical-axis plane (per `R0033.meta.json`).
+PR3 corpus dump ranks it 12 face pairs / 2 nb / 16.7% — smallest multi-nb
+linear-bounded anchor. Tessellated under `YANG_BOOLEAN=1` at
+`tess_tol = scale * 0.01 = 1.978e-4` (matches assay-runner).
+
+### 8.1 First-call dump (canonical, matches PR3 corpus)
+
+```
+R0033 scale = 1.977872e-2, tess_tol = 1.977872e-4
+LoadProject response variant: Discriminant(0)
+engine_errors after load: 0 entries
+tessellated mesh: 104 vertices, 252 indices (84 tris), 6 face_ranges
+B-Rep arena: 48 vertices, 104 half_edges, 52 edges, 6 loops, 6 faces
+bijective oracle: total_pairs_examined = 12, bijective_pairs = 10, non_bijective_pairs = 2
+
+─── non-bijective pair #0 ───
+face_a = FaceIdx(2), face_b = FaceIdx(3), edge = Some(EdgeIdx(6))
+unmatched_a_count = 4, unmatched_b_count = 4
+face_a outer_loop has 24 boundary vertices.
+face_b outer_loop has 24 boundary vertices.
+T-junction candidates: 12 vertex(es) on face_a but not face_b, 12 on face_b but not face_a
+sample_unmatched_a (first 4):
+  a-edge[0]: (1.089050e-2, 7.307105e-3, -1.771689e-2) → (8.900722e-3, 9.211298e-3, -1.779127e-2)
+  a-edge[1]: (1.404203e-2, 4.291138e-3, -2.670923e-3) → (1.526877e-2, 3.117168e-3, -4.840629e-3)
+  a-edge[2]: (1.238955e-2, 5.872539e-3, -1.134956e-3) → (1.404203e-2, 4.291138e-3, -2.670923e-3)
+  a-edge[3]: (1.276546e-2, 5.512794e-3, -1.679186e-2) → (1.089050e-2, 7.307105e-3, -1.771689e-2)
+sample_unmatched_b (first 4):
+  b-edge[0]: (1.276546e-2, 5.512794e-3, -1.679186e-2) → (1.089050e-2, 7.307105e-3, -1.771689e-2)
+  b-edge[1]: (1.238955e-2, 5.872539e-3, -1.134956e-3) → (1.404203e-2, 4.291138e-3, -2.670923e-3)
+  b-edge[2]: (1.089050e-2, 7.307105e-3, -1.771689e-2) → (8.900722e-3, 9.211298e-3, -1.779127e-2)
+  b-edge[3]: (1.404203e-2, 4.291138e-3, -2.670923e-3) → (1.526877e-2, 3.117168e-3, -4.840629e-3)
+
+─── non-bijective pair #1 ───
+face_a = FaceIdx(2), face_b = FaceIdx(5), edge = Some(EdgeIdx(7))
+unmatched_a_count = 2, unmatched_b_count = 2
+face_a outer_loop has 24 boundary vertices.
+face_b outer_loop has 24 boundary vertices.
+T-junction candidates: 12 vertex(es) on face_a but not face_b, 12 on face_b but not face_a
+sample_unmatched_a (first 2):
+  a-edge[0]: (2.188456e-2, 8.536718e-3, -1.018362e-2) → (2.181844e-2, 8.599987e-3, -7.430017e-3)
+  a-edge[1]: (2.133029e-2, 9.067141e-3, -1.282978e-2) → (2.188456e-2, 8.536718e-3, -1.018362e-2)
+sample_unmatched_b (first 2):
+  b-edge[0]: (2.133029e-2, 9.067141e-3, -1.282978e-2) → (2.188456e-2, 8.536718e-3, -1.018362e-2)
+  b-edge[1]: (2.188456e-2, 8.536718e-3, -1.018362e-2) → (2.181844e-2, 8.599987e-3, -7.430017e-3)
+```
+
+(Full per-vertex outer-loop sequences are available by re-running the
+test with `--nocapture`. Trimmed here so the spec stays scannable; the
+counts and sample edges are sufficient to characterize the mechanism.)
+
+### 8.2 Second-call flap (recorded, not asserted)
+
+The test runs the diagnosis twice in the same process. Across 5
+invocations, **first-call always reports `non_bijective_pairs = 2`**
+matching the PR3 corpus. **Second-call sometimes reports 3** (an extra
+nb pair appears and existing pair `EdgeIdx` values shift). Observed
+sequence across runs: `(2, 3), (2, 3), (2, 3), (2, 2), (2, 2)`.
+
+State is fresh between calls (`WaffleKernel::new()` + `EngineState::new()`
+each time), so the variance source is iteration-order non-determinism
+inside the boolean pipeline (likely Rust's `HashMap` `RandomState`
+reseeding between calls within a single thread). This matches the
+corpus-dump's note that `R0080`/`R0018` "are nondeterministic and may
+flip across runs".
+
+The test asserts on the first-call value only. If PR5 fixes the
+underlying topology defect, the flap should disappear too (a watertight
+shared-boundary discretization has no per-call iteration sensitivity).
+
+### 8.3 Analysis
+
+Two empirical findings, one consistent and one **diverging from PR3's
+T-junction hypothesis**:
+
+**Finding A — boundary-loop vertex-set divergence (consistent with PR3).**
+For both nb pairs, face_a's 24-vertex outer loop and face_b's 24-vertex
+outer loop **share only 12 vertices** — the loop "corners" — while each
+face has 12 *additional* vertices the other doesn't have. This is more
+extreme than PR3's "N vs N−1" hypothesis: face A and face B aren't
+walking N and N−1 edges along a shared B-Rep edge, they're walking two
+*entirely separate* interior subdivisions on the same arena edge. Every
+interior subdivision point exists on one face but not the other.
+
+**Finding B — winding-orientation symmetry (NEW, not in PR3 hypothesis).**
+The oracle's actual unmatched directed edges (after restrict-to-
+shared-boundary) reveal a structural pattern PR3 didn't predict: the
+unmatched edges from face_a and face_b are **the same edges in the same
+forward direction**, not opposite directions. For pair #1:
+
+```
+a-edge[0]: (2.188e-2, 8.5e-3, -1.0e-2) → (2.181e-2, 8.6e-3, -7.4e-3)
+b-edge[1]: (2.188e-2, 8.5e-3, -1.0e-2) → (2.181e-2, 8.6e-3, -7.4e-3)  ← SAME forward direction
+a-edge[1]: (2.133e-2, 9.0e-3, -1.3e-2) → (2.188e-2, 8.5e-3, -1.0e-2)
+b-edge[0]: (2.133e-2, 9.0e-3, -1.3e-2) → (2.188e-2, 8.5e-3, -1.0e-2)  ← SAME forward direction
+```
+
+Yang §4.1.1 requires the two faces sharing a B-Rep edge to emit
+**reciprocal** directed edges — face A emits (P,Q) and face B emits
+(Q,P). Here both emit (P,Q). Either:
+
+1. The two faces are wound such that they are **co-oriented** along
+   the shared boundary (both CCW from the same side) — i.e., the
+   B-Rep edge's twin half-edges have the same orientation rather than
+   opposite. This is a topological winding bug, not a missing-vertex
+   bug.
+2. OR these directed edges aren't actually on the shared boundary — the
+   oracle's `restrict_to_shared_boundary` heuristic (undirected
+   coincidence on either face's boundary set) is matching edges that
+   are on the *interior* of each face's loop but happen to be position-
+   coincident across faces.
+
+Without per-edge B-Rep traversal, finding B is suggestive but not
+definitive. Either way, the dominant signal is finding A: the two faces
+have **disjoint** interior subdivisions of the shared boundary, which
+is a stronger defect than a single missing midpoint.
+
+### 8.4 PR5 anchor
+
+Per the data, the most likely fix sites are:
+
+1. **`crates/kernel/src/boolean/yang_integration.rs` — B-Rep retessellation
+   step (Step 9)**. The 6-face / 48-vertex / 52-edge arena post-boolean
+   already encodes the topology — so the divergent loops emerge during
+   per-face retessellation that walks the B-Rep half-edge chain
+   independently for each face. If two adjacent faces walk *different*
+   sub-edges of the same conceptual boundary, the retessellation can
+   produce two disjoint interior chains. Inspect the half-edge twin
+   relationships of `EdgeIdx(6)` and `EdgeIdx(7)` (the oracle's
+   reported nb-edges) — particularly whether the twin half-edges sit on
+   the same two-face boundary or whether they bridge to disjoint
+   B-Rep regions due to a stitch-time topology defect.
+
+2. **`crates/kernel/src/boolean/topology_extract.rs` (flood_fill_patches)
+   or `assemble_brep`**. If flood-fill is grouping triangles into
+   patches such that face_a and face_b end up with non-adjacent
+   triangle sets along what *should* be a shared boundary (e.g.,
+   per-sub-tri labeling assigns triangles to wrong faces), the
+   resulting patches will have parallel-but-disjoint discretizations.
+
+3. **B-Rep edge half-edge twin construction in
+   `boolean/cherchi/` arrangement output → `assemble_brep` glue**. The
+   "same forward direction" finding (B) is consistent with a twin
+   half-edge being constructed on the wrong side of its B-Rep edge
+   during stitch — both halves end up oriented the same way relative
+   to a reference axis, instead of one being CW and one CCW around
+   their respective faces.
+
+PR3's named candidates were `stitch.rs::build_brep_from_polygons_inner`
+and `analytical.rs::planar_planar_boolean`. **Neither of these are on
+the YANG_BOOLEAN=1 path** — they are S-H-clipping / legacy stack code.
+Per A15.6, the YANG path runs through `boolean/yang_integration.rs`
+and the Cherchi cherchi modules. PR5 should anchor on the Yang
+retessellation/topology-extract layer instead.
+
+This refines (does not refute) PR3's diagnosis: T-junctions exist, but
+the mechanism is **disjoint sibling chains**, not single missing
+midpoints, and the relevant code path is Yang-side, not S-H side.
