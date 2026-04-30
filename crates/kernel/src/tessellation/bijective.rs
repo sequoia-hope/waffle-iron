@@ -1457,4 +1457,88 @@ mod tests {
             report.total_pairs_examined,
         );
     }
+
+    /// Reserved slot for PR4's bounded-path bijectivity red test.
+    ///
+    /// PR3 was originally scoped to anchor a red test against the
+    /// hypothesis that `discretize_edges` (`tessellation/mod.rs:3135+`)
+    /// fails to dedup B-Rep vertices, causing faces touching shared
+    /// vertices via different edges to receive different mesh vertex IDs
+    /// for the same position. PR3 test-author empirically falsified that
+    /// hypothesis: the bijective oracle keys on emitted f32→f64-cast
+    /// position bit patterns, not on pool indices, and `discretize_edges`
+    /// always reads `arena.vertices[V].position` for the SAME `VertexIdx`
+    /// V — so two edges sharing V push byte-identical f64 to the pool at
+    /// different indices that nonetheless reference byte-identical f64
+    /// values. The proposed dedup fix changes pool indices but not f32
+    /// emit positions; it cannot change what the oracle measures. PR1's
+    /// `test_cube_is_bijective` is GREEN for exactly this reason — the
+    /// cube exercises the supposed gap but the oracle still reports
+    /// 12/12 bijective.
+    ///
+    /// 12 hand-built fixtures across this scope (two-cube unions,
+    /// L-shape, plus-shape, T-junction-inducing unions, hexagonal
+    /// extrudes, polygon-soup-mode pockets, intersect operations) all
+    /// produced 0 non-bijective pairs. The corpus measurement
+    /// (`c4f0fcb`) reports 350 nb pairs across 13 of 99 linear-bounded
+    /// cases (1.55% pair-non-bijectivity), but those rates only
+    /// materialize on the assay-randomized geometry — not on
+    /// canonical-axis hand-built fixtures within kernel-only test
+    /// scope.
+    ///
+    /// Revised diagnosis (per `specs/tessellation_bounded_residuals.md`):
+    /// the residual mechanism is a **B-Rep T-junction** — face A's
+    /// `outer_loop` walks N edges along a shared boundary while face B's
+    /// loop walks N−1 edges, because the boolean B-Rep assembly stage
+    /// (`stitch.rs::build_brep_from_polygons_inner` or earlier in
+    /// `analytical.rs::planar_planar_boolean`) introduces an extra
+    /// midpoint vertex on one side. The `tessellate_planar_face_bounded`
+    /// centroid-fan branch (`mod.rs:3357-3413`) is keyed off a comment
+    /// confirming this scenario: *"This happens when Yang coplanar merge
+    /// keeps intersection-plane vertices on merged face boundaries."*
+    /// The fix target is the B-Rep assembly stage, NOT
+    /// `discretize_edges`.
+    ///
+    /// PR4 must (a) anchor the red test on a specific corpus case
+    /// (Adversary T3 will identify the 13 nb-producing cases and pick the
+    /// simplest), (b) capture the offending face pair's outer_loop
+    /// vertex sequences, and (c) drive a topology-level fix at the B-Rep
+    /// assembly stage. PR3 ships only this `#[ignore]`d slot reservation
+    /// and the investigation note.
+    ///
+    /// References:
+    /// - `specs/tessellation_bounded_residuals.md` (PR3 investigation)
+    /// - `docs/audits/cherchi_port_audit.md` D-10
+    /// - Yang 2025 §4.1.1 (bijective tessellation contract)
+    /// - PR1 oracle commit `5f5423c`
+    /// - PR2 fix commit `f01dd68`
+    /// - PR2 corpus delta commit `c4f0fcb`
+    #[test]
+    #[ignore = "PR4 anchor — needs corpus-derived fixture; see specs/tessellation_bounded_residuals.md"]
+    fn test_bounded_path_brep_t_junction_is_bijective() {
+        // PR4 implementer fills this in once Adversary T3 surfaces a
+        // minimal-reproducer fixture from the assay corpus. Until then
+        // the slot is reserved and `#[ignore]`d.
+        //
+        // Expected shape of the test once anchored:
+        //   1. Build (or load) a solid that exercises the linear-bounded
+        //      gate (`is_polygon_soup=false`, no arc edges, all
+        //      primitive_params=None) and triggers the B-Rep T-junction
+        //      mechanism.
+        //   2. Tessellate via the bounded path.
+        //   3. Run `check_face_pair_bijective`.
+        //   4. RED on main: oracle reports ≥1 non-bij pair, with the
+        //      offending pair's `unmatched_a_count + unmatched_b_count`
+        //      ≥ 1, traceable to a missing midpoint vertex on one side
+        //      of a shared B-Rep edge.
+        //   5. GREEN after PR4 fix at B-Rep assembly stage: oracle
+        //      reports 0 non-bij pairs.
+        unimplemented!(
+            "PR4 anchor — slot reserved by PR3. See specs/tessellation_bounded_residuals.md \
+             for the investigation that pivoted PR3 from the falsified dedup hypothesis to \
+             this slot reservation. Adversary T3 must identify a minimal corpus case in the \
+             linear-bounded class that produces ≥1 non-bij pair, then PR4 implementer \
+             encodes it here."
+        );
+    }
 }
