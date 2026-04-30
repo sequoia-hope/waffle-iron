@@ -281,44 +281,109 @@ definitive. Either way, the dominant signal is finding A: the two faces
 have **disjoint** interior subdivisions of the shared boundary, which
 is a stronger defect than a single missing midpoint.
 
-### 8.4 PR5 anchor
+### 8.4 PR5 anchor (corrected)
 
-Per the data, the most likely fix sites are:
+> Section 8.4 was rewritten in commit 2 of PR4. The original recommendation
+> pointed at boolean B-Rep assembly code; that recommendation was wrong.
+> See § 8.5 (Errata) below for the trace of what was wrong and why.
 
-1. **`crates/kernel/src/boolean/yang_integration.rs` — B-Rep retessellation
-   step (Step 9)**. The 6-face / 48-vertex / 52-edge arena post-boolean
-   already encodes the topology — so the divergent loops emerge during
-   per-face retessellation that walks the B-Rep half-edge chain
-   independently for each face. If two adjacent faces walk *different*
-   sub-edges of the same conceptual boundary, the retessellation can
-   produce two disjoint interior chains. Inspect the half-edge twin
-   relationships of `EdgeIdx(6)` and `EdgeIdx(7)` (the oracle's
-   reported nb-edges) — particularly whether the twin half-edges sit on
-   the same two-face boundary or whether they bridge to disjoint
-   B-Rep regions due to a stitch-time topology defect.
+**The R0033 boolean does not actually run.** The diagnostic stderr
+contains the line
+`[yang-diag] AABB-disjoint short-circuit: skipping Cherchi for Subtract`,
+emitted by `crates/kernel/src/boolean/topology_extract.rs:1515` when
+the two operands' AABBs are separated by more than `TAU_MODEL`. R0033
+is `revolve(rectangle, boss) + revolve(gear, cut)`; the rectangle and
+gear revolves land at AABB-disjoint locations on the model's oblique
+plane, so the `Subtract` short-circuits to
+`yang_pipeline_result_for_disjoint(... op=Subtract ...)` (same file,
+line 1361), which returns the first operand A unchanged.
 
-2. **`crates/kernel/src/boolean/topology_extract.rs` (flood_fill_patches)
-   or `assemble_brep`**. If flood-fill is grouping triangles into
-   patches such that face_a and face_b end up with non-adjacent
-   triangle sets along what *should* be a shared boundary (e.g.,
-   per-sub-tri labeling assigns triangles to wrong faces), the
-   resulting patches will have parallel-but-disjoint discretizations.
+The final solid stored under R0033's last feature ID is therefore the
+output of `revolve(rectangle, boss)` — a partial-revolution (199°) of a
+rectangle on the case's oblique plane. The arena dimensions
+(6 faces / 48 vertices / 52 edges) are consistent with a revolved-rectangle
+B-Rep: 2 caps + 4 lateral faces with 24 ring-vertices per swept boundary.
+**Yang's Cherchi arrangement and B-Rep stitch never run for R0033.**
 
-3. **B-Rep edge half-edge twin construction in
-   `boolean/cherchi/` arrangement output → `assemble_brep` glue**. The
-   "same forward direction" finding (B) is consistent with a twin
-   half-edge being constructed on the wrong side of its B-Rep edge
-   during stitch — both halves end up oriented the same way relative
-   to a reference axis, instead of one being CW and one CCW around
-   their respective faces.
+**Implication: the 2 nb pairs are produced by the revolve primitive
+tessellator**, not by any boolean B-Rep assembly. The fix sites are:
 
-PR3's named candidates were `stitch.rs::build_brep_from_polygons_inner`
-and `analytical.rs::planar_planar_boolean`. **Neither of these are on
-the YANG_BOOLEAN=1 path** — they are S-H-clipping / legacy stack code.
-Per A15.6, the YANG path runs through `boolean/yang_integration.rs`
-and the Cherchi cherchi modules. PR5 should anchor on the Yang
-retessellation/topology-extract layer instead.
+1. **`crates/kernel/src/tessellation/mod.rs::tessellate_revolve_lateral`**
+   (~line 1213). Discretizes each lateral face along the swept rectangle
+   side. Emits a 24-vertex ring per lateral face for the 199° / oblique-axis
+   geometry observed here.
 
-This refines (does not refute) PR3's diagnosis: T-junctions exist, but
-the mechanism is **disjoint sibling chains**, not single missing
-midpoints, and the relevant code path is Yang-side, not S-H side.
+2. **`crates/kernel/src/tessellation/mod.rs::tessellate_revolve_cap_polygon`**
+   (~line 1800). Discretizes the two end-caps using a polygon
+   triangulation that does NOT consume the same 24 ring-vertices the
+   lateral faces emit. The 12 "only_in_a" + 12 "only_in_b" pattern is
+   exactly this: lateral has its swept-ring interior verts; cap has its
+   polygon-fan interior verts; the two sets are disjoint despite
+   sharing the rectangle's 12 corner-equivalent points.
+
+3. **The pool / boundary-sharing logic between lateral and cap**, the
+   same site PR2's commit `f01dd68` modified for full-revolution cases
+   ("share cap-to-lateral boundary vertex IDs in revolve primitive").
+   PR2's fix worked for 360° revolutions where the sweep wraps, but
+   R0033 (199°, non-canonical axis) stays nb-positive — indicating
+   PR2's pool refactor was incomplete for partial-revolution and/or
+   oblique-axis geometry.
+
+PR5 should extend PR2's pool refactor to cover partial revolutions
+(angle < 360°) and oblique sketch planes. The two non-bijective edge
+indices reported by the oracle (`EdgeIdx(6)` and `EdgeIdx(7)`) are the
+arena edges where lateral-cap discretizations diverge.
+
+#### 8.4.1 Gate-class discrepancy (open question, not for PR5)
+
+PR3's corpus dump (`specs/tessellation_pr3_corpus_dump.md`) classifies
+R0033 as `linear-bounded` — meaning `is_polygon_soup=false`, no arc
+edges, AND no primitive params (the dump's classifier puts any solid
+with `revolve_params=Some(_)` into `primitive-dispatch`). But this
+finding says R0033's final solid IS a revolve primitive output.
+
+Either the AABB-disjoint short-circuit returns a `WaffleSolid` with
+`revolve_params=None` (so the gate-classifier sees no primitive params
+and falls through to `linear-bounded`), or the gate-classifier
+inspects a different state than the actual stored solid. Worth a
+follow-on investigation — but **not** PR5's scope. PR5 fixes the
+underlying nb pairs; the gate classification is downstream of that.
+
+### 8.5 Errata
+
+This section records what was wrong in the original PR4 analysis so
+future readers can see the trace.
+
+**Original PR4 § 8.4 (commit `7ee4805`):** Recommended PR5 anchor on
+`boolean/yang_integration.rs` (Yang Step 9 retessellation),
+`boolean/topology_extract.rs` (flood_fill_patches / assemble_brep), or
+`boolean/cherchi/` (twin construction).
+
+**Why that was wrong:** R0033 never reaches the Cherchi /
+`yang_boolean_pipeline` body. The AABB-disjoint short-circuit at
+`topology_extract.rs:1515` fires before subdivision, returning the
+first operand unchanged via `yang_pipeline_result_for_disjoint`.
+PR4 author missed the short-circuit on initial trace despite the
+stderr log line being present in the captured dump (visible at
+the top of § 8.1).
+
+**Why PR3's named candidates (`stitch.rs::build_brep_from_polygons_inner`,
+`analytical.rs::planar_planar_boolean`) were also wrong:** Those are
+S-H-clipping / legacy stack code; per A15.6 they are not on the
+YANG_BOOLEAN=1 path at all. Even if R0033's boolean had run via
+Cherchi, PR3's candidates would not have been the fix site.
+
+**Confirmed-correct conclusion:** PR5 anchors on the revolve primitive
+tessellator (`tessellation/mod.rs::tessellate_revolve_lateral` +
+`tessellate_revolve_cap_polygon`) and extends PR2's `f01dd68` pool
+refactor to handle partial revolutions and oblique-axis geometry.
+
+**What's preserved unchanged:** § 8.1 (first-call dump), § 8.2 (flap),
+§ 8.3 (analysis of vertex-set divergence and winding-orientation
+hint). Those measurements are correct regardless of which code path
+produced the solid.
+
+This refines PR3's diagnosis: there ARE T-junction-style topology
+mismatches between adjacent face boundaries, but the mechanism is
+disjoint sibling discretizations from the revolve primitive, not
+boolean B-Rep assembly.
