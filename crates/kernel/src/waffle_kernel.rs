@@ -157,6 +157,17 @@ impl WaffleKernel {
             .map(|ws| (&ws.arena, &ws.face_map))
     }
 
+    /// Read-only diagnostic accessor for a solid's edge geometry. Added in
+    /// PR7 of the tessellation-bijectivity work to feed
+    /// `tessellation::pr7_classify::classify_pr7_pair` from external test
+    /// crates. No mutation, no behavior change.
+    pub fn edge_geometry_for(
+        &self,
+        handle: &KernelSolidHandle,
+    ) -> Option<&BTreeMap<EdgeIdx, CurveGeom>> {
+        self.solids.get(&handle.id()).map(|ws| &ws.edge_geometry)
+    }
+
     fn alloc_id(&mut self) -> u64 {
         let id = self.next_id;
         self.next_id += 1;

@@ -746,3 +746,257 @@ cargo test -p test-harness --test pr4_r0033_t_junction_diagnosis -- --nocapture
 # is bijective, so no violations):
 cargo test -p kernel --lib test_yang_disjoint_subtract_returns_a_unchanged
 ```
+
+## 11. PR7 mechanism classification — `pool-not-shared` (interior subdivision asymmetry) + `other` (oracle heuristic false positive)
+
+PR7 was scoped (per the PR7 brief) to (A) instrument R0033's tessellation
+path and classify each non-bijective face pair into ONE of
+{`arena-missing-edge`, `pool-not-shared`, `positional-drift`,
+`direction-reciprocity`}, and (B) ship a fix only if the classification
+is local AND simple. Per the user's stop condition: any of (5th class,
+multi-mechanism, >200 lines, multi-module, untouched-code-area) → ship
+Phase A only.
+
+This section documents Phase A findings. Phase B is **not** shipped —
+the empirical classification surfaces a 5th class, multiple mechanisms
+across pairs, and a root-cause site spanning 5+ post-processing
+functions. The stop condition fires on three independent grounds.
+
+### 11.1 PR7 classifier
+
+Added `crates/kernel/src/tessellation/pr7_classify.rs` exposing
+`classify_pr7_pair(rendermesh, arena, face_map, edge_geometry, face_a,
+face_b, edge) -> Pr7Classification`. The classifier walks four contract
+checks in order and returns at the FIRST class whose contract is
+violated:
+
+1. `ArenaMissingEdge` — the oracle's reported `edge` resolves to faces
+   other than `{face_a, face_b}` in the arena topology, OR neither face's
+   loop walks this edge.
+2. `PoolNotShared` — shared edge exists but `disc.edge_verts[edge]`'s
+   pool entries don't match between the two faces (modulo direction
+   reversal), OR the rendermesh emission shows asymmetric subdivision
+   (one face emits a directed mesh edge directly between the two arena
+   endpoints; the other face's tessellation routes via interior
+   subdivision vertices).
+3. `PositionalDrift` — pool indices match but rendermesh f32 byte
+   patterns differ (one face's f32 cast of an arena vertex doesn't
+   appear in the other face's emitted vertex set).
+4. `DirectionReciprocity` — pool indices and f32 byte patterns match,
+   but emitted directed mesh edges go the same forward direction on
+   both faces (twin convention violation).
+5. `Other { reason }` — escape hatch for the "5th class" the brief
+   warns about: classification surfaces a contract structure not in
+   the four-class taxonomy.
+
+A new `WaffleKernel::edge_geometry_for(handle)` accessor was added
+alongside `brep_diagnostic_view` so the classifier can be invoked from
+external test crates without exposing kernel internals beyond
+`&BTreeMap<EdgeIdx, CurveGeom>`.
+
+### 11.2 Empirical classification dump
+
+Test: `crates/test-harness/tests/pr7_r0033_mechanism_classification.rs`.
+Loads R0033.waffle through the assay-runner dispatch path, runs the
+bijective oracle, classifies each nb pair.
+
+Run-1 first-call dump (canonical, matches PR3 corpus dump):
+
+```
+B-Rep arena: 48 verts, 104 half_edges, 52 edges, 6 loops, 6 faces
+rendermesh: 104 verts, 252 indices, 6 face_ranges
+bijective oracle: total_pairs_examined = 12, bijective_pairs = 10, non_bijective_pairs = 2
+
+─── classifying nb pair #0: face_a=FaceIdx(2), face_b=FaceIdx(3), edge=Some(EdgeIdx(6)) ───
+classification: pool-not-shared → PoolNotShared {
+  edge: EdgeIdx(6),
+  face_a_pool_at_edge: [12],
+  face_b_pool_at_edge: [13],
+}
+
+─── classifying nb pair #1: face_a=FaceIdx(2), face_b=FaceIdx(5), edge=Some(EdgeIdx(7)) ───
+classification: other → Other {
+  reason: "shared B-Rep EdgeIdx(7) reports 1 reciprocal + 0 same-direction
+   emitted edges across faces (2, 5); oracle's nb signal must be from other
+   position-coincident boundary segments outside this edge — see oracle's
+   restrict_to_shared_boundary heuristic"
+}
+```
+
+Run-2 (the §8.2 flap, 3 nb pairs):
+
+```
+non_bijective_pairs = 3
+  pair #0: faces (2, 3) → pool-not-shared
+  pair #1: faces (2, 5) → other
+  pair #2: faces (3, 4) → pool-not-shared
+```
+
+Stable classification across runs: same face-pair signatures always
+classify the same way, regardless of the iteration-order flap.
+
+### 11.3 Mechanism #1: pool-not-shared via interior subdivision asymmetry
+
+Pair `(FaceIdx(2), FaceIdx(3))` on `EdgeIdx(6)`: Both faces' loops
+correctly walk the shared edge. `disc.edge_verts[EdgeIdx(6)]` produces
+ONE pool entry per face's half-edge traversal — pool entries are
+single-valued because the edge is `Linear` (`disc.edge_verts[E] =
+[origin_pool_idx, dest_pool_idx]`, and `collect_loop_boundary` appends
+the half-edge's origin slot only). This means:
+- pool_a_at_edge = `[12]`  (face A's half-edge origin)
+- pool_b_at_edge = `[13]`  (face B's half-edge origin = face A's half-edge dest)
+
+So far so correct: the discretization layer produces a shared pool with
+matching f64 endpoints.
+
+The defect surfaces in the rendermesh: face A's tessellation emits
+ZERO directed mesh edges directly between the two arena endpoints,
+while face B's tessellation emits ONE. Both faces have BOTH endpoints
+as f32-byte-identical vertices in their emitted sub-buffers (so this
+is not `PositionalDrift`). What's happening is:
+
+> Face A's per-face triangulation routes via INTERIOR subdivision
+> vertices between the two arena endpoints. Face B's triangulation
+> walks the boundary directly. The two faces' boundary mesh-edge
+> sequences differ along this shared B-Rep edge.
+
+The classifier reports this as `PoolNotShared` with `face_a_pool_at_edge`
+and `face_b_pool_at_edge` both single-element to surface the
+discrepancy at the rendermesh level — the symptom is asymmetric
+boundary subdivision, not different pool indices in `disc.edge_verts`.
+
+### 11.4 Mechanism #2: oracle heuristic false positive (`other`)
+
+Pair `(FaceIdx(2), FaceIdx(5))` on `EdgeIdx(7)`: classifier reports
+`1 reciprocal + 0 same-direction` directed mesh edges across the two
+faces along the arena edge endpoints. **The shared B-Rep edge IS
+bijective in the rendermesh.** The oracle's `non_bijective_pair` signal
+for this pair is generated by OTHER position-coincident directed edges
+that pass `restrict_to_shared_boundary`'s undirected
+position-coincidence heuristic (`tessellation/bijective.rs:334`) but
+are not actually on the shared B-Rep boundary.
+
+This is a measurement artifact, not a tessellation defect. Two possible
+follow-ups (out of PR7 scope):
+- Tighten `restrict_to_shared_boundary` to use the arena edge's
+  endpoint set directly rather than undirected position coincidence
+  across the full boundary set.
+- Treat this class of nb pair as the oracle's known false-positive
+  rate, factor out into a separate tally.
+
+### 11.5 Root-cause hypothesis for `pool-not-shared` (informational, NOT acted on)
+
+The interior-subdivision asymmetry is downstream of `discretize_edges`
+(which produces matching pool entries) and downstream of
+`tessellate_planar_face_bounded` (which emits per-face triangulations
+from a shared boundary). The defect must arise in the post-processing
+repair pipeline at `tessellate_solid_bounded` (`mod.rs:4163-4345`):
+
+1. `fix_winding_consistency` (mod.rs:4278)
+2. `remove_winding_insensitive_duplicates` (mod.rs:4283)
+3. `flip_nonmanifold_interior_diagonals` (mod.rs:4290)
+4. `retessellate_nonmanifold_faces_with_steiner_fan` (mod.rs:4304) ←
+   primary suspect: replaces a face's earcut output with a
+   centroid-fan, introducing interior subdivision points that other
+   faces don't see.
+5. `remove_nonmanifold_topology_aware` (mod.rs:4318)
+6. `remove_nonmanifold_duplicates_aggressive` (mod.rs:4330)
+
+Each stage independently rewrites per-face triangulation. Two adjacent
+faces (sharing a B-Rep edge) can be re-tessellated by different
+stages, breaking the bijective shared-boundary contract.
+
+### 11.6 Why Phase B is NOT shipped — three independent stop-condition firings
+
+The PR7 brief specifies Phase B is shipped only if classification is
+LOCAL AND SIMPLE. Three independent stop conditions fire here:
+
+1. **5th class detected.** `Pr7Classification::Other` for pair #1 means
+   the four-class taxonomy isn't exhaustive for R0033. Per brief: "If
+   classification reveals a 5th category not in the table: ship Phase A
+   only."
+
+2. **Multiple mechanisms across pairs.** Pair #0 is `PoolNotShared`,
+   pair #1 is `Other`. Per brief: "If MULTIPLE mechanisms across the 2
+   pairs: ship Phase A only."
+
+3. **Root cause spans 5+ post-processing functions, multi-module.** Per
+   brief: "if the gap is local (e.g., `discretize_edges` mishandles a
+   curve type, single-function fix ≤50 lines), ship Phase B. If broader
+   → ship Phase A." A fix at the post-processing repair pipeline is
+   neither local nor simple — it requires re-deriving how to maintain
+   bijective shared boundaries while doing nonmanifold repair.
+
+### 11.7 PR8 anchor recommendation OR pivot-to-Cluster-II
+
+PR7 is the 6th PR on this thread to NOT ship a fix. Of the 5 prior
+hypotheses, all 5 were falsified or corrected (PR1=oracle anchor,
+PR2=revolve cap-pool, PR3=dedup, PR4=B-Rep assembly, PR5=Newell-flip,
+PR6=flood_fill_patches twin-pairing). Phase A's empirical findings
+narrow the search space, but the actual fix site is non-trivial.
+
+Two paths forward, the user has explicitly authorized either:
+
+**Option A: PR8 anchors on `retessellate_nonmanifold_faces_with_steiner_fan`**
+(`mod.rs::repair`, primary suspect from §11.5). Specifically: the
+Steiner-fan rewrite emits a centroid + N edges per face but does NOT
+update neighboring faces' boundary discretizations to consume the
+centroid as a boundary midpoint. The fix would either (a) propagate
+boundary subdivisions to neighbors, or (b) replace Steiner-fan with a
+shared-boundary-preserving repair. Either approach is a substantial
+refactor — likely 200-500 lines and may require extending the bounded
+path with a global subdivision-propagation phase. **Per the user's
+stop condition this is over-budget for a single PR.**
+
+**Option B (recommended): pivot to Cluster II.** The brief's stop
+condition allows: "The user is willing to pivot to Cluster II if PR7
+doesn't ship a fix." Phase A's findings establish that the bounded-path
+post-processing repair pipeline is the wrong abstraction — it's
+operating per-face when the bijective contract is per-edge. Yang
+2025 §4.1.1 + audit D-10 both call for shared-boundary tessellation
+upstream. Continuing to patch repair stages downstream is the
+deprecated S-H-stack pattern (§A15.6) the project is committed to
+removing. Cluster II work (whatever it is in the team's queue) likely
+gives a stronger net signal than PR8 on this thread.
+
+### 11.8 What PR7 ships
+
+PR7 ships (Phase A only):
+
+- `crates/kernel/src/tessellation/pr7_classify.rs` — the classifier
+  module + `Pr7Classification` enum.
+- `crates/kernel/src/waffle_kernel.rs` — adds
+  `edge_geometry_for(handle)` accessor for external diagnostic use.
+- `crates/test-harness/tests/pr7_r0033_mechanism_classification.rs` —
+  Phase A test that PASSES with the classification (deliverable is
+  the emitted output, not a fix).
+- This §11 spec amendment.
+
+The PR4 RED test (`pr4_r0033_t_junction_diagnosis`) and PR6 RED test
+(`test_flood_fill_patches_twin_pairing_disjoint_subtract`) **stay RED**
+— they remain anchors for whatever path the team chooses next (PR8 on
+this thread, or pivot to Cluster II).
+
+This continues PR3-PR6's pivot pattern: a non-fix PR that documents
+empirical findings, preventing the next implementer from anchoring on
+a falsified hypothesis. Per
+`~/.claude/projects/-home-claude-workspace/memory/feedback_no_last_bug.md`:
+no claims of "the last gap." Per
+`~/.claude/projects/-home-claude-workspace/memory/feedback_no_regression_chasing.md`:
+build Yang faithfully, don't accommodate the legacy repair pipeline.
+
+### 11.9 Verification commands
+
+```
+# Phase A test (PASSES with classification):
+cargo test -p test-harness --test pr7_r0033_mechanism_classification -- --nocapture
+
+# PR4 canonical RED anchor (still RED on main, still RED here):
+cargo test -p test-harness --test pr4_r0033_t_junction_diagnosis -- --nocapture
+
+# PR6 kernel-internal RED anchor (still RED on main, still RED here):
+cargo test -p kernel --lib test_flood_fill_patches_twin_pairing_disjoint_subtract -- --nocapture
+
+# Pre-existing kernel suite failure baseline (29 failed on main = 29 failed here):
+cargo test -p kernel 2>&1 | grep "test result" | tail -2
+```

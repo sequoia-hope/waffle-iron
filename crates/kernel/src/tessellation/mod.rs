@@ -6,6 +6,7 @@
 
 mod analytic;
 pub mod bijective;
+pub mod pr7_classify;
 mod repair;
 
 use crate::geometry::curve::CurveGeom;
