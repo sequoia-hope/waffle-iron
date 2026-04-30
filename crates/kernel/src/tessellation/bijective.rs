@@ -1458,87 +1458,72 @@ mod tests {
         );
     }
 
-    /// Reserved slot for PR4's bounded-path bijectivity red test.
+    /// Reserved slot for the bounded-path bijectivity red test.
     ///
-    /// PR3 was originally scoped to anchor a red test against the
-    /// hypothesis that `discretize_edges` (`tessellation/mod.rs:3135+`)
-    /// fails to dedup B-Rep vertices, causing faces touching shared
-    /// vertices via different edges to receive different mesh vertex IDs
-    /// for the same position. PR3 test-author empirically falsified that
-    /// hypothesis: the bijective oracle keys on emitted f32→f64-cast
-    /// position bit patterns, not on pool indices, and `discretize_edges`
-    /// always reads `arena.vertices[V].position` for the SAME `VertexIdx`
-    /// V — so two edges sharing V push byte-identical f64 to the pool at
-    /// different indices that nonetheless reference byte-identical f64
-    /// values. The proposed dedup fix changes pool indices but not f32
-    /// emit positions; it cannot change what the oracle measures. PR1's
-    /// `test_cube_is_bijective` is GREEN for exactly this reason — the
-    /// cube exercises the supposed gap but the oracle still reports
-    /// 12/12 bijective.
+    /// PR3 originally scoped this against a `discretize_edges` dedup
+    /// hypothesis (empirically falsified — the oracle keys on f32→f64-cast
+    /// position bit patterns, not pool indices). PR4 anchored a corpus-
+    /// derived RED test on R0033 (`pr4_r0033_t_junction_diagnosis` in
+    /// `crates/test-harness/tests/`). PR5 attempted two tessellation-side
+    /// fixes (cap-polygon RevolvePool extension; planar-bounded Newell-
+    /// reverse desync via PR2's post-fix-normal-flip pattern) and
+    /// empirically falsified BOTH — neither code path is reached for R0033,
+    /// and the planar-bounded check `dot(arena_natural_newell, stored_normal)
+    /// = 1.0` exactly for all 6 faces, so the Newell-reverse code never
+    /// fires.
     ///
-    /// 12 hand-built fixtures across this scope (two-cube unions,
-    /// L-shape, plus-shape, T-junction-inducing unions, hexagonal
-    /// extrudes, polygon-soup-mode pockets, intersect operations) all
-    /// produced 0 non-bijective pairs. The corpus measurement
-    /// (`c4f0fcb`) reports 350 nb pairs across 13 of 99 linear-bounded
-    /// cases (1.55% pair-non-bijectivity), but those rates only
-    /// materialize on the assay-randomized geometry — not on
-    /// canonical-axis hand-built fixtures within kernel-only test
-    /// scope.
+    /// PR5's empirical investigation (`specs/tessellation_bounded_residuals.md`
+    /// §9) traced the residual mechanism to a half-edge twin convention
+    /// violation upstream in `boolean/topology_extract.rs::flood_fill_patches`
+    /// (likely via `yang_pipeline_result_for_disjoint`'s degenerate-input
+    /// path for AABB-disjoint Subtract). The tessellator faithfully
+    /// reproduces a malformed arena and cannot fix it — no tessellation-
+    /// level change can make non-twin half-edges produce reciprocal mesh
+    /// edges.
     ///
-    /// Revised diagnosis (per `specs/tessellation_bounded_residuals.md`):
-    /// the residual mechanism is a **B-Rep T-junction** — face A's
-    /// `outer_loop` walks N edges along a shared boundary while face B's
-    /// loop walks N−1 edges, because the boolean B-Rep assembly stage
-    /// (`stitch.rs::build_brep_from_polygons_inner` or earlier in
-    /// `analytical.rs::planar_planar_boolean`) introduces an extra
-    /// midpoint vertex on one side. The `tessellate_planar_face_bounded`
-    /// centroid-fan branch (`mod.rs:3357-3413`) is keyed off a comment
-    /// confirming this scenario: *"This happens when Yang coplanar merge
-    /// keeps intersection-plane vertices on merged face boundaries."*
-    /// The fix target is the B-Rep assembly stage, NOT
-    /// `discretize_edges`.
-    ///
-    /// PR4 must (a) anchor the red test on a specific corpus case
-    /// (Adversary T3 will identify the 13 nb-producing cases and pick the
-    /// simplest), (b) capture the offending face pair's outer_loop
-    /// vertex sequences, and (c) drive a topology-level fix at the B-Rep
-    /// assembly stage. PR3 ships only this `#[ignore]`d slot reservation
-    /// and the investigation note.
+    /// PR6 anchor: investigate `flood_fill_patches` twin-pairing for the
+    /// AABB-disjoint short-circuit path. Likely fix sites:
+    /// `boolean/topology_extract.rs::flood_fill_patches` (Steps 5/5a/6 —
+    /// patch boundary classification or twin assignment) or
+    /// `boolean/yang_integration.rs::result_topology_to_waffle_solid`
+    /// (post-flood-fill arena-build that may be losing twin pairing).
     ///
     /// References:
-    /// - `specs/tessellation_bounded_residuals.md` (PR3 investigation)
+    /// - `specs/tessellation_bounded_residuals.md` §9 (PR5 closure)
+    /// - `crates/test-harness/tests/pr4_r0033_t_junction_diagnosis.rs`
     /// - `docs/audits/cherchi_port_audit.md` D-10
     /// - Yang 2025 §4.1.1 (bijective tessellation contract)
     /// - PR1 oracle commit `5f5423c`
     /// - PR2 fix commit `f01dd68`
     /// - PR2 corpus delta commit `c4f0fcb`
+    /// - PR4 RED diagnostic commit `7ee4805`
     #[test]
-    #[ignore = "PR4 anchor — needs corpus-derived fixture; see specs/tessellation_bounded_residuals.md"]
+    #[ignore = "PR6 anchor — bug is upstream in flood_fill_patches; see specs/tessellation_bounded_residuals.md §9"]
     fn test_bounded_path_brep_t_junction_is_bijective() {
-        // PR4 implementer fills this in once Adversary T3 surfaces a
-        // minimal-reproducer fixture from the assay corpus. Until then
-        // the slot is reserved and `#[ignore]`d.
+        // PR6 implementer fills this in after fixing the upstream
+        // `flood_fill_patches` twin-pairing bug. The kernel-internal slot
+        // remains reserved; the canonical RED test for R0033 lives in
+        // `crates/test-harness/tests/pr4_r0033_t_junction_diagnosis.rs`
+        // (full LoadProject path required for R0033 reproduction).
         //
-        // Expected shape of the test once anchored:
-        //   1. Build (or load) a solid that exercises the linear-bounded
-        //      gate (`is_polygon_soup=false`, no arc edges, all
-        //      primitive_params=None) and triggers the B-Rep T-junction
-        //      mechanism.
+        // Expected shape once PR6 anchors a kernel-internal fixture:
+        //   1. Build (or load) a solid that triggers the
+        //      `flood_fill_patches` twin-pairing failure. The R0033
+        //      reproducer requires LoadProject + Yang AABB-disjoint
+        //      short-circuit; a minimal kernel-only fixture would need
+        //      to exercise `flood_fill_patches` directly.
         //   2. Tessellate via the bounded path.
         //   3. Run `check_face_pair_bijective`.
-        //   4. RED on main: oracle reports ≥1 non-bij pair, with the
-        //      offending pair's `unmatched_a_count + unmatched_b_count`
-        //      ≥ 1, traceable to a missing midpoint vertex on one side
-        //      of a shared B-Rep edge.
-        //   5. GREEN after PR4 fix at B-Rep assembly stage: oracle
-        //      reports 0 non-bij pairs.
+        //   4. RED on main: oracle reports ≥1 non-bij pair where
+        //      adjacent faces emit the shared B-Rep edge in the SAME
+        //      forward 3D direction (twin convention violation).
+        //   5. GREEN after PR6 fix in `boolean/topology_extract.rs`:
+        //      oracle reports 0 non-bij pairs.
         unimplemented!(
-            "PR4 anchor — slot reserved by PR3. See specs/tessellation_bounded_residuals.md \
-             for the investigation that pivoted PR3 from the falsified dedup hypothesis to \
-             this slot reservation. Adversary T3 must identify a minimal corpus case in the \
-             linear-bounded class that produces ≥1 non-bij pair, then PR4 implementer \
-             encodes it here."
+            "PR6 anchor — bug is upstream in flood_fill_patches twin-pairing. See \
+             specs/tessellation_bounded_residuals.md §9 for the PR5 falsification trace. \
+             The canonical R0033 reproducer lives in crates/test-harness/tests/\
+             pr4_r0033_t_junction_diagnosis.rs (still RED on main)."
         );
     }
 }

@@ -387,3 +387,155 @@ This refines PR3's diagnosis: there ARE T-junction-style topology
 mismatches between adjacent face boundaries, but the mechanism is
 disjoint sibling discretizations from the revolve primitive, not
 boolean B-Rep assembly.
+
+## 9. PR5 empirical falsification — actual bug is upstream in `flood_fill_patches`
+
+PR5 was scoped (per PR4 §8.4) to extend PR2's `RevolvePool` to
+`tessellate_revolve_cap_polygon` for partial-revolve caps, then
+pivoted (per implementer empirical investigation) to fix the per-face
+Newell-reverse desync in `tessellate_planar_face_bounded`. **Both
+hypotheses are wrong for R0033.** This section documents the trace so
+future PRs do not repeat the mistake.
+
+### 9.1 Hypothesis revision lineage
+
+R0033 has been the canonical anchor since PR3's corpus dump. Five
+hypotheses have now been proposed and falsified:
+
+1. **PR3 dedup hypothesis.** `discretize_edges` doesn't dedup B-Rep
+   vertices — falsified (oracle keys on f32 positions, not pool
+   indices; byte-identical f64 produces byte-identical f32 regardless
+   of pool placement).
+2. **PR4 commit-1 anchor (`7ee4805`).** Fix in
+   `boolean/yang_integration.rs` Step 9 retessellation /
+   `boolean/topology_extract.rs::flood_fill_patches::assemble_brep` /
+   `boolean/cherchi/` twin construction. Falsified by PR4 commit-2
+   (`436ed37`): R0033 short-circuits via AABB-disjoint, never reaching
+   the Cherchi body.
+3. **PR4 commit-2 anchor (`436ed37`).** Solid is unchanged
+   `revolve(rectangle, 199°)`; fix in revolve primitive
+   tessellator (`tessellate_revolve_lateral` /
+   `tessellate_revolve_cap_polygon`). Falsified by PR5 implementer:
+   `yang_pipeline_result_for_disjoint` calls `flood_fill_patches`
+   which rebuilds the arena; `result_topology_to_waffle_solid` then
+   strips `revolve_params` (`yang_integration.rs:243`); R0033 routes
+   via `tessellate_solid_bounded` (linear-bounded class), NOT the
+   revolve primitive.
+4. **PR5 brief (extend cap polygon `RevolvePool`).** Falsified
+   immediately: `tessellate_revolve_cap_polygon` is dispatched at
+   `mod.rs:476` only `if revolve_params.is_some()`. R0033's last
+   solid has `revolve_params: None`, so the cap polygon function is
+   never invoked.
+5. **PR5 implementer pivot ("option 1": fix Newell-reverse desync in
+   `tessellate_planar_face_bounded`).** Implemented and falsified
+   empirically (this section).
+
+### 9.2 PR5 option-1 implementation and falsification
+
+The pivot mirrored PR2's `f01dd68` post-fix-normal-flip pattern:
+walk arena natural without per-face Newell-reverse; conditionally flip
+earcut output triangles when input is CW in the (u, v) basis derived
+from `stored_normal`; post-fix flip stored normals when the polygon's
+Newell normal disagrees with stored.
+
+`PR5_DEBUG=1` instrumentation around the original
+`tessellate_planar_face_bounded` confirmed empirically that for all 6
+faces in R0033's post-flood-fill arena:
+
+```
+[pr5-dbg] face base=0  n=4  stored=(-0.652,0.624,0.431)  newell_norm=(-0.652,0.624,0.431)  dot_ns=1.0000
+[pr5-dbg] face base=4  n=4  stored=(-0.717,0.687,0.118)  newell_norm=(-0.717,0.687,0.118)  dot_ns=1.0000
+[pr5-dbg] face base=8  n=24 stored=(-0.694,0.664,0.278)  newell_norm=(-0.694,0.664,0.278)  dot_ns=1.0000
+[pr5-dbg] face base=32 n=24 stored=(-0.691,-0.722,-0.000) newell_norm=(-0.691,-0.722,-0.000) dot_ns=1.0000
+[pr5-dbg] face base=56 n=24 stored=(0.694,-0.664,-0.278)  newell_norm=(0.694,-0.664,-0.278)  dot_ns=1.0000
+[pr5-dbg] face base=80 n=24 stored=(0.691,0.722,0.000)   newell_norm=(0.691,0.722,0.000)   dot_ns=1.0000
+```
+
+`dot_ns = 1.0000` for every face means `compute_newell_normal(arena_
+natural_loop)` aligns exactly with `stored_normal`. This is forced by
+`yang_integration.rs::result_topology_to_waffle_solid` lines 202-225:
+each face's `stored_normal` is computed via `compute_newell_normal`
+on the arena loop — guaranteeing per-face Newell-stored agreement.
+
+Consequences:
+- The original `reverse_outer = dot < 0.0` check at the old
+  `mod.rs:3320` **never fires** for R0033.
+- `signed_area_2d` in any (u, v, n) right-handed basis is positive →
+  `input_is_cw_2d = false` → no earcut flip.
+- The polygon-Newell post-fix-normal-flip never triggers (same
+  `dot_ns > 0` test).
+- The PR5 option-1 patch is a behavioral no-op for R0033. Test
+  `pr4_r0033_t_junction_diagnosis` remains RED with `nb_count = 2`
+  identical to the pre-PR5 baseline.
+
+### 9.3 Where the bug actually lives
+
+The bijective oracle's first-call dump for the offending pair
+(`FaceIdx(2)`, `FaceIdx(3)`, shared `EdgeIdx(7)`) shows unmatched
+directed edges where face_a's edge `P → Q` matches face_b's
+edge `P → Q` in the SAME forward direction (Finding B from §8.3).
+
+If both adjacent faces emit a shared B-Rep edge as a directed mesh
+edge in the same forward 3D direction, their **arena loops both walk
+the shared edge in the same 3D direction** — a half-edge twin
+convention violation. Twin half-edges in a closed manifold MUST walk
+their shared edge in opposite 3D directions; the tessellator
+faithfully reproduces this and cannot correct an upstream malformed
+arena.
+
+Additional evidence: pair `(FaceIdx(2), FaceIdx(3))` reports 4
+unmatched directed edges sharing only 1 B-Rep edge (`EdgeIdx(7)`).
+The oracle's `restrict_to_shared_boundary` (`bijective.rs:334`) is
+heuristic (undirected position-coincidence). 4 unmatched on 1 shared
+edge means three of those edges lie on OTHER position-coincident
+boundary segments that the heuristic includes — suggesting
+`flood_fill_patches` is producing arena edges that share endpoints
+with other arena edges but are not actually B-Rep adjacent.
+
+### 9.4 PR6 anchor
+
+The actual fix site is upstream of tessellation:
+
+1. **`boolean/topology_extract.rs::flood_fill_patches`** (line 351+).
+   Steps 5/5a/6 stitch surviving sub-triangles into B-Rep patches and
+   build half-edge twin pairs. Investigate twin assignment for cases
+   where a directed edge appears in multiple patches with the same
+   source-face label (the AABB-disjoint Subtract path passes
+   `verts_a, tris_a` and empty B, which may be a degenerate input
+   path).
+2. **`boolean/topology_extract.rs::yang_pipeline_result_for_disjoint`**
+   (line 1361+). The disjoint short-circuit's flood-fill invocation
+   may differ behaviorally from the normal `yang_boolean_pipeline`
+   path (which runs a full subdivision/intersection cascade before
+   flood-fill). A degenerate-but-valid input may not be exercising
+   the same code paths in flood-fill.
+3. **`boolean/yang_integration.rs::result_topology_to_waffle_solid`**
+   (line 165+). Post-flood-fill arena finalization. Check whether
+   half-edge twin pointers survive intact here, or whether the
+   `face_geometry` reassignment (`compute_newell_normal` per face)
+   masks an underlying twin-pair inversion.
+
+PR6 should reproduce R0033 with a kernel-internal fixture that
+exercises `flood_fill_patches` directly (without LoadProject), then
+fix the twin-pairing bug at the actual source.
+
+### 9.5 What PR5 ships
+
+PR5 ships **documentation only**. The implementer reverted the
+option-1 patch after empirically confirming it was a no-op. The
+deliverable is:
+
+- This §9 spec amendment.
+- An updated docstring on the kernel-internal stub test
+  (`bijective.rs::test_bounded_path_brep_t_junction_is_bijective`)
+  re-targeting it from PR4/PR5 to PR6.
+
+The PR4 RED diagnostic test
+(`crates/test-harness/tests/pr4_r0033_t_junction_diagnosis.rs`)
+**stays RED** — that's the canonical anchor for PR6.
+
+This continues PR3's pivot pattern: a non-fix PR that documents what
+was learned, preventing the next implementer from re-anchoring on a
+falsified hypothesis. Per
+`~/.claude/projects/-home-claude-workspace/memory/feedback_no_last_bug.md`:
+we don't claim "the last gap"; we ship the empirical lesson.
