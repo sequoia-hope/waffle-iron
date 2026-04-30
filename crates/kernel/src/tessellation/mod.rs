@@ -17,7 +17,9 @@ use crate::units::{MIN_FEATURE_SIZE, TAU_MODEL, TAU_NORMALIZE, TAU_TESS_GRID_MIN
 use crate::vecmath::{
     compute_plane_basis, v3_add, v3_cross, v3_dot, v3_length, v3_normalize, v3_scale, v3_sub,
 };
-use crate::waffle_kernel::{ConeParams, CylinderParams, RevolveParams, SphereParams, TorusParams};
+use crate::waffle_kernel::{
+    rotate_point_around_axis, ConeParams, CylinderParams, RevolveParams, SphereParams, TorusParams,
+};
 use std::collections::BTreeMap;
 
 use self::analytic::{
@@ -269,21 +271,34 @@ pub(crate) fn tessellate_solid_ext(
         needs_fan_welding = true;
     }
 
+    // Pre-compute the revolve boundary-position pool: shared f64 positions
+    // for the start cap (θ=0) and end cap (θ=angle_rad, partial only).
+    // Mirrors `tessellate_solid_bounded`'s `discretize_edges` pattern: build
+    // a shared position pool once, then have each face consume from it for
+    // boundary vertices. Per Yang §4.1.1: identical f64 source → identical
+    // f32 emit → bijective rendermesh edges → reciprocal half-edge twins.
+    // Audit D-10 (Cluster I).
+    let revolve_pool = revolve_params.map(RevolvePool::from_params);
+
     for &(kid, face_idx) in &sorted_faces {
         let geom = face_geometry.get(&face_idx);
 
         // Check if this face is a revolve lateral face
         if let Some(rp) = revolve_params {
-            if let Some((lateral_idx, lateral)) = rp
+            if let Some((lateral_idx, _lateral)) = rp
                 .lateral_faces
                 .iter()
                 .enumerate()
                 .find(|(_, (fi, _, _))| *fi == face_idx)
             {
+                let pool = revolve_pool
+                    .as_ref()
+                    .expect("revolve_pool present whenever revolve_params is Some");
                 let start_index = indices.len() as u32;
                 tessellate_revolve_lateral(
-                    &lateral.1,
-                    &lateral.2,
+                    arena,
+                    face_idx,
+                    pool,
                     &rp.axis_origin,
                     &rp.axis_dir,
                     rp.angle_rad,
@@ -452,6 +467,22 @@ pub(crate) fn tessellate_solid_ext(
                             start_index,
                             end_index,
                         });
+                    } else if revolve_params.is_some() {
+                        // Partial-revolve cap polygon: walk arena natural order
+                        // (no Newell-vs-stored-normal flip) so that the cap's
+                        // emitted directed edges reciprocate the lateral's
+                        // arena-walked half-edge twins. Yang §4.1.1 reciprocity
+                        // contract; audit D-10 (Cluster I).
+                        tessellate_revolve_cap_polygon(
+                            arena,
+                            face_idx,
+                            plane,
+                            kid,
+                            &mut vertices,
+                            &mut normals,
+                            &mut indices,
+                            &mut face_ranges,
+                        );
                     } else {
                         // Regular polygon face — fan triangulation
                         tessellate_polygon_face(
@@ -1062,14 +1093,127 @@ fn tessellate_cylindrical_face(
     }
 }
 
+/// Shared boundary-position pool for revolve primitive tessellation.
+///
+/// Per Yang 2025 §4.1.1 bijective tessellation contract: the cap and lateral
+/// faces of a revolve solid share B-Rep edges at θ=0 (start cap edges) and
+/// θ=angle_rad (end cap edges, partial revolves only). The cap and lateral
+/// tessellators must emit byte-identical f64 positions for these shared
+/// boundary vertices, and reciprocal directed mesh edges (per the half-edge
+/// twin convention).
+///
+/// `start_ring[i]` is the f64 position at θ=0 for profile-vertex i. By
+/// construction in `revolve_polygon` (`waffle_kernel.rs:1498-1504`), this
+/// equals the byte-identical f64 position stored in
+/// `arena.vertices[bottom_verts[i]].position` — so a cap face emitting
+/// `arena.vertices[v].position as f32` and a lateral face emitting
+/// `pool.start_ring[i] as f32` produce identical f32 vertices.
+///
+/// `end_ring[i]` is the f64 position at θ=angle_rad. Computed via the SAME
+/// `rotate_point_around_axis` function `revolve_polygon` uses for
+/// `end_verts[i]` (`waffle_kernel.rs:1490-1493`) — guaranteeing byte-identical
+/// f64 with `arena.vertices[top_verts[i]].position` (which equals
+/// `end_verts[i]`). Empty for full revolutions.
+///
+/// Mirrors the `EdgeDiscretization.positions` pool that `tessellate_solid_bounded`
+/// uses (`mod.rs:2657-2662`). Cap faces consume the pool implicitly via
+/// arena-stored positions; the lateral tessellator consumes it explicitly to
+/// replace its inline Rodrigues rotation (which produces ULP-divergent f64
+/// positions due to operation-order differences from `rotate_point_around_axis`).
+///
+/// Audit D-10 (Cluster I, blocked-by-tessellation) in
+/// `docs/audits/cherchi_port_audit.md`.
+struct RevolvePool {
+    start_ring: Vec<[f64; 3]>,
+    end_ring: Vec<[f64; 3]>,
+}
+
+impl RevolvePool {
+    /// Build the pool from a revolve solid's `RevolveParams`.
+    ///
+    /// `start_ring` is recovered from `lateral_faces`: walking the lateral
+    /// faces in order, `lateral_faces[i].1 = start_verts[i]` (per
+    /// `revolve_polygon` line 1613: `let v_a = start_verts[i];`). So the
+    /// start-ring profile sequence is `lateral_faces.iter().map(|(_, va, _)| va)`.
+    ///
+    /// `end_ring[i]` is `rotate_point_around_axis(start_ring[i], ...)`,
+    /// using the same function that `revolve_polygon` calls to compute
+    /// `end_verts` — guaranteeing byte-identical f64 with arena's stored
+    /// top-vertex positions.
+    fn from_params(params: &RevolveParams) -> Self {
+        let start_ring: Vec<[f64; 3]> = params.lateral_faces.iter().map(|(_, va, _)| *va).collect();
+
+        let end_ring: Vec<[f64; 3]> = if params.full_revolution {
+            Vec::new()
+        } else {
+            start_ring
+                .iter()
+                .map(|&p| {
+                    rotate_point_around_axis(
+                        p,
+                        params.axis_origin,
+                        params.axis_dir,
+                        params.angle_rad,
+                    )
+                })
+                .collect()
+        };
+
+        RevolvePool {
+            start_ring,
+            end_ring,
+        }
+    }
+
+    /// Look up profile index for a position via byte-equality.
+    ///
+    /// Returns `Some((profile_idx, is_end))` if the position byte-matches a
+    /// pool entry: `is_end=false` for start_ring (θ=0), `is_end=true` for
+    /// end_ring (θ=angle_rad). Returns `None` if no match — typically means
+    /// the position is interior to a lateral face and not on the cap boundary.
+    ///
+    /// Byte equality (via `f64::to_bits`) is required for bijectivity: the
+    /// rendermesh oracle hashes vertex positions through f32 → f64 promotion,
+    /// so any ULP divergence in the f64 source produces non-bijective pairs.
+    fn lookup(&self, pos: &[f64; 3]) -> Option<(usize, bool)> {
+        let key = [pos[0].to_bits(), pos[1].to_bits(), pos[2].to_bits()];
+        for (i, p) in self.start_ring.iter().enumerate() {
+            if [p[0].to_bits(), p[1].to_bits(), p[2].to_bits()] == key {
+                return Some((i, false));
+            }
+        }
+        for (i, p) in self.end_ring.iter().enumerate() {
+            if [p[0].to_bits(), p[1].to_bits(), p[2].to_bits()] == key {
+                return Some((i, true));
+            }
+        }
+        None
+    }
+}
+
 /// Tessellate one lateral face of a revolve solid (cylindrical or planar annular).
 ///
 /// For partial revolves: generates a grid of (N+1) x 2 vertices, producing 2N triangles.
 /// For full revolution: generates N x 2 vertices and wraps the last ring back to the first.
+///
+/// Yang 2025 §4.1.1 bijective tessellation: ring 0 (θ=0) and ring N (θ=angle_rad)
+/// boundary positions are sourced from `pool` rather than recomputed inline. This
+/// guarantees byte-identical f64 with the cap face's arena-stored vertices, so
+/// f32 conversion produces identical vertex positions in the rendermesh — a
+/// prerequisite for the Yang reciprocity contract.
+///
+/// The lateral's outer loop is walked via arena half-edges to determine which
+/// profile-edge endpoints `(profile_idx_a, profile_idx_b)` and traversal
+/// direction the lateral assigns to its start-cap edge. The natural quad
+/// triangulation `(v00, v01, v10), (v10, v01, v11)` then emits θ=0 boundary
+/// directed edges `v00 → v01` matching the half-edge loop walk — automatically
+/// reciprocal to the start-cap face's twin half-edge walk on the same B-Rep
+/// edge. Same applies to the end cap at ring N.
 #[allow(clippy::too_many_arguments)]
 fn tessellate_revolve_lateral(
-    start_v0: &[f64; 3],
-    start_v1: &[f64; 3],
+    arena: &TopoArena,
+    face_idx: FaceIdx,
+    pool: &RevolvePool,
     axis_origin: &[f64; 3],
     axis_dir: &[f64; 3],
     angle_rad: f64,
@@ -1081,30 +1225,71 @@ fn tessellate_revolve_lateral(
     kid: u64,
     lateral_idx: usize,
 ) {
-    // PR14 instrumentation: REVOLVE_DEBUG=1 emits per-triangle traces for
-    // revolve tessellation. Used to diagnose intra-face/inter-face penetrations
-    // surfaced by `check_no_self_intersection` (Yang 2025 §4.1; Cherchi 2020 §5.1
-    // — input meshes must be self-consistent before mesh arrangement).
     let revolve_debug = std::env::var("REVOLVE_DEBUG").as_deref() == Ok("1");
 
     let n = circle_segments();
     let base_vertex = vertices.len() as u32 / 3;
+
+    // Walk the lateral face's outer loop to determine the (profile_a,
+    // profile_b) profile-vertex indices and the half-edge traversal
+    // direction at θ=0. The lateral face has 4 vertices: bottom_a/bottom_b
+    // at θ=0 and top_a/top_b at θ=angle_rad (or wraps to bottom for full
+    // revolution). The half-edge twin convention guarantees that the
+    // lateral's loop walks the start-cap edge OPPOSITE the start-cap face's
+    // walk on the same edge — so emitting ring-0 boundary vertices in the
+    // order the lateral walks them produces directed mesh edges that are
+    // automatic twins of the cap's emission. Same for ring N at θ=angle_rad
+    // for partial revolves.
+    //
+    // Mirrors `collect_loop_boundary` (mod.rs:2748+) used by
+    // `tessellate_solid_bounded`. Per Yang §4.1.1 bijective tessellation:
+    // shared-pool positions + arena-loop walk = automatic reciprocity.
+    let (profile_a, profile_b) = {
+        let outer_loop = arena.faces[face_idx.0].outer_loop;
+        let start_he = arena.loops[outer_loop.0].half_edge;
+        // Walk the loop, find a start-cap edge: an edge whose two endpoints
+        // are both in `pool.start_ring`. The lateral has exactly one such
+        // edge (the bottom horizontal edge at θ=0).
+        let mut found = None;
+        let mut he = start_he;
+        loop {
+            let v_origin = arena.half_edges[he.0].origin;
+            let next_he = arena.half_edges[he.0].next;
+            let v_dest = arena.half_edges[next_he.0].origin;
+            let p_origin = arena.vertices[v_origin.0].position;
+            let p_dest = arena.vertices[v_dest.0].position;
+            if let (Some((idx_a, false)), Some((idx_b, false))) =
+                (pool.lookup(&p_origin), pool.lookup(&p_dest))
+            {
+                found = Some((idx_a, idx_b));
+                break;
+            }
+            he = next_he;
+            if he == start_he {
+                break;
+            }
+        }
+        // Fallback: if no start-cap edge identified (full revolution has no
+        // distinct cap edges), fall back to lateral_idx-based profile pairing
+        // matching `revolve_polygon`'s `(start_verts[i], start_verts[(i+1)%n])`.
+        found.unwrap_or_else(|| {
+            let p_count = pool.start_ring.len();
+            (lateral_idx, (lateral_idx + 1) % p_count)
+        })
+    };
+
     if revolve_debug {
         eprintln!(
             "[revolve-tess] face={} face_kind=lateral parent_edge={} angle_rad={:.6} \
-             full_rev={} ring_count={} start_v0=({:.6},{:.6},{:.6}) start_v1=({:.6},{:.6},{:.6}) \
+             full_rev={} ring_count={} profile_a={} profile_b={} \
              axis_origin=({:.6},{:.6},{:.6}) axis_dir=({:.6},{:.6},{:.6}) base_vertex={}",
             kid,
             lateral_idx,
             angle_rad,
             full_revolution,
             if full_revolution { n } else { n + 1 },
-            start_v0[0],
-            start_v0[1],
-            start_v0[2],
-            start_v1[0],
-            start_v1[1],
-            start_v1[2],
+            profile_a,
+            profile_b,
             axis_origin[0],
             axis_origin[1],
             axis_origin[2],
@@ -1115,39 +1300,66 @@ fn tessellate_revolve_lateral(
         );
     }
 
+    // Source positions: at θ=0 use pool.start_ring (byte-identical to
+    // arena.vertices[bottom_verts[i]].position). At θ=angle_rad use
+    // pool.end_ring (byte-identical to arena.vertices[top_verts[i]].position
+    // via the same `rotate_point_around_axis` formula).
+    //
+    // The lateral's column 0 corresponds to profile_a (origin of the
+    // half-edge walk's start-cap edge), column 1 to profile_b (destination).
+    // The natural quad triangulation `(v00, v01, v10), (v10, v01, v11)`
+    // emits ring-0 boundary `v00 → v01` = `start_ring[a] → start_ring[b]`,
+    // which matches the lateral's half-edge walk and is automatically the
+    // twin of the start-cap face's walk on the same B-Rep edge.
+    let p_start_a = pool.start_ring[profile_a];
+    let p_start_b = pool.start_ring[profile_b];
+
     // For full revolution, generate N rings (last wraps to first).
     // For partial, generate N+1 rings (start and end are distinct).
     let ring_count = if full_revolution { n } else { n + 1 };
 
     // Generate ring_count x 2 vertex grid
     for i in 0..ring_count {
-        let theta = angle_rad * (i as f64) / (n as f64);
-        let cos_t = theta.cos();
-        let sin_t = theta.sin();
-
-        // Rotate both vertices around axis using Rodrigues
-        let mut rotated_pair = [[0.0_f64; 3]; 2];
-        for (si, sv) in [start_v0, start_v1].iter().enumerate() {
-            let v = v3_sub(**sv, *axis_origin);
-            let k_dot_v = v3_dot(*axis_dir, v);
-            let k_cross_v = v3_cross(*axis_dir, v);
-            rotated_pair[si] = [
-                axis_origin[0]
-                    + v[0] * cos_t
-                    + k_cross_v[0] * sin_t
-                    + axis_dir[0] * k_dot_v * (1.0 - cos_t),
-                axis_origin[1]
-                    + v[1] * cos_t
-                    + k_cross_v[1] * sin_t
-                    + axis_dir[1] * k_dot_v * (1.0 - cos_t),
-                axis_origin[2]
-                    + v[2] * cos_t
-                    + k_cross_v[2] * sin_t
-                    + axis_dir[2] * k_dot_v * (1.0 - cos_t),
-            ];
+        // Source positions for this ring's column 0 and column 1.
+        let mut rotated_pair: [[f64; 3]; 2];
+        if i == 0 {
+            // Ring 0: pull from pool's start_ring (Yang §4.1.1 bijective
+            // boundary contract — must byte-match cap face's emission).
+            rotated_pair = [p_start_a, p_start_b];
+        } else if !full_revolution && i == n {
+            // Ring N (partial revolve only): pull from pool's end_ring.
+            rotated_pair = [pool.end_ring[profile_a], pool.end_ring[profile_b]];
+        } else {
+            // Interior ring: Rodrigues rotation. These positions are not on
+            // any cap boundary, so byte-equality with the cap is irrelevant;
+            // only consistency across adjacent laterals (which share the
+            // ring's positions for the seam edge) matters.
+            let theta = angle_rad * (i as f64) / (n as f64);
+            let cos_t = theta.cos();
+            let sin_t = theta.sin();
+            rotated_pair = [[0.0_f64; 3]; 2];
+            for (si, sv) in [&p_start_a, &p_start_b].iter().enumerate() {
+                let v = v3_sub(**sv, *axis_origin);
+                let k_dot_v = v3_dot(*axis_dir, v);
+                let k_cross_v = v3_cross(*axis_dir, v);
+                rotated_pair[si] = [
+                    axis_origin[0]
+                        + v[0] * cos_t
+                        + k_cross_v[0] * sin_t
+                        + axis_dir[0] * k_dot_v * (1.0 - cos_t),
+                    axis_origin[1]
+                        + v[1] * cos_t
+                        + k_cross_v[1] * sin_t
+                        + axis_dir[1] * k_dot_v * (1.0 - cos_t),
+                    axis_origin[2]
+                        + v[2] * cos_t
+                        + k_cross_v[2] * sin_t
+                        + axis_dir[2] * k_dot_v * (1.0 - cos_t),
+                ];
+            }
         }
 
-        // Profile tangent direction at this ring (v0 → v1)
+        // Profile tangent direction at this ring (col 0 → col 1)
         let profile_dir = v3_normalize(v3_sub(rotated_pair[1], rotated_pair[0]));
 
         // Emit position + analytic revolve normal for each vertex
@@ -1548,6 +1760,264 @@ fn tessellate_polygon_face(
                 p2[1],
                 p2[2],
             );
+        }
+    }
+
+    let end_index = indices.len() as u32;
+    face_ranges.push(FaceRange {
+        face_id: KernelId(kid),
+        start_index,
+        end_index,
+    });
+}
+
+/// Tessellate a revolve cap polygon face (start cap or end cap of a partial revolve).
+///
+/// Mirrors `tessellate_polygon_face` but DROPS the pre-emit Newell-vs-stored-normal
+/// loop reversal. The reversal in `tessellate_polygon_face` exists to align cap
+/// triangle winding with the stored normal, but for revolve caps it breaks the
+/// Yang §4.1.1 reciprocity contract with the lateral face: the lateral now walks
+/// arena natural order (per `tessellate_revolve_lateral`), and any tessellator-level
+/// flip on the cap desynchronizes the cap's emitted directed edge from the lateral's
+/// twin half-edge direction.
+///
+/// Instead, this function walks the cap's arena outer-loop in its natural cyclic
+/// order and emits triangles whose winding follows that walk. If the resulting
+/// geometric normal disagrees with the stored normal, the STORED NORMALS are
+/// flipped (not the winding) — the same post-fix pattern `tessellate_revolve_lateral`
+/// uses. This keeps stored normals visually correct while preserving arena-order
+/// emission for bijectivity.
+///
+/// Three.js renders all CAD meshes with `THREE.DoubleSide` (no backface culling),
+/// so the absolute winding direction is irrelevant for rendering — only the
+/// stored-normal alignment matters for shading. The bijectivity oracle, in
+/// contrast, is sensitive to winding direction at face boundaries (it counts
+/// directed mesh edges).
+///
+/// Audit D-10 (Cluster I, blocked-by-tessellation) in
+/// `docs/audits/cherchi_port_audit.md`. Yang §4.1.1 bijective tessellation.
+#[allow(clippy::too_many_arguments)]
+fn tessellate_revolve_cap_polygon(
+    arena: &TopoArena,
+    face_idx: FaceIdx,
+    plane: &crate::geometry::surface::Plane,
+    kid: u64,
+    vertices: &mut Vec<f32>,
+    normals_out: &mut Vec<f32>,
+    indices: &mut Vec<u32>,
+    face_ranges: &mut Vec<FaceRange>,
+) {
+    let loop_idx = arena.faces[face_idx.0].outer_loop;
+    let start_he = arena.loops[loop_idx.0].half_edge;
+
+    let loop_verts: Vec<[f64; 3]> = {
+        let mut v = Vec::new();
+        let mut he = start_he;
+        loop {
+            let vi = arena.half_edges[he.0].origin;
+            v.push(arena.vertices[vi.0].position);
+            he = arena.half_edges[he.0].next;
+            if he == start_he {
+                break;
+            }
+        }
+        v
+    };
+
+    if loop_verts.len() < 3 {
+        return;
+    }
+
+    let normal = [
+        plane.normal.x as f32,
+        plane.normal.y as f32,
+        plane.normal.z as f32,
+    ];
+    let stored_normal = [plane.normal.x, plane.normal.y, plane.normal.z];
+
+    // Emit f64 → f32 vertices in arena-natural order. Each loop_verts[i] is
+    // byte-identical to either pool.start_ring[profile_i] (start cap) or
+    // pool.end_ring[profile_i] (end cap), so the emitted f32 positions match
+    // the lateral's ring-0 / ring-N emission.
+    let n = loop_verts.len();
+    let base_vertex = vertices.len() as u32 / 3;
+    let start_index = indices.len() as u32;
+
+    for v in &loop_verts {
+        vertices.push(v[0] as f32);
+        vertices.push(v[1] as f32);
+        vertices.push(v[2] as f32);
+        normals_out.push(normal[0]);
+        normals_out.push(normal[1]);
+        normals_out.push(normal[2]);
+    }
+
+    // Convexity check: cross product of every consecutive triple must agree
+    // in sign with stored_normal (interpreted in the loop's actual orientation).
+    // Take an absolute-value approach: convex iff all cross products have the
+    // SAME sign relative to stored_normal (regardless of which sign).
+    let cross_signs: Vec<f64> = (0..n)
+        .map(|i| {
+            let a = loop_verts[i];
+            let b = loop_verts[(i + 1) % n];
+            let c = loop_verts[(i + 2) % n];
+            let ab = v3_sub(b, a);
+            let bc = v3_sub(c, b);
+            let cross = v3_cross(ab, bc);
+            v3_dot(cross, stored_normal)
+        })
+        .collect();
+    let nonzero_signs: Vec<f64> = cross_signs
+        .iter()
+        .copied()
+        .filter(|s| s.abs() > TAU_WORK)
+        .collect();
+    let is_convex = if nonzero_signs.is_empty() {
+        true
+    } else {
+        let first_sign = nonzero_signs[0].signum();
+        nonzero_signs.iter().all(|s| s.signum() == first_sign)
+    };
+
+    // Compute the input polygon's signed area in the (u, v) basis. Earcut
+    // ALWAYS produces CCW triangles in 2D regardless of input winding (a
+    // normalization). If the input arena loop is CW in 2D, earcut's output
+    // boundary directed edges run OPPOSITE to the input loop direction —
+    // breaking the half-edge twin convention with the lateral face's
+    // arena-walked emission. To preserve arena-order boundary directed edges
+    // (so cap and lateral reciprocate), we flip each output triangle's
+    // winding when the input is CW.
+    //
+    // Fan triangulation does not have this normalization — it preserves input
+    // winding by construction — so the flip is only applied on the earcut paths.
+    let (u_axis, v_axis) = compute_plane_basis(stored_normal);
+    let signed_area_2d: f64 = (0..n)
+        .map(|i| {
+            let curr = loop_verts[i];
+            let next = loop_verts[(i + 1) % n];
+            let dc = v3_sub(curr, loop_verts[0]);
+            let dn = v3_sub(next, loop_verts[0]);
+            let cu = v3_dot(dc, u_axis);
+            let cv = v3_dot(dc, v_axis);
+            let nu = v3_dot(dn, u_axis);
+            let nv = v3_dot(dn, v_axis);
+            cu * nv - nu * cv
+        })
+        .sum::<f64>()
+        * 0.5;
+    let input_is_cw_2d = signed_area_2d < 0.0;
+
+    let push_triangle = |indices: &mut Vec<u32>, a: u32, b: u32, c: u32, flip: bool| {
+        if flip {
+            indices.push(a);
+            indices.push(c);
+            indices.push(b);
+        } else {
+            indices.push(a);
+            indices.push(b);
+            indices.push(c);
+        }
+    };
+
+    if is_convex {
+        // Fan triangulation from a vertex that produces no degenerate fan triangles.
+        let fan_center = (0..n).find(|&j| {
+            (1..n - 1).all(|i| {
+                let a = (j + i) % n;
+                let b = (j + i + 1) % n;
+                let e1 = v3_sub(loop_verts[a], loop_verts[j]);
+                let e2 = v3_sub(loop_verts[b], loop_verts[j]);
+                let cr = v3_cross(e1, e2);
+                v3_dot(cr, cr) > TAU_TESS_GRID_MIN * TAU_TESS_GRID_MIN
+            })
+        });
+        if let Some(fc) = fan_center {
+            // Fan preserves input winding (vertices are emitted in input order
+            // along the polygon boundary). No flip needed.
+            for i in 1..n - 1 {
+                let a = (fc + i) % n;
+                let b = (fc + i + 1) % n;
+                indices.push(base_vertex + fc as u32);
+                indices.push(base_vertex + a as u32);
+                indices.push(base_vertex + b as u32);
+            }
+        } else {
+            // All fan centers produce degenerate triangles; fall back to ear-clip.
+            let coords_2d: Vec<f64> = loop_verts
+                .iter()
+                .flat_map(|v| {
+                    let d = v3_sub(*v, loop_verts[0]);
+                    vec![v3_dot(d, u_axis), v3_dot(d, v_axis)]
+                })
+                .collect();
+            let tri_indices =
+                earcutr::earcut(&coords_2d, &[], 2).expect("earcut failed on convex revolve cap");
+            for chunk in tri_indices.chunks(3) {
+                push_triangle(
+                    indices,
+                    base_vertex + chunk[0] as u32,
+                    base_vertex + chunk[1] as u32,
+                    base_vertex + chunk[2] as u32,
+                    input_is_cw_2d,
+                );
+            }
+        }
+    } else {
+        // Non-convex path: ear-clipping via earcutr.
+        let coords_2d: Vec<f64> = loop_verts
+            .iter()
+            .flat_map(|v| {
+                let d = v3_sub(*v, loop_verts[0]);
+                vec![v3_dot(d, u_axis), v3_dot(d, v_axis)]
+            })
+            .collect();
+        let tri_indices =
+            earcutr::earcut(&coords_2d, &[], 2).expect("earcut failed on revolve cap polygon");
+        for chunk in tri_indices.chunks(3) {
+            push_triangle(
+                indices,
+                base_vertex + chunk[0] as u32,
+                base_vertex + chunk[1] as u32,
+                base_vertex + chunk[2] as u32,
+                input_is_cw_2d,
+            );
+        }
+    }
+
+    // Post-fix: if first triangle's geometric normal disagrees with stored
+    // normal, flip stored normals (NOT winding) to match. Mirrors the lateral's
+    // post-fix pattern; preserves arena-order winding for bijectivity.
+    let tri_count = (indices.len() as u32 - start_index) / 3;
+    if tri_count > 0 {
+        let i0 = indices[start_index as usize] as usize;
+        let i1 = indices[start_index as usize + 1] as usize;
+        let i2 = indices[start_index as usize + 2] as usize;
+        let p0 = [
+            vertices[i0 * 3] as f64,
+            vertices[i0 * 3 + 1] as f64,
+            vertices[i0 * 3 + 2] as f64,
+        ];
+        let p1 = [
+            vertices[i1 * 3] as f64,
+            vertices[i1 * 3 + 1] as f64,
+            vertices[i1 * 3 + 2] as f64,
+        ];
+        let p2 = [
+            vertices[i2 * 3] as f64,
+            vertices[i2 * 3 + 1] as f64,
+            vertices[i2 * 3 + 2] as f64,
+        ];
+        let e1 = v3_sub(p1, p0);
+        let e2 = v3_sub(p2, p0);
+        let geo_normal = v3_cross(e1, e2);
+        if v3_dot(geo_normal, stored_normal) < 0.0 {
+            // Flip all stored normals for this face's emitted vertices.
+            let normals_start = base_vertex as usize * 3;
+            for j in 0..n {
+                normals_out[normals_start + j * 3] = -normals_out[normals_start + j * 3];
+                normals_out[normals_start + j * 3 + 1] = -normals_out[normals_start + j * 3 + 1];
+                normals_out[normals_start + j * 3 + 2] = -normals_out[normals_start + j * 3 + 2];
+            }
         }
     }
 
