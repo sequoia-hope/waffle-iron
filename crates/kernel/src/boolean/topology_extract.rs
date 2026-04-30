@@ -7083,4 +7083,219 @@ mod tests {
             "Disjoint Intersect must have zero unpaired half-edges (empty arena)",
         );
     }
+
+    // ══════════════════════════════════════════════════════════════════
+    // PR6 — flood_fill_patches twin-pairing reproducer for R0033-class
+    // disjoint-Subtract failures.
+    //
+    // Anchor: PR4 RED test `pr4_r0033_t_junction_diagnosis` reports 2
+    // non-bijective face pairs on R0033 (revolve(rectangle, 199°,
+    // oblique-axis) — Subtract second op short-circuits via AABB-disjoint).
+    // PR5 §9.3 traced the mechanism to flood_fill_patches: adjacent faces'
+    // arena loops walk the shared B-Rep edge in the SAME 3D direction
+    // rather than reciprocally, producing twin-pairing failures.
+    //
+    // This fixture mimics the upstream-tessellation defect that R0033
+    // exhibits: a closed manifold-LIKE mesh whose adjacent source faces
+    // have midpoint vertices on their shared boundary that are
+    // geometrically coincident (within QUANT_NANOMETER_SCALE) but stored
+    // as distinct mesh-vertex indices. After Step-1 canonical quantization
+    // they collapse to one canon index, but the directed-edge winding
+    // pattern still emerges as the same R0033 violation.
+    //
+    // Refs: Yang 2025 §4.4.2 (patch segmentation), Cherchi 2020 §5.5
+    // (twin pairing in arrangement extraction), audit D-10 (welding
+    // upstream tessellation A15.6 violation), PR1-PR5 lineage commits
+    // d2eb72b/c4f0fcb/720fa8d/436ed37/7607256.
+    // ══════════════════════════════════════════════════════════════════
+
+    /// Build a closed-mesh cube whose front face has an extra midpoint
+    /// vertex on its top edge (the one shared with the top face), and
+    /// whose top face uses two standard triangles that do NOT include
+    /// that midpoint. The mesh is geometrically a valid cube boundary
+    /// but topologically non-manifold along that edge (front face emits
+    /// V→M→V'; top face emits V'→V skipping M, with no reverse).
+    ///
+    /// This isolates the R0033 upstream-tessellation defect (non-bijective
+    /// shared boundary): face A has interior-subdivision points face B
+    /// does not, producing same-direction loop traversal in
+    /// flood_fill_patches Step 6.
+    fn pr6_box_with_unbijective_front_top_edge() -> (
+        Vec<[f64; 3]>,
+        Vec<[usize; 3]>,
+        Vec<[f64; 3]>,
+        Vec<[usize; 3]>,
+        BijectiveMap,
+        BijectiveMap,
+    ) {
+        // A = standard cube [0,1]³ but with an extra midpoint vertex on
+        // the top-front edge (between (0,1,1) and (1,1,1)). Front face
+        // uses that midpoint; top face does not.
+        //
+        //  Vertex layout:
+        //    0: (0,0,0) lbb     1: (1,0,0) rbb
+        //    2: (1,1,0) rtb     3: (0,1,0) ltb
+        //    4: (0,0,1) lbf     5: (1,0,1) rbf
+        //    6: (1,1,1) rtf     7: (0,1,1) ltf
+        //    8: (0.5,1,1) MID — midpoint of edge (7,6) on top of front face
+        let verts_a: Vec<[f64; 3]> = vec![
+            [0.0, 0.0, 0.0], // 0
+            [1.0, 0.0, 0.0], // 1
+            [1.0, 1.0, 0.0], // 2
+            [0.0, 1.0, 0.0], // 3
+            [0.0, 0.0, 1.0], // 4
+            [1.0, 0.0, 1.0], // 5
+            [1.0, 1.0, 1.0], // 6
+            [0.0, 1.0, 1.0], // 7
+            [0.5, 1.0, 1.0], // 8 — midpoint of (7,6); shared by front face only
+        ];
+
+        // tri_face_ids: index → face_idx.
+        // Standard 6 cube faces, but front face has 4 tris (uses midpoint 8),
+        // top face has 2 tris (does not use 8). Total: 14 tris.
+        //   face 0 = back   (z=0): 2 tris
+        //   face 1 = front  (z=1): 4 tris (uses mid-vert 8)
+        //   face 2 = bottom (y=0): 2 tris
+        //   face 3 = top    (y=1): 2 tris (NO mid-vert — defect)
+        //   face 4 = left   (x=0): 2 tris
+        //   face 5 = right  (x=1): 2 tris
+        // Front face (face 1) covers quad 4,5,6,7 + midpoint 8 with 3 tris.
+        // Top face (face 3) covers quad 3,2,6,7 with 2 standard tris — no
+        // midpoint, so its boundary on edge (7,6) is the single segment
+        // (V7→V6). Front face's boundary on the same edge is the two
+        // segments (V6→V8) and (V8→V7). Manifoldness fails along this edge.
+        let tris_a: Vec<[usize; 3]> = vec![
+            // face 0: back z=0, outward -Z (CCW from -Z view)
+            [0, 2, 1],
+            [0, 3, 2],
+            // face 1: front z=1, outward +Z (CCW from +Z view)
+            [4, 5, 6],
+            [4, 6, 8],
+            [4, 8, 7],
+            // face 2: bottom y=0, outward -Y
+            [0, 1, 5],
+            [0, 5, 4],
+            // face 3: top y=1, outward +Y (CCW from +Y view = 3,7,6,2)
+            [3, 7, 6],
+            [3, 6, 2],
+            // face 4: left x=0, outward -X
+            [0, 4, 7],
+            [0, 7, 3],
+            // face 5: right x=1, outward +X
+            [1, 2, 6],
+            [1, 6, 5],
+        ];
+
+        // tris_a count: 2+3+2+2+2+2 = 13.
+        let face_ids_a: Vec<FaceIdx> = vec![
+            FaceIdx(0),
+            FaceIdx(0), // back (2)
+            FaceIdx(1),
+            FaceIdx(1),
+            FaceIdx(1), // front (3)
+            FaceIdx(2),
+            FaceIdx(2), // bottom (2)
+            FaceIdx(3),
+            FaceIdx(3), // top (2)
+            FaceIdx(4),
+            FaceIdx(4), // left (2)
+            FaceIdx(5),
+            FaceIdx(5), // right (2)
+        ];
+        assert_eq!(tris_a.len(), face_ids_a.len(), "tri/face_id count mismatch");
+        let bijective_a = BijectiveMap::from_tri_face_ids(face_ids_a);
+
+        // B = standard disjoint cube at [10,11]³.
+        let (verts_b, tris_b) = make_box_mesh([10.0, 10.0, 10.0], [11.0, 11.0, 11.0]);
+        let bijective_b =
+            BijectiveMap::from_tri_face_ids((0..tris_b.len()).map(|i| FaceIdx(i / 2)).collect());
+
+        (verts_a, tris_a, verts_b, tris_b, bijective_a, bijective_b)
+    }
+
+    /// PR6 reproducer: validates that `flood_fill_patches` produces an
+    /// arena with reflexive twin pointers for every half-edge when run
+    /// via the AABB-disjoint Subtract short-circuit on a fixture mimicking
+    /// R0033's upstream tessellation defect (non-bijective shared boundary).
+    ///
+    /// Expected on main: this test FAILS with violation_count > 0 — every
+    /// HE on a shared boundary edge that one face subdivides and the other
+    /// does not produces a twin-reflexivity violation.
+    ///
+    /// PR4 anchor: `pr4_r0033_t_junction_diagnosis` reports 2 nb pairs on
+    /// real R0033. This kernel-internal reproducer isolates the same
+    /// mechanism without LoadProject / cross-crate deps.
+    #[test]
+    fn test_flood_fill_patches_twin_pairing_disjoint_subtract() {
+        let (verts_a, tris_a, verts_b, tris_b, bijective_a, bijective_b) =
+            pr6_box_with_unbijective_front_top_edge();
+
+        let result = yang_boolean_pipeline(
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            &bijective_a,
+            &bijective_b,
+            MeshBooleanOp::Subtract,
+            None,
+            &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
+            1e-7,
+            None,
+            None,
+        )
+        .expect("yang_boolean_pipeline must not error for disjoint Subtract")
+        .topology;
+
+        let arena = &result.arena;
+        let n_he = arena.half_edges.len();
+        eprintln!(
+            "[pr6-test] arena: {} verts, {} half_edges, {} edges, {} faces",
+            arena.vertices.len(),
+            n_he,
+            arena.edges.len(),
+            arena.faces.len()
+        );
+
+        let mut violations: Vec<String> = Vec::new();
+        for (i, he) in arena.half_edges.iter().enumerate() {
+            let twin_idx = he.twin.0;
+            if twin_idx >= n_he {
+                violations.push(format!(
+                    "HE[{}]: twin index {} out of range (n_he={})",
+                    i, twin_idx, n_he
+                ));
+                continue;
+            }
+            let twin_he = &arena.half_edges[twin_idx];
+            if twin_he.twin.0 != i {
+                let v0 = arena.vertices[he.origin.0].position;
+                violations.push(format!(
+                    "HE[{}] origin=({:.3},{:.3},{:.3}) twin={} but twin.twin={} (not reflexive)",
+                    i, v0[0], v0[1], v0[2], twin_idx, twin_he.twin.0
+                ));
+            }
+        }
+
+        if !violations.is_empty() {
+            eprintln!("[pr6-test] {} twin-pairing violations:", violations.len());
+            for v in violations.iter().take(20) {
+                eprintln!("  {}", v);
+            }
+            if violations.len() > 20 {
+                eprintln!("  ... and {} more", violations.len() - 20);
+            }
+        }
+
+        assert_eq!(
+            violations.len(),
+            0,
+            "{} twin-pairing violations in flood_fill_patches output for disjoint-Subtract \
+             with non-bijective input mesh (R0033-class defect). See [pr6-test] log above. \
+             Anchor: PR4 RED test pr4_r0033_t_junction_diagnosis. Spec: \
+             specs/tessellation_bounded_residuals.md §10 (PR6).",
+            violations.len(),
+        );
+    }
 }

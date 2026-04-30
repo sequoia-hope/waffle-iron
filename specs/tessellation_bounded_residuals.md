@@ -539,3 +539,210 @@ was learned, preventing the next implementer from re-anchoring on a
 falsified hypothesis. Per
 `~/.claude/projects/-home-claude-workspace/memory/feedback_no_last_bug.md`:
 we don't claim "the last gap"; we ship the empirical lesson.
+
+## 10. PR6 empirical findings on `flood_fill_patches` twin-pairing for disjoint-Subtract
+
+PR6 was scoped (per PR5 §9.4 anchor) to investigate
+`boolean/topology_extract.rs::flood_fill_patches` as the site of R0033's
+twin-reflexivity violations, build a kernel-internal reproducer that
+exercises the function directly (without LoadProject), and conditionally
+ship a fix only if the mechanism turns out to be local to this function.
+
+This section documents Phase A findings. Phase B is **not** shipped —
+the empirical mechanism shows the defect is upstream of `flood_fill_patches`
+(non-bijective input mesh from tessellation), and any local "fix" inside
+`flood_fill_patches` would be the same no-op trap that PR5 option 1 fell
+into. Anchor: per `feedback_anchor_before_fix.md` and audit D-10, the
+correct fix lives in tessellation, not here.
+
+### 10.1 PR6 reproducer test
+
+Added `test_flood_fill_patches_twin_pairing_disjoint_subtract` in
+`crates/kernel/src/boolean/topology_extract.rs::tests`.
+
+Fixture (`pr6_box_with_unbijective_front_top_edge`): two disjoint cubes
+A and B, where A's mesh has an extra midpoint vertex `M = (0.5, 1, 1)`
+on its front face's top edge. The front face uses M (3 tris instead of
+2: `{4,5,6}, {4,6,8}, {4,8,7}` where v8=M); the top face does NOT use M
+(standard 2 tris `{3,7,6}, {3,6,2}`). The mesh is geometrically a closed
+cube boundary but topologically non-manifold along the (V7, V6) edge —
+front face emits `V6→V8` and `V8→V7`; top face emits `V7→V6` directly,
+skipping M.
+
+Subtract A − B routes through the AABB-disjoint short-circuit
+(`yang_pipeline_result_for_disjoint`, line 1361+), which calls
+`flood_fill_patches(survival, subdivided)` on A's mesh with all
+sub-tris labeled `Outside`.
+
+### 10.2 Empirical violation pattern
+
+Test fails with **3 twin-pairing violations** out of 25 half-edges
+(11 paired edges, 3 unpaired forward-only HEs). TWIN_DEBUG=1 output
+captures the per-edge fwd/rev counts:
+
+```
+[twin-debug] edge (V6,V7) fwd_count=1 rev_count=0   <- top face's V7→V6 unpaired
+[twin-debug] edge (V6,V8) fwd_count=1 rev_count=0   <- front face's V6→V8 unpaired
+[twin-debug] edge (V7,V8) fwd_count=1 rev_count=0   <- front face's V8→V7 unpaired
+[topo-extract] summary: paired=11, unpaired=3, ambiguous=0
+[yang-diag] flood_fill_patches: 3 unpaired HEs out of 25 total
+```
+
+Violations reported by the new test:
+
+```
+HE[6]  origin=(1.000,1.000,1.000) twin=0 but twin.twin=9 (not reflexive)
+HE[7]  origin=(0.500,1.000,1.000) twin=0 but twin.twin=9 (not reflexive)
+HE[14] origin=(0.000,1.000,1.000) twin=0 but twin.twin=9 (not reflexive)
+```
+
+The placeholder `twin: HalfEdgeIdx(0)` set in Step 7 (line 745+) is
+NEVER overwritten when no reverse candidate exists in Step 8's pairing
+loop (line 808+). The unpaired HEs silently alias HE[0]'s twin
+(coincidentally HE[9]). The existing TWIN_DEBUG diagnostic at line
+932-944 already detects and reports this — it just doesn't fail the
+pipeline, so the corrupt twins propagate to the arena.
+
+This is the exact mechanism PR5 §9.3 predicted from R0033's
+oracle-level evidence. R0033's "2 nb pairs" arise because the real
+tessellator emits per-face vertices on oblique planes that drift past
+nanometer quantization on adjacent faces, producing the same
+`fwd_count=1, rev_count=0` pattern at the input-mesh level.
+
+### 10.3 Source-patch identification
+
+In the reproducer (TWIN_DEBUG output above):
+
+| HE | Direction | Source patch |
+|----|-----------|--------------|
+| HE[6] | V6→V8 | `FaceIdx(1)` (front face, parent_tri=3) |
+| HE[7] | V8→V7 | `FaceIdx(1)` (front face, parent_tri=4) |
+| HE[14] | V7→V6 | `FaceIdx(3)` (top face, parent_tri=7) |
+
+Both faces' boundary loops walk the (V6, V7) shared B-Rep edge, but
+the front face walks it via the midpoint M (V6→V8→V7) while the top
+face walks it directly (V7→V6). Either:
+- direction (V6→V7 = V6→V8→V7 split) has only forward HEs, or
+- direction (V7→V6) has only top face's HE[14].
+
+No reciprocal pairing is possible for any of these three HEs — they
+fail Yang §4.4.2's explicit-arrangement contract that requires
+exactly-one-reverse per directed edge in a conformal mesh. The pairing
+loop's `[]` arm at line 876 marks them unpaired and increments
+`unpaired_count`; the twin pointer stays at the placeholder `0`.
+
+### 10.4 Backward trace to originating step
+
+The defect is **not** in any step of `flood_fill_patches` — every step
+(canonical mapping, flat sub-tri build, edge classification, flood-fill,
+patch splitting, boundary extraction, half-edge construction, twin
+pairing) faithfully reproduces what's geometrically present in the
+input. The unpaired HEs are an honest report of input-mesh
+non-bijectivity.
+
+The defect is upstream in the **tessellator**:
+- For R0033: `tessellate_solid_bounded` (the AABB-disjoint Subtract
+  short-circuit produces a solid with `revolve_params=None` →
+  bounded-path tessellation). Each B-Rep face is tessellated
+  independently with face-local UV → 3D conversion. Adjacent faces'
+  boundary midpoints drift past `QUANT_NANOMETER_SCALE` (1 nm
+  resolution at meter scale) on oblique planes, breaking Step-1
+  canonical-vertex collapse.
+- For the synthetic reproducer: deliberately constructed to mimic
+  the same defect pattern with hand-built vertex sharing.
+
+This matches audit `docs/audits/cherchi_port_audit.md` D-10:
+
+> **Severity test**: Two cubes at distance `0.5 * 1/QUANT_NANOMETER_SCALE`
+> (sub-nanometer separation): tessellation produces distinct vertices on
+> each cube; `weld_mesh_vertices` collapses them into one → ray-cast
+> classification silently treats the two cubes as joined.
+>
+> **Suggested fix**: Per A15.6: fix upstream tessellation to produce
+> shared vertex IDs at face boundaries (bijective tessellation per
+> Yang §4.1.1); remove `weld_mesh_vertices` from `label_cells`.
+
+The R0033 mechanism is the inverse of D-10's severity test: instead of
+distinct-but-coincident vertices being merged spuriously, here adjacent
+faces' boundary vertices ought to be merged but the current quantization
+scheme fails to merge them (or the upstream tessellator never produces
+them at the same position).
+
+### 10.5 Why Phase B is NOT shipped
+
+Three options were considered for a local Phase B fix:
+
+1. **Self-twin placeholder fix** — set `twin = self_idx` for unpaired HEs
+   so `twin.twin == self` becomes vacuously reflexive. **Rejected** —
+   this is the col-swap-pattern trap. The PR4 RED test would still see
+   non-bijective face pairs (the underlying topology is still wrong),
+   but the kernel-internal twin-reflexivity check would pass. PR5
+   option 1 fell into exactly this trap: silencing the symptom without
+   fixing the mechanism. Per `feedback_anchor_before_fix.md` and the
+   PR6 brief: "DO NOT ship a no-op fix like PR5's option 1."
+
+2. **Synthesize reverse half-edges** — when no reverse exists, fabricate
+   one from a same-direction forward (or split mismatched chains).
+   **Rejected** — this masks the input defect with synthetic geometry,
+   identical anti-pattern to the deprecated `fill_boundary_holes` /
+   tolerance-escalation stack. Per A15.6 (deprecated S-H clipping +
+   synthetic mesh repair): "Tolerance-based heuristics … are deprecated
+   — they mask errors rather than solving them."
+
+3. **Increase quantization tolerance** in Step 1 from
+   `QUANT_NANOMETER_SCALE` to something coarser. **Rejected** — same
+   tolerance-escalation trap; would also conflict with audit D-10's
+   directive to **remove** `weld_mesh_vertices` rather than tune it.
+
+The correct fix is upstream: tessellator must emit bijective shared
+boundaries per Yang §4.1.1 + audit D-10. That is PR7's scope.
+
+### 10.6 PR7 anchor recommendation
+
+**Site**: `crates/kernel/src/tessellation/mod.rs::tessellate_solid_bounded`
+(line 4163+) and the per-face dispatch path. Specifically the cross-face
+boundary vertex sharing logic that produces input meshes for
+`yang_boolean_pipeline`.
+
+**Approach** (per Yang §4.1.1 bijective contract + audit D-10):
+- Each B-Rep edge `e` shared between faces F_a and F_b must produce
+  exactly one shared discretization sequence
+  `[V_0, V_1, ..., V_n]` in mesh coordinates.
+- Both F_a and F_b's per-face triangulations consume the same V_i's
+  on their boundary along `e`.
+- This holds independent of face surface geometry (planes, cylinders,
+  oblique, …) — the boundary discretization is a property of the edge,
+  not the face.
+
+The PR4 RED test (`pr4_r0033_t_junction_diagnosis`) and the PR6
+RED test (`test_flood_fill_patches_twin_pairing_disjoint_subtract`)
+both stay RED until PR7 ships the bijective-tessellation fix. Both
+serve as anchors:
+- PR4 anchor: end-to-end via `LoadProject` on R0033.waffle.
+- PR6 anchor: kernel-internal reproducer with a hand-built defect that
+  isolates the `flood_fill_patches` failure mode without depending on
+  cross-crate tessellation.
+
+PR6 stays at Phase A: the reproducer test is committed RED, the
+spec mechanism is documented, and `flood_fill_patches` is left
+unchanged because it is correctly detecting and reporting an upstream
+tessellation defect. This continues PR3's pivot pattern (PR1-PR5
+lineage) — a non-fix PR that documents what was learned, preventing
+the next implementer from anchoring on a falsified hypothesis.
+
+### 10.7 Verification commands
+
+```
+# PR6 reproducer test (RED on main, RED on this branch):
+cargo test -p kernel --lib test_flood_fill_patches_twin_pairing_disjoint_subtract -- --nocapture
+
+# TWIN_DEBUG instrumentation cross-reference:
+TWIN_DEBUG=1 cargo test -p kernel --lib test_flood_fill_patches_twin_pairing_disjoint_subtract -- --nocapture
+
+# PR4 canonical RED anchor (still RED):
+cargo test -p test-harness --test pr4_r0033_t_junction_diagnosis -- --nocapture
+
+# Existing PR13 disjoint Subtract sanity (still GREEN — clean cube mesh
+# is bijective, so no violations):
+cargo test -p kernel --lib test_yang_disjoint_subtract_returns_a_unchanged
+```
