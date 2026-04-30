@@ -1066,44 +1066,10 @@ fn tessellate_cylindrical_face(
 ///
 /// For partial revolves: generates a grid of (N+1) x 2 vertices, producing 2N triangles.
 /// For full revolution: generates N x 2 vertices and wraps the last ring back to the first.
-///
-/// Yang 2025 §4.1.1 bijective tessellation contract: each face's boundary
-/// directed edges must reciprocate the adjacent face's twin half-edges
-/// byte-identically. For partial-revolve solids the lateral face must
-/// reciprocate the cap face along the start-cap and end-cap edges.
-///
-/// `revolve_polygon` (waffle_kernel.rs Phase 3 mefs) constructs the lateral
-/// face such that its outer-loop walk traverses the start-cap edge in the
-/// SAME direction as `start_v0_in → start_v1_in`. The natural quad
-/// triangulation `(v00, v01, v10), (v10, v01, v11)` with col0 = start_v0_in,
-/// col1 = start_v1_in would emit ring-0 boundary `v00→v01 =
-/// start_v0_in→start_v1_in` (matching the lateral's loop direction).
-///
-/// The cap face's `tessellate_polygon_face` (mod.rs:1357) reverses its loop
-/// chain when the chain's Newell normal disagrees with the stored outward
-/// normal — and for revolve caps this Newell-reverse fires consistently on
-/// both start and end caps. After reverse, the cap emits boundary directed
-/// edges in the SAME direction as the lateral's loop direction —
-/// non-reciprocal.
-///
-/// To restore reciprocity, the lateral swaps col0/col1 globally at quad
-/// construction (`start_v0 = start_v1_in`, `start_v1 = start_v0_in`). This
-/// inverts ring-0 and ring-N boundary directions to OPPOSITE the lateral's
-/// loop walk — which is the same as OPPOSITE the cap's Newell-reversed
-/// emission. RECIPROCAL.
-///
-/// The post-fix at the end of this function detects the resulting
-/// triangle-winding/stored-normal mismatch and flips stored normals to
-/// preserve outward shading.
-///
-/// Audit D-10 (Cluster I): cap-lateral boundary divergence root cause.
-/// Pattern: faithful to Yang §4.1.1 reciprocity contract; the swap is the
-/// minimal localized adjustment that compensates for the cap's
-/// constructive-Newell-reverse without restructuring `tessellate_polygon_face`.
 #[allow(clippy::too_many_arguments)]
 fn tessellate_revolve_lateral(
-    start_v0_in: &[f64; 3],
-    start_v1_in: &[f64; 3],
+    start_v0: &[f64; 3],
+    start_v1: &[f64; 3],
     axis_origin: &[f64; 3],
     axis_dir: &[f64; 3],
     angle_rad: f64,
@@ -1120,13 +1086,6 @@ fn tessellate_revolve_lateral(
     // surfaced by `check_no_self_intersection` (Yang 2025 §4.1; Cherchi 2020 §5.1
     // — input meshes must be self-consistent before mesh arrangement).
     let revolve_debug = std::env::var("REVOLVE_DEBUG").as_deref() == Ok("1");
-
-    // Yang §4.1.1 reciprocity fix (per docstring): swap col0/col1 globally so
-    // ring-0 boundary `v00→v01` becomes `start_v1_in→start_v0_in`, opposite
-    // the lateral's outer-loop walk and reciprocal to the cap's
-    // Newell-reversed emission.
-    let start_v0 = start_v1_in;
-    let start_v1 = start_v0_in;
 
     let n = circle_segments();
     let base_vertex = vertices.len() as u32 / 3;
