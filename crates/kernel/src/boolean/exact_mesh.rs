@@ -1765,6 +1765,162 @@ pub(crate) fn weld_mesh_vertices(
     (welded_verts, welded_tris)
 }
 
+// ── ManifoldPatchGraph (Cherchi 2022 §5 + Algorithm 1) ──────────────────────
+//
+// Patch graph per Cherchi 2022 §5: "an arrangement is a set of surface patches
+// bounded by intersection lines. When exact methods are used, the arrangement
+// is guaranteed to be a well formed simplicial complex and surface patches
+// are bounded by closed loops of non-manifold edges, namely the intersection
+// lines." Algorithm 1 then performs ray-casting once per patch, exploiting
+// the property that "the algorithm scales with the number of patches in the
+// arrangement and not with the number of triangles in the mesh" (§5).
+//
+// A manifold edge is an undirected edge with exactly two incident
+// (sub-)triangles in the combined arrangement. Boundary edges (one incident
+// triangle) and singular/intersection edges (three or more) are non-manifold
+// and act as flood-fill barriers. The patch a sub-triangle belongs to is the
+// connected component reachable through manifold edges only.
+//
+// Audit anchors (docs/audits/yang_audit_2026-04-30.md, Cluster Y-I):
+// - YA-01: Yang stage 4b currently classifies per-sub-triangle, contradicting
+//   Cherchi 2022 §5's per-patch design.
+// - YC-05: Cherchi 2022 §5 headline contribution forfeited.
+// - YC-06: flood_fill_patches uses Yang-style barriers (cross-mesh only)
+//   rather than Cherchi-style manifold-edge barriers.
+//
+// PR8 phase 1 of 3: infrastructure only. PR9 will refactor `label_cells` to
+// be per-patch using this graph; PR10 will switch `flood_fill_patches`
+// barriers from intersection-edge to manifold-edge.
+
+/// Patch graph per Cherchi 2022 §5 + Algorithm 1.
+///
+/// A patch is a maximal set of sub-triangles connected via manifold edges
+/// (undirected edges with exactly 2 incident triangles in the combined
+/// `tris_a` ∪ `tris_b` soup). Boundaries are non-manifold edges:
+/// boundary (1 incident triangle), self-touching/singular (3+ incident),
+/// which include the intersection edges where mesh A and mesh B meet.
+///
+/// Used by Yang stage 4b in/out classification: one ray-cast per patch
+/// suffices (Cherchi 2022 §5: "the algorithm scales with the number of
+/// patches in the arrangement and not with the number of triangles in
+/// the mesh") because the manifold-edge graph guarantees label
+/// consistency within a patch.
+///
+/// Sub-triangle indices are flattened: `[0..tris_a.len())` indexes into
+/// `subdivided.tris_a`; `[tris_a.len()..tris_a.len() + tris_b.len())`
+/// indexes into `subdivided.tris_b` (offset by `tris_a.len()`).
+///
+/// Audit refs: YA-01, YC-05, YC-06 (docs/audits/yang_audit_2026-04-30.md,
+/// Cluster Y-I). PR8 phase 1 of 3.
+#[allow(dead_code)] // PR8 infrastructure — consumed by PR9.
+#[derive(Debug)]
+pub(crate) struct ManifoldPatchGraph {
+    /// `patch_of[flat_idx]` is the patch index this sub-triangle belongs to.
+    /// `flat_idx` is `i` for `subdivided.tris_a[i]` and
+    /// `subdivided.tris_a.len() + j` for `subdivided.tris_b[j]`.
+    pub patch_of: Vec<usize>,
+    /// `patches[k]` lists the flat sub-triangle indices in patch `k`.
+    pub patches: Vec<Vec<usize>>,
+    /// Number of sub-triangles from mesh A. Sub-triangles with flat index
+    /// `< tris_a_count` belong to mesh A, those `>= tris_a_count` to mesh B.
+    pub tris_a_count: usize,
+}
+
+/// Build the manifold-edge patch graph (Cherchi 2022 §5 + Algorithm 1).
+///
+/// Steps:
+/// 1. Build undirected-edge → Vec<flat_sub_tri_idx> incidence map across
+///    the combined `tris_a` ∪ `tris_b` soup.
+/// 2. Classify each undirected edge: manifold iff incidence == 2.
+/// 3. BFS from each unvisited sub-triangle, traversing only manifold edges.
+/// 4. Assign patch indices, populate `patch_of` and `patches`.
+///
+/// Determinism: uses `BTreeMap` for the incidence map per
+/// `feedback_no_regression_chasing.md` — `HashMap` iteration order causes
+/// non-deterministic patch numbering and downstream test flap.
+///
+/// Audit refs: YA-01, YC-05, YC-06. PR8 phase 1 of 3.
+#[allow(dead_code)] // PR8 infrastructure — consumed by PR9.
+pub(crate) fn build_manifold_patch_graph(subdivided: &SubdividedMesh) -> ManifoldPatchGraph {
+    use std::collections::{BTreeMap, VecDeque};
+
+    let n_a = subdivided.tris_a.len();
+    let n_b = subdivided.tris_b.len();
+    let n_total = n_a + n_b;
+
+    // Step 1: undirected edge (canonicalized as min<max) → flat sub-tri indices.
+    let mut edge_to_tris: BTreeMap<(usize, usize), Vec<usize>> = BTreeMap::new();
+    let push_edges = |edge_to_tris: &mut BTreeMap<(usize, usize), Vec<usize>>,
+                      flat_idx: usize,
+                      verts: [usize; 3]| {
+        for ei in 0..3 {
+            let v0 = verts[ei];
+            let v1 = verts[(ei + 1) % 3];
+            let key = if v0 < v1 { (v0, v1) } else { (v1, v0) };
+            edge_to_tris.entry(key).or_default().push(flat_idx);
+        }
+    };
+    for (i, sub) in subdivided.tris_a.iter().enumerate() {
+        push_edges(&mut edge_to_tris, i, sub.verts);
+    }
+    for (j, sub) in subdivided.tris_b.iter().enumerate() {
+        push_edges(&mut edge_to_tris, n_a + j, sub.verts);
+    }
+
+    // Step 2 + Step 3: BFS over sub-triangles via manifold edges only.
+    // Per-triangle adjacency derived on the fly from `edge_to_tris`.
+    let mut patch_of = vec![usize::MAX; n_total];
+    let mut patches: Vec<Vec<usize>> = Vec::new();
+
+    for seed in 0..n_total {
+        if patch_of[seed] != usize::MAX {
+            continue;
+        }
+        let patch_idx = patches.len();
+        let mut members = Vec::new();
+        let mut queue: VecDeque<usize> = VecDeque::new();
+        queue.push_back(seed);
+        patch_of[seed] = patch_idx;
+
+        while let Some(flat) = queue.pop_front() {
+            members.push(flat);
+            let verts = if flat < n_a {
+                subdivided.tris_a[flat].verts
+            } else {
+                subdivided.tris_b[flat - n_a].verts
+            };
+            for ei in 0..3 {
+                let v0 = verts[ei];
+                let v1 = verts[(ei + 1) % 3];
+                let key = if v0 < v1 { (v0, v1) } else { (v1, v0) };
+                let Some(incidents) = edge_to_tris.get(&key) else {
+                    continue;
+                };
+                // Manifold edge per Cherchi 2022 §5: exactly 2 incident
+                // triangles. 1 (boundary) and 3+ (singular/intersection)
+                // are barriers.
+                if incidents.len() != 2 {
+                    continue;
+                }
+                for &neighbor in incidents {
+                    if patch_of[neighbor] == usize::MAX {
+                        patch_of[neighbor] = patch_idx;
+                        queue.push_back(neighbor);
+                    }
+                }
+            }
+        }
+
+        patches.push(members);
+    }
+
+    ManifoldPatchGraph {
+        patch_of,
+        patches,
+        tris_a_count: n_a,
+    }
+}
+
 /// Classify each sub-triangle as inside or outside the other mesh.
 ///
 /// Uses generalized winding numbers [#7 Jacobson 2013] to determine whether
@@ -3520,6 +3676,198 @@ mod tests {
                 CellLabel::Outside,
                 "Non-overlapping: B sub-tri {i} should be Outside, got {:?}",
                 label
+            );
+        }
+    }
+
+    // ── ManifoldPatchGraph oracle (Cherchi 2022 §5 + Algorithm 1) ──
+    //
+    // Validates that `build_manifold_patch_graph` produces the expected
+    // patch decomposition on hand-verifiable fixtures.
+    //
+    // Audit anchor: Cluster Y-I (docs/audits/yang_audit_2026-04-30.md),
+    // YA-01, YC-05, YC-06. PR8 phase 1 of 3.
+
+    /// Wrap a (verts, tris) pair as a `SubdividedMesh` with no mesh-B side.
+    /// Used by the single-cube fixture: every triangle is treated as part
+    /// of mesh A; no intersection edges exist; manifold edges only.
+    fn subdivided_from_single_mesh(verts: Vec<[f64; 3]>, tris: Vec<[usize; 3]>) -> SubdividedMesh {
+        let n = verts.len();
+        let tris_a = tris
+            .into_iter()
+            .enumerate()
+            .map(|(i, t)| SubTriangle {
+                verts: t,
+                parent_tri: i,
+                cosurface_orientation: None,
+            })
+            .collect();
+        SubdividedMesh {
+            verts,
+            tris_a,
+            tris_b: Vec::new(),
+            params_a: vec![None; n],
+            params_b: vec![None; n],
+        }
+    }
+
+    /// Wrap two disjoint (verts, tris) pairs as a single `SubdividedMesh`
+    /// with mesh A and mesh B separated. No remapping is done because the
+    /// fixture vertex-arrays are concatenated and B's triangle indices are
+    /// shifted by `verts_a.len()`. Used by the two-disjoint-cubes fixture.
+    fn subdivided_from_two_meshes(
+        verts_a: Vec<[f64; 3]>,
+        tris_a: Vec<[usize; 3]>,
+        verts_b: Vec<[f64; 3]>,
+        tris_b: Vec<[usize; 3]>,
+    ) -> SubdividedMesh {
+        let offset = verts_a.len();
+        let mut verts = verts_a;
+        verts.extend(verts_b);
+        let n = verts.len();
+        let sub_tris_a = tris_a
+            .into_iter()
+            .enumerate()
+            .map(|(i, t)| SubTriangle {
+                verts: t,
+                parent_tri: i,
+                cosurface_orientation: None,
+            })
+            .collect();
+        let sub_tris_b = tris_b
+            .into_iter()
+            .enumerate()
+            .map(|(j, t)| SubTriangle {
+                verts: [t[0] + offset, t[1] + offset, t[2] + offset],
+                parent_tri: j,
+                cosurface_orientation: None,
+            })
+            .collect();
+        SubdividedMesh {
+            verts,
+            tris_a: sub_tris_a,
+            tris_b: sub_tris_b,
+            params_a: vec![None; n],
+            params_b: vec![None; n],
+        }
+    }
+
+    #[test]
+    fn test_manifold_patch_graph_canonical_fixtures() {
+        // ── Fixture 1: single closed cube (12 tris). ──
+        // Every edge of a closed manifold cube has incidence 2 → all 12 tris
+        // belong to one patch.
+        let (verts, tris) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let subdivided = subdivided_from_single_mesh(verts, tris);
+        let g = build_manifold_patch_graph(&subdivided);
+        assert_eq!(
+            g.patches.len(),
+            1,
+            "Fixture 1 (single cube): expected 1 patch, got {}",
+            g.patches.len()
+        );
+        assert_eq!(
+            g.patches[0].len(),
+            12,
+            "Fixture 1: expected 12 tris in the single patch"
+        );
+        assert!(
+            g.patches[0].iter().all(|&t| g.patch_of[t] == 0),
+            "Fixture 1: patch_of must be consistent with patches[]"
+        );
+        assert_eq!(g.tris_a_count, 12);
+
+        // ── Fixture 2: two disjoint cubes (12 + 12 = 24 tris). ──
+        // No shared vertices/edges between A and B → 2 manifold patches.
+        let (va, ta) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let (vb, tb) = make_box_mesh([10.0, 0.0, 0.0], [11.0, 1.0, 1.0]);
+        let two = subdivided_from_two_meshes(va, ta, vb, tb);
+        let g = build_manifold_patch_graph(&two);
+        assert_eq!(
+            g.patches.len(),
+            2,
+            "Fixture 2 (two disjoint cubes): expected 2 patches, got {}",
+            g.patches.len()
+        );
+        assert!(
+            g.patches.iter().all(|p| p.len() == 12),
+            "Fixture 2: each patch should have 12 tris, got {:?}",
+            g.patches.iter().map(|p| p.len()).collect::<Vec<_>>()
+        );
+        assert_eq!(g.tris_a_count, 12);
+        // Cross-check patch_of consistency.
+        for (k, members) in g.patches.iter().enumerate() {
+            for &flat in members {
+                assert_eq!(
+                    g.patch_of[flat], k,
+                    "Fixture 2: patch_of inconsistent at flat={flat}"
+                );
+            }
+        }
+        // Mesh-A flat indices [0..12) and mesh-B flat indices [12..24)
+        // must end up in different patches because there are no shared
+        // edges (no manifold edge spans the boundary).
+        let patch_a = g.patch_of[0];
+        let patch_b = g.patch_of[12];
+        assert_ne!(
+            patch_a, patch_b,
+            "Fixture 2: disjoint mesh-A and mesh-B sub-tris must be in different patches"
+        );
+
+        // ── Fixture 3: two intersecting cubes post-arrangement. ──
+        // Cube B = [0.5, 1.5]³ overlaps cube A = [0,1]³ at the corner.
+        // After subdivide_mesh_pair, intersection edges (3+ incident tris)
+        // partition each cube into multiple manifold-edge patches.
+        // Expected for an axis-aligned corner intersection: each cube
+        // splits into 2 patches (interior + exterior of the other cube),
+        // so 4 patches total.
+        let (verts_a, tris_a) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
+        let (verts_b, tris_b) = make_box_mesh([0.5, 0.5, 0.5], [1.5, 1.5, 1.5]);
+        let intersecting = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
+            .expect("subdivision should succeed for two intersecting cubes");
+        let g = build_manifold_patch_graph(&intersecting);
+
+        // Coverage: every sub-triangle is in exactly one patch.
+        let total_in_patches: usize = g.patches.iter().map(|p| p.len()).sum();
+        assert_eq!(
+            total_in_patches,
+            intersecting.tris_a.len() + intersecting.tris_b.len(),
+            "Fixture 3: every sub-triangle must be assigned to a patch"
+        );
+        // patch_of consistency.
+        for (k, members) in g.patches.iter().enumerate() {
+            for &flat in members {
+                assert_eq!(
+                    g.patch_of[flat], k,
+                    "Fixture 3: patch_of inconsistent at flat={flat}"
+                );
+            }
+        }
+        // No flat index left unassigned.
+        assert!(
+            g.patch_of.iter().all(|&p| p != usize::MAX),
+            "Fixture 3: all sub-triangles must be assigned to a patch"
+        );
+        // For two axis-aligned cubes meeting at a corner ([0,1]³ and
+        // [0.5,1.5]³), the arrangement splits each cube into two
+        // patches: one outside the other cube, one inside (the corner
+        // chunk). Total: 4 patches.
+        assert_eq!(
+            g.patches.len(),
+            4,
+            "Fixture 3: corner-intersecting cubes must produce 4 patches, got {}",
+            g.patches.len()
+        );
+        // Sanity: mesh A and mesh B sub-triangles never share a patch
+        // because intersection edges are 3+-incident (singular) and
+        // act as barriers. Note: this assumes no coplanar overlap between
+        // A and B faces (which the [0.5, 1.5] offset guarantees).
+        for (k, members) in g.patches.iter().enumerate() {
+            let has_a = members.iter().any(|&f| f < g.tris_a_count);
+            let has_b = members.iter().any(|&f| f >= g.tris_a_count);
+            assert!(
+                !(has_a && has_b),
+                "Fixture 3: patch {k} must not span both mesh A and mesh B (manifold-edge barriers separate them)"
             );
         }
     }
