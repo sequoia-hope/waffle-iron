@@ -686,6 +686,36 @@ pub(crate) fn yang_boolean_inner(
         );
     }
 
+    // PR9 snapshot capture (no-op unless a collector is installed via
+    // `pipeline_oracles::with_snapshot_collector`). Records Stage 0 +
+    // Stage 1 state for the corpus oracle runner; production callers do
+    // not install a collector so this resolves to a single thread-local
+    // null check.
+    {
+        let pairs_for_snap = coplanar_pairs.clone();
+        let mesh_a_for_snap = mesh_a.clone();
+        let mesh_b_for_snap = mesh_b.clone();
+        let face_map_a_for_snap = solid_a_mod.face_map.clone();
+        let face_map_b_for_snap = solid_b_mod.face_map.clone();
+        let arena_a_for_snap = solid_a_mod.arena.clone();
+        let arena_b_for_snap = solid_b_mod.arena.clone();
+        crate::boolean::pipeline_oracles::record_snapshot(move |bundle| {
+            bundle.stage_0_coplanar = Some(
+                crate::boolean::pipeline_oracles::CoplanarPreprocessSnapshot {
+                    pairs: pairs_for_snap,
+                    mesh_a: Some(mesh_a_for_snap.clone()),
+                    mesh_b: Some(mesh_b_for_snap.clone()),
+                },
+            );
+            bundle.stage_1_rendermesh_a = Some(mesh_a_for_snap);
+            bundle.stage_1_rendermesh_b = Some(mesh_b_for_snap);
+            bundle.stage_1_face_map_a = Some(face_map_a_for_snap);
+            bundle.stage_1_face_map_b = Some(face_map_b_for_snap);
+            bundle.stage_1_arena_a = Some(arena_a_for_snap);
+            bundle.stage_1_arena_b = Some(arena_b_for_snap);
+        });
+    }
+
     // Diagnostic: export preprocessed merged mesh as binary STL for C++ comparison.
     // Activated by YANG_DUMP_STL=1 environment variable.
     if std::env::var("YANG_DUMP_STL").ok().as_deref() == Some("1") {

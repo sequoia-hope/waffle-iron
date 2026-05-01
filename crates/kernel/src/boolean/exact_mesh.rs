@@ -1129,7 +1129,7 @@ pub(crate) struct SubTriangle {
 /// Result of subdividing both meshes along their intersections.
 /// Ref #24: Yang 2025 — both operand meshes are subdivided so that intersection
 /// segments lie exactly on sub-triangle edges.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)] // Phase 2 building block — task 2c
 pub(crate) struct SubdividedMesh {
     /// All vertex positions (original + new intersection points).
@@ -1172,7 +1172,7 @@ pub(crate) enum MeshBooleanOp {
 
 /// Result of labeling all sub-triangles in a subdivided mesh pair.
 /// Each sub-triangle gets an Inside/Outside label relative to the other mesh.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(dead_code)] // Phase 2 building block — task 2d
 pub(crate) struct CellLabeling {
     /// One label per sub-triangle in `SubdividedMesh::tris_a`.

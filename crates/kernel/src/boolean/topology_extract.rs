@@ -1464,6 +1464,8 @@ fn yang_pipeline_result_for_disjoint(
     let survival = face_survival_detect(&subdivided, &labeling, op, bijective_a, bijective_b);
     let topology = flood_fill_patches(&survival, &subdivided);
 
+    record_stage_2_4b_6_snapshots(&subdivided, &labeling, &topology);
+
     Ok(YangPipelineResult {
         topology,
         survival,
@@ -1814,12 +1816,39 @@ pub(crate) fn yang_boolean_pipeline(
         );
     }
 
+    record_stage_2_4b_6_snapshots(&subdivided, &labeling, &topology);
+
     Ok(YangPipelineResult {
         topology,
         survival,
         subdivided,
         remaining_failed_verts,
     })
+}
+
+/// PR9 snapshot recording for Stage 2 (subdivided), Stage 4b (labeling),
+/// Stage 6 (result topology). Called from both the normal pipeline path
+/// and the AABB-disjoint short-circuit so the corpus runner sees
+/// captures in either case. No-op unless a collector is installed via
+/// `pipeline_oracles::with_snapshot_collector`. PR9 instrumentation;
+/// not stable API.
+fn record_stage_2_4b_6_snapshots(
+    subdivided: &SubdividedMesh,
+    labeling: &CellLabeling,
+    topology: &ResultTopology,
+) {
+    let subdivided_for_snap = subdivided.clone();
+    let labeling_for_snap = labeling.clone();
+    let topology_for_snap = ResultTopology {
+        arena: topology.arena.clone(),
+        face_provenance: topology.face_provenance.clone(),
+        edge_is_intersection: topology.edge_is_intersection.clone(),
+    };
+    crate::boolean::pipeline_oracles::record_snapshot(move |bundle| {
+        bundle.stage_2_subdivided = Some(subdivided_for_snap);
+        bundle.stage_4b_labeling = Some(labeling_for_snap);
+        bundle.stage_6_result_topology = Some(topology_for_snap);
+    });
 }
 
 #[cfg(test)]

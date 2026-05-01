@@ -46,6 +46,11 @@ use crate::boolean::coplanar_preprocess::CoplanarFacePair;
 use crate::boolean::exact_mesh::{
     build_manifold_patch_graph, CellLabeling, ManifoldPatchGraph, SubdividedMesh,
 };
+use crate::boolean::oracles::{
+    arrangement_wellformed::MeshArrangementWellFormedOracle,
+    coplanar_identical::CoplanarMeshIdenticalOracle,
+    label_consistency::LabelConsistencyWithinPatchOracle,
+};
 use crate::boolean::topology_extract::{FaceSurvivalMap, ResultTopology};
 use crate::tessellation::bijective::{check_face_pair_bijective, BijectivityReport};
 use crate::topology::arena::TopoArena;
@@ -59,7 +64,7 @@ use crate::types::RenderMesh;
 /// `Ord` impl follows pipeline order (Stage 0 < Stage 1 < ... < Stage 6) so
 /// the runner can identify the earliest failing stage by `min`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub(crate) enum YangStage {
+pub enum YangStage {
     /// Coplanar face preprocessing — Yang 2025 §4.5.5.
     Stage0Coplanar,
     /// Bijective tessellation — Yang 2025 §4.1.1.
@@ -80,7 +85,7 @@ pub(crate) enum YangStage {
 
 impl YangStage {
     /// Yang 2025 paper section that defines this stage's contract.
-    pub(crate) fn yang_section(self) -> &'static str {
+    pub fn yang_section(self) -> &'static str {
         match self {
             YangStage::Stage0Coplanar => "Yang 2025 §4.5.5",
             YangStage::Stage1Bijective => "Yang 2025 §4.1.1",
@@ -209,7 +214,7 @@ pub(crate) trait StageOracle: Send + Sync {
 
 /// Diagnostic record for one oracle that rejected pipeline state.
 #[derive(Debug, Clone)]
-pub(crate) struct OracleViolation {
+pub struct OracleViolation {
     pub stage: YangStage,
     pub oracle_name: &'static str,
     /// Free-form message describing what failed. Should be specific
@@ -222,7 +227,7 @@ pub(crate) struct OracleViolation {
 /// Categorical reason for an oracle's rejection. Used by the corpus
 /// runner to bucket failures into a histogram.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ViolationKind {
+pub enum ViolationKind {
     /// The pipeline state for this stage was not produced (upstream
     /// error, stubbed stage, or test fixture didn't populate it).
     /// Oracles report this only when the missing snapshot IS the
@@ -458,6 +463,154 @@ pub(crate) fn run_pipeline_oracles(
         per_oracle,
         first_failing_stage: first_failing,
     }
+}
+
+// ── Default oracle registry ─────────────────────────────────────────────
+
+/// PR9 default oracle registry: the six oracles wired in this PR. Order is
+/// registration order; the runner sorts by `YangStage` before running.
+///
+/// Returned as `Vec<Box<dyn StageOracle>>` so the corpus runner can extend
+/// or replace entries (e.g. a future PR may add a Stage 3 SSI-refinement
+/// oracle and slot it in by appending to this vec).
+pub(crate) fn default_oracle_registry() -> Vec<Box<dyn StageOracle>> {
+    vec![
+        Box::new(CoplanarMeshIdenticalOracle),
+        Box::new(BijectiveFacePairOracle),
+        Box::new(MeshArrangementWellFormedOracle),
+        Box::new(LabelConsistencyWithinPatchOracle),
+        Box::new(ManifoldPatchConservationOracle),
+        Box::new(TwinSymmetryOracle),
+    ]
+}
+
+// ── Thread-local snapshot collector (PR9 corpus-runner instrumentation) ─
+
+/// Owned, lifetime-free analog of `PipelineState`. The thread-local
+/// collector accumulates owned data; the corpus runner converts it to a
+/// borrowed `PipelineState` only at the moment of running oracles.
+///
+/// PR9 instrumentation; not stable API. Production callers do NOT install
+/// a collector — `record_*` calls are no-ops when the thread-local is
+/// `None`. The corpus runner installs/uninstalls a collector around each
+/// case via [`with_snapshot_collector`].
+#[derive(Default)]
+pub(crate) struct OwnedSnapshotBundle {
+    pub stage_0_coplanar: Option<CoplanarPreprocessSnapshot>,
+    pub stage_1_rendermesh_a: Option<RenderMesh>,
+    pub stage_1_face_map_a: Option<BTreeMap<u64, FaceIdx>>,
+    pub stage_1_arena_a: Option<TopoArena>,
+    pub stage_1_rendermesh_b: Option<RenderMesh>,
+    pub stage_1_face_map_b: Option<BTreeMap<u64, FaceIdx>>,
+    pub stage_1_arena_b: Option<TopoArena>,
+    pub stage_2_subdivided: Option<SubdividedMesh>,
+    pub stage_4b_labeling: Option<CellLabeling>,
+    pub stage_5_face_survival: Option<FaceSurvivalMap>,
+    pub stage_6_result_topology: Option<ResultTopology>,
+}
+
+impl OwnedSnapshotBundle {
+    /// Produce a borrowed `PipelineState` referencing this bundle's owned
+    /// data. The bundle must outlive the returned state.
+    pub(crate) fn as_pipeline_state(&self) -> PipelineState<'_> {
+        let stage_1 = match (
+            self.stage_1_rendermesh_a.as_ref(),
+            self.stage_1_face_map_a.as_ref(),
+            self.stage_1_arena_a.as_ref(),
+            self.stage_1_rendermesh_b.as_ref(),
+            self.stage_1_face_map_b.as_ref(),
+            self.stage_1_arena_b.as_ref(),
+        ) {
+            (Some(rm_a), Some(fm_a), Some(ar_a), Some(rm_b), Some(fm_b), Some(ar_b)) => {
+                Some(BijectiveSnapshot {
+                    rendermesh_a: rm_a,
+                    face_map_a: fm_a,
+                    arena_a: ar_a,
+                    rendermesh_b: rm_b,
+                    face_map_b: fm_b,
+                    arena_b: ar_b,
+                })
+            }
+            _ => None,
+        };
+        PipelineState {
+            stage_0_coplanar: self.stage_0_coplanar.as_ref().map(|s| {
+                // CoplanarPreprocessSnapshot is owned; clone to keep `self` borrowed.
+                CoplanarPreprocessSnapshot {
+                    pairs: s.pairs.clone(),
+                    mesh_a: s.mesh_a.clone(),
+                    mesh_b: s.mesh_b.clone(),
+                }
+            }),
+            stage_1_bijective: stage_1,
+            stage_2_subdivided: self.stage_2_subdivided.clone(),
+            stage_4b_labeling: self.stage_4b_labeling.as_ref().map(|l| CellLabeling {
+                labels_a: l.labels_a.clone(),
+                labels_b: l.labels_b.clone(),
+            }),
+            stage_5_face_survival: None, // Stage 5 oracle reads stage_2; survival not needed.
+            stage_6_result_topology: self.stage_6_result_topology.as_ref().map(|t| {
+                ResultTopology {
+                    arena: t.arena.clone(),
+                    face_provenance: t.face_provenance.clone(),
+                    edge_is_intersection: t.edge_is_intersection.clone(),
+                }
+            }),
+        }
+    }
+}
+
+thread_local! {
+    /// Active snapshot collector. `None` when no diagnostic run is in
+    /// progress; production callers never install one.
+    static SNAPSHOT_COLLECTOR: std::cell::RefCell<Option<OwnedSnapshotBundle>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Install a fresh snapshot collector for the duration of `f`, then take
+/// the populated bundle out and return it. If `f` panics, the collector
+/// is still cleared (so a panicking pipeline does not leak stale state
+/// into the next run).
+///
+/// PR9 instrumentation; not stable API.
+pub(crate) fn with_snapshot_collector<F, R>(f: F) -> (OwnedSnapshotBundle, R)
+where
+    F: FnOnce() -> R,
+{
+    SNAPSHOT_COLLECTOR.with(|cell| {
+        *cell.borrow_mut() = Some(OwnedSnapshotBundle::default());
+    });
+    // RAII guard ensures the collector is always cleared, even on panic.
+    struct ClearOnDrop;
+    impl Drop for ClearOnDrop {
+        fn drop(&mut self) {
+            SNAPSHOT_COLLECTOR.with(|cell| {
+                // Leave the bundle in place so the caller can take it; only
+                // null out the collector if the caller did not.
+                let _ = cell.borrow_mut();
+            });
+        }
+    }
+    let _guard = ClearOnDrop;
+    let result = f();
+    let bundle = SNAPSHOT_COLLECTOR.with(|cell| cell.borrow_mut().take().unwrap_or_default());
+    (bundle, result)
+}
+
+/// Record a stage snapshot if a collector is active. No-op otherwise.
+///
+/// `update` receives `&mut OwnedSnapshotBundle` and writes the relevant
+/// stage field. PR9 instrumentation; not stable API. Called from
+/// `yang_boolean_inner` and `yang_boolean_pipeline` at stage boundaries.
+pub(crate) fn record_snapshot<F>(update: F)
+where
+    F: FnOnce(&mut OwnedSnapshotBundle),
+{
+    SNAPSHOT_COLLECTOR.with(|cell| {
+        if let Some(bundle) = cell.borrow_mut().as_mut() {
+            update(bundle);
+        }
+    });
 }
 
 // ── Module tests ────────────────────────────────────────────────────────
@@ -710,6 +863,39 @@ mod tests {
     }
 
     // ── PipelineState construction ──────────────────────────────────────
+
+    #[test]
+    fn default_registry_covers_six_stages() {
+        // The 6-oracle registry hits Stage 0, 1, 2, 4b, 5, 6. Stages 3 and
+        // 4a are intentionally absent (those Yang stages are stubbed in
+        // tree per the audit) and the runner does not require coverage.
+        let registry = default_oracle_registry();
+        assert_eq!(registry.len(), 6);
+        let stages: Vec<YangStage> = registry.iter().map(|o| o.stage()).collect();
+        assert!(stages.contains(&YangStage::Stage0Coplanar));
+        assert!(stages.contains(&YangStage::Stage1Bijective));
+        assert!(stages.contains(&YangStage::Stage2Arrangement));
+        assert!(stages.contains(&YangStage::Stage4bClassification));
+        assert!(stages.contains(&YangStage::Stage5PatchSegment));
+        assert!(stages.contains(&YangStage::Stage6Assembly));
+    }
+
+    #[test]
+    fn default_registry_on_empty_state_passes() {
+        // All snapshots None → every oracle in the default registry should
+        // self-skip and report Ok. This test guards against any future
+        // oracle that incorrectly reports StateMissing on a nominally-empty
+        // pipeline state.
+        let state = PipelineState::empty();
+        let registry = default_oracle_registry();
+        let result = run_pipeline_oracles("empty", &state, &registry);
+        assert!(
+            result.first_failing_stage.is_none(),
+            "expected no failures on empty state, got first_failing_stage = {:?}",
+            result.first_failing_stage
+        );
+        assert_eq!(result.per_oracle.len(), 6);
+    }
 
     #[test]
     fn pipeline_state_empty_has_all_none() {

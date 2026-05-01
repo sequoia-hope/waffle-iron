@@ -140,6 +140,13 @@ impl WaffleKernel {
         self.solids.get(&handle.id())
     }
 
+    /// Crate-internal accessor for a stored solid. PR9 instrumentation;
+    /// used by `crate::diagnostics::yang_oracle_run`. Not part of the
+    /// stable kernel API.
+    pub(crate) fn solid_by_handle(&self, handle: &KernelSolidHandle) -> Option<&WaffleSolid> {
+        self.solids.get(&handle.id())
+    }
+
     /// Diagnostic view of a stored solid's B-Rep arena and face_map.
     ///
     /// Read-only diagnostic instrumentation only — not part of the stable

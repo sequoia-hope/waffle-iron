@@ -1,4 +1,5 @@
 pub(crate) mod boolean;
+pub mod diagnostics;
 pub mod geometry;
 pub mod mock_kernel;
 // SSI solvers for all 15 quadric pairs exist but only plane-cylinder and
