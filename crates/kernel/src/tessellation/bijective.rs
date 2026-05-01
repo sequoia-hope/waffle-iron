@@ -222,7 +222,13 @@ fn pos_key(p: [f64; 3]) -> [u64; 3] {
 
 type DirEdgeKey = ([u64; 3], [u64; 3]);
 type DirEdge = ([f64; 3], [f64; 3]);
-type DirEdgeMap = std::collections::HashMap<DirEdgeKey, DirEdge>;
+// BTreeMap (not HashMap) for deterministic iteration order. Per T2's PR12
+// diagnostic (`docs/audits/pr12_stage1_diagnostic.md` §4): HashMap RandomState
+// caused the bijective oracle's verdicts and counts to flap across consecutive
+// runs on the same fixture (R0014, R0034, R0046, F0076). The Yang §4.1.1
+// matching predicate is order-independent in principle, but iteration over a
+// HashMap during e.g. sample collection picks different witnesses on each run.
+type DirEdgeMap = std::collections::BTreeMap<DirEdgeKey, DirEdge>;
 
 /// Compute the boundary directed edges of a single face's tessellation.
 ///
@@ -236,8 +242,7 @@ fn face_boundary_directed_edges(
     face_map: &BTreeMap<u64, FaceIdx>,
     target_face: FaceIdx,
 ) -> DirEdgeMap {
-    use std::collections::HashMap;
-    let mut count: HashMap<DirEdgeKey, ([f64; 3], [f64; 3], usize)> = HashMap::new();
+    let mut count: BTreeMap<DirEdgeKey, ([f64; 3], [f64; 3], usize)> = BTreeMap::new();
     for range in &rendermesh.face_ranges {
         let mapped = match face_map.get(&range.face_id.0).copied() {
             Some(f) => f,
@@ -267,7 +272,7 @@ fn face_boundary_directed_edges(
     }
     // Boundary directed edges: count == 1 AND the reverse direction
     // is NOT present (otherwise the edge is interior to the face).
-    let mut boundary = std::collections::HashMap::new();
+    let mut boundary: DirEdgeMap = BTreeMap::new();
     for (k, &(p, q, _)) in &count {
         let rev = (k.1, k.0);
         if !count.contains_key(&rev) {
@@ -339,9 +344,9 @@ fn restrict_to_shared_boundary(bnd_self: &DirEdgeMap, bnd_other: &DirEdgeMap) ->
             (k.1, k.0)
         }
     };
-    let other_undir: std::collections::HashSet<([u64; 3], [u64; 3])> =
+    let other_undir: std::collections::BTreeSet<([u64; 3], [u64; 3])> =
         bnd_other.keys().map(undir).collect();
-    let mut out = std::collections::HashMap::new();
+    let mut out: DirEdgeMap = BTreeMap::new();
     for (k, v) in bnd_self {
         if other_undir.contains(&undir(k)) {
             out.insert(*k, *v);
@@ -441,7 +446,7 @@ fn check_polygon_soup_mode(
     rendermesh: &RenderMesh,
     face_map: &BTreeMap<u64, FaceIdx>,
 ) -> BijectivityReport {
-    use std::collections::{BTreeSet, HashSet};
+    use std::collections::BTreeSet;
     let mut report = BijectivityReport::default();
 
     // Polygon-soup pair detection by SHARED VERTEX presence rather
@@ -454,7 +459,7 @@ fn check_polygon_soup_mode(
     // B-Rep edge still appear in both face vertex sets, exposing the
     // pair to inspection.
 
-    let mut face_vertices: BTreeMap<FaceIdx, HashSet<[u64; 3]>> = BTreeMap::new();
+    let mut face_vertices: BTreeMap<FaceIdx, BTreeSet<[u64; 3]>> = BTreeMap::new();
     let mut all_face_labels: BTreeSet<FaceIdx> = BTreeSet::new();
 
     for range in &rendermesh.face_ranges {
@@ -484,7 +489,7 @@ fn check_polygon_soup_mode(
         for j in (i + 1)..labels.len() {
             let fa = labels[i];
             let fb = labels[j];
-            let empty = HashSet::new();
+            let empty: BTreeSet<[u64; 3]> = BTreeSet::new();
             let va = face_vertices.get(&fa).unwrap_or(&empty);
             let vb = face_vertices.get(&fb).unwrap_or(&empty);
             if va.intersection(vb).count() >= 2 {
@@ -505,7 +510,7 @@ fn check_polygon_soup_mode(
         let empty_b: DirEdgeMap = DirEdgeMap::new();
         let bnd_a = boundary_cache.get(&face_a).unwrap_or(&empty_b);
         let bnd_b = boundary_cache.get(&face_b).unwrap_or(&empty_b);
-        let empty_v = HashSet::new();
+        let empty_v: BTreeSet<[u64; 3]> = BTreeSet::new();
         let va = face_vertices.get(&face_a).unwrap_or(&empty_v);
         let vb = face_vertices.get(&face_b).unwrap_or(&empty_v);
 
