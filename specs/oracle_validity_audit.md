@@ -41,7 +41,13 @@ changes.** Three findings are load-bearing for PR11.
 | Mutations caught at the targeted oracle | **3 / 5** | Task A |
 | Mutations missed (true false-negatives or coverage defects) | **2 / 5** | Task A |
 | Stage 4b first-fail bucket size | **120 / 157** (was 32 / 157 in PR9) | Task C |
-| AllPass bucket size | **3 / 157** (was 72 / 157 in PR9) | Task C |
+| AllPass bucket size | **3 / 157** (was 72 / 157 in PR9) † | Task C |
+
+† Per Task C §3 Claim 3: 2 of the 3 AllPass cases (F0073, F0074) are
+**vacuous** — `expect_rebuild_error: true`, the Yang pipeline never
+runs, and oracles self-skip on missing snapshots. Only R0052 is
+substantive AllPass. PR11 should treat AllPass as ≤1 substantive case,
+not 3.
 
 ## §3 Per-oracle confidence verdict
 
