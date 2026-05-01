@@ -426,6 +426,24 @@ delivered; R0020/R0021 fix and count stability deferred to PR13.
 - No regressions in PR11 baseline (84 AllPass cases preserved).
 - `un_a[i] == un_b[i]` archaeological finding documented for PR13.
 
+### Post-adversary correction (T5 finding F1)
+
+Adversary's V1 measurement on `a884562` showed **12/15** cluster-stable (not ≥14/15
+as the amendment claimed). The two additional cluster-flappers are F0018 and R0046,
+both flapping their **Stage 2** binary verdict (residual non-determinism downstream
+of Step 1+1b's S1 fix). Per `feedback_no_last_bug.md`: this is honest framing — the
+S1 binary verdict IS stable on 14/15, but the broader X/Y/Z classification (which
+incorporates S2) is only 12/15 stable.
+
+Updated residual-flap watch list for PR13:
+- F0076: binary S1 verdict still flaps Y/Z (1/3 runs).
+- F0018, R0046: cluster classification flaps because Stage 2's binary verdict still
+  has non-determinism — likely another HashMap/HashSet on the S2 input path that
+  PR12's Step 1b widening missed. Adversary's V5 mutation test confirms PR12's
+  determinism fix is structurally load-bearing (rendermesh diverges, not just
+  iteration noise) — meaning at least one more upstream non-determinism source
+  exists for these cases.
+
 ### 8a. Candidate fix surfaces (pre-resolved per branch — lead picks based on T2 cluster sizes)
 
 The following are concrete file:line anchors so lead can update §8 quickly:
