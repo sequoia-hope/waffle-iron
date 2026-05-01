@@ -357,21 +357,87 @@ PR13 MUST NOT modify tessellation to filter degenerate triangles. The fix is con
 
 ---
 
-## 8. Fix Scope (TBD — finalized post-T2)
+## 8. Fix Scope (FINALIZED 2026-05-01 — Approach A on the CORRECTED anchor per T2 at `a26c913`)
 
-Fix scope is TBD pending agent-diagnose's empirical instrumentation (T2). Lead will finalize
-§8 after reviewing T2's per-violation classification (`docs/audits/pr13_trim_loop_diagnostic.md`).
+T2's empirical instrumentation (`docs/audits/pr13_trim_loop_diagnostic.md`) revealed that
+**the PR12 archaeological anchor named the wrong production function**. The fix surface is
+NOT `extract_trim_boundaries` (test-only code, never invoked by production) but
+`flood_fill_patches::Step 6` at `crates/kernel/src/boolean/topology_extract.rs:607-684`.
 
-T2 must classify each of the 9 violations (2 R0020 + 7 R0021) into one of:
-- well-conditioned face-local divergence (Approach A indicated),
-- specific local degenerate trigger (Approach D indicated; subtype: sliver triangle / near-zero
-  face normal / tri.flipped sign cancellation),
-- order-dependent reconcilable (Approach C indicated),
-- intractable construction-time (Approach B fallback, flag deviation).
+This invalidates §8a's anchor lines but the approach taxonomy still applies. Lead selects
+**Approach A (edge-canonical reference)** translated to `flood_fill_patches::Step 6`.
 
-T2 must also empirically verify the fix anchor function name AND that it is invoked per
-`feedback_anchor_before_fix.md` — add a `[ANCHOR]` `eprintln!` to the planned fix site, run
-R0020 through the pipeline, confirm the eprintln fires before T4 writes any code.
+### T2 empirical findings (binding)
+
+- **9/9 violations** have `byte_eq=true / reciprocal=false` — both faces emit the SAME
+  directed edge `(p,q)` along the shared B-Rep edge (PR12 anchor confirmed at higher
+  abstraction level).
+- **Two clusters with shared root cause** (Step 6 has no inter-face direction consistency):
+  - **D1** (5/9, R0021 dominant): duplicate boundary edges + naive `outgoing.pop()` LIFO
+    pick at `n_cands=3` branch points. cand[0] is geometrically correct; cand[2] (a
+    duplicate of cand[1] targeting same canonical vertex) is what LIFO picks.
+  - **D2** (4/9, R0020 + R0021 #0,#1): no branch points fire in Step 6; the bug is in the
+    START-vertex pick via `adj.iter().find(...)` on a non-deterministic HashMap. Adjacent
+    faces' loops walk shared edge in same direction because their independent start picks
+    are uncorrelated.
+- **PR12 missed `flood_fill_patches`**: `boolean/topology_extract.rs:644` HashMap is a
+  confirmed PR12-residual non-determinism source, contributing to R0021's count flap (5/6/7
+  NB pairs across runs).
+
+### Approach A — edge-canonical reference (selected)
+
+Rationale: addresses both D1 and D2 with one structural change. D1's "duplicate edges" and
+D2's "independent start picks" are surface-level effects of the same architectural defect
+— Step 6 makes locally-arbitrary choices that aggregate to globally-inconsistent boundary
+directions. A canonical-edge reference forces both adjacent faces to walk the shared B-Rep
+edge consistently with the canonical (lo→hi) vertex ordering; reciprocal emissions emerge
+by construction.
+
+**Why not B**: post-hoc cross-check is anti-Yang per `feedback_yang_only.md`.
+**Why not C**: `arena.half_edges` don't exist until Step 7 (line 686+); twin-edge lookup
+during Step 6 requires either a two-pass refactor or a parallel twin-tracking structure —
+larger refactor than warranted.
+**Why not D**: D1 and D2 are surface-level symptoms; a surgical fix would suppress one
+without addressing the architecture defect.
+
+### Concrete fix work for T4
+
+In `crates/kernel/src/boolean/topology_extract.rs::flood_fill_patches::Step 6` (lines
+607-684):
+
+1. **Replace HashMap with deterministic adjacency** (line 644): `HashMap<usize, Vec<...>>`
+   → `BTreeMap<usize, Vec<...>>`. This alone fixes D2's non-determinism; without it,
+   start-vertex picks vary across runs. (Residual PR12 work — was missed in `7e119cc`.)
+
+2. **Build canonical-edge reference map after Step 5a**: after patches are constructed but
+   before chaining begins, build
+   `(v0_canon, v1_canon) → (patch_id, direction_flag)` for every directed boundary edge.
+   The canonical edge direction is `(min(v0, v1), max(v0, v1))`; both adjacent patches'
+   chaining must respect it.
+
+3. **Replace `outgoing.pop()` with canonical-direction-aware picker** (line 664): when
+   chaining's current vertex has multiple outgoing candidates, pick the one whose
+   `(current, target)` direction aligns with the patch's expected canonical orientation
+   (derived from the patch's `source` SourceFace winding). This forces D1's cand[0]
+   selection (geometrically correct) over LIFO cand[2].
+
+4. **Replace `adj.iter().find(...)` with deterministic start picker** (line 651): pick the
+   start vertex whose canonical edge ordering is "lowest valid start" — eliminates D2's
+   uncoordinated start picks.
+
+### Estimated LOC
+
+50-200 LOC in `flood_fill_patches::Step 6`. Most is data-structure / API plumbing for the
+canonical-edge map; the actual decision logic in steps 3+4 is small.
+
+### Architectural caveats
+
+Per `tessellate_solid_bounded:4307-4310`: do NOT filter degenerate earcut triangles in the
+tessellation layer (load-bearing for cross-face edge pairing). The fix MUST be at
+`flood_fill_patches` Step 6 layer — agreed; this fix doesn't touch tessellation.
+
+The PR12 §8 amendment's `extract_trim_boundaries:1095-1200` LOC anchor is **stale**;
+ignore it. Future PRs that touch trim-loop chaining should consult this spec's §8 anchor.
 
 ### 8a. Candidate fix surfaces (pre-resolved per branch — lead picks based on T2 dominant approach)
 
