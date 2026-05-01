@@ -24,6 +24,7 @@ pub(crate) mod indirect_predicates;
 pub(crate) mod intersection_opt;
 #[allow(dead_code)] // Not yet wired into pipeline
 pub(crate) mod mesh_arrangement;
+pub(crate) mod oracles;
 pub(crate) mod pipeline_oracles;
 pub(crate) mod ssi_refinement;
 pub(crate) mod stitch;
