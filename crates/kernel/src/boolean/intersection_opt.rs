@@ -368,7 +368,13 @@ use crate::geometry::point::Point3;
 use crate::tessellation::bijective::BijectiveMap;
 use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::FaceIdx;
-use std::collections::{BTreeMap, HashSet};
+// BTreeSet (not HashSet): vert_faces_a/b are iterated to find (face_a, face_b)
+// pairs that anchor Newton optimization for intersection vertex positions
+// (lines ~472-473, ~866-867). HashMap RandomState would non-deterministically
+// pick a different (face_a, face_b) pair on each run, producing different
+// optimized vertex positions and a flapping rendermesh seen by the bijective
+// oracle. PR12 Step 1 widening per `feedback_no_regression_chasing.md`.
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Per-vertex optimization status.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -424,8 +430,8 @@ pub(crate) fn optimize_intersection_vertices(
 
     // Build vertex → face adjacency from sub-triangles.
     // For each new vertex, find which faces from A and B reference it.
-    let mut vert_faces_a: Vec<HashSet<FaceIdx>> = vec![HashSet::new(); n_verts];
-    let mut vert_faces_b: Vec<HashSet<FaceIdx>> = vec![HashSet::new(); n_verts];
+    let mut vert_faces_a: Vec<BTreeSet<FaceIdx>> = vec![BTreeSet::new(); n_verts];
+    let mut vert_faces_b: Vec<BTreeSet<FaceIdx>> = vec![BTreeSet::new(); n_verts];
 
     for sub_tri in &subdivided.tris_a {
         if sub_tri.parent_tri < bijective_a.tri_face_ids.len() {
@@ -789,7 +795,7 @@ pub(crate) fn recover_failed_regions(
     }
 
     // Build edge adjacency: for each vertex, collect neighboring vertices.
-    let mut neighbors: Vec<HashSet<usize>> = vec![HashSet::new(); n_verts];
+    let mut neighbors: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); n_verts];
     for tri in subdivided.tris_a.iter().chain(subdivided.tris_b.iter()) {
         for k in 0..3 {
             let v0 = tri.verts[k];
@@ -800,8 +806,8 @@ pub(crate) fn recover_failed_regions(
     }
 
     // Build vertex→face adjacency for new vertices (same as in optimize_intersection_vertices).
-    let mut vert_faces_a: Vec<HashSet<FaceIdx>> = vec![HashSet::new(); n_verts];
-    let mut vert_faces_b: Vec<HashSet<FaceIdx>> = vec![HashSet::new(); n_verts];
+    let mut vert_faces_a: Vec<BTreeSet<FaceIdx>> = vec![BTreeSet::new(); n_verts];
+    let mut vert_faces_b: Vec<BTreeSet<FaceIdx>> = vec![BTreeSet::new(); n_verts];
     for sub_tri in &subdivided.tris_a {
         if sub_tri.parent_tri < bijective_a.tri_face_ids.len() {
             let face = bijective_a.tri_face_ids[sub_tri.parent_tri];
@@ -1061,7 +1067,7 @@ pub(crate) fn correct_reversed_intersections(
         .collect();
 
     // Build edge adjacency among intersection vertices.
-    let mut neighbors: Vec<HashSet<usize>> = vec![HashSet::new(); n_verts];
+    let mut neighbors: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); n_verts];
     for tri in subdivided.tris_a.iter().chain(subdivided.tris_b.iter()) {
         for k in 0..3 {
             let v0 = tri.verts[k];
@@ -1222,7 +1228,7 @@ pub(crate) fn correct_reversed_intersections(
         }
     };
 
-    use std::collections::HashSet;
+    use std::collections::BTreeSet;
 
     for polyline in &polylines {
         if polyline.len() < 3 {
@@ -1230,7 +1236,7 @@ pub(crate) fn correct_reversed_intersections(
         }
 
         // Track orphaned vertices (collapsed away) so we can skip them
-        let mut orphaned = HashSet::new();
+        let mut orphaned = BTreeSet::new();
 
         // Process each position in the polyline, skipping orphaned vertices
         let mut i = 1;

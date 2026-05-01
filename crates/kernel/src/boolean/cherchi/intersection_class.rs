@@ -31,7 +31,13 @@
 //! github.com/gcherchi/InteractiveAndRobustMeshBooleans
 //! MIT License (c) 2022 Cherchi, Livesu, Scateni, Attene, Pellacini
 
-use std::collections::HashSet;
+// BTreeSet (not HashSet): the v_tmp/li sets are iterated in
+// finalize_intersection (line ~421) where iter.next() determines the order
+// of v0_id, v1_id passed to add_symbolic_segment. HashMap RandomState would
+// non-deterministically swap segment endpoints, propagating count flap into
+// downstream Cherchi arrangement and the bijective oracle. PR12 Step 1
+// widening per `feedback_no_regression_chasing.md`.
+use std::collections::BTreeSet;
 
 use geometry_predicates::{orient2d, orient3d};
 
@@ -100,7 +106,7 @@ pub(crate) fn detect_intersections(
     // Simple O(n²) broad phase with AABB culling + Gauss map filtering.
     // For production, replace with BVH/octree. Matching the C++ cinolib::Octree
     // semantics: check all pairs within each leaf.
-    let mut seen = HashSet::new();
+    let mut seen = BTreeSet::new();
     for t0 in 0..num_tris {
         for t1 in (t0 + 1)..num_tris {
             // AABB overlap test
@@ -189,9 +195,9 @@ fn check_triangle_triangle_intersections(
     t_a_id: usize,
     t_b_id: usize,
 ) {
-    let mut v_tmp: HashSet<usize> = HashSet::new(); // intersection vertices for symbolic edge
+    let mut v_tmp: BTreeSet<usize> = BTreeSet::new(); // intersection vertices for symbolic edge
     let mut coplanar_tris = false;
-    let mut li: HashSet<usize> = HashSet::new(); // intersection list
+    let mut li: BTreeSet<usize> = BTreeSet::new(); // intersection list
 
     // ── Check tB vertices against plane of tA ──
     // Ported from intersection_classification.cpp:129-133
@@ -392,7 +398,7 @@ fn check_triangle_triangle_intersections(
 fn finalize_intersection(
     ts: &TriangleSoup,
     aux: &mut AuxiliaryStructure,
-    v_tmp: &HashSet<usize>,
+    v_tmp: &BTreeSet<usize>,
     coplanar_tris: bool,
     t_a_id: usize,
     t_b_id: usize,
@@ -830,7 +836,7 @@ fn check_single_coplanar_edge_intersections(
     e_v1: usize,
     e_t_id: usize,
     o_t_id: usize,
-    li: &mut HashSet<usize>,
+    li: &mut BTreeSet<usize>,
 ) {
     let mut v0_in_vtx = false;
     let mut v1_in_vtx = false;
@@ -1118,8 +1124,8 @@ fn check_single_no_coplanar_edge_intersection(
     aux: &mut AuxiliaryStructure,
     e_id: usize,
     t_id: usize,
-    v_tmp: &mut HashSet<usize>,
-    li: &mut HashSet<usize>,
+    v_tmp: &mut BTreeSet<usize>,
+    li: &mut BTreeSet<usize>,
 ) {
     let (ev0, ev1) = ts.edge_verts(e_id);
 
@@ -1175,9 +1181,9 @@ fn check_vtx_in_triangle_intersection(
     ts: &TriangleSoup,
     v_id: usize,
     t_id: usize,
-    v_tmp: &mut HashSet<usize>,
+    v_tmp: &mut BTreeSet<usize>,
     aux: &mut AuxiliaryStructure,
-    li: &mut HashSet<usize>,
+    li: &mut BTreeSet<usize>,
 ) {
     let inters = point_in_triangle_3d_classify(
         ts.vert(v_id),
@@ -1902,7 +1908,7 @@ mod tests {
         // Synthetic invariant violation: 3 elements when non-coplanar must be ≤2.
         // The C++ assert only inspects `v_tmp.size()`, so even arbitrary IDs
         // panic before any soup contents are read past the format-string.
-        let mut v_tmp: HashSet<usize> = HashSet::new();
+        let mut v_tmp: BTreeSet<usize> = BTreeSet::new();
         v_tmp.insert(0);
         v_tmp.insert(1);
         v_tmp.insert(2);
@@ -1921,7 +1927,7 @@ mod tests {
     fn test_finalize_intersection_rejects_oversize_coplanar() {
         let (ts, mut aux) = make_two_boxes_soup();
         // Synthetic invariant violation: 4 elements when coplanar must be ≤3.
-        let mut v_tmp: HashSet<usize> = HashSet::new();
+        let mut v_tmp: BTreeSet<usize> = BTreeSet::new();
         v_tmp.insert(0);
         v_tmp.insert(1);
         v_tmp.insert(2);

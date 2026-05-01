@@ -976,7 +976,10 @@ pub(crate) fn extract_trim_boundaries(
 
     // Step 1: Build a global lookup from undirected edge (min,max) → set of SourceFaces
     // that have a sub-triangle touching that edge. Used to determine is_intersection.
-    let mut global_edge_faces: HashMap<(usize, usize), HashSet<SourceFace>> = HashMap::new();
+    // BTreeMap/BTreeSet (not HashMap/HashSet) so that the loop-chaining at line ~1098
+    // sees a deterministic adjacency and produces stable trim-loop rotations across
+    // runs. PR12 Step 1 widening per `feedback_no_regression_chasing.md`.
+    let mut global_edge_faces: BTreeMap<(usize, usize), BTreeSet<SourceFace>> = BTreeMap::new();
     for (source_face, tris) in &survival.groups {
         for tri in tris {
             let v = tri.verts;
@@ -995,8 +998,9 @@ pub(crate) fn extract_trim_boundaries(
     for (source_face, tris) in &survival.groups {
         // Step 2: Collect directed edges for this face group, respecting winding.
         // Also count undirected edge occurrences within this group to find interior edges.
+        // BTreeMap (not HashMap) — see Step 1 comment above.
         let mut directed_edges: Vec<(usize, usize)> = Vec::new();
-        let mut undirected_count: HashMap<(usize, usize), usize> = HashMap::new();
+        let mut undirected_count: BTreeMap<(usize, usize), usize> = BTreeMap::new();
 
         for tri in tris {
             let v = tri.verts;
@@ -1015,7 +1019,7 @@ pub(crate) fn extract_trim_boundaries(
         }
 
         // Interior edges: undirected edges appearing 2+ times within this group.
-        let interior: HashSet<(usize, usize)> = undirected_count
+        let interior: BTreeSet<(usize, usize)> = undirected_count
             .iter()
             .filter(|(_, &c)| c >= 2)
             .map(|(&k, _)| k)
@@ -1037,7 +1041,12 @@ pub(crate) fn extract_trim_boundaries(
 
         // Step 3: Chain boundary edges into closed TrimLoops.
         // Build adjacency: v0 → list of (v1, is_intersection)
-        let mut adj: HashMap<usize, Vec<(usize, bool)>> = HashMap::new();
+        // BTreeMap (not HashMap) — the loop-start picker at line ~1098 uses
+        // `adj.iter().find(...).map(|(&k, _)| k)` which depends on iteration
+        // order. HashMap RandomState would non-deterministically rotate the
+        // resulting trim-loop, surfacing as count flap in the bijective oracle
+        // (T2's PR12 diagnostic, R0014/R0034/R0046/F0076).
+        let mut adj: BTreeMap<usize, Vec<(usize, bool)>> = BTreeMap::new();
         for &(a, b, is_int) in &boundary_edges {
             adj.entry(a).or_default().push((b, is_int));
         }

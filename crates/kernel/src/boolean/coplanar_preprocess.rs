@@ -1505,10 +1505,14 @@ fn extract_face_boundary_2d(
     u_axis: &[f64; 3],
     v_axis: &[f64; 3],
 ) -> Vec<[f64; 2]> {
-    use std::collections::HashMap;
+    // BTreeMap (not HashMap): the loop's start vertex is picked via
+    // `adjacency.keys().next()`, so HashMap RandomState would non-
+    // deterministically rotate the polygon. Same for `edge_count` (BTreeMap
+    // for symmetry — no functional impact, but consistent).
+    use std::collections::BTreeMap;
 
     // Count edge occurrences (boundary edges appear once).
-    let mut edge_count: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut edge_count: BTreeMap<(usize, usize), usize> = BTreeMap::new();
     for &ti in face_tri_indices {
         let tri = tris[ti];
         for k in 0..3 {
@@ -1520,7 +1524,7 @@ fn extract_face_boundary_2d(
     }
 
     // Collect boundary edges (count == 1) as directed edges.
-    let mut adjacency: HashMap<usize, Vec<usize>> = HashMap::new();
+    let mut adjacency: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
     for &ti in face_tri_indices {
         let tri = tris[ti];
         for k in 0..3 {
@@ -1537,13 +1541,14 @@ fn extract_face_boundary_2d(
         return vec![];
     }
 
-    // Chain boundary edges into a polygon loop.
+    // Chain boundary edges into a polygon loop. Smallest vertex index as
+    // start gives a deterministic polygon rotation across runs.
     let &start = adjacency.keys().next().unwrap();
     let mut polygon = vec![project_to_2d(&verts[start], origin, u_axis, v_axis)];
     let mut current = start;
 
     // Track visited to avoid infinite loops on malformed data.
-    let mut visited = std::collections::HashSet::new();
+    let mut visited = std::collections::BTreeSet::new();
     visited.insert(start);
 
     while let Some(neighbors) = adjacency.get(&current) {
