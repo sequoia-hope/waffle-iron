@@ -382,6 +382,50 @@ Specific case targets:
 The 6 deferred Cluster Y cases plus 2 X-coplanar cases = 8 cases will still fail S1
 post-PR12. That's acceptable per `feedback_no_last_bug.md` honest framing.
 
+### Mid-execution amendments (2026-05-01)
+
+**Step 1 widened** (per agent-impl `7e119cc`): the determinism fix had to extend beyond
+`bijective.rs` to four `boolean/` files because `extract_face_boundary_2d`,
+`extract_trim_boundaries`, `intersection_class.rs`, and `intersection_opt.rs` each
+contained their own HashMap/HashSet sources of non-determinism. T3's empirical Test 5
+(R0014 in-process flap) drove this discovery — `bijective.rs` alone was insufficient.
+
+**Step 1 — count flap deferred** (PR13+): after Step 1+1b, **binary verdicts** (X/Y/Z
+classification) are stable across runs, but **counts within S1 messages** still flap
+(e.g., R0014 reports `5/7/8 pair(s)` across 3 runs). Hunt for the remaining source
+hits external dependencies (`earcutr`, `geometry-predicates`, `dashu`); unbounded
+investigation territory. Binary stability is sufficient for adversary mutation testing
++ cluster classification; count stability is a deferred quality-of-life concern.
+F0076 also remains partially flap-prone (Y/Z across runs).
+
+**Step 2 — DEFERRED to PR13** (per agent-impl Step 2 abort): the R0020/R0021 root
+cause traces back to `crates/kernel/src/boolean/topology_extract.rs::extract_trim_boundaries`
+trim-loop chaining (~lines 1095-1200), NOT to `tessellation/`. Empirical anchor
+preserved by agent-impl's instrumentation:
+- For both R0020 and R0021, every non-bijective pair has `un_a[i] == un_b[i]`
+  byte-identically — both faces emit the SAME directed edge `(p, q)` in the SAME
+  direction along the shared B-Rep edge. Per Yang §4.1.1, twin half-edges should
+  produce reciprocal mesh boundary edges; one face's loop must be walking the shared
+  edge in the wrong direction.
+- Twin pairing in `build_result_brep` is verified correct (twin.twin == self), so
+  the half-edges themselves are paired correctly. The TRIM_LOOP edge sequence chosen
+  by `extract_trim_boundaries` is feeding `build_result_brep` half-edges in a
+  direction inconsistent with the adjacent face.
+- Estimated fix scope: 200-500 LOC in trim-loop chaining logic (CW-angular sort at
+  branch points making locally-correct but globally-inconsistent direction choices).
+- Architectural caveat per `tessellate_solid_bounded:4307-4310`: removing degenerate
+  earcut triangles is forbidden because the current architecture relies on their
+  edges for pairing — a naive fix at the tessellation layer breaks a different
+  invariant. PR13 should target the trim-loop chaining directly.
+
+**PR12 effective deliverable**: Step 1 + Step 1b only. Binary verdict stability
+delivered; R0020/R0021 fix and count stability deferred to PR13.
+
+**Adjusted PR12 success criterion** (per these amendments):
+- Binary cluster verdicts (X/Y/Z) stable across 3 consecutive probe runs: ≥14/15 cases.
+- No regressions in PR11 baseline (84 AllPass cases preserved).
+- `un_a[i] == un_b[i]` archaeological finding documented for PR13.
+
 ### 8a. Candidate fix surfaces (pre-resolved per branch — lead picks based on T2 cluster sizes)
 
 The following are concrete file:line anchors so lead can update §8 quickly:
