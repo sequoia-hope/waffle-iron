@@ -297,16 +297,90 @@ Adversary explicitly punted to PR12. **T2's diagnostic IS that punted investigat
 
 ---
 
-## 8. Fix Scope (TBD pending T2 diagnosis)
+## 8. Fix Scope (FINALIZED 2026-05-01 — Branch II per T2 diagnosis at `69664ec`)
 
-> Fix scope is TBD pending agent-diagnose's empirical classification (T2). Lead will finalize §8 by
-> selecting one of three branches:
->
-> - **Branch I** — dominant pattern fixable in <500 LOC: PR12 fixes it.
-> - **Branch II** — 4+ patterns with no dominant: PR12 narrows to 1-2 cases as PoC.
-> - **Branch III** — PR11 inadvertently broke Stage 1: PR12 reverts/repairs the offending hunk.
->
-> Section §8 will be updated when T2 lands.
+T2 (`docs/audits/pr12_stage1_diagnostic.md`) classified the 15 cases:
+
+- **Cluster X (S1+S2+S6 fire)**: 4 cases — R0007, R0020, R0021, R0031.
+  - X-coplanar (S0 stub): R0007, R0031.
+  - **X-non-coplanar (no S0 stub, no flap)**: R0020, R0021. ← Cleanest target.
+- **Cluster Y (S1+S6 fire, S2=Ok)**: 8 cases — R0035, R0063, R0081, R0095, F0016, F0018, F0019, F0076.
+- **Cluster Z (flap-prone)**: 3 cases — R0014, R0034, R0046.
+
+PR10-vs-PR12 attribution: 6 CASCADE / 6 PR11-INTRODUCED / 3 flap (mixed mechanism).
+
+**Branch II** selected because: largest cluster (Y) is 8/15, below the ≥10/15 dominant
+threshold. Cluster Y is internally heterogeneous (some fire S0 OracleStub, some don't).
+Branch III in pure form is wrong because 6 cases are genuine pre-existing cascade unmask.
+
+### PR12 narrow scope (two independent steps)
+
+**Step 1 — Determinism fix** (separable, broad benefit):
+
+Per T2 §8 question 2: 4 cases (R0014, R0034, R0046, F0076) flap S1 fire/no-fire across
+runs because `face_boundary_directed_edges` and related tessellation surfaces use
+`HashMap<...>` whose iteration order depends on RandomState. Replace with `BTreeMap` (or
+sort iteration by stable position-key) per project convention
+(`feedback_no_regression_chasing.md` notes BTreeMap-style determinism).
+
+- **Anchor**: `crates/kernel/src/tessellation/bijective.rs::face_boundary_directed_edges` —
+  inspect any `HashMap<...>` usages and convert to `BTreeMap` or sorted iteration. Likely
+  also affects the count-aggregation surface T2 referenced.
+- **Approach**: replace `HashMap<...>` with `BTreeMap<...>` (keys are already comparable
+  position tuples / index tuples). Verify by running T2's probe 3-5 times consecutively
+  and confirming verdicts match across runs.
+- **Estimated LOC**: 5-50.
+- **Validation**: T2's diagnostic probe (`pr12_stage1_diagnostic.rs`) re-run 3+ times
+  shows identical per-case verdicts. T3 includes a determinism-stability test.
+
+**Step 2 — Cluster X non-coplanar root-cause fix** (R0020, R0021):
+
+Per T2: R0020/R0021 fire S1+S2+S6 with NO S0 OracleStub (no coplanar preprocessing
+involvement). Pure tessellation defect — the bijective contract is violated by
+`tessellate_waffle_solid` itself, independent of injection. R0020 reports "A 2 pair(s) of
+19" non-bij; R0021 reports "A 7 pair(s) of 23" — both small ratios (~10-30%) and operand
+A only.
+
+- **Anchor**: TBD by agent-impl. Most likely `crates/kernel/src/tessellation/mod.rs`
+  per-face dispatch (lines 284-545) — but the impl agent must root-cause via
+  instrumentation. The defect is operand-A-asymmetric (per T2 §5: 14/15 cases violate
+  on operand A) — investigate whether solid_a's geometry triggers a specific tessellation
+  codepath (e.g., revolve cap with shared edge pool, T-junction at boss boundary).
+- **Approach**: agent-impl reproduces R0020 via T2's probe; instruments
+  `face_boundary_directed_edges` to dump the unmatched edge positions; identifies which
+  B-Rep edge / face pair generates the non-reciprocal. Then traces back to the
+  tessellation site and applies a targeted fix.
+- **Estimated LOC**: 50-300 depending on root cause.
+- **Validation**: T3 includes red tests that fail on current code for R0020/R0021 and
+  pass after impl.
+
+### Out of scope (PR13+)
+
+Explicitly deferred per Branch II:
+- **Cluster X-coplanar** (R0007, R0031): require Stage 0 partial-overlap full
+  implementation per Yang §4.5.5. Separate concern from tessellation bijectivity.
+- **Cluster Y entirely** (R0035, R0063, R0081, R0095, F0016, F0018, F0019, F0076):
+  decoupled defect (S2=Ok despite S1 fire). T2 §8 question 1 hypothesizes this is
+  Cherchi vertex-merge hiding the defect from Stage 2 measurement — root cause for
+  Cluster Y is non-trivial.
+- **Cluster Z stable behavior** (R0014, R0034, R0046): even with the determinism fix
+  (Step 1), these cases may still have real S1 defects underneath the flap. Re-evaluate
+  in PR13 once the flap is removed.
+
+### Success criterion
+
+PR11 baseline: S1 = 15 first-fails (with 4-case flap noise).
+PR12 success target: **S1 ≤ 10 first-fails AND verdicts stable across 3 consecutive
+probe runs**.
+
+Specific case targets:
+- After Step 1 (determinism): R0014, R0034, R0046, F0076 verdicts stabilize. Whatever
+  they settle on, that becomes the new stable count.
+- After Step 2 (R0020 + R0021 fix): those 2 cases drop from S1 to S6-only (cascade
+  resolves) or AllPass.
+
+The 6 deferred Cluster Y cases plus 2 X-coplanar cases = 8 cases will still fail S1
+post-PR12. That's acceptable per `feedback_no_last_bug.md` honest framing.
 
 ### 8a. Candidate fix surfaces (pre-resolved per branch — lead picks based on T2 cluster sizes)
 
