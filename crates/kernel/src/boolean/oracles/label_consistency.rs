@@ -23,16 +23,21 @@
 //!   is the downstream symptom of mixed-label patches feeding incorrect
 //!   half-edge pairing into `flood_fill_patches` / B-Rep assembly.
 //!
-//! ## Expected behavior on the corpus
+//! ## Expected behavior on the corpus (PR11+)
 //!
-//! This oracle is **expected to fire heavily** in corpus runs — that is
-//! the point. PR10 is the first PR that targets making this oracle pass
-//! by replacing per-sub-tri labeling in `label_cells` with per-patch
-//! labeling per Cherchi 2022 Algorithm 1. Until then, a green run on this
-//! oracle would indicate a fixture (not a fix), or a degenerate case
-//! where every patch happens to be a single sub-triangle.
+//! Post-PR11 the per-patch invariant holds **by construction**: `label_cells`
+//! now ray-casts a single representative sub-tri per manifold-edge-bounded
+//! patch (Cherchi 2022 §5 Algorithm 1) and propagates the resulting label
+//! to every member of that patch. This oracle therefore transitions from
+//! defect detector to *builder sentinel*: it is expected to pass on every
+//! case where Stage 2 + Stage 4b populate their snapshots, and a future
+//! firing would indicate a regression in either `label_cells`'s per-patch
+//! propagation or `build_manifold_patch_graph`'s patch decomposition. The
+//! oracle stays in the suite for that defense-in-depth role; PR11 makes no
+//! behavioral change to this oracle (only this docstring).
 //!
-//! Refs: Yang 2025 §4.4.2; Cherchi 2022 §5 + Algorithm 1.
+//! Refs: Yang 2025 §4.4.2; Cherchi 2022 §5 + Algorithm 1;
+//! `specs/yang_per_patch_labeling.md` §5 (Oracles).
 
 use crate::boolean::exact_mesh::{build_manifold_patch_graph, CellLabel};
 use crate::boolean::pipeline_oracles::{

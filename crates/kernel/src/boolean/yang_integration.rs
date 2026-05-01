@@ -68,6 +68,45 @@ pub(crate) fn render_mesh_to_arrays(mesh: &RenderMesh) -> (Vec<[f64; 3]>, Vec<[u
     (verts, tris)
 }
 
+/// Re-derive a `RenderMesh` from post-injection flat arrays for Stage 0
+/// snapshot capture (spec §F2).
+///
+/// PR10 oracle-validity audit found the production Stage 0 snapshot
+/// captured `mesh_a` / `mesh_b` BEFORE `inject_identical_footprint_mesh`
+/// mutated the flat arrays, making `CoplanarMeshIdenticalOracle`
+/// unreachable for the identical-footprint code path. This helper repacks
+/// `(verts, tris)` back into a `RenderMesh` shape so the snapshot reflects
+/// the mesh that downstream stages actually consume.
+///
+/// Normals and `face_ranges` are intentionally left empty: the Stage 0
+/// oracle (`oracles/coplanar_identical.rs`) compares only `vertices` and
+/// `indices` (canonical f32-bit triangle keys on the coplanar plane). If a
+/// future oracle starts checking normals, this helper must be extended.
+fn flat_arrays_to_render_mesh(
+    verts: &[[f64; 3]],
+    tris: &[[usize; 3]],
+    _template: &RenderMesh,
+) -> RenderMesh {
+    let mut vertices: Vec<f32> = Vec::with_capacity(verts.len() * 3);
+    for v in verts {
+        vertices.push(v[0] as f32);
+        vertices.push(v[1] as f32);
+        vertices.push(v[2] as f32);
+    }
+    let mut indices: Vec<u32> = Vec::with_capacity(tris.len() * 3);
+    for t in tris {
+        indices.push(t[0] as u32);
+        indices.push(t[1] as u32);
+        indices.push(t[2] as u32);
+    }
+    RenderMesh {
+        vertices,
+        normals: Vec::new(),
+        indices,
+        face_ranges: Vec::new(),
+    }
+}
+
 /// Build the surface_map from two WaffleSolids' face_geometry.
 ///
 /// Maps `(MeshId, FaceIdx) → SurfaceGeom` so that downstream pipeline stages
@@ -691,6 +730,13 @@ pub(crate) fn yang_boolean_inner(
     // Stage 1 state for the corpus oracle runner; production callers do
     // not install a collector so this resolves to a single thread-local
     // null check.
+    //
+    // Spec §F2: the Stage 0 (`CoplanarPreprocessSnapshot`) capture re-derives
+    // RenderMesh from the POST-injection flat arrays (`verts_a`/`tris_a`/
+    // `verts_b`/`tris_b`), so `CoplanarMeshIdenticalOracle` sees the same
+    // bytes downstream stages will consume. The Stage 1 capture keeps the
+    // PRE-injection RenderMesh because the bijective-tessellation contract
+    // it enforces is per-operand and pre-dates injection.
     {
         let pairs_for_snap = coplanar_pairs.clone();
         let mesh_a_for_snap = mesh_a.clone();
@@ -699,12 +745,14 @@ pub(crate) fn yang_boolean_inner(
         let face_map_b_for_snap = solid_b_mod.face_map.clone();
         let arena_a_for_snap = solid_a_mod.arena.clone();
         let arena_b_for_snap = solid_b_mod.arena.clone();
+        let stage0_mesh_a = flat_arrays_to_render_mesh(&verts_a, &tris_a, &mesh_a_for_snap);
+        let stage0_mesh_b = flat_arrays_to_render_mesh(&verts_b, &tris_b, &mesh_b_for_snap);
         crate::boolean::pipeline_oracles::record_snapshot(move |bundle| {
             bundle.stage_0_coplanar = Some(
                 crate::boolean::pipeline_oracles::CoplanarPreprocessSnapshot {
                     pairs: pairs_for_snap,
-                    mesh_a: Some(mesh_a_for_snap.clone()),
-                    mesh_b: Some(mesh_b_for_snap.clone()),
+                    mesh_a: Some(stage0_mesh_a),
+                    mesh_b: Some(stage0_mesh_b),
                 },
             );
             bundle.stage_1_rendermesh_a = Some(mesh_a_for_snap);
@@ -2316,15 +2364,26 @@ mod tests {
     #[test]
     fn yang_diag_overlapping_box_label_distribution() {
         use crate::boolean::exact_mesh::{
-            label_cells, select_boolean_result, subdivide_mesh_pair, MeshBooleanOp,
+            build_manifold_patch_graph, label_cells, select_boolean_result, subdivide_mesh_pair,
+            MeshBooleanOp,
         };
         let (verts_a, tris_a) = make_test_box_mesh([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
         let (verts_b, tris_b) = make_test_box_mesh([1.0, 0.0, 0.0], [3.0, 2.0, 2.0]);
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let graph = build_manifold_patch_graph(&subdivided);
+        let labeling = label_cells(
+            &subdivided,
+            &graph,
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
 
         let mut a_outside = 0usize;
         let mut b_outside = 0usize;

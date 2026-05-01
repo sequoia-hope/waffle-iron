@@ -15,8 +15,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use crate::boolean::cherchi::Orientation as CosurfaceOrientation;
 use crate::boolean::exact_mesh::{
-    label_cells, subdivide_mesh_pair, Aabb, CellLabel, CellLabeling, MeshBooleanOp, MeshId,
-    SubTriangle, SubdividedMesh,
+    build_manifold_patch_graph, label_cells, subdivide_mesh_pair, Aabb, CellLabel, CellLabeling,
+    MeshBooleanOp, MeshId, SubTriangle, SubdividedMesh,
 };
 use crate::tessellation::bijective::BijectiveMap;
 use crate::topology::arena::TopoArena;
@@ -1452,8 +1452,10 @@ fn yang_pipeline_result_for_disjoint(
     // Reuse the normal labeling pass. With disjoint inputs and the
     // op-specific external mesh selection above, every sub-triangle is
     // labeled `Outside`.
+    let graph = build_manifold_patch_graph(&subdivided);
     let labeling = label_cells(
         &subdivided,
+        &graph,
         verts_a,
         tris_a,
         ext_verts_b,
@@ -1646,9 +1648,22 @@ pub(crate) fn yang_boolean_pipeline(
     }
 
     // Stage 2: Label each sub-triangle as inside/outside the opposite mesh.
+    // Per-patch labeling per Cherchi 2022 §5 + Algorithm 1: build the
+    // manifold-edge patch decomposition and feed it to `label_cells` so the
+    // per-patch-uniform-label invariant holds by construction.
     // Deadline is threaded through so label_cells can enforce the timeout
-    // during its per-sub-triangle ray-casting loop.
-    let labeling = label_cells(&subdivided, verts_a, tris_a, verts_b, tris_b, deadline, d_p)?;
+    // during its per-patch ray-casting loop.
+    let graph = build_manifold_patch_graph(&subdivided);
+    let labeling = label_cells(
+        &subdivided,
+        &graph,
+        verts_a,
+        tris_a,
+        verts_b,
+        tris_b,
+        deadline,
+        d_p,
+    )?;
     {
         let a_outside = labeling
             .labels_a
@@ -1928,8 +1943,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
 
         // Build bijective maps: for each sub-triangle, look up its parent_tri,
         // then map that to a face index via the box's 2-tris-per-face scheme.
@@ -2206,8 +2230,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
 
         let bijective_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
         let bijective_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
@@ -3646,8 +3679,17 @@ mod tests {
         // Run intermediate stages to get face survival count.
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
         let survival = face_survival_detect(
             &subdivided,
             &labeling,
@@ -3868,8 +3910,17 @@ mod tests {
         let b_sub_count = subdivided.tris_b.len();
 
         // Stage 2: Label cells
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
 
         // Diagnostic: Count labels by type
         let mut a_labels: std::collections::HashMap<String, usize> =
@@ -3976,8 +4027,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
 
         // Count labels
         let mut a_labels: std::collections::HashMap<String, usize> =
@@ -4062,8 +4122,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
 
         let mut a_labels: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
@@ -4212,8 +4281,17 @@ mod tests {
             subdivided.verts.len()
         );
 
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
         let mut a_labels: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
         for label in &labeling.labels_a {
@@ -4555,8 +4633,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
         let mut survival = face_survival_detect(
             &subdivided,
             &labeling,
@@ -5370,8 +5457,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
 
         let bij_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
         let bij_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
@@ -5401,8 +5497,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
 
         let bij_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
         let bij_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
@@ -5435,8 +5540,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
 
         let bij_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
         let bij_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
@@ -5469,8 +5583,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
 
         let bij_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
         let bij_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
@@ -5512,8 +5635,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
 
         let bij_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
         let bij_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
@@ -5562,8 +5694,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
 
         let bij_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
         let bij_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
@@ -5615,8 +5756,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
 
         let bijective_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
         let bijective_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
@@ -5729,8 +5879,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
 
         let bijective_a = build_bijective_from_subdivided(&subdivided.tris_a, tris_a.len());
         let bijective_b = build_bijective_from_subdivided(&subdivided.tris_b, tris_b.len());
@@ -5841,8 +6000,17 @@ mod tests {
         );
 
         // === STAGE 3: label_cells ===
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
-            .expect("label_cells should succeed");
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .expect("label_cells should succeed");
 
         // Count labels for A
         let a_outside = labeling
@@ -6107,8 +6275,17 @@ mod tests {
         );
 
         // === STAGE 3: label_cells ===
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
-            .expect("label_cells should succeed");
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .expect("label_cells should succeed");
 
         let a_outside = labeling
             .labels_a
@@ -6388,8 +6565,17 @@ mod tests {
         );
 
         // === STAGE 3: label_cells ===
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
-            .expect("F0003: label_cells should succeed");
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .expect("F0003: label_cells should succeed");
 
         let a_outside = labeling
             .labels_a
@@ -6660,8 +6846,17 @@ mod tests {
         );
 
         // === STAGE 3: label_cells ===
-        let labeling = label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
-            .expect("F0004: label_cells should succeed");
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .expect("F0004: label_cells should succeed");
 
         let a_outside = labeling
             .labels_a

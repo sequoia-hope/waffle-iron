@@ -1923,26 +1923,35 @@ pub(crate) fn build_manifold_patch_graph(subdivided: &SubdividedMesh) -> Manifol
 
 /// Classify each sub-triangle as inside or outside the other mesh.
 ///
-/// Uses generalized winding numbers [#7 Jacobson 2013] to determine whether
-/// the centroid of each sub-triangle in mesh A lies inside mesh B (and vice
-/// versa). The original (pre-subdivision) mesh geometry is used as the
-/// winding number source — the subdivided mesh provides the sub-triangles
-/// whose centroids are the query points.
+/// **Per-patch labeling per Cherchi 2022 §5 + Algorithm 1**: one ray-cast per
+/// manifold-edge-bounded patch suffices. The patch decomposition is supplied
+/// by `graph` (built via `build_manifold_patch_graph(subdivided)` by the
+/// caller). For each patch we pick a deterministic non-degenerate
+/// representative member, classify it via `label_sub_tri_raycast` against
+/// its opposing mesh, and propagate the resulting label to every member of
+/// the patch. Cherchi 2022 §5 (p. 6): "the algorithm scales with the number
+/// of patches in the arrangement and not with the number of triangles in the
+/// mesh". The per-patch invariant is therefore enforced **by construction**
+/// here, rather than asserted post-hoc.
 ///
-/// When centroids lie on the opposing mesh's surface (winding number ≈ 0.5),
-/// the evaluation point is offset along the inward normal to break the tie.
-/// See `label_sub_tri` for details.
+/// Ref `specs/yang_per_patch_labeling.md` §3 (branch table B1-B7) and §4
+/// (invariants I1-I5). PR11.
 ///
 /// # Arguments
 ///
 /// - `subdivided`: The subdivided mesh pair from `subdivide_mesh_pair`.
+/// - `graph`: Manifold-edge patch decomposition from
+///   `build_manifold_patch_graph(subdivided)`. Caller's contract: must be
+///   built from the same `subdivided` argument (validated defensively).
 /// - `original_verts_a`: Vertex positions of the original mesh A.
 /// - `original_tris_a`: Triangle indices of the original mesh A.
 /// - `original_verts_b`: Vertex positions of the original mesh B.
 /// - `original_tris_b`: Triangle indices of the original mesh B.
+#[allow(clippy::too_many_arguments)]
 #[allow(dead_code)] // Phase 2 building block — task 2d
 pub(crate) fn label_cells(
     subdivided: &SubdividedMesh,
+    graph: &ManifoldPatchGraph,
     original_verts_a: &[[f64; 3]],
     original_tris_a: &[[usize; 3]],
     original_verts_b: &[[f64; 3]],
@@ -1950,6 +1959,17 @@ pub(crate) fn label_cells(
     deadline: Option<std::time::Instant>,
     d_epsilon: f64,
 ) -> Result<CellLabeling, crate::types::KernelError> {
+    // B7 (spec §3): defensive parameter validation — caller must build
+    // `graph` from `subdivided`. A mismatch indicates the caller mutated
+    // `subdivided` between `build_manifold_patch_graph` and `label_cells`.
+    let n_a = subdivided.tris_a.len();
+    let n_b = subdivided.tris_b.len();
+    if graph.tris_a_count != n_a || graph.patch_of.len() != n_a + n_b {
+        return Err(crate::types::KernelError::NotSupported {
+            operation: "label_cells: graph/subdivided count mismatch".to_string(),
+        });
+    }
+
     // Epsilon for offset-based disambiguation per Yang 2025 Section 4.4.2.
     let effective_eps = if d_epsilon > 0.0 { d_epsilon } else { 1e-6 };
     // Weld coincident vertices in the original meshes to close T-junction cracks.
@@ -1968,67 +1988,123 @@ pub(crate) fn label_cells(
     let global_max_b = compute_global_max(&welded_verts_b);
     let global_max_a = compute_global_max(&welded_verts_a);
 
-    // Label A sub-triangles: is each one inside mesh B?
-    // Uses BVH ray casting with GWN fallback for degenerate cases.
-    // Checks deadline every 100 sub-triangles to enforce pipeline timeout.
-    let mut labels_a = Vec::with_capacity(subdivided.tris_a.len());
-    for (i, sub_tri) in subdivided.tris_a.iter().enumerate() {
-        if i % 100 == 0 {
-            if let Some(d) = deadline {
-                if std::time::Instant::now() > d {
-                    return Err(crate::types::KernelError::NotSupported {
-                        operation: "yang_boolean: label_cells timeout (A sub-tris)".to_string(),
-                    });
-                }
-            }
-        }
-        labels_a.push(if let Some(ref bvh) = bvh_b {
-            // target_label "B" — A's sub-tri being classified against mesh B.
-            label_sub_tri_raycast(
-                &subdivided.verts,
-                sub_tri,
-                &welded_verts_b,
-                &welded_tris_b,
-                bvh,
-                global_max_b,
-                effective_eps,
-                "B",
-            )
-        } else {
-            // Empty target mesh — everything is outside.
-            CellLabel::Outside
-        });
-    }
+    // Per-patch labeling. We allocate output slots up front and fill them
+    // in patch order so I4 (count conservation) holds even on B5 (empty
+    // patch — defensive) and B4 (degenerate-fallback) paths.
+    //
+    // I1 (per-patch label uniformity) holds by construction: every member
+    // of a patch receives the same label that the representative produced.
+    let mut labels_a: Vec<CellLabel> = vec![CellLabel::Outside; n_a];
+    let mut labels_b: Vec<CellLabel> = vec![CellLabel::Outside; n_b];
 
-    // Label B sub-triangles: is each one inside mesh A?
-    // Checks deadline every 100 sub-triangles to enforce pipeline timeout.
-    let mut labels_b = Vec::with_capacity(subdivided.tris_b.len());
-    for (i, sub_tri) in subdivided.tris_b.iter().enumerate() {
-        if i % 100 == 0 {
+    // Helper: opposing-mesh ray-cast for a given flat sub-tri index.
+    // For A-members (flat < tris_a_count) the opposing mesh is B, and vice
+    // versa (B3 mixed-mesh patches: each member has its own opposing mesh,
+    // but per spec §3 B3 / §6 B3 we use the REPRESENTATIVE's classification
+    // — we just need the right BVH/target to classify the representative).
+    let classify_flat = |flat_idx: usize| -> CellLabel {
+        if flat_idx < n_a {
+            // A sub-tri — classify against mesh B.
+            let sub_tri = &subdivided.tris_a[flat_idx];
+            if let Some(ref bvh) = bvh_b {
+                label_sub_tri_raycast(
+                    &subdivided.verts,
+                    sub_tri,
+                    &welded_verts_b,
+                    &welded_tris_b,
+                    bvh,
+                    global_max_b,
+                    effective_eps,
+                    "B",
+                )
+            } else {
+                CellLabel::Outside
+            }
+        } else {
+            // B sub-tri — classify against mesh A.
+            let sub_tri = &subdivided.tris_b[flat_idx - n_a];
+            if let Some(ref bvh) = bvh_a {
+                label_sub_tri_raycast(
+                    &subdivided.verts,
+                    sub_tri,
+                    &welded_verts_a,
+                    &welded_tris_a,
+                    bvh,
+                    global_max_a,
+                    effective_eps,
+                    "A",
+                )
+            } else {
+                CellLabel::Outside
+            }
+        }
+    };
+
+    // Helper: a sub-tri is degenerate iff its edge cross-product is exactly
+    // zero (matches `MeshArrangementWellFormedOracle::check_no_degenerate`
+    // — spec §3 B4 + uncertainty #3 in spec — same exact-zero criterion,
+    // no new tolerance threshold per `feedback_yang_only.md`).
+    let is_degenerate = |flat_idx: usize| -> bool {
+        let sub = if flat_idx < n_a {
+            &subdivided.tris_a[flat_idx]
+        } else {
+            &subdivided.tris_b[flat_idx - n_a]
+        };
+        let a = subdivided.verts[sub.verts[0]];
+        let b = subdivided.verts[sub.verts[1]];
+        let c = subdivided.verts[sub.verts[2]];
+        let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let cx = ab[1] * ac[2] - ab[2] * ac[1];
+        let cy = ab[2] * ac[0] - ab[0] * ac[2];
+        let cz = ab[0] * ac[1] - ab[1] * ac[0];
+        cx == 0.0 && cy == 0.0 && cz == 0.0
+    };
+
+    // Outer loop: one ray-cast per patch (Cherchi 2022 Algorithm 1).
+    // B6: deadline cadence is per-patch (every 100 patches), not per
+    // sub-tri.
+    for (patch_idx, members) in graph.patches.iter().enumerate() {
+        if patch_idx % 100 == 0 {
             if let Some(d) = deadline {
                 if std::time::Instant::now() > d {
                     return Err(crate::types::KernelError::NotSupported {
-                        operation: "yang_boolean: label_cells timeout (B sub-tris)".to_string(),
+                        operation: "yang_boolean: label_cells timeout (per-patch loop)".to_string(),
                     });
                 }
             }
         }
-        labels_b.push(if let Some(ref bvh) = bvh_a {
-            // target_label "A" — B's sub-tri being classified against mesh A.
-            label_sub_tri_raycast(
-                &subdivided.verts,
-                sub_tri,
-                &welded_verts_a,
-                &welded_tris_a,
-                bvh,
-                global_max_a,
-                effective_eps,
-                "A",
-            )
-        } else {
-            // Empty target mesh — everything is outside.
-            CellLabel::Outside
-        });
+
+        // B5: empty patch — should not occur (every BFS seed contributes
+        // itself), but skip silently per spec §6 B5.
+        if members.is_empty() {
+            continue;
+        }
+
+        // B4 representative-pick: first non-degenerate member by patch-
+        // index order (deterministic, refines Cherchi §5.1's "random t ∈ P").
+        // If ALL members are degenerate, fall back to members[0] and let
+        // label_sub_tri_raycast's Hoffmann/GWN cascade handle it. Do NOT
+        // silently skip — that would violate I4.
+        let representative = members
+            .iter()
+            .copied()
+            .find(|&flat| !is_degenerate(flat))
+            .unwrap_or(members[0]);
+
+        // Classify the representative against its opposing mesh, then
+        // propagate the label to every member's appropriate slot
+        // (spec §3 B1 / B2 / B3 — per-side propagation slot is a
+        // bookkeeping detail; the representative's label IS the patch's
+        // label per Cherchi §5).
+        let patch_label = classify_flat(representative);
+        for &flat in members {
+            if flat < n_a {
+                labels_a[flat] = patch_label;
+            } else {
+                labels_b[flat - n_a] = patch_label;
+            }
+        }
     }
 
     Ok(CellLabeling { labels_a, labels_b })
@@ -3645,8 +3721,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
 
         // Labels must have correct length
         assert_eq!(
@@ -3881,8 +3966,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
 
         assert_eq!(
             labeling.labels_a.len(),
@@ -3951,8 +4045,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
         let result = select_boolean_result(&subdivided, &labeling, MeshBooleanOp::Union);
 
         // Union of non-overlapping: all A triangles + all B triangles.
@@ -3986,8 +4089,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
         let result = select_boolean_result(&subdivided, &labeling, MeshBooleanOp::Subtract);
 
         assert!(
@@ -4025,8 +4137,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
         let result = select_boolean_result(&subdivided, &labeling, MeshBooleanOp::Intersect);
 
         assert!(
@@ -4064,8 +4185,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
 
         // Verify all labels are Outside (non-overlapping)
         assert!(
@@ -4799,8 +4929,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
         select_boolean_result(&subdivided, &labeling, op)
     }
 
@@ -5015,7 +5154,17 @@ mod tests {
         let (vb, tb) = make_box_mesh_fine([0.75, 0.75, 0.75], [2.75, 2.75, 2.75]);
         let sub =
             subdivide_mesh_pair(&va, &ta, &vb, &tb, None, 0.0).expect("subdivision should succeed");
-        let lab = label_cells(&sub, &va, &ta, &vb, &tb, None, 0.0).unwrap();
+        let lab = label_cells(
+            &sub,
+            &build_manifold_patch_graph(&sub),
+            &va,
+            &ta,
+            &vb,
+            &tb,
+            None,
+            0.0,
+        )
+        .unwrap();
         for op in [
             MeshBooleanOp::Union,
             MeshBooleanOp::Subtract,
@@ -5997,8 +6146,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
 
         // Both meshes should be subdivided (more than 12 original tris)
         assert!(
@@ -6755,8 +6913,17 @@ mod tests {
 
         let subdivided = subdivide_mesh_pair(&verts_a, &tris_a, &verts_b, &tris_b, None, 0.0)
             .expect("subdivision should succeed");
-        let labeling =
-            label_cells(&subdivided, &verts_a, &tris_a, &verts_b, &tris_b, None, 0.0).unwrap();
+        let labeling = label_cells(
+            &subdivided,
+            &build_manifold_patch_graph(&subdivided),
+            &verts_a,
+            &tris_a,
+            &verts_b,
+            &tris_b,
+            None,
+            0.0,
+        )
+        .unwrap();
 
         assert_eq!(
             labeling.labels_a.len(),
@@ -7299,7 +7466,8 @@ mod tests {
 
         // Deadline already expired → should return Err immediately
         let expired = std::time::Instant::now() - std::time::Duration::from_secs(1);
-        let result = label_cells(&subdivided, &va, &ta, &vb, &tb, Some(expired), 0.0);
+        let graph = build_manifold_patch_graph(&subdivided);
+        let result = label_cells(&subdivided, &graph, &va, &ta, &vb, &tb, Some(expired), 0.0);
         assert!(
             result.is_err(),
             "label_cells should error on expired deadline"
@@ -7316,7 +7484,8 @@ mod tests {
         let (va, ta) = make_box_mesh([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]);
         let (vb, tb) = make_box_mesh([0.5, 0.5, 0.5], [1.5, 1.5, 1.5]);
         let subdivided = subdivide_mesh_pair(&va, &ta, &vb, &tb, None, 0.0).unwrap();
-        let labeling = label_cells(&subdivided, &va, &ta, &vb, &tb, None, 0.0).unwrap();
+        let graph = build_manifold_patch_graph(&subdivided);
+        let labeling = label_cells(&subdivided, &graph, &va, &ta, &vb, &tb, None, 0.0).unwrap();
         assert_eq!(labeling.labels_a.len(), subdivided.tris_a.len());
         assert_eq!(labeling.labels_b.len(), subdivided.tris_b.len());
     }
@@ -7329,7 +7498,8 @@ mod tests {
 
         // Generous deadline (60s) — should succeed
         let future = std::time::Instant::now() + std::time::Duration::from_secs(60);
-        let result = label_cells(&subdivided, &va, &ta, &vb, &tb, Some(future), 0.0);
+        let graph = build_manifold_patch_graph(&subdivided);
+        let result = label_cells(&subdivided, &graph, &va, &ta, &vb, &tb, Some(future), 0.0);
         assert!(
             result.is_ok(),
             "label_cells should succeed with generous deadline"
