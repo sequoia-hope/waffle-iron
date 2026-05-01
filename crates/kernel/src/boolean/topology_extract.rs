@@ -1385,6 +1385,9 @@ fn yang_pipeline_result_for_disjoint(
                 tris_b: Vec::new(),
                 params_a: Vec::new(),
                 params_b: Vec::new(),
+                // Spec §F1 default: synthetic construction tautologically
+                // satisfies tris_a.len() + tris_b.len() == upstream_tri_count.
+                upstream_tri_count: 0,
             },
             remaining_failed_verts: 0,
         });
@@ -1441,12 +1444,17 @@ fn yang_pipeline_result_for_disjoint(
     };
 
     let n_combined = combined_verts.len();
+    let upstream_tri_count = sub_tris_a.len() + sub_tris_b.len();
     let subdivided = SubdividedMesh {
         verts: combined_verts,
         tris_a: sub_tris_a,
         tris_b: sub_tris_b,
         params_a: vec![None; n_combined],
         params_b: vec![None; n_combined],
+        // Spec §F1 default: synthetic disjoint-pipeline construction;
+        // upstream_tri_count = tris_a.len() + tris_b.len() so the F1
+        // anchor is tautologically satisfied for this no-Cherchi path.
+        upstream_tri_count,
     };
 
     // Reuse the normal labeling pass. With disjoint inputs and the
@@ -2258,6 +2266,7 @@ mod tests {
             tris_b: vec![],
             params_a: vec![],
             params_b: vec![],
+            upstream_tri_count: 0,
         };
         let labeling = CellLabeling {
             labels_a: vec![],
@@ -2757,6 +2766,7 @@ mod tests {
             tris_b: vec![],
             params_a: vec![],
             params_b: vec![],
+            upstream_tri_count: 0,
         };
         let survival = FaceSurvivalMap {
             groups: BTreeMap::new(),
@@ -3335,6 +3345,7 @@ mod tests {
             tris_b: vec![],
             params_a: vec![],
             params_b: vec![],
+            upstream_tri_count: 0,
         };
         let trim_map = TrimBoundaryMap {
             boundaries: BTreeMap::new(),
@@ -3760,6 +3771,7 @@ mod tests {
             tris_b: vec![],
             params_a: vec![],
             params_b: vec![],
+            upstream_tri_count: 0,
         };
 
         // This should NOT panic — it should return a valid (possibly empty)
@@ -4956,6 +4968,7 @@ mod tests {
             tris_b: vec![],
             params_a: vec![],
             params_b: vec![],
+            upstream_tri_count: 0,
         };
 
         // ── FaceSurvivalMap ──

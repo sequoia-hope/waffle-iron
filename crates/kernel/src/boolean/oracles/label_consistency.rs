@@ -213,6 +213,8 @@ mod tests {
             tris_b: Vec::new(),
             params_a: vec![None; 4],
             params_b: vec![None; 4],
+            // Spec §F1 default for synthetic fixtures.
+            upstream_tri_count: 2,
         }
     }
 
@@ -318,6 +320,8 @@ mod tests {
             tris_b: Vec::new(),
             params_a: vec![None; 5],
             params_b: vec![None; 5],
+            // Spec §F1 default for synthetic fixtures.
+            upstream_tri_count: 3,
         }
     }
 

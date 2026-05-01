@@ -661,6 +661,8 @@ mod tests {
             ],
             params_a: vec![None; 4],
             params_b: vec![None; 4],
+            // Spec §F1 default for synthetic fixtures.
+            upstream_tri_count: 4,
         }
     }
 

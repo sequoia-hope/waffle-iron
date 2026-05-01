@@ -138,6 +138,32 @@ impl StageOracle for MeshArrangementWellFormedOracle {
             });
         }
 
+        // ── F1 conservation anchor (spec §F1, encoding (a)) ────────────
+        // Anchor the post-snapshot tri count to the upstream Cherchi
+        // emission counter. The directed-edge check above is a tautology
+        // that shrinks proportionally with snapshot size, so a "lost-
+        // during-emit" defect (e.g., a stray `sub_tris_a.pop()` between
+        // the emission loop and the `SubdividedMesh` constructor) is
+        // structurally invisible to it. `upstream_tri_count` is populated
+        // at emission time in `subdivide_mesh_pair_full_cherchi`
+        // (encoding (a): a Cherchi label==3 tri increments the counter
+        // by 2 for the A and B sub-tris it emits), so any divergence
+        // from `tris_a.len() + tris_b.len()` indicates lost or duplicated
+        // sub-tris between emission and snapshot.
+        if n_tris != subdivided.upstream_tri_count {
+            return Err(OracleViolation {
+                stage: self.stage(),
+                oracle_name: self.name(),
+                message: format!(
+                    "Stage 2 emit conservation violated: subdivided.tris_a.len() + \
+                     subdivided.tris_b.len() = {n_tris}, but upstream_tri_count = {} \
+                     (expected equality per F1 / spec §F1 encoding (a))",
+                    subdivided.upstream_tri_count,
+                ),
+                kind: ViolationKind::ContractViolated,
+            });
+        }
+
         // Edge incidence (1): every undirected edge MUST appear in the
         // directed map under at least one orientation. A "phantom" edge
         // (in undirected but neither orientation appears in directed) is
@@ -318,6 +344,8 @@ mod tests {
             tris_b,
             params_a: vec![None; 16],
             params_b: vec![None; 16],
+            // Spec §F1 default for synthetic fixtures: 24 = 12 + 12.
+            upstream_tri_count: 24,
         }
     }
 
@@ -333,6 +361,7 @@ mod tests {
             tris_b: vec![],
             params_a: vec![None; 3],
             params_b: vec![],
+            upstream_tri_count: 1,
         }
     }
 
@@ -344,6 +373,7 @@ mod tests {
             tris_b: vec![],
             params_a: vec![None; 3],
             params_b: vec![],
+            upstream_tri_count: 1,
         }
     }
 
@@ -427,6 +457,56 @@ mod tests {
         // edge-incidence inconsistency branch is unreachable from a
         // well-formed builder; we keep the branch as a defensive guard.
         let mesh = two_disjoint_cubes();
+        let mut state = PipelineState::empty();
+        state.stage_2_subdivided = Some(mesh);
+        assert!(MeshArrangementWellFormedOracle.check(&state).is_ok());
+    }
+
+    // ── KNOWN-FAIL: F1 upstream conservation anchor (spec §F1) ──────────
+
+    /// Per spec §F1 + PR10 audit (`specs/oracle_validity_audit.md` §F1):
+    /// the existing directed-edge tautology check shrinks proportionally
+    /// with snapshot size, so a "lost-during-emit" defect produces no
+    /// violation. Anchoring `upstream_tri_count` to the upstream Cherchi
+    /// emission counter detects the divergence.
+    ///
+    /// Fixture mimics the audit's mutation: take the well-formed
+    /// two-disjoint-cubes snapshot (24 sub-tris, upstream_tri_count = 24)
+    /// and `pop()` one sub-triangle from `tris_a` to simulate a stray
+    /// drop between emission and `SubdividedMesh` construction. The
+    /// directed-edge conservation check then sees 3 × 23 = 69 edges
+    /// (consistent with itself) but `upstream_tri_count` still records
+    /// the 24 emissions — F1 fires.
+    #[test]
+    fn oracle_rejects_lost_during_emit_via_f1_anchor() {
+        let mut mesh = two_disjoint_cubes();
+        // Sanity: fixture's synthetic default is 24.
+        assert_eq!(mesh.upstream_tri_count, 24);
+        // Simulate the audit's "lost-during-emit" mutation.
+        mesh.tris_a.pop().expect("two_disjoint_cubes has tris_a");
+        let mut state = PipelineState::empty();
+        state.stage_2_subdivided = Some(mesh);
+        let violation = MeshArrangementWellFormedOracle
+            .check(&state)
+            .expect_err("F1 must detect the dropped sub-tri");
+        assert_eq!(violation.kind, ViolationKind::ContractViolated);
+        assert_eq!(violation.stage, YangStage::Stage2Arrangement);
+        assert!(
+            violation.message.contains("upstream_tri_count")
+                && violation.message.contains("23")
+                && violation.message.contains("24"),
+            "expected message to name both counts (23 vs upstream 24), got: {}",
+            violation.message,
+        );
+    }
+
+    /// Mirror test: the F1 anchor must NOT fire on a well-formed snapshot
+    /// where every emission is recorded. Guards against an oracle that
+    /// rejects everything (false-positive surface).
+    #[test]
+    fn oracle_passes_when_upstream_tri_count_matches() {
+        let mesh = two_disjoint_cubes();
+        assert_eq!(mesh.tris_a.len() + mesh.tris_b.len(), mesh.upstream_tri_count);
         let mut state = PipelineState::empty();
         state.stage_2_subdivided = Some(mesh);
         assert!(MeshArrangementWellFormedOracle.check(&state).is_ok());

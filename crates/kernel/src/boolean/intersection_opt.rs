@@ -1567,6 +1567,8 @@ mod tests {
                 Some((2.0, 0.0)),
                 Some((1.0, 0.0)),
             ],
+            // Spec §F1 default for synthetic fixtures: 4 = 2 + 2.
+            upstream_tri_count: 4,
         };
 
         let bijective_a = BijectiveMap {

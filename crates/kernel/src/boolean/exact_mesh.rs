@@ -1143,6 +1143,18 @@ pub(crate) struct SubdividedMesh {
     pub params_a: Vec<Option<(f64, f64)>>,
     /// Optimized parametric (s,t) on surface B per vertex.
     pub params_b: Vec<Option<(f64, f64)>>,
+    /// Spec §F1 encoding (a): count of distinct sub-triangles emitted by
+    /// the upstream Cherchi `solve_intersections` call. A label==3
+    /// (coplanar duplicate) Cherchi tri contributes 2 to this count
+    /// because it emits both an A and a B sub-triangle. Anchors the
+    /// Stage 2 conservation check in
+    /// `MeshArrangementWellFormedOracle::check` to upstream truth, so a
+    /// "lost-during-emit" defect (e.g., a stray `sub_tris_a.pop()` before
+    /// `SubdividedMesh` construction) is no longer hidden by the
+    /// internally tautological `total_directed == 3 × n_tris` check.
+    /// Synthetic constructions default to `tris_a.len() + tris_b.len()`
+    /// per spec §F1 lines 351-360.
+    pub upstream_tri_count: usize,
 }
 
 // ── Task 2d: Cell labeling via generalized winding numbers ──
@@ -2448,6 +2460,12 @@ fn subdivide_mesh_pair_full_cherchi(
 
     let mut sub_tris_a = Vec::new();
     let mut sub_tris_b = Vec::new();
+    // Spec §F1 encoding (a): count distinct emitted sub-triangles. A
+    // Cherchi label==3 (coplanar duplicate) tri emits BOTH an A and a B
+    // sub-tri from a single upstream tri, contributing 2 to this counter.
+    // Anchors the Stage 2 oracle's conservation check to upstream truth
+    // (vs the existing tautological 3 × n_tris check).
+    let mut upstream_tri_count: usize = 0;
     for (i, tri) in result.tris.iter().enumerate() {
         let label = result.labels[i];
         let clean_parent = result.parent_tris[i];
@@ -2481,6 +2499,7 @@ fn subdivide_mesh_pair_full_cherchi(
                 parent_tri: local_parent,
                 cosurface_orientation: orient,
             });
+            upstream_tri_count += 1;
         }
         if label & 2 != 0 {
             // Mesh B
@@ -2506,6 +2525,7 @@ fn subdivide_mesh_pair_full_cherchi(
                 parent_tri: local_parent,
                 cosurface_orientation: orient,
             });
+            upstream_tri_count += 1;
         }
     }
 
@@ -2516,6 +2536,7 @@ fn subdivide_mesh_pair_full_cherchi(
         tris_b: sub_tris_b,
         params_a: vec![None; n_verts],
         params_b: vec![None; n_verts],
+        upstream_tri_count,
     })
 }
 
@@ -3778,7 +3799,7 @@ mod tests {
     /// of mesh A; no intersection edges exist; manifold edges only.
     fn subdivided_from_single_mesh(verts: Vec<[f64; 3]>, tris: Vec<[usize; 3]>) -> SubdividedMesh {
         let n = verts.len();
-        let tris_a = tris
+        let tris_a: Vec<SubTriangle> = tris
             .into_iter()
             .enumerate()
             .map(|(i, t)| SubTriangle {
@@ -3787,12 +3808,15 @@ mod tests {
                 cosurface_orientation: None,
             })
             .collect();
+        let upstream_tri_count = tris_a.len();
         SubdividedMesh {
             verts,
             tris_a,
             tris_b: Vec::new(),
             params_a: vec![None; n],
             params_b: vec![None; n],
+            // Spec §F1 default for synthetic fixtures.
+            upstream_tri_count,
         }
     }
 
@@ -3810,7 +3834,7 @@ mod tests {
         let mut verts = verts_a;
         verts.extend(verts_b);
         let n = verts.len();
-        let sub_tris_a = tris_a
+        let sub_tris_a: Vec<SubTriangle> = tris_a
             .into_iter()
             .enumerate()
             .map(|(i, t)| SubTriangle {
@@ -3819,7 +3843,7 @@ mod tests {
                 cosurface_orientation: None,
             })
             .collect();
-        let sub_tris_b = tris_b
+        let sub_tris_b: Vec<SubTriangle> = tris_b
             .into_iter()
             .enumerate()
             .map(|(j, t)| SubTriangle {
@@ -3828,12 +3852,15 @@ mod tests {
                 cosurface_orientation: None,
             })
             .collect();
+        let upstream_tri_count = sub_tris_a.len() + sub_tris_b.len();
         SubdividedMesh {
             verts,
             tris_a: sub_tris_a,
             tris_b: sub_tris_b,
             params_a: vec![None; n],
             params_b: vec![None; n],
+            // Spec §F1 default for synthetic fixtures.
+            upstream_tri_count,
         }
     }
 
