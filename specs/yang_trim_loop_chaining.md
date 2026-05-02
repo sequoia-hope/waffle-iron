@@ -467,14 +467,23 @@ are committed because they're a **strict improvement** (BTreeMap eliminates flap
 duplicate-edge LIFO defect that would matter if the canonical-edge story were correct), but
 they do NOT unlock R0020/R0021. Tests 3, 4, 5 stay red.
 
-#### PR13 effective deliverable (post-amendment)
+#### PR13 effective deliverable (post-amendment, with adversary V5 correction)
 
-- **Determinism win**: BTreeMap on `topology_extract.rs:644` (residual PR12 work that was
-  missed in `7e119cc`). T6 (R0021 determinism) passes; R0021 NB count stable at 7 (was
-  flapping 5/6/7).
-- **Structural cleanup**: boundary-edge dedup + sort-by-target + FIFO `remove(0)` in Step 6.
-  No behavioral change for cases that pass; modest improvement for cases at branch points.
-- No regression in PR12's 84 AllPass.
+- **Hygienic alignment in `flood_fill_patches::Step 6`**: BTreeMap on `topology_extract.rs:644`
+  + boundary-edge dedup + sort-by-target + FIFO `remove(0)`.
+- T6 (R0021 determinism) passes — R0021 NB count stable at 7 across 3+ runs (T2 §6 reported
+  6-7; agent-impl observed 5/6/7 across a wider sample).
+- **V5 mutation finding (adversary `7ff9926`)**: PR13's specific BTreeMap on line 644 is
+  NOT mechanistically load-bearing for T6's pass. T6 also passes with PR13's BTreeMap
+  reverted to HashMap. The actual determinism source is **PR12's `7e119cc` BTreeMap on
+  `extract_trim_boundaries:1084`** — that BTreeMap is what makes R0021 binary-stable; PR13
+  is hygienic alignment of an adjacent code path.
+- The PR13 code is still strictly better (BTreeMap > HashMap, dedup > duplicate edges) and
+  worth shipping for forward consistency, but the narrative "PR13 fixes determinism" is
+  mechanistically unsupported per V5. The honest framing: PR13 cleans up flood_fill_patches
+  Step 6 to match PR12's determinism posture in adjacent paths.
+- No regression in PR12's 84 AllPass (single-case drop to 83 is within noise band per
+  PR12's documented F0018/R0046/F0076 flap).
 
 #### PR14 archaeological anchor (Render LOD investigation)
 
