@@ -29,6 +29,7 @@ use i_overlay::float::single::SingleFloatOverlay;
 pub(crate) static COPLANAR_PAIRS_PROCESSED: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static COPLANAR_VERTS_SNAPPED_EXISTING: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static COPLANAR_VERTS_VIA_SPLIT_EDGE: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static COPLANAR_VERTS_DEDUPED_BY_CANON_KEY: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static COPLANAR_VERTS_DROPPED: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static COPLANAR_MEF_OK: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static COPLANAR_MEF_NO_LOOP: AtomicUsize = AtomicUsize::new(0);
@@ -186,6 +187,7 @@ pub(crate) fn split_brep_for_coplanar_pairs(
     let snap_pairs = COPLANAR_PAIRS_PROCESSED.load(Ordering::Relaxed);
     let snap_v_existing = COPLANAR_VERTS_SNAPPED_EXISTING.load(Ordering::Relaxed);
     let snap_v_split = COPLANAR_VERTS_VIA_SPLIT_EDGE.load(Ordering::Relaxed);
+    let snap_v_deduped = COPLANAR_VERTS_DEDUPED_BY_CANON_KEY.load(Ordering::Relaxed);
     let snap_v_dropped = COPLANAR_VERTS_DROPPED.load(Ordering::Relaxed);
     let snap_mef_ok = COPLANAR_MEF_OK.load(Ordering::Relaxed);
     let snap_mef_no_loop = COPLANAR_MEF_NO_LOOP.load(Ordering::Relaxed);
@@ -193,6 +195,16 @@ pub(crate) fn split_brep_for_coplanar_pairs(
     let snap_holes = COPLANAR_OVERLAY_HOLES_IGNORED.load(Ordering::Relaxed);
     let snap_identical = COPLANAR_IDENTICAL_FOOTPRINT.load(Ordering::Relaxed);
     let snap_partial = COPLANAR_PARTIAL_OVERLAP.load(Ordering::Relaxed);
+
+    // Per-call dedup state (PR-Y14b spec §3 branch C).
+    // `canon_to_pos`: shared across both arenas — first-seen `ov` per canon key,
+    // reused as the byte-identical position for every later `split_edge_at` call
+    // on the same canon key (lets Cherchi's exact-byte vertex merge collapse
+    // cross-arena corners). `canon_to_vertex_{a,b}`: per-arena dedup of repeat
+    // canon keys within the same arena (spec §I2). BTreeMap for determinism (§I7).
+    let mut canon_to_pos: BTreeMap<[i64; 3], [f64; 3]> = BTreeMap::new();
+    let mut canon_to_vertex_a: BTreeMap<[i64; 3], VertexIdx> = BTreeMap::new();
+    let mut canon_to_vertex_b: BTreeMap<[i64; 3], VertexIdx> = BTreeMap::new();
 
     for (pair_idx, pair) in coplanar_pairs.iter_mut().enumerate() {
         // Both same-direction and anti-parallel pairs need B-Rep splitting.
@@ -365,6 +377,8 @@ pub(crate) fn split_brep_for_coplanar_pairs(
             &mut solid_a.face_map,
             pair.face_a,
             &overlap_3d,
+            &mut canon_to_pos,
+            &mut canon_to_vertex_a,
         );
         #[cfg(test)]
         eprintln!("[COPLANAR SPLIT]   Splitting face_b={:?}...", pair.face_b);
@@ -374,6 +388,8 @@ pub(crate) fn split_brep_for_coplanar_pairs(
             &mut solid_b.face_map,
             pair.face_b,
             &overlap_3d,
+            &mut canon_to_pos,
+            &mut canon_to_vertex_b,
         );
     }
 
@@ -384,6 +400,8 @@ pub(crate) fn split_brep_for_coplanar_pairs(
     if pairs_delta > 0 {
         let v_existing = COPLANAR_VERTS_SNAPPED_EXISTING.load(Ordering::Relaxed) - snap_v_existing;
         let v_split = COPLANAR_VERTS_VIA_SPLIT_EDGE.load(Ordering::Relaxed) - snap_v_split;
+        let v_deduped =
+            COPLANAR_VERTS_DEDUPED_BY_CANON_KEY.load(Ordering::Relaxed) - snap_v_deduped;
         let v_dropped = COPLANAR_VERTS_DROPPED.load(Ordering::Relaxed) - snap_v_dropped;
         let mef_ok = COPLANAR_MEF_OK.load(Ordering::Relaxed) - snap_mef_ok;
         let mef_no_loop = COPLANAR_MEF_NO_LOOP.load(Ordering::Relaxed) - snap_mef_no_loop;
@@ -392,8 +410,8 @@ pub(crate) fn split_brep_for_coplanar_pairs(
         let identical = COPLANAR_IDENTICAL_FOOTPRINT.load(Ordering::Relaxed) - snap_identical;
         let partial_overlap = COPLANAR_PARTIAL_OVERLAP.load(Ordering::Relaxed) - snap_partial;
         eprintln!(
-            "[coplanar-tele] pairs={} verts_existing={} verts_split={} verts_dropped={} mef_ok={} mef_no_loop={} overlay_groups={} overlay_holes_ignored={} identical_footprint={} partial_overlap={}",
-            pairs_delta, v_existing, v_split, v_dropped, mef_ok, mef_no_loop, groups, holes, identical, partial_overlap
+            "[coplanar-tele] pairs={} verts_existing={} verts_split={} verts_deduped_by_canon_key={} verts_dropped={} mef_ok={} mef_no_loop={} overlay_groups={} overlay_holes_ignored={} identical_footprint={} partial_overlap={}",
+            pairs_delta, v_existing, v_split, v_deduped, v_dropped, mef_ok, mef_no_loop, groups, holes, identical, partial_overlap
         );
     }
 }
@@ -444,6 +462,8 @@ fn split_face_along_boundary(
     face_map: &mut BTreeMap<u64, FaceIdx>,
     face_idx: FaceIdx,
     overlap_boundary_3d: &[[f64; 3]],
+    canon_to_pos: &mut BTreeMap<[i64; 3], [f64; 3]>,
+    canon_to_vertex: &mut BTreeMap<[i64; 3], VertexIdx>,
 ) {
     #[cfg(test)]
     eprintln!(
@@ -465,10 +485,22 @@ fn split_face_along_boundary(
     // each split to avoid stale EdgeIdx references.
     let mut boundary_verts: Vec<VertexIdx> = Vec::new();
 
-    for (ov_idx, &ov) in overlap_boundary_3d.iter().enumerate() {
+    for (ov_idx, &raw_ov) in overlap_boundary_3d.iter().enumerate() {
         // Re-collect face edges fresh (may have changed from previous splits).
         let loop_idx = arena.faces[face_idx.0].outer_loop;
         let edges = collect_face_edges(arena, loop_idx);
+
+        // PR-Y14b spec §3 branch C: snap `ov` to first-seen position for this
+        // canon key so cross-arena pairs land at byte-identical positions
+        // (spec §I1).
+        let scale = crate::units::QUANT_NANOMETER_SCALE;
+        let canon = [
+            (raw_ov[0] * scale).round() as i64,
+            (raw_ov[1] * scale).round() as i64,
+            (raw_ov[2] * scale).round() as i64,
+        ];
+        let canon_seen_before = canon_to_pos.contains_key(&canon);
+        let ov = *canon_to_pos.entry(canon).or_insert(raw_ov);
 
         // Check if this vertex matches an existing face vertex.
         let mut found_existing = false;
@@ -485,11 +517,28 @@ fn split_face_along_boundary(
                     ov_idx, v0, p[0], p[1], p[2]
                 );
                 boundary_verts.push(v0);
+                // Populate per-arena map so a later ov on this arena at the
+                // same canon key reuses this vertex via branch C below.
+                canon_to_vertex.entry(canon).or_insert(v0);
                 found_existing = true;
                 break;
             }
         }
         if found_existing {
+            continue;
+        }
+
+        // PR-Y14b spec §3 branch C: if an earlier ov in this same arena
+        // already inserted a vertex at this canonical key, reuse it
+        // without calling split_edge_at again (spec §I2).
+        if let Some(&v_existing) = canon_to_vertex.get(&canon) {
+            COPLANAR_VERTS_DEDUPED_BY_CANON_KEY.fetch_add(1, Ordering::Relaxed);
+            #[cfg(test)]
+            eprintln!(
+                "[SPLIT BOUNDARY]   ov{}: DEDUPED (within-arena) to vertex {:?} via canon-key {:?}",
+                ov_idx, v_existing, canon
+            );
+            boundary_verts.push(v_existing);
             continue;
         }
 
@@ -520,6 +569,12 @@ fn split_face_along_boundary(
                 );
                 let v_new = split_edge_at(arena, edge_idx, ov);
                 COPLANAR_VERTS_VIA_SPLIT_EDGE.fetch_add(1, Ordering::Relaxed);
+                // Cross-arena dedup hit: split used byte-identical position
+                // from a prior call on the partner arena (spec §I2).
+                if canon_seen_before {
+                    COPLANAR_VERTS_DEDUPED_BY_CANON_KEY.fetch_add(1, Ordering::Relaxed);
+                }
+                canon_to_vertex.insert(canon, v_new);
                 boundary_verts.push(v_new);
                 found_on_edge = true;
                 break;

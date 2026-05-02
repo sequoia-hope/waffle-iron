@@ -428,3 +428,161 @@ The temporary `YANG_CONFORMAL_DUMP_CANON0` instrumentation at the
 Probe A call site has been reverted — `git diff` on
 `topology_extract.rs` shows only implementer-a's wired probes, no
 adversary additions.
+
+---
+
+## 11. Post-implementer-b empirical correction (PR-Y14b Phase 3, 2026-05-02)
+
+**This section supersedes §6 in part.** PR-Y14b implementer-b shipped
+the spec'd dedup at `coplanar_preprocess.rs:521` faithfully and
+correctly, then traced empirically that the F0002 conformal-probe
+defect persists byte-identically pre/post-fix. This adversary's
+Phase-3 verification (below) confirms that finding and re-localizes
+the defect to a different anchor — Cherchi internals.
+
+### 11.1 What implementer-b found
+
+A canonicalization function `dedup_mesh_vertices`
+(`crates/kernel/src/boolean/yang_integration.rs:1236`) is called at
+lines 659–660 BEFORE `subdivide_mesh_pair` for both A and B meshes.
+It uses the SAME `QUANT_NANOMETER_SCALE` constant as the conformal
+oracle and writes back canonicalized positions via
+`new_verts.push([key[0] as f64 / scale, ...])`. This makes the
+PR-Y14b coplanar-preprocess dedup **functionally redundant** — any
+sub-picometer drift introduced upstream gets canonicalized away
+downstream before reaching Stage A's measurement point.
+
+Implementer-b reported: 8 cross-arena dedup hits fired
+(`verts_deduped_by_canon_key=8` per the new telemetry counter),
+determinism preserved (I7), no corpus regressions, but Stage A
+remains byte-identical pre/post-fix.
+
+### 11.2 Independent verification (this adversary, Phase 3)
+
+I added temporary instrumentation in three places and ran F0002:
+
+1. **Inside `dedup_mesh_vertices`** (env: `YANG_PR_Y14B_DEDUP_CANARY=1`):
+   confirmed it sees 3 raw inputs at canon-0 per arena, all at
+   `-1.000...4749e-3` (f32-storage rounded), and emits 1 output at
+   `-1.000...02082e-3` (canonical-derived). Both arena calls behave
+   identically. Reverted.
+2. **At `subdivide_mesh_pair_full_cherchi` entry** (env:
+   `YANG_SUBDIV_ENTRY_CANARY=1`): each arena's `verts_a`/`verts_b`
+   contains TWO verts at canon-0 — index 5/4 (the canonical dedup
+   output) AND index 19 (a non-canonical `-1.000...20372...e-3`
+   value). Reverted.
+3. **At Cherchi STAGE1 `out_coords`** (env:
+   `YANG_CHERCHI_OUT_CANARY=1`): 8 verts at canon-0 in the final
+   output — 2 `Explicit` (round-tripped through the multiplier) and
+   6 `LPI` (intersection-point implicit-vertex variants). Reverted.
+
+**`git diff` on the implementer files (yang_integration.rs,
+cherchi/mod.rs, exact_mesh.rs) shows zero adversary additions.**
+
+### 11.3 Verdict on PR-Y14a §6 anchor recommendation
+
+**§6.2's recommendation that `coplanar_preprocess.rs:521` is the
+PR-Y14b anchor is empirically incorrect.** It is right-in-spirit
+(yes, that's where the upstream sub-picometer drift gets manufactured
+for the 2 Explicit cluster members), but functionally the drift gets
+canonicalized away by `dedup_mesh_vertices`. So even with a perfect
+upstream snap, the actual `subdivided.verts` cluster persists at 8
+because:
+
+- 6 of 8 cluster members are LPI implicit points manufactured INSIDE
+  Cherchi (`intersection_class.rs:454`, `:494`, `:532` — three sites
+  emitting `ImplicitPoint::LPI` for edge-edge and edge-triangle
+  intersections). These cannot be addressed by upstream
+  canonicalization — they are born after the canonicalization stage.
+- 2 of 8 cluster members are `Explicit` verts whose origin is NOT
+  in `dedup_mesh_vertices`'s 16-vert output (which has 1 canon-0 vert
+  per arena), but which appear in `verts_a`/`verts_b` at subdivide
+  entry. Most likely source: `inject_partial_overlap_mesh` (the only
+  mutation site between dedup and subdivide that writes to verts).
+  F0002's `[coplanar-tele]` shows `partial_overlap=0` (counter
+  increments only after full injection completes), but the body has
+  multiple `continue` paths between the per-pair filter and the
+  counter increment — the function MAY be partially mutating verts
+  before bailing out on a guard condition. This is not yet proven
+  but is the only candidate code path consistent with the canary
+  data.
+
+The §6 conclusion that "F0002/F0004 are NOT a Render LOD case" still
+stands — Stage A is broken before Render LOD has a chance to act.
+But the recommended ANCHOR was wrong. PR-Y14b's fix at
+`coplanar_preprocess.rs:521` is well-implemented but cannot fix
+F0002/F0004 because it targets the wrong layer.
+
+### 11.4 Re-localized defect surface (for PR-Y14c)
+
+| Cluster member | Source | Where it's born | Fix layer |
+|---|---|---|---|
+| 6 LPI verts at canon-0 | `ImplicitPoint::LPI { q1, q2, r, s, t }` materialization | `intersection_class.rs:454/494/532` (edge×edge, edge×edge×tri-plane, edge×triangle) → `compute_approximate_coordinates` round-trip | Cherchi-internal: needs equality-aware LPI dedup, OR snap-rounding LPI output to nm grid before `out_coords` write, OR direct symbolic-equality merge |
+| 1–2 Explicit verts at canon-0 | Likely `inject_partial_overlap_mesh` partial-mutate before counter increment, OR another writer to verts_a/verts_b not yet identified | `coplanar_preprocess.rs` lines 1116–1325 area | Run `inject_partial_overlap_mesh` body's ev verts_a/b mutation under instrumentation to localize; likely a vertex push in a continue-skipped path |
+
+Per CLAUDE.md memory `feedback_anchor_before_fix.md`, the strategic
+escalation rule "three wrong anchors in a row → stop bisecting,
+build a reference comparison" now applies. PR12, PR13, PR-Y14a/b
+together count as wrong-anchor-iterations 1, 2, 3 on the F0002
+twin-pairing class. **Cherchi 2022 sidecar reference parity (per
+`docs/audits/cherchi2022_sidecar_feasibility.md` — verdict GO with
+disk caveat) becomes load-bearing for PR-Y14c.** Without it,
+internal probes have already proven they can produce
+right-in-spirit-wrong-in-fact diagnoses; an external comparator is
+the only way to know if a candidate fix actually matches what the
+paper-implementing reference does.
+
+### 11.5 Ship-or-revert recommendation for PR-Y14b
+
+**Recommendation: SHIP AS-IS, with re-framed commit message.**
+
+- The dedup fix introduces no regressions (corpus pass count
+  unchanged at 9/190; one case `R0071` improved error→fail).
+- Determinism (I7) preserved at corpus level (two consecutive sweeps
+  byte-identical).
+- The new `COPLANAR_VERTS_DEDUPED_BY_CANON_KEY` counter and
+  cross-arena pos snap ARE legitimate scaffolding for a future fix
+  that DOES address the actual anchor — even if PR-Y14c relocates
+  the work to Cherchi internals, the cross-arena byte-identity
+  guarantee at the coplanar-preprocess output is independently
+  valuable as a precondition for any subsequent canonicalization
+  pass.
+- The 3 red-phase tests in
+  `crates/test-harness/tests/pr_y14b_coplanar_corner_dedup.rs`
+  (`f0002_canon0_cluster_size_pinned_postfix`,
+  `f0004_canon0_cluster_size_pinned_postfix`,
+  `f0002_distinct_failure_after_dedup_or_passes`) should be left as
+  `#[ignore]`-d red-phase tests and become PR-Y14c's red-to-green
+  guards. The 3 green tests
+  (`coplanar_dedup_counter_nonzero_for_f0002`,
+  `f0002_determinism_two_runs_byte_identical`,
+  `f0002_no_new_unpaired_at_stage_a`) stay green and are PR-Y14b's
+  positive verification.
+- Commit message should be re-framed from "fix F0002/F0004 coplanar
+  corner cluster" to "cross-arena byte-identity scaffolding at
+  coplanar preprocess; F0002/F0004 anchor relocated to Cherchi
+  internals (PR-Y14c)".
+
+The alternative (revert) would discard the legitimate scaffolding
+and the new telemetry. The work is not wrong — it's
+diagnostically-completing. Per FIP §8 bug-fix variant: the fix
+attempt produced empirical evidence that supersedes the spec's
+diagnosis; that's a normal investigation outcome. P9 ("fix it right
+or don't fix it") is satisfied because the fix doesn't mask any
+symptom — Stage A's defect remains visible to the conformal probe,
+to be addressed by PR-Y14c.
+
+### 11.6 What the PR-Y14a §6 audit got wrong
+
+For the audit trail: the (a)/(b) experiment in PR-Y14a §3 correctly
+observed 8 raw vertices at canon-0 in `subdivided.verts`. The
+mistake was the inferential leap from "8 raw verts cluster at
+coplanar-face corner" to "therefore coplanar preprocess is the
+source." The implicit assumption was that the coplanar-preprocess-
+emitted positions flow unchanged into Cherchi. They do not —
+`dedup_mesh_vertices` canonicalizes them first. The PR-Y14a memo
+should have run the (a)/(b) experiment at TWO sites (post-coplanar
+and post-Cherchi-merge) to distinguish the layer where the cluster
+is preserved. Lesson recorded into memory in
+`feedback_anchor_before_fix.md` extension and
+`yang_pr_y14a_outcome.md` amendment.

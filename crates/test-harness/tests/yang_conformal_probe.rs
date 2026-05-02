@@ -77,17 +77,38 @@ use test_harness::assay::scoring::AssayStatus;
 
 const ASSAY_DIR: &str = "../../app/tests/cases/assay";
 
-/// F0002 conformal-probe baseline.
+// PR-Y14b: pinned to post-fix expected state per
+// `specs/yang_pr_y14b_coplanar_corner_dedup.md` §I4. The previous
+// `auto-union-failed`-pinning version of this test is preserved in
+// `crates/test-harness/tests/pr_y14b_coplanar_corner_dedup.rs` —
+// see `f0002_distinct_failure_after_dedup_or_passes` for the new
+// outcome assertion. This pinned test is now PR-Y14b's live regression
+// guard for the Stage A `well_formed` invariant.
+
+/// F0002 conformal-probe pinned to **post-fix** expected state.
 ///
-/// Behavior contract: probe-on must NOT change the F0002 outcome. F0002
-/// currently fails with `auto-union-failed`; with the probe on, it
-/// must STILL fail with `auto-union-failed` (probes are
-/// observation-only).
+/// Per `specs/yang_pr_y14b_coplanar_corner_dedup.md` §10.2 verification
+/// item 2, this test is updated by PR-Y14b's test author to assert
+/// Stage A's `well_formed=true` (or, weaker, the absence of the
+/// `(v0=0, v1=0)` self-loop multi_paired entry).
 ///
-/// Phase 3 (Adversary) will tighten this to pin the four
-/// `[conformal-probe]` lines (Stage 0 covered by `coplanar_identical`,
-/// then probe A/B/C lines emitted to stderr) as concrete assertions
-/// based on captured empirical data.
+/// **RED PHASE on current `main`** (HEAD `c60a366`, post-PR-Y14a):
+/// Stage A reports `well_formed=false` with a (v0=0, v1=0) self-loop
+/// per PR-Y14a findings §2.2 — this test fails. It turns green when
+/// implementer-b lands the dedup at `coplanar_preprocess.rs:521`.
+///
+/// We cannot read the probe lines from stderr without stderr capture
+/// (which lives in the new `pr_y14b_coplanar_corner_dedup.rs` test
+/// file as a self-contained helper). To keep this file dep-free, we
+/// pin the assertion at the `AssayResult.detail` level: post-fix,
+/// F0002's detail must NOT contain the load-bearing pre-fix anchor
+/// `half_edge[4].twin = 0 but twin.twin = 28` substring. This is the
+/// same logic as `f0002_distinct_failure_after_dedup_or_passes` in
+/// the PR-Y14b test file, but expressed against `detail` (which the
+/// runner already returns). The new test file's
+/// `f0002_canon0_cluster_size_pinned_postfix` is the byte-level
+/// guarantee on the `well_formed` field; this test is the
+/// detail-level reflection.
 #[test]
 #[ignore]
 fn f0002_conformal_probe_pinned() {
@@ -102,32 +123,25 @@ fn f0002_conformal_probe_pinned() {
     let result = run_single_case(dir, "F0002", true);
     let r = result.expect("F0002 must exist in corpus");
 
-    eprintln!("\n=== F0002 conformal-probe pinned ===");
+    eprintln!("\n=== F0002 conformal-probe pinned (POST-FIX expectation) ===");
     eprintln!("Status: {:?}", r.status);
     eprintln!("Detail: {}", r.detail);
 
-    // Behavior invariant: probe-on must not change the outcome. F0002
-    // currently fails (auto-union-failed). The probe must observe but
-    // not act. Once PR-Y14b lands a fix, F0002 may PASS — at that
-    // point this test must be updated by the next test author.
-    assert_eq!(
-        r.status,
-        AssayStatus::Failed,
-        "F0002 still expected to fail under YANG_BOOLEAN=1 with probe on (probe is observation-only, no behavior change). Once PR-Y14b lands a fix, update this assertion. Got status={:?} detail={}",
-        r.status,
-        r.detail
-    );
+    // POST-FIX assertion (PR-Y14b §I4): F0002 must EITHER pass OR fail
+    // with a different error than the pre-fix Stage-A anchor. The
+    // detail string is the cheap surface for this check; the live
+    // probe-line assertion lives in the PR-Y14b test file.
+    let pre_fix_anchor = "half_edge[4].twin = 0 but twin.twin = 28";
     assert!(
-        r.detail.to_lowercase().contains("auto-union-failed"),
-        "F0002 still expected to fail in the auto-union pipeline (probe is observation-only). detail={}",
-        r.detail
+        !r.detail.contains(pre_fix_anchor),
+        "F0002 still fails with the pre-fix Stage-A coplanar-corner-cluster \
+         defect: detail contains `{}`. Per PR-Y14b spec §I4 / §1, post-fix \
+         must either pass or fail at a strictly later stage. Got detail: {}",
+        pre_fix_anchor, r.detail
     );
 
-    // RED PHASE: Phase 3 will replace this stub with concrete assertions
-    // on the four `[conformal-probe]` lines once empirical data exists.
-    // For now, we assert only that the probe was REQUESTED via env var
-    // (we cannot directly observe stderr from inside the test without
-    // capture machinery; --nocapture surfaces them to the operator).
+    // Probe-on contract still holds: the env var stays set so probe
+    // emit is observable to anyone running with --nocapture.
     assert_eq!(
         std::env::var("YANG_CONFORMAL_PROBE").as_deref(),
         Ok("1"),
@@ -135,7 +149,24 @@ fn f0002_conformal_probe_pinned() {
     );
 }
 
-/// F0004 conformal-probe baseline. Same contract as F0002.
+// PR-Y14b: pinned to post-fix expected state per
+// `specs/yang_pr_y14b_coplanar_corner_dedup.md` §I4. F0004 is
+// byte-identical to F0002 in PR-Y14a's measurement (findings §2.1
+// four-tuple table); the dedup fix lands them together.
+
+/// F0004 conformal-probe pinned to **post-fix** expected state.
+///
+/// Same contract and rationale as `f0002_conformal_probe_pinned` —
+/// F0004 is the byte-identical sibling per PR-Y14a findings §2.1.
+/// The pre-fix anchor substring may carry the same `[4]`/`28`
+/// indices as F0002 (their twin-pair indices are deterministic and
+/// shared across the two cases per the four-tuple table), so we use
+/// the same `pre_fix_anchor` token for the absence assertion.
+///
+/// **RED PHASE on current `main`** (HEAD `c60a366`, post-PR-Y14a):
+/// F0004's detail string contains the same pre-fix anchor as F0002's
+/// because the two cases produce byte-identical output. This test
+/// fails today; it turns green when implementer-b lands the dedup.
 #[test]
 #[ignore]
 fn f0004_conformal_probe_pinned() {
@@ -150,22 +181,19 @@ fn f0004_conformal_probe_pinned() {
     let result = run_single_case(dir, "F0004", true);
     let r = result.expect("F0004 must exist in corpus");
 
-    eprintln!("\n=== F0004 conformal-probe pinned ===");
+    eprintln!("\n=== F0004 conformal-probe pinned (POST-FIX expectation) ===");
     eprintln!("Status: {:?}", r.status);
     eprintln!("Detail: {}", r.detail);
 
-    assert_eq!(
-        r.status,
-        AssayStatus::Failed,
-        "F0004 still expected to fail under YANG_BOOLEAN=1 with probe on. Got status={:?} detail={}",
-        r.status,
-        r.detail
-    );
+    let pre_fix_anchor = "half_edge[4].twin = 0 but twin.twin = 28";
     assert!(
-        r.detail.to_lowercase().contains("auto-union-failed"),
-        "F0004 still expected to fail in the auto-union pipeline. detail={}",
-        r.detail
+        !r.detail.contains(pre_fix_anchor),
+        "F0004 still fails with the pre-fix Stage-A coplanar-corner-cluster \
+         defect: detail contains `{}`. Per PR-Y14b spec §I4 / §1, post-fix \
+         must either pass or fail at a strictly later stage. Got detail: {}",
+        pre_fix_anchor, r.detail
     );
+
     assert_eq!(
         std::env::var("YANG_CONFORMAL_PROBE").as_deref(),
         Ok("1"),
