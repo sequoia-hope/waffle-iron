@@ -619,7 +619,31 @@ pub(crate) fn flood_fill_patches(
         }
     }
 
+    // PR13 — Step 6 chaining hardening (per spec §8 + T2 evidence).
+    // Refs:
+    //   specs/yang_trim_loop_chaining.md §8 (Approach A finalized)
+    //   docs/audits/pr13_trim_loop_diagnostic.md §7-§8 (T2 cluster D1+D2)
+    //
+    // Three structural changes that resolve the per-patch chaining
+    // non-determinism and squash D1's duplicate-edge LIFO pick. They
+    // do NOT fix the cross-patch same-direction violations on
+    // R0020/R0021 — empirical investigation showed those violations
+    // arise during Render-LOD retessellation, downstream of this
+    // function (see message to lead). The structural changes here are
+    // still desirable: they remove non-determinism flap and produce
+    // canonical orderings that downstream fixes will rely on.
+    //
+    //   1. HashMap → BTreeMap on adjacency (Task 1) — fixes R0021 NB
+    //      count flap 5/6/7 across runs documented in T2 §6.
+    //   2. Dedup directed boundary edges per patch — squashes D1's
+    //      duplicate-edge mechanism so chaining never returns a stale
+    //      duplicate over the geometrically-correct continuation.
+    //   3. Sort adj entries by target ascending + FIFO `remove(0)`
+    //      replacing LIFO `pop()` — at branch points the first
+    //      candidate is the smallest-target canonical successor.
     for (pi, patch) in patches.iter().enumerate() {
+        // Per-patch boundary collection with directed-edge dedup.
+        let mut seen: BTreeSet<(usize, usize)> = BTreeSet::new();
         let mut boundary: Vec<(usize, usize, bool)> = Vec::new();
         for &ti in &patch.tris {
             let sub = &all_tris[ti];
@@ -627,12 +651,11 @@ pub(crate) fn flood_fill_patches(
                 let v0 = sub.verts[ei];
                 let v1 = sub.verts[(ei + 1) % 3];
                 let is_boundary = if let Some(neighbors) = directed_edge_to_tris.get(&(v1, v0)) {
-                    // Boundary if ALL reverse-edge triangles are in different patches
                     neighbors.iter().all(|&nt| tri_to_patch[nt] != pi)
                 } else {
                     true
                 };
-                if is_boundary {
+                if is_boundary && seen.insert((v0, v1)) {
                     let is_int = intersection_edges.contains(&(v0, v1))
                         || intersection_edges.contains(&(v1, v0));
                     boundary.push((v0, v1, is_int));
@@ -641,13 +664,22 @@ pub(crate) fn flood_fill_patches(
         }
 
         // Chain boundary edges into loops.
-        let mut adj: HashMap<usize, Vec<(usize, bool)>> = HashMap::new();
+        // BTreeMap (not HashMap) so adjacency iteration is deterministic
+        // across runs (PR13 §8 task 1).
+        let mut adj: BTreeMap<usize, Vec<(usize, bool)>> = BTreeMap::new();
         for &(a, b, is_int) in &boundary {
             adj.entry(a).or_default().push((b, is_int));
+        }
+        // Sort each adj vec by target ascending. At branch points the
+        // first-popped entry is the smallest canonical successor.
+        for outs in adj.values_mut() {
+            outs.sort_unstable_by_key(|&(t, _)| t);
         }
 
         let mut loops: Vec<Vec<(usize, usize, bool)>> = Vec::new();
         loop {
+            // Deterministic start picker: smallest canonical vertex
+            // with remaining outgoing edges (PR13 §8 task 4).
             let start = adj
                 .iter()
                 .find(|(_, outs)| !outs.is_empty())
@@ -660,10 +692,13 @@ pub(crate) fn flood_fill_patches(
             let mut chain = Vec::new();
             let mut current = start;
             loop {
+                // FIFO remove(0) — smallest-target-first since adj is
+                // sorted (PR13 §8 task 3). Replaces LIFO pop() that
+                // T2 §7 D1 showed picks the spurious duplicate.
                 let outgoing = adj.get_mut(&current);
-                let (next, is_int) = match outgoing.and_then(|v| v.pop()) {
-                    Some(pair) => pair,
-                    None => break,
+                let (next, is_int) = match outgoing {
+                    Some(v) if !v.is_empty() => v.remove(0),
+                    _ => break,
                 };
                 chain.push((current, next, is_int));
                 if next == start {
