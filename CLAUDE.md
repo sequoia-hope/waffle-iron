@@ -61,6 +61,17 @@ Do NOT skip to lower-priority items because they are easier.
    - **Implementation audit:** `docs/audits/yang_2025_audit.md` — per-step assessment
      of what's CORRECT, INCOMPLETE, WRONG, or STUB vs the paper. Read this before
      working on the Yang pipeline to know what actually needs fixing.
+
+   **Reference parity is not optional.** When the algorithm we're porting has a
+   public reference implementation (Cherchi 2020/2022 C++), build differential
+   testing against that reference *as part of the initial port*, not as a future
+   audit. Treat the reference as a black-box oracle: feed it the same inputs,
+   compare canonicalized outputs. We do NOT copy its source — we build it as a
+   sidecar (vendored or external clone), invoke its public API, diff the output.
+   If the reference is unavailable or unbuildable, document why explicitly.
+   Reference parity is how we know the port is correct; internal oracles
+   (`pipeline_oracles.rs`) measure local stage contracts but cannot detect a
+   port that diverges from the reference upstream of the oracle's check.
 2. **SSI solvers** — Complete the A15.4 matrix. Solvers feed stage 4 (geometry
    refinement) of the hybrid pipeline. Only work on SSI if Yang pipeline work is
    blocked. Priority: pairs #5, #6, #10 (partial status).
