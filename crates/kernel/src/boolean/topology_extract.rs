@@ -30,6 +30,50 @@ pub(crate) struct SourceFace {
     pub face_idx: FaceIdx,
 }
 
+/// PR-Y14a — emit a single `[conformal-probe]` summary line plus up to
+/// 5 detail lines on violation. Format pinned by
+/// `specs/yang_conformal_mesh_oracle.md` §"Probe log format".
+fn emit_conformal_probe(
+    stage: &str,
+    report: &crate::boolean::oracles::conformal_mesh::ConformalReport,
+) {
+    eprintln!(
+        "[conformal-probe] stage={} unpaired={} multi_paired={} euler_chi={} well_formed={} verts={} tris={} unique_edges={}",
+        stage,
+        report.unpaired_directed_edges.len(),
+        report.multi_paired_edges.len(),
+        report.euler_characteristic,
+        report.is_well_formed,
+        report.vertex_count,
+        report.triangle_count,
+        report.unique_undirected_edge_count,
+    );
+    if !report.is_well_formed {
+        // First 5 total, unpaired before multi (per spec recommendation).
+        let mut emitted = 0usize;
+        for (i, e) in report.unpaired_directed_edges.iter().enumerate() {
+            if emitted >= 5 {
+                break;
+            }
+            eprintln!(
+                "[conformal-probe]   unpaired #{}: v0={} v1={} source_tris={:?}",
+                i, e.v0, e.v1, e.source_tris
+            );
+            emitted += 1;
+        }
+        for (i, e) in report.multi_paired_edges.iter().enumerate() {
+            if emitted >= 5 {
+                break;
+            }
+            eprintln!(
+                "[conformal-probe]   multi_paired #{}: v0={} v1={} fwd={:?} rev={:?}",
+                i, e.v0, e.v1, e.fwd_tris, e.rev_tris
+            );
+            emitted += 1;
+        }
+    }
+}
+
 /// A surviving sub-triangle in the boolean result, with provenance.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SurvivingSubTri {
@@ -716,6 +760,30 @@ pub(crate) fn flood_fill_patches(
             loops,
             source: patch.source,
         });
+    }
+
+    // PR-Y14a Probe C — pre-Step-7 conformality of the patch-extraction
+    // input. We pass `all_tris` (the canonical-vertex-indexed surviving
+    // sub-tris that Step 5 flood-fills and Step 6 walks for boundary
+    // extraction) against `subdivided.verts`. Per spec rationale: this
+    // measures the same combinatorial conformal property the patch
+    // boundary extraction relies on — every directed edge in `all_tris`
+    // must have its reverse counterpart in another `all_tris` entry for
+    // patch-boundary edges to pair as half-edge twins in Step 7.
+    // Encoding boundary edges directly as triangles would produce
+    // spurious self-loops (oracle treats self-loops as multi-paired);
+    // measuring the underlying triangulation is the principled choice
+    // the team-lead's instructions endorsed ("pass the same `all_tris`
+    // buffer that Step 3 built").
+    // Anchor verified (eprintln canary fired on F0002 trace).
+    if std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1") && !all_tris.is_empty() {
+        let stage = "C";
+        let combined_tris: Vec<[usize; 3]> = all_tris.iter().map(|s| s.verts).collect();
+        let report = crate::boolean::oracles::conformal_mesh::check_conformal(
+            &subdivided.verts,
+            &combined_tris,
+        );
+        emit_conformal_probe(stage, &report);
     }
 
     // ── Step 7: Build B-Rep from patches ──
@@ -1594,6 +1662,29 @@ pub(crate) fn yang_boolean_pipeline(
         subdivided.verts.len()
     );
 
+    // PR-Y14a Probe A — post-Cherchi conformality measurement.
+    // Mirrors TWIN_DEBUG / CHERCHI_DEBUG env-var pattern. Single env read
+    // per call; oracle invocation skipped when unset (zero behavior change).
+    // Anchor verified (eprintln canary fired on F0002 trace).
+    if std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1") {
+        let stage = "A";
+        // Build (verts, tris) from the post-subdivide arrangement: union
+        // of tris_a and tris_b indices into subdivided.verts.
+        if !subdivided.tris_a.is_empty() || !subdivided.tris_b.is_empty() {
+            let combined_tris: Vec<[usize; 3]> = subdivided
+                .tris_a
+                .iter()
+                .map(|t| t.verts)
+                .chain(subdivided.tris_b.iter().map(|t| t.verts))
+                .collect();
+            let report = crate::boolean::oracles::conformal_mesh::check_conformal(
+                &subdivided.verts,
+                &combined_tris,
+            );
+            emit_conformal_probe(stage, &report);
+        }
+    }
+
     // [CONFORM CHECK 1] Post-Cherchi conformality
     #[cfg(test)]
     {
@@ -1783,6 +1874,24 @@ pub(crate) fn yang_boolean_pipeline(
         "[yang-diag] after survival: {} groups, {} tris",
         n_survival_groups, n_survival_tris
     );
+
+    // PR-Y14a Probe B — post-survival conformality measurement.
+    // Anchor verified (eprintln canary fired on F0002 trace).
+    if std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1") {
+        let stage = "B";
+        if n_survival_tris > 0 {
+            let surviving_tris: Vec<[usize; 3]> = survival
+                .groups
+                .values()
+                .flat_map(|v| v.iter().map(|s| s.verts))
+                .collect();
+            let report = crate::boolean::oracles::conformal_mesh::check_conformal(
+                &subdivided.verts,
+                &surviving_tris,
+            );
+            emit_conformal_probe(stage, &report);
+        }
+    }
 
     // [CONFORM CHECK 4] Post-survival conformality with missing-reverse diagnosis
     #[cfg(test)]

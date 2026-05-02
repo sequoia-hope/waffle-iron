@@ -10,5 +10,6 @@
 //! harness API.
 
 pub(crate) mod arrangement_wellformed;
+pub(crate) mod conformal_mesh;
 pub(crate) mod coplanar_identical;
 pub(crate) mod label_consistency;
