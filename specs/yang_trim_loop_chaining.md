@@ -439,6 +439,67 @@ tessellation layer (load-bearing for cross-face edge pairing). The fix MUST be a
 The PR12 §8 amendment's `extract_trim_boundaries:1095-1200` LOC anchor is **stale**;
 ignore it. Future PRs that touch trim-loop chaining should consult this spec's §8 anchor.
 
+### Second amendment (2026-05-02 — Approach A scope-down per T4 anchor verification)
+
+agent-impl's empirical anchor verification at `59123b9` showed that **`flood_fill_patches::Step 6`
+is ALSO not the right fix surface** for R0020/R0021's bijective violations. Adding a probe to
+the post-chaining `patch_boundaries` reciprocity check showed:
+
+- **0 same-direction violations** in `patch_boundaries` for both R0020 and R0021 across all
+  `flood_fill_patches` invocations.
+- **The bijective oracle violations come from `tessellate_waffle_solid` at Render LOD** (line
+  978 of `yang_integration.rs`) when re-tessellating the boolean output: two adjacent B-Rep
+  faces' Render-LOD tessellations produce non-byte-identical reciprocal mesh edges along
+  their shared B-Rep edge.
+- Per-feature attribution from T2 §3: violations are introduced by feature[3] (op2 boolean),
+  not by feature[1] (input tessellation). So the **re-tessellation of boolean output** is
+  the actual defect surface.
+
+This is the third wrong anchor in this saga:
+1. **PR12 said**: `extract_trim_boundaries`. Wrong (test-only code, never invoked by production).
+2. **T2 (PR13) said**: `flood_fill_patches::Step 6`. Wrong (patch_boundaries are reciprocal
+   by construction).
+3. **T4 (PR13) found empirically**: defect is in `tessellate_waffle_solid` Render-LOD per-face
+   tessellation.
+
+PR13 ships a scope-down deliverable. Approach A's structural changes to `flood_fill_patches::Step 6`
+are committed because they're a **strict improvement** (BTreeMap eliminates flap; dedup removes
+duplicate-edge LIFO defect that would matter if the canonical-edge story were correct), but
+they do NOT unlock R0020/R0021. Tests 3, 4, 5 stay red.
+
+#### PR13 effective deliverable (post-amendment)
+
+- **Determinism win**: BTreeMap on `topology_extract.rs:644` (residual PR12 work that was
+  missed in `7e119cc`). T6 (R0021 determinism) passes; R0021 NB count stable at 7 (was
+  flapping 5/6/7).
+- **Structural cleanup**: boundary-edge dedup + sort-by-target + FIFO `remove(0)` in Step 6.
+  No behavioral change for cases that pass; modest improvement for cases at branch points.
+- No regression in PR12's 84 AllPass.
+
+#### PR14 archaeological anchor (Render LOD investigation)
+
+- **File**: `crates/kernel/src/boolean/yang_integration.rs` around line 978
+  (`tessellate_waffle_solid` call after Yang pipeline completes).
+- **Empirical signature**: cached_mesh post-yang_inner has 2 NB pairs on R0020 even though
+  `flood_fill_patches::patch_boundaries` had 0 reciprocity violations. Confirms the defect
+  is downstream of `flood_fill_patches`.
+- **Likely candidates** for PR14 to investigate:
+  - `needs_fan_welding` path in `crates/kernel/src/tessellation/mod.rs:218` — does it
+    correctly preserve byte-identical reciprocal edges when welding faces' fan triangulations
+    across shared B-Rep edges?
+  - Bounded-tessellation edge sampling at LOD=64 may not align with the stored geometry
+    (e.g., a curved face's parametric u-sampling produces vertices that don't match an
+    adjacent planar face's straight edge sampling).
+  - Per-face independent vertex sampling + post-hoc welding may produce f64-perturbed
+    coordinates that are within tolerance for welding but not byte-identical (Yang §4.1.1
+    requires byte-identity, not tolerance).
+- **Per-feature attribution**: violations are introduced by feature[3] (op2 boolean).
+  feature[1] (initial extrude/revolve) is bijective. So the re-tessellation of boolean
+  OUTPUT is the defect surface, not input tessellation.
+- **Test fixtures already in place**: PR12's `pr12_stage1_bijective.rs::r0020_cluster_x_non_coplanar_red_phase`
+  + `r0021_cluster_x_non_coplanar_red_phase`, plus PR13's Tests 3/4/5 in
+  `pr13_trim_loop_chaining.rs` go green when fixed.
+
 ### 8a. Candidate fix surfaces (pre-resolved per branch — lead picks based on T2 dominant approach)
 
 The following are concrete file:line anchors so lead can update §8 quickly:
