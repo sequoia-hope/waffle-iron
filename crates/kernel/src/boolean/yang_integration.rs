@@ -783,6 +783,34 @@ pub(crate) fn yang_boolean_inner(
         }
     }
 
+    // Diagnostic: export preprocessed A and B meshes as separate OBJ files for
+    // the Cherchi 2022 sidecar reference-parity oracle. Mirror of the STL dump
+    // above but in the format Cherchi's `mesh_booleans` CLI accepts as input.
+    // Activated by YANG_DUMP_OBJ_BASE=<base_path> — files written are
+    // `<base_path>_a.obj` and `<base_path>_b.obj`.
+    if let Ok(obj_base) = std::env::var("YANG_DUMP_OBJ_BASE") {
+        let path_a = format!("{}_a.obj", obj_base);
+        let path_b = format!("{}_b.obj", obj_base);
+        match dump_mesh_as_obj(&verts_a, &tris_a, &path_a) {
+            Ok(()) => eprintln!(
+                "[YANG DIAG] Dumped mesh A to {} ({} tris, {} verts)",
+                path_a,
+                tris_a.len(),
+                verts_a.len()
+            ),
+            Err(e) => eprintln!("[YANG DIAG] OBJ dump A failed: {}", e),
+        }
+        match dump_mesh_as_obj(&verts_b, &tris_b, &path_b) {
+            Ok(()) => eprintln!(
+                "[YANG DIAG] Dumped mesh B to {} ({} tris, {} verts)",
+                path_b,
+                tris_b.len(),
+                verts_b.len()
+            ),
+            Err(e) => eprintln!("[YANG DIAG] OBJ dump B failed: {}", e),
+        }
+    }
+
     // Create deadline for the Yang pipeline to prevent runaway computation.
     let deadline = std::time::Instant::now()
         + std::time::Duration::from_secs(crate::units::YANG_PIPELINE_TIMEOUT_SECS);
@@ -1328,6 +1356,40 @@ fn dump_merged_mesh_as_stl(
     }
     for tri in tris_b {
         write_tri(&mut f, &verts_b[tri[0]], &verts_b[tri[1]], &verts_b[tri[2]])?;
+    }
+    Ok(())
+}
+
+/// Dump a single mesh as Wavefront OBJ for the Cherchi 2022 sidecar oracle.
+///
+/// OBJ uses 1-indexed vertices. Output is plain ASCII:
+///     v x y z
+///     v x y z
+///     ...
+///     f v1 v2 v3
+///
+/// Used by `crates/test-harness/tests/cherchi2022_reference_parity.rs` and
+/// `crates/test-harness/tests/cherchi_inputcheck_corpus_sweep.rs` (gated on
+/// `YANG_DUMP_OBJ_BASE` env var). The two operand meshes are dumped to
+/// `<base>_a.obj` and `<base>_b.obj` so the sidecar can be invoked as
+/// `mesh_booleans union <base>_a.obj <base>_b.obj <base>_out.obj` and the
+/// result compared to Waffle's own `subdivided.{verts,tris_a,tris_b}`.
+#[allow(dead_code)]
+fn dump_mesh_as_obj(verts: &[[f64; 3]], tris: &[[usize; 3]], path: &str) -> Result<(), String> {
+    use std::io::Write;
+    let mut f = std::fs::File::create(path).map_err(|e| e.to_string())?;
+    for v in verts {
+        // Use full f64 precision in OBJ — Cherchi's loadMultipleFiles
+        // (cinolib::read_OBJ) parses these as doubles. Sub-picometer drift
+        // in the inputs IS what we are diffing against; we MUST NOT reduce
+        // precision in the dump.
+        writeln!(f, "v {:.20e} {:.20e} {:.20e}", v[0], v[1], v[2])
+            .map_err(|e| e.to_string())?;
+    }
+    for tri in tris {
+        // OBJ is 1-indexed.
+        writeln!(f, "f {} {} {}", tri[0] + 1, tri[1] + 1, tri[2] + 1)
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }

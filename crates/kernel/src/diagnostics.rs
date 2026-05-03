@@ -17,6 +17,15 @@ use crate::types::{KernelError, KernelId};
 
 pub use crate::boolean::pipeline_oracles::{OracleViolation, ViolationKind, YangStage};
 
+// Re-export the conformal-mesh oracle so external integration tests
+// (`crates/test-harness/tests/cherchi2022_reference_parity.rs`,
+// `crates/test-harness/tests/cherchi_inputcheck_corpus_sweep.rs`) can
+// run the same well-formedness check on Cherchi 2022 sidecar output that
+// the in-pipeline probes use on Stages A/B/C.
+pub use crate::boolean::oracles::conformal_mesh::{
+    check_conformal, ConformalReport, MultiPairedEdge, UnpairedEdge,
+};
+
 /// Boolean operation selector for [`yang_oracle_run`]. Mirrors the
 /// `pub(crate)` `BoolOp` enum in `crate::boolean`; exposed publicly so
 /// external test crates can request a diagnostic run without touching

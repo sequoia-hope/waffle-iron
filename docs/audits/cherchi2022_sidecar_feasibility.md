@@ -186,3 +186,84 @@ The build decision is therefore **GO, conditional on choosing a build
 location with adequate disk space**. Recommend the team-lead direct the
 PR-Y14c implementer to coordinate with whoever owns the container/volume
 provisioning before starting the vendor step.
+
+---
+
+## Build verified 2026-05-03 (PR-S1)
+
+**Outcome:** GO confirmed. Sidecar built, smoke-tested, and fed F0002 —
+producing a finding that supersedes the PR-Y14c spec's anchor.
+
+### Build metrics
+
+| Metric | Value |
+|---|---|
+| Repo size (shallow clone) | 147 MB |
+| Build time, headless `mesh_booleans` | ~22 min wall (single-shot, `make -j$(nproc)`) |
+| `mesh_booleans` binary size (Release, AVX2) | 827 KB |
+| `mesh_booleans_inputcheck` binary size | similar |
+| Disk free pre-build (under `/home/claude/workspace`) | 1.6 GB *(crisis level — required `cargo clean` of 60 GB to make room)* |
+| Disk free post-build | 213 GB |
+| Total Cherchi footprint at `/home/claude/cherchi2022/` | 159 MB (sources + Release build artifacts) |
+| `make` exit code | 2 (non-zero — GUI demos failed to link due to missing OpenGL; HARMLESS, headless binaries built fine) |
+
+The disk crisis (24 GB free per the original feasibility memo dropped to
+1.6 GB by the time we were ready to build) was resolved with `cargo clean`,
+which freed 60 GB of stale `target/` artifacts. The next 5–10 min of
+`cargo test` runs after a clean rebuild costs the working set back; that
+is acceptable. **Build location was kept at `/home/claude/cherchi2022/`,
+outside `/home/claude/workspace`,** to avoid accidental commit of C++ sources.
+
+### Smoke test (two-tetrahedra union)
+
+```
+[reference-parity] smoke union (two tetrahedra) :
+    verts=10 tris=16 unique_edges=24 unpaired=0 multi_paired=0
+    euler_chi=2 well_formed=true
+```
+
+Cherchi's output on a clean two-tetrahedra union: 10 verts (8 originals
+shared, plus 3 new intersection-point verts after dedup of one), 16 tris,
+χ=V−E+F=10−24+16=**2** (closed orientable manifold, exactly one shell).
+**Well-formed.** The reference implementation works as advertised on
+clean input.
+
+### F0002 finding — supersedes all prior anchors
+
+Fed F0002's preprocessed A and B meshes (each 16 verts × 32 tris,
+~2.2 KB OBJ files at `/tmp/waffle_cherchi_parity_f0002/`) into:
+
+**Cherchi's `mesh_booleans_inputcheck`** (single-mesh validator):
+
+```
+Manifold check:                   FAILED
+Watertight check:                 FAILED
+Local  Orientation check:         passed
+Global Orientation check:         passed
+Intersection check:               FAILED
+```
+
+Both A and B fail identically on 3 of the 5 checks. Cherchi 2022 §3
+explicitly axiomatizes that the boolean pipeline assumes manifold +
+watertight + intersection-free + well-oriented input. Our pre-Cherchi
+mesh violates 3 of those 4 axioms.
+
+**Cherchi's `mesh_booleans union`** (the actual boolean):
+
+Ran for **6 hours at 99% CPU** before being killed manually. The paper
+provides no graceful behavior on malformed input; in practice the
+algorithm appears to loop indefinitely. The PR-S1 integration test now
+caps subprocess runs at a 30-second timeout.
+
+### Implication for the anchor chain
+
+This single invocation invalidated **all four prior anchors** in the
+PR12 → PR13 → PR-Y14a → PR-Y14b → PR-Y14c chain. The actual defect is
+upstream of `subdivide_mesh_pair_full_cherchi` entirely — it is in
+**tessellation** (and/or coplanar preprocess injection) producing a mesh
+that violates Cherchi's input axioms. PR-Y14c spec at Cherchi LPI is
+superseded; PR-S3 will write the replacement.
+
+The reference oracle paid for itself on first invocation. Future
+investigations should stand it up BEFORE the third anchor attempt.
+
