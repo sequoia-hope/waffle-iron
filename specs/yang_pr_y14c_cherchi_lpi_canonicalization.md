@@ -1,7 +1,45 @@
 # PR-Y14c — Cherchi-internal LPI canonicalization for F0002/F0004 corner cluster
 
-**Status:** SPEC (FIP §3.2 — Phase 1).
-**Anchor empirical evidence:** `docs/audits/pr_y14a_conformal_findings.md` §11
+> ## ⚠️ SUPERSEDED — do not implement this spec
+>
+> **Superseded by:** PR-S3 (commits land 2026-05-03+):
+> - `specs/yang_pr_y15b_pre_cherchi_input_validation.md` — F0002-class
+>   tessellation/coplanar fix (covers the 13% `combined_failures` minority)
+> - `specs/yang_pr_y15a_downstream_investigation.md` — Phase-0
+>   investigation for the 78% downstream cohort
+>
+> **Empirical evidence for the supersession:**
+> `docs/audits/pr_s2_inputcheck_corpus_findings.md` (PR-S2 commit `aee34ce`).
+> The Cherchi 2022 sidecar's corpus-wide `mesh_booleans_inputcheck` sweep
+> across all 190 assay cases (380 case-sides) reports:
+> - 295 sides (78%) are Cherchi-VALID (manifold + watertight + intersection-free)
+> - 51 sides (13%) `combined_failures` (the F0002-class minority this spec
+>   targeted)
+> - **284 rows in the "interesting cell" — Waffle=Failed × Cherchi=valid**
+>
+> The dominant defect (78% cohort) is DOWNSTREAM of
+> `subdivide_mesh_pair_full_cherchi`, not at Cherchi-internal LPI
+> canonicalization as this spec assumed. Cherchi happily accepts
+> Waffle's input and produces a labeled patch set; Waffle's own
+> post-Cherchi half-edge reconstruction (`flood_fill_patches` and twin
+> pairing in `topology_extract.rs`) then breaks. PR12/PR13's
+> `flood_fill_patches::Step 6` instinct was correct in spirit; just
+> at the wrong concrete site, and the prior PRs failed because their
+> reproducers (R0020/R0021) were F0002-class outliers, not the
+> dominant cohort.
+>
+> **What was right about this spec:** the F0002-specific LPI cluster
+> finding from PR-Y14a §11 is real — the corner cluster IS produced by
+> Cherchi internals. PR-Y15b inherits that anchor for the F0002-class
+> minority. **What was wrong:** assuming the F0002 finding generalized
+> to the corpus.
+>
+> Body preserved below for audit trail. Do NOT implement.
+
+---
+
+**Original status (pre-supersession):** SPEC (FIP §3.2 — Phase 1).
+**Original anchor empirical evidence:** `docs/audits/pr_y14a_conformal_findings.md` §11
 (post-implementer-b correction).
 **Reference parity required:** YES. Per CLAUDE.md commit `4808f2e` and
 the strategic-escalation rule (3 wrong anchors before, see §7), this

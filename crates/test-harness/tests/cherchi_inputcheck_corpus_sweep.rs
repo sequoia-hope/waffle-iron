@@ -48,6 +48,27 @@ const TSV_PATH: &str = "../../docs/audits/cherchi_inputcheck_sweep_2026-05-03.ts
 /// Spec §3 — literal label for the runaway `cherchi_detail` column.
 const RUNAWAY_DETAIL: &str = "runaway: subprocess killed at 10s";
 
+/// Per-case Waffle timeout. `run_single_case` does NOT have a built-in
+/// timeout (only `run_randomized_assay` does, at 90 s); we run it on a
+/// thread and `recv_timeout` so a hung Waffle path can't stall the sweep.
+/// 60 s is conservative for normal cases (~3 s) and matches the pattern
+/// of "kernel issues we should record, not babysit." Cases that exceed
+/// this become MissingDump (`waffle_status=Errored`).
+///
+/// Backported from `examples/inputcheck_sweep.rs` (PR-S3) — the original
+/// adversary's first sweep ran 12+ hours silently because R0071
+/// (gear+revolve at scale 1.86e-4) hangs Waffle indefinitely. The example
+/// served as a temporary workaround during PR-S2 Phase 3; PR-S3 promotes
+/// the pattern into the canonical test and deletes the example.
+const WAFFLE_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Per-case Waffle timeout literal recorded in `cherchi_detail` for
+/// MissingDump rows that hit the WAFFLE_TIMEOUT. Per the PR-S2 spec
+/// amendment landing in PR-S3.
+fn waffle_timeout_detail() -> String {
+    format!("waffle-timeout: {}s", WAFFLE_TIMEOUT.as_secs())
+}
+
 /// Resolve the `mesh_booleans_inputcheck` binary path. The shared
 /// `cherchi_bin()` returns `mesh_booleans` (the union/intersect/subtract
 /// driver); the inputcheck validator is its sibling in the same build dir.
@@ -306,19 +327,73 @@ fn run_one_case(dir: &Path, bin: &Path, case_id: &str, sweep_root: &Path) -> [Sw
 
     std::env::set_var("YANG_BOOLEAN", "1");
     std::env::set_var("YANG_DUMP_OBJ_BASE", &base_str);
-    let case_result = run_single_case(dir, case_id, true);
+
+    // Run Waffle on a thread with recv-timeout so a hung kernel path
+    // doesn't stall the sweep. R0071 (gear+revolve at scale 1.86e-4)
+    // hangs `run_single_case` indefinitely; without the timeout, the
+    // whole sweep stalls. NOTE: `run_single_case` is not panic-safe
+    // across threads — a kernel panic on the worker would terminate
+    // the whole process — but the alternative (no timeout) loses ALL
+    // data on the same panic OR on a hang, so this strictly improves
+    // crash-resilience.
+    let waffle_timeout_hit;
+    let case_result = {
+        let dir_owned = dir.to_path_buf();
+        let id_owned = case_id.to_string();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let r = run_single_case(&dir_owned, &id_owned, true);
+            let _ = tx.send(r);
+        });
+        match rx.recv_timeout(WAFFLE_TIMEOUT) {
+            Ok(r) => {
+                let _ = handle.join();
+                waffle_timeout_hit = false;
+                r
+            }
+            Err(_) => {
+                eprintln!(
+                    "[inputcheck-sweep] WAFFLE TIMEOUT on {} after {}s — \
+                     leaking thread, marking Errored",
+                    case_id,
+                    WAFFLE_TIMEOUT.as_secs()
+                );
+                waffle_timeout_hit = true;
+                None
+            }
+        }
+    };
     std::env::remove_var("YANG_DUMP_OBJ_BASE");
 
     let waffle_status_base = match case_result {
         Some(r) => waffle_status_from_assay(r.status),
-        // Case not found in corpus is operationally an error.
+        // Case not found in corpus OR WAFFLE_TIMEOUT hit — both are
+        // operationally Errored from this sweep's perspective.
         None => WaffleStatus::Errored,
     };
 
-    let rows: [SweepRow; 2] = [
+    let mut rows: [SweepRow; 2] = [
         side_row(case_id, "A", waffle_status_base, &path_a, bin),
         side_row(case_id, "B", waffle_status_base, &path_b, bin),
     ];
+
+    // Per the PR-S2 spec amendment landing in PR-S3: MissingDump rows
+    // that result from a WAFFLE_TIMEOUT (rather than a kernel error
+    // before the dump site) carry literal `waffle-timeout: <SEC>s` in
+    // their `cherchi_detail` so post-sweep readers can distinguish hung
+    // cases from short-circuited cases.
+    if waffle_timeout_hit {
+        let detail = waffle_timeout_detail();
+        for row in rows.iter_mut() {
+            // Only overwrite when the row already classified as MissingDump
+            // (i.e., the OBJ never landed). If the dump landed before the
+            // timeout fired, the inputcheck classification is the source of
+            // truth and we leave it alone.
+            if row.waffle_status == WaffleStatus::MissingDump {
+                row.cherchi_detail = truncate_detail(&detail);
+            }
+        }
+    }
 
     // Best-effort cleanup of OBJs (keep the dir; harmless empty subdir).
     let _ = std::fs::remove_file(&path_a);

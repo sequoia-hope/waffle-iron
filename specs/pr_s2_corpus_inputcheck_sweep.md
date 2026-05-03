@@ -64,7 +64,7 @@ adding a bucket requires amending this spec.
 | `side` | enum | `A` or `B`. |
 | `waffle_status` | enum | `Passed` / `Failed` / `Errored` / `MissingDump` (the last when `YANG_DUMP_OBJ_BASE` was set but the OBJ wasn't written — e.g. PR13's AABB-disjoint short-circuit, or Waffle bailed before dump site). |
 | `cherchi_class` | enum | One of the 7 buckets above. Empty when `waffle_status == MissingDump`. |
-| `cherchi_detail` | string | Raw 5-line inputcheck stderr joined with `;`, truncated to 200 chars. Empty when `MissingDump` or `runaway`. For `runaway`, set to literal `runaway: subprocess killed at 10s`. |
+| `cherchi_detail` | string | Raw 5-line inputcheck stderr joined with `;`, truncated to 200 chars. Empty when `MissingDump` or `runaway`. For `runaway`, set to literal `runaway: subprocess killed at 10s`. For `MissingDump` rows where `waffle_status=Errored` due to a `WAFFLE_TIMEOUT` (kernel hang in `run_single_case` exceeding the per-case Waffle timeout — see §4), set `cherchi_detail` to literal `waffle-timeout: <SEC>s` (e.g., `waffle-timeout: 60s` for the canonical 60s default backported from `examples/inputcheck_sweep.rs` per PR-S2 adversary-2 §5). |
 
 Output path: `docs/audits/cherchi_inputcheck_sweep_2026-05-03.tsv`.
 Committed artifact for the findings memo to reference. Include the
@@ -123,6 +123,16 @@ contradict the F0002 finding's universality.
   PR-S2's findings to pick the PR-Y15 anchor.
 - Testing the inputcheck binary itself for correctness — it is
   treated as a black-box oracle.
+
+## 6a. Operational notes
+
+The `app/tests/cases/assay/results.json` snapshot used for the
+findings memo's cross-tab MUST be taken BEFORE the sweep starts (the
+sweep mutates `results.json` via `run_single_case`; reading it
+post-sweep gives drifted Waffle-status counts that no longer reflect
+the categories observed during classification). Adversary saves the
+snapshot to `/tmp/results_during_sweep.json` (or equivalent) at
+sweep-start and consumes that file for §5's cross-tab.
 
 ## 7. Test-author-c responsibilities
 
