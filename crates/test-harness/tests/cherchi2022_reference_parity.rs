@@ -44,11 +44,12 @@
 //!
 //! Refs: [#9] Cherchi 2020, [#38] Cherchi 2022, [#24] Yang 2025.
 
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::path::Path;
+use std::process::Command;
 use std::time::Duration;
 
 use kernel::diagnostics::{check_conformal, ConformalReport};
+use test_harness::cherchi_sidecar::{cherchi_bin, run_with_timeout, TimedRun};
 
 /// Default subprocess timeout for `mesh_booleans` invocations.
 ///
@@ -61,74 +62,7 @@ use kernel::diagnostics::{check_conformal, ConformalReport};
 /// realistic well-formed-input run.
 const CHERCHI_SUBPROCESS_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Outcome of a timed subprocess invocation: completed (with the
-/// original `Output`), or `TimedOut` after the kill.
-enum TimedRun {
-    Completed(std::process::Output),
-    TimedOut,
-    SpawnFailed(String),
-}
-
-/// Spawn a `Command` and either wait for it to finish within
-/// `CHERCHI_SUBPROCESS_TIMEOUT` or kill it. Pipes stdout+stderr so the
-/// child doesn't block on a full pipe buffer; collects them into the
-/// returned `Output` on completion.
-///
-/// Polls 6 times at 5-second intervals (= 30s total) using
-/// `child.try_wait()`. No external crate (no `wait_timeout` dep).
-fn run_with_timeout(mut cmd: Command) -> TimedRun {
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(e) => return TimedRun::SpawnFailed(e.to_string()),
-    };
-    let poll_interval = Duration::from_secs(5);
-    let polls = (CHERCHI_SUBPROCESS_TIMEOUT.as_secs() / poll_interval.as_secs()) as usize;
-    for _ in 0..polls {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) => std::thread::sleep(poll_interval),
-            Err(e) => return TimedRun::SpawnFailed(format!("try_wait failed: {}", e)),
-        }
-    }
-    match child.try_wait() {
-        Ok(Some(_)) => match child.wait_with_output() {
-            Ok(out) => TimedRun::Completed(out),
-            Err(e) => TimedRun::SpawnFailed(format!("wait_with_output failed: {}", e)),
-        },
-        _ => {
-            let _ = child.kill();
-            let _ = child.wait();
-            TimedRun::TimedOut
-        }
-    }
-}
-
-/// Default location of the upstream `mesh_booleans` binary.
-const CHERCHI2022_BIN_DEFAULT: &str =
-    "/home/claude/cherchi2022/InteractiveAndRobustMeshBooleans/build/mesh_booleans";
-
 const ASSAY_DIR: &str = "../../app/tests/cases/assay";
-
-/// Resolve the sidecar binary path. Returns `None` (with an `eprintln`
-/// explanation) if neither `CHERCHI2022_BIN` env nor the default exists —
-/// callers should `return` cleanly so the test is treated as
-/// configuration-skipped rather than a failure.
-fn cherchi_bin() -> Option<PathBuf> {
-    let path =
-        std::env::var("CHERCHI2022_BIN").unwrap_or_else(|_| CHERCHI2022_BIN_DEFAULT.to_string());
-    let p = PathBuf::from(&path);
-    if !p.exists() {
-        eprintln!(
-            "[reference-parity] SKIP: Cherchi 2022 binary not found at `{}`. \
-             Build it per upstream README and either symlink to the default \
-             location or set CHERCHI2022_BIN.",
-            path
-        );
-        return None;
-    }
-    Some(p)
-}
 
 /// Minimal Wavefront OBJ parser — handles only the subset our Cherchi
 /// output uses: `v x y z` lines and `f i j k` lines, 1-indexed. Skips
@@ -310,7 +244,7 @@ fn f0002_cherchi_union_reference_parity() {
     // instead of a multi-hour hang.
     let mut cmd = Command::new(&bin);
     cmd.arg("union").arg(&path_a).arg(&path_b).arg(&path_out);
-    let cherchi_out = match run_with_timeout(cmd) {
+    let cherchi_out = match run_with_timeout(cmd, CHERCHI_SUBPROCESS_TIMEOUT) {
         TimedRun::Completed(out) => out,
         TimedRun::TimedOut => {
             eprintln!(
@@ -422,7 +356,7 @@ fn cherchi_smoke_two_tetrahedra_union() {
     let _ = std::fs::remove_file(&path_out);
     let mut cmd = Command::new(&bin);
     cmd.arg("union").arg(&path_a).arg(&path_b).arg(&path_out);
-    let cherchi_out = match run_with_timeout(cmd) {
+    let cherchi_out = match run_with_timeout(cmd, CHERCHI_SUBPROCESS_TIMEOUT) {
         TimedRun::Completed(out) => out,
         TimedRun::TimedOut => panic!(
             "Cherchi smoke timed out after {}s — the binary or two-tetra \
