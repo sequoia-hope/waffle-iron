@@ -658,6 +658,8 @@ pub(crate) fn yang_boolean_inner(
     let (mut verts_b, mut tris_b) = render_mesh_to_arrays(&mesh_b);
     dedup_mesh_vertices(&mut verts_a, &mut tris_a);
     dedup_mesh_vertices(&mut verts_b, &mut tris_b);
+    emit_cluster_probe(1, "A", &verts_a);
+    emit_cluster_probe(1, "B", &verts_b);
 
     #[cfg(test)]
     eprintln!(
@@ -707,6 +709,8 @@ pub(crate) fn yang_boolean_inner(
             &mut tris_b,
             &mut bijective_b,
         );
+        emit_cluster_probe(2, "A", &verts_a);
+        emit_cluster_probe(2, "B", &verts_b);
     }
 
     // Stage 0c: Yang §4.5.5 partial-overlap coplanar pairs — three-region
@@ -723,6 +727,8 @@ pub(crate) fn yang_boolean_inner(
             &mut tris_b,
             &mut bijective_b,
         );
+        emit_cluster_probe(3, "A", &verts_a);
+        emit_cluster_probe(3, "B", &verts_b);
     }
 
     // PR9 snapshot capture (no-op unless a collector is installed via
@@ -1251,6 +1257,80 @@ pub(crate) fn check_yang_triangle_count(n_a: usize, n_b: usize) -> Result<(), Ke
     Ok(())
 }
 
+/// PR-Y15b Phase 0 — emit a `[cluster-probe]` line per (site, mesh) when
+/// `YANG_CLUSTER_PROBE=1`. Scans `verts` for canonical-key (nanometer-grid)
+/// occurrences within ±2 grid cells of F0002's corner `[-1mm, +1mm, +4mm]`
+/// and F0004's corner `[-100mm, +100mm, +500mm]` and prints a histogram of
+/// the matching keys. Also prints a global-duplicates summary so the
+/// 8-pair duplicate pattern (per PR-Y14a §1 / §3.2) surfaces regardless of
+/// scale. The "two clouds of four" pattern from PR-Y14a's findings memo §1
+/// would appear as 2 distinct keys with count 4 each; a true 8-cluster
+/// would appear as one key with count 8; an 8-pair pattern (the actual
+/// F0002/F0004 signature post-dedup) appears as 8 distinct keys each with
+/// count 2.
+///
+/// When the env var is unset, this is a single env_var lookup + early
+/// return (zero overhead).
+fn emit_cluster_probe(site: u8, mesh_label: &str, verts: &[[f64; 3]]) {
+    if std::env::var("YANG_CLUSTER_PROBE").as_deref() != Ok("1") {
+        return;
+    }
+    let scale = crate::units::QUANT_NANOMETER_SCALE;
+    let targets: &[(&str, [i64; 3])] = &[
+        ("F0002", [-1_000_000, 1_000_000, 4_000_000]),
+        ("F0004", [-100_000_000, 100_000_000, 500_000_000]),
+    ];
+    let radius: i64 = 2;
+    for (name, target) in targets {
+        let mut hist: BTreeMap<[i64; 3], usize> = BTreeMap::new();
+        for v in verts {
+            let key = [
+                (v[0] * scale).round() as i64,
+                (v[1] * scale).round() as i64,
+                (v[2] * scale).round() as i64,
+            ];
+            let dx = (key[0] - target[0]).abs();
+            let dy = (key[1] - target[1]).abs();
+            let dz = (key[2] - target[2]).abs();
+            if dx <= radius && dy <= radius && dz <= radius {
+                *hist.entry(key).or_insert(0) += 1;
+            }
+        }
+        let count: usize = hist.values().sum();
+        let keys_str = hist
+            .iter()
+            .map(|(k, c)| format!("({},{},{}):{}", k[0], k[1], k[2], c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        eprintln!(
+            "[cluster-probe] site={} mesh={} target_corner={} count={} keys=[{}]",
+            site, mesh_label, name, count, keys_str
+        );
+    }
+    // Global duplicates: any canonical key with multiplicity > 1.
+    // Surfaces the 8-pair pattern at any scale.
+    let mut all: BTreeMap<[i64; 3], usize> = BTreeMap::new();
+    for v in verts {
+        let key = [
+            (v[0] * scale).round() as i64,
+            (v[1] * scale).round() as i64,
+            (v[2] * scale).round() as i64,
+        ];
+        *all.entry(key).or_insert(0) += 1;
+    }
+    let dup_keys: Vec<_> = all.iter().filter(|(_, &c)| c > 1).collect();
+    let dup_total: usize = dup_keys.iter().map(|(_, &c)| c).sum();
+    eprintln!(
+        "[cluster-probe] site={} mesh={} global_dups: total_verts={} unique_keys={} dup_keys={} dup_vert_count={}",
+        site,
+        mesh_label,
+        verts.len(),
+        all.len(),
+        dup_keys.len(),
+        dup_total,
+    );
+}
+
 /// Pre-deduplicate per-face vertices by position (nanometer quantization).
 ///
 /// Per-face tessellation produces meshes where shared vertices at face
@@ -1383,13 +1463,11 @@ fn dump_mesh_as_obj(verts: &[[f64; 3]], tris: &[[usize; 3]], path: &str) -> Resu
         // (cinolib::read_OBJ) parses these as doubles. Sub-picometer drift
         // in the inputs IS what we are diffing against; we MUST NOT reduce
         // precision in the dump.
-        writeln!(f, "v {:.20e} {:.20e} {:.20e}", v[0], v[1], v[2])
-            .map_err(|e| e.to_string())?;
+        writeln!(f, "v {:.20e} {:.20e} {:.20e}", v[0], v[1], v[2]).map_err(|e| e.to_string())?;
     }
     for tri in tris {
         // OBJ is 1-indexed.
-        writeln!(f, "f {} {} {}", tri[0] + 1, tri[1] + 1, tri[2] + 1)
-            .map_err(|e| e.to_string())?;
+        writeln!(f, "f {} {} {}", tri[0] + 1, tri[1] + 1, tri[2] + 1).map_err(|e| e.to_string())?;
     }
     Ok(())
 }

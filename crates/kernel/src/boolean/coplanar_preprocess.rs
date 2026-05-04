@@ -1729,14 +1729,40 @@ fn inject_face_with_shared_first(
         }
     }
 
-    // 2. Append shared verts verbatim — preserves canonical bits.
-    let shared_offset = verts.len();
-    let mut added_verts: Vec<usize> = Vec::new();
-    for sv in shared_verts {
-        verts.push(*sv);
-        added_verts.push(verts.len() - 1);
+    // 2. Append shared verts with canonical-key dedup against existing verts.
+    //
+    // PR-Y15b: shared verts come from `verts_2d_to_3d(...)` applied to the
+    // i_overlay-computed 2D overlap polygon and are bit-different but
+    // canonically-identical to existing tessellation verts at the overlap
+    // corners. Dedup at nanometer scale so downstream Cherchi sees one
+    // vertex per canonical key (spec §I3, §I4 — no tolerance escalation).
+    let scale = crate::units::QUANT_NANOMETER_SCALE;
+    let canon_of = |p: &[f64; 3]| -> [i64; 3] {
+        [
+            (p[0] * scale).round() as i64,
+            (p[1] * scale).round() as i64,
+            (p[2] * scale).round() as i64,
+        ]
+    };
+    let mut canon_to_idx: BTreeMap<[i64; 3], usize> = BTreeMap::new();
+    for (i, mv) in verts.iter().enumerate() {
+        canon_to_idx.entry(canon_of(mv)).or_insert(i);
     }
-    let shared_index = |i: usize| -> usize { shared_offset + i };
+    let mut added_verts: Vec<usize> = Vec::new();
+    let mut shared_remap: Vec<usize> = Vec::with_capacity(shared_verts.len());
+    for sv in shared_verts {
+        let canon = canon_of(sv);
+        if let Some(&existing) = canon_to_idx.get(&canon) {
+            shared_remap.push(existing);
+        } else {
+            let idx = verts.len();
+            verts.push(*sv);
+            canon_to_idx.insert(canon, idx);
+            shared_remap.push(idx);
+            added_verts.push(idx);
+        }
+    }
+    let shared_index = |i: usize| -> usize { shared_remap[i] };
 
     // 3. Snap each exclusive vert to existing mesh vert (incl. just-added
     //    shared verts) within TAU_MODEL, else append.
@@ -1760,7 +1786,7 @@ fn inject_face_with_shared_first(
         }
     }
 
-    // 4. Append shared tris (using shared-vert offsets).
+    // 4. Append shared tris (remapped via canonical-key dedup table).
     for tri in shared_tris {
         new_tris_vec.push([
             shared_index(tri[0]),
