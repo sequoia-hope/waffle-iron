@@ -33,7 +33,7 @@ pub(crate) struct SourceFace {
 /// PR-Y14a — emit a single `[conformal-probe]` summary line plus up to
 /// 5 detail lines on violation. Format pinned by
 /// `specs/yang_conformal_mesh_oracle.md` §"Probe log format".
-fn emit_conformal_probe(
+pub(crate) fn emit_conformal_probe(
     stage: &str,
     report: &crate::boolean::oracles::conformal_mesh::ConformalReport,
 ) {

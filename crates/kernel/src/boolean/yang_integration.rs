@@ -1023,7 +1023,7 @@ pub(crate) fn tessellate_waffle_solid(
     solid: &WaffleSolid,
     lod: tessellation::TessellationLod,
 ) -> Result<RenderMesh, KernelError> {
-    tessellation::tessellate_solid_ext_with_lod(
+    let mesh = tessellation::tessellate_solid_ext_with_lod(
         &solid.arena,
         &solid.face_map,
         &solid.face_geometry,
@@ -1035,7 +1035,16 @@ pub(crate) fn tessellate_waffle_solid(
         solid.torus_params.as_ref(),
         solid.is_polygon_soup,
         lod,
-    )
+    )?;
+    // PR-Y15c Phase 0 — Stage E probe: post-render-LOD retessellation.
+    // Discriminates per-call-site via LOD-tagged stage name (E_lod=Render
+    // vs E_lod=Adaptive{...}). Spec: yang_pr_y15c_render_lod_investigation.md.
+    if std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1") {
+        let (verts, tris) = render_mesh_to_arrays(&mesh);
+        let report = crate::boolean::oracles::conformal_mesh::check_conformal(&verts, &tris);
+        crate::boolean::topology_extract::emit_conformal_probe(&format!("E_lod={lod:?}"), &report);
+    }
+    Ok(mesh)
 }
 
 // ── Result topology validation ──────────────────────────────────────────
