@@ -816,13 +816,13 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 16 unpaired edges out of 62 total; consistent_normals: 16 of 36 triangles have reversed normals; outward_normals: only 20 of 36 triangles (55.6%) have outward normals (need 95%); mesh_euler_characteristic: V(38) - E(62) + F(36) = 12 (expected 4)",
+      "detail": "watertight_mesh: 16 unpaired edges out of 62 total; consistent_normals: 12 of 36 triangles have reversed normals; outward_normals: only 24 of 36 triangles (66.7%) have outward normals (need 95%); mesh_euler_characteristic: V(38) - E(62) + F(36) = 12 (expected 4)",
       "id": "F0036",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 12 unpaired edges out of 66 total; consistent_normals: 14 of 40 triangles have reversed normals; outward_normals: only 26 of 40 triangles (65.0%) have outward normals (need 95%); mesh_euler_characteristic: V(42) - E(66) + F(40) = 16 (expected 4)",
+      "detail": "watertight_mesh: 12 unpaired edges out of 66 total; consistent_normals: 16 of 40 triangles have reversed normals; outward_normals: only 24 of 40 triangles (60.0%) have outward normals (need 95%); mesh_euler_characteristic: V(42) - E(66) + F(40) = 16 (expected 4)",
       "id": "F0037",
       "status": "fail"
     },
@@ -840,7 +840,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 20 unpaired edges out of 70 total; consistent_normals: 14 of 40 triangles have reversed normals; outward_normals: only 26 of 40 triangles (65.0%) have outward normals (need 95%); mesh_euler_characteristic: V(42) - E(70) + F(40) = 12 (expected 4)",
+      "detail": "watertight_mesh: 20 unpaired edges out of 70 total; consistent_normals: 18 of 40 triangles have reversed normals; outward_normals: only 22 of 40 triangles (55.0%) have outward normals (need 95%); mesh_euler_characteristic: V(42) - E(70) + F(40) = 12 (expected 4)",
       "id": "F0040",
       "status": "fail"
     },

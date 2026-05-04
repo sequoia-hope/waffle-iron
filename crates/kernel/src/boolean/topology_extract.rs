@@ -1807,6 +1807,33 @@ pub(crate) fn yang_boolean_pipeline(
         deadline,
         d_p,
     )?;
+
+    // PR-Y15a Phase 0 — Stage Bb probe: post-label_cells, pre-survival/flood_fill.
+    // Mirrors the Stage A/B/C probe family (gated on YANG_CONFORMAL_PROBE=1).
+    // Stage B (L1880) measures the post-survival mesh; Stage Bb measures the
+    // FULL subdivided mesh (all tris_a + all tris_b) immediately after
+    // `label_cells` returns. `label_cells` does not add or remove triangles
+    // — only labels them — so Stage Bb's input is the unfiltered subdivided
+    // mesh. A delta between Stage Bb (well_formed=true) and Stage C
+    // (well_formed=false) localizes the defect to flood_fill_patches; a
+    // Stage Bb already-broken localizes it to label_cells / earlier.
+    if std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1") {
+        let stage = "Bb";
+        let surviving_tris: Vec<[usize; 3]> = subdivided
+            .tris_a
+            .iter()
+            .chain(subdivided.tris_b.iter())
+            .map(|st| st.verts)
+            .collect();
+        if !surviving_tris.is_empty() {
+            let report = crate::boolean::oracles::conformal_mesh::check_conformal(
+                &subdivided.verts,
+                &surviving_tris,
+            );
+            emit_conformal_probe(stage, &report);
+        }
+    }
+
     {
         let a_outside = labeling
             .labels_a
