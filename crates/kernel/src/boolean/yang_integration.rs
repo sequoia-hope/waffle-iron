@@ -204,7 +204,7 @@ pub(crate) fn ssi_curve_to_curve_geom(curve: &SSICurve) -> Option<CurveGeom> {
 pub(crate) fn result_topology_to_waffle_solid(
     result: ResultTopology,
     refinement: &EdgeRefinementMap,
-    _surface_map: &BTreeMap<(MeshId, FaceIdx), SurfaceGeom>,
+    surface_map: &BTreeMap<(MeshId, FaceIdx), SurfaceGeom>,
     id_alloc: &mut dyn FnMut() -> u64,
 ) -> WaffleSolid {
     // Build face_map: assign a unique u64 ID to each face
@@ -232,14 +232,21 @@ pub(crate) fn result_topology_to_waffle_solid(
         vertex_map.insert(id_alloc(), VertexIdx(i));
     }
 
-    // Build face_geometry for every face using Newell normal + centroid from
-    // the actual face vertices. This ensures:
-    // 1. Every face has geometry (enabling chained booleans)
-    // 2. The normal is consistent with the face's actual vertex winding
-    //    (source surface_map geometry may have wrong orientation after boolean)
-    // Ref: spec yang_face_geometry_propagation.md.
+    // Build face_geometry per A15.5 surface tier preservation: lookup-first
+    // via face_provenance into surface_map (source face's original
+    // SurfaceGeom — Cylindrical, Conical, Spherical, Toroidal, Planar);
+    // Newell-fallback only when the source is missing (new intersection face
+    // with no provenance match). Branch table per spec
+    // yang_face_geometry_propagation.md. Tier policy for new intersection
+    // faces deferred to PR-Y15c-fix-3 if needed.
     let mut face_geometry = BTreeMap::new();
-    for &face_idx in result.face_provenance.keys() {
+    for (&face_idx, source) in result.face_provenance.iter() {
+        if let Some(geom) = surface_map.get(&(source.mesh_id, source.face_idx)) {
+            face_geometry.insert(face_idx, geom.clone());
+            continue;
+        }
+        // Newell fallback: source face has no entry in surface_map
+        // (e.g. a new intersection face).
         let verts = collect_face_vertices(&result.arena, face_idx);
         if verts.len() < 3 {
             continue; // degenerate face
