@@ -1041,7 +1041,35 @@ pub(crate) fn tessellate_waffle_solid(
     if std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1") {
         let (verts, tris) = render_mesh_to_arrays(&mesh);
         let report = crate::boolean::oracles::conformal_mesh::check_conformal(&verts, &tris);
-        crate::boolean::topology_extract::emit_conformal_probe(&format!("E_lod={lod:?}"), &report);
+        let stage = format!("E_lod={lod:?}");
+        crate::boolean::topology_extract::emit_conformal_probe(&stage, &report);
+
+        // PR-VIZ-1: dump per-stage OBJ + face-id label CSV.
+        if let Ok(dump_dir) = std::env::var("YANG_STAGE_DUMP") {
+            let case_dir = ensure_stage_dump_case_dir(&dump_dir);
+            let safe_tag = sanitize_stage_tag(&stage);
+            let _ = dump_mesh_as_obj(&verts, &tris, &format!("{case_dir}/stage_{safe_tag}.obj"));
+            // face_ranges[k].{start,end}_index are flat-index bounds into
+            // `mesh.indices`; tri i covers indices [i*3, i*3+3). Map each
+            // tri to its containing face_id by start <= i*3 < end.
+            let rows: Vec<String> = (0..tris.len())
+                .map(|i| {
+                    let i3 = (i * 3) as u32;
+                    let face_id = mesh
+                        .face_ranges
+                        .iter()
+                        .find(|fr| fr.start_index <= i3 && i3 < fr.end_index)
+                        .map(|fr| fr.face_id.0)
+                        .unwrap_or(0);
+                    format!("{i},{face_id}")
+                })
+                .collect();
+            let _ = dump_labels_as_csv(
+                "tri_idx,face_id",
+                &rows,
+                &format!("{case_dir}/stage_{safe_tag}_labels.csv"),
+            );
+        }
     }
     Ok(mesh)
 }
@@ -1463,7 +1491,11 @@ fn dump_merged_mesh_as_stl(
 /// `mesh_booleans union <base>_a.obj <base>_b.obj <base>_out.obj` and the
 /// result compared to Waffle's own `subdivided.{verts,tris_a,tris_b}`.
 #[allow(dead_code)]
-fn dump_mesh_as_obj(verts: &[[f64; 3]], tris: &[[usize; 3]], path: &str) -> Result<(), String> {
+pub(crate) fn dump_mesh_as_obj(
+    verts: &[[f64; 3]],
+    tris: &[[usize; 3]],
+    path: &str,
+) -> Result<(), String> {
     use std::io::Write;
     let mut f = std::fs::File::create(path).map_err(|e| e.to_string())?;
     for v in verts {
@@ -1478,6 +1510,98 @@ fn dump_mesh_as_obj(verts: &[[f64; 3]], tris: &[[usize; 3]], path: &str) -> Resu
         writeln!(f, "f {} {} {}", tri[0] + 1, tri[1] + 1, tri[2] + 1).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+// ── PR-VIZ-1: per-stage OBJ dump support ────────────────────────────────
+//
+// Spec: specs/yang_pr_viz_1_per_stage_obj_dump.md
+// Helpers below are env-gated dev tooling. The probe-off path is byte-
+// identical (no fs writes, no allocation when callers branch on env).
+
+/// Write a CSV file with a header row and data rows (no trailing newline
+/// padding). Errors are propagated as String so callers can ignore them
+/// (dev tooling MUST NOT crash production code per spec §3).
+pub(crate) fn dump_labels_as_csv(header: &str, rows: &[String], path: &str) -> Result<(), String> {
+    use std::io::Write;
+    let mut f = std::fs::File::create(path).map_err(|e| e.to_string())?;
+    writeln!(f, "{header}").map_err(|e| e.to_string())?;
+    for row in rows {
+        writeln!(f, "{row}").map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Pack flat f32 vertex/u32 index arrays (the RenderMesh / tessellation
+/// shape) into the (Vec<[f64;3]>, Vec<[usize;3]>) shape that
+/// `dump_mesh_as_obj` consumes. f32→f64 widening is lossless.
+pub(crate) fn pack_f32_indices_to_f64_mesh(
+    verts_f32: &[f32],
+    indices_u32: &[u32],
+) -> (Vec<[f64; 3]>, Vec<[usize; 3]>) {
+    let n_verts = verts_f32.len() / 3;
+    let verts: Vec<[f64; 3]> = (0..n_verts)
+        .map(|i| {
+            [
+                verts_f32[i * 3] as f64,
+                verts_f32[i * 3 + 1] as f64,
+                verts_f32[i * 3 + 2] as f64,
+            ]
+        })
+        .collect();
+    let n_tris = indices_u32.len() / 3;
+    let tris: Vec<[usize; 3]> = (0..n_tris)
+        .map(|i| {
+            [
+                indices_u32[i * 3] as usize,
+                indices_u32[i * 3 + 1] as usize,
+                indices_u32[i * 3 + 2] as usize,
+            ]
+        })
+        .collect();
+    (verts, tris)
+}
+
+// Thread-local case-id propagation. `randomized_runner.rs::run_single_case`
+// sets this around the boolean invocation; probe sites read it to name
+// their dump directories. `randomized_runner` is sequential and synchronous
+// (kernel runs on the same thread as the harness), so a thread-local is
+// the simplest correct model. No env var pollution.
+std::thread_local! {
+    static CURRENT_CASE_ID: std::cell::RefCell<Option<String>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Set the per-thread case-id consumed by per-stage OBJ dumps. Pass `None`
+/// to clear. `pub` (not `pub(crate)`) so the test-harness crate can call it
+/// from `randomized_runner::run_single_case`.
+pub fn set_current_case_id(id: Option<String>) {
+    CURRENT_CASE_ID.with(|c| *c.borrow_mut() = id);
+}
+
+/// Read the per-thread case-id. Returns `None` when unset; callers fall
+/// back to `seq_<pid>` per spec §4.
+pub(crate) fn current_case_id() -> Option<String> {
+    CURRENT_CASE_ID.with(|c| c.borrow().clone())
+}
+
+/// Sanitize a stage tag for use in a filename. Allows alphanumerics,
+/// `_`, `=`, `.`, `-` (so `E_lod=Render`, `F.0` survive verbatim);
+/// replaces everything else with `_`.
+pub(crate) fn sanitize_stage_tag(tag: &str) -> String {
+    tag.replace(
+        |c: char| !c.is_alphanumeric() && c != '_' && c != '=' && c != '.' && c != '-',
+        "_",
+    )
+}
+
+/// Resolve `<dump_dir>/<case_or_seq>` and ensure the directory exists.
+/// Errors are silently ignored — dev tooling MUST NOT crash production
+/// code. Returns the case sub-directory path as `String`.
+pub(crate) fn ensure_stage_dump_case_dir(dump_dir: &str) -> String {
+    let case = current_case_id().unwrap_or_else(|| format!("seq_{}", std::process::id()));
+    let case_dir = format!("{dump_dir}/{case}");
+    let _ = std::fs::create_dir_all(&case_dir);
+    case_dir
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────

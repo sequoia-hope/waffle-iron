@@ -784,6 +784,37 @@ pub(crate) fn flood_fill_patches(
             &combined_tris,
         );
         emit_conformal_probe(stage, &report);
+
+        // PR-VIZ-1: dump per-stage OBJ + label CSV. all_tris carries
+        // SourceFace.mesh_id for origin. Inside-flag is omitted at this
+        // stage — the boolean op is not threaded into flood_fill_patches,
+        // and these tris are already post-survival so the inheritance is
+        // implicit. Per spec §5: CSV omits unavailable columns.
+        if let Ok(dump_dir) = std::env::var("YANG_STAGE_DUMP") {
+            let case_dir = crate::boolean::yang_integration::ensure_stage_dump_case_dir(&dump_dir);
+            let safe_tag = crate::boolean::yang_integration::sanitize_stage_tag(stage);
+            let _ = crate::boolean::yang_integration::dump_mesh_as_obj(
+                &subdivided.verts,
+                &combined_tris,
+                &format!("{case_dir}/stage_{safe_tag}.obj"),
+            );
+            let rows: Vec<String> = all_tris
+                .iter()
+                .enumerate()
+                .map(|(i, s)| {
+                    let origin = match s.source.mesh_id {
+                        MeshId::A => "A",
+                        MeshId::B => "B",
+                    };
+                    format!("{i},{origin}")
+                })
+                .collect();
+            let _ = crate::boolean::yang_integration::dump_labels_as_csv(
+                "tri_idx,origin",
+                &rows,
+                &format!("{case_dir}/stage_{safe_tag}_labels.csv"),
+            );
+        }
     }
 
     // ── Step 7: Build B-Rep from patches ──
@@ -1682,6 +1713,27 @@ pub(crate) fn yang_boolean_pipeline(
                 &combined_tris,
             );
             emit_conformal_probe(stage, &report);
+
+            // PR-VIZ-1: dump per-stage OBJ + label CSV when YANG_STAGE_DUMP set.
+            if let Ok(dump_dir) = std::env::var("YANG_STAGE_DUMP") {
+                let case_dir =
+                    crate::boolean::yang_integration::ensure_stage_dump_case_dir(&dump_dir);
+                let safe_tag = crate::boolean::yang_integration::sanitize_stage_tag(stage);
+                let _ = crate::boolean::yang_integration::dump_mesh_as_obj(
+                    &subdivided.verts,
+                    &combined_tris,
+                    &format!("{case_dir}/stage_{safe_tag}.obj"),
+                );
+                let n_a = subdivided.tris_a.len();
+                let rows: Vec<String> = (0..combined_tris.len())
+                    .map(|i| format!("{i},{}", if i < n_a { "A" } else { "B" }))
+                    .collect();
+                let _ = crate::boolean::yang_integration::dump_labels_as_csv(
+                    "tri_idx,origin",
+                    &rows,
+                    &format!("{case_dir}/stage_{safe_tag}_labels.csv"),
+                );
+            }
         }
     }
 
@@ -1831,6 +1883,52 @@ pub(crate) fn yang_boolean_pipeline(
                 &surviving_tris,
             );
             emit_conformal_probe(stage, &report);
+
+            // PR-VIZ-1: dump per-stage OBJ + label CSV (origin + inside).
+            if let Ok(dump_dir) = std::env::var("YANG_STAGE_DUMP") {
+                let case_dir =
+                    crate::boolean::yang_integration::ensure_stage_dump_case_dir(&dump_dir);
+                let safe_tag = crate::boolean::yang_integration::sanitize_stage_tag(stage);
+                let _ = crate::boolean::yang_integration::dump_mesh_as_obj(
+                    &subdivided.verts,
+                    &surviving_tris,
+                    &format!("{case_dir}/stage_{safe_tag}.obj"),
+                );
+                // Origin order matches `chain(tris_a, tris_b)`. Inside
+                // labels come from `labeling.labels_a`/`labels_b` (parallel
+                // to `tris_a`/`tris_b` per CellLabeling contract).
+                let n_a = subdivided.tris_a.len();
+                let rows: Vec<String> = (0..surviving_tris.len())
+                    .map(|i| {
+                        let (origin, inside) = if i < n_a {
+                            (
+                                "A",
+                                if matches!(labeling.labels_a[i], CellLabel::Inside) {
+                                    1
+                                } else {
+                                    0
+                                },
+                            )
+                        } else {
+                            let j = i - n_a;
+                            (
+                                "B",
+                                if matches!(labeling.labels_b[j], CellLabel::Inside) {
+                                    1
+                                } else {
+                                    0
+                                },
+                            )
+                        };
+                        format!("{i},{origin},{inside}")
+                    })
+                    .collect();
+                let _ = crate::boolean::yang_integration::dump_labels_as_csv(
+                    "tri_idx,origin,inside",
+                    &rows,
+                    &format!("{case_dir}/stage_{safe_tag}_labels.csv"),
+                );
+            }
         }
     }
 
@@ -1917,6 +2015,46 @@ pub(crate) fn yang_boolean_pipeline(
                 &surviving_tris,
             );
             emit_conformal_probe(stage, &report);
+
+            // PR-VIZ-1: dump per-stage OBJ + label CSV. Origin/inside come
+            // from the source-face key + the boolean op's keep table
+            // (Stage B post-survival inherits both from Stage Bb's labels).
+            if let Ok(dump_dir) = std::env::var("YANG_STAGE_DUMP") {
+                let case_dir =
+                    crate::boolean::yang_integration::ensure_stage_dump_case_dir(&dump_dir);
+                let safe_tag = crate::boolean::yang_integration::sanitize_stage_tag(stage);
+                let _ = crate::boolean::yang_integration::dump_mesh_as_obj(
+                    &subdivided.verts,
+                    &surviving_tris,
+                    &format!("{case_dir}/stage_{safe_tag}.obj"),
+                );
+                // Per-mesh kept-label table (mirrors face_survival_detect):
+                // Union: A keeps Outside, B keeps Outside;
+                // Subtract: A keeps Outside, B keeps Inside;
+                // Intersect: A keeps Inside, B keeps Inside.
+                let (keep_a_inside, keep_b_inside) = match op {
+                    MeshBooleanOp::Union => (false, false),
+                    MeshBooleanOp::Subtract => (false, true),
+                    MeshBooleanOp::Intersect => (true, true),
+                };
+                let mut rows: Vec<String> = Vec::with_capacity(surviving_tris.len());
+                let mut tri_idx = 0usize;
+                for (sf, group) in &survival.groups {
+                    let (origin, inside) = match sf.mesh_id {
+                        MeshId::A => ("A", if keep_a_inside { 1 } else { 0 }),
+                        MeshId::B => ("B", if keep_b_inside { 1 } else { 0 }),
+                    };
+                    for _ in group {
+                        rows.push(format!("{tri_idx},{origin},{inside}"));
+                        tri_idx += 1;
+                    }
+                }
+                let _ = crate::boolean::yang_integration::dump_labels_as_csv(
+                    "tri_idx,origin,inside",
+                    &rows,
+                    &format!("{case_dir}/stage_{safe_tag}_labels.csv"),
+                );
+            }
         }
     }
 

@@ -4276,6 +4276,7 @@ fn tessellate_solid_bounded(
         let unpaired = repair::count_unpaired_in_mesh(&vertices, &indices);
         let tri_count = indices.len() / 3;
         eprintln!("[stage-f] sub=0 tri_count={tri_count} unpaired={unpaired}");
+        dump_stage_f_viz("F.0", &vertices, &indices, &face_ranges);
     }
 
     // Minimal post-processing (no welding/filling — watertight by construction).
@@ -4294,6 +4295,7 @@ fn tessellate_solid_bounded(
         let unpaired = repair::count_unpaired_in_mesh(&vertices, &indices);
         let tri_count = indices.len() / 3;
         eprintln!("[stage-f] sub=1 tri_count={tri_count} unpaired={unpaired}");
+        dump_stage_f_viz("F.1", &vertices, &indices, &face_ranges);
     }
 
     // Edge-flip repair: for non-manifold edges caused by conflicting earcut
@@ -4343,6 +4345,7 @@ fn tessellate_solid_bounded(
         let unpaired = repair::count_unpaired_in_mesh(&vertices, &indices);
         let tri_count = indices.len() / 3;
         eprintln!("[stage-f] sub=2 tri_count={tri_count} unpaired={unpaired}");
+        dump_stage_f_viz("F.2", &vertices, &indices, &face_ranges);
     }
 
     // Remove any remaining non-manifold edges by aggressively pruning excess
@@ -4355,6 +4358,7 @@ fn tessellate_solid_bounded(
         let unpaired = repair::count_unpaired_in_mesh(&vertices, &indices);
         let tri_count = indices.len() / 3;
         eprintln!("[stage-f] sub=3 tri_count={tri_count} unpaired={unpaired}");
+        dump_stage_f_viz("F.3", &vertices, &indices, &face_ranges);
     }
 
     fix_global_orientation(&mut vertices, &mut normals, &mut indices);
@@ -4370,6 +4374,7 @@ fn tessellate_solid_bounded(
         let unpaired = repair::count_unpaired_in_mesh(&vertices, &indices);
         let tri_count = indices.len() / 3;
         eprintln!("[stage-f] sub=4 tri_count={tri_count} unpaired={unpaired}");
+        dump_stage_f_viz("F.4", &vertices, &indices, &face_ranges);
     }
 
     Ok(RenderMesh {
@@ -4378,6 +4383,43 @@ fn tessellate_solid_bounded(
         indices,
         face_ranges,
     })
+}
+
+// ── PR-VIZ-1: Stage F per-pass OBJ dump helper ──────────────────────────
+//
+// Called from each F.0–F.4 probe site under a `YANG_CONFORMAL_PROBE=1`
+// guard. Inner `YANG_STAGE_DUMP=<dir>` env check makes the path no-op
+// when dumps are disabled. Spec: specs/yang_pr_viz_1_per_stage_obj_dump.md
+fn dump_stage_f_viz(stage_tag: &str, vertices: &[f32], indices: &[u32], face_ranges: &[FaceRange]) {
+    let dump_dir = match std::env::var("YANG_STAGE_DUMP") {
+        Ok(d) => d,
+        Err(_) => return,
+    };
+    let case_dir = crate::boolean::yang_integration::ensure_stage_dump_case_dir(&dump_dir);
+    let safe_tag = crate::boolean::yang_integration::sanitize_stage_tag(stage_tag);
+    let (verts, tris) =
+        crate::boolean::yang_integration::pack_f32_indices_to_f64_mesh(vertices, indices);
+    let _ = crate::boolean::yang_integration::dump_mesh_as_obj(
+        &verts,
+        &tris,
+        &format!("{case_dir}/stage_{safe_tag}.obj"),
+    );
+    let rows: Vec<String> = (0..tris.len())
+        .map(|i| {
+            let i3 = (i * 3) as u32;
+            let face_id = face_ranges
+                .iter()
+                .find(|fr| fr.start_index <= i3 && i3 < fr.end_index)
+                .map(|fr| fr.face_id.0)
+                .unwrap_or(0);
+            format!("{i},{face_id}")
+        })
+        .collect();
+    let _ = crate::boolean::yang_integration::dump_labels_as_csv(
+        "tri_idx,face_id",
+        &rows,
+        &format!("{case_dir}/stage_{safe_tag}_labels.csv"),
+    );
 }
 
 // ── Geometry helpers ─────────────────────────────────────────────────────

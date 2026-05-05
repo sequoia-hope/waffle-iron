@@ -85,7 +85,11 @@ pub fn run_randomized_assay(dir: &Path, use_kernel: bool) -> AssayReport {
                     waffle_path: case_path,
                     meta_path,
                 };
+                // PR-VIZ-1: case-id thread-local is per-thread, so must
+                // be set on the spawned worker (not the parent).
+                kernel::set_yang_stage_dump_case_id(Some(c.id.clone()));
                 let r = replay_and_validate(&c, use_k);
+                kernel::set_yang_stage_dump_case_id(None);
                 let _ = tx.send(r);
             });
             match rx.recv_timeout(std::time::Duration::from_secs(90)) {
@@ -140,7 +144,11 @@ pub fn run_randomized_assay(dir: &Path, use_kernel: bool) -> AssayReport {
 pub fn run_single_case(dir: &Path, case_id: &str, use_kernel: bool) -> Option<AssayResult> {
     let cases = discover_cases(dir);
     let case = cases.iter().find(|c| c.id == case_id)?;
+    // PR-VIZ-1: scope per-stage Yang OBJ dumps to this case-id when
+    // `YANG_STAGE_DUMP=<dir>` is set. No-op for the unset path.
+    kernel::set_yang_stage_dump_case_id(Some(case.id.clone()));
     let result = replay_and_validate(case, use_kernel);
+    kernel::set_yang_stage_dump_case_id(None);
 
     // Merge this single result into results.json so the GUI stays in sync
     // Only write when using real kernel — mock results aren't meaningful for the GUI
