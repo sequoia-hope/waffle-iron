@@ -4271,6 +4271,13 @@ fn tessellate_solid_bounded(
         }
     }
 
+    // [stage-f] F.0 baseline: after per-face dispatch loop, before fix_winding_consistency.
+    if std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1") {
+        let unpaired = repair::count_unpaired_in_mesh(&vertices, &indices);
+        let tri_count = indices.len() / 3;
+        eprintln!("[stage-f] sub=0 tri_count={tri_count} unpaired={unpaired}");
+    }
+
     // Minimal post-processing (no welding/filling — watertight by construction).
     // NOTE: Do NOT call remove_degenerate_triangles here. Degenerate triangles
     // from earcut (zero-area, collinear vertices) are invisible but their edges
@@ -4281,6 +4288,13 @@ fn tessellate_solid_bounded(
     // regardless of winding order) that arise from shared-vertex tessellation of
     // adjacent faces producing overlapping edge-pairs.
     remove_winding_insensitive_duplicates(&vertices, &mut indices, &mut face_ranges);
+
+    // [stage-f] F.1: after remove_winding_insensitive_duplicates.
+    if std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1") {
+        let unpaired = repair::count_unpaired_in_mesh(&vertices, &indices);
+        let tri_count = indices.len() / 3;
+        eprintln!("[stage-f] sub=1 tri_count={tri_count} unpaired={unpaired}");
+    }
 
     // Edge-flip repair: for non-manifold edges caused by conflicting earcut
     // diagonals across faces sharing corner positions, flip the diagonal in
@@ -4324,10 +4338,24 @@ fn tessellate_solid_bounded(
         &mut face_ranges,
     );
 
+    // [stage-f] F.2: after remove_nonmanifold_topology_aware.
+    if std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1") {
+        let unpaired = repair::count_unpaired_in_mesh(&vertices, &indices);
+        let tri_count = indices.len() / 3;
+        eprintln!("[stage-f] sub=2 tri_count={tri_count} unpaired={unpaired}");
+    }
+
     // Remove any remaining non-manifold edges by aggressively pruning excess
     // triangles. The bounded path has no fill triangles so all removals target
     // real face overlaps from adjacent tessellations.
     remove_nonmanifold_duplicates_aggressive(&vertices, &mut indices, &mut face_ranges);
+
+    // [stage-f] F.3: after remove_nonmanifold_duplicates_aggressive.
+    if std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1") {
+        let unpaired = repair::count_unpaired_in_mesh(&vertices, &indices);
+        let tri_count = indices.len() / 3;
+        eprintln!("[stage-f] sub=3 tri_count={tri_count} unpaired={unpaired}");
+    }
 
     fix_global_orientation(&mut vertices, &mut normals, &mut indices);
 
@@ -4336,6 +4364,13 @@ fn tessellate_solid_bounded(
     // Without welding, three.js sees hard edges between quads. By merging vertices
     // at the same position with the same normal, smooth shading interpolates correctly.
     weld_smooth_vertices(&vertices, &normals, &mut indices);
+
+    // [stage-f] F.4: after weld_smooth_vertices, just before return.
+    if std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1") {
+        let unpaired = repair::count_unpaired_in_mesh(&vertices, &indices);
+        let tri_count = indices.len() / 3;
+        eprintln!("[stage-f] sub=4 tri_count={tri_count} unpaired={unpaired}");
+    }
 
     Ok(RenderMesh {
         vertices,
