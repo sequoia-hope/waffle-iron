@@ -9,11 +9,13 @@
 
 use std::collections::BTreeMap;
 
+#[cfg(test)]
 use crate::boolean::collect_face_vertices;
 use crate::boolean::exact_mesh::MeshBooleanOp;
 use crate::boolean::exact_mesh::MeshId;
 #[cfg(test)]
 use crate::boolean::exact_mesh::SubdividedMesh;
+#[cfg(test)]
 use crate::boolean::polygon_centroid;
 use crate::boolean::ssi_refinement::EdgeRefinementMap;
 use crate::boolean::ssi_refinement::{
@@ -27,7 +29,7 @@ use crate::boolean::BoolOp;
 use crate::boolean::BooleanResult;
 use crate::geometry::curve::{Circle3D, CurveGeom, Ellipse3D, Line3D};
 use crate::geometry::point::{Point3, Vector3};
-use crate::geometry::surface::{Plane, SurfaceGeom};
+use crate::geometry::surface::SurfaceGeom;
 use crate::ssi::SSICurve;
 use crate::tessellation;
 use crate::tessellation::bijective::BijectiveMap;
@@ -35,9 +37,11 @@ use crate::topology::half_edge::{EdgeIdx, FaceIdx, VertexIdx};
 #[cfg(test)]
 use crate::types::{FaceRange, KernelId};
 use crate::types::{KernelError, RenderMesh};
+#[cfg(test)]
 use crate::units::TAU_NORMALIZE;
 #[cfg(test)]
 use crate::units::TAU_WORK;
+#[cfg(test)]
 use crate::vecmath::compute_newell_normal;
 use crate::waffle_kernel::WaffleSolid;
 
@@ -232,53 +236,30 @@ pub(crate) fn result_topology_to_waffle_solid(
         vertex_map.insert(id_alloc(), VertexIdx(i));
     }
 
-    // Build face_geometry per A15.5 surface tier preservation: lookup-first
-    // via face_provenance into surface_map (source face's original
-    // SurfaceGeom — Cylindrical, Conical, Spherical, Toroidal, Planar);
-    // Newell-fallback only when the source is missing (new intersection face
-    // with no provenance match). Branch table per spec
-    // yang_face_geometry_propagation.md. Tier policy for new intersection
-    // faces deferred to PR-Y15c-fix-3 if needed.
+    // Build face_geometry per A15.5 surface tier preservation (lookup-only,
+    // PR-Y15c-fix-2.2): every face in face_provenance MUST resolve via
+    // surface_map. PR-Y15c-fix-2.1 audit (commit a974d35) verified 0/190
+    // fallback hits across the corpus, so any miss is a contract violation
+    // (drift in surface_map population or face_provenance shape) and must
+    // panic loudly rather than silently planar-fallback.
     let mut face_geometry = BTreeMap::new();
     for (&face_idx, source) in result.face_provenance.iter() {
-        if let Some(geom) = surface_map.get(&(source.mesh_id, source.face_idx)) {
-            face_geometry.insert(face_idx, geom.clone());
-            continue;
-        }
-        // PR-Y15c-fix-2.1 audit probe: env-gated; observation-only.
-        // Fires once per Newell-fallback hit BEFORE the degenerate-skip guards.
-        if std::env::var("YANG_A15_5_AUDIT").as_deref() == Ok("1") {
-            eprintln!(
-                "[a15-5-fallback] face_idx={:?} source_mesh={:?} source_face={:?} map_size={}",
-                face_idx,
-                source.mesh_id,
-                source.face_idx,
-                surface_map.len()
-            );
-        }
-        // Newell fallback: source face has no entry in surface_map
-        // (e.g. a new intersection face).
-        let verts = collect_face_vertices(&result.arena, face_idx);
-        if verts.len() < 3 {
-            continue; // degenerate face
-        }
-        let newell = compute_newell_normal(&verts);
-        let nl = (newell[0] * newell[0] + newell[1] * newell[1] + newell[2] * newell[2]).sqrt();
-        if nl < TAU_NORMALIZE {
-            continue; // zero-area face
-        }
-        let normal = Vector3 {
-            x: newell[0] / nl,
-            y: newell[1] / nl,
-            z: newell[2] / nl,
-        };
-        let c = polygon_centroid(&verts);
-        let origin = Point3 {
-            x: c[0],
-            y: c[1],
-            z: c[2],
-        };
-        face_geometry.insert(face_idx, SurfaceGeom::Planar(Plane { origin, normal }));
+        let geom = surface_map
+            .get(&(source.mesh_id, source.face_idx))
+            .unwrap_or_else(|| {
+                panic!(
+                    "A15.5 surface_map contract violated: face_idx={face_idx:?} \
+                 source_mesh={:?} source_face={:?} not in surface_map (size={}). \
+                 Audit PR-Y15c-fix-2.1 (commit a974d35) verified 0/190 hits across the corpus; \
+                 if this fires, surface_map population or face_provenance has drifted. \
+                 See docs/audits/pr_y15c_fix_2_1_diagnostic.md and \
+                 specs/yang_pr_y15c_fix_2_a15_5_surface_preservation.md.",
+                    source.mesh_id,
+                    source.face_idx,
+                    surface_map.len()
+                )
+            });
+        face_geometry.insert(face_idx, geom.clone());
     }
 
     // Build edge_geometry from SSI refinement curves
@@ -4379,5 +4360,61 @@ mod tests {
                 panic!("Tetra subtract should succeed: {e:?}");
             }
         }
+    }
+
+    /// PR-Y15c-fix-2.2 — synthetic RED-phase test for the A15.5 panic
+    /// promotion. Spec: `specs/yang_pr_y15c_fix_2_2_panic_promotion.md` §5.
+    ///
+    /// Constructs a minimal `ResultTopology` with one `face_provenance`
+    /// entry whose `(mesh_id, face_idx)` key is absent from an empty
+    /// `surface_map`, then calls `result_topology_to_waffle_solid` and
+    /// asserts the call panics with a message containing `A15.5`.
+    ///
+    /// **RED phase (current code):** `surface_map.get(...)` returns `None`,
+    /// the audit eprintln is env-gated off, and execution proceeds into
+    /// the silent Newell-fallback. With an empty arena, that fallback
+    /// path eventually panics on an arena OOB index — but with NO `A15.5`
+    /// substring in the panic message, so `#[should_panic(expected =
+    /// "A15.5")]` correctly FAILS, demonstrating the missing
+    /// panic-promotion contract.
+    ///
+    /// **GREEN phase (after implementer-m's fix):** the lookup-first
+    /// `unwrap_or_else(|| panic!("A15.5 ..."))` fires before
+    /// `collect_face_vertices` is reached, panicking with a message that
+    /// includes the substring `A15.5`, so this test PASSES.
+    #[test]
+    #[should_panic(expected = "A15.5")]
+    fn test_a15_5_panic_on_missing_surface_map_entry() {
+        use crate::boolean::ssi_refinement::EdgeRefinementMap;
+        use crate::boolean::topology_extract::{ResultTopology, SourceFace};
+        use crate::topology::arena::TopoArena;
+        use crate::topology::half_edge::FaceIdx;
+
+        let mut face_provenance = BTreeMap::new();
+        face_provenance.insert(
+            FaceIdx(0),
+            SourceFace {
+                mesh_id: MeshId::A,
+                face_idx: FaceIdx(0),
+            },
+        );
+        let result = ResultTopology {
+            arena: TopoArena::new(),
+            face_provenance,
+            edge_is_intersection: BTreeMap::new(),
+        };
+        let refinement = EdgeRefinementMap {
+            edges: BTreeMap::new(),
+            skipped_planar: 0,
+            unsupported: vec![],
+        };
+        let surface_map: BTreeMap<(MeshId, FaceIdx), SurfaceGeom> = BTreeMap::new();
+        let mut next_id = 1u64;
+
+        let _ = result_topology_to_waffle_solid(result, &refinement, &surface_map, &mut || {
+            let id = next_id;
+            next_id += 1;
+            id
+        });
     }
 }
