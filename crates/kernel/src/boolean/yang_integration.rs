@@ -1070,6 +1070,21 @@ pub(crate) fn tessellate_waffle_solid(
                 &format!("{case_dir}/stage_{safe_tag}_labels.csv"),
             );
         }
+
+        // PR-VIZ-3a: in-memory capture. Spec §4 row 5: labels = face_id
+        // per tri (mapped via face_ranges, mirrors the file-dump CSV).
+        let (verts_f32, idx_u32) = pack_f64_mesh_to_f32_indices(&verts, &tris);
+        let labels: Vec<u32> = (0..tris.len())
+            .map(|i| {
+                let i3 = (i * 3) as u32;
+                mesh.face_ranges
+                    .iter()
+                    .find(|fr| fr.start_index <= i3 && i3 < fr.end_index)
+                    .map(|fr| fr.face_id.0 as u32)
+                    .unwrap_or(0)
+            })
+            .collect();
+        record_stage(&stage, &verts_f32, &idx_u32, &labels);
     }
     Ok(mesh)
 }
@@ -1531,6 +1546,29 @@ pub(crate) fn dump_labels_as_csv(header: &str, rows: &[String], path: &str) -> R
     Ok(())
 }
 
+/// Pack `(Vec<[f64;3]>, Vec<[usize;3]>)` (the boolean-pipeline shape)
+/// into flat `(Vec<f32>, Vec<u32>)` (the StageMesh / RenderMesh shape).
+/// f64→f32 narrowing is lossy but viewer-grade per spec §2 ("lossy
+/// f64→f32 ok (viewer-grade)").
+pub(crate) fn pack_f64_mesh_to_f32_indices(
+    verts: &[[f64; 3]],
+    tris: &[[usize; 3]],
+) -> (Vec<f32>, Vec<u32>) {
+    let mut verts_flat: Vec<f32> = Vec::with_capacity(verts.len() * 3);
+    for v in verts {
+        verts_flat.push(v[0] as f32);
+        verts_flat.push(v[1] as f32);
+        verts_flat.push(v[2] as f32);
+    }
+    let mut idx_flat: Vec<u32> = Vec::with_capacity(tris.len() * 3);
+    for t in tris {
+        idx_flat.push(t[0] as u32);
+        idx_flat.push(t[1] as u32);
+        idx_flat.push(t[2] as u32);
+    }
+    (verts_flat, idx_flat)
+}
+
 /// Pack flat f32 vertex/u32 index arrays (the RenderMesh / tessellation
 /// shape) into the (Vec<[f64;3]>, Vec<[usize;3]>) shape that
 /// `dump_mesh_as_obj` consumes. f32→f64 widening is lossless.
@@ -1559,6 +1597,67 @@ pub(crate) fn pack_f32_indices_to_f64_mesh(
         })
         .collect();
     (verts, tris)
+}
+
+// ── PR-VIZ-3a: in-memory Yang stage capture ─────────────────────────────
+//
+// Spec: specs/yang_pr_viz_3a_in_memory_capture.md
+//
+// Coexists with PR-VIZ-1's file-based dump (both run when both gates are
+// on). The thread-local `CAPTURE_BUFFER` mirrors the `CURRENT_CASE_ID`
+// pattern below — `randomized_runner` and the WASM web worker are both
+// single-threaded, so this is correct.
+
+/// One captured Yang pipeline stage. `vertices` is flat `[x,y,z,...]`;
+/// `indices` is 3-per-tri; `labels` is per-tri (encoding documented in
+/// spec §4 per stage).
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct StageMesh {
+    pub stage_tag: String,
+    pub vertices: Vec<f32>,
+    pub indices: Vec<u32>,
+    pub labels: Vec<u32>,
+}
+
+/// All captured stages for one feature build.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct FeatureStageCapture {
+    pub feature_id: String,
+    pub stages: Vec<StageMesh>,
+    pub failed_at_stage: Option<usize>,
+}
+
+std::thread_local! {
+    static CAPTURE_BUFFER: std::cell::RefCell<Option<Vec<StageMesh>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Arm the per-thread capture buffer. Subsequent `record_stage` calls
+/// append to this buffer until `drain_yang_capture` is called.
+pub fn start_yang_capture() {
+    CAPTURE_BUFFER.with(|b| *b.borrow_mut() = Some(Vec::new()));
+}
+
+/// Take the captured stages and disarm the buffer. A second call returns
+/// an empty Vec (spec §8.1).
+pub fn drain_yang_capture() -> Vec<StageMesh> {
+    CAPTURE_BUFFER.with(|b| b.borrow_mut().take().unwrap_or_default())
+}
+
+/// Append one stage to the capture buffer when armed; no-op when disarmed.
+/// The disarmed-path early-returns on the `is_some` check before any
+/// allocation so probe-off behavior is byte-identical (spec §3).
+pub(crate) fn record_stage(stage_tag: &str, vertices: &[f32], indices: &[u32], labels: &[u32]) {
+    CAPTURE_BUFFER.with(|b| {
+        if let Some(buf) = b.borrow_mut().as_mut() {
+            buf.push(StageMesh {
+                stage_tag: stage_tag.to_string(),
+                vertices: vertices.to_vec(),
+                indices: indices.to_vec(),
+                labels: labels.to_vec(),
+            });
+        }
+    });
 }
 
 // Thread-local case-id propagation. `randomized_runner.rs::run_single_case`
@@ -4540,5 +4639,69 @@ mod tests {
             next_id += 1;
             id
         });
+    }
+
+    /// PR-VIZ-3a sub-phase 0b — RED test for the in-memory capture
+    /// round-trip per spec §3 + §8.1.
+    ///
+    /// Pre-conditions (must be true on RED):
+    ///   - `start_yang_capture`, `record_stage`, `drain_yang_capture` do
+    ///     NOT exist on `super::*` yet.
+    ///   - `StageMesh` does NOT exist on `super::*` yet.
+    ///
+    /// Spec contract (must be true on GREEN, after sub-phase 0c lands):
+    ///   - `start_yang_capture()` arms the thread-local `CAPTURE_BUFFER`.
+    ///   - `record_stage(tag, verts, idx, labels)` appends a `StageMesh`
+    ///     when armed (no-op when not armed).
+    ///   - `drain_yang_capture()` returns the recorded `Vec<StageMesh>`
+    ///     and resets the buffer to `None` (so a second call returns an
+    ///     empty Vec — the §8.1 "second drain returns empty" clause).
+    ///   - The recorded `StageMesh` round-trips: `stage_tag` is the input
+    ///     `&str`, `vertices`/`indices`/`labels` are the input slices
+    ///     copied verbatim.
+    #[test]
+    fn test_yang_capture_round_trip() {
+        // Arm the buffer.
+        start_yang_capture();
+
+        // Stage A: 1 triangle, 3 verts, single per-tri label `0` (origin
+        // A=0 per spec §4 row 1).
+        record_stage(
+            "A",
+            &[0.0_f32, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+            &[0_u32, 1, 2],
+            &[0_u32],
+        );
+        // Stage E: 1 triangle, 3 verts, label = face_id 42 (spec §4 row
+        // 5).
+        record_stage(
+            "E",
+            &[1.0_f32, 1.0, 1.0, 2.0, 1.0, 1.0, 1.0, 2.0, 1.0],
+            &[2_u32, 1, 0],
+            &[42_u32],
+        );
+
+        let stages = drain_yang_capture();
+        assert_eq!(stages.len(), 2, "two record_stage calls → two stages");
+
+        // Stage[0] = "A".
+        assert_eq!(stages[0].stage_tag, "A");
+        assert_eq!(stages[0].vertices.len(), 9, "3 verts × 3 floats");
+        assert_eq!(stages[0].vertices[3], 1.0_f32, "v1.x copied verbatim");
+        assert_eq!(stages[0].indices, vec![0_u32, 1, 2]);
+        assert_eq!(stages[0].labels, vec![0_u32]);
+
+        // Stage[1] = "E".
+        assert_eq!(stages[1].stage_tag, "E");
+        assert_eq!(stages[1].indices, vec![2_u32, 1, 0]);
+        assert_eq!(stages[1].labels, vec![42_u32], "face_id 42 round-trips");
+
+        // Spec §8.1: second drain returns empty (buffer reset to None).
+        let second = drain_yang_capture();
+        assert!(
+            second.is_empty(),
+            "drain MUST reset the buffer; got {} stages on second drain",
+            second.len()
+        );
     }
 }

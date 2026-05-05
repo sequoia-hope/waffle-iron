@@ -1,4 +1,16 @@
 /**
+ * PR-VIZ-3a: clear the captures map (free memory). Spec §5.
+ */
+export function clear_yang_debug_captures() {
+    __wbg_termination_guard();
+    try {
+        wasm.clear_yang_debug_captures();
+    } catch(e) {
+        __wbg_handle_catch(e);
+    }
+}
+
+/**
  * Get edge range data for a specific feature by index.
  *
  * Returns a JSON array of edge ranges enriched with GeomRef data.
@@ -249,6 +261,38 @@ export function get_renderable_feature_indices() {
 }
 
 /**
+ * PR-VIZ-3a: get captured stages for a feature_id as JSON. Returns
+ * `"null"` when absent. Spec §5.
+ * @param {string} feature_id
+ * @returns {string}
+ */
+export function get_yang_stages_json(feature_id) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(feature_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        let ret;
+        __wbg_termination_guard();
+        try {
+            ret = wasm.get_yang_stages_json(ptr0, len0);;
+        } catch(e) {
+            __wbg_handle_catch(e);
+        }
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        __wbg_termination_guard();
+        try {
+            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+        } catch(e) {
+            __wbg_handle_catch(e);
+        }
+    }
+}
+
+/**
  * Initialize the WASM engine. Must be called once before any other function.
  *
  * Sets up panic hooks for better error messages and creates the engine state.
@@ -294,6 +338,19 @@ export function process_message(json_input) {
         } catch(e) {
             __wbg_handle_catch(e);
         }
+    }
+}
+
+/**
+ * PR-VIZ-3a: arm or disarm in-memory Yang stage capture. Spec §5.
+ * @param {boolean} enabled
+ */
+export function set_yang_debug_capture(enabled) {
+    __wbg_termination_guard();
+    try {
+        wasm.set_yang_debug_capture(enabled);
+    } catch(e) {
+        __wbg_handle_catch(e);
     }
 }
 

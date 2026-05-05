@@ -815,6 +815,21 @@ pub(crate) fn flood_fill_patches(
                 &format!("{case_dir}/stage_{safe_tag}_labels.csv"),
             );
         }
+
+        // PR-VIZ-3a: in-memory capture. Spec §4 row 4: labels = origin
+        // only (no inside available). Iteration order matches `all_tris`.
+        let (verts_f32, idx_u32) = crate::boolean::yang_integration::pack_f64_mesh_to_f32_indices(
+            &subdivided.verts,
+            &combined_tris,
+        );
+        let labels: Vec<u32> = all_tris
+            .iter()
+            .map(|s| match s.source.mesh_id {
+                MeshId::A => 0u32,
+                MeshId::B => 1u32,
+            })
+            .collect();
+        crate::boolean::yang_integration::record_stage(stage, &verts_f32, &idx_u32, &labels);
     }
 
     // ── Step 7: Build B-Rep from patches ──
@@ -1734,6 +1749,20 @@ pub(crate) fn yang_boolean_pipeline(
                     &format!("{case_dir}/stage_{safe_tag}_labels.csv"),
                 );
             }
+
+            // PR-VIZ-3a: in-memory capture (no env gate; CAPTURE_BUFFER
+            // controls whether record_stage no-ops). Spec §4 row 1: labels
+            // = origin (A=0, B=1).
+            let n_a = subdivided.tris_a.len();
+            let (verts_f32, idx_u32) =
+                crate::boolean::yang_integration::pack_f64_mesh_to_f32_indices(
+                    &subdivided.verts,
+                    &combined_tris,
+                );
+            let labels: Vec<u32> = (0..combined_tris.len())
+                .map(|i| if i < n_a { 0 } else { 1 })
+                .collect();
+            crate::boolean::yang_integration::record_stage(stage, &verts_f32, &idx_u32, &labels);
         }
     }
 
@@ -1929,6 +1958,42 @@ pub(crate) fn yang_boolean_pipeline(
                     &format!("{case_dir}/stage_{safe_tag}_labels.csv"),
                 );
             }
+
+            // PR-VIZ-3a: in-memory capture. Spec §4 row 2: labels packed
+            // `(origin << 1) | inside`. Origin order matches
+            // `chain(tris_a, tris_b)` (same as the file-dump CSV).
+            let n_a = subdivided.tris_a.len();
+            let (verts_f32, idx_u32) =
+                crate::boolean::yang_integration::pack_f64_mesh_to_f32_indices(
+                    &subdivided.verts,
+                    &surviving_tris,
+                );
+            let labels: Vec<u32> = (0..surviving_tris.len())
+                .map(|i| {
+                    let (origin, inside) = if i < n_a {
+                        (
+                            0u32,
+                            if matches!(labeling.labels_a[i], CellLabel::Inside) {
+                                1u32
+                            } else {
+                                0u32
+                            },
+                        )
+                    } else {
+                        let j = i - n_a;
+                        (
+                            1u32,
+                            if matches!(labeling.labels_b[j], CellLabel::Inside) {
+                                1u32
+                            } else {
+                                0u32
+                            },
+                        )
+                    };
+                    (origin << 1) | inside
+                })
+                .collect();
+            crate::boolean::yang_integration::record_stage(stage, &verts_f32, &idx_u32, &labels);
         }
     }
 
@@ -2055,6 +2120,32 @@ pub(crate) fn yang_boolean_pipeline(
                     &format!("{case_dir}/stage_{safe_tag}_labels.csv"),
                 );
             }
+
+            // PR-VIZ-3a: in-memory capture. Spec §4 row 3: labels packed
+            // `(origin << 1) | inside`. Iteration order MUST match
+            // surviving_tris construction (`survival.groups.values()`).
+            let (keep_a_inside, keep_b_inside) = match op {
+                MeshBooleanOp::Union => (false, false),
+                MeshBooleanOp::Subtract => (false, true),
+                MeshBooleanOp::Intersect => (true, true),
+            };
+            let (verts_f32, idx_u32) =
+                crate::boolean::yang_integration::pack_f64_mesh_to_f32_indices(
+                    &subdivided.verts,
+                    &surviving_tris,
+                );
+            let mut labels: Vec<u32> = Vec::with_capacity(surviving_tris.len());
+            for (sf, group) in &survival.groups {
+                let (origin, inside) = match sf.mesh_id {
+                    MeshId::A => (0u32, if keep_a_inside { 1u32 } else { 0u32 }),
+                    MeshId::B => (1u32, if keep_b_inside { 1u32 } else { 0u32 }),
+                };
+                let packed = (origin << 1) | inside;
+                for _ in group {
+                    labels.push(packed);
+                }
+            }
+            crate::boolean::yang_integration::record_stage(stage, &verts_f32, &idx_u32, &labels);
         }
     }
 

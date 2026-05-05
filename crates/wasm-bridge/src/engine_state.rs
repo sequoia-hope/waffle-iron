@@ -19,6 +19,15 @@ pub struct EngineState {
     pub project_name: String,
     /// Document display unit preference (mm, cm, m, in, ft).
     pub display_unit: String,
+    /// PR-VIZ-3a: when true, dispatch wraps AddFeature/EditFeature paths
+    /// with `kernel::start_yang_debug_capture()` / `drain_yang_debug_capture()`
+    /// and inserts the result into `yang_debug_captures`. Default false.
+    /// Spec: specs/yang_pr_viz_3a_in_memory_capture.md §6
+    pub yang_debug_capture_enabled: bool,
+    /// PR-VIZ-3a: per-feature captured Yang stages, keyed by feature_id
+    /// (Uuid) as String for JSON serialization. Cleared via
+    /// `clear_yang_debug_captures()`. Default empty.
+    pub yang_debug_captures: HashMap<String, kernel::FeatureStageCapture>,
 }
 
 /// An active sketch editing session.
@@ -43,6 +52,8 @@ impl EngineState {
             hover: None,
             project_name: "Untitled".to_string(),
             display_unit: "mm".to_string(),
+            yang_debug_capture_enabled: false,
+            yang_debug_captures: HashMap::new(),
         }
     }
 
@@ -136,6 +147,8 @@ impl EngineState {
         self.hover = None;
         self.project_name = "Untitled".to_string();
         self.display_unit = "mm".to_string();
+        self.yang_debug_capture_enabled = false;
+        self.yang_debug_captures.clear();
     }
 }
 

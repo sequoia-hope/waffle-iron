@@ -4388,9 +4388,27 @@ fn tessellate_solid_bounded(
 // ── PR-VIZ-1: Stage F per-pass OBJ dump helper ──────────────────────────
 //
 // Called from each F.0–F.4 probe site under a `YANG_CONFORMAL_PROBE=1`
-// guard. Inner `YANG_STAGE_DUMP=<dir>` env check makes the path no-op
-// when dumps are disabled. Spec: specs/yang_pr_viz_1_per_stage_obj_dump.md
+// guard. Inner `YANG_STAGE_DUMP=<dir>` env check makes the file-dump path
+// no-op when dumps are disabled; PR-VIZ-3a's in-memory `record_stage`
+// runs unconditionally (no env gate; CAPTURE_BUFFER controls the no-op).
+// Spec: specs/yang_pr_viz_1_per_stage_obj_dump.md +
+// specs/yang_pr_viz_3a_in_memory_capture.md
 fn dump_stage_f_viz(stage_tag: &str, vertices: &[f32], indices: &[u32], face_ranges: &[FaceRange]) {
+    // PR-VIZ-3a: in-memory capture. Spec §4 row 6: labels = face_id per
+    // tri (mirrors the file-dump CSV's mapping logic).
+    let n_tris = indices.len() / 3;
+    let labels: Vec<u32> = (0..n_tris)
+        .map(|i| {
+            let i3 = (i * 3) as u32;
+            face_ranges
+                .iter()
+                .find(|fr| fr.start_index <= i3 && i3 < fr.end_index)
+                .map(|fr| fr.face_id.0 as u32)
+                .unwrap_or(0)
+        })
+        .collect();
+    crate::boolean::yang_integration::record_stage(stage_tag, vertices, indices, &labels);
+
     let dump_dir = match std::env::var("YANG_STAGE_DUMP") {
         Ok(d) => d,
         Err(_) => return,

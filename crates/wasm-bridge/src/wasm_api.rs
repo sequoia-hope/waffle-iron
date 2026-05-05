@@ -119,6 +119,58 @@ pub fn process_message(json_input: &str) -> String {
     })
 }
 
+// ── PR-VIZ-3a: in-memory Yang stage capture WASM exports ─────────────────
+//
+// Spec: specs/yang_pr_viz_3a_in_memory_capture.md §5
+// Thin `#[wasm_bindgen]` wrappers around `crate::yang_debug::*`. The
+// non-wasm shim in `yang_debug.rs` keeps its own thread-local state for
+// native tests; on wasm32 these accessors route into `ENGINE_STATE`.
+
+/// Run a closure with an immutable reference to the wasm-worker engine
+/// state. PR-VIZ-3a — used by `crate::yang_debug` to route the native
+/// shim API through `ENGINE_STATE` when compiled to wasm32.
+pub(crate) fn with_engine_state<R>(f: impl FnOnce(&crate::engine_state::EngineState) -> R) -> R {
+    ENGINE_STATE.with(|cell| {
+        let engine = cell.borrow();
+        let engine = engine
+            .as_ref()
+            .expect("Engine not initialized. Call init() first.");
+        f(&engine.state)
+    })
+}
+
+/// Mutable counterpart to `with_engine_state`.
+pub(crate) fn with_engine_state_mut<R>(
+    f: impl FnOnce(&mut crate::engine_state::EngineState) -> R,
+) -> R {
+    ENGINE_STATE.with(|cell| {
+        let mut engine = cell.borrow_mut();
+        let engine = engine
+            .as_mut()
+            .expect("Engine not initialized. Call init() first.");
+        f(&mut engine.state)
+    })
+}
+
+/// PR-VIZ-3a: arm or disarm in-memory Yang stage capture. Spec §5.
+#[wasm_bindgen]
+pub fn set_yang_debug_capture(enabled: bool) {
+    crate::yang_debug::set_yang_debug_capture(enabled);
+}
+
+/// PR-VIZ-3a: get captured stages for a feature_id as JSON. Returns
+/// `"null"` when absent. Spec §5.
+#[wasm_bindgen]
+pub fn get_yang_stages_json(feature_id: &str) -> String {
+    crate::yang_debug::get_yang_stages_json(feature_id)
+}
+
+/// PR-VIZ-3a: clear the captures map (free memory). Spec §5.
+#[wasm_bindgen]
+pub fn clear_yang_debug_captures() {
+    crate::yang_debug::clear_yang_debug_captures();
+}
+
 /// Get the current feature tree as JSON.
 ///
 /// Useful for the UI to query state without sending a full command.
