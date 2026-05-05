@@ -245,6 +245,17 @@ pub(crate) fn result_topology_to_waffle_solid(
             face_geometry.insert(face_idx, geom.clone());
             continue;
         }
+        // PR-Y15c-fix-2.1 audit probe: env-gated; observation-only.
+        // Fires once per Newell-fallback hit BEFORE the degenerate-skip guards.
+        if std::env::var("YANG_A15_5_AUDIT").as_deref() == Ok("1") {
+            eprintln!(
+                "[a15-5-fallback] face_idx={:?} source_mesh={:?} source_face={:?} map_size={}",
+                face_idx,
+                source.mesh_id,
+                source.face_idx,
+                surface_map.len()
+            );
+        }
         // Newell fallback: source face has no entry in surface_map
         // (e.g. a new intersection face).
         let verts = collect_face_vertices(&result.arena, face_idx);
