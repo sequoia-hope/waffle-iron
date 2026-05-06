@@ -391,3 +391,259 @@ fn cherchi_smoke_two_tetrahedra_union() {
         "Cherchi smoke union Euler characteristic should be 2 (one closed shell)"
     );
 }
+
+// ── PR-Y16-FIX-ARCH cohort + controls — sub-phase 0c ────────────────────
+//
+// Per spec `yang_pr_y16_fix_arch_per_patch_cherchi.md` §6 + §7 test plan:
+// six cases get sidecar parity coverage. Cohort = F0020/F0030/F0050 (RED on
+// current main per canary memo §3); controls = F0001/F0007/F0051 (currently
+// passing — guard against silent regression on healthy slice).
+//
+// Test contract (load-bearing assertion):
+//   1. Run Waffle Yang pipeline on the case and assert `Status == Passed`.
+//      This is the gating assertion: pre-PR-Y16-FIX-ARCH it is RED on
+//      cohort (Waffle errors with the canonical Yang twin defect strings
+//      per canary memo §2) and GREEN on controls.
+//   2. Run Cherchi 2022 `mesh_booleans union` on the dumped Waffle A/B
+//      meshes (preprocessed pre-arrangement input). Cherchi succeeding
+//      well-formed on the SAME inputs Waffle saw isolates the defect to
+//      Waffle's port of `flood_fill_patches` (per canary memo §3 verdict).
+//      For F0030 the `is_well_formed` check on Cherchi's output is RELAXED
+//      per spec §6 lower bar (canary memo §2: Cherchi's F0030 output is
+//      non-manifold + locally-misoriented; Watertight + Global + Intersection
+//      PASS — but `check_conformal`'s `is_well_formed` only covers edge
+//      pairing/manifoldness, so we DO NOT assert it on Cherchi's F0030
+//      output. We still print the report for the audit trail).
+//
+// Anti-scope per spec §9: this file does NOT modify `cherchi_sidecar.rs`.
+// Each test mirrors the F0002 pattern (use `YANG_DUMP_OBJ_BASE`, run
+// Cherchi on dumped A/B). Tolerance: per canary memo + harness inspection,
+// `check_conformal` uses nanometer-quantize canonicalization (1e-9 m); the
+// spec's "1e-6 absolute" target is documented as a future-harness item and
+// is NOT achievable today without harness changes. Until per-test override
+// is needed, the existing nanometer-quantize is the de facto tolerance.
+//
+// `#[ignore]` is INTENTIONALLY removed on these (vs. F0002 which stays
+// `#[ignore]`-gated as a long-running probe). Without `#[ignore]`, the tests
+// run as part of `cargo test -p test-harness --test cherchi2022_reference_parity`
+// (still skip cleanly if `CHERCHI2022_BIN` is unset). The cohort tests
+// will FAIL on current main (RED phase per spec §7); the controls will
+// PASS (sanity).
+
+/// Shared per-case sidecar parity body used by the 6 PR-Y16-FIX-ARCH tests.
+///
+/// `case_id` — assay case (e.g. "F0020"); `is_cohort_f0030` — gates the
+/// Cherchi-output `is_well_formed` assertion off per spec §6 lower bar.
+fn pr_y16_sidecar_parity_case(case_id: &str, is_cohort_f0030: bool) {
+    use std::path::Path;
+    use test_harness::assay::randomized_runner::run_single_case;
+    use test_harness::assay::scoring::AssayStatus;
+
+    let bin = match cherchi_bin() {
+        Some(p) => p,
+        None => return, // configuration-skip per cherchi_bin() contract
+    };
+
+    let dir = Path::new(ASSAY_DIR);
+    if !dir.exists() {
+        eprintln!(
+            "[reference-parity] SKIP: assay corpus dir not present at {}",
+            dir.display()
+        );
+        return;
+    }
+
+    let workdir = std::env::temp_dir().join(format!(
+        "waffle_cherchi_parity_{}",
+        case_id.to_ascii_lowercase()
+    ));
+    std::fs::create_dir_all(&workdir).expect("create temp work dir");
+    let base = workdir.join(case_id.to_ascii_lowercase());
+    let base_str = base.to_string_lossy().into_owned();
+    let path_a = workdir.join(format!("{}_a.obj", case_id.to_ascii_lowercase()));
+    let path_b = workdir.join(format!("{}_b.obj", case_id.to_ascii_lowercase()));
+    let path_out = workdir.join(format!("{}_union.obj", case_id.to_ascii_lowercase()));
+
+    for p in [&path_a, &path_b, &path_out] {
+        let _ = std::fs::remove_file(p);
+    }
+
+    std::env::set_var("YANG_BOOLEAN", "1");
+    std::env::set_var("YANG_DUMP_OBJ_BASE", &base_str);
+    let case_result = run_single_case(dir, case_id, true);
+    std::env::remove_var("YANG_DUMP_OBJ_BASE");
+    let case = case_result.unwrap_or_else(|| panic!("{} must exist in corpus", case_id));
+    eprintln!(
+        "[reference-parity {}] case status={:?} detail={}",
+        case_id, case.status, case.detail
+    );
+
+    // Sidecar invocation on the dumped A/B (Stage 1 healthy gate). Skip
+    // cleanly if dumps did not land — the Waffle-status assertion below
+    // is the load-bearing one regardless.
+    if path_a.exists() && path_b.exists() {
+        let (verts_a, tris_a) = parse_obj(&path_a).expect("parse waffle A.obj");
+        let (verts_b, tris_b) = parse_obj(&path_b).expect("parse waffle B.obj");
+        let waffle_a_report = check_conformal(&verts_a, &tris_a);
+        let waffle_b_report = check_conformal(&verts_b, &tris_b);
+        eprintln!(
+            "{}",
+            fmt_report(
+                &waffle_a_report,
+                &format!("{} waffle A pre-Cherchi", case_id)
+            )
+        );
+        eprintln!(
+            "{}",
+            fmt_report(
+                &waffle_b_report,
+                &format!("{} waffle B pre-Cherchi", case_id)
+            )
+        );
+
+        let mut cmd = Command::new(&bin);
+        cmd.arg("union").arg(&path_a).arg(&path_b).arg(&path_out);
+        let cherchi_out = match run_with_timeout(cmd, CHERCHI_SUBPROCESS_TIMEOUT) {
+            TimedRun::Completed(out) => out,
+            TimedRun::TimedOut => {
+                eprintln!(
+                    "[reference-parity {}] Cherchi runaway ({}s timeout)",
+                    case_id,
+                    CHERCHI_SUBPROCESS_TIMEOUT.as_secs()
+                );
+                // Fall through to Status assertion — primary gate.
+                assert_eq!(
+                    case.status,
+                    AssayStatus::Passed,
+                    "[reference-parity {}] Yang case did not pass: status={:?} detail={}",
+                    case_id,
+                    case.status,
+                    case.detail
+                );
+                return;
+            }
+            TimedRun::SpawnFailed(e) => panic!("Cherchi spawn failed: {}", e),
+        };
+        if cherchi_out.status.success() && path_out.exists() {
+            let (cherchi_verts, cherchi_tris) =
+                parse_obj(&path_out).expect("parse Cherchi union.obj");
+            let cherchi_report = check_conformal(&cherchi_verts, &cherchi_tris);
+            eprintln!(
+                "{}",
+                fmt_report(
+                    &cherchi_report,
+                    &format!("{} Cherchi union output", case_id)
+                )
+            );
+
+            // Per spec §6 F0030 lower bar (canary memo §2): Cherchi's
+            // OWN output on F0030 is non-manifold, so we skip the
+            // well-formedness assertion on Cherchi's output for F0030.
+            // For all other cases (cohort F0020/F0050 + controls
+            // F0001/F0007/F0051), Cherchi's output well-formedness is
+            // a sanity check on the sidecar (not load-bearing for the
+            // RED state of the test).
+            if !is_cohort_f0030 {
+                assert!(
+                    cherchi_report.is_well_formed,
+                    "[reference-parity {}] Cherchi output not well-formed on \
+                     a healthy input — sidecar regression: {:?}",
+                    case_id, cherchi_report
+                );
+            } else {
+                eprintln!(
+                    "[reference-parity {}] F0030 lower-bar carve-out \
+                     active per spec §6: skipping is_well_formed on \
+                     Cherchi's output (Cherchi's own F0030 output is \
+                     non-manifold per canary memo §2). Manifold check \
+                     observed: is_well_formed={}",
+                    case_id, cherchi_report.is_well_formed
+                );
+            }
+        } else {
+            eprintln!(
+                "[reference-parity {}] Cherchi exited non-zero or no output. \
+                 stderr:\n{}",
+                case_id,
+                String::from_utf8_lossy(&cherchi_out.stderr)
+            );
+        }
+    } else {
+        eprintln!(
+            "[reference-parity {}] OBJ dump did not land at {} / {} \
+             (likely Waffle short-circuited before the dump site)",
+            case_id,
+            path_a.display(),
+            path_b.display()
+        );
+    }
+
+    // Load-bearing assertion: the Yang case must pass. RED on cohort
+    // pre-PR-Y16-FIX-ARCH (canary memo §2 documents the canonical Yang
+    // error strings per case); GREEN on controls.
+    assert_eq!(
+        case.status,
+        AssayStatus::Passed,
+        "[reference-parity {}] Yang case did not pass: status={:?} detail={}",
+        case_id,
+        case.status,
+        case.detail
+    );
+}
+
+// ── Cohort tests (RED on current main) ──────────────────────────────────
+
+/// Cohort: F0020 — twin-pairing defect `half_edge[40].twin = 0`.
+/// RED pre-PR-Y16-FIX-ARCH (canary memo §3 cohort table).
+#[test]
+fn pr_y16_parity_f0020_cohort() {
+    pr_y16_sidecar_parity_case("F0020", false);
+}
+
+/// Cohort: F0030 — twin-pairing defect `half_edge[5].twin = 0`.
+/// Spec §6 lower bar applies to Cherchi's output (which is non-manifold
+/// per canary memo §2). RED pre-PR-Y16-FIX-ARCH on the Yang Status gate.
+#[test]
+fn pr_y16_parity_f0030_cohort() {
+    pr_y16_sidecar_parity_case("F0030", true);
+}
+
+/// Cohort: F0050 — silent failure (`[twin-oracle] unpaired_count=2` but
+/// no panic from `validate_yang_result_topology`). RED pre-PR-Y16-FIX-ARCH;
+/// the Yang Status gate may be Passed or Failed depending on whether the
+/// silent oracle short-circuits — see spec §8.2.
+#[test]
+fn pr_y16_parity_f0050_cohort() {
+    pr_y16_sidecar_parity_case("F0050", false);
+}
+
+// ── Control tests (GREEN on current main) ───────────────────────────────
+
+/// Control: F0001 — currently-passing baseline (per spec §7 test plan).
+/// GREEN today; guards against silent regression on healthy slice.
+#[test]
+fn pr_y16_parity_f0001_control() {
+    pr_y16_sidecar_parity_case("F0001", false);
+}
+
+/// Control: F0007 — currently-passing baseline (verified via `results.json`
+/// 2026-04-02; F0061/F0099 originally named in spec were retired per
+/// test-author-e's empirical check — F0061 fails with same twin-validation
+/// defect as cohort, F0099 doesn't exist in corpus).
+#[test]
+fn pr_y16_parity_f0007_control() {
+    pr_y16_sidecar_parity_case("F0007", false);
+}
+
+/// Originally chosen as currently-passing control; PR-Y16-FIX-ARCH 0d
+/// exposed a latent Stage 6 twin-pairing-at-non-manifold-edges defect (same
+/// cascade class as the F0020/F0030/F0050 cohort). Test now RED; addressed
+/// by PR-Y17-TWIN. Retained here to track the exposure: pre-PR-Y16
+/// intersection-edge barriers happened to produce a topology that
+/// twin-paired cleanly by accident; the Cherchi 2022 §5 manifold-edge
+/// barriers expose more non-manifold edges (incidence ≥3), revealing the
+/// twin-pairing gap that always existed but was masked.
+#[test]
+fn pr_y16_parity_f0051_control() {
+    pr_y16_sidecar_parity_case("F0051", false);
+}

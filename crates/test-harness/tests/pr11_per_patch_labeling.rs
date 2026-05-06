@@ -255,10 +255,6 @@ fn run_corpus_case(case_id: &str) -> Option<OracleRunSummary> {
 /// (per-patch ray-cast); PR10 audit `specs/oracle_validity_audit.md`
 /// Task C (Stage 4b first-fail = 120/157).
 #[test]
-#[ignore = "Long-running corpus probe; runs via --include-ignored. Red-phase \
-fails on current per-sub-tri label_cells (PR10 audit: 120/157 S4b first-fails). \
-Post-T3 per-patch refactor makes the LabelConsistencyWithinPatchOracle return \
-Ok by construction (Cherchi 2022 §5 Algorithm 1)."]
 fn per_patch_label_uniformity_red_phase() {
     // Scan the candidate list and collect:
     //   - S4b violators: cases where `LabelConsistencyWithinPatchOracle`
@@ -404,10 +400,6 @@ fn per_patch_label_uniformity_red_phase() {
 /// Refs: spec §4 I2 (lines 116-130); Cherchi 2022 §5.1 (representative
 /// pick); spec §3 B4 (degenerate fallback policy).
 #[test]
-#[ignore = "Long-running corpus probe; runs via --include-ignored. Red-phase \
-fails on current per-sub-tri label_cells (no representative pick exists). \
-Post-T3 a degenerate-aware representative pick emerges; passing Stage 4b + \
-non-cascading Stage 6 jointly anchor the I2 representative-pick equivalence."]
 fn per_patch_representative_pick_anchor_red_phase() {
     // Scan candidates and find: any case where (a) Stage 4b reports
     // ContractViolated OR (b) Stage 4b passes but Stage 6 cascades
@@ -518,12 +510,6 @@ fn per_patch_representative_pick_anchor_red_phase() {
 /// Refs: spec §F1 (lines 309-373); spec §6 B7 (graph/subdivided
 /// mismatch defensive guard); brief F1 encoding decision.
 #[test]
-#[ignore = "Documentation-only contract anchor; the literal F1 invariant \
-test lives in crates/kernel/src/boolean/oracles/arrangement_wellformed.rs \
-(SubdividedMesh is pub(crate), not constructible from test-harness). T4 \
-implementer MUST add the in-kernel synthetic-fixture test per the body \
-comment. Unignore this test only when a public diagnostic shim exposes \
-SubdividedMesh construction (does NOT exist on current code or post-T4)."]
 fn f1_upstream_conservation_anchor_red_phase() {
     // CONTRACT (spec §F1, encoding (a) per lead binding):
     //
@@ -647,12 +633,6 @@ fn f1_upstream_conservation_anchor_red_phase() {
 /// Refs: spec §F2 (lines 377-438); brief F2 paragraph (spec helper
 /// signature). PR10 audit `specs/oracle_validity_audit.md` §F2.
 #[test]
-#[ignore = "Documentation-only contract anchor; the literal F2 invariant \
-test lives in crates/kernel/src/boolean/oracles/coplanar_identical.rs \
-(CoplanarPreprocessSnapshot is pub(crate)). T4 implementer MUST add the \
-in-kernel integration test per the body comment. Pre-T4 the oracle \
-returns Ok on pre-injection bytes; post-T4 it catches deliberate \
-divergence above weld tolerance."]
 fn f2_post_injection_oracle_anchor_red_phase() {
     // CONTRACT (spec §F2):
     //
@@ -767,12 +747,6 @@ fn f2_post_injection_oracle_anchor_red_phase() {
 /// Refs: spec §4 I5 (lines 152-156); spec §5 (test-only
 /// representative-pick oracle, lines 172-185); brief Test 5 (bonus).
 #[test]
-#[ignore = "Long-running double corpus probe (~60s); runs via \
---include-ignored. Encodes spec §4 I5 + §5 secondary determinism oracle. \
-Future-regression guard for representative-pick ordering: should pass \
-both pre- and post-T3 (deterministic verdicts), and is intended to \
-catch a future representative-pick policy that introduces \
-order-dependence on patches[k] member ordering."]
 fn per_patch_labeling_determinism_red_phase() {
     let dir = Path::new(ASSAY_DIR);
     if !dir.exists() {

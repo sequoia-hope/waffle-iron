@@ -308,6 +308,84 @@ fn spotlight_f0020() {
     }
 }
 
+/// Spotlight: drive F0030 through the Yang pipeline. PR-Y16-FIX-ARCH cohort RED.
+///
+/// Per `docs/audits/pr_y16_fix_arch_canary.md` §3 cohort table: F0030 boolean 1
+/// FAILING with `result validation failed: half_edge[5].twin = 0 but twin.twin = 30`.
+/// Cohort case for Cherchi 2022 §5 per-patch labeling refactor (spec
+/// `yang_pr_y16_fix_arch_per_patch_cherchi.md`).
+///
+/// Run with:
+///   YANG_BOOLEAN=1 cargo test -p test-harness --test assay_randomized -- \
+///     spotlight_f0030 --ignored --nocapture
+#[test]
+#[ignore]
+fn spotlight_f0030() {
+    let dir = Path::new(ASSAY_DIR);
+    if !dir.exists() {
+        eprintln!("Assay corpus not generated yet");
+        return;
+    }
+    std::env::set_var("YANG_BOOLEAN", "1");
+    let result = run_single_case(dir, "F0030", true);
+    match result {
+        Some(r) => {
+            println!("\n=== F0030 Spotlight (PR-Y16-FIX-ARCH cohort) ===");
+            println!("Description: {}", r.description);
+            println!("Status:      {:?}", r.status);
+            println!("Detail:      {}", r.detail);
+            println!("Duration:    {:?}", r.duration);
+            // Pre-refactor: expect Errored with twin-pairing defect (canary memo §3:
+            // half_edge[5].twin = 0 but twin.twin = 30). Post-PR-Y16-FIX-ARCH:
+            // assertion flips to Status == Passed (per spec §7 test plan).
+            // For now (RED phase) the spotlight executes the case so probe
+            // instrumentation can fire and dump per-stage data.
+        }
+        None => panic!("F0030 not found in corpus — regenerate with assay_gen"),
+    }
+}
+
+/// Spotlight: drive F0050 through the Yang pipeline. PR-Y16-FIX-ARCH cohort RED.
+///
+/// Per `docs/audits/pr_y16_fix_arch_canary.md` §3 cohort table: F0050 has 3
+/// failing booleans (b1: 6 manifold-barrier, b2: 6, b3: 4). Distinguishing
+/// feature per spec §8.2: F0050 is the SILENT failure case — the
+/// `[twin-oracle]` fires `unpaired_count=2` but `validate_yang_result_topology`
+/// does NOT panic. The case completes without the canonical Yang error string;
+/// detection requires the post-pairing twin oracle (PR-Y16-INV deliverable).
+///
+/// Run with:
+///   YANG_BOOLEAN=1 cargo test -p test-harness --test assay_randomized -- \
+///     spotlight_f0050 --ignored --nocapture
+#[test]
+#[ignore]
+fn spotlight_f0050() {
+    let dir = Path::new(ASSAY_DIR);
+    if !dir.exists() {
+        eprintln!("Assay corpus not generated yet");
+        return;
+    }
+    std::env::set_var("YANG_BOOLEAN", "1");
+    let result = run_single_case(dir, "F0050", true);
+    match result {
+        Some(r) => {
+            println!("\n=== F0050 Spotlight (PR-Y16-FIX-ARCH cohort, silent fail) ===");
+            println!("Description: {}", r.description);
+            println!("Status:      {:?}", r.status);
+            println!("Detail:      {}", r.detail);
+            println!("Duration:    {:?}", r.duration);
+            // Pre-refactor: F0050 is the SILENT case per spec §8.2 — the validator
+            // returns OK while `[twin-oracle]` fires `unpaired_count > 0` on stderr.
+            // The Status field may report Passed today even though the topology is
+            // defective. Post-PR-Y16-FIX-ARCH: assertion expects Passed AND
+            // `[twin-oracle] unpaired_count = 0` per spec §8.2 empirical gate.
+            // For now (RED phase) the spotlight executes the case so the silent
+            // fire can be observed on stderr.
+        }
+        None => panic!("F0050 not found in corpus — regenerate with assay_gen"),
+    }
+}
+
 /// Generate the full catalog markdown and write to ASSAY_CATALOG.md.
 ///
 /// Run with: cargo test -p test-harness --test assay_randomized -- generate_catalog --ignored --nocapture
