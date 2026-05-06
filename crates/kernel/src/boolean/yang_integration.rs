@@ -1038,53 +1038,66 @@ pub(crate) fn tessellate_waffle_solid(
     // PR-Y15c Phase 0 — Stage E probe: post-render-LOD retessellation.
     // Discriminates per-call-site via LOD-tagged stage name (E_lod=Render
     // vs E_lod=Adaptive{...}). Spec: yang_pr_y15c_render_lod_investigation.md.
-    if std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1") {
+    //
+    // PR-VIZ-3a-fix: gate construction on EITHER the env var (file dumps +
+    // text probe) OR the in-memory capture buffer being armed (WASM path,
+    // where env vars are unavailable). Probe-off (both gates false) is
+    // byte-identical to pre-fix behavior.
+    let probe_on = std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1");
+    let capture_armed = is_yang_capture_armed();
+    if probe_on || capture_armed {
         let (verts, tris) = render_mesh_to_arrays(&mesh);
-        let report = crate::boolean::oracles::conformal_mesh::check_conformal(&verts, &tris);
         let stage = format!("E_lod={lod:?}");
-        crate::boolean::topology_extract::emit_conformal_probe(&stage, &report);
 
-        // PR-VIZ-1: dump per-stage OBJ + face-id label CSV.
-        if let Ok(dump_dir) = std::env::var("YANG_STAGE_DUMP") {
-            let case_dir = ensure_stage_dump_case_dir(&dump_dir);
-            let safe_tag = sanitize_stage_tag(&stage);
-            let _ = dump_mesh_as_obj(&verts, &tris, &format!("{case_dir}/stage_{safe_tag}.obj"));
-            // face_ranges[k].{start,end}_index are flat-index bounds into
-            // `mesh.indices`; tri i covers indices [i*3, i*3+3). Map each
-            // tri to its containing face_id by start <= i*3 < end.
-            let rows: Vec<String> = (0..tris.len())
-                .map(|i| {
-                    let i3 = (i * 3) as u32;
-                    let face_id = mesh
-                        .face_ranges
-                        .iter()
-                        .find(|fr| fr.start_index <= i3 && i3 < fr.end_index)
-                        .map(|fr| fr.face_id.0)
-                        .unwrap_or(0);
-                    format!("{i},{face_id}")
-                })
-                .collect();
-            let _ = dump_labels_as_csv(
-                "tri_idx,face_id",
-                &rows,
-                &format!("{case_dir}/stage_{safe_tag}_labels.csv"),
-            );
+        if probe_on {
+            let report = crate::boolean::oracles::conformal_mesh::check_conformal(&verts, &tris);
+            crate::boolean::topology_extract::emit_conformal_probe(&stage, &report);
+
+            // PR-VIZ-1: dump per-stage OBJ + face-id label CSV.
+            if let Ok(dump_dir) = std::env::var("YANG_STAGE_DUMP") {
+                let case_dir = ensure_stage_dump_case_dir(&dump_dir);
+                let safe_tag = sanitize_stage_tag(&stage);
+                let _ =
+                    dump_mesh_as_obj(&verts, &tris, &format!("{case_dir}/stage_{safe_tag}.obj"));
+                // face_ranges[k].{start,end}_index are flat-index bounds into
+                // `mesh.indices`; tri i covers indices [i*3, i*3+3). Map each
+                // tri to its containing face_id by start <= i*3 < end.
+                let rows: Vec<String> = (0..tris.len())
+                    .map(|i| {
+                        let i3 = (i * 3) as u32;
+                        let face_id = mesh
+                            .face_ranges
+                            .iter()
+                            .find(|fr| fr.start_index <= i3 && i3 < fr.end_index)
+                            .map(|fr| fr.face_id.0)
+                            .unwrap_or(0);
+                        format!("{i},{face_id}")
+                    })
+                    .collect();
+                let _ = dump_labels_as_csv(
+                    "tri_idx,face_id",
+                    &rows,
+                    &format!("{case_dir}/stage_{safe_tag}_labels.csv"),
+                );
+            }
         }
 
-        // PR-VIZ-3a: in-memory capture. Spec §4 row 5: labels = face_id
-        // per tri (mapped via face_ranges, mirrors the file-dump CSV).
-        let (verts_f32, idx_u32) = pack_f64_mesh_to_f32_indices(&verts, &tris);
-        let labels: Vec<u32> = (0..tris.len())
-            .map(|i| {
-                let i3 = (i * 3) as u32;
-                mesh.face_ranges
-                    .iter()
-                    .find(|fr| fr.start_index <= i3 && i3 < fr.end_index)
-                    .map(|fr| fr.face_id.0 as u32)
-                    .unwrap_or(0)
-            })
-            .collect();
-        record_stage(&stage, &verts_f32, &idx_u32, &labels);
+        if capture_armed {
+            // PR-VIZ-3a: in-memory capture. Spec §4 row 5: labels = face_id
+            // per tri (mapped via face_ranges, mirrors the file-dump CSV).
+            let (verts_f32, idx_u32) = pack_f64_mesh_to_f32_indices(&verts, &tris);
+            let labels: Vec<u32> = (0..tris.len())
+                .map(|i| {
+                    let i3 = (i * 3) as u32;
+                    mesh.face_ranges
+                        .iter()
+                        .find(|fr| fr.start_index <= i3 && i3 < fr.end_index)
+                        .map(|fr| fr.face_id.0 as u32)
+                        .unwrap_or(0)
+                })
+                .collect();
+            record_stage(&stage, &verts_f32, &idx_u32, &labels);
+        }
     }
     Ok(mesh)
 }
@@ -1642,6 +1655,14 @@ pub fn start_yang_capture() {
 /// an empty Vec (spec §8.1).
 pub fn drain_yang_capture() -> Vec<StageMesh> {
     CAPTURE_BUFFER.with(|b| b.borrow_mut().take().unwrap_or_default())
+}
+
+/// PR-VIZ-3a-fix: probe sites consult this to decide whether to construct
+/// the per-stage `record_stage` payload independent of the
+/// `YANG_CONFORMAL_PROBE` env-var gate (env vars are unavailable in WASM,
+/// so the env-only gate left in-memory capture inert in the browser).
+pub fn is_yang_capture_armed() -> bool {
+    CAPTURE_BUFFER.with(|b| b.borrow().is_some())
 }
 
 /// Append one stage to the capture buffer when armed; no-op when disarmed.
@@ -4702,6 +4723,86 @@ mod tests {
             second.is_empty(),
             "drain MUST reset the buffer; got {} stages on second drain",
             second.len()
+        );
+    }
+
+    /// PR-VIZ-3a-fix load-bearing test. Validates that probe sites consult
+    /// `is_yang_capture_armed()` in addition to `YANG_CONFORMAL_PROBE`, so
+    /// in-memory capture works in environments where env vars are
+    /// unavailable (notably WASM).
+    ///
+    /// Scenario: arm capture buffer, leave env var UNSET, run a real Yang
+    /// boolean. Pre-fix behavior: drain returns empty (probes never fire
+    /// because the env-var check fails). Post-fix behavior: drain returns
+    /// non-empty stages (Stage A and/or others fired because
+    /// `is_yang_capture_armed()` returned true).
+    #[test]
+    fn test_capture_armed_without_env_var_still_records() {
+        // Belt-and-braces: ensure env var is unset for this test (it should
+        // not be set in normal test runs, but if a developer happens to
+        // export it locally we want the assertion to remain meaningful).
+        // SAFETY: setting/unsetting env vars in tests is generally unsafe
+        // when other threads may read them concurrently; here we only call
+        // remove_var, which is the same direction every other test would
+        // expect. The kernel test suite does not set this var anywhere.
+        // SAFETY: see above
+        unsafe {
+            std::env::remove_var("YANG_CONFORMAL_PROBE");
+        }
+        assert!(
+            std::env::var("YANG_CONFORMAL_PROBE").is_err(),
+            "precondition: YANG_CONFORMAL_PROBE must NOT be set"
+        );
+
+        start_yang_capture();
+        assert!(
+            is_yang_capture_armed(),
+            "start_yang_capture() must arm the buffer"
+        );
+
+        let (k_a, h_a) = make_box_via_kernel(0.5, 0.5, 1.0, 1.0, 1.0);
+        let (k_b, h_b) = make_box_via_kernel(0.5, 0.5, 1.0, 1.0, 1.0);
+        let solid_a = {
+            use crate::traits::Kernel;
+            k_a.get_solid(&h_a).expect("solid_a must exist")
+        };
+        let solid_b = {
+            use crate::traits::Kernel;
+            k_b.get_solid(&h_b).expect("solid_b must exist")
+        };
+
+        let mut next_id = 9000u64;
+        let mut id_alloc = || {
+            let id = next_id;
+            next_id += 1;
+            id
+        };
+
+        // Result success/failure is independent of the capture concern; we
+        // only care that probes fired during the call.
+        let _ = yang_boolean_inner(solid_a, solid_b, BoolOp::Union, &mut id_alloc);
+
+        let stages = drain_yang_capture();
+        assert!(
+            !stages.is_empty(),
+            "PR-VIZ-3a-fix: capture armed + env var UNSET MUST yield non-empty \
+             stages from a real Yang boolean run; got 0 stages. This means at \
+             least one record_stage call site is still env-only-gated."
+        );
+
+        // Sanity: at least one stage should be a known tag from the gated
+        // probe sites — confirms we are exercising the patched code path
+        // and not some other accidental record_stage caller.
+        let has_known_tag = stages.iter().any(|s| {
+            matches!(s.stage_tag.as_str(), "A" | "Bb" | "B" | "C")
+                || s.stage_tag.starts_with("E_lod=")
+                || s.stage_tag.starts_with("F.")
+        });
+        assert!(
+            has_known_tag,
+            "expected at least one stage tag from the patched probe sites \
+             (A/Bb/B/C/E_lod=*/F.*), got: {:?}",
+            stages.iter().map(|s| &s.stage_tag).collect::<Vec<_>>()
         );
     }
 }

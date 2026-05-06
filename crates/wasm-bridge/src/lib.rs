@@ -2,6 +2,7 @@ pub mod dispatch;
 pub mod engine_state;
 pub mod messages;
 pub mod stl_export;
+pub mod tessellation_runner;
 pub mod yang_debug;
 
 #[cfg(target_arch = "wasm32")]

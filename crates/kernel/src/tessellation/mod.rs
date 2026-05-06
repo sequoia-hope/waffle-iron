@@ -4272,10 +4272,15 @@ fn tessellate_solid_bounded(
     }
 
     // [stage-f] F.0 baseline: after per-face dispatch loop, before fix_winding_consistency.
-    if std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1") {
+    // PR-VIZ-3a-fix: in-memory capture path runs even without env var (WASM).
+    let probe_on = std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1");
+    let capture_armed = crate::boolean::yang_integration::is_yang_capture_armed();
+    if probe_on {
         let unpaired = repair::count_unpaired_in_mesh(&vertices, &indices);
         let tri_count = indices.len() / 3;
         eprintln!("[stage-f] sub=0 tri_count={tri_count} unpaired={unpaired}");
+    }
+    if probe_on || capture_armed {
         dump_stage_f_viz("F.0", &vertices, &indices, &face_ranges);
     }
 
@@ -4291,10 +4296,16 @@ fn tessellate_solid_bounded(
     remove_winding_insensitive_duplicates(&vertices, &mut indices, &mut face_ranges);
 
     // [stage-f] F.1: after remove_winding_insensitive_duplicates.
-    if std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1") {
+    // PR-VIZ-3a-fix: re-read both gates (capture-armed may flip mid-pipeline
+    // is unsupported, but probe_on is stable).
+    let probe_on = std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1");
+    let capture_armed = crate::boolean::yang_integration::is_yang_capture_armed();
+    if probe_on {
         let unpaired = repair::count_unpaired_in_mesh(&vertices, &indices);
         let tri_count = indices.len() / 3;
         eprintln!("[stage-f] sub=1 tri_count={tri_count} unpaired={unpaired}");
+    }
+    if probe_on || capture_armed {
         dump_stage_f_viz("F.1", &vertices, &indices, &face_ranges);
     }
 
@@ -4341,10 +4352,14 @@ fn tessellate_solid_bounded(
     );
 
     // [stage-f] F.2: after remove_nonmanifold_topology_aware.
-    if std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1") {
+    let probe_on = std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1");
+    let capture_armed = crate::boolean::yang_integration::is_yang_capture_armed();
+    if probe_on {
         let unpaired = repair::count_unpaired_in_mesh(&vertices, &indices);
         let tri_count = indices.len() / 3;
         eprintln!("[stage-f] sub=2 tri_count={tri_count} unpaired={unpaired}");
+    }
+    if probe_on || capture_armed {
         dump_stage_f_viz("F.2", &vertices, &indices, &face_ranges);
     }
 
@@ -4354,10 +4369,14 @@ fn tessellate_solid_bounded(
     remove_nonmanifold_duplicates_aggressive(&vertices, &mut indices, &mut face_ranges);
 
     // [stage-f] F.3: after remove_nonmanifold_duplicates_aggressive.
-    if std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1") {
+    let probe_on = std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1");
+    let capture_armed = crate::boolean::yang_integration::is_yang_capture_armed();
+    if probe_on {
         let unpaired = repair::count_unpaired_in_mesh(&vertices, &indices);
         let tri_count = indices.len() / 3;
         eprintln!("[stage-f] sub=3 tri_count={tri_count} unpaired={unpaired}");
+    }
+    if probe_on || capture_armed {
         dump_stage_f_viz("F.3", &vertices, &indices, &face_ranges);
     }
 
@@ -4370,10 +4389,14 @@ fn tessellate_solid_bounded(
     weld_smooth_vertices(&vertices, &normals, &mut indices);
 
     // [stage-f] F.4: after weld_smooth_vertices, just before return.
-    if std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1") {
+    let probe_on = std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1");
+    let capture_armed = crate::boolean::yang_integration::is_yang_capture_armed();
+    if probe_on {
         let unpaired = repair::count_unpaired_in_mesh(&vertices, &indices);
         let tri_count = indices.len() / 3;
         eprintln!("[stage-f] sub=4 tri_count={tri_count} unpaired={unpaired}");
+    }
+    if probe_on || capture_armed {
         dump_stage_f_viz("F.4", &vertices, &indices, &face_ranges);
     }
 

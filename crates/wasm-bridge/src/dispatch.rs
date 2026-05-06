@@ -82,7 +82,34 @@ fn handle_message(
                 constraints,
             )?;
             let op = Operation::Sketch { sketch };
-            state.engine.add_feature("Sketch".to_string(), op, kb)?;
+            // PR-VIZ-3a-fix: arm Yang capture buffer if enabled (spec §7).
+            // Mirrors the AddFeature wrap above. PR-VIZ-3a missed this third
+            // dispatch path; PR-VIZ-3b's canary test #3 (sketch→extrude→
+            // boolean) empirically required it to capture stages from the
+            // auto-union triggered downstream of FinishSketch.
+            if state.yang_debug_capture_enabled {
+                kernel::start_yang_debug_capture();
+            }
+            let result = state.engine.add_feature("Sketch".to_string(), op, kb);
+            if state.yang_debug_capture_enabled {
+                let stages = kernel::drain_yang_debug_capture();
+                if let Some(feature_id) = state.engine.tree.features.last().map(|f| f.id) {
+                    let failed_at = if state.engine.errors.iter().any(|(id, _)| *id == feature_id) {
+                        Some(stages.len().saturating_sub(1))
+                    } else {
+                        None
+                    };
+                    state.yang_debug_captures.insert(
+                        feature_id.to_string(),
+                        kernel::FeatureStageCapture {
+                            feature_id: feature_id.to_string(),
+                            stages,
+                            failed_at_stage: failed_at,
+                        },
+                    );
+                }
+            }
+            result?;
             Ok(model_updated_response(state))
         }
 

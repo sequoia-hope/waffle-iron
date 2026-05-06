@@ -38,3 +38,9 @@ pub fn start_yang_debug_capture() {
 pub fn drain_yang_debug_capture() -> Vec<StageMesh> {
     boolean::yang_integration::drain_yang_capture()
 }
+/// PR-VIZ-3a-fix: probe-site predicate. Allows record_stage to fire when
+/// in-memory capture is armed even without `YANG_CONFORMAL_PROBE=1` (env
+/// vars are unavailable in WASM).
+pub fn is_yang_capture_armed() -> bool {
+    boolean::yang_integration::is_yang_capture_armed()
+}

@@ -291,3 +291,215 @@ fn test_capture_serializes_to_spec_json_shape() {
         parsed["stages"]
     );
 }
+
+/// PR-VIZ-3a-fix: spec §7 lists THREE dispatch paths that must be wrapped
+/// (AddFeature, EditFeature, AND the Sketch-finish add_feature call at
+/// `dispatch.rs:85`). PR-VIZ-3a only wrapped two of them; the FinishSketch
+/// path was missed. PR-VIZ-3b's load-bearing canary test #3 empirically
+/// refuted the "low practical impact" assumption from validation memo §4
+/// deviation #4: an auto-union triggered downstream of FinishSketch yields
+/// an empty `stages` map.
+///
+/// This test pins the FinishSketch path's wrap contract: with capture
+/// enabled, dispatching `UiToEngine::FinishSketch` MUST insert exactly
+/// one entry into `state.yang_debug_captures` keyed by the just-added
+/// Sketch feature's id (mirroring the AddFeature contract from
+/// `test_capture_enabled_dispatch_inserts_map_entry`).
+#[test]
+fn test_finishsketch_path_also_captures() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    state.yang_debug_capture_enabled = true;
+    assert!(
+        state.yang_debug_captures.is_empty(),
+        "fresh EngineState must start with an empty captures map"
+    );
+
+    state.begin_sketch(GeomRef {
+        kind: TopoKind::Face,
+        anchor: Anchor::Datum {
+            datum_id: Uuid::new_v4(),
+        },
+        selector: Selector::Role {
+            role: Role::EndCapPositive,
+            index: 0,
+        },
+        policy: ResolvePolicy::Strict,
+    });
+
+    let mut solved_positions = std::collections::HashMap::new();
+    solved_positions.insert(1, (0.0, 0.0));
+    solved_positions.insert(2, (1.0, 0.0));
+    solved_positions.insert(3, (1.0, 1.0));
+    solved_positions.insert(4, (0.0, 1.0));
+
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::FinishSketch {
+            solved_positions,
+            solved_profiles: vec![ClosedProfile {
+                entity_ids: vec![1, 2, 3, 4],
+                is_outer: true,
+                vertex_ids: vec![],
+                circle: None,
+                spline_segments: vec![],
+                arc_segments: vec![],
+            }],
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            entities: vec![
+                SketchEntity::Point {
+                    id: 1,
+                    x: 0.0,
+                    y: 0.0,
+                    construction: false,
+                },
+                SketchEntity::Point {
+                    id: 2,
+                    x: 1.0,
+                    y: 0.0,
+                    construction: false,
+                },
+                SketchEntity::Point {
+                    id: 3,
+                    x: 1.0,
+                    y: 1.0,
+                    construction: false,
+                },
+                SketchEntity::Point {
+                    id: 4,
+                    x: 0.0,
+                    y: 1.0,
+                    construction: false,
+                },
+            ],
+            constraints: Vec::new(),
+        },
+        &mut kernel,
+    );
+
+    assert!(
+        matches!(response, EngineToUi::ModelUpdated { .. }),
+        "expected ModelUpdated response from FinishSketch dispatch, got {:?}",
+        std::mem::discriminant(&response)
+    );
+
+    assert_eq!(
+        state.yang_debug_captures.len(),
+        1,
+        "PR-VIZ-3a-fix: spec §7 dispatch hook MUST insert one capture entry for the FinishSketch path's add_feature call; got {} entries",
+        state.yang_debug_captures.len()
+    );
+
+    let (key, capture) = state
+        .yang_debug_captures
+        .iter()
+        .next()
+        .expect("FinishSketch dispatch with capture enabled inserts an entry");
+    assert_eq!(
+        &capture.feature_id, key,
+        "FeatureStageCapture.feature_id must equal the map key (Uuid string)"
+    );
+}
+
+/// PR-VIZ-3a-fix Issue 2: F.0–F.4 probes fire during tessellation, which
+/// runs in `tessellation_runner::tessellate_missing_meshes` AFTER the
+/// dispatch wrap has drained. The runner now per-feature arms/drains
+/// capture so F.* stages emitted during tessellation get appended/upserted
+/// into the existing `yang_debug_captures` entry.
+///
+/// This test pins the runner's wrap contract using MockKernel:
+/// 1. dispatch a feature → dispatch wrap inserts an entry (empty stages
+///    under MockKernel because no probes fire there).
+/// 2. ARM capture again before the runner, simulate a stage fire by
+///    directly calling `start_yang_debug_capture` + appending via
+///    `drain_yang_debug_capture` is the wrap's contract — but since
+///    record_stage is `pub(crate)`, we instead exercise the runner's
+///    upsert path: pre-seed an existing entry with one stage, run the
+///    runner, verify the entry is preserved (not clobbered).
+/// 3. End-to-end empirical proof that probes ACTUALLY fire and get
+///    captured under WaffleKernel lives in PR-VIZ-3b GUI test #3, not
+///    here (MockKernel doesn't go through `tessellate_solid_bounded`).
+#[test]
+fn test_tessellation_runner_preserves_existing_capture_entry() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+    state.yang_debug_capture_enabled = true;
+
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::AddFeature {
+            operation: make_sketch_op(),
+        },
+        &mut kernel,
+    );
+    assert!(matches!(response, EngineToUi::ModelUpdated { .. }));
+
+    // Dispatch wrap inserted an entry (MockKernel → empty stages).
+    let (fid_str, _) = state
+        .yang_debug_captures
+        .iter()
+        .next()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .expect("dispatch wrap inserts a capture entry per AddFeature");
+    let pre_count = state
+        .yang_debug_captures
+        .get(&fid_str)
+        .unwrap()
+        .stages
+        .len();
+
+    // Pre-seed a synthetic Stage F.0 in the existing entry — simulates
+    // what the runner SHOULD do after a real probe fires.
+    state
+        .yang_debug_captures
+        .get_mut(&fid_str)
+        .unwrap()
+        .stages
+        .push(kernel::StageMesh {
+            stage_tag: "F.0-presim".to_string(),
+            vertices: vec![0.0_f32; 9],
+            indices: vec![0_u32, 1, 2],
+            labels: vec![0_u32],
+        });
+    let after_seed_count = state
+        .yang_debug_captures
+        .get(&fid_str)
+        .unwrap()
+        .stages
+        .len();
+    assert_eq!(after_seed_count, pre_count + 1);
+
+    // Run the tessellation runner. Under MockKernel no probe fires, so
+    // the runner's drain returns empty; the existing entry's stages MUST
+    // be preserved (the upsert branch must NOT replace, the append
+    // branch must NOT clobber when input is empty).
+    wasm_bridge::tessellation_runner::tessellate_missing_meshes(&mut state, &mut kernel);
+
+    let post_runner_count = state
+        .yang_debug_captures
+        .get(&fid_str)
+        .unwrap()
+        .stages
+        .len();
+    assert_eq!(
+        post_runner_count, after_seed_count,
+        "PR-VIZ-3a-fix Issue 2: tessellation_runner MUST NOT clobber the \
+         existing capture entry's stages when its own drain is empty; got \
+         {post_runner_count} stages after runner, expected {after_seed_count} \
+         (the pre-seeded entry must survive)"
+    );
+
+    // The presim entry must still be there with the same tag.
+    assert!(
+        state
+            .yang_debug_captures
+            .get(&fid_str)
+            .unwrap()
+            .stages
+            .iter()
+            .any(|s| s.stage_tag == "F.0-presim"),
+        "the pre-seeded F.0-presim stage must still be in the capture map"
+    );
+}
