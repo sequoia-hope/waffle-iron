@@ -805,6 +805,17 @@ pub(crate) fn flood_fill_patches(
                     &combined_tris,
                     &format!("{case_dir}/stage_{safe_tag}.obj"),
                 );
+                // PR-Y16-INV (FILE-ONLY extension; in-memory StageMesh shape unchanged):
+                // Augment Stage C CSV with the canonical edge key + future-twin
+                // reverse-tri count for each of the tri's 3 directed edges.
+                // Rationale: at Stage C, half-edges have NOT yet been built
+                // (twin pairing happens in Twin pairing block at L968-L1077),
+                // so the literal `twin_he_idx` requested by the plan is not
+                // available here. We instead emit `canonical_edge_key` (sorted
+                // mesh-vertex pair) + `reverse_tri_count` (count of all_tris
+                // entries owning the reverse-direction edge — the twin
+                // candidate population that Twin pairing will draw from).
+                // Each tri's 3 edges share one row, encoded as e<i>_can / e<i>_rev.
                 let rows: Vec<String> = all_tris
                     .iter()
                     .enumerate()
@@ -813,11 +824,25 @@ pub(crate) fn flood_fill_patches(
                             MeshId::A => "A",
                             MeshId::B => "B",
                         };
-                        format!("{i},{origin}")
+                        let mut edge_cols = String::new();
+                        for ei in 0..3 {
+                            let v0 = s.verts[ei];
+                            let v1 = s.verts[(ei + 1) % 3];
+                            let canon_key = format!("{}:{}", v0.min(v1), v0.max(v1));
+                            let rev_count = directed_edge_to_tris
+                                .get(&(v1, v0))
+                                .map(|v| v.len())
+                                .unwrap_or(0);
+                            edge_cols.push(',');
+                            edge_cols.push_str(&canon_key);
+                            edge_cols.push(',');
+                            edge_cols.push_str(&rev_count.to_string());
+                        }
+                        format!("{i},{origin}{edge_cols}")
                     })
                     .collect();
                 let _ = crate::boolean::yang_integration::dump_labels_as_csv(
-                    "tri_idx,origin",
+                    "tri_idx,origin,e0_can,e0_rev,e1_can,e1_rev,e2_can,e2_rev",
                     &rows,
                     &format!("{case_dir}/stage_{safe_tag}_labels.csv"),
                 );
@@ -1101,6 +1126,92 @@ pub(crate) fn flood_fill_patches(
                     unpaired_count, n_he
                 );
             }
+        }
+    }
+
+    // ── PR-Y16-INV pre-validation twin oracle (gated on TWIN_DEBUG=1) ──
+    // Observation-only: report twin-pairing health AT THE END of
+    // flood_fill_patches, BEFORE Yang's downstream validate_yang_result_topology
+    // sees the same arena. This is upstream of where the user-visible
+    // "half_edge[I].twin = 0 but twin.twin = J" error fires; placing the oracle
+    // here lets us see whether the defect is born here or arrives from upstream.
+    //
+    // Three signals are emitted:
+    //   - total_directed_edges: count of half-edges built in Step 7
+    //   - unpaired_count: he where the symmetric `he.twin.twin == self` invariant
+    //                     fails (covers BOTH the never-paired-default-0 case AND
+    //                     the asymmetric-pairing case)
+    //   - collision_count: canonical undirected edge key (sorted vertex pair)
+    //                      seen ≥2 times mapping to different paired edges
+    //
+    // Plus the first 5 offending he tuples with origin/dest vertex indices and
+    // coordinates for cross-reference against the Stage C OBJ + extended CSV.
+    //
+    // Probe-OFF (TWIN_DEBUG unset): early-return before any allocation. Must
+    // remain byte-identical to pre-PR-Y16-INV behavior.
+    if twin_debug {
+        let n_he = arena.half_edges.len();
+        if n_he > 0 {
+            let mut unpaired: Vec<usize> = Vec::new();
+            for (i, he) in arena.half_edges.iter().enumerate() {
+                let twin_idx = he.twin.0;
+                if twin_idx >= n_he || arena.half_edges[twin_idx].twin.0 != i {
+                    unpaired.push(i);
+                }
+            }
+            // Collision detection: build canonical-key → set of distinct edge_idx
+            // observed. >1 distinct edge for the same canonical key means the
+            // pairing introduced two B-Rep Edge entries for one undirected edge.
+            let mut canon_to_edges: BTreeMap<(usize, usize), BTreeSet<usize>> = BTreeMap::new();
+            for he in arena.half_edges.iter() {
+                let v_origin = he.origin.0;
+                let next_he = &arena.half_edges[he.next.0];
+                let v_dest = next_he.origin.0;
+                let canon = (v_origin.min(v_dest), v_origin.max(v_dest));
+                canon_to_edges.entry(canon).or_default().insert(he.edge.0);
+            }
+            let collision_count = canon_to_edges.values().filter(|set| set.len() > 1).count();
+            eprintln!("[twin-oracle] total_directed_edges={}", n_he);
+            eprintln!("[twin-oracle] unpaired_count={}", unpaired.len());
+            eprintln!("[twin-oracle] collision_count={}", collision_count);
+            for &i in unpaired.iter().take(5) {
+                let he = &arena.half_edges[i];
+                let twin_idx = he.twin.0;
+                let twin_back = if twin_idx < n_he {
+                    arena.half_edges[twin_idx].twin.0 as i64
+                } else {
+                    -1
+                };
+                let v_origin = he.origin.0;
+                let v_dest = arena.half_edges[he.next.0].origin.0;
+                let origin_pos = if v_origin < arena.vertices.len() {
+                    arena.vertices[v_origin].position
+                } else {
+                    [f64::NAN; 3]
+                };
+                let dest_pos = if v_dest < arena.vertices.len() {
+                    arena.vertices[v_dest].position
+                } else {
+                    [f64::NAN; 3]
+                };
+                eprintln!(
+                    "[twin-oracle] offender he={} twin={} twin.twin={} \
+                     origin=v{}({:.6e},{:.6e},{:.6e}) dest=v{}({:.6e},{:.6e},{:.6e})",
+                    i,
+                    twin_idx,
+                    twin_back,
+                    v_origin,
+                    origin_pos[0],
+                    origin_pos[1],
+                    origin_pos[2],
+                    v_dest,
+                    dest_pos[0],
+                    dest_pos[1],
+                    dest_pos[2],
+                );
+            }
+        } else {
+            eprintln!("[twin-oracle] total_directed_edges=0 (empty arena)");
         }
     }
 

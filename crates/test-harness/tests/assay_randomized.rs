@@ -266,6 +266,48 @@ fn spotlight_f0061_gear_cut() {
     }
 }
 
+/// PR-Y16-INV: Spotlight on F0020 — first Yang failure surfaced through the
+/// in-app debug pane after the WASM YANG_BOOLEAN gate flip (2026-05-06).
+/// Geometry: 3 sequential boss extrudes on rectangles with oblique sketch planes.
+/// Symptom: `Extrude 2: Auto-union failed: yang_boolean: result validation failed:
+/// half_edge[40].twin = 0 but twin.twin = 21 (expected 40)` (twin-pairing defect).
+///
+/// Run with:
+///   YANG_BOOLEAN=1 cargo test -p test-harness --test assay_randomized -- \
+///     spotlight_f0020 --ignored --nocapture
+///
+/// For probe data:
+///   mkdir -p /tmp/viz/f0020
+///   TWIN_DEBUG=1 YANG_BOOLEAN=1 YANG_CONFORMAL_PROBE=1 YANG_STAGE_DUMP=/tmp/viz/f0020 \
+///     cargo test -p test-harness --test assay_randomized -- spotlight_f0020 \
+///     --ignored --nocapture --test-threads=1 2> /tmp/viz/f0020/twin_debug.txt
+#[test]
+#[ignore]
+fn spotlight_f0020() {
+    let dir = Path::new(ASSAY_DIR);
+    if !dir.exists() {
+        eprintln!("Assay corpus not generated yet");
+        return;
+    }
+    let result = run_single_case(dir, "F0020", true);
+    match result {
+        Some(r) => {
+            println!("\n=== F0020 Spotlight (PR-Y16-INV) ===");
+            println!("Description: {}", r.description);
+            println!("Status:      {:?}", r.status);
+            println!("Detail:      {}", r.detail);
+            println!("Duration:    {:?}", r.duration);
+            // Discovery probe: we EXPECT an Errored result with a twin-pairing
+            // defect message. Once PR-Y16-FIX lands, this assertion should
+            // flip to expecting Passed (or be removed in favor of the
+            // fix's own greenable assertion).
+            // For now, the spotlight just executes the case so probe
+            // instrumentation can fire and dump per-stage data.
+        }
+        None => panic!("F0020 not found in corpus — regenerate with assay_gen"),
+    }
+}
+
 /// Generate the full catalog markdown and write to ASSAY_CATALOG.md.
 ///
 /// Run with: cargo test -p test-harness --test assay_randomized -- generate_catalog --ignored --nocapture
