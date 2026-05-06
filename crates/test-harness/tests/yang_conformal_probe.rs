@@ -137,7 +137,8 @@ fn f0002_conformal_probe_pinned() {
         "F0002 still fails with the pre-fix Stage-A coplanar-corner-cluster \
          defect: detail contains `{}`. Per PR-Y14b spec §I4 / §1, post-fix \
          must either pass or fail at a strictly later stage. Got detail: {}",
-        pre_fix_anchor, r.detail
+        pre_fix_anchor,
+        r.detail
     );
 
     // Probe-on contract still holds: the env var stays set so probe
@@ -191,7 +192,8 @@ fn f0004_conformal_probe_pinned() {
         "F0004 still fails with the pre-fix Stage-A coplanar-corner-cluster \
          defect: detail contains `{}`. Per PR-Y14b spec §I4 / §1, post-fix \
          must either pass or fail at a strictly later stage. Got detail: {}",
-        pre_fix_anchor, r.detail
+        pre_fix_anchor,
+        r.detail
     );
 
     assert_eq!(

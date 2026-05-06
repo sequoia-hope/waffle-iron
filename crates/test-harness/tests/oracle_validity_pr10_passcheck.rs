@@ -21,9 +21,7 @@
 
 use std::path::Path;
 
-use kernel::diagnostics::{
-    with_yang_oracle_capture, OracleRunSummary, ViolationKind, YangStage,
-};
+use kernel::diagnostics::{with_yang_oracle_capture, OracleRunSummary, ViolationKind, YangStage};
 use test_harness::assay::randomized_runner::discover_cases;
 use wasm_bridge::messages::UiToEngine;
 use wasm_bridge::{dispatch, EngineState};
@@ -216,9 +214,7 @@ fn oracle_validity_pr10_known_pass_verification() {
             .iter()
             .filter_map(|v| {
                 v.violation.as_ref().and_then(|viol| match viol.kind {
-                    ViolationKind::ContractViolated => {
-                        Some((v.stage, viol.message.clone()))
-                    }
+                    ViolationKind::ContractViolated => Some((v.stage, viol.message.clone())),
                     _ => None,
                 })
             })

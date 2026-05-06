@@ -506,7 +506,10 @@ mod tests {
     #[test]
     fn oracle_passes_when_upstream_tri_count_matches() {
         let mesh = two_disjoint_cubes();
-        assert_eq!(mesh.tris_a.len() + mesh.tris_b.len(), mesh.upstream_tri_count);
+        assert_eq!(
+            mesh.tris_a.len() + mesh.tris_b.len(),
+            mesh.upstream_tri_count
+        );
         let mut state = PipelineState::empty();
         state.stage_2_subdivided = Some(mesh);
         assert!(MeshArrangementWellFormedOracle.check(&state).is_ok());

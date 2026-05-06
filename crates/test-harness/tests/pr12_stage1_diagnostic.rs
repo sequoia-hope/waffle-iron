@@ -100,7 +100,9 @@ struct CaseRecord {
     timed_out: bool,
 }
 
-fn project_verdicts(summary: &OracleRunSummary) -> (Vec<CellVerdict>, Option<String>, Option<String>) {
+fn project_verdicts(
+    summary: &OracleRunSummary,
+) -> (Vec<CellVerdict>, Option<String>, Option<String>) {
     let mut row = Vec::with_capacity(ORACLE_STAGES.len());
     let mut stage1_msg = None;
     let mut stage0_msg = None;
@@ -296,7 +298,9 @@ fn dump_records(records: &[CaseRecord], header: &str) {
     eprintln!();
     eprintln!("═══ {header}: per-case verdict trace ═══");
     eprintln!("# format: case_id | s0 s1 s2 s4b s5 s6 (verdicts) | cluster | stage1 message");
-    eprintln!("# verdict legend: . = Ok/skip, X = ContractViolated, M = StateMissing, S = OracleStub");
+    eprintln!(
+        "# verdict legend: . = Ok/skip, X = ContractViolated, M = StateMissing, S = OracleStub"
+    );
     for r in records {
         let row: String = r
             .verdicts
@@ -354,7 +358,10 @@ fn dump_cluster_breakdown(records: &[CaseRecord], header: &str) {
         "Cluster Y (S1 + S6 fire, S2 = Ok): {y} | {}",
         y_ids.join(", ")
     );
-    eprintln!("Cluster Z (other / S1 not firing): {z} | {}", z_ids.join(", "));
+    eprintln!(
+        "Cluster Z (other / S1 not firing): {z} | {}",
+        z_ids.join(", ")
+    );
 }
 
 /// Embedded PR10 baseline reference table.
@@ -401,9 +408,7 @@ fn dump_pr10_comparison(records: &[CaseRecord]) {
         "| {:<5} | {:<14} | {:<14} | {:<28} |",
         "case", "PR10 verdicts", "PR12 verdicts", "provenance"
     );
-    eprintln!(
-        "|-------|----------------|----------------|------------------------------|"
-    );
+    eprintln!("|-------|----------------|----------------|------------------------------|");
     let s1_idx = ORACLE_STAGES
         .iter()
         .position(|s| *s == YangStage::Stage1Bijective)
@@ -502,9 +507,16 @@ fn pr12_stage1_diagnostic_capture() {
     let (fired, ok, other, fired_ids) = stage1_verdict_summary(&records);
     eprintln!();
     eprintln!("═══ PR12 Stage 1 oracle verdict summary ═══");
-    eprintln!("ContractViolated: {fired} / {} ({})", records.len(), fired_ids.join(", "));
+    eprintln!(
+        "ContractViolated: {fired} / {} ({})",
+        records.len(),
+        fired_ids.join(", ")
+    );
     eprintln!("Ok: {ok} / {}", records.len());
-    eprintln!("Other (StateMissing/OracleStub): {other} / {}", records.len());
+    eprintln!(
+        "Other (StateMissing/OracleStub): {other} / {}",
+        records.len()
+    );
 
     eprintln!();
     eprintln!("[ANCHOR] PR12 probe complete. {} records.", records.len());

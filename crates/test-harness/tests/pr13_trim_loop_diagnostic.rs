@@ -45,7 +45,9 @@ use std::thread;
 use std::time::Duration;
 
 use kernel::diagnostics::{with_yang_oracle_capture, OracleRunSummary};
-use kernel::tessellation::bijective::{check_face_pair_bijective, BijectivityReport, NonBijectivePair};
+use kernel::tessellation::bijective::{
+    check_face_pair_bijective, BijectivityReport, NonBijectivePair,
+};
 use kernel::topology::arena::TopoArena;
 use kernel::topology::half_edge::{FaceIdx, HalfEdgeIdx, LoopIdx};
 use kernel::{Kernel, RenderMesh, WaffleKernel};
@@ -94,7 +96,6 @@ fn collect_loop_vertices(arena: &TopoArena, loop_idx: LoopIdx) -> Vec<(usize, [f
     }
     out
 }
-
 
 /// One per-feature artifact captured after LoadProject.
 struct PerFeatureArtifact {
@@ -152,58 +153,59 @@ fn run_one_case(case_id: &str) -> CaseDiagnostic {
     // INTERMEDIATE solid (n-2) is the input to the LAST boolean op, and
     // therefore is the artifact the Stage 1 oracle saw.
     let case_id_owned = case_id.to_string();
-    let (summary, (engine_errors, features)) = with_yang_oracle_capture(&case_id_owned, move || {
-        let mut state = EngineState::new();
-        let mut k = WaffleKernel::new();
-        let response = dispatch(
-            &mut state,
-            UiToEngine::LoadProject { data: waffle_json },
-            &mut k,
-        );
-        let _ = response;
+    let (summary, (engine_errors, features)) =
+        with_yang_oracle_capture(&case_id_owned, move || {
+            let mut state = EngineState::new();
+            let mut k = WaffleKernel::new();
+            let response = dispatch(
+                &mut state,
+                UiToEngine::LoadProject { data: waffle_json },
+                &mut k,
+            );
+            let _ = response;
 
-        let engine_errors = state.engine.errors.clone();
+            let engine_errors = state.engine.errors.clone();
 
-        // Collect per-feature artifacts: tessellation + B-Rep view.
-        let mut features = Vec::new();
-        let tree = &state.engine.tree;
-        let limit = tree.active_index.unwrap_or(tree.features.len());
-        for (idx, feature) in tree.features[..limit].iter().enumerate() {
-            if feature.suppressed {
-                continue;
+            // Collect per-feature artifacts: tessellation + B-Rep view.
+            let mut features = Vec::new();
+            let tree = &state.engine.tree;
+            let limit = tree.active_index.unwrap_or(tree.features.len());
+            for (idx, feature) in tree.features[..limit].iter().enumerate() {
+                if feature.suppressed {
+                    continue;
+                }
+                let result = match state.engine.get_result(feature.id) {
+                    Some(r) => r,
+                    None => continue,
+                };
+                let handle = match result.outputs.first().map(|(_, body)| body.handle.clone()) {
+                    Some(h) => h,
+                    None => continue,
+                };
+                let mesh = match k.tessellate(&handle, tess_tol) {
+                    Ok(m) => m,
+                    Err(_) => continue,
+                };
+                let (arena_ref, fm_ref) = match k.brep_diagnostic_view(&handle) {
+                    Some((a, f)) => (a, f),
+                    None => continue,
+                };
+                features.push(PerFeatureArtifact {
+                    feature_index: idx,
+                    description: format!("feature[{}] name={:?}", idx, feature.name),
+                    mesh,
+                    face_map: fm_ref.clone(),
+                    arena: arena_ref.clone(),
+                });
             }
-            let result = match state.engine.get_result(feature.id) {
-                Some(r) => r,
-                None => continue,
-            };
-            let handle = match result.outputs.first().map(|(_, body)| body.handle.clone()) {
-                Some(h) => h,
-                None => continue,
-            };
-            let mesh = match k.tessellate(&handle, tess_tol) {
-                Ok(m) => m,
-                Err(_) => continue,
-            };
-            let (arena_ref, fm_ref) = match k.brep_diagnostic_view(&handle) {
-                Some((a, f)) => (a, f),
-                None => continue,
-            };
-            features.push(PerFeatureArtifact {
-                feature_index: idx,
-                description: format!(
-                    "feature[{}] name={:?}",
-                    idx, feature.name
-                ),
-                mesh,
-                face_map: fm_ref.clone(),
-                arena: arena_ref.clone(),
-            });
-        }
 
-        (engine_errors, features)
-    });
+            (engine_errors, features)
+        });
 
-    eprintln!("[PR13_PROBE] {case_id} engine_errors={}", engine_errors.len());
+    eprintln!(
+        "[PR13_PROBE] {case_id} engine_errors={}",
+        engine_errors.len()
+    );
     for (id, msg) in &engine_errors {
         eprintln!("[PR13_PROBE]   err: {id} — {msg}");
     }
@@ -217,10 +219,7 @@ fn run_one_case(case_id: &str) -> CaseDiagnostic {
 
 /// Walk the LAST solid's arena to count outgoing half-edges from a vertex
 /// position (using f64 byte-equal vertex matching).
-fn outgoing_half_edges_at_pos(
-    arena: &TopoArena,
-    pos: [f64; 3],
-) -> Vec<(usize, FaceIdx, [f64; 3])> {
+fn outgoing_half_edges_at_pos(arena: &TopoArena, pos: [f64; 3]) -> Vec<(usize, FaceIdx, [f64; 3])> {
     let key = pos_key(pos);
     let mut out = Vec::new();
     for (he_idx, he) in arena.half_edges.iter().enumerate() {
@@ -298,9 +297,7 @@ fn dump_nb_pair(
     idx: usize,
 ) {
     eprintln!();
-    eprintln!(
-        "─── NB pair #{idx} (operand {operand_label}) ───"
-    );
+    eprintln!("─── NB pair #{idx} (operand {operand_label}) ───");
     eprintln!(
         "face_a = FaceIdx({}), face_b = FaceIdx({}), edge = {:?}",
         nb.face_a.0, nb.face_b.0, nb.edge
@@ -350,13 +347,12 @@ fn dump_nb_pair(
     }
 
     // Sample unmatched directed edges
-    eprintln!("sample_unmatched_a (first {}):", nb.sample_unmatched_a.len());
+    eprintln!(
+        "sample_unmatched_a (first {}):",
+        nb.sample_unmatched_a.len()
+    );
     for (i, (p, q)) in nb.sample_unmatched_a.iter().enumerate() {
-        eprintln!(
-            "  a-edge[{i}]: {} → {}",
-            fmt_pt(*p),
-            fmt_pt(*q)
-        );
+        eprintln!("  a-edge[{i}]: {} → {}", fmt_pt(*p), fmt_pt(*q));
 
         // Reciprocal-equality check: is sample_unmatched_a[i] byte-equal to
         // sample_unmatched_b[i]? PR12's archaeological anchor said yes.
@@ -373,13 +369,12 @@ fn dump_nb_pair(
             );
         }
     }
-    eprintln!("sample_unmatched_b (first {}):", nb.sample_unmatched_b.len());
+    eprintln!(
+        "sample_unmatched_b (first {}):",
+        nb.sample_unmatched_b.len()
+    );
     for (i, (p, q)) in nb.sample_unmatched_b.iter().enumerate() {
-        eprintln!(
-            "  b-edge[{i}]: {} → {}",
-            fmt_pt(*p),
-            fmt_pt(*q)
-        );
+        eprintln!("  b-edge[{i}]: {} → {}", fmt_pt(*p), fmt_pt(*q));
     }
 
     // For the FIRST sample unmatched edge, dump branch-point degree at
@@ -390,14 +385,8 @@ fn dump_nb_pair(
         for (label, pt) in [("p", *p), ("q", *q)] {
             // B-Rep arena view (coarse).
             let outs = outgoing_half_edges_at_pos(arena, pt);
-            let outs_a: Vec<_> = outs
-                .iter()
-                .filter(|(_, f, _)| *f == nb.face_a)
-                .collect();
-            let outs_b: Vec<_> = outs
-                .iter()
-                .filter(|(_, f, _)| *f == nb.face_b)
-                .collect();
+            let outs_a: Vec<_> = outs.iter().filter(|(_, f, _)| *f == nb.face_a).collect();
+            let outs_b: Vec<_> = outs.iter().filter(|(_, f, _)| *f == nb.face_b).collect();
             eprintln!(
                 "  {} = {}: arena {} outgoing total ({} face_a, {} face_b)",
                 label,
@@ -619,10 +608,7 @@ fn analyze_one_case(case_id: &str) -> Vec<ViolationClass> {
                     None => ".".to_string(),
                     Some(viol) => format!("X ({})", viol.message),
                 };
-                eprintln!(
-                    "  {:?} [{}] = {}",
-                    v.stage, v.oracle_name, verdict
-                );
+                eprintln!("  {:?} [{}] = {}", v.stage, v.oracle_name, verdict);
             }
         }
         return Vec::new();
@@ -659,10 +645,7 @@ fn analyze_one_case(case_id: &str) -> Vec<ViolationClass> {
                 None => ".".to_string(),
                 Some(viol) => format!("X ({})", viol.message),
             };
-            eprintln!(
-                "  {:?} [{}] = {}",
-                v.stage, v.oracle_name, verdict
-            );
+            eprintln!("  {:?} [{}] = {}", v.stage, v.oracle_name, verdict);
         }
         if let Some(fail_stage) = summary.first_failing_stage {
             eprintln!("  first_failing_stage = {fail_stage:?}");
@@ -679,7 +662,10 @@ fn analyze_one_case(case_id: &str) -> Vec<ViolationClass> {
 fn dump_classification(all: &[ViolationClass]) {
     eprintln!();
     eprintln!("═══════════════════════════════════════════════════════════════════════");
-    eprintln!(" PR13 violation classification (total {} violations)", all.len());
+    eprintln!(
+        " PR13 violation classification (total {} violations)",
+        all.len()
+    );
     eprintln!("═══════════════════════════════════════════════════════════════════════");
     eprintln!(
         "| {:<5} | {:<3} | {:<5} | {:<5} | {:<5} | {:<5} | {:<5} | {:<10} | {:<10} |",
@@ -782,7 +768,8 @@ fn pr13_trim_loop_diagnostic_capture() {
     dump_classification(&all_violations);
 
     eprintln!();
-    eprintln!("[PR13_PROBE] capture complete. {} total violations across {} cases.",
+    eprintln!(
+        "[PR13_PROBE] capture complete. {} total violations across {} cases.",
         all_violations.len(),
         PR13_CASES.len(),
     );

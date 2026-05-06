@@ -108,8 +108,7 @@ fn run_case_with_probe(case_id: &str) -> (AssayResult, String) {
 
     let case_owned = case_id.to_string();
     let dir_owned = dir.to_path_buf();
-    let (result, stderr) =
-        capture_stderr(move || run_single_case(&dir_owned, &case_owned, true));
+    let (result, stderr) = capture_stderr(move || run_single_case(&dir_owned, &case_owned, true));
     let r = result.unwrap_or_else(|| panic!("{} must exist in corpus", case_id));
     (r, stderr)
 }
@@ -279,8 +278,8 @@ fn f0002_no_new_unpaired_at_stage_a() {
         .expect("Stage A conformal-probe summary line must be emitted");
     eprintln!("F0002 Stage A summary: {summary}");
 
-    let unpaired = parse_unpaired(summary)
-        .expect("unpaired=... field must be parseable in Stage A summary");
+    let unpaired =
+        parse_unpaired(summary).expect("unpaired=... field must be parseable in Stage A summary");
 
     assert_eq!(
         unpaired, 0,
@@ -456,8 +455,8 @@ fn f0002_distinct_failure_after_dedup_or_passes() {
     // Outcome (a): passes. Outcome (b): fails but with a different
     // error than the pre-fix anchor.
     let pre_fix_anchor = "half_edge[4].twin = 0 but twin.twin = 28";
-    let still_failing_at_pre_fix_anchor = matches!(r.status, AssayStatus::Failed)
-        && r.detail.contains(pre_fix_anchor);
+    let still_failing_at_pre_fix_anchor =
+        matches!(r.status, AssayStatus::Failed) && r.detail.contains(pre_fix_anchor);
 
     assert!(
         !still_failing_at_pre_fix_anchor,

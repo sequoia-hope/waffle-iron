@@ -242,9 +242,16 @@ fn oracle_validity_pr10_pairing_corpus() {
     eprintln!();
     eprintln!("═══ Task C: per-case verdict trace ═══");
     eprintln!("# format: case_id | first_fail | s0 s1 s2 s4b s5 s6 (verdicts)");
-    eprintln!("# verdict legend: . = Ok/skip, X = ContractViolated, M = StateMissing, S = OracleStub");
+    eprintln!(
+        "# verdict legend: . = Ok/skip, X = ContractViolated, M = StateMissing, S = OracleStub"
+    );
     for r in &records {
-        let row: String = r.verdicts.iter().map(|v| v.label()).collect::<Vec<_>>().join(" ");
+        let row: String = r
+            .verdicts
+            .iter()
+            .map(|v| v.label())
+            .collect::<Vec<_>>()
+            .join(" ");
         eprintln!(
             "TRACE | {:>5} | {:<24} | {}",
             r.case_id,
@@ -310,10 +317,8 @@ fn oracle_validity_pr10_pairing_corpus() {
     );
 
     for bucket in &buckets {
-        let row_records: Vec<&CaseRecord> = records
-            .iter()
-            .filter(|r| r.first_fail == *bucket)
-            .collect();
+        let row_records: Vec<&CaseRecord> =
+            records.iter().filter(|r| r.first_fail == *bucket).collect();
         let n = row_records.len();
         let mut cells = Vec::with_capacity(ORACLE_STAGES.len());
         for (col_idx, _stage) in ORACLE_STAGES.iter().enumerate() {
@@ -360,7 +365,12 @@ fn oracle_validity_pr10_pairing_corpus() {
     // ── Critical claim 2: Stage 4b → Stage 6 propagation ────────────────
     let stage4b_bucket: Vec<&CaseRecord> = records
         .iter()
-        .filter(|r| matches!(r.first_fail, FirstFail::Stage(YangStage::Stage4bClassification)))
+        .filter(|r| {
+            matches!(
+                r.first_fail,
+                FirstFail::Stage(YangStage::Stage4bClassification)
+            )
+        })
         .collect();
     let s4b_then_s6 = stage4b_bucket
         .iter()
@@ -460,10 +470,18 @@ fn oracle_validity_pr10_pairing_corpus() {
     eprintln!();
     eprintln!("═══ Task C: AllPass case ids (for cross-check vs PR9 §3 baseline) ═══");
     let allpass_ids: Vec<&str> = allpass.iter().map(|r| r.case_id.as_str()).collect();
-    eprintln!("AllPass cases ({}): {}", allpass_ids.len(), allpass_ids.join(", "));
+    eprintln!(
+        "AllPass cases ({}): {}",
+        allpass_ids.len(),
+        allpass_ids.join(", ")
+    );
 
     let stage2_ids: Vec<&str> = stage2_bucket.iter().map(|r| r.case_id.as_str()).collect();
-    eprintln!("Stage2Arrangement cases ({}): {}", stage2_ids.len(), stage2_ids.join(", "));
+    eprintln!(
+        "Stage2Arrangement cases ({}): {}",
+        stage2_ids.len(),
+        stage2_ids.join(", ")
+    );
 
     let stage4b_ids: Vec<&str> = stage4b_bucket.iter().map(|r| r.case_id.as_str()).collect();
     eprintln!(

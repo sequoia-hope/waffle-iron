@@ -156,11 +156,10 @@ const PER_CASE_TIMEOUT: Duration = Duration::from_secs(30);
 /// signal.
 const CANDIDATE_S4B_CASES: &[&str] = &[
     // F-prefixed feature-targeted cases (deterministic, smaller).
-    "F0001", "F0010", "F0020", "F0030", "F0040", "F0050", "F0060", "F0075",
-    "F0086", "F0095", "F0105", "F0115", "F0125", "F0135", "F0145", "F0155",
+    "F0001", "F0010", "F0020", "F0030", "F0040", "F0050", "F0060", "F0075", "F0086", "F0095",
+    "F0105", "F0115", "F0125", "F0135", "F0145", "F0155",
     // R-prefixed randomized cases.
-    "R0001", "R0005", "R0015", "R0025", "R0040", "R0050", "R0060",
-    "R0075", "R0090", "R0095",
+    "R0001", "R0005", "R0015", "R0025", "R0040", "R0050", "R0060", "R0075", "R0090", "R0095",
 ];
 
 /// Convenience: project a summary's per-stage verdicts onto a
@@ -787,9 +786,10 @@ fn per_patch_labeling_determinism_red_phase() {
     // Pick the first available candidate case (skip cases that fail
     // file-discovery) and run it twice. The two summaries' per-stage
     // verdict vectors must be byte-identical (spec §4 I5).
-    let case_id = match CANDIDATE_S4B_CASES.iter().find(|&&c| {
-        run_corpus_case(c).is_some()
-    }) {
+    let case_id = match CANDIDATE_S4B_CASES
+        .iter()
+        .find(|&&c| run_corpus_case(c).is_some())
+    {
         Some(c) => *c,
         None => panic!(
             "[pr11-test5] no candidate corpus case found; cannot \
@@ -797,10 +797,8 @@ fn per_patch_labeling_determinism_red_phase() {
         ),
     };
 
-    let summary_a = run_corpus_case(case_id)
-        .expect("[pr11-test5] run-a failed unexpectedly");
-    let summary_b = run_corpus_case(case_id)
-        .expect("[pr11-test5] run-b failed unexpectedly");
+    let summary_a = run_corpus_case(case_id).expect("[pr11-test5] run-a failed unexpectedly");
+    let summary_b = run_corpus_case(case_id).expect("[pr11-test5] run-b failed unexpectedly");
 
     // Project both summaries onto a comparable per-stage verdict
     // vector. Equality of the vectors is the I5 anchor.

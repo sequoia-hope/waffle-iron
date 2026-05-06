@@ -578,6 +578,12 @@ pub(crate) fn yang_boolean_from_solids(
     // the kernel's tessellation and face-count expectations. Enable only
     // when YANG_BOOLEAN=1 environment variable is set (for testing).
     // Phase 5b will make this the default path.
+    //
+    // WASM target: gate is removed so the in-app Yang Debug pane sees real
+    // Yang stages instead of always falling through to legacy S-H clipping.
+    // Most cases will fail (current corpus pass rate ~6%) — that's the
+    // intended debugging surface.
+    #[cfg(not(target_arch = "wasm32"))]
     if std::env::var("YANG_BOOLEAN").unwrap_or_default() != "1" {
         return Err(KernelError::NotSupported {
             operation: "yang_boolean: not enabled (set YANG_BOOLEAN=1 to activate)".to_string(),
@@ -817,8 +823,15 @@ pub(crate) fn yang_boolean_inner(
     }
 
     // Create deadline for the Yang pipeline to prevent runaway computation.
-    let deadline = std::time::Instant::now()
-        + std::time::Duration::from_secs(crate::units::YANG_PIPELINE_TIMEOUT_SECS);
+    // wasm32 has no `std::time::Instant`, so the deadline is omitted there;
+    // pipeline runs without a wall-clock cap (browser tab can still be killed).
+    #[cfg(not(target_arch = "wasm32"))]
+    let deadline = Some(
+        std::time::Instant::now()
+            + std::time::Duration::from_secs(crate::units::YANG_PIPELINE_TIMEOUT_SECS),
+    );
+    #[cfg(target_arch = "wasm32")]
+    let deadline: Option<std::time::Instant> = None;
 
     // Step 4: Run Yang pipeline (Phases 1-3): mesh boolean → topology extract.
     // Yang 4.5.2: if optimization leaves failed vertices, halve d_epsilon and
@@ -833,7 +846,7 @@ pub(crate) fn yang_boolean_inner(
         &bijective_a,
         &bijective_b,
         mesh_op,
-        Some(deadline),
+        deadline,
         &solid_a_mod.face_geometry,
         &solid_b_mod.face_geometry,
         d_epsilon_local,
@@ -875,7 +888,7 @@ pub(crate) fn yang_boolean_inner(
             &bij_a_ref,
             &bij_b_ref,
             mesh_op,
-            Some(deadline),
+            deadline,
             &solid_a_mod.face_geometry,
             &solid_b_mod.face_geometry,
             d_epsilon_local,
