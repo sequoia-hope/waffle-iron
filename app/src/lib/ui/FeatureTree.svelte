@@ -27,7 +27,10 @@
 		hideAllAxes,
 		enterSketchEditMode,
 		getFeatureErrors,
-		showEditFeatureDialog
+		showEditFeatureDialog,
+		selectYangDebugFeature,
+		toggleYangDebugPane,
+		getYangDebugVisible
 	} from '$lib/engine/store.svelte.js';
 	import { BUILTIN_PLANES, makePlaneRef } from '$lib/engine/planes.js';
 	import { longPressContextMenu } from './longPressContextMenu.js';
@@ -407,7 +410,16 @@
 						</button>
 					{/if}
 					{#if featureErrors.get(feature.id)}
-						<span class="error-indicator" title={featureErrors.get(feature.id)} data-testid="feature-error-{i}">⚠</span>
+						<button
+							class="error-indicator-btn"
+							title={featureErrors.get(feature.id)}
+							data-testid="feature-error-{i}"
+							onclick={(e) => {
+								e.stopPropagation();
+								selectYangDebugFeature(feature.id);
+								if (!getYangDebugVisible()) toggleYangDebugPane();
+							}}
+						>⚠</button>
 					{/if}
 				</div>
 			{/each}
@@ -658,6 +670,22 @@
 		color: #ff6b6b;
 		cursor: help;
 		flex-shrink: 0;
+	}
+
+	.error-indicator-btn {
+		margin-left: auto;
+		font-size: 12px;
+		color: #ff6b6b;
+		cursor: pointer;
+		flex-shrink: 0;
+		background: none;
+		border: none;
+		padding: 0 4px;
+		border-radius: 3px;
+	}
+
+	.error-indicator-btn:hover {
+		background: rgba(255, 107, 107, 0.15);
 	}
 
 	.rename-input {

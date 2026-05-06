@@ -3,12 +3,18 @@
  */
 
 /**
- * Get the canvas element's bounding box.
+ * Get the main 3D viewport canvas element's bounding box.
+ *
+ * Scoped to the Threlte viewport (`[data-testid="viewport"] canvas`) rather
+ * than the bare `canvas` selector, so auxiliary mini-canvases (e.g.
+ * YangDebugPane, ThumbnailViewport) do not trip Playwright's strict-mode
+ * "resolved to N elements" violation.
  * @param {import('@playwright/test').Page} page
  * @returns {Promise<{x: number, y: number, width: number, height: number, centerX: number, centerY: number} | null>}
  */
 export async function getCanvasBounds(page) {
-	const canvas = page.locator('canvas');
+	let canvas = page.locator('[data-testid="viewport"] canvas');
+	if (await canvas.count() === 0) canvas = page.locator('canvas').first();
 	const box = await canvas.boundingBox();
 	if (!box) return null;
 	return {
@@ -255,7 +261,7 @@ export async function touchDrag(page, startX, startY, endX, endY, steps = 5) {
 	// Dispatch synthetic PointerEvents on the canvas with pointerType='touch'.
 	// Events bubble to OrbitControls' domElement (canvas parent / Threlte wrapper).
 	await page.evaluate(({ sx, sy, ex, ey, n }) => {
-		const canvas = document.querySelector('canvas');
+		const canvas = document.querySelector('[data-testid="viewport"] canvas') || document.querySelector('canvas');
 		if (!canvas) throw new Error('Canvas not found');
 
 		const fire = (type, x, y) => {
@@ -292,7 +298,7 @@ export async function touchDrag(page, startX, startY, endX, endY, steps = 5) {
  */
 export async function longPressTouch(page, x, y, holdMs = 600) {
 	await page.evaluate(({ cx, cy }) => {
-		const canvas = document.querySelector('canvas');
+		const canvas = document.querySelector('[data-testid="viewport"] canvas') || document.querySelector('canvas');
 		if (!canvas) throw new Error('Canvas not found');
 		canvas.dispatchEvent(new PointerEvent('pointerdown', {
 			bubbles: true, cancelable: true,
@@ -304,7 +310,7 @@ export async function longPressTouch(page, x, y, holdMs = 600) {
 	await page.waitForTimeout(holdMs);
 
 	await page.evaluate(({ cx, cy }) => {
-		const canvas = document.querySelector('canvas');
+		const canvas = document.querySelector('[data-testid="viewport"] canvas') || document.querySelector('canvas');
 		if (!canvas) throw new Error('Canvas not found');
 		canvas.dispatchEvent(new PointerEvent('pointerup', {
 			bubbles: true, cancelable: true,
