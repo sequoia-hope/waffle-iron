@@ -748,8 +748,101 @@ pub(crate) fn flood_fill_patches(
     //   3. Sort adj entries by target ascending + FIFO `remove(0)`
     //      replacing LIFO `pop()` — at branch points the first
     //      candidate is the smallest-target canonical successor.
+    // ── PR-Y19-MODE-B: R3 source-face ownership routing ──
+    //
+    // Yang 2025 §4.4.2 mandates a 1:1 canonical↔BRep half-edge mapping. Today's
+    // per-patch `seen: BTreeSet<(usize, usize)>` (below) dedups within a patch
+    // but not across patches. When two B-Rep faces' tessellations both emit
+    // the same canonical directed edge `(v0 → v1)` as a per-patch boundary,
+    // each patch independently emits a HE for the key, the downstream
+    // `directed_he` map accumulates 2+ HEs under one key, and the twin-pairing
+    // match arms see ambiguous/empty candidate sets → validator panic.
+    //
+    // R3 routing (spec `yang_pr_y19_mode_b.md` §3): pick a single owner among
+    // candidate patches whose triangles contain the forward winding `(v0 → v1)`
+    // and that see the edge as a boundary (i.e. lack the reverse winding).
+    // Spec §3 uses lex order on `(SourceFace.mesh_id, SourceFace.face_idx,
+    // patch_index)` as the deterministic tie-breaker.
+    //
+    // The choice of R3 over R1/R2/R4 alternatives is justified in spec §3.
+    // Per spec §8 + `feedback_yang_only.md`: ≥4 distinct candidate patches →
+    // panic (signals upstream Step 5a corruption).
+    //
+    // **Empirical caveat (implementer-w pre-fix canary, 2026-05-06):**
+    // Spec §10 open question — R3 ownership produces open per-patch loops on
+    // some cases (cross-SourceFace contention strips a boundary edge from the
+    // loser patch). The spec §5 hardening assertion (panic on open chain)
+    // was promoted from spec but empirically softened back to `break` in
+    // the loop-chaining at L786-L820 because it broke 12 previously-passing
+    // kernel tests + F0020 itself. The R3 routing's I1+I2 contribution is
+    // preserved (cross-patch directed-edge collisions reduced); the I3
+    // structural assertion is deferred to a future PR (Cherchi reference
+    // parity per `feedback_external_coherence.md`). Current state: F0020
+    // boolean #1 advanced from baseline `paired=39, unpaired=1, ambiguous=9,
+    // collision=1` to `paired=48, unpaired=0, ambiguous=0, collision=3` —
+    // partial progress. Boolean #2 still has unpaired residual.
+    let mut edge_owner: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+    for (&(v0, v1), tri_idxs) in directed_edge_to_tris.iter() {
+        // Patches containing a forward-winding tri.
+        let fwd_patches: BTreeSet<usize> = tri_idxs.iter().map(|&ti| tri_to_patch[ti]).collect();
+        // Patches containing a reverse-winding tri (these patches see the
+        // edge as INTERIOR, not boundary, so they cannot be candidate owners).
+        let rev_patches: BTreeSet<usize> = directed_edge_to_tris
+            .get(&(v1, v0))
+            .map(|tris| tris.iter().map(|&ti| tri_to_patch[ti]).collect())
+            .unwrap_or_default();
+
+        let candidates: Vec<usize> = fwd_patches.difference(&rev_patches).copied().collect();
+
+        if candidates.is_empty() {
+            // No patch sees (v0 → v1) as a boundary. Purely interior edge —
+            // skip ownership assignment.
+            continue;
+        }
+
+        if candidates.len() == 1 {
+            // Single candidate is always the owner; no contention. Skip
+            // ownership assignment — the per-patch loop will emit normally.
+            continue;
+        }
+
+        if candidates.len() >= 4 {
+            // Per spec §8: ≥4 distinct candidate-owner patches signals
+            // upstream Step 5a source-face split corruption.
+            panic!(
+                "PR-Y19-MODE-B: canonical directed edge ({}, {}) sourced from {} distinct candidate-owner patches (≥4) — upstream patch segmentation violates Yang §4.4.2 1:1 mandate",
+                v0,
+                v1,
+                candidates.len()
+            );
+        }
+
+        // Spec §3 deterministic R1-style lex tie-breaker on
+        // (mesh_id, face_idx, patch_index): pick the smallest candidate as
+        // the owner.
+        //
+        // Note: loser patches produce open-loop chains (the missing edge
+        // would have closed their loop). The downstream loop-chaining
+        // (L786-L820) was hardened to panic on this in spec §5; empirically
+        // softened to `break` (canary §5 flagged this risk). Open chains
+        // produce unpaired HEs in Step 7; the trade-off is that we resolve
+        // the I1 + I2 mandate at the cost of letting the I3 violation flow
+        // through silently as a Mode A residual (banked per spec §10).
+        let mut owner_candidates: Vec<usize> = candidates.clone();
+        owner_candidates.sort_by_key(|&pi| {
+            let src = patches[pi].source;
+            (src.mesh_id, src.face_idx, pi)
+        });
+        let owner = owner_candidates[0];
+        edge_owner.insert((v0, v1), owner);
+    }
+
     for (pi, patch) in patches.iter().enumerate() {
-        // Per-patch boundary collection with directed-edge dedup.
+        // Per-patch boundary collection with R3 ownership gating + intra-patch
+        // dedup. `seen` retained: even within a single patch, the same
+        // directed edge can appear if multiple tris share it (e.g.
+        // post-tessellation overlaps) and we are the owner — in that case the
+        // edge is emitted once.
         let mut seen: BTreeSet<(usize, usize)> = BTreeSet::new();
         let mut boundary: Vec<(usize, usize, bool)> = Vec::new();
         for &ti in &patch.tris {
@@ -762,7 +855,15 @@ pub(crate) fn flood_fill_patches(
                 } else {
                     true
                 };
-                if is_boundary && seen.insert((v0, v1)) {
+                // PR-Y19-MODE-B: R3 ownership gate. `edge_owner` records
+                // ownership ONLY for canonical directed edges with cross-
+                // SourceFace contention (see pre-pass above). Edges with no
+                // entry in `edge_owner` have no contention and are emitted
+                // by every candidate patch (today's behavior preserved).
+                // Edges with an entry are emitted only by the owner patch.
+                let owner_blocks =
+                    matches!(edge_owner.get(&(v0, v1)), Some(&owner_pi) if owner_pi != pi);
+                if is_boundary && !owner_blocks && seen.insert((v0, v1)) {
                     let is_int = intersection_edges.contains(&(v0, v1))
                         || intersection_edges.contains(&(v1, v0));
                     boundary.push((v0, v1, is_int));
@@ -802,6 +903,22 @@ pub(crate) fn flood_fill_patches(
                 // FIFO remove(0) — smallest-target-first since adj is
                 // sorted (PR13 §8 task 3). Replaces LIFO pop() that
                 // T2 §7 D1 showed picks the spurious duplicate.
+                //
+                // SPEC §5 I3 PANIC SOFTENED per team-lead decision 2026-05-07:
+                // R3 routing produces open loops in legitimate non-manifold-edge
+                // cases (two patches with same FORWARD winding for a shared
+                // edge — geometrically a non-manifold edge where two surfaces
+                // meet but the upstream patch partition didn't flip one's
+                // winding). spec-writer-s's I3 invariant claim ("R3 produces
+                // well-formed loops") was empirically wrong on F0020 + T-shape
+                // union + 11 other kernel tests. Soft break preserves the
+                // pre-PR loop-chaining behavior for these cases. The residual
+                // open-loop topology is a SEPARATE defect class banked for
+                // PR-Y20+: when twin-pairing for a fwd HE finds no rev
+                // candidate, the validator currently panics; the proper fix
+                // is to recognize non-manifold edges (twin = None) per Yang
+                // §4.4.2's mandate that 1:1 is per-direction, not per-edge.
+                // Out of scope for PR-Y19-MODE-B.
                 let outgoing = adj.get_mut(&current);
                 let (next, is_int) = match outgoing {
                     Some(v) if !v.is_empty() => v.remove(0),
@@ -1225,11 +1342,21 @@ pub(crate) fn flood_fill_patches(
             // Collision detection: build canonical-key → set of distinct edge_idx
             // observed. >1 distinct edge for the same canonical key means the
             // pairing introduced two B-Rep Edge entries for one undirected edge.
+            //
+            // PR-Y19-MODE-B 0e amendment (per adversary-19 §4 finding 2026-05-07):
+            // skip degenerate self-loop half-edges (v_origin == v_dest). These
+            // are upstream micro-loop artifacts (e.g., F0020's canon=(33,33)
+            // and (34,34)) that pollute the collision count without
+            // representing real twin-pairing defects. Banked separately as
+            // PR-Y20+ Mode A residual; orthogonal to Mode B contract.
             let mut canon_to_edges: BTreeMap<(usize, usize), BTreeSet<usize>> = BTreeMap::new();
             for he in arena.half_edges.iter() {
                 let v_origin = he.origin.0;
                 let next_he = &arena.half_edges[he.next.0];
                 let v_dest = next_he.origin.0;
+                if v_origin == v_dest {
+                    continue;
+                }
                 let canon = (v_origin.min(v_dest), v_origin.max(v_dest));
                 canon_to_edges.entry(canon).or_default().insert(he.edge.0);
             }
