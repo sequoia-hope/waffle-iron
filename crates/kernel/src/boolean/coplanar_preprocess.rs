@@ -7,6 +7,7 @@
 //!
 //! Ref [#24] Yang et al. 2025 Section 4.5.5.
 
+use crate::geometry::curve::CurveGeom;
 use crate::geometry::surface::SurfaceGeom;
 use crate::tessellation::bijective::BijectiveMap;
 use crate::topology::arena::TopoArena;
@@ -226,10 +227,22 @@ pub(crate) fn split_brep_for_coplanar_pairs(
             pair.plane_normal[2] * pair.plane_offset,
         ];
 
-        let poly_a =
-            collect_face_loop_2d(&solid_a.arena, pair.face_a, &plane_origin, &u_axis, &v_axis);
-        let mut poly_b =
-            collect_face_loop_2d(&solid_b.arena, pair.face_b, &plane_origin, &u_axis, &v_axis);
+        let poly_a = collect_face_loop_2d(
+            &solid_a.arena,
+            &solid_a.edge_geometry,
+            pair.face_a,
+            &plane_origin,
+            &u_axis,
+            &v_axis,
+        );
+        let mut poly_b = collect_face_loop_2d(
+            &solid_b.arena,
+            &solid_b.edge_geometry,
+            pair.face_b,
+            &plane_origin,
+            &u_axis,
+            &v_axis,
+        );
 
         // Yang §4.5.5 + Fig. 16: "The common part and the other two parts
         // share identical sampling points on their boundaries." Both faces
@@ -262,9 +275,32 @@ pub(crate) fn split_brep_for_coplanar_pairs(
             shape_a.overlay(&shape_b, OverlayRule::Intersect, FillRule::EvenOdd);
 
         if overlap.is_empty() || overlap[0].is_empty() {
+            // Per Yang §4.5.5 + spec §8: a coplanar pair detected at Stage
+            // 0a MUST be processable by i_overlay. After PR-Y17-COPLANAR's
+            // curve sampling fix, an empty overlap on a detected pair
+            // indicates either (a) false-positive detection or (b) an
+            // unhandled CurveGeom variant in `collect_face_loop_2d`. Both
+            // are real bugs; surface loudly under the production gate.
+            let env_yang = std::env::var("YANG_BOOLEAN").unwrap_or_default() == "1";
+            let msg = format!(
+                "coplanar_preprocess: pair {} face_a={:?} face_b={:?} same_dir={} \
+                 produced empty overlap from i_overlay (poly_a.len={}, poly_b.len={}). \
+                 Per Yang §4.5.5 detected coplanar pairs MUST be processable; \
+                 see specs/yang_pr_y17_coplanar_completion.md §8.",
+                pair_idx,
+                pair.face_a,
+                pair.face_b,
+                pair.same_direction,
+                poly_a.len(),
+                poly_b.len()
+            );
+            if env_yang {
+                panic!("{}", msg);
+            }
+            eprintln!("[coplanar-warn] {msg}");
             #[cfg(test)]
             eprintln!("[COPLANAR SPLIT]   -> Skipped: no overlap");
-            continue; // Coplanar but non-overlapping
+            continue; // Coplanar but non-overlapping (non-Yang path only)
         }
 
         // Telemetry: total disjoint shape groups in the overlap result, and
@@ -417,8 +453,21 @@ pub(crate) fn split_brep_for_coplanar_pairs(
 }
 
 /// Collect face loop vertices as (VertexIdx, 2D position) pairs.
+///
+/// Per Yang 2025 §4.5.5 the 2D Boolean polygon must accurately represent each
+/// face's boundary footprint in the shared plane basis. For half-edges whose
+/// underlying `EdgeIdx` resolves to a non-`Linear` `CurveGeom` variant
+/// (`Circular`, `Arc`, `Elliptical`), we sample chord points at TAU_MODEL
+/// chord error so i_overlay receives a faithful boundary. `Linear` edges
+/// (and edges with no geometry mapping) emit a single origin vertex.
+///
+/// `VertexIdx::INVALID` is used for interior chord samples that do not
+/// correspond to an existing arena vertex; downstream consumers
+/// (`split_face_along_boundary`) ignore the VertexIdx and use only the
+/// 2D position for boolean overlay.
 fn collect_face_loop_2d(
     arena: &TopoArena,
+    edge_geometry: &BTreeMap<EdgeIdx, CurveGeom>,
     face_idx: FaceIdx,
     origin: &[f64; 3],
     u_axis: &[f64; 3],
@@ -430,19 +479,181 @@ fn collect_face_loop_2d(
     let mut he = start_he;
     loop {
         let vi = arena.half_edges[he.0].origin;
-        let pos = arena.vertices[vi.0].position;
-        let dx = pos[0] - origin[0];
-        let dy = pos[1] - origin[1];
-        let dz = pos[2] - origin[2];
-        let u = dx * u_axis[0] + dy * u_axis[1] + dz * u_axis[2];
-        let v = dx * v_axis[0] + dy * v_axis[1] + dz * v_axis[2];
-        result.push((vi, [u, v]));
+        let edge_idx = arena.half_edges[he.0].edge;
+        let origin_pos = arena.vertices[vi.0].position;
+
+        // Always emit the half-edge's origin vertex first (stable indexing
+        // for downstream snapping).
+        result.push((vi, project_3d_to_2d(&origin_pos, origin, u_axis, v_axis)));
+
+        // For non-linear curves, emit interior chord samples between this
+        // half-edge's origin and the next half-edge's origin. The next
+        // origin will be emitted when the loop visits the next half-edge,
+        // so we stop one sample short of the endpoint to avoid duplication.
+        if let Some(curve) = edge_geometry.get(&edge_idx) {
+            match curve {
+                CurveGeom::Linear(_) => {}
+                CurveGeom::Circular(circle) => {
+                    let r = circle.radius.max(TAU_MODEL);
+                    let n = chord_sample_count(r, std::f64::consts::TAU);
+                    let next_he = arena.half_edges[he.0].next;
+                    let next_origin = arena.vertices[arena.half_edges[next_he.0].origin.0].position;
+                    emit_curve_samples(
+                        &mut result,
+                        curve,
+                        0.0,
+                        std::f64::consts::TAU,
+                        n,
+                        &next_origin,
+                        origin,
+                        u_axis,
+                        v_axis,
+                    );
+                }
+                CurveGeom::Arc(arc) => {
+                    let r = arc.radius.max(TAU_MODEL);
+                    let sweep = arc.sweep_angle.abs().max(TAU_MODEL);
+                    let n = chord_sample_count(r, sweep);
+                    let next_he = arena.half_edges[he.0].next;
+                    let next_origin = arena.vertices[arena.half_edges[next_he.0].origin.0].position;
+                    emit_curve_samples(
+                        &mut result,
+                        curve,
+                        0.0,
+                        arc.sweep_angle,
+                        n,
+                        &next_origin,
+                        origin,
+                        u_axis,
+                        v_axis,
+                    );
+                }
+                CurveGeom::Elliptical(ell) => {
+                    let r = ell.semi_major.max(TAU_MODEL);
+                    let n = chord_sample_count(r, std::f64::consts::TAU);
+                    let next_he = arena.half_edges[he.0].next;
+                    let next_origin = arena.vertices[arena.half_edges[next_he.0].origin.0].position;
+                    emit_curve_samples(
+                        &mut result,
+                        curve,
+                        0.0,
+                        std::f64::consts::TAU,
+                        n,
+                        &next_origin,
+                        origin,
+                        u_axis,
+                        v_axis,
+                    );
+                }
+            }
+        }
+
         he = arena.half_edges[he.0].next;
         if he == start_he {
             break;
         }
     }
     result
+}
+
+/// Project a 3D point onto the (origin, u_axis, v_axis) plane basis.
+#[inline]
+fn project_3d_to_2d(
+    pos: &[f64; 3],
+    origin: &[f64; 3],
+    u_axis: &[f64; 3],
+    v_axis: &[f64; 3],
+) -> [f64; 2] {
+    let dx = pos[0] - origin[0];
+    let dy = pos[1] - origin[1];
+    let dz = pos[2] - origin[2];
+    let u = dx * u_axis[0] + dy * u_axis[1] + dz * u_axis[2];
+    let v = dx * v_axis[0] + dy * v_axis[1] + dz * v_axis[2];
+    [u, v]
+}
+
+/// Number of chord samples needed to keep chord error ≤ TAU_MODEL on a
+/// curve of curvature radius `r` over a parameter span `sweep`. Floored at 8.
+///
+/// Derivation: for a circular arc of radius `r`, the maximum chord error
+/// between adjacent samples spaced by angle Δθ is r·(1 - cos(Δθ/2)).
+/// Solving r·(1 - cos(Δθ/2)) = TAU_MODEL gives
+/// Δθ = 2·acos((r - TAU_MODEL) / r), so N = ceil(sweep / Δθ).
+fn chord_sample_count(r: f64, sweep: f64) -> usize {
+    if r <= TAU_MODEL {
+        return 8;
+    }
+    let cos_half = ((r - TAU_MODEL) / r).clamp(-1.0, 1.0);
+    let dtheta = 2.0 * cos_half.acos();
+    if dtheta <= 0.0 {
+        return 8;
+    }
+    let n = (sweep.abs() / dtheta).ceil() as usize;
+    n.max(8)
+}
+
+/// Append interior chord samples for `curve` over parameter range
+/// `[t_start, t_end]` excluding the endpoints. The start endpoint is
+/// already emitted by the caller as the half-edge origin; the end endpoint
+/// is the next half-edge's origin, which the caller emits when it visits
+/// the next half-edge. For periodic edges (start vertex == end vertex), the
+/// "next origin" is the same as `origin_pos`; in that case the n samples
+/// span the full curve.
+///
+/// The curve geometry's intrinsic parametrization may be opposite to the
+/// half-edge traversal direction. We pick the parameter ordering whose
+/// endpoint at `t_end` is closer to `next_origin` — this keeps the polygon
+/// contour walking from `origin_pos` toward `next_origin` regardless of
+/// curve normal orientation.
+#[allow(clippy::too_many_arguments)]
+fn emit_curve_samples(
+    result: &mut Vec<(VertexIdx, [f64; 2])>,
+    curve: &CurveGeom,
+    t_start: f64,
+    t_end: f64,
+    n: usize,
+    next_origin: &[f64; 3],
+    plane_origin: &[f64; 3],
+    u_axis: &[f64; 3],
+    v_axis: &[f64; 3],
+) {
+    if n < 2 {
+        return;
+    }
+
+    // Determine direction by checking which parameter ordering's endpoint
+    // is closer to `next_origin` (the next half-edge's start vertex).
+    let p_fwd = curve.evaluate(t_end);
+    let dist_fwd = (p_fwd.x - next_origin[0]).powi(2)
+        + (p_fwd.y - next_origin[1]).powi(2)
+        + (p_fwd.z - next_origin[2]).powi(2);
+    let p_rev = curve.evaluate(t_start);
+    let dist_rev = (p_rev.x - next_origin[0]).powi(2)
+        + (p_rev.y - next_origin[1]).powi(2)
+        + (p_rev.z - next_origin[2]).powi(2);
+    let forward = dist_fwd <= dist_rev;
+
+    // Emit n-1 interior samples at fractions i/n for i ∈ [1, n). The start
+    // sample (i=0, equivalent to t_start) corresponds to the half-edge
+    // origin and is already pushed by the caller. The end sample (i=n,
+    // equivalent to t_end) is the next half-edge's origin and will be
+    // pushed by the next loop iteration's caller emit. For periodic edges
+    // (start == end vertex), the next iteration's origin is the same
+    // vertex, so this still produces an open chord polygon (no duplicate).
+    for i in 1..n {
+        let frac = i as f64 / n as f64;
+        let t = if forward {
+            t_start + frac * (t_end - t_start)
+        } else {
+            t_end - frac * (t_end - t_start)
+        };
+        let pt = curve.evaluate(t);
+        let pt3 = [pt.x, pt.y, pt.z];
+        result.push((
+            VertexIdx(usize::MAX),
+            project_3d_to_2d(&pt3, plane_origin, u_axis, v_axis),
+        ));
+    }
 }
 
 /// Split a face along an overlap boundary polygon.
@@ -963,6 +1174,7 @@ pub(crate) fn inject_identical_footprint_mesh(
     tris_b: &mut Vec<[usize; 3]>,
     bijective_b: &mut BijectiveMap,
 ) {
+    let snap_identical = COPLANAR_IDENTICAL_FOOTPRINT.load(Ordering::Relaxed);
     for pair in coplanar_pairs {
         if !pair.is_identical_footprint {
             continue;
@@ -1077,6 +1289,16 @@ pub(crate) fn inject_identical_footprint_mesh(
             pair.face_a, pair.face_b, shared_tris_a.len(), !pair.same_direction
         );
     }
+
+    // Post-injection `[coplanar-tele]` re-emit: the per-call snapshot in
+    // `split_brep_for_coplanar_pairs` reads this counter BEFORE the inject
+    // pass runs, so the marker counters there always show 0. This re-emit
+    // lets downstream tests parse the post-injection counter state from the
+    // last `[coplanar-tele]` line. Only fires when a marker was incremented.
+    let identical_delta = COPLANAR_IDENTICAL_FOOTPRINT.load(Ordering::Relaxed) - snap_identical;
+    if identical_delta > 0 {
+        emit_coplanar_tele_post_inject();
+    }
 }
 
 /// Yang §4.5.5 partial-overlap pass: for coplanar pairs where overlap is
@@ -1110,6 +1332,7 @@ pub(crate) fn inject_partial_overlap_mesh(
     tris_b: &mut Vec<[usize; 3]>,
     bijective_b: &mut BijectiveMap,
 ) {
+    let snap_partial = COPLANAR_PARTIAL_OVERLAP.load(Ordering::Relaxed);
     for pair in coplanar_pairs {
         if !pair.is_partial_overlap {
             continue;
@@ -1327,6 +1550,36 @@ pub(crate) fn inject_partial_overlap_mesh(
             shared_tris_a.len(), a_only_tris.len(), b_only_tris.len()
         );
     }
+
+    // Post-injection `[coplanar-tele]` re-emit (see comment in
+    // `inject_identical_footprint_mesh`).
+    let partial_delta = COPLANAR_PARTIAL_OVERLAP.load(Ordering::Relaxed) - snap_partial;
+    if partial_delta > 0 {
+        emit_coplanar_tele_post_inject();
+    }
+}
+
+/// Emit a `[coplanar-tele]` line with the current global counter values.
+/// Called from `inject_identical_footprint_mesh` and `inject_partial_overlap_mesh`
+/// after they bump their respective marker counters so downstream tests can
+/// observe the post-injection state. The schema mirrors the per-call delta
+/// emit in `split_brep_for_coplanar_pairs`.
+fn emit_coplanar_tele_post_inject() {
+    let pairs = COPLANAR_PAIRS_PROCESSED.load(Ordering::Relaxed);
+    let v_existing = COPLANAR_VERTS_SNAPPED_EXISTING.load(Ordering::Relaxed);
+    let v_split = COPLANAR_VERTS_VIA_SPLIT_EDGE.load(Ordering::Relaxed);
+    let v_deduped = COPLANAR_VERTS_DEDUPED_BY_CANON_KEY.load(Ordering::Relaxed);
+    let v_dropped = COPLANAR_VERTS_DROPPED.load(Ordering::Relaxed);
+    let mef_ok = COPLANAR_MEF_OK.load(Ordering::Relaxed);
+    let mef_no_loop = COPLANAR_MEF_NO_LOOP.load(Ordering::Relaxed);
+    let groups = COPLANAR_OVERLAY_GROUPS.load(Ordering::Relaxed);
+    let holes = COPLANAR_OVERLAY_HOLES_IGNORED.load(Ordering::Relaxed);
+    let identical = COPLANAR_IDENTICAL_FOOTPRINT.load(Ordering::Relaxed);
+    let partial_overlap = COPLANAR_PARTIAL_OVERLAP.load(Ordering::Relaxed);
+    eprintln!(
+        "[coplanar-tele] pairs={} verts_existing={} verts_split={} verts_deduped_by_canon_key={} verts_dropped={} mef_ok={} mef_no_loop={} overlay_groups={} overlay_holes_ignored={} identical_footprint={} partial_overlap={}",
+        pairs, v_existing, v_split, v_deduped, v_dropped, mef_ok, mef_no_loop, groups, holes, identical, partial_overlap
+    );
 }
 
 /// Triangulate a polygon with holes using earcutr.
@@ -2272,6 +2525,7 @@ mod tests {
 
         let poly_a = collect_face_loop_2d(
             &solid_a.arena,
+            &solid_a.edge_geometry,
             z0_pair.face_a,
             &plane_origin,
             &u_axis,
@@ -2279,6 +2533,7 @@ mod tests {
         );
         let poly_b = collect_face_loop_2d(
             &solid_b.arena,
+            &solid_b.edge_geometry,
             z0_pair.face_b,
             &plane_origin,
             &u_axis,
@@ -3088,10 +3343,22 @@ mod tests {
         ];
 
         // Extract both face boundary loops in the shared basis.
-        let poly_a =
-            collect_face_loop_2d(&solid_a.arena, pair.face_a, &plane_origin, &u_axis, &v_axis);
-        let mut poly_b =
-            collect_face_loop_2d(&solid_b.arena, pair.face_b, &plane_origin, &u_axis, &v_axis);
+        let poly_a = collect_face_loop_2d(
+            &solid_a.arena,
+            &solid_a.edge_geometry,
+            pair.face_a,
+            &plane_origin,
+            &u_axis,
+            &v_axis,
+        );
+        let mut poly_b = collect_face_loop_2d(
+            &solid_b.arena,
+            &solid_b.edge_geometry,
+            pair.face_b,
+            &plane_origin,
+            &u_axis,
+            &v_axis,
+        );
 
         // Apply PR8's fix manually (mirror what `split_brep_for_coplanar_pairs`
         // and `inject_partial_overlap_mesh` now do internally).
