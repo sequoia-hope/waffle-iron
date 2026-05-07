@@ -183,7 +183,9 @@ pub fn mef(
 #[allow(dead_code)] // Staged for Yang pipeline Phase 5 (B-Rep reassembly)
 pub fn kemr(arena: &mut TopoArena, edge: EdgeIdx) {
     let he_a = arena.edges[edge.0].half_edge;
-    let he_b = arena.half_edges[he_a.0].twin;
+    let he_b = arena.half_edges[he_a.0]
+        .twin
+        .expect("manifold-ctx: kemr requires paired twin");
 
     let loop_a = arena.half_edges[he_a.0].loop_;
     let face = arena.loops[loop_a.0].face;
@@ -252,7 +254,9 @@ pub fn kfmrh(arena: &mut TopoArena, face_to_kill: FaceIdx, host_face: FaceIdx) {
 pub fn split_edge_at(arena: &mut TopoArena, edge_idx: EdgeIdx, position: [f64; 3]) -> VertexIdx {
     // Get the two half-edges of this edge.
     let he_a_idx = arena.edges[edge_idx.0].half_edge;
-    let he_b_idx = arena.half_edges[he_a_idx.0].twin;
+    let he_b_idx = arena.half_edges[he_a_idx.0]
+        .twin
+        .expect("manifold-ctx: split_edge_at requires paired twin");
 
     // he_a: v0 → v1 (destination = next half-edge's origin in the loop)
     // he_b: v1 → v0 (the twin)

@@ -1377,7 +1377,9 @@ fn boolean_op_from_polys_inner(
                 arena.half_edges.push(HalfEdge {
                     origin: v_idx,
                     edge: edge_idx,
-                    twin: he_idx, // self-twin (boundary)
+                    // PR-Y20-MODE-A: legacy "self-twin (boundary)" pattern
+                    // becomes twin=None (Yang §4.4.2 NMM mandate).
+                    twin: None,
                     next: next_he,
                     prev: prev_he,
                     loop_: loop_idx,
@@ -3218,12 +3220,16 @@ mod tests {
 
     /// Count unpaired half-edges in an arena. A half-edge is unpaired if
     /// its twin index points back to itself (self-twin = boundary edge).
+    /// PR-Y20-MODE-A: also counts twin=None (NMM per Yang §4.4.2).
     fn count_unpaired_half_edges(arena: &TopoArena) -> usize {
         arena
             .half_edges
             .iter()
             .enumerate()
-            .filter(|(i, he)| he.twin.0 == *i)
+            .filter(|(i, he)| match he.twin {
+                Some(t) => t.0 == *i,
+                None => true,
+            })
             .count()
     }
 

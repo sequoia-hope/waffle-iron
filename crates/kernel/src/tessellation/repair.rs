@@ -635,7 +635,12 @@ pub(super) fn remove_nonmanifold_topology_aware(
     for (i, edge) in arena.edges.iter().enumerate() {
         let edge_idx = EdgeIdx(i);
         let he_a = edge.half_edge;
-        let he_b = arena.half_edges[he_a.0].twin;
+        // PR-Y20-MODE-A: NMM (twin=None) — skip edges without paired twin
+        // (cannot record both adjacent faces for the unpaired direction).
+        let he_b = match arena.half_edges[he_a.0].twin {
+            Some(t) => t,
+            None => continue,
+        };
         let loop_a = arena.half_edges[he_a.0].loop_;
         let loop_b = arena.half_edges[he_b.0].loop_;
         let face_a = arena.loops[loop_a.0].face;

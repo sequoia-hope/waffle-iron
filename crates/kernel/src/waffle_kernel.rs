@@ -358,7 +358,11 @@ impl WaffleKernel {
 
             let he_a = arena.edges[idx].half_edge;
             let v_start = arena.half_edges[he_a.0].origin;
-            let v_end = arena.half_edges[arena.half_edges[he_a.0].twin.0].origin;
+            let v_end = arena.half_edges[arena.half_edges[he_a.0]
+                .twin
+                .expect("manifold-ctx: edge built via Euler ops must have paired twin")
+                .0]
+                .origin;
             let p0 = arena.vertices[v_start.0].position;
             let p1 = arena.vertices[v_end.0].position;
 
@@ -591,7 +595,11 @@ impl WaffleKernel {
 
             let he_a = arena.edges[idx].half_edge;
             let v_start = arena.half_edges[he_a.0].origin;
-            let v_end = arena.half_edges[arena.half_edges[he_a.0].twin.0].origin;
+            let v_end = arena.half_edges[arena.half_edges[he_a.0]
+                .twin
+                .expect("manifold-ctx: edge built via Euler ops must have paired twin")
+                .0]
+                .origin;
             let p0 = arena.vertices[v_start.0].position;
             let p1 = arena.vertices[v_end.0].position;
 
@@ -805,7 +813,7 @@ impl WaffleKernel {
                     arena.half_edges.push(HalfEdge {
                         origin: VertexIdx(0), // placeholder
                         edge: EdgeIdx(0),     // placeholder
-                        twin: HalfEdgeIdx(0), // placeholder
+                        twin: None,           // set during pair-up below
                         next: HalfEdgeIdx(0),
                         prev: HalfEdgeIdx(0),
                         loop_: lp,
@@ -854,8 +862,8 @@ impl WaffleKernel {
                 let he_a = he_grid[i][j][0];
                 let he_b = he_grid[i_prev][j][2];
 
-                arena.half_edges[he_a.0].twin = he_b;
-                arena.half_edges[he_b.0].twin = he_a;
+                arena.half_edges[he_a.0].twin = Some(he_b);
+                arena.half_edges[he_b.0].twin = Some(he_a);
 
                 let edge_idx = EdgeIdx(arena.edges.len());
                 arena.edges.push(Edge { half_edge: he_a });
@@ -872,8 +880,8 @@ impl WaffleKernel {
                 let he_a = he_grid[i][j][1];
                 let he_b = he_grid[i][j_next][3];
 
-                arena.half_edges[he_a.0].twin = he_b;
-                arena.half_edges[he_b.0].twin = he_a;
+                arena.half_edges[he_a.0].twin = Some(he_b);
+                arena.half_edges[he_b.0].twin = Some(he_a);
 
                 let edge_idx = EdgeIdx(arena.edges.len());
                 arena.edges.push(Edge { half_edge: he_a });
@@ -1750,7 +1758,11 @@ impl WaffleKernel {
 
             let he_a = arena.edges[idx].half_edge;
             let v_start = arena.half_edges[he_a.0].origin;
-            let v_end = arena.half_edges[arena.half_edges[he_a.0].twin.0].origin;
+            let v_end = arena.half_edges[arena.half_edges[he_a.0]
+                .twin
+                .expect("manifold-ctx: edge built via Euler ops must have paired twin")
+                .0]
+                .origin;
             let p0 = arena.vertices[v_start.0].position;
             let p1 = arena.vertices[v_end.0].position;
 
@@ -2466,7 +2478,11 @@ impl Kernel for WaffleKernel {
             // Compute edge geometry (linear)
             let he_a = arena.edges[idx].half_edge;
             let v_start = arena.half_edges[he_a.0].origin;
-            let v_end = arena.half_edges[arena.half_edges[he_a.0].twin.0].origin;
+            let v_end = arena.half_edges[arena.half_edges[he_a.0]
+                .twin
+                .expect("manifold-ctx: edge built via Euler ops must have paired twin")
+                .0]
+                .origin;
             let p0 = arena.vertices[v_start.0].position;
             let p1 = arena.vertices[v_end.0].position;
             let dir = v3_sub(p1, p0);
@@ -2711,7 +2727,9 @@ impl KernelIntrospect for WaffleKernel {
         for ws in self.solids.values() {
             if let Some(&edge_idx) = ws.edge_map.get(&edge.0) {
                 let he_a = ws.arena.edges[edge_idx.0].half_edge;
-                let he_b = ws.arena.half_edges[he_a.0].twin;
+                let he_b = ws.arena.half_edges[he_a.0]
+                    .twin
+                    .expect("manifold-ctx: edge_vertices requires paired twin");
                 let v0 = ws.arena.half_edges[he_a.0].origin;
                 let v1 = ws.arena.half_edges[he_b.0].origin;
                 let kid0 = reverse_lookup_vertex(ws, v0);
@@ -2839,7 +2857,9 @@ fn collect_face_edge_kids(ws: &WaffleSolid, face_idx: FaceIdx) -> Vec<KernelId> 
 /// Collect KernelId keys for faces adjacent to an edge.
 fn collect_edge_face_kids(ws: &WaffleSolid, edge_idx: EdgeIdx) -> Vec<KernelId> {
     let he_a = ws.arena.edges[edge_idx.0].half_edge;
-    let he_b = ws.arena.half_edges[he_a.0].twin;
+    let he_b = ws.arena.half_edges[he_a.0]
+        .twin
+        .expect("manifold-ctx: collect_edge_face_kids requires paired twin");
     let loop_a = ws.arena.half_edges[he_a.0].loop_;
     let loop_b = ws.arena.half_edges[he_b.0].loop_;
     let face_a = ws.arena.loops[loop_a.0].face;
@@ -3004,7 +3024,9 @@ fn compute_edge_signature(ws: &WaffleSolid, edge_idx: EdgeIdx) -> TopoSignature 
     }
 
     let he_a = ws.arena.edges[edge_idx.0].half_edge;
-    let he_b = ws.arena.half_edges[he_a.0].twin;
+    let he_b = ws.arena.half_edges[he_a.0]
+        .twin
+        .expect("manifold-ctx: edge geometry requires paired twin");
     let p0 = ws.arena.vertices[ws.arena.half_edges[he_a.0].origin.0].position;
     let p1 = ws.arena.vertices[ws.arena.half_edges[he_b.0].origin.0].position;
     let length = v3_length(v3_sub(p1, p0));

@@ -80,7 +80,9 @@ pub(crate) fn classify_intersection_edges(
         let he = result.arena.edges[edge_idx.0].half_edge;
 
         // (b) Get the twin half-edge
-        let twin = result.arena.half_edges[he.0].twin;
+        let twin = result.arena.half_edges[he.0]
+            .twin
+            .expect("manifold-ctx: SSI refinement requires paired twin to identify face_b");
 
         // (c) Get face_a from the half-edge's loop
         let face_a = result.arena.loops[result.arena.half_edges[he.0].loop_.0].face;
@@ -235,7 +237,9 @@ pub(crate) fn refine_intersection_edges(
 /// Compute the midpoint of a mesh edge for curve selection.
 fn edge_midpoint(result: &ResultTopology, edge_idx: EdgeIdx) -> Option<[f64; 3]> {
     let he = result.arena.edges[edge_idx.0].half_edge;
-    let twin = result.arena.half_edges[he.0].twin;
+    let twin = result.arena.half_edges[he.0]
+        .twin
+        .expect("manifold-ctx: edge_midpoint requires paired twin");
     let v0_idx = result.arena.half_edges[he.0].origin;
     let v1_idx = result.arena.half_edges[twin.0].origin;
     let p0 = result.arena.vertices[v0_idx.0].position;
@@ -261,7 +265,9 @@ pub(crate) fn refine_vertex_positions(arena: &mut TopoArena, refinement: &EdgeRe
 
     for (&edge_idx, curve) in &refinement.edges {
         let he = arena.edges[edge_idx.0].half_edge;
-        let twin = arena.half_edges[he.0].twin;
+        let twin = arena.half_edges[he.0]
+            .twin
+            .expect("manifold-ctx: refine_vertex_positions requires paired twin");
         let v0_idx = arena.half_edges[he.0].origin;
         let v1_idx = arena.half_edges[twin.0].origin;
 
@@ -670,14 +676,20 @@ fn pair_internal_twins(arena: &mut TopoArena, face_indices: &[FaceIdx]) {
 
             // Check if the reverse direction already exists.
             if let Some(&twin_he) = he_by_endpoints.get(&(dest, origin)) {
-                // Pair them.
-                let old_twin_a = arena.half_edges[he.0].twin;
-                let old_twin_b = arena.half_edges[twin_he.0].twin;
-                arena.half_edges[he.0].twin = twin_he;
-                arena.half_edges[twin_he.0].twin = he;
+                // Pair them. PR-Y20-MODE-A: twins must already be present
+                // here (manifold context — auto-created during HE
+                // construction earlier in this function).
+                let old_twin_a = arena.half_edges[he.0]
+                    .twin
+                    .expect("manifold-ctx: SSI re-pairing requires existing twin to swap");
+                let old_twin_b = arena.half_edges[twin_he.0]
+                    .twin
+                    .expect("manifold-ctx: SSI re-pairing requires existing twin to swap");
+                arena.half_edges[he.0].twin = Some(twin_he);
+                arena.half_edges[twin_he.0].twin = Some(he);
                 // The old auto-created twins become each other's twins.
-                arena.half_edges[old_twin_a.0].twin = old_twin_b;
-                arena.half_edges[old_twin_b.0].twin = old_twin_a;
+                arena.half_edges[old_twin_a.0].twin = Some(old_twin_b);
+                arena.half_edges[old_twin_b.0].twin = Some(old_twin_a);
             } else {
                 he_by_endpoints.insert((origin, dest), he);
             }
@@ -2806,11 +2818,17 @@ mod tests {
 
         // Verify twin symmetry on all half-edges
         for (i, he) in topology.arena.half_edges.iter().enumerate() {
-            let twin = he.twin;
+            let twin = he
+                .twin
+                .expect("manifold-ctx: SSI refinement test fixture must produce paired twins");
+            let twin_back = topology.arena.half_edges[twin.0]
+                .twin
+                .expect("manifold-ctx: SSI refinement test fixture must produce paired twins")
+                .0;
             assert_eq!(
-                topology.arena.half_edges[twin.0].twin.0, i,
+                twin_back, i,
                 "Twin symmetry broken at half-edge {i}: twin({}).twin = {}, expected {i}",
-                twin.0, topology.arena.half_edges[twin.0].twin.0,
+                twin.0, twin_back,
             );
         }
     }

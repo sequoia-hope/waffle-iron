@@ -6749,7 +6749,7 @@ fn i2_reconstruct_cyl_plane_circle() {
     arena.half_edges.push(HalfEdge {
         origin: v0,
         edge: EdgeIdx(0),
-        twin: HalfEdgeIdx(0), // placeholder
+        twin: None, // placeholder; set during pair-up
         next: HalfEdgeIdx(arena.half_edges.len() + 1),
         prev: HalfEdgeIdx(arena.half_edges.len() + 1),
         loop_: loop_a,
@@ -6758,7 +6758,7 @@ fn i2_reconstruct_cyl_plane_circle() {
     arena.half_edges.push(HalfEdge {
         origin: v1,
         edge: EdgeIdx(0),
-        twin: HalfEdgeIdx(0), // placeholder
+        twin: None, // placeholder; set during pair-up
         next: he0,
         prev: he0,
         loop_: loop_a,
@@ -6774,7 +6774,7 @@ fn i2_reconstruct_cyl_plane_circle() {
     arena.half_edges.push(HalfEdge {
         origin: v1,         // twin of he0: goes v1→v0
         edge: EdgeIdx(0),
-        twin: HalfEdgeIdx(0),
+        twin: None,
         next: HalfEdgeIdx(arena.half_edges.len() + 1),
         prev: HalfEdgeIdx(arena.half_edges.len() + 3),
         loop_: loop_b,
@@ -6783,7 +6783,7 @@ fn i2_reconstruct_cyl_plane_circle() {
     arena.half_edges.push(HalfEdge {
         origin: v0,
         edge: EdgeIdx(0),
-        twin: HalfEdgeIdx(0),
+        twin: None,
         next: HalfEdgeIdx(arena.half_edges.len() + 1),
         prev: he2,
         loop_: loop_b,
@@ -6792,7 +6792,7 @@ fn i2_reconstruct_cyl_plane_circle() {
     arena.half_edges.push(HalfEdge {
         origin: v2,
         edge: EdgeIdx(0),
-        twin: HalfEdgeIdx(0),
+        twin: None,
         next: HalfEdgeIdx(arena.half_edges.len() + 1),
         prev: he3,
         loop_: loop_b,
@@ -6801,7 +6801,7 @@ fn i2_reconstruct_cyl_plane_circle() {
     arena.half_edges.push(HalfEdge {
         origin: v3,
         edge: EdgeIdx(0),
-        twin: HalfEdgeIdx(0),
+        twin: None,
         next: he2,
         prev: he4,
         loop_: loop_b,
@@ -6811,9 +6811,9 @@ fn i2_reconstruct_cyl_plane_circle() {
     // Create edge: he0 (v0→v1) paired with he2 (v1→v0)
     let edge_idx = EdgeIdx(arena.edges.len());
     arena.edges.push(Edge { half_edge: he0 });
-    arena.half_edges[he0.0].twin = he2;
+    arena.half_edges[he0.0].twin = Some(he2);
     arena.half_edges[he0.0].edge = edge_idx;
-    arena.half_edges[he2.0].twin = he0;
+    arena.half_edges[he2.0].twin = Some(he0);
     arena.half_edges[he2.0].edge = edge_idx;
 
     // Face geometry
@@ -6881,13 +6881,13 @@ fn i2_reconstruct_plane_plane_stays_linear() {
     arena.faces[face_a.0].outer_loop = loop_a;
     let he0 = HalfEdgeIdx(arena.half_edges.len());
     arena.half_edges.push(HalfEdge {
-        origin: v0, edge: EdgeIdx(0), twin: HalfEdgeIdx(0),
+        origin: v0, edge: EdgeIdx(0), twin: None,
         next: HalfEdgeIdx(arena.half_edges.len() + 1),
         prev: HalfEdgeIdx(arena.half_edges.len() + 1), loop_: loop_a,
     });
     let _he1 = HalfEdgeIdx(arena.half_edges.len());
     arena.half_edges.push(HalfEdge {
-        origin: v1, edge: EdgeIdx(0), twin: HalfEdgeIdx(0),
+        origin: v1, edge: EdgeIdx(0), twin: None,
         next: he0, prev: he0, loop_: loop_a,
     });
     arena.loops[loop_a.0].half_edge = he0;
@@ -6897,22 +6897,22 @@ fn i2_reconstruct_plane_plane_stays_linear() {
     arena.faces[face_b.0].outer_loop = loop_b;
     let he2 = HalfEdgeIdx(arena.half_edges.len());
     arena.half_edges.push(HalfEdge {
-        origin: v1, edge: EdgeIdx(0), twin: HalfEdgeIdx(0),
+        origin: v1, edge: EdgeIdx(0), twin: None,
         next: HalfEdgeIdx(arena.half_edges.len() + 1),
         prev: HalfEdgeIdx(arena.half_edges.len() + 1), loop_: loop_b,
     });
     let _he3 = HalfEdgeIdx(arena.half_edges.len());
     arena.half_edges.push(HalfEdge {
-        origin: v0, edge: EdgeIdx(0), twin: HalfEdgeIdx(0),
+        origin: v0, edge: EdgeIdx(0), twin: None,
         next: he2, prev: he2, loop_: loop_b,
     });
     arena.loops[loop_b.0].half_edge = he2;
 
     let edge_idx = EdgeIdx(arena.edges.len());
     arena.edges.push(Edge { half_edge: he0 });
-    arena.half_edges[he0.0].twin = he2;
+    arena.half_edges[he0.0].twin = Some(he2);
     arena.half_edges[he0.0].edge = edge_idx;
-    arena.half_edges[he2.0].twin = he0;
+    arena.half_edges[he2.0].twin = Some(he0);
     arena.half_edges[he2.0].edge = edge_idx;
 
     let mut face_geometry: BTreeMap<FaceIdx, SurfaceGeom> = BTreeMap::new();
@@ -6967,13 +6967,13 @@ fn i2_reconstruct_oblique_stays_linear() {
     arena.faces[face_a.0].outer_loop = loop_a;
     let he0 = HalfEdgeIdx(arena.half_edges.len());
     arena.half_edges.push(HalfEdge {
-        origin: v0, edge: EdgeIdx(0), twin: HalfEdgeIdx(0),
+        origin: v0, edge: EdgeIdx(0), twin: None,
         next: HalfEdgeIdx(arena.half_edges.len() + 1),
         prev: HalfEdgeIdx(arena.half_edges.len() + 1), loop_: loop_a,
     });
     let _he1 = HalfEdgeIdx(arena.half_edges.len());
     arena.half_edges.push(HalfEdge {
-        origin: v1, edge: EdgeIdx(0), twin: HalfEdgeIdx(0),
+        origin: v1, edge: EdgeIdx(0), twin: None,
         next: he0, prev: he0, loop_: loop_a,
     });
     arena.loops[loop_a.0].half_edge = he0;
@@ -6983,22 +6983,22 @@ fn i2_reconstruct_oblique_stays_linear() {
     arena.faces[face_b.0].outer_loop = loop_b;
     let he2 = HalfEdgeIdx(arena.half_edges.len());
     arena.half_edges.push(HalfEdge {
-        origin: v1, edge: EdgeIdx(0), twin: HalfEdgeIdx(0),
+        origin: v1, edge: EdgeIdx(0), twin: None,
         next: HalfEdgeIdx(arena.half_edges.len() + 1),
         prev: HalfEdgeIdx(arena.half_edges.len() + 1), loop_: loop_b,
     });
     let _he3 = HalfEdgeIdx(arena.half_edges.len());
     arena.half_edges.push(HalfEdge {
-        origin: v0, edge: EdgeIdx(0), twin: HalfEdgeIdx(0),
+        origin: v0, edge: EdgeIdx(0), twin: None,
         next: he2, prev: he2, loop_: loop_b,
     });
     arena.loops[loop_b.0].half_edge = he2;
 
     let edge_idx = EdgeIdx(arena.edges.len());
     arena.edges.push(Edge { half_edge: he0 });
-    arena.half_edges[he0.0].twin = he2;
+    arena.half_edges[he0.0].twin = Some(he2);
     arena.half_edges[he0.0].edge = edge_idx;
-    arena.half_edges[he2.0].twin = he0;
+    arena.half_edges[he2.0].twin = Some(he0);
     arena.half_edges[he2.0].edge = edge_idx;
 
     let mut face_geometry: BTreeMap<FaceIdx, SurfaceGeom> = BTreeMap::new();

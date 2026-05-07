@@ -2246,7 +2246,12 @@ fn is_smooth_edge(
     face_geometry: &BTreeMap<FaceIdx, SurfaceGeom>,
 ) -> bool {
     let he_a = arena.edges[edge_idx.0].half_edge;
-    let he_b = arena.half_edges[he_a.0].twin;
+    // PR-Y20-MODE-A: NMM (twin=None) — no opposing face; cannot be a
+    // smooth seam between two co-cylindrical faces. Treat as not smooth.
+    let he_b = match arena.half_edges[he_a.0].twin {
+        Some(t) => t,
+        None => return false,
+    };
     let face_a = arena.loops[arena.half_edges[he_a.0].loop_.0].face;
     let face_b = arena.loops[arena.half_edges[he_b.0].loop_.0].face;
 
@@ -2388,9 +2393,16 @@ pub(crate) fn extract_edges(
             _ => {
                 // Linear edge (default): 2-point segment
                 let he_a = arena.edges[edge_idx.0].half_edge;
-                let he_b = arena.half_edges[he_a.0].twin;
+                // PR-Y20-MODE-A: NMM (twin=None) — derive p1 from
+                // he_a.next.origin (the destination vertex of he_a).
                 let p0 = arena.vertices[arena.half_edges[he_a.0].origin.0].position;
-                let p1 = arena.vertices[arena.half_edges[he_b.0].origin.0].position;
+                let p1 = match arena.half_edges[he_a.0].twin {
+                    Some(t) => arena.vertices[arena.half_edges[t.0].origin.0].position,
+                    None => {
+                        let next_he = arena.half_edges[he_a.0].next;
+                        arena.vertices[arena.half_edges[next_he.0].origin.0].position
+                    }
+                };
 
                 vertices.push(p0[0] as f32);
                 vertices.push(p0[1] as f32);
@@ -3143,9 +3155,16 @@ pub(crate) fn discretize_edges(
     for (i, edge) in arena.edges.iter().enumerate() {
         let edge_idx = EdgeIdx(i);
         let he_a = edge.half_edge;
-        let he_b = arena.half_edges[he_a.0].twin;
         let origin_v = arena.half_edges[he_a.0].origin;
-        let dest_v = arena.half_edges[he_b.0].origin;
+        // PR-Y20-MODE-A: NMM (twin=None) — derive dest from
+        // he_a.next.origin instead of twin.origin.
+        let dest_v = match arena.half_edges[he_a.0].twin {
+            Some(t) => arena.half_edges[t.0].origin,
+            None => {
+                let next_he = arena.half_edges[he_a.0].next;
+                arena.half_edges[next_he.0].origin
+            }
+        };
 
         match edge_geometry.get(&edge_idx) {
             Some(CurveGeom::Circular(circle)) => {
@@ -4963,7 +4982,11 @@ mod tests {
         for (idx, edge) in arena.edges.iter().enumerate() {
             let he_a = edge.half_edge;
             let v_start = arena.half_edges[he_a.0].origin;
-            let v_end = arena.half_edges[arena.half_edges[he_a.0].twin.0].origin;
+            let v_end = arena.half_edges[arena.half_edges[he_a.0]
+                .twin
+                .expect("manifold-ctx: tessellation edge requires paired twin")
+                .0]
+                .origin;
             let p0 = arena.vertices[v_start.0].position;
             let p1 = arena.vertices[v_end.0].position;
             edge_geometry.insert(
@@ -5175,7 +5198,11 @@ mod tests {
         for (idx, edge) in arena.edges.iter().enumerate() {
             let he_a = edge.half_edge;
             let v_start = arena.half_edges[he_a.0].origin;
-            let v_end = arena.half_edges[arena.half_edges[he_a.0].twin.0].origin;
+            let v_end = arena.half_edges[arena.half_edges[he_a.0]
+                .twin
+                .expect("manifold-ctx: tessellation edge requires paired twin")
+                .0]
+                .origin;
             let p0 = arena.vertices[v_start.0].position;
             let p1 = arena.vertices[v_end.0].position;
             edge_geometry.insert(
@@ -5376,7 +5403,11 @@ mod tests {
         for (idx, edge) in arena.edges.iter().enumerate() {
             let he_a = edge.half_edge;
             let v_start = arena.half_edges[he_a.0].origin;
-            let v_end = arena.half_edges[arena.half_edges[he_a.0].twin.0].origin;
+            let v_end = arena.half_edges[arena.half_edges[he_a.0]
+                .twin
+                .expect("manifold-ctx: tessellation edge requires paired twin")
+                .0]
+                .origin;
             let p0 = arena.vertices[v_start.0].position;
             let p1 = arena.vertices[v_end.0].position;
             edge_geometry.insert(
@@ -5683,7 +5714,7 @@ mod tests {
             loop_: LoopIdx(0),
             next: he_a,
             prev: he_a,
-            twin: HalfEdgeIdx(1),
+            twin: Some(HalfEdgeIdx(1)),
         });
         let he_b = HalfEdgeIdx(arena.half_edges.len());
         arena.half_edges.push(HalfEdge {
@@ -5692,7 +5723,7 @@ mod tests {
             loop_: LoopIdx(1),
             next: he_b,
             prev: he_b,
-            twin: HalfEdgeIdx(0),
+            twin: Some(HalfEdgeIdx(0)),
         });
 
         let edge_idx = EdgeIdx(arena.edges.len());

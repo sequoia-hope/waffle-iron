@@ -54,7 +54,7 @@ use crate::boolean::oracles::{
 use crate::boolean::topology_extract::{FaceSurvivalMap, ResultTopology};
 use crate::tessellation::bijective::{check_face_pair_bijective, BijectivityReport};
 use crate::topology::arena::TopoArena;
-use crate::topology::half_edge::FaceIdx;
+use crate::topology::half_edge::{FaceIdx, HalfEdgeIdx};
 use crate::types::RenderMesh;
 
 // ── Stage enumeration ───────────────────────────────────────────────────
@@ -376,25 +376,36 @@ impl StageOracle for TwinSymmetryOracle {
         let arena = &result.arena;
         let n_he = arena.half_edges.len();
         for (i, he) in arena.half_edges.iter().enumerate() {
-            if he.twin.0 >= n_he {
+            // PR-Y20-MODE-A: twin=None is legitimate NMM per Yang §4.4.2.
+            // Skip per-HE oracle for None — validator handles geometric
+            // existence check authoritatively.
+            let t = match he.twin {
+                Some(t) => t,
+                None => continue,
+            };
+            if t.0 >= n_he {
                 return Err(OracleViolation {
                     stage: self.stage(),
                     oracle_name: self.name(),
                     message: format!(
                         "half_edge[{i}].twin = {} but only {n_he} half_edges exist",
-                        he.twin.0
+                        t.0
                     ),
                     kind: ViolationKind::ContractViolated,
                 });
             }
-            let twin_he = &arena.half_edges[he.twin.0];
-            if twin_he.twin.0 != i {
+            let twin_he = &arena.half_edges[t.0];
+            if twin_he.twin != Some(HalfEdgeIdx(i)) {
+                let twin_back_str = match twin_he.twin {
+                    Some(tt) => tt.0.to_string(),
+                    None => "None".to_string(),
+                };
                 return Err(OracleViolation {
                     stage: self.stage(),
                     oracle_name: self.name(),
                     message: format!(
                         "half_edge[{i}].twin = {} but twin.twin = {} (expected {i})",
-                        he.twin.0, twin_he.twin.0
+                        t.0, twin_back_str
                     ),
                     kind: ViolationKind::ContractViolated,
                 });
@@ -672,7 +683,7 @@ mod tests {
         HalfEdge {
             origin: VertexIdx(0),
             edge: EdgeIdx(0),
-            twin: HalfEdgeIdx(twin),
+            twin: Some(HalfEdgeIdx(twin)),
             next: HalfEdgeIdx(0),
             prev: HalfEdgeIdx(0),
             loop_: LoopIdx(0),

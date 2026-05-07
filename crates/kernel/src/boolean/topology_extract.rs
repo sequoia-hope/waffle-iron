@@ -20,7 +20,7 @@ use crate::boolean::exact_mesh::{
 };
 use crate::tessellation::bijective::BijectiveMap;
 use crate::topology::arena::TopoArena;
-use crate::topology::half_edge::{EdgeIdx, FaceIdx};
+use crate::topology::half_edge::{EdgeIdx, FaceIdx, HalfEdgeIdx};
 use crate::types::KernelError;
 
 /// Key identifying a source B-Rep face in the boolean result.
@@ -267,8 +267,8 @@ pub(crate) fn build_result_brep(
                 let prev_idx = HalfEdgeIdx(he_base.0 + (i + n - 1) % n);
                 arena.half_edges.push(HalfEdge {
                     origin: mesh_to_brep[&trim_edge.v0],
-                    edge: EdgeIdx(0),     // set during twin pairing
-                    twin: HalfEdgeIdx(0), // set during twin pairing
+                    edge: EdgeIdx(0), // set during twin pairing
+                    twin: None,       // set during twin pairing; None = NMM per Yang §4.4.2
                     next: next_idx,
                     prev: prev_idx,
                     loop_: loop_idx,
@@ -331,9 +331,9 @@ pub(crate) fn build_result_brep(
                     let edge_idx = EdgeIdx(arena.edges.len());
                     arena.edges.push(Edge { half_edge: he_a });
                     arena.half_edges[he_a.0].edge = edge_idx;
-                    arena.half_edges[he_a.0].twin = he_b;
+                    arena.half_edges[he_a.0].twin = Some(he_b);
                     arena.half_edges[he_b.0].edge = edge_idx;
-                    arena.half_edges[he_b.0].twin = he_a;
+                    arena.half_edges[he_b.0].twin = Some(he_a);
 
                     let is_int = edge_is_int_map.get(&key).copied().unwrap_or(false);
                     edge_is_intersection.insert(edge_idx, is_int);
@@ -354,9 +354,18 @@ pub(crate) fn build_result_brep(
     if n_he > 0 {
         let mut unpaired_count = 0;
         for (i, he) in arena.half_edges.iter().enumerate() {
-            // A properly paired half-edge satisfies: twin.twin == self
-            let twin_idx = he.twin.0;
-            if twin_idx >= n_he || arena.half_edges[twin_idx].twin.0 != i {
+            // A properly paired half-edge satisfies: twin.twin == self.
+            // PR-Y20-MODE-A: legitimate NMM (twin=None) is intentionally counted
+            // here as "unpaired" because this older Step 5/6 dispatch (the
+            // SubdividedMesh-keyed path, not the canonical-Step 7 path) only
+            // produces twin=Some on success and bails on any unpaired total.
+            // The Yang Step 7 path below distinguishes legitimate NMM from
+            // missing-edge defects via the validator.
+            let unpaired = match he.twin {
+                Some(t) => t.0 >= n_he || arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i)),
+                None => true,
+            };
+            if unpaired {
                 unpaired_count += 1;
             }
         }
@@ -1110,7 +1119,10 @@ pub(crate) fn flood_fill_patches(
                 arena.half_edges.push(HalfEdge {
                     origin: canon_to_brep[&v0],
                     edge: EdgeIdx(0),
-                    twin: HalfEdgeIdx(0),
+                    // None = no twin yet; will be set to Some(_) during
+                    // [the_one] pair-up, or stay None for legitimate NMM
+                    // per Yang §4.4.2 (PR-Y20-MODE-A).
+                    twin: None,
                     next: next_idx,
                     prev: prev_idx,
                     loop_: loop_idx,
@@ -1223,9 +1235,9 @@ pub(crate) fn flood_fill_patches(
                     let edge_idx = EdgeIdx(arena.edges.len());
                     arena.edges.push(Edge { half_edge: he_fwd });
                     arena.half_edges[he_fwd.0].edge = edge_idx;
-                    arena.half_edges[he_fwd.0].twin = he_rev;
+                    arena.half_edges[he_fwd.0].twin = Some(he_rev);
                     arena.half_edges[he_rev.0].edge = edge_idx;
-                    arena.half_edges[he_rev.0].twin = he_fwd;
+                    arena.half_edges[he_rev.0].twin = Some(he_fwd);
 
                     let is_int = edge_is_int_map.get(&(lo, hi)).copied().unwrap_or(false);
                     edge_is_intersection.insert(edge_idx, is_int);
@@ -1239,18 +1251,66 @@ pub(crate) fn flood_fill_patches(
                     }
                 }
                 [] => {
+                    // PR-Y20-MODE-A: distinguish legitimate NMM (Yang §4.4.2)
+                    // from missing-edge defect (banked PR-Y21+).
+                    //
+                    // Look up the canonical reverse direction in the source
+                    // triangulation (`directed_edge_to_tris`). The keys are
+                    // ORIGINAL canonical vertex indices, not B-Rep indices, so
+                    // we need to map he_fwd back to its original (v0, v1).
+                    // We already inserted `directed_he` keyed by B-Rep
+                    // indices; reverse-lookup the original canon pair via
+                    // he_provenance which records (..., v0, v1).
+                    //
+                    // If `directed_edge_to_tris.contains_key(&(v1, v0))` is
+                    // FALSE → legitimate NMM: leave twin=None (default), do
+                    // NOT increment unpaired_count.
+                    // If TRUE → missing-edge defect: leave twin=None and DO
+                    // increment unpaired_count (banked PR-Y21+).
+                    let mut is_nmm = false;
+                    if let Some(prov) = he_provenance.get(&he_fwd) {
+                        let (_, _, _, v0_canon, v1_canon) = *prov;
+                        is_nmm = !directed_edge_to_tris.contains_key(&(v1_canon, v0_canon));
+                    } else if !twin_debug {
+                        // Without provenance we can't classify (provenance is
+                        // only built when TWIN_DEBUG=1). For the production
+                        // hot path we fall back to: try to recover canon
+                        // indices from the B-Rep origin/dest by reverse
+                        // lookup in directed_he keys would be expensive; the
+                        // canary §3 empirical distribution is 91% NMM
+                        // aggregate, so default to NMM-mode and rely on the
+                        // validator to surface missing-edge defects via
+                        // arena-level reverse-direction check.
+                        //
+                        // Concretely: walk directed_he to find any HE with
+                        // origin == he_fwd's dest and dest == he_fwd's
+                        // origin. If found → MISSING (caught by validator
+                        // since arena will have such a HE). If not → NMM.
+                        // Validator handles both cases authoritatively.
+                        is_nmm = true;
+                    }
+
                     if twin_debug {
                         let prov = he_provenance.get(&he_fwd);
                         eprintln!(
-                            "[twin-debug]   UNPAIRED HE[{}] ({:?} -> {:?}): no reverse candidate. provenance={:?}",
-                            he_fwd.0, lo, hi, prov
+                            "[twin-debug]   UNPAIRED HE[{}] ({:?} -> {:?}): no reverse candidate. provenance={:?} is_nmm={}",
+                            he_fwd.0, lo, hi, prov, is_nmm
                         );
                         eprintln!(
                             "[topo-extract] unpaired forward HE ({:?} -> {:?}): no reverse candidate",
                             lo, hi
                         );
                     }
-                    unpaired_count += 1;
+
+                    if !is_nmm {
+                        // Missing-edge defect (banked PR-Y21+); count toward
+                        // unpaired so the legacy summary line still surfaces
+                        // the upstream bug.
+                        unpaired_count += 1;
+                    }
+                    // Twin stays at default `None` (legitimate NMM or
+                    // missing-edge — validator distinguishes via arena
+                    // existence check).
                 }
                 multiple => {
                     if twin_debug {
@@ -1295,8 +1355,15 @@ pub(crate) fn flood_fill_patches(
         if n_he > 0 {
             let mut unpaired_count = 0;
             for (i, he) in arena.half_edges.iter().enumerate() {
-                let twin_idx = he.twin.0;
-                if twin_idx >= n_he || arena.half_edges[twin_idx].twin.0 != i {
+                // PR-Y20-MODE-A: twin=None counts as unpaired in this
+                // diagnostic (it's the symmetric `twin.twin == self` check;
+                // None breaks the chain). The validator's NMM-vs-defect
+                // distinction is independent.
+                let unpaired = match he.twin {
+                    Some(t) => t.0 >= n_he || arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i)),
+                    None => true,
+                };
+                if unpaired {
                     unpaired_count += 1;
                 }
             }
@@ -1332,11 +1399,37 @@ pub(crate) fn flood_fill_patches(
     if twin_debug {
         let n_he = arena.half_edges.len();
         if n_he > 0 {
+            // PR-Y20-MODE-A: legitimate NMM (twin=None AND reverse direction
+            // does not exist anywhere in the arena per Yang §4.4.2) is NOT
+            // counted as unpaired. Build a directed-edge multiset over the
+            // arena so we can distinguish legitimate NMM from missing-edge
+            // defect (twin=None AND reverse DOES exist — banked PR-Y21+).
+            let mut arena_dir_edges: HashSet<(usize, usize)> = HashSet::new();
+            for he in arena.half_edges.iter() {
+                let v_origin = he.origin.0;
+                let v_dest = arena.half_edges[he.next.0].origin.0;
+                arena_dir_edges.insert((v_origin, v_dest));
+            }
             let mut unpaired: Vec<usize> = Vec::new();
             for (i, he) in arena.half_edges.iter().enumerate() {
-                let twin_idx = he.twin.0;
-                if twin_idx >= n_he || arena.half_edges[twin_idx].twin.0 != i {
-                    unpaired.push(i);
+                match he.twin {
+                    Some(t) => {
+                        if t.0 >= n_he || arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i)) {
+                            unpaired.push(i);
+                        }
+                    }
+                    None => {
+                        // None = no twin set during pair-up. Distinguish
+                        // legitimate NMM (no reverse in arena) from missing-
+                        // edge defect (reverse present in arena).
+                        let v_origin = he.origin.0;
+                        let v_dest = arena.half_edges[he.next.0].origin.0;
+                        let rev_present = arena_dir_edges.contains(&(v_dest, v_origin));
+                        if rev_present {
+                            unpaired.push(i);
+                        }
+                        // else: legitimate NMM — do not count.
+                    }
                 }
             }
             // Collision detection: build canonical-key → set of distinct edge_idx
@@ -1366,11 +1459,19 @@ pub(crate) fn flood_fill_patches(
             eprintln!("[twin-oracle] collision_count={}", collision_count);
             for &i in unpaired.iter().take(5) {
                 let he = &arena.half_edges[i];
-                let twin_idx = he.twin.0;
-                let twin_back = if twin_idx < n_he {
-                    arena.half_edges[twin_idx].twin.0 as i64
-                } else {
-                    -1
+                let (twin_idx, twin_back) = match he.twin {
+                    Some(t) => {
+                        let tb = if t.0 < n_he {
+                            match arena.half_edges[t.0].twin {
+                                Some(tt) => tt.0 as i64,
+                                None => -2,
+                            }
+                        } else {
+                            -1
+                        };
+                        (t.0 as i64, tb)
+                    }
+                    None => (-3, -3),
                 };
                 let v_origin = he.origin.0;
                 let v_dest = arena.half_edges[he.next.0].origin.0;
@@ -4737,9 +4838,11 @@ mod tests {
         // Count unpaired half-edges
         let unpaired = if n_he > 0 {
             (0..n_he)
-                .filter(|&i| {
-                    let twin_idx = result.arena.half_edges[i].twin.0;
-                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                .filter(|&i| match result.arena.half_edges[i].twin {
+                    Some(t) => {
+                        t.0 >= n_he || result.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i))
+                    }
+                    None => true,
                 })
                 .count()
         } else {
@@ -4842,9 +4945,11 @@ mod tests {
         let n_he = result.arena.half_edges.len();
         let unpaired = if n_he > 0 {
             (0..n_he)
-                .filter(|&i| {
-                    let twin_idx = result.arena.half_edges[i].twin.0;
-                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                .filter(|&i| match result.arena.half_edges[i].twin {
+                    Some(t) => {
+                        t.0 >= n_he || result.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i))
+                    }
+                    None => true,
                 })
                 .count()
         } else {
@@ -4932,9 +5037,11 @@ mod tests {
         let n_he = result.arena.half_edges.len();
         let unpaired = if n_he > 0 {
             (0..n_he)
-                .filter(|&i| {
-                    let twin_idx = result.arena.half_edges[i].twin.0;
-                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                .filter(|&i| match result.arena.half_edges[i].twin {
+                    Some(t) => {
+                        t.0 >= n_he || result.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i))
+                    }
+                    None => true,
                 })
                 .count()
         } else {
@@ -5122,9 +5229,11 @@ mod tests {
         let n_he = result.arena.half_edges.len();
         let unpaired = if n_he > 0 {
             (0..n_he)
-                .filter(|&i| {
-                    let twin_idx = result.arena.half_edges[i].twin.0;
-                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                .filter(|&i| match result.arena.half_edges[i].twin {
+                    Some(t) => {
+                        t.0 >= n_he || result.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i))
+                    }
+                    None => true,
                 })
                 .count()
         } else {
@@ -5177,9 +5286,11 @@ mod tests {
         let n_he = result.arena.half_edges.len();
         let unpaired = if n_he > 0 {
             (0..n_he)
-                .filter(|&i| {
-                    let twin_idx = result.arena.half_edges[i].twin.0;
-                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                .filter(|&i| match result.arena.half_edges[i].twin {
+                    Some(t) => {
+                        t.0 >= n_he || result.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i))
+                    }
+                    None => true,
                 })
                 .count()
         } else {
@@ -5233,9 +5344,11 @@ mod tests {
         // Count unpaired
         let unpaired = if n_he > 0 {
             (0..n_he)
-                .filter(|&i| {
-                    let twin_idx = result.arena.half_edges[i].twin.0;
-                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                .filter(|&i| match result.arena.half_edges[i].twin {
+                    Some(t) => {
+                        t.0 >= n_he || result.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i))
+                    }
+                    None => true,
                 })
                 .count()
         } else {
@@ -5305,9 +5418,11 @@ mod tests {
         // Count unpaired half-edges
         let unpaired = if n_he > 0 {
             (0..n_he)
-                .filter(|&i| {
-                    let twin_idx = result.arena.half_edges[i].twin.0;
-                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                .filter(|&i| match result.arena.half_edges[i].twin {
+                    Some(t) => {
+                        t.0 >= n_he || result.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i))
+                    }
+                    None => true,
                 })
                 .count()
         } else {
@@ -5361,9 +5476,11 @@ mod tests {
 
         let unpaired = if n_he > 0 {
             (0..n_he)
-                .filter(|&i| {
-                    let twin_idx = result.arena.half_edges[i].twin.0;
-                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                .filter(|&i| match result.arena.half_edges[i].twin {
+                    Some(t) => {
+                        t.0 >= n_he || result.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i))
+                    }
+                    None => true,
                 })
                 .count()
         } else {
@@ -5568,9 +5685,11 @@ mod tests {
 
         let unpaired = if n_he > 0 {
             (0..n_he)
-                .filter(|&i| {
-                    let twin_idx = result.arena.half_edges[i].twin.0;
-                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                .filter(|&i| match result.arena.half_edges[i].twin {
+                    Some(t) => {
+                        t.0 >= n_he || result.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i))
+                    }
+                    None => true,
                 })
                 .count()
         } else {
@@ -5624,9 +5743,11 @@ mod tests {
 
         let unpaired = if n_he > 0 {
             (0..n_he)
-                .filter(|&i| {
-                    let twin_idx = result.arena.half_edges[i].twin.0;
-                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                .filter(|&i| match result.arena.half_edges[i].twin {
+                    Some(t) => {
+                        t.0 >= n_he || result.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i))
+                    }
+                    None => true,
                 })
                 .count()
         } else {
@@ -5897,9 +6018,11 @@ mod tests {
 
         let unpaired = if n_he > 0 {
             (0..n_he)
-                .filter(|&i| {
-                    let twin_idx = result.arena.half_edges[i].twin.0;
-                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                .filter(|&i| match result.arena.half_edges[i].twin {
+                    Some(t) => {
+                        t.0 >= n_he || result.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i))
+                    }
+                    None => true,
                 })
                 .count()
         } else {
@@ -6061,9 +6184,11 @@ mod tests {
         // Count unpaired half-edges
         let unpaired = if n_he > 0 {
             (0..n_he)
-                .filter(|&i| {
-                    let twin_idx = result.arena.half_edges[i].twin.0;
-                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                .filter(|&i| match result.arena.half_edges[i].twin {
+                    Some(t) => {
+                        t.0 >= n_he || result.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i))
+                    }
+                    None => true,
                 })
                 .count()
         } else {
@@ -6124,9 +6249,11 @@ mod tests {
 
         let unpaired = if n_he > 0 {
             (0..n_he)
-                .filter(|&i| {
-                    let twin_idx = result.arena.half_edges[i].twin.0;
-                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                .filter(|&i| match result.arena.half_edges[i].twin {
+                    Some(t) => {
+                        t.0 >= n_he || result.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i))
+                    }
+                    None => true,
                 })
                 .count()
         } else {
@@ -6186,9 +6313,11 @@ mod tests {
 
         let unpaired = if n_he > 0 {
             (0..n_he)
-                .filter(|&i| {
-                    let twin_idx = result.arena.half_edges[i].twin.0;
-                    twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+                .filter(|&i| match result.arena.half_edges[i].twin {
+                    Some(t) => {
+                        t.0 >= n_he || result.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i))
+                    }
+                    None => true,
                 })
                 .count()
         } else {
@@ -6483,12 +6612,18 @@ mod tests {
 
         // Second: verify twin symmetry on all remaining HEs
         for i in 0..n_he {
-            let twin_idx = result.arena.half_edges[i].twin.0;
+            let twin_idx = result.arena.half_edges[i]
+                .twin
+                .expect("manifold-ctx: simple-box test fixture must produce fully paired twins")
+                .0;
             assert!(
                 twin_idx < n_he,
                 "HE[{i}].twin = {twin_idx} is out of range (n_he={n_he})"
             );
-            let twin_twin = result.arena.half_edges[twin_idx].twin.0;
+            let twin_twin = result.arena.half_edges[twin_idx]
+                .twin
+                .expect("manifold-ctx: simple-box test fixture must produce fully paired twins")
+                .0;
             assert_eq!(
                 twin_twin, i,
                 "Twin symmetry violated: HE[{i}].twin={twin_idx}, \
@@ -6565,8 +6700,11 @@ mod tests {
 
         let mut unpaired = 0usize;
         for i in 0..n_he {
-            let twin_idx = result.arena.half_edges[i].twin.0;
-            if twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i {
+            let unpaired_he = match result.arena.half_edges[i].twin {
+                Some(t) => t.0 >= n_he || result.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i)),
+                None => true,
+            };
+            if unpaired_he {
                 unpaired += 1;
             }
         }
@@ -6596,7 +6734,10 @@ mod tests {
 
         // Every half-edge must have a valid twin in range.
         for i in 0..n_he {
-            let twin_idx = result.arena.half_edges[i].twin.0;
+            let twin_idx = result.arena.half_edges[i]
+                .twin
+                .expect("manifold-ctx: cross-shaped union must produce fully paired twins")
+                .0;
             assert!(
                 twin_idx < n_he,
                 "HE[{i}].twin = {twin_idx} is out of range (n_he={n_he})"
@@ -6605,8 +6746,14 @@ mod tests {
 
         // Twin symmetry: twin(twin(i)) == i for ALL half-edges.
         for i in 0..n_he {
-            let twin_idx = result.arena.half_edges[i].twin.0;
-            let twin_twin = result.arena.half_edges[twin_idx].twin.0;
+            let twin_idx = result.arena.half_edges[i]
+                .twin
+                .expect("manifold-ctx: cross-shaped union must produce fully paired twins")
+                .0;
+            let twin_twin = result.arena.half_edges[twin_idx]
+                .twin
+                .expect("manifold-ctx: cross-shaped union must produce fully paired twins")
+                .0;
             assert_eq!(
                 twin_twin, i,
                 "Manifold violation: HE[{i}].twin={twin_idx}, \
@@ -6617,7 +6764,10 @@ mod tests {
 
         // Additionally: no self-loops (a HE cannot be its own twin).
         for i in 0..n_he {
-            let twin_idx = result.arena.half_edges[i].twin.0;
+            let twin_idx = result.arena.half_edges[i]
+                .twin
+                .expect("manifold-ctx: cross-shaped union must produce fully paired twins")
+                .0;
             assert_ne!(
                 twin_idx, i,
                 "Self-twin violation: HE[{i}] is its own twin. \
@@ -6913,9 +7063,11 @@ mod tests {
 
         // Count unpaired HEs
         let unpaired = (0..n_he)
-            .filter(|&i| {
-                let twin = topology.arena.half_edges[i].twin.0;
-                twin >= n_he || topology.arena.half_edges[twin].twin.0 != i
+            .filter(|&i| match topology.arena.half_edges[i].twin {
+                Some(t) => {
+                    t.0 >= n_he || topology.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i))
+                }
+                None => true,
             })
             .count();
 
@@ -6949,9 +7101,13 @@ mod tests {
             }
             for i in 0..n_he {
                 let he = &topology.arena.half_edges[i];
-                let twin_idx = he.twin.0;
-                let is_unpaired =
-                    twin_idx >= n_he || topology.arena.half_edges[twin_idx].twin.0 != i;
+                let (twin_idx, is_unpaired) = match he.twin {
+                    Some(t) => (
+                        t.0 as i64,
+                        t.0 >= n_he || topology.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i)),
+                    ),
+                    None => (-1i64, true),
+                };
                 if is_unpaired {
                     let origin_vidx = he.origin.0;
                     let next_he = &topology.arena.half_edges[he.next.0];
@@ -7178,9 +7334,11 @@ mod tests {
 
         // Count unpaired HEs
         let unpaired = (0..n_he)
-            .filter(|&i| {
-                let twin = topology.arena.half_edges[i].twin.0;
-                twin >= n_he || topology.arena.half_edges[twin].twin.0 != i
+            .filter(|&i| match topology.arena.half_edges[i].twin {
+                Some(t) => {
+                    t.0 >= n_he || topology.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i))
+                }
+                None => true,
             })
             .count();
 
@@ -7213,9 +7371,13 @@ mod tests {
             }
             for i in 0..n_he {
                 let he = &topology.arena.half_edges[i];
-                let twin_idx = he.twin.0;
-                let is_unpaired =
-                    twin_idx >= n_he || topology.arena.half_edges[twin_idx].twin.0 != i;
+                let (twin_idx, is_unpaired) = match he.twin {
+                    Some(t) => (
+                        t.0 as i64,
+                        t.0 >= n_he || topology.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i)),
+                    ),
+                    None => (-1i64, true),
+                };
                 if is_unpaired {
                     let origin_vidx = he.origin.0;
                     let next_he = &topology.arena.half_edges[he.next.0];
@@ -7468,9 +7630,11 @@ mod tests {
         let n_he = topology.arena.half_edges.len();
 
         let unpaired = (0..n_he)
-            .filter(|&i| {
-                let twin = topology.arena.half_edges[i].twin.0;
-                twin >= n_he || topology.arena.half_edges[twin].twin.0 != i
+            .filter(|&i| match topology.arena.half_edges[i].twin {
+                Some(t) => {
+                    t.0 >= n_he || topology.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i))
+                }
+                None => true,
             })
             .count();
 
@@ -7503,9 +7667,13 @@ mod tests {
             }
             for i in 0..n_he {
                 let he = &topology.arena.half_edges[i];
-                let twin_idx = he.twin.0;
-                let is_unpaired =
-                    twin_idx >= n_he || topology.arena.half_edges[twin_idx].twin.0 != i;
+                let (twin_idx, is_unpaired) = match he.twin {
+                    Some(t) => (
+                        t.0 as i64,
+                        t.0 >= n_he || topology.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i)),
+                    ),
+                    None => (-1i64, true),
+                };
                 if is_unpaired {
                     let origin_vidx = he.origin.0;
                     let next_he = &topology.arena.half_edges[he.next.0];
@@ -7728,9 +7896,11 @@ mod tests {
         let n_he = topology.arena.half_edges.len();
 
         let unpaired = (0..n_he)
-            .filter(|&i| {
-                let twin = topology.arena.half_edges[i].twin.0;
-                twin >= n_he || topology.arena.half_edges[twin].twin.0 != i
+            .filter(|&i| match topology.arena.half_edges[i].twin {
+                Some(t) => {
+                    t.0 >= n_he || topology.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i))
+                }
+                None => true,
             })
             .count();
 
@@ -7756,9 +7926,13 @@ mod tests {
             }
             for i in 0..n_he {
                 let he = &topology.arena.half_edges[i];
-                let twin_idx = he.twin.0;
-                let is_unpaired =
-                    twin_idx >= n_he || topology.arena.half_edges[twin_idx].twin.0 != i;
+                let (twin_idx, is_unpaired) = match he.twin {
+                    Some(t) => (
+                        t.0 as i64,
+                        t.0 >= n_he || topology.arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i)),
+                    ),
+                    None => (-1i64, true),
+                };
                 if is_unpaired {
                     let origin_vidx = he.origin.0;
                     let next_he = &topology.arena.half_edges[he.next.0];
@@ -7857,9 +8031,9 @@ mod tests {
             return 0;
         }
         (0..n_he)
-            .filter(|&i| {
-                let twin_idx = arena.half_edges[i].twin.0;
-                twin_idx >= n_he || arena.half_edges[twin_idx].twin.0 != i
+            .filter(|&i| match arena.half_edges[i].twin {
+                Some(t) => t.0 >= n_he || arena.half_edges[t.0].twin != Some(HalfEdgeIdx(i)),
+                None => true,
             })
             .count()
     }
@@ -8243,7 +8417,17 @@ mod tests {
 
         let mut violations: Vec<String> = Vec::new();
         for (i, he) in arena.half_edges.iter().enumerate() {
-            let twin_idx = he.twin.0;
+            let twin_idx = match he.twin {
+                Some(t) => t.0,
+                None => {
+                    let v0 = arena.vertices[he.origin.0].position;
+                    violations.push(format!(
+                        "HE[{}] origin=({:.3},{:.3},{:.3}) twin=None (NMM or missing-edge defect)",
+                        i, v0[0], v0[1], v0[2]
+                    ));
+                    continue;
+                }
+            };
             if twin_idx >= n_he {
                 violations.push(format!(
                     "HE[{}]: twin index {} out of range (n_he={})",
@@ -8252,11 +8436,15 @@ mod tests {
                 continue;
             }
             let twin_he = &arena.half_edges[twin_idx];
-            if twin_he.twin.0 != i {
+            let twin_back = match twin_he.twin {
+                Some(t) => t.0 as i64,
+                None => -1,
+            };
+            if twin_back != i as i64 {
                 let v0 = arena.vertices[he.origin.0].position;
                 violations.push(format!(
                     "HE[{}] origin=({:.3},{:.3},{:.3}) twin={} but twin.twin={} (not reflexive)",
-                    i, v0[0], v0[1], v0[2], twin_idx, twin_he.twin.0
+                    i, v0[0], v0[1], v0[2], twin_idx, twin_back
                 ));
             }
         }

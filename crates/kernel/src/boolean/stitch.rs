@@ -152,7 +152,7 @@ pub(crate) fn build_brep_from_polygons_inner(
             arena.half_edges.push(HalfEdge {
                 origin,
                 edge: EdgeIdx(0), // placeholder, set during twin pairing
-                twin: he_idx,     // placeholder, set during twin pairing
+                twin: None, // placeholder; set Some(_) during twin pairing or stays None for NMM
                 next: next_he,
                 prev: prev_he,
                 loop_: loop_idx,
@@ -194,9 +194,9 @@ pub(crate) fn build_brep_from_polygons_inner(
                 let edge_idx = EdgeIdx(arena.edges.len());
                 arena.edges.push(Edge { half_edge: he_idx });
 
-                arena.half_edges[he_idx.0].twin = twin_idx;
+                arena.half_edges[he_idx.0].twin = Some(twin_idx);
                 arena.half_edges[he_idx.0].edge = edge_idx;
-                arena.half_edges[twin_idx.0].twin = he_idx;
+                arena.half_edges[twin_idx.0].twin = Some(he_idx);
                 arena.half_edges[twin_idx.0].edge = edge_idx;
 
                 paired.insert(he_idx);
@@ -259,10 +259,11 @@ pub(crate) fn build_brep_from_polygons_inner(
         // Unpair any half-edges paired with degenerate face half-edges
         for &he in &degen_hes {
             if paired.contains(&he) {
-                let twin = arena.half_edges[he.0].twin;
-                if twin != he {
-                    paired.remove(&he);
-                    paired.remove(&twin);
+                if let Some(twin) = arena.half_edges[he.0].twin {
+                    if twin != he {
+                        paired.remove(&he);
+                        paired.remove(&twin);
+                    }
                 }
             }
         }
@@ -287,9 +288,9 @@ pub(crate) fn build_brep_from_polygons_inner(
                     let edge_idx = EdgeIdx(arena.edges.len());
                     arena.edges.push(Edge { half_edge: he_idx });
 
-                    arena.half_edges[he_idx.0].twin = twin_idx;
+                    arena.half_edges[he_idx.0].twin = Some(twin_idx);
                     arena.half_edges[he_idx.0].edge = edge_idx;
-                    arena.half_edges[twin_idx.0].twin = he_idx;
+                    arena.half_edges[twin_idx.0].twin = Some(he_idx);
                     arena.half_edges[twin_idx.0].edge = edge_idx;
 
                     paired.insert(he_idx);
@@ -354,9 +355,9 @@ pub(crate) fn build_brep_from_polygons_inner(
                         // Pair them
                         let edge_idx = EdgeIdx(arena.edges.len());
                         arena.edges.push(Edge { half_edge: he_idx });
-                        arena.half_edges[he_idx.0].twin = twin_idx;
+                        arena.half_edges[he_idx.0].twin = Some(twin_idx);
                         arena.half_edges[he_idx.0].edge = edge_idx;
-                        arena.half_edges[twin_idx.0].twin = he_idx;
+                        arena.half_edges[twin_idx.0].twin = Some(he_idx);
                         arena.half_edges[twin_idx.0].edge = edge_idx;
                         paired.insert(he_idx);
                         paired.insert(twin_idx);
@@ -479,9 +480,9 @@ pub(crate) fn build_brep_from_polygons_inner(
                 let he_b = remaining_unpaired[j];
                 let edge_idx = EdgeIdx(arena.edges.len());
                 arena.edges.push(Edge { half_edge: he_a });
-                arena.half_edges[he_a.0].twin = he_b;
+                arena.half_edges[he_a.0].twin = Some(he_b);
                 arena.half_edges[he_a.0].edge = edge_idx;
-                arena.half_edges[he_b.0].twin = he_a;
+                arena.half_edges[he_b.0].twin = Some(he_a);
                 arena.half_edges[he_b.0].edge = edge_idx;
                 paired.insert(he_a);
                 paired.insert(he_b);
@@ -616,7 +617,12 @@ pub(crate) fn reconstruct_edge_geometry(
         if he_a.0 >= arena.half_edges.len() {
             continue;
         }
-        let he_b = arena.half_edges[he_a.0].twin;
+        let he_b = match arena.half_edges[he_a.0].twin {
+            Some(t) => t,
+            // PR-Y20-MODE-A: NMM (twin=None) — skip; geometry inference
+            // requires two adjacent faces.
+            None => continue,
+        };
 
         // Skip self-twin boundary edges (only one adjacent face)
         if he_a == he_b {

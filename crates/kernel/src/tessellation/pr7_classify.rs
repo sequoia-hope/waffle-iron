@@ -99,7 +99,18 @@ pub fn classify_pr7_pair(
         };
     }
     let he_a = &arena.half_edges[he_a_idx.0];
-    let he_b_idx = he_a.twin;
+    // PR-Y20-MODE-A: NMM (twin=None) — treat as ArenaMissingEdge for
+    // classification purposes (no opposing twin to inspect).
+    let he_b_idx = match he_a.twin {
+        Some(t) => t,
+        None => {
+            return Pr7Classification::ArenaMissingEdge {
+                edge,
+                edge_he_face: None,
+                edge_twin_face: None,
+            };
+        }
+    };
     if he_b_idx.0 >= arena.half_edges.len() {
         return Pr7Classification::ArenaMissingEdge {
             edge,

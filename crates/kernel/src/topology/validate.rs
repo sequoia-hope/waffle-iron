@@ -39,7 +39,13 @@ pub fn check_euler_poincare(arena: &TopoArena) -> Result<(), String> {
 pub fn check_manifold_edges(arena: &TopoArena) -> Result<(), String> {
     for (i, edge) in arena.edges.iter().enumerate() {
         let he_a = edge.half_edge;
-        let he_b = arena.half_edges[he_a.0].twin;
+        // PR-Y20-MODE-A: NMM (twin=None) is paper-faithful (Yang §4.4.2)
+        // and not a manifold violation per se. Fail only when both halves
+        // exist and live in the same face.
+        let he_b = match arena.half_edges[he_a.0].twin {
+            Some(t) => t,
+            None => continue,
+        };
 
         let loop_a = arena.half_edges[he_a.0].loop_;
         let loop_b = arena.half_edges[he_b.0].loop_;

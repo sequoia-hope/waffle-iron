@@ -382,7 +382,11 @@ fn check_brep_mode(
         let edge_idx = EdgeIdx(i);
         let he_a_idx = edge.half_edge;
         let he_a = &arena.half_edges[he_a_idx.0];
-        let he_b_idx = he_a.twin;
+        // PR-Y20-MODE-A: NMM (twin=None) — no opposing face pair to record.
+        let he_b_idx = match he_a.twin {
+            Some(t) => t,
+            None => continue,
+        };
         let he_b = &arena.half_edges[he_b_idx.0];
 
         if he_a.loop_.0 >= arena.loops.len() || he_b.loop_.0 >= arena.loops.len() {

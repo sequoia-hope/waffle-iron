@@ -41,7 +41,7 @@ impl TopoArena {
         self.half_edges.push(HalfEdge {
             origin: placeholder_vertex,
             edge: edge_idx,
-            twin: he_b_idx,
+            twin: Some(he_b_idx),
             next: he_a_idx, // self-loop placeholder
             prev: he_a_idx,
             loop_: placeholder_loop,
@@ -49,7 +49,7 @@ impl TopoArena {
         self.half_edges.push(HalfEdge {
             origin: placeholder_vertex,
             edge: edge_idx,
-            twin: he_a_idx,
+            twin: Some(he_a_idx),
             next: he_b_idx,
             prev: he_b_idx,
             loop_: placeholder_loop,

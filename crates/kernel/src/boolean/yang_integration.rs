@@ -33,7 +33,7 @@ use crate::geometry::surface::SurfaceGeom;
 use crate::ssi::SSICurve;
 use crate::tessellation;
 use crate::tessellation::bijective::BijectiveMap;
-use crate::topology::half_edge::{EdgeIdx, FaceIdx, VertexIdx};
+use crate::topology::half_edge::{EdgeIdx, FaceIdx, HalfEdgeIdx, VertexIdx};
 #[cfg(test)]
 use crate::types::{FaceRange, KernelId};
 use crate::types::{KernelError, RenderMesh};
@@ -1142,12 +1142,15 @@ fn count_connected_components(arena: &crate::topology::arena::TopoArena) -> usiz
             let start_he = arena.loops[loop_idx.0].half_edge;
             let mut he = start_he;
             loop {
-                let twin = arena.half_edges[he.0].twin;
-                let twin_loop = arena.half_edges[twin.0].loop_;
-                let neighbor_face = arena.loops[twin_loop.0].face.0;
-                if !visited[neighbor_face] {
-                    visited[neighbor_face] = true;
-                    queue.push(neighbor_face);
+                // PR-Y20-MODE-A: NMM (twin=None) — there is no neighbor face
+                // to visit through this half-edge; skip it for connectivity.
+                if let Some(twin) = arena.half_edges[he.0].twin {
+                    let twin_loop = arena.half_edges[twin.0].loop_;
+                    let neighbor_face = arena.loops[twin_loop.0].face.0;
+                    if !visited[neighbor_face] {
+                        visited[neighbor_face] = true;
+                        queue.push(neighbor_face);
+                    }
                 }
                 he = arena.half_edges[he.0].next;
                 if he == start_he {
@@ -1179,11 +1182,18 @@ fn validate_yang_result_topology(arena: &crate::topology::arena::TopoArena) -> R
                 he.edge.0
             ));
         }
-        if he.twin.0 >= n_he {
-            return Err(format!(
-                "half_edge[{i}].twin = {} but only {n_he} half_edges exist",
-                he.twin.0
-            ));
+        // PR-Y20-MODE-A: twin: Option<HalfEdgeIdx>. Bounds-check the index
+        // only when Some; None is permitted for non-manifold edges (Yang
+        // §4.4.2 directional-symmetry mandate). Distinction between
+        // legitimate NMM and missing-edge defect is enforced by the
+        // arena-existence check below.
+        if let Some(t) = he.twin {
+            if t.0 >= n_he {
+                return Err(format!(
+                    "half_edge[{i}].twin = {} but only {n_he} half_edges exist",
+                    t.0
+                ));
+            }
         }
         if he.next.0 >= n_he {
             return Err(format!(
@@ -1211,38 +1221,93 @@ fn validate_yang_result_topology(arena: &crate::topology::arena::TopoArena) -> R
         }
     }
 
-    // Twin symmetry: every half-edge's twin must point back to it.
-    // Manifold B-Rep requires he.twin.twin == he for all half-edges.
-    // Ref: Mantyla §4.2, Stroud §3.3.
+    // PR-Y20-MODE-A NMM-vs-MISSING distinction (arena-derived approach, not
+    // spec §3 plumbing). For an HE with twin=None, we declare it "legitimate
+    // NMM" if the arena has NO matching reverse HE (canonical (v1,v0)
+    // nowhere in arena.half_edges). We declare it "missing-edge bug" if the
+    // arena DOES have a matching reverse HE — that's twin-pairing failed
+    // to find it.
+    //
+    // LIMITATION (vs spec §3 plumbing): if R3 routing ever drops a reverse
+    // HE that DID exist in the all_tris input but never made it into the
+    // arena, this check false-accepts as legitimate NMM (true defect would
+    // be missed). canary-runner-7 §3 verified Zero R3 intervention on the
+    // 13 MISSING cases in F0020+F0051; the arena-derived check is
+    // empirically sufficient for our cohort. If a future PR finds R3
+    // dropping rev HEs (or a similar upstream defect), promote to spec §3
+    // plumbing — pass directed_edge_to_tris through ResultTopology to here.
+    //
+    // Build the directed-edge set over the arena once for the loop below.
+    let mut arena_dir_edges: std::collections::HashSet<(usize, usize)> =
+        std::collections::HashSet::new();
+    for he in arena.half_edges.iter() {
+        let v_origin = he.origin.0;
+        let v_dest = arena.half_edges[he.next.0].origin.0;
+        arena_dir_edges.insert((v_origin, v_dest));
+    }
+
+    // Twin symmetry: every half-edge's twin must point back to it
+    // (manifold). Or twin=None for legitimate NMM only.
+    // Ref: Yang 2025 §4.4.2 (directional-symmetry mandate; NMM allowed).
+    //      Mantyla §4.2, Stroud §3.3 (manifold 1:1 baseline).
     let twin_debug = std::env::var("TWIN_DEBUG").as_deref() == Ok("1");
     for (i, he) in arena.half_edges.iter().enumerate() {
-        let twin_he = &arena.half_edges[he.twin.0];
-        if twin_he.twin.0 != i {
-            // PR11 twin-debug: emit richer detail (origin pair of HE[i] and
-            // HE[twin_idx]) to aid investigation. Production error is unchanged.
-            if twin_debug {
-                eprintln!(
-                    "[twin-debug] FAIL HE[{}].twin={} twin.twin={} (expected {}) \
-                     HE[{}].origin=v{} HE[{}].next.origin=v{} \
-                     HE[{}].origin=v{} HE[{}].next.origin=v{}",
-                    i,
-                    he.twin.0,
-                    twin_he.twin.0,
-                    i,
-                    i,
-                    he.origin.0,
-                    i,
-                    arena.half_edges[he.next.0].origin.0,
-                    he.twin.0,
-                    twin_he.origin.0,
-                    he.twin.0,
-                    arena.half_edges[twin_he.next.0].origin.0,
-                );
+        match he.twin {
+            Some(t) => {
+                let twin_he = &arena.half_edges[t.0];
+                if twin_he.twin != Some(HalfEdgeIdx(i)) {
+                    if twin_debug {
+                        let twin_back_str = match twin_he.twin {
+                            Some(tt) => tt.0.to_string(),
+                            None => "None".to_string(),
+                        };
+                        eprintln!(
+                            "[twin-debug] FAIL HE[{}].twin={} twin.twin={} (expected {}) \
+                             HE[{}].origin=v{} HE[{}].next.origin=v{} \
+                             HE[{}].origin=v{} HE[{}].next.origin=v{}",
+                            i,
+                            t.0,
+                            twin_back_str,
+                            i,
+                            i,
+                            he.origin.0,
+                            i,
+                            arena.half_edges[he.next.0].origin.0,
+                            t.0,
+                            twin_he.origin.0,
+                            t.0,
+                            arena.half_edges[twin_he.next.0].origin.0,
+                        );
+                    }
+                    let twin_back_str = match twin_he.twin {
+                        Some(tt) => tt.0.to_string(),
+                        None => "None".to_string(),
+                    };
+                    return Err(format!(
+                        "half_edge[{i}].twin = {} but twin.twin = {} (expected {i})",
+                        t.0, twin_back_str
+                    ));
+                }
             }
-            return Err(format!(
-                "half_edge[{i}].twin = {} but twin.twin = {} (expected {i})",
-                he.twin.0, twin_he.twin.0
-            ));
+            None => {
+                // PR-Y20-MODE-A I3: twin=None must be legitimate NMM
+                // (canonical reverse direction does not exist anywhere
+                // in the arena). Otherwise, it is a missing-edge defect
+                // (banked PR-Y21+) and we must surface it explicitly
+                // per `feedback_yang_only.md` no-fallback discipline.
+                let v_origin = he.origin.0;
+                let v_dest = arena.half_edges[he.next.0].origin.0;
+                if arena_dir_edges.contains(&(v_dest, v_origin)) {
+                    return Err(format!(
+                        "half_edge[{i}].twin = None but arena contains a HE for the \
+                         reverse direction ({}->{}) — this is a missing-edge defect \
+                         (Yang Step 6/7 boundary-classification dropped the reverse), \
+                         not a legitimate non-manifold edge. Banked PR-Y21+.",
+                        v_dest, v_origin
+                    ));
+                }
+                // else: legitimate NMM per Yang §4.4.2 — accept.
+            }
         }
     }
 
@@ -1279,15 +1344,18 @@ fn validate_yang_result_topology(arena: &crate::topology::arena::TopoArena) -> R
         }
     }
 
-    // Count boundary HEs (self-twins from partial topology repair).
-    let n_boundary_he = arena
+    // PR-Y20-MODE-A: count NMM half-edges (twin = None per Yang §4.4.2).
+    // These were already validated above to be legitimate NMM (canonical
+    // reverse direction does not exist anywhere in the arena); missing-edge
+    // defects would have returned Err(...) earlier. NMM half-edges do not
+    // count against the "partial topology" check — they are paper-faithful.
+    let n_nmm_he = arena
         .half_edges
         .iter()
-        .enumerate()
-        .filter(|(i, he)| he.twin.0 == *i)
+        .filter(|he| he.twin.is_none())
         .count();
 
-    if n_boundary_he == 0 {
+    if n_nmm_he == 0 {
         // Fully closed manifold — check invariants but warn rather than fail.
         // The Yang pipeline may produce topologies that are usable for
         // face_geometry propagation but don't satisfy strict manifold invariants.
@@ -1307,13 +1375,15 @@ fn validate_yang_result_topology(arena: &crate::topology::arena::TopoArena) -> R
             }
         }
     } else {
-        // P9: do not accept partial topology. Boundary half-edges (self-twins)
-        // indicate unpaired edges that will cause panics in downstream operations
-        // (tessellation, chained booleans). Fail early so the error propagates.
-        return Err(format!(
-            "partial topology: {n_boundary_he} boundary HEs \
-             out of {n_he} total ({n_faces} faces, {n_edges} edges, {n_verts} vertices)"
-        ));
+        // PR-Y20-MODE-A: legitimate NMM half-edges per Yang §4.4.2. Emit a
+        // diagnostic counter so adversary-20 + downstream observers can
+        // see the legitimate-NMM count, but do NOT fail here. (Failure
+        // for missing-edge defect already happened in the loop above.)
+        eprintln!(
+            "[yang-diag] NMM half-edges: {n_nmm_he} of {n_he} total \
+             ({n_faces} faces, {n_edges} edges, {n_verts} vertices) \
+             — legitimate per Yang §4.4.2 directional-symmetry mandate"
+        );
     }
 
     Ok(())
@@ -3830,7 +3900,7 @@ mod tests {
         for &(o, tw, nx, pv, e, l) in &hd {
             arena.half_edges.push(crate::topology::half_edge::HalfEdge {
                 origin: VertexIdx(o),
-                twin: HalfEdgeIdx(tw),
+                twin: Some(HalfEdgeIdx(tw)),
                 next: HalfEdgeIdx(nx),
                 prev: HalfEdgeIdx(pv),
                 edge: EdgeIdx(e),
@@ -4020,13 +4090,20 @@ mod tests {
                     "Must have HE=2*E for manifold, got HE={n_he}, E={n_edges}"
                 );
                 for (i, he) in boolean_result.arena.half_edges.iter().enumerate() {
-                    let twin_idx = he.twin.0;
+                    let twin_idx = he
+                        .twin
+                        .expect("manifold-ctx: F0003 cross-union test must produce paired twins")
+                        .0;
                     assert!(
                         twin_idx < n_he,
                         "HE[{i}] twin index {twin_idx} out of bounds (n_he={n_he})"
                     );
+                    let twin_back = boolean_result.arena.half_edges[twin_idx]
+                        .twin
+                        .expect("manifold-ctx: F0003 cross-union test must produce paired twins")
+                        .0;
                     assert_eq!(
-                        boolean_result.arena.half_edges[twin_idx].twin.0, i,
+                        twin_back, i,
                         "HE[{i}].twin.twin != {i} (twin symmetry broken)"
                     );
                 }

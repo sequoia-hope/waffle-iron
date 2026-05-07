@@ -926,7 +926,12 @@ fn are_adjacent_in_any_loop(arena: &TopoArena, va: VertexIdx, vb: VertexIdx) -> 
                 return true;
             }
             // Move to next half-edge originating at va (via twin's next).
-            let twin = arena.half_edges[he.0].twin;
+            // PR-Y20-MODE-A: NMM (twin=None) — terminate ring traversal;
+            // we cannot continue past a non-manifold edge.
+            let twin = match arena.half_edges[he.0].twin {
+                Some(t) => t,
+                None => break,
+            };
             he = arena.half_edges[twin.0].next;
             if he == he_start {
                 break;
@@ -3488,9 +3493,13 @@ mod tests {
         // arena.half_edges[X].twin = i.
         let n_he = result.arena.half_edges.len();
         let unpaired = (0..n_he)
-            .filter(|&i| {
-                let twin_idx = result.arena.half_edges[i].twin.0;
-                twin_idx >= n_he || result.arena.half_edges[twin_idx].twin.0 != i
+            .filter(|&i| match result.arena.half_edges[i].twin {
+                Some(t) => {
+                    t.0 >= n_he
+                        || result.arena.half_edges[t.0].twin
+                            != Some(crate::topology::half_edge::HalfEdgeIdx(i))
+                }
+                None => true,
             })
             .count();
 

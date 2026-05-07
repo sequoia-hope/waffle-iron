@@ -629,14 +629,16 @@ fn find_adjacent_face_across_boundary<'a>(
 
             if dist_sq < best_dist_sq {
                 best_dist_sq = dist_sq;
-                // Follow twin to get the adjacent face
-                let twin = he_data.twin;
-                if twin.0 < arena.half_edges.len() {
-                    let twin_loop = arena.half_edges[twin.0].loop_;
-                    if twin_loop.0 < arena.loops.len() {
-                        let adj_face = arena.loops[twin_loop.0].face;
-                        if adj_face != face_idx {
-                            best_twin_face = Some(adj_face);
+                // Follow twin to get the adjacent face. PR-Y20-MODE-A:
+                // NMM (twin=None) — no adjacent face on this side; skip.
+                if let Some(twin) = he_data.twin {
+                    if twin.0 < arena.half_edges.len() {
+                        let twin_loop = arena.half_edges[twin.0].loop_;
+                        if twin_loop.0 < arena.loops.len() {
+                            let adj_face = arena.loops[twin_loop.0].face;
+                            if adj_face != face_idx {
+                                best_twin_face = Some(adj_face);
+                            }
                         }
                     }
                 }
