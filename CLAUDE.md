@@ -34,6 +34,15 @@ Do NOT skip to lower-priority items because they are easier.
    legacy code. Legacy code (old conformal repair, tolerance escalation,
    S-H clipping) is being REPLACED, not accommodated.
 
+   **Reading the papers efficiently.** Run `./scripts/extract-papers.sh` once
+   per session (idempotent; ~2s when up-to-date) to produce text views of
+   `refs/*.pdf` at `refs/text/*.txt`. Both `refs/` and `refs/text/` are
+   gitignored (papers are license-restricted), so this is a local-only
+   workflow. Cite line numbers from the `.txt` views when discussing
+   specific paper sections (e.g. `refs/text/yang2025_hybrid_boolean.txt:574-605`
+   for §4.4.2). When spawning sub-agents that need to read papers, point
+   them at the extracted `.txt` paths.
+
    **Current architecture (what's built):**
    - Stage 0: Coplanar preprocessing (`coplanar_preprocess.rs`) — infrastructure
    - Stage 1: Tessellate with bijective mapping — working
