@@ -1,7 +1,7 @@
 {
   "errored": 0,
   "failed": 180,
-  "generated": "2026-05-07",
+  "generated": "2026-05-08",
   "passed": 10,
   "results": [
     {
@@ -41,8 +41,8 @@
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): e37f2bcc-225b-4613-b693-d37261699f51: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 8 (expected 1); watertight_mesh: 12 unpaired edges out of 114 total; consistent_normals: 10 of 72 triangles have reversed normals; no_degenerate_triangles: 5 of 72 triangles are degenerate; outward_normals: only 11 of 21 triangles (52.4%) have outward normals (need 95%); mesh_euler_characteristic: V(53) - E(114) + F(72) = 11 (expected 2)",
+      "category": "boolean-normals",
+      "detail": "watertight_mesh: 4 unpaired edges out of 31 total (3 boundary, 1 non-manifold); no_degenerate_triangles: 14 of 20 triangles are degenerate; outward_normals: no valid triangles; minimum_triangle_count: 20 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"gear\")]; mesh_euler_characteristic: V(15) - E(31) + F(20) = 4 (expected 2)",
       "id": "R0007",
       "status": "fail"
     },
@@ -90,7 +90,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: bijective map has unmapped triangles. Body created as standalone.; Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged); watertight_mesh: 192 unpaired edges out of 12474 total; mesh_euler_characteristic: V(4160) - E(12474) + F(8252) = -62 (expected 2)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: bijective map has unmapped triangles. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 560 unpaired edges out of 1002 total (559 boundary, 1 non-manifold); consistent_normals: 5 of 482 triangles have reversed normals; no_degenerate_triangles: 33 of 482 triangles are degenerate; mesh_euler_characteristic: V(414) - E(1002) + F(482) = -106 (expected 2)",
       "id": "R0015",
       "status": "fail"
     },
@@ -101,8 +101,8 @@
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[37].twin = 0 but twin.twin = 32 (expected 37). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 39 unpaired edges out of 80 total (37 boundary, 2 non-manifold); consistent_normals: 4 of 42 triangles have reversed normals; no_degenerate_triangles: 2 of 42 triangles are degenerate; outward_normals: only 36 of 40 triangles (90.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,4), (1,4), (1,4), (1,13), (2,7), ...; mesh_euler_characteristic: V(39) - E(80) + F(42) = 1 (expected 2)",
       "id": "R0017",
       "status": "fail"
     },
@@ -113,32 +113,32 @@
       "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 5091f85d-64c4-491b-bb6a-ad2a85adb80c: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 252 (expected 1); no_self_intersection: 9 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1889 unpaired edges out of 4813 total (1888 boundary, 1 non-manifold); consistent_normals: 350 of 2580 triangles have reversed normals; no_degenerate_triangles: 2 of 2580 triangles are degenerate; outward_normals: only 2228 of 2578 triangles (86.4%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,4), (0,6), (0,6), (0,6), ...; mesh_euler_characteristic: V(2300) - E(4813) + F(2580) = 67 (expected 2); bbox diagonal 3.500e0 exceeds max 2.308e-1",
       "id": "R0019",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 767e7667-d14f-4017-9d73-e863a4d6f6e9: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1); watertight_mesh: 35 unpaired edges out of 163 total; consistent_normals: 10 of 97 triangles have reversed normals; outward_normals: only 87 of 97 triangles (89.7%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,3), (1,5), (1,5), (1,6), (1,6), ...",
+      "detail": "partial rebuild (1 error(s)): 767e7667-d14f-4017-9d73-e863a4d6f6e9: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[90].twin = None but arena contains a HE for the reverse direction (68->67) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.; watertight_mesh: 35 unpaired edges out of 163 total; consistent_normals: 10 of 97 triangles have reversed normals; outward_normals: only 87 of 97 triangles (89.7%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,3), (1,5), (1,5), (1,6), (1,6), ...",
       "id": "R0020",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[190].twin = 0 but twin.twin = 81 (expected 190). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[190].twin = None but arena contains a HE for the reverse direction (42->51) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 63 unpaired edges out of 309 total; consistent_normals: 57 of 185 triangles have reversed normals; outward_normals: only 128 of 185 triangles (69.2%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,4), (0,4), (0,4), (0,5), ...; mesh_euler_characteristic: V(187) - E(309) + F(185) = 63 (expected 2)",
       "id": "R0021",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): ed7970ff-e031-4fce-b2d6-19bf876b1764: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1018].twin = 0 but twin.twin = 3041 (expected 1018); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,5), (0,9), (0,11), (0,13), ...",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 24 unpaired edges out of 3195 total; consistent_normals: 24 of 2122 triangles have reversed normals; no_degenerate_triangles: 2 of 2122 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,6), (0,14), (0,15), (0,15), ...; mesh_euler_characteristic: V(1098) - E(3195) + F(2122) = 25 (expected 2)",
       "id": "R0022",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[50].twin = 0 but twin.twin = 20 (expected 50). Body created as standalone.; partial rebuild (1 error(s)): f68e125b-a408-428b-b7b3-348dbd7aa467: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 15 (expected 1); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (0,3), (0,4), (0,5); minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 411 unpaired edges out of 636 total; consistent_normals: 27 of 287 triangles have reversed normals; no_degenerate_triangles: 85 of 287 triangles are degenerate; outward_normals: only 175 of 202 triangles (86.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,6), (1,2), (1,2), (1,2), (1,2), ...; mesh_euler_characteristic: V(353) - E(636) + F(287) = 4 (expected 2)",
       "id": "R0023",
       "status": "fail"
     },
@@ -149,8 +149,8 @@
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[560].twin = 0 but twin.twin = 1699 (expected 560). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 58 unpaired edges out of 386 total; consistent_normals: 36 of 238 triangles have reversed normals; no_degenerate_triangles: 2 of 238 triangles are degenerate; outward_normals: only 200 of 236 triangles (84.7%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(152) - E(386) + F(238) = 4 (expected 2)",
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): aa386512-2ca8-4946-88e7-831532802329: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 0 face_a=FaceIdx(287) face_b=FaceIdx(1) same_dir=true produced empty overlap from i_overlay (poly_a.len=1, poly_b.len=64). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.; watertight_mesh: 3 unpaired edges out of 1713 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,6), (0,15), (0,15), (0,25), (0,27), ...; mesh_euler_characteristic: V(588) - E(1713) + F(1141) = 16 (expected 2)",
       "id": "R0025",
       "status": "fail"
     },
@@ -179,20 +179,20 @@
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[24].twin = 0 but twin.twin = 23 (expected 24). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 13 unpaired edges out of 67 total (12 boundary, 1 non-manifold); consistent_normals: 1 of 41 triangles have reversed normals; no_degenerate_triangles: 1 of 41 triangles are degenerate",
       "id": "R0030",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 928dac13-3f25-4663-995b-95e5c33bfcf3: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 240 (expected 4); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (3,4), (4,5), (4,5)",
+      "detail": "partial rebuild (1 error(s)): 928dac13-3f25-4663-995b-95e5c33bfcf3: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: PR-Y19-MODE-B: canonical directed edge (1029, 1028) sourced from 4 distinct candidate-owner patches (≥4) — upstream patch segmentation violates Yang §4.4.2 1:1 mandate; no_self_intersection: 3 inter-face triangle penetrations, face pairs: (3,4), (4,5), (4,5)",
       "id": "R0031",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 089554e1-2746-405d-9c0d-70e00e9097a2: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 64 (expected 6); watertight_mesh: 38 unpaired edges out of 970 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,6), (0,6), (0,7), ...; mesh_euler_characteristic: V(332) - E(970) + F(634) = -4 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): 089554e1-2746-405d-9c0d-70e00e9097a2: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[156].twin = None but arena contains a HE for the reverse direction (104->96) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.; watertight_mesh: 38 unpaired edges out of 970 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,7), (0,12), (0,16), (0,18), (0,26), ...; mesh_euler_characteristic: V(332) - E(970) + F(634) = -4 (expected 2)",
       "id": "R0032",
       "status": "fail"
     },
@@ -204,13 +204,13 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2].twin = 0 but twin.twin = 26 (expected 2). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,8), (0,12), (0,23), (0,25), ...",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[59].twin = None but arena contains a HE for the reverse direction (32->15) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,8), (0,12), (0,23), (0,25), ...",
       "id": "R0034",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (0,2)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[5].twin = None but arena contains a HE for the reverse direction (4->4) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (0,2)",
       "id": "R0035",
       "status": "fail"
     },
@@ -228,7 +228,7 @@
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (2 error(s)): b184cc49-01cb-4d27-8984-d4c87b1362cd: operation error: kernel error: operation not supported: yang_boolean: bijective map has unmapped triangles; c399daad-a0c2-485c-930d-ece364b19523: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[159].twin = 0 but twin.twin = 486 (expected 159); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (1,3), (2,3), (2,3), (2,5), ...",
+      "detail": "partial rebuild (2 error(s)): b184cc49-01cb-4d27-8984-d4c87b1362cd: operation error: kernel error: operation not supported: yang_boolean: bijective map has unmapped triangles; c399daad-a0c2-485c-930d-ece364b19523: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1451].twin = None but arena contains a HE for the reverse direction (248->248) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (1,3), (2,3), (2,3), (2,5), ...",
       "id": "R0038",
       "status": "fail"
     },
@@ -240,7 +240,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,3), (2,3), (2,3), (2,3), (2,3), ...",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[39].twin = None but arena contains a HE for the reverse direction (28->28) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,3), (2,3), (2,3), (2,3), (2,3), ...",
       "id": "R0040",
       "status": "fail"
     },
@@ -258,13 +258,13 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): c99882c0-c80c-4106-85a5-33fdf0817ccb: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2184].twin = 0 but twin.twin = 2175 (expected 2184); watertight_mesh: 12 unpaired edges out of 2196 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,21), (0,28), (0,29), (0,45), ...; mesh_euler_characteristic: V(740) - E(2196) + F(1460) = 4 (expected 2)",
+      "detail": "watertight_mesh: 1 unpaired edges out of 2179 total (0 boundary, 1 non-manifold); no_degenerate_triangles: 1 of 1453 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,17), (0,41), (0,45), (0,71), (0,99), ...",
       "id": "R0043",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[203].twin = 0 but twin.twin = 197 (expected 203). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 651 unpaired edges out of 6642 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,6), (0,6), (0,7), (0,14), (0,28), ...; mesh_euler_characteristic: V(2242) - E(6642) + F(4211) = -189 (expected 2)",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2222].twin = None but arena contains a HE for the reverse direction (1448->1449) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 651 unpaired edges out of 6642 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,6), (0,6), (0,7), (0,14), (0,28), ...; mesh_euler_characteristic: V(2242) - E(6642) + F(4211) = -189 (expected 2)",
       "id": "R0044",
       "status": "fail"
     },
@@ -293,20 +293,20 @@
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): d77f3528-7297-490c-abb3-74aee23c46f5: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[29].twin = 0 but twin.twin = 122 (expected 29); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,2), (2,3), (2,3), (2,3), (2,3), ...",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 402 unpaired edges out of 3705 total; consistent_normals: 255 of 2336 triangles have reversed normals; no_degenerate_triangles: 2 of 2336 triangles are degenerate; outward_normals: only 2059 of 2314 triangles (89.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,50), (0,50), (0,50), (0,50), (0,50), ...; mesh_euler_characteristic: V(1971) - E(3705) + F(2336) = 602 (expected 2); bbox diagonal 1.559e-1 exceeds max 4.312e-2",
       "id": "R0049",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[96].twin = 0 but twin.twin = 103 (expected 96). Body created as standalone.; partial rebuild (1 error(s)): 7dd12f24-2b78-4a8a-a386-70c24e43a7f8: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[61].twin = 0 but twin.twin = 388 (expected 61); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,6), (0,17), (0,42), (0,45), ...",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 1 face_a=FaceIdx(2) face_b=FaceIdx(1) same_dir=true produced empty overlap from i_overlay (poly_a.len=8, poly_b.len=3). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,6), (0,17), (0,42), (0,45), ...",
       "id": "R0050",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[98].twin = 0 but twin.twin = 108 (expected 98). Body created as standalone.; partial rebuild (1 error(s)): bc380f5a-df85-4599-9edd-f37bc9a64c68: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[285].twin = 0 but twin.twin = 361 (expected 285); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (1,3), (3,4), (3,4), (3,4), (3,4), ...",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: assertion `left == right` failed: PR10: STAGE2 orientation conflict for sorted_key=[185, 188, 355]\n  left: Parallel\n right: AntiParallel. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (1,3), (3,4), (3,4), (3,4), (3,4), ...",
       "id": "R0051",
       "status": "fail"
     },
@@ -348,7 +348,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 24 (expected 6). Body created as standalone.; partial rebuild (1 error(s)): 14c8d47a-d667-435e-902f-c7745c307a90: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 5 (expected 8); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,10), (0,12), (0,12), (0,12), (0,13), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: PR-Y19-MODE-B: canonical directed edge (818, 819) sourced from 4 distinct candidate-owner patches (≥4) — upstream patch segmentation violates Yang §4.4.2 1:1 mandate. Body created as standalone.; partial rebuild (1 error(s)): 14c8d47a-d667-435e-902f-c7745c307a90: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: PR-Y19-MODE-B: canonical directed edge (849, 850) sourced from 4 distinct candidate-owner patches (≥4) — upstream patch segmentation violates Yang §4.4.2 1:1 mandate; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,10), (0,12), (0,12), (0,12), (0,13), ...",
       "id": "R0058",
       "status": "fail"
     },
@@ -365,8 +365,8 @@
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): c032f2e8-9766-4502-9430-29829c8e2a31: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 283 (expected 1); watertight_mesh: 14 unpaired edges out of 40 total; no_self_intersection: 1 inter-face triangle penetrations, face pairs: (6,7); minimum_triangle_count: 22 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]; mesh_euler_characteristic: V(22) - E(40) + F(22) = 4 (expected 2)",
+      "category": "auto-union-failed",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[36].twin = None but arena contains a HE for the reverse direction (7->7) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"rectangle\")]",
       "id": "R0061",
       "status": "fail"
     },
@@ -378,7 +378,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 134 (expected 1). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_degenerate_triangles: 132 of 2460 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,57), (0,169), (0,169), (0,226), (0,282), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[171].twin = None but arena contains a HE for the reverse direction (34->34) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_degenerate_triangles: 132 of 2460 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,57), (0,169), (0,169), (0,226), (0,282), ...",
       "id": "R0063",
       "status": "fail"
     },
@@ -395,14 +395,14 @@
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,2), (1,2), (1,2), (1,2)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 11 unpaired edges out of 15 total (10 boundary, 1 non-manifold); no_degenerate_triangles: 1 of 7 triangles are degenerate; minimum_triangle_count: 7 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"circle\")]",
       "id": "R0066",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[54].twin = 0 but twin.twin = 51 (expected 54). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[62].twin = None but arena contains a HE for the reverse direction (26->30) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\")]",
       "id": "R0067",
       "status": "fail"
     },
@@ -432,7 +432,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 88 unpaired edges out of 565 total (87 boundary, 1 non-manifold); consistent_normals: 87 of 348 triangles have reversed normals; no_degenerate_triangles: 14 of 348 triangles are degenerate; outward_normals: only 234 of 321 triangles (72.9%) have outward normals (need 95%); mesh_euler_characteristic: V(255) - E(565) + F(348) = 38 (expected 2)",
+      "detail": "watertight_mesh: 88 unpaired edges out of 566 total; consistent_normals: 87 of 348 triangles have reversed normals; no_degenerate_triangles: 14 of 348 triangles are degenerate; outward_normals: only 234 of 321 triangles (72.9%) have outward normals (need 95%); mesh_euler_characteristic: V(255) - E(566) + F(348) = 37 (expected 2)",
       "id": "R0072",
       "status": "fail"
     },
@@ -456,7 +456,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): bc2f620d-b753-47c0-9f31-c66e10b01613: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[32].twin = 0 but twin.twin = 33 (expected 32); watertight_mesh: 27 unpaired edges out of 300 total; consistent_normals: 34 of 191 triangles have reversed normals; outward_normals: only 157 of 191 triangles (82.2%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (2,7), (2,7), (2,7), (2,8), ...; mesh_euler_characteristic: V(119) - E(300) + F(191) = 10 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): bc2f620d-b753-47c0-9f31-c66e10b01613: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[424].twin = None but arena contains a HE for the reverse direction (105->105) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.; watertight_mesh: 27 unpaired edges out of 300 total; consistent_normals: 34 of 191 triangles have reversed normals; outward_normals: only 157 of 191 triangles (82.2%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (2,7), (2,7), (2,7), (2,7), ...; mesh_euler_characteristic: V(119) - E(300) + F(191) = 10 (expected 2)",
       "id": "R0076",
       "status": "fail"
     },
@@ -467,14 +467,14 @@
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 15f16cc9-bee8-49fa-80fb-1516f33eccc8: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[214].twin = 0 but twin.twin = 52 (expected 214); mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected 0)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 63 unpaired edges out of 276 total; consistent_normals: 78 of 163 triangles have reversed normals; outward_normals: only 83 of 161 triangles (51.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,10), (0,11), (1,3), (1,15), (3,11), ...; mesh_euler_characteristic: V(122) - E(276) + F(163) = 9 (expected 0)",
       "id": "R0078",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 86 (expected 4). Body created as standalone.; partial rebuild (1 error(s)): 39b1c7c4-f107-4b35-8f35-aaa29d059d99: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 5 inter-face triangle penetrations, face pairs: (0,2), (1,2), (1,2), (1,2), (1,2)",
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): 39b1c7c4-f107-4b35-8f35-aaa29d059d99: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: Cherchi 2020 §5.3 invariant violation: input point 833 (bucket e0_points) coincides by coordinates with a parent-triangle vertex (coords=[3454134603.7610426, 1985141212.3229196, 5964960066.996767]); valid Yang call paths cannot produce this — upstream predicate-path or duplicate add_vert bug; watertight_mesh: 72 unpaired edges out of 327 total; consistent_normals: 43 of 194 triangles have reversed normals; no_degenerate_triangles: 10 of 194 triangles are degenerate; outward_normals: only 141 of 184 triangles (76.6%) have outward normals (need 95%)",
       "id": "R0079",
       "status": "fail"
     },
@@ -486,7 +486,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 1 face_a=FaceIdx(15) face_b=FaceIdx(15) same_dir=true produced empty overlap from i_overlay (poly_a.len=4, poly_b.len=3373). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.. Body created as standalone.; partial rebuild (1 error(s)): 72ce3e9a-5ff4-43d6-8777-d96db7d1dd4d: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1030].twin = 0 but twin.twin = 2971 (expected 1030); merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,48), (0,80), (0,80), (0,84), (0,84), ...",
+      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 1 face_a=FaceIdx(15) face_b=FaceIdx(15) same_dir=true produced empty overlap from i_overlay (poly_a.len=4, poly_b.len=3373). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.. Body created as standalone.; partial rebuild (1 error(s)): 72ce3e9a-5ff4-43d6-8777-d96db7d1dd4d: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3622].twin = None but arena contains a HE for the reverse direction (699->699) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,48), (0,80), (0,80), (0,84), (0,84), ...",
       "id": "R0081",
       "status": "fail"
     },
@@ -522,37 +522,37 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 0c06204f-dc26-4e79-8f85-d1f73bae3406: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[398].twin = 0 but twin.twin = 137 (expected 398); watertight_mesh: 6 unpaired edges out of 3468 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,13), (0,18), (0,19), (0,19), (0,19), ...",
+      "detail": "watertight_mesh: 13 unpaired edges out of 3464 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,11), (0,12), (0,12), (0,13), (0,13), ...; mesh_euler_characteristic: V(1158) - E(3464) + F(2305) = -1 (expected 2)",
       "id": "R0087",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (2 error(s)): d1d97c73-794c-42de-90bf-3a044a05ac9d: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[37].twin = 0 but twin.twin = 13 (expected 37); f2076600-1597-4345-98d9-a609f15f25cf: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[57].twin = 0 but twin.twin = 49 (expected 57); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (1,2), ...",
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (1 error(s)): f2076600-1597-4345-98d9-a609f15f25cf: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 2 face_a=FaceIdx(6) face_b=FaceIdx(1) same_dir=true produced empty overlap from i_overlay (poly_a.len=4, poly_b.len=4). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.; watertight_mesh: 47 unpaired edges out of 154 total; consistent_normals: 46 of 87 triangles have reversed normals; no_degenerate_triangles: 2 of 87 triangles are degenerate; outward_normals: only 39 of 85 triangles (45.9%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,6), (0,6), (0,6), (0,9), (0,9), ...; mesh_euler_characteristic: V(75) - E(154) + F(87) = 8 (expected 2)",
       "id": "R0088",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[19].twin = 0 but twin.twin = 36 (expected 19). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[5].twin = 0 but twin.twin = 44 (expected 5). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (0,2)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 3 face_a=FaceIdx(14) face_b=FaceIdx(0) same_dir=true produced empty overlap from i_overlay (poly_a.len=2, poly_b.len=1449). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (0,2)",
       "id": "R0089",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[51].twin = None but arena contains a HE for the reverse direction (23->23) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
       "id": "R0090",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 44527287-57dc-4df8-966a-e953483fd2b3: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1); mesh_euler_characteristic: V(328) - E(972) + F(648) = 4 (expected 2)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 257 unpaired edges out of 531 total (256 boundary, 1 non-manifold); no_degenerate_triangles: 1 of 269 triangles are degenerate; mesh_euler_characteristic: V(328) - E(531) + F(269) = 66 (expected 2)",
       "id": "R0091",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): f0b5d322-fb7e-45e5-ac87-fd95fc973c13: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[32].twin = 0 but twin.twin = 31 (expected 32); no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,2), (0,2), (1,2), (1,2)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 43 unpaired edges out of 281 total; consistent_normals: 81 of 173 triangles have reversed normals; no_degenerate_triangles: 4 of 173 triangles are degenerate; outward_normals: only 84 of 165 triangles (50.9%) have outward normals (need 95%); mesh_euler_characteristic: V(155) - E(281) + F(173) = 47 (expected 2)",
       "id": "R0092",
       "status": "fail"
     },
@@ -570,13 +570,13 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): ac392209-5719-4ea0-9e48-3d2680bc2542: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1); watertight_mesh: 18 unpaired edges out of 993 total; consistent_normals: 137 of 656 triangles have reversed normals; no_degenerate_triangles: 33 of 656 triangles are degenerate; outward_normals: only 363 of 500 triangles (72.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,56), (41,57), (55,57), (55,57), (55,57), ...; mesh_euler_characteristic: V(371) - E(993) + F(656) = 34 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): ac392209-5719-4ea0-9e48-3d2680bc2542: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[117].twin = None but arena contains a HE for the reverse direction (29->29) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.; watertight_mesh: 18 unpaired edges out of 993 total; consistent_normals: 137 of 656 triangles have reversed normals; no_degenerate_triangles: 33 of 656 triangles are degenerate; outward_normals: only 363 of 500 triangles (72.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,60), (41,59), (55,56), (55,56), (55,56), ...; mesh_euler_characteristic: V(371) - E(993) + F(656) = 34 (expected 2)",
       "id": "R0095",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 161a3f91-2ab7-4b09-bae5-85c893acf989: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[70].twin = 0 but twin.twin = 736 (expected 70); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,6), (0,32), (0,41), (0,42), ...",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 223 unpaired edges out of 934 total (222 boundary, 1 non-manifold); consistent_normals: 13 of 549 triangles have reversed normals; no_degenerate_triangles: 1 of 549 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,30), ...; mesh_euler_characteristic: V(326) - E(934) + F(549) = -59 (expected 2)",
       "id": "R0096",
       "status": "fail"
     },
@@ -630,7 +630,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 15 (expected 3). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[61].twin = None but arena contains a HE for the reverse direction (22->22) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "F0005",
       "status": "fail"
     },
@@ -647,8 +647,8 @@
       "status": "pass"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 28 (expected 6). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1 unpaired edges out of 19 total (0 boundary, 1 non-manifold); no_degenerate_triangles: 1 of 13 triangles are degenerate",
       "id": "F0008",
       "status": "fail"
     },
@@ -696,7 +696,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[35].twin = 0 but twin.twin = 90 (expected 35). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (0,3), (0,4), (3,4)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[304].twin = None but arena contains a HE for the reverse direction (123->77) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (0,3), (0,4), (3,4)",
       "id": "F0016",
       "status": "fail"
     },
@@ -708,79 +708,79 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[22].twin = 0 but twin.twin = 78 (expected 22). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[271].twin = None but arena contains a HE for the reverse direction (111->19) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged)",
       "id": "F0018",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 93 (expected 6). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (0,4), (0,5), (3,4)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 21 unpaired edges out of 216 total; no_degenerate_triangles: 1 of 137 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,8), (0,17), (0,18), (1,11), ...; mesh_euler_characteristic: V(73) - E(216) + F(137) = -6 (expected 2)",
       "id": "F0019",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[44].twin = 0 but twin.twin = 43 (expected 44). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (3,4)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[58].twin = None but arena contains a HE for the reverse direction (38->27) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (3,4)",
       "id": "F0020",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[21].twin = 0 but twin.twin = 77 (expected 21). Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,20), (3,12), (3,12), (3,12), ...; mesh_euler_characteristic: V(57) - E(153) + F(102) = 6 (expected 2)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[258].twin = None but arena contains a HE for the reverse direction (94->18) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,20), (3,12), (3,12), (3,12), ...; mesh_euler_characteristic: V(57) - E(153) + F(102) = 6 (expected 2)",
       "id": "F0021",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[9].twin = 0 but twin.twin = 70 (expected 9). Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); consistent_normals: 1 of 90 triangles have reversed normals; no_degenerate_triangles: 3 of 90 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,14), (1,3), (1,3), (1,6), (1,6), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[253].twin = None but arena contains a HE for the reverse direction (71->71) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); consistent_normals: 1 of 90 triangles have reversed normals; no_degenerate_triangles: 3 of 90 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,14), (1,3), (1,3), (1,6), (1,6), ...",
       "id": "F0022",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[32].twin = 0 but twin.twin = 42 (expected 32). Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 3 unpaired edges out of 156 total; no_degenerate_triangles: 1 of 103 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,6), (0,12), (0,20), (1,18), ...; mesh_euler_characteristic: V(58) - E(156) + F(103) = 5 (expected 2)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[59].twin = None but arena contains a HE for the reverse direction (18->18) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 3 unpaired edges out of 156 total; no_degenerate_triangles: 1 of 103 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,6), (0,12), (0,20), (1,18), ...; mesh_euler_characteristic: V(58) - E(156) + F(103) = 5 (expected 2)",
       "id": "F0023",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[47].twin = 0 but twin.twin = 55 (expected 47). Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 3 unpaired edges out of 126 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,14), (0,14), (1,5), (1,11), (1,11), ...; mesh_euler_characteristic: V(44) - E(126) + F(83) = 1 (expected 2)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[249].twin = None but arena contains a HE for the reverse direction (98->24) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 3 unpaired edges out of 126 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,14), (0,14), (1,5), (1,11), (1,11), ...; mesh_euler_characteristic: V(44) - E(126) + F(83) = 1 (expected 2)",
       "id": "F0024",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[24].twin = 0 but twin.twin = 89 (expected 24). Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,15), (2,3), (2,3), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[224].twin = None but arena contains a HE for the reverse direction (21->21) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 4 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,8), (0,10), (1,15), (2,3), (2,3), ...",
       "id": "F0025",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 20 (expected 4). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 8 unpaired edges out of 30 total (7 boundary, 1 non-manifold); no_degenerate_triangles: 1 of 18 triangles are degenerate; mesh_euler_characteristic: V(15) - E(30) + F(18) = 3 (expected 2)",
       "id": "F0026",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 22 (expected 4). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "category": "boolean-normals",
+      "detail": "watertight_mesh: 8 unpaired edges out of 39 total (7 boundary, 1 non-manifold); no_degenerate_triangles: 1 of 24 triangles are degenerate; outward_normals: only 19 of 23 triangles (82.6%) have outward normals (need 95%)",
       "id": "F0027",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 33 (expected 4). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 20 unpaired edges out of 163 total; consistent_normals: 13 of 102 triangles have reversed normals; no_degenerate_triangles: 2 of 102 triangles are degenerate; outward_normals: only 81 of 100 triangles (81.0%) have outward normals (need 95%); mesh_euler_characteristic: V(91) - E(163) + F(102) = 30 (expected 2)",
       "id": "F0028",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 21 (expected 4). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 6 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 9 unpaired edges out of 32 total (8 boundary, 1 non-manifold); no_degenerate_triangles: 1 of 19 triangles are degenerate; mesh_euler_characteristic: V(16) - E(32) + F(19) = 3 (expected 2)",
       "id": "F0029",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 32 (expected 4). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 7 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "category": "boolean-normals",
+      "detail": "watertight_mesh: 12 unpaired edges out of 66 total; outward_normals: only 36 of 40 triangles (90.0%) have outward normals (need 95%); mesh_euler_characteristic: V(29) - E(66) + F(40) = 3 (expected 2)",
       "id": "F0030",
       "status": "fail"
     },
@@ -845,20 +845,20 @@
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[174].twin = 0 but twin.twin = 155 (expected 174). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (1,2)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1029 unpaired edges out of 2601 total; consistent_normals: 126 of 1391 triangles have reversed normals; no_degenerate_triangles: 3 of 1391 triangles are degenerate; outward_normals: only 1175 of 1357 triangles (86.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,959), (1,959), (1,959), (1,959), (1,959), ...; mesh_euler_characteristic: V(1201) - E(2601) + F(1391) = -9 (expected 2)",
       "id": "F0041",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): b2170b0b-0c14-44f4-8723-44d951dc8d42: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[184].twin = 0 but twin.twin = 137 (expected 184); no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2)",
+      "category": "boolean-normals",
+      "detail": "watertight_mesh: 175 unpaired edges out of 581 total; no_degenerate_triangles: 1 of 329 triangles are degenerate; outward_normals: only 224 of 328 triangles (68.3%) have outward normals (need 95%); mesh_euler_characteristic: V(255) - E(581) + F(329) = 3 (expected 2)",
       "id": "F0042",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 27 unpaired edges out of 393 total; consistent_normals: 65 of 253 triangles have reversed normals; no_degenerate_triangles: 1 of 253 triangles are degenerate; outward_normals: only 137 of 252 triangles (54.4%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (4,5), (4,5), (4,5), (4,6), (4,6), ...; mesh_euler_characteristic: V(169) - E(393) + F(253) = 29 (expected 2)",
+      "detail": "watertight_mesh: 27 unpaired edges out of 393 total; consistent_normals: 65 of 253 triangles have reversed normals; no_degenerate_triangles: 1 of 253 triangles are degenerate; outward_normals: only 137 of 252 triangles (54.4%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (4,5), (4,5), (4,5), (4,5), (4,5), ...; mesh_euler_characteristic: V(169) - E(393) + F(253) = 29 (expected 2)",
       "id": "F0043",
       "status": "fail"
     },
@@ -870,49 +870,49 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 38 unpaired edges out of 472 total; consistent_normals: 72 of 302 triangles have reversed normals; outward_normals: only 162 of 302 triangles (53.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (4,6), (4,6), (4,6), (4,6), (4,6), ...; mesh_euler_characteristic: V(194) - E(472) + F(302) = 24 (expected 2)",
+      "detail": "watertight_mesh: 38 unpaired edges out of 472 total; consistent_normals: 72 of 302 triangles have reversed normals; outward_normals: only 162 of 302 triangles (53.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (4,5), (4,5), (4,5), (4,5), (4,5), ...; mesh_euler_characteristic: V(194) - E(472) + F(302) = 24 (expected 2)",
       "id": "F0045",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[12].twin = 0 but twin.twin = 85 (expected 12). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 25 unpaired edges out of 293 total; consistent_normals: 59 of 187 triangles have reversed normals; no_degenerate_triangles: 1 of 187 triangles are degenerate; outward_normals: only 126 of 185 triangles (68.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,9), (0,9), (0,9), (0,9), (0,10), ...; mesh_euler_characteristic: V(133) - E(293) + F(187) = 27 (expected 2)",
       "id": "F0046",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 41 unpaired edges out of 427 total; consistent_normals: 127 of 271 triangles have reversed normals; no_degenerate_triangles: 2 of 271 triangles are degenerate; outward_normals: only 142 of 269 triangles (52.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,7), (0,9), (1,6), (1,6), (1,6), ...; mesh_euler_characteristic: V(211) - E(427) + F(271) = 55 (expected 2); bbox diagonal 3.007e0 exceeds max 3.000e0",
+      "detail": "watertight_mesh: 41 unpaired edges out of 427 total; consistent_normals: 127 of 271 triangles have reversed normals; no_degenerate_triangles: 2 of 271 triangles are degenerate; outward_normals: only 142 of 269 triangles (52.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,9), (1,5), (1,5), (1,5), ...; mesh_euler_characteristic: V(211) - E(427) + F(271) = 55 (expected 2); bbox diagonal 3.007e0 exceeds max 3.000e0",
       "id": "F0047",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 85 unpaired edges out of 461 total; consistent_normals: 157 of 279 triangles have reversed normals; no_degenerate_triangles: 2 of 279 triangles are degenerate; outward_normals: only 120 of 277 triangles (43.3%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,8), (0,8), (0,8), (0,8), ...; mesh_euler_characteristic: V(215) - E(461) + F(279) = 33 (expected 2)",
+      "detail": "watertight_mesh: 85 unpaired edges out of 461 total; consistent_normals: 157 of 279 triangles have reversed normals; no_degenerate_triangles: 2 of 279 triangles are degenerate; outward_normals: only 120 of 277 triangles (43.3%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,7), (0,7), (0,7), (0,7), (0,9), ...; mesh_euler_characteristic: V(215) - E(461) + F(279) = 33 (expected 2)",
       "id": "F0048",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[10].twin = 0 but twin.twin = 94 (expected 10). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 31 unpaired edges out of 300 total (29 boundary, 2 non-manifold); consistent_normals: 62 of 191 triangles have reversed normals; no_degenerate_triangles: 4 of 191 triangles are degenerate; outward_normals: only 125 of 187 triangles (66.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,11), (1,11), (2,4), (2,4), (3,5), ...; mesh_euler_characteristic: V(148) - E(300) + F(191) = 39 (expected 2)",
       "id": "F0049",
       "status": "fail"
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 39 unpaired edges out of 417 total; consistent_normals: 162 of 265 triangles have reversed normals; no_degenerate_triangles: 3 of 265 triangles are degenerate; outward_normals: only 100 of 262 triangles (38.2%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(258) - E(417) + F(265) = 106 (expected 2)",
+      "detail": "watertight_mesh: 39 unpaired edges out of 417 total; consistent_normals: 162 of 265 triangles have reversed normals; no_degenerate_triangles: 3 of 265 triangles are degenerate; outward_normals: only 100 of 262 triangles (38.2%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,3), (0,3), (0,3), (0,3), ...; mesh_euler_characteristic: V(258) - E(417) + F(265) = 106 (expected 2)",
       "id": "F0050",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 27 (expected 8). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 1 unpaired edges out of 19 total (0 boundary, 1 non-manifold); no_degenerate_triangles: 1 of 13 triangles are degenerate",
       "id": "F0051",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 140 (expected 1). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); outward_normals: no valid triangles",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 13 unpaired edges out of 100 total (12 boundary, 1 non-manifold); consistent_normals: 11 of 63 triangles have reversed normals; no_degenerate_triangles: 1 of 63 triangles are degenerate; outward_normals: only 18 of 46 triangles (39.1%) have outward normals (need 95%); mesh_euler_characteristic: V(46) - E(100) + F(63) = 9 (expected 2)",
       "id": "F0052",
       "status": "fail"
     },
@@ -923,56 +923,56 @@
       "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 3798e4f2-5768-44b9-ab32-6431c73c9d7d: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[26].twin = 0 but twin.twin = 83 (expected 26)",
+      "category": "boolean-normals",
+      "detail": "watertight_mesh: 14 unpaired edges out of 133 total; outward_normals: only 56 of 84 triangles (66.7%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,6), (0,6), (0,7), (0,7), (0,8), ...",
       "id": "F0054",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): f08ea688-e714-45fe-ad30-6b90f2f52e9f: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[71].twin = 0 but twin.twin = 57 (expected 71)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 35 unpaired edges out of 211 total (34 boundary, 1 non-manifold); consistent_normals: 20 of 130 triangles have reversed normals; no_degenerate_triangles: 5 of 130 triangles are degenerate; outward_normals: only 89 of 125 triangles (71.2%) have outward normals (need 95%); no_self_intersection: 5 inter-face triangle penetrations, face pairs: (2,13), (2,16), (4,9), (4,12), (4,12); mesh_euler_characteristic: V(91) - E(211) + F(130) = 10 (expected 2)",
       "id": "F0055",
       "status": "fail"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[62].twin = 0 but twin.twin = 32 (expected 62). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 67 unpaired edges out of 161 total; consistent_normals: 4 of 85 triangles have reversed normals; outward_normals: only 63 of 85 triangles (74.1%) have outward normals (need 95%); no_self_intersection: 7 inter-face triangle penetrations, face pairs: (7,15), (7,15), (7,15), (7,15), (7,15), ...; mesh_euler_characteristic: V(83) - E(161) + F(85) = 7 (expected 2)",
       "id": "F0056",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[68].twin = 0 but twin.twin = 32 (expected 68). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (1,2), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[175].twin = None but arena contains a HE for the reverse direction (85->34) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (1,2), ...",
       "id": "F0057",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 559e354e-a36a-4c6a-b998-fe93a4590c52: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[62].twin = 0 but twin.twin = 32 (expected 62)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 46 unpaired edges out of 134 total; consistent_normals: 12 of 74 triangles have reversed normals; outward_normals: only 50 of 74 triangles (67.6%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (6,16), (9,12), (9,12), (16,17), (16,17), ...",
       "id": "F0058",
       "status": "fail"
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[132].twin = 0 but twin.twin = 166 (expected 132). Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[470].twin = None but arena contains a HE for the reverse direction (251->251) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged)",
       "id": "F0059",
       "status": "fail"
     },
     {
       "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 764a62d5-ed3f-407f-845d-c1577ef9cc13: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[26].twin = 0 but twin.twin = 25 (expected 26); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (1,2), ...",
+      "detail": "partial rebuild (1 error(s)): 764a62d5-ed3f-407f-845d-c1577ef9cc13: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[186].twin = None but arena contains a HE for the reverse direction (76->76) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.; no_self_intersection: 8 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (1,2), ...",
       "id": "F0060",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 3b2757e2-1105-4cdd-88c7-020a0c4cb863: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[336].twin = 0 but twin.twin = 2047 (expected 336); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,13), (0,25), (0,25), (0,43), (0,49), ...; mesh_euler_characteristic: V(672) - E(2010) + F(1340) = 2 (expected 0)",
+      "category": "boolean-watertight",
+      "detail": "watertight_mesh: 40 unpaired edges out of 2147 total; consistent_normals: 20 of 1418 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,11), (0,11), (0,67), (0,67), (0,67), ...; mesh_euler_characteristic: V(757) - E(2147) + F(1418) = 28 (expected 0)",
       "id": "F0061",
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 0dd82986-b702-4394-962a-a02b5fe7b901: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 61 (expected 4); mesh_euler_characteristic: V(8) - E(18) + F(12) = 2 (expected 0)",
+      "category": "revolve-normals",
+      "detail": "consistent_normals: 26 of 84 triangles have reversed normals; outward_normals: only 58 of 84 triangles (69.0%) have outward normals (need 95%); mesh_euler_characteristic: V(82) - E(126) + F(84) = 40 (expected 0)",
       "id": "F0062",
       "status": "fail"
     },
@@ -984,7 +984,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (4 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[588].twin = 0 but twin.twin = 1193 (expected 588). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 284 (expected 1). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = 0 but twin.twin = 63 (expected 13). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[10].twin = 0 but twin.twin = 20 (expected 10). Body created as standalone.; merge incomplete: 5 operations produced 5 separate solids (expected 1 merged); minimum_triangle_count: 28 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"polygon\"), (\"extrude\", \"circle\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\")]",
+      "detail": "auto-union-failed (2 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3835].twin = None but arena contains a HE for the reverse direction (1297->1227) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = None but arena contains a HE for the reverse direction (14->13) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 5 operations produced 3 separate solids (expected 1 merged); watertight_mesh: 29 unpaired edges out of 70 total (23 boundary, 6 non-manifold); consistent_normals: 6 of 41 triangles have reversed normals; no_degenerate_triangles: 6 of 41 triangles are degenerate; outward_normals: only 29 of 35 triangles (82.9%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,7), (1,7), (1,10), (2,7), (2,7), ...; minimum_triangle_count: 41 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"polygon\"), (\"extrude\", \"circle\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\")]; mesh_euler_characteristic: V(28) - E(70) + F(41) = -1 (expected 2)",
       "id": "F0064",
       "status": "fail"
     },
@@ -996,7 +996,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (6 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = 0 but twin.twin = 41 (expected 13). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = 0 but twin.twin = 19 (expected 13). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 54 (expected 1). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[14].twin = 0 but twin.twin = 23 (expected 14). Body created as standalone.; Extrude 6: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = 0 but twin.twin = 19 (expected 13). Body created as standalone.; Extrude 8: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; merge incomplete: 8 operations produced 7 separate solids (expected 1 merged)",
+      "detail": "auto-union-failed (4 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[84].twin = None but arena contains a HE for the reverse direction (29->28) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[115].twin = None but arena contains a HE for the reverse direction (55->30) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; Extrude 7: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[5].twin = None but arena contains a HE for the reverse direction (5->4) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; Extrude 8: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[180].twin = None but arena contains a HE for the reverse direction (18->18) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 8 operations produced 5 separate solids (expected 1 merged)",
       "id": "F0066",
       "status": "fail"
     },
@@ -1056,7 +1056,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[12].twin = 0 but twin.twin = 0 (expected 12). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; merge incomplete: 5 operations produced 3 separate solids (expected 1 merged); no_self_intersection: 5 inter-face triangle penetrations, face pairs: (0,2), (1,3), (1,4), (1,5), (3,4)",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[33].twin = None but arena contains a HE for the reverse direction (3->3) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.. Body created as standalone.; merge incomplete: 5 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,7), (2,7), (3,8), (3,8), (3,8), ...; mesh_euler_characteristic: V(29) - E(75) + F(50) = 4 (expected 2)",
       "id": "F0076",
       "status": "fail"
     },
@@ -1115,8 +1115,8 @@
       "status": "fail"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (5 error(s)): eeadb4da-e68d-4f96-bcc7-e1687f1059a2: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[45].twin = 0 but twin.twin = 135 (expected 45); 5f972110-a034-443e-ac83-67c10803dd1d: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[58].twin = 0 but twin.twin = 166 (expected 58); 515c09a8-b9fd-42ef-8f73-d2e3b039f2a1: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[50].twin = 0 but twin.twin = 150 (expected 50); 6b500242-98e3-4108-875b-289135532aa0: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[119].twin = 0 but twin.twin = 116 (expected 119); 8f009a73-3027-4a3e-a4bb-992311835d2e: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[29].twin = 0 but twin.twin = 98 (expected 29); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(130) - E(384) + F(256) = 2 (expected -4)",
+      "category": "boolean-watertight",
+      "detail": "partial rebuild (4 error(s)): 5f972110-a034-443e-ac83-67c10803dd1d: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 1 face_a=FaceIdx(1) face_b=FaceIdx(0) same_dir=true produced empty overlap from i_overlay (poly_a.len=18250, poly_b.len=1825). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.; 515c09a8-b9fd-42ef-8f73-d2e3b039f2a1: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 1 face_a=FaceIdx(1) face_b=FaceIdx(0) same_dir=true produced empty overlap from i_overlay (poly_a.len=18250, poly_b.len=1825). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.; 6b500242-98e3-4108-875b-289135532aa0: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 1 face_a=FaceIdx(1) face_b=FaceIdx(0) same_dir=true produced empty overlap from i_overlay (poly_a.len=18250, poly_b.len=1825). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.; 8f009a73-3027-4a3e-a4bb-992311835d2e: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 1 face_a=FaceIdx(1) face_b=FaceIdx(0) same_dir=true produced empty overlap from i_overlay (poly_a.len=18250, poly_b.len=1825). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.; watertight_mesh: 31 unpaired edges out of 311 total; consistent_normals: 2 of 197 triangles have reversed normals; outward_normals: only 131 of 197 triangles (66.5%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,4), (1,4), (1,5), (1,5), (3,4), ...; mesh_euler_characteristic: V(143) - E(311) + F(197) = 29 (expected -4)",
       "id": "F0086",
       "status": "fail"
     },

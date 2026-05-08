@@ -465,8 +465,25 @@ pub(crate) fn flood_fill_patches(
             } else {
                 tri.verts
             };
+            let cv = [canon_v(raw[0]), canon_v(raw[1]), canon_v(raw[2])];
+            // PR-Y22 M2 (DEGEN): skip canon-induced degenerate sub-tris.
+            // Quantization-induced degenerate sub-tri: two upstream-distinct
+            // vertices collapsed to the same canonical index by canon_v's
+            // nanometer quantization. Cherchi 2022 §4's "well formed
+            // simplicial complex" output contract is preserved at OUR
+            // consumer layer by dropping these post-canon_v. Mirrors
+            // `exact_mesh.rs:1771-1775` welded_tris filter. Canary §4
+            // (docs/audits/pr_y22_mode_a_missing_canary.md) verified
+            // subdivide_mesh_pair output is clean across 14 booleans;
+            // these degens are introduced HERE by canon_v, not upstream.
+            // Filter must run BEFORE Step 4 manifold-incidence counting at
+            // L504+ (canary §5 edge case #2) so downstream tri_to_patch
+            // indexing never sees the degen.
+            if cv[0] == cv[1] || cv[1] == cv[2] || cv[0] == cv[2] {
+                continue;
+            }
             all_tris.push(FlatSubTri {
-                verts: [canon_v(raw[0]), canon_v(raw[1]), canon_v(raw[2])],
+                verts: cv,
                 source: *sf,
                 cosurface_orientation: tri.cosurface_orientation,
                 parent_tri: tri.parent_tri,
@@ -1270,7 +1287,28 @@ pub(crate) fn flood_fill_patches(
                     let mut is_nmm = false;
                     if let Some(prov) = he_provenance.get(&he_fwd) {
                         let (_, _, _, v0_canon, v1_canon) = *prov;
-                        is_nmm = !directed_edge_to_tris.contains_key(&(v1_canon, v0_canon));
+                        let n_fwd = directed_edge_to_tris
+                            .get(&(v0_canon, v1_canon))
+                            .map(|v| v.len())
+                            .unwrap_or(0);
+                        let n_rev = directed_edge_to_tris
+                            .get(&(v1_canon, v0_canon))
+                            .map(|v| v.len())
+                            .unwrap_or(0);
+                        let undirected_count = n_fwd + n_rev;
+                        // PR-Y22 M1: extend PR-Y20-MODE-A NMM predicate to
+                        // also cover edges with undirected incidence != 2.
+                        // Per Yang §4.4.2, manifold ↔ incidence==2; otherwise
+                        // NMM. Cherchi 2022 §5 uses the same predicate for
+                        // manifold-edge barriers (`edgeIsManifold` mirrored at
+                        // topology_extract.rs:513-516). R-0 incidence-prober
+                        // (docs/audits/pr_y22_recovery_incidence_probe.md §1)
+                        // verified all 7 F0020 NONCONF cases have
+                        // undirected_count=3 — they are genuinely NMM, not
+                        // manifold-mis-segmented. twin=None is the correct
+                        // answer; no `unpaired_count` increment.
+                        is_nmm = !directed_edge_to_tris.contains_key(&(v1_canon, v0_canon))
+                            || undirected_count != 2;
                     } else if !twin_debug {
                         // Without provenance we can't classify (provenance is
                         // only built when TWIN_DEBUG=1). For the production
