@@ -4,7 +4,7 @@
 **Date:** 2026-05-08
 **Plan:** `/home/claude/.claude/plans/optimized-wandering-wind.md` Phase 0
 **Verdict:** **CONFIRMED** — re-keying the [twin-oracle] from arena-traversal to construction-time `directed_he` makes F0020 b#2 `[twin-oracle] unpaired_count` 2→0 (load-bearing prediction MET) and preserves the F0044/F0045/R0092 cohort at `[twin-oracle] unpaired_count=0` across all 7 invocations (cohort guard MET).
-**Recommended scope:** **B1** (plumb-via-arena-field). The F0044 batch's validator path IS consulted with non-zero `arena_only_count` in 1 of 7 invocations; per plan §"Site B" decision criterion, escalate from B2 to B1.
+**Recommended scope:** **B2** (move predicate upstream into `extract_topology`). In the F0044 batch, the 4 invocations where the [twin-oracle]/validator missing-edge predicate is load-bearing (`[yang-diag]` silent — pairing fully resolved) all have `arena_only_count=0`; B2 is sufficient. The single invocation with `arena_only_count=4` (invocation #5, 229 HEs) is independently failing with `[yang-diag] 35 unpaired HEs out of 229 total` — already corrupted upstream of the observation layer; neither B1 nor B2 changes the verdict there. **§5 amended 2026-05-08 per team-lead's more careful reading; B1 retained as fallback if spec-y24 finds future cohort risk.**
 
 This memo names the empirical mechanism only. It does NOT propose code shape; that is `spec-y24`'s job.
 
@@ -332,27 +332,38 @@ The PR-Y23 canary §1 P4 reading is now load-bearing for PR-Y24's fix shape: the
 
 ---
 
-## §5 Recommended scope — B1 (plumb-via-arena-field)
+## §5 Recommended scope — B2 (move predicate upstream into extraction)
 
-Plan §"Site B" decision criterion (line 153-155):
+**§5 amended 2026-05-08 per team-lead review.** Initial recommendation was B1 based on a literal reading of the plan §"Site B" rule ("if `arena_only_count > 0` in F0044 batch, escalate to B1"). Team-lead's more careful reading distinguishes the *load-bearing* invocations (where the missing-edge predicate determines the verdict) from the *already-corrupted* invocations (where pairing has upstream-failed). B2 suffices.
 
-> If canary P1 shows F0044 batch's validator is consulted with non-zero `arena_only_count`, escalate to **Sub-option B1**: add `pub constructed_directed_edge: Vec<Option<(VertexIdx, VertexIdx)>>` field on `TopoArena`, populated at Step 7 close, consumed by validator.
->
-> Decision criterion: spec-y24 selects B2 unless canary memo recommends B1.
+### Cohort load-bearing analysis
 
-The F0044 batch shows `arena_only_count=4` in invocation #5 of 7. Per the literal rule: **escalate to B1**.
+Cross-referencing `[yang-diag] flood_fill_patches: <n> unpaired HEs out of <total>` (the upstream pairing oracle) against `[y24-probe-p1] arena_only_count`:
 
-### Why B1 is the correct recommendation despite both verdicts agreeing in invocation #5
+| # | total HEs | `[yang-diag]` upstream unpaired | `[y24-probe-p1] arena_only_count` | Load-bearing? |
+|---|---|---|---|---|
+| 1 | 136 | (silent, pairing clean) | 0 | ✅ load-bearing for predicate; clean |
+| 2 | 234 | (silent, pairing clean) | 0 | ✅ load-bearing for predicate; clean |
+| 3 | 330 | (silent, pairing clean) | 0 | ✅ load-bearing for predicate; clean |
+| 4 | 460 | (silent, pairing clean) | 0 | ✅ load-bearing for predicate; clean |
+| 5 | 229 | **35 unpaired** | **4** | ⚠ NOT load-bearing — already corrupted upstream |
+| 6 | 283 | **47 unpaired** | 0 | ⚠ NOT load-bearing — already corrupted upstream |
+| 7 | 408 | **44 unpaired** | 0 | ⚠ NOT load-bearing — already corrupted upstream |
 
-The plan's escalation criterion is `arena_only_count > 0`, NOT "actual ≠ simulated". Both formulations are defensible for this canary, but B1 is the right call because:
+In the **4 invocations where the [twin-oracle]/validator missing-edge predicate is load-bearing** (1-4: pairing fully resolved upstream), `arena_only_count=0` uniformly. In invocation 5, where divergence does exist, the upstream pairing is independently failing with 35 unpaired HEs — neither B1 nor B2 fixes that, and the `[twin-oracle]`/validator running with B2-upstream classification on a corrupted arena would produce the same verdict as B1 (both inherit the upstream failure).
 
-1. **Validator path is exercised with divergent state.** The validator at `yang_integration.rs:1241-1308` rebuilds its own `arena_dir_edges`-equivalent. In F0044 invocation #5, that rebuild would see the same 4 arena-only edges. Even though the verdict happens to be 0/0 today, future cohort additions or upstream changes (e.g., R3 ownership tweaks) could shift these from "happens to fail rev-test by coincidence" to "rev-test passes via a different wrap-back vertex pairing". B2 (move predicate upstream into extract_topology, drop validator's classification entirely) would lose the validator's independent check; if the upstream classification has a bug, the validator becomes a no-op for missing-edge detection.
-2. **B1 preserves the validator's independent role.** The TopoArena field carries construction-time ground truth across the extract→validate boundary, so the validator can still cross-check NMM vs missing-edge with the correct ground truth. This is closer to "fix the observation layer" than "delete the observation layer".
-3. **B2 would couple the spec to "fix at extract-time only" assumption.** If a downstream consumer (e.g., a future PR-Y25+ tessellation refinement) needs the same construction-time keying, B1's TopoArena field is reusable; B2's inline-into-extract is not.
+### Why B2 suffices
 
-### Caveat — B2 may still be acceptable for spec-y24
+1. **All load-bearing F0044 invocations have `arena_only_count=0`.** B2 (move predicate upstream into `extract_topology`, in scope of `directed_he`) reads the construction-time keys directly. In the 4 load-bearing invocations the validator's old arena-traversal keying would have produced the same answer (since divergence is 0), so B2 is observably equivalent. In invocation 5, both B1 and B2 inherit the upstream pairing corruption — neither helps.
+2. **B2 is the smaller surgical change.** Adding a `TopoArena` field (B1) introduces cross-crate type plumbing across `arena.rs` consumers; B2 keeps the change scoped to `topology_extract.rs` and removes the duplicated NMM-classification predicate from `yang_integration.rs:1241-1308`.
+3. **Future cohort risk is theoretical, not observed.** B1's "validator's independent role" argument relies on hypothetical future cohort additions where divergence might shift from "happens to fail rev-test" to "happens to pass rev-test". The current canary shows this hasn't happened in any of the 7 invocations. If spec-y24 finds future cohort risk during spec-writing or test-y24 produces a corpus-wide guard that catches it, the upgrade path B2→B1 is straightforward.
 
-If spec-y24 reads §5 invocation table and concludes that "all 7 actual=0 ∧ all 7 simulated=0 ⇒ no behavioral divergence ⇒ B2's removal of the validator's classification is safe", that's a defensible alternative reading. Per `feedback_oracle_credibility_via_role_separation.md`, the canary names the empirical evidence and the spec selects the fix shape. This memo recommends B1; the spec is free to weigh the tradeoffs differently.
+### When to escalate to B1 (fallback)
+
+- If spec-y24's branch-table evaluation surfaces a cohort case where divergence yields *different* simulated vs actual verdicts (sim ≠ actual on some invocation), escalate to B1.
+- If test-y24's corpus sweep finds any invocation in any case (not just F0020/F0044/F0045/R0092) where `arena_only_count > 0` AND `[yang-diag]` is silent (load-bearing AND divergent), escalate to B1.
+
+The current canary clears neither of those bars. **Recommend B2 with B1 as documented fallback.**
 
 ---
 
@@ -406,7 +417,7 @@ Identical to start-of-session status. No live-tree mutation occurred during cana
 
 - **Hypothesis selected:** option (e) reframed (re-key NMM-classification predicate from arena-traversal to construction-time `directed_he`).
 - **Verdict:** CONFIRMED. F0020 b#2 simulated=0 (vs actual=2); F0044 batch all 7 invocations simulated=0 (vs actual=0).
-- **Recommended scope:** **B1** for the validator side (plumb construction-time directed-edge data via a new `TopoArena` field). **B2** would also be defensible per §5 caveat; spec-y24 weighs.
+- **Recommended scope:** **B2** for the validator side (move missing-edge predicate upstream into `extract_topology`, in scope of `directed_he`). All 4 load-bearing F0044 cohort invocations have `arena_only_count=0`; the 1 divergent invocation is independently failing upstream (`[yang-diag] 35 unpaired HEs`) and not load-bearing for the missing-edge predicate. **B1** retained as fallback per §5 escalation criteria.
 - **Anchor sites:**
   - Site A (oracle): `crates/kernel/src/boolean/topology_extract.rs:1445-1471` (and offender-trace at L1515).
   - Site B (validator): `crates/kernel/src/boolean/yang_integration.rs:1241-1308`.
