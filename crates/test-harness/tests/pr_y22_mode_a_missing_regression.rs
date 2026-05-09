@@ -382,7 +382,8 @@ fn pr_y22_f0020_mode_a_missing_zero() {
          twin=None on a NEW edge that wasn't in the pre-PR baseline). Audit \
          the directed_he keying contract between Step 6 emit and Step 7 search \
          per spec §7 NO-FALLBACK contract.",
-        n_twin_oracle, twin_unpaired
+        n_twin_oracle,
+        twin_unpaired
     );
 }
 
@@ -544,7 +545,8 @@ fn pr_y22_f0044_b5_mode_a_missing_drops_by_2() {
          must filter the FlatSubTri push BEFORE Step 4 manifold-incidence \
          counting (canary §5 edge case #2) so downstream `tri_to_patch` \
          indexing never sees the degen.",
-        n_twin_oracle, twin_unpaired
+        n_twin_oracle,
+        twin_unpaired
     );
 
     // Reference the results so they stay bound. We do NOT assert on
