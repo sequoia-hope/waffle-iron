@@ -1237,14 +1237,28 @@ fn validate_yang_result_topology(arena: &crate::topology::arena::TopoArena) -> R
     // dropping rev HEs (or a similar upstream defect), promote to spec §3
     // plumbing — pass directed_edge_to_tris through ResultTopology to here.
     //
-    // Build the directed-edge set over the arena once for the loop below.
-    let mut arena_dir_edges: std::collections::HashSet<(usize, usize)> =
-        std::collections::HashSet::new();
-    for he in arena.half_edges.iter() {
-        let v_origin = he.origin.0;
-        let v_dest = arena.half_edges[he.next.0].origin.0;
-        arena_dir_edges.insert((v_origin, v_dest));
-    }
+    // PR-Y24: read construction-time ground truth if available (yang path),
+    // else fall back to arena traversal (legacy S-H path; byte-identical to
+    // pre-PR-Y24 behavior). Yang 2025 §3 + Cherchi 2022 §3: patch boundaries
+    // are closed loops of non-manifold edges; the predicate reads input
+    // classification, not arena traversal which is polluted on open-chain
+    // wrap-backs at topology_extract.rs L1131-1146 (banked Layer-2 PR-Y25+).
+    let arena_dir_edges: std::collections::HashSet<(usize, usize)> =
+        if !arena.constructed_directed_edge.is_empty() {
+            arena
+                .constructed_directed_edge
+                .iter()
+                .filter_map(|opt| opt.map(|(a, b)| (a.0, b.0)))
+                .collect()
+        } else {
+            let mut s = std::collections::HashSet::new();
+            for he in arena.half_edges.iter() {
+                let v_origin = he.origin.0;
+                let v_dest = arena.half_edges[he.next.0].origin.0;
+                s.insert((v_origin, v_dest));
+            }
+            s
+        };
 
     // Twin symmetry: every half-edge's twin must point back to it
     // (manifold). Or twin=None for legitimate NMM only.
@@ -1296,7 +1310,14 @@ fn validate_yang_result_topology(arena: &crate::topology::arena::TopoArena) -> R
                 // (banked PR-Y21+) and we must surface it explicitly
                 // per `feedback_yang_only.md` no-fallback discipline.
                 let v_origin = he.origin.0;
-                let v_dest = arena.half_edges[he.next.0].origin.0;
+                // PR-Y24: read v_dest from construction-time directed-edge
+                // map if available; falls back to arena traversal for legacy
+                // arenas (non-yang code paths leave the field empty).
+                let v_dest = arena
+                    .constructed_directed_edge
+                    .get(i)
+                    .and_then(|opt| opt.map(|(_, b)| b.0))
+                    .unwrap_or_else(|| arena.half_edges[he.next.0].origin.0);
                 if arena_dir_edges.contains(&(v_dest, v_origin)) {
                     return Err(format!(
                         "half_edge[{i}].twin = None but arena contains a HE for the \

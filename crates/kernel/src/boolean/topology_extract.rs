@@ -1414,6 +1414,29 @@ pub(crate) fn flood_fill_patches(
         }
     }
 
+    // ── PR-Y24: populate construction-time directed-edge map ──
+    // One entry per HE, indexed by HalfEdgeIdx.0. Drains directed_he's
+    // information into arena form so the validator (which only sees
+    // &TopoArena) can read ground truth. None for HEs not constructed
+    // via this Step 7 loop. Yang 2025 §3 ("each edge shared by two
+    // adjacent faces") and Cherchi 2022 §3 ("surface patches are bounded
+    // by closed loops of non-manifold edges, namely the intersection
+    // lines") establish that the patch-boundary directed-edge set
+    // inserted at L1119-1146 IS the input ground truth for the NMM
+    // predicate; arena-traversal `(he.origin, he.next.origin)` is a
+    // derivative view, polluted on open-chain wrap-backs at L1131-1146.
+    {
+        let n_he = arena.half_edges.len();
+        arena.constructed_directed_edge = vec![None; n_he];
+        for ((v0_brep, v1_brep), hes) in directed_he.iter() {
+            for he_idx in hes {
+                if he_idx.0 < n_he {
+                    arena.constructed_directed_edge[he_idx.0] = Some((*v0_brep, *v1_brep));
+                }
+            }
+        }
+    }
+
     // ── PR-Y16-INV pre-validation twin oracle (gated on TWIN_DEBUG=1) ──
     // Observation-only: report twin-pairing health AT THE END of
     // flood_fill_patches, BEFORE Yang's downstream validate_yang_result_topology
@@ -1437,16 +1460,24 @@ pub(crate) fn flood_fill_patches(
     if twin_debug {
         let n_he = arena.half_edges.len();
         if n_he > 0 {
-            // PR-Y20-MODE-A: legitimate NMM (twin=None AND reverse direction
-            // does not exist anywhere in the arena per Yang §4.4.2) is NOT
-            // counted as unpaired. Build a directed-edge multiset over the
-            // arena so we can distinguish legitimate NMM from missing-edge
-            // defect (twin=None AND reverse DOES exist — banked PR-Y21+).
-            let mut arena_dir_edges: HashSet<(usize, usize)> = HashSet::new();
-            for he in arena.half_edges.iter() {
-                let v_origin = he.origin.0;
-                let v_dest = arena.half_edges[he.next.0].origin.0;
-                arena_dir_edges.insert((v_origin, v_dest));
+            // PR-Y24: source from construction-time directed_he (ground truth)
+            // rather than arena traversal. Yang 2025 §3: "edges that form a
+            // continuous boundary, with each edge shared by two adjacent faces."
+            // Cherchi 2022 §3: "the arrangement is guaranteed to be a well
+            // formed simplicial complex and surface patches are bounded by
+            // closed loops of non-manifold edges, namely the intersection
+            // lines." The non-manifold predicate reads input classification,
+            // NOT arena-traversal projection (which is polluted on open-chain
+            // wrap-backs at L1131-1146; banked Layer-2 PR-Y25+).
+            let arena_dir_edges: HashSet<(usize, usize)> =
+                directed_he.keys().map(|(a, b)| (a.0, b.0)).collect();
+            let mut he_to_constructed_dest: Vec<usize> = vec![usize::MAX; n_he];
+            for ((_v0, v1_brep), hes) in directed_he.iter() {
+                for he_idx in hes {
+                    if he_idx.0 < n_he {
+                        he_to_constructed_dest[he_idx.0] = v1_brep.0;
+                    }
+                }
             }
             let mut unpaired: Vec<usize> = Vec::new();
             for (i, he) in arena.half_edges.iter().enumerate() {
@@ -1458,10 +1489,10 @@ pub(crate) fn flood_fill_patches(
                     }
                     None => {
                         // None = no twin set during pair-up. Distinguish
-                        // legitimate NMM (no reverse in arena) from missing-
-                        // edge defect (reverse present in arena).
+                        // legitimate NMM (no reverse in directed_he) from
+                        // missing-edge defect (reverse present in directed_he).
                         let v_origin = he.origin.0;
-                        let v_dest = arena.half_edges[he.next.0].origin.0;
+                        let v_dest = he_to_constructed_dest[i];
                         let rev_present = arena_dir_edges.contains(&(v_dest, v_origin));
                         if rev_present {
                             unpaired.push(i);
@@ -1512,7 +1543,13 @@ pub(crate) fn flood_fill_patches(
                     None => (-3, -3),
                 };
                 let v_origin = he.origin.0;
-                let v_dest = arena.half_edges[he.next.0].origin.0;
+                // PR-Y24: report construction-time dest for consistency with
+                // the unpaired-detection predicate above.
+                let v_dest = if he_to_constructed_dest[i] != usize::MAX {
+                    he_to_constructed_dest[i]
+                } else {
+                    arena.half_edges[he.next.0].origin.0
+                };
                 let origin_pos = if v_origin < arena.vertices.len() {
                     arena.vertices[v_origin].position
                 } else {

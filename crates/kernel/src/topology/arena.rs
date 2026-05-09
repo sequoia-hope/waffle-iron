@@ -13,6 +13,20 @@ pub struct TopoArena {
     pub faces: Vec<Face>,
     pub shells: Vec<Shell>,
     pub solids: Vec<Solid>,
+
+    /// PR-Y24: construction-time directed-edge mapping per half-edge,
+    /// populated at the close of `topology_extract::extract_topology`
+    /// Step 7 from `directed_he` keys. The validator's NMM-vs-missing-edge
+    /// predicate consults this rather than re-deriving from arena
+    /// traversal (which is polluted on open-chain wrap-backs at
+    /// topology_extract.rs L1131-1146; banked Layer-2 residual PR-Y25+).
+    /// Empty for arenas constructed via paths other than yang topology
+    /// extraction (e.g. legacy S-H builders); validator falls back to
+    /// arena-traversal keying when empty (preserves byte-identity for
+    /// non-yang code paths). Indexed by `HalfEdgeIdx.0`; entry is the
+    /// `(origin, dest)` `BrepVIdx`-equivalent `VertexIdx` pair from the
+    /// chain element at Step 7.
+    pub constructed_directed_edge: Vec<Option<(VertexIdx, VertexIdx)>>,
 }
 
 impl TopoArena {
