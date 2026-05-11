@@ -1,5 +1,5 @@
-//! PR-Y29 differential diff harness: per-triangle comparison of our Yang
-//! pipeline's unified post-`subdivide_mesh_pair` output against the
+//! PR-Y30 differential diff harness: per-triangle comparison of our Yang
+//! pipeline's post-`face_survival_detect` output (Stage B) against the
 //! Cherchi 2022 C++ reference (`mesh_booleans union`) on F0020 + cohort
 //! (F0044, F0045, R0092).
 //!
@@ -16,24 +16,41 @@
 //! open-ended structural question "where in our code path do triangles
 //! go missing?"
 //!
+//! PR-Y30 stage choice — Stage B (post-survival), NOT Stage C (post-patch-id):
+//! --------------------------------------------------------------------------
+//! Cherchi's `mesh_booleans union` output IS the post-survival boolean
+//! result — a well-formed simplicial complex per Cherchi 2022 §3 ("when
+//! exact methods are used, the arrangement is guaranteed to be a well
+//! formed simplicial complex") after applying the boolean operator's
+//! in/out selection (Cherchi 2022 §5 inside/outside classification). The
+//! apples-to-apples comparison point on the Waffle side is therefore
+//! Stage B (Yang §4.4.2 "Mesh and B-Rep Booleans" — the post-
+//! `face_survival_detect` output) — NOT Stage C, which is the post-
+//! flood-fill patch-id output and includes patch boundary information
+//! Cherchi never emits. PR-Y29 used Stage C in error; this revision
+//! re-baselines against Stage B.
+//!
 //! Relationship to `cherchi2022_reference_parity.rs`:
 //! --------------------------------------------------
 //! The pre-existing parity tests check that Cherchi's output on Waffle's
 //! preprocessed A/B inputs is well-formed (a coarse upstream-vs-downstream
 //! discriminator). This harness goes further: it reads BOTH Cherchi's
-//! output OBJ AND Waffle's Stage-C unified output OBJ (post-
-//! `subdivide_mesh_pair`, written by `YANG_STAGE_DUMP`) and computes the
-//! position-quantized triangle-set difference. Future PR-Y30+ canaries
-//! consume the captured baselines in `docs/audits/pr_y29_baseline_diffs.md`
-//! as input.
+//! output OBJ AND Waffle's Stage-B output OBJ (the boolean result post-
+//! `face_survival_detect`, written by `YANG_STAGE_DUMP` at
+//! `topology_extract.rs:2569`) and computes the position-quantized
+//! triangle-set difference. Future PR-Y31+ canaries consume the captured
+//! baselines in `docs/audits/pr_y30_stage_b_baselines.md` as input.
 //!
 //! Both tests are `#[ignore]`-gated: they require the Cherchi binary
 //! (`CHERCHI2022_BIN` env, default
 //! `/home/claude/cherchi2022/InteractiveAndRobustMeshBooleans/build/mesh_booleans`).
 //!
-//! Refs: CLAUDE.md §"Reference parity is not optional"; PR-Y29 plan at
+//! Refs: CLAUDE.md §"Reference parity is not optional"; PR-Y30 plan at
 //! `/home/claude/.claude/plans/optimized-wandering-wind.md`;
-//! `cherchi2022_reference_parity.rs:71-140` for the OBJ parser pattern.
+//! `cherchi2022_reference_parity.rs:71-140` for the OBJ parser pattern;
+//! Yang 2025 §4.4.2 (mesh and B-Rep booleans) + Cherchi 2022 §3
+//! (well-formed simplicial complex) + §5 (in/out classification) for the
+//! reason Stage B is the apples-to-apples comparison point.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -186,7 +203,7 @@ fn fmt_qtri(t: &[(i64, i64, i64); 3]) -> String {
 
 /// Run the Yang pipeline on `case_id` with `YANG_DUMP_OBJ_BASE` and
 /// `YANG_STAGE_DUMP` armed; return paths to the dumped A.obj, B.obj, and
-/// Stage-C (unified post-`subdivide_mesh_pair`) OBJ.
+/// Stage-B (post-`face_survival_detect` boolean result) OBJ.
 fn run_waffle_and_collect_dumps(case_id: &str) -> WaffleDumpPaths {
     use test_harness::assay::randomized_runner::run_single_case;
 
@@ -209,16 +226,20 @@ fn run_waffle_and_collect_dumps(case_id: &str) -> WaffleDumpPaths {
     let path_b = workdir.join(format!("{}_b.obj", lower));
 
     // YANG_STAGE_DUMP=<dir> emits stage_*.obj under <dir>/<case_id>/.
-    // Stage "C" is the unified post-`subdivide_mesh_pair` triangle soup
-    // (verts shared across A∪B; `combined_tris` union — written at
-    // topology_extract.rs:1005). The conformal probe must be armed
-    // (YANG_CONFORMAL_PROBE=1) to reach the dump site at Stage C.
+    // Stage "B" is the post-`face_survival_detect` boolean result —
+    // flattened `survival.groups[*].verts` over the subdivided mesh's
+    // shared vertex array (written at topology_extract.rs:2569). This
+    // is the apples-to-apples comparison point against Cherchi's
+    // `mesh_booleans union` output (Cherchi 2022 §3 well-formed
+    // simplicial complex + §5 in/out classification; Yang §4.4.2 mesh
+    // and B-Rep booleans). The conformal probe must be armed
+    // (YANG_CONFORMAL_PROBE=1) to reach the Stage B dump site.
     let stage_dump_dir = workdir.join("stages");
     std::fs::create_dir_all(&stage_dump_dir).expect("create stage dump dir");
-    let path_stage_c = stage_dump_dir.join(case_id).join("stage_C.obj");
+    let path_stage_b = stage_dump_dir.join(case_id).join("stage_B.obj");
 
     // Clean any stale outputs so a partial run can't be mistaken for fresh.
-    for p in [&path_a, &path_b, &path_stage_c] {
+    for p in [&path_a, &path_b, &path_stage_b] {
         let _ = std::fs::remove_file(p);
     }
 
@@ -240,7 +261,7 @@ fn run_waffle_and_collect_dumps(case_id: &str) -> WaffleDumpPaths {
         workdir,
         path_a,
         path_b,
-        path_stage_c,
+        path_stage_b,
     }
 }
 
@@ -248,7 +269,7 @@ struct WaffleDumpPaths {
     workdir: PathBuf,
     path_a: PathBuf,
     path_b: PathBuf,
-    path_stage_c: PathBuf,
+    path_stage_b: PathBuf,
 }
 
 /// Invoke `mesh_booleans union A.obj B.obj OUT.obj` with a 30 s cap.
@@ -339,17 +360,17 @@ fn run_diff_for_case(case_id: &str) {
     {
         eprintln!(
             "[diff-harness {}] Cherchi invocation failed — cannot diff (Waffle \
-             Stage C output, if present, is reported below)",
+             Stage B output, if present, is reported below)",
             case_id
         );
         // Still emit Waffle side if it landed.
-        if dumps.path_stage_c.exists() {
-            let (vw, tw) = parse_obj(&dumps.path_stage_c).expect("parse Waffle stage_C.obj");
+        if dumps.path_stage_b.exists() {
+            let (vw, tw) = parse_obj(&dumps.path_stage_b).expect("parse Waffle stage_B.obj");
             let rw = check_conformal(&vw, &tw);
             eprintln!(
                 "=== {} diff (Cherchi unavailable) ===\nWaffle output:  {}",
                 case_id,
-                fmt_report_line(&rw, "Waffle Stage C")
+                fmt_report_line(&rw, "Waffle Stage B")
             );
         }
         return;
@@ -358,14 +379,15 @@ fn run_diff_for_case(case_id: &str) {
     let (cv, ct) = parse_obj(&path_cherchi_out).expect("parse Cherchi output");
     let cherchi_report = check_conformal(&cv, &ct);
 
-    // Waffle Stage C may not land if the pipeline short-circuits/panics
-    // upstream of Stage C (the conformal probe site). Report what we have.
-    if !dumps.path_stage_c.exists() {
+    // Waffle Stage B may not land if the pipeline short-circuits/panics
+    // upstream of Stage B (the post-survival conformal probe site).
+    // Report what we have.
+    if !dumps.path_stage_b.exists() {
         eprintln!(
-            "=== {} diff (Waffle Stage C unavailable) ===\nCherchi output: {}\n\
-             Waffle output:  ABSENT — Stage C dump not produced. Likely the \
+            "=== {} diff (Waffle Stage B unavailable) ===\nCherchi output: {}\n\
+             Waffle output:  ABSENT — Stage B dump not produced. Likely the \
              Yang pipeline panicked or returned an error before reaching the \
-             Stage-C conformal probe site (`topology_extract.rs:1005`). The \
+             Stage-B conformal probe site (`topology_extract.rs:2569`). The \
              case-status line above indicates the failure mode.",
             case_id,
             fmt_report_line(&cherchi_report, "Cherchi 2022")
@@ -373,7 +395,7 @@ fn run_diff_for_case(case_id: &str) {
         return;
     }
 
-    let (wv, wt) = parse_obj(&dumps.path_stage_c).expect("parse Waffle stage_C.obj");
+    let (wv, wt) = parse_obj(&dumps.path_stage_b).expect("parse Waffle stage_B.obj");
     let waffle_report = check_conformal(&wv, &wt);
 
     // Build canonicalized quantized triangle sets for set diff.
@@ -445,10 +467,11 @@ fn run_diff_for_case(case_id: &str) {
     eprintln!("=== end {} diff ===\n", case_id);
 }
 
-/// F0020 baseline: compares our Stage-C unified output against
-/// Cherchi 2022 `mesh_booleans union` on the same preprocessed inputs.
-/// Captures the diff for `docs/audits/pr_y29_baseline_diffs.md`; future
-/// PR-Y30+ canaries consume this baseline.
+/// F0020 baseline: compares our Stage-B post-survival boolean result
+/// against Cherchi 2022 `mesh_booleans union` on the same preprocessed
+/// inputs. Captures the diff for
+/// `docs/audits/pr_y30_stage_b_baselines.md`; future PR-Y31+ canaries
+/// consume this baseline.
 #[test]
 #[ignore]
 fn f0020_cherchi_diff_baseline() {
