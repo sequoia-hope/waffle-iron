@@ -272,18 +272,106 @@ struct WaffleDumpPaths {
     path_stage_b: PathBuf,
 }
 
-/// Invoke `mesh_booleans union A.obj B.obj OUT.obj` with a 30 s cap.
+/// Local enum mirroring `kernel::boolean::exact_mesh::MeshBooleanOp` (which
+/// is `pub(crate)` and not exported). Used to plumb the actual op for each
+/// dumped pair into the Cherchi invocation per PR-Y31 spec §4.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HarnessBoolOp {
+    Union,
+    Subtract,
+    #[allow(dead_code)] // No assay case currently exercises Intersect; scaffolding per spec §11.
+    Intersect,
+}
+
+fn op_to_cli_str(op: HarnessBoolOp) -> &'static str {
+    match op {
+        HarnessBoolOp::Union => "union",
+        HarnessBoolOp::Subtract => "subtraction",
+        HarnessBoolOp::Intersect => "intersection",
+    }
+}
+
+/// Read `app/tests/cases/assay/<CASE_ID>.waffle` and determine the boolean
+/// op for the FIRST dumped pair, which corresponds to the SECOND extrude
+/// feature (the first extrude produces solid A; the second's `cut` flag
+/// drives the first boolean against A). Per PR-Y31 spec §3:
+/// - `"cut": false` (or absent) → Union
+/// - `"cut": true` → Subtract
+/// - Intersect is not represented in the current corpus; per
+///   `feedback_yang_only.md` no fallback paths — panic with a clear message
+///   if a value other than bool appears.
+fn read_first_boolean_op(case_id: &str) -> HarnessBoolOp {
+    let path = Path::new(ASSAY_DIR).join(format!("{}.waffle", case_id));
+    let content = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+        panic!(
+            "[diff-harness {}] failed to read .waffle at {}: {}",
+            case_id,
+            path.display(),
+            e
+        )
+    });
+    let json: serde_json::Value = serde_json::from_str(&content).unwrap_or_else(|e| {
+        panic!(
+            "[diff-harness {}] failed to parse .waffle JSON at {}: {}",
+            case_id,
+            path.display(),
+            e
+        )
+    });
+
+    let features = json
+        .pointer("/tabs/0/kind/features/features")
+        .and_then(|v| v.as_array())
+        .unwrap_or_else(|| {
+            panic!(
+                "[diff-harness {}] .waffle missing tabs[0].kind.features.features array",
+                case_id
+            )
+        });
+
+    let mut extrude_count = 0usize;
+    for feature in features {
+        let op_type = feature
+            .pointer("/operation/type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if op_type != "Extrude" {
+            continue;
+        }
+        extrude_count += 1;
+        if extrude_count == 2 {
+            let cut = feature
+                .pointer("/operation/params/cut")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            return if cut {
+                HarnessBoolOp::Subtract
+            } else {
+                HarnessBoolOp::Union
+            };
+        }
+    }
+    panic!(
+        "[diff-harness {}] .waffle has < 2 Extrude features; cannot determine \
+         first boolean op (expected at least 2 extrudes for a boolean to exist)",
+        case_id
+    );
+}
+
+/// Invoke `mesh_booleans <op> A.obj B.obj OUT.obj` with a 30 s cap.
 /// Returns None on timeout / non-zero exit / no output (each cause logged).
-fn invoke_cherchi_union(
+fn invoke_cherchi(
     bin: &Path,
     path_a: &Path,
     path_b: &Path,
     path_out: &Path,
     case_id: &str,
+    op: HarnessBoolOp,
 ) -> Option<()> {
     let _ = std::fs::remove_file(path_out);
+    let op_str = op_to_cli_str(op);
     let mut cmd = Command::new(bin);
-    cmd.arg("union").arg(path_a).arg(path_b).arg(path_out);
+    cmd.arg(op_str).arg(path_a).arg(path_b).arg(path_out);
     match run_with_timeout(cmd, CHERCHI_SUBPROCESS_TIMEOUT) {
         TimedRun::Completed(out) => {
             if !out.status.success() {
@@ -344,17 +432,29 @@ fn run_diff_for_case(case_id: &str) {
         return;
     }
 
+    // Per PR-Y31 spec §3: read the boolean op for the FIRST dumped pair
+    // from the .waffle JSON's second Extrude feature so Cherchi runs the
+    // SAME op as Waffle (Cherchi 2022 §3 op-parameterized output).
+    let op = read_first_boolean_op(case_id);
+    let op_str = op_to_cli_str(op);
+    eprintln!(
+        "[diff-harness {}] resolved boolean op for first dumped pair: {:?} → cherchi `{}`",
+        case_id, op, op_str
+    );
+
     // Invoke Cherchi on Waffle's preprocessed A/B inputs.
     let path_cherchi_out = dumps.workdir.join(format!(
-        "{}_cherchi_union.obj",
-        case_id.to_ascii_lowercase()
+        "{}_cherchi_{}.obj",
+        case_id.to_ascii_lowercase(),
+        op_str
     ));
-    if invoke_cherchi_union(
+    if invoke_cherchi(
         &bin,
         &dumps.path_a,
         &dumps.path_b,
         &path_cherchi_out,
         case_id,
+        op,
     )
     .is_none()
     {
