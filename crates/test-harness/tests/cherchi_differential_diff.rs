@@ -73,6 +73,19 @@ const QUANTIZE_GRID: f64 = 1e-6;
 
 const TOP_N_REPORT: usize = 10;
 
+/// Outcome of one differential-diff invocation. Returned by
+/// `run_diff_for_case` so assertion-style tests (PR-Y31+) can verify
+/// numerical bounds rather than scrape eprintln output. `None` is
+/// returned when the case is skipped (no Cherchi binary; Waffle dumps
+/// absent; Cherchi invocation timed out / failed) — the caller decides
+/// whether skip is fatal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DiffCounts {
+    missing: usize,
+    extras: usize,
+    common: usize,
+}
+
 /// Minimal Wavefront OBJ parser — handles only `v x y z` and `f i j k`
 /// lines, 1-indexed. Skips blank/comment/`vn`/`vt`/`vp`/`g`/`o`/`mtllib`/
 /// `usemtl` lines. Duplicates the pattern from
@@ -407,7 +420,7 @@ fn invoke_cherchi(
 
 /// Run F0020 / cohort case through the full diff: emit Cherchi + Waffle
 /// summaries, set difference counts, and TOP_N missing/extra triangles.
-fn run_diff_for_case(case_id: &str) {
+fn run_diff_for_case(case_id: &str) -> Option<DiffCounts> {
     let bin = match cherchi_bin() {
         Some(p) => p,
         None => {
@@ -415,7 +428,7 @@ fn run_diff_for_case(case_id: &str) {
                 "[diff-harness {}] SKIP: CHERCHI2022_BIN unset/missing",
                 case_id
             );
-            return;
+            return None;
         }
     };
 
@@ -429,7 +442,7 @@ fn run_diff_for_case(case_id: &str) {
             dumps.path_a.display(),
             dumps.path_b.display()
         );
-        return;
+        return None;
     }
 
     // Per PR-Y31 spec §3: read the boolean op for the FIRST dumped pair
@@ -473,7 +486,7 @@ fn run_diff_for_case(case_id: &str) {
                 fmt_report_line(&rw, "Waffle Stage B")
             );
         }
-        return;
+        return None;
     }
 
     let (cv, ct) = parse_obj(&path_cherchi_out).expect("parse Cherchi output");
@@ -492,7 +505,7 @@ fn run_diff_for_case(case_id: &str) {
             case_id,
             fmt_report_line(&cherchi_report, "Cherchi 2022")
         );
-        return;
+        return None;
     }
 
     let (wv, wt) = parse_obj(&dumps.path_stage_b).expect("parse Waffle stage_B.obj");
@@ -565,6 +578,12 @@ fn run_diff_for_case(case_id: &str) {
         eprintln!("  tri[{}] = {}", i, fmt_qtri(t));
     }
     eprintln!("=== end {} diff ===\n", case_id);
+
+    Some(DiffCounts {
+        missing: missing_from_waffle.len(),
+        extras: extra_in_waffle.len(),
+        common,
+    })
 }
 
 /// F0020 baseline: compares our Stage-B post-survival boolean result
@@ -575,7 +594,7 @@ fn run_diff_for_case(case_id: &str) {
 #[test]
 #[ignore]
 fn f0020_cherchi_diff_baseline() {
-    run_diff_for_case("F0020");
+    let _ = run_diff_for_case("F0020");
 }
 
 /// Cohort baseline: F0044, F0045, R0092 — three additional cases that
@@ -586,6 +605,43 @@ fn f0020_cherchi_diff_baseline() {
 #[ignore]
 fn cohort_cherchi_diff_baseline() {
     for case in &["F0044", "F0045", "R0092"] {
-        run_diff_for_case(case);
+        let _ = run_diff_for_case(case);
     }
+}
+
+/// PR-Y31 load-bearing assertion: F0044's "48 extras" was a harness
+/// mis-configuration (PR-Y29/Y30 hardcoded Cherchi `union`; F0044's
+/// first dumped op is `Subtract`). With the op-plumb fix at impl-y31
+/// (`e720629`), F0044 Stage B vs Cherchi `subtraction` on the same
+/// preprocessed inputs must agree: 0 missing AND 0 extras.
+///
+/// Pre-fix baseline (PR-Y30 `27a09ed`, harness invoked `union`):
+/// 88 common, 0 missing, 48 extras.
+/// Post-fix expectation (this commit, harness invokes `subtraction`):
+/// 136 common, 0 missing, 0 extras.
+///
+/// Skip-quietly contract: if `CHERCHI2022_BIN` is unset or the binary
+/// is missing, the test no-ops (matches the baseline tests above);
+/// this matches the `#[ignore]` posture — CI/local devs without
+/// Cherchi installed can still run `cargo test` and not see a hard
+/// failure.
+#[test]
+#[ignore]
+fn pr_y31_f0044_extras_zero() {
+    let Some(counts) = run_diff_for_case("F0044") else {
+        eprintln!("[pr_y31_f0044_extras_zero] SKIP: diff harness returned None");
+        return;
+    };
+    assert_eq!(
+        counts.extras, 0,
+        "PR-Y31 F0044 Stage B extras must be 0 (was 48 pre-op-plumb-fix); \
+         got missing={} extras={} common={}",
+        counts.missing, counts.extras, counts.common
+    );
+    assert_eq!(
+        counts.missing, 0,
+        "PR-Y31 F0044 Stage B missing must be 0 (no triangles dropped relative to Cherchi); \
+         got missing={} extras={} common={}",
+        counts.missing, counts.extras, counts.common
+    );
 }
