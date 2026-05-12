@@ -153,9 +153,31 @@ pub(crate) fn triangulation_with_parents(
     // iterator would obscure intent.
     #[allow(clippy::needless_range_loop)]
     for t_id in 0..ts.num_tris() {
-        if (aux.triangle_has_intersections(t_id) && aux.triangle_has_actual_intersection_data(t_id))
-            || aux.triangle_has_coplanars(t_id)
-        {
+        let flagged = (aux.triangle_has_intersections(t_id)
+            && aux.triangle_has_actual_intersection_data(t_id))
+            || aux.triangle_has_coplanars(t_id);
+
+        // PR-Y35.1: widen gate to include triangles whose edges carry
+        // intersection points from a sibling (same- or cross-mesh) pair.
+        // Cherchi 2022 §3 segment-insertion contract: `edge2pts` is a global
+        // map, and conformal subdivision requires every triangle sharing an
+        // edge with a split to incorporate that split — even if the triangle
+        // itself has no cross-mesh pair (e.g. its sibling across the shared
+        // edge does, and the cinolib-correct predicate rejected the same-mesh
+        // pair as SIMPLICIAL_COMPLEX).
+        let has_edge_split = !flagged && {
+            let v0 = ts.tri_vert_id(t_id, 0);
+            let v1 = ts.tri_vert_id(t_id, 1);
+            let v2 = ts.tri_vert_id(t_id, 2);
+            let edge_has_pts = |a, b| {
+                ts.edge_id(a, b)
+                    .map(|e| !aux.edge_points_list(e).is_empty())
+                    .unwrap_or(false)
+            };
+            edge_has_pts(v0, v1) || edge_has_pts(v1, v2) || edge_has_pts(v2, v0)
+        };
+
+        if flagged || has_edge_split {
             tris_to_split.push(t_id);
         } else {
             // Triangle without intersections directly goes to the output list
@@ -2858,5 +2880,92 @@ mod tests {
         // short-circuits → silent skip → `#[should_panic]` fails with "test
         // did not panic as expected". Post-fix: debug_assert! fires.
         reposition_points_in_stack(&subm, &mut stack, &mut curr_subdv, &curr_tri);
+    }
+
+    /// PR-Y35.1 — isolated gate-widening test.
+    ///
+    /// Builds a 2-triangle TriangleSoup sharing an edge, manually populates
+    /// `aux.edge2pts[shared_edge]` with a synthetic intersection point WITHOUT
+    /// setting `tri_has_intersections` on either triangle, then drives the
+    /// `triangulation_with_parents` pass.
+    ///
+    /// Pre-fix (gate at line 155 checks only `tri_has_intersections` /
+    /// `triangle_has_coplanars`): both triangles fall into the passthrough
+    /// branch → each parent contributes exactly 1 output triangle.
+    ///
+    /// Post-fix (gate also checks `edge_points_list`): both triangles enter
+    /// `tris_to_split`, their shared edge's split point is incorporated, and
+    /// each parent contributes > 1 output sub-triangles.
+    ///
+    /// This isolates the gate-widening behavior from the upstream cinolib
+    /// `triangles_intersect_exact` predicate and the downstream
+    /// `subdivide_mesh_pair` driver. The end-to-end coverage lives in
+    /// `boolean::exact_mesh::tests::test_subdivision_shared_edge_split_propagation`.
+    #[test]
+    fn test_gate_widening_edge2pts_propagates_split_to_sibling() {
+        // Two coplanar triangles sharing edge (v1, v2) on the XY plane.
+        //   v0=(-1, 0, 0)   v3=(1, 0, 0)
+        //   v1=(0, -1, 0)   v2=(0, 1, 0)
+        // T0=(0,1,2)   T1=(1,3,2)
+        let coords = vec![
+            [-1.0, 0.0, 0.0], // v0
+            [0.0, -1.0, 0.0], // v1
+            [0.0, 1.0, 0.0],  // v2
+            [1.0, 0.0, 0.0],  // v3
+        ];
+        let tris = vec![
+            0, 1, 2, // T0
+            1, 3, 2, // T1
+        ];
+        let labels = vec![0u32, 0u32]; // same mesh
+        let mut ts = TriangleSoup::new(coords, tris, labels, 1.0);
+
+        let mut aux = AuxiliaryStructure::new();
+        aux.init_from_triangle_soup(&ts);
+
+        // Synthetic intersection point at the midpoint of the shared edge
+        // (v1, v2). Added as an Explicit ImplicitPoint with a fresh vertex ID
+        // — the same shape `add_vertex_in_edge` would receive from
+        // `classify_intersections` in the real pipeline.
+        let split_v_id = ts.add_impl_point(ImplicitPoint::Explicit([0.0, 0.0, 0.0]));
+
+        // edge2pts is sized by `init_from_triangle_soup` to ts.num_edges()
+        // BEFORE the implicit point was added — the shared edge ID is stable
+        // and resolves the same way.
+        let shared_edge_id = ts
+            .edge_id(1, 2)
+            .expect("shared edge (1,2) must exist in TriangleSoup");
+        aux.add_vertex_in_edge(shared_edge_id, split_v_id);
+
+        // Crucially, do NOT call `set_triangle_has_intersections` on either
+        // triangle. This mirrors the cinolib-correct semantics from PR-Y35:
+        // same-mesh shared-edge pairs are SIMPLICIAL_COMPLEX-rejected and
+        // never flagged, even though edge2pts is populated by some other
+        // (cross-mesh) pair touching the shared edge.
+
+        let empty_orientations: Vec<Option<Orientation>> = vec![None; ts.num_tris()];
+        let (_new_tris, _new_labels, parent_tris, _orient) =
+            triangulation_with_parents(&mut ts, &mut aux, &empty_orientations);
+
+        // Count sub-triangles per parent.
+        let mut count_t0 = 0usize;
+        let mut count_t1 = 0usize;
+        for &p in &parent_tris {
+            match p {
+                0 => count_t0 += 1,
+                1 => count_t1 += 1,
+                _ => panic!("unexpected parent id {p}"),
+            }
+        }
+
+        // Pre-fix: count_t0 == 1, count_t1 == 1 (both passthrough).
+        // Post-fix: count_t0 > 1 AND count_t1 > 1 (both subdivided around the
+        // shared-edge split point).
+        assert!(
+            count_t0 > 1 && count_t1 > 1,
+            "PR-Y35.1 gate widening required: both triangles share an edge with \
+             a non-empty edge_points_list and must both be subdivided. Got \
+             count_t0={count_t0}, count_t1={count_t1} (parent_tris={parent_tris:?})."
+        );
     }
 }

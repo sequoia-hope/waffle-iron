@@ -5413,9 +5413,13 @@ mod tests {
     ///
     /// The split-propagation responsibility belongs to the downstream
     /// `subdivide_mesh_pair` stage, not the upstream detection stage. PR-Y35.1
-    /// (banked) will add post-`classify_intersections` edge2pts propagation
-    /// across same-mesh shared edges, after which this test re-enables.
-    #[ignore = "PR-Y35.1 banked — subdivide_mesh_pair shared-edge propagation"]
+    /// re-enables this test by widening the `triangulation.rs:155` gate to
+    /// also add triangles to `tris_to_split` when any of their 3 edges has a
+    /// non-empty `aux.edge_points_list` (Cherchi 2022 §3 segment-insertion
+    /// contract: `edge2pts` is the global propagation mechanism for shared-edge
+    /// splits). Now the sibling triangle across a split shared edge is
+    /// subdivided even when its own cross-mesh pair is correctly rejected as
+    /// SIMPLICIAL_COMPLEX by the cinolib predicate.
     #[test]
     fn test_subdivision_shared_edge_split_propagation() {
         // Diamond mesh A: 5 vertices, 2 triangles sharing edge (1,2) along Y axis
