@@ -38,7 +38,7 @@ use self::processing::{
 };
 use self::triangle_soup::TriangleSoup;
 use self::triangulation::triangulation_with_parents;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 // PR10 Path A-refined: re-export the cosurface orientation enum so consumers
 // (e.g. `exact_mesh::SubTriangle`) can plumb it through. Cherchi 2020 §5.4 /
@@ -49,6 +49,12 @@ pub(crate) use processing::Orientation;
 // references a jolly vertex. Jolly points are a Cherchi 2020 §5.4 algorithmic
 // construct (5 fixed utility points) — informational only, not a hack.
 pub(crate) static JOLLY_POINT_CREATIONS: AtomicUsize = AtomicUsize::new(0);
+
+// Y33_PROBE: per-`solve_intersections`-call counter so multi-invocation cases
+// (e.g. F0020 = 3 extrudes → 2 boolean invocations) dump into distinct
+// per-invocation subdirectories (`inv0/`, `inv1/`, ...). Only matters when
+// `Y33_PROBE=1`; otherwise the counter still increments but no dumps happen.
+static Y33_INVOCATION_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// Result of the mesh arrangement pipeline.
 #[allow(dead_code)]
@@ -69,6 +75,206 @@ pub(crate) struct SolveResult {
     /// preprocessed triangle was a STAGE2 cosurface merge; `None` otherwise.
     /// Cherchi 2020 §5.4 / Hoffmann 1989 §5.3.
     pub cosurface_orientation: Vec<Option<Orientation>>,
+}
+
+/// Y33_PROBE: per-stage dump utilities. Gated entirely behind `Y33_PROBE=1`
+/// env var; output directory from `Y33_PROBE_DIR` (default
+/// `/tmp/y33-canary/waffle`). Output formats are intentionally simple text —
+/// designed for line-by-line diff against matching dumps from the Cherchi 2022
+/// C++ reference patched at
+/// `~/cherchi2022/InteractiveAndRobustMeshBooleans/arrangements/code/solve_intersections.cpp`.
+mod y33_probe {
+    use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use std::path::PathBuf;
+
+    pub(super) fn dir_for(inv: u32) -> Option<PathBuf> {
+        if std::env::var("Y33_PROBE").as_deref() != Ok("1") {
+            return None;
+        }
+        let base =
+            std::env::var("Y33_PROBE_DIR").unwrap_or_else(|_| "/tmp/y33-canary/waffle".to_string());
+        let inv_dir = PathBuf::from(base).join(format!("inv{}", inv));
+        std::fs::create_dir_all(&inv_dir).ok()?;
+        Some(inv_dir)
+    }
+
+    /// Remap a Rust vertex id to the C++ vertex-id space: Rust has jolly
+    /// points at `[num_orig..num_orig+5)` and implicit verts at
+    /// `[num_orig+5..)`; C++ doesn't insert jolly points until
+    /// `appendJollyPoints()` (called AFTER triangulation in
+    /// `solveIntersections.cpp:66`), so C++ implicit verts are at
+    /// `[num_orig..)`. To make dumps byte-comparable, the Rust dump skips the
+    /// 5 jolly slots and renumbers implicits down by 5.
+    fn remap_vid(v_id: usize, n_orig: usize) -> Option<usize> {
+        if v_id < n_orig {
+            Some(v_id)
+        } else if v_id < n_orig + 5 {
+            None // jolly — filtered out for C++ parity at this stage
+        } else {
+            Some(v_id - 5)
+        }
+    }
+
+    pub(super) fn dump_stage3(dir: &PathBuf, ts: &TriangleSoup, multiplier: f64) {
+        let inv_mul = if multiplier != 0.0 {
+            1.0 / multiplier
+        } else {
+            1.0
+        };
+        let n_orig = ts.num_orig_verts();
+        if let Ok(mut f) = File::create(dir.join("stage3_verts.txt")) {
+            // Emit originals only (STAGE3 has no implicits yet; jolly skipped).
+            for v_id in 0..n_orig {
+                let p = ts.implicit_point(v_id).materialize().unwrap_or([0.0; 3]);
+                let _ = writeln!(
+                    f,
+                    "{} O {:.15e} {:.15e} {:.15e}",
+                    v_id,
+                    p[0] * inv_mul,
+                    p[1] * inv_mul,
+                    p[2] * inv_mul
+                );
+            }
+        }
+        if let Ok(mut f) = File::create(dir.join("stage3_jolly.txt")) {
+            // Jolly points emitted separately (informational; never in F0020 output).
+            for j in 0..5 {
+                let p = ts
+                    .implicit_point(n_orig + j)
+                    .materialize()
+                    .unwrap_or([0.0; 3]);
+                let _ = writeln!(
+                    f,
+                    "{} J {:.15e} {:.15e} {:.15e}",
+                    j,
+                    p[0] * inv_mul,
+                    p[1] * inv_mul,
+                    p[2] * inv_mul
+                );
+            }
+        }
+        if let Ok(mut f) = File::create(dir.join("stage3_tris.txt")) {
+            for t_id in 0..ts.num_tris() {
+                let t = ts.tri(t_id);
+                let v0 = remap_vid(t[0], n_orig).unwrap_or(usize::MAX);
+                let v1 = remap_vid(t[1], n_orig).unwrap_or(usize::MAX);
+                let v2 = remap_vid(t[2], n_orig).unwrap_or(usize::MAX);
+                let _ = writeln!(f, "{} {} {} {} {}", t_id, v0, v1, v2, ts.tri_label(t_id));
+            }
+        }
+        if let Ok(mut f) = File::create(dir.join("stage3_edges.txt")) {
+            for e_id in 0..ts.num_edges() {
+                let (a, b) = ts.edge_verts(e_id);
+                let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+                let lo = remap_vid(lo, n_orig).unwrap_or(usize::MAX);
+                let hi = remap_vid(hi, n_orig).unwrap_or(usize::MAX);
+                let _ = writeln!(f, "{} {} {}", e_id, lo, hi);
+            }
+        }
+    }
+
+    pub(super) fn dump_stage4(dir: &PathBuf, aux: &AuxiliaryStructure) {
+        let mut pairs: Vec<(usize, usize)> = aux
+            .intersection_list()
+            .iter()
+            .map(|&(a, b)| if a < b { (a, b) } else { (b, a) })
+            .collect();
+        pairs.sort();
+        if let Ok(mut f) = File::create(dir.join("stage4_pairs.txt")) {
+            for (a, b) in pairs {
+                let _ = writeln!(f, "{} {}", a, b);
+            }
+        }
+    }
+
+    pub(super) fn dump_stage5(dir: &PathBuf, ts: &TriangleSoup, aux: &AuxiliaryStructure) {
+        let n_orig = ts.num_orig_verts();
+        let remap = |v: usize| remap_vid(v, n_orig).unwrap_or(usize::MAX);
+        if let Ok(mut f) = File::create(dir.join("stage5_int_tris.txt")) {
+            for t_id in 0..ts.num_tris() {
+                if aux.triangle_has_intersections(t_id) {
+                    let _ = writeln!(f, "{}", t_id);
+                }
+            }
+        }
+        if let Ok(mut f) = File::create(dir.join("stage5_cop_tris.txt")) {
+            for t_id in 0..ts.num_tris() {
+                if aux.triangle_has_coplanars(t_id) {
+                    let mut cop: Vec<usize> = aux.coplanar_triangles(t_id).to_vec();
+                    cop.sort();
+                    let _ = writeln!(f, "{} {:?}", t_id, cop);
+                }
+            }
+        }
+        if let Ok(mut f) = File::create(dir.join("stage5_segs.txt")) {
+            for t_id in 0..ts.num_tris() {
+                let segs = aux.triangle_segments_list(t_id);
+                if !segs.is_empty() {
+                    let mut canon: Vec<(usize, usize)> = segs
+                        .iter()
+                        .map(|&(a, b)| {
+                            let ra = remap(a);
+                            let rb = remap(b);
+                            if ra < rb {
+                                (ra, rb)
+                            } else {
+                                (rb, ra)
+                            }
+                        })
+                        .collect();
+                    canon.sort();
+                    for (a, b) in canon {
+                        let _ = writeln!(f, "{} {} {}", t_id, a, b);
+                    }
+                }
+            }
+        }
+        if let Ok(mut f) = File::create(dir.join("stage5_tri2pts.txt")) {
+            for t_id in 0..ts.num_tris() {
+                let pts = aux.triangle_points_list(t_id);
+                if !pts.is_empty() {
+                    let mut p: Vec<usize> = pts.iter().map(|&v| remap(v)).collect();
+                    p.sort();
+                    let _ = writeln!(f, "{} {:?}", t_id, p);
+                }
+            }
+        }
+    }
+
+    pub(super) fn dump_stage6(
+        dir: &PathBuf,
+        ts: &TriangleSoup,
+        new_tris_flat: &[usize],
+        multiplier: f64,
+    ) {
+        let n_orig = ts.num_orig_verts();
+        let approx = compute_approximate_coordinates(&ts.vertices, multiplier);
+        // Emit non-jolly verts (originals + implicits) renumbered to C++ ID space.
+        // Note: `compute_approximate_coordinates` excludes jolly points internally
+        // by truncating at num_non_jolly (per processing.rs:338-365).
+        if let Ok(mut f) = File::create(dir.join("stage6_verts.txt")) {
+            for (v_id, p) in approx.iter().enumerate() {
+                // approx is indexed [0..num_orig + n_implicit) — already excludes jollies.
+                // But the original-id-to-emit mapping is identity for [0..n_orig)
+                // and (v_id - 0) for [n_orig..) because compute_approximate skips
+                // 5 jolly slots between them. Verify by checking len.
+                let _ = writeln!(f, "{} {:.15e} {:.15e} {:.15e}", v_id, p[0], p[1], p[2]);
+            }
+        }
+        // Triangle verts may still reference Rust's pre-renumbering ID space
+        // (with jolly slots). Apply remap_vid to convert to C++ ID space.
+        if let Ok(mut f) = File::create(dir.join("stage6_tris.txt")) {
+            let n = new_tris_flat.len() / 3;
+            for t in 0..n {
+                let v0 = remap_vid(new_tris_flat[3 * t], n_orig).unwrap_or(usize::MAX);
+                let v1 = remap_vid(new_tris_flat[3 * t + 1], n_orig).unwrap_or(usize::MAX);
+                let v2 = remap_vid(new_tris_flat[3 * t + 2], n_orig).unwrap_or(usize::MAX);
+                let _ = writeln!(f, "{} {} {} {}", t, v0, v1, v2);
+            }
+        }
+    }
 }
 
 /// Top-level mesh arrangement pipeline.
@@ -99,6 +305,10 @@ pub(crate) fn solve_intersections(
     // PR2 telemetry: snapshot jolly counter at entry; emit per-call delta after
     // STAGE6. Tracks how often Cherchi 2020 §5.4 coplanar-disambiguation fires.
     let jolly_before = JOLLY_POINT_CREATIONS.load(Ordering::Relaxed);
+
+    // Y33_PROBE: which invocation are we on this corpus run.
+    let y33_inv = Y33_INVOCATION_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let y33_dir = y33_probe::dir_for(y33_inv);
 
     // Step 1: Compute multiplier for predicate stability
     let multiplier = compute_multiplier_flat(in_coords);
@@ -138,6 +348,9 @@ pub(crate) fn solve_intersections(
         ts.num_edges(),
         ts.num_tris()
     );
+    if let Some(d) = y33_dir.as_ref() {
+        y33_probe::dump_stage3(d, &ts, multiplier);
+    }
 
     // Step 5: Detect intersecting triangle pairs (broad-phase BVH + exact predicates)
     let mut aux = AuxiliaryStructure::new();
@@ -147,6 +360,9 @@ pub(crate) fn solve_intersections(
         "[cherchi-trace] STAGE4 pairs: {}",
         aux.intersection_list().len()
     );
+    if let Some(d) = y33_dir.as_ref() {
+        y33_probe::dump_stage4(d, &aux);
+    }
 
     // Step 6: Classify intersections — populate edge2pts, tri2pts, tri2segs
     classify_intersections(&mut ts, &mut aux);
@@ -160,6 +376,9 @@ pub(crate) fn solve_intersections(
         "[cherchi-trace] STAGE5 classify: {} with_intersections, {} with_coplanars",
         tris_with_int, tris_with_cop
     );
+    if let Some(d) = y33_dir.as_ref() {
+        y33_probe::dump_stage5(d, &ts, &aux);
+    }
 
     // Step 7: Triangulate — subdivide intersected triangles. PR10:
     // `clean_orientations` is keyed by preprocessed-triangle index and is
@@ -170,6 +389,9 @@ pub(crate) fn solve_intersections(
         "[cherchi-trace] STAGE6 triangulation: {} tris",
         new_tris_flat.len() / 3
     );
+    if let Some(d) = y33_dir.as_ref() {
+        y33_probe::dump_stage6(d, &ts, &new_tris_flat, multiplier);
+    }
 
     // PR2 telemetry: emit per-call jolly delta. Tracks how often Cherchi 2020
     // §5.4 coplanar-disambiguation fires across the assay corpus.
