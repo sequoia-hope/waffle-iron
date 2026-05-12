@@ -577,6 +577,30 @@ fn run_diff_for_case(case_id: &str) -> Option<DiffCounts> {
     for (i, t) in extra_sorted.iter().take(TOP_N_REPORT).enumerate() {
         eprintln!("  tri[{}] = {}", i, fmt_qtri(t));
     }
+
+    // Y32_DUMP_POSITIONS: emit full position lists for canary use. Quant
+    // keys are integers; we dump them as `[qx,qy,qz];[qx,qy,qz];[qx,qy,qz]`
+    // one per line, sorted, with a section delimiter so a downstream test
+    // can grep + load them via stable IDs.
+    if std::env::var("Y32_DUMP_POSITIONS").as_deref() == Ok("1") {
+        eprintln!("[y32-positions {} missing-from-waffle begin n={}]", case_id, missing_sorted.len());
+        for t in &missing_sorted {
+            eprintln!(
+                "[y32-pos {}] M {},{},{};{},{},{};{},{},{}",
+                case_id, t[0].0, t[0].1, t[0].2, t[1].0, t[1].1, t[1].2, t[2].0, t[2].1, t[2].2
+            );
+        }
+        eprintln!("[y32-positions {} missing-from-waffle end]", case_id);
+        eprintln!("[y32-positions {} extra-in-waffle begin n={}]", case_id, extra_sorted.len());
+        for t in &extra_sorted {
+            eprintln!(
+                "[y32-pos {}] X {},{},{};{},{},{};{},{},{}",
+                case_id, t[0].0, t[0].1, t[0].2, t[1].0, t[1].1, t[1].2, t[2].0, t[2].1, t[2].2
+            );
+        }
+        eprintln!("[y32-positions {} extra-in-waffle end]", case_id);
+    }
+
     eprintln!("=== end {} diff ===\n", case_id);
 
     Some(DiffCounts {
