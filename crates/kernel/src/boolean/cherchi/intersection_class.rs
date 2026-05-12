@@ -131,12 +131,12 @@ pub(crate) fn detect_intersections(
                 let len0_sq = n0[0] * n0[0] + n0[1] * n0[1] + n0[2] * n0[2];
                 let len1_sq = n1[0] * n1[0] + n1[1] * n1[1] + n1[2] * n1[2];
                 if dot > 0.0 && len0_sq > 1e-30 && len1_sq > 1e-30 {
-                    if ts.tri_label(t0) == ts.tri_label(t1) {
-                        // Same-mesh: safe to skip co-oriented pairs.
-                        continue;
-                    }
-                    // Cross-mesh: skip only if t1 is strictly on one side
-                    // of t0's plane (not coplanar, no straddling).
+                    // Skip only if t1 is strictly on one side of t0's plane
+                    // (not coplanar, no straddling). Manifold-agnostic — sound
+                    // for Cherchi 2022 §3 soup input which may contain co-planar
+                    // same-mesh face pairs along edges (e.g. F0020 3-extrude).
+                    // Yang 2025 §4.2.2 Theorem 4.1 same-mesh shortcut removed:
+                    // its manifold premise is violated by Cherchi's input contract.
                     let a = ts.tri_vert(t0, 0);
                     let b = ts.tri_vert(t0, 1);
                     let c = ts.tri_vert(t0, 2);
