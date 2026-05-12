@@ -212,7 +212,44 @@ All 95 Waffle-extra pairs contribute to Waffle's STAGE5 int_tris set, meaning th
 
 **Fix shape:** Re-port `triangles_intersect_exact` to match cinolib's exact-predicate semantics. This requires either (a) porting cinolib's exact predicate path or (b) using the geometry-predicates crate's `tri3_tri3` equivalent. LOC budget: 100-200 LOC. Predicted effect: F0020 STAGE4 pair count drops from 155 → ~108 (or ~84 if all extras are eliminated and the 24 under-detects fixed).
 
-### §4.3 STAGE5 independent divergence (post-cascade)
+### §4.3 Propagation check — does sub-anchor A alone close PR-Y33's actual gate?
+
+Per team-lead refinement (post-canary): PR-Y33's load-bearing oracle is **F0020 Stage B missing-count** (not byte-parity with C++ at STAGE4). The 24 Cherchi-only STAGE4 pairs drive Stage B missing-count direction; the 95 Waffle-only pairs drive Stage B extras (NOT gated per PR-Y32 banked finding).
+
+**Empirical propagation trace** (`/tmp/y33-canary/trace_propagation.py`): for each Cherchi-only STAGE4 pair, identify the Cherchi triangles participating, walk Cherchi's STAGE5 `tri2pts` to enumerate the intersection-point IDs those tris produce, project to STAGE6 positions, and check whether the 19 Cherchi-only STAGE6 vertex positions are **EXCLUSIVELY** produced by Cherchi-only STAGE4 pairs:
+
+```
+Cherchi-only STAGE4 pairs:                                                24
+Cherchi tids participating in Cherchi-only pairs:                         24
+Cherchi STAGE5 intersection-point IDs touched by those tris:              49
+Cherchi intersection points EXCLUSIVELY from Cherchi-only pairs:           0
+Position-canonical Cherchi-exclusive intersection verts:                   0
+
+Cherchi-only STAGE6 vert positions (total): 19
+  Of which traceable to Cherchi-only STAGE4 pairs (exclusive):  0   (0%)
+
+Cherchi-only STAGE6 tri positions (total): 371
+  Of which reference a Cherchi-only-pair-exclusive vert:        0   (0%)
+
+Loose proxy — Cherchi-only STAGE6 tris using ≥1 vert of a
+  Cherchi-only-pair INPUT TRIANGLE: 172/371 (46%)
+```
+
+**Interpretation.** Cherchi's `classifyIntersections` accumulates intersection-point contributions per triangle from ALL pairs that triangle participates in. The 24 Cherchi-only pairs' input triangles ALSO participate in pairs Waffle DID detect (the 60 common pairs). So the intersection points Cherchi computes for these triangles include contributions from BOTH common and Cherchi-only pairs. There is **NO subset of Cherchi STAGE6 verts that is exclusively produced by the 24 Cherchi-only STAGE4 pairs.**
+
+**Consequence for CASE A vs CASE B.** This refutes the "sub-anchor A alone (Gauss-map removal) drives F0020 missing → 0" hypothesis. If we remove the Gauss-map filter:
+- Waffle's STAGE4 gains 24 pairs → pair-set grows from 155 to ~179 (95 extras remain, 60 common remain, 24 newly-detected join)
+- Waffle's STAGE5 re-classifies those tris with the additional pair contributions
+- But Waffle's STAGE5 `classify_intersections` still uses `triangles_intersect_exact` (sub-anchor B) for the per-pair point computation; if THAT divergence is what's preventing the 19 Cherchi-only positions from being computed, sub-anchor A's fix is necessary-but-not-sufficient
+
+**Predicted F0020 missing-count post-sub-anchor-A-only** (high uncertainty):
+- Best case: 93 → ~50-60 (sub-anchor A adds the 24 missing pairs, restores some Cherchi-only positions via Waffle's existing classify even with sub-anchor B divergence)
+- Likely case: 93 → ~70-80 (modest improvement; most Cherchi-only positions also need sub-anchor B)
+- Worst case: 93 → 90+ (Waffle classify path on the 24 newly-detected pairs produces the same wrong positions; sub-anchor B is load-bearing)
+
+**This empirical check confirms CASE B is the correct verdict.** The 24 missed pairs at STAGE4 do not have a clean exclusive-propagation chain into the 19 Cherchi-only STAGE6 verts. The 46% loose-proxy coverage is SUGGESTIVE that sub-anchor A might help, but not at the ≥80% confidence the CASE A gate requires. PR-Y34 should still attempt sub-anchor A first (it's a cheap, paper-cited deletion that addresses the actual hypothesis Yang 2025 §4.2.2 Theorem 4.1 makes), but the F0020 missing-count improvement is not guaranteed by sub-anchor A alone.
+
+### §4.4 STAGE5 independent divergence (post-cascade)
 
 Even after STAGE4's pair-set is corrected, STAGE5 has independent divergence:
 - Waffle 60 segments / Cherchi 80 / **18 common** — only 18/60 = 30% of Waffle's segs match Cherchi
