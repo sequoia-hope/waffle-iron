@@ -1466,8 +1466,62 @@ fn triangles_intersect_exact(ts: &TriangleSoup, t0: usize, t1: usize) -> bool {
     let t0v = [ts.tri_vert(t0, 0), ts.tri_vert(t0, 1), ts.tri_vert(t0, 2)];
     let t1v = [ts.tri_vert(t1, 0), ts.tri_vert(t1, 1), ts.tri_vert(t1, 2)];
 
-    // Test each edge of t0 against triangle t1, and vice versa
-    // Ported from cinolib/predicates.cpp:1224-1232
+    let mut t0_shared = [false; 3];
+    let mut t1_shared = [false; 3];
+    for i in 0..3 {
+        for j in 0..3 {
+            if t0v[i] == t1v[j] {
+                t0_shared[i] = true;
+                t1_shared[j] = true;
+            }
+        }
+    }
+    let shared_count = t0_shared.iter().filter(|&&s| s).count();
+
+    if shared_count == 3 {
+        return false;
+    }
+
+    if shared_count == 2 {
+        let opp0 = (0..3).position(|i| !t0_shared[i]).unwrap();
+        let opp1 = (0..3).position(|i| !t1_shared[i]).unwrap();
+
+        if orient3d(t0v[0], t0v[1], t0v[2], t1v[opp1]) != 0.0 {
+            return false;
+        }
+
+        let e: Vec<usize> = (0..3).filter(|&i| t0_shared[i]).collect();
+        let e0 = t0v[e[0]];
+        let e1 = t0v[e[1]];
+        let p0 = t0v[opp0];
+        let p1 = t1v[opp1];
+
+        // Project onto each of the 3 axis-aligned 2D planes (drop X / Y / Z).
+        for &(a, b) in &[(1usize, 2usize), (0, 2), (0, 1)] {
+            let e0_2d = [e0[a], e0[b]];
+            let e1_2d = [e1[a], e1[b]];
+            let o0 = orient2d(e0_2d, e1_2d, [p0[a], p0[b]]);
+            let o1 = orient2d(e0_2d, e1_2d, [p1[a], p1[b]]);
+            if (o0 > 0.0 && o1 < 0.0) || (o0 < 0.0 && o1 > 0.0) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    if shared_count == 1 {
+        let v0 = (0..3).position(|i| t0_shared[i]).unwrap();
+        let v1 = (0..3).position(|i| t1_shared[i]).unwrap();
+
+        let opp0 = (t0v[(v0 + 1) % 3], t0v[(v0 + 2) % 3]);
+        let opp1 = (t1v[(v1 + 1) % 3], t1v[(v1 + 2) % 3]);
+
+        return detect_seg_tri_intersect(&opp0.0, &opp0.1, &t1v[0], &t1v[1], &t1v[2])
+            || detect_seg_tri_intersect(&opp1.0, &opp1.1, &t0v[0], &t0v[1], &t0v[2]);
+    }
+
+    // 0 shared verts — original 6 segment-triangle tests
     for (i, j) in [(0, 1), (1, 2), (2, 0)] {
         if detect_seg_tri_intersect(&t0v[i], &t0v[j], &t1v[0], &t1v[1], &t1v[2]) {
             return true;
@@ -1933,5 +1987,164 @@ mod tests {
         v_tmp.insert(2);
         v_tmp.insert(3);
         finalize_intersection(&ts, &mut aux, &v_tmp, /* coplanar_tris = */ true, 0, 1);
+    }
+
+    // ===== PR-Y35 — triangles_intersect_exact 4-case dispatch =====
+    //
+    // The 6 tests below cover the cinolib `Triangle::intersects_triangle(_, true)`
+    // semantics (cinolib `predicates.cpp:1128-1252`): position-based shared-vertex
+    // dispatch with 4 branches (3 / 2 / 1 / 0 shared verts). They call
+    // `triangles_intersect_exact` directly on a 2-triangle soup. Cross-mesh labels
+    // are used by convention — the predicate ignores labels and operates only on
+    // vertex positions.
+
+    /// Helper: build a minimal 2-triangle TriangleSoup for predicate tests.
+    fn make_two_tri_soup(verts: Vec<[f64; 3]>, tris: Vec<usize>) -> TriangleSoup {
+        // labels are bit-encoded (mesh A = 1, mesh B = 2) per cross-mesh convention.
+        let labels = vec![1, 2];
+        TriangleSoup::new(verts, tris, labels, 1.0)
+    }
+
+    /// 3 shared verts → coincident triangles → SIMPLICIAL_COMPLEX (false).
+    /// cinolib `predicates.cpp:1158-1161` ("either t0 and t1 are coincident").
+    #[test]
+    fn test_triangles_intersect_exact_3_shared_coincident() {
+        let verts = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+        let tris = vec![0, 1, 2, 0, 1, 2];
+        let ts = make_two_tri_soup(verts, tris);
+        assert!(
+            !triangles_intersect_exact(&ts, 0, 1),
+            "3 shared verts (coincident triangles) must return false (cinolib SIMPLICIAL_COMPLEX)"
+        );
+    }
+
+    /// 2 shared verts → shared edge; coplanar; opposite verts on OPPOSITE sides
+    /// of the shared edge → edge-adjacent valid simplicial complex → false.
+    /// cinolib `predicates.cpp:1191/1199/1207` (axis-drop orient2d opposite-side test).
+    #[test]
+    fn test_triangles_intersect_exact_2_shared_edge_adjacent_valid() {
+        // Shared edge: (0,-1,0)-(0,1,0). Opp verts (-1,0,0) and (1,0,0) on
+        // opposite sides of x=0 in the z=0 plane.
+        let verts = vec![
+            [-1.0, 0.0, 0.0], // v0 — t0 opp
+            [0.0, -1.0, 0.0], // v1 — shared
+            [0.0, 1.0, 0.0],  // v2 — shared
+            [1.0, 0.0, 0.0],  // v3 — t1 opp
+        ];
+        let tris = vec![
+            0, 1, 2, // t0 = [(-1,0,0), (0,-1,0), (0,1,0)]
+            1, 3, 2, // t1 = [(0,-1,0), (1,0,0), (0,1,0)]
+        ];
+        let ts = make_two_tri_soup(verts, tris);
+        assert!(
+            !triangles_intersect_exact(&ts, 0, 1),
+            "2 shared verts (edge-adjacent valid complex) must return false \
+             (cinolib SIMPLICIAL_COMPLEX); opposite verts on opposite sides of shared edge"
+        );
+    }
+
+    /// 2 shared verts → shared edge; coplanar; opposite verts on SAME side of
+    /// the shared edge → triangles overlap → INTERSECT (true).
+    /// cinolib `predicates.cpp:1209` ("return INTERSECT").
+    #[test]
+    fn test_triangles_intersect_exact_2_shared_coplanar_overlap() {
+        // Shared edge: (0,0,0)-(2,0,0). Opp verts (1,2,0) and (1,1,0) both at y>0.
+        let verts = vec![
+            [0.0, 0.0, 0.0], // v0 — shared
+            [2.0, 0.0, 0.0], // v1 — shared
+            [1.0, 2.0, 0.0], // v2 — t0 opp
+            [1.0, 1.0, 0.0], // v3 — t1 opp
+        ];
+        let tris = vec![
+            0, 1, 2, // t0
+            0, 1, 3, // t1
+        ];
+        let ts = make_two_tri_soup(verts, tris);
+        assert!(
+            triangles_intersect_exact(&ts, 0, 1),
+            "2 shared verts (coplanar overlap) must return true (cinolib INTERSECT); \
+             opposite verts on same side of shared edge"
+        );
+    }
+
+    /// 2 shared verts → shared edge; non-coplanar (hinged in 3D) → SIMPLICIAL_COMPLEX (false).
+    /// cinolib `predicates.cpp:1182-1183` (orient3d != 0 short-circuit).
+    #[test]
+    fn test_triangles_intersect_exact_2_shared_non_coplanar() {
+        // Shared edge: (0,0,0)-(1,0,0). t0 in z=0 plane, t1 in y=0 plane — hinged.
+        let verts = vec![
+            [0.0, 0.0, 0.0], // v0 — shared
+            [1.0, 0.0, 0.0], // v1 — shared
+            [0.0, 1.0, 0.0], // v2 — t0 opp (z=0 plane)
+            [0.0, 0.0, 1.0], // v3 — t1 opp (y=0 plane)
+        ];
+        let tris = vec![
+            0, 1, 2, // t0
+            0, 1, 3, // t1
+        ];
+        let ts = make_two_tri_soup(verts, tris);
+        assert!(
+            !triangles_intersect_exact(&ts, 0, 1),
+            "2 shared verts (non-coplanar hinge) must return false (cinolib SIMPLICIAL_COMPLEX); \
+             orient3d != 0 short-circuit"
+        );
+    }
+
+    /// 1 shared vert → vertex-adjacent; opposite edges don't pierce the other
+    /// triangle's interior → SIMPLICIAL_COMPLEX (false).
+    /// cinolib `predicates.cpp:1236` ("return SIMPLICIAL_COMPLEX").
+    ///
+    /// **This is the RED-on-baseline test.** The over-permissive predicate at
+    /// baseline (PR-Y34, commit `85deaed`) returns `true` here because the
+    /// 6-segment-triangle tests fire when the shared-vertex segments touch the
+    /// other triangle's edges at the shared vertex (`point_on_segment_2d` is
+    /// inclusive). The cinolib-faithful 1-shared-vert branch correctly returns
+    /// `false` — no interior crossing.
+    #[test]
+    fn test_triangles_intersect_exact_1_shared_no_interior_cross() {
+        // Shared vert (0,0,0). t0 in +x/+y quadrant, t1 in -x/-y quadrant.
+        // Both coplanar in z=0. Opposite edges of both triangles go outward
+        // from the shared vertex; no interior crossing.
+        let verts = vec![
+            [0.0, 0.0, 0.0],  // v0 — shared
+            [1.0, 0.0, 0.0],  // v1 — t0
+            [0.0, 1.0, 0.0],  // v2 — t0
+            [-1.0, 0.0, 0.0], // v3 — t1
+            [0.0, -1.0, 0.0], // v4 — t1
+        ];
+        let tris = vec![
+            0, 1, 2, // t0
+            0, 3, 4, // t1
+        ];
+        let ts = make_two_tri_soup(verts, tris);
+        assert!(
+            !triangles_intersect_exact(&ts, 0, 1),
+            "1 shared vert (vertex-adjacent, no interior crossing) must return false \
+             (cinolib SIMPLICIAL_COMPLEX). RED on baseline 85deaed (over-permissive); \
+             GREEN after PR-Y35 cinolib re-port"
+        );
+    }
+
+    /// 0 shared verts → disjoint triangles, far apart → DO_NOT_INTERSECT (false).
+    /// cinolib `predicates.cpp:1251` ("return DO_NOT_INTERSECT").
+    #[test]
+    fn test_triangles_intersect_exact_0_shared_no_intersect() {
+        let verts = vec![
+            [0.0, 0.0, 0.0], // v0 — t0
+            [1.0, 0.0, 0.0], // v1 — t0
+            [0.0, 1.0, 0.0], // v2 — t0
+            [5.0, 5.0, 0.0], // v3 — t1
+            [6.0, 5.0, 0.0], // v4 — t1
+            [5.0, 6.0, 0.0], // v5 — t1
+        ];
+        let tris = vec![
+            0, 1, 2, // t0
+            3, 4, 5, // t1
+        ];
+        let ts = make_two_tri_soup(verts, tris);
+        assert!(
+            !triangles_intersect_exact(&ts, 0, 1),
+            "0 shared verts (disjoint triangles) must return false (cinolib DO_NOT_INTERSECT)"
+        );
     }
 }
