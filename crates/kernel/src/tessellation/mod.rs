@@ -14,7 +14,9 @@ use crate::geometry::surface::SurfaceGeom;
 use crate::topology::arena::TopoArena;
 use crate::topology::half_edge::*;
 use crate::types::*;
-use crate::units::{MIN_FEATURE_SIZE, TAU_MODEL, TAU_NORMALIZE, TAU_TESS_GRID_MIN, TAU_WORK};
+use crate::units::{
+    MIN_FEATURE_SIZE, TAU_MODEL, TAU_NORMALIZE, TAU_TESS_GRID_FACTOR, TAU_TESS_GRID_MIN, TAU_WORK,
+};
 use crate::vecmath::{
     compute_plane_basis, v3_add, v3_cross, v3_dot, v3_length, v3_normalize, v3_scale, v3_sub,
 };
@@ -4176,6 +4178,380 @@ fn weld_smooth_vertices(vertices: &[f32], normals: &[f32], indices: &mut [u32]) 
     }
 }
 
+// ── PR-Y36 inverse-direction probe (INFRA-CLASS, env-gated, additive) ──
+//
+// Maps each F0020 final-mesh unpaired edge back to its source-face's D.1
+// sub-mechanism (per PR-Y28 §1 classification). Env-gated on
+// `Y36_INVERSE_PROBE=1`; output directory from `Y36_INVERSE_PROBE_DIR`.
+// Default-off path is byte-identical to pre-PR-Y36 — all probe logic gated
+// behind a single `bool` flag.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Y36Class {
+    D1a,   // boundary.len() < 3 planar entry gate
+    D1b,   // 3-vertex earcut returned empty (coincident verts)
+    D1c,   // all-NMM boundary (>=90% NMM)
+    D1d,   // 3-vert clean boundary lost between F.0 and F.4 (repair-pass drop)
+    Other, // none of the above patterns
+}
+
+impl Y36Class {
+    fn as_str(self) -> &'static str {
+        match self {
+            Y36Class::D1a => "D1a",
+            Y36Class::D1b => "D1b",
+            Y36Class::D1c => "D1c",
+            Y36Class::D1d => "D1d",
+            Y36Class::Other => "OTHER",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Y36ProbeFaceInfo {
+    kid: u64,
+    face_idx: usize,
+    geom: String,
+    outer_he_count: usize,
+    outer_nmm_count: usize,
+    is_self_loop: bool,
+    outer_boundary_len: usize,
+    inner_loop_count: usize,
+    indices_emitted: u32, // at dispatch exit (F.0-1)
+    face_range_pushed: bool,
+    boundary_positions: Vec<[f64; 3]>, // ordered, from disc.positions
+}
+
+type Y36QPos = (i64, i64, i64);
+
+fn y36_probe_enabled() -> bool {
+    std::env::var("Y36_INVERSE_PROBE").as_deref() == Ok("1")
+}
+
+fn y36_classify(info: &Y36ProbeFaceInfo, dropped_between_f0_and_f4: bool) -> Y36Class {
+    // D.1a: boundary.len() < 3 planar entry gate (PR-Y28 §1.1)
+    // self-loop or 2-HE cycle, never emits triangles in planar arm
+    if info.outer_boundary_len < 3 {
+        return Y36Class::D1a;
+    }
+    // D.1c: high-NMM boundary (PR-Y28 §1.2)
+    // Threshold: >=90% NMM (PR-Y28 observed 12/12 = 100% and 4/4 = 100%)
+    if info.outer_he_count > 0 {
+        let nmm_frac = info.outer_nmm_count as f64 / info.outer_he_count as f64;
+        if nmm_frac >= 0.9 {
+            return Y36Class::D1c;
+        }
+    }
+    // D.1b: face emitted zero indices at dispatch exit despite passing the
+    // n<3 gate (earcut-empty for coincident/degenerate vertices)
+    if !info.face_range_pushed && info.outer_boundary_len >= 3 {
+        return Y36Class::D1b;
+    }
+    // D.1d: emitted at dispatch, lost in repair (F.0 -> F.4)
+    if info.face_range_pushed && dropped_between_f0_and_f4 {
+        return Y36Class::D1d;
+    }
+    Y36Class::Other
+}
+
+fn y36_quantize_pos(pos: [f64; 3], inv_grid: f64) -> Y36QPos {
+    (
+        (pos[0] * inv_grid).round() as i64,
+        (pos[1] * inv_grid).round() as i64,
+        (pos[2] * inv_grid).round() as i64,
+    )
+}
+
+fn y36_quantize_vert(vertices: &[f32], idx: u32, inv_grid: f64) -> Y36QPos {
+    let i = idx as usize * 3;
+    if i + 2 >= vertices.len() {
+        return (0, 0, 0);
+    }
+    (
+        (vertices[i] as f64 * inv_grid).round() as i64,
+        (vertices[i + 1] as f64 * inv_grid).round() as i64,
+        (vertices[i + 2] as f64 * inv_grid).round() as i64,
+    )
+}
+
+fn y36_canonical_edge(a: Y36QPos, b: Y36QPos) -> (Y36QPos, Y36QPos) {
+    if a <= b {
+        (a, b)
+    } else {
+        (b, a)
+    }
+}
+
+/// Build the oracle-compatible quantization grid for the given f32 mesh.
+fn y36_inv_grid(vertices: &[f32]) -> f64 {
+    let max_abs = vertices.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
+    1.0 / grid
+}
+
+/// PR-Y36 invocation counter (per-thread). Used to disambiguate per-invocation
+/// TSV files within one spotlight (F0020 has 6 invocations).
+std::thread_local! {
+    static Y36_INVOCATION_COUNTER: std::cell::RefCell<u64> =
+        const { std::cell::RefCell::new(0) };
+}
+
+fn y36_next_invocation() -> u64 {
+    Y36_INVOCATION_COUNTER.with(|c| {
+        let mut n = c.borrow_mut();
+        *n += 1;
+        *n
+    })
+}
+
+/// Write inverse-attribution TSV for one `tessellate_solid_bounded` invocation.
+/// Default-off when `Y36_INVERSE_PROBE != "1"`.
+fn y36_write_inverse_attribution(
+    faces: &[Y36ProbeFaceInfo],
+    final_vertices: &[f32],
+    final_indices: &[u32],
+    final_face_ranges: &[FaceRange],
+) {
+    if !y36_probe_enabled() {
+        return;
+    }
+    let invocation = y36_next_invocation();
+
+    let dump_dir = match std::env::var("Y36_INVERSE_PROBE_DIR") {
+        Ok(d) => d,
+        Err(_) => return, // gate fires but no dir → no-op
+    };
+    let case = crate::boolean::yang_integration::current_case_id()
+        .unwrap_or_else(|| format!("seq_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dump_dir);
+
+    let inv_grid = y36_inv_grid(final_vertices);
+    let n_tris = final_indices.len() / 3;
+
+    // Build edge -> count map and edge -> incident triangle map for unpaired edges
+    let mut edge_counts: BTreeMap<(Y36QPos, Y36QPos), usize> = BTreeMap::new();
+    let mut edge_tris: BTreeMap<(Y36QPos, Y36QPos), Vec<usize>> = BTreeMap::new();
+    let mut tri_qverts: Vec<[Y36QPos; 3]> = Vec::with_capacity(n_tris);
+    for t in 0..n_tris {
+        let base = t * 3;
+        let qa = y36_quantize_vert(final_vertices, final_indices[base], inv_grid);
+        let qb = y36_quantize_vert(final_vertices, final_indices[base + 1], inv_grid);
+        let qc = y36_quantize_vert(final_vertices, final_indices[base + 2], inv_grid);
+        tri_qverts.push([qa, qb, qc]);
+        if qa == qb || qb == qc || qa == qc {
+            continue;
+        }
+        for e in 0..3 {
+            let edge = y36_canonical_edge(tri_qverts[t][e], tri_qverts[t][(e + 1) % 3]);
+            *edge_counts.entry(edge).or_insert(0) += 1;
+            edge_tris.entry(edge).or_insert_with(Vec::new).push(t);
+        }
+    }
+
+    // Triangle -> face_id mapping from face_ranges
+    let tri_face_id = |t: usize| -> u64 {
+        let i3 = (t * 3) as u32;
+        final_face_ranges
+            .iter()
+            .find(|fr| fr.start_index <= i3 && i3 < fr.end_index)
+            .map(|fr| fr.face_id.0)
+            .unwrap_or(0)
+    };
+
+    // Final mesh's surviving kids (for dropped-detection)
+    let kids_in_final: std::collections::HashSet<u64> =
+        final_face_ranges.iter().map(|fr| fr.face_id.0).collect();
+
+    // Quantize each captured face's boundary edges into the same grid
+    // and build a reverse map: edge -> kid
+    let mut face_boundary_edges: BTreeMap<(Y36QPos, Y36QPos), Vec<u64>> = BTreeMap::new();
+    let mut face_boundary_qedge_set: BTreeMap<u64, std::collections::HashSet<(Y36QPos, Y36QPos)>> =
+        BTreeMap::new();
+    for info in faces {
+        let bn = info.boundary_positions.len();
+        if bn < 2 {
+            continue;
+        }
+        let mut set = std::collections::HashSet::new();
+        for i in 0..bn {
+            let p0 = info.boundary_positions[i];
+            let p1 = info.boundary_positions[(i + 1) % bn];
+            let q0 = y36_quantize_pos(p0, inv_grid);
+            let q1 = y36_quantize_pos(p1, inv_grid);
+            if q0 == q1 {
+                continue;
+            }
+            let edge = y36_canonical_edge(q0, q1);
+            set.insert(edge);
+            face_boundary_edges
+                .entry(edge)
+                .or_insert_with(Vec::new)
+                .push(info.kid);
+        }
+        face_boundary_qedge_set.insert(info.kid, set);
+    }
+
+    let face_by_kid: BTreeMap<u64, &Y36ProbeFaceInfo> =
+        faces.iter().map(|f| (f.kid, f)).collect();
+
+    // Build TSV rows for unpaired edges (count != 2)
+    // Header: unpaired_edge_id, v0_x, v0_y, v0_z, v1_x, v1_y, v1_z,
+    //         kept_face_id, attributed_source_face_id, classification,
+    //         outer_boundary_len, outer_he_count, outer_nmm_count,
+    //         nmm_pct, was_dropped_in_repair, edge_count
+    let mut rows: Vec<String> = Vec::new();
+    let mut tally: BTreeMap<&'static str, u32> = BTreeMap::new();
+    let mut unpaired_idx: u32 = 0;
+    for (edge, &count) in edge_counts.iter() {
+        if count == 2 {
+            continue;
+        }
+        let v0 = edge.0;
+        let v1 = edge.1;
+        // Use grid-space coordinates for repro; convert back to model space
+        let grid = 1.0 / inv_grid;
+        let v0m = [v0.0 as f64 * grid, v0.1 as f64 * grid, v0.2 as f64 * grid];
+        let v1m = [v1.0 as f64 * grid, v1.1 as f64 * grid, v1.2 as f64 * grid];
+
+        // Lone incident triangle's face_id (kept side)
+        let tris = edge_tris.get(edge).cloned().unwrap_or_default();
+        let kept_face_id = tris.first().map(|&t| tri_face_id(t)).unwrap_or(0);
+
+        // Attribution: prefer a DROPPED face whose boundary contains this edge.
+        // If multiple candidates, pick the one NOT in final mesh.
+        let candidates = face_boundary_edges.get(edge).cloned().unwrap_or_default();
+        let mut attributed_kid: u64 = 0;
+        let mut class: Y36Class = Y36Class::Other;
+        // First pass: prefer dropped (not in final mesh) candidates
+        for cand in &candidates {
+            if !kids_in_final.contains(cand) {
+                attributed_kid = *cand;
+                if let Some(info) = face_by_kid.get(cand) {
+                    let dropped_in_repair = info.face_range_pushed
+                        && !kids_in_final.contains(&info.kid);
+                    class = y36_classify(info, dropped_in_repair);
+                }
+                break;
+            }
+        }
+        // Fallback: if no dropped candidate matched, attribute to the kept
+        // face that owns this unpaired edge (means defect is on the kept
+        // side — e.g., F0044 D.2 sub-grid seam mismatch)
+        if attributed_kid == 0 {
+            attributed_kid = kept_face_id;
+            if let Some(info) = face_by_kid.get(&kept_face_id) {
+                let dropped_in_repair = info.face_range_pushed
+                    && !kids_in_final.contains(&info.kid);
+                class = y36_classify(info, dropped_in_repair);
+                // If the kept face's classification is Other but it is fully
+                // present in the final mesh, leave as Other (genuine non-D.1
+                // mechanism)
+            }
+        }
+
+        let attr_info = face_by_kid.get(&attributed_kid);
+        let (outer_boundary_len, outer_he_count, outer_nmm_count, was_dropped_repair) =
+            match attr_info {
+                Some(info) => {
+                    let dropped = info.face_range_pushed && !kids_in_final.contains(&info.kid);
+                    (
+                        info.outer_boundary_len,
+                        info.outer_he_count,
+                        info.outer_nmm_count,
+                        dropped,
+                    )
+                }
+                None => (0, 0, 0, false),
+            };
+        let nmm_pct = if outer_he_count > 0 {
+            outer_nmm_count as f64 / outer_he_count as f64 * 100.0
+        } else {
+            0.0
+        };
+
+        *tally.entry(class.as_str()).or_insert(0) += 1;
+
+        rows.push(format!(
+            "{}\t{:.6e}\t{:.6e}\t{:.6e}\t{:.6e}\t{:.6e}\t{:.6e}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.1}\t{}\t{}",
+            unpaired_idx,
+            v0m[0], v0m[1], v0m[2],
+            v1m[0], v1m[1], v1m[2],
+            kept_face_id,
+            attributed_kid,
+            class.as_str(),
+            outer_boundary_len,
+            outer_he_count,
+            outer_nmm_count,
+            nmm_pct,
+            was_dropped_repair,
+            count
+        ));
+        unpaired_idx += 1;
+    }
+
+    // Build per-face inventory rows (for debugging methodology / Gate 5)
+    let mut face_rows: Vec<String> = Vec::new();
+    for info in faces {
+        let in_final = kids_in_final.contains(&info.kid);
+        let dropped_repair = info.face_range_pushed && !in_final;
+        let class = y36_classify(info, dropped_repair);
+        let nmm_pct = if info.outer_he_count > 0 {
+            info.outer_nmm_count as f64 / info.outer_he_count as f64 * 100.0
+        } else {
+            0.0
+        };
+        face_rows.push(format!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.1}\t{}",
+            info.kid,
+            info.face_idx,
+            info.geom,
+            info.outer_he_count,
+            info.outer_nmm_count,
+            info.is_self_loop,
+            info.outer_boundary_len,
+            info.inner_loop_count,
+            info.indices_emitted,
+            info.face_range_pushed,
+            nmm_pct,
+            class.as_str(),
+        ));
+    }
+
+    let unpaired_path = format!(
+        "{}/{}_inv{:03}_inverse_attribution.tsv",
+        dump_dir, case, invocation
+    );
+    let faces_path = format!(
+        "{}/{}_inv{:03}_face_inventory.tsv",
+        dump_dir, case, invocation
+    );
+
+    let unpaired_header =
+        "unpaired_edge_id\tv0_x\tv0_y\tv0_z\tv1_x\tv1_y\tv1_z\tkept_face_id\tattributed_source_face_id\tclassification\touter_boundary_len\touter_he_count\touter_nmm_count\tnmm_pct\twas_dropped_in_repair\tedge_count";
+    let faces_header = "kid\tface_idx\tgeom\touter_he_count\touter_nmm_count\tis_self_loop\touter_boundary_len\tinner_loop_count\tindices_emitted_dispatch\tface_range_pushed\tnmm_pct\tclassification";
+    let _ = crate::boolean::yang_integration::dump_labels_as_csv(
+        unpaired_header,
+        &rows,
+        &unpaired_path,
+    );
+    let _ = crate::boolean::yang_integration::dump_labels_as_csv(
+        faces_header,
+        &face_rows,
+        &faces_path,
+    );
+
+    let total = rows.len();
+    let d1a = tally.get("D1a").copied().unwrap_or(0);
+    let d1b = tally.get("D1b").copied().unwrap_or(0);
+    let d1c = tally.get("D1c").copied().unwrap_or(0);
+    let d1d = tally.get("D1d").copied().unwrap_or(0);
+    let other = tally.get("OTHER").copied().unwrap_or(0);
+    eprintln!(
+        "[y36-inverse-probe] case={} inv#{} total_unpaired={} D1a={} D1b={} D1c={} D1d={} OTHER={} wrote={}",
+        case, invocation, total, d1a, d1b, d1c, d1d, other, unpaired_path
+    );
+}
+
 /// Used for boolean results where CylinderParams/RevolveParams are unavailable.
 ///
 /// For analytical B-Rep: watertight by construction (shared vertices from
@@ -4197,9 +4573,61 @@ fn tessellate_solid_bounded(
     let mut sorted_faces: Vec<(u64, FaceIdx)> = face_map.iter().map(|(&k, &v)| (k, v)).collect();
     sorted_faces.sort_by_key(|(k, _)| *k);
 
-    for &(kid, face_idx) in &sorted_faces {
+    // PR-Y36 inverse-direction probe (env-gated, default empty Vec).
+    let y36_on = y36_probe_enabled();
+    let mut y36_face_infos: Vec<Y36ProbeFaceInfo> = Vec::new();
+
+    for &(kid, face_idx) in sorted_faces.iter() {
         let start_index = indices.len() as u32;
         let geom = face_geometry.get(&face_idx);
+
+        // PR-Y36: capture per-face properties BEFORE tessellate dispatch.
+        // Computed only when probe is enabled; default-off path executes none
+        // of this block.
+        let y36_info_pre: Option<(String, Vec<usize>, usize, usize, usize, bool)> = if y36_on {
+            let geom_label = match geom {
+                Some(SurfaceGeom::Planar(_)) => "Planar".to_string(),
+                Some(SurfaceGeom::Cylindrical(_)) => "Cylindrical".to_string(),
+                Some(SurfaceGeom::Spherical(_)) => "Spherical".to_string(),
+                Some(SurfaceGeom::Conical(_)) => "Conical".to_string(),
+                Some(SurfaceGeom::Toroidal(_)) => "Toroidal".to_string(),
+                _ => "Other".to_string(),
+            };
+            // Walk the outer loop to count HEs, NMM (twin=None), self-loop.
+            let outer_loop_idx = arena.faces[face_idx.0].outer_loop;
+            let start_he = arena.loops[outer_loop_idx.0].half_edge;
+            let mut he = start_he;
+            let mut he_count: usize = 0;
+            let mut nmm_count: usize = 0;
+            let is_self_loop = arena.half_edges[start_he.0].next == start_he;
+            loop {
+                he_count += 1;
+                if arena.half_edges[he.0].twin.is_none() {
+                    nmm_count += 1;
+                }
+                he = arena.half_edges[he.0].next;
+                if he == start_he {
+                    break;
+                }
+                // Defensive bound to avoid infinite loops on malformed arenas
+                if he_count > 1_000_000 {
+                    break;
+                }
+            }
+            let outer_boundary = collect_loop_boundary(arena, outer_loop_idx, &disc);
+            let inner_loop_count = arena.faces[face_idx.0].inner_loops.len();
+            Some((
+                geom_label,
+                outer_boundary,
+                he_count,
+                nmm_count,
+                inner_loop_count,
+                is_self_loop,
+            ))
+        } else {
+            None
+        };
+
         match geom {
             Some(SurfaceGeom::Cylindrical(cyl)) => {
                 tessellate_cylindrical_face_bounded(
@@ -4281,11 +4709,35 @@ fn tessellate_solid_bounded(
         }
 
         let end_index = indices.len() as u32;
-        if end_index > start_index {
+        let pushed = end_index > start_index;
+        if pushed {
             face_ranges.push(FaceRange {
                 face_id: KernelId(kid),
                 start_index,
                 end_index,
+            });
+        }
+
+        // PR-Y36: complete the per-face capture.
+        if let Some((geom_label, outer_boundary, he_count, nmm_count, inner_count, is_self_loop)) =
+            y36_info_pre
+        {
+            let boundary_positions: Vec<[f64; 3]> = outer_boundary
+                .iter()
+                .map(|&i| disc.positions[i])
+                .collect();
+            y36_face_infos.push(Y36ProbeFaceInfo {
+                kid,
+                face_idx: face_idx.0,
+                geom: geom_label,
+                outer_he_count: he_count,
+                outer_nmm_count: nmm_count,
+                is_self_loop,
+                outer_boundary_len: outer_boundary.len(),
+                inner_loop_count: inner_count,
+                indices_emitted: end_index - start_index,
+                face_range_pushed: pushed,
+                boundary_positions,
             });
         }
     }
@@ -4417,6 +4869,13 @@ fn tessellate_solid_bounded(
     }
     if probe_on || capture_armed {
         dump_stage_f_viz("F.4", &vertices, &indices, &face_ranges);
+    }
+
+    // PR-Y36 inverse-direction probe: emit attribution TSV for unpaired
+    // edges in the final render mesh. Default-off (gated on
+    // `Y36_INVERSE_PROBE=1`).
+    if y36_on {
+        y36_write_inverse_attribution(&y36_face_infos, &vertices, &indices, &face_ranges);
     }
 
     Ok(RenderMesh {
