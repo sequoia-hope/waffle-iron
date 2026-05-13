@@ -235,6 +235,16 @@ pub fn check_watertight_mesh(mesh: &RenderMesh) -> OracleVerdict {
 
     let non_paired: Vec<_> = edge_counts.iter().filter(|(_, &c)| c != 2).collect();
 
+    // ── PR-Y38 grid-sensitivity probe (INFRA-CLASS, env-gated, additive) ──
+    //
+    // Re-runs edge pairing at multiple TAU_TESS_GRID_FACTOR multipliers and
+    // performs a 27-neighbor near-pair scan at the default 1× grid. Default-
+    // off path is byte-identical — all probe logic gated behind a single env
+    // check. Output: per-invocation TSV at $Y38_GRID_PROBE_DIR.
+    if std::env::var("Y38_GRID_PROBE").as_deref() == Ok("1") {
+        y38_grid_sensitivity_probe(mesh, max_abs, &edge_counts, &non_paired);
+    }
+
     if non_paired.is_empty() {
         OracleVerdict::pass(
             "watertight_mesh",
@@ -260,6 +270,175 @@ pub fn check_watertight_mesh(mesh: &RenderMesh) -> OracleVerdict {
             )
         };
         OracleVerdict::fail("watertight_mesh", detail)
+    }
+}
+
+// PR-Y38 probe helpers (env-gated; only invoked under Y38_GRID_PROBE=1).
+//
+// Per-invocation monotonic counter so each `check_watertight_mesh` call
+// produces a distinct TSV filename. The canary maps invocation number ↔
+// case by spotlight run ordering (documented in pr_y38_canary.md §3).
+static Y38_INVOCATION_COUNTER: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+type Y38PosEdge = ((i64, i64, i64), (i64, i64, i64));
+
+fn y38_make_edge(a: (i64, i64, i64), b: (i64, i64, i64)) -> Y38PosEdge {
+    if a <= b {
+        (a, b)
+    } else {
+        (b, a)
+    }
+}
+
+/// Re-count non-paired edges at a given grid multiplier `m`.
+fn y38_count_non_paired_at_multiplier(mesh: &RenderMesh, max_abs: f32, m: f64) -> (usize, usize) {
+    let grid_size_m = (max_abs as f64 * TAU_TESS_GRID_FACTOR * m).max(TAU_TESS_GRID_MIN * m);
+    let inv_grid_m = 1.0 / grid_size_m;
+    let q = |v: f32| -> i64 { (v as f64 * inv_grid_m).round() as i64 };
+    let key = |idx: u32| -> (i64, i64, i64) {
+        let i = idx as usize * 3;
+        (
+            q(mesh.vertices[i]),
+            q(mesh.vertices[i + 1]),
+            q(mesh.vertices[i + 2]),
+        )
+    };
+    let mut ec: HashMap<Y38PosEdge, usize> = HashMap::new();
+    for tri in mesh.indices.chunks(3) {
+        if tri.len() < 3 {
+            continue;
+        }
+        let va = key(tri[0]);
+        let vb = key(tri[1]);
+        let vc = key(tri[2]);
+        *ec.entry(y38_make_edge(va, vb)).or_insert(0) += 1;
+        *ec.entry(y38_make_edge(vb, vc)).or_insert(0) += 1;
+        *ec.entry(y38_make_edge(vc, va)).or_insert(0) += 1;
+    }
+    let non_paired = ec.values().filter(|&&c| c != 2).count();
+    (non_paired, ec.len())
+}
+
+/// For each unpaired edge at the default 1× grid, scan the ±1 i64-cell
+/// neighborhood of both endpoints (27³ candidate pairs at most, minus self),
+/// and classify by minimum Chebyshev distance to a paired/known edge.
+/// Returns (dist1, dist2, isolated) counts. We restrict to ±1 in each axis,
+/// so the maximum observable Chebyshev distance is 1 — but we still report
+/// dist2/isolated buckets in the TSV header per the plan, with `dist2=0`
+/// always (per the brief's recommended ±1 scan). See memo §2 for rationale.
+fn y38_near_pair_scan(
+    edge_counts: &HashMap<Y38PosEdge, usize>,
+    non_paired: &[(&Y38PosEdge, &usize)],
+) -> (usize, usize, usize) {
+    let mut dist1 = 0usize;
+    let mut dist2 = 0usize;
+    let mut isolated = 0usize;
+    let neighbors: Vec<(i64, i64, i64)> = (-1..=1)
+        .flat_map(|dx| (-1..=1).flat_map(move |dy| (-1..=1).map(move |dz| (dx, dy, dz))))
+        .collect();
+    for ((va, vb), _) in non_paired {
+        let mut min_dist: Option<i64> = None;
+        for &(dax, day, daz) in &neighbors {
+            for &(dbx, dby, dbz) in &neighbors {
+                // Skip the original edge itself.
+                if dax == 0
+                    && day == 0
+                    && daz == 0
+                    && dbx == 0
+                    && dby == 0
+                    && dbz == 0
+                {
+                    continue;
+                }
+                let va2 = (va.0 + dax, va.1 + day, va.2 + daz);
+                let vb2 = (vb.0 + dbx, vb.1 + dby, vb.2 + dbz);
+                if va2 == vb2 {
+                    continue; // degenerate
+                }
+                let cand = y38_make_edge(va2, vb2);
+                if let Some(&c) = edge_counts.get(&cand) {
+                    if c >= 1 {
+                        // Chebyshev distance is max over all 6 perturbations.
+                        let d = dax
+                            .abs()
+                            .max(day.abs())
+                            .max(daz.abs())
+                            .max(dbx.abs())
+                            .max(dby.abs())
+                            .max(dbz.abs());
+                        min_dist = Some(min_dist.map_or(d, |m| m.min(d)));
+                    }
+                }
+            }
+        }
+        match min_dist {
+            Some(1) => dist1 += 1,
+            Some(d) if d >= 2 => dist2 += 1,
+            Some(_) => unreachable!("Chebyshev distance over +/-1 scan is in 0 or 1"),
+            None => isolated += 1,
+        }
+    }
+    (dist1, dist2, isolated)
+}
+
+fn y38_grid_sensitivity_probe(
+    mesh: &RenderMesh,
+    max_abs: f32,
+    edge_counts: &HashMap<Y38PosEdge, usize>,
+    non_paired: &[(&Y38PosEdge, &usize)],
+) {
+    let dir = match std::env::var("Y38_GRID_PROBE_DIR") {
+        Ok(d) => d,
+        Err(_) => {
+            eprintln!("[Y38_GRID_PROBE] Y38_GRID_PROBE_DIR not set; skipping write");
+            return;
+        }
+    };
+    if std::fs::create_dir_all(&dir).is_err() {
+        eprintln!("[Y38_GRID_PROBE] failed to create dir {}; skipping", dir);
+        return;
+    }
+    let inv_n =
+        Y38_INVOCATION_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+    let multipliers: [(f64, &str); 6] = [
+        (0.5, "05x"),
+        (1.0, "1x"),
+        (2.0, "2x"),
+        (4.0, "4x"),
+        (10.0, "10x"),
+        (100.0, "100x"),
+    ];
+    let mut grid_counts: Vec<(usize, usize)> = Vec::with_capacity(multipliers.len());
+    for (m, _label) in &multipliers {
+        grid_counts.push(y38_count_non_paired_at_multiplier(mesh, max_abs, *m));
+    }
+
+    let (dist1, dist2, isolated) = y38_near_pair_scan(edge_counts, non_paired);
+
+    let header = "case\ttotal_edges\tunpaired_at_05x\tunpaired_at_1x\tunpaired_at_2x\tunpaired_at_4x\tunpaired_at_10x\tunpaired_at_100x\tnear_pair_dist1\tnear_pair_dist2\tisolated\tnon_paired_at_1x_oracle\n";
+    let case_label = std::env::var("Y38_PROBE_CASE_NAME").unwrap_or_else(|_| "unknown".into());
+    let row = format!(
+        "{}_inv{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+        case_label,
+        inv_n,
+        grid_counts[1].1, // total_edges at 1×
+        grid_counts[0].0,
+        grid_counts[1].0,
+        grid_counts[2].0,
+        grid_counts[3].0,
+        grid_counts[4].0,
+        grid_counts[5].0,
+        dist1,
+        dist2,
+        isolated,
+        non_paired.len(),
+    );
+
+    let path = format!("{}/Y38_inv{:04}_grid_sensitivity.tsv", dir, inv_n);
+    if let Err(e) = std::fs::write(&path, format!("{}{}", header, row)) {
+        eprintln!("[Y38_GRID_PROBE] write {} failed: {}", path, e);
     }
 }
 
