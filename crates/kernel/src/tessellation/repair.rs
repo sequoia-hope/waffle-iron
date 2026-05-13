@@ -537,7 +537,17 @@ pub(super) fn remove_winding_insensitive_duplicates(
     let mut new_indices = Vec::with_capacity(indices.len());
     let mut new_ranges = Vec::new();
 
-    for range in face_ranges.iter() {
+    // ── PR-Y40 INFRA: canonical-key collision probe (env-gated, default-off) ──
+    // Tracks each canonical-key insertion: when a collision occurs, records
+    // (winner_face_id, winner_tri_offset, loser_face_id, loser_tri_offset, key).
+    // Default-off path is byte-identical: `seen` HashSet drives behavior; the
+    // probe maintains a PARALLEL `first_seen` HashMap only when enabled.
+    let y40_enabled = y40_collision_probe_enabled();
+    let mut y40_first_seen: std::collections::HashMap<[QPos; 3], Y40FirstSeen> =
+        std::collections::HashMap::new();
+    let mut y40_collisions: Vec<Y40Collision> = Vec::new();
+
+    for (range_idx, range) in face_ranges.iter().enumerate() {
         let range_start = new_indices.len() as u32;
         let tri_start = range.start_index as usize / 3;
         let tri_end = range.end_index as usize / 3;
@@ -556,6 +566,34 @@ pub(super) fn remove_winding_insensitive_duplicates(
                 new_indices.push(indices[base]);
                 new_indices.push(indices[base + 1]);
                 new_indices.push(indices[base + 2]);
+                if y40_enabled {
+                    y40_first_seen.insert(
+                        key,
+                        Y40FirstSeen {
+                            face_id: range.face_id.0,
+                            range_idx,
+                            tri_offset: t - tri_start,
+                        },
+                    );
+                }
+            } else if y40_enabled {
+                let winner = y40_first_seen
+                    .get(&key)
+                    .copied()
+                    .unwrap_or(Y40FirstSeen {
+                        face_id: u64::MAX,
+                        range_idx: usize::MAX,
+                        tri_offset: usize::MAX,
+                    });
+                y40_collisions.push(Y40Collision {
+                    key,
+                    winner,
+                    loser: Y40FirstSeen {
+                        face_id: range.face_id.0,
+                        range_idx,
+                        tri_offset: t - tri_start,
+                    },
+                });
             }
         }
 
@@ -569,8 +607,119 @@ pub(super) fn remove_winding_insensitive_duplicates(
         }
     }
 
+    if y40_enabled {
+        y40_write_collisions(&y40_collisions, n_tris);
+    }
+
     *indices = new_indices;
     *face_ranges = new_ranges;
+}
+
+// ── PR-Y40 INFRA probe types + helpers (env-gated, default-off) ──
+
+#[derive(Debug, Clone, Copy)]
+struct Y40FirstSeen {
+    face_id: u64,
+    range_idx: usize,
+    tri_offset: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Y40Collision {
+    key: [(i64, i64, i64); 3],
+    winner: Y40FirstSeen,
+    loser: Y40FirstSeen,
+}
+
+fn y40_collision_probe_enabled() -> bool {
+    std::env::var("Y40_COLLISION_PROBE").as_deref() == Ok("1")
+}
+
+std::thread_local! {
+    static Y40_INVOCATION_COUNTER: std::cell::RefCell<u64> =
+        const { std::cell::RefCell::new(0) };
+}
+
+fn y40_next_invocation() -> u64 {
+    Y40_INVOCATION_COUNTER.with(|c| {
+        let mut n = c.borrow_mut();
+        *n += 1;
+        *n
+    })
+}
+
+fn y40_write_collisions(collisions: &[Y40Collision], n_tris_input: usize) {
+    let invocation = y40_next_invocation();
+    let dump_dir = match std::env::var("Y40_COLLISION_PROBE_DIR") {
+        Ok(d) => d,
+        Err(_) => return,
+    };
+    let _ = std::fs::create_dir_all(&dump_dir);
+
+    let case = crate::boolean::yang_integration::current_case_id()
+        .unwrap_or_else(|| format!("seq_{}", std::process::id()));
+
+    // Per-invocation collisions TSV
+    let coll_path = std::path::PathBuf::from(&dump_dir)
+        .join(format!("{}_inv{:03}_collisions.tsv", case, invocation));
+    let mut out = String::new();
+    out.push_str("collision_idx\tkey_xa\tkey_ya\tkey_za\tkey_xb\tkey_yb\tkey_zb\tkey_xc\tkey_yc\tkey_zc\twinner_face_id\twinner_range_idx\twinner_tri_off\tloser_face_id\tloser_range_idx\tloser_tri_off\n");
+    for (i, c) in collisions.iter().enumerate() {
+        let [k0, k1, k2] = c.key;
+        out.push_str(&format!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            i,
+            k0.0, k0.1, k0.2,
+            k1.0, k1.1, k1.2,
+            k2.0, k2.1, k2.2,
+            c.winner.face_id, c.winner.range_idx, c.winner.tri_offset,
+            c.loser.face_id, c.loser.range_idx, c.loser.tri_offset,
+        ));
+    }
+    let _ = std::fs::write(&coll_path, out);
+
+    // Per-invocation summary
+    use std::collections::BTreeMap;
+    let mut distinct_winners: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    let mut distinct_losers: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    let mut pair_counts: BTreeMap<(u64, u64), usize> = BTreeMap::new();
+    let mut loser_counts: BTreeMap<u64, usize> = BTreeMap::new();
+    let mut winner_counts: BTreeMap<u64, usize> = BTreeMap::new();
+    for c in collisions {
+        distinct_winners.insert(c.winner.face_id);
+        distinct_losers.insert(c.loser.face_id);
+        *pair_counts.entry((c.winner.face_id, c.loser.face_id)).or_insert(0) += 1;
+        *loser_counts.entry(c.loser.face_id).or_insert(0) += 1;
+        *winner_counts.entry(c.winner.face_id).or_insert(0) += 1;
+    }
+
+    let hist_path = std::path::PathBuf::from(&dump_dir)
+        .join(format!("{}_inv{:03}_histogram.tsv", case, invocation));
+    let mut hist = String::new();
+    hist.push_str("winner_face_id\tloser_face_id\tcount\n");
+    for ((w, l), n) in &pair_counts {
+        hist.push_str(&format!("{}\t{}\t{}\n", w, l, n));
+    }
+    let _ = std::fs::write(&hist_path, hist);
+
+    let summary_path = std::path::PathBuf::from(&dump_dir)
+        .join(format!("{}_inv{:03}_summary.tsv", case, invocation));
+    let mut summary = String::new();
+    summary.push_str("metric\tvalue\n");
+    summary.push_str(&format!("invocation\t{}\n", invocation));
+    summary.push_str(&format!("n_tris_input\t{}\n", n_tris_input));
+    summary.push_str(&format!("total_collisions\t{}\n", collisions.len()));
+    summary.push_str(&format!("distinct_winner_face_ids\t{}\n", distinct_winners.len()));
+    summary.push_str(&format!("distinct_loser_face_ids\t{}\n", distinct_losers.len()));
+    summary.push_str("\nloser_face_id\tcount\n");
+    for (l, n) in &loser_counts {
+        summary.push_str(&format!("{}\t{}\n", l, n));
+    }
+    summary.push_str("\nwinner_face_id\tcount\n");
+    for (w, n) in &winner_counts {
+        summary.push_str(&format!("{}\t{}\n", w, n));
+    }
+    let _ = std::fs::write(&summary_path, summary);
 }
 
 /// Core non-manifold removal logic shared by both aggressive and conservative modes.
