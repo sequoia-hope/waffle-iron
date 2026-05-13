@@ -4188,11 +4188,15 @@ fn weld_smooth_vertices(vertices: &[f32], normals: &[f32], indices: &mut [u32]) 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Y36Class {
-    D1a,   // boundary.len() < 3 planar entry gate
-    D1b,   // 3-vertex earcut returned empty (coincident verts)
-    D1c,   // all-NMM boundary (>=90% NMM)
-    D1d,   // 3-vert clean boundary lost between F.0 and F.4 (repair-pass drop)
-    Other, // none of the above patterns
+    D1a,     // boundary.len() < 3 planar entry gate
+    D1b,     // 3-vertex earcut returned empty (coincident verts)
+    D1c,     // all-NMM boundary (>=90% NMM)
+    D1d,     // 3-vert clean boundary lost between F.0 and F.4 (repair-pass drop)
+    Other,   // none of the above patterns — pre-PR-Y37 catch-all (sub-classified in writer)
+    // PR-Y37 sub-classifications of Other (computed in writer with edge-level data):
+    OtherH1, // sub-grid seam dominant (≥80% boundary edges axis-aligned + grid-quantized)
+    OtherH2, // NMM-pair render asymmetric dominant (≥50% NMM edges with topology-present-but-render-absent twin)
+    OtherH3, // residual: Other that fits neither H1 nor H2
 }
 
 impl Y36Class {
@@ -4203,6 +4207,9 @@ impl Y36Class {
             Y36Class::D1c => "D1c",
             Y36Class::D1d => "D1d",
             Y36Class::Other => "OTHER",
+            Y36Class::OtherH1 => "OtherH1",
+            Y36Class::OtherH2 => "OtherH2",
+            Y36Class::OtherH3 => "OtherH3",
         }
     }
 }
@@ -4253,6 +4260,145 @@ fn y36_classify(info: &Y36ProbeFaceInfo, dropped_between_f0_and_f4: bool) -> Y36
     }
     Y36Class::Other
 }
+
+// ── PR-Y37 sub-classification of Y36Class::Other into H1/H2/H3 ──────────────
+//
+// H1 (sub-grid seam mismatch): face boundary tracks tessellation grid edges.
+//     Signature: ≥80% of boundary edges are axis-aligned (exactly one of the
+//     quantized-delta components is non-zero). Maps to PR-Y27 D.2 cohort.
+//
+// H2 (NMM-pair render asymmetry): face's NMM-edge boundary segments lack a
+//     peer face in the per-face boundary inventory (the would-be twin face
+//     either was never dispatched or doesn't host the same edge). Maps to
+//     PR-Y27 D.3 cohort.
+//
+// H3 (residual): neither H1 nor H2.
+//
+// Precedence: geometric H1 first (cheap test), then topological H2, then H3.
+
+const Y37_H1_THRESHOLD: f64 = 0.80;
+const Y37_H2_THRESHOLD: f64 = 0.50;
+
+/// True iff exactly one component of (b - a) is non-zero at quantization granularity.
+/// "Axis-aligned" means the edge runs parallel to one of the X/Y/Z axes.
+fn y37_edge_axis_aligned(a: Y36QPos, b: Y36QPos) -> bool {
+    let dx = (b.0 - a.0).abs();
+    let dy = (b.1 - a.1).abs();
+    let dz = (b.2 - a.2).abs();
+    let n_nonzero = (dx > 0) as u32 + (dy > 0) as u32 + (dz > 0) as u32;
+    n_nonzero == 1
+}
+
+/// Count of boundary edges that are axis-aligned (and trivially grid-quantized
+/// since the endpoints are already quantized to integer grid cells).
+fn y37_count_axis_aligned_edges(
+    boundary_positions: &[[f64; 3]],
+    inv_grid: f64,
+) -> usize {
+    let n = boundary_positions.len();
+    if n < 2 {
+        return 0;
+    }
+    let mut aligned = 0usize;
+    for i in 0..n {
+        let p0 = boundary_positions[i];
+        let p1 = boundary_positions[(i + 1) % n];
+        let q0 = y36_quantize_pos(p0, inv_grid);
+        let q1 = y36_quantize_pos(p1, inv_grid);
+        if q0 == q1 {
+            continue; // degenerate; not a useful signal either way
+        }
+        if y37_edge_axis_aligned(q0, q1) {
+            aligned += 1;
+        }
+    }
+    aligned
+}
+
+/// Proxy: for each NMM-incident boundary edge segment of this face, count
+/// segments whose quantized edge is NOT shared by any other face in the
+/// per-face boundary inventory (`face_boundary_edges`). "NMM-incident" is
+/// approximated by sampling: since the face has `outer_nmm_count` NMM HEs
+/// but boundary positions don't carry per-segment NMM flags, we instead use
+/// the overall face NMM ratio as a weight, and count edges where the peer
+/// face's boundary is missing from the inventory altogether.
+///
+/// Returns (asymmetric_count, total_nmm_estimate). asymmetric_count is the
+/// number of boundary edge SEGMENTS for which the edge appears uniquely in
+/// this face's boundary (no peer face in the inventory hosts it). Used in
+/// conjunction with face-level NMM count to compute the H2 threshold.
+fn y37_count_nmm_asymmetric(
+    info: &Y36ProbeFaceInfo,
+    inv_grid: f64,
+    face_boundary_edges: &BTreeMap<(Y36QPos, Y36QPos), Vec<u64>>,
+    kids_in_final: &std::collections::HashSet<u64>,
+) -> usize {
+    if info.outer_nmm_count == 0 {
+        return 0;
+    }
+    let n = info.boundary_positions.len();
+    if n < 2 {
+        return 0;
+    }
+    let mut asym = 0usize;
+    for i in 0..n {
+        let p0 = info.boundary_positions[i];
+        let p1 = info.boundary_positions[(i + 1) % n];
+        let q0 = y36_quantize_pos(p0, inv_grid);
+        let q1 = y36_quantize_pos(p1, inv_grid);
+        if q0 == q1 {
+            continue;
+        }
+        let edge = y36_canonical_edge(q0, q1);
+        let candidates = face_boundary_edges.get(&edge);
+        // "asymmetric" = this edge is unique to this face (no other face in
+        // the per-face inventory has the same quantized edge), OR all peers
+        // are dropped (not in final mesh). Both conditions = "topology says
+        // I should have a peer, but no peer's render produced this edge."
+        let has_peer_in_final = match candidates {
+            Some(v) => v.iter().any(|&kid| kid != info.kid && kids_in_final.contains(&kid)),
+            None => false,
+        };
+        if !has_peer_in_final {
+            asym += 1;
+        }
+    }
+    asym
+}
+
+/// Sub-classify a `Y36Class::Other` face into OtherH1/OtherH2/OtherH3.
+/// Returns input class unchanged if the input is not `Other`.
+fn y37_sub_classify(
+    base: Y36Class,
+    info: &Y36ProbeFaceInfo,
+    inv_grid: f64,
+    face_boundary_edges: &BTreeMap<(Y36QPos, Y36QPos), Vec<u64>>,
+    kids_in_final: &std::collections::HashSet<u64>,
+) -> (Y36Class, usize, usize) {
+    if base != Y36Class::Other {
+        return (base, 0, 0);
+    }
+    let n = info.boundary_positions.len();
+    let aligned = y37_count_axis_aligned_edges(&info.boundary_positions, inv_grid);
+    let asym = y37_count_nmm_asymmetric(info, inv_grid, face_boundary_edges, kids_in_final);
+    // H1 precedence: geometric grid-alignment dominant.
+    if n >= 2 {
+        let grid_frac = aligned as f64 / n as f64;
+        if grid_frac >= Y37_H1_THRESHOLD {
+            return (Y36Class::OtherH1, aligned, asym);
+        }
+    }
+    // H2: NMM-edge asymmetry. Count vs face-level NMM HE count, not vs total
+    // boundary edges, since H2 is fundamentally about NMM-edges' twin loss.
+    if info.outer_nmm_count > 0 {
+        let asym_frac = asym as f64 / info.outer_nmm_count as f64;
+        if asym_frac >= Y37_H2_THRESHOLD {
+            return (Y36Class::OtherH2, aligned, asym);
+        }
+    }
+    (Y36Class::OtherH3, aligned, asym)
+}
+
 
 fn y36_quantize_pos(pos: [f64; 3], inv_grid: f64) -> Y36QPos {
     (
@@ -4398,7 +4544,9 @@ fn y36_write_inverse_attribution(
     // Header: unpaired_edge_id, v0_x, v0_y, v0_z, v1_x, v1_y, v1_z,
     //         kept_face_id, attributed_source_face_id, classification,
     //         outer_boundary_len, outer_he_count, outer_nmm_count,
-    //         nmm_pct, was_dropped_in_repair, edge_count
+    //         nmm_pct, was_dropped_in_repair, edge_count,
+    //         // PR-Y37 additions:
+    //         grid_aligned_count, grid_aligned_pct, nmm_asym_count, nmm_asym_pct
     let mut rows: Vec<String> = Vec::new();
     let mut tally: BTreeMap<&'static str, u32> = BTreeMap::new();
     let mut unpaired_idx: u32 = 0;
@@ -4469,22 +4617,52 @@ fn y36_write_inverse_attribution(
             0.0
         };
 
-        *tally.entry(class.as_str()).or_insert(0) += 1;
+        // PR-Y37: sub-classify Other rows into H1/H2/H3 using edge-level features.
+        let (final_class, grid_aligned_cnt, nmm_asym_cnt) = match attr_info {
+            Some(info) => {
+                let (sub, ga, asym) = y37_sub_classify(
+                    class,
+                    info,
+                    inv_grid,
+                    &face_boundary_edges,
+                    &kids_in_final,
+                );
+                (sub, ga, asym)
+            }
+            None => (class, 0usize, 0usize),
+        };
+        let bn = attr_info.map(|i| i.boundary_positions.len()).unwrap_or(0);
+        let grid_aligned_pct = if bn > 0 {
+            grid_aligned_cnt as f64 / bn as f64 * 100.0
+        } else {
+            0.0
+        };
+        let nmm_asym_pct = if outer_nmm_count > 0 {
+            nmm_asym_cnt as f64 / outer_nmm_count as f64 * 100.0
+        } else {
+            0.0
+        };
+
+        *tally.entry(final_class.as_str()).or_insert(0) += 1;
 
         rows.push(format!(
-            "{}\t{:.6e}\t{:.6e}\t{:.6e}\t{:.6e}\t{:.6e}\t{:.6e}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.1}\t{}\t{}",
+            "{}\t{:.6e}\t{:.6e}\t{:.6e}\t{:.6e}\t{:.6e}\t{:.6e}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.1}\t{}\t{}\t{}\t{:.1}\t{}\t{:.1}",
             unpaired_idx,
             v0m[0], v0m[1], v0m[2],
             v1m[0], v1m[1], v1m[2],
             kept_face_id,
             attributed_kid,
-            class.as_str(),
+            final_class.as_str(),
             outer_boundary_len,
             outer_he_count,
             outer_nmm_count,
             nmm_pct,
             was_dropped_repair,
-            count
+            count,
+            grid_aligned_cnt,
+            grid_aligned_pct,
+            nmm_asym_cnt,
+            nmm_asym_pct,
         ));
         unpaired_idx += 1;
     }
@@ -4494,14 +4672,32 @@ fn y36_write_inverse_attribution(
     for info in faces {
         let in_final = kids_in_final.contains(&info.kid);
         let dropped_repair = info.face_range_pushed && !in_final;
-        let class = y36_classify(info, dropped_repair);
+        let base_class = y36_classify(info, dropped_repair);
+        let (final_class, grid_aligned_cnt, nmm_asym_cnt) = y37_sub_classify(
+            base_class,
+            info,
+            inv_grid,
+            &face_boundary_edges,
+            &kids_in_final,
+        );
         let nmm_pct = if info.outer_he_count > 0 {
             info.outer_nmm_count as f64 / info.outer_he_count as f64 * 100.0
         } else {
             0.0
         };
+        let bn = info.boundary_positions.len();
+        let grid_aligned_pct = if bn > 0 {
+            grid_aligned_cnt as f64 / bn as f64 * 100.0
+        } else {
+            0.0
+        };
+        let nmm_asym_pct = if info.outer_nmm_count > 0 {
+            nmm_asym_cnt as f64 / info.outer_nmm_count as f64 * 100.0
+        } else {
+            0.0
+        };
         face_rows.push(format!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.1}\t{}",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.1}\t{}\t{}\t{:.1}\t{}\t{:.1}",
             info.kid,
             info.face_idx,
             info.geom,
@@ -4513,7 +4709,11 @@ fn y36_write_inverse_attribution(
             info.indices_emitted,
             info.face_range_pushed,
             nmm_pct,
-            class.as_str(),
+            final_class.as_str(),
+            grid_aligned_cnt,
+            grid_aligned_pct,
+            nmm_asym_cnt,
+            nmm_asym_pct,
         ));
     }
 
@@ -4527,8 +4727,8 @@ fn y36_write_inverse_attribution(
     );
 
     let unpaired_header =
-        "unpaired_edge_id\tv0_x\tv0_y\tv0_z\tv1_x\tv1_y\tv1_z\tkept_face_id\tattributed_source_face_id\tclassification\touter_boundary_len\touter_he_count\touter_nmm_count\tnmm_pct\twas_dropped_in_repair\tedge_count";
-    let faces_header = "kid\tface_idx\tgeom\touter_he_count\touter_nmm_count\tis_self_loop\touter_boundary_len\tinner_loop_count\tindices_emitted_dispatch\tface_range_pushed\tnmm_pct\tclassification";
+        "unpaired_edge_id\tv0_x\tv0_y\tv0_z\tv1_x\tv1_y\tv1_z\tkept_face_id\tattributed_source_face_id\tclassification\touter_boundary_len\touter_he_count\touter_nmm_count\tnmm_pct\twas_dropped_in_repair\tedge_count\tgrid_aligned_count\tgrid_aligned_pct\tnmm_asym_count\tnmm_asym_pct";
+    let faces_header = "kid\tface_idx\tgeom\touter_he_count\touter_nmm_count\tis_self_loop\touter_boundary_len\tinner_loop_count\tindices_emitted_dispatch\tface_range_pushed\tnmm_pct\tclassification\tgrid_aligned_count\tgrid_aligned_pct\tnmm_asym_count\tnmm_asym_pct";
     let _ = crate::boolean::yang_integration::dump_labels_as_csv(
         unpaired_header,
         &rows,
@@ -4545,11 +4745,57 @@ fn y36_write_inverse_attribution(
     let d1b = tally.get("D1b").copied().unwrap_or(0);
     let d1c = tally.get("D1c").copied().unwrap_or(0);
     let d1d = tally.get("D1d").copied().unwrap_or(0);
-    let other = tally.get("OTHER").copied().unwrap_or(0);
+    let other_legacy = tally.get("OTHER").copied().unwrap_or(0); // should now be 0 with sub-class
+    let other_h1 = tally.get("OtherH1").copied().unwrap_or(0);
+    let other_h2 = tally.get("OtherH2").copied().unwrap_or(0);
+    let other_h3 = tally.get("OtherH3").copied().unwrap_or(0);
     eprintln!(
-        "[y36-inverse-probe] case={} inv#{} total_unpaired={} D1a={} D1b={} D1c={} D1d={} OTHER={} wrote={}",
-        case, invocation, total, d1a, d1b, d1c, d1d, other, unpaired_path
+        "[y36-inverse-probe] case={} inv#{} total_unpaired={} D1a={} D1b={} D1c={} D1d={} OTHER={} OtherH1={} OtherH2={} OtherH3={} wrote={}",
+        case, invocation, total, d1a, d1b, d1c, d1d, other_legacy,
+        other_h1, other_h2, other_h3, unpaired_path
     );
+
+    // PR-Y37 cross-cohort aggregator: append one row per (case, invocation) to
+    // a shared TSV in dump_dir. Append-mode so multiple invocations across
+    // cases/runs accumulate. Header is written only if file is empty.
+    let summary_path = format!("{}/cross_cohort_summary.tsv", dump_dir);
+    let summary_header = "case\tinvocation\ttotal_unpaired\tD1a\tD1b\tD1c\tD1d\tOTHER_legacy\tOtherH1\tOtherH2\tOtherH3\tD1_total\tOther_total\tH1_pct_of_other\tH2_pct_of_other\tH3_pct_of_other";
+    let d1_total = d1a + d1b + d1c + d1d;
+    let other_total = other_legacy + other_h1 + other_h2 + other_h3;
+    let h1_pct = if other_total > 0 {
+        other_h1 as f64 / other_total as f64 * 100.0
+    } else {
+        0.0
+    };
+    let h2_pct = if other_total > 0 {
+        other_h2 as f64 / other_total as f64 * 100.0
+    } else {
+        0.0
+    };
+    let h3_pct = if other_total > 0 {
+        other_h3 as f64 / other_total as f64 * 100.0
+    } else {
+        0.0
+    };
+    let row = format!(
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.1}\t{:.1}\t{:.1}",
+        case, invocation, total, d1a, d1b, d1c, d1d, other_legacy,
+        other_h1, other_h2, other_h3, d1_total, other_total, h1_pct, h2_pct, h3_pct,
+    );
+    use std::io::Write;
+    let header_needed = std::fs::metadata(&summary_path)
+        .map(|m| m.len() == 0)
+        .unwrap_or(true);
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&summary_path)
+    {
+        if header_needed {
+            let _ = writeln!(f, "{}", summary_header);
+        }
+        let _ = writeln!(f, "{}", row);
+    }
 }
 
 /// Used for boolean results where CylinderParams/RevolveParams are unavailable.
