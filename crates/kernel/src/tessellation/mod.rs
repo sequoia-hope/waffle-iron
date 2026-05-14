@@ -3318,7 +3318,32 @@ fn tessellate_planar_face_bounded(
     out_indices: &mut Vec<u32>,
     inner_boundaries: &[Vec<usize>],
 ) {
+    // PR-Y41 dispatch probe (env-gated, default-off byte-identical):
+    // record per-call entry state for later per-triangle quantization analysis.
+    let y41_on = y41_probe_enabled();
+    let y41_start_idx_count = if y41_on { out_indices.len() } else { 0 };
+    let y41_start_vert_count = if y41_on { out_verts.len() / 3 } else { 0 };
+    let y41_boundary_positions: Vec<[f64; 3]> = if y41_on {
+        boundary.iter().map(|&i| positions[i]).collect()
+    } else {
+        Vec::new()
+    };
+    let y41_inner_count = if y41_on { inner_boundaries.len() } else { 0 };
+    let y41_boundary_size = if y41_on { boundary.len() } else { 0 };
+
     if boundary.len() < 3 {
+        if y41_on {
+            y41_push_record(Y41DispatchRecord {
+                dispatch_type: "planar",
+                boundary_size: y41_boundary_size,
+                inner_count: y41_inner_count,
+                indices_emitted: 0,
+                distinct_quantized_tris: 0,
+                degenerate_collapse_count: 0,
+                single_vert_collision_count: 0,
+                boundary_positions: y41_boundary_positions,
+            });
+        }
         return;
     }
 
@@ -3488,6 +3513,43 @@ fn tessellate_planar_face_bounded(
                 out_indices.push(base_vertex + chunk[2] as u32);
             }
         }
+    }
+
+    // PR-Y41 dispatch probe exit: classify each emitted triangle's quantization.
+    if y41_on {
+        let indices_emitted = out_indices.len() - y41_start_idx_count;
+        let inv_grid = y41_inv_grid_from_verts(out_verts);
+        let mut distinct_q_tris = 0usize;
+        let mut degen = 0usize;
+        let mut single_coll = 0usize;
+        let tri_count = indices_emitted / 3;
+        for t in 0..tri_count {
+            let base = y41_start_idx_count + t * 3;
+            let ia = out_indices[base] as usize;
+            let ib = out_indices[base + 1] as usize;
+            let ic = out_indices[base + 2] as usize;
+            let qa = y41_quantize_f32_vert(out_verts, ia, inv_grid);
+            let qb = y41_quantize_f32_vert(out_verts, ib, inv_grid);
+            let qc = y41_quantize_f32_vert(out_verts, ic, inv_grid);
+            if qa == qb && qb == qc {
+                degen += 1;
+            } else if qa == qb || qb == qc || qa == qc {
+                single_coll += 1;
+            } else {
+                distinct_q_tris += 1;
+            }
+        }
+        let _ = y41_start_vert_count; // reserved for future use (vertex-count delta)
+        y41_push_record(Y41DispatchRecord {
+            dispatch_type: "planar",
+            boundary_size: y41_boundary_size,
+            inner_count: y41_inner_count,
+            indices_emitted,
+            distinct_quantized_tris: distinct_q_tris,
+            degenerate_collapse_count: degen,
+            single_vert_collision_count: single_coll,
+            boundary_positions: y41_boundary_positions,
+        });
     }
 }
 
@@ -4798,6 +4860,156 @@ fn y36_write_inverse_attribution(
     }
 }
 
+// ── PR-Y41 dispatch-loop emission probe (INFRA-CLASS, env-gated, additive) ──
+//
+// Captures per-call data from `tessellate_planar_face_bounded` (entry +
+// exit) so the parent driver can attach kid/face_id and emit a TSV. The
+// load-bearing measurement is per-face `indices_emitted` and per-emitted-
+// triangle quantization classification (distinct / single-vert collision /
+// fully-degenerate), enabling Gate 4's 18-index accounting and Gate 5's
+// degenerate-quantization check.
+
+#[derive(Debug, Clone)]
+struct Y41DispatchRecord {
+    dispatch_type: &'static str,
+    boundary_size: usize,
+    inner_count: usize,
+    indices_emitted: usize,
+    distinct_quantized_tris: usize,
+    degenerate_collapse_count: usize,
+    single_vert_collision_count: usize,
+    boundary_positions: Vec<[f64; 3]>,
+}
+
+std::thread_local! {
+    static Y41_DISPATCH_BUFFER: std::cell::RefCell<Vec<Y41DispatchRecord>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+    static Y41_INVOCATION_COUNTER: std::cell::RefCell<u64> =
+        const { std::cell::RefCell::new(0) };
+}
+
+fn y41_probe_enabled() -> bool {
+    std::env::var("Y41_DISPATCH_PROBE").as_deref() == Ok("1")
+}
+
+fn y41_push_record(rec: Y41DispatchRecord) {
+    Y41_DISPATCH_BUFFER.with(|b| b.borrow_mut().push(rec));
+}
+
+fn y41_take_records() -> Vec<Y41DispatchRecord> {
+    Y41_DISPATCH_BUFFER.with(|b| std::mem::take(&mut *b.borrow_mut()))
+}
+
+fn y41_next_invocation() -> u64 {
+    Y41_INVOCATION_COUNTER.with(|c| {
+        let mut n = c.borrow_mut();
+        *n += 1;
+        *n
+    })
+}
+
+fn y41_inv_grid_from_verts(out_verts: &[f32]) -> f64 {
+    let max_abs = out_verts.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+    let grid = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
+    1.0 / grid
+}
+
+fn y41_quantize_f32_vert(out_verts: &[f32], vert_idx: usize, inv_grid: f64) -> (i64, i64, i64) {
+    let i = vert_idx * 3;
+    if i + 2 >= out_verts.len() {
+        return (0, 0, 0);
+    }
+    (
+        (out_verts[i] as f64 * inv_grid).round() as i64,
+        (out_verts[i + 1] as f64 * inv_grid).round() as i64,
+        (out_verts[i + 2] as f64 * inv_grid).round() as i64,
+    )
+}
+
+/// Pair each Y41 dispatch record with the kid/face_idx from the parent
+/// driver's sorted_faces traversal and emit a per-invocation TSV.
+fn y41_write_dispatch_tsv(records: Vec<(u64, usize, Y41DispatchRecord)>) {
+    if !y41_probe_enabled() {
+        return;
+    }
+    let invocation = y41_next_invocation();
+
+    let dump_dir = match std::env::var("Y41_DISPATCH_PROBE_DIR") {
+        Ok(d) => d,
+        Err(_) => return,
+    };
+    let case = crate::boolean::yang_integration::current_case_id()
+        .unwrap_or_else(|| format!("seq_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dump_dir);
+
+    let path = format!(
+        "{}/{}_inv{:03}_dispatch.tsv",
+        dump_dir, case, invocation
+    );
+
+    let mut rows: Vec<String> = Vec::new();
+    for (kid, face_idx, rec) in &records {
+        rows.push(format!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            kid,
+            face_idx,
+            rec.dispatch_type,
+            rec.boundary_size,
+            rec.inner_count,
+            rec.indices_emitted,
+            rec.distinct_quantized_tris,
+            rec.degenerate_collapse_count,
+            rec.single_vert_collision_count,
+        ));
+    }
+    let header =
+        "kid\tface_idx\tdispatch_type\tboundary_size\tinner_count\tindices_emitted\tdistinct_quantized_tris\tdegenerate_collapse_count\tsingle_vert_collision_count";
+    let _ = crate::boolean::yang_integration::dump_labels_as_csv(header, &rows, &path);
+
+    // F0020 18-index accounting summary: sum kids 218/232/233 indices_emitted.
+    let mut d1d_sum: usize = 0;
+    let mut d1d_kid_breakdown: Vec<(u64, usize, usize, usize, usize)> = Vec::new();
+    for (kid, _face_idx, rec) in &records {
+        if *kid == 218 || *kid == 232 || *kid == 233 {
+            d1d_sum += rec.indices_emitted;
+            d1d_kid_breakdown.push((
+                *kid,
+                rec.indices_emitted,
+                rec.distinct_quantized_tris,
+                rec.degenerate_collapse_count,
+                rec.single_vert_collision_count,
+            ));
+        }
+    }
+    let mut sum_path = path.clone();
+    sum_path = sum_path.replace("_dispatch.tsv", "_d1d_summary.tsv");
+    let mut sum_rows: Vec<String> = Vec::new();
+    for (kid, idx_em, distinct, degen, single) in &d1d_kid_breakdown {
+        sum_rows.push(format!(
+            "{}\t{}\t{}\t{}\t{}",
+            kid, idx_em, distinct, degen, single
+        ));
+    }
+    sum_rows.push(format!(
+        "TOTAL_D1D_INDICES\t{}\tDISTINCT_TRIS\tDEGEN_TRIS\tSINGLE_COLL_TRIS",
+        d1d_sum
+    ));
+    let sum_header =
+        "kid\tindices_emitted\tdistinct_quantized_tris\tdegenerate_collapse_count\tsingle_vert_collision_count";
+    let _ =
+        crate::boolean::yang_integration::dump_labels_as_csv(sum_header, &sum_rows, &sum_path);
+
+    eprintln!(
+        "[y41-dispatch-probe] case={} inv#{} faces={} d1d_kids_present={} d1d_indices_total={} wrote={}",
+        case,
+        invocation,
+        records.len(),
+        d1d_kid_breakdown.len(),
+        d1d_sum,
+        path
+    );
+}
+
 /// Used for boolean results where CylinderParams/RevolveParams are unavailable.
 ///
 /// For analytical B-Rep: watertight by construction (shared vertices from
@@ -4823,8 +5035,21 @@ fn tessellate_solid_bounded(
     let y36_on = y36_probe_enabled();
     let mut y36_face_infos: Vec<Y36ProbeFaceInfo> = Vec::new();
 
+    // PR-Y41 dispatch probe (env-gated, default-off).
+    let y41_on = y41_probe_enabled();
+    if y41_on {
+        // Drain any stale records from prior invocations within this thread.
+        let _ = y41_take_records();
+    }
+    let mut y41_attributed: Vec<(u64, usize, Y41DispatchRecord)> = Vec::new();
+
     for &(kid, face_idx) in sorted_faces.iter() {
         let start_index = indices.len() as u32;
+        let y41_buf_before = if y41_on {
+            Y41_DISPATCH_BUFFER.with(|b| b.borrow().len())
+        } else {
+            0
+        };
         let geom = face_geometry.get(&face_idx);
 
         // PR-Y36: capture per-face properties BEFORE tessellate dispatch.
@@ -4962,6 +5187,20 @@ fn tessellate_solid_bounded(
                 start_index,
                 end_index,
             });
+        }
+
+        // PR-Y41: any records pushed during this face's dispatch get
+        // attributed to (kid, face_idx). Most faces emit one record; some
+        // dispatch paths (e.g., cylindrical fallback into planar) may emit
+        // multiple.
+        if y41_on {
+            let new_records: Vec<Y41DispatchRecord> = Y41_DISPATCH_BUFFER.with(|b| {
+                let mut buf = b.borrow_mut();
+                buf.drain(y41_buf_before..).collect()
+            });
+            for rec in new_records {
+                y41_attributed.push((kid, face_idx.0, rec));
+            }
         }
 
         // PR-Y36: complete the per-face capture.
@@ -5122,6 +5361,14 @@ fn tessellate_solid_bounded(
     // `Y36_INVERSE_PROBE=1`).
     if y36_on {
         y36_write_inverse_attribution(&y36_face_infos, &vertices, &indices, &face_ranges);
+    }
+
+    // PR-Y41 dispatch-loop probe: emit per-face dispatch TSV with quantization
+    // classification. Default-off (gated on `Y41_DISPATCH_PROBE=1`).
+    if y41_on {
+        y41_write_dispatch_tsv(y41_attributed);
+        // Final defensive drain to keep thread-local clean for subsequent invocations.
+        let _ = y41_take_records();
     }
 
     Ok(RenderMesh {
