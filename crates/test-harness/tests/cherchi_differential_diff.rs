@@ -250,9 +250,19 @@ fn run_waffle_and_collect_dumps(case_id: &str) -> WaffleDumpPaths {
     let stage_dump_dir = workdir.join("stages");
     std::fs::create_dir_all(&stage_dump_dir).expect("create stage dump dir");
     let path_stage_b = stage_dump_dir.join(case_id).join("stage_B.obj");
+    // PR-Y42: Render LOD output emitted by `tessellate_waffle_solid` at
+    // `yang_integration.rs:1063-1074` as `stage_E_lod=Render.obj` (the post-
+    // F.4 final render mesh; byte-identical to `stage_F.4.obj` since it
+    // captures the same return value of `tessellate_solid_bounded`). When
+    // multiple boolean ops run in a multi-extrude case, the file is
+    // overwritten — last-write IS the final mesh shipped to the assay
+    // oracle.
+    let path_render_lod = stage_dump_dir
+        .join(case_id)
+        .join("stage_E_lod=Render.obj");
 
     // Clean any stale outputs so a partial run can't be mistaken for fresh.
-    for p in [&path_a, &path_b, &path_stage_b] {
+    for p in [&path_a, &path_b, &path_stage_b, &path_render_lod] {
         let _ = std::fs::remove_file(p);
     }
 
@@ -275,6 +285,7 @@ fn run_waffle_and_collect_dumps(case_id: &str) -> WaffleDumpPaths {
         path_a,
         path_b,
         path_stage_b,
+        path_render_lod,
     }
 }
 
@@ -283,6 +294,7 @@ struct WaffleDumpPaths {
     path_a: PathBuf,
     path_b: PathBuf,
     path_stage_b: PathBuf,
+    path_render_lod: PathBuf,
 }
 
 /// Local enum mirroring `kernel::boolean::exact_mesh::MeshBooleanOp` (which
@@ -668,4 +680,403 @@ fn pr_y31_f0044_extras_zero() {
          got missing={} extras={} common={}",
         counts.missing, counts.extras, counts.common
     );
+}
+
+// ── PR-Y42: Render LOD diff (strategic-pivot B.1 from PR-Y41 §5) ────────
+//
+// After 10 cycles of Waffle-internal probes on F0020 Render LOD (Y25-Y28
+// ABORTs; Y36/Y37/Y38/Y40/Y41 INFRA-only SHIPs), the diagnostic-strategy
+// pivot extends the existing PR-Y29/Y30/Y31 Stage-B diff to the FINAL
+// render mesh layer. Cherchi C++ has no separate Render LOD pass — its
+// `mesh_booleans` output IS its final mesh. Diff target: which Cherchi
+// triangles are MISSING from Waffle's Render LOD output, and conversely
+// which Waffle Render LOD triangles are EXTRAS.
+//
+// For F0020 specifically: attribute the 40 unpaired-edge defect by
+// cross-referencing Cherchi-only missing triangles against the oracle's
+// unpaired-edge positions. The watertight oracle at `oracle.rs:185-274`
+// computes a scale-adaptive position grid (max_abs * TAU_TESS_GRID_FACTOR
+// = max_abs * 1e-5, with f32 vertex round-trip). To match the oracle, we
+// replicate the same quantization on Waffle's Render LOD OBJ (cast f64
+// → f32 → quantize), enumerate the unpaired edges, then bucket Cherchi-
+// only missing triangles by edge-position match.
+
+/// Outcome of `run_render_lod_diff_for_case`. Mirrors `DiffCounts` plus
+/// the F0020-specific attribution fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // baseline tests inspect via Debug print; future asserts may consume fields.
+struct RenderLodDiffCounts {
+    waffle_tris: usize,
+    cherchi_tris: usize,
+    missing: usize,
+    extras: usize,
+    common: usize,
+    waffle_unpaired_edges: usize,
+    /// Cherchi-only missing triangles whose at-least-one edge matches a
+    /// Waffle-Render-LOD unpaired-edge position (oracle quantization).
+    missing_tris_explaining_unpaired: usize,
+    /// Unique Waffle unpaired-edge positions explained by at-least-one
+    /// Cherchi-only missing triangle.
+    unpaired_edges_explained: usize,
+}
+
+/// Oracle's edge type: positionally-quantized undirected edge.
+/// Mirrors `oracle.rs`'s `PosEdge` exactly.
+type OraclePosEdge = ((i64, i64, i64), (i64, i64, i64));
+
+/// Replicate `check_watertight_mesh`'s scale-adaptive quantization on
+/// f64-loaded OBJ vertices. The oracle quantizes f32 vertices at
+/// `max_abs * TAU_TESS_GRID_FACTOR` with a `TAU_TESS_GRID_MIN` floor;
+/// we cast f64 → f32 first to match RenderMesh's storage precision.
+fn oracle_quantize_waffle_obj(
+    verts_f64: &[[f64; 3]],
+    tris: &[[usize; 3]],
+) -> (
+    std::collections::HashMap<OraclePosEdge, usize>,
+    Vec<(i64, i64, i64)>, // per-vertex quantized key (index by vert idx)
+    f64,                  // grid_size used
+) {
+    use kernel::units::{TAU_TESS_GRID_FACTOR, TAU_TESS_GRID_MIN};
+    let max_abs = verts_f64
+        .iter()
+        .flat_map(|v| v.iter())
+        .map(|x| (*x as f32).abs())
+        .fold(0.0_f32, f32::max);
+    let grid_size = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
+    let inv_grid = 1.0 / grid_size;
+    let quantize_f32 = |v: f32| -> i64 { (v as f64 * inv_grid).round() as i64 };
+
+    let vert_keys: Vec<(i64, i64, i64)> = verts_f64
+        .iter()
+        .map(|v| {
+            (
+                quantize_f32(v[0] as f32),
+                quantize_f32(v[1] as f32),
+                quantize_f32(v[2] as f32),
+            )
+        })
+        .collect();
+
+    fn make_edge(a: (i64, i64, i64), b: (i64, i64, i64)) -> OraclePosEdge {
+        if a <= b {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    }
+
+    let mut edge_counts: std::collections::HashMap<OraclePosEdge, usize> =
+        std::collections::HashMap::new();
+    for tri in tris {
+        let va = vert_keys[tri[0]];
+        let vb = vert_keys[tri[1]];
+        let vc = vert_keys[tri[2]];
+        *edge_counts.entry(make_edge(va, vb)).or_insert(0) += 1;
+        *edge_counts.entry(make_edge(vb, vc)).or_insert(0) += 1;
+        *edge_counts.entry(make_edge(vc, va)).or_insert(0) += 1;
+    }
+    (edge_counts, vert_keys, grid_size)
+}
+
+/// Quantize a Cherchi-side f64 vertex against the SAME oracle grid the
+/// Waffle side computed. Cherchi's mesh is the diff target — we use
+/// Waffle's grid (the one driving the 40 unpaired count) so attribution
+/// is in the oracle's own coordinate frame.
+fn oracle_quantize_cherchi_vert(v: [f64; 3], grid_size: f64) -> (i64, i64, i64) {
+    let inv_grid = 1.0 / grid_size;
+    (
+        ((v[0] as f32) as f64 * inv_grid).round() as i64,
+        ((v[1] as f32) as f64 * inv_grid).round() as i64,
+        ((v[2] as f32) as f64 * inv_grid).round() as i64,
+    )
+}
+
+/// Run F0020 / cohort case through the Render LOD diff (PR-Y42 B.1).
+/// Mirrors `run_diff_for_case` shape; reuses A/B dumps + Cherchi invoke.
+fn run_render_lod_diff_for_case(case_id: &str) -> Option<RenderLodDiffCounts> {
+    let bin = match cherchi_bin() {
+        Some(p) => p,
+        None => {
+            eprintln!(
+                "[render-lod-diff {}] SKIP: CHERCHI2022_BIN unset/missing",
+                case_id
+            );
+            return None;
+        }
+    };
+
+    let dumps = run_waffle_and_collect_dumps(case_id);
+
+    if !dumps.path_a.exists() || !dumps.path_b.exists() {
+        eprintln!(
+            "[render-lod-diff {}] SKIP: Waffle A/B dumps did not land at {} / {} \
+             (case may have short-circuited before the dump site)",
+            case_id,
+            dumps.path_a.display(),
+            dumps.path_b.display()
+        );
+        return None;
+    }
+
+    let op = read_first_boolean_op(case_id);
+    let op_str = op_to_cli_str(op);
+    eprintln!(
+        "[render-lod-diff {}] resolved boolean op for first dumped pair: {:?} → cherchi `{}`",
+        case_id, op, op_str
+    );
+
+    let path_cherchi_out = dumps.workdir.join(format!(
+        "{}_cherchi_{}.obj",
+        case_id.to_ascii_lowercase(),
+        op_str
+    ));
+    if invoke_cherchi(
+        &bin,
+        &dumps.path_a,
+        &dumps.path_b,
+        &path_cherchi_out,
+        case_id,
+        op,
+    )
+    .is_none()
+    {
+        eprintln!(
+            "[render-lod-diff {}] Cherchi invocation failed — cannot diff",
+            case_id
+        );
+        return None;
+    }
+
+    if !dumps.path_render_lod.exists() {
+        eprintln!(
+            "[render-lod-diff {}] SKIP: Waffle Render LOD dump absent at {} \
+             (case may have errored/panicked before tessellate_waffle_solid \
+             reached the post-Render-LOD probe site)",
+            case_id,
+            dumps.path_render_lod.display()
+        );
+        return None;
+    }
+
+    let (cv, ct) = parse_obj(&path_cherchi_out).expect("parse Cherchi output");
+    let cherchi_report = check_conformal(&cv, &ct);
+    let (wv, wt) = parse_obj(&dumps.path_render_lod).expect("parse Waffle Render LOD OBJ");
+    let waffle_report = check_conformal(&wv, &wt);
+
+    // Position-quantized triangle-set diff at the 1e-6 spec grid (matches
+    // PR-Y29/Y30/Y31 Stage-B diff convention so missing/extras numbers are
+    // comparable across stages).
+    let cherchi_set: HashSet<[(i64, i64, i64); 3]> =
+        ct.iter().map(|t| quantize_tri(&cv, *t)).collect();
+    let waffle_set: HashSet<[(i64, i64, i64); 3]> =
+        wt.iter().map(|t| quantize_tri(&wv, *t)).collect();
+
+    let missing_from_waffle: Vec<&[(i64, i64, i64); 3]> =
+        cherchi_set.difference(&waffle_set).collect();
+    let extra_in_waffle: Vec<&[(i64, i64, i64); 3]> = waffle_set.difference(&cherchi_set).collect();
+    let common = cherchi_set.intersection(&waffle_set).count();
+
+    eprintln!("=== {} Render LOD diff ===", case_id);
+    eprintln!(
+        "Cherchi output: {} triangles, {} vertices, well_formed={}, χ={}",
+        ct.len(),
+        cv.len(),
+        cherchi_report.is_well_formed,
+        cherchi_report.euler_characteristic,
+    );
+    eprintln!(
+        "Waffle Render LOD: {} triangles, {} vertices, well_formed={}, χ={}",
+        wt.len(),
+        wv.len(),
+        waffle_report.is_well_formed,
+        waffle_report.euler_characteristic,
+    );
+    eprintln!(
+        "Triangle count delta: N_c - N_w = {}",
+        ct.len() as i64 - wt.len() as i64
+    );
+    eprintln!(
+        "\nPosition-quantized triangle set comparison (grid={:.0e} m, winding-insensitive):",
+        QUANTIZE_GRID
+    );
+    eprintln!(
+        "  Missing (in Cherchi, not in Waffle Render LOD): {}",
+        missing_from_waffle.len()
+    );
+    eprintln!(
+        "  Extras  (in Waffle Render LOD, not in Cherchi): {}",
+        extra_in_waffle.len()
+    );
+    eprintln!("  Common (matching quantized positions): {}", common);
+
+    let mut missing_sorted: Vec<[(i64, i64, i64); 3]> =
+        missing_from_waffle.iter().map(|&&t| t).collect();
+    missing_sorted.sort();
+    let mut extra_sorted: Vec<[(i64, i64, i64); 3]> = extra_in_waffle.iter().map(|&&t| t).collect();
+    extra_sorted.sort();
+
+    eprintln!(
+        "\nTop {} missing-from-Waffle Render LOD triangles (positions):",
+        TOP_N_REPORT.min(missing_sorted.len())
+    );
+    for (i, t) in missing_sorted.iter().take(TOP_N_REPORT).enumerate() {
+        eprintln!("  tri[{}] = {}", i, fmt_qtri(t));
+    }
+    eprintln!(
+        "\nTop {} extra-in-Waffle Render LOD triangles (positions):",
+        TOP_N_REPORT.min(extra_sorted.len())
+    );
+    for (i, t) in extra_sorted.iter().take(TOP_N_REPORT).enumerate() {
+        eprintln!("  tri[{}] = {}", i, fmt_qtri(t));
+    }
+
+    // ── Attribution: cross-reference missing triangles vs oracle unpaired ──
+    //
+    // Compute the oracle's unpaired-edge set on Waffle's Render LOD OBJ
+    // (using the SAME scale-adaptive grid the production oracle uses).
+    // Then quantize each missing-from-Waffle Cherchi triangle's 3 edges
+    // against the same grid and bucket by edge-position overlap.
+    let (waffle_edge_counts, _wv_keys, grid_size) = oracle_quantize_waffle_obj(&wv, &wt);
+    let unpaired_edges: std::collections::HashSet<OraclePosEdge> = waffle_edge_counts
+        .iter()
+        .filter(|(_, &c)| c != 2)
+        .map(|(e, _)| *e)
+        .collect();
+    let count_1 = waffle_edge_counts.iter().filter(|(_, &c)| c == 1).count();
+    let count_3plus = waffle_edge_counts.iter().filter(|(_, &c)| c >= 3).count();
+
+    fn make_oracle_edge(a: (i64, i64, i64), b: (i64, i64, i64)) -> OraclePosEdge {
+        if a <= b {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    }
+
+    let mut missing_tris_explaining_unpaired = 0usize;
+    let mut explained_edges: std::collections::HashSet<OraclePosEdge> =
+        std::collections::HashSet::new();
+    // For top-N report of which missing triangles bound which unpaired edges.
+    let mut explanation_records: Vec<(
+        [(i64, i64, i64); 3],
+        Vec<OraclePosEdge>,
+    )> = Vec::new();
+    for tri in &missing_sorted {
+        // Re-derive the missing triangle's 3 vertex positions back to
+        // floating-point (it was Cherchi-side; we need the SAME oracle
+        // grid quantization Waffle uses). Convert the 1e-6 quantized
+        // positions back to f64 metres, then quantize against the oracle
+        // grid. This is a two-step requantization — the 1e-6 → metres
+        // path is lossy only at the sub-µm level (well below the oracle
+        // grid of `max_abs * 1e-5` which for F0020's max_abs ~0.1m is
+        // ~1µm); we accept this as an attribution-time precision floor.
+        let to_m = |q: (i64, i64, i64)| -> [f64; 3] {
+            [
+                q.0 as f64 * QUANTIZE_GRID,
+                q.1 as f64 * QUANTIZE_GRID,
+                q.2 as f64 * QUANTIZE_GRID,
+            ]
+        };
+        let oa = oracle_quantize_cherchi_vert(to_m(tri[0]), grid_size);
+        let ob = oracle_quantize_cherchi_vert(to_m(tri[1]), grid_size);
+        let oc = oracle_quantize_cherchi_vert(to_m(tri[2]), grid_size);
+        let edges = [
+            make_oracle_edge(oa, ob),
+            make_oracle_edge(ob, oc),
+            make_oracle_edge(oc, oa),
+        ];
+        let mut matched_edges: Vec<OraclePosEdge> = Vec::new();
+        for e in &edges {
+            if unpaired_edges.contains(e) {
+                matched_edges.push(*e);
+                explained_edges.insert(*e);
+            }
+        }
+        if !matched_edges.is_empty() {
+            missing_tris_explaining_unpaired += 1;
+            explanation_records.push((*tri, matched_edges));
+        }
+    }
+
+    let coverage_pct = if !unpaired_edges.is_empty() {
+        (explained_edges.len() as f64) * 100.0 / (unpaired_edges.len() as f64)
+    } else {
+        0.0
+    };
+
+    eprintln!(
+        "\nOracle attribution (grid={:.6e} m; f32 round-trip):",
+        grid_size
+    );
+    eprintln!(
+        "  Waffle Render LOD unpaired edges: {} ({} boundary, {} non-manifold)",
+        unpaired_edges.len(),
+        count_1,
+        count_3plus
+    );
+    eprintln!(
+        "  Cherchi-only missing tris with ≥1 edge matching unpaired: {}/{}",
+        missing_tris_explaining_unpaired,
+        missing_sorted.len()
+    );
+    eprintln!(
+        "  Unpaired edges explained by ≥1 missing tri: {}/{} ({:.1}%)",
+        explained_edges.len(),
+        unpaired_edges.len(),
+        coverage_pct
+    );
+
+    eprintln!(
+        "\nTop {} attribution records (missing-tri → unpaired-edges):",
+        TOP_N_REPORT.min(explanation_records.len())
+    );
+    for (i, (tri, edges)) in explanation_records.iter().take(TOP_N_REPORT).enumerate() {
+        eprintln!(
+            "  rec[{}] tri={} matched_edges={}",
+            i,
+            fmt_qtri(tri),
+            edges.len()
+        );
+    }
+
+    eprintln!("=== end {} Render LOD diff ===\n", case_id);
+
+    Some(RenderLodDiffCounts {
+        waffle_tris: wt.len(),
+        cherchi_tris: ct.len(),
+        missing: missing_from_waffle.len(),
+        extras: extra_in_waffle.len(),
+        common,
+        waffle_unpaired_edges: unpaired_edges.len(),
+        missing_tris_explaining_unpaired,
+        unpaired_edges_explained: explained_edges.len(),
+    })
+}
+
+/// PR-Y42 F0020 Render LOD diff baseline. Compares Waffle's final render
+/// mesh (post-`tessellate_waffle_solid` E_lod=Render dump) against the
+/// Cherchi 2022 `mesh_booleans <op>` output, and attributes the watertight
+/// oracle's unpaired-edge defect to specific Cherchi-only missing tris.
+///
+/// Skip-quietly contract identical to `f0020_cherchi_diff_baseline`: no
+/// Cherchi binary → no-op (matches `#[ignore]` posture).
+#[test]
+#[ignore]
+fn f0020_render_lod_diff_baseline() {
+    let _ = run_render_lod_diff_for_case("F0020");
+}
+
+/// PR-Y42 cohort baseline: F0044/F0045/R0092 at Render LOD.
+///
+/// F0044 is the highest-signal cohort case per PR-Y30/Y31 — its Stage B
+/// is byte-clean against Cherchi (missing=0, extras=0). If F0044 Render
+/// LOD ALSO has missing tris, the Render LOD post-processing IS the
+/// defect mechanism downstream of byte-clean Stage B (cleanest possible
+/// attribution signal in the cohort).
+#[test]
+#[ignore]
+fn cohort_render_lod_diff_baseline() {
+    for case in &["F0044", "F0045", "R0092"] {
+        let _ = run_render_lod_diff_for_case(case);
+    }
 }
