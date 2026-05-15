@@ -1080,3 +1080,441 @@ fn cohort_render_lod_diff_baseline() {
         let _ = run_render_lod_diff_for_case(case);
     }
 }
+
+// ── PR-Y43: A/B/C nearest-triangle attribution ─────────────────────────
+//
+// 12th investigational PR on F0020 Render LOD. PR-Y42 found 20/40 = 50%
+// of unpaired edges explained by 42 Cherchi-only missing tris (borderline-
+// sharp). PR-Y43 asks: what does Waffle have NEARBY each of those 42
+// missing tris? Per the plan §Phase 2 verdict logic:
+//
+//   - Case A (sub-grid drift): all 3 verts match at >1× grid but not 1×
+//   - Case B (partial match):  exactly 2 of 3 verts match at 1× grid
+//   - Case C (no proximity):   ≤1 vert has any near-Waffle match
+//   - Case D (residual):       everything else (esp. 3-of-3 at 1×, meaning
+//                              positional match but triangle still missing)
+//
+// Each case implies a different PR-Y44 fix-shape. Grid levels probed:
+// 1× / 2× / 5× / 10× of the oracle's scale-adaptive grid
+// (max_abs * TAU_TESS_GRID_FACTOR = max_abs * 1e-5). Match at N× = the
+// Cherchi vert quantizes to a key present in Waffle's Render-LOD vertex
+// set at that grid scale.
+
+/// Per-triangle nearest-Waffle attribution counts. Three of the four
+/// counts (match_at_1x / _2x / _5x) drive A/B/C/D classification.
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // Inspected via Debug print + classification logic; future asserts may consume.
+struct NearestVertAttribution {
+    match_at_1x: u8,    // 0..=3
+    match_at_2x: u8,
+    match_at_5x: u8,
+    match_at_10x: u8,
+    /// For Case B aggregation: index (0/1/2) of the OFF vertex (the one
+    /// NOT matched at 1×). Only meaningful when match_at_1x == 2.
+    off_vert_idx_when_b: Option<u8>,
+}
+
+/// Per-grid Waffle vertex set. Keys are quantized at `grid_size * factor`.
+struct WaffleVertSetAtGrid {
+    factor: u32, // 1, 2, 5, 10
+    keys: std::collections::HashSet<(i64, i64, i64)>,
+}
+
+/// Build the four Waffle-vert key sets (1×, 2×, 5×, 10× of base grid).
+/// The base grid is the oracle's scale-adaptive grid; coarser factors
+/// yield larger cells (more keys collide). f32 round-trip preserved.
+fn build_waffle_vert_sets_at_grids(
+    verts_f64: &[[f64; 3]],
+    base_grid: f64,
+) -> [WaffleVertSetAtGrid; 4] {
+    let factors = [1u32, 2, 5, 10];
+    factors.map(|factor| {
+        let grid = base_grid * factor as f64;
+        let inv_grid = 1.0 / grid;
+        let quantize_f32 =
+            |v: f32| -> i64 { (v as f64 * inv_grid).round() as i64 };
+        let keys: std::collections::HashSet<(i64, i64, i64)> = verts_f64
+            .iter()
+            .map(|v| {
+                (
+                    quantize_f32(v[0] as f32),
+                    quantize_f32(v[1] as f32),
+                    quantize_f32(v[2] as f32),
+                )
+            })
+            .collect();
+        WaffleVertSetAtGrid { factor, keys }
+    })
+}
+
+/// Re-quantize one Cherchi-side f64 vertex (already passed through the
+/// 1e-6 → metres → f32 lossy path from PR-Y42) at multiple grid scales,
+/// and ask: at each scale, does the Cherchi-vert quantize to a key in
+/// the Waffle vertex set?
+///
+/// Returns one bool per grid level (in the same order as
+/// `build_waffle_vert_sets_at_grids`: 1×, 2×, 5×, 10×).
+fn cherchi_vert_matches_waffle_at_grids(
+    cherchi_v: [f64; 3],
+    base_grid: f64,
+    waffle_sets: &[WaffleVertSetAtGrid; 4],
+) -> [bool; 4] {
+    let mut out = [false; 4];
+    for (i, wset) in waffle_sets.iter().enumerate() {
+        let grid = base_grid * wset.factor as f64;
+        let inv_grid = 1.0 / grid;
+        let q = (
+            ((cherchi_v[0] as f32) as f64 * inv_grid).round() as i64,
+            ((cherchi_v[1] as f32) as f64 * inv_grid).round() as i64,
+            ((cherchi_v[2] as f32) as f64 * inv_grid).round() as i64,
+        );
+        out[i] = wset.keys.contains(&q);
+    }
+    out
+}
+
+/// Find the nearest Waffle vertex (Chebyshev cell-distance) at the BASE
+/// grid for a given Cherchi vertex. Used for Case B off-vertex dumps —
+/// gives a concrete (Cherchi position, nearest Waffle position,
+/// cell-distance) tuple for the PR-Y44 investigation.
+fn nearest_waffle_vert_at_base_grid(
+    cherchi_v: [f64; 3],
+    base_grid: f64,
+    waffle_verts_f64: &[[f64; 3]],
+) -> (usize, i64, [f64; 3]) {
+    let inv_grid = 1.0 / base_grid;
+    let cq = (
+        ((cherchi_v[0] as f32) as f64 * inv_grid).round() as i64,
+        ((cherchi_v[1] as f32) as f64 * inv_grid).round() as i64,
+        ((cherchi_v[2] as f32) as f64 * inv_grid).round() as i64,
+    );
+    let mut best_idx = 0usize;
+    let mut best_dist = i64::MAX;
+    let mut best_pos = waffle_verts_f64.first().copied().unwrap_or([0.0; 3]);
+    for (i, wv) in waffle_verts_f64.iter().enumerate() {
+        let wq = (
+            ((wv[0] as f32) as f64 * inv_grid).round() as i64,
+            ((wv[1] as f32) as f64 * inv_grid).round() as i64,
+            ((wv[2] as f32) as f64 * inv_grid).round() as i64,
+        );
+        let dx = (wq.0 - cq.0).abs();
+        let dy = (wq.1 - cq.1).abs();
+        let dz = (wq.2 - cq.2).abs();
+        let d = dx.max(dy).max(dz); // Chebyshev / L∞
+        if d < best_dist {
+            best_dist = d;
+            best_idx = i;
+            best_pos = *wv;
+        }
+    }
+    (best_idx, best_dist, best_pos)
+}
+
+/// Classify a single attribution record (match counts at 1×/2×/5×/10×).
+/// Returns one of "A", "B", "C", "D" per the PR-Y43 plan §Phase 2.
+fn classify_attribution(attr: &NearestVertAttribution) -> &'static str {
+    if attr.match_at_5x == 3 && attr.match_at_1x < 3 {
+        "A"
+    } else if attr.match_at_1x == 2 {
+        "B"
+    } else if attr.match_at_5x <= 1 {
+        "C"
+    } else {
+        "D"
+    }
+}
+
+/// Outcome of `run_nearest_attribution_for_case`. Drives gate-4 histogram
+/// + gate-5 Case B dump.
+#[derive(Debug, Clone)]
+#[allow(dead_code)] // Returned for caller-side asserts; printed via Debug.
+struct NearestAttributionResult {
+    case_id: String,
+    target_tri_count: usize, // F0020: 42; cohort: varies
+    case_a: usize,
+    case_b: usize,
+    case_c: usize,
+    case_d: usize,
+}
+
+/// PR-Y43 core probe. Mirrors `run_render_lod_diff_for_case` but adds
+/// A/B/C/D classification of the missing-attributable triangles.
+///
+/// Steps:
+/// 1. Replay PR-Y42's harness: dump Waffle A/B/Render-LOD; invoke Cherchi;
+///    diff the 1e-6-quantized triangle sets; compute oracle unpaired
+///    edges + attribution.
+/// 2. Build Waffle vertex sets at four quantization grids (1×/2×/5×/10×
+///    of base = max_abs * TAU_TESS_GRID_FACTOR).
+/// 3. For each missing-attributable Cherchi triangle, count vert matches
+///    at each grid level → classify A/B/C/D.
+/// 4. For Case B: dump (off-vertex Cherchi pos, nearest Waffle pos,
+///    cell-distance) for PR-Y44 anchor candidate data.
+fn run_nearest_attribution_for_case(case_id: &str) -> Option<NearestAttributionResult> {
+    let bin = match cherchi_bin() {
+        Some(p) => p,
+        None => {
+            eprintln!(
+                "[nearest-attr {}] SKIP: CHERCHI2022_BIN unset/missing",
+                case_id
+            );
+            return None;
+        }
+    };
+
+    let dumps = run_waffle_and_collect_dumps(case_id);
+
+    if !dumps.path_a.exists() || !dumps.path_b.exists() {
+        eprintln!(
+            "[nearest-attr {}] SKIP: Waffle A/B dumps did not land",
+            case_id
+        );
+        return None;
+    }
+
+    let op = read_first_boolean_op(case_id);
+    let op_str = op_to_cli_str(op);
+    let path_cherchi_out = dumps.workdir.join(format!(
+        "{}_cherchi_{}.obj",
+        case_id.to_ascii_lowercase(),
+        op_str
+    ));
+    if invoke_cherchi(
+        &bin,
+        &dumps.path_a,
+        &dumps.path_b,
+        &path_cherchi_out,
+        case_id,
+        op,
+    )
+    .is_none()
+    {
+        eprintln!(
+            "[nearest-attr {}] Cherchi invocation failed — cannot run probe",
+            case_id
+        );
+        return None;
+    }
+
+    if !dumps.path_render_lod.exists() {
+        eprintln!(
+            "[nearest-attr {}] SKIP: Waffle Render LOD dump absent",
+            case_id
+        );
+        return None;
+    }
+
+    let (cv, ct) = parse_obj(&path_cherchi_out).expect("parse Cherchi output");
+    let (wv, wt) = parse_obj(&dumps.path_render_lod).expect("parse Waffle Render LOD OBJ");
+
+    // ── Replay PR-Y42 1e-6 set diff to identify the 194 missing tris ──
+    let cherchi_set: HashSet<[(i64, i64, i64); 3]> =
+        ct.iter().map(|t| quantize_tri(&cv, *t)).collect();
+    let waffle_set: HashSet<[(i64, i64, i64); 3]> =
+        wt.iter().map(|t| quantize_tri(&wv, *t)).collect();
+    let missing_from_waffle: Vec<&[(i64, i64, i64); 3]> =
+        cherchi_set.difference(&waffle_set).collect();
+    let mut missing_sorted: Vec<[(i64, i64, i64); 3]> =
+        missing_from_waffle.iter().map(|&&t| t).collect();
+    missing_sorted.sort();
+
+    // ── Replay PR-Y42 oracle attribution to identify the 42 attributable tris ──
+    let (waffle_edge_counts, _wv_keys, base_grid) = oracle_quantize_waffle_obj(&wv, &wt);
+    let unpaired_edges: std::collections::HashSet<OraclePosEdge> = waffle_edge_counts
+        .iter()
+        .filter(|(_, &c)| c != 2)
+        .map(|(e, _)| *e)
+        .collect();
+
+    fn make_oracle_edge(a: (i64, i64, i64), b: (i64, i64, i64)) -> OraclePosEdge {
+        if a <= b {
+            (a, b)
+        } else {
+            (b, a)
+        }
+    }
+    let to_m = |q: (i64, i64, i64)| -> [f64; 3] {
+        [
+            q.0 as f64 * QUANTIZE_GRID,
+            q.1 as f64 * QUANTIZE_GRID,
+            q.2 as f64 * QUANTIZE_GRID,
+        ]
+    };
+
+    // Filter to the missing-attributable subset (= the "42" set for F0020).
+    let mut target_tris: Vec<[(i64, i64, i64); 3]> = Vec::new();
+    for tri in &missing_sorted {
+        let oa = oracle_quantize_cherchi_vert(to_m(tri[0]), base_grid);
+        let ob = oracle_quantize_cherchi_vert(to_m(tri[1]), base_grid);
+        let oc = oracle_quantize_cherchi_vert(to_m(tri[2]), base_grid);
+        let edges = [
+            make_oracle_edge(oa, ob),
+            make_oracle_edge(ob, oc),
+            make_oracle_edge(oc, oa),
+        ];
+        if edges.iter().any(|e| unpaired_edges.contains(e)) {
+            target_tris.push(*tri);
+        }
+    }
+
+    eprintln!(
+        "[nearest-attr {}] base_grid={:.6e} m; target_tris={} (missing-attributable)",
+        case_id,
+        base_grid,
+        target_tris.len()
+    );
+
+    // ── Build Waffle vert key sets at 1×/2×/5×/10× of base grid ──
+    let waffle_sets = build_waffle_vert_sets_at_grids(&wv, base_grid);
+
+    // ── Classify each target triangle ──
+    let mut case_a = 0usize;
+    let mut case_b = 0usize;
+    let mut case_c = 0usize;
+    let mut case_d = 0usize;
+
+    // For Case B vertex dump
+    let mut case_b_dumps: Vec<(
+        [(i64, i64, i64); 3],
+        u8,        // off-vert idx (0/1/2)
+        [f64; 3],  // Cherchi position (lossy from 1e-6 grid)
+        [f64; 3],  // Nearest Waffle position (raw OBJ f64)
+        i64,       // Chebyshev cell-distance at base grid
+    )> = Vec::new();
+
+    for tri in &target_tris {
+        // Three vertex positions (Cherchi-side, lossily de-quantized).
+        let vs = [to_m(tri[0]), to_m(tri[1]), to_m(tri[2])];
+
+        // Per-vertex match flags across 4 grids.
+        let m0 = cherchi_vert_matches_waffle_at_grids(vs[0], base_grid, &waffle_sets);
+        let m1 = cherchi_vert_matches_waffle_at_grids(vs[1], base_grid, &waffle_sets);
+        let m2 = cherchi_vert_matches_waffle_at_grids(vs[2], base_grid, &waffle_sets);
+
+        // Aggregate per grid.
+        let count_at = |g_idx: usize| -> u8 {
+            (m0[g_idx] as u8) + (m1[g_idx] as u8) + (m2[g_idx] as u8)
+        };
+        // off_vert_idx_when_b: which of the 3 verts is NOT matched at 1×
+        // when match_at_1x == 2 (i.e., 2 of 3 verts matched, 1 missed).
+        let at_1x = [m0[0], m1[0], m2[0]];
+        let unmatched_at_1x: Vec<u8> = (0..3u8)
+            .filter(|&i| !at_1x[i as usize])
+            .collect();
+        let off_idx = if unmatched_at_1x.len() == 1 {
+            Some(unmatched_at_1x[0])
+        } else {
+            None
+        };
+
+        let attr = NearestVertAttribution {
+            match_at_1x: count_at(0),
+            match_at_2x: count_at(1),
+            match_at_5x: count_at(2),
+            match_at_10x: count_at(3),
+            off_vert_idx_when_b: off_idx,
+        };
+        let cls = classify_attribution(&attr);
+
+        match cls {
+            "A" => case_a += 1,
+            "B" => {
+                case_b += 1;
+                if let Some(off) = off_idx {
+                    let (_idx, dist, wpos) = nearest_waffle_vert_at_base_grid(
+                        vs[off as usize],
+                        base_grid,
+                        &wv,
+                    );
+                    case_b_dumps.push((*tri, off, vs[off as usize], wpos, dist));
+                }
+            }
+            "C" => case_c += 1,
+            _ => case_d += 1,
+        }
+    }
+
+    eprintln!(
+        "\n=== {} A/B/C/D classification (PR-Y43) ===",
+        case_id
+    );
+    let n = target_tris.len().max(1); // avoid div-by-zero on cohort common=0 + 0 target
+    let pct = |c: usize| -> f64 { (c as f64) * 100.0 / (n as f64) };
+    eprintln!(
+        "  Case A (sub-grid drift; all-3 verts ≤5× grid + not all-3 at 1×): {} / {} = {:.1}%",
+        case_a, target_tris.len(), pct(case_a)
+    );
+    eprintln!(
+        "  Case B (partial match; exactly 2 verts at 1× + 1 off):            {} / {} = {:.1}%",
+        case_b, target_tris.len(), pct(case_b)
+    );
+    eprintln!(
+        "  Case C (no proximity; ≤1 vert anywhere at 5× grid):               {} / {} = {:.1}%",
+        case_c, target_tris.len(), pct(case_c)
+    );
+    eprintln!(
+        "  Case D (residual; e.g., all-3 at 1× but triangle missing):        {} / {} = {:.1}%",
+        case_d, target_tris.len(), pct(case_d)
+    );
+
+    // Case B vertex dump — PR-Y44 candidate-anchor data.
+    if !case_b_dumps.is_empty() {
+        eprintln!(
+            "\n=== {} Case B off-vertex dump ({} entries) ===",
+            case_id,
+            case_b_dumps.len()
+        );
+        eprintln!(
+            "  format: tri=qa,qb,qc off_vert_idx C_pos=(x,y,z) W_pos=(x,y,z) cell_dist=N"
+        );
+        // Stable order: sort by Cherchi off-vert quantized position.
+        let mut sorted = case_b_dumps.clone();
+        sorted.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
+        for (i, (tri, off, cpos, wpos, dist)) in sorted.iter().enumerate() {
+            eprintln!(
+                "  b[{}] tri={} off={} C_pos=({:+.6e},{:+.6e},{:+.6e}) \
+                 W_pos=({:+.6e},{:+.6e},{:+.6e}) cell_dist={}",
+                i,
+                fmt_qtri(tri),
+                off,
+                cpos[0], cpos[1], cpos[2],
+                wpos[0], wpos[1], wpos[2],
+                dist,
+            );
+        }
+    } else {
+        eprintln!("\n=== {} Case B off-vertex dump: EMPTY ===", case_id);
+    }
+
+    eprintln!("=== end {} A/B/C/D classification ===\n", case_id);
+
+    Some(NearestAttributionResult {
+        case_id: case_id.to_string(),
+        target_tri_count: target_tris.len(),
+        case_a,
+        case_b,
+        case_c,
+        case_d,
+    })
+}
+
+/// PR-Y43 LOAD-BEARING test: F0020 A/B/C/D histogram + Case B dump.
+/// 12th investigational PR on F0020 Render LOD; drives PR-Y44 decision
+/// per the plan §Phase 2 verdict logic.
+#[test]
+#[ignore]
+fn f0020_render_lod_nearest_attribution() {
+    let _ = run_nearest_attribution_for_case("F0020");
+}
+
+/// PR-Y43 cohort sanity: F0044/F0045/R0092 expected ≥95% Case C
+/// (common=0 for all → target_tris is the entire 136/236/192 missing
+/// list, which contains no positionally-matched Waffle verts → Case C
+/// dominates by methodology). Confirms the probe is not a bug.
+#[test]
+#[ignore]
+fn cohort_render_lod_nearest_attribution() {
+    for case in &["F0044", "F0045", "R0092"] {
+        let _ = run_nearest_attribution_for_case(case);
+    }
+}
