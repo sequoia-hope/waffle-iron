@@ -1114,6 +1114,20 @@ struct NearestVertAttribution {
     off_vert_idx_when_b: Option<u8>,
 }
 
+/// PR-Y44 δ: per-Case-D 4-tuple of grid-match counts at 1×/2×/5×/10×.
+/// Separates sub-class (a) `(m1x=3, m5x=3)` ← topology-emission defect
+/// from sub-class (b) `(m1x ∈ {0,1}, m5x=2)` ← partial-proximity residual.
+/// All other tuples fall under "other" and indicate an unexpected
+/// sub-mechanism in the Case D residual catch-all bucket.
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
+struct CaseDSubclassTuple {
+    match_at_1x: u8,
+    match_at_2x: u8,
+    match_at_5x: u8,
+    match_at_10x: u8,
+}
+
 /// Per-grid Waffle vertex set. Keys are quantized at `grid_size * factor`.
 struct WaffleVertSetAtGrid {
     factor: u32, // 1, 2, 5, 10
@@ -1235,6 +1249,9 @@ struct NearestAttributionResult {
     case_b: usize,
     case_c: usize,
     case_d: usize,
+    /// PR-Y44 δ: per-Case-D 4-tuple capture for sub-class disambiguation.
+    /// Length == case_d. Same insertion order as classification loop.
+    case_d_tuples: Vec<CaseDSubclassTuple>,
 }
 
 /// PR-Y43 core probe. Mirrors `run_render_lod_diff_for_case` but adds
@@ -1382,6 +1399,10 @@ fn run_nearest_attribution_for_case(case_id: &str) -> Option<NearestAttributionR
         i64,       // Chebyshev cell-distance at base grid
     )> = Vec::new();
 
+    // PR-Y44 δ: per-Case-D 4-tuple capture for sub-class disambiguation.
+    // Pairs (quantized tri, tuple) so the per-tri table can print the tri id.
+    let mut case_d_entries: Vec<([(i64, i64, i64); 3], CaseDSubclassTuple)> = Vec::new();
+
     for tri in &target_tris {
         // Three vertex positions (Cherchi-side, lossily de-quantized).
         let vs = [to_m(tri[0]), to_m(tri[1]), to_m(tri[2])];
@@ -1430,7 +1451,19 @@ fn run_nearest_attribution_for_case(case_id: &str) -> Option<NearestAttributionR
                 }
             }
             "C" => case_c += 1,
-            _ => case_d += 1,
+            _ => {
+                case_d += 1;
+                // PR-Y44 δ: capture per-Case-D 4-tuple for sub-class disambiguation.
+                case_d_entries.push((
+                    *tri,
+                    CaseDSubclassTuple {
+                        match_at_1x: attr.match_at_1x,
+                        match_at_2x: attr.match_at_2x,
+                        match_at_5x: attr.match_at_5x,
+                        match_at_10x: attr.match_at_10x,
+                    },
+                ));
+            }
         }
     }
 
@@ -1486,7 +1519,105 @@ fn run_nearest_attribution_for_case(case_id: &str) -> Option<NearestAttributionR
         eprintln!("\n=== {} Case B off-vertex dump: EMPTY ===", case_id);
     }
 
+    // PR-Y44 δ: Case D sub-class distribution + per-tri 4-tuple table.
+    // Sub-class (a) = (m1x=3, m5x=3)         ← topology-emission defect
+    //                                          (paper anchors: Cherchi 2022 §5
+    //                                          manifold-flood; Yang 2025 §4.4.1
+    //                                          mesh-updating dup-retention)
+    // Sub-class (b) = (m1x ∈ {0,1}, m5x=2)   ← partial-proximity residual
+    //                                          (vertex-production mechanism;
+    //                                          Case-B-adjacent)
+    // Sub-class other = everything else inside the Case D residual catch-all.
+    //
+    // Per audit-y43 §3.2 + §4.1: the canary memo's "3-of-3 at 1× / triangle
+    // missing" framing was an inference, not a measurement; the probe did
+    // not distinguish sub-classes. δ measures the proportion before α/γ
+    // anchor selection (`feedback_phase1_diagnosis_ranking_is_inference`).
+    eprintln!(
+        "\n=== {} Case D sub-class distribution ({} entries) ===",
+        case_id,
+        case_d_entries.len()
+    );
+    eprintln!(
+        "  legend: (a) [m1x=3, m5x=3] — topology-emission (α/γ anchor)"
+    );
+    eprintln!(
+        "          (b) [m1x ∈ {{0,1}}, m5x=2] — partial-proximity residual (Case-B-adjacent)"
+    );
+    eprintln!("          other — unexpected residual sub-class");
+    let mut subclass_a = 0usize;
+    let mut subclass_b = 0usize;
+    let mut subclass_other = 0usize;
+    for (_tri, tup) in &case_d_entries {
+        let is_a = tup.match_at_1x == 3 && tup.match_at_5x == 3;
+        let is_b = (tup.match_at_1x == 0 || tup.match_at_1x == 1)
+            && tup.match_at_5x == 2;
+        if is_a {
+            subclass_a += 1;
+        } else if is_b {
+            subclass_b += 1;
+        } else {
+            subclass_other += 1;
+        }
+    }
+    let dn = case_d_entries.len().max(1);
+    let dpct = |c: usize| -> f64 { (c as f64) * 100.0 / (dn as f64) };
+    eprintln!(
+        "  subclass_a (m1x=3, m5x=3):              {} / {} = {:.1}%",
+        subclass_a, case_d_entries.len(), dpct(subclass_a)
+    );
+    eprintln!(
+        "  subclass_b (m1x ∈ {{0,1}}, m5x=2):       {} / {} = {:.1}%",
+        subclass_b, case_d_entries.len(), dpct(subclass_b)
+    );
+    eprintln!(
+        "  subclass_other:                          {} / {} = {:.1}%",
+        subclass_other, case_d_entries.len(), dpct(subclass_other)
+    );
+    // Sum-equals-total check (audit invariant from PR-Y44 plan Gate 5).
+    let subclass_sum = subclass_a + subclass_b + subclass_other;
+    eprintln!(
+        "  bucket-sum check: {} + {} + {} = {} (Case D total = {}) — {}",
+        subclass_a,
+        subclass_b,
+        subclass_other,
+        subclass_sum,
+        case_d_entries.len(),
+        if subclass_sum == case_d_entries.len() { "OK" } else { "MISMATCH" }
+    );
+
+    if !case_d_entries.is_empty() {
+        eprintln!(
+            "\n--- {} Case D per-tri 4-tuple table ---",
+            case_id
+        );
+        eprintln!("  format: d[i] tri=qa,qb,qc (m1x=_, m2x=_, m5x=_, m10x=_) [subclass]");
+        // Stable order: sort by quantized triangle key (same canonical key as
+        // missing_sorted; inherits from line 1319 missing_sorted.sort()).
+        let mut sorted = case_d_entries.clone();
+        sorted.sort_by(|a, b| a.0.cmp(&b.0));
+        for (i, (tri, tup)) in sorted.iter().enumerate() {
+            let is_a = tup.match_at_1x == 3 && tup.match_at_5x == 3;
+            let is_b = (tup.match_at_1x == 0 || tup.match_at_1x == 1)
+                && tup.match_at_5x == 2;
+            let tag = if is_a { "(a)" } else if is_b { "(b)" } else { "other" };
+            eprintln!(
+                "  d[{}] tri={} (m1x={}, m2x={}, m5x={}, m10x={}) {}",
+                i,
+                fmt_qtri(tri),
+                tup.match_at_1x,
+                tup.match_at_2x,
+                tup.match_at_5x,
+                tup.match_at_10x,
+                tag,
+            );
+        }
+    }
+
     eprintln!("=== end {} A/B/C/D classification ===\n", case_id);
+
+    let case_d_tuples: Vec<CaseDSubclassTuple> =
+        case_d_entries.iter().map(|(_, t)| *t).collect();
 
     Some(NearestAttributionResult {
         case_id: case_id.to_string(),
@@ -1495,6 +1626,7 @@ fn run_nearest_attribution_for_case(case_id: &str) -> Option<NearestAttributionR
         case_b,
         case_c,
         case_d,
+        case_d_tuples,
     })
 }
 
