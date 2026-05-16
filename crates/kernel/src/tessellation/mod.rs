@@ -5070,60 +5070,132 @@ fn y41_write_dispatch_tsv(records: Vec<(u64, usize, Y41DispatchRecord)>) {
 /// For analytical B-Rep: watertight by construction (shared vertices from
 /// discretized edges). Minimal post-processing.
 /// D1 Tier 2a probe — env-gated by Y47T2_INTERSECTION_PROBE. Walks each
-/// boundary loop, maps each consecutive vertex pair back to its arena
-/// `EdgeIdx` via `disc.edge_verts`, and reports which edges are flagged
-/// `is_intersection` (from the thread-local marker set by
-/// `tessellate_waffle_solid`). Default-off byte-identical: only fires when
-/// the env var is set and only emits to stderr.
+/// boundary loop's half-edges directly (giving exact `EdgeIdx` per segment)
+/// and reports which edges are flagged `is_intersection`. Default-off
+/// byte-identical: only fires when the env var is set and only emits to stderr.
 fn y47t2_dump_boundary_intersections(
     face_idx: FaceIdx,
-    outer_boundary: &[usize],
-    inner_boundaries: &[Vec<usize>],
-    disc: &EdgeDiscretization,
+    arena: &TopoArena,
+    _disc: &EdgeDiscretization,
 ) {
-    // Invert edge_verts: vertex_idx → EdgeIdx (any one of its incident edges).
-    let mut vert_to_edge: BTreeMap<usize, EdgeIdx> = BTreeMap::new();
-    for (&eidx, verts) in &disc.edge_verts {
-        for &v in verts {
-            vert_to_edge.entry(v).or_insert(eidx);
-        }
-    }
     let probe_marker = EDGE_IS_INTERSECTION_PROBE.with(|c| c.borrow().clone());
     let total_marked = probe_marker.values().filter(|&&v| v).count();
+
+    let face = &arena.faces[face_idx.0];
+    let mut walked: Vec<EdgeIdx> = Vec::new();
+
+    let walk = |start: HalfEdgeIdx, out: &mut Vec<EdgeIdx>| {
+        let mut he = start;
+        loop {
+            out.push(arena.half_edges[he.0].edge);
+            he = arena.half_edges[he.0].next;
+            if he == start {
+                break;
+            }
+        }
+    };
+    walk(arena.loops[face.outer_loop.0].half_edge, &mut walked);
+    for &inner_loop in &face.inner_loops {
+        walk(arena.loops[inner_loop.0].half_edge, &mut walked);
+    }
+    let walked_intersection = walked
+        .iter()
+        .filter(|e| probe_marker.get(e).copied().unwrap_or(false))
+        .count();
     eprintln!(
-        "[y47t2] face={:?} outer_len={} inner_loops={} thread_local_marker_size={} thread_local_marker_true={}",
-        face_idx, outer_boundary.len(), inner_boundaries.len(), probe_marker.len(), total_marked
+        "[y47t2] face={:?} walked_edges={} walked_intersection={} arena_edges={} flagged_total={}",
+        face_idx,
+        walked.len(),
+        walked_intersection,
+        arena.edges.len(),
+        total_marked,
     );
-    let dump_one = |label: &str, loop_verts: &[usize]| {
-        let n = loop_verts.len();
-        let mut intersection_segs = 0usize;
-        for i in 0..n {
-            let v0 = loop_verts[i];
-            let v1 = loop_verts[(i + 1) % n];
-            // Use either vertex's mapped edge; if they agree, that's the segment's edge.
-            let e0 = vert_to_edge.get(&v0).copied();
-            let e1 = vert_to_edge.get(&v1).copied();
-            let edge = match (e0, e1) {
-                (Some(a), Some(b)) if a == b => Some(a),
-                (Some(a), _) => Some(a),
-                (_, Some(b)) => Some(b),
-                _ => None,
-            };
-            let is_int = edge
-                .and_then(|e| probe_marker.get(&e).copied())
-                .unwrap_or(false);
-            if is_int {
-                intersection_segs += 1;
+}
+
+/// D1 Tier 2a "where do flagged edges live" deep probe — env-gated by
+/// Y47T2_FLAGGED_LOCATIONS. Once per tessellation, dump every flagged
+/// `EdgeIdx`: the half-edges that reference it, which face's loop those
+/// half-edges belong to (if any), and the edge's origin/destination
+/// vertex positions.
+fn y47t2_dump_flagged_locations(arena: &TopoArena, _disc: &EdgeDiscretization) {
+    let probe_marker = EDGE_IS_INTERSECTION_PROBE.with(|c| c.borrow().clone());
+    let flagged: Vec<EdgeIdx> = probe_marker
+        .iter()
+        .filter(|(_, &v)| v)
+        .map(|(&k, _)| k)
+        .collect();
+    if flagged.is_empty() {
+        return;
+    }
+
+    // Build half-edge → loop_idx map by walking each loop and recording its half-edges.
+    let mut he_to_loop: BTreeMap<HalfEdgeIdx, LoopIdx> = BTreeMap::new();
+    for (loop_i, l) in arena.loops.iter().enumerate() {
+        let start = l.half_edge;
+        let mut he = start;
+        loop {
+            he_to_loop.insert(he, LoopIdx(loop_i));
+            he = arena.half_edges[he.0].next;
+            if he == start {
+                break;
+            }
+        }
+    }
+
+    // Build loop_idx → face_idx map.
+    let mut loop_to_face: BTreeMap<LoopIdx, FaceIdx> = BTreeMap::new();
+    for (face_i, f) in arena.faces.iter().enumerate() {
+        loop_to_face.insert(f.outer_loop, FaceIdx(face_i));
+        for &inner_loop in &f.inner_loops {
+            loop_to_face.insert(inner_loop, FaceIdx(face_i));
+        }
+    }
+
+    eprintln!(
+        "[y47t2-flagged] {} flagged edges in arena (total edges={}, half-edges={}, faces={}, loops={})",
+        flagged.len(),
+        arena.edges.len(),
+        arena.half_edges.len(),
+        arena.faces.len(),
+        arena.loops.len(),
+    );
+    for &edge_idx in &flagged {
+        let edge = &arena.edges[edge_idx.0];
+        // Find all half-edges that reference this edge.
+        let hes: Vec<HalfEdgeIdx> = arena
+            .half_edges
+            .iter()
+            .enumerate()
+            .filter(|(_, h)| h.edge == edge_idx)
+            .map(|(i, _)| HalfEdgeIdx(i))
+            .collect();
+        let primary_he = edge.half_edge;
+        let v_origin = arena.half_edges[primary_he.0].origin;
+        let v_dest_opt = arena.half_edges[primary_he.0]
+            .twin
+            .map(|t| arena.half_edges[t.0].origin);
+        // For each half-edge: which loop and face owns it?
+        let mut owners: Vec<String> = Vec::new();
+        for he in &hes {
+            match he_to_loop.get(he) {
+                Some(loop_idx) => {
+                    let face = loop_to_face
+                        .get(loop_idx)
+                        .map(|f| format!("Face{}", f.0))
+                        .unwrap_or_else(|| "(no face)".to_string());
+                    owners.push(format!("he{}→loop{}→{}", he.0, loop_idx.0, face));
+                }
+                None => owners.push(format!("he{}→(no loop — orphan)", he.0)),
             }
         }
         eprintln!(
-            "[y47t2]   {} segs={} intersection_segs={}",
-            label, n, intersection_segs
+            "[y47t2-flagged]   edge{} origin=v{} dest=v{:?} half_edges={} owners=[{}]",
+            edge_idx.0,
+            v_origin.0,
+            v_dest_opt.map(|v| v.0),
+            hes.len(),
+            owners.join(", ")
         );
-    };
-    dump_one("outer", outer_boundary);
-    for (i, inner) in inner_boundaries.iter().enumerate() {
-        dump_one(&format!("inner[{}]", i), inner);
     }
 }
 
@@ -5134,6 +5206,12 @@ fn tessellate_solid_bounded(
     edge_geometry: &BTreeMap<EdgeIdx, CurveGeom>,
 ) -> Result<RenderMesh, KernelError> {
     let disc = discretize_edges(arena, edge_geometry);
+
+    // D1 Tier 2a deep probe — once per solid, dump where the intersection-flagged
+    // arena edges actually live (which half-edges reference them, which loops, which faces).
+    if std::env::var("Y47T2_FLAGGED_LOCATIONS").is_ok() {
+        y47t2_dump_flagged_locations(arena, &disc);
+    }
 
     let mut vertices: Vec<f32> = Vec::new();
     let mut normals: Vec<f32> = Vec::new();
@@ -5245,7 +5323,7 @@ fn tessellate_solid_bounded(
                 // D1 Tier 2a probe: env-gated dump of per-boundary-edge
                 // intersection-curve flags. Default-off byte-identical.
                 if std::env::var("Y47T2_INTERSECTION_PROBE").is_ok() {
-                    y47t2_dump_boundary_intersections(face_idx, &outer_boundary, &inner_boundaries, &disc);
+                    y47t2_dump_boundary_intersections(face_idx, arena, &disc);
                 }
 
                 tessellate_planar_face_bounded(
