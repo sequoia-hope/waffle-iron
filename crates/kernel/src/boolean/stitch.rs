@@ -591,6 +591,7 @@ pub(crate) fn build_brep_from_polygons_inner(
         edge_geometry,
         cached_face_polys: None,
         cached_render_mesh: None,
+        edge_is_intersection: BTreeMap::new(),
     })
 }
 

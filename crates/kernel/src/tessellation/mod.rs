@@ -86,12 +86,18 @@ pub(crate) fn adaptive_circle_segments(radius: f64, d_epsilon: f64, min_segments
     n.clamp(min_segments, 256)
 }
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 thread_local! {
     /// Thread-local override for circle segment count. Defaults to 64 (render quality).
     /// Set temporarily by `tessellate_solid_ext_with_lod` for boolean LOD.
     static CIRCLE_SEGMENTS_OVERRIDE: Cell<usize> = const { Cell::new(CIRCLE_SEGMENTS_DEFAULT) };
+
+    /// D1 Tier 2a probe: thread-local copy of the current WaffleSolid's
+    /// `edge_is_intersection` marker. Set at the tessellate-entry point in
+    /// yang_integration.rs and consulted by `tessellate_planar_face_bounded`
+    /// when `Y47T2_INTERSECTION_PROBE=1`. Default-off byte-identical.
+    pub(crate) static EDGE_IS_INTERSECTION_PROBE: RefCell<BTreeMap<EdgeIdx, bool>> = RefCell::new(BTreeMap::new());
 }
 
 /// Get the current circle segment count (respects thread-local LOD override).
@@ -3145,12 +3151,28 @@ pub(crate) struct EdgeDiscretization {
     pub(crate) positions: Vec<[f64; 3]>,
     /// Ordered vertex indices per edge (from origin to destination).
     pub(crate) edge_verts: BTreeMap<EdgeIdx, Vec<usize>>,
+    /// D1 Tier 2a: per-edge intersection-curve marker (propagated from
+    /// `WaffleSolid.edge_is_intersection`, originally from
+    /// `ResultTopology.edge_is_intersection`). True if this edge was born
+    /// from a boolean intersection (face-shared between meshes). Empty for
+    /// non-Yang-boolean solids.
+    pub(crate) edge_is_intersection: BTreeMap<EdgeIdx, bool>,
 }
 
 /// Discretize all edges in a solid into a shared vertex pool.
 pub(crate) fn discretize_edges(
     arena: &TopoArena,
     edge_geometry: &BTreeMap<EdgeIdx, CurveGeom>,
+) -> EdgeDiscretization {
+    discretize_edges_with_marker(arena, edge_geometry, &BTreeMap::new())
+}
+
+/// Discretize all edges in a solid into a shared vertex pool, preserving the
+/// per-edge intersection-curve marker.
+pub(crate) fn discretize_edges_with_marker(
+    arena: &TopoArena,
+    edge_geometry: &BTreeMap<EdgeIdx, CurveGeom>,
+    edge_is_intersection: &BTreeMap<EdgeIdx, bool>,
 ) -> EdgeDiscretization {
     let mut positions: Vec<[f64; 3]> = Vec::new();
     let mut edge_verts: BTreeMap<EdgeIdx, Vec<usize>> = BTreeMap::new();
@@ -3233,6 +3255,7 @@ pub(crate) fn discretize_edges(
     EdgeDiscretization {
         positions,
         edge_verts,
+        edge_is_intersection: edge_is_intersection.clone(),
     }
 }
 
@@ -5046,6 +5069,64 @@ fn y41_write_dispatch_tsv(records: Vec<(u64, usize, Y41DispatchRecord)>) {
 ///
 /// For analytical B-Rep: watertight by construction (shared vertices from
 /// discretized edges). Minimal post-processing.
+/// D1 Tier 2a probe — env-gated by Y47T2_INTERSECTION_PROBE. Walks each
+/// boundary loop, maps each consecutive vertex pair back to its arena
+/// `EdgeIdx` via `disc.edge_verts`, and reports which edges are flagged
+/// `is_intersection` (from the thread-local marker set by
+/// `tessellate_waffle_solid`). Default-off byte-identical: only fires when
+/// the env var is set and only emits to stderr.
+fn y47t2_dump_boundary_intersections(
+    face_idx: FaceIdx,
+    outer_boundary: &[usize],
+    inner_boundaries: &[Vec<usize>],
+    disc: &EdgeDiscretization,
+) {
+    // Invert edge_verts: vertex_idx → EdgeIdx (any one of its incident edges).
+    let mut vert_to_edge: BTreeMap<usize, EdgeIdx> = BTreeMap::new();
+    for (&eidx, verts) in &disc.edge_verts {
+        for &v in verts {
+            vert_to_edge.entry(v).or_insert(eidx);
+        }
+    }
+    let probe_marker = EDGE_IS_INTERSECTION_PROBE.with(|c| c.borrow().clone());
+    let total_marked = probe_marker.values().filter(|&&v| v).count();
+    eprintln!(
+        "[y47t2] face={:?} outer_len={} inner_loops={} thread_local_marker_size={} thread_local_marker_true={}",
+        face_idx, outer_boundary.len(), inner_boundaries.len(), probe_marker.len(), total_marked
+    );
+    let dump_one = |label: &str, loop_verts: &[usize]| {
+        let n = loop_verts.len();
+        let mut intersection_segs = 0usize;
+        for i in 0..n {
+            let v0 = loop_verts[i];
+            let v1 = loop_verts[(i + 1) % n];
+            // Use either vertex's mapped edge; if they agree, that's the segment's edge.
+            let e0 = vert_to_edge.get(&v0).copied();
+            let e1 = vert_to_edge.get(&v1).copied();
+            let edge = match (e0, e1) {
+                (Some(a), Some(b)) if a == b => Some(a),
+                (Some(a), _) => Some(a),
+                (_, Some(b)) => Some(b),
+                _ => None,
+            };
+            let is_int = edge
+                .and_then(|e| probe_marker.get(&e).copied())
+                .unwrap_or(false);
+            if is_int {
+                intersection_segs += 1;
+            }
+        }
+        eprintln!(
+            "[y47t2]   {} segs={} intersection_segs={}",
+            label, n, intersection_segs
+        );
+    };
+    dump_one("outer", outer_boundary);
+    for (i, inner) in inner_boundaries.iter().enumerate() {
+        dump_one(&format!("inner[{}]", i), inner);
+    }
+}
+
 fn tessellate_solid_bounded(
     arena: &TopoArena,
     face_map: &BTreeMap<u64, FaceIdx>,
@@ -5160,6 +5241,12 @@ fn tessellate_solid_bounded(
                     .map(|&inner_loop| collect_loop_boundary(arena, inner_loop, &disc))
                     .filter(|b| b.len() >= 3)
                     .collect();
+
+                // D1 Tier 2a probe: env-gated dump of per-boundary-edge
+                // intersection-curve flags. Default-off byte-identical.
+                if std::env::var("Y47T2_INTERSECTION_PROBE").is_ok() {
+                    y47t2_dump_boundary_intersections(face_idx, &outer_boundary, &inner_boundaries, &disc);
+                }
 
                 tessellate_planar_face_bounded(
                     &outer_boundary,
@@ -6962,6 +7049,7 @@ mod tests {
         let disc = EdgeDiscretization {
             positions: disc_positions,
             edge_verts: disc_edge_verts,
+            edge_is_intersection: BTreeMap::new(),
         };
 
         // Build mesh buffers: 4 vertices per face (16 total), per-face.

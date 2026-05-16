@@ -42,9 +42,16 @@
 
 **Earcut now removed from the kernel.** Confirmed via `grep -rn earcutr crates/kernel/src/` returning zero hits.
 
-**Remaining work to close D1:**
-- **Tier 2:** intersection-curve constraint identification — distinguish vertices on intersection curves from B-Rep boundary vertices and pass them as additional constraint edges per Yang §4.4.1's "polyline as boundary" requirement. Required to close the Case D 24/24 finding.
-- **Tier 3:** canonical cross-face plane basis — eliminate ±ε 2D-projection drift between adjacent faces sharing an edge. Deferred unless Tier 2 doesn't close Case D.
+**Cycle 2a (2026-05-16):** Plumbed `edge_is_intersection` from `ResultTopology` through `WaffleSolid` to a thread-local at tessellation entry. Added `Y47T2_INTERSECTION_PROBE` env-gated probe at `tessellate_solid_bounded` that walks each face's boundary loops and counts which segments map to intersection-flagged arena edges. Default-off byte-identical (F0020 35 unpaired unchanged); kernel lib 1266→1268.
+
+**MEASUREMENT (load-bearing):** On F0020 with probe enabled, the thread-local marker carries 48 arena edges of which 20 are flagged `is_intersection=true`. **But across all 6 output-face boundary walks: 0 intersection segments.** None of the 20 intersection-flagged edges appear on any face's outer or inner boundary loop.
+
+**Tier 2 boundary-constraint hypothesis EMPIRICALLY REFUTED.** The 20 intersection-flagged edges exist somewhere in the arena topology but are not on the boundary loops the tessellator walks. Adding them as boundary constraints to CDT would have nothing to constrain — they're already absent from the input.
+
+**Remaining work to close D1 (revised after cycle 2a measurement):**
+- **Tier 2b (provisional):** investigate WHERE the 20 intersection-flagged edges live. Possibilities: (a) interior to faces — not reachable via outer/inner loop walks, would need a separate arena traversal; (b) duplicate arena edges (the flagged ones are different `EdgeIdx` from the boundary walk's edges); (c) stale marker entries from upstream B-Rep restructuring. Needs a deeper probe to distinguish. If (a), interior-edge constraint plumbing IS the fix; if (b)/(c), the marker is structurally disconnected from tessellation.
+- **Tier 3:** canonical cross-face Newell basis — eliminate ±ε 2D-projection drift between adjacent faces sharing an edge. Now more plausibly the actual mechanism (since boundary constraints exist but cross-face divergence persists).
+- **Cross-face vertex-set divergence:** adjacent faces' CDT calls operate on different non-shared vertex sets (each face has its own interior vertices). Even with identical boundary constraints and identical Newell bases, Delaunay diagonal choice on shared-boundary triangles depends on the full vertex set. Forces investigation of global-coplanar-CDT (architectural rewrite Candidate C from the earlier review).
 
 **Implementation choice note:** Yang §4.4.1 says "CDT in CGAL [2024]." We use `spade` (Rust-native CDT, ~5-10k LOC) rather than porting CGAL's CDT (~12k lines of C++ templates plus kernel/predicate infrastructure). `spade` implements the same algorithm class (Constrained Delaunay Triangulation with adaptive predicates via the `robust` crate); the deviation is "CGAL specifically" not "CDT semantics." This is a documented choice, not a behavioral deviation.
 

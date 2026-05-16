@@ -270,6 +270,10 @@ pub(crate) fn result_topology_to_waffle_solid(
         }
     }
 
+    // D1 Tier 2a: preserve the intersection-curve marker from ResultTopology so
+    // it can propagate through to tessellation as CDT constraint info.
+    let edge_is_intersection_marker = result.edge_is_intersection.clone();
+
     WaffleSolid {
         arena: result.arena,
         face_map,
@@ -285,6 +289,7 @@ pub(crate) fn result_topology_to_waffle_solid(
         cached_face_polys: None,
         is_polygon_soup: false,
         cached_render_mesh: None,
+        edge_is_intersection: edge_is_intersection_marker,
     }
 }
 
@@ -300,6 +305,7 @@ pub(crate) fn waffle_solid_to_boolean_result(solid: WaffleSolid) -> BooleanResul
         edge_geometry: solid.edge_geometry,
         cached_face_polys: None,
         cached_render_mesh: solid.cached_render_mesh,
+        edge_is_intersection: solid.edge_is_intersection,
     }
 }
 
@@ -974,6 +980,7 @@ pub(crate) fn yang_boolean_inner(
                 indices: vec![],
                 face_ranges: vec![],
             }),
+            edge_is_intersection: BTreeMap::new(),
         });
     }
 
@@ -1035,7 +1042,14 @@ pub(crate) fn tessellate_waffle_solid(
     solid: &WaffleSolid,
     lod: tessellation::TessellationLod,
 ) -> Result<RenderMesh, KernelError> {
-    let mesh = tessellation::tessellate_solid_ext_with_lod(
+    // D1 Tier 2a: stash the intersection-curve marker in a thread-local so
+    // `tessellate_planar_face_bounded` can read it when Y47T2_INTERSECTION_PROBE
+    // is set. Avoids threading the marker through 5+ function signatures for
+    // measurement-only work. Cleared after the call returns.
+    tessellation::EDGE_IS_INTERSECTION_PROBE.with(|c| {
+        *c.borrow_mut() = solid.edge_is_intersection.clone();
+    });
+    let mesh_result = tessellation::tessellate_solid_ext_with_lod(
         &solid.arena,
         &solid.face_map,
         &solid.face_geometry,
@@ -1047,7 +1061,11 @@ pub(crate) fn tessellate_waffle_solid(
         solid.torus_params.as_ref(),
         solid.is_polygon_soup,
         lod,
-    )?;
+    );
+    tessellation::EDGE_IS_INTERSECTION_PROBE.with(|c| {
+        c.borrow_mut().clear();
+    });
+    let mesh = mesh_result?;
     // PR-Y15c Phase 0 — Stage E probe: post-render-LOD retessellation.
     // Discriminates per-call-site via LOD-tagged stage name (E_lod=Render
     // vs E_lod=Adaptive{...}). Spec: yang_pr_y15c_render_lod_investigation.md.
@@ -2051,6 +2069,7 @@ mod tests {
             cached_face_polys: None,
             is_polygon_soup: false,
             cached_render_mesh: None,
+            edge_is_intersection: BTreeMap::new(),
         }
     }
 
@@ -2198,6 +2217,7 @@ mod tests {
             cached_face_polys: None,
             is_polygon_soup: false,
             cached_render_mesh: None,
+            edge_is_intersection: BTreeMap::new(),
         }
     }
 
@@ -3977,6 +3997,7 @@ mod tests {
             // routes Cylindrical faces through tessellate_cylindrical_patch.
             is_polygon_soup: true,
             cached_render_mesh: None,
+            edge_is_intersection: BTreeMap::new(),
         };
         let rm = tessellate_waffle_solid(&waffle, crate::tessellation::TessellationLod::Render)
             .expect("Tessellation should succeed with empty edge_geometry");
@@ -4211,6 +4232,7 @@ mod tests {
             cached_face_polys: result.cached_face_polys,
             is_polygon_soup: false,
             cached_render_mesh: result.cached_render_mesh,
+            edge_is_intersection: result.edge_is_intersection,
         }
     }
 

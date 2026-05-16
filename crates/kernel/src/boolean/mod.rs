@@ -90,6 +90,10 @@ pub(crate) struct BooleanResult {
     pub cached_face_polys: Option<Vec<FacePoly>>,
     /// Cached render mesh from Yang pipeline retessellation (Step 9).
     pub cached_render_mesh: Option<crate::types::RenderMesh>,
+    /// Per-edge intersection-curve marker from ResultTopology. True if the edge
+    /// was born from a boolean intersection (face-shared between meshes). Empty
+    /// for non-Yang boolean paths.
+    pub edge_is_intersection: BTreeMap<EdgeIdx, bool>,
 }
 
 // ── Internal types ──────────────────────────────────────────────────────
@@ -931,6 +935,7 @@ pub(crate) fn boolean_op(
                     edge_geometry: BTreeMap::new(),
                     cached_face_polys: None,
                     cached_render_mesh: None,
+                    edge_is_intersection: BTreeMap::new(),
                 })
             }
         };
@@ -956,6 +961,7 @@ pub(crate) fn boolean_op(
                     edge_geometry: BTreeMap::new(),
                     cached_face_polys: None,
                     cached_render_mesh: None,
+                    edge_is_intersection: BTreeMap::new(),
                 })
             }
         };
@@ -999,6 +1005,7 @@ pub(crate) fn boolean_op_tolerant(
                     edge_geometry: BTreeMap::new(),
                     cached_face_polys: None,
                     cached_render_mesh: None,
+                    edge_is_intersection: BTreeMap::new(),
                 })
             }
         };
@@ -1022,6 +1029,7 @@ pub(crate) fn boolean_op_tolerant(
                     edge_geometry: BTreeMap::new(),
                     cached_face_polys: None,
                     cached_render_mesh: None,
+                    edge_is_intersection: BTreeMap::new(),
                 })
             }
         };
@@ -1416,6 +1424,7 @@ fn boolean_op_from_polys_inner(
             edge_geometry,
             cached_face_polys: cached,
             cached_render_mesh: None,
+            edge_is_intersection: BTreeMap::new(),
         });
     }
 
@@ -1555,6 +1564,7 @@ fn boolean_op_from_polys_inner(
             edge_geometry: BTreeMap::new(),
             cached_face_polys: None,
             cached_render_mesh: None,
+            edge_is_intersection: BTreeMap::new(),
         });
     }
 
@@ -3195,6 +3205,7 @@ mod tests {
             cached_face_polys: None,
             cached_render_mesh: None,
             is_polygon_soup: false,
+            edge_is_intersection: BTreeMap::new(),
         }
     }
 

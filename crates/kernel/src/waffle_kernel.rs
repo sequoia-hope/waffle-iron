@@ -48,6 +48,13 @@ pub(crate) struct WaffleSolid {
     /// (yang_boolean_inner Step 9). When present, `tessellate()` returns
     /// this directly to avoid redundant retessellation. Ref [#24] Yang 2025.
     pub(crate) cached_render_mesh: Option<RenderMesh>,
+    /// Per-edge intersection-curve marker propagated from the Yang boolean
+    /// pipeline's `ResultTopology.edge_is_intersection`. True if the edge was
+    /// born from a boolean intersection (face-shared edge between meshes);
+    /// false (or absent) if it's an original B-Rep edge. Used by D1 Tier 2a
+    /// probe to identify CDT constraint candidates. Empty for non-boolean
+    /// solids.
+    pub(crate) edge_is_intersection: BTreeMap<EdgeIdx, bool>,
 }
 
 /// Parameters for cylinder tessellation (stored after extrude_circle).
@@ -405,6 +412,7 @@ impl WaffleKernel {
                 cached_face_polys: None,
                 is_polygon_soup: false,
                 cached_render_mesh: None,
+                edge_is_intersection: BTreeMap::new(),
             },
         );
 
@@ -661,6 +669,7 @@ impl WaffleKernel {
                 cached_face_polys: None,
                 is_polygon_soup: false,
                 cached_render_mesh: None,
+                edge_is_intersection: BTreeMap::new(),
             },
         );
 
@@ -956,6 +965,7 @@ impl WaffleKernel {
                 cached_face_polys: None,
                 is_polygon_soup: false,
                 cached_render_mesh: None,
+                edge_is_intersection: BTreeMap::new(),
             },
         );
 
@@ -1077,6 +1087,7 @@ impl WaffleKernel {
                         cached_face_polys: result.cached_face_polys,
                         is_polygon_soup: false,
                         cached_render_mesh: result.cached_render_mesh,
+                        edge_is_intersection: result.edge_is_intersection.clone(),
                     },
                 );
                 return Ok(KernelSolidHandle(handle_id));
@@ -1423,6 +1434,7 @@ impl WaffleKernel {
                 cached_face_polys: result.cached_face_polys,
                 is_polygon_soup: polygon_soup,
                 cached_render_mesh: result.cached_render_mesh,
+                edge_is_intersection: result.edge_is_intersection.clone(),
             },
         );
 
@@ -1848,6 +1860,7 @@ impl WaffleKernel {
                 cached_face_polys: None,
                 is_polygon_soup: false,
                 cached_render_mesh: None,
+                edge_is_intersection: BTreeMap::new(),
             },
         );
 
@@ -2049,6 +2062,7 @@ impl WaffleKernel {
                 cached_face_polys: None,
                 is_polygon_soup: false,
                 cached_render_mesh: None,
+                edge_is_intersection: BTreeMap::new(),
             },
         );
 
@@ -2518,6 +2532,7 @@ impl Kernel for WaffleKernel {
                 cached_face_polys: None,
                 is_polygon_soup: false,
                 cached_render_mesh: None,
+                edge_is_intersection: BTreeMap::new(),
             },
         );
 
