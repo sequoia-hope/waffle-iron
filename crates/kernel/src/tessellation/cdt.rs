@@ -111,6 +111,42 @@ pub fn cdt_triangulate_2d_with_loops(
     Ok(triangles)
 }
 
+/// Earcut-shaped convenience wrapper: flat `[x0, y0, x1, y1, ...]` 2D coordinate
+/// array + `hole_indices` array marking the start vertex of each hole (in vertex
+/// units, not coord units — same convention as `earcutr::earcut`). Returns a
+/// flat `Vec<usize>` of triangle indices (3 per triangle).
+///
+/// This mirrors the `earcutr::earcut(coords, hole_indices, 2)` signature so
+/// existing call sites can swap in mechanically.
+pub fn cdt_triangulate_flat(
+    coords_2d: &[f64],
+    hole_indices: &[usize],
+) -> Result<Vec<usize>, CdtError> {
+    let n_verts = coords_2d.len() / 2;
+    if n_verts < 3 {
+        return Ok(Vec::new());
+    }
+    let points: Vec<(f64, f64)> = (0..n_verts)
+        .map(|i| (coords_2d[2 * i], coords_2d[2 * i + 1]))
+        .collect();
+
+    let mut loops: Vec<Vec<usize>> = Vec::new();
+    let outer_end = hole_indices.first().copied().unwrap_or(n_verts);
+    loops.push((0..outer_end).collect());
+    for k in 0..hole_indices.len() {
+        let start = hole_indices[k];
+        let end = hole_indices.get(k + 1).copied().unwrap_or(n_verts);
+        loops.push((start..end).collect());
+    }
+
+    let triangles = cdt_triangulate_2d_with_loops(&points, &loops)?;
+    let mut flat = Vec::with_capacity(triangles.len() * 3);
+    for t in triangles {
+        flat.extend_from_slice(&t);
+    }
+    Ok(flat)
+}
+
 /// Standard even-odd ray-casting point-in-polygon test.
 fn point_in_polygon(p: (f64, f64), boundary: &[usize], points: &[(f64, f64)]) -> bool {
     let (px, py) = p;
@@ -181,6 +217,24 @@ mod tests {
             let in_missing = cx > 1.0 && cx < 2.0 && cy > 1.0 && cy < 2.0;
             assert!(!in_missing, "Triangle {:?} centroid in missing corner at ({}, {})", t, cx, cy);
         }
+    }
+
+    #[test]
+    fn flat_api_no_holes_simple_square() {
+        let coords: Vec<f64> = vec![0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0];
+        let tris = cdt_triangulate_flat(&coords, &[]).unwrap();
+        assert_eq!(tris.len(), 6); // 2 triangles × 3 indices
+    }
+
+    #[test]
+    fn flat_api_with_holes_annulus() {
+        let coords: Vec<f64> = vec![
+            0.0, 0.0, 4.0, 0.0, 4.0, 4.0, 0.0, 4.0,  // outer (4 verts)
+            1.0, 1.0, 3.0, 1.0, 3.0, 3.0, 1.0, 3.0,  // hole (4 verts), starts at vertex 4
+        ];
+        let hole_indices = vec![4];
+        let tris = cdt_triangulate_flat(&coords, &hole_indices).unwrap();
+        assert_eq!(tris.len(), 24); // 8 triangles × 3 indices
     }
 
     #[test]

@@ -756,12 +756,12 @@ fn yang_fast() {
             Ok(Some(r)) => {
                 let _ = handle.join();
                 if r.status != AssayStatus::Passed {
-                    println!(
-                        "  {} {:?}: {}",
-                        r.id,
-                        r.status,
-                        &r.detail[..r.detail.len().min(150)]
-                    );
+                    // char-boundary-safe truncation (avoid panic on multi-byte chars like '§')
+                    let mut end = r.detail.len().min(150);
+                    while end > 0 && !r.detail.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    println!("  {} {:?}: {}", r.id, r.status, &r.detail[..end]);
                 }
                 match r.status {
                     AssayStatus::Passed => passed += 1,

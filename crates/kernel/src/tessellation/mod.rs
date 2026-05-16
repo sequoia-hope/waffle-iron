@@ -1648,8 +1648,8 @@ fn tessellate_polygon_face(
                     vec![v3_dot(d, u_axis), v3_dot(d, v_axis)]
                 })
                 .collect();
-            let tri_indices =
-                earcutr::earcut(&coords_2d, &[], 2).expect("earcut failed on convex polygon");
+            let tri_indices = cdt::cdt_triangulate_flat(&coords_2d, &[])
+                .expect("CDT failed on convex polygon");
             for chunk in tri_indices.chunks(3) {
                 indices.push(base_vertex + chunk[0] as u32);
                 indices.push(base_vertex + chunk[1] as u32);
@@ -1659,11 +1659,11 @@ fn tessellate_polygon_face(
     } else {
         if revolve_debug {
             eprintln!(
-                "[revolve-tess] face={} face_kind=cap strategy=earcut_nonconvex",
+                "[revolve-tess] face={} face_kind=cap strategy=cdt_nonconvex",
                 kid,
             );
         }
-        // Non-convex path: ear-clipping via earcutr
+        // Non-convex path: CDT via spade
         // Project onto 2D using stored face normal as the projection axis
         let (u_axis, v_axis) = compute_plane_basis(stored_normal);
 
@@ -1675,8 +1675,8 @@ fn tessellate_polygon_face(
             })
             .collect();
 
-        let tri_indices =
-            earcutr::earcut(&coords_2d, &[], 2).expect("earcut failed on polygon face");
+        let tri_indices = cdt::cdt_triangulate_flat(&coords_2d, &[])
+            .expect("CDT failed on polygon face");
 
         for chunk in tri_indices.chunks(3) {
             indices.push(base_vertex + chunk[0] as u32);
@@ -1954,8 +1954,8 @@ fn tessellate_revolve_cap_polygon(
                     vec![v3_dot(d, u_axis), v3_dot(d, v_axis)]
                 })
                 .collect();
-            let tri_indices =
-                earcutr::earcut(&coords_2d, &[], 2).expect("earcut failed on convex revolve cap");
+            let tri_indices = cdt::cdt_triangulate_flat(&coords_2d, &[])
+                .expect("CDT failed on convex revolve cap");
             for chunk in tri_indices.chunks(3) {
                 push_triangle(
                     indices,
@@ -1967,7 +1967,7 @@ fn tessellate_revolve_cap_polygon(
             }
         }
     } else {
-        // Non-convex path: ear-clipping via earcutr.
+        // Non-convex path: CDT via spade.
         let coords_2d: Vec<f64> = loop_verts
             .iter()
             .flat_map(|v| {
@@ -1975,8 +1975,8 @@ fn tessellate_revolve_cap_polygon(
                 vec![v3_dot(d, u_axis), v3_dot(d, v_axis)]
             })
             .collect();
-        let tri_indices =
-            earcutr::earcut(&coords_2d, &[], 2).expect("earcut failed on revolve cap polygon");
+        let tri_indices = cdt::cdt_triangulate_flat(&coords_2d, &[])
+            .expect("CDT failed on revolve cap polygon");
         for chunk in tri_indices.chunks(3) {
             push_triangle(
                 indices,
@@ -2158,8 +2158,8 @@ fn tessellate_polygon_face_fallback(
                     vec![v3_dot(d, u_axis), v3_dot(d, v_axis)]
                 })
                 .collect();
-            let tri_indices = earcutr::earcut(&coords_2d, &[], 2)
-                .expect("earcut failed on polygon face (fallback convex)");
+            let tri_indices = cdt::cdt_triangulate_flat(&coords_2d, &[])
+                .expect("CDT failed on polygon face (fallback convex)");
             for chunk in tri_indices.chunks(3) {
                 indices.push(base_vertex + chunk[0] as u32);
                 indices.push(base_vertex + chunk[1] as u32);
@@ -2186,8 +2186,8 @@ fn tessellate_polygon_face_fallback(
             })
             .collect();
 
-        let tri_indices =
-            earcutr::earcut(&coords_2d, &[], 2).expect("earcut failed on polygon face (fallback)");
+        let tri_indices = cdt::cdt_triangulate_flat(&coords_2d, &[])
+            .expect("CDT failed on polygon face (fallback)");
 
         for chunk in tri_indices.chunks(3) {
             indices.push(base_vertex + chunk[0] as u32);
@@ -3815,8 +3815,8 @@ fn tessellate_cylindrical_face_bounded(
                     local_indices.push(local);
                 }
 
-                // Earcut the strip polygon (no holes — the strip IS the annulus)
-                if let Ok(tri_indices) = earcutr::earcut(&strip_2d, &[], 2) {
+                // CDT the strip polygon (no holes — the strip IS the annulus)
+                if let Ok(tri_indices) = cdt::cdt_triangulate_flat(&strip_2d, &[]) {
                     for &ti in &tri_indices {
                         let local = local_indices[ti];
                         out_indices.push(base_vertex + local);
@@ -4165,7 +4165,7 @@ fn tessellate_cylindrical_face_bounded(
             coords_2d.push(axials[i]);
         }
 
-        let tri_indices = earcutr::earcut(&coords_2d, &[], 2).unwrap_or_default();
+        let tri_indices = cdt::cdt_triangulate_flat(&coords_2d, &[]).unwrap_or_default();
         if tri_indices.is_empty() {
             return;
         }

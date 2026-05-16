@@ -978,7 +978,7 @@ fn find_loop_containing_both_in_faces(
 /// conformal triangulation so the mesh boolean sees identical geometry.
 ///
 /// For each coplanar pair, projects both face boundaries into 2D, computes
-/// a shared triangulation via i_overlay + earcutr, and replaces the original
+/// a shared triangulation via i_overlay + CDT, and replaces the original
 /// mesh triangles for those faces.
 #[allow(clippy::too_many_arguments, dead_code)]
 pub(crate) fn inject_conformal_coplanar_mesh(
@@ -1587,7 +1587,8 @@ fn emit_coplanar_tele_post_inject() {
     );
 }
 
-/// Triangulate a polygon with holes using earcutr.
+/// Triangulate a polygon with holes via Constrained Delaunay Triangulation
+/// (Yang §4.5.5 coplanar-preprocessing tessellation).
 ///
 /// Returns (2D vertices, triangle indices). The first contour is the outer
 /// boundary; remaining contours are holes.
@@ -1614,7 +1615,7 @@ fn triangulate_polygon_with_holes(contours: &[Vec<[f64; 2]>]) -> (Vec<[f64; 2]>,
     let verts_2d: Vec<[f64; 2]> = (0..n_verts)
         .map(|i| [coords[i * 2], coords[i * 2 + 1]])
         .collect();
-    match earcutr::earcut(&coords, &hole_indices, 2) {
+    match crate::tessellation::cdt::cdt_triangulate_flat(&coords, &hole_indices) {
         Ok(indices) => (verts_2d, indices),
         Err(_) => (vec![], vec![]),
     }
