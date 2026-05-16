@@ -547,6 +547,13 @@ pub(super) fn remove_winding_insensitive_duplicates(
         std::collections::HashMap::new();
     let mut y40_collisions: Vec<Y40Collision> = Vec::new();
 
+    // PR-Y45 INFRA: per-collision loser-tri quantized at the 1e-6 oracle grid
+    // (matches `cherchi_differential_diff.rs::QUANTIZE_GRID`). Default-off path
+    // byte-identical; only populated when `Y45_CASE_D_ATTRIBUTION_POS` is set
+    // (gated by `y40_enabled` so the Y40 collision-record loop is also armed).
+    let y45_enabled = y40_enabled && y45_case_d_attribution_enabled();
+    let mut y45_loser_oracle_keys: Vec<[(i64, i64, i64); 3]> = Vec::new();
+
     for (range_idx, range) in face_ranges.iter().enumerate() {
         let range_start = new_indices.len() as u32;
         let tri_start = range.start_index as usize / 3;
@@ -594,6 +601,19 @@ pub(super) fn remove_winding_insensitive_duplicates(
                         tri_offset: t - tri_start,
                     },
                 });
+                if y45_enabled {
+                    // Re-quantize the loser tri at 1e-6 oracle grid (NOT α's
+                    // adaptive `max_abs * 1e-5`) so we can compare against the
+                    // Case-D position set which is encoded at the harness's
+                    // QUANTIZE_GRID = 1e-6. Mirror `quantize_pos` +
+                    // `quantize_tri` from `cherchi_differential_diff.rs:161-180`.
+                    let oa = y45_oracle_quantize_vert(vertices, indices[base]);
+                    let ob = y45_oracle_quantize_vert(vertices, indices[base + 1]);
+                    let oc = y45_oracle_quantize_vert(vertices, indices[base + 2]);
+                    let mut canon = [oa, ob, oc];
+                    canon.sort();
+                    y45_loser_oracle_keys.push(canon);
+                }
             }
         }
 
@@ -609,6 +629,14 @@ pub(super) fn remove_winding_insensitive_duplicates(
 
     if y40_enabled {
         y40_write_collisions(&y40_collisions, n_tris);
+    }
+
+    if y45_enabled {
+        // Emits the per-loser cross-reference + intersection summary against
+        // the Case-D position set. Each call corresponds to one α invocation;
+        // the invocation counter (shared with PR-Y40) lets the spotlight log
+        // isolate the 19-drop invocation (`[stage-f] 138→119`).
+        y45_emit_case_d_attribution(&y40_collisions, &y45_loser_oracle_keys, n_tris);
     }
 
     *indices = new_indices;
@@ -720,6 +748,169 @@ fn y40_write_collisions(collisions: &[Y40Collision], n_tris_input: usize) {
         summary.push_str(&format!("{}\t{}\n", w, n));
     }
     let _ = std::fs::write(&summary_path, summary);
+}
+
+// ── PR-Y45 INFRA: α Case-D attribution probe (env-gated, default-off) ──
+//
+// Cross-references Y40 collision losers against a pre-extracted set of F0020
+// Case-D triangle positions (PR-Y44 δ probe output, parsed at the harness's
+// QUANTIZE_GRID = 1e-6 m). Each loser's 3 verts are re-quantized at the same
+// 1e-6 grid and sorted to a canonical winding-insensitive key; intersection
+// with the Case-D set decides whether α is the load-bearing F0020 anchor.
+//
+// Gated by both `Y40_COLLISION_PROBE=1` AND `Y45_CASE_D_ATTRIBUTION_POS=<file>`.
+// Default-off path is byte-identical (the inner `y45_enabled` branch never
+// executes, so neither the Y45 vec allocation nor the file load happens).
+
+fn y45_case_d_attribution_enabled() -> bool {
+    std::env::var("Y45_CASE_D_ATTRIBUTION_POS").is_ok()
+}
+
+/// Quantize one f32 vertex at the 1e-6 oracle grid (matches
+/// `cherchi_differential_diff.rs::quantize_pos`).
+fn y45_oracle_quantize_vert(vertices: &[f32], idx: u32) -> (i64, i64, i64) {
+    let i = idx as usize * 3;
+    if i + 2 >= vertices.len() {
+        return (0, 0, 0);
+    }
+    // 1e-6 m grid: multiply f32 vertex by 1e6 and round to i64. Match the
+    // harness's `quantize_pos` byte-for-byte (no f32→f64 round-trip
+    // distinction; both use `as f64` then multiply).
+    const INV_ORACLE_GRID: f64 = 1.0e6;
+    (
+        (vertices[i] as f64 * INV_ORACLE_GRID).round() as i64,
+        (vertices[i + 1] as f64 * INV_ORACLE_GRID).round() as i64,
+        (vertices[i + 2] as f64 * INV_ORACLE_GRID).round() as i64,
+    )
+}
+
+std::thread_local! {
+    /// Lazily-loaded Case-D position set; sorted canonical keys at 1e-6 grid.
+    /// `None` = unloaded; `Some(Err(...))` = load failed (e.g., file missing);
+    /// `Some(Ok(set))` = ready. Per-thread so a `cargo test` with multiple
+    /// integration tests doesn't double-load.
+    static Y45_CASE_D_SET: std::cell::RefCell<
+        Option<Result<std::collections::HashSet<[(i64, i64, i64); 3]>, String>>,
+    > = const { std::cell::RefCell::new(None) };
+}
+
+fn y45_load_case_d_set() -> Result<std::collections::HashSet<[(i64, i64, i64); 3]>, String> {
+    let path = std::env::var("Y45_CASE_D_ATTRIBUTION_POS")
+        .map_err(|_| "Y45_CASE_D_ATTRIBUTION_POS not set".to_string())?;
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Y45: failed to read {}: {}", path, e))?;
+
+    let mut set: std::collections::HashSet<[(i64, i64, i64); 3]> =
+        std::collections::HashSet::new();
+    for (lineno, raw) in content.lines().enumerate() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let nums: Vec<i64> = line
+            .split_whitespace()
+            .map(|t| t.parse::<i64>())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Y45: parse error at {}:{}: {}", path, lineno + 1, e))?;
+        if nums.len() != 9 {
+            return Err(format!(
+                "Y45: line {} expected 9 ints, got {}",
+                lineno + 1,
+                nums.len()
+            ));
+        }
+        let mut canon = [
+            (nums[0], nums[1], nums[2]),
+            (nums[3], nums[4], nums[5]),
+            (nums[6], nums[7], nums[8]),
+        ];
+        canon.sort();
+        set.insert(canon);
+    }
+    Ok(set)
+}
+
+fn y45_emit_case_d_attribution(
+    collisions: &[Y40Collision],
+    loser_oracle_keys: &[[(i64, i64, i64); 3]],
+    n_tris_input: usize,
+) {
+    // Use the same invocation counter as Y40 — it has already been
+    // incremented by `y40_write_collisions`. Read the current value via
+    // a fresh increment-then-decrement is awkward; we just emit the
+    // current-incremented value (post-Y40 == this α call's invocation).
+    let invocation = Y40_INVOCATION_COUNTER.with(|c| *c.borrow());
+
+    // Lazy-load the Case-D set once per process.
+    let load_result: Result<std::collections::HashSet<[(i64, i64, i64); 3]>, String> =
+        Y45_CASE_D_SET.with(|cell| {
+            if cell.borrow().is_none() {
+                *cell.borrow_mut() = Some(y45_load_case_d_set());
+            }
+            match cell.borrow().as_ref().unwrap() {
+                Ok(s) => Ok(s.clone()),
+                Err(e) => Err(e.clone()),
+            }
+        });
+    let case_d_set = match load_result {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!(
+                "[Y45_CASE_D_ATTRIBUTION inv{:03}] LOAD-FAIL: {}",
+                invocation, e
+            );
+            return;
+        }
+    };
+
+    let case_d_total = case_d_set.len();
+    let n_losers = loser_oracle_keys.len();
+
+    // Compute intersection (sorted-canonical-key membership).
+    let mut in_case_d: Vec<usize> = Vec::new();
+    for (i, key) in loser_oracle_keys.iter().enumerate() {
+        if case_d_set.contains(key) {
+            in_case_d.push(i);
+        }
+    }
+    let intersection = in_case_d.len();
+    let pct = if case_d_total == 0 {
+        0.0
+    } else {
+        (intersection as f64) * 100.0 / (case_d_total as f64)
+    };
+
+    // Header (the spotlight log greps this line).
+    eprintln!(
+        "[Y45_CASE_D_ATTRIBUTION inv{:03}] n_tris_input={} α-losers={} case_d_loaded={} intersection={} / {} = {:.1}% confirmation",
+        invocation, n_tris_input, n_losers, case_d_total, intersection, case_d_total, pct
+    );
+
+    // Per-loser detail (always emitted; n_losers is small — at most a few
+    // dozen — across the whole spotlight run).
+    for (i, key) in loser_oracle_keys.iter().enumerate() {
+        let (winner, loser) = if i < collisions.len() {
+            (collisions[i].winner, collisions[i].loser)
+        } else {
+            (
+                Y40FirstSeen { face_id: u64::MAX, range_idx: usize::MAX, tri_offset: usize::MAX },
+                Y40FirstSeen { face_id: u64::MAX, range_idx: usize::MAX, tri_offset: usize::MAX },
+            )
+        };
+        let tag = if case_d_set.contains(key) { "IN_CASE_D" } else { "NOT_IN_CASE_D" };
+        eprintln!(
+            "  [Y45 inv{:03}] loser[{}] winner_face={} loser_face={} loser_tri_off={} key=({},{},{})/({},{},{})/({},{},{}) -> {}",
+            invocation,
+            i,
+            winner.face_id,
+            loser.face_id,
+            loser.tri_offset,
+            key[0].0, key[0].1, key[0].2,
+            key[1].0, key[1].1, key[1].2,
+            key[2].0, key[2].1, key[2].2,
+            tag,
+        );
+    }
 }
 
 /// Core non-manifold removal logic shared by both aggressive and conservative modes.
