@@ -6,6 +6,7 @@
 
 mod analytic;
 pub mod bijective;
+pub mod cdt;
 pub mod pr7_classify;
 mod repair;
 
@@ -3459,39 +3460,59 @@ fn tessellate_planar_face_bounded(
                 out_indices.push(base_vertex + ((i + 1) % n) as u32);
             }
         } else {
-            // Ear-clip triangulation
+            // CDT triangulation per Yang 2025 §4.4.1 (deviation D1 remediation).
+            // Constraint edges = every consecutive segment of the outer boundary.
             let (u_axis, v_axis) = compute_plane_basis(stored_normal);
-            let coords_2d: Vec<f64> = ordered_verts
+            let points_2d: Vec<(f64, f64)> = ordered_verts
                 .iter()
-                .flat_map(|v| {
+                .map(|v| {
                     let d = v3_sub(*v, ordered_verts[0]);
-                    vec![v3_dot(d, u_axis), v3_dot(d, v_axis)]
+                    (v3_dot(d, u_axis), v3_dot(d, v_axis))
                 })
                 .collect();
-            if let Ok(tri_indices) = earcutr::earcut(&coords_2d, &[], 2) {
-                for chunk in tri_indices.chunks(3) {
-                    out_indices.push(base_vertex + chunk[0] as u32);
-                    out_indices.push(base_vertex + chunk[1] as u32);
-                    out_indices.push(base_vertex + chunk[2] as u32);
+            let outer_loop: Vec<usize> = (0..points_2d.len()).collect();
+            let cdt_result =
+                cdt::cdt_triangulate_2d_with_loops(&points_2d, &[outer_loop]);
+            match cdt_result {
+                Ok(triangles) => {
+                    for t in &triangles {
+                        out_indices.push(base_vertex + t[0] as u32);
+                        out_indices.push(base_vertex + t[1] as u32);
+                        out_indices.push(base_vertex + t[2] as u32);
+                    }
+                }
+                Err(_) => {
+                    // Graceful degradation: fall back to earcut on CDT error
+                    // (e.g., coincident input vertices that spade rejects).
+                    let coords_2d: Vec<f64> =
+                        points_2d.iter().flat_map(|&(x, y)| vec![x, y]).collect();
+                    if let Ok(tri_indices) = earcutr::earcut(&coords_2d, &[], 2) {
+                        for chunk in tri_indices.chunks(3) {
+                            out_indices.push(base_vertex + chunk[0] as u32);
+                            out_indices.push(base_vertex + chunk[1] as u32);
+                            out_indices.push(base_vertex + chunk[2] as u32);
+                        }
+                    }
                 }
             }
         }
     } else {
-        // Face with holes: collect inner boundaries and use earclip with holes
+        // Face with holes: CDT per Yang 2025 §4.4.1 (deviation D1 remediation).
         let (u_axis, v_axis) = compute_plane_basis(stored_normal);
-        let mut all_verts_2d: Vec<f64> = Vec::new();
-        let mut hole_indices_1d: Vec<usize> = Vec::new();
+        let mut points_2d: Vec<(f64, f64)> = Vec::new();
+        let mut loops: Vec<Vec<usize>> = Vec::new();
 
         // Outer ring
+        let outer_start = points_2d.len();
         for v in &ordered_verts {
             let d = v3_sub(*v, ordered_verts[0]);
-            all_verts_2d.push(v3_dot(d, u_axis));
-            all_verts_2d.push(v3_dot(d, v_axis));
+            points_2d.push((v3_dot(d, u_axis), v3_dot(d, v_axis)));
         }
+        loops.push((outer_start..points_2d.len()).collect());
 
         // Inner rings (holes)
         for inner_b in inner_boundaries {
-            hole_indices_1d.push(all_verts_2d.len() / 2);
+            let hole_start = points_2d.len();
             let inner_verts: Vec<[f64; 3]> = inner_b.iter().map(|&i| positions[i]).collect();
             for v in &inner_verts {
                 out_verts.push(v[0] as f32);
@@ -3501,16 +3522,35 @@ fn tessellate_planar_face_bounded(
                 out_normals.push(normal[1]);
                 out_normals.push(normal[2]);
                 let d = v3_sub(*v, ordered_verts[0]);
-                all_verts_2d.push(v3_dot(d, u_axis));
-                all_verts_2d.push(v3_dot(d, v_axis));
+                points_2d.push((v3_dot(d, u_axis), v3_dot(d, v_axis)));
             }
+            loops.push((hole_start..points_2d.len()).collect());
         }
 
-        if let Ok(tri_indices) = earcutr::earcut(&all_verts_2d, &hole_indices_1d, 2) {
-            for chunk in tri_indices.chunks(3) {
-                out_indices.push(base_vertex + chunk[0] as u32);
-                out_indices.push(base_vertex + chunk[1] as u32);
-                out_indices.push(base_vertex + chunk[2] as u32);
+        let cdt_result = cdt::cdt_triangulate_2d_with_loops(&points_2d, &loops);
+        match cdt_result {
+            Ok(triangles) => {
+                for t in &triangles {
+                    out_indices.push(base_vertex + t[0] as u32);
+                    out_indices.push(base_vertex + t[1] as u32);
+                    out_indices.push(base_vertex + t[2] as u32);
+                }
+            }
+            Err(_) => {
+                // Graceful degradation: fall back to earcut on CDT error.
+                let all_verts_2d: Vec<f64> =
+                    points_2d.iter().flat_map(|&(x, y)| vec![x, y]).collect();
+                let hole_indices_1d: Vec<usize> =
+                    loops.iter().skip(1).map(|h| h[0]).collect();
+                if let Ok(tri_indices) =
+                    earcutr::earcut(&all_verts_2d, &hole_indices_1d, 2)
+                {
+                    for chunk in tri_indices.chunks(3) {
+                        out_indices.push(base_vertex + chunk[0] as u32);
+                        out_indices.push(base_vertex + chunk[1] as u32);
+                        out_indices.push(base_vertex + chunk[2] as u32);
+                    }
+                }
             }
         }
     }

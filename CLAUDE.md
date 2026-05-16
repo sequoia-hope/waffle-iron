@@ -20,6 +20,10 @@ Experimental implementations exist (Sprint 18) and MockKernel tests pass, but th
 
 **Never suggest fillet, chamfer, or shell as "next steps" or "what to work on."** If a session plan includes fillet/chamfer/shell work, skip it and choose a different task.
 
+## Yang/Cherchi Deviations
+
+Track known divergences between the implementation and Yang 2025 / Cherchi 2022 in `docs/yang_deviations.md`. Before working on a Yang stage, compare the code against the paper section it claims to implement. A deviation discovered mid-investigation halts the cycle — the deviation is the bug; do not debug downstream symptoms. (Rule: `feedback_yang_only.md`.)
+
 ## Current Priorities
 
 When asked "what should I work on?", choose from these areas **in order**.

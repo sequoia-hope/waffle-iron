@@ -9,6 +9,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "1"
 earcutr = "0.4"
+spade = "2.15"
 robust = "1.1"
 geometry-predicates = "0.3"
 i_overlay = "4.4"
