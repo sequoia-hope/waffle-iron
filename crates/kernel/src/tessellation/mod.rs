@@ -3481,18 +3481,15 @@ fn tessellate_planar_face_bounded(
                         out_indices.push(base_vertex + t[2] as u32);
                     }
                 }
-                Err(_) => {
-                    // Graceful degradation: fall back to earcut on CDT error
-                    // (e.g., coincident input vertices that spade rejects).
-                    let coords_2d: Vec<f64> =
-                        points_2d.iter().flat_map(|&(x, y)| vec![x, y]).collect();
-                    if let Ok(tri_indices) = earcutr::earcut(&coords_2d, &[], 2) {
-                        for chunk in tri_indices.chunks(3) {
-                            out_indices.push(base_vertex + chunk[0] as u32);
-                            out_indices.push(base_vertex + chunk[1] as u32);
-                            out_indices.push(base_vertex + chunk[2] as u32);
-                        }
-                    }
+                Err(e) => {
+                    // No fallback: Yang §4.4.1 mandates CDT. Falling back to a
+                    // non-CDT triangulator would be a deviation. Surface the
+                    // failure visibly; downstream sees an empty face.
+                    eprintln!(
+                        "[yang §4.4.1] CDT failed on planar face (no holes, {} verts): {:?}",
+                        points_2d.len(),
+                        e
+                    );
                 }
             }
         }
@@ -3536,21 +3533,16 @@ fn tessellate_planar_face_bounded(
                     out_indices.push(base_vertex + t[2] as u32);
                 }
             }
-            Err(_) => {
-                // Graceful degradation: fall back to earcut on CDT error.
-                let all_verts_2d: Vec<f64> =
-                    points_2d.iter().flat_map(|&(x, y)| vec![x, y]).collect();
-                let hole_indices_1d: Vec<usize> =
-                    loops.iter().skip(1).map(|h| h[0]).collect();
-                if let Ok(tri_indices) =
-                    earcutr::earcut(&all_verts_2d, &hole_indices_1d, 2)
-                {
-                    for chunk in tri_indices.chunks(3) {
-                        out_indices.push(base_vertex + chunk[0] as u32);
-                        out_indices.push(base_vertex + chunk[1] as u32);
-                        out_indices.push(base_vertex + chunk[2] as u32);
-                    }
-                }
+            Err(e) => {
+                // No fallback: Yang §4.4.1 mandates CDT. Falling back to a
+                // non-CDT triangulator would be a deviation. Surface the
+                // failure visibly; downstream sees an empty face.
+                eprintln!(
+                    "[yang §4.4.1] CDT failed on planar face ({} verts, {} loops): {:?}",
+                    points_2d.len(),
+                    loops.len(),
+                    e
+                );
             }
         }
     }

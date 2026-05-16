@@ -32,14 +32,31 @@
 2. Replace `earcutr` with a true CDT (full Bowyer-Watson + constraint enforcement, or port from CGAL / use a Rust CDT crate). ~800-1500 LOC. Highest paper-alignment.
 3. Cross-face coordination phase before per-face earcut. ~50-100 LOC for boundary alignment but doesn't fix earcut divergence root.
 
-**Investigation status:** **REMEDIATION IN PROGRESS (Tier 1 landed 2026-05-16).** Replaced `earcutr` with `spade::ConstrainedDelaunayTriangulation::try_bulk_load_cdt` at both call sites; constraint edges constructed from boundary loops. Empirical results: F0020 unpaired 40→35; kernel lib 1262→1266 passing; yang_fast 10/157→13/157. Case D specifically still 24/24 — those 24 missing triangles need Tier 2 (intersection-curve constraints) which is not yet implemented. `earcutr` kept as in-tree fallback for the rare cases spade rejects.
+**Investigation status:** **REMEDIATION IN PROGRESS.** Two cycles landed; scope is larger than initially captured.
+
+**Cycle 1 (2026-05-16):** Replaced `earcutr` with `spade::ConstrainedDelaunayTriangulation::try_bulk_load_cdt` at `tessellate_planar_face_bounded` (two call sites: planar-no-holes, planar-with-holes). Constraint edges constructed from boundary loops. Results: F0020 unpaired 40→35; kernel lib 1262→1266; yang_fast 10/157→13/157.
+
+**Cycle 1.1 (2026-05-16):** Removed the earcut-fallback arm at both call sites — `try_bulk_load_cdt`'s silent-conflict callback handles upstream defects internally, so the fallback was unreachable on F0020. Replaced fallback with eprintln + empty output. Results unchanged.
+
+**Scope finding (load-bearing):** `earcutr` is used at **~9 OTHER call sites** across the kernel that were not part of D1 cycle 1. Every one is a Yang §4.4.1 deviation:
+- `crates/kernel/src/boolean/coplanar_preprocess.rs:1617` — coplanar preprocessing per Yang §4.5.5
+- `crates/kernel/src/tessellation/mod.rs:1652` — convex polygon face (post-collinear path)
+- `crates/kernel/src/tessellation/mod.rs:1679` — non-convex polygon face
+- `crates/kernel/src/tessellation/mod.rs:1958` — revolve cap (convex)
+- `crates/kernel/src/tessellation/mod.rs:1979` — revolve cap (non-convex)
+- `crates/kernel/src/tessellation/mod.rs:2161` — polygon face (alt path)
+- `crates/kernel/src/tessellation/mod.rs:2190` — polygon face fallback
+- `crates/kernel/src/tessellation/mod.rs:3827` — strip triangulation
+- `crates/kernel/src/tessellation/mod.rs:4176` — another tessellation path
 
 **Remaining work to close D1:**
-- **Tier 2:** intersection-curve constraint identification — distinguish vertices that lie on intersection curves from B-Rep boundary vertices, pass them as additional constraint edges. ~100-150 LOC. Required to close the Case D 24/24 finding.
-- **Tier 3:** canonical cross-face plane basis — currently each face computes Newell basis independently, producing ±ε 2D-projection drift across adjacent faces. Deferred unless Tier 2 doesn't close Case D.
-- **Fallback removal:** once Tier 2/3 land and the fallback rate is zero, remove the `earcutr` dependency entirely.
+- **Next cycle: full earcut sweep.** Replace each of the 9 sites above with the same `cdt::cdt_triangulate_2d_with_loops` pattern. Each site has its own input shape (caps, strips, alt polygon paths); some may need wrapper variants. After: remove `earcutr` from `Cargo.toml` entirely.
+- **Tier 2:** intersection-curve constraint identification — distinguish vertices on intersection curves from B-Rep boundary vertices and pass them as additional constraint edges. Required to close the Case D 24/24 finding (still unchanged after Tier 1 + 9-site sweep would not move it either).
+- **Tier 3:** canonical cross-face plane basis — eliminate ±ε 2D-projection drift between adjacent faces. Deferred unless Tier 2 doesn't close Case D.
 
-**Sign-off:** *not eligible.* Deviation remains until full Yang §4.4.1 compliance lands.
+**Implementation choice note:** Yang §4.4.1 says "CDT in CGAL [2024]." We use `spade` (Rust-native CDT, ~5-10k LOC) rather than porting CGAL's CDT (~12k lines of C++ templates plus kernel/predicate infrastructure). `spade` implements the same algorithm class (Constrained Delaunay Triangulation with adaptive predicates via the `robust` crate); the deviation is "CGAL specifically" not "CDT semantics." This is a documented choice, not a behavioral deviation.
+
+**Sign-off:** *not eligible.* Deviation remains until full Yang §4.4.1 compliance lands (all earcut sites swapped + Tier 2/3 if needed).
 
 ---
 
