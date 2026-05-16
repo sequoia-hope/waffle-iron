@@ -1650,3 +1650,294 @@ fn cohort_render_lod_nearest_attribution() {
         let _ = run_nearest_attribution_for_case(case);
     }
 }
+
+// =========================================================================
+// PR-Y46 — Stage Bb→B→E bisection probe (LOAD-BEARING)
+// =========================================================================
+//
+// Question: of the 24 F0020 Case D positions emitted by PR-Y44's δ probe,
+// how many drop at Layer A (face_survival_detect: Bb → B) vs Layer B
+// (γ Render-LOD retess: B → E_lod=Render)?
+//
+// Method (pure test-harness; ZERO production code changes):
+//   1. Read three existing per-stage OBJ dumps (Stage Bb, Stage B,
+//      Stage E_lod=Render) written by `YANG_STAGE_DUMP=<dir>` +
+//      `YANG_CONFORMAL_PROBE=1` from the SPOTLIGHT run on F0020. See
+//      `topology_extract.rs:2396` (Bb), `topology_extract.rs:2568` (B),
+//      `yang_integration.rs:1063-1074` (E_lod=Render).
+//   2. Read the 24 Case D positions from a file (produced by parsing
+//      PR-Y44's `f0020_render_lod_nearest_attribution` log output).
+//   3. Quantize every triangle to a canonical sorted i64-triple at the
+//      1e-6 oracle grid (same `quantize_tri` as PR-Y30/Y43/Y44/Y45).
+//   4. Compute:
+//        layer_a_losers = Bb \ B    (face_survival_detect drops)
+//        layer_b_losers = B \ E     (γ retess drops)
+//   5. For each Case D position, classify: in Layer A, Layer B, or NEITHER.
+//   6. Report per-layer attribution percentages + per-tri layer assignment
+//      table.
+//
+// Default-off byte-identical by construction: pure test fn, gated by
+// `#[ignore]` + env vars (`Y46_BISECTION_STAGE_DIR`, `Y46_CASE_D_POS`).
+//
+// Decision gate (mirrors PR-Y45 / audit-y45 §4):
+//   Layer A ≥ 80% → PR-Y47 anchor = face_survival_detect (Yang §3.3 +
+//                    Cherchi 2022 §5 inside/outside classification)
+//   Layer B ≥ 80% → PR-Y47 anchor = γ Render-LOD retess
+//                    (`yang_integration.rs:1024`)
+//   Both ≥ 30%   → mixed; PR-Y47 must address both
+//   Both ≤ 20%   → MAJOR pivot: 24 Case D positions are NOT in the
+//                    Bb→B→E cumulative drop; defect elsewhere
+
+/// Read a Case-D positions file as written by the PR-Y46 plan §2b.
+/// Each non-comment line: 9 whitespace-separated i64 coords
+/// (qa.x qa.y qa.z qb.x qb.y qb.z qc.x qc.y qc.z). Returns each entry
+/// as the sorted-canonical 3-tuple (same key as `quantize_tri`).
+fn load_case_d_positions_file(path: &Path) -> Vec<[(i64, i64, i64); 3]> {
+    let content = std::fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("Y46: cannot read Case D positions file {:?}: {}", path, e));
+    let mut out: Vec<[(i64, i64, i64); 3]> = Vec::new();
+    for (line_no, raw) in content.lines().enumerate() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let tokens: Vec<&str> = line.split_whitespace().collect();
+        if tokens.len() != 9 {
+            panic!(
+                "Y46: line {} in {:?}: expected 9 coords, got {}",
+                line_no + 1,
+                path,
+                tokens.len()
+            );
+        }
+        let mut parts = [0i64; 9];
+        for (i, t) in tokens.iter().enumerate() {
+            parts[i] = t.parse::<i64>().unwrap_or_else(|e| {
+                panic!("Y46: line {} col {} bad i64 `{}`: {}", line_no + 1, i, t, e)
+            });
+        }
+        let mut tri = [
+            (parts[0], parts[1], parts[2]),
+            (parts[3], parts[4], parts[5]),
+            (parts[6], parts[7], parts[8]),
+        ];
+        tri.sort();
+        out.push(tri);
+    }
+    out
+}
+
+/// Read an OBJ file and return the set of winding-insensitive
+/// canonical triangle keys at the 1e-6 oracle grid. Same quantization
+/// as `quantize_tri` (sort 3 quantized verts).
+fn load_obj_canonical_tri_set(path: &Path) -> HashSet<[(i64, i64, i64); 3]> {
+    let (verts, tris) = parse_obj(path)
+        .unwrap_or_else(|e| panic!("Y46: parse_obj({:?}) failed: {}", path, e));
+    let mut out: HashSet<[(i64, i64, i64); 3]> = HashSet::new();
+    for tri in &tris {
+        out.insert(quantize_tri(&verts, *tri));
+    }
+    out
+}
+
+/// PR-Y46 Stage Bb→B→E bisection probe. Pure test-harness fn. Reads
+/// existing stage-dump OBJs + Case D positions file; reports Layer A
+/// vs Layer B attribution against the 24 F0020 Case D positions.
+///
+/// Inputs (via env var, mirroring PR-Y45 pattern):
+///   Y46_BISECTION_STAGE_DIR — dir containing stage_Bb.obj, stage_B.obj,
+///                              stage_E_lod=Render.obj (default:
+///                              /tmp/y46-stages-f0020/F0020)
+///   Y46_CASE_D_POS         — Case D positions file (default:
+///                              /tmp/y46-f0020-case-d-positions.txt)
+#[test]
+#[ignore]
+fn f0020_stage_bb_b_e_bisection() {
+    let stage_dir = std::env::var("Y46_BISECTION_STAGE_DIR")
+        .unwrap_or_else(|_| "/tmp/y46-stages-f0020/F0020".to_string());
+    let case_d_path = std::env::var("Y46_CASE_D_POS")
+        .unwrap_or_else(|_| "/tmp/y46-f0020-case-d-positions.txt".to_string());
+    let stage_dir = Path::new(&stage_dir);
+    let case_d_path = Path::new(&case_d_path);
+    let stage_bb = stage_dir.join("stage_Bb.obj");
+    let stage_b = stage_dir.join("stage_B.obj");
+    let stage_e = stage_dir.join("stage_E_lod=Render.obj");
+
+    for (label, p) in [
+        ("stage_Bb.obj", &stage_bb),
+        ("stage_B.obj", &stage_b),
+        ("stage_E_lod=Render.obj", &stage_e),
+        ("Case-D positions", &case_d_path.to_path_buf()),
+    ] {
+        if !p.exists() {
+            eprintln!("[pr-y46] SKIP — {} not present at {:?}", label, p);
+            eprintln!(
+                "[pr-y46] Run: YANG_STAGE_DUMP=/tmp/y46-stages-f0020 \
+                 YANG_CONFORMAL_PROBE=1 YANG_BOOLEAN=1 \
+                 cargo test -p test-harness --test assay_randomized -- \
+                 spotlight_f0020 --ignored --nocapture"
+            );
+            eprintln!(
+                "[pr-y46] And populate {} via PR-Y44 attribution log + parser.",
+                case_d_path.display()
+            );
+            return;
+        }
+    }
+
+    let stage_bb_set = load_obj_canonical_tri_set(&stage_bb);
+    let stage_b_set = load_obj_canonical_tri_set(&stage_b);
+    let stage_e_set = load_obj_canonical_tri_set(&stage_e);
+    let case_d_list = load_case_d_positions_file(case_d_path);
+    // dedupe the case_d list at the canonical level (case D rows are
+    // already canonicalized by load_case_d_positions_file's sort).
+    let case_d_set: HashSet<[(i64, i64, i64); 3]> = case_d_list.iter().cloned().collect();
+
+    eprintln!(
+        "[pr-y46] stage Bb: {} unique canonical tris (raw faces in OBJ may differ if duplicates)",
+        stage_bb_set.len()
+    );
+    eprintln!("[pr-y46] stage B : {} unique canonical tris", stage_b_set.len());
+    eprintln!("[pr-y46] stage E : {} unique canonical tris", stage_e_set.len());
+    eprintln!("[pr-y46] Case D : {} entries (deduped set: {})", case_d_list.len(), case_d_set.len());
+
+    let layer_a_losers: HashSet<[(i64, i64, i64); 3]> =
+        stage_bb_set.difference(&stage_b_set).cloned().collect();
+    let layer_b_losers: HashSet<[(i64, i64, i64); 3]> =
+        stage_b_set.difference(&stage_e_set).cloned().collect();
+    let layer_e_survivors: HashSet<[(i64, i64, i64); 3]> =
+        stage_bb_set.intersection(&stage_e_set).cloned().collect();
+
+    eprintln!(
+        "[pr-y46] |Bb \\ B| Layer A losers (face_survival_detect)   = {}",
+        layer_a_losers.len()
+    );
+    eprintln!(
+        "[pr-y46] |B \\ E|  Layer B losers (γ Render-LOD retess)     = {}",
+        layer_b_losers.len()
+    );
+    eprintln!(
+        "[pr-y46] |Bb ∩ E| Survivors all-the-way                     = {}",
+        layer_e_survivors.len()
+    );
+
+    // Per-tri layer assignment table (preserves Case D source-row order
+    // for cross-reference vs PR-Y44 §4.1).
+    eprintln!("[pr-y46] --- Per-tri Case D layer assignment (24 entries) ---");
+    let mut count_a = 0usize;
+    let mut count_b = 0usize;
+    let mut count_neither = 0usize;
+    let mut count_other = 0usize; // (A and B can be disjoint by definition; "other" = present in stage E meaning never-dropped — should be 0 for Case D positions, since Case D = Cherchi-only-missing-from-Waffle)
+    for (i, key) in case_d_list.iter().enumerate() {
+        let in_a = layer_a_losers.contains(key);
+        let in_b = layer_b_losers.contains(key);
+        let in_bb = stage_bb_set.contains(key);
+        let in_bs = stage_b_set.contains(key);
+        let in_es = stage_e_set.contains(key);
+        let layer = match (in_a, in_b) {
+            (true, false) => {
+                count_a += 1;
+                "A"
+            }
+            (false, true) => {
+                count_b += 1;
+                "B"
+            }
+            (true, true) => {
+                count_a += 1;
+                count_b += 1;
+                "A+B"
+            }
+            (false, false) => {
+                // Case D tri is not in Bb\B and not in B\E. Either it's in E
+                // (still present at output — would mean PR-Y44 mis-classified
+                // it; expect 0) or it never appeared at Bb (dropped upstream
+                // of arrangement output, e.g. at flood_fill, F-stages, or
+                // never emitted by Yang at all).
+                if in_es {
+                    count_other += 1;
+                    "PRESENT_AT_E"
+                } else {
+                    count_neither += 1;
+                    "NEITHER"
+                }
+            }
+        };
+        eprintln!(
+            "[pr-y46] d[{:2}] inBb={} inB={} inE={} -> {}",
+            i,
+            in_bb as u8,
+            in_bs as u8,
+            in_es as u8,
+            layer
+        );
+    }
+
+    let n = case_d_list.len();
+    let pct_a = 100.0 * count_a as f64 / n as f64;
+    let pct_b = 100.0 * count_b as f64 / n as f64;
+    let pct_neither = 100.0 * count_neither as f64 / n as f64;
+    eprintln!(
+        "[pr-y46] SUMMARY: Layer A (face_survival_detect) = {} / {} = {:.1}%",
+        count_a, n, pct_a
+    );
+    eprintln!(
+        "[pr-y46] SUMMARY: Layer B (γ Render-LOD retess)   = {} / {} = {:.1}%",
+        count_b, n, pct_b
+    );
+    eprintln!(
+        "[pr-y46] SUMMARY: NEITHER (defect upstream/elsewhere) = {} / {} = {:.1}%  PRESENT_AT_E (anomaly) = {}",
+        count_neither, n, pct_neither, count_other
+    );
+
+    // Cross-reference sanity: a Case D position observed at PRESENT_AT_E
+    // would be a PR-Y44 classification bug (Case D == Cherchi-only-missing-
+    // from-Waffle-at-final-stage). Expect 0.
+    if count_other != 0 {
+        eprintln!(
+            "[pr-y46] WARN: {} Case D positions still present at Stage E. PR-Y44 classification re-check needed.",
+            count_other
+        );
+    }
+
+    // Plan §verify (per `feedback_validate_against_corpus`):
+    // bisection methodology spot-check — the union of Layer-A-losers,
+    // Layer-B-losers, and stage-E survivors should partition stage Bb
+    // assuming no tri reappears between B and E (Cherchi 2022 §5 selective
+    // retention is monotone-decreasing — tris are dropped, not added).
+    let union_check: HashSet<[(i64, i64, i64); 3]> = layer_a_losers
+        .iter()
+        .chain(layer_b_losers.iter())
+        .chain(layer_e_survivors.iter())
+        .cloned()
+        .collect();
+    let stage_bb_minus_union: HashSet<_> = stage_bb_set.difference(&union_check).cloned().collect();
+    let added_after_bb: HashSet<_> = stage_e_set.difference(&stage_bb_set).cloned().collect();
+    let added_at_b: HashSet<_> = stage_b_set.difference(&stage_bb_set).cloned().collect();
+    eprintln!(
+        "[pr-y46] SANITY: |Bb| - |union(A_losers, B_losers, E_survivors)| = {} (expect 0 if monotone-decreasing)",
+        stage_bb_minus_union.len()
+    );
+    eprintln!(
+        "[pr-y46] SANITY: |E \\ Bb| triangles ADDED post-Bb = {} (γ retess re-samples — may be non-zero; informational)",
+        added_after_bb.len()
+    );
+    eprintln!(
+        "[pr-y46] SANITY: |B \\ Bb| triangles ADDED post-survival = {} (expect 0 — face_survival_detect is selective only)",
+        added_at_b.len()
+    );
+
+    // Verdict echo (decision gate mirrors PR-Y45 / audit-y45 §4)
+    let verdict = if pct_a >= 80.0 && pct_b < 30.0 {
+        "Layer-A-dominant (≥80%) → PR-Y47 anchor = face_survival_detect"
+    } else if pct_b >= 80.0 && pct_a < 30.0 {
+        "Layer-B-dominant (≥80%) → PR-Y47 anchor = γ Render-LOD retess"
+    } else if pct_a >= 30.0 && pct_b >= 30.0 {
+        "MIXED (both ≥30%) → PR-Y47 must address both layers"
+    } else if pct_a <= 20.0 && pct_b <= 20.0 {
+        "NEITHER (both ≤20%) → MAJOR pivot; 24 Case D positions NOT in Bb→B→E drop"
+    } else {
+        "AMBIGUOUS — record numerics; revisit thresholds"
+    };
+    eprintln!("[pr-y46] VERDICT: {}", verdict);
+}
