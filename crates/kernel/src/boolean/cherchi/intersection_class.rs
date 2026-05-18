@@ -1448,35 +1448,21 @@ fn aabb_overlap(a: &([f64; 3], [f64; 3]), b: &([f64; 3], [f64; 3])) -> bool {
         && a.1[2] >= b.0[2]
 }
 
-/// Three-state result of a simplex intersection test, matching cinolib's
-/// `SimplexIntersection` enum (`predicates.h` in the Cherchi 2022 reference).
-///
-/// The numeric ordering matters: callers in `triangle_triangle_intersect_3d`
-/// use `>= INTERSECT` to filter out `SIMPLICIAL_COMPLEX` (valid sub-simplex
-/// sharing) while keeping `INTERSECT` (real geometric overlap). Without this
-/// distinction, the bool-returning Waffle port treated all "touching" cases
-/// as intersections, over-detecting ~95 pairs on F0020 (PR-Y33 STAGE4
-/// sub-anchor B; see `docs/audits/pr_y33_per_stage_canary.md`).
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum SimplexIntersection {
-    DoNotIntersect = 0,
-    SimplicialComplex = 1,
-    Intersect = 2,
-}
-
 /// Exact triangle-triangle intersection test using orient3d.
-/// Returns true if the two triangles produce a `cinolib::INTERSECT`
-/// (real overlap, not a valid simplicial complex via shared sub-simplex).
+/// Returns true if the two triangles properly intersect.
 ///
-/// Matches `cinolib::triangle_triangle_intersect_3d` semantics
-/// (`predicates.cpp:1128-1252` in the Cherchi 2022 reference repo). The
-/// caller in `detect_intersections` filters by this boolean exactly the
-/// way Cherchi's C++ caller filters by `>= INTERSECT`.
+/// Matches the C++ Cherchi 2022 upstream `customDetectIntersections`
+/// (`gcherchi/InteractiveAndRobustMeshBooleans/code/booleans.cpp:288-324`),
+/// which performs only an AABB pre-filter before this exact test — it does NOT
+/// skip pairs that share a vertex. Yang 2025 §4.2 cites Cherchi 2022 as the
+/// mesh-intersection method, and Yang's coplanar preprocessing (§4.5.5)
+/// produces shared boundary vertices across mesh tags, so shared-vertex pairs
+/// must reach this function. Edge-on-segment and vertex-in-triangle
+/// configurations are handled by the existing branches in
+/// `detect_seg_tri_intersect` / `detect_seg_tri_coplanar`.
 ///
-/// Ported from cinolib/predicates.cpp:1128-1252
+/// Ported from cinolib/predicates.cpp:1222-1234
 fn triangles_intersect_exact(ts: &TriangleSoup, t0: usize, t1: usize) -> bool {
-    use SimplexIntersection::*;
-
     let t0v = [ts.tri_vert(t0, 0), ts.tri_vert(t0, 1), ts.tri_vert(t0, 2)];
     let t1v = [ts.tri_vert(t1, 0), ts.tri_vert(t1, 1), ts.tri_vert(t1, 2)];
 
@@ -1492,15 +1478,10 @@ fn triangles_intersect_exact(ts: &TriangleSoup, t0: usize, t1: usize) -> bool {
     }
     let shared_count = t0_shared.iter().filter(|&&s| s).count();
 
-    // shared_count == 3: triangles coincide. cinolib returns SIMPLICIAL_COMPLEX,
-    // which the caller filters out via `>= INTERSECT`. Same effect as `false`.
     if shared_count == 3 {
         return false;
     }
 
-    // shared_count == 2: triangles share an edge. If not coplanar → valid
-    // simplicial complex (edge-adjacent triangles). If coplanar AND opposite
-    // verts lie on the SAME side of shared edge → real overlap.
     if shared_count == 2 {
         let opp0 = (0..3).position(|i| !t0_shared[i]).unwrap();
         let opp1 = (0..3).position(|i| !t1_shared[i]).unwrap();
@@ -1529,12 +1510,6 @@ fn triangles_intersect_exact(ts: &TriangleSoup, t0: usize, t1: usize) -> bool {
         return true;
     }
 
-    // shared_count == 1: triangles share a vertex. Each triangle's "opposite
-    // edge" (the edge across from the shared vertex) is tested against the
-    // OTHER triangle. Real overlap requires that edge to actually pierce the
-    // triangle (`>= INTERSECT`), not merely touch it via a shared vertex
-    // (`SIMPLICIAL_COMPLEX`). This is the load-bearing distinction Waffle's
-    // bool-port previously conflated.
     if shared_count == 1 {
         let v0 = (0..3).position(|i| t0_shared[i]).unwrap();
         let v1 = (0..3).position(|i| t1_shared[i]).unwrap();
@@ -1542,56 +1517,43 @@ fn triangles_intersect_exact(ts: &TriangleSoup, t0: usize, t1: usize) -> bool {
         let opp0 = (t0v[(v0 + 1) % 3], t0v[(v0 + 2) % 3]);
         let opp1 = (t1v[(v1 + 1) % 3], t1v[(v1 + 2) % 3]);
 
-        let lhs = detect_seg_tri_intersect(&opp0.0, &opp0.1, &t1v[0], &t1v[1], &t1v[2]);
-        let rhs = detect_seg_tri_intersect(&opp1.0, &opp1.1, &t0v[0], &t0v[1], &t0v[2]);
-        return lhs == Intersect || rhs == Intersect;
+        return detect_seg_tri_intersect(&opp0.0, &opp0.1, &t1v[0], &t1v[1], &t1v[2])
+            || detect_seg_tri_intersect(&opp1.0, &opp1.1, &t0v[0], &t0v[1], &t0v[2]);
     }
 
-    // 0 shared verts — 6 segment-triangle tests. Same `>= INTERSECT` filtering.
+    // 0 shared verts — original 6 segment-triangle tests
     for (i, j) in [(0, 1), (1, 2), (2, 0)] {
-        if detect_seg_tri_intersect(&t0v[i], &t0v[j], &t1v[0], &t1v[1], &t1v[2]) == Intersect {
+        if detect_seg_tri_intersect(&t0v[i], &t0v[j], &t1v[0], &t1v[1], &t1v[2]) {
             return true;
         }
-        if detect_seg_tri_intersect(&t1v[i], &t1v[j], &t0v[0], &t0v[1], &t0v[2]) == Intersect {
+        if detect_seg_tri_intersect(&t1v[i], &t1v[j], &t0v[0], &t0v[1], &t0v[2]) {
             return true;
         }
     }
     false
 }
 
-/// Segment-triangle intersection for detection phase. Three-state semantics
-/// matching cinolib `segment_triangle_intersect_3d` (`predicates.cpp:806-893`).
+/// Segment-triangle intersection for detection phase.
+/// Returns true if segment (s0,s1) properly intersects triangle (t0,t1,t2).
+/// Handles both coplanar and non-coplanar cases.
 ///
-/// Distinguishes:
-/// - `SimplicialComplex`: segment IS an edge of triangle, OR one endpoint
-///   coincides with a triangle vertex (valid sub-simplex sharing).
-/// - `Intersect`: segment properly crosses or lies inside the triangle.
-/// - `DoNotIntersect`: fully disjoint.
+/// Ported from cinolib/predicates.cpp:806-881 (segment_triangle_intersect_3d)
 fn detect_seg_tri_intersect(
     s0: &[f64; 3],
     s1: &[f64; 3],
     t0: &[f64; 3],
     t1: &[f64; 3],
     t2: &[f64; 3],
-) -> SimplexIntersection {
-    use SimplexIntersection::*;
-
-    // Both endpoints coincide with triangle vertices → segment IS an edge.
-    let s0_is_vert = s0 == t0 || s0 == t1 || s0 == t2;
-    let s1_is_vert = s1 == t0 || s1 == t1 || s1 == t2;
-    if s0_is_vert && s1_is_vert {
-        return SimplicialComplex;
-    }
-
+) -> bool {
     let vol_s0_t = orient3d(*s0, *t0, *t1, *t2);
     let vol_s1_t = orient3d(*s1, *t0, *t1, *t2);
 
-    // Both endpoints on same side of triangle plane → disjoint.
+    // Both endpoints on same side of triangle plane
     if vol_s0_t > 0.0 && vol_s1_t > 0.0 {
-        return DoNotIntersect;
+        return false;
     }
     if vol_s0_t < 0.0 && vol_s1_t < 0.0 {
-        return DoNotIntersect;
+        return false;
     }
 
     // Coplanar case
@@ -1599,67 +1561,43 @@ fn detect_seg_tri_intersect(
         return detect_seg_tri_coplanar(s0, s1, t0, t1, t2);
     }
 
-    // Segment straddles the plane. If one endpoint coincides with a triangle
-    // vertex and the other is on the appropriate side, the configuration is
-    // a valid simplicial complex (the segment touches at a vertex but doesn't
-    // pierce the interior).
-    if s0_is_vert || s1_is_vert {
-        return SimplicialComplex;
-    }
-
-    // Standard 3-tetrahedron test from cinolib/predicates.cpp:883-892.
+    // Segment straddles or touches the plane.
+    // Check if the intersection point lies inside the triangle.
+    // Ported from cinolib/predicates.cpp:872-880
     let vol_s_t01 = orient3d(*s0, *s1, *t0, *t1);
     let vol_s_t12 = orient3d(*s0, *s1, *t1, *t2);
     let vol_s_t20 = orient3d(*s0, *s1, *t2, *t0);
 
     if (vol_s_t01 > 0.0 && vol_s_t12 < 0.0) || (vol_s_t01 < 0.0 && vol_s_t12 > 0.0) {
-        return DoNotIntersect;
+        return false;
     }
     if (vol_s_t12 > 0.0 && vol_s_t20 < 0.0) || (vol_s_t12 < 0.0 && vol_s_t20 > 0.0) {
-        return DoNotIntersect;
+        return false;
     }
     if (vol_s_t20 > 0.0 && vol_s_t01 < 0.0) || (vol_s_t20 < 0.0 && vol_s_t01 > 0.0) {
-        return DoNotIntersect;
+        return false;
     }
 
-    Intersect
+    true
 }
 
-/// Coplanar segment-triangle intersection (three-state).
+/// Coplanar segment-triangle intersection for detection phase.
 ///
-/// Ported from cinolib/predicates.cpp:836-870. If any segment endpoint is
-/// strictly inside the triangle → Intersect. Otherwise count how many of
-/// the three triangle edges form a `SimplicialComplex` with the segment;
-/// if all three do (segment coincides with a triangle edge), the result is
-/// SimplicialComplex. Any edge returning `Intersect` short-circuits to
-/// Intersect.
+/// Ported from cinolib/predicates.cpp:826-859
 fn detect_seg_tri_coplanar(
     s0: &[f64; 3],
     s1: &[f64; 3],
     t0: &[f64; 3],
     t1: &[f64; 3],
     t2: &[f64; 3],
-) -> SimplexIntersection {
-    use SimplexIntersection::*;
-
+) -> bool {
     if detect_point_in_tri_3d(s0, t0, t1, t2) || detect_point_in_tri_3d(s1, t0, t1, t2) {
-        return Intersect;
+        return true;
     }
 
-    let mut simpl_count = 0;
-    for &(e0, e1) in &[(t0, t1), (t1, t2), (t2, t0)] {
-        match detect_seg_seg_cross_3d(s0, s1, e0, e1) {
-            Intersect => return Intersect,
-            SimplicialComplex => simpl_count += 1,
-            DoNotIntersect => {}
-        }
-    }
-
-    if simpl_count == 3 {
-        SimplicialComplex
-    } else {
-        DoNotIntersect
-    }
+    detect_seg_seg_cross_3d(s0, s1, t0, t1)
+        || detect_seg_seg_cross_3d(s0, s1, t1, t2)
+        || detect_seg_seg_cross_3d(s0, s1, t2, t0)
 }
 
 /// Test if point p is strictly inside triangle (t0,t1,t2) in 3D (for detection).
@@ -1682,25 +1620,8 @@ fn detect_point_in_tri_3d(p: &[f64; 3], t0: &[f64; 3], t1: &[f64; 3], t2: &[f64;
     false
 }
 
-/// Segment-segment intersection in 3D (assumes coplanar segments), three-state.
-///
-/// Cinolib distinguishes `SimplicialComplex` (segments share an endpoint
-/// only) from `Intersect` (proper crossing or one endpoint strictly inside
-/// the other segment). A shared endpoint that is also where a triangle edge
-/// meets the candidate segment is the canonical SIMPLICIAL_COMPLEX case the
-/// PR-Y34 fix needs to filter.
-fn detect_seg_seg_cross_3d(
-    s0: &[f64; 3],
-    s1: &[f64; 3],
-    e0: &[f64; 3],
-    e1: &[f64; 3],
-) -> SimplexIntersection {
-    use SimplexIntersection::*;
-
-    // Shared endpoint → SIMPLICIAL_COMPLEX unless there's also a proper
-    // intersection elsewhere along the segment (handled below).
-    let shared_endpoint = s0 == e0 || s0 == e1 || s1 == e0 || s1 == e1;
-
+/// Test if two coplanar segments properly cross in 3D (for detection).
+fn detect_seg_seg_cross_3d(s0: &[f64; 3], s1: &[f64; 3], e0: &[f64; 3], e1: &[f64; 3]) -> bool {
     for &(a, b) in &[(0usize, 1usize), (1, 2), (0, 2)] {
         let s0_2d = [s0[a], s0[b]];
         let s1_2d = [s1[a], s1[b]];
@@ -1716,37 +1637,26 @@ fn detect_seg_seg_cross_3d(
         if ((o_s0 > 0.0 && o_s1 < 0.0) || (o_s0 < 0.0 && o_s1 > 0.0))
             && ((o_e0 > 0.0 && o_e1 < 0.0) || (o_e0 < 0.0 && o_e1 > 0.0))
         {
-            return Intersect;
+            return true;
         }
 
         if o_s0 != 0.0 || o_s1 != 0.0 || o_e0 != 0.0 || o_e1 != 0.0 {
-            // Endpoint coincident with the other segment: SIMPLICIAL_COMPLEX
-            // if at an endpoint (shared endpoint), Intersect if strictly
-            // interior to the other segment.
             if o_s0 == 0.0 && point_on_segment_2d(&s0_2d, &e0_2d, &e1_2d) {
-                return if s0 == e0 || s0 == e1 { SimplicialComplex } else { Intersect };
+                return true;
             }
             if o_s1 == 0.0 && point_on_segment_2d(&s1_2d, &e0_2d, &e1_2d) {
-                return if s1 == e0 || s1 == e1 { SimplicialComplex } else { Intersect };
+                return true;
             }
             if o_e0 == 0.0 && point_on_segment_2d(&e0_2d, &s0_2d, &s1_2d) {
-                return if e0 == s0 || e0 == s1 { SimplicialComplex } else { Intersect };
+                return true;
             }
             if o_e1 == 0.0 && point_on_segment_2d(&e1_2d, &s0_2d, &s1_2d) {
-                return if e1 == s0 || e1 == s1 { SimplicialComplex } else { Intersect };
+                return true;
             }
-            return DoNotIntersect;
+            return false;
         }
     }
-
-    // All projections collinear (segments are colinear). Shared endpoint
-    // means valid simplicial complex; otherwise check for overlap which
-    // the original code reports as DoNotIntersect in this fall-through path.
-    if shared_endpoint {
-        SimplicialComplex
-    } else {
-        DoNotIntersect
-    }
+    false
 }
 
 /// Compute approximate LPI (Line-Plane Intersection) coordinates.

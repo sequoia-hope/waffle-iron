@@ -42,7 +42,7 @@
     },
     {
       "category": "boolean-normals",
-      "detail": "partial rebuild (1 error(s)): e37f2bcc-225b-4613-b693-d37261699f51: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: assertion `left == right` failed: PR10: STAGE2 orientation conflict for sorted_key=[5, 6, 9]\n  left: AntiParallel\n right: Parallel; watertight_mesh: 183 unpaired edges out of 262 total (50 boundary, 133 non-manifold); no_degenerate_triangles: 32 of 387 triangles are degenerate; outward_normals: only 0 of 13 triangles (0.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -5.381028e-14 (should be > 0); mesh_euler_characteristic: V(85) - E(262) + F(387) = 210 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): e37f2bcc-225b-4613-b693-d37261699f51: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: assertion `left == right` failed: PR10: STAGE2 orientation conflict for sorted_key=[5, 6, 9]\n  left: AntiParallel\n right: Parallel; watertight_mesh: 180 unpaired edges out of 259 total (47 boundary, 133 non-manifold); no_degenerate_triangles: 32 of 386 triangles are degenerate; outward_normals: only 0 of 13 triangles (0.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -5.403672e-14 (should be > 0); mesh_euler_characteristic: V(85) - E(259) + F(386) = 212 (expected 2)",
       "id": "R0007",
       "status": "fail"
     },
@@ -276,7 +276,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 81386d33-9388-425f-b09f-5dc1c63a818b: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 3 face_a=FaceIdx(9) face_b=FaceIdx(1) same_dir=true produced empty overlap from i_overlay (poly_a.len=3, poly_b.len=24). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.; watertight_mesh: 560 unpaired edges out of 915 total (97 boundary, 463 non-manifold); consistent_normals: 230 of 2318 triangles have reversed normals; no_degenerate_triangles: 11 of 2318 triangles are degenerate; outward_normals: only 2077 of 2307 triangles (90.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(220) - E(915) + F(2318) = 1623 (expected 2)",
+      "detail": "partial rebuild (1 error(s)): 81386d33-9388-425f-b09f-5dc1c63a818b: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 3 face_a=FaceIdx(9) face_b=FaceIdx(1) same_dir=true produced empty overlap from i_overlay (poly_a.len=3, poly_b.len=24). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.; watertight_mesh: 558 unpaired edges out of 912 total (95 boundary, 463 non-manifold); consistent_normals: 229 of 2316 triangles have reversed normals; no_degenerate_triangles: 11 of 2316 triangles are degenerate; outward_normals: only 2076 of 2305 triangles (90.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(220) - E(912) + F(2316) = 1624 (expected 2)",
       "id": "R0046",
       "status": "fail"
     },
@@ -348,7 +348,7 @@
     },
     {
       "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: PR-Y19-MODE-B: canonical directed edge (2919, 919) sourced from 4 distinct candidate-owner patches (≥4) — upstream patch segmentation violates Yang §4.4.2 1:1 mandate. Body created as standalone.; partial rebuild (1 error(s)): 14c8d47a-d667-435e-902f-c7745c307a90: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: PR-Y19-MODE-B: canonical directed edge (763, 769) sourced from 4 distinct candidate-owner patches (≥4) — upstream patch segmentation violates Yang §4.4.2 1:1 mandate; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,23), (0,25), (0,27), (0,52), (0,53), ...",
+      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: PR-Y19-MODE-B: canonical directed edge (893, 921) sourced from 4 distinct candidate-owner patches (≥4) — upstream patch segmentation violates Yang §4.4.2 1:1 mandate. Body created as standalone.; partial rebuild (1 error(s)): 14c8d47a-d667-435e-902f-c7745c307a90: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: PR-Y19-MODE-B: canonical directed edge (855, 854) sourced from 4 distinct candidate-owner patches (≥4) — upstream patch segmentation violates Yang §4.4.2 1:1 mandate; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,23), (0,25), (0,27), (0,52), (0,53), ...",
       "id": "R0058",
       "status": "fail"
     },
@@ -432,7 +432,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1119 unpaired edges out of 1910 total (234 boundary, 885 non-manifold); consistent_normals: 852 of 3304 triangles have reversed normals; no_degenerate_triangles: 75 of 3304 triangles are degenerate; outward_normals: only 2300 of 3152 triangles (73.0%) have outward normals (need 95%); no_self_intersection: 2 inter-face triangle penetrations, face pairs: (6,25), (6,25); mesh_euler_characteristic: V(255) - E(1910) + F(3304) = 1649 (expected 2)",
+      "detail": "watertight_mesh: 1119 unpaired edges out of 1910 total (234 boundary, 885 non-manifold); consistent_normals: 851 of 3304 triangles have reversed normals; no_degenerate_triangles: 75 of 3304 triangles are degenerate; outward_normals: only 2301 of 3152 triangles (73.0%) have outward normals (need 95%); no_self_intersection: 2 inter-face triangle penetrations, face pairs: (6,25), (6,25); mesh_euler_characteristic: V(255) - E(1910) + F(3304) = 1649 (expected 2)",
       "id": "R0072",
       "status": "fail"
     },
