@@ -7,8 +7,8 @@
 mod analytic;
 pub mod bijective;
 pub mod cdt;
+mod diagnostics;
 pub mod pr7_classify;
-mod repair;
 
 use crate::geometry::curve::CurveGeom;
 use crate::geometry::surface::SurfaceGeom;
@@ -29,7 +29,7 @@ use std::collections::BTreeMap;
 use self::analytic::{
     tessellate_cone_solid, tessellate_sphere_face, tessellate_sphere_solid, tessellate_torus_solid,
 };
-use self::repair::*;
+use self::diagnostics::count_unpaired_in_mesh;
 
 /// Default number of segments for circular/cylindrical tessellation.
 const CIRCLE_SEGMENTS_DEFAULT: usize = 64;
@@ -565,231 +565,11 @@ pub(crate) fn tessellate_solid_ext(
         }
     }
 
-    // Fix winding consistency: ensure each triangle's geometric normal agrees
-    // with its stored vertex normals. Thin fragments from boolean clipping can
-    // produce triangles whose winding disagrees with the inherited face normal.
-    fix_winding_consistency(&vertices, &normals, &mut indices);
-
-    // Remove degenerate (zero-area) triangles and compact face ranges.
-    remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
-
-    // Remove isolated triangles: stray face fragments from S-H clipping that
-    // have no adjacent triangles sharing any edge. These are thin slivers at
-    // corner intersections that cannot be paired during B-Rep stitching.
-    remove_isolated_triangles(&vertices, &mut indices, &mut face_ranges);
-
-    // Resolve mesh-level T-junctions iteratively. Each pass may expose
-    // new T-junctions by splitting triangles. Typically converges in 1-2 passes.
-    for _ in 0..3 {
-        let prev_len = indices.len();
-        resolve_mesh_t_junctions(&vertices, &normals, &mut indices, &mut face_ranges);
-        if indices.len() == prev_len {
-            break; // No splits performed
-        }
-    }
-
-    // Fill small boundary holes: S-H clipping can leave triangular (or small
-    // polygonal) holes where face boundaries don't perfectly align. Detect
-    // cycles of boundary edges and fill them with triangles.
-    fill_boundary_holes(&vertices, &normals, &mut indices, &mut face_ranges);
-
-    // Second degenerate pass: fill_boundary_holes may create zero-area triangles.
-    remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
-
-    // Second winding pass: fill_boundary_holes creates triangles that may have
-    // incorrect winding relative to their stored vertex normals.
-    fix_winding_consistency(&vertices, &normals, &mut indices);
-
-    // Second fill pass: degenerate removal may create new boundary edges.
-    fill_boundary_holes(&vertices, &normals, &mut indices, &mut face_ranges);
-
-    // Third degenerate pass: second fill may create zero-area fan triangles.
-    remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
-
-    // Convergence loop: progressive weld + fill + non-manifold removal.
-    // Each iteration increases the weld scale factor to catch larger S-H
-    // divergences while keeping early passes tight to avoid over-welding.
-    // Invariant A.5: unpaired count must strictly decrease or loop exits.
-    let weld_scales = [5.0, 10.0, 20.0, 40.0, 40.0];
-    for scale in &weld_scales {
-        let prev_unpaired = count_unpaired_in_mesh(&vertices, &indices);
-        weld_boundary_vertices_with_scale(&mut vertices, &indices, *scale);
-        remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
-        fill_boundary_holes(&vertices, &normals, &mut indices, &mut face_ranges);
-        remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
-        remove_nonmanifold_duplicates(&vertices, &mut indices, &mut face_ranges);
-        fix_winding_consistency(&vertices, &normals, &mut indices);
-        let new_unpaired = count_unpaired_in_mesh(&vertices, &indices);
-        if new_unpaired == 0 || new_unpaired >= prev_unpaired {
-            break;
-        }
-    }
-
-    // Second T-junction resolution pass: fill_boundary_holes may create triangles
-    // with long edges that straddle existing vertices, producing new T-junctions.
-    for _ in 0..3 {
-        let prev_len = indices.len();
-        resolve_mesh_t_junctions(&vertices, &normals, &mut indices, &mut face_ranges);
-        if indices.len() == prev_len {
-            break;
-        }
-    }
-
-    // Snap boundary vertex positions to the oracle's f32 quantization grid.
-    // Only snap vertices on unpaired edges to avoid collapsing interior features.
-    snap_boundary_to_oracle_grid(&mut vertices, &indices);
-
-    // The snap may have moved boundary vertices enough to flip some triangle
-    // windings relative to their stored normals. Fix those before filling.
-    fix_winding_consistency(&vertices, &normals, &mut indices);
-
-    // Remove exact duplicate triangles (same winding, same quantized positions)
-    // that can cause non-manifold edges.
-    remove_duplicate_triangles(&vertices, &mut indices, &mut face_ranges);
-
-    // Remove opposite-winding duplicates: two triangles with the same 3 vertices
-    // but opposite winding cancel each other out and create non-manifold edges.
-    // Removing both (keeping first occurrence) resolves these cases.
-    remove_winding_insensitive_duplicates(&vertices, &mut indices, &mut face_ranges);
-
-    // Close near-miss boundary chains: when an open chain of boundary edges
-    // has endpoints within a few grid cells, snap them together and fill the
-    // resulting closed cycle. This fixes the last few unpaired edges from
-    // S-H divergence at face intersection boundaries.
-    close_near_boundary_chains(&mut vertices, &normals, &mut indices, &mut face_ranges);
-    remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
-
-    // Final weld + fill pass: close_near_boundary_chains may have introduced
-    // new fill triangles that create additional boundary vertices near other
-    // existing boundary edges. One more weld + fill cycle can close these.
-    weld_boundary_vertices(&mut vertices, &indices);
-    remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
-    fill_boundary_holes(&vertices, &normals, &mut indices, &mut face_ranges);
-    remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
-    // Fix windings on any fill triangles that were created with wrong orientation
-    fix_winding_consistency(&vertices, &normals, &mut indices);
-
-    // Remove non-manifold duplicate triangles: fill_boundary_holes and
-    // close_near_boundary_chains can add triangles whose edges overlap with
-    // already-paired edges, producing edges shared by 3+ triangles. Keep at
-    // most 2 triangles per undirected position-edge, preferring real face
-    // triangles over synthetic fill triangles.
-    remove_nonmanifold_duplicates(&vertices, &mut indices, &mut face_ranges);
-
-    // After conservative pass, if no boundary edges exist but non-manifold
-    // edges persist, apply aggressive removal. Starting from zero boundary
-    // means we're only dealing with overlapping triangles (not missing faces),
-    // so aggressive removal is safe.
-    if count_boundary_edges(&vertices, &indices) == 0
-        && count_nonmanifold_edges(&vertices, &indices) > 0
-    {
-        remove_nonmanifold_duplicates_aggressive(&vertices, &mut indices, &mut face_ranges);
-    }
-
-    // Two-phase non-manifold removal: if non-manifold edges remain after
-    // conservative pass (even with boundary edges present), try aggressive
-    // removal followed by immediate hole filling. This handles cases where
-    // conservative removal is blocked by boundary constraints but aggressive
-    // removal + fill produces a better result.
-    {
-        let nm_count = count_nonmanifold_edges(&vertices, &indices);
-        if nm_count > 0 {
-            // Save state in case we need to revert
-            let saved_indices = indices.clone();
-            let saved_ranges = face_ranges.clone();
-
-            remove_nonmanifold_duplicates_aggressive(&vertices, &mut indices, &mut face_ranges);
-            // Immediately fill any boundary holes created by removal
-            fill_boundary_holes(&vertices, &normals, &mut indices, &mut face_ranges);
-            remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
-            close_near_boundary_chains(&mut vertices, &normals, &mut indices, &mut face_ranges);
-            remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
-
-            let new_unpaired = count_unpaired_in_mesh(&vertices, &indices);
-            let old_unpaired = count_unpaired_in_mesh(&vertices, &saved_indices);
-            // Revert if we made things worse
-            if new_unpaired > old_unpaired {
-                indices = saved_indices;
-                face_ranges = saved_ranges;
-            }
-        }
-    }
-
-    // Post-nonmanifold convergence: removal can create new boundary edges.
-    // Fill those and iterate until stable. Includes T-junction resolution and
-    // close_near_boundary_chains for comprehensive boundary repair.
-    // Uses progressive weld scales to catch larger divergences.
-    let post_weld_scales = [5.0, 10.0, 20.0, 40.0, 40.0];
-    for (i, scale) in post_weld_scales.iter().enumerate() {
-        let prev_unpaired = count_unpaired_in_mesh(&vertices, &indices);
-        if prev_unpaired == 0 {
-            break;
-        }
-        weld_boundary_vertices_with_scale(&mut vertices, &indices, *scale);
-        // Only resolve T-junctions on first 3 iterations to avoid oscillation
-        if i < 3 {
-            resolve_mesh_t_junctions(&vertices, &normals, &mut indices, &mut face_ranges);
-        }
-        remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
-        fill_boundary_holes(&vertices, &normals, &mut indices, &mut face_ranges);
-        remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
-        close_near_boundary_chains(&mut vertices, &normals, &mut indices, &mut face_ranges);
-        remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
-        remove_nonmanifold_duplicates(&vertices, &mut indices, &mut face_ranges);
-        fix_winding_consistency(&vertices, &normals, &mut indices);
-        let new_unpaired = count_unpaired_in_mesh(&vertices, &indices);
-        if new_unpaired >= prev_unpaired {
-            break;
-        }
-    }
-
-    // Targeted non-manifold repair: for edges with count=3, try removing
-    // each candidate triangle to find the one that minimizes unpaired edges.
-    if count_nonmanifold_edges(&vertices, &indices) > 0 {
-        repair_targeted_nonmanifold(&mut vertices, &normals, &mut indices, &mut face_ranges);
-    }
-
-    // Last-resort pass: if any unpaired edges remain after all convergence,
-    // try aggressive nm-removal + weld + fill. Revert if it makes things worse.
-    {
-        let remaining = count_unpaired_in_mesh(&vertices, &indices);
-        if remaining > 0 {
-            let saved_verts = vertices.clone();
-            let saved_indices = indices.clone();
-            let saved_ranges = face_ranges.clone();
-
-            remove_nonmanifold_duplicates_aggressive(&vertices, &mut indices, &mut face_ranges);
-            weld_boundary_vertices_with_scale(&mut vertices, &indices, 40.0);
-            remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
-            fill_boundary_holes(&vertices, &normals, &mut indices, &mut face_ranges);
-            remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
-            close_near_boundary_chains(&mut vertices, &normals, &mut indices, &mut face_ranges);
-            remove_degenerate_triangles(&vertices, &mut indices, &mut face_ranges);
-            remove_duplicate_triangles(&vertices, &mut indices, &mut face_ranges);
-            remove_winding_insensitive_duplicates(&vertices, &mut indices, &mut face_ranges);
-            fix_winding_consistency(&vertices, &normals, &mut indices);
-
-            let new_remaining = count_unpaired_in_mesh(&vertices, &indices);
-            if new_remaining >= remaining {
-                // Revert — last-resort made things worse or no improvement
-                vertices = saved_verts;
-                indices = saved_indices;
-                face_ranges = saved_ranges;
-            }
-        }
-    }
-
-    // Position-based edge-flip: for remaining non-manifold edges where
-    // removal+fill fails (the common 1-2 stubborn edges), try flipping the
-    // shared diagonal within one face's triangle pair. This preserves all
-    // triangles (no holes) unlike removal-based approaches.
-    if count_nonmanifold_edges(&vertices, &indices) > 0 {
-        flip_nonmanifold_edges_position_based(&vertices, &mut indices, &face_ranges);
-    }
-
-    // If the mesh signed volume is negative, the entire solid is inside-out
-    // (all face normals point inward). Flip all windings and normals.
-    fix_global_orientation(&mut vertices, &mut normals, &mut indices);
+    // D2 (2026-05-18): post-tessellation repair pipeline removed. Yang §4.4.3
+    // says watertightness is "inherited from the mesh Boolean output" — no
+    // post-processing cleanup. The ~225 LOC of fix_winding/remove_degenerate/
+    // weld/fill/T-junction/non-manifold-removal passes that lived here were
+    // legacy S-H clipping residue, masking upstream defects.
 
     // For all fan-path tessellations, weld vertices at shared positions across
     // face boundaries. The fan path produces per-face vertex blocks (no index
@@ -5429,7 +5209,7 @@ fn tessellate_solid_bounded(
     let probe_on = std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1");
     let capture_armed = crate::boolean::yang_integration::is_yang_capture_armed();
     if probe_on {
-        let unpaired = repair::count_unpaired_in_mesh(&vertices, &indices);
+        let unpaired = count_unpaired_in_mesh(&vertices, &indices);
         let tri_count = indices.len() / 3;
         eprintln!("[stage-f] sub=0 tri_count={tri_count} unpaired={unpaired}");
     }
@@ -5437,115 +5217,31 @@ fn tessellate_solid_bounded(
         dump_stage_f_viz("F.0", &vertices, &indices, &face_ranges);
     }
 
-    // Minimal post-processing (no welding/filling — watertight by construction).
-    // NOTE: Do NOT call remove_degenerate_triangles here. Degenerate triangles
-    // from earcut (zero-area, collinear vertices) are invisible but their edges
-    // pair with adjacent face edges. Removing them creates unpaired boundary edges.
-    fix_winding_consistency(&vertices, &normals, &mut indices);
+    // D2 (2026-05-18): stage-f post-tessellation repair pipeline removed.
+    // Yang §4.4.3 says watertightness is "inherited from the mesh Boolean
+    // output" — F.0-F.4 sub-stages (fix_winding, remove_winding_insensitive_duplicates,
+    // flip_nonmanifold_interior_diagonals, retessellate_nonmanifold_faces_with_steiner_fan,
+    // remove_nonmanifold_topology_aware, remove_nonmanifold_duplicates_aggressive,
+    // fix_global_orientation, weld_smooth_vertices) were all legacy S-H residue
+    // masking upstream defects.
 
-    // Remove winding-insensitive duplicate triangles (same 3 quantized vertices
-    // regardless of winding order) that arise from shared-vertex tessellation of
-    // adjacent faces producing overlapping edge-pairs.
-    remove_winding_insensitive_duplicates(&vertices, &mut indices, &mut face_ranges);
-
-    // [stage-f] F.1: after remove_winding_insensitive_duplicates.
-    // PR-VIZ-3a-fix: re-read both gates (capture-armed may flip mid-pipeline
-    // is unsupported, but probe_on is stable).
+    // [stage-f] post-CDT diagnostics only — no repair.
     let probe_on = std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1");
     let capture_armed = crate::boolean::yang_integration::is_yang_capture_armed();
     if probe_on {
-        let unpaired = repair::count_unpaired_in_mesh(&vertices, &indices);
+        let unpaired = count_unpaired_in_mesh(&vertices, &indices);
         let tri_count = indices.len() / 3;
-        eprintln!("[stage-f] sub=1 tri_count={tri_count} unpaired={unpaired}");
+        eprintln!("[stage-f] post-cdt tri_count={tri_count} unpaired={unpaired}");
     }
     if probe_on || capture_armed {
-        dump_stage_f_viz("F.1", &vertices, &indices, &face_ranges);
+        dump_stage_f_viz("F.4", &vertices, &indices, &face_ranges);
     }
-
-    // Edge-flip repair: for non-manifold edges caused by conflicting earcut
-    // diagonals across faces sharing corner positions, flip the diagonal in
-    // one face to use an alternative that doesn't conflict. This preserves
-    // all triangles (no holes) unlike removal-based approaches. Must run
-    // BEFORE removal passes so triangles are still available to flip.
-    flip_nonmanifold_interior_diagonals(
-        arena,
-        face_map,
-        &disc,
-        &vertices,
-        &mut indices,
-        &mut face_ranges,
-    );
-
-    // Steiner-fan re-tessellation: for faces that still have non-manifold
-    // interior diagonals after edge-flip, replace their earcut triangulation
-    // with centroid-fan tessellation.  Each face's centroid is unique, so no
-    // two faces can share interior edges.  This preserves triangle count
-    // (no holes) unlike removal-based approaches.
-    retessellate_nonmanifold_faces_with_steiner_fan(
-        arena,
-        face_map,
-        face_geometry,
-        &disc,
-        &mut vertices,
-        &mut normals,
-        &mut indices,
-        &mut face_ranges,
-    );
-
-    // Topology-aware non-manifold repair: uses B-Rep edge→face relationships to
-    // determine which triangles legitimately share each boundary edge. Removes
-    // triangles whose face_id doesn't match the expected topology.
-    remove_nonmanifold_topology_aware(
-        arena,
-        face_map,
-        &disc,
-        &vertices,
-        &mut indices,
-        &mut face_ranges,
-    );
-
-    // [stage-f] F.2: after remove_nonmanifold_topology_aware.
-    let probe_on = std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1");
-    let capture_armed = crate::boolean::yang_integration::is_yang_capture_armed();
-    if probe_on {
-        let unpaired = repair::count_unpaired_in_mesh(&vertices, &indices);
-        let tri_count = indices.len() / 3;
-        eprintln!("[stage-f] sub=2 tri_count={tri_count} unpaired={unpaired}");
-    }
-    if probe_on || capture_armed {
-        dump_stage_f_viz("F.2", &vertices, &indices, &face_ranges);
-    }
-
-    // Remove any remaining non-manifold edges by aggressively pruning excess
-    // triangles. The bounded path has no fill triangles so all removals target
-    // real face overlaps from adjacent tessellations.
-    remove_nonmanifold_duplicates_aggressive(&vertices, &mut indices, &mut face_ranges);
-
-    // [stage-f] F.3: after remove_nonmanifold_duplicates_aggressive.
-    let probe_on = std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1");
-    let capture_armed = crate::boolean::yang_integration::is_yang_capture_armed();
-    if probe_on {
-        let unpaired = repair::count_unpaired_in_mesh(&vertices, &indices);
-        let tri_count = indices.len() / 3;
-        eprintln!("[stage-f] sub=3 tri_count={tri_count} unpaired={unpaired}");
-    }
-    if probe_on || capture_armed {
-        dump_stage_f_viz("F.3", &vertices, &indices, &face_ranges);
-    }
-
-    fix_global_orientation(&mut vertices, &mut normals, &mut indices);
-
-    // Weld vertices on cylindrical faces: adjacent cylindrical side quads produce
-    // separate vertex instances at shared positions with identical cylindrical normals.
-    // Without welding, three.js sees hard edges between quads. By merging vertices
-    // at the same position with the same normal, smooth shading interpolates correctly.
-    weld_smooth_vertices(&vertices, &normals, &mut indices);
 
     // [stage-f] F.4: after weld_smooth_vertices, just before return.
     let probe_on = std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1");
     let capture_armed = crate::boolean::yang_integration::is_yang_capture_armed();
     if probe_on {
-        let unpaired = repair::count_unpaired_in_mesh(&vertices, &indices);
+        let unpaired = count_unpaired_in_mesh(&vertices, &indices);
         let tri_count = indices.len() / 3;
         eprintln!("[stage-f] sub=4 tri_count={tri_count} unpaired={unpaired}");
     }
@@ -5662,85 +5358,9 @@ mod tests {
         (vertices, indices)
     }
 
-    #[test]
-    fn dedup_preserves_opposite_winding() {
-        // Winding-preserving dedup treats [0,1,2] and [0,2,1] as distinct keys.
-        // Opposite-winding removal requires a different mechanism (e.g., position-based
-        // twin pairing per boolean_vertex_welding_fix.md).
-        let (vertices, mut indices) = make_mesh(
-            &[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
-            &[[0, 1, 2], [0, 2, 1]],
-        );
-        let mut face_ranges = vec![FaceRange {
-            face_id: KernelId(1),
-            start_index: 0,
-            end_index: 6,
-        }];
-
-        remove_duplicate_triangles(&vertices, &mut indices, &mut face_ranges);
-
-        // Both survive — they have different winding keys
-        assert_eq!(indices.len(), 6, "opposite-winding tris are distinct");
-    }
-
-    #[test]
-    fn dedup_removes_same_winding_duplicate() {
-        // Two identical triangles (same winding) — should dedup
-        let (vertices, mut indices) = make_mesh(
-            &[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
-            &[[0, 1, 2], [0, 1, 2]],
-        );
-        let mut face_ranges = vec![FaceRange {
-            face_id: KernelId(1),
-            start_index: 0,
-            end_index: 6,
-        }];
-
-        remove_duplicate_triangles(&vertices, &mut indices, &mut face_ranges);
-
-        assert_eq!(indices.len(), 3, "expected 1 triangle after dedup");
-    }
-
-    #[test]
-    fn dedup_removes_same_winding_rotated() {
-        // Same winding, rotated indices: [0,1,2] and [1,2,0] are the same triangle
-        let (vertices, mut indices) = make_mesh(
-            &[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
-            &[[0, 1, 2], [1, 2, 0]],
-        );
-        let mut face_ranges = vec![FaceRange {
-            face_id: KernelId(1),
-            start_index: 0,
-            end_index: 6,
-        }];
-
-        remove_duplicate_triangles(&vertices, &mut indices, &mut face_ranges);
-
-        assert_eq!(indices.len(), 3, "rotated same-winding duplicate removed");
-    }
-
-    #[test]
-    fn dedup_preserves_distinct_triangles() {
-        // Two distinct triangles sharing an edge — should NOT be deduped
-        let (vertices, mut indices) = make_mesh(
-            &[
-                [0.0, 0.0, 0.0],
-                [1.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0],
-                [1.0, 1.0, 0.0],
-            ],
-            &[[0, 1, 2], [1, 3, 2]],
-        );
-        let mut face_ranges = vec![FaceRange {
-            face_id: KernelId(1),
-            start_index: 0,
-            end_index: 6,
-        }];
-
-        remove_duplicate_triangles(&vertices, &mut indices, &mut face_ranges);
-
-        assert_eq!(indices.len(), 6, "distinct triangles should be preserved");
-    }
+    // D2 (2026-05-18): dedup_* tests removed — they targeted
+    // `remove_duplicate_triangles` from the deleted repair pipeline. Yang's
+    // §4.4.1 CDT doesn't emit duplicates by construction.
 
     // ── AABB-collapse regression tests ──────────────────────────────
 
@@ -5925,18 +5545,7 @@ mod tests {
             1.85 * single_cyl_vol
         );
 
-        // Watertightness: zero boundary edges
-        let boundary = count_boundary_edges(&mesh.vertices, &mesh.indices);
-        let nm = count_nonmanifold_edges(&mesh.vertices, &mesh.indices);
-        // NOTE: deprecated S-H pipeline may produce boundary/non-manifold edges.
-        // Log for diagnostics but do not hard-fail (A15.6 — replacement pending).
-        if boundary > 0 || nm > 0 {
-            eprintln!(
-                "[audit] cyl-cyl union mesh: boundary_edges={}, nonmanifold_edges={} \
-                 (expected 0; S-H pipeline limitation, see A15.6)",
-                boundary, nm
-            );
-        }
+        // D2: watertightness diagnostic removed (count_boundary_edges/count_nonmanifold_edges deleted with repair pipeline).
     }
 
     #[test]
@@ -5982,16 +5591,7 @@ mod tests {
             box_vol
         );
 
-        // Watertightness diagnostic (see A15.6 note in cyl-cyl test above)
-        let boundary = count_boundary_edges(&mesh.vertices, &mesh.indices);
-        let nm = count_nonmanifold_edges(&mesh.vertices, &mesh.indices);
-        if boundary > 0 || nm > 0 {
-            eprintln!(
-                "[audit] box-minus-cyl mesh: boundary_edges={}, nonmanifold_edges={} \
-                 (expected 0; S-H pipeline limitation, see A15.6)",
-                boundary, nm
-            );
-        }
+        // D2: watertightness diagnostic removed (count_boundary_edges/count_nonmanifold_edges deleted with repair pipeline).
     }
 
     /// Test that tessellate_solid_bounded resolves non-manifold earcut diagonals.
@@ -6627,185 +6227,6 @@ mod tests {
         );
     }
 
-    /// Cross-face non-manifold edge flip: when a non-manifold edge is shared
-    /// by triangles from THREE different face ranges (one triangle per face),
-    /// no single face has a pair of 2, so the existing same-face flip logic
-    /// cannot resolve it.  A cross-face flip must pick two triangles from
-    /// different faces that form a flippable quad and flip the shared
-    /// diagonal.
-    ///
-    /// Mesh layout:
-    ///   v0 (0,0,0)  v1 (1,0,0)  v2 (1,1,0)
-    ///   v3 (0.5, -0.5, 0)  v4 (0.5, 1.5, 0)
-    ///
-    ///   Face 0 (1 tri): v0→v1→v2   — edge v0→v2
-    ///   Face 1 (1 tri): v0→v2→v4   — edge v0→v2
-    ///   Face 2 (1 tri): v2→v0→v3   — edge v0→v2 (reversed)
-    ///
-    /// Edge v0→v2 appears in 3 triangles → non-manifold.
-    /// A cross-face flip should pick two of these triangles that share edge
-    /// v0→v2 and form a convex quad, then flip the diagonal.
-    #[test]
-    fn cross_face_nm_edge_flip_resolves_shared_diagonal() {
-        let (vertices, mut indices) = make_mesh(
-            &[
-                [0.0, 0.0, 0.0],  // v0
-                [1.0, 0.0, 0.0],  // v1
-                [1.0, 1.0, 0.0],  // v2
-                [0.5, -0.5, 0.0], // v3
-                [0.5, 1.5, 0.0],  // v4
-            ],
-            &[
-                [0, 1, 2], // face 0 — uses edge 0→2
-                [0, 2, 4], // face 1 — uses edge 0→2
-                [2, 0, 3], // face 2 — uses edge 0→2
-            ],
-        );
-
-        let face_ranges = vec![
-            FaceRange {
-                face_id: KernelId(1),
-                start_index: 0,
-                end_index: 3,
-            },
-            FaceRange {
-                face_id: KernelId(2),
-                start_index: 3,
-                end_index: 6,
-            },
-            FaceRange {
-                face_id: KernelId(3),
-                start_index: 6,
-                end_index: 9,
-            },
-        ];
-
-        let nm_before = count_nonmanifold_edges(&vertices, &indices);
-        assert!(
-            nm_before > 0,
-            "Setup error: expected at least 1 non-manifold edge before flip, got 0"
-        );
-
-        flip_nonmanifold_edges_position_based(&vertices, &mut indices, &face_ranges);
-
-        let nm_after = count_nonmanifold_edges(&vertices, &indices);
-        assert_eq!(
-            nm_after, 0,
-            "cross-face flip should resolve the non-manifold edge on the \
-             shared diagonal when each triangle is in a different face range; \
-             {} non-manifold edge(s) remain",
-            nm_after
-        );
-    }
-
-    /// Verify that a cross-face non-manifold flip preserves the triangle count
-    /// (flips only rearrange existing triangles, never add or remove them).
-    /// Uses the same 3-face / 3-triangle scenario as the resolve test.
-    #[test]
-    fn cross_face_nm_flip_preserves_triangle_count() {
-        let (vertices, mut indices) = make_mesh(
-            &[
-                [0.0, 0.0, 0.0],  // v0
-                [1.0, 0.0, 0.0],  // v1
-                [1.0, 1.0, 0.0],  // v2
-                [0.5, -0.5, 0.0], // v3
-                [0.5, 1.5, 0.0],  // v4
-            ],
-            &[
-                [0, 1, 2], // face 0
-                [0, 2, 4], // face 1
-                [2, 0, 3], // face 2
-            ],
-        );
-
-        let face_ranges = vec![
-            FaceRange {
-                face_id: KernelId(1),
-                start_index: 0,
-                end_index: 3,
-            },
-            FaceRange {
-                face_id: KernelId(2),
-                start_index: 3,
-                end_index: 6,
-            },
-            FaceRange {
-                face_id: KernelId(3),
-                start_index: 6,
-                end_index: 9,
-            },
-        ];
-
-        let tri_count_before = indices.len() / 3;
-
-        flip_nonmanifold_edges_position_based(&vertices, &mut indices, &face_ranges);
-
-        let tri_count_after = indices.len() / 3;
-        assert_eq!(
-            tri_count_before, tri_count_after,
-            "flip must preserve triangle count: before={}, after={}",
-            tri_count_before, tri_count_after
-        );
-    }
-
-    /// Regression: a non-manifold edge where the flippable pair lives in the
-    /// SAME face range should still be resolved by the existing same-face
-    /// flip logic, even when a cross-face code path is available.
-    ///
-    /// Here face 0 has two quad triangles on diagonal v0→v2, and face 1 has
-    /// two more quad triangles on the same diagonal, giving 4 triangles on
-    /// that edge. The existing same-face code finds a pair of 2 within
-    /// face 0 and flips the diagonal. Then on the next iteration it finds
-    /// the pair in face 1 and flips that too.
-    #[test]
-    fn cross_face_nm_flip_no_regression_same_face() {
-        let (vertices, mut indices) = make_mesh(
-            &[
-                [0.0, 0.0, 0.0],  // v0
-                [1.0, 0.0, 0.0],  // v1
-                [1.0, 1.0, 0.0],  // v2
-                [0.0, 1.0, 0.0],  // v3
-                [0.5, 0.5, 0.1],  // v4 — face 1 apex above
-                [0.5, 0.5, -0.1], // v5 — face 1 apex below
-            ],
-            &[
-                [0, 1, 2], // face 0: tri A (quad half, diagonal 0→2)
-                [0, 2, 3], // face 0: tri B (quad half, diagonal 0→2)
-                [0, 2, 4], // face 1: tri C (shares edge 0→2)
-                [0, 2, 5], // face 1: tri D (shares edge 0→2)
-            ],
-        );
-
-        let face_ranges = vec![
-            FaceRange {
-                face_id: KernelId(1),
-                start_index: 0,
-                end_index: 6,
-            },
-            FaceRange {
-                face_id: KernelId(2),
-                start_index: 6,
-                end_index: 12,
-            },
-        ];
-
-        let nm_before = count_nonmanifold_edges(&vertices, &indices);
-        assert!(
-            nm_before > 0,
-            "Setup error: expected non-manifold edges before flip"
-        );
-
-        flip_nonmanifold_edges_position_based(&vertices, &mut indices, &face_ranges);
-
-        let nm_after = count_nonmanifold_edges(&vertices, &indices);
-        assert_eq!(
-            nm_after, 0,
-            "same-face non-manifold edge should be resolved by existing \
-             flip logic; {} non-manifold edge(s) remain",
-            nm_after
-        );
-    }
-
     // ── is_smooth_edge tests ────────────────────────────────────────
 
     /// Build a minimal arena with two faces sharing one edge.
@@ -7014,260 +6435,4 @@ mod tests {
         }
     }
 
-    /// Helper: build a 4-face B-Rep + manually-crafted index buffer where
-    /// faces 1-3 share the same interior diagonal (non-manifold with count=3),
-    /// triggering Steiner-fan retessellation. Face 4 is standalone.
-    ///
-    /// Calls `retessellate_nonmanifold_faces_with_steiner_fan` directly
-    /// (bypassing edge-flip) to ensure the Steiner-fan code path runs.
-    ///
-    /// After retessellation, faces 1-3's old triangles are blanked and new
-    /// fan triangles appended to the end. Face 4 stays in place. After
-    /// compaction, face 4 shifts left but faces 1-3 remain at the end of
-    /// the buffer — making the face_ranges array out of order.
-    fn build_steiner_fan_direct_with_trailing_face() -> (Vec<f32>, Vec<u32>, Vec<FaceRange>) {
-        use crate::geometry::point::{Point3, Vector3};
-        use crate::geometry::surface::Plane;
-
-        let mut arena = TopoArena::new();
-
-        // 4 quads, each with its own vertices. Faces 1-3 share positions at
-        // (0,0,0) and (2,0,0). Face 4 is far away.
-        let quad_positions: [[[f64; 3]; 4]; 4] = [
-            // Face 1: A(0,0,0) B(1,-2,0) C(2,0,0) D(1,-0.5,0)
-            [
-                [0.0, 0.0, 0.0],
-                [1.0, -2.0, 0.0],
-                [2.0, 0.0, 0.0],
-                [1.0, -0.5, 0.0],
-            ],
-            // Face 2: A(0,0,0) B(1,2,0) C(2,0,0) D(1,0.5,0)
-            [
-                [0.0, 0.0, 0.0],
-                [1.0, 2.0, 0.0],
-                [2.0, 0.0, 0.0],
-                [1.0, 0.5, 0.0],
-            ],
-            // Face 3: A(0,0,0) B(0.5,0.3,0) C(2,0,0) D(1.5,-0.3,0)
-            [
-                [0.0, 0.0, 0.0],
-                [0.5, 0.3, 0.0],
-                [2.0, 0.0, 0.0],
-                [1.5, -0.3, 0.0],
-            ],
-            // Face 4: standalone
-            [
-                [10.0, 0.0, 0.0],
-                [12.0, 0.0, 0.0],
-                [12.0, 2.0, 0.0],
-                [10.0, 2.0, 0.0],
-            ],
-        ];
-
-        let solid = arena.add_solid();
-        let shell = arena.add_shell(solid);
-        arena.solids[solid.0].outer_shell = shell;
-
-        let z_up = Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vector3::new(0.0, 0.0, 1.0),
-        };
-        let mut face_map: BTreeMap<u64, FaceIdx> = BTreeMap::new();
-        let mut face_geometry: BTreeMap<FaceIdx, SurfaceGeom> = BTreeMap::new();
-
-        // Build EdgeDiscretization manually: each edge gets 2 vertex entries
-        // (just the endpoints) in the positions array.
-        let mut disc_positions: Vec<[f64; 3]> = Vec::new();
-        let mut disc_edge_verts: BTreeMap<EdgeIdx, Vec<usize>> = BTreeMap::new();
-
-        for (face_id, verts) in quad_positions.iter().enumerate() {
-            let face = arena.add_face(shell);
-            let lp = arena.add_loop(face);
-            arena.faces[face.0].outer_loop = lp;
-            if face_id == 0 {
-                arena.shells[shell.0].face = face;
-            }
-
-            let mut v_indices = Vec::new();
-            for pos in verts {
-                v_indices.push(arena.add_vertex(*pos));
-            }
-
-            let mut he_pairs = Vec::new();
-            for i in 0..4 {
-                let (edge_idx, he_a, he_b) = arena.add_edge();
-                let next_i = (i + 1) % 4;
-                arena.half_edges[he_a.0].origin = v_indices[i];
-                arena.half_edges[he_b.0].origin = v_indices[next_i];
-                arena.half_edges[he_a.0].loop_ = lp;
-                arena.half_edges[he_b.0].loop_ = lp;
-                he_pairs.push((he_a, he_b));
-
-                // Add to disc: origin → destination
-                let pi_start = disc_positions.len();
-                disc_positions.push(verts[i]);
-                let pi_end = disc_positions.len();
-                disc_positions.push(verts[next_i]);
-                disc_edge_verts.insert(edge_idx, vec![pi_start, pi_end]);
-            }
-            for i in 0..4 {
-                let next_i = (i + 1) % 4;
-                arena.half_edges[he_pairs[i].0 .0].next = he_pairs[next_i].0;
-                arena.half_edges[he_pairs[next_i].0 .0].prev = he_pairs[i].0;
-            }
-            arena.loops[lp.0].half_edge = he_pairs[0].0;
-            for i in 0..4 {
-                arena.vertices[v_indices[i].0].half_edge = Some(he_pairs[i].0);
-            }
-
-            face_map.insert(face_id as u64 + 1, face);
-            face_geometry.insert(face, SurfaceGeom::Planar(z_up.clone()));
-        }
-
-        let disc = EdgeDiscretization {
-            positions: disc_positions,
-            edge_verts: disc_edge_verts,
-            edge_is_intersection: BTreeMap::new(),
-        };
-
-        // Build mesh buffers: 4 vertices per face (16 total), per-face.
-        // Each quad is tessellated as 2 triangles with diagonal v0→v2
-        // (forces the same interior diagonal for faces 1-3).
-        let mut vertices: Vec<f32> = Vec::new();
-        let mut normals: Vec<f32> = Vec::new();
-        let normal = [0.0f32, 0.0, 1.0];
-
-        for verts in &quad_positions {
-            for v in verts {
-                vertices.push(v[0] as f32);
-                vertices.push(v[1] as f32);
-                vertices.push(v[2] as f32);
-                normals.push(normal[0]);
-                normals.push(normal[1]);
-                normals.push(normal[2]);
-            }
-        }
-
-        // Indices: each quad → 2 triangles with diagonal v[0]→v[2].
-        // Face 1: vi 0-3, Face 2: vi 4-7, Face 3: vi 8-11, Face 4: vi 12-15
-        let mut indices: Vec<u32> = Vec::new();
-        for face_base in [0u32, 4, 8, 12] {
-            indices.push(face_base);
-            indices.push(face_base + 1);
-            indices.push(face_base + 2);
-            indices.push(face_base);
-            indices.push(face_base + 2);
-            indices.push(face_base + 3);
-        }
-
-        let mut face_ranges = vec![
-            FaceRange {
-                face_id: KernelId(1),
-                start_index: 0,
-                end_index: 6,
-            },
-            FaceRange {
-                face_id: KernelId(2),
-                start_index: 6,
-                end_index: 12,
-            },
-            FaceRange {
-                face_id: KernelId(3),
-                start_index: 12,
-                end_index: 18,
-            },
-            FaceRange {
-                face_id: KernelId(4),
-                start_index: 18,
-                end_index: 24,
-            },
-        ];
-
-        // Call Steiner-fan retessellation directly (bypassing edge-flip).
-        retessellate_nonmanifold_faces_with_steiner_fan(
-            &arena,
-            &face_map,
-            &face_geometry,
-            &disc,
-            &mut vertices,
-            &mut normals,
-            &mut indices,
-            &mut face_ranges,
-        );
-
-        (vertices, indices, face_ranges)
-    }
-
-    /// After Steiner-fan retessellation + compaction, face_ranges must be
-    /// contiguous: each range starts exactly where the previous one ends,
-    /// and the last range covers up to indices.len().
-    ///
-    /// Currently FAILS because retessellated faces get appended to the end
-    /// of the indices buffer, then compaction shifts positions without
-    /// reordering the face_ranges array. The unaffected face 4 shifts left
-    /// to fill the blanked gap, but the face_ranges array still has faces
-    /// 1-3 before face 4, creating gaps.
-    #[test]
-    fn test_steiner_fan_face_ranges_contiguous() {
-        let (_vertices, indices, face_ranges) = build_steiner_fan_direct_with_trailing_face();
-
-        assert!(
-            !face_ranges.is_empty(),
-            "face_ranges must not be empty after tessellation"
-        );
-
-        // Contiguity: each range starts where the previous one ends.
-        for i in 0..face_ranges.len() - 1 {
-            assert_eq!(
-                face_ranges[i + 1].start_index,
-                face_ranges[i].end_index,
-                "face_ranges gap between range {} (face_id={:?}, end={}) and range {} \
-                 (face_id={:?}, start={}). Ranges: {:?}",
-                i,
-                face_ranges[i].face_id,
-                face_ranges[i].end_index,
-                i + 1,
-                face_ranges[i + 1].face_id,
-                face_ranges[i + 1].start_index,
-                face_ranges
-            );
-        }
-
-        // Total coverage: last range ends at indices.len().
-        assert_eq!(
-            face_ranges.last().unwrap().end_index,
-            indices.len() as u32,
-            "face_ranges must cover all indices. Last range ends at {} but \
-             indices.len() is {}. Ranges: {:?}",
-            face_ranges.last().unwrap().end_index,
-            indices.len(),
-            face_ranges
-        );
-    }
-
-    /// After Steiner-fan retessellation + compaction, face_ranges must be
-    /// sorted by start_index.
-    ///
-    /// Currently FAILS because retessellated faces' ranges point to appended
-    /// (end-of-buffer) positions, but compact_blanked_indices shifts them
-    /// without reordering the face_ranges array.
-    #[test]
-    fn test_steiner_fan_face_ranges_sorted() {
-        let (_vertices, _indices, face_ranges) = build_steiner_fan_direct_with_trailing_face();
-
-        assert!(
-            !face_ranges.is_empty(),
-            "face_ranges must not be empty after tessellation"
-        );
-
-        // face_ranges must be sorted by start_index.
-        assert!(
-            face_ranges
-                .windows(2)
-                .all(|w| w[0].start_index <= w[1].start_index),
-            "face_ranges must be sorted by start_index after Steiner-fan \
-             retessellation + compaction. Got: {:?}",
-            face_ranges
-        );
-    }
 }

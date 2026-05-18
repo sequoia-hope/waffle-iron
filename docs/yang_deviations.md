@@ -75,21 +75,43 @@ Three parallel Explore agents audited Yang §4.1 through §4.5 against the code.
 
 ### Fundamental — replace wholesale
 
-#### D2 — Extra post-tessellation repair pipeline (legacy S-H residue)
+#### D2 — Extra post-tessellation repair pipeline (legacy S-H residue) — REMOVED
 
-**Status:** OPEN. NOT signed off.
+**Status:** REMOVED 2026-05-18. Replaced with Yang-compliant "no post-processing" path. Some new structural-deviation work surfaced; tracked below.
 
-**Code location:** `crates/kernel/src/tessellation/repair.rs` (entire module, ~925 LOC); called from `crates/kernel/src/tessellation/mod.rs` lines ~650-770 in a multi-pass loop.
+**Original code location:** `crates/kernel/src/tessellation/repair.rs` (entire module, ~4075 LOC; including extensive probe scaffolding from PR-Y40/Y45). Called from `crates/kernel/src/tessellation/mod.rs` lines ~568-792 (main `tessellate_solid_ext` cleanup loop) and ~5220-5322 (`tessellate_solid_bounded` stage-f F.0-F.4 sub-passes).
 
 **Paper section:** Yang §4.4.3 (`yang2025:599-605`).
 
 **Paper requirement:** "The watertightness of our result is **inherited from the mesh Boolean output**, ensuring the mesh has no geometric gaps." Yang asserts watertight-by-construction with no post-processing.
 
-**Current implementation:** Hundreds of LOC of post-tessellation repair passes: `remove_winding_insensitive_duplicates`, `remove_nonmanifold_topology_aware`, `remove_nonmanifold_duplicates_aggressive`, progressive `weld_boundary_vertices_with_scale`, `fill_boundary_holes`, `close_near_boundary_chains`, `resolve_mesh_t_junctions`, multi-pass convergence loops. The module's own comment (line ~12) labels these "deprecated S-H clipping repair pipeline" that "mask classification errors."
+**Removal (2026-05-18):** Deleted `repair.rs` entirely. Removed `mod repair;` and `use self::repair::*;` from `tessellation/mod.rs`. Stripped all in-pipeline call sites at the two locations above. Deleted 3 test clusters (~270 LOC of tests targeting the deleted functions: `dedup_*`, `cross_face_nm_*`, `test_steiner_fan_*`). Extracted `count_unpaired_in_mesh` into a new `tessellation/diagnostics.rs` (~55 LOC) since it's pure measurement, not repair. The `weld_shared_edge_vertices` + `compact_unreferenced_vertices` helpers in `mod.rs` remain (fan-path-specific, separate deviation — see D5).
 
-**Deviation magnitude:** Fundamental. This entire layer doesn't exist in Yang.
+**Empirical impact (honest numbers, no repair masking):**
 
-**Notes:** These passes mask defects from upstream stages. With Yang done correctly, they should be unnecessary. Removing them will likely surface real upstream defects that the repair currently hides.
+| Gate | Before D2 | After D2 | Delta |
+|---|---|---|---|
+| F0020 unpaired | 35 | **54** | +19 (was masked) |
+| F0020 degenerate tris | 2 | 24 | +22 (was being removed) |
+| F0020 non-manifold edges | 2 | 14 | +12 (was masked) |
+| F0020 triangle count | 124 | 154 | +30 (no dedup/welding now) |
+| kernel lib | 1268/24/42 | 1249/34/42 | -19 pass / +10 fail (9 tests removed; 10 newly exposed failures) |
+| yang_fast | 13/157 | 13/157 | unchanged |
+| pr_y31_f0044_extras_zero | GREEN | GREEN | unchanged |
+
+The yang_fast pass rate didn't drop — confirming the repair pipeline was never closing corpus cases, just dressing F0020's diagnostic numbers.
+
+**Significance:** F0020's "35 unpaired" figure that the prior 17 PR cycles chased was partly a repair-pipeline artifact. The real defect count is 54. The other 19 were closed by post-hoc welding/filling/T-junction-splitting that Yang doesn't have. Future work is against the honest 54 baseline.
+
+**Banked findings exposed by D2 removal (each a candidate for its own deviation entry if substantive):**
+- 24 degenerate triangles (zero-area or near-zero) survive in F0020 output. Upstream is producing these; Yang's algorithm should not.
+- 14 non-manifold edges (count ≠ 2). Yang's bijective mesh-boolean output should be 2-manifold.
+- 5 reversed normals. Yang's bijective mapping preserves orientation.
+- 30 extra triangles vs the prior dedup'd output. Some are duplicates from upstream; some are genuine missing-then-now-emitted.
+
+These are real upstream defects the repair was hiding. Investigating them is the natural next step — and now it's possible because we're not measuring against a masked baseline.
+
+**Sign-off:** *resolved* per the directive that D2 must be removed.
 
 #### D3 — §4.5.4 illegal-intersection detection/removal absent
 
