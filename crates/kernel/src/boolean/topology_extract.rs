@@ -870,6 +870,47 @@ pub(crate) fn flood_fill_patches(
             );
         }
 
+        // Y50 deep-probe: for each contested edge, dump every triangle that
+        // produces (v0, v1) forward — including vertex positions, source-face,
+        // and parent_tri index. Anchors the upstream flip-orientation
+        // investigation (PR-Y19-MODE-B Mode A residual).
+        if std::env::var("Y50_TRI_PROBE").is_ok() {
+            let v0_pos = subdivided.verts.get(v0).copied().unwrap_or([0.0, 0.0, 0.0]);
+            let v1_pos = subdivided.verts.get(v1).copied().unwrap_or([0.0, 0.0, 0.0]);
+            eprintln!(
+                "[y50-tri] edge=({},{}) p0=({:.4},{:.4},{:.4}) p1=({:.4},{:.4},{:.4})",
+                v0, v1, v0_pos[0], v0_pos[1], v0_pos[2], v1_pos[0], v1_pos[1], v1_pos[2]
+            );
+            for &ti in tri_idxs {
+                let sub = &all_tris[ti];
+                let pi = tri_to_patch[ti];
+                eprintln!(
+                    "[y50-tri]   FWD ti={} patch=p{}({:?}:{}) verts={:?} parent_tri={}",
+                    ti,
+                    pi,
+                    sub.source.mesh_id,
+                    sub.source.face_idx.0,
+                    sub.verts,
+                    sub.parent_tri
+                );
+            }
+            if let Some(rev_tri_idxs) = directed_edge_to_tris.get(&(v1, v0)) {
+                for &ti in rev_tri_idxs {
+                    let sub = &all_tris[ti];
+                    let pi = tri_to_patch[ti];
+                    eprintln!(
+                        "[y50-tri]   REV ti={} patch=p{}({:?}:{}) verts={:?} parent_tri={}",
+                        ti,
+                        pi,
+                        sub.source.mesh_id,
+                        sub.source.face_idx.0,
+                        sub.verts,
+                        sub.parent_tri
+                    );
+                }
+            }
+        }
+
 
         if candidates.len() >= 4 {
             // Per spec §8: ≥4 distinct candidate-owner patches signals
