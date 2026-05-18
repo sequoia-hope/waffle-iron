@@ -909,15 +909,34 @@ pub(crate) fn flood_fill_patches(
         for outs in adj.values_mut() {
             outs.sort_unstable_by_key(|&(t, _)| t);
         }
+        // In-degree under remaining adj: how many edges currently TARGET each
+        // vertex. Maintained alongside adj so we can pick true chain heads
+        // (out_deg > in_deg) as starts for open chains instead of fragmenting
+        // them. For closed loops every vertex has out_deg == in_deg and we
+        // fall back to the smallest vertex with remaining outgoing edges.
+        let mut in_deg: BTreeMap<usize, usize> = BTreeMap::new();
+        for outs in adj.values() {
+            for &(t, _) in outs {
+                *in_deg.entry(t).or_insert(0) += 1;
+            }
+        }
 
         let mut loops: Vec<Vec<(usize, usize, bool)>> = Vec::new();
         loop {
-            // Deterministic start picker: smallest canonical vertex
-            // with remaining outgoing edges (PR13 §8 task 4).
-            let start = adj
+            // Prefer chain heads (out_deg > in_deg) so connected open paths
+            // grow to their full extent instead of fragmenting into singletons.
+            // Fall back to smallest vertex with remaining outgoing edges for
+            // closed loops, preserving PR13 §8 task 4 determinism.
+            let head = adj
                 .iter()
-                .find(|(_, outs)| !outs.is_empty())
+                .filter(|(_, outs)| !outs.is_empty())
+                .find(|(v, outs)| outs.len() > in_deg.get(v).copied().unwrap_or(0))
                 .map(|(&k, _)| k);
+            let start = head.or_else(|| {
+                adj.iter()
+                    .find(|(_, outs)| !outs.is_empty())
+                    .map(|(&k, _)| k)
+            });
             let start = match start {
                 Some(s) => s,
                 None => break,
@@ -950,6 +969,9 @@ pub(crate) fn flood_fill_patches(
                     Some(v) if !v.is_empty() => v.remove(0),
                     _ => break,
                 };
+                if let Some(d) = in_deg.get_mut(&next) {
+                    *d = d.saturating_sub(1);
+                }
                 chain.push((current, next, is_int));
                 if next == start {
                     break;

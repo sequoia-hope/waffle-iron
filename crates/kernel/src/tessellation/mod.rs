@@ -4998,6 +4998,106 @@ fn y47t2_dump_flagged_locations(arena: &TopoArena, _disc: &EdgeDiscretization) {
     }
 }
 
+/// Walk every arena face's outer + inner loops, collect the 3D positions of
+/// each origin vertex, count distinct positions (under a coarse quantization),
+/// and flag faces whose entire boundary collapses to one 3D point — these are
+/// zero-area faces that the deleted repair pipeline used to mask. Env-gated
+/// by `Y48_FACE_DUMP=1`; default-off byte-identical.
+fn y48_dump_face_boundaries(arena: &TopoArena, face_map: &BTreeMap<u64, FaceIdx>) {
+    let mut idx_to_kid: BTreeMap<FaceIdx, u64> = BTreeMap::new();
+    for (&kid, &fi) in face_map.iter() {
+        idx_to_kid.insert(fi, kid);
+    }
+
+    let walk = |start_he: HalfEdgeIdx| -> Vec<(VertexIdx, [f64; 3])> {
+        let mut out = Vec::new();
+        let mut he = start_he;
+        let mut steps: usize = 0;
+        loop {
+            let v = arena.half_edges[he.0].origin;
+            let p = arena.vertices[v.0].position;
+            out.push((v, p));
+            he = arena.half_edges[he.0].next;
+            steps += 1;
+            if he == start_he {
+                break;
+            }
+            if steps > 1_000_000 {
+                break;
+            }
+        }
+        out
+    };
+
+    let qkey = |p: [f64; 3]| -> (i64, i64, i64) {
+        let s = 1.0e9_f64;
+        (
+            (p[0] * s).round() as i64,
+            (p[1] * s).round() as i64,
+            (p[2] * s).round() as i64,
+        )
+    };
+
+    let mut total_zero_area = 0usize;
+    eprintln!(
+        "[y48-face-dump] arena_faces={} face_map_size={}",
+        arena.faces.len(),
+        face_map.len()
+    );
+    for (fi, face) in arena.faces.iter().enumerate() {
+        let kid = idx_to_kid
+            .get(&FaceIdx(fi))
+            .map(|k| k.to_string())
+            .unwrap_or_else(|| "?".to_string());
+
+        let outer = walk(arena.loops[face.outer_loop.0].half_edge);
+        let mut all_verts: Vec<(VertexIdx, [f64; 3])> = outer.clone();
+        for &il in &face.inner_loops {
+            let inner = walk(arena.loops[il.0].half_edge);
+            all_verts.extend(inner);
+        }
+
+        let distinct_v: std::collections::BTreeSet<VertexIdx> =
+            all_verts.iter().map(|(v, _)| *v).collect();
+        let distinct_pos: std::collections::BTreeSet<(i64, i64, i64)> =
+            all_verts.iter().map(|(_, p)| qkey(*p)).collect();
+        let zero_area = distinct_pos.len() <= 1 && !all_verts.is_empty();
+        if zero_area {
+            total_zero_area += 1;
+        }
+
+        let flag = if zero_area { " ZERO_AREA" } else { "" };
+        let first_pos = all_verts
+            .first()
+            .map(|(_, p)| format!("({:.6}, {:.6}, {:.6})", p[0], p[1], p[2]))
+            .unwrap_or_else(|| "(empty)".to_string());
+        eprintln!(
+            "[y48-face-dump]   face_idx={} kid={} outer_loop_he={} outer_len={} inner_loops={} distinct_vidx={} distinct_pos={} first={}{}",
+            fi,
+            kid,
+            arena.loops[face.outer_loop.0].half_edge.0,
+            outer.len(),
+            face.inner_loops.len(),
+            distinct_v.len(),
+            distinct_pos.len(),
+            first_pos,
+            flag
+        );
+        if zero_area {
+            for (i, (v, p)) in all_verts.iter().enumerate() {
+                eprintln!(
+                    "[y48-face-dump]     v[{}]={} pos=({:.6}, {:.6}, {:.6})",
+                    i, v.0, p[0], p[1], p[2]
+                );
+            }
+        }
+    }
+    eprintln!(
+        "[y48-face-dump] zero_area_faces_total={}",
+        total_zero_area
+    );
+}
+
 fn tessellate_solid_bounded(
     arena: &TopoArena,
     face_map: &BTreeMap<u64, FaceIdx>,
@@ -5010,6 +5110,14 @@ fn tessellate_solid_bounded(
     // arena edges actually live (which half-edges reference them, which loops, which faces).
     if std::env::var("Y47T2_FLAGGED_LOCATIONS").is_ok() {
         y47t2_dump_flagged_locations(arena, &disc);
+    }
+
+    // Zero-area face probe — dump per-arena-face outer/inner loop vertex
+    // positions, flag faces whose entire boundary collapses to one 3D point.
+    // Anchors the "where are face_ids 246/250/261 born" investigation into
+    // B-Rep assembly. Env-gated; default-off byte-identical.
+    if std::env::var("Y48_FACE_DUMP").is_ok() {
+        y48_dump_face_boundaries(arena, face_map);
     }
 
     let mut vertices: Vec<f32> = Vec::new();
