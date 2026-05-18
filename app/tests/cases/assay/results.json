@@ -720,7 +720,7 @@
     },
     {
       "category": "boolean-watertight",
-      "detail": "watertight_mesh: 47 unpaired edges out of 234 total (35 boundary, 12 non-manifold); consistent_normals: 4 of 175 triangles have reversed normals; no_degenerate_triangles: 30 of 175 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (3,16), (3,16), (3,22), (3,22), ...; mesh_euler_characteristic: V(87) - E(234) + F(175) = 28 (expected 2)",
+      "detail": "watertight_mesh: 65 unpaired edges out of 241 total (49 boundary, 16 non-manifold); consistent_normals: 5 of 179 triangles have reversed normals; no_degenerate_triangles: 33 of 179 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (3,16), (3,16), (3,22), (3,22), ...; mesh_euler_characteristic: V(88) - E(241) + F(179) = 26 (expected 2)",
       "id": "F0020",
       "status": "fail"
     },

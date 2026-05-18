@@ -808,6 +808,10 @@ pub(crate) fn flood_fill_patches(
     // collision=1` to `paired=48, unpaired=0, ambiguous=0, collision=3` —
     // partial progress. Boolean #2 still has unpaired residual.
     let mut edge_owner: BTreeMap<(usize, usize), usize> = BTreeMap::new();
+    let y49_probe = std::env::var("Y49_R3_CONTEST_DUMP").is_ok();
+    let mut y49_total_contested = 0usize;
+    let mut y49_pure_nmm = 0usize;
+    let mut y49_with_rev = 0usize;
     for (&(v0, v1), tri_idxs) in directed_edge_to_tris.iter() {
         // Patches containing a forward-winding tri.
         let fwd_patches: BTreeSet<usize> = tri_idxs.iter().map(|&ti| tri_to_patch[ti]).collect();
@@ -831,6 +835,41 @@ pub(crate) fn flood_fill_patches(
             // ownership assignment — the per-patch loop will emit normally.
             continue;
         }
+
+        if y49_probe {
+            y49_total_contested += 1;
+            if rev_patches.is_empty() {
+                y49_pure_nmm += 1;
+            } else {
+                y49_with_rev += 1;
+            }
+            let cand_srcs: Vec<String> = candidates
+                .iter()
+                .map(|&pi| {
+                    format!(
+                        "p{}({:?}:{})",
+                        pi,
+                        patches[pi].source.mesh_id,
+                        patches[pi].source.face_idx.0
+                    )
+                })
+                .collect();
+            eprintln!(
+                "[y49-r3] edge=({},{}) fwd_patches={} rev_patches={} candidates=[{}] CAND_LEN={}{}",
+                v0,
+                v1,
+                fwd_patches.len(),
+                rev_patches.len(),
+                cand_srcs.join(","),
+                candidates.len(),
+                if rev_patches.is_empty() {
+                    " PURE_NMM"
+                } else {
+                    " HAS_REV"
+                }
+            );
+        }
+
 
         if candidates.len() >= 4 {
             // Per spec §8: ≥4 distinct candidate-owner patches signals
@@ -861,6 +900,12 @@ pub(crate) fn flood_fill_patches(
         });
         let owner = owner_candidates[0];
         edge_owner.insert((v0, v1), owner);
+    }
+    if y49_probe {
+        eprintln!(
+            "[y49-r3] SUMMARY contested_total={} pure_nmm={} has_rev={}",
+            y49_total_contested, y49_pure_nmm, y49_with_rev
+        );
     }
 
     for (pi, patch) in patches.iter().enumerate() {
