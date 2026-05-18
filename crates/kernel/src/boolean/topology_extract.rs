@@ -458,6 +458,8 @@ pub(crate) fn flood_fill_patches(
     }
 
     let mut all_tris: Vec<FlatSubTri> = Vec::new();
+    let y53_probe = std::env::var("Y53_CANON_COALESCE").is_ok();
+    let mut y53_records: Vec<(SourceFace, [usize; 3], [usize; 3], bool, usize)> = Vec::new();
     for (sf, tris) in &survival.groups {
         for tri in tris {
             let raw = if tri.flipped {
@@ -466,6 +468,9 @@ pub(crate) fn flood_fill_patches(
                 tri.verts
             };
             let cv = [canon_v(raw[0]), canon_v(raw[1]), canon_v(raw[2])];
+            if y53_probe {
+                y53_records.push((*sf, raw, cv, tri.flipped, tri.parent_tri));
+            }
             // PR-Y22 M2 (DEGEN): skip canon-induced degenerate sub-tris.
             // Quantization-induced degenerate sub-tri: two upstream-distinct
             // vertices collapsed to the same canonical index by canon_v's
@@ -489,6 +494,61 @@ pub(crate) fn flood_fill_patches(
                 parent_tri: tri.parent_tri,
             });
         }
+    }
+
+    // Y53 probe: detect canon_v coalescence by finding sub-tris whose POST-canon
+    // verts collide but whose PRE-canon raw verts differ. This isolates whether
+    // F0020 PURE_NMM "duplicates" are a Cherchi-Rust output defect OR a downstream
+    // canonical-vertex coalescence in `flood_fill_patches`.
+    if y53_probe {
+        let mut by_canon: std::collections::BTreeMap<[usize; 3], Vec<usize>> =
+            std::collections::BTreeMap::new();
+        for (i, (_, _, cv, _, _)) in y53_records.iter().enumerate() {
+            let mut sorted = *cv;
+            sorted.sort();
+            by_canon.entry(sorted).or_default().push(i);
+        }
+        let mut coalesce_groups = 0usize;
+        let mut true_dup_groups = 0usize;
+        for (sorted_canon, members) in &by_canon {
+            if members.len() > 1 {
+                // Check: do raw verts differ?
+                let mut raw_set: std::collections::BTreeSet<[usize; 3]> =
+                    std::collections::BTreeSet::new();
+                for &m in members {
+                    let mut raw_sorted = y53_records[m].1;
+                    raw_sorted.sort();
+                    raw_set.insert(raw_sorted);
+                }
+                let is_coalesce = raw_set.len() > 1;
+                if is_coalesce {
+                    coalesce_groups += 1;
+                } else {
+                    true_dup_groups += 1;
+                }
+                eprintln!(
+                    "[y53-canon-coalesce] canon(sorted)={:?} n_members={} raw_distinct={} kind={}",
+                    sorted_canon,
+                    members.len(),
+                    raw_set.len(),
+                    if is_coalesce { "COALESCE" } else { "TRUE_DUP" }
+                );
+                for &m in members {
+                    let (sf, raw, _, flipped, ptri) = &y53_records[m];
+                    eprintln!(
+                        "[y53-canon-coalesce]   src={:?}:{} raw={:?} flipped={} parent_tri={}",
+                        sf.mesh_id, sf.face_idx.0, raw, flipped, ptri
+                    );
+                }
+            }
+        }
+        eprintln!(
+            "[y53-canon-coalesce] SUMMARY all_tris={} unique_canon_sorted={} coalesce_groups={} true_dup_groups={}",
+            all_tris.len(),
+            by_canon.len(),
+            coalesce_groups,
+            true_dup_groups
+        );
     }
 
     // ── Step 3: Build directed edge adjacency (multi-value) ──

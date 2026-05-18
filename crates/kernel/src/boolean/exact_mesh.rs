@@ -2416,10 +2416,119 @@ fn subdivide_mesh_pair_full_cherchi(
         in_labels.push(2); // mesh B — label bit 1
     }
 
+    // Y54 input-side probe: count A-mesh directed-edge collisions BEFORE
+    // Cherchi runs. Distinguishes whether the Case B defect originates in
+    // the input tessellation vs the Cherchi-Rust port output.
+    if std::env::var("Y54_INPUT_COLLIDE").is_ok() {
+        let mut a_fwd: std::collections::BTreeMap<(usize, usize), usize> =
+            std::collections::BTreeMap::new();
+        for tri in tris_a {
+            for ei in 0..3 {
+                let v0 = tri[ei];
+                let v1 = tri[(ei + 1) % 3];
+                *a_fwd.entry((v0, v1)).or_insert(0) += 1;
+            }
+        }
+        let collisions = a_fwd.values().filter(|&&c| c > 1).count();
+        eprintln!(
+            "[y54-input] tris_a={} unique_directed_edges={} A_collisions={}",
+            tris_a.len(),
+            a_fwd.len(),
+            collisions
+        );
+    }
+
     // 2. Call Cherchi pipeline
     let result =
         crate::boolean::cherchi::solve_intersections(&in_coords, &in_tris, &in_labels, d_epsilon)
             .map_err(|e| crate::types::KernelError::BooleanFailed { reason: e })?;
+
+    // Y52 probe: duplicate-detection on the raw Cherchi output. For each
+    // unique (sorted) vertex triple in `result.tris`, count occurrences AND
+    // group by parent_tri to identify whether Cherchi-Rust emits duplicate
+    // sub-triangles attributed to different parents (the F0020 Case A
+    // upstream defect identified by PR commit 2d9347a Y50/Y51 probes).
+    if std::env::var("Y52_CHERCHI_DUP").is_ok() {
+        let mut by_sorted_verts: std::collections::BTreeMap<[usize; 3], Vec<(usize, usize, u32)>> =
+            std::collections::BTreeMap::new();
+        for (i, tri) in result.tris.iter().enumerate() {
+            let mut sorted = *tri;
+            sorted.sort();
+            let parent = result.parent_tris[i];
+            let label = result.labels[i];
+            by_sorted_verts
+                .entry(sorted)
+                .or_default()
+                .push((i, parent, label));
+        }
+        let mut dup_groups = 0usize;
+        let mut dup_emissions = 0usize;
+        for (sorted_verts, entries) in &by_sorted_verts {
+            if entries.len() > 1 {
+                dup_groups += 1;
+                dup_emissions += entries.len();
+                eprintln!(
+                    "[y52-cherchi-dup] verts(sorted)={:?} count={} entries:",
+                    sorted_verts,
+                    entries.len()
+                );
+                for &(i, p, l) in entries {
+                    eprintln!(
+                        "[y52-cherchi-dup]   tris[{}]={:?} parent={} label={:b}",
+                        i, result.tris[i], p, l
+                    );
+                }
+            }
+        }
+        eprintln!(
+            "[y52-cherchi-dup] SUMMARY total_tris={} unique_sorted_verts={} dup_groups={} dup_emissions={}",
+            result.tris.len(),
+            by_sorted_verts.len(),
+            dup_groups,
+            dup_emissions
+        );
+
+        // Case B detection: directed edges emitted forward by multiple
+        // tris from MESH A (label & 1 != 0). If A's tessellation is
+        // 2-manifold pre-Cherchi, no two A-tris should share a forward
+        // directed edge. Counts how many directed edges have ≥2 A-tris
+        // emitting them forward.
+        let mut a_fwd: std::collections::BTreeMap<(usize, usize), Vec<(usize, usize)>> =
+            std::collections::BTreeMap::new();
+        let mut b_fwd: std::collections::BTreeMap<(usize, usize), Vec<(usize, usize)>> =
+            std::collections::BTreeMap::new();
+        for (i, tri) in result.tris.iter().enumerate() {
+            let label = result.labels[i];
+            let parent = result.parent_tris[i];
+            for ei in 0..3 {
+                let v0 = tri[ei];
+                let v1 = tri[(ei + 1) % 3];
+                if label & 1 != 0 {
+                    a_fwd.entry((v0, v1)).or_default().push((i, parent));
+                }
+                if label & 2 != 0 {
+                    b_fwd.entry((v0, v1)).or_default().push((i, parent));
+                }
+            }
+        }
+        let a_collisions = a_fwd.values().filter(|v| v.len() > 1).count();
+        let b_collisions = b_fwd.values().filter(|v| v.len() > 1).count();
+        eprintln!(
+            "[y52-cherchi-dup] A_directed_edge_collisions={} B_directed_edge_collisions={}",
+            a_collisions, b_collisions
+        );
+        // Print first few A collisions with parent_tri info
+        for ((v0, v1), entries) in a_fwd.iter().filter(|(_, v)| v.len() > 1).take(8) {
+            let parents: Vec<usize> = entries.iter().map(|(_, p)| *p).collect();
+            eprintln!(
+                "[y52-cherchi-dup] A-fwd ({},{}) emitted by {} tris (parent_tris={:?})",
+                v0,
+                v1,
+                entries.len(),
+                parents
+            );
+        }
+    }
 
     // 3. Split output by label into tris_a and tris_b, tracking parent_tri
     //
