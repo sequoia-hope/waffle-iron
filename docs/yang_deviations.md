@@ -143,19 +143,21 @@ These are real upstream defects the repair was hiding. Investigating them is the
 
 **Deviation magnitude:** Structural.
 
-#### D5 — §4.4.1 r_A = r_B = r identification not explicit at CDT construction
+#### D5 — §4.4.1 r_A = r_B = r identification — PARTIALLY ADDRESSED via plane-intrinsic origin
 
-**Status:** OPEN. UNCERTAIN — needs deeper trace.
+**Status:** PARTIALLY RESOLVED 2026-05-18. The 3D-vertex side of `r_A = r_B` is already enforced by the shared `disc.positions` pool. The 2D-projection side (which is what CDT actually sees) now uses a plane-intrinsic origin so coplanar adjacent faces produce byte-identical 2D coords for the same 3D point.
 
-**Code location:** `crates/kernel/src/tessellation/mod.rs:3377-3407`, `cdt.rs:39-80`.
+**Code location:** `crates/kernel/src/tessellation/mod.rs::tessellate_planar_face_bounded` — now takes a `plane_origin: [f64; 3]` parameter, used everywhere the prior code used `ordered_verts[0]`.
 
 **Paper section:** Yang §4.4.1 (`yang2025:548-556`).
 
-**Paper requirement:** Before CDT, explicitly identify every intersection point's representation on mesh A and mesh B by setting `r_A = r_B = r` so both meshes share byte-identical vertex values along the intersection curve.
+**What was the deviation:** 3D vertex identity was preserved (shared `disc.positions` pool) but the 2D coordinate that CDT received depended on `ordered_verts[0]` — i.e., the FIRST boundary vertex of the face. Two adjacent coplanar faces have different `ordered_verts[0]`, so the same 3D point projected to different 2D coordinates on each side. Deterministic CDT given different inputs is not equivalent to deterministic CDT given the same inputs.
 
-**Current implementation:** Shared vertices come implicitly from the shared `disc.positions` pool. No explicit "set r_A = r_B" step. May be functionally equivalent if the pool guarantees identity, but the paper's explicit step is absent.
+**Fix (2026-05-18):** Pass the plane's intrinsic origin (`plane.origin` from `SurfaceGeom::Planar`) as the 2D origin. Two coplanar faces share `plane.origin` → identical 2D coordinates for shared 3D points.
 
-**Deviation magnitude:** Structural. Possibly cosmetic if functionally equivalent.
+**Remaining gap:** the fallback path (when surface geometry is unknown) still uses a vertex-derived origin. This is a sub-deviation but the fallback is only hit for faces without surface info, which Yang assumes don't exist.
+
+**Sign-off:** *partially resolved.* Full closure when D14 (NURBS/Bézier support) lands, since each parametric surface will have a canonical origin.
 
 #### D6 — §4.4.1 Fig 11 split/merge/insert procedures unclear
 
@@ -202,19 +204,21 @@ These are real upstream defects the repair was hiding. Investigating them is the
 
 **Deviation magnitude:** Structural; semantic equivalence uncertain.
 
-#### D9 — §4.1.2 per-surface u-v CDT for adjacency handling
+#### D9 — §4.1.2 per-surface u-v CDT for adjacency handling — PARTIALLY ADDRESSED
 
-**Status:** OPEN. NOT signed off.
+**Status:** PARTIALLY RESOLVED 2026-05-18. For planar surfaces, the CDT now operates in the surface's intrinsic 2D frame (plane.origin as origin, plane.normal as basis source). This is the §4.1.2 "in its own u-v domain" requirement for planar patches.
 
-**Code location:** `crates/kernel/src/tessellation/mod.rs` — no §4.1.2 path.
+**Code location:** `crates/kernel/src/tessellation/mod.rs::tessellate_planar_face_bounded`.
 
 **Paper section:** Yang §4.1.2 (`yang2025:397-410`).
 
-**Paper requirement:** Discretize each surface patch independently in its own u-v domain; **re-sample boundary curves**; **apply CDT in each surface's parametric domain** to reconstruct triangulation around the boundaries. This is a per-surface CDT during the discretization step (separate from §4.4.1 CDT during mesh updating).
+**Original deviation:** "compute the 2D basis from boundary vertex order" — vertex-dependent, drifts across adjacent faces.
 
-**Current implementation:** Per-surface discretization done via edge-first `discretize_edges` then per-face dispatch (analytic surfaces use surface-specific tessellation; planar uses Newell-derived 2D basis + CDT). No explicit per-surface u-v CDT for boundary re-sampling at discretization time. The §4.4.1 CDT is the only CDT in the pipeline.
+**Fix (2026-05-18):** The 2D basis (`u_axis`, `v_axis`) was already derived from `plane.normal` via `compute_plane_basis()`. The 2D origin (changed today) now comes from `plane.origin`. Both are intrinsic to the surface. Adjacent coplanar faces share the entire 2D frame.
 
-**Deviation magnitude:** Structural. Yang's §4.1.2 step is folded into our §4.4.1-style path.
+**Remaining gap:** Yang §4.1.2 also describes the discretization step (sample u-v rectangle then re-sample boundary curves) as a separate phase from the post-boolean §4.4.1 CDT. We collapse both into a single per-face CDT call. For analytic surfaces other than planes (cylinder, sphere, cone, torus), tessellation is geometry-specific and does NOT use CDT in the surface's parametric (u,v). Closing this requires either (a) running CDT in (θ, z) for cylinders, (u, v) for sphere etc., or (b) accepting per-surface tessellation as adequate when it doesn't share boundaries with other curved surfaces.
+
+**Sign-off:** *partially resolved* for planar surfaces. Curved-surface side remains for future work bundled with D14 (full NURBS handling).
 
 #### D10 — Tessellation density not fully `d_ε`-driven
 

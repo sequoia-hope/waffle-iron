@@ -3113,10 +3113,17 @@ pub(crate) fn collect_loop_boundary(
 }
 
 /// Tessellate a planar face using shared boundary vertices.
+///
+/// `plane_origin` is the surface-intrinsic 2D origin for the CDT projection
+/// (typically `plane.origin` from `SurfaceGeom::Planar`). Using the plane's
+/// own origin instead of a vertex-derived one ensures coplanar adjacent
+/// faces produce byte-identical 2D coordinates for shared 3D points — the
+/// cross-face consistency property Yang §4.1.2 / §4.4.1 rely on.
 fn tessellate_planar_face_bounded(
     boundary: &[usize],
     positions: &[[f64; 3]],
     normal: [f32; 3],
+    plane_origin: [f64; 3],
     out_verts: &mut Vec<f32>,
     out_normals: &mut Vec<f32>,
     out_indices: &mut Vec<u32>,
@@ -3265,11 +3272,15 @@ fn tessellate_planar_face_bounded(
         } else {
             // CDT triangulation per Yang 2025 §4.4.1 (deviation D1 remediation).
             // Constraint edges = every consecutive segment of the outer boundary.
+            // D5/D9 (2026-05-18): 2D origin is the plane's intrinsic origin
+            // (`plane_origin`), not `ordered_verts[0]`. Two adjacent coplanar
+            // faces share `plane.origin`, so the same 3D point projects to
+            // byte-identical 2D coordinates in both faces' CDT inputs.
             let (u_axis, v_axis) = compute_plane_basis(stored_normal);
             let points_2d: Vec<(f64, f64)> = ordered_verts
                 .iter()
                 .map(|v| {
-                    let d = v3_sub(*v, ordered_verts[0]);
+                    let d = v3_sub(*v, plane_origin);
                     (v3_dot(d, u_axis), v3_dot(d, v_axis))
                 })
                 .collect();
@@ -3297,7 +3308,8 @@ fn tessellate_planar_face_bounded(
             }
         }
     } else {
-        // Face with holes: CDT per Yang 2025 §4.4.1 (deviation D1 remediation).
+        // Face with holes: CDT per Yang 2025 §4.4.1.
+        // D5/D9 (2026-05-18): 2D origin is plane-intrinsic (`plane_origin`).
         let (u_axis, v_axis) = compute_plane_basis(stored_normal);
         let mut points_2d: Vec<(f64, f64)> = Vec::new();
         let mut loops: Vec<Vec<usize>> = Vec::new();
@@ -3305,7 +3317,7 @@ fn tessellate_planar_face_bounded(
         // Outer ring
         let outer_start = points_2d.len();
         for v in &ordered_verts {
-            let d = v3_sub(*v, ordered_verts[0]);
+            let d = v3_sub(*v, plane_origin);
             points_2d.push((v3_dot(d, u_axis), v3_dot(d, v_axis)));
         }
         loops.push((outer_start..points_2d.len()).collect());
@@ -3321,7 +3333,7 @@ fn tessellate_planar_face_bounded(
                 out_normals.push(normal[0]);
                 out_normals.push(normal[1]);
                 out_normals.push(normal[2]);
-                let d = v3_sub(*v, ordered_verts[0]);
+                let d = v3_sub(*v, plane_origin);
                 points_2d.push((v3_dot(d, u_axis), v3_dot(d, v_axis)));
             }
             loops.push((hole_start..points_2d.len()).collect());
@@ -3806,10 +3818,17 @@ fn tessellate_cylindrical_face_bounded(
             (normal_sign * axis[1]) as f32,
             (normal_sign * axis[2]) as f32,
         ];
+        // No known plane; use first boundary vertex as 2D origin fallback.
+        let fallback_origin = if !boundary.is_empty() {
+            disc.positions[boundary[0]]
+        } else {
+            [0.0; 3]
+        };
         tessellate_planar_face_bounded(
             &boundary,
             &disc.positions,
             approx_normal,
+            fallback_origin,
             out_verts,
             out_normals,
             out_indices,
@@ -5089,6 +5108,7 @@ fn tessellate_solid_bounded(
                     plane.normal.y as f32,
                     plane.normal.z as f32,
                 ];
+                let plane_origin = [plane.origin.x, plane.origin.y, plane.origin.z];
                 let outer_boundary =
                     collect_loop_boundary(arena, arena.faces[face_idx.0].outer_loop, &disc);
 
@@ -5110,6 +5130,7 @@ fn tessellate_solid_bounded(
                     &outer_boundary,
                     &disc.positions,
                     normal,
+                    plane_origin,
                     &mut vertices,
                     &mut normals,
                     &mut indices,
@@ -5143,10 +5164,17 @@ fn tessellate_solid_bounded(
                     } else {
                         [0.0, 0.0, 1.0]
                     };
+                    // No known plane in fallback path; use first boundary vertex as 2D origin.
+                    let fallback_origin = if !boundary.is_empty() {
+                        disc.positions[boundary[0]]
+                    } else {
+                        [0.0; 3]
+                    };
                     tessellate_planar_face_bounded(
                         &boundary,
                         &disc.positions,
                         normal_f32,
+                        fallback_origin,
                         &mut vertices,
                         &mut normals,
                         &mut indices,
@@ -6394,6 +6422,7 @@ mod tests {
             &boundary,
             &positions,
             normal,
+            [0.0, 0.0, 0.0], // plane origin (z=0 plane)
             &mut verts,
             &mut normals,
             &mut indices,
