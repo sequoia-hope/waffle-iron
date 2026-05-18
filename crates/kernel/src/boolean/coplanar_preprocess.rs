@@ -83,6 +83,17 @@ pub(crate) fn detect_coplanar_face_pairs(
     // Collect planar faces from each solid: (FaceIdx, normal, offset).
     let planes_a = extract_planar_faces(solid_a);
     let planes_b = extract_planar_faces(solid_b);
+    let y51_probe = std::env::var("Y51_COPLANAR_PROBE").is_ok();
+
+    if y51_probe {
+        eprintln!(
+            "[y51-coplanar-detect] planar_a={}/{} planar_b={}/{} (validated/total)",
+            planes_a.len(),
+            solid_a.face_geometry.len(),
+            planes_b.len(),
+            solid_b.face_geometry.len()
+        );
+    }
 
     #[cfg(test)]
     eprintln!(
@@ -125,6 +136,9 @@ pub(crate) fn detect_coplanar_face_pairs(
         }
     }
 
+    if y51_probe {
+        eprintln!("[y51-coplanar-detect] pairs_found={}", pairs.len());
+    }
     pairs
 }
 
