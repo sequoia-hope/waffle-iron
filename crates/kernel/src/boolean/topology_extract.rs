@@ -1384,6 +1384,16 @@ pub(crate) fn flood_fill_patches(
     let mut ambiguous_count: usize = 0;
     let mut paired_count: usize = 0;
 
+    // Y57 canary (Tier B Phase 1, plan `snappy-humming-hejlsberg.md`):
+    // empirically measure whether twin-pairing's [the_one] branch ever
+    // creates a same-direction pair (Tier A memo's Defect-1 hypothesis).
+    // By code-reading the iteration is opposite-by-construction, so we
+    // expect SAME_DIR_PAIRS == 0; the canary produces the empirical
+    // anchor for the decision gate. Default-off byte-identical.
+    let y57_probe = std::env::var("Y57_SAME_DIR_PAIR").is_ok();
+    let mut y57_opposite_pairs: usize = 0;
+    let mut y57_same_dir_pairs: usize = 0;
+
     for &(lo, hi) in &undirected_edges {
         let empty = Vec::new();
         let fwd_hes = directed_he.get(&(lo, hi)).unwrap_or(&empty);
@@ -1417,6 +1427,40 @@ pub(crate) fn flood_fill_patches(
             match candidates.as_slice() {
                 [the_one] => {
                     let he_rev = *the_one;
+
+                    // Y57: classify direction of this pairing. he_fwd
+                    // was iterated from `directed_he[(lo, hi)]` so it
+                    // walks (lo → hi). he_rev is from `candidates ⊆
+                    // rev_hes = directed_he[(hi, lo)]` so it walks
+                    // (hi → lo). Same-direction would mean he_rev
+                    // appears in directed_he[(lo, hi)] (which it
+                    // shouldn't by construction). Verify empirically.
+                    if y57_probe {
+                        let fwd_he_walks_lo_hi = directed_he
+                            .get(&(lo, hi))
+                            .map(|v| v.contains(&he_fwd))
+                            .unwrap_or(false);
+                        let rev_he_walks_hi_lo = directed_he
+                            .get(&(hi, lo))
+                            .map(|v| v.contains(&he_rev))
+                            .unwrap_or(false);
+                        if fwd_he_walks_lo_hi && rev_he_walks_hi_lo {
+                            y57_opposite_pairs += 1;
+                        } else {
+                            y57_same_dir_pairs += 1;
+                            eprintln!(
+                                "[y57-same-dir] pair_index={} (lo,hi)=({:?},{:?}) he_fwd={} he_rev={} fwd_walks_lo_hi={} rev_walks_hi_lo={}",
+                                paired_count,
+                                lo,
+                                hi,
+                                he_fwd.0,
+                                he_rev.0,
+                                fwd_he_walks_lo_hi,
+                                rev_he_walks_hi_lo,
+                            );
+                        }
+                    }
+
                     let edge_idx = EdgeIdx(arena.edges.len());
                     arena.edges.push(Edge { half_edge: he_fwd });
                     arena.half_edges[he_fwd.0].edge = edge_idx;
@@ -1551,6 +1595,13 @@ pub(crate) fn flood_fill_patches(
         eprintln!(
             "[topo-extract] summary: paired={}, unpaired={}, ambiguous={}",
             paired_count, unpaired_count, ambiguous_count
+        );
+    }
+
+    if y57_probe {
+        eprintln!(
+            "[y57-summary] paired_count={} Y57_OPPOSITE_PAIRS={} Y57_SAME_DIR_PAIRS={}",
+            paired_count, y57_opposite_pairs, y57_same_dir_pairs
         );
     }
 
