@@ -2420,22 +2420,29 @@ fn subdivide_mesh_pair_full_cherchi(
     // Cherchi runs. Distinguishes whether the Case B defect originates in
     // the input tessellation vs the Cherchi-Rust port output.
     if std::env::var("Y54_INPUT_COLLIDE").is_ok() {
-        let mut a_fwd: std::collections::BTreeMap<(usize, usize), usize> =
+        let mut a_fwd: std::collections::BTreeMap<(usize, usize), Vec<usize>> =
             std::collections::BTreeMap::new();
-        for tri in tris_a {
+        for (ti, tri) in tris_a.iter().enumerate() {
             for ei in 0..3 {
                 let v0 = tri[ei];
                 let v1 = tri[(ei + 1) % 3];
-                *a_fwd.entry((v0, v1)).or_insert(0) += 1;
+                a_fwd.entry((v0, v1)).or_default().push(ti);
             }
         }
-        let collisions = a_fwd.values().filter(|&&c| c > 1).count();
+        let collisions = a_fwd.values().filter(|v| v.len() > 1).count();
         eprintln!(
             "[y54-input] tris_a={} unique_directed_edges={} A_collisions={}",
             tris_a.len(),
             a_fwd.len(),
             collisions
         );
+        // Per-collision pair dump for Y55 cross-reference
+        for ((v0, v1), tris) in a_fwd.iter().filter(|(_, v)| v.len() > 1) {
+            eprintln!(
+                "[y54-input] COLLIDE edge=({},{}) tri_indices={:?}",
+                v0, v1, tris
+            );
+        }
     }
 
     // 2. Call Cherchi pipeline

@@ -3050,9 +3050,22 @@ pub(crate) fn collect_loop_boundary(
     let mut boundary = Vec::new();
     let mut he = start_he;
 
+    // Y55 probe: record per-walked-HE provenance for the phantom-closing /
+    // NMM / manifold-paired attribution. Each entry: (he_idx, edge_idx,
+    // boundary_start_len, phantom_skipped, is_nmm). Phantom-skipped fires
+    // when disc.edge_verts lookup returns None — that gap becomes a
+    // CDT-synthesized closing edge in tessellate_planar_face_bounded.
+    let y55_on = std::env::var("Y55_TESSELLATE_PROBE").is_ok();
+    let mut y55_walks: Vec<(usize, usize, usize, bool, bool)> = Vec::new();
+
     loop {
         let edge_idx = arena.half_edges[he.0].edge;
         let edge = &arena.edges[edge_idx.0];
+        let phantom_skipped = disc.edge_verts.get(&edge_idx).is_none();
+        let is_nmm = arena.half_edges[he.0].twin.is_none();
+        if y55_on {
+            y55_walks.push((he.0, edge_idx.0, boundary.len(), phantom_skipped, is_nmm));
+        }
 
         if let Some(verts) = disc.edge_verts.get(&edge_idx) {
             // Determine direction: if this half-edge is the "primary" one
@@ -3107,6 +3120,28 @@ pub(crate) fn collect_loop_boundary(
         if he == start_he {
             break;
         }
+    }
+
+    if y55_on && !y55_walks.is_empty() {
+        // Emit one summary line per loop with per-HE provenance. Format:
+        //   [y55-loop] loop=L boundary_len=N walks=[(he, edge, pos, phantom, nmm), ...]
+        let summary: Vec<String> = y55_walks
+            .iter()
+            .map(|(he_id, e_id, pos, ph, nmm)| {
+                let flag = match (ph, nmm) {
+                    (true, _) => "PHANTOM",
+                    (false, true) => "NMM",
+                    (false, false) => "MFD",
+                };
+                format!("(he={},e={},pos={},{})", he_id, e_id, pos, flag)
+            })
+            .collect();
+        eprintln!(
+            "[y55-loop] loop={} boundary_len={} walks=[{}]",
+            loop_idx.0,
+            boundary.len(),
+            summary.join(",")
+        );
     }
 
     boundary
@@ -5300,6 +5335,20 @@ fn tessellate_solid_bounded(
                 start_index,
                 end_index,
             });
+        }
+
+        // Y55: per-face context binding. The [y55-loop] dumps emitted from
+        // collect_loop_boundary are keyed by loop_idx; this binds (kid,
+        // face_idx, outer_loop_idx, tri index range) so the cross-reference
+        // test can trace any tri back to its face's loop walks.
+        if pushed && std::env::var("Y55_TESSELLATE_PROBE").is_ok() {
+            let outer_loop_idx = arena.faces[face_idx.0].outer_loop;
+            let tri_start = (start_index / 3) as usize;
+            let tri_end = (end_index / 3) as usize;
+            eprintln!(
+                "[y55-face] kid={} face_idx={} outer_loop={} tri_range={}..{}",
+                kid, face_idx.0, outer_loop_idx.0, tri_start, tri_end
+            );
         }
 
         // PR-Y41: any records pushed during this face's dispatch get
