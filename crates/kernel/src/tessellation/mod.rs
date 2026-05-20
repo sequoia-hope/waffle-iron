@@ -3109,7 +3109,16 @@ pub(crate) fn collect_loop_boundary(
                 } else if is_primary {
                     boundary.extend_from_slice(&verts[..verts.len() - 1]);
                 } else {
-                    for &v in verts.iter().rev().skip(1) {
+                    // Y58 fix: push secondary HE's origin (verts[n-1]) and
+                    // intermediates (verts[n-2..1]) in reverse traversal
+                    // order, NOT the destination (verts[0]). The destination
+                    // will be pushed as the next HE's origin. Previous code
+                    // `iter().rev().skip(1)` skipped origin AND included
+                    // destination — off-by-one in the opposite direction,
+                    // causing duplicate-destination + missing-origin on
+                    // secondary HE walks. Yang §4.1.1 bijectivity requires
+                    // reciprocal directed edges between adjacent faces.
+                    for &v in verts[1..].iter().rev() {
                         boundary.push(v);
                     }
                 }
@@ -6551,6 +6560,197 @@ mod tests {
         assert!(
             !is_smooth_edge(&arena, edge_idx, &face_geometry),
             "Perpendicular planes should NOT be smooth"
+        );
+    }
+
+    /// Y58 Phase 3 RED-phase regression test: bijection on a multi-vert
+    /// shared edge between two triangle faces.
+    ///
+    /// Two triangle faces A=(P0,P1,P2) and B=(P1,P0,P3) share edge (P0,P1).
+    /// The shared edge is discretized with one intermediate vertex
+    /// `mid`, giving verts=[P0, mid, P1] in HE_primary's natural order.
+    ///
+    /// Yang §4.1.1 bijectivity requires: face A's boundary contains the
+    /// directed edges (P0→mid) and (mid→P1) at the shared edge; face B
+    /// (which walks the shared edge via HE_secondary) must contain the
+    /// byte-identical reverses (P1→mid) and (mid→P0).
+    ///
+    /// Current code at `collect_loop_boundary`'s multi-vert linear
+    /// secondary branch (`verts.iter().rev().skip(1)`) pushes
+    /// `[mid, P0]` — skipping the secondary HE's ORIGIN (P1) and
+    /// including its DESTINATION (P0). Face B's boundary ends up as
+    /// `[mid, P0, P0, P3]` with duplicate P0 and missing P1, breaking
+    /// the reciprocal-edge invariant.
+    ///
+    /// This test is RED before the fix at line 3097-3102 and GREEN after.
+    #[test]
+    fn collect_loop_boundary_multi_vert_secondary_reciprocates() {
+        use crate::topology::half_edge::*;
+        use std::collections::BTreeMap;
+
+        let mut arena = TopoArena::default();
+
+        // Five positions: P0, P1, P2, P3, mid (in order)
+        let positions: Vec<[f64; 3]> = vec![
+            [0.0, 0.0, 0.0], // 0 = P0
+            [2.0, 0.0, 0.0], // 1 = P1
+            [1.0, 1.0, 0.0], // 2 = P2 (face A apex)
+            [1.0, -1.0, 0.0], // 3 = P3 (face B apex)
+            [1.0, 0.0, 0.0], // 4 = mid (intermediate on shared edge P0–P1)
+        ];
+
+        for (i, _pos) in positions.iter().enumerate() {
+            arena.vertices.push(Vertex {
+                position: positions[i],
+                half_edge: None,
+            });
+        }
+
+        // One shell containing both faces
+        arena.shells.push(Shell {
+            face: FaceIdx(0),
+            solid: SolidIdx(0),
+        });
+
+        // Two faces (placeholders; outer_loop set below)
+        let face_a = FaceIdx(arena.faces.len());
+        arena.faces.push(Face {
+            outer_loop: LoopIdx(0),
+            inner_loops: vec![],
+            shell: ShellIdx(0),
+        });
+        let face_b = FaceIdx(arena.faces.len());
+        arena.faces.push(Face {
+            outer_loop: LoopIdx(1),
+            inner_loops: vec![],
+            shell: ShellIdx(0),
+        });
+
+        // Two loops
+        arena.loops.push(Loop {
+            half_edge: HalfEdgeIdx(0),
+            face: face_a,
+        });
+        arena.loops.push(Loop {
+            half_edge: HalfEdgeIdx(3),
+            face: face_b,
+        });
+
+        // Half-edges for face A's loop: HE_a_shared(P0→P1), HE_a1(P1→P2), HE_a2(P2→P0)
+        // Half-edges for face B's loop: HE_b_shared(P1→P0), HE_b1(P0→P3), HE_b2(P3→P1)
+        // HE indices: 0=HE_a_shared, 1=HE_a1, 2=HE_a2, 3=HE_b_shared, 4=HE_b1, 5=HE_b2
+        arena.half_edges.push(HalfEdge {
+            origin: VertexIdx(0), // P0
+            edge: EdgeIdx(0),     // shared
+            loop_: LoopIdx(0),
+            next: HalfEdgeIdx(1),
+            prev: HalfEdgeIdx(2),
+            twin: Some(HalfEdgeIdx(3)),
+        });
+        arena.half_edges.push(HalfEdge {
+            origin: VertexIdx(1), // P1
+            edge: EdgeIdx(1),     // e_a1
+            loop_: LoopIdx(0),
+            next: HalfEdgeIdx(2),
+            prev: HalfEdgeIdx(0),
+            twin: None,
+        });
+        arena.half_edges.push(HalfEdge {
+            origin: VertexIdx(2), // P2
+            edge: EdgeIdx(2),     // e_a2
+            loop_: LoopIdx(0),
+            next: HalfEdgeIdx(0),
+            prev: HalfEdgeIdx(1),
+            twin: None,
+        });
+        arena.half_edges.push(HalfEdge {
+            origin: VertexIdx(1), // P1 (origin of HE_secondary on shared edge)
+            edge: EdgeIdx(0),
+            loop_: LoopIdx(1),
+            next: HalfEdgeIdx(4),
+            prev: HalfEdgeIdx(5),
+            twin: Some(HalfEdgeIdx(0)),
+        });
+        arena.half_edges.push(HalfEdge {
+            origin: VertexIdx(0), // P0 (dest of HE_b_shared = origin of HE_b1)
+            edge: EdgeIdx(3),
+            loop_: LoopIdx(1),
+            next: HalfEdgeIdx(5),
+            prev: HalfEdgeIdx(3),
+            twin: None,
+        });
+        arena.half_edges.push(HalfEdge {
+            origin: VertexIdx(3), // P3
+            edge: EdgeIdx(4),
+            loop_: LoopIdx(1),
+            next: HalfEdgeIdx(3),
+            prev: HalfEdgeIdx(4),
+            twin: None,
+        });
+
+        // Edges (primary HE = the one in face A's loop for the shared edge)
+        arena.edges.push(Edge { half_edge: HalfEdgeIdx(0) }); // shared
+        arena.edges.push(Edge { half_edge: HalfEdgeIdx(1) }); // e_a1
+        arena.edges.push(Edge { half_edge: HalfEdgeIdx(2) }); // e_a2
+        arena.edges.push(Edge { half_edge: HalfEdgeIdx(4) }); // e_b1
+        arena.edges.push(Edge { half_edge: HalfEdgeIdx(5) }); // e_b2
+
+        // EdgeDiscretization: shared edge has 3 verts [P0(0), mid(4), P1(1)]
+        let mut edge_verts: BTreeMap<EdgeIdx, Vec<usize>> = BTreeMap::new();
+        edge_verts.insert(EdgeIdx(0), vec![0, 4, 1]); // P0, mid, P1
+        edge_verts.insert(EdgeIdx(1), vec![1, 2]);
+        edge_verts.insert(EdgeIdx(2), vec![2, 0]);
+        edge_verts.insert(EdgeIdx(3), vec![0, 3]);
+        edge_verts.insert(EdgeIdx(4), vec![3, 1]);
+
+        let disc = EdgeDiscretization {
+            positions: positions.clone(),
+            edge_verts,
+            edge_is_intersection: BTreeMap::new(),
+        };
+
+        let boundary_a = collect_loop_boundary(&arena, LoopIdx(0), &disc);
+        let boundary_b = collect_loop_boundary(&arena, LoopIdx(1), &disc);
+
+        // Face A's loop walks HE_a_shared (primary, P0→mid→P1), HE_a1 (P1→P2),
+        // HE_a2 (P2→P0). collect_loop_boundary pushes origin + intermediates
+        // for each HE: HE_a_shared pushes [0, 4] (P0, mid); HE_a1 pushes [1]
+        // (P1); HE_a2 pushes [2] (P2). Total: [0, 4, 1, 2].
+        assert_eq!(
+            boundary_a,
+            vec![0, 4, 1, 2],
+            "Face A boundary should be [P0=0, mid=4, P1=1, P2=2]"
+        );
+
+        // Face B's loop walks HE_b_shared (secondary, P1→mid→P0), HE_b1
+        // (P0→P3), HE_b2 (P3→P1). HE_b_shared should push [1, 4]
+        // (its origin P1=1 + intermediate mid=4, NOT its destination P0=0).
+        // HE_b1 pushes [0] (its origin P0). HE_b2 pushes [3] (its origin P3).
+        // Total: [1, 4, 0, 3].
+        assert_eq!(
+            boundary_b,
+            vec![1, 4, 0, 3],
+            "Face B boundary should be [P1=1, mid=4, P0=0, P3=3] (Y58 fix). \
+             Buggy current code pushes [4, 0, 0, 3] — missing origin (P1), \
+             includes destination (P0), causing duplicate P0 from next HE."
+        );
+
+        // Bijectivity check: directed edges on the shared edge must reciprocate.
+        // Face A on shared: (0→4) and (4→1). Face B on shared: (1→4) and
+        // (4→0). These are byte-identical reverses of each other.
+        let a_shared_0_to_1 = (boundary_a[0], boundary_a[1]); // (0, 4)
+        let a_shared_1_to_2 = (boundary_a[1], boundary_a[2]); // (4, 1)
+        let b_shared_0_to_1 = (boundary_b[0], boundary_b[1]); // (1, 4)
+        let b_shared_1_to_2 = (boundary_b[1], boundary_b[2]); // (4, 0)
+        assert_eq!(
+            (a_shared_0_to_1.1, a_shared_0_to_1.0),
+            b_shared_1_to_2,
+            "Face A (P0→mid) must reciprocate face B (mid→P0)"
+        );
+        assert_eq!(
+            (a_shared_1_to_2.1, a_shared_1_to_2.0),
+            b_shared_0_to_1,
+            "Face A (mid→P1) must reciprocate face B (P1→mid)"
         );
     }
 

@@ -153,6 +153,35 @@ The Y59 finding plus code reading produces a candidate fix shape. Per FIP §8 bu
 3. **GREEN phase**: unit test passes.
 4. **Integration verification**: `spotlight_f0020_oracles` should show fewer (or zero) Stage 1 non-bijective pairs. If still non-zero, surface the residual and re-plan.
 
+## Phase 3 outcome — multi-vert fix shipped; F0020 UNCHANGED
+
+Executed Phase 3 TDD cycle:
+
+1. **RED**: added `collect_loop_boundary_multi_vert_secondary_reciprocates` unit test in `tessellation::mod::tests`. Constructs minimal 2-face arena sharing a 3-vert linear edge. Asserts face B's boundary is `[1, 4, 0, 3]` (origin + intermediate + dest + apex). Test FAILED on current code with `[4, 0, 0, 3]` (missing P1, duplicate P0) — exactly the off-by-one signature predicted from code-reading.
+2. **Fix applied**: changed `verts.iter().rev().skip(1)` → `verts[1..].iter().rev()` at line 3111.
+3. **GREEN**: unit test passes. Kernel 1250/34/42 (was 1249/34; new test +1 passing, zero regressions on 34 existing failures).
+
+**F0020 oracle UNCHANGED**: still 5 of 33 pairs non-bijective with the SAME face indices and same arena edges. Spotlight metrics unchanged (47 unpaired, 30 degen, 175 tris). yang_fast 12/157 unchanged.
+
+**Interpretation**: the multi-vert linear secondary off-by-one is a real correctness bug in `collect_loop_boundary`, but F0020's failing pairs do NOT exercise this specific code path. The 5 failing pairs are likely all using the **2-vert linear branch** (`verts.len() <= 2`) at lines 3086-3093, which code-reading suggests is correct:
+
+```rust
+} else if verts.len() <= 2 {
+    if is_primary {
+        boundary.push(verts[0]);     // origin
+    } else {
+        boundary.push(verts[verts.len() - 1]);   // also origin (= primary's dest)
+    }
+}
+```
+
+If this branch IS correct (primary and secondary push their respective HE origins), F0020's same-direction tessellation has a different cause — possibly:
+- Off-plane SEAM transitions between consecutive HEs in a loop (the (-0.247, 0.104, -0.227) endpoint observed in Pair #0's sample data)
+- Loop walk order issues (e.g., face_b's outer_loop pointer pointing to the wrong loop)
+- Position-based vertex welding (deviation D-10) creating asymmetric f64 positions
+
+**Decision**: ship the multi-vert fix as a small correctness improvement (RED→GREEN unit test, +1 passing, zero regressions). Re-diagnose F0020 in a subsequent cycle with a probe that surfaces the per-HE boundary contributions for the 5 specific failing pairs.
+
 ## Discipline note
 
 I did NOT propose a fix in Phase 2 even though one feels close. The 5 prior canary ABORTs all happened because the implementer scoped a fix from "feels close" inference. Y59 (~50 LOC) is the cost to derisk; the alternative (~50-100 LOC fix on a guess) has a 5/6 historical refute rate.
