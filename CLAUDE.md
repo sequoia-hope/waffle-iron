@@ -30,8 +30,24 @@ When asked "what should I work on?", choose from these areas **in order**.
 Do NOT skip to lower-priority items because they are easier.
 
 1. **Hybrid boolean pipeline (Yang 2025)** — This is the #1 priority.
-   The goal is `YANG_BOOLEAN=1` passing more assay cases (currently 9/157
+   The goal is `YANG_BOOLEAN=1` passing more assay cases (currently 12/157
    non-timeout). Do NOT fix legacy code. Build Yang as described in the paper.
+
+   **Oracle-first investigation.** When investigating a Yang boolean failure,
+   FIRST consult the oracle verdict via `spotlight_<CASE>_oracles` (extends
+   the pattern of `spotlight_f0020_oracles` in `assay_randomized.rs`). The
+   `default_oracle_registry` in `crates/kernel/src/boolean/pipeline_oracles.rs`
+   attributes failures to a specific Yang pipeline stage's invariant violation.
+   Do NOT generate mechanism hypotheses from end-to-end metrics (unpaired
+   edges, degenerate triangles) — those are downstream symptoms. The oracle's
+   `ContractViolated` message names the stage and the violation. Read
+   `docs/audits/yang_oracle_coverage.md` for the Stage ↔ Oracle map and
+   `docs/audits/oracle_operationalization_baseline.md` for the methodology.
+
+   Ad-hoc canary probes (Y48-Y57 family) are SECONDARY diagnostics, used
+   after an oracle has localized the stage. Inventing mechanism hypotheses
+   without consulting the oracle first produced 5 consecutive canary-stage
+   ABORTs (PR-Y25 through PR-Y28) before this discipline was adopted.
 
    **The paper IS the spec.** Read `refs/yang2025_hybrid_boolean.pdf` before
    each session. Implement what the paper describes — do NOT adapt it to fit

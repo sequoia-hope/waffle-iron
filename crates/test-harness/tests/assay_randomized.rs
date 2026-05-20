@@ -308,6 +308,96 @@ fn spotlight_f0020() {
     }
 }
 
+/// Spotlight: oracle-attributed F0020 verdict — Phase 2 of oracle operationalization.
+///
+/// Drives F0020 through the full LoadProject → Yang boolean chain with the
+/// snapshot collector installed, runs the `default_oracle_registry` against
+/// the captured pipeline state, and emits a per-oracle verdict block to
+/// stdout. Unlike `spotlight_f0020`, this test attributes failures to a
+/// specific stage's invariant violation rather than reporting end-to-end
+/// symptoms (47 unpaired, 30 degen).
+///
+/// The test currently PASSES even when oracles report violations — the
+/// goal is per-stage visibility, not gating. Promotion to a hard pass-gate
+/// follows once each oracle's baseline is GREEN across the cohort.
+///
+/// Run with:
+///   YANG_BOOLEAN=1 cargo test -p test-harness --test assay_randomized -- \
+///     spotlight_f0020_oracles --ignored --nocapture
+#[test]
+#[ignore]
+fn spotlight_f0020_oracles() {
+    use kernel::diagnostics::{with_yang_oracle_capture, ViolationKind};
+    use wasm_bridge::messages::UiToEngine;
+    use wasm_bridge::{dispatch, EngineState};
+
+    let dir = Path::new(ASSAY_DIR);
+    if !dir.exists() {
+        eprintln!("Assay corpus not generated yet");
+        return;
+    }
+    let waffle_path = dir.join("F0020.waffle");
+    let waffle_json = match std::fs::read_to_string(&waffle_path) {
+        Ok(s) => s,
+        Err(e) => {
+            panic!("Failed to load F0020.waffle: {}", e);
+        }
+    };
+
+    std::env::set_var("YANG_BOOLEAN", "1");
+
+    let (summary, _engine_errors) = with_yang_oracle_capture("F0020", move || {
+        let mut state = EngineState::new();
+        let mut kernel_inst = kernel::WaffleKernel::new();
+        let _ = dispatch(
+            &mut state,
+            UiToEngine::LoadProject { data: waffle_json },
+            &mut kernel_inst,
+        );
+        state.engine.errors.clone()
+    });
+
+    println!("\n=== F0020 Oracle Verdict (Phase 2) ===");
+    println!("case_id = {}", summary.case_id);
+    if let Some(e) = &summary.pipeline_error {
+        println!("pipeline_error = {}", e);
+    }
+    println!("first_failing_stage = {:?}", summary.first_failing_stage);
+    println!();
+    for v in &summary.per_oracle {
+        let verdict_label = match &v.violation {
+            None => "PASS".to_string(),
+            Some(viol) => match viol.kind {
+                ViolationKind::ContractViolated => format!("FAIL  ({})", viol.message),
+                ViolationKind::StateMissing => format!("SKIP  ({})", viol.message),
+                ViolationKind::OracleStub => format!("STUB  ({})", viol.message),
+            },
+        };
+        println!("  [{:?}] {} : {}", v.stage, v.oracle_name, verdict_label);
+    }
+    println!();
+
+    let real_failures: Vec<_> = summary
+        .per_oracle
+        .iter()
+        .filter(|v| {
+            v.violation
+                .as_ref()
+                .map(|viol| viol.kind == ViolationKind::ContractViolated)
+                .unwrap_or(false)
+        })
+        .collect();
+    if real_failures.is_empty() {
+        println!("Oracle verdict: ALL PASS (no stage attribution available — bug is in uncovered stage)");
+    } else {
+        println!(
+            "Oracle verdict: {} contract violation(s); fix order = lowest stage first",
+            real_failures.len()
+        );
+    }
+    println!("==========================================\n");
+}
+
 /// Spotlight: drive F0030 through the Yang pipeline. PR-Y16-FIX-ARCH cohort RED.
 ///
 /// Per `docs/audits/pr_y16_fix_arch_canary.md` §3 cohort table: F0030 boolean 1
