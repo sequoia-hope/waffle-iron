@@ -93,6 +93,37 @@ where
     (summary, fn_result)
 }
 
+/// Like [`with_yang_oracle_capture`] but ALSO returns the raw bijectivity
+/// reports (per-pair `NonBijectivePair` records) for detailed diagnosis.
+/// Used by Stage 1 fix work where the summary message is insufficient and
+/// we need to see WHICH face pairs fail and their sample unmatched edges.
+///
+/// Returns `(summary, Some((report_a, report_b)), fn_result)` when Stage 1
+/// was snapshotted; `(summary, None, fn_result)` otherwise. The two
+/// `BijectivityReport`s correspond to operand A and operand B of the LAST
+/// Yang boolean executed during `f`.
+pub fn with_yang_oracle_capture_bijective<F, R>(
+    case_id: &str,
+    f: F,
+) -> (
+    OracleRunSummary,
+    Option<(
+        crate::tessellation::bijective::BijectivityReport,
+        crate::tessellation::bijective::BijectivityReport,
+    )>,
+    R,
+)
+where
+    F: FnOnce() -> R,
+{
+    let (bundle, fn_result) = with_snapshot_collector(f);
+    let bij = crate::boolean::pipeline_oracles::BijectiveFacePairOracle::raw_reports(
+        &bundle.as_pipeline_state(),
+    );
+    let summary = run_oracles_on_bundle(case_id, &bundle, None);
+    (summary, bij, fn_result)
+}
+
 /// Internal helper: run the default registry against an owned snapshot
 /// bundle, return the public summary type.
 fn run_oracles_on_bundle(

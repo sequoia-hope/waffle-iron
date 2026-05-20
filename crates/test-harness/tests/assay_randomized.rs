@@ -327,7 +327,7 @@ fn spotlight_f0020() {
 #[test]
 #[ignore]
 fn spotlight_f0020_oracles() {
-    use kernel::diagnostics::{with_yang_oracle_capture, ViolationKind};
+    use kernel::diagnostics::{with_yang_oracle_capture_bijective, ViolationKind};
     use wasm_bridge::messages::UiToEngine;
     use wasm_bridge::{dispatch, EngineState};
 
@@ -346,16 +346,17 @@ fn spotlight_f0020_oracles() {
 
     std::env::set_var("YANG_BOOLEAN", "1");
 
-    let (summary, _engine_errors) = with_yang_oracle_capture("F0020", move || {
-        let mut state = EngineState::new();
-        let mut kernel_inst = kernel::WaffleKernel::new();
-        let _ = dispatch(
-            &mut state,
-            UiToEngine::LoadProject { data: waffle_json },
-            &mut kernel_inst,
-        );
-        state.engine.errors.clone()
-    });
+    let (summary, bij_reports, _engine_errors) =
+        with_yang_oracle_capture_bijective("F0020", move || {
+            let mut state = EngineState::new();
+            let mut kernel_inst = kernel::WaffleKernel::new();
+            let _ = dispatch(
+                &mut state,
+                UiToEngine::LoadProject { data: waffle_json },
+                &mut kernel_inst,
+            );
+            state.engine.errors.clone()
+        });
 
     println!("\n=== F0020 Oracle Verdict (Phase 2) ===");
     println!("case_id = {}", summary.case_id);
@@ -376,6 +377,58 @@ fn spotlight_f0020_oracles() {
         println!("  [{:?}] {} : {}", v.stage, v.oracle_name, verdict_label);
     }
     println!();
+
+    // Phase 1 (y58): per-pair detail dump for BijectiveFacePairOracle.
+    // Surfaces the specific NonBijectivePair records (face indices,
+    // unmatched-edge counts, sample unmatched edges) so subsequent
+    // diagnosis can classify each failure by mechanism.
+    if let Some((report_a, report_b)) = &bij_reports {
+        if !report_a.is_bijective() || !report_b.is_bijective() {
+            println!("--- Stage 1 BijectiveFacePairOracle per-pair detail (Phase 1, y58) ---");
+            for (label, report) in [("A", report_a), ("B", report_b)] {
+                if report.non_bijective_pairs.is_empty() {
+                    continue;
+                }
+                println!(
+                    "Operand {}: {} of {} pairs non-bijective",
+                    label,
+                    report.non_bijective_pairs.len(),
+                    report.total_pairs_examined,
+                );
+                for (i, pair) in report.non_bijective_pairs.iter().enumerate() {
+                    println!(
+                        "  Pair #{} face_a={:?} face_b={:?} edge={:?}",
+                        i, pair.face_a, pair.face_b, pair.edge
+                    );
+                    println!(
+                        "    unmatched_a_count={} unmatched_b_count={}",
+                        pair.unmatched_a_count, pair.unmatched_b_count
+                    );
+                    if !pair.sample_unmatched_a.is_empty() {
+                        println!("    sample unmatched A edges:");
+                        for (p, q) in &pair.sample_unmatched_a {
+                            println!(
+                                "      ({:.6},{:.6},{:.6}) → ({:.6},{:.6},{:.6})",
+                                p[0], p[1], p[2], q[0], q[1], q[2]
+                            );
+                        }
+                    }
+                    if !pair.sample_unmatched_b.is_empty() {
+                        println!("    sample unmatched B edges:");
+                        for (p, q) in &pair.sample_unmatched_b {
+                            println!(
+                                "      ({:.6},{:.6},{:.6}) → ({:.6},{:.6},{:.6})",
+                                p[0], p[1], p[2], q[0], q[1], q[2]
+                            );
+                        }
+                    }
+                }
+            }
+            println!("------------------------------------------------------------------\n");
+        }
+    } else {
+        println!("(no Stage 1 bijective snapshot captured — pipeline may have errored before Stage 1)\n");
+    }
 
     let real_failures: Vec<_> = summary
         .per_oracle
