@@ -430,6 +430,71 @@ fn check_brep_mode(
             report.bijective_pairs += 1;
         } else {
             let edge = pair_to_edge.get(&pair).copied();
+
+            // Y59 (Stage 1 bijective sub-variant probe): for each
+            // non-bijective pair, dump HE-to-loop-to-face assignment for
+            // the canonical arena edge. Distinguishes M4a (arena correct
+            // — bug is in tessellation reversal) from M4b (arena defect
+            // — same HE in both loops, or same face for primary and
+            // secondary). Env-gated by Y59_BIJECTIVE_PROBE; default-off
+            // byte-identical.
+            if std::env::var("Y59_BIJECTIVE_PROBE").is_ok() {
+                if let Some(e_id) = edge {
+                    let edge_struct = &arena.edges[e_id.0];
+                    let he_primary = edge_struct.half_edge;
+                    let he_p_struct = &arena.half_edges[he_primary.0];
+                    let p_loop = he_p_struct.loop_;
+                    let p_face = if p_loop.0 < arena.loops.len() {
+                        Some(arena.loops[p_loop.0].face)
+                    } else {
+                        None
+                    };
+                    let (he_sec_id, s_loop_face) = match he_p_struct.twin {
+                        Some(t) => {
+                            let s_loop = arena.half_edges[t.0].loop_;
+                            let s_face = if s_loop.0 < arena.loops.len() {
+                                Some(arena.loops[s_loop.0].face)
+                            } else {
+                                None
+                            };
+                            (Some(t), Some((s_loop, s_face)))
+                        }
+                        None => (None, None),
+                    };
+
+                    let p_origin = arena.half_edges[he_primary.0].origin;
+                    let p_dest = match he_p_struct.twin {
+                        Some(t) => arena.half_edges[t.0].origin,
+                        None => p_origin,
+                    };
+
+                    eprintln!(
+                        "[y59-bij] pair ({:?},{:?}) edge={} HE_p={} p_loop={} p_face={:?} HE_s={:?} s_loop_face={:?} canonical_walk=v{}→v{}",
+                        face_a,
+                        face_b,
+                        e_id.0,
+                        he_primary.0,
+                        p_loop.0,
+                        p_face.map(|f| f.0),
+                        he_sec_id.map(|h| h.0),
+                        s_loop_face.map(|(l, f)| (l.0, f.map(|f| f.0))),
+                        p_origin.0,
+                        p_dest.0,
+                    );
+
+                    // M4 sub-variant classification
+                    let classify = match (p_face, s_loop_face.and_then(|(_, f)| f)) {
+                        (Some(pf), Some(sf)) if pf == sf => "M4b: SAME face for HE_p and HE_s",
+                        (Some(pf), Some(sf)) if (pf == face_a && sf == face_b) || (pf == face_b && sf == face_a) => {
+                            "M4a/c: arena correct — bug in tessellation"
+                        }
+                        (Some(_), Some(_)) => "M4-other: primary/secondary face mismatch with oracle pair",
+                        _ => "M4-other: missing face on primary or secondary HE",
+                    };
+                    eprintln!("[y59-bij]   classification: {}", classify);
+                }
+            }
+
             const SAMPLE: usize = 4;
             report.non_bijective_pairs.push(NonBijectivePair {
                 face_a,
