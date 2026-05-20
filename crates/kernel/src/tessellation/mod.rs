@@ -5164,6 +5164,24 @@ fn tessellate_solid_bounded(
         y48_dump_face_boundaries(arena, face_map);
     }
 
+    // Y60 once-per-solid dump: edge discretization map (edge_idx → vertex
+    // indices in disc.positions). Enables cross-reference of per-face
+    // boundary positions against the per-edge discretization. Env-gated;
+    // default-off byte-identical.
+    if std::env::var("Y60_BOUNDARY_PROBE").is_ok() {
+        eprintln!(
+            "[y60-bnd-edges] solid_edges={} disc_positions={}",
+            arena.edges.len(),
+            disc.positions.len()
+        );
+        for (e_idx, verts) in disc.edge_verts.iter() {
+            eprintln!(
+                "[y60-bnd-edges]   edge={} disc_verts={:?}",
+                e_idx.0, verts
+            );
+        }
+    }
+
     let mut vertices: Vec<f32> = Vec::new();
     let mut normals: Vec<f32> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
@@ -5276,6 +5294,49 @@ fn tessellate_solid_bounded(
                 // intersection-curve flags. Default-off byte-identical.
                 if std::env::var("Y47T2_INTERSECTION_PROBE").is_ok() {
                     y47t2_dump_boundary_intersections(face_idx, arena, &disc);
+                }
+
+                // Y60 boundary probe: dump per-face outer_loop vertex
+                // indices and 3D positions for the "follow the oracle"
+                // workflow (oracle reports same-direction unmatched edges
+                // on face pair boundaries; this probe surfaces the actual
+                // boundary polygon each face produces from
+                // `collect_loop_boundary`). Env-gated; default-off
+                // byte-identical. Memo: `docs/audits/y60_boundary_probe_results.md`.
+                if std::env::var("Y60_BOUNDARY_PROBE").is_ok() {
+                    let outer_loop_idx = arena.faces[face_idx.0].outer_loop;
+                    eprintln!(
+                        "[y60-bnd] kid={} face_idx={} outer_loop={} n_verts={}",
+                        kid,
+                        face_idx.0,
+                        outer_loop_idx.0,
+                        outer_boundary.len()
+                    );
+                    eprintln!(
+                        "[y60-bnd]   verts: {:?}",
+                        outer_boundary
+                    );
+                    for (i, &v) in outer_boundary.iter().enumerate() {
+                        let p = disc.positions.get(v).copied().unwrap_or([0.0, 0.0, 0.0]);
+                        eprintln!(
+                            "[y60-bnd]   [{}] v={} pos=({:.6},{:.6},{:.6})",
+                            i, v, p[0], p[1], p[2]
+                        );
+                    }
+                    if !inner_boundaries.is_empty() {
+                        eprintln!(
+                            "[y60-bnd]   inner_loop_count={}",
+                            inner_boundaries.len()
+                        );
+                        for (j, inner) in inner_boundaries.iter().enumerate() {
+                            eprintln!(
+                                "[y60-bnd]   inner[{}] n_verts={} verts={:?}",
+                                j,
+                                inner.len(),
+                                inner
+                            );
+                        }
+                    }
                 }
 
                 tessellate_planar_face_bounded(
