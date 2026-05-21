@@ -5339,6 +5339,7 @@ fn tessellate_solid_bounded(
                     }
                 }
 
+                let pre_tess_indices_len = indices.len();
                 tessellate_planar_face_bounded(
                     &outer_boundary,
                     &disc.positions,
@@ -5349,6 +5350,48 @@ fn tessellate_solid_bounded(
                     &mut indices,
                     &inner_boundaries,
                 );
+
+                // Y61 tri probe: dump the rendermesh tris just appended for
+                // this planar face. Per-tri indices + 3D positions enable
+                // computing boundary directed edges and comparing against
+                // the polygon walk direction from Y60. Env-gated; default-off
+                // byte-identical. Memo: `docs/audits/y61_tri_probe_results.md`.
+                if std::env::var("Y61_TRI_PROBE").is_ok() {
+                    let post_len = indices.len();
+                    let n_tris = (post_len - pre_tess_indices_len) / 3;
+                    eprintln!(
+                        "[y61-tri] kid={} face_idx={} tris_appended={}",
+                        kid, face_idx.0, n_tris
+                    );
+                    for t in 0..n_tris {
+                        let base = pre_tess_indices_len + 3 * t;
+                        let i0 = indices[base] as usize;
+                        let i1 = indices[base + 1] as usize;
+                        let i2 = indices[base + 2] as usize;
+                        let p0 = (
+                            vertices[3 * i0] as f64,
+                            vertices[3 * i0 + 1] as f64,
+                            vertices[3 * i0 + 2] as f64,
+                        );
+                        let p1 = (
+                            vertices[3 * i1] as f64,
+                            vertices[3 * i1 + 1] as f64,
+                            vertices[3 * i1 + 2] as f64,
+                        );
+                        let p2 = (
+                            vertices[3 * i2] as f64,
+                            vertices[3 * i2 + 1] as f64,
+                            vertices[3 * i2 + 2] as f64,
+                        );
+                        eprintln!(
+                            "[y61-tri]   tri[{}] idx=({},{},{}) pos=({:.6},{:.6},{:.6})|({:.6},{:.6},{:.6})|({:.6},{:.6},{:.6})",
+                            t, i0, i1, i2,
+                            p0.0, p0.1, p0.2,
+                            p1.0, p1.1, p1.2,
+                            p2.0, p2.1, p2.2,
+                        );
+                    }
+                }
             }
             _ => {
                 // Fallback for other surface types: collect boundary as polygon
