@@ -5339,6 +5339,36 @@ fn tessellate_solid_bounded(
                     }
                 }
 
+                // Y62 normal probe: dump per-face stored_normal alongside
+                // the first 3 boundary positions. Pairs with Y60's polygon
+                // dump (which has positions but no normals) so we can verify
+                // whether the F0020 face_4 / face_13 pair (reciprocal walks)
+                // has SAME stored_normals (RED test's premise) or OPPOSITE
+                // stored_normals (well-formed 2-manifold sharing). This
+                // determines the correct fix anchor: same-normal case implies
+                // upstream invalid output; opposite-normal case implies
+                // compute_plane_basis sign-flip handling. Env-gated;
+                // default-off byte-identical.
+                if std::env::var("Y62_NORMAL_PROBE").is_ok() {
+                    let nrm = (normal[0], normal[1], normal[2]);
+                    eprintln!(
+                        "[y62-nrm] kid={} face_idx={} normal=({:.6},{:.6},{:.6}) n_verts={}",
+                        kid,
+                        face_idx.0,
+                        nrm.0,
+                        nrm.1,
+                        nrm.2,
+                        outer_boundary.len()
+                    );
+                    for (i, &v) in outer_boundary.iter().take(3).enumerate() {
+                        let p = disc.positions.get(v).copied().unwrap_or([0.0, 0.0, 0.0]);
+                        eprintln!(
+                            "[y62-nrm]   [{}] pos=({:.6},{:.6},{:.6})",
+                            i, p[0], p[1], p[2]
+                        );
+                    }
+                }
+
                 let pre_tess_indices_len = indices.len();
                 tessellate_planar_face_bounded(
                     &outer_boundary,
