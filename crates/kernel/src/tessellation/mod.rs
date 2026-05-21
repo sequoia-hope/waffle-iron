@@ -6858,6 +6858,185 @@ mod tests {
         );
     }
 
+    /// Y61 Phase 3 RED-phase regression test: `tessellate_planar_face_bounded`
+    /// reciprocity for coplanar same-normal face pairs (F0020 signature).
+    ///
+    /// Two faces share a polygonal boundary in 3D — same plane, same
+    /// normal direction, opposite arena traversal direction. This is
+    /// the F0020 cascade signature: two B-Rep faces that walk the
+    /// same shared positions in OPPOSITE arena directions (because
+    /// they're adjacent in arena terms — one face's outer loop walks
+    /// the shared edge primary direction, the other walks via HE_twin).
+    ///
+    /// Per Yang §4.1.1 + the `BijectiveFacePairOracle` contract: the
+    /// per-face rendermesh tris MUST produce byte-identical reciprocal
+    /// directed boundary edges — face A walks `(p, q)` and face B
+    /// (walking reversed polygon) must walk `(q, p)`.
+    ///
+    /// Configuration: a unit square in z=0 plane. Face A polygon walks
+    /// 0→1→2→3 (CCW in 2D), normal +Z. Face B polygon walks 0→3→2→1
+    /// (REVERSE of face A's walk, CW in 2D), ALSO normal +Z (same as
+    /// face A — coplanar overlap).
+    ///
+    /// Y61 finding (commit f2dd953): the rendermesh tris from both faces
+    /// produce IDENTICAL directed boundary edges (all 4 same-direction,
+    /// 0 reciprocal). CDT (`cdt_triangulate_2d_with_loops`) and/or
+    /// `tessellate_planar_face_bounded`'s 2D projection normalize the
+    /// polygon to CCW regardless of input direction, losing reciprocity.
+    ///
+    /// This test is RED on current code; will be GREEN once
+    /// `tessellate_planar_face_bounded` preserves boundary directional
+    /// reciprocity for face pairs walking shared boundaries in opposite
+    /// arena directions on the same plane.
+    ///
+    /// `#[ignore]` until the fix lands — runs in spotlight workflow
+    /// (`cargo test ... -- tessellate_planar_face_bounded_coplanar_same_normal_reciprocates --ignored`).
+    #[test]
+    #[ignore]
+    fn tessellate_planar_face_bounded_coplanar_same_normal_reciprocates() {
+        // 4 unit-square corners in z=0 plane
+        let positions: Vec<[f64; 3]> = vec![
+            [0.0, 0.0, 0.0], // 0
+            [1.0, 0.0, 0.0], // 1
+            [1.0, 1.0, 0.0], // 2
+            [0.0, 1.0, 0.0], // 3
+        ];
+
+        let plane_origin = [0.5, 0.5, 0.0];
+
+        // Face A: polygon walks 0→1→2→3 (CCW from +Z view), normal +Z
+        let face_a_boundary = vec![0usize, 1, 2, 3];
+        let face_a_normal: [f32; 3] = [0.0, 0.0, 1.0];
+
+        // Face B: polygon walks 0→3→2→1 (REVERSE of face A's walk) but with
+        // the SAME +Z normal as face A. This is the F0020 cascade signature
+        // — two coplanar same-normal overlapping faces (over-fragmented patches)
+        // walking shared boundary in opposite arena directions but on the
+        // same plane. CDT presented with CW polygon (face B is CW in 2D
+        // when projected via the +Z basis) must produce tris that preserve
+        // the polygon's input winding — NOT normalize to CCW.
+        let face_b_boundary = vec![0usize, 3, 2, 1];
+        let face_b_normal: [f32; 3] = [0.0, 0.0, 1.0];
+
+        let mut out_verts_a: Vec<f32> = Vec::new();
+        let mut out_normals_a: Vec<f32> = Vec::new();
+        let mut out_indices_a: Vec<u32> = Vec::new();
+        tessellate_planar_face_bounded(
+            &face_a_boundary,
+            &positions,
+            face_a_normal,
+            plane_origin,
+            &mut out_verts_a,
+            &mut out_normals_a,
+            &mut out_indices_a,
+            &[],
+        );
+
+        let mut out_verts_b: Vec<f32> = Vec::new();
+        let mut out_normals_b: Vec<f32> = Vec::new();
+        let mut out_indices_b: Vec<u32> = Vec::new();
+        tessellate_planar_face_bounded(
+            &face_b_boundary,
+            &positions,
+            face_b_normal,
+            plane_origin,
+            &mut out_verts_b,
+            &mut out_normals_b,
+            &mut out_indices_b,
+            &[],
+        );
+
+        // Compute boundary directed edges per face. Mirrors
+        // `bijective.rs::face_boundary_directed_edges` semantics:
+        // for each tri's 3 directed edges, count occurrences;
+        // edges with count >= 1 and no reverse in this face are boundary.
+        fn boundary_directed_edges(
+            out_verts: &[f32],
+            out_indices: &[u32],
+        ) -> std::collections::BTreeSet<([i64; 3], [i64; 3])> {
+            use std::collections::BTreeMap;
+            // Quantize to nm for byte-stable position comparison
+            let pos = |i: usize| -> [i64; 3] {
+                [
+                    (out_verts[3 * i] as f64 * 1e9_f64).round() as i64,
+                    (out_verts[3 * i + 1] as f64 * 1e9_f64).round() as i64,
+                    (out_verts[3 * i + 2] as f64 * 1e9_f64).round() as i64,
+                ]
+            };
+            let mut counts: BTreeMap<([i64; 3], [i64; 3]), usize> = BTreeMap::new();
+            let n_tris = out_indices.len() / 3;
+            for t in 0..n_tris {
+                let i0 = out_indices[3 * t] as usize;
+                let i1 = out_indices[3 * t + 1] as usize;
+                let i2 = out_indices[3 * t + 2] as usize;
+                for &(a, b) in &[(i0, i1), (i1, i2), (i2, i0)] {
+                    let key = (pos(a), pos(b));
+                    *counts.entry(key).or_insert(0) += 1;
+                }
+            }
+            let mut boundary = std::collections::BTreeSet::new();
+            for (&k, _) in &counts {
+                let rev = (k.1, k.0);
+                if !counts.contains_key(&rev) {
+                    boundary.insert(k);
+                }
+            }
+            boundary
+        }
+
+        let bnd_a = boundary_directed_edges(&out_verts_a, &out_indices_a);
+        let bnd_b = boundary_directed_edges(&out_verts_b, &out_indices_b);
+
+        // Reciprocity check: for every directed edge (p, q) in face A's
+        // boundary, face B must contain (q, p).
+        let mut reciprocal = 0usize;
+        let mut same_direction = 0usize;
+        let mut a_examples_no_reciprocal = Vec::new();
+        for &(p, q) in &bnd_a {
+            if bnd_b.contains(&(q, p)) {
+                reciprocal += 1;
+            } else if bnd_b.contains(&(p, q)) {
+                same_direction += 1;
+                if a_examples_no_reciprocal.len() < 3 {
+                    a_examples_no_reciprocal.push((p, q));
+                }
+            }
+        }
+
+        eprintln!(
+            "Face A boundary edges: {} | Face B boundary edges: {}",
+            bnd_a.len(),
+            bnd_b.len()
+        );
+        eprintln!(
+            "Reciprocal (q,p in B for each (p,q) in A): {}",
+            reciprocal
+        );
+        eprintln!(
+            "Same-direction (p,q in B for (p,q) in A — Y61 cascade bug signature): {}",
+            same_direction
+        );
+
+        assert_eq!(
+            bnd_a.len(),
+            bnd_b.len(),
+            "Face A and Face B must produce the same number of boundary directed edges"
+        );
+        assert_eq!(
+            reciprocal,
+            bnd_a.len(),
+            "Yang §4.1.1 bijectivity: every face-A boundary directed edge \
+             (p, q) MUST have its reverse (q, p) in face-B's boundary edges. \
+             Currently {} of {} edges are SAME-DIRECTION instead of reciprocal — \
+             this is the Y61 cascade defect bottoming out in \
+             `tessellate_planar_face_bounded`'s 2D projection or CDT call. \
+             Sample non-reciprocal A edges: {:?}",
+            same_direction,
+            bnd_a.len(),
+            a_examples_no_reciprocal,
+        );
+    }
+
     #[test]
     fn tessellate_planar_face_no_collinear_degenerates() {
         // 8-vertex rectangle with collinear intermediate points on the long edges
