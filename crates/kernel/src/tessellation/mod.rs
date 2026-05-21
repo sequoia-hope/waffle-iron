@@ -3273,11 +3273,21 @@ fn tessellate_planar_face_bounded(
         };
 
         if is_convex && n <= 8 && !has_collinear {
-            // Fan triangulation for simple convex faces without collinear vertices
+            // Fan triangulation for simple convex faces without collinear vertices.
+            // Y62: when `reverse_outer` was true, the polygon was pre-reversed to
+            // walk CCW relative to stored_normal. To restore the polygon's
+            // intrinsic walk direction in the emitted boundary edges (Yang §4.1.1
+            // bijectivity for coplanar same-normal face pairs walking opposite
+            // arena directions, e.g. F0020), swap the last two tri indices.
             for i in 1..n - 1 {
                 out_indices.push(base_vertex);
-                out_indices.push(base_vertex + i as u32);
-                out_indices.push(base_vertex + (i + 1) as u32);
+                if reverse_outer {
+                    out_indices.push(base_vertex + (i + 1) as u32);
+                    out_indices.push(base_vertex + i as u32);
+                } else {
+                    out_indices.push(base_vertex + i as u32);
+                    out_indices.push(base_vertex + (i + 1) as u32);
+                }
             }
         } else if has_collinear {
             // Centroid-fan: add polygon centroid as a Steiner vertex and fan
@@ -3307,11 +3317,17 @@ fn tessellate_planar_face_bounded(
             out_normals.push(normal[1]);
             out_normals.push(normal[2]);
 
-            // Fan from centroid to each boundary edge
+            // Fan from centroid to each boundary edge.
+            // Y62: see fan-path comment; swap last two indices when reverse_outer.
             for i in 0..n {
                 out_indices.push(centroid_idx);
-                out_indices.push(base_vertex + i as u32);
-                out_indices.push(base_vertex + ((i + 1) % n) as u32);
+                if reverse_outer {
+                    out_indices.push(base_vertex + ((i + 1) % n) as u32);
+                    out_indices.push(base_vertex + i as u32);
+                } else {
+                    out_indices.push(base_vertex + i as u32);
+                    out_indices.push(base_vertex + ((i + 1) % n) as u32);
+                }
             }
         } else {
             // CDT triangulation per Yang 2025 §4.4.1 (deviation D1 remediation).
@@ -3333,10 +3349,18 @@ fn tessellate_planar_face_bounded(
                 cdt::cdt_triangulate_2d_with_loops(&points_2d, &[outer_loop]);
             match cdt_result {
                 Ok(triangles) => {
+                    // Y62: see fan-path comment. CDT emits CCW 2D tris; when the
+                    // polygon was pre-reversed to walk CCW relative to stored_normal,
+                    // we restore the intrinsic walk direction by swapping t[1] and t[2].
                     for t in &triangles {
                         out_indices.push(base_vertex + t[0] as u32);
-                        out_indices.push(base_vertex + t[1] as u32);
-                        out_indices.push(base_vertex + t[2] as u32);
+                        if reverse_outer {
+                            out_indices.push(base_vertex + t[2] as u32);
+                            out_indices.push(base_vertex + t[1] as u32);
+                        } else {
+                            out_indices.push(base_vertex + t[1] as u32);
+                            out_indices.push(base_vertex + t[2] as u32);
+                        }
                     }
                 }
                 Err(e) => {
@@ -3386,10 +3410,18 @@ fn tessellate_planar_face_bounded(
         let cdt_result = cdt::cdt_triangulate_2d_with_loops(&points_2d, &loops);
         match cdt_result {
             Ok(triangles) => {
+                // Y62: see fan-path comment. Same swap applies for the with-holes
+                // path. Hole verts are NOT pre-reversed; the outer's swap restores
+                // the intrinsic walk direction for the dominant edge set.
                 for t in &triangles {
                     out_indices.push(base_vertex + t[0] as u32);
-                    out_indices.push(base_vertex + t[1] as u32);
-                    out_indices.push(base_vertex + t[2] as u32);
+                    if reverse_outer {
+                        out_indices.push(base_vertex + t[2] as u32);
+                        out_indices.push(base_vertex + t[1] as u32);
+                    } else {
+                        out_indices.push(base_vertex + t[1] as u32);
+                        out_indices.push(base_vertex + t[2] as u32);
+                    }
                 }
             }
             Err(e) => {
