@@ -2176,13 +2176,30 @@ mod tests {
             face_map.insert(next_kid, fi);
             next_kid += 1;
 
-            // Use a dummy planar geometry — the exact normal doesn't matter
-            // for this test; we just need face_geometry to be non-empty.
+            // Derive per-face stored_normal from Newell of the face's outer
+            // loop walk so the invariant face.stored_normal ↔ Newell(outer_loop)
+            // holds (Y63). Same pattern as revolve_face cap derivation at
+            // waffle_kernel.rs:1613-1623.
+            let loop_idx = arena.faces[fi.0].outer_loop;
+            let start_he = arena.loops[loop_idx.0].half_edge;
+            let mut verts: Vec<[f64; 3]> = Vec::new();
+            let mut he = start_he;
+            loop {
+                let vi = arena.half_edges[he.0].origin;
+                verts.push(arena.vertices[vi.0].position);
+                he = arena.half_edges[he.0].next;
+                if he == start_he {
+                    break;
+                }
+            }
+            let newell = crate::vecmath::compute_newell_normal(&verts);
+            let centroid = crate::vecmath::compute_centroid(&verts);
+
             face_geometry.insert(
                 fi,
                 SurfaceGeom::Planar(Plane {
-                    origin: Point3::new(ox + 0.5, oy + 0.5, oz + 0.5),
-                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    origin: Point3::new(centroid[0], centroid[1], centroid[2]),
+                    normal: Vector3::new(newell[0], newell[1], newell[2]),
                 }),
             );
         }
