@@ -1,0 +1,11 @@
+[package]
+name = "kernel-v2"
+version = "0.1.0"
+edition = "2021"
+description = "Clean-sheet CAD kernel. Half-edge B-Rep with enforced face.normal ≡ Newell(loop) invariant. Delegates boolean ops to yang-rs."
+
+# kernel-v2 sits at the top of the new tier. Implements the public Kernel
+# trait used by wasm-bridge, feature-engine, etc.
+[dependencies]
+cad-primitives = { path = "../cad-primitives" }
+yang-rs = { path = "../yang-rs" }

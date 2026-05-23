@@ -1,0 +1,13 @@
+[package]
+name = "yang-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Yang 2025 hybrid B-Rep / mesh boolean pipeline. Stage 0 coplanar preprocessing through Stage 5/6 B-Rep reassembly."
+
+# Strict layering: yang-rs sits above cherchi-rs and ssi-rs, below kernel-v2.
+# Does NOT depend on kernel-v2 (uses its own B-Rep input/output types) and
+# does NOT depend on the old kernel crate at all.
+[dependencies]
+cad-primitives = { path = "../cad-primitives" }
+cherchi-rs = { path = "../cherchi-rs" }
+ssi-rs = { path = "../ssi-rs" }

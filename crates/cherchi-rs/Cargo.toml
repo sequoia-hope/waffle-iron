@@ -1,0 +1,16 @@
+[package]
+name = "cherchi-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Pure-Rust port of Cherchi 2020 + 2022 (mesh arrangements + interactive booleans). Mesh in, labeled mesh out. No B-Rep."
+
+# Strict layering: cherchi-rs sits directly above cad-primitives. It does NOT
+# depend on yang-rs, ssi-rs, kernel-v2, or any crate from the old kernel tree.
+[dependencies]
+cad-primitives = { path = "../cad-primitives" }
+dashu = "0.4"          # Exact arithmetic backend (pure-Rust, WASM-compatible)
+
+[dev-dependencies]
+# Reference parity tests: differential diff against the upstream C++ sidecar
+# at /home/claude/cherchi2022/InteractiveAndRobustMeshBooleans/ — see
+# docs/sidecar/cherchi2022_build_guide.md.

@@ -1,0 +1,10 @@
+[package]
+name = "ssi-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Analytical surface-surface intersection solvers (Patrikalakis Ch.5). Closed-form solutions for quadric surface pairs."
+
+# Strict layering: ssi-rs sits directly above cad-primitives. Independent of
+# cherchi-rs and yang-rs — analytical SSI is its own domain.
+[dependencies]
+cad-primitives = { path = "../cad-primitives" }

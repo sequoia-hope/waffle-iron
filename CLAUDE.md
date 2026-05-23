@@ -12,6 +12,65 @@ When rules conflict, the following precedence applies (highest first):
 4. This file — Session workflow and coding conventions
 5. Sub-project `CLAUDE.md` files — Project-specific instructions
 
+## Kernel Rewrite In Progress
+
+**The current `crates/kernel/` is being replaced.** Yang / Cherchi / boolean code in the old kernel grew tangled with legacy S-H clipping, polygon-clipping fallback, and tolerance-escalation masking. Rather than continue patching it, we are clean-sheet rewriting the kernel as a layered set of new crates.
+
+### New crate layout
+
+```
+crates/cad-primitives/   — shared types & constants (Point3, Vector3, BoolOp, …)
+crates/cherchi-rs/       — Cherchi 2020+2022 mesh boolean (pure Rust port)
+crates/ssi-rs/           — analytical SSI solvers (Patrikalakis Ch.5)
+crates/yang-rs/          — Yang 2025 pipeline (deps cherchi-rs + ssi-rs)
+crates/kernel-v2/        — clean B-Rep + tessellation + Kernel trait (deps yang-rs)
+```
+
+Dependency layering is compiler-enforced via each crate's `Cargo.toml`. A crate higher in the stack may not be imported by one lower down.
+
+### Agent routing rules
+
+When asked to work on boolean / Yang / SSI / B-Rep code:
+
+| Task | Crate to work in | DO NOT touch |
+|---|---|---|
+| Mesh boolean (Cherchi port) | `crates/cherchi-rs/` | `crates/kernel/src/boolean/cherchi/` |
+| Analytical SSI solver | `crates/ssi-rs/` | `crates/kernel/src/ssi/` |
+| Yang pipeline stage | `crates/yang-rs/` | `crates/kernel/src/boolean/yang_integration.rs` |
+| B-Rep / Euler ops / primitives / tessellation | `crates/kernel-v2/` | `crates/kernel/src/` (except Kernel trait signature reference) |
+| Shared primitive type (Point3 etc.) | `crates/cad-primitives/` | n/a |
+| Public Kernel trait refinement | `crates/kernel-v2/` + `crates/waffle-types/` | `crates/kernel/` |
+
+When asked to "fix a Yang bug" or "make Y62-style probe" on the existing code: **do not**. The existing Yang code is being deleted. Any new work goes into the new crates. The exception is bug fixes that are urgently needed for shipping the legacy code while the rewrite proceeds — those still go in `crates/kernel/` but should be flagged as "legacy patch" and minimized.
+
+### What stays unchanged
+
+- `crates/waffle-types/` — public types crate
+- `crates/sketch-solver/`, `crates/modeling-ops/`, `crates/feature-engine/`, `crates/file-format/`, `crates/test-harness/` — these are consumers / siblings of the kernel and do not need to change until the Phase 5 migration
+- `crates/wasm-bridge/` — will be updated in Phase 5 migration PR to depend on `kernel-v2` instead of `kernel`
+- The `Kernel` and `KernelIntrospect` trait shape lives in `waffle-types`; `kernel-v2` implements it. The trait can be refined (drop dead methods, tighten signatures), but consumers are updated in the migration PR, not piecemeal.
+- All of `app/`, `governance/`, `agents/`, `refs/` — unchanged
+
+### Phase tracker
+
+- **Phase 0** (this PR): Boundary establishment — skeleton crates created, dependency layering locked, root CLAUDE.md updated
+- **Phase 1**: `cherchi-rs` port — indirect predicates, mesh arrangement, boolean labeling. Reference parity via C++ sidecar.
+- **Phase 2**: `yang-rs` pipeline — Stage 1 bijective tessellation → Stage 6 B-Rep reassembly, layered on top of cherchi-rs
+- **Phase 3**: `ssi-rs` analytical solvers — 15 quadric pairs
+- **Phase 4**: `kernel-v2` — clean B-Rep + Euler ops + tessellation + Kernel trait
+- **Phase 5**: Migration — switch `wasm-bridge` and `feature-engine` to `kernel-v2`, delete `crates/kernel/`, remove this section from CLAUDE.md
+
+### Why this rewrite
+
+- The Y62 / Y63 cycles found the Yang code was patching around legacy assumptions (face stored_normal didn't track polygon walk; legacy boolean output preserved wrong normals after subtract; `tessellate_planar_face_bounded` was force-aligning to mask upstream defects)
+- yang_fast is 12/157 currently, but most of that is Yang inheriting broken inputs from legacy assembly, not Yang itself being wrong
+- Reference parity against Cherchi C++ was deferred until PR-Y29 instead of being load-bearing from day one (per `feedback_external_coherence.md`)
+- The "tests pass" metric (1250/34 in current kernel) measures how legacy + Yang patches handle the corpus, NOT how Yang handles it — false project status signal
+
+The rewrite path is more honest and architecturally clean. Test counts will drop during transition (kernel-v2 has zero tests at scaffold time) and recover as each phase completes. Per-cycle work happens inside ONE crate at a time, isolated from the others by both crate boundaries and CLAUDE.md scope rules.
+
+---
+
 ## DEFERRED INDEFINITELY: Fillet, Chamfer, Shell
 
 **Fillet, chamfer, and shell operations are DEFERRED INDEFINITELY. Do NOT work on them.**
