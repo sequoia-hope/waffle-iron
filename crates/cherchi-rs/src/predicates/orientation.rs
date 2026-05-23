@@ -29,8 +29,11 @@ pub enum Axis {
 /// # Failure modes
 ///
 /// NaN / infinite inputs produce undefined behavior. Caller's responsibility.
-pub fn max_component_in_triangle_normal(_a: Point3, _b: Point3, _c: Point3) -> Axis {
-    unimplemented!("PR-CR4 RED phase — Implementer fills body in step 4a/4b")
+pub fn max_component_in_triangle_normal(a: Point3, b: Point3, c: Point3) -> Axis {
+    match max_component_filtered(a, b, c) {
+        Some(axis) => axis,
+        None => max_component_exact(a, b, c),
+    }
 }
 
 /// Filtered (f64) cascade primitive — fast path.
@@ -86,8 +89,51 @@ pub(crate) fn max_component_filtered(
 /// Converts each f64 coordinate to an arbitrary-precision rational (RBig),
 /// computes the cross product in exact arithmetic, and returns the axis
 /// with largest |n_i|. On exact ties, deterministic tiebreak: X > Y > Z.
-pub(crate) fn max_component_exact(_a: Point3, _b: Point3, _c: Point3) -> Axis {
-    unimplemented!("PR-CR4 RED phase — Implementer fills body in step 4b")
+pub(crate) fn max_component_exact(a: Point3, b: Point3, c: Point3) -> Axis {
+    use dashu::float::FBig;
+    use dashu::rational::RBig;
+
+    // Convert each f64 coord to exact rational. Path: f64 → FBig (exact for
+    // finite f64 via dashu_float::convert) → RBig (exact via TryFrom<FBig>).
+    let to_r = |x: f64| -> RBig {
+        let fb: FBig = FBig::try_from(x).expect("finite f64 → FBig is total");
+        RBig::try_from(fb).expect("FBig → RBig is total")
+    };
+    let ax = to_r(a.x());
+    let ay = to_r(a.y());
+    let az = to_r(a.z());
+    let bx = to_r(b.x());
+    let by = to_r(b.y());
+    let bz = to_r(b.z());
+    let cx = to_r(c.x());
+    let cy = to_r(c.y());
+    let cz = to_r(c.z());
+
+    // n = (b - a) × (c - a), computed in exact rationals.
+    let bx_ax = &bx - &ax;
+    let by_ay = &by - &ay;
+    let bz_az = &bz - &az;
+    let cx_ax = &cx - &ax;
+    let cy_ay = &cy - &ay;
+    let cz_az = &cz - &az;
+
+    let nx = &by_ay * &cz_az - &bz_az * &cy_ay;
+    let ny = &bz_az * &cx_ax - &bx_ax * &cz_az;
+    let nz = &bx_ax * &cy_ay - &by_ay * &cx_ax;
+
+    // Compare |n_i|² to avoid abs() on RBig (squares are non-negative + exact).
+    let nx_sq = &nx * &nx;
+    let ny_sq = &ny * &ny;
+    let nz_sq = &nz * &nz;
+
+    // Deterministic tiebreak on exact equality: X > Y > Z.
+    if nx_sq >= ny_sq && nx_sq >= nz_sq {
+        Axis::X
+    } else if ny_sq >= nz_sq {
+        Axis::Y
+    } else {
+        Axis::Z
+    }
 }
 
 #[cfg(test)]
