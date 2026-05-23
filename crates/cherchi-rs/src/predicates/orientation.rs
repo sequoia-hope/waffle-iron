@@ -1,7 +1,30 @@
-// Function bodies are `unimplemented!()` during the RED phase (Test Author
-// commit). The Implementer commits replace the bodies. The per-file MIT
-// attribution + "Filtered+exact cascade" + "Conservative error bound deviation"
-// headers land in a separate commit after GREEN per PR-CR4 sequencing.
+//! Triangle-normal max-component selection for 2D projection axis choice.
+//!
+//! Ported from Cherchi 2020's `maxComponentInTriangleNormal` family
+//! (`implicit_point.hpp:937-1029` per audit A-02).
+//! Cherchi 2020 is MIT-licensed.
+//! © 2020 Gianmarco Cherchi, Marco Livesu, Riccardo Scateni, Marco Attene
+//! https://github.com/gcherchi/FastAndRobustMeshArrangements
+//! See ../../LICENSE-THIRD-PARTY.md for full attribution.
+//!
+//! Cherchi 2020 §3 (cascaded filtered/exact predicates).
+//! Shewchuk 1997 §2.1, §4.5 (adaptive predicates with error bounds).
+//!
+//! **Filtered+exact cascade**: this file establishes the pattern for
+//! subsequent indirect predicates. `max_component_filtered` is the f64
+//! fast-path returning `Option` (`None` = uncertain → fall back to
+//! exact); `max_component_exact` uses dashu rationals for the
+//! definitive answer. Soundness: if the filtered version returns
+//! `Some(axis)`, that axis is provably correct.
+//!
+//! **Conservative error bound deviation**: we use Shewchuk-style
+//! `4 * f64::EPSILON * max_var^2` rather than Cherchi's specific
+//! `8.88395e-16 * max_var^2`. C++ source unavailable this session
+//! (sidecar not built); conservative bound trades slight performance
+//! for clear correctness justification. Banked: calibrate against
+//! Cherchi's bound once sidecar is available. See
+//! `specs/cherchi_rs_max_component_normal.md` §"Conservative error
+//! bound (deliberate deviation)".
 
 use cad_primitives::Point3;
 
