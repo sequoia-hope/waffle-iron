@@ -14,5 +14,7 @@
 //! - `intersection`: triangle-triangle, segment-triangle, etc.
 
 pub mod collinearity;
+pub mod orientation;
 
 pub use collinearity::points_are_collinear_3d;
+pub use orientation::{max_component_in_triangle_normal, Axis};
