@@ -29,4 +29,5 @@
 //! reference, the Rust port is wrong (until proven otherwise on a case-by-
 //! case basis with paper-cited justification).
 
-// Skeleton — content fills in during Phase 1.
+pub mod predicates;
+

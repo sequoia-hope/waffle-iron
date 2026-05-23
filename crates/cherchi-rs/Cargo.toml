@@ -8,7 +8,8 @@ description = "Pure-Rust port of Cherchi 2020 + 2022 (mesh arrangements + intera
 # depend on yang-rs, ssi-rs, kernel-v2, or any crate from the old kernel tree.
 [dependencies]
 cad-primitives = { path = "../cad-primitives" }
-dashu = "0.4"          # Exact arithmetic backend (pure-Rust, WASM-compatible)
+dashu = "0.4"                 # Exact arithmetic backend (pure-Rust, WASM-compatible)
+geometry-predicates = "0.3"   # Shewchuk-style exact orient2d / orient3d / etc.
 
 [dev-dependencies]
 # Reference parity tests: differential diff against the upstream C++ sidecar
