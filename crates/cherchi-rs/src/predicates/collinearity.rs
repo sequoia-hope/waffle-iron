@@ -1,3 +1,15 @@
+//! 3D collinearity test using Shewchuk's exact `orient2d` on three
+//! orthogonal projections. Returns true iff the three points are exactly
+//! collinear (no tolerance).
+//!
+//! Ported from cinolib's `points_are_colinear_3d` (used by Cherchi 2020
+//! `processing.cpp:144`). cinolib is MIT-licensed.
+//! © Marco Livesu et al. — https://github.com/mlivesu/cinolib
+//! See ../../LICENSE-THIRD-PARTY.md for full attribution.
+//!
+//! Cherchi 2020 §3 (cascaded filtered/exact predicates).
+//! Shewchuk 1997 §4.5 (adaptive orient2d).
+
 use cad_primitives::Point3;
 
 /// Three-point collinearity test in 3D using Shewchuk's exact `orient2d`
