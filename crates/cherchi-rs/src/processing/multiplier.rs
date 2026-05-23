@@ -1,8 +1,3 @@
-// Function body is `unimplemented!()` during the RED phase (Test Author
-// commit). The Implementer commit replaces the body. The attribution +
-// "Deliberate deviation" header lands in a separate commit after GREEN
-// per PR-CR2 sequencing.
-
 /// Compute a power-of-2 scaling factor for the given coordinate array.
 ///
 /// Returns the smallest `2^k` (for `k ∈ [0, 62]`) such that the maximum
@@ -17,8 +12,25 @@
 /// # Failure modes
 ///
 /// NaN / infinite inputs produce undefined behavior. Caller's responsibility.
-pub fn compute_multiplier(_coords: &[f64]) -> f64 {
-    unimplemented!("PR-CR2 RED phase — Implementer fills body in next commit")
+pub fn compute_multiplier(coords: &[f64]) -> f64 {
+    let max_abs = coords
+        .iter()
+        .copied()
+        .map(f64::abs)
+        .fold(0.0_f64, f64::max);
+
+    // Sub-unit (or zero / empty) inputs need no upscaling.
+    if max_abs < 1.0 {
+        return 1.0;
+    }
+
+    // e = ⌈log₂(max_abs)⌉ — the smallest exponent such that 2^e ≥ max_abs.
+    // For max_abs = 1.0 exactly, log2 = 0, ceil = 0, returns 2^0 = 1.0.
+    let e = max_abs.log2().ceil() as u32;
+
+    // (1u64 << e.min(62)) is well-defined for all u32 e; 2^62 fits exactly
+    // in f64 mantissa. See file header "Deliberate deviation" comment.
+    (1u64 << e.min(62)) as f64
 }
 
 #[cfg(test)]
