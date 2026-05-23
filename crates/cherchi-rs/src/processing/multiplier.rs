@@ -51,6 +51,23 @@ pub fn compute_multiplier(coords: &[f64]) -> f64 {
     (1u64 << e.min(62)) as f64
 }
 
+/// Multiply each element of `coords` by `multiplier`, in place.
+///
+/// Pair-mate of [`compute_multiplier`]: typical usage is
+/// `multiply_coordinates(&mut coords, compute_multiplier(&coords))` to
+/// scale up to f64-mantissa-exact integer range.
+///
+/// Ported from Cherchi 2020's `multiply_coordinates` (`processing.cpp`).
+/// MIT-licensed; see file header for full attribution.
+///
+/// # Failure modes
+///
+/// NaN / infinite inputs propagate per IEEE 754 multiplication semantics.
+/// No validation.
+pub fn multiply_coordinates(_coords: &mut [f64], _multiplier: f64) {
+    unimplemented!("PR-CR3 RED phase — Implementer fills body in next commit")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -174,5 +191,125 @@ mod tests {
         let result = compute_multiplier(&[1e10]);
         assert_eq!(result, 2.0_f64.powi(34), "strict-correct = 2^34");
         assert_ne!(result, 1.0, "must NOT match C++'s UB-induced 1.0");
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    //  PR-CR3 — multiply_coordinates
+    // ════════════════════════════════════════════════════════════════
+
+    // ── Group 7: multiply_coordinates canonical ──────────────────────
+
+    #[test]
+    fn multiply_empty_slice_is_noop() {
+        let mut coords: [f64; 0] = [];
+        multiply_coordinates(&mut coords, 42.0);
+        assert_eq!(coords, [] as [f64; 0]);
+    }
+
+    #[test]
+    fn multiply_by_two() {
+        let mut coords = [1.0, 2.0, 3.0];
+        multiply_coordinates(&mut coords, 2.0);
+        assert_eq!(coords, [2.0, 4.0, 6.0]);
+    }
+
+    #[test]
+    fn multiply_by_one_is_identity() {
+        let mut coords = [1.0, 2.0, 3.0];
+        let original = coords;
+        multiply_coordinates(&mut coords, 1.0);
+        assert_eq!(coords, original);
+    }
+
+    #[test]
+    fn multiply_by_zero() {
+        let mut coords = [1.0, -2.0, 3.0];
+        multiply_coordinates(&mut coords, 0.0);
+        assert_eq!(coords, [0.0, 0.0, 0.0]);
+    }
+
+    // ── Group 8: multiply_coordinates negative coords / multipliers ──
+
+    #[test]
+    fn multiply_negative_coord_positive_multiplier() {
+        let mut coords = [-1.0, 2.0];
+        multiply_coordinates(&mut coords, 3.0);
+        assert_eq!(coords, [-3.0, 6.0]);
+    }
+
+    #[test]
+    fn multiply_positive_coords_negative_multiplier() {
+        let mut coords = [1.0, 2.0];
+        multiply_coordinates(&mut coords, -1.0);
+        assert_eq!(coords, [-1.0, -2.0]);
+    }
+
+    // ── Group 9: Properties ───────────────────────────────────────────
+
+    /// Power-of-2 multipliers preserve f64 mantissa exactly, so
+    /// applying then dividing recovers the original bit pattern.
+    #[test]
+    fn multiply_power_of_two_round_trip() {
+        let original = [1.5, 2.5, 3.5];
+        let mut coords = original;
+        multiply_coordinates(&mut coords, 8.0);
+        multiply_coordinates(&mut coords, 1.0 / 8.0);
+        assert_eq!(coords, original);
+    }
+
+    /// Identity property for arbitrary non-empty slice.
+    #[test]
+    fn multiply_identity_preserves_bits() {
+        let original = [1.5, -2.5, 0.0, 3.14, -1e100, 1e-100];
+        let mut coords = original;
+        multiply_coordinates(&mut coords, 1.0);
+        assert_eq!(coords, original);
+    }
+
+    /// Length and ordering preserved under arbitrary multiplication.
+    #[test]
+    fn multiply_preserves_length_and_order() {
+        let mut coords: Vec<f64> = (0..100).map(|i| (i as f64) * 1.5 - 50.0).collect();
+        let expected_len = coords.len();
+        multiply_coordinates(&mut coords, 7.0);
+        assert_eq!(coords.len(), expected_len);
+        // Order check: each entry is original * 7.0
+        for (i, c) in coords.iter().enumerate() {
+            let original = (i as f64) * 1.5 - 50.0;
+            assert_eq!(*c, original * 7.0, "index {i}");
+        }
+    }
+
+    // ── Group 10: Integration with compute_multiplier ─────────────────
+
+    /// The PAIR's documented purpose: after scale-up, max abs coord
+    /// has been pushed past `2^33` (well into f64-mantissa-exact
+    /// integer range). For `coords = [1e10, 1.0, 0.5]`,
+    /// `compute_multiplier` returns `2^34`, and after multiplying,
+    /// max coord = 1e10 * 2^34 ≈ 1.7e20 — comfortably ≥ 2^33.
+    #[test]
+    fn integration_pair_scales_max_into_exact_range() {
+        let mut coords = [1e10, 1.0, 0.5];
+        let m = compute_multiplier(&coords);
+        assert_eq!(m, 2.0_f64.powi(34));
+        multiply_coordinates(&mut coords, m);
+        let max_abs = coords.iter().map(|c| c.abs()).fold(0.0_f64, f64::max);
+        assert!(
+            max_abs >= 2.0_f64.powi(33),
+            "max abs coord {} should be >= 2^33 after scale-up",
+            max_abs
+        );
+    }
+
+    /// For sub-unit inputs, `compute_multiplier` returns `1.0` and
+    /// `multiply_coordinates` is a no-op.
+    #[test]
+    fn integration_pair_unit_max_is_noop() {
+        let mut coords = [1.0];
+        let original = coords;
+        let m = compute_multiplier(&coords);
+        assert_eq!(m, 1.0);
+        multiply_coordinates(&mut coords, m);
+        assert_eq!(coords, original);
     }
 }

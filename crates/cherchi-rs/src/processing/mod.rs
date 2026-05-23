@@ -15,4 +15,4 @@
 
 pub mod multiplier;
 
-pub use multiplier::compute_multiplier;
+pub use multiplier::{compute_multiplier, multiply_coordinates};
