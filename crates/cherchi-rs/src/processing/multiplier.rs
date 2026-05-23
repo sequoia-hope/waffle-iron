@@ -64,8 +64,10 @@ pub fn compute_multiplier(coords: &[f64]) -> f64 {
 ///
 /// NaN / infinite inputs propagate per IEEE 754 multiplication semantics.
 /// No validation.
-pub fn multiply_coordinates(_coords: &mut [f64], _multiplier: f64) {
-    unimplemented!("PR-CR3 RED phase — Implementer fills body in next commit")
+pub fn multiply_coordinates(coords: &mut [f64], multiplier: f64) {
+    for c in coords.iter_mut() {
+        *c *= multiplier;
+    }
 }
 
 #[cfg(test)]
