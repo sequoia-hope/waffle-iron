@@ -30,4 +30,5 @@
 //! case basis with paper-cited justification).
 
 pub mod predicates;
+pub mod processing;
 
