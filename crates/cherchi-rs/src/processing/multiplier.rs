@@ -1,3 +1,21 @@
+//! Power-of-2 coordinate scaling factor for exact-arithmetic preprocessing.
+//!
+//! Ported from Cherchi 2020's `compute_multiplier` (`processing.cpp:47-64`).
+//! Cherchi 2020 is MIT-licensed.
+//! © 2020 Gianmarco Cherchi, Marco Livesu, Riccardo Scateni, Marco Attene
+//! https://github.com/gcherchi/FastAndRobustMeshArrangements
+//! See ../../LICENSE-THIRD-PARTY.md for full attribution.
+//!
+//! Cherchi 2020 §3 (preprocessing for exact predicates).
+//!
+//! **Deliberate deviation from upstream**: C++'s `1 << e` is signed-int
+//! UB for `e ≥ 31` (typical CAD inputs trigger this); upstream papers
+//! over with `if(multiplier < 0) multiplier = 1.0; // temporary fix`.
+//! Our impl uses `(1u64 << e.min(62)) as f64` which is well-defined and
+//! matches the function's stated intent (power-of-2 scaling factor). See
+//! `docs/audits/cherchi_port_audit.md:228-241` (A-05) and
+//! `specs/cherchi_rs_compute_multiplier.md` §"Discipline question".
+
 /// Compute a power-of-2 scaling factor for the given coordinate array.
 ///
 /// Returns the smallest `2^k` (for `k ∈ [0, 62]`) such that the maximum
