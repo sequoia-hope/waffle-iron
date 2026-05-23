@@ -43,11 +43,42 @@ pub fn max_component_in_triangle_normal(_a: Point3, _b: Point3, _c: Point3) -> A
 ///
 /// Soundness: if `Some(axis)` is returned, `axis` is provably correct.
 pub(crate) fn max_component_filtered(
-    _a: Point3,
-    _b: Point3,
-    _c: Point3,
+    a: Point3,
+    b: Point3,
+    c: Point3,
 ) -> Option<Axis> {
-    unimplemented!("PR-CR4 RED phase — Implementer fills body in step 4a")
+    // Cross product n = (b - a) × (c - a)
+    let (bx_ax, by_ay, bz_az) = (b.x() - a.x(), b.y() - a.y(), b.z() - a.z());
+    let (cx_ax, cy_ay, cz_az) = (c.x() - a.x(), c.y() - a.y(), c.z() - a.z());
+    let nx = by_ay * cz_az - bz_az * cy_ay;
+    let ny = bz_az * cx_ax - bx_ax * cz_az;
+    let nz = bx_ax * cy_ay - by_ay * cx_ax;
+    let (ax, ay, az) = (nx.abs(), ny.abs(), nz.abs());
+
+    // Conservative Shewchuk-style error bound: 4 * EPSILON * max_var^2.
+    // See file header / spec §"Conservative error bound (deliberate deviation)".
+    let max_var = [
+        a.x(), a.y(), a.z(),
+        b.x(), b.y(), b.z(),
+        c.x(), c.y(), c.z(),
+    ]
+    .iter()
+    .copied()
+    .map(f64::abs)
+    .fold(0.0_f64, f64::max);
+    let eps = 4.0 * f64::EPSILON * max_var * max_var;
+
+    // Confident if max_val > each other component + eps (strict, with margin)
+    if ax > ay + eps && ax > az + eps {
+        return Some(Axis::X);
+    }
+    if ay > ax + eps && ay > az + eps {
+        return Some(Axis::Y);
+    }
+    if az > ax + eps && az > ay + eps {
+        return Some(Axis::Z);
+    }
+    None
 }
 
 /// Exact (dashu rational) cascade primitive — slow but definitive path.
