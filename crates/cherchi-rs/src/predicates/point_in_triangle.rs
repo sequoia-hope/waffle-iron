@@ -1,8 +1,35 @@
-// Function bodies are `unimplemented!()` during the RED phase (Test Author
-// commit). The Implementer commit replaces the bodies. The per-file MIT
-// attribution + "Deliberate deviation from cinolib" + "B-07 correctness
-// improvement" headers land in a separate commit after GREEN per PR-CR5
-// sequencing.
+//! 3D point-in-triangle classification via cinolib's robust
+//! all-three-projections approach.
+//!
+//! Ported from cinolib's `point_in_triangle_3d` (`predicates.cpp:447-481`
+//! per audit B-07). cinolib is MIT-licensed.
+//! © Marco Livesu et al. — https://github.com/mlivesu/cinolib
+//! See ../../LICENSE-THIRD-PARTY.md for full attribution.
+//!
+//! Cherchi 2022 §3 (point-in-triangle as primitive for triangle-triangle
+//! intersection).
+//!
+//! **Deliberate deviation from cinolib (simplification)**: cinolib's
+//! function returns granular boundary info (which edge / vertex was hit).
+//! Our `PointLocation` enum collapses these to `OnBoundary` because no
+//! current cherchi-rs caller needs the granular info (YAGNI). Easy to
+//! expand later if a future port needs it. See
+//! `specs/cherchi_rs_point_in_triangle.md` §"Deliberate deviation from
+//! cinolib".
+//!
+//! **B-07 correctness improvement**: legacy Rust port (in old kernel)
+//! tested only the dominant-axis projection, misclassifying non-coplanar
+//! points projected over the triangle interior as `StrictlyInside`.
+//! cinolib variant tests ALL THREE projections and AND-combines (skipping
+//! degenerate ones), which catches this case for tilted triangles where
+//! multiple projections are non-degenerate.
+//!
+//! **Skip-degenerate refinement**: for axis-aligned triangles, 2 of 3
+//! cardinal projections are degenerate (collinear). Without skipping
+//! degenerate projections, an interior coplanar point would never
+//! return `StrictlyInside`. The skip-degenerate logic matches cinolib's
+//! intent (the strict AND-combine only applies to projections that
+//! carry discrimination info).
 
 use cad_primitives::Point3;
 
