@@ -15,6 +15,8 @@
 
 pub mod collinearity;
 pub mod orientation;
+pub mod point_in_triangle;
 
 pub use collinearity::points_are_collinear_3d;
 pub use orientation::{max_component_in_triangle_normal, Axis};
+pub use point_in_triangle::{point_in_triangle_3d, PointLocation};
