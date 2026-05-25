@@ -27,14 +27,23 @@ use cad_primitives::Point3;
 ///
 /// [`points_are_collinear_3d`]: super::collinearity::points_are_collinear_3d
 pub fn triangles_are_coplanar(
-    _a: Point3,
-    _b: Point3,
-    _c: Point3,
-    _d: Point3,
-    _e: Point3,
-    _f: Point3,
+    a: Point3,
+    b: Point3,
+    c: Point3,
+    d: Point3,
+    e: Point3,
+    f: Point3,
 ) -> bool {
-    unimplemented!("PR-CR7 RED phase — Implementer fills body in next commit")
+    use super::orient::{orient3d, Sign};
+    // Each vertex of T2 against T1's plane (3 tests):
+    orient3d(a, b, c, d) == Sign::Zero
+        && orient3d(a, b, c, e) == Sign::Zero
+        && orient3d(a, b, c, f) == Sign::Zero
+        // Each vertex of T1 against T2's plane (3 tests, for robustness
+        // when one triangle is degenerate; see spec §"Robustness"):
+        && orient3d(d, e, f, a) == Sign::Zero
+        && orient3d(d, e, f, b) == Sign::Zero
+        && orient3d(d, e, f, c) == Sign::Zero
 }
 
 #[cfg(test)]
