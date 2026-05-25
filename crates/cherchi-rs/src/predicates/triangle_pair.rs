@@ -1,7 +1,17 @@
-// Function body is `unimplemented!()` during the RED phase (Test Author
-// commit). The Implementer commit replaces the body. The per-file MIT
-// attribution header lands in a separate commit after GREEN per PR-CR7
-// sequencing.
+//! Inter-primitive predicates: relationships between pairs of triangles.
+//!
+//! `triangles_are_coplanar` is the first step of Cherchi 2022 §3's
+//! triangle-triangle intersection algorithm: the algorithm branches on
+//! coplanarity (different sub-algorithms for coplanar vs. non-coplanar).
+//!
+//! Cherchi 2022 §3 (triangle-triangle intersection; coplanarity branch).
+//! Shewchuk 1997 §2.1 (orient3d as the foundational coplanarity predicate).
+//!
+//! No specific cinolib function flagged in audit for this predicate —
+//! the algorithm (6 orient3d tests, robust against single-degenerate-
+//! triangle inputs) is standard computational geometry. The orient3d
+//! primitive itself is from `geometry-predicates` (MIT) via PR-CR6's
+//! wrapper.
 
 use cad_primitives::Point3;
 
