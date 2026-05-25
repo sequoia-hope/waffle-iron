@@ -1,7 +1,19 @@
-// Function bodies are `unimplemented!()` during the RED phase (Test Author
-// commit). The Implementer commit replaces the bodies. The per-file MIT
-// attribution header lands in a separate commit after GREEN per PR-CR6
-// sequencing.
+//! Foundational `Sign` enum + `Point3`-typed orientation predicates.
+//!
+//! `orient3d` wraps Shewchuk's adaptive predicate from the
+//! `geometry-predicates` crate (MIT-licensed; itself a Shewchuk port)
+//! and converts the f64 result to a 3-valued `Sign`.
+//!
+//! Shewchuk 1997 §2.1 (adaptive orient3d).
+//! Cherchi 2020 §3 (predicates as foundation for arrangement).
+//!
+//! **Sign convention note**: per Shewchuk's `orient3d`, positive means
+//! `d` lies BELOW the plane through `(a, b, c)` where `(a, b, c)`
+//! appears CCW viewed from above (counter-intuitive — "below" gives
+//! positive, NOT above). Cherchi 2020 and downstream consumers expect
+//! this convention. See `specs/cherchi_rs_orient3d_sign.md` for details.
+//!
+//! No deviation from upstream behavior — this is a type-shape wrapper.
 
 use cad_primitives::Point3;
 
