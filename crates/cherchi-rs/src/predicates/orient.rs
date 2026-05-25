@@ -27,29 +27,44 @@ impl Sign {
     /// - `x.is_nan()` → `Zero` (totality fall-through; NaN inputs are
     ///   undefined per project convention but classifying as Zero avoids
     ///   panics in production paths)
-    pub fn from_f64(_x: f64) -> Sign {
-        unimplemented!("PR-CR6 RED phase — Implementer fills body in next commit")
+    pub fn from_f64(x: f64) -> Sign {
+        if x > 0.0 {
+            Sign::Positive
+        } else if x < 0.0 {
+            Sign::Negative
+        } else {
+            // x == 0.0 (including -0.0) OR x.is_nan() — NaN compares
+            // false against both > 0.0 and < 0.0, so it falls through here.
+            Sign::Zero
+        }
     }
 }
 
-/// 3D orientation predicate: returns the sign of the signed volume of
-/// the tetrahedron `(a, b, c, d)`.
+/// 3D orientation predicate: returns the sign of the orientation
+/// determinant of `(a, b, c, d)`, per Shewchuk's convention.
 ///
-/// - `Sign::Positive` — `d` lies above the plane through `(a, b, c)`
-///   viewed from the side where `(a, b, c)` appears CCW; equivalently,
-///   the signed determinant is positive.
-/// - `Sign::Negative` — `d` lies below the plane.
+/// - `Sign::Positive` — `d` lies BELOW the plane through `(a, b, c)`
+///   where `(a, b, c)` appears CCW viewed from above. (Counter-
+///   intuitive: "below" gives positive, NOT above.)
+/// - `Sign::Negative` — `d` lies ABOVE the plane (same CCW viewpoint).
 /// - `Sign::Zero` — all 4 points are coplanar.
 ///
 /// Wraps [`geometry_predicates::orient3d`] (Shewchuk-style adaptive
 /// precision). See `specs/cherchi_rs_orient3d_sign.md` for the full
-/// contract.
+/// contract, including the sign-convention note (Cherchi 2020 and
+/// downstream consumers expect Shewchuk's convention).
 ///
 /// # Failure modes
 ///
 /// NaN / infinite inputs produce undefined behavior. Caller's responsibility.
-pub fn orient3d(_a: Point3, _b: Point3, _c: Point3, _d: Point3) -> Sign {
-    unimplemented!("PR-CR6 RED phase — Implementer fills body in next commit")
+pub fn orient3d(a: Point3, b: Point3, c: Point3, d: Point3) -> Sign {
+    let det = geometry_predicates::orient3d(
+        a.as_array(),
+        b.as_array(),
+        c.as_array(),
+        d.as_array(),
+    );
+    Sign::from_f64(det)
 }
 
 #[cfg(test)]
@@ -108,24 +123,25 @@ mod tests {
 
     /// Standard tetrahedron with apex above the XY plane.
     /// (a, b, c) = unit triangle in XY plane (CCW from +Z view).
-    /// d = (0, 0, 1) is above the plane → positive orientation.
+    /// d = (0, 0, 1) is ABOVE the plane.
+    /// Per Shewchuk's convention: above → Negative (counter-intuitive).
     #[test]
-    fn orient3d_standard_ccw_tetrahedron_is_positive() {
+    fn orient3d_standard_ccw_tetra_apex_above_is_negative() {
         let a = Point3::new(0.0, 0.0, 0.0);
         let b = Point3::new(1.0, 0.0, 0.0);
         let c = Point3::new(0.0, 1.0, 0.0);
         let d = Point3::new(0.0, 0.0, 1.0);
-        assert_eq!(orient3d(a, b, c, d), Sign::Positive);
+        assert_eq!(orient3d(a, b, c, d), Sign::Negative);
     }
 
     #[test]
-    fn orient3d_swapped_two_args_is_negative() {
-        // Same tetra with last two args swapped → CW orientation → Negative.
+    fn orient3d_swapped_two_args_is_positive() {
+        // Same tetra with last two args swapped → sign flips → Positive.
         let a = Point3::new(0.0, 0.0, 0.0);
         let b = Point3::new(1.0, 0.0, 0.0);
         let c = Point3::new(0.0, 1.0, 0.0);
         let d = Point3::new(0.0, 0.0, 1.0);
-        assert_eq!(orient3d(a, b, d, c), Sign::Negative);
+        assert_eq!(orient3d(a, b, d, c), Sign::Positive);
     }
 
     #[test]

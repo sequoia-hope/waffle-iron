@@ -49,12 +49,20 @@ All inputs must be finite. NaN / infinite inputs are undefined.
 
 ### `orient3d`
 
+Per Shewchuk's convention (inherited from `geometry-predicates::orient3d`):
+
 | Input class | Output |
 |---|---|
-| `d` above plane of `(a, b, c)` (positive determinant; CCW orientation) | `Sign::Positive` |
-| `d` below plane | `Sign::Negative` |
+| `d` **below** plane of `(a, b, c)` (where `(a, b, c)` appears CCW viewed from above) | `Sign::Positive` |
+| `d` **above** plane (same CCW viewpoint) | `Sign::Negative` |
 | All 4 points coplanar | `Sign::Zero` |
 | NaN / infinite inputs | Undefined (per `geometry-predicates`'s contract) |
+
+Equivalently: positive means `(a, b, c, d)` has negative signed volume
+(d on the negative side of the CCW plane); negative means positive
+signed volume. This is Shewchuk's specific sign convention — *not*
+the more intuitive "positive volume = positive sign." Cherchi 2020
+and downstream consumers expect this convention.
 
 ## Invariants
 
@@ -85,8 +93,13 @@ All inputs must be finite. NaN / infinite inputs are undefined.
 
 ### `orient3d` canonical
 
-- Standard CCW tetrahedron `(0,0,0), (1,0,0), (0,1,0), (0,0,1)` → `Positive`
-- Same tetra with last two arguments swapped (CW) → `Negative`
+- Standard tetrahedron `(0,0,0), (1,0,0), (0,1,0), (0,0,1)` — `(a,b,c)`
+  is CCW in XY plane viewed from `+Z`; `d=(0,0,1)` is ABOVE the plane.
+  Per Shewchuk's convention: **`Negative`**.
+- Same tetra with last two args swapped (`d` and `c` order swapped, so
+  `(a, b, d, c)`): `(a, b, d)` viewed from `c` direction is CW;
+  equivalently this puts the "below" face under c. Per Shewchuk:
+  **`Positive`**.
 - Four coplanar points (all `z = 0`) → `Zero`
 
 ### `orient3d` antisymmetry property
