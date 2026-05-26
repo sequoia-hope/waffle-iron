@@ -85,21 +85,103 @@ pub(crate) struct Triangle {
 impl FastTrimesh {
     /// Build a `FastTrimesh` from raw vertex + triangle arrays.
     ///
-    /// Validates input, derives the sorted-unique edge list, and builds
-    /// V→E and E→T adjacency. See spec at
-    /// `specs/cherchi_rs_fast_trimesh_mvp.md`.
+    /// Validates input (vertex count, triangle count, per-triangle index
+    /// range, no repeated indices within a triangle), derives the
+    /// sorted-unique edge list, and builds V→E + E→T adjacency.
+    ///
+    /// Algorithm mirrors upstream `fast_trimesh.cpp:78-128` (parallel
+    /// branch, sequential here): collect all `3 * T` edges as
+    /// `(min(v0,v1), max(v0,v1))`; sort + unique; assign IDs by index;
+    /// populate `v2e` and `e2t` by binary searching for each triangle's
+    /// edges.
     pub fn from_soup(
-        _verts: &[Point3],
-        _tris: &[[u32; 3]],
+        verts: &[Point3],
+        tris: &[[u32; 3]],
         plane: Plane,
     ) -> Result<Self, FastTrimeshError> {
-        // RED stub: returns empty mesh. GREEN will validate + build.
+        let n_verts: u32 = verts
+            .len()
+            .try_into()
+            .map_err(|_| FastTrimeshError::TooManyVertices { count: verts.len() })?;
+        let n_tris: u32 = tris
+            .len()
+            .try_into()
+            .map_err(|_| FastTrimeshError::TooManyTriangles { count: tris.len() })?;
+
+        // ----- Validate every triangle (range + non-degeneracy) -----
+        for (ti, tri) in tris.iter().enumerate() {
+            for (slot, &vid) in tri.iter().enumerate() {
+                if vid >= n_verts {
+                    return Err(FastTrimeshError::VertexIndexOutOfRange {
+                        tri: ti as u32,
+                        slot: slot as u8,
+                        vid,
+                        n_verts,
+                    });
+                }
+            }
+            if tri[0] == tri[1] || tri[1] == tri[2] || tri[0] == tri[2] {
+                return Err(FastTrimeshError::DegenerateTriangle {
+                    tri: ti as u32,
+                    vids: *tri,
+                });
+            }
+        }
+
+        // ----- Build vertices + triangles -----
+        let vertices: Vec<Vertex> = verts
+            .iter()
+            .map(|&p| Vertex { point: p, info: 0 })
+            .collect();
+        let triangles: Vec<Triangle> = tris.iter().map(|&v| Triangle { v, info: 0 }).collect();
+
+        // ----- Collect + sort + dedup edges -----
+        // Each triangle contributes 3 edges as sorted (min, max) pairs.
+        let mut sorted_edges: Vec<[u32; 2]> = Vec::with_capacity(3 * tris.len());
+        for tri in tris {
+            sorted_edges.push(sort_pair(tri[0], tri[1]));
+            sorted_edges.push(sort_pair(tri[1], tri[2]));
+            sorted_edges.push(sort_pair(tri[2], tri[0]));
+        }
+        sorted_edges.sort_unstable();
+        sorted_edges.dedup();
+
+        let edges: Vec<Edge> = sorted_edges
+            .iter()
+            .map(|&[v0, v1]| Edge {
+                v0,
+                v1,
+                constr: false,
+                visited: false,
+            })
+            .collect();
+
+        // ----- Build v2e (vertex → edges) -----
+        let mut v2e: Vec<Vec<u32>> = vec![Vec::new(); n_verts as usize];
+        for (e_id, &[v0, v1]) in sorted_edges.iter().enumerate() {
+            let e_id = e_id as u32;
+            v2e[v0 as usize].push(e_id);
+            v2e[v1 as usize].push(e_id);
+        }
+
+        // ----- Build e2t (edge → triangles) via binary search -----
+        let mut e2t: Vec<Vec<u32>> = vec![Vec::new(); sorted_edges.len()];
+        for (t_id, tri) in tris.iter().enumerate() {
+            let t_id = t_id as u32;
+            let e0 = lookup_edge(&sorted_edges, sort_pair(tri[0], tri[1]));
+            let e1 = lookup_edge(&sorted_edges, sort_pair(tri[1], tri[2]));
+            let e2 = lookup_edge(&sorted_edges, sort_pair(tri[2], tri[0]));
+            e2t[e0 as usize].push(t_id);
+            e2t[e1 as usize].push(t_id);
+            e2t[e2 as usize].push(t_id);
+        }
+
         Ok(Self {
-            vertices: Vec::new(),
-            edges: Vec::new(),
-            triangles: Vec::new(),
-            v2e: Vec::new(),
-            e2t: Vec::new(),
+            vertices,
+            edges,
+            triangles,
+            v2e,
+            e2t,
             plane,
         })
     }
@@ -124,81 +206,148 @@ impl FastTrimesh {
 
     // ----- Vertex queries -----
 
-    pub fn vert(&self, _v: u32) -> Point3 {
-        Point3::new(0.0, 0.0, 0.0)
+    pub fn vert(&self, v: u32) -> Point3 {
+        debug_assert!(v < self.num_verts(), "vert: id {v} out of range");
+        self.vertices[v as usize].point
     }
 
-    pub fn vert_info(&self, _v: u32) -> u32 {
-        0
+    pub fn vert_info(&self, v: u32) -> u32 {
+        debug_assert!(v < self.num_verts(), "vert_info: id {v} out of range");
+        self.vertices[v as usize].info
     }
 
-    pub fn vert_valence(&self, _v: u32) -> u32 {
-        0
+    pub fn vert_valence(&self, v: u32) -> u32 {
+        debug_assert!(v < self.num_verts(), "vert_valence: id {v} out of range");
+        self.v2e[v as usize].len() as u32
     }
 
-    pub fn adj_v2e(&self, _v: u32) -> &[u32] {
-        &[]
+    pub fn adj_v2e(&self, v: u32) -> &[u32] {
+        debug_assert!(v < self.num_verts(), "adj_v2e: id {v} out of range");
+        &self.v2e[v as usize]
     }
 
     // ----- Edge queries -----
 
-    pub fn edge(&self, _e: u32) -> (u32, u32) {
-        (0, 0)
+    pub fn edge(&self, e: u32) -> (u32, u32) {
+        debug_assert!(e < self.num_edges(), "edge: id {e} out of range");
+        let edge = &self.edges[e as usize];
+        (edge.v0, edge.v1)
     }
 
-    pub fn edge_vert_id(&self, _e: u32, _off: u32) -> u32 {
-        0
+    pub fn edge_vert_id(&self, e: u32, off: u32) -> u32 {
+        debug_assert!(e < self.num_edges(), "edge_vert_id: id {e} out of range");
+        debug_assert!(off < 2, "edge_vert_id: off {off} not in {{0, 1}}");
+        let edge = &self.edges[e as usize];
+        if off == 0 { edge.v0 } else { edge.v1 }
     }
 
-    pub fn edge_id(&self, _u: u32, _v: u32) -> Option<u32> {
+    pub fn edge_id(&self, u: u32, v: u32) -> Option<u32> {
+        if u == v || u >= self.num_verts() || v >= self.num_verts() {
+            return None;
+        }
+        let (a, b) = if u < v { (u, v) } else { (v, u) };
+        // Linear search through edges incident to the lower-indexed vertex.
+        for &e in &self.v2e[a as usize] {
+            let edge = &self.edges[e as usize];
+            if edge.v0 == a && edge.v1 == b {
+                return Some(e);
+            }
+        }
         None
     }
 
-    pub fn edge_is_constr(&self, _e: u32) -> bool {
-        false
+    pub fn edge_is_constr(&self, e: u32) -> bool {
+        debug_assert!(e < self.num_edges(), "edge_is_constr: id {e} out of range");
+        self.edges[e as usize].constr
     }
 
-    pub fn edge_is_boundary(&self, _e: u32) -> bool {
-        false
+    pub fn edge_is_boundary(&self, e: u32) -> bool {
+        debug_assert!(
+            e < self.num_edges(),
+            "edge_is_boundary: id {e} out of range"
+        );
+        self.e2t[e as usize].len() == 1
     }
 
-    pub fn edge_is_manifold(&self, _e: u32) -> bool {
-        false
+    pub fn edge_is_manifold(&self, e: u32) -> bool {
+        debug_assert!(
+            e < self.num_edges(),
+            "edge_is_manifold: id {e} out of range"
+        );
+        self.e2t[e as usize].len() <= 2
     }
 
-    pub fn adj_e2t(&self, _e: u32) -> &[u32] {
-        &[]
+    pub fn adj_e2t(&self, e: u32) -> &[u32] {
+        debug_assert!(e < self.num_edges(), "adj_e2t: id {e} out of range");
+        &self.e2t[e as usize]
     }
 
     // ----- Triangle queries -----
 
-    pub fn tri(&self, _t: u32) -> [u32; 3] {
-        [0, 0, 0]
+    pub fn tri(&self, t: u32) -> [u32; 3] {
+        debug_assert!(t < self.num_tris(), "tri: id {t} out of range");
+        self.triangles[t as usize].v
     }
 
-    pub fn tri_vert_id(&self, _t: u32, _off: u32) -> u32 {
-        0
+    pub fn tri_vert_id(&self, t: u32, off: u32) -> u32 {
+        debug_assert!(t < self.num_tris(), "tri_vert_id: id {t} out of range");
+        debug_assert!(off < 3, "tri_vert_id: off {off} not in {{0, 1, 2}}");
+        self.triangles[t as usize].v[off as usize]
     }
 
-    pub fn tri_vert(&self, _t: u32, _off: u32) -> Point3 {
-        Point3::new(0.0, 0.0, 0.0)
+    pub fn tri_vert(&self, t: u32, off: u32) -> Point3 {
+        debug_assert!(t < self.num_tris(), "tri_vert: id {t} out of range");
+        debug_assert!(off < 3, "tri_vert: off {off} not in {{0, 1, 2}}");
+        let vid = self.triangles[t as usize].v[off as usize];
+        self.vertices[vid as usize].point
     }
 
-    pub fn tri_vert_offset(&self, _t: u32, _v: u32) -> Option<u32> {
+    pub fn tri_vert_offset(&self, t: u32, v: u32) -> Option<u32> {
+        debug_assert!(t < self.num_tris(), "tri_vert_offset: id {t} out of range");
+        let tri = &self.triangles[t as usize].v;
+        for (off, &vid) in tri.iter().enumerate() {
+            if vid == v {
+                return Some(off as u32);
+            }
+        }
         None
     }
 
-    pub fn tri_contains_vert(&self, _t: u32, _v: u32) -> bool {
-        false
+    pub fn tri_contains_vert(&self, t: u32, v: u32) -> bool {
+        self.tri_vert_offset(t, v).is_some()
     }
 
-    pub fn tri_edges(&self, _t: u32) -> [u32; 3] {
-        [0, 0, 0]
+    pub fn tri_edges(&self, t: u32) -> [u32; 3] {
+        debug_assert!(t < self.num_tris(), "tri_edges: id {t} out of range");
+        let tri = &self.triangles[t as usize].v;
+        // Each edge MUST exist (invariant); unwrap is safe here.
+        let e0 = self.edge_id(tri[0], tri[1]).expect("tri edge 0 missing");
+        let e1 = self.edge_id(tri[1], tri[2]).expect("tri edge 1 missing");
+        let e2 = self.edge_id(tri[2], tri[0]).expect("tri edge 2 missing");
+        [e0, e1, e2]
     }
 
-    pub fn tri_info(&self, _t: u32) -> u32 {
-        0
+    pub fn tri_info(&self, t: u32) -> u32 {
+        debug_assert!(t < self.num_tris(), "tri_info: id {t} out of range");
+        self.triangles[t as usize].info
     }
+}
+
+// =========================================================================
+// Internal helpers
+// =========================================================================
+
+fn sort_pair(a: u32, b: u32) -> [u32; 2] {
+    if a < b { [a, b] } else { [b, a] }
+}
+
+/// Binary search in a pre-sorted edge list. Panics if not found —
+/// internal helper, only called with edges known to exist.
+fn lookup_edge(sorted_edges: &[[u32; 2]], key: [u32; 2]) -> u32 {
+    sorted_edges
+        .binary_search(&key)
+        .expect("lookup_edge: key missing in sorted_edges (invariant violation)")
+        as u32
 }
 
 // =========================================================================
