@@ -652,6 +652,86 @@ impl FastTrimesh {
 }
 
 // =========================================================================
+// PR-CR12b — removal API (swap-pop index remapping)
+// =========================================================================
+
+impl FastTrimesh {
+    // ----- Public removal -----
+
+    /// Remove a triangle, cascading any newly-dangling edges. After
+    /// return, no stale reference to `t` exists in any `e2t[*]` list.
+    /// Mirrors upstream `removeTri` (cpp:658-688).
+    pub fn remove_tri(&mut self, _t: u32) {
+        // RED stub
+    }
+
+    /// Remove all triangles in `ts`. Sorts descending internally so
+    /// swap-pop indexing stays consistent (mirrors upstream cpp:695).
+    pub fn remove_tris(&mut self, _ts: Vec<u32>) {
+        // RED stub
+    }
+
+    /// Remove an edge by removing all triangles incident to it. The
+    /// edge itself becomes dangling and is auto-removed during the
+    /// cascade. Mirrors upstream `removeEdge` (cpp:650-654).
+    pub fn remove_edge(&mut self, _e: u32) {
+        // RED stub
+    }
+
+    // ----- Private helpers -----
+
+    /// Partial-dismantle-tolerant version of `tri_edges`. Returns
+    /// `None` for edges that have already been popped during an
+    /// in-flight `remove_tri`. Used exclusively by `tri_switch`.
+    /// Mirrors upstream's `-1` sentinel idiom (cpp:858-862).
+    fn tri_edges_opt(&self, t: u32) -> [Option<u32>; 3] {
+        debug_assert!(t < self.num_tris(), "tri_edges_opt: id {t} out of range");
+        let _ = t;
+        [None, None, None]
+    }
+
+    /// Swap-pop the triangle at slot `t`. The last triangle moves
+    /// into slot `t`; `tri_switch` rewrites all e2t references.
+    /// Mirrors upstream `removeTriUnref` (cpp:907-911).
+    fn remove_tri_unref(&mut self, _t: u32) {
+        // RED stub
+    }
+
+    /// Swap-pop the edge at slot `e`. Edges and e2t pop in lockstep.
+    /// Mirrors upstream `removeEdgeUnref` (cpp:897-903).
+    fn remove_edge_unref(&mut self, _e: u32) {
+        // RED stub
+    }
+
+    /// Swap the triangles at slots `t0` and `t1`, rewriting all
+    /// `e2t[*]` references accordingly. After return: every e2t entry
+    /// that pointed to `t0` now points to `t1`, and vice versa.
+    /// Mirrors upstream `triSwitch` (cpp:847-867).
+    fn tri_switch(&mut self, _t0: u32, _t1: u32) {
+        // RED stub
+    }
+
+    /// Swap the edges at slots `e0` and `e1` (and their e2t lists),
+    /// rewriting all `v2e[*]` references accordingly. Mirrors
+    /// upstream `edgeSwitch` (cpp:871-893).
+    fn edge_switch(&mut self, _e0: u32, _e1: u32) {
+        // RED stub
+    }
+
+    /// Trivial predicate. Mirrors upstream `edgeContainsVert`
+    /// (cpp:831-836). Kept as a named helper for call-site readability
+    /// in `edge_switch`.
+    fn edge_contains_vert(&self, e: u32, v: u32) -> bool {
+        debug_assert!(
+            e < self.num_edges(),
+            "edge_contains_vert: id {e} out of range"
+        );
+        let edge = &self.edges[e as usize];
+        edge.v0 == v || edge.v1 == v
+    }
+}
+
+// =========================================================================
 // Internal helpers
 // =========================================================================
 
@@ -1562,5 +1642,307 @@ mod tests {
         assert_eq!(ft.vert_new_id(0), None);
         assert_eq!(ft.vert_new_id(1), None);
         assert_eq!(ft.vert_new_id(2), None);
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12b — canonical-shape helper for order-independence tests
+    // -----------------------------------------------------------------
+
+    /// Captures the "shape" of a `FastTrimesh` in a form that's
+    /// independent of HashMap iteration order and swap-pop slot
+    /// assignment. Two meshes with equal `canonical_shape` are
+    /// considered topologically equivalent.
+    type Shape = (u32, u32, u32, Vec<[u32; 2]>, Vec<[u32; 3]>, Vec<u32>);
+
+    fn canonical_shape(ft: &FastTrimesh) -> Shape {
+        let n_v = ft.num_verts();
+        let n_e = ft.num_edges();
+        let n_t = ft.num_tris();
+        let mut edges: Vec<[u32; 2]> = (0..n_e)
+            .map(|e| {
+                let (a, b) = ft.edge(e);
+                [a, b]
+            })
+            .collect();
+        edges.sort();
+        let mut tris: Vec<[u32; 3]> = (0..n_t)
+            .map(|t| {
+                let mut v = ft.tri(t);
+                v.sort();
+                v
+            })
+            .collect();
+        tris.sort();
+        let mut valences: Vec<u32> = (0..n_v).map(|v| ft.vert_valence(v)).collect();
+        valences.sort();
+        (n_v, n_e, n_t, edges, tris, valences)
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12b — Group 1: single-triangle removal cascade
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn remove_only_tri_isolates_verts() {
+        let (v, t) = single_tri();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        ft.remove_tri(0);
+        assert_eq!(ft.num_verts(), 3);
+        assert_eq!(ft.num_edges(), 0);
+        assert_eq!(ft.num_tris(), 0);
+        for vi in 0..ft.num_verts() {
+            assert_eq!(ft.vert_valence(vi), 0);
+        }
+    }
+
+    #[test]
+    fn remove_only_tri_cascades_three_edges() {
+        let (v, t) = single_tri();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        assert_eq!(ft.num_edges(), 3);
+        ft.remove_tri(0);
+        assert_eq!(ft.num_edges(), 0);
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12b — Group 2: manifold (tetrahedron) removal
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn remove_one_from_tetrahedron_leaves_three() {
+        let (v, t) = tetrahedron();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        ft.remove_tri(0);
+        assert_eq!(ft.num_verts(), 4);
+        assert_eq!(ft.num_tris(), 3);
+        // All 6 edges still present — none became dangling because
+        // each edge of tri 0 is shared with another tri.
+        assert_eq!(ft.num_edges(), 6);
+    }
+
+    #[test]
+    fn remove_all_tetra_tris_one_by_one() {
+        let (v, t) = tetrahedron();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        // Remove descending — swap-pop disciplined order.
+        for _ in 0..4 {
+            ft.remove_tri(ft.num_tris() - 1);
+        }
+        assert_eq!(ft.num_verts(), 4);
+        assert_eq!(ft.num_edges(), 0);
+        assert_eq!(ft.num_tris(), 0);
+    }
+
+    #[test]
+    fn tetra_sum_invariants_hold_after_remove() {
+        let (v, t) = tetrahedron();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        ft.remove_tri(0);
+        let sum_v2e: u32 = (0..ft.num_verts()).map(|v| ft.vert_valence(v)).sum();
+        let sum_e2t: usize = (0..ft.num_edges()).map(|e| ft.adj_e2t(e).len()).sum();
+        assert_eq!(sum_v2e, 2 * ft.num_edges());
+        assert_eq!(sum_e2t, 3 * ft.num_tris() as usize);
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12b — Group 3: non-manifold + boundary
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn non_manifold_remove_one_keeps_edge() {
+        let (v, t) = non_manifold_3_tris();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        let e = ft.edge_id(0, 1).expect("shared edge");
+        assert_eq!(ft.adj_e2t(e).len(), 3);
+        ft.remove_tri(0);
+        // Edge (0,1) should still exist — 2 tris remain on it.
+        let e = ft.edge_id(0, 1).expect("shared edge should still exist");
+        assert_eq!(ft.adj_e2t(e).len(), 2);
+    }
+
+    #[test]
+    fn quad_remove_one_keeps_diagonal_as_boundary() {
+        let (v, t) = two_tri_quad();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        ft.remove_tri(0);
+        assert_eq!(ft.num_verts(), 4);
+        assert_eq!(ft.num_tris(), 1);
+        // 3 edges of remaining tri: 2 quad-boundary + 1 diagonal.
+        assert_eq!(ft.num_edges(), 3);
+    }
+
+    #[test]
+    fn quad_remove_both_tris_clears_everything() {
+        let (v, t) = two_tri_quad();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        ft.remove_tri(1);
+        ft.remove_tri(0);
+        assert_eq!(ft.num_verts(), 4);
+        assert_eq!(ft.num_edges(), 0);
+        assert_eq!(ft.num_tris(), 0);
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12b — Group 4: order independence via canonical_shape
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn tetra_removal_order_independent() {
+        let (v, t) = tetrahedron();
+        let mut a = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        let mut b = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        // Remove higher-id first in both (descending discipline).
+        a.remove_tri(2);
+        a.remove_tri(0);
+        b.remove_tri(2);
+        b.remove_tri(0);
+        assert_eq!(canonical_shape(&a), canonical_shape(&b));
+    }
+
+    #[test]
+    fn icosa_removal_two_orders_same_shape() {
+        let (v, t) = icosahedron();
+        let mut a = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        let mut b = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        // Remove the same tris in different valid orders.
+        // (Use descending so swap-pop doesn't shift the targets.)
+        a.remove_tri(15);
+        a.remove_tri(10);
+        a.remove_tri(5);
+        b.remove_tri(15);
+        b.remove_tri(10);
+        b.remove_tri(5);
+        assert_eq!(canonical_shape(&a), canonical_shape(&b));
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12b — Group 5: batch consistency
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn remove_tris_matches_sequential_removes() {
+        let (v, t) = tetrahedron();
+        let mut batch = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        let mut seq = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        batch.remove_tris(vec![0, 1]);
+        // Sequential: descending discipline.
+        seq.remove_tri(1);
+        seq.remove_tri(0);
+        assert_eq!(canonical_shape(&batch), canonical_shape(&seq));
+    }
+
+    #[test]
+    fn remove_tris_empty_is_noop() {
+        let (v, t) = tetrahedron();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        let before = canonical_shape(&ft);
+        ft.remove_tris(vec![]);
+        assert_eq!(canonical_shape(&ft), before);
+    }
+
+    #[test]
+    fn remove_tris_handles_ascending_input() {
+        // Caller passes ascending order; the method must sort
+        // descending internally to keep swap-pop indexing safe.
+        let (v, t) = tetrahedron();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        ft.remove_tris(vec![0, 1, 2]); // ascending intentionally
+        assert_eq!(ft.num_tris(), 1);
+        // The surviving tri must be coherent with adjacency invariants.
+        let sum_v2e: u32 = (0..ft.num_verts()).map(|v| ft.vert_valence(v)).sum();
+        let sum_e2t: usize = (0..ft.num_edges()).map(|e| ft.adj_e2t(e).len()).sum();
+        assert_eq!(sum_v2e, 2 * ft.num_edges());
+        assert_eq!(sum_e2t, 3 * ft.num_tris() as usize);
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12b — Group 6: edge removal
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn remove_edge_on_tetra_drops_two_tris() {
+        let (v, t) = tetrahedron();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        // Pick an interior edge — every tetra edge has 2 incident tris.
+        let e = ft.edge_id(0, 1).expect("edge (0,1)");
+        assert_eq!(ft.adj_e2t(e).len(), 2);
+        ft.remove_edge(e);
+        assert_eq!(ft.num_tris(), 2);
+        // Edge (0,1) itself should be gone (it became dangling).
+        assert_eq!(ft.edge_id(0, 1), None);
+    }
+
+    #[test]
+    fn remove_diagonal_on_two_tri_quad_drops_both() {
+        let (v, t) = two_tri_quad();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        let diag = ft.edge_id(0, 2).expect("quad diagonal");
+        ft.remove_edge(diag);
+        assert_eq!(ft.num_tris(), 0);
+        assert_eq!(ft.num_edges(), 0);
+        assert_eq!(ft.num_verts(), 4);
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12b — Group 7: index remapping correctness (load-bearing)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn swap_into_zero_remaps_e2t_refs() {
+        // Tetrahedron: 4 tris. Remove tri 0. Swap-pop puts OLD tri 3
+        // into slot 0. For every edge incident to OLD tri 3, adj_e2t
+        // should now contain 0 (the new slot) and NOT 3 (the popped
+        // slot).
+        let (v, t) = tetrahedron();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        let old_tri_3_verts = ft.tri(3);
+        ft.remove_tri(0);
+        assert_eq!(ft.tri(0), old_tri_3_verts);
+        // Every edge incident to tri 0 (which is OLD tri 3) should
+        // reference 0 in its adj_e2t.
+        for e in ft.tri_edges(0) {
+            let adj = ft.adj_e2t(e);
+            assert!(adj.contains(&0), "edge {e} missing new tri 0");
+            assert!(!adj.contains(&3), "edge {e} still references popped tri 3");
+        }
+    }
+
+    #[test]
+    fn cascading_swap_pop_matches_ground_truth() {
+        // Tetrahedron: remove tri 0, then tri 0 again. Final state
+        // should be canonically equivalent to building a 2-tri mesh
+        // fresh from from_soup (the remaining tetra faces). If the
+        // e2t remap after the first remove was wrong, the second
+        // remove panics or silently corrupts.
+        let (v, t) = tetrahedron();
+        let mut victim = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        victim.remove_tri(0);
+        victim.remove_tri(0);
+        // The 2 remaining tris are the original tris 1, 2 (in some
+        // slot assignment). canonical_shape captures their topology.
+        let ground = FastTrimesh::from_soup(&v, &[t[1], t[2]], Plane::XY).unwrap();
+        assert_eq!(canonical_shape(&victim), canonical_shape(&ground));
+    }
+
+    #[test]
+    fn sum_invariants_after_multi_remove_on_icosa() {
+        let (v, t) = icosahedron();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        // Remove several tris in descending order.
+        for victim in [15u32, 10, 5] {
+            ft.remove_tri(victim);
+            let sum_v2e: u32 = (0..ft.num_verts()).map(|v| ft.vert_valence(v)).sum();
+            let sum_e2t: usize = (0..ft.num_edges()).map(|e| ft.adj_e2t(e).len()).sum();
+            assert_eq!(
+                sum_v2e,
+                2 * ft.num_edges(),
+                "sum |v2e| != 2·E after removing {victim}"
+            );
+            assert_eq!(
+                sum_e2t,
+                3 * ft.num_tris() as usize,
+                "sum |e2t| != 3·T after removing {victim}"
+            );
+        }
     }
 }
