@@ -1,7 +1,26 @@
-// Function body is `unimplemented!()` during the RED phase (Test Author
-// commit). The Implementer commit replaces the body. The per-file MIT
-// attribution header lands in a separate commit after GREEN per PR-CR9
-// sequencing.
+//! 3D triangle-triangle intersection classification — the algorithmic
+//! payoff of PR-CR1 through PR-CR8's foundations.
+//!
+//! `triangle_intersects_triangle_3d` is the central algorithm of
+//! Cherchi 2022 §3: mesh arrangement processes pairs of triangles via
+//! this primitive. Branches on coplanarity (PR-CR7) and dispatches to
+//! 6 edge-triangle tests (PR-CR8) in the non-coplanar case.
+//!
+//! Cherchi 2022 §3 (triangle-triangle intersection; full algorithm).
+//! Shewchuk 1997 §2.1 (orient3d as the foundational predicate).
+//!
+//! The 3-state enum (Disjoint / Intersects / Coplanar) collapses
+//! intersection types per YAGNI: callers needing granular info
+//! (interior vs edge vs vertex) can probe via direct PR-CR8 calls.
+//!
+//! **Discovery during implementation**: shared-edge cases return
+//! `Intersects` (not `Coplanar` as originally specified) — the
+//! algorithm's secondary line-test propagation via vertex coincidence
+//! correctly detects the shared edge as a true intersection. The
+//! `Coplanar` return is reserved for cases requiring caller's 2D
+//! refinement: full coplanar OR edge-in-other-plane without vertex
+//! coincidence. See `specs/cherchi_rs_triangle_intersect_3d.md`
+//! §"Why Coplanar covers both cases" for the full discussion.
 
 use cad_primitives::Point3;
 
