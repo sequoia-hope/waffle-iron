@@ -6,18 +6,26 @@
 //!
 //! Cherchi 2020 §4 (mesh arrangement data structure).
 //!
-//! ## Scope of PR-CR11 (build-once / query-many)
+//! ## Scope (cumulative through PR-CR12a)
 //!
-//! Bulk constructor + every topology / adjacency query the arrangement
-//! read phase needs. Immutable after construction. See
-//! `specs/cherchi_rs_fast_trimesh_mvp.md`.
+//! - **PR-CR11**: bulk constructor + every topology / adjacency query
+//!   the arrangement read phase needs. Immutable after construction.
+//!   See `specs/cherchi_rs_fast_trimesh_mvp.md`.
+//! - **PR-CR12a**: addition mutator family (`add_vert`,
+//!   `add_vert_with_orig_id`, `add_tri` with rotation-invariant dedup
+//!   via `tri_id`), info/flag setters (`set_vert_info`, `set_tri_info`,
+//!   `set_edge_constr`, `edge_set_visited`), bulk resetters
+//!   (`reset_vertices_info`, `reset_triangles_info`), `rev_vtx_map` +
+//!   `vert_orig_id` / `vert_new_id` queries, and derived adjacency
+//!   (`adj_t2t`, `adj_v2t`). See
+//!   `specs/cherchi_rs_fast_trimesh_mutators.md`.
 //!
 //! ## Deliberate deviations from upstream
 //!
 //! 1. **Explicit points only.** Upstream stores `const genericPoint*`
 //!    to support implicit (LPI/TPI) points from the LGPL
 //!    `Indirect_Predicates` library. cherchi-rs does NOT depend on
-//!    LGPL code (paused; see project memory). PR-CR11 stores `Point3`
+//!    LGPL code (paused; see project memory). We store `Point3`
 //!    by value — explicit-only. When the LGPL decision resolves,
 //!    `Vertex` will gain an implicit-point variant; the topology
 //!    layer is unaffected.
@@ -27,36 +35,61 @@
 //!    algorithm the upstream parallel path uses (cpp:78-128), minus
 //!    TBB. Rayon parallelism is a future opt-in feature flag.
 //!
-//! 3. **No `rev_vtx_map`, `Tree` integration, or `Plane`-using 2D
-//!    orientation queries** (`tri_orientation`, `tri_verts_are_ccw`).
-//!    Deferred to PR-CR12.
-//!
-//! 4. **`Point3` stored by value**, not by reference. Upstream uses
+//! 3. **`Point3` stored by value**, not by reference. Upstream uses
 //!    pointer for `genericPoint*` polymorphism; `Point3` is `Copy`
 //!    (24 B) and we have no polymorphism, so by-value is cleaner
 //!    and avoids self-referential lifetimes on `FastTrimesh`.
 //!
-//! 5. **`info` fields are read-only**, default 0. Setters land in
-//!    PR-CR12 — keeping the field in the struct now means PR-CR12
-//!    only adds setters, not struct-layout changes.
+//! 4. **`edge_id` / `tri_vert_offset` / `tri_id` return
+//!    `Option<u32>`**, where upstream returns `int` with `-1` for
+//!    missing. We use `Option` for type safety; consumers must
+//!    explicitly handle the missing case.
 //!
-//! 6. **`edge_id` / `tri_vert_offset` return `Option<u32>`**, where
-//!    upstream returns `int` with `-1` for missing. We use `Option`
-//!    for type safety; consumers must explicitly handle the missing
-//!    case.
-//!
-//! 7. **Adjacency is `Vec<Vec<u32>>`**, not upstream's
+//! 5. **Adjacency is `Vec<Vec<u32>>`**, not upstream's
 //!    `absl::InlinedVector<uint, 16>`. Allocator churn on small
 //!    adjacencies is a known v1 cost; `smallvec` optimization is
 //!    deferred (currently not in workspace deps).
 //!
-//! ## Deferred to PR-CR12 (FastTrimesh Phase 2)
+//! 6. **Separate `Vertex.orig_id: Option<u32>` field** (PR-CR12a).
+//!    Upstream's `addVert(p, orig_id)` overloads `iVtx.info` to
+//!    store `orig_id` with 0 as the "no orig_id" sentinel
+//!    (cpp:603-612) — but 0 is a valid input vertex ID, foot-gun.
+//!    We use a separate `Option<u32>` field; `info` stays
+//!    user-controlled.
 //!
-//! All mutators (`add_vert`, `add_tri`, `remove_*`, `split_*`,
-//! `flip_tri`), `rev_vtx_map` + `vert_orig_id` / `vert_new_id`,
-//! `Tree` integration + `tri_node_id`, `Plane`-using methods
-//! (`tri_orientation`, `tri_verts_are_ccw`), info-field setters,
-//! parallel constructor, `adj_t2t` / `adj_v2t`.
+//! 7. **`std::collections::HashMap<u32, u32>` for `rev_vtx_map`**
+//!    (PR-CR12a). Upstream uses `phmap::flat_hash_map`. Swap to a
+//!    faster map later is a one-field-type change; phmap is not
+//!    a workspace dep.
+//!
+//! 8. **Separate method names instead of overloading** (PR-CR12a):
+//!    `add_vert` (no orig_id) vs `add_vert_with_orig_id`. Rust has
+//!    no method overloading.
+//!
+//! 9. **`set_edge_constr` matches upstream "set to true only"**
+//!    (PR-CR12a, cpp:320-324). No `(e, bool)` form. If clearing is
+//!    needed in CR12b/c, add `clear_edge_constr` then.
+//!
+//! 10. **`edge_set_visited` writes to a separate `visited` field**
+//!     (PR-CR11/CR12a). Upstream cpp:371 reuses the `constr` storage
+//!     for both `constr` and `visited` flags; cherchi-rs splits them
+//!     to remove the foot-gun. PR-CR12a includes regression tests.
+//!
+//! ## Deferred to PR-CR12b (removal swap-pop)
+//!
+//! `remove_tri`, `remove_tris`, `remove_edge`, plus the private
+//! helpers `remove_tri_unref`, `remove_edge_unref`, `tri_switch`,
+//! `edge_switch`, `remove_from_vec`, `edge_contains_vert`. The
+//! algorithmically interesting work — index remapping on swap-pop
+//! is fragile and deserves isolated review.
+//!
+//! ## Deferred to PR-CR12c (re-triangulation + Tree + Plane queries)
+//!
+//! `split_edge` (with/without Tree), `split_tri` (with/without
+//! Tree), `flip_tri`, the `Tree` data structure, `tri_node_id` /
+//! `set_tri_node_id`, `tri_orientation` (needs CR10 `orient2d` +
+//! axis-drop projection), `tri_verts_are_ccw`. Also: parallel
+//! constructor (rayon opt-in).
 
 use std::collections::HashMap;
 
@@ -505,12 +538,10 @@ impl FastTrimesh {
     /// one that also contains `v2`.
     pub fn tri_id(&self, v0: u32, v1: u32, v2: u32) -> Option<u32> {
         let e = self.edge_id(v0, v1)?;
-        for &t in self.adj_e2t(e) {
-            if self.tri_contains_vert(t, v2) {
-                return Some(t);
-            }
-        }
-        None
+        self.adj_e2t(e)
+            .iter()
+            .copied()
+            .find(|&t| self.tri_contains_vert(t, v2))
     }
 
     /// Private helper: deduplicating edge insertion. If an edge with
@@ -552,10 +583,7 @@ impl FastTrimesh {
     /// Mark an edge as constrained (`constr = true`). No clearing
     /// API — matches upstream cpp:320-324.
     pub fn set_edge_constr(&mut self, e: u32) {
-        debug_assert!(
-            e < self.num_edges(),
-            "set_edge_constr: id {e} out of range"
-        );
+        debug_assert!(e < self.num_edges(), "set_edge_constr: id {e} out of range");
         self.edges[e as usize].constr = true;
     }
 
