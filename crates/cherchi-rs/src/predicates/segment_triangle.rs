@@ -1,7 +1,22 @@
-// Function body is `unimplemented!()` during the RED phase (Test Author
-// commit). The Implementer commit replaces the body. The per-file MIT
-// attribution header lands in a separate commit after GREEN per PR-CR8
-// sequencing.
+//! 3D segment-triangle intersection classification.
+//!
+//! `segment_intersects_triangle_3d` is the core primitive of Cherchi
+//! 2022 §3's non-coplanar triangle-triangle intersection branch:
+//! for each pair of (T1 edge, T2 triangle) and (T2 edge, T1 triangle),
+//! this test determines whether they share any point.
+//!
+//! Cherchi 2022 §3 (triangle-triangle intersection; non-coplanar branch).
+//! Shewchuk 1997 §2.1 (orient3d as the foundational predicate).
+//!
+//! No specific cinolib function flagged in audit for this predicate —
+//! the algorithm (5 orient3d tests + Sign-pattern combination) is
+//! standard computational geometry (Möller-Trumbore-style, adapted to
+//! exact arithmetic). The orient3d primitive is from PR-CR6's wrapper
+//! over `geometry-predicates` (MIT).
+//!
+//! The 3-state enum (Disjoint / Intersects / Coplanar) collapses
+//! cinolib's richer variants (interior / boundary / on-vertex /
+//! on-edge) per YAGNI; see spec §"Scope discipline" for the rationale.
 
 use cad_primitives::Point3;
 
