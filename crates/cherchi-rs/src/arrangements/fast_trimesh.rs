@@ -1,3 +1,63 @@
+//! `FastTrimesh` — adjacency-aware triangle soup for mesh arrangement.
+//!
+//! Ported from Cherchi 2022 `arrangements/code/fast_trimesh.{h,cpp}` (MIT).
+//! © 2022 G. Cherchi, M. Livesu, R. Scateni, M. Attene, F. Pellacini.
+//! See ../../LICENSE-THIRD-PARTY.md for full attribution.
+//!
+//! Cherchi 2020 §4 (mesh arrangement data structure).
+//!
+//! ## Scope of PR-CR11 (build-once / query-many)
+//!
+//! Bulk constructor + every topology / adjacency query the arrangement
+//! read phase needs. Immutable after construction. See
+//! `specs/cherchi_rs_fast_trimesh_mvp.md`.
+//!
+//! ## Deliberate deviations from upstream
+//!
+//! 1. **Explicit points only.** Upstream stores `const genericPoint*`
+//!    to support implicit (LPI/TPI) points from the LGPL
+//!    `Indirect_Predicates` library. cherchi-rs does NOT depend on
+//!    LGPL code (paused; see project memory). PR-CR11 stores `Point3`
+//!    by value — explicit-only. When the LGPL decision resolves,
+//!    `Vertex` will gain an implicit-point variant; the topology
+//!    layer is unaffected.
+//!
+//! 2. **No parallel constructor.** cherchi-rs `CLAUDE.md` Hard Rule #5
+//!    is single-threaded by default. We use the same sorted-unique
+//!    algorithm the upstream parallel path uses (cpp:78-128), minus
+//!    TBB. Rayon parallelism is a future opt-in feature flag.
+//!
+//! 3. **No `rev_vtx_map`, `Tree` integration, or `Plane`-using 2D
+//!    orientation queries** (`tri_orientation`, `tri_verts_are_ccw`).
+//!    Deferred to PR-CR12.
+//!
+//! 4. **`Point3` stored by value**, not by reference. Upstream uses
+//!    pointer for `genericPoint*` polymorphism; `Point3` is `Copy`
+//!    (24 B) and we have no polymorphism, so by-value is cleaner
+//!    and avoids self-referential lifetimes on `FastTrimesh`.
+//!
+//! 5. **`info` fields are read-only**, default 0. Setters land in
+//!    PR-CR12 — keeping the field in the struct now means PR-CR12
+//!    only adds setters, not struct-layout changes.
+//!
+//! 6. **`edge_id` / `tri_vert_offset` return `Option<u32>`**, where
+//!    upstream returns `int` with `-1` for missing. We use `Option`
+//!    for type safety; consumers must explicitly handle the missing
+//!    case.
+//!
+//! 7. **Adjacency is `Vec<Vec<u32>>`**, not upstream's
+//!    `absl::InlinedVector<uint, 16>`. Allocator churn on small
+//!    adjacencies is a known v1 cost; `smallvec` optimization is
+//!    deferred (currently not in workspace deps).
+//!
+//! ## Deferred to PR-CR12 (FastTrimesh Phase 2)
+//!
+//! All mutators (`add_vert`, `add_tri`, `remove_*`, `split_*`,
+//! `flip_tri`), `rev_vtx_map` + `vert_orig_id` / `vert_new_id`,
+//! `Tree` integration + `tri_node_id`, `Plane`-using methods
+//! (`tri_orientation`, `tri_verts_are_ccw`), info-field setters,
+//! parallel constructor, `adj_t2t` / `adj_v2t`.
+
 use cad_primitives::Point3;
 
 // =========================================================================
@@ -79,7 +139,7 @@ pub(crate) struct Triangle {
 }
 
 // =========================================================================
-// Implementation (RED stubs — see PR-CR11 GREEN commit)
+// Implementation
 // =========================================================================
 
 impl FastTrimesh {
@@ -103,7 +163,8 @@ impl FastTrimesh {
             .len()
             .try_into()
             .map_err(|_| FastTrimeshError::TooManyVertices { count: verts.len() })?;
-        let n_tris: u32 = tris
+        // Validate triangle count fits in u32 for `t_id as u32` casts below.
+        let _n_tris: u32 = tris
             .len()
             .try_into()
             .map_err(|_| FastTrimeshError::TooManyTriangles { count: tris.len() })?;
@@ -238,7 +299,11 @@ impl FastTrimesh {
         debug_assert!(e < self.num_edges(), "edge_vert_id: id {e} out of range");
         debug_assert!(off < 2, "edge_vert_id: off {off} not in {{0, 1}}");
         let edge = &self.edges[e as usize];
-        if off == 0 { edge.v0 } else { edge.v1 }
+        if off == 0 {
+            edge.v0
+        } else {
+            edge.v1
+        }
     }
 
     pub fn edge_id(&self, u: u32, v: u32) -> Option<u32> {
@@ -259,6 +324,11 @@ impl FastTrimesh {
     pub fn edge_is_constr(&self, e: u32) -> bool {
         debug_assert!(e < self.num_edges(), "edge_is_constr: id {e} out of range");
         self.edges[e as usize].constr
+    }
+
+    pub fn edge_is_visited(&self, e: u32) -> bool {
+        debug_assert!(e < self.num_edges(), "edge_is_visited: id {e} out of range");
+        self.edges[e as usize].visited
     }
 
     pub fn edge_is_boundary(&self, e: u32) -> bool {
@@ -338,7 +408,11 @@ impl FastTrimesh {
 // =========================================================================
 
 fn sort_pair(a: u32, b: u32) -> [u32; 2] {
-    if a < b { [a, b] } else { [b, a] }
+    if a < b {
+        [a, b]
+    } else {
+        [b, a]
+    }
 }
 
 /// Binary search in a pre-sorted edge list. Panics if not found —
@@ -346,8 +420,7 @@ fn sort_pair(a: u32, b: u32) -> [u32; 2] {
 fn lookup_edge(sorted_edges: &[[u32; 2]], key: [u32; 2]) -> u32 {
     sorted_edges
         .binary_search(&key)
-        .expect("lookup_edge: key missing in sorted_edges (invariant violation)")
-        as u32
+        .expect("lookup_edge: key missing in sorted_edges (invariant violation)") as u32
 }
 
 // =========================================================================
@@ -669,6 +742,15 @@ mod tests {
         }
     }
 
+    #[test]
+    fn edge_is_visited_false_in_pr_cr11() {
+        let (v, t) = single_tri();
+        let ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        for e in 0..ft.num_edges() {
+            assert!(!ft.edge_is_visited(e));
+        }
+    }
+
     // -----------------------------------------------------------------
     // Group 4: Adjacency correctness
     // -----------------------------------------------------------------
@@ -745,9 +827,7 @@ mod tests {
     fn e2t_sum_equals_thrice_num_tris() {
         let (v, t) = icosahedron();
         let ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
-        let total_incidences: usize = (0..ft.num_edges())
-            .map(|e| ft.adj_e2t(e).len())
-            .sum();
+        let total_incidences: usize = (0..ft.num_edges()).map(|e| ft.adj_e2t(e).len()).sum();
         assert_eq!(total_incidences, 3 * ft.num_tris() as usize);
     }
 
@@ -773,7 +853,10 @@ mod tests {
         for vi in 0..ft.num_verts() {
             for &e in ft.adj_v2e(vi) {
                 let (a, b) = ft.edge(e);
-                assert!(a == vi || b == vi, "edge {e} listed in v2e[{vi}] but doesn't touch it");
+                assert!(
+                    a == vi || b == vi,
+                    "edge {e} listed in v2e[{vi}] but doesn't touch it"
+                );
             }
         }
     }
