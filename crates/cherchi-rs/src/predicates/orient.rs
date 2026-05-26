@@ -1,19 +1,25 @@
-//! Foundational `Sign` enum + `Point3`-typed orientation predicates.
+//! Foundational `Sign` enum + `Point2`/`Point3`-typed orientation
+//! predicates.
 //!
-//! `orient3d` wraps Shewchuk's adaptive predicate from the
-//! `geometry-predicates` crate (MIT-licensed; itself a Shewchuk port)
-//! and converts the f64 result to a 3-valued `Sign`.
+//! `orient2d` and `orient3d` both wrap Shewchuk's adaptive predicates
+//! from the `geometry-predicates` crate (MIT — Shewchuk port) and
+//! convert their f64 results into a 3-valued `Sign`.
 //!
-//! Shewchuk 1997 §2.1 (adaptive orient3d).
+//! Shewchuk 1997 §2.1 (adaptive orient2d, orient3d).
 //! Cherchi 2020 §3 (predicates as foundation for arrangement).
 //!
-//! **Sign convention note**: per Shewchuk's `orient3d`, positive means
-//! `d` lies BELOW the plane through `(a, b, c)` where `(a, b, c)`
-//! appears CCW viewed from above (counter-intuitive — "below" gives
-//! positive, NOT above). Cherchi 2020 and downstream consumers expect
-//! this convention. See `specs/cherchi_rs_orient3d_sign.md` for details.
+//! **Sign convention notes:**
+//! - `orient2d` uses the natural geometric convention: CCW → Positive,
+//!   CW → Negative, collinear → Zero. See
+//!   `specs/cherchi_rs_orient2d_sign.md`.
+//! - `orient3d` uses Shewchuk's convention: `d` BELOW the plane through
+//!   CCW `(a, b, c)` → Positive (counter-intuitive — "below" gives
+//!   positive, NOT above). Cherchi 2020 and downstream consumers expect
+//!   this convention. See `specs/cherchi_rs_orient3d_sign.md`.
 //!
-//! No deviation from upstream behavior — this is a type-shape wrapper.
+//! No deviation from upstream behavior — both are type-shape wrappers.
+//! The asymmetric sign conventions are upstream properties (Shewchuk's
+//! orient3d is genuinely "below = positive"), not Cherchi-rs choices.
 
 use cad_primitives::{Point2, Point3};
 
