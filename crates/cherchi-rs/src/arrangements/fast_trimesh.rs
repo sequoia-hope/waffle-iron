@@ -428,25 +428,41 @@ impl FastTrimesh {
 
     /// Append a new vertex with no original mesh ID. Returns the new
     /// vertex's u32 ID (= previous `num_verts()`).
-    pub fn add_vert(&mut self, _p: Point3) -> u32 {
-        0
+    pub fn add_vert(&mut self, p: Point3) -> u32 {
+        let v_id = self.vertices.len() as u32;
+        self.vertices.push(Vertex {
+            point: p,
+            info: 0,
+            orig_id: None,
+        });
+        self.v2e.push(Vec::new());
+        v_id
     }
 
     /// Append a new vertex carrying its original mesh ID. Populates
     /// `rev_vtx_map[orig_id] = new_v_id`. Returns the new vertex's ID.
-    pub fn add_vert_with_orig_id(&mut self, _p: Point3, _orig_id: u32) -> u32 {
-        0
+    pub fn add_vert_with_orig_id(&mut self, p: Point3, orig_id: u32) -> u32 {
+        let v_id = self.vertices.len() as u32;
+        self.vertices.push(Vertex {
+            point: p,
+            info: 0,
+            orig_id: Some(orig_id),
+        });
+        self.v2e.push(Vec::new());
+        self.rev_vtx_map.insert(orig_id, v_id);
+        v_id
     }
 
     /// Original mesh ID of a vertex, or `None` if not assigned.
-    pub fn vert_orig_id(&self, _v: u32) -> Option<u32> {
-        None
+    pub fn vert_orig_id(&self, v: u32) -> Option<u32> {
+        debug_assert!(v < self.num_verts(), "vert_orig_id: id {v} out of range");
+        self.vertices[v as usize].orig_id
     }
 
     /// Reverse lookup: original mesh ID → new vertex ID, or `None`
     /// if no vertex carries that orig_id.
-    pub fn vert_new_id(&self, _orig_id: u32) -> Option<u32> {
-        None
+    pub fn vert_new_id(&self, orig_id: u32) -> Option<u32> {
+        self.rev_vtx_map.get(&orig_id).copied()
     }
 
     // ----- Triangle addition + lookup -----
@@ -455,55 +471,155 @@ impl FastTrimesh {
     /// triangle's ID. If a triangle with the same 3-vertex set already
     /// exists (any rotation), returns its existing ID instead of adding
     /// a duplicate.
-    pub fn add_tri(&mut self, _v0: u32, _v1: u32, _v2: u32) -> u32 {
-        0
+    pub fn add_tri(&mut self, v0: u32, v1: u32, v2: u32) -> u32 {
+        debug_assert!(
+            v0 != v1 && v1 != v2 && v0 != v2,
+            "add_tri: degenerate triangle [{v0}, {v1}, {v2}]"
+        );
+        debug_assert!(
+            v0 < self.num_verts() && v1 < self.num_verts() && v2 < self.num_verts(),
+            "add_tri: vertex id out of range"
+        );
+        if let Some(t) = self.tri_id(v0, v1, v2) {
+            return t;
+        }
+        let t_id = self.triangles.len() as u32;
+        let e0 = self.add_edge(v0, v1);
+        let e1 = self.add_edge(v1, v2);
+        let e2 = self.add_edge(v2, v0);
+        self.triangles.push(Triangle {
+            v: [v0, v1, v2],
+            info: 0,
+        });
+        self.e2t[e0 as usize].push(t_id);
+        self.e2t[e1 as usize].push(t_id);
+        self.e2t[e2 as usize].push(t_id);
+        t_id
     }
 
     /// Look up a triangle by its 3-vertex set (any rotation matches).
     /// Returns `None` if no such triangle exists.
-    pub fn tri_id(&self, _v0: u32, _v1: u32, _v2: u32) -> Option<u32> {
+    ///
+    /// Algorithm mirrors upstream `triID` (cpp:395-407): find the
+    /// edge `(v0, v1)`; among triangles touching that edge, return the
+    /// one that also contains `v2`.
+    pub fn tri_id(&self, v0: u32, v1: u32, v2: u32) -> Option<u32> {
+        let e = self.edge_id(v0, v1)?;
+        for &t in self.adj_e2t(e) {
+            if self.tri_contains_vert(t, v2) {
+                return Some(t);
+            }
+        }
         None
+    }
+
+    /// Private helper: deduplicating edge insertion. If an edge with
+    /// endpoints `{u, v}` already exists, returns its ID. Otherwise
+    /// appends a new edge (with sorted endpoints), updates `v2e` for
+    /// both endpoints, and seeds an empty `e2t` slot.
+    fn add_edge(&mut self, u: u32, v: u32) -> u32 {
+        if let Some(e) = self.edge_id(u, v) {
+            return e;
+        }
+        let (v0, v1) = if u < v { (u, v) } else { (v, u) };
+        let e_id = self.edges.len() as u32;
+        self.edges.push(Edge {
+            v0,
+            v1,
+            constr: false,
+            visited: false,
+        });
+        self.v2e[v0 as usize].push(e_id);
+        self.v2e[v1 as usize].push(e_id);
+        self.e2t.push(Vec::new());
+        e_id
     }
 
     // ----- Info / flag setters -----
 
     /// Set the user-controlled `info` field on a vertex.
-    pub fn set_vert_info(&mut self, _v: u32, _info: u32) {}
+    pub fn set_vert_info(&mut self, v: u32, info: u32) {
+        debug_assert!(v < self.num_verts(), "set_vert_info: id {v} out of range");
+        self.vertices[v as usize].info = info;
+    }
 
     /// Set the user-controlled `info` field on a triangle.
-    pub fn set_tri_info(&mut self, _t: u32, _info: u32) {}
+    pub fn set_tri_info(&mut self, t: u32, info: u32) {
+        debug_assert!(t < self.num_tris(), "set_tri_info: id {t} out of range");
+        self.triangles[t as usize].info = info;
+    }
 
     /// Mark an edge as constrained (`constr = true`). No clearing
     /// API — matches upstream cpp:320-324.
-    pub fn set_edge_constr(&mut self, _e: u32) {}
+    pub fn set_edge_constr(&mut self, e: u32) {
+        debug_assert!(
+            e < self.num_edges(),
+            "set_edge_constr: id {e} out of range"
+        );
+        self.edges[e as usize].constr = true;
+    }
 
     /// Set the `visited` flag on an edge. Writes to the separate
     /// `visited` field (CR11 deviation: upstream reuses `constr`
     /// storage for both flags; cherchi-rs splits them).
-    pub fn edge_set_visited(&mut self, _e: u32, _vis: bool) {}
+    pub fn edge_set_visited(&mut self, e: u32, vis: bool) {
+        debug_assert!(
+            e < self.num_edges(),
+            "edge_set_visited: id {e} out of range"
+        );
+        self.edges[e as usize].visited = vis;
+    }
 
     // ----- Bulk resetters -----
 
     /// Zero the `info` field on all vertices. Does NOT touch
     /// `orig_id`, edges, or geometry.
-    pub fn reset_vertices_info(&mut self) {}
+    pub fn reset_vertices_info(&mut self) {
+        for v in &mut self.vertices {
+            v.info = 0;
+        }
+    }
 
     /// Zero the `info` field on all triangles.
-    pub fn reset_triangles_info(&mut self) {}
+    pub fn reset_triangles_info(&mut self) {
+        for t in &mut self.triangles {
+            t.info = 0;
+        }
+    }
 
     // ----- Derived adjacency -----
 
     /// Triangles sharing an edge with `t`. Derived via double-hop
     /// over `tri_edges(t)` + `adj_e2t(e)`; excludes `t` itself.
-    pub fn adj_t2t(&self, _t: u32) -> Vec<u32> {
-        Vec::new()
+    /// Mirrors upstream `adjT2T` (cpp:520-535).
+    pub fn adj_t2t(&self, t: u32) -> Vec<u32> {
+        debug_assert!(t < self.num_tris(), "adj_t2t: id {t} out of range");
+        let mut result = Vec::new();
+        for e in self.tri_edges(t) {
+            for &nbr_t in self.adj_e2t(e) {
+                if nbr_t != t {
+                    result.push(nbr_t);
+                }
+            }
+        }
+        result
     }
 
     /// Triangles incident to `v`. Derived via double-hop over
     /// `adj_v2e(v)` + `adj_e2t(e)`; deduplicated (a triangle sharing
-    /// two edges with `v` appears once).
-    pub fn adj_v2t(&self, _v: u32) -> Vec<u32> {
-        Vec::new()
+    /// two edges with `v` appears once). Mirrors upstream `adjV2T`
+    /// (cpp:238-251) which uses `remove_duplicates` at the end.
+    pub fn adj_v2t(&self, v: u32) -> Vec<u32> {
+        debug_assert!(v < self.num_verts(), "adj_v2t: id {v} out of range");
+        let mut result = Vec::new();
+        for &e in self.adj_v2e(v) {
+            for &t in self.adj_e2t(e) {
+                result.push(t);
+            }
+        }
+        result.sort_unstable();
+        result.dedup();
+        result
     }
 }
 
