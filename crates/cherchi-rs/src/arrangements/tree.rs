@@ -1,3 +1,34 @@
+//! `Tree` — symbolic-split refinement tree for FastTrimesh provenance.
+//!
+//! Ported from Cherchi 2020 `arrangements/code/tree.h` (MIT).
+//! © 2020 G. Cherchi, M. Livesu, R. Scateni, M. Attene.
+//! See ../../LICENSE-THIRD-PARTY.md for full attribution.
+//!
+//! Cherchi 2020 §4. Records the parent-child topology of split
+//! operations: when `FastTrimesh::split_edge_with_tree` or
+//! `split_tri_with_tree` divides a parent triangle, the parent's Tree
+//! node gains 2 or 3 child nodes (one per new sub-triangle).
+//! Arrangement (PR-CR13+) walks the tree to attribute final triangles
+//! back to their input source.
+//!
+//! ## Deliberate deviations from upstream
+//!
+//! 1. **`Node::children: [Option<u32>; 3]`** instead of upstream's
+//!    `int children[3]` with `-1` sentinel. Crate-wide pattern from
+//!    PR-CR11 onward; `Option<u32>` is type-safe and removes the
+//!    "is -1 a valid ID?" ambiguity.
+//!
+//! 2. **`add_children(parent, &[u32])` slice form** instead of two
+//!    arity-overloaded methods (`addChildren(parent, c0, c1)` vs
+//!    `addChildren(parent, c0, c1, c2)`). Rust has no overloading;
+//!    the slice form with `debug_assert!(len ∈ {2, 3})` is idiomatic
+//!    and the two in-crate callers (`split_edge_with_tree` passing 2,
+//!    `split_tri_with_tree` passing 3) catch length errors in debug.
+//!
+//! 3. **Method-based field access** (`verts()` / `children()` on
+//!    `Node`) instead of upstream's public C++ struct fields. Lets us
+//!    swap representation later without breaking external API.
+
 /// A node in the symbolic-split refinement tree.
 ///
 /// Stores three triangle vertices (the triangle's geometry at the time

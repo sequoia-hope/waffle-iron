@@ -6,7 +6,7 @@
 //!
 //! Cherchi 2020 §4 (mesh arrangement data structure).
 //!
-//! ## Scope (cumulative through PR-CR12b)
+//! ## Scope (cumulative through PR-CR12c — FastTrimesh feature-complete)
 //!
 //! - **PR-CR11**: bulk constructor + every topology / adjacency query
 //!   the arrangement read phase needs. Immutable after construction.
@@ -23,6 +23,12 @@
 //!   `remove_edge`) + swap-pop index remapping (`tri_switch`,
 //!   `edge_switch`) + dangling-edge cascade. See
 //!   `specs/cherchi_rs_fast_trimesh_removal.md`.
+//! - **PR-CR12c**: re-triangulation (`split_edge`, `split_tri`,
+//!   `flip_tri`, with/without Tree variants), Plane-using orientation
+//!   queries (`tri_orientation`, `tri_verts_are_ccw`), helpers
+//!   (`tri_vert_opposite_to`, `tri_node_id`, `set_tri_node_id`), and
+//!   a new `Tree` data structure in `arrangements/tree.rs`. See
+//!   `specs/cherchi_rs_fast_trimesh_splits.md`.
 //!
 //! ## Deliberate deviations from upstream
 //!
@@ -105,13 +111,37 @@
 //!     reads the edge struct fields directly. With no consumer, the
 //!     helper has no place in the Rust port.
 //!
-//! ## Deferred to PR-CR12c (re-triangulation + Tree + Plane queries)
+//! 15. **Separate `Triangle.node_id: Option<u32>` field** (PR-CR12c).
+//!     Upstream (cpp:436-448) overloads `iTri.info` to store both
+//!     user data and Tree node IDs — same foot-gun as the `orig_id`
+//!     / `info` issue from CR12a (node ID 0 would collide with
+//!     user-supplied info 0). We add a separate field; `info` stays
+//!     user-controlled. Costs 8 bytes per Triangle.
 //!
-//! `split_edge` (with/without Tree), `split_tri` (with/without
-//! Tree), `flip_tri`, the `Tree` data structure, `tri_node_id` /
-//! `set_tri_node_id`, `tri_orientation` (needs CR10 `orient2d` +
-//! axis-drop projection), `tri_verts_are_ccw`. Also: parallel
-//! constructor (rayon opt-in).
+//! 16. **`Tree::add_children(parent, &[u32])` slice form** (PR-CR12c).
+//!     Upstream has two overloads (`addChildren(parent, c0, c1)` and
+//!     `addChildren(parent, c0, c1, c2)`). Rust has no method
+//!     overloading. The idiomatic Rust form is a single slice-taking
+//!     method with a runtime `debug_assert!` on `len() ∈ {2, 3}`.
+//!
+//! 17. **`tri_orientation` via explicit axis-drop + CR10 `orient2d`**
+//!     (PR-CR12c). Upstream calls LGPL
+//!     `genericPoint::orient2D{xy,yz,zx}` (cpp:554-556). cherchi-rs
+//!     does NOT depend on LGPL. We project `Point3` → `Point2` per
+//!     `Plane` variant (XY → drop Z, YZ → drop X, ZX → drop Y) and
+//!     call our MIT-licensed `orient2d` wrapper from CR10. Return
+//!     type changes from upstream `int` to our `Sign` enum.
+//!
+//! 18. **`set_tri_node_id(t, node_id: u32)` set-only** (PR-CR12c).
+//!     Matches `set_edge_constr` precedent. Splits always set,
+//!     never clear. If clearing is needed later, add
+//!     `clear_tri_node_id` then.
+//!
+//! 19. **Parallel constructor not ported** (PR-CR12c). Upstream
+//!     `FastTrimesh(verts, tris, parallel=true)` uses TBB. Hard
+//!     Rule #5: cherchi-rs is single-threaded by default. Rayon
+//!     parallelism is a future opt-in feature flag; deferred
+//!     indefinitely.
 
 use std::collections::HashMap;
 
@@ -856,10 +886,7 @@ impl FastTrimesh {
     /// `setTriNodeID` (cpp:444-448). Set-only (no clearing API),
     /// matching `set_edge_constr` precedent.
     pub fn set_tri_node_id(&mut self, t: u32, node_id: u32) {
-        debug_assert!(
-            t < self.num_tris(),
-            "set_tri_node_id: id {t} out of range"
-        );
+        debug_assert!(t < self.num_tris(), "set_tri_node_id: id {t} out of range");
         self.triangles[t as usize].node_id = Some(node_id);
     }
 
@@ -909,12 +936,9 @@ impl FastTrimesh {
     /// CR10 `orient2d`. Mirrors upstream `triOrientation` (cpp:549-558),
     /// minus the LGPL `genericPoint::orient2D{xy,yz,zx}` dependency.
     pub fn tri_orientation(&self, t: u32) -> crate::predicates::Sign {
-        use cad_primitives::Point2;
         use crate::predicates::orient2d;
-        debug_assert!(
-            t < self.num_tris(),
-            "tri_orientation: id {t} out of range"
-        );
+        use cad_primitives::Point2;
+        debug_assert!(t < self.num_tris(), "tri_orientation: id {t} out of range");
         let a = self.tri_vert(t, 0);
         let b = self.tri_vert(t, 1);
         let c = self.tri_vert(t, 2);
@@ -977,12 +1001,7 @@ impl FastTrimesh {
 
     /// Same as `split_edge`, plus record split provenance in the Tree.
     /// Mirrors upstream `splitEdge(e, v, &Tree)` (cpp:730-756).
-    pub fn split_edge_with_tree(
-        &mut self,
-        e: u32,
-        v: u32,
-        tree: &mut crate::arrangements::Tree,
-    ) {
+    pub fn split_edge_with_tree(&mut self, e: u32, v: u32, tree: &mut crate::arrangements::Tree) {
         debug_assert!(
             e < self.num_edges(),
             "split_edge_with_tree: id {e} out of range"
@@ -1031,12 +1050,7 @@ impl FastTrimesh {
 
     /// Same as `split_tri`, plus record split provenance in the Tree.
     /// Mirrors upstream `splitTri(t, v, &Tree)` (cpp:774-796).
-    pub fn split_tri_with_tree(
-        &mut self,
-        t: u32,
-        v: u32,
-        tree: &mut crate::arrangements::Tree,
-    ) {
+    pub fn split_tri_with_tree(&mut self, t: u32, v: u32, tree: &mut crate::arrangements::Tree) {
         debug_assert!(
             t < self.num_tris(),
             "split_tri_with_tree: id {t} out of range"
