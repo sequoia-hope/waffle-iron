@@ -96,8 +96,12 @@ pub fn orient3d(a: Point3, b: Point3, c: Point3, d: Point3) -> Sign {
 ///
 /// NaN / infinite inputs produce undefined behavior. Caller's responsibility.
 pub fn orient2d(a: Point2, b: Point2, c: Point2) -> Sign {
-    let _ = (a, b, c);
-    unimplemented!("PR-CR10 GREEN phase")
+    let det = geometry_predicates::orient2d(
+        a.as_array(),
+        b.as_array(),
+        c.as_array(),
+    );
+    Sign::from_f64(det)
 }
 
 #[cfg(test)]
