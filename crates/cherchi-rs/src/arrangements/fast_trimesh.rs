@@ -6,7 +6,7 @@
 //!
 //! Cherchi 2020 §4 (mesh arrangement data structure).
 //!
-//! ## Scope (cumulative through PR-CR12a)
+//! ## Scope (cumulative through PR-CR12b)
 //!
 //! - **PR-CR11**: bulk constructor + every topology / adjacency query
 //!   the arrangement read phase needs. Immutable after construction.
@@ -19,6 +19,10 @@
 //!   `vert_orig_id` / `vert_new_id` queries, and derived adjacency
 //!   (`adj_t2t`, `adj_v2t`). See
 //!   `specs/cherchi_rs_fast_trimesh_mutators.md`.
+//! - **PR-CR12b**: removal API (`remove_tri`, `remove_tris`,
+//!   `remove_edge`) + swap-pop index remapping (`tri_switch`,
+//!   `edge_switch`) + dangling-edge cascade. See
+//!   `specs/cherchi_rs_fast_trimesh_removal.md`.
 //!
 //! ## Deliberate deviations from upstream
 //!
@@ -75,13 +79,31 @@
 //!     for both `constr` and `visited` flags; cherchi-rs splits them
 //!     to remove the foot-gun. PR-CR12a includes regression tests.
 //!
-//! ## Deferred to PR-CR12b (removal swap-pop)
+//! 11. **Private `tri_edges_opt(t) -> [Option<u32>; 3]`** (PR-CR12b).
+//!     Upstream's `triEdgeID(t, off)` returns `int = -1` for "edge no
+//!     longer exists" (cpp:858-862), used inside `triSwitch` to handle
+//!     the partial-dismantle window where some edges of `t0` have been
+//!     popped but the triangle slot still references their vertex
+//!     pairs. The public `tri_edges` (CR11) returns `[u32; 3]` with
+//!     `.expect()` semantics — well-formed-mesh contract. PR-CR12b adds
+//!     a private `tri_edges_opt` that returns `[Option<u32>; 3]` for
+//!     `tri_switch`'s use. The single most subtle aspect of the
+//!     FastTrimesh port; the cascading-swap-pop test guards it.
 //!
-//! `remove_tri`, `remove_tris`, `remove_edge`, plus the private
-//! helpers `remove_tri_unref`, `remove_edge_unref`, `tri_switch`,
-//! `edge_switch`, `remove_from_vec`, `edge_contains_vert`. The
-//! algorithmically interesting work — index remapping on swap-pop
-//! is fragile and deserves isolated review.
+//! 12. **`Vec<u32>` (owned) for `remove_tris`** (PR-CR12b). Upstream
+//!     has two overloads (`std::vector` and `fmvector`); both copy-
+//!     then-sort. Rust's borrow checker forces a clone at the
+//!     `remove_edge` call site anyway. Owned-Vec matches upstream copy
+//!     semantics literally.
+//!
+//! 13. **`Vec::retain` inline; no `remove_from_vec` helper**
+//!     (PR-CR12b). Upstream's `removeFromVec` (cpp:840-843) is C++'s
+//!     verbose `erase-remove` idiom. Rust has a one-liner.
+//!
+//! 14. **`edge_contains_vert` dropped from port** (PR-CR12b). Upstream
+//!     uses it only inside `edgeID` (cpp:296-310). Our CR11 `edge_id`
+//!     reads the edge struct fields directly. With no consumer, the
+//!     helper has no place in the Rust port.
 //!
 //! ## Deferred to PR-CR12c (re-triangulation + Tree + Plane queries)
 //!
@@ -801,7 +823,6 @@ impl FastTrimesh {
             }
         }
     }
-
 }
 
 // =========================================================================
