@@ -661,21 +661,54 @@ impl FastTrimesh {
     /// Remove a triangle, cascading any newly-dangling edges. After
     /// return, no stale reference to `t` exists in any `e2t[*]` list.
     /// Mirrors upstream `removeTri` (cpp:658-688).
-    pub fn remove_tri(&mut self, _t: u32) {
-        // RED stub
+    pub fn remove_tri(&mut self, t: u32) {
+        debug_assert!(t < self.num_tris(), "remove_tri: id {t} out of range");
+        // 1. Get the 3 edges (well-formed at this entry point).
+        let edges = self.tri_edges(t);
+        // 2. Remove t from each edge's e2t list.
+        for &e in &edges {
+            self.e2t[e as usize].retain(|&x| x != t);
+        }
+        // 3. Identify dangling edges (e2t now empty).
+        let mut dangling: Vec<u32> = edges
+            .iter()
+            .copied()
+            .filter(|&e| self.e2t[e as usize].is_empty())
+            .collect();
+        // 4. Sort dangling edges DESCENDING. Critical: ensures we
+        //    always process the tail of `edges` first, so swap-pop
+        //    inside remove_edge_unref doesn't shift remaining
+        //    dangling IDs.
+        dangling.sort_unstable_by(|a, b| b.cmp(a));
+        // 5. For each dangling edge: clear v2e refs and swap-pop.
+        for e in dangling {
+            let edge = &self.edges[e as usize];
+            let (v0, v1) = (edge.v0, edge.v1);
+            self.v2e[v0 as usize].retain(|&x| x != e);
+            self.v2e[v1 as usize].retain(|&x| x != e);
+            self.remove_edge_unref(e);
+        }
+        // 6. Swap-pop the triangle.
+        self.remove_tri_unref(t);
     }
 
     /// Remove all triangles in `ts`. Sorts descending internally so
     /// swap-pop indexing stays consistent (mirrors upstream cpp:695).
-    pub fn remove_tris(&mut self, _ts: Vec<u32>) {
-        // RED stub
+    pub fn remove_tris(&mut self, mut ts: Vec<u32>) {
+        ts.sort_unstable_by(|a, b| b.cmp(a));
+        for t in ts {
+            self.remove_tri(t);
+        }
     }
 
     /// Remove an edge by removing all triangles incident to it. The
     /// edge itself becomes dangling and is auto-removed during the
     /// cascade. Mirrors upstream `removeEdge` (cpp:650-654).
-    pub fn remove_edge(&mut self, _e: u32) {
-        // RED stub
+    pub fn remove_edge(&mut self, e: u32) {
+        debug_assert!(e < self.num_edges(), "remove_edge: id {e} out of range");
+        // Clone is mandatory: we mutate self.e2t inside the loop.
+        let ts = self.e2t[e as usize].clone();
+        self.remove_tris(ts);
     }
 
     // ----- Private helpers -----
@@ -686,49 +719,89 @@ impl FastTrimesh {
     /// Mirrors upstream's `-1` sentinel idiom (cpp:858-862).
     fn tri_edges_opt(&self, t: u32) -> [Option<u32>; 3] {
         debug_assert!(t < self.num_tris(), "tri_edges_opt: id {t} out of range");
-        let _ = t;
-        [None, None, None]
+        let v = self.triangles[t as usize].v;
+        [
+            self.edge_id(v[0], v[1]),
+            self.edge_id(v[1], v[2]),
+            self.edge_id(v[2], v[0]),
+        ]
     }
 
     /// Swap-pop the triangle at slot `t`. The last triangle moves
     /// into slot `t`; `tri_switch` rewrites all e2t references.
     /// Mirrors upstream `removeTriUnref` (cpp:907-911).
-    fn remove_tri_unref(&mut self, _t: u32) {
-        // RED stub
+    fn remove_tri_unref(&mut self, t: u32) {
+        let last = self.num_tris() - 1;
+        self.tri_switch(t, last);
+        self.triangles.pop();
     }
 
     /// Swap-pop the edge at slot `e`. Edges and e2t pop in lockstep.
     /// Mirrors upstream `removeEdgeUnref` (cpp:897-903).
-    fn remove_edge_unref(&mut self, _e: u32) {
-        // RED stub
+    fn remove_edge_unref(&mut self, e: u32) {
+        self.e2t[e as usize].clear(); // sanity (must already be empty)
+        let last = self.num_edges() - 1;
+        self.edge_switch(e, last);
+        self.edges.pop();
+        self.e2t.pop();
     }
 
     /// Swap the triangles at slots `t0` and `t1`, rewriting all
     /// `e2t[*]` references accordingly. After return: every e2t entry
     /// that pointed to `t0` now points to `t1`, and vice versa.
     /// Mirrors upstream `triSwitch` (cpp:847-867).
-    fn tri_switch(&mut self, _t0: u32, _t1: u32) {
-        // RED stub
+    fn tri_switch(&mut self, t0: u32, t1: u32) {
+        if t0 == t1 {
+            return;
+        }
+        self.triangles.swap(t0 as usize, t1 as usize);
+        // Collect up to 6 edges via tri_edges_opt (partial-dismantle
+        // tolerant — some of t0's edges may already be popped).
+        let mut edges_to_fix: Vec<u32> = self
+            .tri_edges_opt(t0)
+            .iter()
+            .chain(self.tri_edges_opt(t1).iter())
+            .filter_map(|&e| e)
+            .collect();
+        edges_to_fix.sort_unstable();
+        edges_to_fix.dedup();
+        for e in edges_to_fix {
+            for slot in &mut self.e2t[e as usize] {
+                if *slot == t0 {
+                    *slot = t1;
+                } else if *slot == t1 {
+                    *slot = t0;
+                }
+            }
+        }
     }
 
     /// Swap the edges at slots `e0` and `e1` (and their e2t lists),
     /// rewriting all `v2e[*]` references accordingly. Mirrors
     /// upstream `edgeSwitch` (cpp:871-893).
-    fn edge_switch(&mut self, _e0: u32, _e1: u32) {
-        // RED stub
+    fn edge_switch(&mut self, e0: u32, e1: u32) {
+        if e0 == e1 {
+            return;
+        }
+        self.edges.swap(e0 as usize, e1 as usize);
+        self.e2t.swap(e0 as usize, e1 as usize);
+        // Collect up to 4 vertex IDs from the post-swap edges.
+        let e0_v = self.edges[e0 as usize];
+        let e1_v = self.edges[e1 as usize];
+        let mut verts_to_fix = vec![e0_v.v0, e0_v.v1, e1_v.v0, e1_v.v1];
+        verts_to_fix.sort_unstable();
+        verts_to_fix.dedup();
+        for v in verts_to_fix {
+            for slot in &mut self.v2e[v as usize] {
+                if *slot == e0 {
+                    *slot = e1;
+                } else if *slot == e1 {
+                    *slot = e0;
+                }
+            }
+        }
     }
 
-    /// Trivial predicate. Mirrors upstream `edgeContainsVert`
-    /// (cpp:831-836). Kept as a named helper for call-site readability
-    /// in `edge_switch`.
-    fn edge_contains_vert(&self, e: u32, v: u32) -> bool {
-        debug_assert!(
-            e < self.num_edges(),
-            "edge_contains_vert: id {e} out of range"
-        );
-        let edge = &self.edges[e as usize];
-        edge.v0 == v || edge.v1 == v
-    }
 }
 
 // =========================================================================
