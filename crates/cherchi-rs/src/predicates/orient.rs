@@ -15,7 +15,7 @@
 //!
 //! No deviation from upstream behavior — this is a type-shape wrapper.
 
-use cad_primitives::Point3;
+use cad_primitives::{Point2, Point3};
 
 /// Foundational sign classification for predicate results.
 ///
@@ -77,6 +77,27 @@ pub fn orient3d(a: Point3, b: Point3, c: Point3, d: Point3) -> Sign {
         d.as_array(),
     );
     Sign::from_f64(det)
+}
+
+/// 2D orientation predicate: returns the sign of the orientation
+/// determinant of `(a, b, c)`.
+///
+/// - `Sign::Positive` — `(a, b, c)` is in CCW order (c is to the LEFT
+///   of the directed line a→b).
+/// - `Sign::Negative` — `(a, b, c)` is in CW order (c is to the RIGHT).
+/// - `Sign::Zero` — `a, b, c` are collinear.
+///
+/// Wraps [`geometry_predicates::orient2d`] (Shewchuk-style adaptive
+/// precision). Uses the natural geometric convention — NO sign
+/// inversion vs `orient3d` (which uses Shewchuk's "d below the CCW
+/// plane → Positive" convention). See `specs/cherchi_rs_orient2d_sign.md`.
+///
+/// # Failure modes
+///
+/// NaN / infinite inputs produce undefined behavior. Caller's responsibility.
+pub fn orient2d(a: Point2, b: Point2, c: Point2) -> Sign {
+    let _ = (a, b, c);
+    unimplemented!("PR-CR10 GREEN phase")
 }
 
 #[cfg(test)]
@@ -215,6 +236,103 @@ mod tests {
         let first = orient3d(a, b, c, d);
         for _ in 0..100 {
             assert_eq!(orient3d(a, b, c, d), first);
+        }
+    }
+
+    // ── Group 5: orient2d canonical orientations ──────────────────────
+
+    /// Standard unit triangle in CCW order: c is LEFT of a→b → Positive.
+    /// orient2d uses the natural geometric convention (no sign inversion).
+    #[test]
+    fn orient2d_standard_ccw_unit_triangle_is_positive() {
+        let a = Point2::new(0.0, 0.0);
+        let b = Point2::new(1.0, 0.0);
+        let c = Point2::new(0.0, 1.0);
+        assert_eq!(orient2d(a, b, c), Sign::Positive);
+    }
+
+    #[test]
+    fn orient2d_standard_cw_unit_triangle_is_negative() {
+        // Same triangle, last two args swapped → CW → Negative.
+        let a = Point2::new(0.0, 0.0);
+        let b = Point2::new(0.0, 1.0);
+        let c = Point2::new(1.0, 0.0);
+        assert_eq!(orient2d(a, b, c), Sign::Negative);
+    }
+
+    #[test]
+    fn orient2d_collinear_x_axis_is_zero() {
+        let a = Point2::new(0.0, 0.0);
+        let b = Point2::new(1.0, 0.0);
+        let c = Point2::new(2.0, 0.0);
+        assert_eq!(orient2d(a, b, c), Sign::Zero);
+    }
+
+    // ── Group 6: orient2d antisymmetry ────────────────────────────────
+
+    #[test]
+    fn orient2d_swap_ab_flips_sign() {
+        let a = Point2::new(0.0, 0.0);
+        let b = Point2::new(1.0, 0.0);
+        let c = Point2::new(0.0, 1.0);
+        assert_eq!(orient2d(b, a, c), flip(orient2d(a, b, c)));
+    }
+
+    #[test]
+    fn orient2d_swap_bc_flips_sign() {
+        let a = Point2::new(0.0, 0.0);
+        let b = Point2::new(1.0, 0.0);
+        let c = Point2::new(0.0, 1.0);
+        assert_eq!(orient2d(a, c, b), flip(orient2d(a, b, c)));
+    }
+
+    #[test]
+    fn orient2d_swap_ac_flips_sign() {
+        let a = Point2::new(0.0, 0.0);
+        let b = Point2::new(1.0, 0.0);
+        let c = Point2::new(0.0, 1.0);
+        assert_eq!(orient2d(c, b, a), flip(orient2d(a, b, c)));
+    }
+
+    #[test]
+    fn orient2d_double_swap_preserves_sign() {
+        // Two flips cancel.
+        let a = Point2::new(0.0, 0.0);
+        let b = Point2::new(1.0, 0.0);
+        let c = Point2::new(0.0, 1.0);
+        assert_eq!(orient2d(b, a, c), flip(orient2d(a, b, c)));
+        assert_eq!(orient2d(b, c, a), orient2d(a, b, c));
+    }
+
+    // ── Group 7: orient2d edge cases ──────────────────────────────────
+
+    #[test]
+    fn orient2d_collinear_diagonal_y_equals_x_is_zero() {
+        let a = Point2::new(0.0, 0.0);
+        let b = Point2::new(1.0, 1.0);
+        let c = Point2::new(2.0, 2.0);
+        assert_eq!(orient2d(a, b, c), Sign::Zero);
+    }
+
+    #[test]
+    fn orient2d_coincident_a_b_is_zero() {
+        // a == b → degenerate line → Zero (not an error).
+        let a = Point2::new(1.0, 2.0);
+        let b = Point2::new(1.0, 2.0);
+        let c = Point2::new(3.0, 4.0);
+        assert_eq!(orient2d(a, b, c), Sign::Zero);
+    }
+
+    // ── Group 8: orient2d determinism ─────────────────────────────────
+
+    #[test]
+    fn orient2d_deterministic_under_repeated_runs() {
+        let a = Point2::new(0.0, 0.0);
+        let b = Point2::new(1.0, 0.0);
+        let c = Point2::new(0.0, 1.0);
+        let first = orient2d(a, b, c);
+        for _ in 0..100 {
+            assert_eq!(orient2d(a, b, c), first);
         }
     }
 }

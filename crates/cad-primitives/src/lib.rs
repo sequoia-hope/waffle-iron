@@ -70,6 +70,53 @@ impl From<Point3> for [f64; 3] {
     }
 }
 
+/// A point in 2D Euclidean space, stored as two `f64` coordinates.
+///
+/// Newtype wrapper around `[f64; 2]` — no algorithms, just storage +
+/// accessors. Mirrors `Point3` exactly, one dimension lower. Used by
+/// 2D predicates in `cherchi-rs` (orient2d et al.) and by future 2D
+/// refinement consumers in the Cherchi 2022 §4 coplanar handler.
+///
+/// `Point2` is `Copy` and small (16 bytes). Pass by value.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct Point2 {
+    coords: [f64; 2],
+}
+
+impl Point2 {
+    /// Construct a point from two coordinates.
+    pub const fn new(x: f64, y: f64) -> Self {
+        Self { coords: [x, y] }
+    }
+
+    /// X coordinate.
+    pub fn x(&self) -> f64 {
+        self.coords[0]
+    }
+
+    /// Y coordinate.
+    pub fn y(&self) -> f64 {
+        self.coords[1]
+    }
+
+    /// Raw coordinate array.
+    pub fn as_array(&self) -> [f64; 2] {
+        self.coords
+    }
+}
+
+impl From<[f64; 2]> for Point2 {
+    fn from(coords: [f64; 2]) -> Self {
+        Self { coords }
+    }
+}
+
+impl From<Point2> for [f64; 2] {
+    fn from(p: Point2) -> Self {
+        p.coords
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,5 +141,26 @@ mod tests {
     fn equality() {
         assert_eq!(Point3::new(1.0, 2.0, 3.0), Point3::new(1.0, 2.0, 3.0));
         assert_ne!(Point3::new(1.0, 2.0, 3.0), Point3::new(1.0, 2.0, 4.0));
+    }
+
+    #[test]
+    fn point2_construct_and_access() {
+        let p = Point2::new(1.0, 2.0);
+        assert_eq!(p.x(), 1.0);
+        assert_eq!(p.y(), 2.0);
+    }
+
+    #[test]
+    fn point2_round_trip_array() {
+        let arr = [1.5, 2.5];
+        let p: Point2 = arr.into();
+        let back: [f64; 2] = p.into();
+        assert_eq!(back, arr);
+    }
+
+    #[test]
+    fn point2_equality() {
+        assert_eq!(Point2::new(1.0, 2.0), Point2::new(1.0, 2.0));
+        assert_ne!(Point2::new(1.0, 2.0), Point2::new(1.0, 3.0));
     }
 }
