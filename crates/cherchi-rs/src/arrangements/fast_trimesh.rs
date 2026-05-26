@@ -58,6 +58,8 @@
 //! (`tri_orientation`, `tri_verts_are_ccw`), info-field setters,
 //! parallel constructor, `adj_t2t` / `adj_v2t`.
 
+use std::collections::HashMap;
+
 use cad_primitives::Point3;
 
 // =========================================================================
@@ -100,8 +102,10 @@ pub enum FastTrimeshError {
 /// Adjacency-aware triangle soup for mesh arrangement.
 ///
 /// Build via [`FastTrimesh::from_soup`]; query via the methods on this
-/// struct. Immutable after construction in PR-CR11 (mutators land in
-/// PR-CR12).
+/// struct. PR-CR12a added the addition mutator family (`add_vert*`,
+/// `add_tri`, info/flag setters, resetters) and derived adjacency
+/// (`adj_t2t`, `adj_v2t`). Removal (PR-CR12b) and splits (PR-CR12c)
+/// are still deferred.
 #[derive(Debug)]
 pub struct FastTrimesh {
     vertices: Vec<Vertex>,
@@ -112,6 +116,9 @@ pub struct FastTrimesh {
     /// Edge → incident triangles. May exceed length 2 on non-manifold edges.
     e2t: Vec<Vec<u32>>,
     plane: Plane,
+    /// `orig_id → new_v_id` map populated by `add_vert_with_orig_id`.
+    /// PR-CR11's `from_soup` initializes empty (no orig-mesh-ID source).
+    rev_vtx_map: HashMap<u32, u32>,
 }
 
 // =========================================================================
@@ -122,6 +129,10 @@ pub struct FastTrimesh {
 pub(crate) struct Vertex {
     point: Point3,
     info: u32,
+    /// Original mesh vertex ID, populated by `add_vert_with_orig_id`.
+    /// `None` for vertices added via `add_vert` (no orig ID source) or
+    /// the `from_soup` bulk constructor.
+    orig_id: Option<u32>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -192,7 +203,11 @@ impl FastTrimesh {
         // ----- Build vertices + triangles -----
         let vertices: Vec<Vertex> = verts
             .iter()
-            .map(|&p| Vertex { point: p, info: 0 })
+            .map(|&p| Vertex {
+                point: p,
+                info: 0,
+                orig_id: None,
+            })
             .collect();
         let triangles: Vec<Triangle> = tris.iter().map(|&v| Triangle { v, info: 0 }).collect();
 
@@ -244,6 +259,7 @@ impl FastTrimesh {
             v2e,
             e2t,
             plane,
+            rev_vtx_map: HashMap::new(),
         })
     }
 
@@ -400,6 +416,94 @@ impl FastTrimesh {
     pub fn tri_info(&self, t: u32) -> u32 {
         debug_assert!(t < self.num_tris(), "tri_info: id {t} out of range");
         self.triangles[t as usize].info
+    }
+}
+
+// =========================================================================
+// PR-CR12a — mutator API (addition + setters + derived adjacency)
+// =========================================================================
+
+impl FastTrimesh {
+    // ----- Vertex addition -----
+
+    /// Append a new vertex with no original mesh ID. Returns the new
+    /// vertex's u32 ID (= previous `num_verts()`).
+    pub fn add_vert(&mut self, _p: Point3) -> u32 {
+        0
+    }
+
+    /// Append a new vertex carrying its original mesh ID. Populates
+    /// `rev_vtx_map[orig_id] = new_v_id`. Returns the new vertex's ID.
+    pub fn add_vert_with_orig_id(&mut self, _p: Point3, _orig_id: u32) -> u32 {
+        0
+    }
+
+    /// Original mesh ID of a vertex, or `None` if not assigned.
+    pub fn vert_orig_id(&self, _v: u32) -> Option<u32> {
+        None
+    }
+
+    /// Reverse lookup: original mesh ID → new vertex ID, or `None`
+    /// if no vertex carries that orig_id.
+    pub fn vert_new_id(&self, _orig_id: u32) -> Option<u32> {
+        None
+    }
+
+    // ----- Triangle addition + lookup -----
+
+    /// Append a triangle with the given vertex IDs. Returns the new
+    /// triangle's ID. If a triangle with the same 3-vertex set already
+    /// exists (any rotation), returns its existing ID instead of adding
+    /// a duplicate.
+    pub fn add_tri(&mut self, _v0: u32, _v1: u32, _v2: u32) -> u32 {
+        0
+    }
+
+    /// Look up a triangle by its 3-vertex set (any rotation matches).
+    /// Returns `None` if no such triangle exists.
+    pub fn tri_id(&self, _v0: u32, _v1: u32, _v2: u32) -> Option<u32> {
+        None
+    }
+
+    // ----- Info / flag setters -----
+
+    /// Set the user-controlled `info` field on a vertex.
+    pub fn set_vert_info(&mut self, _v: u32, _info: u32) {}
+
+    /// Set the user-controlled `info` field on a triangle.
+    pub fn set_tri_info(&mut self, _t: u32, _info: u32) {}
+
+    /// Mark an edge as constrained (`constr = true`). No clearing
+    /// API — matches upstream cpp:320-324.
+    pub fn set_edge_constr(&mut self, _e: u32) {}
+
+    /// Set the `visited` flag on an edge. Writes to the separate
+    /// `visited` field (CR11 deviation: upstream reuses `constr`
+    /// storage for both flags; cherchi-rs splits them).
+    pub fn edge_set_visited(&mut self, _e: u32, _vis: bool) {}
+
+    // ----- Bulk resetters -----
+
+    /// Zero the `info` field on all vertices. Does NOT touch
+    /// `orig_id`, edges, or geometry.
+    pub fn reset_vertices_info(&mut self) {}
+
+    /// Zero the `info` field on all triangles.
+    pub fn reset_triangles_info(&mut self) {}
+
+    // ----- Derived adjacency -----
+
+    /// Triangles sharing an edge with `t`. Derived via double-hop
+    /// over `tri_edges(t)` + `adj_e2t(e)`; excludes `t` itself.
+    pub fn adj_t2t(&self, _t: u32) -> Vec<u32> {
+        Vec::new()
+    }
+
+    /// Triangles incident to `v`. Derived via double-hop over
+    /// `adj_v2e(v)` + `adj_e2t(e)`; deduplicated (a triangle sharing
+    /// two edges with `v` appears once).
+    pub fn adj_v2t(&self, _v: u32) -> Vec<u32> {
+        Vec::new()
     }
 }
 
@@ -920,5 +1024,399 @@ mod tests {
         let ft = FastTrimesh::from_soup(&verts, &tris, Plane::XY).unwrap();
         assert_eq!(ft.num_verts(), 4);
         assert_eq!(ft.vert_valence(3), 0);
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12a — Group 1: Vertex addition + rev_vtx_map
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn add_vert_returns_new_id() {
+        let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        let id0 = ft.add_vert(p(1.0, 2.0, 3.0));
+        assert_eq!(id0, 0);
+        let id1 = ft.add_vert(p(4.0, 5.0, 6.0));
+        assert_eq!(id1, 1);
+        assert_eq!(ft.num_verts(), 2);
+    }
+
+    #[test]
+    fn add_vert_stores_point() {
+        let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        let pt = p(1.5, -2.5, 3.5);
+        let id = ft.add_vert(pt);
+        assert_eq!(ft.vert(id), pt);
+    }
+
+    #[test]
+    fn add_vert_does_not_populate_rev_map() {
+        let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        let id = ft.add_vert(p(0.0, 0.0, 0.0));
+        assert_eq!(ft.vert_orig_id(id), None);
+    }
+
+    #[test]
+    fn add_vert_with_orig_id_round_trip() {
+        let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        let id = ft.add_vert_with_orig_id(p(0.0, 0.0, 0.0), 42);
+        assert_eq!(ft.vert_orig_id(id), Some(42));
+        assert_eq!(ft.vert_new_id(42), Some(id));
+    }
+
+    #[test]
+    fn vert_new_id_returns_none_for_unknown_orig() {
+        let ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        assert_eq!(ft.vert_new_id(99), None);
+    }
+
+    #[test]
+    fn add_vert_initializes_empty_valence() {
+        let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        let id = ft.add_vert(p(0.0, 0.0, 0.0));
+        assert_eq!(ft.vert_valence(id), 0);
+        assert_eq!(ft.adj_v2e(id), &[] as &[u32]);
+    }
+
+    #[test]
+    fn add_vert_orig_id_zero_is_distinct_from_no_orig() {
+        // The whole point of Option<u32>: orig_id 0 should be
+        // distinguishable from "no orig_id assigned."
+        let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        let no_orig = ft.add_vert(p(1.0, 0.0, 0.0));
+        let with_zero = ft.add_vert_with_orig_id(p(2.0, 0.0, 0.0), 0);
+        assert_eq!(ft.vert_orig_id(no_orig), None);
+        assert_eq!(ft.vert_orig_id(with_zero), Some(0));
+        assert_eq!(ft.vert_new_id(0), Some(with_zero));
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12a — Group 2: Triangle addition + dedup
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn add_tri_returns_new_id() {
+        let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        ft.add_vert(p(0.0, 0.0, 0.0));
+        ft.add_vert(p(1.0, 0.0, 0.0));
+        ft.add_vert(p(0.0, 1.0, 0.0));
+        let t = ft.add_tri(0, 1, 2);
+        assert_eq!(t, 0);
+        assert_eq!(ft.num_tris(), 1);
+        assert_eq!(ft.tri(t), [0, 1, 2]);
+    }
+
+    #[test]
+    fn add_tri_dedups_exact_repeat() {
+        let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        ft.add_vert(p(0.0, 0.0, 0.0));
+        ft.add_vert(p(1.0, 0.0, 0.0));
+        ft.add_vert(p(0.0, 1.0, 0.0));
+        let t0 = ft.add_tri(0, 1, 2);
+        let t1 = ft.add_tri(0, 1, 2);
+        assert_eq!(t0, t1);
+        assert_eq!(ft.num_tris(), 1);
+    }
+
+    #[test]
+    fn add_tri_dedups_rotation() {
+        let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        ft.add_vert(p(0.0, 0.0, 0.0));
+        ft.add_vert(p(1.0, 0.0, 0.0));
+        ft.add_vert(p(0.0, 1.0, 0.0));
+        let t0 = ft.add_tri(0, 1, 2);
+        let t1 = ft.add_tri(1, 2, 0);
+        let t2 = ft.add_tri(2, 0, 1);
+        assert_eq!(t0, t1);
+        assert_eq!(t1, t2);
+        assert_eq!(ft.num_tris(), 1);
+    }
+
+    #[test]
+    fn add_tri_creates_three_edges() {
+        let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        ft.add_vert(p(0.0, 0.0, 0.0));
+        ft.add_vert(p(1.0, 0.0, 0.0));
+        ft.add_vert(p(0.0, 1.0, 0.0));
+        ft.add_tri(0, 1, 2);
+        assert_eq!(ft.num_edges(), 3);
+        assert!(ft.edge_id(0, 1).is_some());
+        assert!(ft.edge_id(1, 2).is_some());
+        assert!(ft.edge_id(0, 2).is_some());
+    }
+
+    #[test]
+    fn add_tri_shares_existing_edges() {
+        let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        ft.add_vert(p(0.0, 0.0, 0.0));
+        ft.add_vert(p(1.0, 0.0, 0.0));
+        ft.add_vert(p(0.0, 1.0, 0.0));
+        ft.add_vert(p(0.0, -1.0, 0.0));
+        ft.add_tri(0, 1, 2);
+        ft.add_tri(0, 1, 3); // shares edge (0,1)
+        assert_eq!(ft.num_edges(), 5); // 3 + 2 new = 5
+        let e = ft.edge_id(0, 1).unwrap();
+        assert_eq!(ft.adj_e2t(e).len(), 2);
+    }
+
+    #[test]
+    fn add_tri_preserves_sum_invariants() {
+        let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        for i in 0..4 {
+            ft.add_vert(p(i as f64, 0.0, 0.0));
+        }
+        ft.add_tri(0, 1, 2);
+        ft.add_tri(0, 1, 3);
+        let sum_v2e: u32 = (0..ft.num_verts()).map(|v| ft.vert_valence(v)).sum();
+        let sum_e2t: usize = (0..ft.num_edges()).map(|e| ft.adj_e2t(e).len()).sum();
+        assert_eq!(sum_v2e, 2 * ft.num_edges());
+        assert_eq!(sum_e2t, 3 * ft.num_tris() as usize);
+    }
+
+    #[test]
+    fn tri_id_returns_some_after_add() {
+        let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        ft.add_vert(p(0.0, 0.0, 0.0));
+        ft.add_vert(p(1.0, 0.0, 0.0));
+        ft.add_vert(p(0.0, 1.0, 0.0));
+        assert_eq!(ft.tri_id(0, 1, 2), None);
+        let t = ft.add_tri(0, 1, 2);
+        assert_eq!(ft.tri_id(0, 1, 2), Some(t));
+        assert_eq!(ft.tri_id(1, 2, 0), Some(t)); // rotation
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12a — Group 3: Info setters round-trip
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn set_vert_info_round_trip() {
+        let (v, t) = single_tri();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        ft.set_vert_info(0, 42);
+        assert_eq!(ft.vert_info(0), 42);
+    }
+
+    #[test]
+    fn set_tri_info_round_trip() {
+        let (v, t) = single_tri();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        ft.set_tri_info(0, 42);
+        assert_eq!(ft.tri_info(0), 42);
+    }
+
+    #[test]
+    fn set_edge_constr_round_trip() {
+        let (v, t) = single_tri();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        assert!(!ft.edge_is_constr(0));
+        ft.set_edge_constr(0);
+        assert!(ft.edge_is_constr(0));
+    }
+
+    #[test]
+    fn edge_set_visited_round_trip() {
+        let (v, t) = single_tri();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        assert!(!ft.edge_is_visited(0));
+        ft.edge_set_visited(0, true);
+        assert!(ft.edge_is_visited(0));
+        ft.edge_set_visited(0, false);
+        assert!(!ft.edge_is_visited(0));
+    }
+
+    #[test]
+    fn set_edge_constr_does_not_change_visited() {
+        let (v, t) = single_tri();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        ft.set_edge_constr(0);
+        assert!(!ft.edge_is_visited(0));
+    }
+
+    #[test]
+    fn edge_set_visited_does_not_change_constr() {
+        let (v, t) = single_tri();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        ft.edge_set_visited(0, true);
+        assert!(!ft.edge_is_constr(0));
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12a — Group 4: Reset semantics
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn reset_vertices_info_zeroes_all() {
+        let (v, t) = tetrahedron();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        for vi in 0..ft.num_verts() {
+            ft.set_vert_info(vi, 42);
+        }
+        ft.reset_vertices_info();
+        for vi in 0..ft.num_verts() {
+            assert_eq!(ft.vert_info(vi), 0);
+        }
+    }
+
+    #[test]
+    fn reset_triangles_info_zeroes_all() {
+        let (v, t) = tetrahedron();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        for ti in 0..ft.num_tris() {
+            ft.set_tri_info(ti, 42);
+        }
+        ft.reset_triangles_info();
+        for ti in 0..ft.num_tris() {
+            assert_eq!(ft.tri_info(ti), 0);
+        }
+    }
+
+    #[test]
+    fn reset_vertices_info_does_not_touch_orig_id() {
+        let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        let id = ft.add_vert_with_orig_id(p(0.0, 0.0, 0.0), 42);
+        ft.set_vert_info(id, 99);
+        ft.reset_vertices_info();
+        assert_eq!(ft.vert_info(id), 0);
+        assert_eq!(ft.vert_orig_id(id), Some(42)); // preserved
+    }
+
+    #[test]
+    fn reset_triangles_info_does_not_touch_edge_flags() {
+        let (v, t) = single_tri();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        ft.set_edge_constr(0);
+        ft.edge_set_visited(1, true);
+        ft.reset_triangles_info();
+        assert!(ft.edge_is_constr(0));
+        assert!(ft.edge_is_visited(1));
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12a — Group 5: Derived adjacency (adj_t2t, adj_v2t)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn tetrahedron_adj_t2t_all_three() {
+        let (v, t) = tetrahedron();
+        let ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        for ti in 0..ft.num_tris() {
+            assert_eq!(ft.adj_t2t(ti).len(), 3, "tri {ti}");
+        }
+    }
+
+    #[test]
+    fn tetrahedron_adj_v2t_all_three() {
+        let (v, t) = tetrahedron();
+        let ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        for vi in 0..ft.num_verts() {
+            assert_eq!(ft.adj_v2t(vi).len(), 3, "vertex {vi}");
+        }
+    }
+
+    #[test]
+    fn two_tri_quad_adj_t2t_one_neighbor() {
+        let (v, t) = two_tri_quad();
+        let ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        assert_eq!(ft.adj_t2t(0).len(), 1);
+        assert_eq!(ft.adj_t2t(1).len(), 1);
+        assert_eq!(ft.adj_t2t(0)[0], 1);
+        assert_eq!(ft.adj_t2t(1)[0], 0);
+    }
+
+    #[test]
+    fn isolated_vertex_adj_v2t_empty() {
+        let verts = vec![
+            p(0.0, 0.0, 0.0),
+            p(1.0, 0.0, 0.0),
+            p(0.0, 1.0, 0.0),
+            p(5.0, 5.0, 5.0), // isolated
+        ];
+        let tris = vec![[0u32, 1, 2]];
+        let ft = FastTrimesh::from_soup(&verts, &tris, Plane::XY).unwrap();
+        assert_eq!(ft.adj_v2t(3).len(), 0);
+    }
+
+    #[test]
+    fn icosahedron_adj_t2t_all_three() {
+        let (v, t) = icosahedron();
+        let ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        for ti in 0..ft.num_tris() {
+            assert_eq!(ft.adj_t2t(ti).len(), 3, "tri {ti}");
+        }
+    }
+
+    #[test]
+    fn icosahedron_adj_v2t_valence_five() {
+        let (v, t) = icosahedron();
+        let ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        for vi in 0..ft.num_verts() {
+            assert_eq!(ft.adj_v2t(vi).len(), 5, "vertex {vi}");
+        }
+    }
+
+    #[test]
+    fn adj_v2t_dedups_multi_edge_incidence() {
+        // Vertex 0 of two-tri quad: touches both edges (0,1) and (0,3)
+        // and (0,2). Each edge contributes triangles; vertex 0 is in
+        // both triangles 0 and 1 — but each via different edges,
+        // so the result should still list each tri once.
+        let (v, t) = two_tri_quad();
+        let ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        let adj = ft.adj_v2t(0);
+        // Sort for deterministic comparison (HashMap-derived order).
+        let mut sorted = adj.clone();
+        sorted.sort();
+        assert_eq!(sorted, vec![0, 1]);
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12a — Group 6: Mutator + query interaction
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn add_tri_then_tri_edges_works() {
+        let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        ft.add_vert(p(0.0, 0.0, 0.0));
+        ft.add_vert(p(1.0, 0.0, 0.0));
+        ft.add_vert(p(0.0, 1.0, 0.0));
+        let t = ft.add_tri(0, 1, 2);
+        let edges = ft.tri_edges(t);
+        for &e in &edges {
+            assert!(ft.adj_e2t(e).contains(&t));
+        }
+    }
+
+    #[test]
+    fn from_soup_then_add_vert_then_add_tri() {
+        let (v, t) = single_tri();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        assert_eq!(ft.num_verts(), 3);
+        assert_eq!(ft.num_tris(), 1);
+        let v3 = ft.add_vert(p(2.0, 0.0, 0.0));
+        ft.add_tri(0, 1, v3);
+        assert_eq!(ft.num_verts(), 4);
+        assert_eq!(ft.num_tris(), 2);
+    }
+
+    #[test]
+    fn add_vert_with_orig_id_round_trip_via_queries() {
+        let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        let id = ft.add_vert_with_orig_id(p(0.0, 0.0, 0.0), 7);
+        let orig = ft.vert_orig_id(id).unwrap();
+        let new_id = ft.vert_new_id(orig).unwrap();
+        assert_eq!(new_id, id);
+    }
+
+    #[test]
+    fn from_soup_initializes_empty_rev_vtx_map() {
+        let (v, t) = single_tri();
+        let ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        for vi in 0..ft.num_verts() {
+            assert_eq!(ft.vert_orig_id(vi), None);
+        }
+        // Reverse lookup for any orig_id should be None.
+        assert_eq!(ft.vert_new_id(0), None);
+        assert_eq!(ft.vert_new_id(1), None);
+        assert_eq!(ft.vert_new_id(2), None);
     }
 }
