@@ -202,6 +202,10 @@ pub(crate) struct Edge {
 pub(crate) struct Triangle {
     v: [u32; 3],
     info: u32,
+    /// Symbolic-split refinement Tree node ID. Populated by
+    /// `set_tri_node_id` (PR-CR12c). `None` for triangles built via
+    /// `from_soup` or `add_tri` without Tree integration.
+    node_id: Option<u32>,
 }
 
 // =========================================================================
@@ -264,7 +268,14 @@ impl FastTrimesh {
                 orig_id: None,
             })
             .collect();
-        let triangles: Vec<Triangle> = tris.iter().map(|&v| Triangle { v, info: 0 }).collect();
+        let triangles: Vec<Triangle> = tris
+            .iter()
+            .map(|&v| Triangle {
+                v,
+                info: 0,
+                node_id: None,
+            })
+            .collect();
 
         // ----- Collect + sort + dedup edges -----
         // Each triangle contributes 3 edges as sorted (min, max) pairs.
@@ -545,6 +556,7 @@ impl FastTrimesh {
         self.triangles.push(Triangle {
             v: [v0, v1, v2],
             info: 0,
+            node_id: None,
         });
         self.e2t[e0 as usize].push(t_id);
         self.e2t[e1 as usize].push(t_id);
@@ -822,6 +834,152 @@ impl FastTrimesh {
                 }
             }
         }
+    }
+}
+
+// =========================================================================
+// PR-CR12c — re-triangulation + Tree integration + Plane-using orientation
+// =========================================================================
+
+impl FastTrimesh {
+    // ----- Node ID storage on triangles -----
+
+    /// Tree node ID associated with this triangle, or `None` if not set.
+    /// Mirrors upstream `triNodeID` (cpp:436-440) but reads our separate
+    /// `Triangle.node_id` field (deviation #15 — see file header).
+    pub fn tri_node_id(&self, t: u32) -> Option<u32> {
+        debug_assert!(t < self.num_tris(), "tri_node_id: id {t} out of range");
+        // RED stub
+        let _ = t;
+        None
+    }
+
+    /// Set the Tree node ID for a triangle. Mirrors upstream
+    /// `setTriNodeID` (cpp:444-448). Set-only (no clearing API),
+    /// matching `set_edge_constr` precedent.
+    pub fn set_tri_node_id(&mut self, t: u32, _node_id: u32) {
+        debug_assert!(
+            t < self.num_tris(),
+            "set_tri_node_id: id {t} out of range"
+        );
+        // RED stub
+    }
+
+    // ----- Pure-topology queries -----
+
+    /// The third vertex of triangle `t`, given two of its vertex IDs.
+    /// Returns `None` if either `v0` or `v1` is not a vertex of `t`.
+    /// Mirrors upstream `triVertOppositeTo` (cpp:452-466).
+    pub fn tri_vert_opposite_to(&self, t: u32, v0: u32, v1: u32) -> Option<u32> {
+        debug_assert!(
+            t < self.num_tris(),
+            "tri_vert_opposite_to: id {t} out of range"
+        );
+        debug_assert!(v0 != v1, "tri_vert_opposite_to: v0 == v1");
+        // RED stub
+        let _ = (t, v0, v1);
+        None
+    }
+
+    /// `true` iff `curr_v` immediately follows `prev_v` in `t`'s
+    /// cyclic vertex order (`curr_off == (prev_off + 1) % 3`). Pure
+    /// topology; no point predicates. Mirrors upstream
+    /// `triVertsAreCCW` (cpp:539-545).
+    pub fn tri_verts_are_ccw(&self, t: u32, curr_v: u32, prev_v: u32) -> bool {
+        debug_assert!(
+            t < self.num_tris(),
+            "tri_verts_are_ccw: id {t} out of range"
+        );
+        // RED stub
+        let _ = (t, curr_v, prev_v);
+        false
+    }
+
+    // ----- Plane-using analytic query -----
+
+    /// Signed orientation of the triangle in the configured projection
+    /// plane. Drops the unused axis per `Plane` variant, then calls
+    /// CR10 `orient2d`. Mirrors upstream `triOrientation` (cpp:549-558),
+    /// minus the LGPL `genericPoint::orient2D{xy,yz,zx}` dependency.
+    pub fn tri_orientation(&self, t: u32) -> crate::predicates::Sign {
+        debug_assert!(
+            t < self.num_tris(),
+            "tri_orientation: id {t} out of range"
+        );
+        // RED stub
+        let _ = t;
+        crate::predicates::Sign::Zero
+    }
+
+    // ----- Re-triangulation mutators -----
+
+    /// Reverse the vertex winding by swapping `v[0]` and `v[2]`.
+    /// Adjacency unchanged (edges stored as sorted pairs).
+    /// Mirrors upstream `flipTri` (cpp:800-807).
+    pub fn flip_tri(&mut self, t: u32) {
+        debug_assert!(t < self.num_tris(), "flip_tri: id {t} out of range");
+        // RED stub
+        let _ = t;
+    }
+
+    /// Replace edge `e` with a new vertex `v`; each adjacent triangle
+    /// becomes 2 sub-triangles. Mirrors upstream `splitEdge`
+    /// (cpp:708-726).
+    pub fn split_edge(&mut self, e: u32, v: u32) {
+        debug_assert!(e < self.num_edges(), "split_edge: id {e} out of range");
+        debug_assert!(v < self.num_verts(), "split_edge: v {v} out of range");
+        // RED stub
+        let _ = (e, v);
+    }
+
+    /// Same as `split_edge`, plus record split provenance in the Tree.
+    /// Mirrors upstream `splitEdge(e, v, &Tree)` (cpp:730-756).
+    pub fn split_edge_with_tree(
+        &mut self,
+        e: u32,
+        v: u32,
+        _tree: &mut crate::arrangements::Tree,
+    ) {
+        debug_assert!(
+            e < self.num_edges(),
+            "split_edge_with_tree: id {e} out of range"
+        );
+        debug_assert!(
+            v < self.num_verts(),
+            "split_edge_with_tree: v {v} out of range"
+        );
+        // RED stub
+        let _ = (e, v);
+    }
+
+    /// Barycentric subdivision: replace triangle `t` with 3 sub-tris
+    /// all sharing the new vertex `v` as their common corner.
+    /// Mirrors upstream `splitTri` (cpp:760-770).
+    pub fn split_tri(&mut self, t: u32, v: u32) {
+        debug_assert!(t < self.num_tris(), "split_tri: id {t} out of range");
+        debug_assert!(v < self.num_verts(), "split_tri: v {v} out of range");
+        // RED stub
+        let _ = (t, v);
+    }
+
+    /// Same as `split_tri`, plus record split provenance in the Tree.
+    /// Mirrors upstream `splitTri(t, v, &Tree)` (cpp:774-796).
+    pub fn split_tri_with_tree(
+        &mut self,
+        t: u32,
+        v: u32,
+        _tree: &mut crate::arrangements::Tree,
+    ) {
+        debug_assert!(
+            t < self.num_tris(),
+            "split_tri_with_tree: id {t} out of range"
+        );
+        debug_assert!(
+            v < self.num_verts(),
+            "split_tri_with_tree: v {v} out of range"
+        );
+        // RED stub
+        let _ = (t, v);
     }
 }
 
@@ -2038,5 +2196,319 @@ mod tests {
                 "sum |e2t| != 3·T after removing {victim}"
             );
         }
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12c — Group 1: flip_tri
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn flip_tri_reverses_winding() {
+        let (v, t) = single_tri();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        let before = ft.tri(0);
+        ft.flip_tri(0);
+        let after = ft.tri(0);
+        assert_eq!(after, [before[2], before[1], before[0]]);
+    }
+
+    #[test]
+    fn flip_tri_preserves_edge_set() {
+        let (v, t) = single_tri();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        let n_edges_before = ft.num_edges();
+        ft.flip_tri(0);
+        assert_eq!(ft.num_edges(), n_edges_before);
+        // All 3 edges still exist.
+        assert!(ft.edge_id(0, 1).is_some());
+        assert!(ft.edge_id(1, 2).is_some());
+        assert!(ft.edge_id(0, 2).is_some());
+    }
+
+    #[test]
+    fn flip_tri_preserves_sum_invariants() {
+        let (v, t) = tetrahedron();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        ft.flip_tri(0);
+        let sum_v2e: u32 = (0..ft.num_verts()).map(|v| ft.vert_valence(v)).sum();
+        let sum_e2t: usize = (0..ft.num_edges()).map(|e| ft.adj_e2t(e).len()).sum();
+        assert_eq!(sum_v2e, 2 * ft.num_edges());
+        assert_eq!(sum_e2t, 3 * ft.num_tris() as usize);
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12c — Group 2: tri_orientation per Plane
+    // -----------------------------------------------------------------
+
+    fn ccw_tri_xy() -> (Vec<Point3>, Vec<[u32; 3]>) {
+        (
+            vec![p(0.0, 0.0, 0.0), p(1.0, 0.0, 0.0), p(0.0, 1.0, 0.0)],
+            vec![[0, 1, 2]],
+        )
+    }
+
+    fn cw_tri_xy() -> (Vec<Point3>, Vec<[u32; 3]>) {
+        // Reverse winding of ccw_tri_xy.
+        (
+            vec![p(0.0, 0.0, 0.0), p(1.0, 0.0, 0.0), p(0.0, 1.0, 0.0)],
+            vec![[0, 2, 1]],
+        )
+    }
+
+    fn colinear_tri_xy() -> (Vec<Point3>, Vec<[u32; 3]>) {
+        (
+            vec![p(0.0, 0.0, 0.0), p(1.0, 0.0, 0.0), p(2.0, 0.0, 0.0)],
+            vec![[0, 1, 2]],
+        )
+    }
+
+    #[test]
+    fn tri_orientation_ccw_xy_positive() {
+        let (v, t) = ccw_tri_xy();
+        let ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        assert_eq!(ft.tri_orientation(0), crate::predicates::Sign::Positive);
+    }
+
+    #[test]
+    fn tri_orientation_cw_xy_negative() {
+        let (v, t) = cw_tri_xy();
+        let ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        assert_eq!(ft.tri_orientation(0), crate::predicates::Sign::Negative);
+    }
+
+    #[test]
+    fn tri_orientation_colinear_xy_zero() {
+        let (v, t) = colinear_tri_xy();
+        let ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        assert_eq!(ft.tri_orientation(0), crate::predicates::Sign::Zero);
+    }
+
+    #[test]
+    fn tri_orientation_yz_ccw() {
+        // Triangle that is CCW in YZ plane (drop X).
+        let verts = vec![p(0.0, 0.0, 0.0), p(0.0, 1.0, 0.0), p(0.0, 0.0, 1.0)];
+        let tris = vec![[0, 1, 2]];
+        let ft = FastTrimesh::from_soup(&verts, &tris, Plane::YZ).unwrap();
+        assert_eq!(ft.tri_orientation(0), crate::predicates::Sign::Positive);
+    }
+
+    #[test]
+    fn tri_orientation_zx_ccw() {
+        // Triangle that is CCW in ZX plane (drop Y).
+        let verts = vec![p(0.0, 0.0, 0.0), p(0.0, 0.0, 1.0), p(1.0, 0.0, 0.0)];
+        let tris = vec![[0, 1, 2]];
+        let ft = FastTrimesh::from_soup(&verts, &tris, Plane::ZX).unwrap();
+        assert_eq!(ft.tri_orientation(0), crate::predicates::Sign::Positive);
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12c — Group 3: tri_verts_are_ccw + tri_vert_opposite_to
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn tri_verts_are_ccw_forward() {
+        let (v, t) = single_tri();
+        let ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        // tri[0] = [0, 1, 2]; (curr=1, prev=0) → off(1)=1, off(0)=0; 1 == (0+1)%3 → true
+        assert!(ft.tri_verts_are_ccw(0, 1, 0));
+        // (curr=2, prev=1) → off(2)=2, off(1)=1; 2 == (1+1)%3 → true
+        assert!(ft.tri_verts_are_ccw(0, 2, 1));
+        // (curr=0, prev=2) → off(0)=0, off(2)=2; 0 == (2+1)%3 → true
+        assert!(ft.tri_verts_are_ccw(0, 0, 2));
+    }
+
+    #[test]
+    fn tri_verts_are_ccw_reverse() {
+        let (v, t) = single_tri();
+        let ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        // Reversed: (curr=0, prev=1) → off(0)=0, off(1)=1; 0 != (1+1)%3 → false
+        assert!(!ft.tri_verts_are_ccw(0, 0, 1));
+        assert!(!ft.tri_verts_are_ccw(0, 1, 2));
+    }
+
+    #[test]
+    fn tri_vert_opposite_to_returns_third() {
+        let (v, t) = single_tri();
+        let ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        assert_eq!(ft.tri_vert_opposite_to(0, 0, 1), Some(2));
+        assert_eq!(ft.tri_vert_opposite_to(0, 1, 2), Some(0));
+        assert_eq!(ft.tri_vert_opposite_to(0, 0, 2), Some(1));
+    }
+
+    #[test]
+    fn tri_vert_opposite_to_returns_none_if_missing() {
+        let (v, t) = single_tri();
+        let ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        // Vertex 0 is in the tri but vertex 99 isn't, so no third vertex
+        // is unambiguously identifiable.
+        assert_eq!(ft.tri_vert_opposite_to(0, 0, 99), None);
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12c — Group 4: split_edge (no Tree)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn split_edge_single_tri() {
+        let (v, t) = single_tri();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        let new_v = ft.add_vert(p(0.5, 0.0, 0.0));
+        let e = ft.edge_id(0, 1).unwrap();
+        ft.split_edge(e, new_v);
+        // Single tri becomes 2 sub-tris.
+        assert_eq!(ft.num_tris(), 2);
+        assert_eq!(ft.num_verts(), 4);
+    }
+
+    #[test]
+    fn split_edge_tetrahedron_interior() {
+        let (v, t) = tetrahedron();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        // Pick an interior edge (every tetra edge has 2 incident tris).
+        let new_v = ft.add_vert(p(0.5, 0.5, 0.5));
+        let e = ft.edge_id(0, 1).unwrap();
+        ft.split_edge(e, new_v);
+        // 2 affected tris become 4 sub-tris; 2 unaffected remain.
+        assert_eq!(ft.num_tris(), 4 + 2);
+        assert_eq!(ft.num_verts(), 5);
+    }
+
+    #[test]
+    fn split_edge_preserves_sum_invariants() {
+        let (v, t) = tetrahedron();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        let new_v = ft.add_vert(p(0.5, 0.5, 0.5));
+        let e = ft.edge_id(0, 1).unwrap();
+        ft.split_edge(e, new_v);
+        let sum_v2e: u32 = (0..ft.num_verts()).map(|v| ft.vert_valence(v)).sum();
+        let sum_e2t: usize = (0..ft.num_edges()).map(|e| ft.adj_e2t(e).len()).sum();
+        assert_eq!(sum_v2e, 2 * ft.num_edges());
+        assert_eq!(sum_e2t, 3 * ft.num_tris() as usize);
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12c — Group 5: split_tri (no Tree)
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn split_tri_single_into_three() {
+        let (v, t) = single_tri();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        let new_v = ft.add_vert(p(0.3, 0.3, 0.0));
+        ft.split_tri(0, new_v);
+        assert_eq!(ft.num_tris(), 3);
+        assert_eq!(ft.num_verts(), 4);
+        // New vertex has valence 3 (incident to all 3 sub-tris).
+        assert_eq!(ft.vert_valence(new_v), 3);
+    }
+
+    #[test]
+    fn split_tri_tetrahedron() {
+        let (v, t) = tetrahedron();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        let new_v = ft.add_vert(p(0.25, 0.25, 0.25));
+        ft.split_tri(0, new_v);
+        // 1 tri becomes 3; the 3 unaffected remain.
+        assert_eq!(ft.num_tris(), 3 + 3);
+    }
+
+    #[test]
+    fn split_tri_preserves_sum_invariants() {
+        let (v, t) = tetrahedron();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        let new_v = ft.add_vert(p(0.25, 0.25, 0.25));
+        ft.split_tri(0, new_v);
+        let sum_v2e: u32 = (0..ft.num_verts()).map(|v| ft.vert_valence(v)).sum();
+        let sum_e2t: usize = (0..ft.num_edges()).map(|e| ft.adj_e2t(e).len()).sum();
+        assert_eq!(sum_v2e, 2 * ft.num_edges());
+        assert_eq!(sum_e2t, 3 * ft.num_tris() as usize);
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12c — Group 6: Tree-integrated splits
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn split_edge_with_tree_records_two_children() {
+        use crate::arrangements::Tree;
+        let (v, t) = tetrahedron();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        let mut tree = Tree::new();
+        // Seed: every existing tri gets a tree node.
+        for ti in 0..ft.num_tris() {
+            let tri = ft.tri(ti);
+            let n = tree.add_node(tri[0], tri[1], tri[2]);
+            ft.set_tri_node_id(ti, n);
+        }
+        let parent_t = 0u32;
+        let parent_node = ft.tri_node_id(parent_t).unwrap();
+        let nodes_before = tree.num_nodes();
+        let new_v = ft.add_vert(p(0.5, 0.5, 0.5));
+        let e = ft.edge_id(0, 1).unwrap();
+        ft.split_edge_with_tree(e, new_v, &mut tree);
+        // 2 affected tris × 2 new nodes each = 4 new nodes total.
+        assert_eq!(tree.num_nodes(), nodes_before + 4);
+        // Parent's children: 2 set.
+        let kids = tree.get_node(parent_node).children();
+        assert!(kids[0].is_some() && kids[1].is_some() && kids[2].is_none());
+    }
+
+    #[test]
+    fn split_tri_with_tree_records_three_children() {
+        use crate::arrangements::Tree;
+        let (v, t) = single_tri();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        let mut tree = Tree::new();
+        let parent_node = tree.add_node(0, 1, 2);
+        ft.set_tri_node_id(0, parent_node);
+        let new_v = ft.add_vert(p(0.3, 0.3, 0.0));
+        ft.split_tri_with_tree(0, new_v, &mut tree);
+        // 3 new nodes.
+        assert_eq!(tree.num_nodes(), 4);
+        let kids = tree.get_node(parent_node).children();
+        assert!(kids[0].is_some() && kids[1].is_some() && kids[2].is_some());
+    }
+
+    // -----------------------------------------------------------------
+    // PR-CR12c — Group 7: node_id storage independence
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn set_tri_node_id_does_not_change_info() {
+        let (v, t) = single_tri();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        ft.set_tri_info(0, 42);
+        ft.set_tri_node_id(0, 99);
+        assert_eq!(ft.tri_info(0), 42); // info preserved
+        assert_eq!(ft.tri_node_id(0), Some(99));
+    }
+
+    #[test]
+    fn set_tri_info_does_not_change_node_id() {
+        let (v, t) = single_tri();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        ft.set_tri_node_id(0, 42);
+        ft.set_tri_info(0, 99);
+        assert_eq!(ft.tri_node_id(0), Some(42)); // node_id preserved
+        assert_eq!(ft.tri_info(0), 99);
+    }
+
+    #[test]
+    fn from_soup_initializes_no_node_ids() {
+        let (v, t) = tetrahedron();
+        let ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        for ti in 0..ft.num_tris() {
+            assert_eq!(ft.tri_node_id(ti), None);
+        }
+    }
+
+    #[test]
+    fn add_tri_initializes_no_node_id() {
+        let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        ft.add_vert(p(0.0, 0.0, 0.0));
+        ft.add_vert(p(1.0, 0.0, 0.0));
+        ft.add_vert(p(0.0, 1.0, 0.0));
+        let t = ft.add_tri(0, 1, 2);
+        assert_eq!(ft.tri_node_id(t), None);
     }
 }
