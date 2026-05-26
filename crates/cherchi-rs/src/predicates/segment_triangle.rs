@@ -42,13 +42,53 @@ pub enum SegmentTriangleIntersection {
 ///
 /// [`points_are_collinear_3d`]: super::collinearity::points_are_collinear_3d
 pub fn segment_intersects_triangle_3d(
-    _p: Point3,
-    _q: Point3,
-    _a: Point3,
-    _b: Point3,
-    _c: Point3,
+    p: Point3,
+    q: Point3,
+    a: Point3,
+    b: Point3,
+    c: Point3,
 ) -> SegmentTriangleIntersection {
-    unimplemented!("PR-CR8 RED phase — Implementer fills body in next commit")
+    use super::orient::{orient3d, Sign};
+    use SegmentTriangleIntersection::*;
+
+    // 1. Which side of triangle's plane is each segment endpoint on?
+    let s_p = orient3d(a, b, c, p);
+    let s_q = orient3d(a, b, c, q);
+
+    // 2. Both endpoints on plane → caller handles 2D case.
+    if s_p == Sign::Zero && s_q == Sign::Zero {
+        return Coplanar;
+    }
+
+    // 3. Both endpoints on same non-zero side → segment doesn't cross plane.
+    let same_side_pos = s_p == Sign::Positive && s_q == Sign::Positive;
+    let same_side_neg = s_p == Sign::Negative && s_q == Sign::Negative;
+    if same_side_pos || same_side_neg {
+        return Disjoint;
+    }
+
+    // 4. Compute line-vs-triangle-edge orientations.
+    let l_ab = orient3d(p, q, a, b);
+    let l_bc = orient3d(p, q, b, c);
+    let l_ca = orient3d(p, q, c, a);
+
+    // 5. If mixed signs (any Positive AND any Negative) → line passes
+    //    outside the triangle.
+    let any_pos = l_ab == Sign::Positive
+        || l_bc == Sign::Positive
+        || l_ca == Sign::Positive;
+    let any_neg = l_ab == Sign::Negative
+        || l_bc == Sign::Negative
+        || l_ca == Sign::Negative;
+
+    if any_pos && any_neg {
+        Disjoint
+    } else {
+        // All same sign (zeros allowed) → line passes through or along
+        // an edge of the triangle, AND the segment endpoints span the
+        // plane (or one is on it), so the segment touches the triangle.
+        Intersects
+    }
 }
 
 #[cfg(test)]
