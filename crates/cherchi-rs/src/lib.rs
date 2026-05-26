@@ -29,6 +29,7 @@
 //! reference, the Rust port is wrong (until proven otherwise on a case-by-
 //! case basis with paper-cited justification).
 
+pub mod arrangements;
 pub mod predicates;
 pub mod processing;
 
