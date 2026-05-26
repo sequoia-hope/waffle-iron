@@ -1,5 +1,11 @@
 # TODO: C++ Sidecar Predicate Harness
 
+> **PR-CR-S1 (2026-05-26)** built the *mesh-level* sidecar (`mesh_booleans` binary
+> at `/home/claude/cherchi2022/`) and the Rust scaffold at
+> `crates/cherchi-rs/tests/common/sidecar.rs`. This doc remains the design for
+> the *predicate-level* JSON-stdio harness — still deferred per the trigger
+> conditions below.
+
 ## What this is
 
 A planned addition to `cherchi-rs`'s test infrastructure: a small C++
