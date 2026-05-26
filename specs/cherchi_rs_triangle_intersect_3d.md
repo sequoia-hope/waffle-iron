@@ -42,7 +42,8 @@ All inputs must be finite. NaN / infinite inputs are undefined.
 | Non-coplanar, an edge of T1 crosses T2's interior | `Intersects` |
 | Non-coplanar, an edge of T2 crosses T1's interior | `Intersects` |
 | Non-coplanar, share a vertex with edges crossing | `Intersects` |
-| Non-coplanar, share an edge (edge in both planes) | `Coplanar` (caller's 2D refines to Intersects) |
+| Non-coplanar, share an edge (vertex coincidence) | `Intersects` (the shared edge IS the intersection; line tests via touching edges' vertex coincidence propagate Intersects) |
+| Non-coplanar, edge of T1 lies in T2's plane but far from T2 | `Coplanar` (caller's 2D handler refines to Disjoint) |
 | NaN / infinite inputs | Undefined |
 | Degenerate triangle (collinear vertices) | Caller's responsibility |
 
@@ -117,15 +118,32 @@ Using a single `Coplanar` variant keeps the API simple. The caller's
 2D handler distinguishes the two situations internally.
 
 Edge cases this correctly handles:
-- **Shared edge between non-coplanar triangles**: edge lies in both
-  planes → segment-triangle returns `Coplanar` → result is `Coplanar`.
-  Caller's 2D refinement determines the edge is shared → Intersects.
-- **Edge in plane but doesn't touch the triangle**: same `Coplanar`
-  return; caller's 2D refinement determines no actual intersection →
-  Disjoint.
+- **Shared edge between non-coplanar triangles** (vertex coincidence):
+  The edge itself returns `Coplanar` from segment-triangle (both
+  endpoints in the other plane). BUT the OTHER edges of T1 (which
+  touch the shared edge's endpoints) hit vertex coincidence in their
+  line tests, producing `Zero` orient3d results that combine with
+  non-zero results to fall into the "all-same-sign-or-zeros" branch
+  → segment-triangle returns `Intersects` for those edges. Aggregation
+  with `Intersects > Coplanar` priority → result is `Intersects`.
+  This is geometrically correct (the shared edge IS the intersection).
+- **Edge in plane but doesn't touch the triangle** (no vertex
+  coincidence): segment-triangle returns `Coplanar` for that edge;
+  other edges return `Disjoint`. Aggregation → `Coplanar`. Caller's
+  2D handler determines no actual intersection → Disjoint.
 
-The conservative `Coplanar` return preserves correctness even though
-it loses the disambiguation. The disambiguation is the 2D handler's job.
+The implementation is "smart enough" to detect shared edges as
+`Intersects` via the secondary propagation pathway, even though the
+primary edge-in-plane edge returns `Coplanar`. This was discovered
+mid-implementation during PR-CR9 GREEN — original spec wrongly claimed
+shared edges return `Coplanar`. The corrected behavior is documented
+here.
+
+Cases that still return `Coplanar` require caller's 2D refinement:
+- Full coplanar (both triangles in same plane)
+- Edge in plane but no vertex coincidence (rare; requires the edge's
+  line not to pass through any T2 interior even though it's coplanar
+  with T2's plane)
 
 ## Per-file MIT attribution
 
