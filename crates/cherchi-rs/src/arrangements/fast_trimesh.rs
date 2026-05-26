@@ -849,20 +849,18 @@ impl FastTrimesh {
     /// `Triangle.node_id` field (deviation #15 — see file header).
     pub fn tri_node_id(&self, t: u32) -> Option<u32> {
         debug_assert!(t < self.num_tris(), "tri_node_id: id {t} out of range");
-        // RED stub
-        let _ = t;
-        None
+        self.triangles[t as usize].node_id
     }
 
     /// Set the Tree node ID for a triangle. Mirrors upstream
     /// `setTriNodeID` (cpp:444-448). Set-only (no clearing API),
     /// matching `set_edge_constr` precedent.
-    pub fn set_tri_node_id(&mut self, t: u32, _node_id: u32) {
+    pub fn set_tri_node_id(&mut self, t: u32, node_id: u32) {
         debug_assert!(
             t < self.num_tris(),
             "set_tri_node_id: id {t} out of range"
         );
-        // RED stub
+        self.triangles[t as usize].node_id = Some(node_id);
     }
 
     // ----- Pure-topology queries -----
@@ -876,9 +874,12 @@ impl FastTrimesh {
             "tri_vert_opposite_to: id {t} out of range"
         );
         debug_assert!(v0 != v1, "tri_vert_opposite_to: v0 == v1");
-        // RED stub
-        let _ = (t, v0, v1);
-        None
+        let verts = self.triangles[t as usize].v;
+        // Both v0 and v1 must be in the tri for the result to be meaningful.
+        if !verts.contains(&v0) || !verts.contains(&v1) {
+            return None;
+        }
+        verts.into_iter().find(|&v| v != v0 && v != v1)
     }
 
     /// `true` iff `curr_v` immediately follows `prev_v` in `t`'s
@@ -890,9 +891,15 @@ impl FastTrimesh {
             t < self.num_tris(),
             "tri_verts_are_ccw: id {t} out of range"
         );
-        // RED stub
-        let _ = (t, curr_v, prev_v);
-        false
+        let prev_off = match self.tri_vert_offset(t, prev_v) {
+            Some(o) => o,
+            None => return false,
+        };
+        let curr_off = match self.tri_vert_offset(t, curr_v) {
+            Some(o) => o,
+            None => return false,
+        };
+        curr_off == (prev_off + 1) % 3
     }
 
     // ----- Plane-using analytic query -----
@@ -902,13 +909,32 @@ impl FastTrimesh {
     /// CR10 `orient2d`. Mirrors upstream `triOrientation` (cpp:549-558),
     /// minus the LGPL `genericPoint::orient2D{xy,yz,zx}` dependency.
     pub fn tri_orientation(&self, t: u32) -> crate::predicates::Sign {
+        use cad_primitives::Point2;
+        use crate::predicates::orient2d;
         debug_assert!(
             t < self.num_tris(),
             "tri_orientation: id {t} out of range"
         );
-        // RED stub
-        let _ = t;
-        crate::predicates::Sign::Zero
+        let a = self.tri_vert(t, 0);
+        let b = self.tri_vert(t, 1);
+        let c = self.tri_vert(t, 2);
+        match self.plane {
+            Plane::XY => orient2d(
+                Point2::new(a.x(), a.y()),
+                Point2::new(b.x(), b.y()),
+                Point2::new(c.x(), c.y()),
+            ),
+            Plane::YZ => orient2d(
+                Point2::new(a.y(), a.z()),
+                Point2::new(b.y(), b.z()),
+                Point2::new(c.y(), c.z()),
+            ),
+            Plane::ZX => orient2d(
+                Point2::new(a.z(), a.x()),
+                Point2::new(b.z(), b.x()),
+                Point2::new(c.z(), c.x()),
+            ),
+        }
     }
 
     // ----- Re-triangulation mutators -----
@@ -918,8 +944,8 @@ impl FastTrimesh {
     /// Mirrors upstream `flipTri` (cpp:800-807).
     pub fn flip_tri(&mut self, t: u32) {
         debug_assert!(t < self.num_tris(), "flip_tri: id {t} out of range");
-        // RED stub
-        let _ = t;
+        let v = &mut self.triangles[t as usize].v;
+        v.swap(0, 2);
     }
 
     /// Replace edge `e` with a new vertex `v`; each adjacent triangle
@@ -928,8 +954,25 @@ impl FastTrimesh {
     pub fn split_edge(&mut self, e: u32, v: u32) {
         debug_assert!(e < self.num_edges(), "split_edge: id {e} out of range");
         debug_assert!(v < self.num_verts(), "split_edge: v {v} out of range");
-        // RED stub
-        let _ = (e, v);
+        let (ev0_orig, ev1_orig) = self.edge(e);
+        // Clone the e2t list — we'll iterate while mutating self via add_tri.
+        let affected: Vec<u32> = self.e2t[e as usize].clone();
+        for t_id in &affected {
+            let mut ev0 = ev0_orig;
+            let mut ev1 = ev1_orig;
+            let v_opp = self
+                .tri_vert_opposite_to(*t_id, ev0, ev1)
+                .expect("split_edge: tri lacks one of edge's endpoints");
+            // CCW-fixup: faithfully mirror upstream cpp:719.
+            if self.tri_verts_are_ccw(*t_id, ev0, ev1) {
+                core::mem::swap(&mut ev0, &mut ev1);
+            }
+            self.add_tri(v_opp, ev0, v);
+            self.add_tri(v_opp, v, ev1);
+        }
+        // Remove the original triangles last (cascades the now-dangling
+        // original edge).
+        self.remove_tris(affected);
     }
 
     /// Same as `split_edge`, plus record split provenance in the Tree.
@@ -938,7 +981,7 @@ impl FastTrimesh {
         &mut self,
         e: u32,
         v: u32,
-        _tree: &mut crate::arrangements::Tree,
+        tree: &mut crate::arrangements::Tree,
     ) {
         debug_assert!(
             e < self.num_edges(),
@@ -948,8 +991,29 @@ impl FastTrimesh {
             v < self.num_verts(),
             "split_edge_with_tree: v {v} out of range"
         );
-        // RED stub
-        let _ = (e, v);
+        let (ev0_orig, ev1_orig) = self.edge(e);
+        let affected: Vec<u32> = self.e2t[e as usize].clone();
+        for t_id in &affected {
+            let mut ev0 = ev0_orig;
+            let mut ev1 = ev1_orig;
+            let v_opp = self
+                .tri_vert_opposite_to(*t_id, ev0, ev1)
+                .expect("split_edge_with_tree: tri lacks endpoint");
+            if self.tri_verts_are_ccw(*t_id, ev0, ev1) {
+                core::mem::swap(&mut ev0, &mut ev1);
+            }
+            let parent_node = self
+                .tri_node_id(*t_id)
+                .expect("split_edge_with_tree: parent has no node_id");
+            let t0 = self.add_tri(v_opp, ev0, v);
+            let t1 = self.add_tri(v_opp, v, ev1);
+            let n0 = tree.add_node(v_opp, ev0, v);
+            let n1 = tree.add_node(v_opp, v, ev1);
+            tree.add_children(parent_node, &[n0, n1]);
+            self.set_tri_node_id(t0, n0);
+            self.set_tri_node_id(t1, n1);
+        }
+        self.remove_tris(affected);
     }
 
     /// Barycentric subdivision: replace triangle `t` with 3 sub-tris
@@ -958,8 +1022,11 @@ impl FastTrimesh {
     pub fn split_tri(&mut self, t: u32, v: u32) {
         debug_assert!(t < self.num_tris(), "split_tri: id {t} out of range");
         debug_assert!(v < self.num_verts(), "split_tri: v {v} out of range");
-        // RED stub
-        let _ = (t, v);
+        let tri = self.tri(t);
+        self.add_tri(tri[0], tri[1], v);
+        self.add_tri(tri[1], tri[2], v);
+        self.add_tri(tri[2], tri[0], v);
+        self.remove_tri(t);
     }
 
     /// Same as `split_tri`, plus record split provenance in the Tree.
@@ -968,7 +1035,7 @@ impl FastTrimesh {
         &mut self,
         t: u32,
         v: u32,
-        _tree: &mut crate::arrangements::Tree,
+        tree: &mut crate::arrangements::Tree,
     ) {
         debug_assert!(
             t < self.num_tris(),
@@ -978,8 +1045,21 @@ impl FastTrimesh {
             v < self.num_verts(),
             "split_tri_with_tree: v {v} out of range"
         );
-        // RED stub
-        let _ = (t, v);
+        let tri = self.tri(t);
+        let parent_node = self
+            .tri_node_id(t)
+            .expect("split_tri_with_tree: parent has no node_id");
+        let t0 = self.add_tri(tri[0], tri[1], v);
+        let t1 = self.add_tri(tri[1], tri[2], v);
+        let t2 = self.add_tri(tri[2], tri[0], v);
+        let n0 = tree.add_node(tri[0], tri[1], v);
+        let n1 = tree.add_node(tri[1], tri[2], v);
+        let n2 = tree.add_node(tri[2], tri[0], v);
+        tree.add_children(parent_node, &[n0, n1, n2]);
+        self.set_tri_node_id(t0, n0);
+        self.set_tri_node_id(t1, n1);
+        self.set_tri_node_id(t2, n2);
+        self.remove_tri(t);
     }
 }
 

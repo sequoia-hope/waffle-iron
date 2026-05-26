@@ -48,9 +48,13 @@ impl Tree {
 
     /// Append a new node with the given triangle vertices. Children
     /// initialize to `[None, None, None]`. Returns the new node's u32 ID.
-    pub fn add_node(&mut self, _v0: u32, _v1: u32, _v2: u32) -> u32 {
-        // RED stub
-        0
+    pub fn add_node(&mut self, v0: u32, v1: u32, v2: u32) -> u32 {
+        let id = self.nodes.len() as u32;
+        self.nodes.push(Node {
+            v: [v0, v1, v2],
+            children: [None, None, None],
+        });
+        id
     }
 
     /// Read-only access to a node by ID.
@@ -62,8 +66,23 @@ impl Tree {
     /// Set the children of `parent`. `children` must have length 2
     /// (edge-split) or 3 (tri-split). Panics in debug if the parent
     /// already has children set.
-    pub fn add_children(&mut self, _parent: u32, _children: &[u32]) {
-        // RED stub
+    pub fn add_children(&mut self, parent: u32, children: &[u32]) {
+        debug_assert!(
+            parent < self.num_nodes(),
+            "add_children: parent {parent} out of range"
+        );
+        debug_assert!(
+            children.len() == 2 || children.len() == 3,
+            "add_children: expected 2 or 3 children, got {}",
+            children.len()
+        );
+        debug_assert!(
+            self.nodes[parent as usize].children[0].is_none(),
+            "add_children: parent {parent} already has children"
+        );
+        for (i, &c) in children.iter().enumerate() {
+            self.nodes[parent as usize].children[i] = Some(c);
+        }
     }
 }
 
