@@ -6,7 +6,7 @@ This crate is the foundation of the clean-sheet kernel rewrite (see root `CLAUDE
 
 - Geometric primitive types: `Point3`, `Vector3` (and any future `Quaternion`, `Mat3`)
 - Distance / angle tolerance constants — the existing `TAU_MODEL = 1e-7`, `MIN_FEATURE_SIZE = 1e-6`, `TAU_NORMALIZE`, etc.
-- Boolean operation enum: `BoolOp { Union, Intersect, Subtract }`
+- Boolean operation enum: `BoolOp { Union, Intersect, Subtract, Xor }` — `Xor` added in PR-CSR1 to match upstream Cherchi 2022 CLI vocabulary.
 - The shared `KernelError` type (cross-crate error category enum)
 
 ## What does NOT belong here
