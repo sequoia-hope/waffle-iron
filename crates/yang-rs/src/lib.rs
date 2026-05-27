@@ -13,19 +13,33 @@
 //! - **Stage 5** (§4.4.2): Patch segmentation (flood-fill)
 //! - **Stage 6** (§4.4.2): B-Rep reassembly
 //!
-//! ## Current implementation status (PR-YR2)
+//! ## Current implementation status (PR-YR4)
 //!
-//! - **Stage 1 PLANAR**: implemented via `BRep::new(verts, edges, faces)`.
-//!   Fan-triangulates each planar face from its first vertex. Builds a
-//!   1:1 bijection from mesh vertices to B-Rep vertices (no Steiner
-//!   points). Supports `Surface::Plane` only; convex faces only;
-//!   no inner loops. Curves (`Curve::LineSegment`-only) are degenerate.
-//! - **`boolean()` delegates to `MeshBoolean` backend** via the existing
-//!   PR-YR1 path. The `TessellationMap` from Stage 1 is **not yet
-//!   consumed** — PR-YR3 will rewire `boolean()` to use it for Stages
-//!   5/6 reassembly.
-//! - **`BRep::from_mesh()` is the degenerate path** (PR-YR1 compat):
-//!   empty topology, all-`Unknown` TessellationMap.
+//! - **Stage 1 PLANAR** (PR-YR2): `BRep::new(verts, edges, faces)`
+//!   fan-triangulates each planar face from its first vertex; produces
+//!   a 1:1 bijection (no Steiner points). Convex faces only; no inner
+//!   loops; `Surface::Plane` only.
+//! - **`boolean()` vertex provenance** (PR-YR3): every output mesh
+//!   vertex is spatially matched against input A then B (within
+//!   [`MATCH_TOLERANCE`]). On match, the corresponding input's
+//!   `TessellationSource` is copied; unmatched verts get
+//!   `TessellationSource::Intersection`.
+//! - **`boolean()` triangle attribution** (PR-YR4): every output
+//!   triangle is attributed to an input `(InputId, face_idx)` via
+//!   majority-vote (≥2 of 3) over the vertices' provenance.
+//!   Ties broken by lowest `(input, face)`. No majority → `None`.
+//!   Accessible via [`BRep::triangle_attribution`].
+//! - **`BRep::from_mesh()` degenerate path** (PR-YR1 compat): empty
+//!   topology; all-`Unknown` TessellationMap; empty
+//!   TriangleAttributionMap.
+//!
+//! **Honest framing**: PR-YR3 + PR-YR4 are NOT real Yang Stage 5/6.
+//! Real Stage 5/6 needs per-triangle labels from Stage 2's arrangement
+//! which the C++ sidecar doesn't expose. The current pipeline is a
+//! sidecar-feasible substitute that recovers vertex- and triangle-
+//! level provenance. Output `BRep` topology (faces, edges) remains
+//! empty — full reassembly is PR-YR5+ and ultimately gated on labeled
+//! arrangement output.
 //!
 //! Banked for future PRs:
 //! - PR-YR2b: ear-cutting for non-convex faces
@@ -34,7 +48,9 @@
 //!   §4.1.1 iterative subdivision
 //! - PR-YR2e: Steiner points + dε tolerance
 //! - PR-YR2f: CDT at shared edges
-//! - PR-YR3: rewire `boolean()` to use Stage 1 outputs
+//! - PR-YR4b: precomputed vertex→edge / edge→face incidence indices
+//! - PR-YR5: output topology reconstruction from triangle attribution
+//! - Real Stage 5/6: gated on labeled arrangement output
 //!
 //! ## Input / output
 //!
@@ -448,18 +464,32 @@ impl Error for YangError {
 }
 
 // =========================================================================
-// boolean() — unchanged in PR-YR2; still delegates to backend
+// boolean() — PR-YR3 vertex provenance + PR-YR4 triangle attribution
 // =========================================================================
 
 /// Boolean operation on two B-Rep solids via a `MeshBoolean` backend.
 ///
-/// **PR-YR2 behavior is unchanged from PR-YR1**: extracts meshes from
-/// the inputs, calls `backend.boolean()`, wraps the result in a fresh
-/// `BRep` via `from_mesh`. The result's `TessellationMap` is all-`Unknown`.
+/// Pipeline (after backend produces the output mesh):
+/// 1. **PR-YR3 vertex pass**: for each output vertex, spatially match
+///    against input A first, then B (within [`MATCH_TOLERANCE`]). On
+///    match, copy that input's `TessellationSource`; else mark
+///    `TessellationSource::Intersection`.
+/// 2. **PR-YR4 triangle pass**: for each output triangle, derive
+///    candidate `(InputId, face_idx)` sets from each vertex's
+///    provenance (a `BRepVertex(v)` contributes every face touching
+///    `v`; a `BRepEdge { edge }` contributes every face whose
+///    `outer_loop` contains it; a `BRepFace { face }` contributes the
+///    singleton; `Intersection`/`Unknown` contribute nothing).
+///    Attribution = `Some((input, face))` whose vote count is the
+///    maximum among pairs with count ≥ 2; ties broken by lowest
+///    `(input, face)` lexicographic. No 2-of-3 majority → `None`.
 ///
-/// PR-YR3 will rewire this to: tessellate both inputs (Stage 1) → call
-/// backend (Stage 2) → consult `TessellationMap` for reassembly
-/// (Stages 5/6) → return a real B-Rep with topology.
+/// **NOT real Yang Stage 5/6.** Real Stage 5/6 needs per-triangle
+/// labels from Stage 2's arrangement which the C++ sidecar doesn't
+/// expose. PR-YR3 + PR-YR4 are sidecar-feasible substitutes that
+/// recover vertex- and triangle-level provenance via spatial matching
+/// and majority-vote. Output `BRep` topology (faces, edges) remains
+/// empty — face reconstruction is PR-YR5+.
 pub fn boolean(
     a: &BRep,
     b: &BRep,
@@ -470,20 +500,26 @@ pub fn boolean(
         .boolean(a.as_mesh(), b.as_mesh(), op)
         .map_err(YangError::MeshBooleanFailed)?;
 
-    // PR-YR3 spatial matching: for each output vertex, try to match
-    // against input A first, then B. If no match, mark as Intersection.
+    // PR-YR3 vertex pass + internal InputId tracking for PR-YR4.
     let mut sources = Vec::with_capacity(output_mesh.num_verts());
+    let mut inputs: Vec<Option<InputId>> = Vec::with_capacity(output_mesh.num_verts());
     for &target in &output_mesh.verts {
-        let src = match_against(a, target)
-            .or_else(|| match_against(b, target))
-            .unwrap_or(TessellationSource::Intersection);
+        let (input, src) = match_with_input(a, b, target);
         sources.push(src);
+        inputs.push(input);
     }
     let tessellation = TessellationMap { sources };
 
-    // PR-YR4 (RED stub): allocate per-triangle attribution slots with
-    // None content. GREEN will compute majority-vote attribution.
-    let attributions = vec![None; output_mesh.num_tris()];
+    // PR-YR4 triangle pass.
+    let mut attributions = Vec::with_capacity(output_mesh.num_tris());
+    for tri in &output_mesh.tris {
+        let sets = [
+            face_candidates(inputs[tri[0] as usize], tessellation.lookup(tri[0]), a, b),
+            face_candidates(inputs[tri[1] as usize], tessellation.lookup(tri[1]), a, b),
+            face_candidates(inputs[tri[2] as usize], tessellation.lookup(tri[2]), a, b),
+        ];
+        attributions.push(majority_vote(&sets));
+    }
     let triangle_attribution = TriangleAttributionMap { attributions };
 
     Ok(BRep {
@@ -510,6 +546,95 @@ fn match_against(brep: &BRep, target: Point3) -> Option<TessellationSource> {
         }
     }
     None
+}
+
+/// PR-YR4 helper: match `target` against A first, then B; track
+/// which input matched (for triangle-level face attribution).
+fn match_with_input(a: &BRep, b: &BRep, target: Point3) -> (Option<InputId>, TessellationSource) {
+    if let Some(src) = match_against(a, target) {
+        return (Some(InputId::A), src);
+    }
+    if let Some(src) = match_against(b, target) {
+        return (Some(InputId::B), src);
+    }
+    (None, TessellationSource::Intersection)
+}
+
+/// PR-YR4 helper: compute the set of `(InputId, face_idx)` pairs
+/// that a single output vertex's provenance is compatible with.
+///
+/// - `BRepFace { face, .. }` → `[(input, face)]`
+/// - `BRepEdge { edge, .. }` → every face whose `outer_loop` contains `edge`
+/// - `BRepVertex(v)` → every face whose `outer_loop` has an edge with `start==v` or `end==v`
+/// - `Intersection` / `Unknown` / `input == None` → `[]`
+fn face_candidates(
+    input: Option<InputId>,
+    source: TessellationSource,
+    a: &BRep,
+    b: &BRep,
+) -> Vec<(InputId, u32)> {
+    let Some(input) = input else {
+        return Vec::new();
+    };
+    let brep = match input {
+        InputId::A => a,
+        InputId::B => b,
+    };
+    match source {
+        TessellationSource::BRepFace { face, .. } => vec![(input, face)],
+        TessellationSource::BRepEdge { edge, .. } => brep
+            .faces()
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.outer_loop.contains(&edge))
+            .map(|(i, _)| (input, i as u32))
+            .collect(),
+        TessellationSource::BRepVertex(v) => brep
+            .faces()
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| {
+                f.outer_loop.iter().any(|&e| {
+                    let edge = &brep.edges()[e as usize];
+                    edge.start == v || edge.end == v
+                })
+            })
+            .map(|(i, _)| (input, i as u32))
+            .collect(),
+        TessellationSource::Intersection | TessellationSource::Unknown => Vec::new(),
+    }
+}
+
+/// PR-YR4 helper: count votes per `(InputId, face)` across the 3
+/// vertices' candidate sets and return the highest-count pair that
+/// reaches ≥2 votes. Ties broken by lowest `(InputId, face)`
+/// lexicographic (achieved via `BTreeMap` ascending iteration +
+/// strictly-greater replacement rule).
+fn majority_vote(sets: &[Vec<(InputId, u32)>; 3]) -> Option<TriangleAttribution> {
+    use std::collections::BTreeMap;
+    let mut counts: BTreeMap<(InputId, u32), u8> = BTreeMap::new();
+    for set in sets {
+        // Dedup within a single vertex's set (a face should appear
+        // once per vertex; defensive).
+        let mut uniq: Vec<(InputId, u32)> = set.clone();
+        uniq.sort();
+        uniq.dedup();
+        for c in uniq {
+            *counts.entry(c).or_insert(0) += 1;
+        }
+    }
+    let mut best: Option<((InputId, u32), u8)> = None;
+    for (key, &count) in &counts {
+        if count < 2 {
+            continue;
+        }
+        match best {
+            None => best = Some((*key, count)),
+            Some((_, bc)) if count > bc => best = Some((*key, count)),
+            _ => {}
+        }
+    }
+    best.map(|((input, face), _)| TriangleAttribution { input, face })
 }
 
 // =========================================================================

@@ -73,9 +73,7 @@ fn unit_cube_brep_at(origin: [f64; 3]) -> BRep {
     let [x, y, z] = origin;
     // 8 corners
     let verts = vec![
-        BRepVertex {
-            point: p(x, y, z),
-        }, // 0: -x -y -z
+        BRepVertex { point: p(x, y, z) }, // 0: -x -y -z
         BRepVertex {
             point: p(x + 1.0, y, z),
         }, // 1: +x -y -z
