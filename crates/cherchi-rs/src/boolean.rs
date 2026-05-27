@@ -25,12 +25,8 @@ use crate::Mesh;
 ///
 /// The trait is object-safe — `Box<dyn MeshBoolean>` works.
 pub trait MeshBoolean {
-    fn boolean(
-        &self,
-        a: &Mesh,
-        b: &Mesh,
-        op: BoolOp,
-    ) -> Result<Mesh, Box<dyn Error + Send + Sync>>;
+    fn boolean(&self, a: &Mesh, b: &Mesh, op: BoolOp)
+        -> Result<Mesh, Box<dyn Error + Send + Sync>>;
 }
 
 #[cfg(test)]

@@ -128,11 +128,7 @@ mod tests {
     fn non_triangle_face_is_invalid() {
         let path = tempfile("non_tri");
         // Manually write a 4-vertex face.
-        std::fs::write(
-            &path,
-            b"v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nf 1 2 3 4\n",
-        )
-        .unwrap();
+        std::fs::write(&path, b"v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nf 1 2 3 4\n").unwrap();
         let err = read_obj(&path).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
     }

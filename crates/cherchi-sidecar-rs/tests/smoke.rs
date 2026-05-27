@@ -48,14 +48,8 @@ fn run_op(op: BoolOp) {
     let a = unit_cube_at([0.0, 0.0, 0.0]);
     let b = unit_cube_at([0.5, 0.0, 0.0]);
     let result = sb.boolean(&a, &b, op).expect("boolean failed");
-    assert!(
-        result.num_verts() > 0,
-        "{op:?} produced 0-vertex mesh"
-    );
-    assert!(
-        result.num_tris() > 0,
-        "{op:?} produced 0-triangle mesh"
-    );
+    assert!(result.num_verts() > 0, "{op:?} produced 0-vertex mesh");
+    assert!(result.num_tris() > 0, "{op:?} produced 0-triangle mesh");
 }
 
 #[test]

@@ -156,10 +156,7 @@ pub enum SidecarError {
     /// Subprocess exceeded the configured timeout. Killed before return.
     TimedOut { after: Duration },
     /// Subprocess exited with a non-zero status.
-    NonZeroExit {
-        status: ExitStatus,
-        stderr: String,
-    },
+    NonZeroExit { status: ExitStatus, stderr: String },
     /// OBJ file write / spawn-prep I/O error.
     ObjIo { source: io::Error },
     /// OBJ file parse error (malformed output from binary, etc.).

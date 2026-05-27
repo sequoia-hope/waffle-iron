@@ -85,7 +85,7 @@ mod tests {
         cmd.arg("10");
         let result = run_with_timeout(cmd, Duration::from_secs(1));
         match result {
-            Err(SidecarError::TimedOut { .. }) => {} // expected
+            Err(SidecarError::TimedOut { .. }) => {}    // expected
             Err(SidecarError::SpawnFailed { .. }) => {} // accept on portability
             Ok(out) => panic!("expected timeout, got success: {out:?}"),
             Err(e) => panic!("unexpected error: {e:?}"),

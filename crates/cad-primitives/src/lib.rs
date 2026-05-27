@@ -202,11 +202,13 @@ mod tests {
     }
 
     #[test]
-    fn boolop_copy_clone() {
+    fn boolop_copy() {
         let a = BoolOp::Union;
         let b = a; // Copy
-        let c = a.clone(); // Clone
         assert_eq!(a, b);
-        assert_eq!(a, c);
+        // Confirm Clone is bound (cannot test via .clone() on a Copy
+        // type per clippy; the trait bound itself is the contract).
+        fn requires_clone<T: Clone>() {}
+        requires_clone::<BoolOp>();
     }
 }
