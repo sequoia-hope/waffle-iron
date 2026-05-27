@@ -1,3 +1,46 @@
+//! Mesh arrangement Stage 1 — triangle-pair intersection detection.
+//!
+//! Ported from Cherchi 2020 `arrangements/code/intersection_classification.cpp:47-94`
+//! (MIT). © 2020 G. Cherchi, M. Livesu, R. Scateni, M. Attene.
+//! See ../../LICENSE-THIRD-PARTY.md for full attribution.
+//!
+//! Cherchi 2020 §5 (mesh arrangement). This is the first stage:
+//! given a triangle soup, find all pairs whose pairwise intersection
+//! is non-empty. Subsequent stages (classification, re-triangulation,
+//! assembly) consume the pair list to produce the arrangement.
+//!
+//! ## Deliberate deviations from upstream
+//!
+//! 1. **No spatial index** (deviation #20 in the FastTrimesh
+//!    cumulative list). Upstream uses `cinolib::Octree` for
+//!    O(n log n) average pair pruning (cpp:47-94). cherchi-rs starts
+//!    with O(n²) + AABB pre-pruning. Justification: Hard Rule #1
+//!    forbids workspace deps (no `bvh` crate); a hand-rolled BVH is
+//!    its own substantial PR; not on critical path for the meshes
+//!    Yang-rs will produce.
+//!
+//! 2. **Coplanar pairs included alongside Intersects** (deviation
+//!    #21). Upstream's `classifyIntersections` (the next stage)
+//!    consumes both uniformly. Filtering at detection would force
+//!    downstream re-detection.
+//!
+//! ## Discovery during implementation
+//!
+//! CR9's `Coplanar` return covers BOTH "full coplanar" AND "edge of
+//! one triangle lies in the other's plane" (per the CR9 docstring at
+//! `predicates/triangle_intersect.rs:30-35`). The latter triggers
+//! for many spatially-distant pairs (e.g. cube faces in perpendicular
+//! planes where an edge of one happens to lie in the other's plane).
+//!
+//! AABB pre-pruning correctly filters these spatially-distant
+//! "Coplanar-via-edge-in-plane" pairs. Upstream Cherchi does the
+//! same via Octree pruning. The pruned algorithm matches upstream
+//! behavior — it's a STRICT improvement over brute-force iteration,
+//! not just a perf optimization.
+//!
+//! This is captured by the Group 7 property test's
+//! `assert_pruned_subset_of_brute` (not `==` against brute-force).
+
 use cad_primitives::Point3;
 
 use crate::arrangements::FastTrimesh;
@@ -336,7 +379,10 @@ mod tests {
         }
         let soup = FastTrimesh::from_soup(&verts, &tris, Plane::XY).unwrap();
         let pairs = detect_intersecting_pairs(&soup);
-        assert!(!pairs.is_empty(), "two overlapping cubes should produce pairs");
+        assert!(
+            !pairs.is_empty(),
+            "two overlapping cubes should produce pairs"
+        );
     }
 
     fn unit_cube_at(origin: [f64; 3]) -> (Vec<Point3>, Vec<[u32; 3]>) {
