@@ -13,7 +13,7 @@
 //! - **Stage 5** (§4.4.2): Patch segmentation (flood-fill)
 //! - **Stage 6** (§4.4.2): B-Rep reassembly
 //!
-//! ## Current implementation status (PR-YR4)
+//! ## Current implementation status (PR-YR5)
 //!
 //! - **Stage 1 PLANAR** (PR-YR2): `BRep::new(verts, edges, faces)`
 //!   fan-triangulates each planar face from its first vertex; produces
@@ -27,29 +27,39 @@
 //! - **`boolean()` triangle attribution** (PR-YR4): every output
 //!   triangle is attributed to an input `(InputId, face_idx)` via
 //!   majority-vote (≥2 of 3) over the vertices' provenance.
-//!   Ties broken by lowest `(input, face)`. No majority → `None`.
 //!   Accessible via [`BRep::triangle_attribution`].
+//! - **`boolean()` topology reconstruction** (PR-YR5): output `BRep`
+//!   gets non-empty `vertices` (1:1 with mesh), `edges`, and `faces`
+//!   via patch flood-fill on triangle attribution + boundary cycle
+//!   recovery + surface inheritance from input faces.
+//!   None-attributed (cut surface) triangles are intentionally
+//!   skipped — output is a "kept-portions skeleton."
 //! - **`BRep::from_mesh()` degenerate path** (PR-YR1 compat): empty
 //!   topology; all-`Unknown` TessellationMap; empty
 //!   TriangleAttributionMap.
 //!
-//! **Honest framing**: PR-YR3 + PR-YR4 are NOT real Yang Stage 5/6.
-//! Real Stage 5/6 needs per-triangle labels from Stage 2's arrangement
-//! which the C++ sidecar doesn't expose. The current pipeline is a
-//! sidecar-feasible substitute that recovers vertex- and triangle-
-//! level provenance. Output `BRep` topology (faces, edges) remains
-//! empty — full reassembly is PR-YR5+ and ultimately gated on labeled
-//! arrangement output.
+//! **Honest framing**: PR-YR3 + PR-YR4 + PR-YR5 are NOT real Yang
+//! Stage 5/6. Real Stage 5/6 needs per-triangle labels from Stage 2's
+//! arrangement which the C++ sidecar doesn't expose. The current
+//! pipeline is a sidecar-feasible substitute.
+//!
+//! **PR-YR5 output is intentionally NOT 2-manifold** (rule-4
+//! deviation): faces cover input-derived ("kept") portions only.
+//! Cut-surface faces (`None`-attributed triangles → new BRepFaces with
+//! reconstructed surfaces) are PR-YR6, which also re-enables the
+//! 2-manifold contract.
 //!
 //! Banked for future PRs:
 //! - PR-YR2b: ear-cutting for non-convex faces
-//! - PR-YR2c: inner loops (holes)
-//! - PR-YR2d: curved surfaces (`Surface::Cylinder`, `Sphere`, NURBS) +
-//!   §4.1.1 iterative subdivision
+//! - PR-YR2c: inner loops (holes) — currently → `NonManifoldOutput`
+//! - PR-YR2d: curved surfaces (`Surface::Cylinder`, `Sphere`, NURBS)
 //! - PR-YR2e: Steiner points + dε tolerance
 //! - PR-YR2f: CDT at shared edges
 //! - PR-YR4b: precomputed vertex→edge / edge→face incidence indices
-//! - PR-YR5: output topology reconstruction from triangle attribution
+//! - PR-YR5b: edge deduplication across faces (each face owns its edges in v1)
+//! - PR-YR5c: inner-loop / hole support in patch boundary recovery
+//! - PR-YR6: cut-surface face generation + 2-manifold validation
+//! - PR-YR7+: edge curve recovery beyond `Curve::LineSegment`
 //! - Real Stage 5/6: gated on labeled arrangement output
 //!
 //! ## Input / output
@@ -525,8 +535,7 @@ pub fn boolean(
     // PR-YR5 topology reconstruction: group same-attribution triangles
     // into patches, walk each patch's boundary cycle, inherit input
     // face surface, build BRepVertex / BRepEdge / BRepFace.
-    let (vertices, edges, faces) =
-        reconstruct_topology(&output_mesh, &triangle_attribution, a, b)?;
+    let (vertices, edges, faces) = reconstruct_topology(&output_mesh, &triangle_attribution, a, b)?;
 
     Ok(BRep {
         vertices,
@@ -647,6 +656,10 @@ fn majority_vote(sets: &[Vec<(InputId, u32)>; 3]) -> Option<TriangleAttribution>
 // PR-YR5 — topology reconstruction
 // =========================================================================
 
+/// PR-YR5 internal: the triple `(vertices, edges, faces)` produced
+/// by `reconstruct_topology` to populate the output `BRep`.
+type ReconstructedTopology = (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFace>);
+
 /// PR-YR5: rebuild output `BRep` topology (`vertices`, `edges`,
 /// `faces`) from the per-triangle attribution map.
 ///
@@ -669,11 +682,214 @@ fn reconstruct_topology(
     attribution: &TriangleAttributionMap,
     a: &BRep,
     b: &BRep,
-) -> Result<(Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFace>), YangError> {
-    // PR-YR5 RED stub: return empty topology so the wiring compiles
-    // but tests asserting non-empty results still fail.
-    let _ = (mesh, attribution, a, b);
-    Ok((Vec::new(), Vec::new(), Vec::new()))
+) -> Result<ReconstructedTopology, YangError> {
+    // (1) Vertices: 1:1 with mesh.verts
+    let vertices: Vec<BRepVertex> = mesh
+        .verts
+        .iter()
+        .map(|&p| BRepVertex { point: p })
+        .collect();
+
+    // (2) Triangle adjacency
+    let adjacency = triangle_adjacency(mesh);
+
+    // (3) Flood-fill same-attribution patches
+    let patches = flood_fill_patches(mesh, attribution, &adjacency);
+
+    // (4) Per-patch boundary cycle + face construction
+    let mut edges: Vec<BRepEdge> = Vec::new();
+    let mut faces: Vec<BRepFace> = Vec::new();
+    for patch in &patches {
+        let cycle = patch_boundary_cycle(patch, mesh)?;
+        let edge_start_idx = edges.len() as u32;
+        for (s, e) in &cycle {
+            edges.push(BRepEdge {
+                start: *s,
+                end: *e,
+                curve: Curve::LineSegment,
+            });
+        }
+        let outer_loop: Vec<u32> = (edge_start_idx..edges.len() as u32).collect();
+
+        let input_brep = match patch.attribution.input {
+            InputId::A => a,
+            InputId::B => b,
+        };
+        let face_idx = patch.attribution.face as usize;
+        if face_idx >= input_brep.faces().len() {
+            return Err(YangError::MalformedTopology(format!(
+                "attribution.face = {face_idx} out of range (input has {} faces)",
+                input_brep.faces().len()
+            )));
+        }
+        let surface = input_brep.faces()[face_idx].surface;
+        faces.push(BRepFace {
+            surface,
+            outer_loop,
+        });
+    }
+
+    Ok((vertices, edges, faces))
+}
+
+/// PR-YR5 internal: grouped patch of same-attribution triangles.
+struct Patch {
+    attribution: TriangleAttribution,
+    tri_indices: Vec<u32>,
+}
+
+/// PR-YR5 helper: per-triangle neighbor list via canonical-edge
+/// BTreeMap (deterministic insertion + iteration order).
+fn triangle_adjacency(mesh: &Mesh) -> Vec<Vec<u32>> {
+    use std::collections::BTreeMap;
+    let mut edge_to_tris: BTreeMap<(u32, u32), Vec<u32>> = BTreeMap::new();
+    for (t, tri) in mesh.tris.iter().enumerate() {
+        for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+            let (va, vb) = (tri[i], tri[j]);
+            let key = if va < vb { (va, vb) } else { (vb, va) };
+            edge_to_tris.entry(key).or_default().push(t as u32);
+        }
+    }
+    let mut neighbors: Vec<Vec<u32>> = vec![Vec::new(); mesh.tris.len()];
+    for sharing in edge_to_tris.values() {
+        for &t1 in sharing {
+            for &t2 in sharing {
+                if t1 != t2 && !neighbors[t1 as usize].contains(&t2) {
+                    neighbors[t1 as usize].push(t2);
+                }
+            }
+        }
+    }
+    neighbors
+}
+
+/// PR-YR5 helper: BFS flood-fill same-attribution triangles into
+/// patches. Skip None-attributed triangles. Deterministic seed order:
+/// lowest unvisited tri index first.
+fn flood_fill_patches(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    adjacency: &[Vec<u32>],
+) -> Vec<Patch> {
+    use std::collections::VecDeque;
+    let mut visited = vec![false; mesh.tris.len()];
+    let mut patches: Vec<Patch> = Vec::new();
+    for seed in 0..mesh.tris.len() as u32 {
+        if visited[seed as usize] {
+            continue;
+        }
+        let Some(seed_attr) = attribution.lookup(seed) else {
+            visited[seed as usize] = true;
+            continue;
+        };
+        let mut queue: VecDeque<u32> = VecDeque::from([seed]);
+        let mut tri_indices: Vec<u32> = Vec::new();
+        while let Some(t) = queue.pop_front() {
+            if visited[t as usize] {
+                continue;
+            }
+            let Some(t_attr) = attribution.lookup(t) else {
+                continue;
+            };
+            if t_attr != seed_attr {
+                continue;
+            }
+            visited[t as usize] = true;
+            tri_indices.push(t);
+            for &n in &adjacency[t as usize] {
+                if !visited[n as usize] {
+                    queue.push_back(n);
+                }
+            }
+        }
+        patches.push(Patch {
+            attribution: seed_attr,
+            tri_indices,
+        });
+    }
+    patches
+}
+
+/// PR-YR5 helper: recover the directed boundary cycle of a patch.
+/// Boundary edges = edges in exactly one patch triangle (canonical
+/// (min, max) test). Walk from the lowest start-vertex; follow
+/// start→end chain via `BTreeMap` (deterministic).
+///
+/// Returns `Err(NonManifoldOutput)` on dead-end, T-junction, or
+/// multi-cycle patches (inner loops unsupported in v1).
+fn patch_boundary_cycle(patch: &Patch, mesh: &Mesh) -> Result<Vec<(u32, u32)>, YangError> {
+    use std::collections::{BTreeMap, HashSet};
+
+    let patch_set: HashSet<u32> = patch.tri_indices.iter().copied().collect();
+
+    // Precompute edge → tris-in-patch count for O(T) total cost
+    let mut patch_edge_count: BTreeMap<(u32, u32), u32> = BTreeMap::new();
+    for &t in &patch.tri_indices {
+        let tri = &mesh.tris[t as usize];
+        for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+            let (va, vb) = (tri[i], tri[j]);
+            let key = if va < vb { (va, vb) } else { (vb, va) };
+            *patch_edge_count.entry(key).or_insert(0) += 1;
+        }
+    }
+
+    // Collect directed boundary edges in triangle CCW order
+    let mut directed_boundary: Vec<(u32, u32)> = Vec::new();
+    for &t in &patch.tri_indices {
+        let tri = &mesh.tris[t as usize];
+        for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+            let (va, vb) = (tri[i], tri[j]);
+            let key = if va < vb { (va, vb) } else { (vb, va) };
+            if patch_edge_count.get(&key).copied().unwrap_or(0) == 1 {
+                directed_boundary.push((va, vb));
+            }
+        }
+    }
+    let _ = patch_set; // patch_set was kept for readability; not needed after precompute
+
+    if directed_boundary.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Build start → ends adjacency (sorted ascending for determinism)
+    let mut by_start: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+    for &(s, e) in &directed_boundary {
+        by_start.entry(s).or_default().push(e);
+    }
+    for ends in by_start.values_mut() {
+        ends.sort_unstable();
+    }
+
+    // Walk: start at lowest start vertex.
+    let start = *by_start.keys().next().expect("non-empty boundary");
+    let mut current = start;
+    let mut cycle: Vec<(u32, u32)> = Vec::new();
+    loop {
+        let next = {
+            let next_vec = by_start
+                .get_mut(&current)
+                .ok_or(YangError::NonManifoldOutput)?;
+            if next_vec.is_empty() {
+                return Err(YangError::NonManifoldOutput);
+            }
+            next_vec.remove(0)
+        };
+        cycle.push((current, next));
+        current = next;
+        if current == start {
+            break;
+        }
+        if cycle.len() > directed_boundary.len() {
+            return Err(YangError::NonManifoldOutput);
+        }
+    }
+
+    if cycle.len() != directed_boundary.len() {
+        // Multi-cycle patch (inner loops / disjoint boundaries).
+        return Err(YangError::NonManifoldOutput);
+    }
+
+    Ok(cycle)
 }
 
 // =========================================================================
