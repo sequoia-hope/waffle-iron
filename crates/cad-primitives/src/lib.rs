@@ -117,6 +117,55 @@ impl From<Point2> for [f64; 2] {
     }
 }
 
+/// A vector in 3D Euclidean space, stored as three `f64` components.
+///
+/// Mirror of `Point3` (24 bytes, `Copy`) but a *direction/displacement*,
+/// not a position. Used by `yang-rs::Surface::Plane` for outward normals,
+/// eventually by `kernel-v2` for half-edge surface normals and by
+/// `ssi-rs` for intersection-curve tangents.
+///
+/// No algorithms (`cross`, `dot`, `normalize`) — those belong in
+/// consumer crates per cad-primitives' "types only" scope rule.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct Vector3 {
+    coords: [f64; 3],
+}
+
+impl Vector3 {
+    /// Construct a vector from three components.
+    pub const fn new(x: f64, y: f64, z: f64) -> Self {
+        Self { coords: [x, y, z] }
+    }
+
+    pub fn x(&self) -> f64 {
+        self.coords[0]
+    }
+
+    pub fn y(&self) -> f64 {
+        self.coords[1]
+    }
+
+    pub fn z(&self) -> f64 {
+        self.coords[2]
+    }
+
+    pub fn as_array(&self) -> [f64; 3] {
+        self.coords
+    }
+}
+
+impl From<[f64; 3]> for Vector3 {
+    fn from(coords: [f64; 3]) -> Self {
+        Self { coords }
+    }
+}
+
+impl From<Vector3> for [f64; 3] {
+    fn from(v: Vector3) -> Self {
+        v.coords
+    }
+}
+
 /// Boolean operation between two meshes / solids.
 ///
 /// Variant naming follows the workspace convention (`Intersect` /
@@ -210,5 +259,29 @@ mod tests {
         // type per clippy; the trait bound itself is the contract).
         fn requires_clone<T: Clone>() {}
         requires_clone::<BoolOp>();
+    }
+
+    // ----- Vector3 -----
+
+    #[test]
+    fn vector3_construct_and_access() {
+        let v = Vector3::new(1.0, 2.0, 3.0);
+        assert_eq!(v.x(), 1.0);
+        assert_eq!(v.y(), 2.0);
+        assert_eq!(v.z(), 3.0);
+    }
+
+    #[test]
+    fn vector3_round_trip_array() {
+        let arr = [1.5, 2.5, 3.5];
+        let v: Vector3 = arr.into();
+        let back: [f64; 3] = v.into();
+        assert_eq!(back, arr);
+    }
+
+    #[test]
+    fn vector3_equality() {
+        assert_eq!(Vector3::new(1.0, 2.0, 3.0), Vector3::new(1.0, 2.0, 3.0));
+        assert_ne!(Vector3::new(1.0, 2.0, 3.0), Vector3::new(1.0, 2.0, 4.0));
     }
 }
