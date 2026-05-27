@@ -8,7 +8,7 @@
 //! Things that belong here:
 //! - Geometric primitive types (`Point3`, eventually `Vector3`)
 //! - Distance/angle tolerance constants (`TAU_MODEL`, `MIN_FEATURE_SIZE`)
-//! - Boolean operation enum (`BoolOp`)
+//! - Boolean operation enum (`BoolOp { Union, Intersect, Subtract, Xor }`)
 //! - Cross-crate error type (`KernelError`)
 //!
 //! Things that do NOT belong here:
@@ -117,6 +117,23 @@ impl From<Point2> for [f64; 2] {
     }
 }
 
+/// Boolean operation between two meshes / solids.
+///
+/// Variant naming follows the workspace convention (`Intersect` /
+/// `Subtract`, not `Intersection` / `Subtraction`). Crates that
+/// interface with the upstream Cherchi 2022 binary map to the CLI
+/// strings (`"intersection"`, `"subtraction"`) via a private
+/// `cli_arg()` helper.
+///
+/// `Xor` is the symmetric difference: in A xor B iff in A xor in B.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum BoolOp {
+    Union,
+    Intersect,
+    Subtract,
+    Xor,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -162,5 +179,34 @@ mod tests {
     fn point2_equality() {
         assert_eq!(Point2::new(1.0, 2.0), Point2::new(1.0, 2.0));
         assert_ne!(Point2::new(1.0, 2.0), Point2::new(1.0, 3.0));
+    }
+
+    // ----- BoolOp -----
+
+    #[test]
+    fn boolop_variants_distinct() {
+        assert_ne!(BoolOp::Union, BoolOp::Intersect);
+        assert_ne!(BoolOp::Union, BoolOp::Subtract);
+        assert_ne!(BoolOp::Union, BoolOp::Xor);
+        assert_ne!(BoolOp::Intersect, BoolOp::Subtract);
+        assert_ne!(BoolOp::Intersect, BoolOp::Xor);
+        assert_ne!(BoolOp::Subtract, BoolOp::Xor);
+    }
+
+    #[test]
+    fn boolop_debug_names() {
+        assert_eq!(format!("{:?}", BoolOp::Union), "Union");
+        assert_eq!(format!("{:?}", BoolOp::Intersect), "Intersect");
+        assert_eq!(format!("{:?}", BoolOp::Subtract), "Subtract");
+        assert_eq!(format!("{:?}", BoolOp::Xor), "Xor");
+    }
+
+    #[test]
+    fn boolop_copy_clone() {
+        let a = BoolOp::Union;
+        let b = a; // Copy
+        let c = a.clone(); // Clone
+        assert_eq!(a, b);
+        assert_eq!(a, c);
     }
 }

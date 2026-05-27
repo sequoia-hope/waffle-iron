@@ -30,5 +30,10 @@
 //! case basis with paper-cited justification).
 
 pub mod arrangements;
+pub mod boolean;
+pub mod mesh;
 pub mod predicates;
 pub mod processing;
+
+pub use boolean::MeshBoolean;
+pub use mesh::Mesh;

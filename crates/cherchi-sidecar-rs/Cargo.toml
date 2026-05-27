@@ -1,0 +1,11 @@
+[package]
+name = "cherchi-sidecar-rs"
+version = "0.1.0"
+edition = "2021"
+description = "Cherchi 2022 mesh boolean engine via subprocess sidecar. NOT WASM-compatible."
+
+# Strict layering: depends on cad-primitives (for BoolOp) and cherchi-rs
+# (for Mesh + MeshBoolean trait). Nothing else.
+[dependencies]
+cad-primitives = { path = "../cad-primitives" }
+cherchi-rs = { path = "../cherchi-rs" }
