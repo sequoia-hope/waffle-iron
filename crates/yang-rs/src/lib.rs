@@ -144,15 +144,15 @@ impl Error for YangError {
 /// (today) and the eventual native `cherchi-rs` (someday) without
 /// changing call sites.
 pub fn boolean(
-    _a: &BRep,
-    _b: &BRep,
-    _op: BoolOp,
-    _backend: &dyn MeshBoolean,
+    a: &BRep,
+    b: &BRep,
+    op: BoolOp,
+    backend: &dyn MeshBoolean,
 ) -> Result<BRep, YangError> {
-    // RED stub
-    Err(YangError::MeshBooleanFailed(
-        "RED stub: not implemented yet".into(),
-    ))
+    let result_mesh = backend
+        .boolean(a.as_mesh(), b.as_mesh(), op)
+        .map_err(YangError::MeshBooleanFailed)?;
+    Ok(BRep::from_mesh(result_mesh))
 }
 
 #[cfg(test)]
