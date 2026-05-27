@@ -195,9 +195,8 @@ mod tests {
             _op: BoolOp,
         ) -> Result<Mesh, Box<dyn Error + Send + Sync>> {
             self.result
-                .as_ref()
-                .map(|m| m.clone())
-                .map_err(|s| -> Box<dyn Error + Send + Sync> { Box::from(*s) })
+                .clone()
+                .map_err(|s| -> Box<dyn Error + Send + Sync> { Box::from(s) })
         }
     }
 
@@ -243,7 +242,9 @@ mod tests {
     fn yang_error_source_propagates_backend_error() {
         let inner: Box<dyn Error + Send + Sync> = Box::from("inner failure");
         let e = YangError::MeshBooleanFailed(inner);
-        let src = e.source().expect("source should be Some for MeshBooleanFailed");
+        let src = e
+            .source()
+            .expect("source should be Some for MeshBooleanFailed");
         assert_eq!(src.to_string(), "inner failure");
     }
 
