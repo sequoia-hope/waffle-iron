@@ -11,3 +11,10 @@ description = "Yang 2025 hybrid B-Rep / mesh boolean pipeline. Stage 0 coplanar 
 cad-primitives = { path = "../cad-primitives" }
 cherchi-rs = { path = "../cherchi-rs" }
 ssi-rs = { path = "../ssi-rs" }
+
+[dev-dependencies]
+# Sidecar backend used by tests/end_to_end.rs for real-subprocess
+# integration testing. Not a regular dep because production yang-rs
+# consumers pick their own backend via the MeshBoolean trait; the
+# sidecar is just today's testing default.
+cherchi-sidecar-rs = { path = "../cherchi-sidecar-rs" }
