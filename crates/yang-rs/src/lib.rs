@@ -195,11 +195,78 @@ impl BRep {
         edges: Vec<BRepEdge>,
         faces: Vec<BRepFace>,
     ) -> Result<Self, YangError> {
-        // RED stub
-        let _ = (&verts, &edges, &faces);
-        Err(YangError::MalformedTopology(
-            "RED stub: BRep::new not implemented yet".to_string(),
-        ))
+        let n_verts = verts.len();
+        let n_edges = edges.len();
+
+        // Validate: every edge's endpoints are in range.
+        for (e_idx, e) in edges.iter().enumerate() {
+            if (e.start as usize) >= n_verts {
+                return Err(YangError::MalformedTopology(format!(
+                    "edge {e_idx}.start = {} out of range (verts.len() = {n_verts})",
+                    e.start
+                )));
+            }
+            if (e.end as usize) >= n_verts {
+                return Err(YangError::MalformedTopology(format!(
+                    "edge {e_idx}.end = {} out of range (verts.len() = {n_verts})",
+                    e.end
+                )));
+            }
+        }
+
+        // Validate: every face's outer_loop is well-formed.
+        for (f_idx, f) in faces.iter().enumerate() {
+            if f.outer_loop.len() < 3 {
+                return Err(YangError::MalformedTopology(format!(
+                    "face {f_idx}.outer_loop.len() = {} < 3",
+                    f.outer_loop.len()
+                )));
+            }
+            for &e_idx in &f.outer_loop {
+                if (e_idx as usize) >= n_edges {
+                    return Err(YangError::MalformedTopology(format!(
+                        "face {f_idx}: edge index {e_idx} out of range (edges.len() = {n_edges})"
+                    )));
+                }
+            }
+        }
+
+        // Stage 1 fan-triangulation:
+        // - Mesh vertices = B-Rep vertices (1:1, no Steiner points)
+        // - Each face fan-triangulated from its first vertex (face_verts[0])
+        let out_verts: Vec<Point3> = verts.iter().map(|v| v.point).collect();
+        let mut sources: Vec<TessellationSource> = (0..verts.len() as u32)
+            .map(TessellationSource::BRepVertex)
+            .collect();
+        // Pad sources to mesh-vertex count (it equals B-Rep vertex count
+        // in PR-YR2, so this is a no-op, but explicit for future PRs).
+        sources.truncate(out_verts.len());
+
+        let mut out_tris: Vec<[u32; 3]> = Vec::new();
+        for f in &faces {
+            // Walk the outer loop: collect each edge's start vertex
+            // (which is the face's vertex at that loop position).
+            let face_verts: Vec<u32> = f
+                .outer_loop
+                .iter()
+                .map(|&e_idx| edges[e_idx as usize].start)
+                .collect();
+            // Fan-triangulate from face_verts[0].
+            for i in 1..face_verts.len() - 1 {
+                out_tris.push([face_verts[0], face_verts[i], face_verts[i + 1]]);
+            }
+        }
+
+        let mesh = Mesh::new(out_verts, out_tris);
+        let tessellation = TessellationMap { sources };
+
+        Ok(Self {
+            vertices: verts,
+            edges,
+            faces,
+            mesh,
+            tessellation,
+        })
     }
 
     /// Construct from a pre-tessellated mesh (no topology).
