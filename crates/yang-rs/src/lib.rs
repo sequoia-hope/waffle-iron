@@ -522,10 +522,16 @@ pub fn boolean(
     }
     let triangle_attribution = TriangleAttributionMap { attributions };
 
+    // PR-YR5 topology reconstruction: group same-attribution triangles
+    // into patches, walk each patch's boundary cycle, inherit input
+    // face surface, build BRepVertex / BRepEdge / BRepFace.
+    let (vertices, edges, faces) =
+        reconstruct_topology(&output_mesh, &triangle_attribution, a, b)?;
+
     Ok(BRep {
-        vertices: Vec::new(),
-        edges: Vec::new(),
-        faces: Vec::new(),
+        vertices,
+        edges,
+        faces,
         mesh: output_mesh,
         tessellation,
         triangle_attribution,
@@ -635,6 +641,39 @@ fn majority_vote(sets: &[Vec<(InputId, u32)>; 3]) -> Option<TriangleAttribution>
         }
     }
     best.map(|((input, face), _)| TriangleAttribution { input, face })
+}
+
+// =========================================================================
+// PR-YR5 — topology reconstruction
+// =========================================================================
+
+/// PR-YR5: rebuild output `BRep` topology (`vertices`, `edges`,
+/// `faces`) from the per-triangle attribution map.
+///
+/// Algorithm:
+/// 1. Build per-triangle adjacency via canonical-edge BTreeMap.
+/// 2. Flood-fill same-attribution patches. Skip None-attributed
+///    triangles (cut surfaces → PR-YR6).
+/// 3. For each patch, walk the directed boundary cycle (edges in
+///    exactly one patch triangle, ordered).
+/// 4. Inherit `surface` from `input.faces()[attribution.face]`.
+/// 5. Output `vertices` is 1:1 with `mesh.verts`.
+///
+/// Errors:
+/// - `NonManifoldOutput`: cycle walking dead-ends, T-junctions, or
+///   patch has multiple boundary cycles (inner loops unsupported in v1).
+/// - `MalformedTopology`: defensive; `attribution.face` out of range
+///   in the input BRep.
+fn reconstruct_topology(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    a: &BRep,
+    b: &BRep,
+) -> Result<(Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFace>), YangError> {
+    // PR-YR5 RED stub: return empty topology so the wiring compiles
+    // but tests asserting non-empty results still fail.
+    let _ = (mesh, attribution, a, b);
+    Ok((Vec::new(), Vec::new(), Vec::new()))
 }
 
 // =========================================================================
@@ -1763,5 +1802,152 @@ mod tests {
                 face: 1
             })
         );
+    }
+
+    // ----- PR-YR5: topology reconstruction -----
+
+    #[test]
+    fn yr5_single_triangle_round_trip_produces_one_face() {
+        // Pure-A on triangle_brep (1 face, 1 fan tri) → output has 1
+        // face with 3 boundary edges + 3 vertices forming a closed
+        // cycle.
+        let a = triangle_brep();
+        let b = triangle_brep();
+        let mock = MockBackend::ok(a.as_mesh().clone());
+        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        assert_eq!(r.faces().len(), 1, "expected 1 BRepFace");
+        assert_eq!(r.faces()[0].outer_loop.len(), 3, "expected 3-edge loop");
+        assert_eq!(r.edges().len(), 3, "expected 3 BRepEdges");
+        assert_eq!(r.vertices().len(), 3, "expected 3 BRepVertices");
+        // Cycle closure
+        let f = &r.faces()[0];
+        for i in 0..3 {
+            let e_curr = &r.edges()[f.outer_loop[i] as usize];
+            let e_next = &r.edges()[f.outer_loop[(i + 1) % 3] as usize];
+            assert_eq!(
+                e_curr.end, e_next.start,
+                "cycle break at edge {i}: {} != {}",
+                e_curr.end, e_next.start
+            );
+        }
+    }
+
+    #[test]
+    fn yr5_two_face_round_trip_produces_two_faces() {
+        // two_face_shared_vertex_brep has 2 triangular faces sharing
+        // only V0. Fan-tri: 1 tri per face = 2 output tris with
+        // different attributions (F0 vs F1). PR-YR5 should produce 2
+        // BRepFaces.
+        let a = two_face_shared_vertex_brep();
+        let b = two_face_shared_vertex_brep();
+        let mock = MockBackend::ok(a.as_mesh().clone());
+        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        assert_eq!(r.faces().len(), 2, "expected 2 BRepFaces");
+        // Each face is a triangle with 3 edges.
+        for f in r.faces() {
+            assert_eq!(f.outer_loop.len(), 3);
+        }
+    }
+
+    #[test]
+    fn yr5_disconnected_components_become_separate_faces() {
+        // Two output triangles with the SAME attribution but NO shared
+        // vertex → flood-fill leaves them as 2 patches → 2 faces.
+        // Regression guard vs. naive attribution-bucketing.
+        let a = triangle_brep();
+        let b = triangle_brep();
+        // Mock returns 6 vertices = TWO copies of A's 3 verts at distinct
+        // indices, and 2 disjoint triangles.
+        let dup = Mesh::new(
+            vec![
+                p(0.0, 0.0, 0.0), // matches A.V0
+                p(1.0, 0.0, 0.0), // matches A.V1
+                p(0.0, 1.0, 0.0), // matches A.V2
+                p(0.0, 0.0, 0.0), // duplicate matching A.V0 (different idx)
+                p(1.0, 0.0, 0.0), // duplicate matching A.V1
+                p(0.0, 1.0, 0.0), // duplicate matching A.V2
+            ],
+            vec![[0, 1, 2], [3, 4, 5]],
+        );
+        let mock = MockBackend::ok(dup);
+        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        // Both tris attribute to (A, F0), but they share no vertex
+        // index → connectivity flood-fill keeps them separate.
+        assert_eq!(
+            r.faces().len(),
+            2,
+            "disconnected same-attribution tris should be separate faces"
+        );
+    }
+
+    #[test]
+    fn yr5_none_attributed_tris_omitted_from_faces() {
+        // Mock returns 2 tris: tri 0 matches A's verts (Some(A, F0)),
+        // tri 1 is all novel coords (None). Output has 1 face.
+        let a = triangle_brep();
+        let b = triangle_brep();
+        let mixed = Mesh::new(
+            vec![
+                p(0.0, 0.0, 0.0), // matches A.V0
+                p(1.0, 0.0, 0.0), // matches A.V1
+                p(0.0, 1.0, 0.0), // matches A.V2
+                p(1000.0, 0.0, 0.0),
+                p(1001.0, 0.0, 0.0),
+                p(1000.0, 1.0, 0.0),
+            ],
+            vec![[0, 1, 2], [3, 4, 5]],
+        );
+        let mock = MockBackend::ok(mixed);
+        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        assert_eq!(
+            r.faces().len(),
+            1,
+            "None-attributed tris should not contribute faces"
+        );
+    }
+
+    #[test]
+    fn yr5_vertex_count_matches_mesh() {
+        let a = triangle_brep();
+        let b = triangle_brep();
+        let mock = MockBackend::ok(a.as_mesh().clone());
+        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        assert_eq!(r.vertices().len(), r.as_mesh().num_verts());
+        for i in 0..r.vertices().len() {
+            assert_eq!(r.vertices()[i].point, r.as_mesh().verts[i]);
+        }
+    }
+
+    #[test]
+    fn yr5_surface_inherited_from_input() {
+        let a = triangle_brep();
+        let b = triangle_brep();
+        let mock = MockBackend::ok(a.as_mesh().clone());
+        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        assert_eq!(r.faces().len(), 1);
+        assert_eq!(
+            r.faces()[0].surface,
+            a.faces()[0].surface,
+            "output face should inherit input A's surface"
+        );
+    }
+
+    #[test]
+    fn yr5_empty_input_produces_empty_face_set() {
+        // Both inputs from_mesh → all-None attribution → no faces.
+        let a = BRep::from_mesh(sample_mesh());
+        let b = BRep::from_mesh(sample_mesh());
+        let mock = MockBackend::ok(sample_mesh());
+        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        assert!(
+            r.faces().is_empty(),
+            "all-None attribution should yield empty faces"
+        );
+        assert!(
+            r.edges().is_empty(),
+            "all-None attribution should yield empty edges"
+        );
+        // Vertices still populated 1:1 with mesh.
+        assert_eq!(r.vertices().len(), r.as_mesh().num_verts());
     }
 }

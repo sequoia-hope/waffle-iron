@@ -182,3 +182,98 @@ fn end_to_end_union_attribution_has_none_via_sidecar() {
         "union should yield at least one triangle with new (Intersection) verts → None attribution"
     );
 }
+
+// ----- PR-YR5: sidecar integration tests for topology reconstruction -----
+
+#[test]
+fn end_to_end_intersect_yields_brep_faces_via_sidecar() {
+    let Ok(sb) = SidecarBoolean::from_env() else {
+        eprintln!("[yang-rs end_to_end] SKIP: sidecar binary not found");
+        return;
+    };
+    let a = unit_cube_brep_at([0.0, 0.0, 0.0]);
+    let b = unit_cube_brep_at([0.5, 0.0, 0.0]);
+    let r = boolean(&a, &b, BoolOp::Intersect, &sb).expect("boolean failed");
+    assert!(
+        !r.faces().is_empty(),
+        "intersect of topologized cubes should yield ≥1 reconstructed BRepFace"
+    );
+    assert!(
+        !r.edges().is_empty(),
+        "reconstructed faces should imply ≥1 BRepEdge"
+    );
+    assert_eq!(
+        r.vertices().len(),
+        r.as_mesh().num_verts(),
+        "vertices should be 1:1 with mesh.verts"
+    );
+}
+
+#[test]
+fn end_to_end_face_count_matches_attribution_components_via_sidecar() {
+    // Self-consistency: number of BRepFaces == number of distinct
+    // connected components of Some-attributed triangles in the output.
+    let Ok(sb) = SidecarBoolean::from_env() else {
+        eprintln!("[yang-rs end_to_end] SKIP: sidecar binary not found");
+        return;
+    };
+    let a = unit_cube_brep_at([0.0, 0.0, 0.0]);
+    let b = unit_cube_brep_at([0.5, 0.0, 0.0]);
+    let r = boolean(&a, &b, BoolOp::Intersect, &sb).expect("boolean failed");
+    let attr = r.triangle_attribution();
+    let mesh = r.as_mesh();
+    // Compute connected components via BFS over triangle adjacency
+    // restricted to same-attribution Some triangles.
+    use std::collections::{BTreeMap, VecDeque};
+    let mut edge_to_tris: BTreeMap<(u32, u32), Vec<u32>> = BTreeMap::new();
+    for (ti, tri) in mesh.tris.iter().enumerate() {
+        for (i, j) in [(0, 1), (1, 2), (2, 0)] {
+            let (a, b) = (tri[i], tri[j]);
+            let key = if a < b { (a, b) } else { (b, a) };
+            edge_to_tris.entry(key).or_default().push(ti as u32);
+        }
+    }
+    let mut neighbors: Vec<Vec<u32>> = vec![Vec::new(); mesh.tris.len()];
+    for sharing in edge_to_tris.values() {
+        for &t1 in sharing {
+            for &t2 in sharing {
+                if t1 != t2 && !neighbors[t1 as usize].contains(&t2) {
+                    neighbors[t1 as usize].push(t2);
+                }
+            }
+        }
+    }
+    let mut visited = vec![false; mesh.tris.len()];
+    let mut components = 0usize;
+    for seed in 0..mesh.tris.len() as u32 {
+        if visited[seed as usize] {
+            continue;
+        }
+        let Some(seed_attr) = attr.lookup(seed) else {
+            visited[seed as usize] = true;
+            continue;
+        };
+        components += 1;
+        let mut queue = VecDeque::from([seed]);
+        while let Some(t) = queue.pop_front() {
+            if visited[t as usize] {
+                continue;
+            }
+            let Some(ta) = attr.lookup(t) else { continue };
+            if ta != seed_attr {
+                continue;
+            }
+            visited[t as usize] = true;
+            for &n in &neighbors[t as usize] {
+                if !visited[n as usize] {
+                    queue.push_back(n);
+                }
+            }
+        }
+    }
+    assert_eq!(
+        r.faces().len(),
+        components,
+        "BRepFace count should equal connected-component count of Some-attributed triangles"
+    );
+}
