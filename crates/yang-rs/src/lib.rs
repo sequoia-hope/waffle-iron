@@ -391,9 +391,15 @@ pub fn boolean(
         .boolean(a.as_mesh(), b.as_mesh(), op)
         .map_err(YangError::MeshBooleanFailed)?;
 
-    // RED stub: build all-Unknown TessellationMap (PR-YR1/PR-YR2 behavior).
-    // GREEN replaces with spatial-match loop.
-    let sources = vec![TessellationSource::Unknown; output_mesh.num_verts()];
+    // PR-YR3 spatial matching: for each output vertex, try to match
+    // against input A first, then B. If no match, mark as Intersection.
+    let mut sources = Vec::with_capacity(output_mesh.num_verts());
+    for &target in &output_mesh.verts {
+        let src = match_against(a, target)
+            .or_else(|| match_against(b, target))
+            .unwrap_or(TessellationSource::Intersection);
+        sources.push(src);
+    }
     let tessellation = TessellationMap { sources };
 
     Ok(BRep {
@@ -408,7 +414,6 @@ pub fn boolean(
 /// Try to match `target` against a vertex in `brep`'s mesh within
 /// `MATCH_TOLERANCE`. Returns the matched vertex's `TessellationSource`
 /// or `None`. Private to PR-YR3's `boolean()` impl.
-#[allow(dead_code)]
 fn match_against(brep: &BRep, target: Point3) -> Option<TessellationSource> {
     let tol2 = MATCH_TOLERANCE * MATCH_TOLERANCE;
     for (i, v) in brep.as_mesh().verts.iter().enumerate() {
