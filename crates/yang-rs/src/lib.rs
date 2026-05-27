@@ -115,9 +115,18 @@ pub enum TessellationSource {
     BRepEdge { edge: u32, t: f64 },
     /// Mesh vertex is interior to face `face` at surface params `(u, v)`.
     BRepFace { face: u32, u: f64, v: f64 },
-    /// Source unknown — `BRep::from_mesh` degenerate path.
+    /// Output vertex created by the boolean operation; no spatial
+    /// match against either input. New in PR-YR3.
+    Intersection,
+    /// Source genuinely unknown — `BRep::from_mesh` degenerate path.
     Unknown,
 }
+
+/// Spatial tolerance for matching output mesh vertices to input
+/// mesh vertices in `boolean()`. Tight enough to avoid false
+/// positives on genuine intersection points; loose enough to absorb
+/// the sidecar's internal coordinate-normalization rounding.
+pub const MATCH_TOLERANCE: f64 = 1e-9;
 
 /// Per-mesh-vertex bijection to B-Rep features. Established by Stage 1.
 #[derive(Clone, Debug, PartialEq)]
@@ -378,10 +387,39 @@ pub fn boolean(
     op: BoolOp,
     backend: &dyn MeshBoolean,
 ) -> Result<BRep, YangError> {
-    let result_mesh = backend
+    let output_mesh = backend
         .boolean(a.as_mesh(), b.as_mesh(), op)
         .map_err(YangError::MeshBooleanFailed)?;
-    Ok(BRep::from_mesh(result_mesh))
+
+    // RED stub: build all-Unknown TessellationMap (PR-YR1/PR-YR2 behavior).
+    // GREEN replaces with spatial-match loop.
+    let sources = vec![TessellationSource::Unknown; output_mesh.num_verts()];
+    let tessellation = TessellationMap { sources };
+
+    Ok(BRep {
+        vertices: Vec::new(),
+        edges: Vec::new(),
+        faces: Vec::new(),
+        mesh: output_mesh,
+        tessellation,
+    })
+}
+
+/// Try to match `target` against a vertex in `brep`'s mesh within
+/// `MATCH_TOLERANCE`. Returns the matched vertex's `TessellationSource`
+/// or `None`. Private to PR-YR3's `boolean()` impl.
+#[allow(dead_code)]
+fn match_against(brep: &BRep, target: Point3) -> Option<TessellationSource> {
+    let tol2 = MATCH_TOLERANCE * MATCH_TOLERANCE;
+    for (i, v) in brep.as_mesh().verts.iter().enumerate() {
+        let dx = v.x() - target.x();
+        let dy = v.y() - target.y();
+        let dz = v.z() - target.z();
+        if dx * dx + dy * dy + dz * dz <= tol2 {
+            return Some(brep.tessellation_map().lookup(i as u32));
+        }
+    }
+    None
 }
 
 // =========================================================================
@@ -1025,5 +1063,174 @@ mod tests {
         ] {
             assert!(boolean(&a, &b, op, &mock).is_ok(), "op {op:?}");
         }
+    }
+
+    // ----- PR-YR3: Group 1 — TessellationSource::Intersection variant -----
+
+    #[test]
+    fn intersection_variant_constructs_and_matches() {
+        let s = TessellationSource::Intersection;
+        match s {
+            TessellationSource::Intersection => {}
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn intersection_distinct_from_unknown() {
+        assert_ne!(
+            TessellationSource::Intersection,
+            TessellationSource::Unknown
+        );
+    }
+
+    // ----- PR-YR3: Group 2 — MATCH_TOLERANCE constant -----
+
+    #[test]
+    fn match_tolerance_is_1e_minus_9() {
+        assert_eq!(MATCH_TOLERANCE, 1e-9);
+    }
+
+    // ----- PR-YR3: Group 3 — Spatial matching via mock backend -----
+
+    /// Build a BRep with explicit topology (triangle) so its mesh has
+    /// non-trivial TessellationMap entries (`BRepVertex(i)` for each i).
+    fn triangle_brep() -> BRep {
+        let verts = vec![
+            BRepVertex {
+                point: p(0.0, 0.0, 0.0),
+            },
+            BRepVertex {
+                point: p(1.0, 0.0, 0.0),
+            },
+            BRepVertex {
+                point: p(0.0, 1.0, 0.0),
+            },
+        ];
+        let edges = vec![
+            BRepEdge {
+                start: 0,
+                end: 1,
+                curve: Curve::LineSegment,
+            },
+            BRepEdge {
+                start: 1,
+                end: 2,
+                curve: Curve::LineSegment,
+            },
+            BRepEdge {
+                start: 2,
+                end: 0,
+                curve: Curve::LineSegment,
+            },
+        ];
+        let faces = vec![BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                d: 0.0,
+            },
+            outer_loop: vec![0, 1, 2],
+        }];
+        BRep::new(verts, edges, faces).unwrap()
+    }
+
+    #[test]
+    fn boolean_input_a_verbatim_copies_a_map() {
+        let a = triangle_brep();
+        let b = triangle_brep();
+        // Mock returns input A's mesh verbatim.
+        let mock = MockBackend::ok(a.as_mesh().clone());
+        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        assert_eq!(r.num_verts(), 3);
+        // Every output vertex should map to a BRepVertex (matched
+        // against input A, which has BRepVertex entries).
+        for i in 0..3u32 {
+            assert_eq!(
+                r.tessellation_map().lookup(i),
+                TessellationSource::BRepVertex(i),
+                "output vertex {i}"
+            );
+        }
+    }
+
+    #[test]
+    fn boolean_input_b_verbatim_copies_b_map() {
+        let a = triangle_brep();
+        // B has different vertices so A's spatial match fails.
+        let mut b_verts = a.vertices().to_vec();
+        for v in &mut b_verts {
+            v.point = Point3::new(v.point.x() + 10.0, v.point.y(), v.point.z());
+        }
+        let b_edges = a.edges().to_vec();
+        let b_faces = a.faces().to_vec();
+        let b = BRep::new(b_verts, b_edges, b_faces).unwrap();
+        // Mock returns B's mesh verbatim.
+        let mock = MockBackend::ok(b.as_mesh().clone());
+        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        for i in 0..3u32 {
+            assert_eq!(
+                r.tessellation_map().lookup(i),
+                TessellationSource::BRepVertex(i),
+                "output vertex {i} — should match input B's BRepVertex({i})"
+            );
+        }
+    }
+
+    #[test]
+    fn boolean_all_new_coords_are_intersection() {
+        let a = triangle_brep();
+        let b = triangle_brep();
+        // Mock returns a mesh with totally new coords (offset by 100).
+        let novel = Mesh::new(
+            vec![
+                p(100.0, 100.0, 100.0),
+                p(101.0, 100.0, 100.0),
+                p(100.0, 101.0, 100.0),
+            ],
+            vec![[0, 1, 2]],
+        );
+        let mock = MockBackend::ok(novel);
+        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        for i in 0..3u32 {
+            assert_eq!(
+                r.tessellation_map().lookup(i),
+                TessellationSource::Intersection,
+                "vertex {i} should be Intersection"
+            );
+        }
+    }
+
+    #[test]
+    fn boolean_mixed_match_and_intersection() {
+        let a = triangle_brep();
+        let b = triangle_brep();
+        // Mock returns 2 vertices from A + 2 new coords.
+        let mixed = Mesh::new(
+            vec![
+                p(0.0, 0.0, 0.0),   // matches a.vertex(0)
+                p(1.0, 0.0, 0.0),   // matches a.vertex(1)
+                p(99.0, 99.0, 0.0), // new
+                p(98.0, 98.0, 0.0), // new
+            ],
+            vec![[0, 1, 2], [0, 2, 3]],
+        );
+        let mock = MockBackend::ok(mixed);
+        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        assert_eq!(
+            r.tessellation_map().lookup(0),
+            TessellationSource::BRepVertex(0)
+        );
+        assert_eq!(
+            r.tessellation_map().lookup(1),
+            TessellationSource::BRepVertex(1)
+        );
+        assert_eq!(
+            r.tessellation_map().lookup(2),
+            TessellationSource::Intersection
+        );
+        assert_eq!(
+            r.tessellation_map().lookup(3),
+            TessellationSource::Intersection
+        );
     }
 }
