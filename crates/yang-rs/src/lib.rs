@@ -163,6 +163,69 @@ impl TessellationMap {
 }
 
 // =========================================================================
+// PR-YR4 — per-triangle face attribution
+// =========================================================================
+
+/// Identifies which input of `boolean(a, b, ...)` a vertex / triangle
+/// descends from. `A < B` by enum discriminant (drives tie-break in
+/// majority-vote attribution).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum InputId {
+    A,
+    B,
+}
+
+/// "This output triangle descends from face `face` of input `input`."
+/// Produced by `boolean()` via majority-vote of the triangle's 3
+/// vertices' provenance (PR-YR3).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct TriangleAttribution {
+    pub input: InputId,
+    pub face: u32,
+}
+
+/// Per-output-triangle attribution to an input B-Rep face.
+///
+/// `None` means no `(InputId, face)` pair won a 2-of-3 majority — the
+/// triangle is either entirely from new intersection vertices or
+/// straddles both inputs.
+///
+/// Established by `boolean()` only. `BRep::new` and `BRep::from_mesh`
+/// produce `TriangleAttributionMap::empty()`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TriangleAttributionMap {
+    attributions: Vec<Option<TriangleAttribution>>,
+}
+
+impl TriangleAttributionMap {
+    pub fn empty() -> Self {
+        Self {
+            attributions: Vec::new(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.attributions.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.attributions.is_empty()
+    }
+
+    /// Look up the attribution for a mesh triangle.
+    ///
+    /// Panics in debug if `mesh_tri` is out of range.
+    pub fn lookup(&self, mesh_tri: u32) -> Option<TriangleAttribution> {
+        debug_assert!(
+            (mesh_tri as usize) < self.attributions.len(),
+            "TriangleAttributionMap::lookup: tri {mesh_tri} out of range (len {})",
+            self.attributions.len()
+        );
+        self.attributions[mesh_tri as usize]
+    }
+}
+
+// =========================================================================
 // BRep
 // =========================================================================
 
@@ -176,6 +239,11 @@ impl TessellationMap {
 ///
 /// Always populated: `mesh` and `tessellation_map`. PR-YR3 will consume
 /// the `TessellationMap` for Stage 5/6 reassembly.
+///
+/// PR-YR4 adds `triangle_attribution`: a per-output-triangle label
+/// `(InputId, face)` populated by `boolean()` via majority-vote of the
+/// triangle's 3 vertices' provenance. `BRep::new` and `BRep::from_mesh`
+/// produce an empty `TriangleAttributionMap`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BRep {
     vertices: Vec<BRepVertex>,
@@ -183,6 +251,7 @@ pub struct BRep {
     faces: Vec<BRepFace>,
     mesh: Mesh,
     tessellation: TessellationMap,
+    triangle_attribution: TriangleAttributionMap,
 }
 
 impl BRep {
@@ -275,6 +344,7 @@ impl BRep {
             faces,
             mesh,
             tessellation,
+            triangle_attribution: TriangleAttributionMap::empty(),
         })
     }
 
@@ -290,6 +360,7 @@ impl BRep {
                 sources: vec![TessellationSource::Unknown; n],
             },
             mesh,
+            triangle_attribution: TriangleAttributionMap::empty(),
         }
     }
 
@@ -315,6 +386,14 @@ impl BRep {
 
     pub fn tessellation_map(&self) -> &TessellationMap {
         &self.tessellation
+    }
+
+    /// Per-output-triangle attribution to an input B-Rep face.
+    ///
+    /// Populated only by `boolean()`. `BRep::new` / `BRep::from_mesh`
+    /// return an empty map.
+    pub fn triangle_attribution(&self) -> &TriangleAttributionMap {
+        &self.triangle_attribution
     }
 
     pub fn num_verts(&self) -> usize {
@@ -402,12 +481,18 @@ pub fn boolean(
     }
     let tessellation = TessellationMap { sources };
 
+    // PR-YR4 (RED stub): allocate per-triangle attribution slots with
+    // None content. GREEN will compute majority-vote attribution.
+    let attributions = vec![None; output_mesh.num_tris()];
+    let triangle_attribution = TriangleAttributionMap { attributions };
+
     Ok(BRep {
         vertices: Vec::new(),
         edges: Vec::new(),
         faces: Vec::new(),
         mesh: output_mesh,
         tessellation,
+        triangle_attribution,
     })
 }
 
@@ -1236,6 +1321,322 @@ mod tests {
         assert_eq!(
             r.tessellation_map().lookup(3),
             TessellationSource::Intersection
+        );
+    }
+
+    // ----- PR-YR4: Group 1 — types -----
+
+    #[test]
+    fn input_id_ordering_and_derives() {
+        assert!(InputId::A < InputId::B);
+        assert_eq!(InputId::A, InputId::A);
+        assert_ne!(InputId::A, InputId::B);
+        assert_eq!(format!("{:?}", InputId::A), "A");
+        assert_eq!(format!("{:?}", InputId::B), "B");
+        // Copy
+        let x = InputId::A;
+        let y = x;
+        assert_eq!(x, y);
+    }
+
+    #[test]
+    fn triangle_attribution_construct_and_equality() {
+        let t1 = TriangleAttribution {
+            input: InputId::A,
+            face: 7,
+        };
+        let t2 = TriangleAttribution {
+            input: InputId::A,
+            face: 7,
+        };
+        let t3 = TriangleAttribution {
+            input: InputId::B,
+            face: 7,
+        };
+        assert_eq!(t1, t2);
+        assert_ne!(t1, t3);
+        // Copy + accessors
+        let t4 = t1;
+        assert_eq!(t4.input, InputId::A);
+        assert_eq!(t4.face, 7);
+    }
+
+    #[test]
+    fn triangle_attribution_map_empty_and_len() {
+        let m = TriangleAttributionMap::empty();
+        assert_eq!(m.len(), 0);
+        assert!(m.is_empty());
+    }
+
+    // ----- PR-YR4: Group 2 — algorithm via mock backend -----
+
+    /// Two-face B-Rep where V0 is shared by F0 and F1; V1, V2 only in F0;
+    /// V3, V4 only in F1. Used by tie-break + pure-input tests.
+    fn two_face_shared_vertex_brep() -> BRep {
+        let verts = vec![
+            BRepVertex {
+                point: p(0.0, 0.0, 0.0),
+            }, // 0 — shared (F0 & F1)
+            BRepVertex {
+                point: p(1.0, 0.0, 0.0),
+            }, // 1 — F0 only
+            BRepVertex {
+                point: p(2.0, 0.0, 0.0),
+            }, // 2 — F0 only
+            BRepVertex {
+                point: p(0.0, 1.0, 0.0),
+            }, // 3 — F1 only
+            BRepVertex {
+                point: p(0.0, 2.0, 0.0),
+            }, // 4 — F1 only
+        ];
+        // F0 edges (triangle V0-V1-V2):
+        // E0 V0→V1, E1 V1→V2, E2 V2→V0
+        // F1 edges (triangle V0-V3-V4):
+        // E3 V0→V3, E4 V3→V4, E5 V4→V0
+        let edges = vec![
+            BRepEdge {
+                start: 0,
+                end: 1,
+                curve: Curve::LineSegment,
+            },
+            BRepEdge {
+                start: 1,
+                end: 2,
+                curve: Curve::LineSegment,
+            },
+            BRepEdge {
+                start: 2,
+                end: 0,
+                curve: Curve::LineSegment,
+            },
+            BRepEdge {
+                start: 0,
+                end: 3,
+                curve: Curve::LineSegment,
+            },
+            BRepEdge {
+                start: 3,
+                end: 4,
+                curve: Curve::LineSegment,
+            },
+            BRepEdge {
+                start: 4,
+                end: 0,
+                curve: Curve::LineSegment,
+            },
+        ];
+        let plane = Surface::Plane {
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            d: 0.0,
+        };
+        let faces = vec![
+            BRepFace {
+                surface: plane,
+                outer_loop: vec![0, 1, 2],
+            }, // F0
+            BRepFace {
+                surface: plane,
+                outer_loop: vec![3, 4, 5],
+            }, // F1
+        ];
+        BRep::new(verts, edges, faces).unwrap()
+    }
+
+    #[test]
+    fn boolean_pure_a_attributes_to_a_faces() {
+        // Pure-A: mock returns A's mesh verbatim. Each output tri's verts
+        // are BRepVertex(i) of A → candidates derive A's per-vertex face
+        // incidence → majority-vote attributes each tri to its source face.
+        let a = two_face_shared_vertex_brep();
+        let b = two_face_shared_vertex_brep();
+        let mock = MockBackend::ok(a.as_mesh().clone());
+        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        assert_eq!(r.num_tris(), 2);
+        assert_eq!(
+            r.triangle_attribution().lookup(0),
+            Some(TriangleAttribution {
+                input: InputId::A,
+                face: 0
+            }),
+            "output tri 0 (F0 fan tri) should attribute to A's F0"
+        );
+        assert_eq!(
+            r.triangle_attribution().lookup(1),
+            Some(TriangleAttribution {
+                input: InputId::A,
+                face: 1
+            }),
+            "output tri 1 (F1 fan tri) should attribute to A's F1"
+        );
+    }
+
+    #[test]
+    fn boolean_pure_b_attributes_to_b_faces() {
+        let a = two_face_shared_vertex_brep();
+        // B is the same B-Rep, but shifted so A's spatial match fails first.
+        let mut b_verts = a.vertices().to_vec();
+        for v in &mut b_verts {
+            v.point = Point3::new(v.point.x() + 100.0, v.point.y(), v.point.z());
+        }
+        let b = BRep::new(b_verts, a.edges().to_vec(), a.faces().to_vec()).unwrap();
+        let mock = MockBackend::ok(b.as_mesh().clone());
+        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        assert_eq!(
+            r.triangle_attribution().lookup(0),
+            Some(TriangleAttribution {
+                input: InputId::B,
+                face: 0
+            })
+        );
+        assert_eq!(
+            r.triangle_attribution().lookup(1),
+            Some(TriangleAttribution {
+                input: InputId::B,
+                face: 1
+            })
+        );
+    }
+
+    #[test]
+    fn boolean_all_new_coords_attribute_to_none() {
+        let a = two_face_shared_vertex_brep();
+        let b = two_face_shared_vertex_brep();
+        // Mock returns a mesh with coords far from both inputs.
+        let novel = Mesh::new(
+            vec![
+                p(1000.0, 1000.0, 1000.0),
+                p(1001.0, 1000.0, 1000.0),
+                p(1000.0, 1001.0, 1000.0),
+            ],
+            vec![[0, 1, 2]],
+        );
+        let mock = MockBackend::ok(novel);
+        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        assert_eq!(r.num_tris(), 1);
+        assert_eq!(
+            r.triangle_attribution().lookup(0),
+            None,
+            "all-new triangle should have None attribution"
+        );
+    }
+
+    #[test]
+    fn boolean_mixed_majority_wins() {
+        // 2 verts match A's F0 + 1 novel → F0 attribution.
+        let a = two_face_shared_vertex_brep();
+        let b = two_face_shared_vertex_brep();
+        // Mock returns mesh with V1, V2 from A + 1 new coord.
+        let mixed = Mesh::new(
+            vec![
+                p(1.0, 0.0, 0.0),       // matches a.verts[1] (F0 only)
+                p(2.0, 0.0, 0.0),       // matches a.verts[2] (F0 only)
+                p(1000.0, 0.0, 1000.0), // novel
+            ],
+            vec![[0, 1, 2]],
+        );
+        let mock = MockBackend::ok(mixed);
+        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        assert_eq!(
+            r.triangle_attribution().lookup(0),
+            Some(TriangleAttribution {
+                input: InputId::A,
+                face: 0
+            }),
+            "2 A-F0-verts + 1 novel → majority F0"
+        );
+    }
+
+    #[test]
+    fn boolean_no_majority_returns_none() {
+        // 1 A-vert + 1 B-vert + 1 novel → no majority, None.
+        let a = two_face_shared_vertex_brep();
+        // B has distinct coords from A (offset).
+        let mut b_verts = a.vertices().to_vec();
+        for v in &mut b_verts {
+            v.point = Point3::new(v.point.x() + 100.0, v.point.y(), v.point.z());
+        }
+        let b = BRep::new(b_verts, a.edges().to_vec(), a.faces().to_vec()).unwrap();
+        let mixed = Mesh::new(
+            vec![
+                p(1.0, 0.0, 0.0),     // matches a.verts[1] (A, F0)
+                p(101.0, 0.0, 0.0),   // matches b.verts[1] (B, F0)
+                p(500.0, 500.0, 0.0), // novel
+            ],
+            vec![[0, 1, 2]],
+        );
+        let mock = MockBackend::ok(mixed);
+        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        assert_eq!(
+            r.triangle_attribution().lookup(0),
+            None,
+            "1 A + 1 B + 1 novel → no 2-of-3 majority"
+        );
+    }
+
+    #[test]
+    fn boolean_tie_break_picks_lowest_face() {
+        // Triangle (V0 shared, V1 F0-only, V3 F1-only) → candidates
+        // {F0,F1}, {F0}, {F1}. Counts: F0=2, F1=2. Tie. Lowest face → F0.
+        let a = two_face_shared_vertex_brep();
+        let b = two_face_shared_vertex_brep();
+        let tie_mesh = Mesh::new(
+            vec![
+                p(0.0, 0.0, 0.0), // V0 — shared
+                p(1.0, 0.0, 0.0), // V1 — F0 only
+                p(0.0, 1.0, 0.0), // V3 — F1 only
+            ],
+            vec![[0, 1, 2]],
+        );
+        let mock = MockBackend::ok(tie_mesh);
+        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        assert_eq!(
+            r.triangle_attribution().lookup(0),
+            Some(TriangleAttribution {
+                input: InputId::A,
+                face: 0
+            }),
+            "tie at count 2 between F0 and F1 → lowest face (F0)"
+        );
+    }
+
+    // ----- PR-YR4: Group 3 — empty-topology degradation -----
+
+    #[test]
+    fn boolean_both_inputs_from_mesh_all_none() {
+        let a = BRep::from_mesh(sample_mesh());
+        let b = BRep::from_mesh(sample_mesh());
+        let mock = MockBackend::ok(sample_mesh());
+        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        assert_eq!(r.triangle_attribution().len(), r.num_tris());
+        assert_eq!(
+            r.triangle_attribution().lookup(0),
+            None,
+            "from_mesh inputs have all-Unknown sources → all-None attribution"
+        );
+    }
+
+    #[test]
+    fn boolean_mixed_from_mesh_and_topologized() {
+        // a has topology, b is from_mesh. Mock returns a's mesh verbatim.
+        // Attribution should reflect a's per-tri face ownership.
+        let a = two_face_shared_vertex_brep();
+        let b = BRep::from_mesh(sample_mesh());
+        let mock = MockBackend::ok(a.as_mesh().clone());
+        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        assert_eq!(
+            r.triangle_attribution().lookup(0),
+            Some(TriangleAttribution {
+                input: InputId::A,
+                face: 0
+            })
+        );
+        assert_eq!(
+            r.triangle_attribution().lookup(1),
+            Some(TriangleAttribution {
+                input: InputId::A,
+                face: 1
+            })
         );
     }
 }
