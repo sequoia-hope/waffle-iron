@@ -67,9 +67,10 @@ impl SidecarBoolean {
     /// default path. Returns [`SidecarError::BinaryNotFound`] if
     /// neither resolves to an existing file.
     pub fn from_env() -> Result<Self, SidecarError> {
-        // RED stub
-        Err(SidecarError::BinaryNotFound {
-            path: PathBuf::new(),
+        let bin_path = process::resolve_bin_from_env()?;
+        Ok(Self {
+            bin_path,
+            timeout: DEFAULT_TIMEOUT,
         })
     }
 
@@ -81,17 +82,57 @@ impl SidecarBoolean {
     }
 }
 
+/// Map a `BoolOp` to the upstream binary's CLI string.
+fn cli_arg(op: BoolOp) -> &'static str {
+    match op {
+        BoolOp::Union => "union",
+        BoolOp::Intersect => "intersection",
+        BoolOp::Subtract => "subtraction",
+        BoolOp::Xor => "xor",
+    }
+}
+
+/// Build a fresh per-call tempdir under `std::env::temp_dir()`.
+/// Uses process ID + a counter to avoid collisions when the same
+/// process makes concurrent calls.
+fn fresh_tempdir() -> Result<PathBuf, SidecarError> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let pid = std::process::id();
+    let dir = std::env::temp_dir().join(format!("cherchi-sidecar-rs-{pid}-{n}"));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).map_err(|source| SidecarError::ObjIo { source })?;
+    Ok(dir)
+}
+
 impl MeshBoolean for SidecarBoolean {
     fn boolean(
         &self,
-        _a: &Mesh,
-        _b: &Mesh,
-        _op: BoolOp,
+        a: &Mesh,
+        b: &Mesh,
+        op: BoolOp,
     ) -> Result<Mesh, Box<dyn Error + Send + Sync>> {
-        // RED stub
-        Err(Box::new(SidecarError::BinaryNotFound {
-            path: self.bin_path.clone(),
-        }))
+        let tmp = fresh_tempdir()?;
+        let a_path = tmp.join("a.obj");
+        let b_path = tmp.join("b.obj");
+        let out_path = tmp.join("out.obj");
+        obj::write_obj(&a_path, a).map_err(|source| SidecarError::ObjIo { source })?;
+        obj::write_obj(&b_path, b).map_err(|source| SidecarError::ObjIo { source })?;
+        let mut cmd = std::process::Command::new(&self.bin_path);
+        cmd.arg(cli_arg(op))
+            .arg(&a_path)
+            .arg(&b_path)
+            .arg(&out_path);
+        let output = process::run_with_timeout(cmd, self.timeout)?;
+        if !output.status.success() {
+            return Err(Box::new(SidecarError::NonZeroExit {
+                status: output.status,
+                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            }));
+        }
+        let mesh = obj::read_obj(&out_path).map_err(|source| SidecarError::ObjParse { source })?;
+        Ok(mesh)
     }
 }
 
