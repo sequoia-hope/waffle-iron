@@ -47,7 +47,7 @@ use std::time::Duration;
 use cad_primitives::BoolOp;
 use cherchi_rs::{Mesh, MeshBoolean};
 
-pub use process::DEFAULT_BIN_PATH;
+pub use process::{DEFAULT_BIN_PATH, INPUTCHECK_DEFAULT_BIN_PATH};
 
 /// Default subprocess timeout: 30 seconds. Overridable via
 /// [`SidecarBoolean::new`].
@@ -104,6 +104,88 @@ fn fresh_tempdir() -> Result<PathBuf, SidecarError> {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).map_err(|source| SidecarError::ObjIo { source })?;
     Ok(dir)
+}
+
+/// Verdict of the `mesh_booleans_inputcheck` reference oracle: the five
+/// Cherchi 2022 §3 input axioms a mesh must satisfy for the boolean
+/// pipeline to be well-defined (malformed input is undefined behavior).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InputCheckReport {
+    /// Every edge is shared by exactly two triangles (combinatorial 2-manifold).
+    pub manifold: bool,
+    /// No boundary edges (the surface is closed).
+    pub watertight: bool,
+    /// Adjacent triangles wind consistently across each shared edge.
+    pub local_orientation: bool,
+    /// The mesh as a whole is oriented outward (not inside-out).
+    pub global_orientation: bool,
+    /// No pair of triangles intersects except along shared edges/vertices.
+    pub intersection_free: bool,
+}
+
+impl InputCheckReport {
+    /// True iff all five axioms pass.
+    pub fn all_pass(&self) -> bool {
+        self.manifold
+            && self.watertight
+            && self.local_orientation
+            && self.global_orientation
+            && self.intersection_free
+    }
+}
+
+/// Run the upstream `mesh_booleans_inputcheck` binary as a reference oracle
+/// for the Cherchi 2022 §3 input axioms over `mesh`.
+///
+/// Resolves the binary via `CHERCHI2022_INPUTCHECK_BIN` env var or the
+/// default path ([`INPUTCHECK_DEFAULT_BIN_PATH`]); returns
+/// [`SidecarError::BinaryNotFound`] if neither exists.
+///
+/// **Verdict parsing:** the binary prints a 5-line verdict to **stdout**
+/// (not stderr) and exits **0 regardless of pass/fail**, so the verdict is
+/// parsed from stdout, never gated on the exit code. Each line names one
+/// axiom and ends in `passed` / `failed` (case-insensitive).
+pub fn inputcheck(mesh: &Mesh, timeout: Duration) -> Result<InputCheckReport, SidecarError> {
+    let bin_path = process::resolve_inputcheck_bin_from_env()?;
+    let tmp = fresh_tempdir()?;
+    let mesh_path = tmp.join("mesh.obj");
+    obj::write_obj(&mesh_path, mesh).map_err(|source| SidecarError::ObjIo { source })?;
+    let mut cmd = std::process::Command::new(&bin_path);
+    cmd.arg(&mesh_path);
+    let output = process::run_with_timeout(cmd, timeout)?;
+    // Exit code is 0 regardless of pass/fail; the verdict is on stdout.
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(parse_inputcheck_stdout(&stdout))
+}
+
+/// Parse the 5-line inputcheck verdict from stdout. Each line is classified
+/// by keyword; a line "passes" iff it contains `passed` (case-insensitive)
+/// and not `failed`. Unmatched / absent lines default to `false` (a missing
+/// verdict is a failure, never a silent pass — P9).
+fn parse_inputcheck_stdout(stdout: &str) -> InputCheckReport {
+    let mut report = InputCheckReport {
+        manifold: false,
+        watertight: false,
+        local_orientation: false,
+        global_orientation: false,
+        intersection_free: false,
+    };
+    for line in stdout.lines() {
+        let lower = line.to_ascii_lowercase();
+        let passed = lower.contains("passed") && !lower.contains("failed");
+        if lower.contains("manifold") {
+            report.manifold = passed;
+        } else if lower.contains("watertight") {
+            report.watertight = passed;
+        } else if lower.contains("local") && lower.contains("orientation") {
+            report.local_orientation = passed;
+        } else if lower.contains("global") && lower.contains("orientation") {
+            report.global_orientation = passed;
+        } else if lower.contains("intersection") {
+            report.intersection_free = passed;
+        }
+    }
+    report
 }
 
 impl MeshBoolean for SidecarBoolean {

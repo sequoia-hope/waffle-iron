@@ -18,6 +18,18 @@
 //!
 //! When in doubt: if it has a `fn` doing computation, it does not belong here.
 
+/// Model-space distance tolerance: two coordinates closer than this are
+/// considered coincident at modeling resolution. All distances are in meters.
+pub const TAU_MODEL: f64 = 1e-7;
+
+/// Minimum feature size: edges/faces/areas below this are treated as
+/// degenerate (e.g. the zero-area-face threshold for Newell normals).
+pub const MIN_FEATURE_SIZE: f64 = 1e-6;
+
+/// Working / exact-arithmetic tolerance, tighter than `TAU_MODEL`, used for
+/// numerically sensitive intermediate computations.
+pub const TAU_WORK: f64 = 1e-12;
+
 /// A point in 3D Euclidean space, stored as three `f64` coordinates.
 ///
 /// Newtype wrapper around `[f64; 3]` — no algorithms, just storage +

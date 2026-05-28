@@ -347,15 +347,54 @@ impl BRep {
         sources.truncate(out_verts.len());
 
         let mut out_tris: Vec<[u32; 3]> = Vec::new();
-        for f in &faces {
+        for (f_idx, f) in faces.iter().enumerate() {
             // Walk the outer loop: collect each edge's start vertex
             // (which is the face's vertex at that loop position).
-            let face_verts: Vec<u32> = f
+            let mut face_verts: Vec<u32> = f
                 .outer_loop
                 .iter()
                 .map(|&e_idx| edges[e_idx as usize].start)
                 .collect();
-            // Fan-triangulate from face_verts[0].
+
+            // Stage-1 winding canonicalization (Yang 2025 §4.1: the
+            // tessellation must preserve the B-Rep surface orientation;
+            // Cherchi 2022 §3 requires globally-oriented input or the
+            // boolean is undefined). Per governance A15.5 the analytic
+            // surface normal is authoritative, so we orient each face's
+            // triangle winding to agree with `Surface::Plane.normal`
+            // rather than trusting the (possibly inside-out) loop order.
+            //
+            // Compute the polygon normal via Newell's method (Sutherland,
+            // Sproull & Schumacker 1974) — robust for (near-)planar loops:
+            //   nx += (y_i - y_j)*(z_i + z_j), etc., over consecutive
+            // loop vertices (j = next, wrapping).
+            let mut newell = [0.0f64; 3];
+            let m = face_verts.len();
+            for i in 0..m {
+                let vi = out_verts[face_verts[i] as usize].as_array();
+                let vj = out_verts[face_verts[(i + 1) % m] as usize].as_array();
+                newell[0] += (vi[1] - vj[1]) * (vi[2] + vj[2]);
+                newell[1] += (vi[2] - vj[2]) * (vi[0] + vj[0]);
+                newell[2] += (vi[0] - vj[0]) * (vi[1] + vj[1]);
+            }
+            let mag =
+                (newell[0] * newell[0] + newell[1] * newell[1] + newell[2] * newell[2]).sqrt();
+            // B3: zero-area / collinear / degenerate face. Threshold is the
+            // shared MIN_FEATURE_SIZE (governance A14.3: no ad-hoc epsilon).
+            if mag < cad_primitives::MIN_FEATURE_SIZE {
+                return Err(YangError::DegenerateFace { face: f_idx });
+            }
+
+            let Surface::Plane { normal, .. } = f.surface;
+            let n = normal.as_array();
+            let dot = newell[0] * n[0] + newell[1] * n[1] + newell[2] * n[2];
+            // B2: Newell normal opposes the analytic outward normal →
+            // reverse the loop so the fan winds outward.
+            if dot < 0.0 {
+                face_verts.reverse();
+            }
+
+            // Fan-triangulate from the (possibly reversed) loop's first vertex.
             for i in 1..face_verts.len() - 1 {
                 out_tris.push([face_verts[0], face_verts[i], face_verts[i + 1]]);
             }
@@ -447,6 +486,10 @@ pub enum YangError {
     /// B-Rep topology is malformed: face with <3 edges, out-of-range
     /// vertex/edge index, etc. PR-YR2.
     MalformedTopology(String),
+    /// A face is geometrically degenerate (zero-area / collinear loop):
+    /// its Newell polygon normal has magnitude below `MIN_FEATURE_SIZE`,
+    /// so its winding cannot be canonicalized. M1 (Stage-1 orientation).
+    DegenerateFace { face: usize },
 }
 
 impl fmt::Display for YangError {
@@ -460,6 +503,12 @@ impl fmt::Display for YangError {
                 write!(f, "yang-rs: mesh boolean backend failed: {source}")
             }
             Self::MalformedTopology(msg) => write!(f, "yang-rs: malformed B-Rep topology: {msg}"),
+            Self::DegenerateFace { face } => {
+                write!(
+                    f,
+                    "yang-rs: face {face} is degenerate (zero-area / collinear)"
+                )
+            }
         }
     }
 }
@@ -1761,14 +1810,14 @@ mod tests {
                 point: p(1.0, 0.0, 0.0),
             }, // 1 — F0 only
             BRepVertex {
-                point: p(2.0, 0.0, 0.0),
-            }, // 2 — F0 only
+                point: p(1.0, 1.0, 0.0),
+            }, // 2 — F0 only (moved off x-axis: was (2,0,0)) so F0 is a real triangle in z=0
             BRepVertex {
                 point: p(0.0, 1.0, 0.0),
             }, // 3 — F1 only
             BRepVertex {
-                point: p(0.0, 2.0, 0.0),
-            }, // 4 — F1 only
+                point: p(0.0, 1.0, 1.0),
+            }, // 4 — F1 only (moved off y-axis: was (0,2,0)) so F1 is a real triangle in x=0
         ];
         // F0 edges (triangle V0-V1-V2):
         // E0 V0→V1, E1 V1→V2, E2 V2→V0
@@ -1806,17 +1855,22 @@ mod tests {
                 curve: Curve::LineSegment,
             },
         ];
-        let plane = Surface::Plane {
+        // F0 lies in z=0 (normal +z); F1 now lies in x=0 (normal +x).
+        let f0_plane = Surface::Plane {
             normal: Vector3::new(0.0, 0.0, 1.0),
+            d: 0.0,
+        };
+        let f1_plane = Surface::Plane {
+            normal: Vector3::new(1.0, 0.0, 0.0),
             d: 0.0,
         };
         let faces = vec![
             BRepFace {
-                surface: plane,
+                surface: f0_plane,
                 outer_loop: vec![0, 1, 2],
             }, // F0
             BRepFace {
-                surface: plane,
+                surface: f1_plane,
                 outer_loop: vec![3, 4, 5],
             }, // F1
         ];
@@ -1910,7 +1964,7 @@ mod tests {
         let mixed = Mesh::new(
             vec![
                 p(1.0, 0.0, 0.0),       // matches a.verts[1] (F0 only)
-                p(2.0, 0.0, 0.0),       // matches a.verts[2] (F0 only)
+                p(1.0, 1.0, 0.0),       // matches a.verts[2] (F0 only) — tracks moved V2
                 p(1000.0, 0.0, 1000.0), // novel
             ],
             vec![[0, 1, 2]],

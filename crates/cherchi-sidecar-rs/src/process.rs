@@ -15,6 +15,27 @@ pub const DEFAULT_BIN_PATH: &str =
 
 const ENV_VAR: &str = "CHERCHI2022_BIN";
 
+/// Default location of the upstream `mesh_booleans_inputcheck` binary
+/// (the Cherchi 2022 §3 input-axiom reference oracle).
+/// Override via `CHERCHI2022_INPUTCHECK_BIN` env var.
+pub const INPUTCHECK_DEFAULT_BIN_PATH: &str =
+    "/home/claude/cherchi2022/InteractiveAndRobustMeshBooleans/build/mesh_booleans_inputcheck";
+
+const INPUTCHECK_ENV_VAR: &str = "CHERCHI2022_INPUTCHECK_BIN";
+
+/// Resolve the inputcheck binary path via env var or default. Returns
+/// `Err(SidecarError::BinaryNotFound)` if neither resolves to an
+/// existing file.
+pub(crate) fn resolve_inputcheck_bin_from_env() -> Result<PathBuf, SidecarError> {
+    let path_str = std::env::var(INPUTCHECK_ENV_VAR)
+        .unwrap_or_else(|_| INPUTCHECK_DEFAULT_BIN_PATH.to_string());
+    let path = PathBuf::from(&path_str);
+    if !path.exists() {
+        return Err(SidecarError::BinaryNotFound { path });
+    }
+    Ok(path)
+}
+
 /// Resolve the binary path via env var or default. Returns
 /// `Err(SidecarError::BinaryNotFound)` if neither resolves to an
 /// existing file.
