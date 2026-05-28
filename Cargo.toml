@@ -12,12 +12,14 @@ members = [
     # Clean-sheet kernel rewrite — see root CLAUDE.md §"Kernel Rewrite In Progress".
     # New work on boolean / Yang / B-Rep goes in these crates, NOT in `crates/kernel/`.
     # Dependency layering (compiler-enforced via Cargo.toml deps):
-    #   cad-primitives ← cherchi-rs ← cherchi-sidecar-rs (non-WASM)
+    #   indirect-predicates-sidecar-rs (FFI; LGPL; non-WASM) ← cherchi-rs (PR-CR-IP7+)
+    #   cad-primitives ← cherchi-rs ← cherchi-sidecar-rs (subprocess; non-WASM)
     #                                ← yang-rs ← kernel-v2
     #                  ← ssi-rs    ←
     "crates/cad-primitives",
     "crates/cherchi-rs",
     "crates/cherchi-sidecar-rs",
+    "crates/indirect-predicates-sidecar-rs",
     "crates/ssi-rs",
     "crates/yang-rs",
     "crates/kernel-v2",
