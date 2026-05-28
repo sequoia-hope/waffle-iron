@@ -820,22 +820,33 @@ pub fn orient3d(
     Sign::from_int(r)
 }
 
-/// Per-axis comparator on x. Wraps `lessThanOnX_II`.
+/// Per-axis comparator on x. Wraps `genericPoint::lessThanOnX`.
 ///
 /// Returns `Sign::Positive` iff `p1.x < p2.x`; `Zero` if equal;
-/// `Negative` if `p1.x > p2.x`.
+/// `Negative` if `p1.x > p2.x` — but **only** when at least one
+/// argument is an implicit point (LPI or TPI).
+///
+/// **Explicit-vs-explicit caveat**: upstream's EE branch returns
+/// `a.X() < b.X()` as `int` (bool → 0 or 1). The "greater" case
+/// is mapped to `Zero` instead of `Negative`. This matches the
+/// Cherchi 2022 §6.4 boolean-labeling algorithm's actual usage
+/// (always implicit-implicit). If you need full Sign semantics
+/// between two explicit points, compare their `x()` accessors
+/// directly.
 pub fn less_than_on_x(p1: &impl AsGenericPoint, p2: &impl AsGenericPoint) -> Sign {
     let r = unsafe { ffi::ip_less_than_on_x_ii(p1.as_generic_ptr(), p2.as_generic_ptr()) };
     Sign::from_int(r)
 }
 
-/// Per-axis comparator on y. Wraps `lessThanOnY_II`.
+/// Per-axis comparator on y. Wraps `genericPoint::lessThanOnY`.
+/// See [`less_than_on_x`] for EE-branch caveat.
 pub fn less_than_on_y(p1: &impl AsGenericPoint, p2: &impl AsGenericPoint) -> Sign {
     let r = unsafe { ffi::ip_less_than_on_y_ii(p1.as_generic_ptr(), p2.as_generic_ptr()) };
     Sign::from_int(r)
 }
 
-/// Per-axis comparator on z. Wraps `lessThanOnZ_II`.
+/// Per-axis comparator on z. Wraps `genericPoint::lessThanOnZ`.
+/// See [`less_than_on_x`] for EE-branch caveat.
 pub fn less_than_on_z(p1: &impl AsGenericPoint, p2: &impl AsGenericPoint) -> Sign {
     let r = unsafe { ffi::ip_less_than_on_z_ii(p1.as_generic_ptr(), p2.as_generic_ptr()) };
     Sign::from_int(r)

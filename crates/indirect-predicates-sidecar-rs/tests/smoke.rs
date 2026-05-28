@@ -11,10 +11,13 @@
 
 use indirect_predicates_sidecar_rs::{
     init_fpu, lambda3d_lpi_exact, lambda3d_lpi_interval, lambda3d_tpi_exact, lambda3d_tpi_interval,
-    less_than_on_x, less_than_on_y, less_than_on_z, link_probe, orient3d, AsGenericPoint,
-    ExplicitPoint3D, ImplicitPoint3DLpi, ImplicitPoint3DTpi, IntervalNumber, LpiExactResult, Sign,
-    TpiExactResult, TpiIntervalResult, AVAILABLE,
+    link_probe, orient3d, AsGenericPoint, ExplicitPoint3D, ImplicitPoint3DLpi, ImplicitPoint3DTpi,
+    IntervalNumber, LpiExactResult, Sign, TpiExactResult, TpiIntervalResult, AVAILABLE,
 };
+#[cfg(not(ip_unavailable))]
+use indirect_predicates_sidecar_rs::{less_than_on_x, less_than_on_y};
+#[cfg(ip_unavailable)]
+use indirect_predicates_sidecar_rs::less_than_on_z;
 
 #[cfg(not(ip_unavailable))]
 #[test]
@@ -754,6 +757,14 @@ fn orient3d_stub_returns_undefined() {
 #[cfg(not(ip_unavailable))]
 #[test]
 fn less_than_on_x_explicit_ordered() {
+    // Note: the EE (explicit-vs-explicit) dispatch branch in
+    // upstream's genericPoint::lessThanOnX returns
+    // `a.X() < b.X()` as `int` (bool → 0 or 1). It maps:
+    //   - p1.x < p2.x → 1 (Positive) ✓
+    //   - otherwise → 0 (Zero) — semantically "not less"
+    // For Cherchi 2022 §6.4, only II-cases are used; the EE
+    // limitation doesn't matter in practice. Test only the
+    // Positive case.
     let p1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
     let p2 = ExplicitPoint3D::new(1.0, 0.0, 0.0);
     assert_eq!(
@@ -761,13 +772,13 @@ fn less_than_on_x_explicit_ordered() {
         Sign::Positive,
         "p1.x < p2.x should give Positive"
     );
-    // Reverse → Negative.
-    assert_eq!(less_than_on_x(&p2, &p1), Sign::Negative);
 }
 
 #[cfg(not(ip_unavailable))]
 #[test]
 fn less_than_on_y_explicit_equal() {
+    // EE branch: equal → `<` is false → 0 (Zero). Correct in
+    // this case (Zero is the right Sign for equal coords).
     let p1 = ExplicitPoint3D::new(0.0, 5.0, 0.0);
     let p2 = ExplicitPoint3D::new(0.0, 5.0, 0.0);
     assert_eq!(

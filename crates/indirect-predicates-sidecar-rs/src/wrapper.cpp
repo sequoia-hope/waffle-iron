@@ -244,24 +244,50 @@ extern "C" void ip_implicit_point3d_tpi_drop(void* p) {
     delete (implicitPoint3D_TPI*)p;
 }
 
-// ----- PR-CR-IP6 RED stubs: return 2 (Undefined sentinel) so Rust's
-// orient3d / less_than_* return Sign::Undefined. Tests assertting
-// specific Signs in available mode will fail. GREEN replaces with
-// real `orient3d_indirect_IIII` / `lessThanOnX/Y/Z_II` calls.
+// ----- PR-CR-IP6: orient3d + lessThanOnX/Y/Z dispatchers.
+// Each `const void*` is a pointer to one of our handle types'
+// underlying C++ object — explicitPoint3D, implicitPoint3D_LPI,
+// or implicitPoint3D_TPI. The shim reinterprets as
+// `const genericPoint*` (valid via subclass-to-base single-
+// inheritance address equality) and dereferences to bind to the
+// C++ reference parameter.
+//
+// We call the static dispatching methods on `genericPoint`
+// (e.g., `genericPoint::orient3D`, `genericPoint::lessThanOnX`)
+// which internally route to the appropriate IEEE / IIEE / IIIE /
+// IIII variant based on each point's `Point_Type` tag. The
+// orient3d_indirect_* variants (IIII alone, etc.) require all
+// inputs to actually be implicit and segfault otherwise.
 extern "C" int ip_orient3d_indirect_iiii(
-    const void* /*p1*/, const void* /*p2*/,
-    const void* /*p3*/, const void* /*p4*/
+    const void* p1, const void* p2, const void* p3, const void* p4
 ) {
-    return 2;  // IP_Sign::UNDEFINED
+    return genericPoint::orient3D(
+        *(const genericPoint*)p1,
+        *(const genericPoint*)p2,
+        *(const genericPoint*)p3,
+        *(const genericPoint*)p4);
 }
-extern "C" int ip_less_than_on_x_ii(const void* /*p1*/, const void* /*p2*/) {
-    return 2;
+// Use the static dispatching method `genericPoint::lessThanOnX`
+// (implicit_point.hpp:71) which routes to _EE / _IE / _II based on
+// the point types. This is required for safety: `lessThanOnX_II`
+// directly with two explicit points segfaults (it expects implicit
+// inputs).
+//
+// EE branch limitation: upstream returns `a.X() < b.X()` (bool ->
+// int 0 or 1), so "greater" maps to 0 (Zero) instead of -1
+// (Negative). Documented in Rust docstring. For Cherchi 2022 §6.4
+// usage (which only compares implicit points), this is irrelevant.
+extern "C" int ip_less_than_on_x_ii(const void* p1, const void* p2) {
+    return genericPoint::lessThanOnX(
+        *(const genericPoint*)p1, *(const genericPoint*)p2);
 }
-extern "C" int ip_less_than_on_y_ii(const void* /*p1*/, const void* /*p2*/) {
-    return 2;
+extern "C" int ip_less_than_on_y_ii(const void* p1, const void* p2) {
+    return genericPoint::lessThanOnY(
+        *(const genericPoint*)p1, *(const genericPoint*)p2);
 }
-extern "C" int ip_less_than_on_z_ii(const void* /*p1*/, const void* /*p2*/) {
-    return 2;
+extern "C" int ip_less_than_on_z_ii(const void* p1, const void* p2) {
+    return genericPoint::lessThanOnZ(
+        *(const genericPoint*)p1, *(const genericPoint*)p2);
 }
 
 extern "C" void ip_lambda3d_tpi_exact(
