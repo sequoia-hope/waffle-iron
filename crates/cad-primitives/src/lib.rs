@@ -284,4 +284,17 @@ mod tests {
         assert_eq!(Vector3::new(1.0, 2.0, 3.0), Vector3::new(1.0, 2.0, 3.0));
         assert_ne!(Vector3::new(1.0, 2.0, 3.0), Vector3::new(1.0, 2.0, 4.0));
     }
+
+    // ----- M1: tolerance constants -----
+
+    /// M1 spec §"Branch table" / I-invariants: the three tolerance
+    /// constants must exist with the documented values. `MIN_FEATURE_SIZE`
+    /// is the degenerate-face threshold (B3); `TAU_MODEL` / `TAU_WORK` are
+    /// the model/work tolerances used downstream.
+    #[test]
+    fn tolerance_constants_have_expected_values() {
+        assert_eq!(TAU_MODEL, 1e-7);
+        assert_eq!(MIN_FEATURE_SIZE, 1e-6);
+        assert_eq!(TAU_WORK, 1e-12);
+    }
 }
