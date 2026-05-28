@@ -11,7 +11,8 @@
 
 use indirect_predicates_sidecar_rs::{
     init_fpu, lambda3d_lpi_exact, lambda3d_lpi_interval, lambda3d_tpi_exact, lambda3d_tpi_interval,
-    link_probe, IntervalNumber, LpiExactResult, TpiExactResult, TpiIntervalResult, AVAILABLE,
+    link_probe, ExplicitPoint3D, IntervalNumber, LpiExactResult, TpiExactResult, TpiIntervalResult,
+    AVAILABLE,
 };
 
 #[cfg(not(ip_unavailable))]
@@ -518,4 +519,48 @@ fn lambda3d_tpi_exact_agrees_with_interval() {
         interval.lambda_d.sup,
         exact.lambda_d
     );
+}
+
+// =========================================================================
+// PR-CR-IP5 — ExplicitPoint3D opaque handle
+// =========================================================================
+
+#[test]
+fn explicit_point_3d_send_sync_compile() {
+    fn requires_send_sync<T: Send + Sync>() {}
+    requires_send_sync::<ExplicitPoint3D>();
+}
+
+#[test]
+fn explicit_point_3d_drop_runs() {
+    // Construct + drop via scope exit; the catch_unwind verifies
+    // that neither the constructor nor the Drop impl panics.
+    let result = std::panic::catch_unwind(|| {
+        let _p = ExplicitPoint3D::new(1.0, 2.0, 3.0);
+    });
+    assert!(result.is_ok(), "construct + drop must not panic");
+}
+
+#[test]
+fn explicit_point_3d_positive_coords() {
+    let p = ExplicitPoint3D::new(1.0, 2.0, 3.0);
+    assert_eq!(p.x(), 1.0);
+    assert_eq!(p.y(), 2.0);
+    assert_eq!(p.z(), 3.0);
+}
+
+#[test]
+fn explicit_point_3d_origin() {
+    let p = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    assert_eq!(p.x(), 0.0);
+    assert_eq!(p.y(), 0.0);
+    assert_eq!(p.z(), 0.0);
+}
+
+#[test]
+fn explicit_point_3d_negative_coords() {
+    let p = ExplicitPoint3D::new(-1.5, -2.5, -3.5);
+    assert_eq!(p.x(), -1.5);
+    assert_eq!(p.y(), -2.5);
+    assert_eq!(p.z(), -3.5);
 }

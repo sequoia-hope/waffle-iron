@@ -7,6 +7,7 @@
 // self-skip dependent tests.
 
 #include "wrapper.h"
+#include <stdlib.h>   // malloc, free
 
 extern "C" int ip_link_probe(void) {
     // Sentinel indicating the FFI shim is the no-op stub, not the
@@ -68,4 +69,26 @@ extern "C" void ip_lambda3d_tpi_exact(
     *lambda_y_out = nullptr; *lambda_y_len = 0;
     *lambda_z_out = nullptr; *lambda_z_len = 0;
     *lambda_d_out = nullptr; *lambda_d_len = 0;
+}
+
+// ----- PR-CR-IP5: ExplicitPoint3D round-trip-correct stub.
+// Backing buffer is a 3-double malloc'd array; accessors read by
+// offset. From Rust's perspective, behaves identically to the real
+// shim (round-trip x/y/z through new + accessor).
+extern "C" void* ip_explicit_point3d_new(double x, double y, double z) {
+    double* buf = (double*)malloc(3 * sizeof(double));
+    buf[0] = x; buf[1] = y; buf[2] = z;
+    return buf;
+}
+extern "C" void ip_explicit_point3d_drop(void* p) {
+    free(p);
+}
+extern "C" double ip_explicit_point3d_x(const void* p) {
+    return ((const double*)p)[0];
+}
+extern "C" double ip_explicit_point3d_y(const void* p) {
+    return ((const double*)p)[1];
+}
+extern "C" double ip_explicit_point3d_z(const void* p) {
+    return ((const double*)p)[2];
 }

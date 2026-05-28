@@ -160,6 +160,28 @@ void ip_lambda3d_tpi_exact(
     double** lambda_z_out, int* lambda_z_len,
     double** lambda_d_out, int* lambda_d_len);
 
+/*
+ * ExplicitPoint3D opaque handle (PR-CR-IP5).
+ *
+ * Wraps upstream `explicitPoint3D` — a subclass of the polymorphic
+ * `genericPoint` (implicit_point.h:336-355). Heap-allocated by
+ * `ip_explicit_point3d_new`; freed via `ip_explicit_point3d_drop`.
+ *
+ * The pointer returned by `ip_explicit_point3d_new` is also a
+ * valid `const genericPoint*` at the C++ level (subclass-to-base
+ * conversion). Future predicate shims (PR-CR-IP6) accept the same
+ * `void*` and reinterpret as `const genericPoint*`.
+ *
+ * Stub build: backing buffer is `malloc`'d `double[3]` storing
+ * the input coordinates; accessors read by offset. Round-trip
+ * correct from Rust's perspective.
+ */
+void* ip_explicit_point3d_new(double x, double y, double z);
+void ip_explicit_point3d_drop(void* p);
+double ip_explicit_point3d_x(const void* p);
+double ip_explicit_point3d_y(const void* p);
+double ip_explicit_point3d_z(const void* p);
+
 #ifdef __cplusplus
 }
 #endif

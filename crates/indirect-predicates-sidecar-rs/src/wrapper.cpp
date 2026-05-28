@@ -172,6 +172,29 @@ extern "C" void ip_lambda3d_tpi_interval(
     *reliable = ok;
 }
 
+// ----- PR-CR-IP5 RED stubs: return a malloc'd 3-double buffer so
+// the FFI lifecycle (new → access → drop) round-trips. Real impl
+// in the GREEN commit replaces with `new explicitPoint3D(...)` etc.
+//
+// Note: we deliberately use the same buffer-backed implementation
+// here in RED as the stub.cpp uses unconditionally. The RED test
+// failure mode is therefore confined to the coordinate accessors
+// returning 0.0 instead of the input value — i.e., we leave the
+// buffer uninitialized in RED.
+#include <stdlib.h>
+
+extern "C" void* ip_explicit_point3d_new(double /*x*/, double /*y*/, double /*z*/) {
+    // RED stub: allocate uninitialized buffer; accessors return 0.0
+    // from default-initialized memory. GREEN will use real explicitPoint3D.
+    return calloc(3, sizeof(double));  // zero-init for deterministic RED failure
+}
+extern "C" void ip_explicit_point3d_drop(void* p) {
+    free(p);  // RED stub matches real API contract (free anything new returns)
+}
+extern "C" double ip_explicit_point3d_x(const void* /*p*/) { return 0.0; }
+extern "C" double ip_explicit_point3d_y(const void* /*p*/) { return 0.0; }
+extern "C" double ip_explicit_point3d_z(const void* /*p*/) { return 0.0; }
+
 extern "C" void ip_lambda3d_tpi_exact(
     const double* v, const double* w, const double* u,
     double** lambda_x_out, int* lambda_x_len,

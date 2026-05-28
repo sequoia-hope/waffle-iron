@@ -434,6 +434,99 @@ pub fn lambda3d_tpi_exact(v: [[f64; 3]; 3], w: [[f64; 3]; 3], u: [[f64; 3]; 3]) 
     }
 }
 
+// =========================================================================
+// PR-CR-IP5 — ExplicitPoint3D opaque handle
+// =========================================================================
+
+/// Opaque handle to a C++ `explicitPoint3D` (a concrete 3D point with
+/// x/y/z coordinates, subclass of `genericPoint`). Heap-allocated by
+/// the FFI shim; freed via [`Drop`].
+///
+/// Cannot be cloned — that would risk double-free. Pass by reference
+/// if you need to share access.
+///
+/// **Stub mode**: backed by a `malloc`'d `double[3]` buffer; the
+/// coordinate round-trip is correct regardless of whether the
+/// upstream Indirect_Predicates source is available.
+///
+/// **Send + Sync**: the C++ class has no thread-local state.
+pub struct ExplicitPoint3D {
+    ptr: core::ptr::NonNull<core::ffi::c_void>,
+}
+
+// Safety: `explicitPoint3D` is a value type holding three `double`s
+// + a `Point_Type` tag (implicit_point.h:336-355). No thread-local
+// state, no internal mutability. Send + Sync are sound.
+unsafe impl Send for ExplicitPoint3D {}
+unsafe impl Sync for ExplicitPoint3D {}
+
+impl ExplicitPoint3D {
+    /// Construct an explicit 3D point. Heap-allocates the C++ object
+    /// via `ip_explicit_point3d_new`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the FFI shim returns null — i.e., out-of-memory.
+    /// In well-resourced environments this never happens.
+    pub fn new(x: f64, y: f64, z: f64) -> Self {
+        // Safety: `ip_explicit_point3d_new` is declared `extern "C"`
+        // with three `double` args and returns `void*`. It either
+        // returns a valid heap pointer or null on OOM.
+        let raw = unsafe { ffi::ip_explicit_point3d_new(x, y, z) };
+        let ptr = core::ptr::NonNull::new(raw)
+            .expect("ip_explicit_point3d_new returned null (out-of-memory?)");
+        Self { ptr }
+    }
+
+    /// Read the x coordinate.
+    pub fn x(&self) -> f64 {
+        // Safety: `self.ptr` is a valid heap pointer to an
+        // `explicitPoint3D` instance for as long as `self` exists
+        // (Drop has not yet run). The accessor shim reads x through
+        // the C++ class accessor.
+        unsafe { ffi::ip_explicit_point3d_x(self.ptr.as_ptr()) }
+    }
+
+    /// Read the y coordinate.
+    pub fn y(&self) -> f64 {
+        unsafe { ffi::ip_explicit_point3d_y(self.ptr.as_ptr()) }
+    }
+
+    /// Read the z coordinate.
+    pub fn z(&self) -> f64 {
+        unsafe { ffi::ip_explicit_point3d_z(self.ptr.as_ptr()) }
+    }
+
+    /// Crate-internal accessor: a `const genericPoint*` view of the
+    /// underlying C++ object, suitable for passing to predicate
+    /// shims (PR-CR-IP6). The C++ subclass-to-base implicit
+    /// conversion is type-safe at the C++ side; our `void*` carries
+    /// the same address.
+    #[allow(dead_code)] // Used by PR-CR-IP6+.
+    pub(crate) fn as_generic_ptr(&self) -> *const core::ffi::c_void {
+        self.ptr.as_ptr()
+    }
+}
+
+impl Drop for ExplicitPoint3D {
+    fn drop(&mut self) {
+        // Safety: `self.ptr` was produced by `ip_explicit_point3d_new`
+        // and has not been freed. The shim calls `delete (explicitPoint3D*)p`
+        // (or `free(p)` in stub mode).
+        unsafe { ffi::ip_explicit_point3d_drop(self.ptr.as_ptr()) };
+    }
+}
+
+impl core::fmt::Debug for ExplicitPoint3D {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ExplicitPoint3D")
+            .field("x", &self.x())
+            .field("y", &self.y())
+            .field("z", &self.z())
+            .finish()
+    }
+}
+
 /// Copy a pool-allocated expansion to an owned `Vec<f64>` and
 /// release the pool memory. Null pointer or non-positive length
 /// produces an empty Vec without invoking the free shim.
