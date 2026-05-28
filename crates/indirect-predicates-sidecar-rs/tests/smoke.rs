@@ -138,7 +138,12 @@ fn lambda3d_lpi_non_degenerate_is_reliable() {
         result.reliable,
         "non-degenerate line/plane should be reliable; got: {result:?}"
     );
-    for lambda in [result.lambda_x, result.lambda_y, result.lambda_z, result.lambda_d] {
+    for lambda in [
+        result.lambda_x,
+        result.lambda_y,
+        result.lambda_z,
+        result.lambda_d,
+    ] {
         assert!(
             !lambda.inf.is_nan() && !lambda.sup.is_nan(),
             "lambda components must be non-NaN; got {lambda:?}"
