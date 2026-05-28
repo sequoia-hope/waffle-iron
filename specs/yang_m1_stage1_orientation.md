@@ -40,7 +40,21 @@ decision per face, no downstream orientation branching.
 |---|---|---|---|
 | B1 | Newell polygon normal `N`, `dot(N, surface.normal) > 0` | keep loop order | triangle normals agree with `surface.normal` |
 | B2 | `dot(N, surface.normal) < 0` | reverse loop before fan-triangulating | triangle normals agree with `surface.normal` (post-flip) |
-| B3 | `‖N‖ < MIN_FEATURE_SIZE` (zero-area / collinear / degenerate face) | return `Err(YangError::DegenerateFace { face: f_idx })` | error variant returned; no mesh produced |
+| B3 | `‖N‖ < MIN_FEATURE_SIZE²` (degenerate / sub-feature-area face) | return `Err(YangError::DegenerateFace { face: f_idx })` | error variant returned; no mesh produced |
+
+> **B3 threshold is an AREA, not a length** (corrected after adversarial audit).
+> The Newell magnitude `‖N‖` equals **twice the polygon area** (units: length²),
+> so it must be compared to an area threshold. `MIN_FEATURE_SIZE` is the minimum
+> feature *length* (1e-6 m); the minimum feature *area* is `MIN_FEATURE_SIZE²`
+> (1e-12 m²). Comparing `‖N‖` to `MIN_FEATURE_SIZE` (a length) was dimensionally
+> wrong and rejected valid faces with side below ~0.7 mm as degenerate.
+>
+> **`dot(N, surface.normal) == 0` (out-of-contract):** a non-degenerate face
+> whose stated normal is *perpendicular to its own plane* is malformed input
+> (the analytic normal must be consistent with the face plane — A15.5). The code
+> falls through to "keep loop, no flip, no error"; it is not made
+> inputcheck-clean. This does not arise for well-formed B-Rep input and is a
+> documented precondition, not a supported branch.
 
 Every branch must have ≥1 test (P4).
 
