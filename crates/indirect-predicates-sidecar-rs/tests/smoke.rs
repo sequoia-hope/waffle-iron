@@ -10,8 +10,9 @@
 //! All tests pass in either state.
 
 use indirect_predicates_sidecar_rs::{
-    init_fpu, lambda3d_lpi_exact, lambda3d_lpi_interval, link_probe, IntervalNumber,
-    LpiExactResult, AVAILABLE,
+    init_fpu, lambda3d_lpi_exact, lambda3d_lpi_interval, lambda3d_tpi_exact,
+    lambda3d_tpi_interval, link_probe, IntervalNumber, LpiExactResult, TpiExactResult,
+    TpiIntervalResult, AVAILABLE,
 };
 
 #[cfg(not(ip_unavailable))]
@@ -326,4 +327,186 @@ fn lambda3d_lpi_exact_stub_returns_empty_vecs() {
     assert!(result.lambda_y.is_empty());
     assert!(result.lambda_z.is_empty());
     assert!(result.lambda_d.is_empty());
+}
+
+// =========================================================================
+// PR-CR-IP4 — lambda3d_tpi_interval + lambda3d_tpi_exact
+// =========================================================================
+
+#[test]
+fn tpi_interval_result_construct_and_eq() {
+    let r = TpiIntervalResult {
+        lambda_x: IntervalNumber::new(1.0, 2.0),
+        lambda_y: IntervalNumber::new(3.0, 4.0),
+        lambda_z: IntervalNumber::new(5.0, 6.0),
+        lambda_d: IntervalNumber::new(7.0, 8.0),
+        reliable: true,
+    };
+    let s = r;
+    assert_eq!(r, s);
+    let t = TpiIntervalResult { reliable: false, ..r };
+    assert_ne!(r, t);
+    fn requires_copy<T: Copy>() {}
+    requires_copy::<TpiIntervalResult>();
+}
+
+#[test]
+fn tpi_exact_result_default_empty() {
+    let r = TpiExactResult::default();
+    assert!(r.lambda_x.is_empty());
+    assert!(r.lambda_y.is_empty());
+    assert!(r.lambda_z.is_empty());
+    assert!(r.lambda_d.is_empty());
+}
+
+#[test]
+fn tpi_exact_result_clone_and_eq() {
+    let a = TpiExactResult {
+        lambda_x: vec![1.0, 2.0],
+        lambda_y: vec![3.0],
+        lambda_z: vec![],
+        lambda_d: vec![4.0],
+    };
+    let b = a.clone();
+    assert_eq!(a, b);
+    let c = TpiExactResult::default();
+    assert_ne!(a, c);
+    let _ = format!("{a:?}");
+}
+
+/// Helper: three coordinate planes (x=0, y=0, z=0) as IntervalNumber
+/// triangles. Their three planes intersect at the origin.
+#[cfg(not(ip_unavailable))]
+fn orthogonal_planes_interval() -> (
+    [[IntervalNumber; 3]; 3],
+    [[IntervalNumber; 3]; 3],
+    [[IntervalNumber; 3]; 3],
+) {
+    let pt = |x: f64, y: f64, z: f64| {
+        [
+            IntervalNumber::point(x),
+            IntervalNumber::point(y),
+            IntervalNumber::point(z),
+        ]
+    };
+    // x=0 plane via three vertices on it
+    let v = [pt(0.0, 0.0, 0.0), pt(0.0, 1.0, 0.0), pt(0.0, 0.0, 1.0)];
+    // y=0 plane
+    let w = [pt(0.0, 0.0, 0.0), pt(1.0, 0.0, 0.0), pt(0.0, 0.0, 1.0)];
+    // z=0 plane
+    let u = [pt(0.0, 0.0, 0.0), pt(1.0, 0.0, 0.0), pt(0.0, 1.0, 0.0)];
+    (v, w, u)
+}
+
+/// Helper: same orthogonal-planes geometry as exact doubles.
+#[cfg(not(ip_unavailable))]
+fn orthogonal_planes_exact() -> ([[f64; 3]; 3], [[f64; 3]; 3], [[f64; 3]; 3]) {
+    let v = [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    let w = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]];
+    let u = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+    (v, w, u)
+}
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn lambda3d_tpi_interval_orthogonal_planes_reliable() {
+    init_fpu();
+    let (v, w, u) = orthogonal_planes_interval();
+    let result = lambda3d_tpi_interval(v, w, u);
+    assert!(
+        result.reliable,
+        "three orthogonal coordinate planes should be reliable; got {result:?}"
+    );
+    for lambda in [result.lambda_x, result.lambda_y, result.lambda_z, result.lambda_d] {
+        assert!(
+            !lambda.inf.is_nan() && !lambda.sup.is_nan(),
+            "lambda components must be non-NaN; got {lambda:?}"
+        );
+    }
+}
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn lambda3d_tpi_interval_parallel_planes_unreliable() {
+    init_fpu();
+    let pt = |x: f64, y: f64, z: f64| {
+        [
+            IntervalNumber::point(x),
+            IntervalNumber::point(y),
+            IntervalNumber::point(z),
+        ]
+    };
+    // Two parallel z=0 planes (offset in xy to avoid coincidence in
+    // the trivial-degenerate sense) + one parallel z=1 plane.
+    // No unique intersection point exists.
+    let v = [pt(0.0, 0.0, 0.0), pt(1.0, 0.0, 0.0), pt(0.0, 1.0, 0.0)]; // z=0
+    let w = [pt(0.0, 0.0, 1.0), pt(1.0, 0.0, 1.0), pt(0.0, 1.0, 1.0)]; // z=1
+    let u = [pt(2.0, 2.0, 0.0), pt(3.0, 2.0, 0.0), pt(2.0, 3.0, 0.0)]; // z=0 (different triangle, same plane)
+    let result = lambda3d_tpi_interval(v, w, u);
+    assert!(
+        !result.reliable,
+        "parallel planes should not be reliable; got {result:?}"
+    );
+}
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn lambda3d_tpi_exact_orthogonal_non_empty() {
+    let (v, w, u) = orthogonal_planes_exact();
+    let result = lambda3d_tpi_exact(v, w, u);
+    for (name, lambda) in [
+        ("lambda_x", &result.lambda_x),
+        ("lambda_y", &result.lambda_y),
+        ("lambda_z", &result.lambda_z),
+        ("lambda_d", &result.lambda_d),
+    ] {
+        assert!(
+            !lambda.is_empty(),
+            "{name} should be non-empty for orthogonal planes; got {lambda:?}"
+        );
+        for &entry in lambda {
+            assert!(
+                entry.is_finite(),
+                "{name} contains non-finite entry: {entry}"
+            );
+        }
+    }
+}
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn lambda3d_tpi_exact_parallel_d_approximately_zero() {
+    // Same parallel-plane geometry as the interval test.
+    let v = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+    let w = [[0.0, 0.0, 1.0], [1.0, 0.0, 1.0], [0.0, 1.0, 1.0]];
+    let u = [[2.0, 2.0, 0.0], [3.0, 2.0, 0.0], [2.0, 3.0, 0.0]];
+    let result = lambda3d_tpi_exact(v, w, u);
+    let d_sum: f64 = result.lambda_d.iter().sum();
+    assert!(
+        d_sum.abs() < 1e-12,
+        "parallel planes should produce sum(lambda_d) ≈ 0; got {d_sum} (expansion: {:?})",
+        result.lambda_d
+    );
+}
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn lambda3d_tpi_exact_agrees_with_interval() {
+    init_fpu();
+    let (vi, wi, ui) = orthogonal_planes_interval();
+    let (ve, we, ue) = orthogonal_planes_exact();
+    let exact = lambda3d_tpi_exact(ve, we, ue);
+    let interval = lambda3d_tpi_interval(vi, wi, ui);
+    assert!(
+        interval.reliable,
+        "interval should be reliable here; got {interval:?}"
+    );
+    let d_sum: f64 = exact.lambda_d.iter().sum();
+    assert!(
+        d_sum >= interval.lambda_d.inf && d_sum <= interval.lambda_d.sup,
+        "exact lambda_d sum {d_sum} should lie within interval [{}, {}]; expansion: {:?}",
+        interval.lambda_d.inf,
+        interval.lambda_d.sup,
+        exact.lambda_d
+    );
 }

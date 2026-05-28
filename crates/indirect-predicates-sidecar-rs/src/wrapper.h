@@ -109,6 +109,57 @@ void ip_lambda3d_lpi_exact(
  */
 void ip_free_doubles(double* p);
 
+/*
+ * Triangle-plane intersection in interval arithmetic. Wraps
+ * upstream `lambda3d_TPI_interval` (indirect_predicates.h:71).
+ *
+ * Inputs (each 18 doubles = 3 vertices × 3 coordinates × 2 bounds):
+ *   v, w, u: three triangles defining the three planes whose
+ *            intersection is being computed.
+ *   Layout per triangle: [vert0_x_inf, vert0_x_sup, vert0_y_inf,
+ *   vert0_y_sup, vert0_z_inf, vert0_z_sup, vert1..., vert2...].
+ *
+ * Outputs (lambda_out is 8 doubles, same layout as LPI interval):
+ *   [lx_inf, lx_sup, ly_inf, ly_sup, lz_inf, lz_sup, ld_inf, ld_sup]
+ *
+ * `*reliable` is set to true iff the denominator interval `ld`
+ * does not straddle zero. Internally sets FPU to UPWARD then
+ * restores TONEAREST.
+ *
+ * Stub build: writes 8 zeros to lambda_out, sets *reliable = false.
+ *
+ * PR-CR-IP4.
+ */
+void ip_lambda3d_tpi_interval(
+    const double* v, const double* w, const double* u,
+    double* lambda_out, bool* reliable);
+
+/*
+ * Triangle-plane intersection in Shewchuk-expansion arithmetic.
+ * Wraps upstream `lambda3d_TPI_exact` (indirect_predicates.h:72).
+ *
+ * Inputs (each 9 doubles = 3 vertices × 3 coordinates):
+ *   v, w, u: three triangles defining the three planes.
+ *   Layout per triangle: [vert0_x, vert0_y, vert0_z, vert1...,
+ *                         vert2...].
+ *
+ * Outputs (variable-length pool-allocated expansions, same memory
+ * model as ip_lambda3d_lpi_exact):
+ *   lambda_*_out: pointers to thread-local pool buffers (caller
+ *                 must call ip_free_doubles on each, same thread).
+ *   lambda_*_len: actual expansion lengths.
+ *
+ * Stub build: writes 4 null pointers + 4 lengths of 0.
+ *
+ * PR-CR-IP4.
+ */
+void ip_lambda3d_tpi_exact(
+    const double* v, const double* w, const double* u,
+    double** lambda_x_out, int* lambda_x_len,
+    double** lambda_y_out, int* lambda_y_len,
+    double** lambda_z_out, int* lambda_z_len,
+    double** lambda_d_out, int* lambda_d_len);
+
 #ifdef __cplusplus
 }
 #endif

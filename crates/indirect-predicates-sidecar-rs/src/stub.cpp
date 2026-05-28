@@ -48,3 +48,24 @@ extern "C" void ip_lambda3d_lpi_exact(
 extern "C" void ip_free_doubles(double* /*p*/) {
     // Stub: no allocation happened, nothing to free.
 }
+
+extern "C" void ip_lambda3d_tpi_interval(
+    const double* /*v*/, const double* /*w*/, const double* /*u*/,
+    double* lambda_out, bool* reliable
+) {
+    for (int i = 0; i < 8; ++i) lambda_out[i] = 0.0;
+    *reliable = false;
+}
+
+extern "C" void ip_lambda3d_tpi_exact(
+    const double* /*v*/, const double* /*w*/, const double* /*u*/,
+    double** lambda_x_out, int* lambda_x_len,
+    double** lambda_y_out, int* lambda_y_len,
+    double** lambda_z_out, int* lambda_z_len,
+    double** lambda_d_out, int* lambda_d_len
+) {
+    *lambda_x_out = nullptr; *lambda_x_len = 0;
+    *lambda_y_out = nullptr; *lambda_y_len = 0;
+    *lambda_z_out = nullptr; *lambda_z_len = 0;
+    *lambda_d_out = nullptr; *lambda_d_len = 0;
+}

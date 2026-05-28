@@ -286,6 +286,140 @@ pub fn lambda3d_lpi_exact(
     }
 }
 
+// =========================================================================
+// PR-CR-IP4 — lambda3d_TPI_interval + lambda3d_TPI_exact
+// =========================================================================
+
+/// Result of [`lambda3d_tpi_interval`]: same shape as
+/// [`LpiIntervalResult`] but for the triangle-plane intersection.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct TpiIntervalResult {
+    pub lambda_x: IntervalNumber,
+    pub lambda_y: IntervalNumber,
+    pub lambda_z: IntervalNumber,
+    pub lambda_d: IntervalNumber,
+    /// `true` iff the denominator interval does not straddle zero.
+    /// When `false`, fall back to `lambda3d_tpi_exact`.
+    pub reliable: bool,
+}
+
+/// Result of [`lambda3d_tpi_exact`]: same shape as
+/// [`LpiExactResult`] but for the triangle-plane intersection.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TpiExactResult {
+    pub lambda_x: Vec<f64>,
+    pub lambda_y: Vec<f64>,
+    pub lambda_z: Vec<f64>,
+    pub lambda_d: Vec<f64>,
+}
+
+/// Triangle-plane intersection in interval arithmetic. Wraps
+/// upstream `lambda3d_TPI_interval`.
+///
+/// Each input triangle is a `[[IntervalNumber; 3]; 3]`: outer index
+/// is the vertex (0..3), inner index is the coordinate (x, y, z).
+///
+/// Returns interval lambdas + `reliable` flag. When `reliable` is
+/// false, the denominator interval contains zero — fall back to
+/// [`lambda3d_tpi_exact`].
+///
+/// In stub mode, returns all-zero lambdas with `reliable: false`.
+pub fn lambda3d_tpi_interval(
+    v: [[IntervalNumber; 3]; 3],
+    w: [[IntervalNumber; 3]; 3],
+    u: [[IntervalNumber; 3]; 3],
+) -> TpiIntervalResult {
+    let flatten = |tri: [[IntervalNumber; 3]; 3]| -> [f64; 18] {
+        [
+            tri[0][0].inf, tri[0][0].sup, tri[0][1].inf, tri[0][1].sup, tri[0][2].inf, tri[0][2].sup,
+            tri[1][0].inf, tri[1][0].sup, tri[1][1].inf, tri[1][1].sup, tri[1][2].inf, tri[1][2].sup,
+            tri[2][0].inf, tri[2][0].sup, tri[2][1].inf, tri[2][1].sup, tri[2][2].inf, tri[2][2].sup,
+        ]
+    };
+    let v_arr = flatten(v);
+    let w_arr = flatten(w);
+    let u_arr = flatten(u);
+    let mut lambda_out = [0.0_f64; 8];
+    let mut reliable: bool = false;
+    // Safety: each input array is length 18 (matches `wrapper.h` contract:
+    // 3 verts × 3 coords × 2 bounds). `lambda_out` is length 8. FFI
+    // signature matches the C declaration.
+    unsafe {
+        ffi::ip_lambda3d_tpi_interval(
+            v_arr.as_ptr(),
+            w_arr.as_ptr(),
+            u_arr.as_ptr(),
+            lambda_out.as_mut_ptr(),
+            &mut reliable,
+        )
+    };
+    TpiIntervalResult {
+        lambda_x: IntervalNumber::new(lambda_out[0], lambda_out[1]),
+        lambda_y: IntervalNumber::new(lambda_out[2], lambda_out[3]),
+        lambda_z: IntervalNumber::new(lambda_out[4], lambda_out[5]),
+        lambda_d: IntervalNumber::new(lambda_out[6], lambda_out[7]),
+        reliable,
+    }
+}
+
+/// Triangle-plane intersection in Shewchuk expansion arithmetic.
+/// Wraps upstream `lambda3d_TPI_exact`.
+///
+/// Each input triangle is a `[[f64; 3]; 3]`: outer index is the
+/// vertex (0..3), inner index is the coordinate (x, y, z). Each
+/// output lambda is a variable-length expansion whose geometric
+/// value is the sum of its entries.
+///
+/// In stub mode, returns 4 empty Vecs.
+///
+/// **Memory safety:** same model as [`lambda3d_lpi_exact`] — the
+/// C++ function allocates from a thread-local pool; this function
+/// copies to owned `Vec<f64>` and releases pool memory before
+/// returning.
+pub fn lambda3d_tpi_exact(
+    v: [[f64; 3]; 3],
+    w: [[f64; 3]; 3],
+    u: [[f64; 3]; 3],
+) -> TpiExactResult {
+    let flatten = |tri: [[f64; 3]; 3]| -> [f64; 9] {
+        [
+            tri[0][0], tri[0][1], tri[0][2],
+            tri[1][0], tri[1][1], tri[1][2],
+            tri[2][0], tri[2][1], tri[2][2],
+        ]
+    };
+    let v_arr = flatten(v);
+    let w_arr = flatten(w);
+    let u_arr = flatten(u);
+    let mut lx_ptr: *mut f64 = core::ptr::null_mut();
+    let mut lx_len: core::ffi::c_int = 0;
+    let mut ly_ptr: *mut f64 = core::ptr::null_mut();
+    let mut ly_len: core::ffi::c_int = 0;
+    let mut lz_ptr: *mut f64 = core::ptr::null_mut();
+    let mut lz_len: core::ffi::c_int = 0;
+    let mut ld_ptr: *mut f64 = core::ptr::null_mut();
+    let mut ld_len: core::ffi::c_int = 0;
+    // Safety: input arrays are length 9; out-param pointers valid for
+    // the duration of the call. Same shape as ip_lambda3d_lpi_exact.
+    unsafe {
+        ffi::ip_lambda3d_tpi_exact(
+            v_arr.as_ptr(),
+            w_arr.as_ptr(),
+            u_arr.as_ptr(),
+            &mut lx_ptr, &mut lx_len,
+            &mut ly_ptr, &mut ly_len,
+            &mut lz_ptr, &mut lz_len,
+            &mut ld_ptr, &mut ld_len,
+        )
+    };
+    TpiExactResult {
+        lambda_x: copy_and_free(lx_ptr, lx_len),
+        lambda_y: copy_and_free(ly_ptr, ly_len),
+        lambda_z: copy_and_free(lz_ptr, lz_len),
+        lambda_d: copy_and_free(ld_ptr, ld_len),
+    }
+}
+
 /// Copy a pool-allocated expansion to an owned `Vec<f64>` and
 /// release the pool memory. Null pointer or non-positive length
 /// produces an empty Vec without invoking the free shim.
