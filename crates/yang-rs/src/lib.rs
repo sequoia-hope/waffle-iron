@@ -379,9 +379,12 @@ impl BRep {
             }
             let mag =
                 (newell[0] * newell[0] + newell[1] * newell[1] + newell[2] * newell[2]).sqrt();
-            // B3: zero-area / collinear / degenerate face. Threshold is the
-            // shared MIN_FEATURE_SIZE (governance A14.3: no ad-hoc epsilon).
-            if mag < cad_primitives::MIN_FEATURE_SIZE {
+            // B3: zero-area / collinear / degenerate face. `mag` is the
+            // Newell magnitude = 2×(polygon area) (units length²), so the
+            // threshold is an AREA: compare against MIN_FEATURE_SIZE² (the
+            // minimum feature area, 1e-12 m²), computed inline from the
+            // shared length constant (governance A14.3: no ad-hoc epsilon).
+            if mag < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE {
                 return Err(YangError::DegenerateFace { face: f_idx });
             }
 
