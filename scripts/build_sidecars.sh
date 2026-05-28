@@ -60,7 +60,11 @@ fi
 
 log "configuring + building (Release) — this is the ~22 min step ..."
 cmake -S "${REPO_DIR}" -B "${BUILD_DIR}" -DCMAKE_BUILD_TYPE=Release
-cmake --build "${BUILD_DIR}" -j "$(nproc)"
+# Build ONLY the CLI targets we use. The upstream CMake also defines interactive
+# GUI demo targets (mesh_booleans_arap / _rotation) that require GLFW + OpenGL,
+# which aren't installed (and aren't needed). Building "all" fails on those.
+cmake --build "${BUILD_DIR}" -j "$(nproc)" \
+  --target mesh_booleans mesh_booleans_inputcheck
 
 if [[ ! -x "${BIN}" ]]; then
   log "ERROR: build finished but ${BIN} is missing."
