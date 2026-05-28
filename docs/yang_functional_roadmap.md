@@ -105,15 +105,19 @@ reimplementation from Attene's paper restores WASM (M7).
 > and ran ~6 h before being killed. The native arrangement would hit the same
 > wall. So M1 precedes M2.
 
-- **M0 — Operationalize the parity oracle.** Build the C++ sidecars in the dev
-  environment (via `scripts/build_sidecars.sh`, env-gated — **not** baked into
-  the Docker image; see §5). Acceptance: the currently self-skipping parity
-  tests in `cherchi-rs` / `cherchi-sidecar-rs` / `indirect-predicates-sidecar-rs`
-  actually run.
-- **M1 — Stage 1 emits Cherchi-`inputcheck`-clean meshes.**  ← **REAL GATE.**
-  `yang-rs` Stage 1 output must pass manifold + watertight + intersection-free +
-  oriented checks before any boolean is attempted. Gate it with
-  `mesh_booleans_inputcheck`.
+- **M0 — Operationalize the parity oracle.** ✅ **DONE** (`scripts/build_sidecars.sh`;
+  the C++ sidecars build, `indirect-predicates-sidecar-rs` runs in available mode
+  (42 tests), and the `cherchi-sidecar-rs` / `cherchi-rs` parity tests exercise
+  the real binary instead of self-skipping).
+- **M1 — Stage 1 emits Cherchi-`inputcheck`-clean meshes.** ✅ **DONE** (convex
+  planar scope). `yang-rs` Stage 1 (`BRep::new`) canonicalizes each face's
+  triangle winding to its analytic `Surface::Plane.normal` (Newell normal +
+  dot-sign reverse); degenerate/sub-feature-area faces → `YangError::DegenerateFace`.
+  Cube + tetrahedron pass all five `inputcheck` axioms against the real binary.
+  Spec: `specs/yang_m1_stage1_orientation.md`; commits `f423581d` (spec) →
+  `a66460f6` (RED) → `7da238d4` (GREEN) → `24e73307`/`d356297b` (adversarial
+  area-threshold fix). **Scope:** convex planar faces only; non-convex/holes are
+  banked (PR-YR2b–d) and not yet made inputcheck-clean.
 - **M2 — Patched sidecar emits `LabeledArrangement`;** round-trips two-tet +
   coplanar; §2 shape frozen.
 - **M3 — `yang-rs` Stage 5/6 consume true labels → FIRST functional
