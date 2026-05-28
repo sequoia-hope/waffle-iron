@@ -197,30 +197,51 @@ extern "C" double ip_explicit_point3d_z(const void* p) {
     return ((const explicitPoint3D*)p)->Z();
 }
 
-// ----- PR-CR-IP5b RED stubs: return nullptr so Rust's
-// NonNull::new(...).expect(...) panics — construct tests fail with
-// a descriptive panic. GREEN replaces with real `new
-// implicitPoint3D_{LPI,TPI}(...)`.
+// ----- PR-CR-IP5b: ImplicitPoint3DLpi + ImplicitPoint3DTpi opaque handles.
+// Each subclass stores const references to explicit points; the
+// shim dereferences each `const void*` (which Rust passes from
+// `ExplicitPoint3D::as_generic_ptr()`) to bind to the C++ reference
+// constructor parameter.
+//
+// `delete (subclass*)p` invokes the compiler-generated (default,
+// no-op) destructor — correct because the implicit point owns no
+// heap memory itself (lambda caches are value-type `interval_number`
+// fields that self-destruct; expansion arrays returned via
+// `getExactLambda` are caller-managed pool buffers).
+
 extern "C" void* ip_implicit_point3d_lpi_new(
-    const void* /*p*/, const void* /*q*/,
-    const void* /*r*/, const void* /*s*/, const void* /*t*/
+    const void* p, const void* q,
+    const void* r, const void* s, const void* t
 ) {
-    return nullptr;  // RED stub
+    return new implicitPoint3D_LPI(
+        *(const explicitPoint3D*)p,
+        *(const explicitPoint3D*)q,
+        *(const explicitPoint3D*)r,
+        *(const explicitPoint3D*)s,
+        *(const explicitPoint3D*)t);
 }
-extern "C" void ip_implicit_point3d_lpi_drop(void* /*p*/) {
-    // RED stub: nothing to drop because new returned nullptr (we
-    // never reach Drop in RED since Rust panics on construction).
+extern "C" void ip_implicit_point3d_lpi_drop(void* p) {
+    delete (implicitPoint3D_LPI*)p;
 }
 
 extern "C" void* ip_implicit_point3d_tpi_new(
-    const void* /*v1*/, const void* /*v2*/, const void* /*v3*/,
-    const void* /*w1*/, const void* /*w2*/, const void* /*w3*/,
-    const void* /*u1*/, const void* /*u2*/, const void* /*u3*/
+    const void* v1, const void* v2, const void* v3,
+    const void* w1, const void* w2, const void* w3,
+    const void* u1, const void* u2, const void* u3
 ) {
-    return nullptr;  // RED stub
+    return new implicitPoint3D_TPI(
+        *(const explicitPoint3D*)v1,
+        *(const explicitPoint3D*)v2,
+        *(const explicitPoint3D*)v3,
+        *(const explicitPoint3D*)w1,
+        *(const explicitPoint3D*)w2,
+        *(const explicitPoint3D*)w3,
+        *(const explicitPoint3D*)u1,
+        *(const explicitPoint3D*)u2,
+        *(const explicitPoint3D*)u3);
 }
-extern "C" void ip_implicit_point3d_tpi_drop(void* /*p*/) {
-    // RED stub: nothing to drop.
+extern "C" void ip_implicit_point3d_tpi_drop(void* p) {
+    delete (implicitPoint3D_TPI*)p;
 }
 
 extern "C" void ip_lambda3d_tpi_exact(

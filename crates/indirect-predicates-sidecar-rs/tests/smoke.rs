@@ -634,5 +634,8 @@ fn implicit_point_3d_lpi_multiple_instances_share_explicit_borrows() {
         let _lpi_a = ImplicitPoint3DLpi::new(&p, &q, &r, &s, &t);
         let _lpi_b = ImplicitPoint3DLpi::new(&p, &q2, &r, &s, &t);
     });
-    assert!(result.is_ok(), "multiple LPIs sharing borrows must not panic");
+    assert!(
+        result.is_ok(),
+        "multiple LPIs sharing borrows must not panic"
+    );
 }
