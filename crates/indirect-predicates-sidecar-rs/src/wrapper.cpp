@@ -122,27 +122,77 @@ extern "C" void ip_free_doubles(double* p) {
 }
 
 extern "C" void ip_lambda3d_tpi_interval(
-    const double* /*v*/, const double* /*w*/, const double* /*u*/,
+    const double* v, const double* w, const double* u,
     double* lambda_out, bool* reliable
 ) {
-    // PR-CR-IP4 RED stub. GREEN unpacks v/w/u into 27 interval_number
-    // values via ip_from_pair and calls lambda3d_TPI_interval.
-    for (int i = 0; i < 8; ++i) lambda_out[i] = 0.0;
-    *reliable = false;
+    // Unpack 18 doubles per triangle into 9 interval_number values.
+    // Layout: [v0_x_inf, v0_x_sup, v0_y_inf, v0_y_sup, v0_z_inf, v0_z_sup,
+    //          v1_x_inf, ..., v2_z_sup]. Same for w, u.
+    interval_number v1x = ip_from_pair(v[0], v[1]);
+    interval_number v1y = ip_from_pair(v[2], v[3]);
+    interval_number v1z = ip_from_pair(v[4], v[5]);
+    interval_number v2x = ip_from_pair(v[6], v[7]);
+    interval_number v2y = ip_from_pair(v[8], v[9]);
+    interval_number v2z = ip_from_pair(v[10], v[11]);
+    interval_number v3x = ip_from_pair(v[12], v[13]);
+    interval_number v3y = ip_from_pair(v[14], v[15]);
+    interval_number v3z = ip_from_pair(v[16], v[17]);
+    interval_number w1x = ip_from_pair(w[0], w[1]);
+    interval_number w1y = ip_from_pair(w[2], w[3]);
+    interval_number w1z = ip_from_pair(w[4], w[5]);
+    interval_number w2x = ip_from_pair(w[6], w[7]);
+    interval_number w2y = ip_from_pair(w[8], w[9]);
+    interval_number w2z = ip_from_pair(w[10], w[11]);
+    interval_number w3x = ip_from_pair(w[12], w[13]);
+    interval_number w3y = ip_from_pair(w[14], w[15]);
+    interval_number w3z = ip_from_pair(w[16], w[17]);
+    interval_number u1x = ip_from_pair(u[0], u[1]);
+    interval_number u1y = ip_from_pair(u[2], u[3]);
+    interval_number u1z = ip_from_pair(u[4], u[5]);
+    interval_number u2x = ip_from_pair(u[6], u[7]);
+    interval_number u2y = ip_from_pair(u[8], u[9]);
+    interval_number u2z = ip_from_pair(u[10], u[11]);
+    interval_number u3x = ip_from_pair(u[12], u[13]);
+    interval_number u3y = ip_from_pair(u[14], u[15]);
+    interval_number u3z = ip_from_pair(u[16], u[17]);
+
+    interval_number lx, ly, lz, ld;
+    // Upstream sets FPU UPWARD on entry, restores TONEAREST on exit
+    // (indirect_predicates.hpp:7366/7474).
+    bool ok = lambda3d_TPI_interval(
+        v1x, v1y, v1z, v2x, v2y, v2z, v3x, v3y, v3z,
+        w1x, w1y, w1z, w2x, w2y, w2z, w3x, w3y, w3z,
+        u1x, u1y, u1z, u2x, u2y, u2z, u3x, u3y, u3z,
+        lx, ly, lz, ld);
+
+    lambda_out[0] = lx.inf(); lambda_out[1] = lx.sup();
+    lambda_out[2] = ly.inf(); lambda_out[3] = ly.sup();
+    lambda_out[4] = lz.inf(); lambda_out[5] = lz.sup();
+    lambda_out[6] = ld.inf(); lambda_out[7] = ld.sup();
+    *reliable = ok;
 }
 
 extern "C" void ip_lambda3d_tpi_exact(
-    const double* /*v*/, const double* /*w*/, const double* /*u*/,
+    const double* v, const double* w, const double* u,
     double** lambda_x_out, int* lambda_x_len,
     double** lambda_y_out, int* lambda_y_len,
     double** lambda_z_out, int* lambda_z_len,
     double** lambda_d_out, int* lambda_d_len
 ) {
-    // PR-CR-IP4 RED stub. GREEN passes null+0 initial buffers to
-    // lambda3d_TPI_exact; the C++ function allocates from
-    // expansionObject::mempool.
-    *lambda_x_out = nullptr; *lambda_x_len = 0;
-    *lambda_y_out = nullptr; *lambda_y_len = 0;
-    *lambda_z_out = nullptr; *lambda_z_len = 0;
-    *lambda_d_out = nullptr; *lambda_d_len = 0;
+    // Same pool-allocation pattern as ip_lambda3d_lpi_exact: initial
+    // (null, 0) → C++ allocates from expansionObject::mempool.
+    // Each input triangle is 9 doubles [v0_x, v0_y, v0_z, v1..., v2...].
+    double* lx = nullptr; int lxn = 0;
+    double* ly = nullptr; int lyn = 0;
+    double* lz = nullptr; int lzn = 0;
+    double* ld = nullptr; int ldn = 0;
+    lambda3d_TPI_exact(
+        v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8],
+        w[0], w[1], w[2], w[3], w[4], w[5], w[6], w[7], w[8],
+        u[0], u[1], u[2], u[3], u[4], u[5], u[6], u[7], u[8],
+        &lx, lxn, &ly, lyn, &lz, lzn, &ld, ldn);
+    *lambda_x_out = lx; *lambda_x_len = lxn;
+    *lambda_y_out = ly; *lambda_y_len = lyn;
+    *lambda_z_out = lz; *lambda_z_len = lzn;
+    *lambda_d_out = ld; *lambda_d_len = ldn;
 }

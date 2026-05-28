@@ -331,9 +331,24 @@ pub fn lambda3d_tpi_interval(
 ) -> TpiIntervalResult {
     let flatten = |tri: [[IntervalNumber; 3]; 3]| -> [f64; 18] {
         [
-            tri[0][0].inf, tri[0][0].sup, tri[0][1].inf, tri[0][1].sup, tri[0][2].inf, tri[0][2].sup,
-            tri[1][0].inf, tri[1][0].sup, tri[1][1].inf, tri[1][1].sup, tri[1][2].inf, tri[1][2].sup,
-            tri[2][0].inf, tri[2][0].sup, tri[2][1].inf, tri[2][1].sup, tri[2][2].inf, tri[2][2].sup,
+            tri[0][0].inf,
+            tri[0][0].sup,
+            tri[0][1].inf,
+            tri[0][1].sup,
+            tri[0][2].inf,
+            tri[0][2].sup,
+            tri[1][0].inf,
+            tri[1][0].sup,
+            tri[1][1].inf,
+            tri[1][1].sup,
+            tri[1][2].inf,
+            tri[1][2].sup,
+            tri[2][0].inf,
+            tri[2][0].sup,
+            tri[2][1].inf,
+            tri[2][1].sup,
+            tri[2][2].inf,
+            tri[2][2].sup,
         ]
     };
     let v_arr = flatten(v);
@@ -376,16 +391,11 @@ pub fn lambda3d_tpi_interval(
 /// C++ function allocates from a thread-local pool; this function
 /// copies to owned `Vec<f64>` and releases pool memory before
 /// returning.
-pub fn lambda3d_tpi_exact(
-    v: [[f64; 3]; 3],
-    w: [[f64; 3]; 3],
-    u: [[f64; 3]; 3],
-) -> TpiExactResult {
+pub fn lambda3d_tpi_exact(v: [[f64; 3]; 3], w: [[f64; 3]; 3], u: [[f64; 3]; 3]) -> TpiExactResult {
     let flatten = |tri: [[f64; 3]; 3]| -> [f64; 9] {
         [
-            tri[0][0], tri[0][1], tri[0][2],
-            tri[1][0], tri[1][1], tri[1][2],
-            tri[2][0], tri[2][1], tri[2][2],
+            tri[0][0], tri[0][1], tri[0][2], tri[1][0], tri[1][1], tri[1][2], tri[2][0], tri[2][1],
+            tri[2][2],
         ]
     };
     let v_arr = flatten(v);
@@ -406,10 +416,14 @@ pub fn lambda3d_tpi_exact(
             v_arr.as_ptr(),
             w_arr.as_ptr(),
             u_arr.as_ptr(),
-            &mut lx_ptr, &mut lx_len,
-            &mut ly_ptr, &mut ly_len,
-            &mut lz_ptr, &mut lz_len,
-            &mut ld_ptr, &mut ld_len,
+            &mut lx_ptr,
+            &mut lx_len,
+            &mut ly_ptr,
+            &mut ly_len,
+            &mut lz_ptr,
+            &mut lz_len,
+            &mut ld_ptr,
+            &mut ld_len,
         )
     };
     TpiExactResult {

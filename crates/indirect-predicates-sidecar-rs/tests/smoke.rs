@@ -10,9 +10,8 @@
 //! All tests pass in either state.
 
 use indirect_predicates_sidecar_rs::{
-    init_fpu, lambda3d_lpi_exact, lambda3d_lpi_interval, lambda3d_tpi_exact,
-    lambda3d_tpi_interval, link_probe, IntervalNumber, LpiExactResult, TpiExactResult,
-    TpiIntervalResult, AVAILABLE,
+    init_fpu, lambda3d_lpi_exact, lambda3d_lpi_interval, lambda3d_tpi_exact, lambda3d_tpi_interval,
+    link_probe, IntervalNumber, LpiExactResult, TpiExactResult, TpiIntervalResult, AVAILABLE,
 };
 
 #[cfg(not(ip_unavailable))]
@@ -344,7 +343,10 @@ fn tpi_interval_result_construct_and_eq() {
     };
     let s = r;
     assert_eq!(r, s);
-    let t = TpiIntervalResult { reliable: false, ..r };
+    let t = TpiIntervalResult {
+        reliable: false,
+        ..r
+    };
     assert_ne!(r, t);
     fn requires_copy<T: Copy>() {}
     requires_copy::<TpiIntervalResult>();
@@ -374,14 +376,16 @@ fn tpi_exact_result_clone_and_eq() {
     let _ = format!("{a:?}");
 }
 
+/// Triangle as 3 vertices × 3 IntervalNumber coordinates.
+type IntervalTri = [[IntervalNumber; 3]; 3];
+
+/// Triangle as 3 vertices × 3 f64 coordinates.
+type ExactTri = [[f64; 3]; 3];
+
 /// Helper: three coordinate planes (x=0, y=0, z=0) as IntervalNumber
 /// triangles. Their three planes intersect at the origin.
 #[cfg(not(ip_unavailable))]
-fn orthogonal_planes_interval() -> (
-    [[IntervalNumber; 3]; 3],
-    [[IntervalNumber; 3]; 3],
-    [[IntervalNumber; 3]; 3],
-) {
+fn orthogonal_planes_interval() -> (IntervalTri, IntervalTri, IntervalTri) {
     let pt = |x: f64, y: f64, z: f64| {
         [
             IntervalNumber::point(x),
@@ -400,7 +404,7 @@ fn orthogonal_planes_interval() -> (
 
 /// Helper: same orthogonal-planes geometry as exact doubles.
 #[cfg(not(ip_unavailable))]
-fn orthogonal_planes_exact() -> ([[f64; 3]; 3], [[f64; 3]; 3], [[f64; 3]; 3]) {
+fn orthogonal_planes_exact() -> (ExactTri, ExactTri, ExactTri) {
     let v = [[0.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
     let w = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]];
     let u = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
@@ -417,7 +421,12 @@ fn lambda3d_tpi_interval_orthogonal_planes_reliable() {
         result.reliable,
         "three orthogonal coordinate planes should be reliable; got {result:?}"
     );
-    for lambda in [result.lambda_x, result.lambda_y, result.lambda_z, result.lambda_d] {
+    for lambda in [
+        result.lambda_x,
+        result.lambda_y,
+        result.lambda_z,
+        result.lambda_d,
+    ] {
         assert!(
             !lambda.inf.is_nan() && !lambda.sup.is_nan(),
             "lambda components must be non-NaN; got {lambda:?}"
