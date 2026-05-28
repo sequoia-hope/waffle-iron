@@ -91,23 +91,32 @@ extern "C" void ip_lambda3d_lpi_interval(
 }
 
 extern "C" void ip_lambda3d_lpi_exact(
-    const double* /*p*/, const double* /*q*/, const double* /*r*/,
-    const double* /*s*/, const double* /*t*/,
+    const double* p, const double* q, const double* r,
+    const double* s, const double* t,
     double** lambda_x_out, int* lambda_x_len,
     double** lambda_y_out, int* lambda_y_len,
     double** lambda_z_out, int* lambda_z_len,
     double** lambda_d_out, int* lambda_d_len
 ) {
-    // PR-CR-IP3 RED stub. GREEN implementation calls
-    // lambda3d_LPI_exact with initial (null, 0) buffers — the C++
-    // function allocates from expansionObject::mempool.
-    *lambda_x_out = nullptr; *lambda_x_len = 0;
-    *lambda_y_out = nullptr; *lambda_y_len = 0;
-    *lambda_z_out = nullptr; *lambda_z_len = 0;
-    *lambda_d_out = nullptr; *lambda_d_len = 0;
+    // Pass initial (null, 0) for each expansion buffer. Inside
+    // lambda3d_LPI_exact, every Gen_*_With_PreAlloc check
+    // `if (hlen < newlen) *h = AllocDoubles(newlen)` triggers
+    // (since hlen starts at 0), so the function allocates the
+    // entire result from expansionObject::mempool (thread_local).
+    double* lx = nullptr; int lxn = 0;
+    double* ly = nullptr; int lyn = 0;
+    double* lz = nullptr; int lzn = 0;
+    double* ld = nullptr; int ldn = 0;
+    lambda3d_LPI_exact(
+        p[0], p[1], p[2], q[0], q[1], q[2],
+        r[0], r[1], r[2], s[0], s[1], s[2], t[0], t[1], t[2],
+        &lx, lxn, &ly, lyn, &lz, lzn, &ld, ldn);
+    *lambda_x_out = lx; *lambda_x_len = lxn;
+    *lambda_y_out = ly; *lambda_y_len = lyn;
+    *lambda_z_out = lz; *lambda_z_len = lzn;
+    *lambda_d_out = ld; *lambda_d_len = ldn;
 }
 
-extern "C" void ip_free_doubles(double* /*p*/) {
-    // PR-CR-IP3 RED stub. GREEN implementation calls FreeDoubles(p)
-    // which returns the buffer to expansionObject::mempool.
+extern "C" void ip_free_doubles(double* p) {
+    if (p) FreeDoubles(p);   // == expansionObject::mempool.release(p)
 }

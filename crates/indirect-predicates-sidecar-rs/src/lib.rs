@@ -289,18 +289,35 @@ pub fn lambda3d_lpi_exact(
 /// Copy a pool-allocated expansion to an owned `Vec<f64>` and
 /// release the pool memory. Null pointer or non-positive length
 /// produces an empty Vec without invoking the free shim.
+///
+/// **Alignment note:** upstream's `MultiPool` (memPool.h) stores
+/// data in `uint32_t` chunks, so a pool-allocated `double*` may be
+/// only 4-byte aligned. C++ tolerates misaligned f64 reads on
+/// x86_64, but Rust's `slice::from_raw_parts<f64>` requires 8-byte
+/// alignment. We use `copy_nonoverlapping` at the byte level
+/// (alignment-agnostic) and write into a Rust-allocated Vec<f64>
+/// which IS properly aligned at the destination.
 fn copy_and_free(ptr: *mut f64, len: core::ffi::c_int) -> Vec<f64> {
     if ptr.is_null() || len <= 0 {
         return Vec::new();
     }
-    // Safety: the C++ shim guarantees `ptr` points to `len` valid
-    // doubles when `len > 0`. The slice lifetime is bounded by this
-    // function; we copy out before releasing.
-    let slice = unsafe { core::slice::from_raw_parts(ptr, len as usize) };
-    let v = slice.to_vec();
-    // Safety: same allocator (`expansionObject::mempool`) that
-    // produced `ptr`. Called on the same thread as the producer
-    // (this function never yields between alloc and free).
-    unsafe { ffi::ip_free_doubles(ptr) };
+    let n = len as usize;
+    let mut v: Vec<f64> = Vec::with_capacity(n);
+    // Safety: the C++ shim guarantees `ptr` points to `n` doubles
+    // worth of valid bytes. Bytes-level memcpy doesn't require
+    // source alignment. The destination (`v.as_mut_ptr()`) is
+    // 8-byte aligned by Rust's allocator. Caller bound: this
+    // function never yields between alloc and free (no `await`,
+    // no panicking-on-unwinding code) — pool memory stays on the
+    // same thread.
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            ptr.cast::<u8>(),
+            v.as_mut_ptr().cast::<u8>(),
+            n * core::mem::size_of::<f64>(),
+        );
+        v.set_len(n);
+        ffi::ip_free_doubles(ptr);
+    }
     v
 }
