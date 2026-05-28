@@ -10,7 +10,8 @@
 //! All tests pass in either state.
 
 use indirect_predicates_sidecar_rs::{
-    init_fpu, lambda3d_lpi_interval, link_probe, IntervalNumber, AVAILABLE,
+    init_fpu, lambda3d_lpi_exact, lambda3d_lpi_interval, link_probe, IntervalNumber,
+    LpiExactResult, AVAILABLE,
 };
 
 #[cfg(not(ip_unavailable))]
@@ -199,4 +200,130 @@ fn lambda3d_lpi_stub_returns_zeros() {
     assert_eq!(result.lambda_y, IntervalNumber::new(0.0, 0.0));
     assert_eq!(result.lambda_z, IntervalNumber::new(0.0, 0.0));
     assert_eq!(result.lambda_d, IntervalNumber::new(0.0, 0.0));
+}
+
+// =========================================================================
+// PR-CR-IP3 — lambda3d_lpi_exact (Shewchuk expansion arithmetic)
+// =========================================================================
+
+#[test]
+fn lpi_exact_result_default_empty() {
+    let r = LpiExactResult::default();
+    assert!(r.lambda_x.is_empty());
+    assert!(r.lambda_y.is_empty());
+    assert!(r.lambda_z.is_empty());
+    assert!(r.lambda_d.is_empty());
+}
+
+#[test]
+fn lpi_exact_result_clone_and_eq() {
+    let a = LpiExactResult {
+        lambda_x: vec![1.0, 2.0],
+        lambda_y: vec![3.0],
+        lambda_z: vec![],
+        lambda_d: vec![4.0],
+    };
+    let b = a.clone();
+    assert_eq!(a, b);
+    let c = LpiExactResult::default();
+    assert_ne!(a, c);
+    // Debug formatting smoke check
+    let _ = format!("{a:?}");
+}
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn lambda3d_lpi_exact_non_degenerate_non_empty() {
+    let result = lambda3d_lpi_exact(
+        [1.0, 2.0, 3.0], // P
+        [5.0, 7.0, 9.0], // Q
+        [0.0, 0.0, 0.0], // R
+        [1.0, 0.0, 0.0], // S
+        [0.0, 1.0, 0.0], // T (plane z=0)
+    );
+    for (name, lambda) in [
+        ("lambda_x", &result.lambda_x),
+        ("lambda_y", &result.lambda_y),
+        ("lambda_z", &result.lambda_z),
+        ("lambda_d", &result.lambda_d),
+    ] {
+        assert!(
+            !lambda.is_empty(),
+            "{name} should be non-empty for non-degenerate input; got {lambda:?}"
+        );
+        for &entry in lambda {
+            assert!(
+                entry.is_finite(),
+                "{name} contains non-finite entry: {entry}"
+            );
+        }
+    }
+}
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn lambda3d_lpi_exact_coplanar_d_approximately_zero() {
+    // Line P=(0,0,0) → Q=(1,1,0) lies in plane z=0 (R/S/T).
+    let result = lambda3d_lpi_exact(
+        [0.0, 0.0, 0.0],
+        [1.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+    );
+    let d_sum: f64 = result.lambda_d.iter().sum();
+    assert!(
+        d_sum.abs() < 1e-12,
+        "coplanar line should produce lambda_d summing to ≈ 0; got {d_sum} (expansion: {:?})",
+        result.lambda_d
+    );
+}
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn lambda3d_lpi_exact_agrees_with_interval() {
+    let p = [1.0, 2.0, 3.0];
+    let q = [5.0, 7.0, 9.0];
+    let r = [0.0, 0.0, 0.0];
+    let s = [1.0, 0.0, 0.0];
+    let t = [0.0, 1.0, 0.0];
+    let exact = lambda3d_lpi_exact(p, q, r, s, t);
+    let pt = |x: f64, y: f64, z: f64| {
+        [
+            IntervalNumber::point(x),
+            IntervalNumber::point(y),
+            IntervalNumber::point(z),
+        ]
+    };
+    let interval = lambda3d_lpi_interval(
+        pt(p[0], p[1], p[2]),
+        pt(q[0], q[1], q[2]),
+        pt(r[0], r[1], r[2]),
+        pt(s[0], s[1], s[2]),
+        pt(t[0], t[1], t[2]),
+    );
+    assert!(interval.reliable, "interval should be reliable here");
+    let d_sum: f64 = exact.lambda_d.iter().sum();
+    assert!(
+        d_sum >= interval.lambda_d.inf && d_sum <= interval.lambda_d.sup,
+        "exact lambda_d sum {d_sum} should lie within interval [{}, {}]",
+        interval.lambda_d.inf,
+        interval.lambda_d.sup
+    );
+}
+
+#[cfg(ip_unavailable)]
+#[test]
+fn lambda3d_lpi_exact_stub_returns_empty_vecs() {
+    let result = lambda3d_lpi_exact(
+        [1.0, 2.0, 3.0],
+        [5.0, 7.0, 9.0],
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+    );
+    assert!(result.lambda_x.is_empty());
+    assert!(result.lambda_y.is_empty());
+    assert!(result.lambda_z.is_empty());
+    assert!(result.lambda_d.is_empty());
 }

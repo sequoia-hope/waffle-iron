@@ -28,3 +28,23 @@ extern "C" void ip_lambda3d_lpi_interval(
     for (int i = 0; i < 8; ++i) lambda_out[i] = 0.0;
     *reliable = false;
 }
+
+extern "C" void ip_lambda3d_lpi_exact(
+    const double* /*p*/, const double* /*q*/, const double* /*r*/,
+    const double* /*s*/, const double* /*t*/,
+    double** lambda_x_out, int* lambda_x_len,
+    double** lambda_y_out, int* lambda_y_len,
+    double** lambda_z_out, int* lambda_z_len,
+    double** lambda_d_out, int* lambda_d_len
+) {
+    // Stub: null pointers + zero lengths. Rust side maps this to
+    // 4 empty Vec<f64>.
+    *lambda_x_out = nullptr; *lambda_x_len = 0;
+    *lambda_y_out = nullptr; *lambda_y_len = 0;
+    *lambda_z_out = nullptr; *lambda_z_len = 0;
+    *lambda_d_out = nullptr; *lambda_d_len = 0;
+}
+
+extern "C" void ip_free_doubles(double* /*p*/) {
+    // Stub: no allocation happened, nothing to free.
+}

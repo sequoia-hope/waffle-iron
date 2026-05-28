@@ -89,3 +89,25 @@ extern "C" void ip_lambda3d_lpi_interval(
     lambda_out[7] = ld.sup();
     *reliable = ok;
 }
+
+extern "C" void ip_lambda3d_lpi_exact(
+    const double* /*p*/, const double* /*q*/, const double* /*r*/,
+    const double* /*s*/, const double* /*t*/,
+    double** lambda_x_out, int* lambda_x_len,
+    double** lambda_y_out, int* lambda_y_len,
+    double** lambda_z_out, int* lambda_z_len,
+    double** lambda_d_out, int* lambda_d_len
+) {
+    // PR-CR-IP3 RED stub. GREEN implementation calls
+    // lambda3d_LPI_exact with initial (null, 0) buffers — the C++
+    // function allocates from expansionObject::mempool.
+    *lambda_x_out = nullptr; *lambda_x_len = 0;
+    *lambda_y_out = nullptr; *lambda_y_len = 0;
+    *lambda_z_out = nullptr; *lambda_z_len = 0;
+    *lambda_d_out = nullptr; *lambda_d_len = 0;
+}
+
+extern "C" void ip_free_doubles(double* /*p*/) {
+    // PR-CR-IP3 RED stub. GREEN implementation calls FreeDoubles(p)
+    // which returns the buffer to expansionObject::mempool.
+}

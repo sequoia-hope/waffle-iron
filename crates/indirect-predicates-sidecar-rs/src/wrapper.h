@@ -63,6 +63,52 @@ void ip_lambda3d_lpi_interval(
     const double* s, const double* t,
     double* lambda_out, bool* reliable);
 
+/*
+ * Line-plane intersection in exact (Shewchuk-expansion) arithmetic.
+ * Wraps upstream `lambda3d_LPI_exact` (indirect_predicates.h:69).
+ *
+ * Inputs:
+ *   p, q, r, s, t: each a 3-double array [x, y, z] of input
+ *   coordinates (NOT intervals — exact arithmetic uses plain
+ *   doubles).
+ *
+ * Outputs (variable-length expansion arrays):
+ *   lambda_x_out, lambda_y_out, lambda_z_out, lambda_d_out:
+ *     each receives a pointer to a thread-local pool-allocated
+ *     buffer of doubles. The buffer encodes a Shewchuk expansion
+ *     (an "expansion of doubles" — the geometric value is the sum
+ *     of the buffer entries).
+ *   lambda_x_len, lambda_y_len, lambda_z_len, lambda_d_len:
+ *     each receives the actual length of its expansion.
+ *
+ * Caller MUST release each output pointer by calling
+ * `ip_free_doubles` on the same thread that allocated it
+ * (`expansionObject::mempool` is `thread_local`).
+ *
+ * Stub build: writes null pointer + length 0 for all four outputs.
+ *
+ * PR-CR-IP3.
+ */
+void ip_lambda3d_lpi_exact(
+    const double* p, const double* q, const double* r,
+    const double* s, const double* t,
+    double** lambda_x_out, int* lambda_x_len,
+    double** lambda_y_out, int* lambda_y_len,
+    double** lambda_z_out, int* lambda_z_len,
+    double** lambda_d_out, int* lambda_d_len);
+
+/*
+ * Release a buffer previously returned by an `ip_*_exact` shim.
+ * Must be called on the SAME thread that produced the buffer
+ * (`expansionObject::mempool` is `thread_local`). Null pointer is
+ * accepted as a no-op.
+ *
+ * Stub build: no-op (output pointers are always null in stub mode).
+ *
+ * PR-CR-IP3.
+ */
+void ip_free_doubles(double* p);
+
 #ifdef __cplusplus
 }
 #endif

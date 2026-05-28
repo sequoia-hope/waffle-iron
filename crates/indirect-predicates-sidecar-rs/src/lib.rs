@@ -203,3 +203,104 @@ pub fn lambda3d_lpi_interval(
         reliable,
     }
 }
+
+// =========================================================================
+// PR-CR-IP3 — lambda3d_LPI_exact (Shewchuk expansion arithmetic)
+// =========================================================================
+
+/// Result of [`lambda3d_lpi_exact`]: four Shewchuk expansions (the
+/// numerators `lambda_x`, `lambda_y`, `lambda_z` and the denominator
+/// `lambda_d`).
+///
+/// Each `Vec<f64>` is a Shewchuk "expansion of doubles" — the
+/// geometric value of a lambda is the sum of its expansion entries.
+/// The expansion length is data-dependent.
+///
+/// In stub mode (`cfg!(ip_unavailable)`), all four Vecs are empty.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LpiExactResult {
+    pub lambda_x: Vec<f64>,
+    pub lambda_y: Vec<f64>,
+    pub lambda_z: Vec<f64>,
+    pub lambda_d: Vec<f64>,
+}
+
+/// Exact line-plane intersection via Shewchuk expansion arithmetic.
+/// Wraps upstream `lambda3d_LPI_exact`.
+///
+/// - `p, q`: two points defining the line.
+/// - `r, s, t`: three points defining the plane.
+///
+/// Each output lambda is a variable-length expansion whose geometric
+/// value is the sum of its entries. `lambda_d` is exactly zero iff
+/// the line is parallel to or contained in the plane.
+///
+/// In stub mode (`cfg!(ip_unavailable)`), returns 4 empty Vecs.
+///
+/// **Memory safety:** the C++ function allocates each expansion
+/// from a thread-local memory pool (`expansionObject::mempool`).
+/// This Rust function copies each pool buffer to an owned
+/// `Vec<f64>` and releases the pool memory before returning. No
+/// raw pointers cross the public API boundary.
+pub fn lambda3d_lpi_exact(
+    p: [f64; 3],
+    q: [f64; 3],
+    r: [f64; 3],
+    s: [f64; 3],
+    t: [f64; 3],
+) -> LpiExactResult {
+    let mut lx_ptr: *mut f64 = core::ptr::null_mut();
+    let mut lx_len: core::ffi::c_int = 0;
+    let mut ly_ptr: *mut f64 = core::ptr::null_mut();
+    let mut ly_len: core::ffi::c_int = 0;
+    let mut lz_ptr: *mut f64 = core::ptr::null_mut();
+    let mut lz_len: core::ffi::c_int = 0;
+    let mut ld_ptr: *mut f64 = core::ptr::null_mut();
+    let mut ld_len: core::ffi::c_int = 0;
+    // Safety: input arrays are length 3; out-param pointers and
+    // length pointers are all valid for the duration of the call.
+    // The C++ shim writes pool-allocated pointers + actual lengths
+    // into them. FFI signature matches src/wrapper.h.
+    unsafe {
+        ffi::ip_lambda3d_lpi_exact(
+            p.as_ptr(),
+            q.as_ptr(),
+            r.as_ptr(),
+            s.as_ptr(),
+            t.as_ptr(),
+            &mut lx_ptr,
+            &mut lx_len,
+            &mut ly_ptr,
+            &mut ly_len,
+            &mut lz_ptr,
+            &mut lz_len,
+            &mut ld_ptr,
+            &mut ld_len,
+        )
+    };
+    LpiExactResult {
+        lambda_x: copy_and_free(lx_ptr, lx_len),
+        lambda_y: copy_and_free(ly_ptr, ly_len),
+        lambda_z: copy_and_free(lz_ptr, lz_len),
+        lambda_d: copy_and_free(ld_ptr, ld_len),
+    }
+}
+
+/// Copy a pool-allocated expansion to an owned `Vec<f64>` and
+/// release the pool memory. Null pointer or non-positive length
+/// produces an empty Vec without invoking the free shim.
+fn copy_and_free(ptr: *mut f64, len: core::ffi::c_int) -> Vec<f64> {
+    if ptr.is_null() || len <= 0 {
+        return Vec::new();
+    }
+    // Safety: the C++ shim guarantees `ptr` points to `len` valid
+    // doubles when `len > 0`. The slice lifetime is bounded by this
+    // function; we copy out before releasing.
+    let slice = unsafe { core::slice::from_raw_parts(ptr, len as usize) };
+    let v = slice.to_vec();
+    // Safety: same allocator (`expansionObject::mempool`) that
+    // produced `ptr`. Called on the same thread as the producer
+    // (this function never yields between alloc and free).
+    unsafe { ffi::ip_free_doubles(ptr) };
+    v
+}
