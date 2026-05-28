@@ -13,3 +13,18 @@ extern "C" int ip_link_probe(void) {
     // real Indirect_Predicates library.
     return -2;
 }
+
+extern "C" void ip_init_fpu(void) {
+    // No-op in stub mode (matches the real `initFPU()` no-op behavior
+    // on 64-bit Linux without USE_SIMD_INSTRUCTIONS).
+}
+
+extern "C" void ip_lambda3d_lpi_interval(
+    const double* /*p*/, const double* /*q*/, const double* /*r*/,
+    const double* /*s*/, const double* /*t*/,
+    double* lambda_out, bool* reliable
+) {
+    // Stub: zero out the 8-double output array, mark unreliable.
+    for (int i = 0; i < 8; ++i) lambda_out[i] = 0.0;
+    *reliable = false;
+}

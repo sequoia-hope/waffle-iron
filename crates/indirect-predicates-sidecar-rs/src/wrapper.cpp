@@ -34,3 +34,19 @@ extern "C" int ip_link_probe(void) {
     // on the `_filtered` fast path without invoking the cascade.
     return dotProductSign2D(0.0, 0.0, 1.0, 0.0, 0.0, 1.0);
 }
+
+extern "C" void ip_init_fpu(void) {
+    // PR-CR-IP2 RED stub. GREEN implementation calls initFPU().
+}
+
+extern "C" void ip_lambda3d_lpi_interval(
+    const double* /*p*/, const double* /*q*/, const double* /*r*/,
+    const double* /*s*/, const double* /*t*/,
+    double* lambda_out, bool* reliable
+) {
+    // PR-CR-IP2 RED stub. GREEN implementation constructs
+    // interval_number values, calls lambda3d_LPI_interval, and
+    // destructures the outputs.
+    for (int i = 0; i < 8; ++i) lambda_out[i] = 0.0;
+    *reliable = false;
+}

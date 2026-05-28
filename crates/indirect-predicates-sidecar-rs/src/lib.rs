@@ -81,3 +81,125 @@ pub fn link_probe() -> i32 {
     // side effects in PR-CR-IP1's input, and never panics.
     unsafe { ffi::ip_link_probe() }
 }
+
+// =========================================================================
+// PR-CR-IP2 — IntervalNumber + lambda3d_LPI_interval + init_fpu
+// =========================================================================
+
+/// Real-number interval `[inf, sup]`.
+///
+/// Crosses the Rust/C++ FFI boundary as a flat `(inf, sup)` pair of
+/// doubles (NEVER by value). The C++ `interval_number` class uses a
+/// sign-inverted lower-bound representation internally for SIMD
+/// optimization; the FFI shim converts at the boundary so Rust
+/// always sees the natural `[inf, sup]` form.
+///
+/// No validation: `IntervalNumber::new(2.0, 1.0)` is allowed (the
+/// upstream library decides whether such inputs are meaningful).
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct IntervalNumber {
+    pub inf: f64,
+    pub sup: f64,
+}
+
+impl IntervalNumber {
+    /// Construct an interval `[inf, sup]`. No validation.
+    pub const fn new(inf: f64, sup: f64) -> Self {
+        Self { inf, sup }
+    }
+
+    /// Construct a degenerate point interval `[x, x]`.
+    pub const fn point(x: f64) -> Self {
+        Self { inf: x, sup: x }
+    }
+}
+
+/// Result of [`lambda3d_lpi_interval`]: four interval lambda
+/// coordinates (numerators + denominator) plus a `reliable` flag.
+///
+/// When `reliable == false`, the denominator interval `lambda_d`
+/// straddles zero and the caller should fall back to an exact
+/// computation (`lambda3d_LPI_exact`, PR-CR-IP3).
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub struct LpiIntervalResult {
+    pub lambda_x: IntervalNumber,
+    pub lambda_y: IntervalNumber,
+    pub lambda_z: IntervalNumber,
+    pub lambda_d: IntervalNumber,
+    pub reliable: bool,
+}
+
+/// One-time-per-thread FPU initialization for interval-arithmetic
+/// predicates. Idempotent.
+///
+/// On 64-bit Linux without `USE_SIMD_INSTRUCTIONS` (our default
+/// target), this is a no-op — the upstream `initFPU()` is empty in
+/// that configuration. Call it anyway: harmless if no-op, required
+/// on platforms where it isn't (PR-CR-IP8 SIMD opt-in will activate
+/// it).
+///
+/// Multi-threaded policy is deferred until cherchi-rs goes parallel.
+/// For now, calling it once at process start suffices.
+pub fn init_fpu() {
+    // Safety: `ip_init_fpu` is declared `extern "C"` with no
+    // arguments, no return value, no preconditions, no side effects
+    // visible in our threading model.
+    unsafe { ffi::ip_init_fpu() }
+}
+
+/// Line-plane intersection in interval arithmetic. Wraps upstream
+/// `lambda3d_LPI_interval`.
+///
+/// - `p, q`: two points defining the line.
+/// - `r, s, t`: three points defining the plane.
+///
+/// Returns the four lambda interval coordinates plus a `reliable`
+/// flag. When `reliable == false`, fall back to the exact computation
+/// (`lambda3d_LPI_exact`, PR-CR-IP3) — this happens when the line is
+/// parallel to or contained in the plane (denominator straddles
+/// zero).
+///
+/// In stub mode (`cfg!(ip_unavailable)`), returns all-zero lambdas
+/// with `reliable: false`.
+pub fn lambda3d_lpi_interval(
+    p: [IntervalNumber; 3],
+    q: [IntervalNumber; 3],
+    r: [IntervalNumber; 3],
+    s: [IntervalNumber; 3],
+    t: [IntervalNumber; 3],
+) -> LpiIntervalResult {
+    let flatten = |pt: [IntervalNumber; 3]| -> [f64; 6] {
+        [
+            pt[0].inf, pt[0].sup, pt[1].inf, pt[1].sup, pt[2].inf, pt[2].sup,
+        ]
+    };
+    let p_arr = flatten(p);
+    let q_arr = flatten(q);
+    let r_arr = flatten(r);
+    let s_arr = flatten(s);
+    let t_arr = flatten(t);
+    let mut lambda_out = [0.0_f64; 8];
+    let mut reliable: bool = false;
+    // Safety: all five input arrays have length 6; `lambda_out` has
+    // length 8; the FFI signature matches the C declaration in
+    // `wrapper.h`. The C++ shim performs no allocation, returns no
+    // ownership, and writes only to the output buffers we provided.
+    unsafe {
+        ffi::ip_lambda3d_lpi_interval(
+            p_arr.as_ptr(),
+            q_arr.as_ptr(),
+            r_arr.as_ptr(),
+            s_arr.as_ptr(),
+            t_arr.as_ptr(),
+            lambda_out.as_mut_ptr(),
+            &mut reliable,
+        )
+    }
+    LpiIntervalResult {
+        lambda_x: IntervalNumber::new(lambda_out[0], lambda_out[1]),
+        lambda_y: IntervalNumber::new(lambda_out[2], lambda_out[3]),
+        lambda_z: IntervalNumber::new(lambda_out[4], lambda_out[5]),
+        lambda_d: IntervalNumber::new(lambda_out[6], lambda_out[7]),
+        reliable,
+    }
+}
