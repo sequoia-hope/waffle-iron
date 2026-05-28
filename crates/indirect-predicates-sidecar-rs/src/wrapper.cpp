@@ -197,6 +197,32 @@ extern "C" double ip_explicit_point3d_z(const void* p) {
     return ((const explicitPoint3D*)p)->Z();
 }
 
+// ----- PR-CR-IP5b RED stubs: return nullptr so Rust's
+// NonNull::new(...).expect(...) panics — construct tests fail with
+// a descriptive panic. GREEN replaces with real `new
+// implicitPoint3D_{LPI,TPI}(...)`.
+extern "C" void* ip_implicit_point3d_lpi_new(
+    const void* /*p*/, const void* /*q*/,
+    const void* /*r*/, const void* /*s*/, const void* /*t*/
+) {
+    return nullptr;  // RED stub
+}
+extern "C" void ip_implicit_point3d_lpi_drop(void* /*p*/) {
+    // RED stub: nothing to drop because new returned nullptr (we
+    // never reach Drop in RED since Rust panics on construction).
+}
+
+extern "C" void* ip_implicit_point3d_tpi_new(
+    const void* /*v1*/, const void* /*v2*/, const void* /*v3*/,
+    const void* /*w1*/, const void* /*w2*/, const void* /*w3*/,
+    const void* /*u1*/, const void* /*u2*/, const void* /*u3*/
+) {
+    return nullptr;  // RED stub
+}
+extern "C" void ip_implicit_point3d_tpi_drop(void* /*p*/) {
+    // RED stub: nothing to drop.
+}
+
 extern "C" void ip_lambda3d_tpi_exact(
     const double* v, const double* w, const double* u,
     double** lambda_x_out, int* lambda_x_len,

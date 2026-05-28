@@ -11,8 +11,8 @@
 
 use indirect_predicates_sidecar_rs::{
     init_fpu, lambda3d_lpi_exact, lambda3d_lpi_interval, lambda3d_tpi_exact, lambda3d_tpi_interval,
-    link_probe, ExplicitPoint3D, IntervalNumber, LpiExactResult, TpiExactResult, TpiIntervalResult,
-    AVAILABLE,
+    link_probe, ExplicitPoint3D, ImplicitPoint3DLpi, ImplicitPoint3DTpi, IntervalNumber,
+    LpiExactResult, TpiExactResult, TpiIntervalResult, AVAILABLE,
 };
 
 #[cfg(not(ip_unavailable))]
@@ -563,4 +563,76 @@ fn explicit_point_3d_negative_coords() {
     assert_eq!(p.x(), -1.5);
     assert_eq!(p.y(), -2.5);
     assert_eq!(p.z(), -3.5);
+}
+
+// =========================================================================
+// PR-CR-IP5b — ImplicitPoint3DLpi<'a> + ImplicitPoint3DTpi<'a>
+// =========================================================================
+
+#[test]
+fn implicit_point_3d_lpi_send_sync_compile() {
+    fn requires_send_sync<T: Send + Sync>() {}
+    requires_send_sync::<ImplicitPoint3DLpi<'_>>();
+}
+
+#[test]
+fn implicit_point_3d_tpi_send_sync_compile() {
+    fn requires_send_sync<T: Send + Sync>() {}
+    requires_send_sync::<ImplicitPoint3DTpi<'_>>();
+}
+
+#[test]
+fn implicit_point_3d_lpi_construct_and_drop() {
+    // Same line-plane geometry as PR-CR-IP2/IP3 LPI tests, but
+    // constructed as an opaque implicit point.
+    let result = std::panic::catch_unwind(|| {
+        let p = ExplicitPoint3D::new(1.0, 2.0, 3.0);
+        let q = ExplicitPoint3D::new(5.0, 7.0, 9.0);
+        let r = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+        let s = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+        let t = ExplicitPoint3D::new(0.0, 1.0, 0.0);
+        let _lpi = ImplicitPoint3DLpi::new(&p, &q, &r, &s, &t);
+        // Drop runs at scope exit.
+    });
+    assert!(result.is_ok(), "construct + drop must not panic");
+}
+
+#[test]
+fn implicit_point_3d_tpi_construct_and_drop() {
+    // Orthogonal coordinate planes geometry from PR-CR-IP4 TPI tests.
+    let result = std::panic::catch_unwind(|| {
+        // Triangle 1: x=0 plane via (0,0,0), (0,1,0), (0,0,1)
+        let v1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+        let v2 = ExplicitPoint3D::new(0.0, 1.0, 0.0);
+        let v3 = ExplicitPoint3D::new(0.0, 0.0, 1.0);
+        // Triangle 2: y=0 plane via (0,0,0), (1,0,0), (0,0,1)
+        let w1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+        let w2 = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+        let w3 = ExplicitPoint3D::new(0.0, 0.0, 1.0);
+        // Triangle 3: z=0 plane via (0,0,0), (1,0,0), (0,1,0)
+        let u1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+        let u2 = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+        let u3 = ExplicitPoint3D::new(0.0, 1.0, 0.0);
+        let _tpi = ImplicitPoint3DTpi::new(&v1, &v2, &v3, &w1, &w2, &w3, &u1, &u2, &u3);
+    });
+    assert!(result.is_ok(), "construct + drop must not panic");
+}
+
+#[test]
+fn implicit_point_3d_lpi_multiple_instances_share_explicit_borrows() {
+    // Construct two LPIs borrowing overlapping explicit points;
+    // verify both can be live simultaneously (the borrow checker
+    // allows multiple shared `&'a ExplicitPoint3D` references).
+    let result = std::panic::catch_unwind(|| {
+        let p = ExplicitPoint3D::new(1.0, 2.0, 3.0);
+        let q = ExplicitPoint3D::new(5.0, 7.0, 9.0);
+        let r = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+        let s = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+        let t = ExplicitPoint3D::new(0.0, 1.0, 0.0);
+        // Different "line" but same "plane" — both LPIs borrow r/s/t.
+        let q2 = ExplicitPoint3D::new(2.0, 4.0, 6.0);
+        let _lpi_a = ImplicitPoint3DLpi::new(&p, &q, &r, &s, &t);
+        let _lpi_b = ImplicitPoint3DLpi::new(&p, &q2, &r, &s, &t);
+    });
+    assert!(result.is_ok(), "multiple LPIs sharing borrows must not panic");
 }

@@ -92,3 +92,27 @@ extern "C" double ip_explicit_point3d_y(const void* p) {
 extern "C" double ip_explicit_point3d_z(const void* p) {
     return ((const double*)p)[2];
 }
+
+// ----- PR-CR-IP5b stubs: 1-byte sentinel; no observable behavior
+// beyond round-trip safety (Rust only needs the FFI lifecycle
+// new → drop to compile + run without UB).
+extern "C" void* ip_implicit_point3d_lpi_new(
+    const void* /*p*/, const void* /*q*/,
+    const void* /*r*/, const void* /*s*/, const void* /*t*/
+) {
+    return malloc(1);
+}
+extern "C" void ip_implicit_point3d_lpi_drop(void* p) {
+    free(p);
+}
+
+extern "C" void* ip_implicit_point3d_tpi_new(
+    const void* /*v1*/, const void* /*v2*/, const void* /*v3*/,
+    const void* /*w1*/, const void* /*w2*/, const void* /*w3*/,
+    const void* /*u1*/, const void* /*u2*/, const void* /*u3*/
+) {
+    return malloc(1);
+}
+extern "C" void ip_implicit_point3d_tpi_drop(void* p) {
+    free(p);
+}

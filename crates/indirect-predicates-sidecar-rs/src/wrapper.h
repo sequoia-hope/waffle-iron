@@ -182,6 +182,48 @@ double ip_explicit_point3d_x(const void* p);
 double ip_explicit_point3d_y(const void* p);
 double ip_explicit_point3d_z(const void* p);
 
+/*
+ * ImplicitPoint3DLpi opaque handle (PR-CR-IP5b).
+ *
+ * Wraps upstream `implicitPoint3D_LPI` (implicit_point.h:358-380).
+ * Stores const references to 5 `explicitPoint3D` instances:
+ *   p, q  — define the line
+ *   r, s, t — define the plane
+ *
+ * The Rust side must enforce (via lifetime parameter) that the
+ * implicit point doesn't outlive any of its 5 input points — the
+ * upstream class holds raw references and dereferencing them after
+ * the underlying explicit points are destroyed is UB.
+ *
+ * The returned `void*` is also a valid `const genericPoint*` at
+ * the C++ level (subclass-to-base implicit conversion). Future
+ * PR-CR-IP6 predicate shims will use the same pointer.
+ *
+ * Stub build: returns a 1-byte sentinel from malloc; drop frees.
+ * No observable behavior beyond round-trip safety.
+ */
+void* ip_implicit_point3d_lpi_new(
+    const void* p, const void* q,
+    const void* r, const void* s, const void* t);
+void ip_implicit_point3d_lpi_drop(void* p);
+
+/*
+ * ImplicitPoint3DTpi opaque handle (PR-CR-IP5b).
+ *
+ * Wraps upstream `implicitPoint3D_TPI` (implicit_point.h:384-412).
+ * Stores const references to 9 `explicitPoint3D` instances:
+ *   v1, v2, v3 — vertices of triangle 1 (plane 1)
+ *   w1, w2, w3 — vertices of triangle 2 (plane 2)
+ *   u1, u2, u3 — vertices of triangle 3 (plane 3)
+ *
+ * Same lifetime + ABI conventions as ip_implicit_point3d_lpi_*.
+ */
+void* ip_implicit_point3d_tpi_new(
+    const void* v1, const void* v2, const void* v3,
+    const void* w1, const void* w2, const void* w3,
+    const void* u1, const void* u2, const void* u3);
+void ip_implicit_point3d_tpi_drop(void* p);
+
 #ifdef __cplusplus
 }
 #endif

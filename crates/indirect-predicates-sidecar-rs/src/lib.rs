@@ -527,6 +527,187 @@ impl core::fmt::Debug for ExplicitPoint3D {
     }
 }
 
+// =========================================================================
+// PR-CR-IP5b — ImplicitPoint3DLpi<'a> + ImplicitPoint3DTpi<'a>
+// (lifetime-parameterized opaque handles)
+// =========================================================================
+
+/// Opaque handle to a C++ `implicitPoint3D_LPI` (line-plane
+/// intersection point). Holds `&'a ExplicitPoint3D` references to
+/// 5 explicit points: `p, q` define the line; `r, s, t` define the
+/// plane.
+///
+/// The lifetime parameter `'a` ensures the implicit point cannot
+/// outlive any of its referenced explicit points — preventing the
+/// C++ class from dereferencing dangling references (which would
+/// be UB).
+///
+/// # Borrow checker example
+///
+/// ```compile_fail
+/// use indirect_predicates_sidecar_rs::{ExplicitPoint3D, ImplicitPoint3DLpi};
+/// let lpi;
+/// {
+///     let p = ExplicitPoint3D::new(1.0, 2.0, 3.0);
+///     let q = ExplicitPoint3D::new(5.0, 7.0, 9.0);
+///     let r = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+///     let s = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+///     let t = ExplicitPoint3D::new(0.0, 1.0, 0.0);
+///     lpi = ImplicitPoint3DLpi::new(&p, &q, &r, &s, &t);
+/// } // p..t dropped here
+/// // `lpi` would now hold dangling references — borrow checker rejects.
+/// let _ = lpi;
+/// ```
+pub struct ImplicitPoint3DLpi<'a> {
+    ptr: core::ptr::NonNull<core::ffi::c_void>,
+    _phantom: core::marker::PhantomData<&'a ExplicitPoint3D>,
+}
+
+// Safety: per recon (cherchi_rs_pr_cr_ip5.md banked findings), the
+// implicit point's mutable interval cache is filled once during
+// construction (single-threaded) and read-only thereafter. The
+// instance carries no thread-local state; pools are global-per-
+// thread, not per-instance. Send + Sync are sound, conditional on
+// the referenced `ExplicitPoint3D: Sync` (established in IP5).
+unsafe impl<'a> Send for ImplicitPoint3DLpi<'a> {}
+unsafe impl<'a> Sync for ImplicitPoint3DLpi<'a> {}
+
+impl<'a> ImplicitPoint3DLpi<'a> {
+    /// Construct an implicit line-plane intersection point.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the FFI shim returns null (OOM).
+    pub fn new(
+        p: &'a ExplicitPoint3D,
+        q: &'a ExplicitPoint3D,
+        r: &'a ExplicitPoint3D,
+        s: &'a ExplicitPoint3D,
+        t: &'a ExplicitPoint3D,
+    ) -> Self {
+        // Safety: the 5 input references are valid for `'a` (proven
+        // by the borrow checker); the shim reinterprets each
+        // `*const c_void` back to `const explicitPoint3D*` and
+        // dereferences it (well-defined because the void pointers
+        // come from `ExplicitPoint3D::as_generic_ptr()` which
+        // returns the same underlying address as the C++ object).
+        let raw = unsafe {
+            ffi::ip_implicit_point3d_lpi_new(
+                p.as_generic_ptr(),
+                q.as_generic_ptr(),
+                r.as_generic_ptr(),
+                s.as_generic_ptr(),
+                t.as_generic_ptr(),
+            )
+        };
+        let ptr = core::ptr::NonNull::new(raw)
+            .expect("ip_implicit_point3d_lpi_new returned null (out-of-memory?)");
+        Self {
+            ptr,
+            _phantom: core::marker::PhantomData,
+        }
+    }
+
+    /// Crate-internal accessor for PR-CR-IP6 predicate shims.
+    #[allow(dead_code)] // Used by PR-CR-IP6+.
+    pub(crate) fn as_generic_ptr(&self) -> *const core::ffi::c_void {
+        self.ptr.as_ptr()
+    }
+}
+
+impl<'a> Drop for ImplicitPoint3DLpi<'a> {
+    fn drop(&mut self) {
+        // Safety: `self.ptr` was produced by `ip_implicit_point3d_lpi_new`
+        // and has not been freed. The shim calls
+        // `delete (implicitPoint3D_LPI*)p` (or `free` in stub mode).
+        unsafe { ffi::ip_implicit_point3d_lpi_drop(self.ptr.as_ptr()) };
+    }
+}
+
+impl<'a> core::fmt::Debug for ImplicitPoint3DLpi<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ImplicitPoint3DLpi")
+            .field("ptr", &self.ptr.as_ptr())
+            .finish()
+    }
+}
+
+/// Opaque handle to a C++ `implicitPoint3D_TPI` (triangle-plane
+/// intersection point). Holds `&'a ExplicitPoint3D` references to
+/// 9 explicit points: three triangles (v, w, u) × 3 vertices each.
+///
+/// Same lifetime + Send/Sync rationale as [`ImplicitPoint3DLpi`].
+pub struct ImplicitPoint3DTpi<'a> {
+    ptr: core::ptr::NonNull<core::ffi::c_void>,
+    _phantom: core::marker::PhantomData<&'a ExplicitPoint3D>,
+}
+
+unsafe impl<'a> Send for ImplicitPoint3DTpi<'a> {}
+unsafe impl<'a> Sync for ImplicitPoint3DTpi<'a> {}
+
+impl<'a> ImplicitPoint3DTpi<'a> {
+    /// Construct an implicit triangle-plane intersection point
+    /// from 3 triangles (each defined by 3 vertices).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the FFI shim returns null (OOM).
+    #[allow(clippy::too_many_arguments)] // 9 references mirror the C++ constructor signature.
+    pub fn new(
+        v1: &'a ExplicitPoint3D,
+        v2: &'a ExplicitPoint3D,
+        v3: &'a ExplicitPoint3D,
+        w1: &'a ExplicitPoint3D,
+        w2: &'a ExplicitPoint3D,
+        w3: &'a ExplicitPoint3D,
+        u1: &'a ExplicitPoint3D,
+        u2: &'a ExplicitPoint3D,
+        u3: &'a ExplicitPoint3D,
+    ) -> Self {
+        // Safety: see ImplicitPoint3DLpi::new — same justification with
+        // 9 input references instead of 5.
+        let raw = unsafe {
+            ffi::ip_implicit_point3d_tpi_new(
+                v1.as_generic_ptr(),
+                v2.as_generic_ptr(),
+                v3.as_generic_ptr(),
+                w1.as_generic_ptr(),
+                w2.as_generic_ptr(),
+                w3.as_generic_ptr(),
+                u1.as_generic_ptr(),
+                u2.as_generic_ptr(),
+                u3.as_generic_ptr(),
+            )
+        };
+        let ptr = core::ptr::NonNull::new(raw)
+            .expect("ip_implicit_point3d_tpi_new returned null (out-of-memory?)");
+        Self {
+            ptr,
+            _phantom: core::marker::PhantomData,
+        }
+    }
+
+    /// Crate-internal accessor for PR-CR-IP6 predicate shims.
+    #[allow(dead_code)] // Used by PR-CR-IP6+.
+    pub(crate) fn as_generic_ptr(&self) -> *const core::ffi::c_void {
+        self.ptr.as_ptr()
+    }
+}
+
+impl<'a> Drop for ImplicitPoint3DTpi<'a> {
+    fn drop(&mut self) {
+        unsafe { ffi::ip_implicit_point3d_tpi_drop(self.ptr.as_ptr()) };
+    }
+}
+
+impl<'a> core::fmt::Debug for ImplicitPoint3DTpi<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ImplicitPoint3DTpi")
+            .field("ptr", &self.ptr.as_ptr())
+            .finish()
+    }
+}
+
 /// Copy a pool-allocated expansion to an owned `Vec<f64>` and
 /// release the pool memory. Null pointer or non-positive length
 /// produces an empty Vec without invoking the free shim.
