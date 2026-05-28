@@ -14,7 +14,12 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     locales \
     python3 \
-    # C/C++ toolchain (required by slvs crate / libslvs)
+    # C/C++ toolchain (required by slvs crate / libslvs, and by the Cherchi
+    # reference sidecars — see scripts/build_sidecars.sh / roadmap M0). These
+    # prereqs suffice to build the Cherchi 2022 binary + Indirect_Predicates;
+    # we deliberately do NOT bake that ~22-min build into the image. Run
+    # `scripts/build_sidecars.sh` once after container start to populate the
+    # default paths the new-kernel crates' parity tests expect.
     build-essential \
     cmake \
     clang \

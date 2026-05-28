@@ -60,6 +60,14 @@ When asked to "fix a Yang bug" or "make Y62-style probe" on the existing code: *
 - **Phase 4**: `kernel-v2` — clean B-Rep + Euler ops + tessellation + Kernel trait
 - **Phase 5**: Migration — switch `wasm-bridge` and `feature-engine` to `kernel-v2`, delete `crates/kernel/`, remove this section from CLAUDE.md
 
+> **These phases are crate *layers*, not a strict work order.** The actual
+> work order toward a functional boolean is the milestone sequence M0–M8 in
+> `docs/yang_functional_roadmap.md`, which interleaves the layers (e.g. the
+> interim C++ sidecar producing real Stage-2 labels lets `yang-rs` Stage 5/6
+> become real *before* the native `cherchi-rs` arrangement exists). Phase 1's
+> "indirect predicates" are now built **demand-driven** by the native
+> arrangement, not ported speculatively ahead of a consumer.
+
 ### Why this rewrite
 
 - The Y62 / Y63 cycles found the Yang code was patching around legacy assumptions (face stored_normal didn't track polygon walk; legacy boolean output preserved wrong normals after subtract; `tessellate_planar_face_bounded` was force-aligning to mask upstream defects)
@@ -88,25 +96,23 @@ Track known divergences between the implementation and Yang 2025 / Cherchi 2022 
 When asked "what should I work on?", choose from these areas **in order**.
 Do NOT skip to lower-priority items because they are easier.
 
-1. **Hybrid boolean pipeline (Yang 2025)** — This is the #1 priority.
-   The goal is `YANG_BOOLEAN=1` passing more assay cases (currently 12/157
-   non-timeout). Do NOT fix legacy code. Build Yang as described in the paper.
+1. **Hybrid boolean pipeline (Yang 2025) — in the NEW crates.** This is the #1
+   priority. **The plan of record is `docs/yang_functional_roadmap.md`** — read
+   it first; it defines the `LabeledArrangement` interface and milestones M0–M8.
+   Do NOT fix legacy code. Build Yang as described in the paper.
 
-   **Oracle-first investigation.** When investigating a Yang boolean failure,
-   FIRST consult the oracle verdict via `spotlight_<CASE>_oracles` (extends
-   the pattern of `spotlight_f0020_oracles` in `assay_randomized.rs`). The
-   `default_oracle_registry` in `crates/kernel/src/boolean/pipeline_oracles.rs`
-   attributes failures to a specific Yang pipeline stage's invariant violation.
-   Do NOT generate mechanism hypotheses from end-to-end metrics (unpaired
-   edges, degenerate triangles) — those are downstream symptoms. The oracle's
-   `ContractViolated` message names the stage and the violation. Read
-   `docs/audits/yang_oracle_coverage.md` for the Stage ↔ Oracle map and
-   `docs/audits/oracle_operationalization_baseline.md` for the methodology.
+   The next concrete work is M0 (operationalize the parity oracle — build the
+   C++ sidecars via `scripts/build_sidecars.sh`) and M1 (make `yang-rs` Stage 1
+   emit Cherchi-`inputcheck`-clean meshes — the real gate, since Cherchi hangs
+   on malformed input).
 
-   Ad-hoc canary probes (Y48-Y57 family) are SECONDARY diagnostics, used
-   after an oracle has localized the stage. Inventing mechanism hypotheses
-   without consulting the oracle first produced 5 consecutive canary-stage
-   ABORTs (PR-Y25 through PR-Y28) before this discipline was adopted.
+   > The legacy oracle guidance that used to sit here (`spotlight_<CASE>_oracles`,
+   > `default_oracle_registry` in `crates/kernel/src/boolean/pipeline_oracles.rs`,
+   > the Y48–Y57 canary family, `yang_fast 12/157`) all concern the **legacy**
+   > `crates/kernel/` port and its assay. They do not apply to the new crates.
+   > In the new world the correctness oracle is **reference parity against the
+   > Cherchi C++ sidecar** (roadmap §6: GREEN ::= matches the sidecar on a
+   > corpus subset), not the legacy stage-invariant registry.
 
    **The paper IS the spec.** Read `refs/yang2025_hybrid_boolean.pdf` before
    each session. Implement what the paper describes — do NOT adapt it to fit
@@ -122,23 +128,25 @@ Do NOT skip to lower-priority items because they are easier.
    for §4.4.2). When spawning sub-agents that need to read papers, point
    them at the extracted `.txt` paths.
 
-   **Current architecture (what's built):**
-   - Stage 0: Coplanar preprocessing (`coplanar_preprocess.rs`) — infrastructure
-   - Stage 1: Tessellate with bijective mapping — working
-   - Stage 2: Mesh arrangement via Cherchi 2022 §4 / Cherchi 2020 §5 (arrangement)
-     (`mesh_arrangement.rs`) — per-triangle LocalMesh + Algorithm 1, wired into
-     `subdivide_mesh_pair` via `triangulate_single_triangle()`
-   - Stage 3: SSI refinement — wired but optional fallback
-   - Stage 4b: Inside/outside classification (`label_cells`) — working
-   - Stage 5: Flood-fill patch segmentation (`flood_fill_patches`) — working
-   - Stage 6: B-Rep assembly + retessellation — working
+   **Current architecture and next steps live in
+   `docs/yang_functional_roadmap.md`** — the single source of truth for the
+   NEW-crate Yang effort. Read it before working on the pipeline.
 
-   **What's missing (next steps):**
-   - Debug F0002/F0003 regression in mesh arrangement preprocessing
-   - Stage 3 (Section 4.3): Use SSI solvers to refine intersection positions
-     from mesh-approximate to surface-exact
-   - Stage 4a (Section 4.4.1): Mesh updating — re-mesh along refined curves
-     using CDT to restore bijectivity
+   > The Stage 0–6 "working" list that used to sit here described the *legacy*
+   > `crates/kernel/` port (`mesh_arrangement.rs`, `flood_fill_patches`,
+   > `label_cells`), NOT the new crates. It was stale and misleading and has
+   > been removed. Honest new-crate status (≈29 PRs of foundations, **zero
+   > working booleans end to end**, the `LabeledArrangement` interface, and the
+   > M0–M8 milestones) is in the roadmap.
+
+   The condensed plan: the path to a *functional* Yang is decoupled from a
+   complete native arrangement via a producer-agnostic `LabeledArrangement`
+   interface. An interim **patched C++ sidecar** supplies real Stage-2 labels
+   now (so `yang-rs` Stage 5/6 become real and produce a first mesh-approximate
+   boolean); the native `cherchi-rs` arrangement is built later behind the same
+   interface with the sidecar as its parity oracle. The real gate to a first
+   boolean is **Stage-1 mesh validity** (Cherchi hangs forever on non-manifold /
+   non-watertight input), not the labels — see roadmap M1.
 
    **Key references:**
    - Cherchi 2020 C++ reference (arrangement): `github.com/gcherchi/FastAndRobustMeshArrangements`
@@ -175,6 +183,10 @@ Do NOT skip to lower-priority items because they are easier.
 5. Read `/agents/ORCHESTRATION.md` — understand the agent workflow.
 6. Identify your sub-project. Read that sub-project's `CLAUDE.md`.
 7. Read that sub-project's `PLAN.md` — pick the highest-priority uncompleted task.
+   **For the new kernel crates (`cherchi-rs`, `yang-rs`, `cherchi-sidecar-rs`,
+   `indirect-predicates-sidecar-rs`, `ssi-rs`, `kernel-v2`) there is no per-crate
+   `PLAN.md`** — `docs/yang_functional_roadmap.md` is the plan of record for all
+   of them; pick the next uncompleted milestone (M0–M8) there.
 
 ## While Coding
 
@@ -188,7 +200,9 @@ Do NOT skip to lower-priority items because they are easier.
 1. Run `cargo test -p <your-crate>` — all tests pass.
 2. Run `cargo clippy -p <your-crate>` — no warnings.
 3. Run `cargo fmt --check -p <your-crate>` — properly formatted.
-4. Update PLAN.md — mark completed tasks, add discovered tasks.
+4. Update PLAN.md — mark completed tasks, add discovered tasks. (For the new
+   kernel crates, update milestones/notes in `docs/yang_functional_roadmap.md`
+   instead — those crates have no per-crate PLAN.md.)
 
 ## Test Tiers
 

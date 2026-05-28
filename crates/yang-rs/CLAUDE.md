@@ -25,6 +25,16 @@ Phase 2 of the clean-sheet kernel rewrite (see root `CLAUDE.md`). Implements the
 5. **Reference parity at Stage 2 boundary.** Stage 2's input mesh and Stage 2's output (from cherchi-rs) must match what Yang's paper describes for those interfaces. Differential test against Cherchi C++ sidecar for Stage 2 specifically.
 6. **No `unsafe`, no `panic!` in production paths.** All errors return `Result<>`.
 7. **Single-threaded.** Same rationale as cherchi-rs (determinism > speed during port).
+8. **Stages 5/6 consume a `LabeledArrangement`** (roadmap §2), not post-hoc
+   guesses. The producer (interim patched sidecar, later native `cherchi-rs`)
+   reports mesh-level provenance; yang-rs maps mesh→B-Rep itself via its Stage-1
+   `TessellationMap`. This makes Stage 5/6 **real** — see roadmap M3.
+9. **Retain the YR3/4/5 substitutes as a `#[cfg(test)]` differential oracle —
+   do NOT delete them.** The old spatial-vertex-matching / majority-vote
+   attribution was a *substitute* for real labels, but as a second independent
+   attribution method it cross-checks the true-label path: disagreement on a
+   case localizes a label-path bug. Demote it from the production path to a
+   test-only oracle module (roadmap M4); deleting it discards a free oracle.
 
 ## When working on this crate
 
@@ -46,9 +56,16 @@ Recommended (each stage gates the next):
 1. Define yang-rs's `BRep` input/output type (minimal, 2-manifold half-edge or whatever fits the pipeline cleanly)
 2. Define `IntermediateMesh` (supports non-manifold) and `TessellationMap`
 3. Stage 1 (bijective tessellation) — simple cases first (single planar face); validate the TessellationMap is consulted correctly
-4. Stage 2 wiring (call cherchi-rs with proper inputs, accept its outputs)
-5. Stage 5/6 reassembly — even before Stage 3/4 SSI refinement, the pipeline should produce a (mesh-approximate) B-Rep output
+4. Stage 2 wiring — obtain a `LabeledArrangement` (roadmap §2). Interim:
+   `cherchi-sidecar-rs` (patched binary). **Gate Stage-1 output on
+   `mesh_booleans_inputcheck` first** — Cherchi loops forever on
+   non-manifold / non-watertight / self-intersecting input (roadmap M1, the
+   real gate to a first boolean).
+5. Stage 5/6 reassembly — consume the real labels; even before Stage 3/4 SSI
+   refinement, the pipeline should produce a (mesh-approximate) B-Rep output
+   (roadmap M3). Stage 5/6's patch-segmentation logic is durable; only its
+   *curve-source* changes when SSI lands — build that seam deliberately.
 6. Stage 3/4 SSI refinement — once mesh-only output works, layer in the analytical refinement
 7. Stage 0 coplanar preprocessing — last, because it's a special case that complicates everything earlier
 
-This is the opposite of how the legacy port grew (which started with Stage 0 / coplanar handling and tangled up). Build the happy path first, then add the degenerate cases.
+This is the opposite of how the legacy port grew (which started with Stage 0 / coplanar handling and tangled up). Build the happy path first, then add the degenerate cases. Full milestone sequence: `docs/yang_functional_roadmap.md` §4 (M0–M8).

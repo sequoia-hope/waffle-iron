@@ -7,7 +7,13 @@ Phase 1 of the clean-sheet kernel rewrite (see root `CLAUDE.md` §"Kernel Rewrit
 - Mesh arrangement (Cherchi 2020 §4-§5): take two triangle soups, produce a non-self-intersecting triangle soup with consistent topology
 - Boolean labeling (Cherchi 2022 §5): ray-cast each face to determine inside/outside relative to each input mesh
 - Boolean op output: from labels, emit the triangle subset for union / intersect / subtract / xor
-- Exposes one main API: `boolean(mesh_a, mesh_b, op) -> LabeledMesh` (exact shape TBD during port)
+- Stage 2 produces a **`LabeledArrangement`** — the producer-agnostic Stage-2
+  contract defined once in `docs/yang_functional_roadmap.md` §2 (per-output-tri
+  `source: SmallVec<(InputId, parent_tri_index)>` — multi-valued at coplanar
+  overlap — plus `patch_id` and a per-input in/out vector). Do NOT redefine that
+  shape here; implement to it. The native arrangement and the interim
+  `cherchi-sidecar-rs` producer must satisfy the **same** interface so the
+  sidecar can serve as this crate's differential-parity oracle.
 
 ## What this crate does NOT do
 
@@ -34,7 +40,20 @@ If asked to "fix a boolean bug" or "make booleans support X," check whether the 
 4. **No `unsafe`.** The C++ uses some unsafe pointer work; the Rust port uses indices and references.
 5. **Single-threaded by default.** Cherchi C++ uses TBB which is non-deterministic at multi-thread. Determinism trumps speed during the port. Parallelism via `rayon` is a future feature flag, not the default.
 6. **No `panic!` in production code paths.** All error conditions return `Result<>`. Panics in release builds are bugs. (This keeps the WASM build on stable Rust.)
-7. **Exact arithmetic via `dashu`** (pure Rust, WASM-compatible). No `rug`, no `num-bigint`, no rolling our own.
+7. **Exact arithmetic via `dashu`** (pure Rust, WASM-compatible) for the
+   *explicit* predicates. **Amended (2026-05-28):** the Stage-2 arrangement may
+   take a **temporary, feature-gated, non-WASM** dependency on
+   `indirect-predicates-sidecar-rs` for the *indirect/implicit-point* predicates
+   (LPI/TPI) during the development phase. This intentionally breaks the WASM
+   build behind that feature — accepted per root `CLAUDE.md` / the user directive
+   (FFI now → functional Yang → clean-room the predicates from Attene's paper →
+   restore WASM, roadmap M7). The pure-Rust/WASM end state is restored at M7;
+   until then, gate the FFI dep so the rest of the crate still builds for wasm32.
+   No `rug`, no `num-bigint`, no rolling our own bignum.
+8. **Predicates are demand-driven.** Do NOT port indirect predicates ahead of a
+   caller (the IP1–IP6 PRs ported against zero consumers, which is why parity
+   never engaged). Add an FFI predicate wrapper only when the arrangement code
+   that calls it lands in the same slice.
 
 ## When working on this crate
 

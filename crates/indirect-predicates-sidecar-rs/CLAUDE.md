@@ -1,6 +1,19 @@
 # indirect-predicates-sidecar-rs — Scope Rules
 
-FFI sidecar wrapper around Marco Attene's `Indirect_Predicates` C++ library (LGPL-2.1, header-only). Provides the exact geometric predicates that `cherchi-rs` Stage 2 needs to implement Cherchi 2022 §6.4 boolean labeling (`orient3d_indirect_IIII`, `lambda3d_LPI/TPI_*`, `lessThanOnX/Y/Z_*`). PR-CR-IP1 ships only the scaffold + a single link-probe call; real predicate wrappers come in PR-CR-IP2..IP7.
+FFI sidecar wrapper around Marco Attene's `Indirect_Predicates` C++ library (LGPL-2.1, header-only). Provides the exact geometric predicates that `cherchi-rs` Stage 2 needs to implement Cherchi 2022 §6.4 boolean labeling (`orient3d_indirect_IIII`, `lambda3d_LPI/TPI_*`, `lessThanOnX/Y/Z_*`).
+
+**Demand-driven (2026-05-28).** The earlier plan ("bank predicate wrappers
+IP2..IP7 ahead of need") is **retired**. IP1–IP6 were ported against *zero
+consumers*, which is why reference parity never engaged. From now on, add a
+predicate wrapper only when the `cherchi-rs` Stage-2 arrangement code that calls
+it lands in the same slice. See `docs/yang_functional_roadmap.md` §3b.
+
+**End state (roadmap M7).** This FFI crate is the *development-phase* bridge. It
+deliberately breaks WASM (LGPL C++ FFI). The accepted plan is: FFI now →
+complete functional Yang → **clean-room reimplement the indirect predicates in
+pure Rust from Attene's published paper** (not his LGPL source — so the workspace
+owns the license) → drop this crate's role and restore the WASM build. Per the
+user: no users, personal experiment, WASM-break during development is fine.
 
 ## What this crate does
 

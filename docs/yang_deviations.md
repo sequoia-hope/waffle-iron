@@ -298,6 +298,43 @@ These are real upstream defects the repair was hiding. Investigating them is the
 
 ---
 
+## New-crate deviations (clean-sheet rewrite: `yang-rs` / `cherchi-rs`)
+
+> Deviations D1–D14 above concern the **legacy** `crates/kernel/` port. The
+> entries below concern the new tiered crates and the functional roadmap
+> (`docs/yang_functional_roadmap.md`).
+
+### N1 — Stage-2 labels taken from the C++ sidecar, not a native arrangement
+
+**Code location:** `crates/cherchi-sidecar-rs/` (interim `LabeledArrangement`
+producer) consumed by `crates/yang-rs/` Stages 5/6.
+
+**Paper section:** §4.2 (mesh boolean) → the per-output-triangle origin +
+patch in/out labels that §4.4.2 reassembly consumes are, in the paper, products
+of the implementation's *own* exact mesh arrangement.
+
+**Current behavior (interim):** `yang-rs` obtains the `LabeledArrangement` from a
+patched Cherchi 2022 `mesh_booleans` binary (subprocess), not from a native
+pure-Rust arrangement. This is the deliberate decoupling that lets functional
+Yang (mesh-approximate) exist before the native arrangement is written.
+
+**Architectural consequence:** the boolean pipeline depends on an external C++
+binary and is **not WASM-compatible** while this path is active. Also bounded by
+Cherchi's input axioms (manifold/watertight/intersection-free), enforced at
+roadmap M1.
+
+**Remediation:** roadmap **M6** replaces the producer with the native
+`cherchi-rs` Stage-2 arrangement behind the *same* `LabeledArrangement`
+interface (sidecar retained as differential-parity oracle); **M7** clean-rooms
+the indirect predicates from Attene's paper and restores WASM.
+
+**Sign-off:** approved by Sequoia Alexander, 2026-05-28, rationale: deliberate
+strategy — decouple "functional Yang" from "native arrangement complete";
+WASM-break during the development phase is accepted (no users; personal
+experiment). Tracking: `docs/yang_functional_roadmap.md` M6/M7.
+
+---
+
 ## Priority order for remediation
 
 1. **D2** (post-tessellation repair pipeline) — fundamental, blocks investigation of anything downstream. Removing this will surface what the upstream stages are actually doing.

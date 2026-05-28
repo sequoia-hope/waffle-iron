@@ -2,11 +2,26 @@
 
 Subprocess wrapper around the Cherchi 2022 `mesh_booleans` C++ binary. Provides a `MeshBoolean` implementation for the workspace until the native cherchi-rs port (Stages 2-4 of arrangement) ships.
 
+**Primary mission (2026-05-28):** this crate is the **interim
+`LabeledArrangement` producer** for the Yang pipeline (roadmap §3a). That is the
+load-bearing job — not just returning a result mesh. Real `yang-rs` Stage 5/6
+needs per-output-triangle labels (provenance + in/out) that the *stock*
+`mesh_booleans` binary does not emit; this crate's job is to surface them. See
+`docs/yang_functional_roadmap.md` §2 (the interface) and §3a (this producer).
+
 ## What this crate does
 
 - Implements `cherchi_rs::MeshBoolean` for a `SidecarBoolean` struct
 - Resolves the `mesh_booleans` binary via env var (`CHERCHI2022_BIN`) or default path
 - Writes OBJ files to a tempdir, invokes the binary with a timeout, reads the output OBJ
+- **Produces a `LabeledArrangement`** (roadmap §2): requires a small C++ patch to
+  `mesh_booleans` that dumps per-output-triangle labels to a sidecar file
+  alongside the OBJ. The labels (parent input triangle list — multi-valued at
+  coplanar overlap — and per-input in/out vector) must be captured **inside
+  `customBooleanPipeline`, before** the op-specific filter collapses the in/out
+  vector, NOT in `main.cpp` after the fact. Validate the round-trip on a
+  two-tetrahedra case (clean 1:1) AND one coplanar-overlap case before the
+  interface shape is frozen.
 - Exposes structured errors via `SidecarError`
 - Exposes OBJ I/O publicly (`pub mod obj`) for debugging + fixture capture
 
