@@ -224,6 +224,27 @@ void* ip_implicit_point3d_tpi_new(
     const void* u1, const void* u2, const void* u3);
 void ip_implicit_point3d_tpi_drop(void* p);
 
+/*
+ * Cherchi 2022 §6.4 boolean-labeling trigger set (PR-CR-IP6).
+ *
+ * Each `const void*` parameter is a pointer to one of our handle
+ * types' underlying C++ object — explicitPoint3D, implicitPoint3D_LPI,
+ * or implicitPoint3D_TPI. The shim reinterprets as `const genericPoint*`
+ * (valid via subclass-to-base single-inheritance address equality)
+ * and binds to the C++ reference parameter.
+ *
+ * Returns an `int` matching upstream's `IP_Sign` convention:
+ *   -1 = Negative, 0 = Zero, +1 = Positive, 2 = Undefined (NaN /
+ *   catastrophic cancellation).
+ *
+ * Stub build: all four functions return 2 (Undefined sentinel).
+ */
+int ip_orient3d_indirect_iiii(
+    const void* p1, const void* p2, const void* p3, const void* p4);
+int ip_less_than_on_x_ii(const void* p1, const void* p2);
+int ip_less_than_on_y_ii(const void* p1, const void* p2);
+int ip_less_than_on_z_ii(const void* p1, const void* p2);
+
 #ifdef __cplusplus
 }
 #endif

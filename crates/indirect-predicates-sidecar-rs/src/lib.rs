@@ -708,6 +708,139 @@ impl<'a> core::fmt::Debug for ImplicitPoint3DTpi<'a> {
     }
 }
 
+// =========================================================================
+// PR-CR-IP6 — Sign + AsGenericPoint sealed trait + orient3d + comparators
+// =========================================================================
+
+/// Sign result from upstream predicates. Mirrors `IP_Sign`
+/// (implicit_point.h:51-59).
+///
+/// - `Negative` (-1): orientation below; first argument greater.
+/// - `Zero` (0): coplanar / equal coordinate.
+/// - `Positive` (+1): orientation above; first argument lesser.
+/// - `Undefined` (2): NaN input, catastrophic cancellation, or
+///   stub mode (when the upstream library isn't linked).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(i32)]
+pub enum Sign {
+    Negative = -1,
+    Zero = 0,
+    Positive = 1,
+    Undefined = 2,
+}
+
+impl Sign {
+    /// Map a raw C++ predicate return value to this enum.
+    ///
+    /// Defensive: any value outside the four documented domains
+    /// is mapped to `Undefined` rather than panicking.
+    pub const fn from_int(i: i32) -> Self {
+        match i {
+            -1 => Self::Negative,
+            0 => Self::Zero,
+            1 => Self::Positive,
+            2 => Self::Undefined,
+            _ => Self::Undefined,
+        }
+    }
+}
+
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for super::ExplicitPoint3D {}
+    impl<'a> Sealed for super::ImplicitPoint3DLpi<'a> {}
+    impl<'a> Sealed for super::ImplicitPoint3DTpi<'a> {}
+}
+
+/// Marker trait for our crate's point handle types
+/// (`ExplicitPoint3D`, `ImplicitPoint3DLpi<'_>`, `ImplicitPoint3DTpi<'_>`).
+///
+/// **Sealed**: external crates cannot implement this trait — only
+/// the three handle types in this crate satisfy it. The single
+/// method `as_generic_ptr` is `#[doc(hidden)]` because it returns
+/// a raw pointer that's only meaningful inside our predicate
+/// shims.
+pub trait AsGenericPoint: sealed::Sealed {
+    #[doc(hidden)]
+    fn as_generic_ptr(&self) -> *const core::ffi::c_void;
+}
+
+impl AsGenericPoint for ExplicitPoint3D {
+    fn as_generic_ptr(&self) -> *const core::ffi::c_void {
+        self.ptr.as_ptr()
+    }
+}
+
+impl<'a> AsGenericPoint for ImplicitPoint3DLpi<'a> {
+    fn as_generic_ptr(&self) -> *const core::ffi::c_void {
+        self.ptr.as_ptr()
+    }
+}
+
+impl<'a> AsGenericPoint for ImplicitPoint3DTpi<'a> {
+    fn as_generic_ptr(&self) -> *const core::ffi::c_void {
+        self.ptr.as_ptr()
+    }
+}
+
+/// 4-point orientation predicate. Wraps `orient3d_indirect_IIII`.
+///
+/// - `Positive` if `p4` lies above the plane defined by `p1, p2, p3`
+///   in CCW orientation.
+/// - `Zero` if all four points are coplanar.
+/// - `Negative` if `p4` lies below.
+/// - `Undefined` if the upstream cascade exhausts at NaN / overflow
+///   (rare) or in stub mode.
+///
+/// Accepts any combination of `&ExplicitPoint3D`,
+/// `&ImplicitPoint3DLpi<'_>`, `&ImplicitPoint3DTpi<'_>` via the
+/// sealed `AsGenericPoint` trait. Internally always calls
+/// `orient3d_indirect_IIII`, which dispatches on the C++ side
+/// based on each point's `Point_Type` tag.
+pub fn orient3d(
+    p1: &impl AsGenericPoint,
+    p2: &impl AsGenericPoint,
+    p3: &impl AsGenericPoint,
+    p4: &impl AsGenericPoint,
+) -> Sign {
+    // Safety: each `as_generic_ptr()` returns a valid pointer to a
+    // C++ genericPoint subclass object (single inheritance: base
+    // address equals subclass address). The FFI shim reinterprets
+    // as `const genericPoint*` and dereferences for the C++
+    // reference parameter. All four points are borrowed for the
+    // duration of the call.
+    let r = unsafe {
+        ffi::ip_orient3d_indirect_iiii(
+            p1.as_generic_ptr(),
+            p2.as_generic_ptr(),
+            p3.as_generic_ptr(),
+            p4.as_generic_ptr(),
+        )
+    };
+    Sign::from_int(r)
+}
+
+/// Per-axis comparator on x. Wraps `lessThanOnX_II`.
+///
+/// Returns `Sign::Positive` iff `p1.x < p2.x`; `Zero` if equal;
+/// `Negative` if `p1.x > p2.x`.
+pub fn less_than_on_x(p1: &impl AsGenericPoint, p2: &impl AsGenericPoint) -> Sign {
+    let r = unsafe { ffi::ip_less_than_on_x_ii(p1.as_generic_ptr(), p2.as_generic_ptr()) };
+    Sign::from_int(r)
+}
+
+/// Per-axis comparator on y. Wraps `lessThanOnY_II`.
+pub fn less_than_on_y(p1: &impl AsGenericPoint, p2: &impl AsGenericPoint) -> Sign {
+    let r = unsafe { ffi::ip_less_than_on_y_ii(p1.as_generic_ptr(), p2.as_generic_ptr()) };
+    Sign::from_int(r)
+}
+
+/// Per-axis comparator on z. Wraps `lessThanOnZ_II`.
+pub fn less_than_on_z(p1: &impl AsGenericPoint, p2: &impl AsGenericPoint) -> Sign {
+    let r = unsafe { ffi::ip_less_than_on_z_ii(p1.as_generic_ptr(), p2.as_generic_ptr()) };
+    Sign::from_int(r)
+}
+
 /// Copy a pool-allocated expansion to an owned `Vec<f64>` and
 /// release the pool memory. Null pointer or non-positive length
 /// produces an empty Vec without invoking the free shim.

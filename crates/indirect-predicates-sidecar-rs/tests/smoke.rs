@@ -11,8 +11,9 @@
 
 use indirect_predicates_sidecar_rs::{
     init_fpu, lambda3d_lpi_exact, lambda3d_lpi_interval, lambda3d_tpi_exact, lambda3d_tpi_interval,
-    link_probe, ExplicitPoint3D, ImplicitPoint3DLpi, ImplicitPoint3DTpi, IntervalNumber,
-    LpiExactResult, TpiExactResult, TpiIntervalResult, AVAILABLE,
+    less_than_on_x, less_than_on_y, less_than_on_z, link_probe, orient3d, AsGenericPoint,
+    ExplicitPoint3D, ImplicitPoint3DLpi, ImplicitPoint3DTpi, IntervalNumber, LpiExactResult, Sign,
+    TpiExactResult, TpiIntervalResult, AVAILABLE,
 };
 
 #[cfg(not(ip_unavailable))]
@@ -638,4 +639,148 @@ fn implicit_point_3d_lpi_multiple_instances_share_explicit_borrows() {
         result.is_ok(),
         "multiple LPIs sharing borrows must not panic"
     );
+}
+
+// =========================================================================
+// PR-CR-IP6 — Sign enum + AsGenericPoint trait + orient3d + comparators
+// =========================================================================
+
+#[test]
+fn sign_from_int_round_trip() {
+    assert_eq!(Sign::from_int(-1), Sign::Negative);
+    assert_eq!(Sign::from_int(0), Sign::Zero);
+    assert_eq!(Sign::from_int(1), Sign::Positive);
+    assert_eq!(Sign::from_int(2), Sign::Undefined);
+    // Defensive: unexpected values map to Undefined.
+    assert_eq!(Sign::from_int(99), Sign::Undefined);
+    assert_eq!(Sign::from_int(-99), Sign::Undefined);
+}
+
+#[test]
+fn sign_derives() {
+    let a = Sign::Positive;
+    let b = a; // Copy
+    assert_eq!(a, b);
+    assert_ne!(Sign::Positive, Sign::Negative);
+    // Debug formatting smoke check
+    let _ = format!("{:?}", Sign::Zero);
+    fn requires_copy<T: Copy>() {}
+    requires_copy::<Sign>();
+}
+
+#[test]
+fn as_generic_point_trait_impls_compile() {
+    // Compile-time check: all 3 handle types implement AsGenericPoint.
+    fn check<T: AsGenericPoint>(_: &T) {}
+    let ep = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    check(&ep);
+    let p = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let q = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+    let r = ExplicitPoint3D::new(0.0, 1.0, 0.0);
+    let s = ExplicitPoint3D::new(0.0, 0.0, 1.0);
+    let t = ExplicitPoint3D::new(1.0, 1.0, 1.0);
+    let lpi = ImplicitPoint3DLpi::new(&p, &q, &r, &s, &t);
+    check(&lpi);
+    let v1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let v2 = ExplicitPoint3D::new(0.0, 1.0, 0.0);
+    let v3 = ExplicitPoint3D::new(0.0, 0.0, 1.0);
+    let w1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let w2 = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+    let w3 = ExplicitPoint3D::new(0.0, 0.0, 1.0);
+    let u1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let u2 = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+    let u3 = ExplicitPoint3D::new(0.0, 1.0, 0.0);
+    let tpi = ImplicitPoint3DTpi::new(&v1, &v2, &v3, &w1, &w2, &w3, &u1, &u2, &u3);
+    check(&tpi);
+}
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn orient3d_positive_explicit_tetrahedron() {
+    let p1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let p2 = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+    let p3 = ExplicitPoint3D::new(0.0, 1.0, 0.0);
+    let p4 = ExplicitPoint3D::new(0.0, 0.0, 1.0);
+    let sign = orient3d(&p1, &p2, &p3, &p4);
+    assert_eq!(
+        sign,
+        Sign::Positive,
+        "positive tetrahedron (0,0,0)(1,0,0)(0,1,0)(0,0,1) should be Positive"
+    );
+}
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn orient3d_coplanar_explicit_zero() {
+    // All four points on z=0 plane.
+    let p1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let p2 = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+    let p3 = ExplicitPoint3D::new(0.0, 1.0, 0.0);
+    let p4 = ExplicitPoint3D::new(0.5, 0.5, 0.0);
+    let sign = orient3d(&p1, &p2, &p3, &p4);
+    assert_eq!(
+        sign,
+        Sign::Zero,
+        "coplanar points should give Zero orientation"
+    );
+}
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn orient3d_negative_explicit_swapped() {
+    // Swap p2 and p3 from the positive tetrahedron → flip orientation.
+    let p1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let p2 = ExplicitPoint3D::new(0.0, 1.0, 0.0);
+    let p3 = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+    let p4 = ExplicitPoint3D::new(0.0, 0.0, 1.0);
+    let sign = orient3d(&p1, &p2, &p3, &p4);
+    assert_eq!(
+        sign,
+        Sign::Negative,
+        "swapped-orientation tetrahedron should be Negative"
+    );
+}
+
+#[cfg(ip_unavailable)]
+#[test]
+fn orient3d_stub_returns_undefined() {
+    let p1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let p2 = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+    let p3 = ExplicitPoint3D::new(0.0, 1.0, 0.0);
+    let p4 = ExplicitPoint3D::new(0.0, 0.0, 1.0);
+    assert_eq!(orient3d(&p1, &p2, &p3, &p4), Sign::Undefined);
+}
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn less_than_on_x_explicit_ordered() {
+    let p1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let p2 = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+    assert_eq!(
+        less_than_on_x(&p1, &p2),
+        Sign::Positive,
+        "p1.x < p2.x should give Positive"
+    );
+    // Reverse → Negative.
+    assert_eq!(less_than_on_x(&p2, &p1), Sign::Negative);
+}
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn less_than_on_y_explicit_equal() {
+    let p1 = ExplicitPoint3D::new(0.0, 5.0, 0.0);
+    let p2 = ExplicitPoint3D::new(0.0, 5.0, 0.0);
+    assert_eq!(
+        less_than_on_y(&p1, &p2),
+        Sign::Zero,
+        "equal y coords should give Zero"
+    );
+}
+
+#[cfg(ip_unavailable)]
+#[test]
+fn less_than_on_z_stub_returns_undefined() {
+    let p1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let p2 = ExplicitPoint3D::new(0.0, 0.0, 1.0);
+    assert_eq!(less_than_on_z(&p1, &p2), Sign::Undefined);
 }

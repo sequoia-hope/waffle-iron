@@ -116,3 +116,21 @@ extern "C" void* ip_implicit_point3d_tpi_new(
 extern "C" void ip_implicit_point3d_tpi_drop(void* p) {
     free(p);
 }
+
+// ----- PR-CR-IP6 stubs: return 2 (IP_Sign::UNDEFINED). Rust's
+// stub-mode tests assert this sentinel.
+extern "C" int ip_orient3d_indirect_iiii(
+    const void* /*p1*/, const void* /*p2*/,
+    const void* /*p3*/, const void* /*p4*/
+) {
+    return 2;
+}
+extern "C" int ip_less_than_on_x_ii(const void* /*p1*/, const void* /*p2*/) {
+    return 2;
+}
+extern "C" int ip_less_than_on_y_ii(const void* /*p1*/, const void* /*p2*/) {
+    return 2;
+}
+extern "C" int ip_less_than_on_z_ii(const void* /*p1*/, const void* /*p2*/) {
+    return 2;
+}

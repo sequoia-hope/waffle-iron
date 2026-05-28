@@ -244,6 +244,26 @@ extern "C" void ip_implicit_point3d_tpi_drop(void* p) {
     delete (implicitPoint3D_TPI*)p;
 }
 
+// ----- PR-CR-IP6 RED stubs: return 2 (Undefined sentinel) so Rust's
+// orient3d / less_than_* return Sign::Undefined. Tests assertting
+// specific Signs in available mode will fail. GREEN replaces with
+// real `orient3d_indirect_IIII` / `lessThanOnX/Y/Z_II` calls.
+extern "C" int ip_orient3d_indirect_iiii(
+    const void* /*p1*/, const void* /*p2*/,
+    const void* /*p3*/, const void* /*p4*/
+) {
+    return 2;  // IP_Sign::UNDEFINED
+}
+extern "C" int ip_less_than_on_x_ii(const void* /*p1*/, const void* /*p2*/) {
+    return 2;
+}
+extern "C" int ip_less_than_on_y_ii(const void* /*p1*/, const void* /*p2*/) {
+    return 2;
+}
+extern "C" int ip_less_than_on_z_ii(const void* /*p1*/, const void* /*p2*/) {
+    return 2;
+}
+
 extern "C" void ip_lambda3d_tpi_exact(
     const double* v, const double* w, const double* u,
     double** lambda_x_out, int* lambda_x_len,
