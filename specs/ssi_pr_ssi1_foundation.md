@@ -76,6 +76,14 @@ Let `D = |c_b − c_a|`.
   parameter values via `eval`; every sample satisfies **both** input surfaces'
   implicit equations within `TAU_MODEL` — plane: `|n·(x−p)| < TAU_MODEL`; sphere:
   `| |x−c| − r | < TAU_MODEL`.
+  *Tolerance-model note (Adversary, PR-SSI1):* I1 uses an **absolute** `TAU_MODEL`.
+  The solvers are **relative**-correct at every scale (center/radius to rel-error
+  ~1e-12 at coordinate magnitudes up to ≥1e9), but the absolute on-surface residual
+  is bounded by f64 representation error at the coordinate magnitude: it holds to
+  ~1e8 (residual ~1.5e-8) and exceeds `TAU_MODEL` near ~1e9 (residual ~2.4e-7).
+  So the absolute I1 oracle is valid for coordinate magnitudes ~1e-6 … ~1e8 (the
+  whole meters-scale CAD range). A Stage-3 consumer operating on larger coordinates
+  must use a **relative** residual — not a solver defect.
 - **I2 (analytical geometry):** assert the closed-form facts — plane∩sphere circle
   center is the foot of perpendicular from sphere center; radius² = r² − d²; circle
   normal ∥ plane normal. sphere∩sphere center/radius per the formula above.
