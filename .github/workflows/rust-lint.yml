@@ -1,0 +1,51 @@
+name: Rust lint (new kernel crates)
+
+# Gates fmt + clippy on the clean-sheet kernel-rewrite crates so the hygiene
+# debt cleared in PRs leading up to M2 can't silently creep back. Scoped to the
+# new crates ONLY — the legacy `crates/kernel/` (being replaced) is intentionally
+# excluded; it carries pre-existing drift that is out of scope for this gate.
+#
+# Lint only (fmt --check + clippy -D warnings). Tests are not run here: the
+# sidecar crates' integration tests need the external C++ binaries, which aren't
+# present on the runner (they self-skip). See scripts/build_sidecars.sh.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # The same crate list for both steps. cherchi-sidecar-rs is pure Rust (it only
+  # shells out at test-runtime). indirect-predicates-sidecar-rs builds a C++ stub
+  # via cc+bindgen when the upstream source is absent (the CI case), so it needs
+  # a C toolchain + libclang — installed below.
+  NEW_CRATES: >-
+    -p cad-primitives
+    -p cherchi-rs
+    -p ssi-rs
+    -p yang-rs
+    -p kernel-v2
+    -p cherchi-sidecar-rs
+    -p indirect-predicates-sidecar-rs
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clippy + rustfmt + libclang
+        run: |
+          rustup component add clippy rustfmt
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev
+
+      - name: rustfmt --check
+        run: cargo fmt --check ${{ env.NEW_CRATES }}
+
+      - name: clippy -D warnings
+        run: cargo clippy --all-targets ${{ env.NEW_CRATES }} -- -D warnings
