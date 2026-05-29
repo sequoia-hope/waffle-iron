@@ -15,12 +15,15 @@ rewrite. Bundles **M4**: demote the now-unused substitute functions to a
 
 ## Scope
 
-**In:** interpenetrating convex planar solids with **corner/edge-clipping**
-overlap (no face fully interior-pierced). Canonical case: unit cubes A@[0,0,0],
-B@[0.5,0.5,0.5] (diagonal offset ⇒ no coplanar faces, no interior pierce).
-**Out:** coplanar overlap / multi-solid surface labels (M8 — error loudly);
-faces with inner loops from interior-pierce (PR-YR5c); curved surfaces / SSI
-refinement (M5); native arrangement backend (M6).
+**In:** **Union, Intersect, Subtract** on interpenetrating convex planar solids
+with **corner/edge-clipping** overlap (no face fully interior-pierced). Must
+generalize across the scope (NOT just the canonical diagonal cubes) — e.g.
+A@[0,0,0], B@[0.7,0.3,0.4].
+**Out:** **Xor** (its symmetric-difference result is multi-shell / has a void
+that `reconstruct_topology` cannot reassemble yet — deferred; `boolean()` errors
+loudly with `YangError::UnsupportedOp`); coplanar overlap / multi-solid surface
+labels (M8 — `FaceResolutionFailed`); faces with inner loops from interior-pierce
+(PR-YR5c); curved surfaces / SSI refinement (M5); native arrangement backend (M6).
 
 ## Data flow (the rewrite)
 
@@ -54,9 +57,16 @@ double-match. No `None` fallback — that reintroduces the non-manifold skeleton
 
 ## Invariants
 
-- **I6 (welded):** the arrangement mesh has no two distinct vertex indices with
-  coincident coords (verified empirically for diagonal cubes: 22 unique verts).
-  yang's index-based adjacency depends on this; assert it defensively.
+- **I6 (welded — by yang, NOT assumed):** yang's index-based adjacency requires
+  every coincident vertex to share one index. The C++ `computeFinalExplicitResult`
+  does **not** always weld — for A@[0,0,0]/B@[0.7,0.3,0.4] it emits a **bit-exact
+  duplicate** vertex used by shared triangles (adversary finding; my planning
+  "22 unique verts" held only for the diagonal cubes). So yang must **weld**
+  (merge bit-identical verts → shared index, remapping tris) before building the
+  kept sub-mesh / adjacency — NOT reject a non-welded mesh. Defensive guard: if
+  any TAU_WORK-near-but-bit-distinct verts remain after the bit-exact weld (the
+  exact arrangement should never emit these), error (surfaces an unexpected
+  producer condition rather than silently fragmenting adjacency).
 - **I7 (unique face):** every kept triangle resolves to exactly one `(InputId,
   face)` (F1); else error.
 - **I8 (watertight):** the output mesh is closed — every directed half-edge has
