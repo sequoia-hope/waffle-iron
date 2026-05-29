@@ -63,7 +63,10 @@ fn resolve_source_dir() -> Option<PathBuf> {
 }
 
 fn header_present(src_dir: &Path) -> bool {
-    src_dir.join("include").join("indirect_predicates.h").is_file()
+    src_dir
+        .join("include")
+        .join("indirect_predicates.h")
+        .is_file()
 }
 
 fn compile_real_shim(src_dir: &Path) {

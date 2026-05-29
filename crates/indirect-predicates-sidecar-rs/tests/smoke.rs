@@ -9,6 +9,8 @@
 //!
 //! All tests pass in either state.
 
+#[cfg(ip_unavailable)]
+use indirect_predicates_sidecar_rs::less_than_on_z;
 use indirect_predicates_sidecar_rs::{
     init_fpu, lambda3d_lpi_exact, lambda3d_lpi_interval, lambda3d_tpi_exact, lambda3d_tpi_interval,
     link_probe, orient3d, AsGenericPoint, ExplicitPoint3D, ImplicitPoint3DLpi, ImplicitPoint3DTpi,
@@ -16,8 +18,6 @@ use indirect_predicates_sidecar_rs::{
 };
 #[cfg(not(ip_unavailable))]
 use indirect_predicates_sidecar_rs::{less_than_on_x, less_than_on_y};
-#[cfg(ip_unavailable)]
-use indirect_predicates_sidecar_rs::less_than_on_z;
 
 #[cfg(not(ip_unavailable))]
 #[test]
