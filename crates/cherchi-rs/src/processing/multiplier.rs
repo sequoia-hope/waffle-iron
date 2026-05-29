@@ -163,7 +163,9 @@ mod tests {
 
     #[test]
     fn order_independence() {
-        let forward = [1.0, 1e6, 0.5, -100.0, 3.14, 1e10];
+        // Arbitrary mixed-scale coordinates (the `3.5` is just a mid-range
+        // value, deliberately not ~π, to avoid clippy::approx_constant).
+        let forward = [1.0, 1e6, 0.5, -100.0, 3.5, 1e10];
         let reversed: Vec<f64> = forward.iter().rev().copied().collect();
         assert_eq!(
             compute_multiplier(&forward),
@@ -262,7 +264,9 @@ mod tests {
     /// Identity property for arbitrary non-empty slice.
     #[test]
     fn multiply_identity_preserves_bits() {
-        let original = [1.5, -2.5, 0.0, 3.14, -1e100, 1e-100];
+        // Arbitrary values (the `3.5` is a mid-range coordinate, deliberately
+        // not ~π, to avoid clippy::approx_constant).
+        let original = [1.5, -2.5, 0.0, 3.5, -1e100, 1e-100];
         let mut coords = original;
         multiply_coordinates(&mut coords, 1.0);
         assert_eq!(coords, original);
