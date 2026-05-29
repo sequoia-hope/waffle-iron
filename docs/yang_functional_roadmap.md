@@ -50,24 +50,35 @@ Defined **once, here**. Crate `CLAUDE.md` files reference this section; they mus
 not redefine the shape. Freeze it only after round-tripping the two validation
 cases in §3a.
 
-The output of Yang Stage 2. Per **output triangle** of the arrangement mesh:
+> **Revised 2026-05-29 (M2), solid-level provenance.** The original contract
+> below asked for `source: SmallVec<(InputId, parent_tri_index)>`. Inspecting the
+> Cherchi 2022 C++ source showed the input-*triangle* index is **lost** during
+> arrangement subdivision — daughter triangles inherit only the parent's
+> mesh-level label (`labels.surface`, a bitset of which input *solid*). Recovering
+> a triangle index would need an invasive patch to arrangement internals we don't
+> own. Yang reassembles *faces*, not triangles, and the face is recoverable from
+> solid-id + plane-membership (the exact arrangement keeps each non-coplanar
+> sub-triangle in its source face's plane) — which yang-rs does in M3. So the
+> contract is **solid-level**; the triangle index is dropped. See
+> `specs/yang_m2_labeled_arrangement.md`.
 
-- `source: SmallVec<(InputId, parent_tri_index)>` — which input(s) and which
-  input triangle(s) this output triangle descends from. **≥1 entry normally;
-  ≥2 only at coplanar overlap** (an output triangle can belong to both A and B —
-  Cherchi 2022 §3). A scalar source is WRONG and will silently mis-attribute
-  coplanar faces (the exact case the legacy port died on).
-- `patch_id` — Cherchi classifies *patches* (maximal triangle sets bounded by
-  intersection lines), not individual triangles.
+The output of Yang Stage 2 — the **full** arrangement mesh (all sub-triangles,
+before any op filter; yang-rs does its own op selection). Per **output triangle**:
 
-Plus a `patch_id → inout_vector` table, where `inout_vector` carries **one
-in/out bit per input mesh** (in/out is relative to each input, not a single bit).
+- `surface: Vec<InputId>` — which input solid(s) the triangle lies on. **len ≥1
+  normally; len ≥2 only at coplanar overlap** (an output triangle can belong to
+  both A and B — Cherchi 2022 §3). A scalar would silently mis-attribute coplanar
+  faces (the case the legacy port died on).
+- `inside: Vec<bool>` — in/out per input solid (`inside[k]` = the triangle is
+  inside solid `k`). Captured **before** the op filter collapses it.
+- `patch_id: u32` — Cherchi's connected same-surface patch (its own Stage-5
+  grouping), one per triangle.
 
-**Division of labour.** `yang-rs` owns the mesh→B-Rep mapping itself via its
-Stage-1 `TessellationMap`. Therefore the producer reports only **mesh-level**
-provenance (`InputId` + input triangle index); it never needs to know about
-B-Rep faces. `yang-rs` composes: output tri → (producer) input tri → (its own
-`TessellationMap`) B-Rep face.
+**Division of labour.** `yang-rs` owns the mesh→B-Rep mapping via its Stage-1
+`TessellationMap` + geometric plane-membership. The producer reports only
+**solid-level** provenance + in/out + patch; `yang-rs` composes: output tri →
+(producer: solid A/B) + (geometry: which of that solid's face-planes contains it)
+→ B-Rep face.
 
 ## 3. Producers
 
