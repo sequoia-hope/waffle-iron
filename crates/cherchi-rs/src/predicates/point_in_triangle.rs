@@ -67,12 +67,7 @@ pub enum PointLocation {
 /// NaN / infinite inputs produce undefined behavior. Degenerate
 /// (collinear) triangles produce deterministic but unspecified
 /// results — caller's responsibility to filter.
-pub fn point_in_triangle_3d(
-    p: Point3,
-    a: Point3,
-    b: Point3,
-    c: Point3,
-) -> PointLocation {
+pub fn point_in_triangle_3d(p: Point3, a: Point3, b: Point3, c: Point3) -> PointLocation {
     // Project to each of the 3 cardinal 2D planes (axis-drop projections).
     let drop_z = |q: Point3| [q.x(), q.y()];
     let drop_y = |q: Point3| [q.x(), q.z()];
@@ -186,7 +181,10 @@ mod tests {
     fn interior_coplanar_xy() {
         let (a, b, c) = xy_triangle();
         let p = Point3::new(0.25, 0.25, 0.0);
-        assert_eq!(point_in_triangle_3d(p, a, b, c), PointLocation::StrictlyInside);
+        assert_eq!(
+            point_in_triangle_3d(p, a, b, c),
+            PointLocation::StrictlyInside
+        );
     }
 
     #[test]
@@ -206,14 +204,20 @@ mod tests {
     fn coplanar_but_outside_xy() {
         let (a, b, c) = xy_triangle();
         let p = Point3::new(2.0, 0.0, 0.0);
-        assert_eq!(point_in_triangle_3d(p, a, b, c), PointLocation::StrictlyOutside);
+        assert_eq!(
+            point_in_triangle_3d(p, a, b, c),
+            PointLocation::StrictlyOutside
+        );
     }
 
     #[test]
     fn far_away_outside() {
         let (a, b, c) = xy_triangle();
         let p = Point3::new(10.0, 10.0, 10.0);
-        assert_eq!(point_in_triangle_3d(p, a, b, c), PointLocation::StrictlyOutside);
+        assert_eq!(
+            point_in_triangle_3d(p, a, b, c),
+            PointLocation::StrictlyOutside
+        );
     }
 
     // ── Group 2: Non-axis-aligned triangle ────────────────────────────
@@ -232,7 +236,10 @@ mod tests {
         let (a, b, c) = tilted_triangle();
         // Centroid: (1/3, 1/3, 1/3). Sums to 1.0 → coplanar.
         let p = Point3::new(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0);
-        assert_eq!(point_in_triangle_3d(p, a, b, c), PointLocation::StrictlyInside);
+        assert_eq!(
+            point_in_triangle_3d(p, a, b, c),
+            PointLocation::StrictlyInside
+        );
     }
 
     #[test]
@@ -240,7 +247,10 @@ mod tests {
         let (a, b, c) = tilted_triangle();
         // (1, 1, -1) is on plane x+y+z=1 but far outside the simplex.
         let p = Point3::new(1.0, 1.0, -1.0);
-        assert_eq!(point_in_triangle_3d(p, a, b, c), PointLocation::StrictlyOutside);
+        assert_eq!(
+            point_in_triangle_3d(p, a, b, c),
+            PointLocation::StrictlyOutside
+        );
     }
 
     // ── Group 3: B-07 regression — non-coplanar point over interior ──
@@ -295,12 +305,30 @@ mod tests {
         let (a, b, c) = xy_triangle();
         let p = Point3::new(0.25, 0.25, 0.0);
         // All 6 permutations of (a, b, c) yield StrictlyInside
-        assert_eq!(point_in_triangle_3d(p, a, b, c), PointLocation::StrictlyInside);
-        assert_eq!(point_in_triangle_3d(p, a, c, b), PointLocation::StrictlyInside);
-        assert_eq!(point_in_triangle_3d(p, b, a, c), PointLocation::StrictlyInside);
-        assert_eq!(point_in_triangle_3d(p, b, c, a), PointLocation::StrictlyInside);
-        assert_eq!(point_in_triangle_3d(p, c, a, b), PointLocation::StrictlyInside);
-        assert_eq!(point_in_triangle_3d(p, c, b, a), PointLocation::StrictlyInside);
+        assert_eq!(
+            point_in_triangle_3d(p, a, b, c),
+            PointLocation::StrictlyInside
+        );
+        assert_eq!(
+            point_in_triangle_3d(p, a, c, b),
+            PointLocation::StrictlyInside
+        );
+        assert_eq!(
+            point_in_triangle_3d(p, b, a, c),
+            PointLocation::StrictlyInside
+        );
+        assert_eq!(
+            point_in_triangle_3d(p, b, c, a),
+            PointLocation::StrictlyInside
+        );
+        assert_eq!(
+            point_in_triangle_3d(p, c, a, b),
+            PointLocation::StrictlyInside
+        );
+        assert_eq!(
+            point_in_triangle_3d(p, c, b, a),
+            PointLocation::StrictlyInside
+        );
     }
 
     #[test]
@@ -320,57 +348,32 @@ mod tests {
     #[test]
     fn primitive_2d_interior() {
         // Unit triangle (CCW): (0,0), (1,0), (0,1); point (0.25, 0.25) inside
-        let result = point_in_triangle_2d(
-            [0.25, 0.25],
-            [0.0, 0.0],
-            [1.0, 0.0],
-            [0.0, 1.0],
-        );
+        let result = point_in_triangle_2d([0.25, 0.25], [0.0, 0.0], [1.0, 0.0], [0.0, 1.0]);
         assert_eq!(result, PointLocation::StrictlyInside);
     }
 
     #[test]
     fn primitive_2d_interior_cw_winding() {
         // CW winding — same classification (sign convention agnostic)
-        let result = point_in_triangle_2d(
-            [0.25, 0.25],
-            [0.0, 0.0],
-            [0.0, 1.0],
-            [1.0, 0.0],
-        );
+        let result = point_in_triangle_2d([0.25, 0.25], [0.0, 0.0], [0.0, 1.0], [1.0, 0.0]);
         assert_eq!(result, PointLocation::StrictlyInside);
     }
 
     #[test]
     fn primitive_2d_vertex_and_edge() {
         // Vertex of triangle
-        let r_v = point_in_triangle_2d(
-            [0.0, 0.0],
-            [0.0, 0.0],
-            [1.0, 0.0],
-            [0.0, 1.0],
-        );
+        let r_v = point_in_triangle_2d([0.0, 0.0], [0.0, 0.0], [1.0, 0.0], [0.0, 1.0]);
         assert_eq!(r_v, PointLocation::OnBoundary);
 
         // Edge midpoint
-        let r_e = point_in_triangle_2d(
-            [0.5, 0.0],
-            [0.0, 0.0],
-            [1.0, 0.0],
-            [0.0, 1.0],
-        );
+        let r_e = point_in_triangle_2d([0.5, 0.0], [0.0, 0.0], [1.0, 0.0], [0.0, 1.0]);
         assert_eq!(r_e, PointLocation::OnBoundary);
     }
 
     #[test]
     fn primitive_2d_outside() {
         // Far outside
-        let result = point_in_triangle_2d(
-            [10.0, 10.0],
-            [0.0, 0.0],
-            [1.0, 0.0],
-            [0.0, 1.0],
-        );
+        let result = point_in_triangle_2d([10.0, 10.0], [0.0, 0.0], [1.0, 0.0], [0.0, 1.0]);
         assert_eq!(result, PointLocation::StrictlyOutside);
     }
 
@@ -379,12 +382,7 @@ mod tests {
         // Point on the LINE through (0,0)-(1,0) but beyond the edge
         // (i.e., at x=2, y=0). orient2d on (a,b,p) = 0 (collinear);
         // but the other two orient2ds have mixed signs → StrictlyOutside.
-        let result = point_in_triangle_2d(
-            [2.0, 0.0],
-            [0.0, 0.0],
-            [1.0, 0.0],
-            [0.0, 1.0],
-        );
+        let result = point_in_triangle_2d([2.0, 0.0], [0.0, 0.0], [1.0, 0.0], [0.0, 1.0]);
         assert_eq!(result, PointLocation::StrictlyOutside);
     }
 

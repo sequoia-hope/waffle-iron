@@ -276,15 +276,15 @@ mod tests {
         let a = Point3::new(5.0, 5.0, 0.0); // in z=0 plane (T2's), far away
         let b = Point3::new(6.0, 5.0, 0.0); // in z=0 plane, far away
         let c = Point3::new(5.0, 5.0, 1.0); // above plane
-        // Edge (a, b) lies in T2's plane but is far from T2 itself.
-        // segment-triangle returns Coplanar for that edge.
-        // Other T1 edges: one endpoint in T2's plane, other above; line
-        // tests show line passes far from T2 → Disjoint.
-        // T2 edges: all in z=0 plane, T1 has vertices on both sides of
-        // T1's plane (which is y=5), but T2's vertices are all at y<5
-        // (same side) → Disjoint for all T2 edges.
-        // Aggregation: any_intersects=false, any_coplanar=true → Coplanar.
-        // Caller's 2D refinement would correctly identify Disjoint.
+                                            // Edge (a, b) lies in T2's plane but is far from T2 itself.
+                                            // segment-triangle returns Coplanar for that edge.
+                                            // Other T1 edges: one endpoint in T2's plane, other above; line
+                                            // tests show line passes far from T2 → Disjoint.
+                                            // T2 edges: all in z=0 plane, T1 has vertices on both sides of
+                                            // T1's plane (which is y=5), but T2's vertices are all at y<5
+                                            // (same side) → Disjoint for all T2 edges.
+                                            // Aggregation: any_intersects=false, any_coplanar=true → Coplanar.
+                                            // Caller's 2D refinement would correctly identify Disjoint.
         assert_eq!(
             triangle_intersects_triangle_3d(a, b, c, d, e, f),
             TriangleIntersection::Coplanar
@@ -303,8 +303,8 @@ mod tests {
     fn non_coplanar_shared_edge_returns_intersects() {
         let (a, b, c) = xy_triangle(); // (0,0,0),(1,0,0),(0,1,0)
         let (d, e, f) = xz_triangle(); // (0,0,0),(1,0,0),(0,0,1)
-        // Triangles share edge (0,0,0)-(1,0,0). The geometric truth is
-        // Intersects (shared edge = intersection segment).
+                                       // Triangles share edge (0,0,0)-(1,0,0). The geometric truth is
+                                       // Intersects (shared edge = intersection segment).
         assert_eq!(
             triangle_intersects_triangle_3d(a, b, c, d, e, f),
             TriangleIntersection::Intersects

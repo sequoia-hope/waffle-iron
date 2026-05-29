@@ -27,21 +27,9 @@ pub fn points_are_collinear_3d(a: Point3, b: Point3, c: Point3) -> bool {
     // the three points span 2D in that plane and thus are not collinear in 3D.
     // If all three projections return exactly 0, the points lie on a single
     // line (or are degenerate-collinear: two or more coincident).
-    let drop_z = geometry_predicates::orient2d(
-        [a.x(), a.y()],
-        [b.x(), b.y()],
-        [c.x(), c.y()],
-    );
-    let drop_y = geometry_predicates::orient2d(
-        [a.x(), a.z()],
-        [b.x(), b.z()],
-        [c.x(), c.z()],
-    );
-    let drop_x = geometry_predicates::orient2d(
-        [a.y(), a.z()],
-        [b.y(), b.z()],
-        [c.y(), c.z()],
-    );
+    let drop_z = geometry_predicates::orient2d([a.x(), a.y()], [b.x(), b.y()], [c.x(), c.y()]);
+    let drop_y = geometry_predicates::orient2d([a.x(), a.z()], [b.x(), b.z()], [c.x(), c.z()]);
+    let drop_x = geometry_predicates::orient2d([a.y(), a.z()], [b.y(), b.z()], [c.y(), c.z()]);
     drop_z == 0.0 && drop_y == 0.0 && drop_x == 0.0
 }
 

@@ -89,12 +89,8 @@ pub fn segment_intersects_triangle_3d(
 
     // 5. If mixed signs (any Positive AND any Negative) → line passes
     //    outside the triangle.
-    let any_pos = l_ab == Sign::Positive
-        || l_bc == Sign::Positive
-        || l_ca == Sign::Positive;
-    let any_neg = l_ab == Sign::Negative
-        || l_bc == Sign::Negative
-        || l_ca == Sign::Negative;
+    let any_pos = l_ab == Sign::Positive || l_bc == Sign::Positive || l_ca == Sign::Positive;
+    let any_neg = l_ab == Sign::Negative || l_bc == Sign::Negative || l_ca == Sign::Negative;
 
     if any_pos && any_neg {
         Disjoint

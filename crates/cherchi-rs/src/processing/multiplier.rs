@@ -31,11 +31,7 @@
 ///
 /// NaN / infinite inputs produce undefined behavior. Caller's responsibility.
 pub fn compute_multiplier(coords: &[f64]) -> f64 {
-    let max_abs = coords
-        .iter()
-        .copied()
-        .map(f64::abs)
-        .fold(0.0_f64, f64::max);
+    let max_abs = coords.iter().copied().map(f64::abs).fold(0.0_f64, f64::max);
 
     // Sub-unit (or zero / empty) inputs need no upscaling.
     if max_abs < 1.0 {
@@ -129,10 +125,7 @@ mod tests {
     #[test]
     fn cad_scale_max_wins() {
         // max|c| = 1e10 dominates the small values; result = 2^34
-        assert_eq!(
-            compute_multiplier(&[1.0, 1.0, 1e10]),
-            2.0_f64.powi(34)
-        );
+        assert_eq!(compute_multiplier(&[1.0, 1.0, 1e10]), 2.0_f64.powi(34));
     }
 
     // ── Group 4: Edge cases (clamp boundary) ──────────────────────────
@@ -147,10 +140,7 @@ mod tests {
     #[test]
     fn clamp_overflow() {
         // max|c| = 2^70; ceil = 70; clamped to 2^62
-        assert_eq!(
-            compute_multiplier(&[2.0_f64.powi(70)]),
-            2.0_f64.powi(62)
-        );
+        assert_eq!(compute_multiplier(&[2.0_f64.powi(70)]), 2.0_f64.powi(62));
     }
 
     #[test]
@@ -167,10 +157,7 @@ mod tests {
         // value, deliberately not ~π, to avoid clippy::approx_constant).
         let forward = [1.0, 1e6, 0.5, -100.0, 3.5, 1e10];
         let reversed: Vec<f64> = forward.iter().rev().copied().collect();
-        assert_eq!(
-            compute_multiplier(&forward),
-            compute_multiplier(&reversed)
-        );
+        assert_eq!(compute_multiplier(&forward), compute_multiplier(&reversed));
     }
 
     // ── Group 6: A-05 deviation regression ────────────────────────────

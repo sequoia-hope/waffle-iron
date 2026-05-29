@@ -68,11 +68,7 @@ pub fn max_component_in_triangle_normal(a: Point3, b: Point3, c: Point3) -> Axis
 /// must fall back to the exact path.
 ///
 /// Soundness: if `Some(axis)` is returned, `axis` is provably correct.
-pub(crate) fn max_component_filtered(
-    a: Point3,
-    b: Point3,
-    c: Point3,
-) -> Option<Axis> {
+pub(crate) fn max_component_filtered(a: Point3, b: Point3, c: Point3) -> Option<Axis> {
     // Cross product n = (b - a) × (c - a)
     let (bx_ax, by_ay, bz_az) = (b.x() - a.x(), b.y() - a.y(), b.z() - a.z());
     let (cx_ax, cy_ay, cz_az) = (c.x() - a.x(), c.y() - a.y(), c.z() - a.z());
@@ -84,9 +80,15 @@ pub(crate) fn max_component_filtered(
     // Conservative Shewchuk-style error bound: 4 * EPSILON * max_var^2.
     // See file header / spec §"Conservative error bound (deliberate deviation)".
     let max_var = [
-        a.x(), a.y(), a.z(),
-        b.x(), b.y(), b.z(),
-        c.x(), c.y(), c.z(),
+        a.x(),
+        a.y(),
+        a.z(),
+        b.x(),
+        b.y(),
+        b.z(),
+        c.x(),
+        c.y(),
+        c.z(),
     ]
     .iter()
     .copied()
