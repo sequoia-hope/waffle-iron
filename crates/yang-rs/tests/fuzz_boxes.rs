@@ -220,6 +220,7 @@ impl OrientedBox {
                 BRepFace {
                     surface: Surface::Plane { normal, d },
                     outer_loop: loops[i].clone(),
+                    inner_loops: Vec::new(),
                 }
             })
             .collect();

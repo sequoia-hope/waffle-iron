@@ -1319,6 +1319,7 @@ mod tests {
                 d: 0.0,
             },
             outer_loop: vec![0, 1, 2],
+            inner_loops: Vec::new(),
         };
         assert_eq!(v.point, p(0.0, 0.0, 0.0));
         assert_eq!(e.start, 0);
@@ -1408,6 +1409,7 @@ mod tests {
         let faces = vec![BRepFace {
             surface: plane_z_up(),
             outer_loop: vec![0, 1, 2],
+            inner_loops: Vec::new(),
         }];
         let b = BRep::new(verts, edges, faces).unwrap();
         assert_eq!(b.num_verts(), 3);
@@ -1461,6 +1463,7 @@ mod tests {
         let faces = vec![BRepFace {
             surface: plane_z_up(),
             outer_loop: vec![0, 1, 2, 3],
+            inner_loops: Vec::new(),
         }];
         let b = BRep::new(verts, edges, faces).unwrap();
         assert_eq!(b.num_verts(), 4);
@@ -1555,18 +1558,22 @@ mod tests {
             BRepFace {
                 surface: plane_z_up(),
                 outer_loop: vec![0, 1, 2],
+                inner_loops: Vec::new(),
             }, // bottom (verts 0,1,2)
             BRepFace {
                 surface: plane_z_up(),
                 outer_loop: vec![9, 3, 7],
+                inner_loops: Vec::new(),
             }, // back (verts 1,0,3) - using 1→0,0→3,3→1
             BRepFace {
                 surface: plane_z_up(),
                 outer_loop: vec![10, 4, 8],
+                inner_loops: Vec::new(),
             }, // right (verts 2,1,3)
             BRepFace {
                 surface: plane_z_up(),
                 outer_loop: vec![11, 5, 6],
+                inner_loops: Vec::new(),
             }, // left (verts 0,2,3)
         ];
         let b = BRep::new(verts, edges, faces).unwrap();
@@ -1652,26 +1659,32 @@ mod tests {
             BRepFace {
                 surface: plane,
                 outer_loop: vec![0, 1, 2, 3],
+                inner_loops: Vec::new(),
             },
             BRepFace {
                 surface: plane,
                 outer_loop: vec![4, 5, 6, 7],
+                inner_loops: Vec::new(),
             },
             BRepFace {
                 surface: plane,
                 outer_loop: vec![8, 9, 10, 11],
+                inner_loops: Vec::new(),
             },
             BRepFace {
                 surface: plane,
                 outer_loop: vec![12, 13, 14, 15],
+                inner_loops: Vec::new(),
             },
             BRepFace {
                 surface: plane,
                 outer_loop: vec![16, 17, 18, 19],
+                inner_loops: Vec::new(),
             },
             BRepFace {
                 surface: plane,
                 outer_loop: vec![20, 21, 22, 23],
+                inner_loops: Vec::new(),
             },
         ];
         let b = BRep::new(verts, edges, faces).unwrap();
@@ -1717,6 +1730,7 @@ mod tests {
         let faces = vec![BRepFace {
             surface: plane_z_up(),
             outer_loop: vec![0, 1, 2],
+            inner_loops: Vec::new(),
         }];
         let b = BRep::new(verts, edges, faces).unwrap();
         for i in 0..b.num_verts() as u32 {
@@ -1749,6 +1763,7 @@ mod tests {
         let faces = vec![BRepFace {
             surface: plane_z_up(),
             outer_loop: vec![0],
+            inner_loops: Vec::new(),
         }];
         let err = BRep::new(verts, edges, faces).unwrap_err();
         match err {
@@ -1791,6 +1806,7 @@ mod tests {
         let faces = vec![BRepFace {
             surface: plane_z_up(),
             outer_loop: vec![0, 1, 99],
+            inner_loops: Vec::new(),
         }];
         let err = BRep::new(verts, edges, faces).unwrap_err();
         match err {
@@ -1947,6 +1963,7 @@ mod tests {
                 d: 0.0,
             },
             outer_loop: vec![0, 1, 2],
+            inner_loops: Vec::new(),
         }];
         BRep::new(verts, edges, faces).unwrap()
     }
@@ -2146,10 +2163,12 @@ mod tests {
             BRepFace {
                 surface: f0_plane,
                 outer_loop: vec![0, 1, 2],
+                inner_loops: Vec::new(),
             }, // F0
             BRepFace {
                 surface: f1_plane,
                 outer_loop: vec![3, 4, 5],
+                inner_loops: Vec::new(),
             }, // F1
         ];
         BRep::new(verts, edges, faces).unwrap()
@@ -2623,6 +2642,7 @@ mod tests {
                     d: offs[i],
                 },
                 outer_loop: loops[i].clone(),
+                inner_loops: Vec::new(),
             })
             .collect();
         BRep::new(verts, edges, faces).unwrap()
