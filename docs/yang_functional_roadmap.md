@@ -140,12 +140,24 @@ reimplementation from Attene's paper restores WASM (M7).
   Spec: `specs/yang_m2_labeled_arrangement.md`; commits `0d321e6a` (spec+§2) →
   `3add0ebd` (RED) → `cd78d15b` (C++ patch+build) → `68bceb66` (GREEN Rust) →
   `b091553d` (adversarial + env hardening).
-- **M3 — `yang-rs` Stage 5/6 consume true labels → FIRST functional
-  (mesh-approximate) boolean.** Faceted output; validates Stage 1 → labels →
-  reassembly end-to-end (never achieved before).
+- **M3 — `yang-rs` Stage 5/6 consume true labels → FIRST functional boolean.**
+  ✅ **DONE.** `boolean()` consumes the `LabeledArrangement` (via the new
+  `MeshBoolean::labeled_arrangement` seam), welds the arrangement mesh,
+  `keep_set(op)`-selects + orients (`flip_for_op`) the kept tris, resolves each
+  tri's source face geometrically (centroid-in-plane, `TAU_WORK`; degenerate
+  edge-slivers attributed to the lowest tied face), and reassembles via
+  `reconstruct_topology` into a **watertight 2-manifold B-Rep**. Verified on
+  independent interpenetration geometry (not just the canonical cubes): signed
+  volumes exact (union/intersect/subtract), 0 unpaired half-edges, Euler V−E+F=2.
+  **Scope:** Union/Intersect/Subtract on interpenetrating convex planar solids.
+  **Deferred:** Xor (multi-shell — gated loudly via `YangError::UnsupportedOp`);
+  coplanar overlap (M8, `FaceResolutionFailed`); inner-loop faces (PR-YR5c);
+  curved surfaces/SSI (M5). Spec: `specs/yang_m3_functional_boolean.md`;
+  commits `4f206b27`→`4bac08cb`→`a945e037`→`d81eeda4`→`f43294c2`.
 - **M4 — Retain YR3/4/5 substitutes as a `#[cfg(test)]` differential oracle.**
-  Do not delete them — they are a free second attribution method to cross-check
-  the true-label path. Demote from production, keep as test.
+  ✅ **DONE** (bundled with M3). `match_with_input`/`face_candidates`/
+  `majority_vote` moved to `#[cfg(test)]`; differential test cross-checks the
+  real-label attribution against the substitute. Not deleted.
 - **M5 — Stage 3/4 SSI + CDT refinement** (faceted → surface-exact). `ssi-rs`
   solvers + mesh-updating CDT along refined curves. Stage 5/6's
   *patch-segmentation* logic is durable; only its *curve-source* changes — build
