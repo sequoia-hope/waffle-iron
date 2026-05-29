@@ -173,6 +173,29 @@ reimplementation from Attene's paper restores WASM (M7).
   solvers + mesh-updating CDT along refined curves. Stage 5/6's
   *patch-segmentation* logic is durable; only its *curve-source* changes — build
   the seam there.
+  - **Decision (curve representation):** the kernel uses **true analytical
+    curves** (a plane∩sphere edge is a `Circle`, not a polyline) with **f64
+    parameters** — zero shape error; topology robustness stays in the exact mesh
+    predicates (cherchi/dashu). This is the Yang/Parasolid/ACIS model and is NOT a
+    deviation (SSI *is* Yang Stage 3). Faceted-but-displayed-smooth was rejected
+    (inexact geometry that compounds through chained ops).
+  - **Step 1 — `ssi-rs` exact-SSI foundation (PR-SSI1) ✅ DONE.** Stood up the
+    crate's public surface (`QuadricSurface{Plane,Sphere}`, `SsiCurve{Line,Circle}`,
+    `SsiError`, `eval`, deterministic `in_plane_basis`) + the first 3 closed-form
+    solvers (`plane_plane`, `plane_sphere`, `sphere_sphere`, each citing
+    Patrikalakis §5.8) + `intersect()` dispatch. On-surface oracle (sample curve →
+    satisfy both surfaces) + analytical-geometry + symmetry + determinism oracles.
+    Adversary: no bugs; near-tangent guards short-circuit before `sqrt` (no NaN);
+    solvers relative-correct to ≥1e9 scale; the absolute on-surface oracle is
+    bounded to coordinate magnitude ~1e8 (recorded in spec — relative residual for
+    larger-scale Stage-3 consumers). Spec `specs/ssi_pr_ssi1_foundation.md`;
+    commits `8b1c7282`→`7255b380`→`c001101e` (RED)→`a508e865` (GREEN)→`c4e1efe0`
+    (adversary). 28/28 ssi-rs tests; CI gate clean; no sibling/legacy changes.
+  - **Next M5 increments (sequenced):** more solver pairs (plane-cylinder/cone,
+    sphere-cylinder; the Degree4 conic/quartic curves) → curved `Surface` variants
+    + curved Stage-1 tessellation in `yang-rs` → curved face resolution + the
+    planar-assumption migration → Stage 3 (wire `ssi-rs` into `yang-rs` to refine
+    mesh edges → SSI curves) → Stage 4 (CDT remesh along refined curves).
 - **M6 — Native `cherchi-rs` Stage 2** behind the same interface, parity-green
   vs the sidecar on the corpus.
 - **M7 — Clean-room indirect predicates from Attene's paper → restore WASM.**
