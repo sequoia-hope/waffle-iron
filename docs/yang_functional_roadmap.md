@@ -151,9 +151,20 @@ reimplementation from Attene's paper restores WASM (M7).
   volumes exact (union/intersect/subtract), 0 unpaired half-edges, Euler V−E+F=2.
   **Scope:** Union/Intersect/Subtract on interpenetrating convex planar solids.
   **Deferred:** Xor (multi-shell — gated loudly via `YangError::UnsupportedOp`);
-  coplanar overlap (M8, `FaceResolutionFailed`); inner-loop faces (PR-YR5c);
-  curved surfaces/SSI (M5). Spec: `specs/yang_m3_functional_boolean.md`;
+  coplanar overlap (M8, `FaceResolutionFailed`); curved surfaces/SSI (M5).
+  Spec: `specs/yang_m3_functional_boolean.md`;
   commits `4f206b27`→`4bac08cb`→`a945e037`→`d81eeda4`→`f43294c2`.
+- **PR-YR5c — B-Rep faces with inner loops (holes).** ✅ **DONE.** When one solid
+  pierces a hole through another's face, `reconstruct_topology` now builds the
+  annular face (multi-cycle boundary extraction; outer = largest-|area| cycle,
+  the rest are holes; cavity-wall normals flipped to point result-outward) instead
+  of erroring `NonManifoldOutput`. **Impact:** the randomized box-boolean fuzz
+  (`tests/fuzz_boxes.rs`, 900 cases) went from **75.2% → 100%** correct
+  (aligned 86.2→100%, rotated 64.2→100%), eliminating the entire
+  `NonManifoldOutput` bucket, with `SILENT_WRONG` still 0. Genuine non-manifold
+  (T-junction/dead-end) and nested holes still error loudly.
+  Spec: `specs/yang_pr_yr5c_inner_loops.md`; commits
+  `ed550ae5`→`bbb14283`→`d90aa5f1`→`59771f86`→`287ea5ee`.
 - **M4 — Retain YR3/4/5 substitutes as a `#[cfg(test)]` differential oracle.**
   ✅ **DONE** (bundled with M3). `match_with_input`/`face_candidates`/
   `majority_vote` moved to `#[cfg(test)]`; differential test cross-checks the
