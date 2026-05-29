@@ -84,7 +84,11 @@ fn assert_on_both_surfaces(curve: &SsiCurve, a: &QuadricSurface, b: &QuadricSurf
 
 // Pull a single Line out of a result, asserting exactly one curve of that kind.
 fn expect_single_line(curves: &[SsiCurve]) -> (Point3, Vector3) {
-    assert_eq!(curves.len(), 1, "expected exactly one curve, got {curves:?}");
+    assert_eq!(
+        curves.len(),
+        1,
+        "expected exactly one curve, got {curves:?}"
+    );
     match curves[0] {
         SsiCurve::Line { point, dir } => (point, dir),
         other => panic!("expected Line, got {other:?}"),
@@ -92,7 +96,11 @@ fn expect_single_line(curves: &[SsiCurve]) -> (Point3, Vector3) {
 }
 
 fn expect_single_circle(curves: &[SsiCurve]) -> (Point3, Vector3, f64) {
-    assert_eq!(curves.len(), 1, "expected exactly one curve, got {curves:?}");
+    assert_eq!(
+        curves.len(),
+        1,
+        "expected exactly one curve, got {curves:?}"
+    );
     match curves[0] {
         SsiCurve::Circle {
             center,
