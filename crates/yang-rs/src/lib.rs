@@ -76,6 +76,7 @@ use std::error::Error;
 use std::fmt;
 
 pub use cad_primitives::{BoolOp, Point3, Vector3};
+pub use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};
 pub use cherchi_rs::{Mesh, MeshBoolean};
 
 // =========================================================================
@@ -493,6 +494,12 @@ pub enum YangError {
     /// its Newell polygon normal has magnitude below `MIN_FEATURE_SIZE`,
     /// so its winding cannot be canonicalized. M1 (Stage-1 orientation).
     DegenerateFace { face: usize },
+    /// Geometric face resolution failed for a kept arrangement triangle
+    /// (M3, Stage 6). Either the triangle's surface label names ≥2 solids
+    /// (coplanar multi-solid overlap, out of scope → M8), or its centroid
+    /// lies on no input face plane / ties between ≥2 planes within
+    /// `TAU_WORK`. P9: fail loud, never a silent `None`.
+    FaceResolutionFailed { tri: usize },
 }
 
 impl fmt::Display for YangError {
@@ -512,6 +519,13 @@ impl fmt::Display for YangError {
                     "yang-rs: face {face} is degenerate (zero-area / collinear)"
                 )
             }
+            Self::FaceResolutionFailed { tri } => {
+                write!(
+                    f,
+                    "yang-rs: geometric face resolution failed for kept triangle {tri} \
+                     (coplanar multi-solid label, or centroid off all face planes / tie)"
+                )
+            }
         }
     }
 }
@@ -529,179 +543,186 @@ impl Error for YangError {
 // boolean() — PR-YR3 vertex provenance + PR-YR4 triangle attribution
 // =========================================================================
 
+/// Per-op orientation fix for a kept arrangement triangle, mirroring
+/// Cherchi's `booleans.cpp` post-keep flip loops:
+/// - Union (`boolUnion`) / Intersection (`boolIntersection`): no flip.
+/// - Subtraction (`boolSubtraction`:1480-1483): flip kept tris NOT on
+///   solid A's surface (`surface[t][0] != 1`) — the B-surface tris that
+///   bound the carved cavity, whose outward normal must point into A.
+/// - Xor (`boolXOR`:1506-1509): flip kept tris with any inside bit set
+///   (`inside.count() > 0`).
+fn flip_for_op(op: BoolOp, la: &LabeledArrangement, t: usize) -> bool {
+    match op {
+        BoolOp::Union | BoolOp::Intersect => false,
+        BoolOp::Subtract => {
+            // surface[t][0] set ⟺ solid 0 (A) is in the surface label list.
+            let on_a = la.surface[t].iter().any(|&LaInputId(id)| id == 0);
+            !on_a
+        }
+        BoolOp::Xor => la.inside[t].iter().any(|&b| b),
+    }
+}
+
 /// Boolean operation on two B-Rep solids via a `MeshBoolean` backend.
 ///
-/// Pipeline (after backend produces the output mesh):
-/// 1. **PR-YR3 vertex pass**: for each output vertex, spatially match
-///    against input A first, then B (within [`MATCH_TOLERANCE`]). On
-///    match, copy that input's `TessellationSource`; else mark
-///    `TessellationSource::Intersection`.
-/// 2. **PR-YR4 triangle pass**: for each output triangle, derive
-///    candidate `(InputId, face_idx)` sets from each vertex's
-///    provenance (a `BRepVertex(v)` contributes every face touching
-///    `v`; a `BRepEdge { edge }` contributes every face whose
-///    `outer_loop` contains it; a `BRepFace { face }` contributes the
-///    singleton; `Intersection`/`Unknown` contribute nothing).
-///    Attribution = `Some((input, face))` whose vote count is the
-///    maximum among pairs with count ≥ 2; ties broken by lowest
-///    `(input, face)` lexicographic. No 2-of-3 majority → `None`.
+/// **M3 functional pipeline** (replaces the PR-YR3/YR4 spatial-match +
+/// majority-vote substitute, now a `#[cfg(test)]` differential oracle):
 ///
-/// **NOT real Yang Stage 5/6.** Real Stage 5/6 needs per-triangle
-/// labels from Stage 2's arrangement which the C++ sidecar doesn't
-/// expose. PR-YR3 + PR-YR4 are sidecar-feasible substitutes that
-/// recover vertex- and triangle-level provenance via spatial matching
-/// and majority-vote. Output `BRep` topology (faces, edges) remains
-/// empty — face reconstruction is PR-YR5+.
+/// 1. Obtain the real Stage-2 [`LabeledArrangement`] from
+///    `backend.labeled_arrangement(..)` (full arrangement mesh +
+///    per-triangle `surface`/`inside`/`patch` labels).
+/// 2. **I6 weld guard** — the arrangement mesh must be index-welded (no
+///    two distinct vertex indices with bit-identical coords). yang's
+///    index-based adjacency depends on it; violation → `NonManifoldInput`.
+/// 3. `keep = la.keep_set(op)` — Stage 4 face survival.
+/// 4. Compact the kept tris into a fresh sub-mesh (the output mesh).
+/// 5. **Geometric face resolution** (Stage 6) per kept tri → a FULL
+///    `TriangleAttributionMap` (every entry `Some`). `surface[t]` of
+///    length ≠ 1 → `FaceResolutionFailed` (F2 coplanar / multi-solid);
+///    centroid off all planes or a tie within `TAU_WORK` →
+///    `FaceResolutionFailed` (F3). Never a silent `None` (P9).
+/// 6. `reconstruct_topology(..)` — flood-fill patches, walk boundary
+///    cycles, inherit input-face `Surface`; full attribution ⇒ closed
+///    boundary cycles ⇒ watertight 2-manifold output.
 pub fn boolean(
     a: &BRep,
     b: &BRep,
     op: BoolOp,
     backend: &dyn MeshBoolean,
 ) -> Result<BRep, YangError> {
-    let output_mesh = backend
-        .boolean(a.as_mesh(), b.as_mesh(), op)
+    // (1) Stage 2: full labeled arrangement.
+    let la = backend
+        .labeled_arrangement(a.as_mesh(), b.as_mesh())
         .map_err(YangError::MeshBooleanFailed)?;
 
-    // PR-YR3 vertex pass + internal InputId tracking for PR-YR4.
-    let mut sources = Vec::with_capacity(output_mesh.num_verts());
-    let mut inputs: Vec<Option<InputId>> = Vec::with_capacity(output_mesh.num_verts());
-    for &target in &output_mesh.verts {
-        let (input, src) = match_with_input(a, b, target);
-        sources.push(src);
-        inputs.push(input);
+    // (2) I6 weld guard: no two distinct vertex indices share bit-exact
+    // coords. O(n) via a bit-key hash set.
+    {
+        use std::collections::HashSet;
+        let mut seen: HashSet<[u64; 3]> = HashSet::with_capacity(la.mesh.verts.len());
+        for v in &la.mesh.verts {
+            let key = [v.x().to_bits(), v.y().to_bits(), v.z().to_bits()];
+            if !seen.insert(key) {
+                return Err(YangError::NonManifoldInput);
+            }
+        }
     }
-    let tessellation = TessellationMap { sources };
 
-    // PR-YR4 triangle pass.
-    let mut attributions = Vec::with_capacity(output_mesh.num_tris());
-    for tri in &output_mesh.tris {
-        let sets = [
-            face_candidates(inputs[tri[0] as usize], tessellation.lookup(tri[0]), a, b),
-            face_candidates(inputs[tri[1] as usize], tessellation.lookup(tri[1]), a, b),
-            face_candidates(inputs[tri[2] as usize], tessellation.lookup(tri[2]), a, b),
+    // (3) Stage 4: which arrangement tris survive `op`.
+    let kept = la.keep_set(op);
+
+    // (4) Compact kept sub-mesh: remap referenced verts to dense indices.
+    let mut remap: Vec<Option<u32>> = vec![None; la.mesh.verts.len()];
+    let mut compact_verts: Vec<Point3> = Vec::new();
+    let mut compact_tris: Vec<[u32; 3]> = Vec::with_capacity(kept.len());
+    // compact-tri index -> original `la` tri index (for surface lookup).
+    let mut orig_tri: Vec<usize> = Vec::with_capacity(kept.len());
+    for &orig_t in &kept {
+        let mut tri = la.mesh.tris[orig_t];
+        // Per-op winding fix (Cherchi booleans.cpp boolSubtraction:1480-1483 /
+        // boolXOR:1506-1509): the keep-rule selects triangles but some kept
+        // triangles bound the result with reversed orientation and must be
+        // flipped so the output is consistently outward-oriented (I9 signed
+        // volume). Union / Intersection keep winding as-is.
+        if flip_for_op(op, &la, orig_t) {
+            tri.swap(1, 2);
+        }
+        let mut new_tri = [0u32; 3];
+        for (k, &vi) in tri.iter().enumerate() {
+            let slot = &mut remap[vi as usize];
+            let new_vi = match slot {
+                Some(idx) => *idx,
+                None => {
+                    let idx = compact_verts.len() as u32;
+                    compact_verts.push(la.mesh.verts[vi as usize]);
+                    *slot = Some(idx);
+                    idx
+                }
+            };
+            new_tri[k] = new_vi;
+        }
+        compact_tris.push(new_tri);
+        orig_tri.push(orig_t);
+    }
+    let kept_submesh = Mesh::new(compact_verts, compact_tris);
+
+    // (5) Stage 6: geometric face resolution → FULL attribution.
+    let mut attributions: Vec<Option<TriangleAttribution>> = Vec::with_capacity(orig_tri.len());
+    for (compact_t, &orig_t) in orig_tri.iter().enumerate() {
+        let surf = &la.surface[orig_t];
+        // F2: coplanar / multi-solid surface label (out of scope, M8).
+        if surf.len() != 1 {
+            return Err(YangError::FaceResolutionFailed { tri: compact_t });
+        }
+        let LaInputId(k) = surf[0];
+        // cherchi InputId(u32): 0 → A, 1 → B.
+        let (input_brep, input) = match k {
+            0 => (a, InputId::A),
+            _ => (b, InputId::B),
+        };
+
+        // Centroid of the (compact) triangle — same coords as `la.mesh`.
+        let tri = kept_submesh.tris[compact_t];
+        let p0 = kept_submesh.verts[tri[0] as usize].as_array();
+        let p1 = kept_submesh.verts[tri[1] as usize].as_array();
+        let p2 = kept_submesh.verts[tri[2] as usize].as_array();
+        let c = [
+            (p0[0] + p1[0] + p2[0]) / 3.0,
+            (p0[1] + p1[1] + p2[1]) / 3.0,
+            (p0[2] + p1[2] + p2[2]) / 3.0,
         ];
-        attributions.push(majority_vote(&sets));
+
+        // Pick the input face whose plane contains the centroid: smallest
+        // |n·c + d|. Require min < TAU_WORK AND 2nd-smallest >= TAU_WORK
+        // (unique, no tie). Else F3.
+        let mut best: Option<(f64, u32)> = None;
+        let mut second: f64 = f64::INFINITY;
+        for (fi, face) in input_brep.faces().iter().enumerate() {
+            let Surface::Plane { normal, d } = face.surface;
+            let n = normal.as_array();
+            let r = (n[0] * c[0] + n[1] * c[1] + n[2] * c[2] + d).abs();
+            match best {
+                None => best = Some((r, fi as u32)),
+                Some((br, _)) if r < br => {
+                    second = br;
+                    best = Some((r, fi as u32));
+                }
+                _ => {
+                    if r < second {
+                        second = r;
+                    }
+                }
+            }
+        }
+        let Some((min_r, face)) = best else {
+            return Err(YangError::FaceResolutionFailed { tri: compact_t });
+        };
+        if min_r >= cad_primitives::TAU_WORK || second < cad_primitives::TAU_WORK {
+            return Err(YangError::FaceResolutionFailed { tri: compact_t });
+        }
+        attributions.push(Some(TriangleAttribution { input, face }));
     }
     let triangle_attribution = TriangleAttributionMap { attributions };
 
-    // PR-YR5 topology reconstruction: group same-attribution triangles
-    // into patches, walk each patch's boundary cycle, inherit input
-    // face surface, build BRepVertex / BRepEdge / BRepFace.
-    let (vertices, edges, faces) = reconstruct_topology(&output_mesh, &triangle_attribution, a, b)?;
+    // (6) Topology reconstruction (unchanged).
+    let (vertices, edges, faces) =
+        reconstruct_topology(&kept_submesh, &triangle_attribution, a, b)?;
+
+    // Output mesh = the compact kept sub-mesh; tessellation 1:1 with its
+    // verts (BRepVertex(i)).
+    let sources: Vec<TessellationSource> = (0..kept_submesh.num_verts() as u32)
+        .map(TessellationSource::BRepVertex)
+        .collect();
+    let tessellation = TessellationMap { sources };
 
     Ok(BRep {
         vertices,
         edges,
         faces,
-        mesh: output_mesh,
+        mesh: kept_submesh,
         tessellation,
         triangle_attribution,
     })
-}
-
-/// Try to match `target` against a vertex in `brep`'s mesh within
-/// `MATCH_TOLERANCE`. Returns the matched vertex's `TessellationSource`
-/// or `None`. Private to PR-YR3's `boolean()` impl.
-fn match_against(brep: &BRep, target: Point3) -> Option<TessellationSource> {
-    let tol2 = MATCH_TOLERANCE * MATCH_TOLERANCE;
-    for (i, v) in brep.as_mesh().verts.iter().enumerate() {
-        let dx = v.x() - target.x();
-        let dy = v.y() - target.y();
-        let dz = v.z() - target.z();
-        if dx * dx + dy * dy + dz * dz <= tol2 {
-            return Some(brep.tessellation_map().lookup(i as u32));
-        }
-    }
-    None
-}
-
-/// PR-YR4 helper: match `target` against A first, then B; track
-/// which input matched (for triangle-level face attribution).
-fn match_with_input(a: &BRep, b: &BRep, target: Point3) -> (Option<InputId>, TessellationSource) {
-    if let Some(src) = match_against(a, target) {
-        return (Some(InputId::A), src);
-    }
-    if let Some(src) = match_against(b, target) {
-        return (Some(InputId::B), src);
-    }
-    (None, TessellationSource::Intersection)
-}
-
-/// PR-YR4 helper: compute the set of `(InputId, face_idx)` pairs
-/// that a single output vertex's provenance is compatible with.
-///
-/// - `BRepFace { face, .. }` → `[(input, face)]`
-/// - `BRepEdge { edge, .. }` → every face whose `outer_loop` contains `edge`
-/// - `BRepVertex(v)` → every face whose `outer_loop` has an edge with `start==v` or `end==v`
-/// - `Intersection` / `Unknown` / `input == None` → `[]`
-fn face_candidates(
-    input: Option<InputId>,
-    source: TessellationSource,
-    a: &BRep,
-    b: &BRep,
-) -> Vec<(InputId, u32)> {
-    let Some(input) = input else {
-        return Vec::new();
-    };
-    let brep = match input {
-        InputId::A => a,
-        InputId::B => b,
-    };
-    match source {
-        TessellationSource::BRepFace { face, .. } => vec![(input, face)],
-        TessellationSource::BRepEdge { edge, .. } => brep
-            .faces()
-            .iter()
-            .enumerate()
-            .filter(|(_, f)| f.outer_loop.contains(&edge))
-            .map(|(i, _)| (input, i as u32))
-            .collect(),
-        TessellationSource::BRepVertex(v) => brep
-            .faces()
-            .iter()
-            .enumerate()
-            .filter(|(_, f)| {
-                f.outer_loop.iter().any(|&e| {
-                    let edge = &brep.edges()[e as usize];
-                    edge.start == v || edge.end == v
-                })
-            })
-            .map(|(i, _)| (input, i as u32))
-            .collect(),
-        TessellationSource::Intersection | TessellationSource::Unknown => Vec::new(),
-    }
-}
-
-/// PR-YR4 helper: count votes per `(InputId, face)` across the 3
-/// vertices' candidate sets and return the highest-count pair that
-/// reaches ≥2 votes. Ties broken by lowest `(InputId, face)`
-/// lexicographic (achieved via `BTreeMap` ascending iteration +
-/// strictly-greater replacement rule).
-fn majority_vote(sets: &[Vec<(InputId, u32)>; 3]) -> Option<TriangleAttribution> {
-    use std::collections::BTreeMap;
-    let mut counts: BTreeMap<(InputId, u32), u8> = BTreeMap::new();
-    for set in sets {
-        // Dedup within a single vertex's set (a face should appear
-        // once per vertex; defensive).
-        let mut uniq: Vec<(InputId, u32)> = set.clone();
-        uniq.sort();
-        uniq.dedup();
-        for c in uniq {
-            *counts.entry(c).or_insert(0) += 1;
-        }
-    }
-    let mut best: Option<((InputId, u32), u8)> = None;
-    for (key, &count) in &counts {
-        if count < 2 {
-            continue;
-        }
-        match best {
-            None => best = Some((*key, count)),
-            Some((_, bc)) if count > bc => best = Some((*key, count)),
-            _ => {}
-        }
-    }
-    best.map(|((input, face), _)| TriangleAttribution { input, face })
 }
 
 // =========================================================================
@@ -952,8 +973,158 @@ fn patch_boundary_cycle(patch: &Patch, mesh: &Mesh) -> Result<Vec<(u32, u32)>, Y
 mod tests {
     use super::*;
 
+    // =====================================================================
+    // M4 — demoted substitutes (test-only differential oracle).
+    //
+    // These were the production PR-YR3/YR4 spatial-match + majority-vote
+    // attribution path. M3 replaced production attribution with real
+    // LabeledArrangement labels; per roadmap rule #9 the substitutes are
+    // RETAINED here as a second independent attribution method that
+    // cross-checks the true-label path (the `m4_*` differential test).
+    // Disagreement on a fixture localizes a label-path bug. Do NOT delete.
+    // =====================================================================
+
+    /// M4 oracle: try to match `target` against a vertex in `brep`'s mesh
+    /// within `MATCH_TOLERANCE`. Returns the matched vertex's
+    /// `TessellationSource` or `None`.
+    fn match_against(brep: &BRep, target: Point3) -> Option<TessellationSource> {
+        let tol2 = MATCH_TOLERANCE * MATCH_TOLERANCE;
+        for (i, v) in brep.as_mesh().verts.iter().enumerate() {
+            let dx = v.x() - target.x();
+            let dy = v.y() - target.y();
+            let dz = v.z() - target.z();
+            if dx * dx + dy * dy + dz * dz <= tol2 {
+                return Some(brep.tessellation_map().lookup(i as u32));
+            }
+        }
+        None
+    }
+
+    /// M4 oracle: match `target` against A first, then B; track which
+    /// input matched.
+    fn match_with_input(
+        a: &BRep,
+        b: &BRep,
+        target: Point3,
+    ) -> (Option<InputId>, TessellationSource) {
+        if let Some(src) = match_against(a, target) {
+            return (Some(InputId::A), src);
+        }
+        if let Some(src) = match_against(b, target) {
+            return (Some(InputId::B), src);
+        }
+        (None, TessellationSource::Intersection)
+    }
+
+    /// M4 oracle: the set of `(InputId, face_idx)` pairs that a single
+    /// output vertex's provenance is compatible with.
+    fn face_candidates(
+        input: Option<InputId>,
+        source: TessellationSource,
+        a: &BRep,
+        b: &BRep,
+    ) -> Vec<(InputId, u32)> {
+        let Some(input) = input else {
+            return Vec::new();
+        };
+        let brep = match input {
+            InputId::A => a,
+            InputId::B => b,
+        };
+        match source {
+            TessellationSource::BRepFace { face, .. } => vec![(input, face)],
+            TessellationSource::BRepEdge { edge, .. } => brep
+                .faces()
+                .iter()
+                .enumerate()
+                .filter(|(_, f)| f.outer_loop.contains(&edge))
+                .map(|(i, _)| (input, i as u32))
+                .collect(),
+            TessellationSource::BRepVertex(v) => brep
+                .faces()
+                .iter()
+                .enumerate()
+                .filter(|(_, f)| {
+                    f.outer_loop.iter().any(|&e| {
+                        let edge = &brep.edges()[e as usize];
+                        edge.start == v || edge.end == v
+                    })
+                })
+                .map(|(i, _)| (input, i as u32))
+                .collect(),
+            TessellationSource::Intersection | TessellationSource::Unknown => Vec::new(),
+        }
+    }
+
+    /// M4 oracle: count votes per `(InputId, face)` across 3 candidate
+    /// sets; return the highest-count pair reaching ≥2 votes (ties → lowest
+    /// `(InputId, face)` lexicographic).
+    fn majority_vote(sets: &[Vec<(InputId, u32)>; 3]) -> Option<TriangleAttribution> {
+        use std::collections::BTreeMap;
+        let mut counts: BTreeMap<(InputId, u32), u8> = BTreeMap::new();
+        for set in sets {
+            let mut uniq: Vec<(InputId, u32)> = set.clone();
+            uniq.sort();
+            uniq.dedup();
+            for c in uniq {
+                *counts.entry(c).or_insert(0) += 1;
+            }
+        }
+        let mut best: Option<((InputId, u32), u8)> = None;
+        for (key, &count) in &counts {
+            if count < 2 {
+                continue;
+            }
+            match best {
+                None => best = Some((*key, count)),
+                Some((_, bc)) if count > bc => best = Some((*key, count)),
+                _ => {}
+            }
+        }
+        best.map(|((input, face), _)| TriangleAttribution { input, face })
+    }
+
+    /// M4 oracle composite: run the full demoted substitute attribution
+    /// (vertex provenance → per-vertex face candidates → majority vote)
+    /// over `mesh`, producing a `TriangleAttributionMap`. This is exactly
+    /// what the pre-M3 production `boolean()` computed internally; the
+    /// reworked PR-YR4 substitute tests and the yr5_* reconstruction tests
+    /// call it directly instead of routing through production `boolean()`
+    /// (whose attribution is now the real-label path).
+    fn substitute_attribution(mesh: &Mesh, a: &BRep, b: &BRep) -> TriangleAttributionMap {
+        let mut inputs: Vec<Option<InputId>> = Vec::with_capacity(mesh.num_verts());
+        let mut sources: Vec<TessellationSource> = Vec::with_capacity(mesh.num_verts());
+        for &target in &mesh.verts {
+            let (inp, src) = match_with_input(a, b, target);
+            inputs.push(inp);
+            sources.push(src);
+        }
+        let mut attributions = Vec::with_capacity(mesh.num_tris());
+        for tri in &mesh.tris {
+            let sets = [
+                face_candidates(inputs[tri[0] as usize], sources[tri[0] as usize], a, b),
+                face_candidates(inputs[tri[1] as usize], sources[tri[1] as usize], a, b),
+                face_candidates(inputs[tri[2] as usize], sources[tri[2] as usize], a, b),
+            ];
+            attributions.push(majority_vote(&sets));
+        }
+        TriangleAttributionMap { attributions }
+    }
+
     fn p(x: f64, y: f64, z: f64) -> Point3 {
         Point3::new(x, y, z)
+    }
+
+    /// An empty (0-triangle) `LabeledArrangement` for backend-dispatch
+    /// tests that only care about the Ok/err control flow, not labels.
+    fn empty_arrangement() -> LabeledArrangement {
+        LabeledArrangement {
+            mesh: Mesh::empty(),
+            surface: Vec::new(),
+            inside: Vec::new(),
+            patch: Vec::new(),
+            num_inputs: 2,
+        }
     }
 
     fn sample_mesh() -> Mesh {
@@ -963,19 +1134,12 @@ mod tests {
         )
     }
 
-    struct MockBackend {
-        result: Result<Mesh, &'static str>,
-    }
-    impl MockBackend {
-        fn ok(mesh: Mesh) -> Self {
-            Self { result: Ok(mesh) }
-        }
-        fn err() -> Self {
-            Self {
-                result: Err("mock failure"),
-            }
-        }
-    }
+    /// Backend whose `boolean()` always errors and which does NOT override
+    /// the M3 `labeled_arrangement` trait method, so it surfaces through
+    /// the default ("not supported") error. Used by
+    /// `boolean_with_err_backend` to confirm `boolean()` maps a backend
+    /// failure to `YangError::MeshBooleanFailed`.
+    struct MockBackend;
     impl MeshBoolean for MockBackend {
         fn boolean(
             &self,
@@ -983,9 +1147,7 @@ mod tests {
             _b: &Mesh,
             _op: BoolOp,
         ) -> Result<Mesh, Box<dyn Error + Send + Sync>> {
-            self.result
-                .clone()
-                .map_err(|s| -> Box<dyn Error + Send + Sync> { Box::from(s) })
+            Err(Box::from("mock failure"))
         }
     }
 
@@ -1554,10 +1716,12 @@ mod tests {
 
     #[test]
     fn boolean_with_ok_backend() {
+        // M3: boolean() consumes a LabeledArrangement. An empty arrangement
+        // (0 tris) keeps nothing → empty output BRep, Ok.
         let a = BRep::from_mesh(sample_mesh());
         let b = BRep::from_mesh(sample_mesh());
-        let mock = MockBackend::ok(Mesh::empty());
-        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        let backend = LabelMockBackend::new(empty_arrangement());
+        let r = boolean(&a, &b, BoolOp::Union, &backend).unwrap();
         assert_eq!(r.num_verts(), 0);
     }
 
@@ -1565,7 +1729,7 @@ mod tests {
     fn boolean_with_err_backend() {
         let a = BRep::from_mesh(sample_mesh());
         let b = BRep::from_mesh(sample_mesh());
-        let mock = MockBackend::err();
+        let mock = MockBackend;
         match boolean(&a, &b, BoolOp::Union, &mock) {
             Err(YangError::MeshBooleanFailed(_)) => {}
             other => panic!("expected MeshBooleanFailed, got {:?}", other),
@@ -1574,16 +1738,17 @@ mod tests {
 
     #[test]
     fn boolean_dispatches_all_four_ops() {
+        // M3: an empty arrangement is keep-set-empty for every op → Ok.
         let a = BRep::from_mesh(sample_mesh());
         let b = BRep::from_mesh(sample_mesh());
-        let mock = MockBackend::ok(Mesh::empty());
         for op in [
             BoolOp::Union,
             BoolOp::Intersect,
             BoolOp::Subtract,
             BoolOp::Xor,
         ] {
-            assert!(boolean(&a, &b, op, &mock).is_ok(), "op {op:?}");
+            let backend = LabelMockBackend::new(empty_arrangement());
+            assert!(boolean(&a, &b, op, &backend).is_ok(), "op {op:?}");
         }
     }
 
@@ -1656,20 +1821,24 @@ mod tests {
         BRep::new(verts, edges, faces).unwrap()
     }
 
+    // PR-YR3 spatial-vertex-provenance was REMOVED from production by M3
+    // (production tessellation_map is now BRepVertex(i) 1:1 with the kept
+    // sub-mesh). Per Manager policy (a), these tests are reworked to call
+    // the now-#[cfg(test)] substitute helper `match_with_input` DIRECTLY,
+    // preserving the substitute's coverage as the M4 oracle rather than
+    // routing through production `boolean()`.
+
     #[test]
     fn boolean_input_a_verbatim_copies_a_map() {
         let a = triangle_brep();
         let b = triangle_brep();
-        // Mock returns input A's mesh verbatim.
-        let mock = MockBackend::ok(a.as_mesh().clone());
-        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
-        assert_eq!(r.num_verts(), 3);
-        // Every output vertex should map to a BRepVertex (matched
-        // against input A, which has BRepVertex entries).
-        for i in 0..3u32 {
+        // Each of A's mesh verts matches input A's BRepVertex(i).
+        for (i, &target) in a.as_mesh().verts.iter().enumerate() {
+            let (input, src) = match_with_input(&a, &b, target);
+            assert_eq!(input, Some(InputId::A), "vert {i} should match A");
             assert_eq!(
-                r.tessellation_map().lookup(i),
-                TessellationSource::BRepVertex(i),
+                src,
+                TessellationSource::BRepVertex(i as u32),
                 "output vertex {i}"
             );
         }
@@ -1678,21 +1847,18 @@ mod tests {
     #[test]
     fn boolean_input_b_verbatim_copies_b_map() {
         let a = triangle_brep();
-        // B has different vertices so A's spatial match fails.
+        // B has different vertices so A's spatial match fails first.
         let mut b_verts = a.vertices().to_vec();
         for v in &mut b_verts {
             v.point = Point3::new(v.point.x() + 10.0, v.point.y(), v.point.z());
         }
-        let b_edges = a.edges().to_vec();
-        let b_faces = a.faces().to_vec();
-        let b = BRep::new(b_verts, b_edges, b_faces).unwrap();
-        // Mock returns B's mesh verbatim.
-        let mock = MockBackend::ok(b.as_mesh().clone());
-        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
-        for i in 0..3u32 {
+        let b = BRep::new(b_verts, a.edges().to_vec(), a.faces().to_vec()).unwrap();
+        for (i, &target) in b.as_mesh().verts.iter().enumerate() {
+            let (input, src) = match_with_input(&a, &b, target);
+            assert_eq!(input, Some(InputId::B), "vert {i} should match B");
             assert_eq!(
-                r.tessellation_map().lookup(i),
-                TessellationSource::BRepVertex(i),
+                src,
+                TessellationSource::BRepVertex(i as u32),
                 "output vertex {i} — should match input B's BRepVertex({i})"
             );
         }
@@ -1702,22 +1868,18 @@ mod tests {
     fn boolean_all_new_coords_are_intersection() {
         let a = triangle_brep();
         let b = triangle_brep();
-        // Mock returns a mesh with totally new coords (offset by 100).
-        let novel = Mesh::new(
-            vec![
-                p(100.0, 100.0, 100.0),
-                p(101.0, 100.0, 100.0),
-                p(100.0, 101.0, 100.0),
-            ],
-            vec![[0, 1, 2]],
-        );
-        let mock = MockBackend::ok(novel);
-        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
-        for i in 0..3u32 {
+        // Coords far from both inputs → no match → Intersection.
+        for target in [
+            p(100.0, 100.0, 100.0),
+            p(101.0, 100.0, 100.0),
+            p(100.0, 101.0, 100.0),
+        ] {
+            let (input, src) = match_with_input(&a, &b, target);
+            assert_eq!(input, None);
             assert_eq!(
-                r.tessellation_map().lookup(i),
+                src,
                 TessellationSource::Intersection,
-                "vertex {i} should be Intersection"
+                "novel coord should be Intersection"
             );
         }
     }
@@ -1726,34 +1888,17 @@ mod tests {
     fn boolean_mixed_match_and_intersection() {
         let a = triangle_brep();
         let b = triangle_brep();
-        // Mock returns 2 vertices from A + 2 new coords.
-        let mixed = Mesh::new(
-            vec![
-                p(0.0, 0.0, 0.0),   // matches a.vertex(0)
-                p(1.0, 0.0, 0.0),   // matches a.vertex(1)
-                p(99.0, 99.0, 0.0), // new
-                p(98.0, 98.0, 0.0), // new
-            ],
-            vec![[0, 1, 2], [0, 2, 3]],
-        );
-        let mock = MockBackend::ok(mixed);
-        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
-        assert_eq!(
-            r.tessellation_map().lookup(0),
-            TessellationSource::BRepVertex(0)
-        );
-        assert_eq!(
-            r.tessellation_map().lookup(1),
-            TessellationSource::BRepVertex(1)
-        );
-        assert_eq!(
-            r.tessellation_map().lookup(2),
-            TessellationSource::Intersection
-        );
-        assert_eq!(
-            r.tessellation_map().lookup(3),
-            TessellationSource::Intersection
-        );
+        // 2 verts from A + 2 new coords.
+        let expectations = [
+            (p(0.0, 0.0, 0.0), TessellationSource::BRepVertex(0)),
+            (p(1.0, 0.0, 0.0), TessellationSource::BRepVertex(1)),
+            (p(99.0, 99.0, 0.0), TessellationSource::Intersection),
+            (p(98.0, 98.0, 0.0), TessellationSource::Intersection),
+        ];
+        for (i, (target, expect)) in expectations.into_iter().enumerate() {
+            let (_input, src) = match_with_input(&a, &b, target);
+            assert_eq!(src, expect, "vertex {i}");
+        }
     }
 
     // ----- PR-YR4: Group 1 — types -----
@@ -1880,18 +2025,24 @@ mod tests {
         BRep::new(verts, edges, faces).unwrap()
     }
 
+    // PR-YR4 majority-vote ATTRIBUTION was REMOVED from production by M3
+    // (production attributes via real LabeledArrangement labels + geometric
+    // face resolution). Per Manager policy (a), these tests are reworked to
+    // exercise the now-#[cfg(test)] substitute via `substitute_attribution`
+    // DIRECTLY (not via production `boolean()`), preserving the substitute's
+    // coverage as the M4 differential oracle.
+
     #[test]
     fn boolean_pure_a_attributes_to_a_faces() {
-        // Pure-A: mock returns A's mesh verbatim. Each output tri's verts
-        // are BRepVertex(i) of A → candidates derive A's per-vertex face
-        // incidence → majority-vote attributes each tri to its source face.
+        // Pure-A: substitute over A's mesh. Each tri's verts are
+        // BRepVertex(i) of A → per-vertex face incidence → majority vote
+        // attributes each tri to its source face.
         let a = two_face_shared_vertex_brep();
         let b = two_face_shared_vertex_brep();
-        let mock = MockBackend::ok(a.as_mesh().clone());
-        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
-        assert_eq!(r.num_tris(), 2);
+        let attr = substitute_attribution(a.as_mesh(), &a, &b);
+        assert_eq!(attr.len(), 2);
         assert_eq!(
-            r.triangle_attribution().lookup(0),
+            attr.lookup(0),
             Some(TriangleAttribution {
                 input: InputId::A,
                 face: 0
@@ -1899,7 +2050,7 @@ mod tests {
             "output tri 0 (F0 fan tri) should attribute to A's F0"
         );
         assert_eq!(
-            r.triangle_attribution().lookup(1),
+            attr.lookup(1),
             Some(TriangleAttribution {
                 input: InputId::A,
                 face: 1
@@ -1911,23 +2062,22 @@ mod tests {
     #[test]
     fn boolean_pure_b_attributes_to_b_faces() {
         let a = two_face_shared_vertex_brep();
-        // B is the same B-Rep, but shifted so A's spatial match fails first.
+        // B is the same B-Rep, shifted so A's spatial match fails first.
         let mut b_verts = a.vertices().to_vec();
         for v in &mut b_verts {
             v.point = Point3::new(v.point.x() + 100.0, v.point.y(), v.point.z());
         }
         let b = BRep::new(b_verts, a.edges().to_vec(), a.faces().to_vec()).unwrap();
-        let mock = MockBackend::ok(b.as_mesh().clone());
-        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        let attr = substitute_attribution(b.as_mesh(), &a, &b);
         assert_eq!(
-            r.triangle_attribution().lookup(0),
+            attr.lookup(0),
             Some(TriangleAttribution {
                 input: InputId::B,
                 face: 0
             })
         );
         assert_eq!(
-            r.triangle_attribution().lookup(1),
+            attr.lookup(1),
             Some(TriangleAttribution {
                 input: InputId::B,
                 face: 1
@@ -1939,7 +2089,7 @@ mod tests {
     fn boolean_all_new_coords_attribute_to_none() {
         let a = two_face_shared_vertex_brep();
         let b = two_face_shared_vertex_brep();
-        // Mock returns a mesh with coords far from both inputs.
+        // A mesh with coords far from both inputs.
         let novel = Mesh::new(
             vec![
                 p(1000.0, 1000.0, 1000.0),
@@ -1948,11 +2098,10 @@ mod tests {
             ],
             vec![[0, 1, 2]],
         );
-        let mock = MockBackend::ok(novel);
-        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
-        assert_eq!(r.num_tris(), 1);
+        let attr = substitute_attribution(&novel, &a, &b);
+        assert_eq!(attr.len(), 1);
         assert_eq!(
-            r.triangle_attribution().lookup(0),
+            attr.lookup(0),
             None,
             "all-new triangle should have None attribution"
         );
@@ -1963,19 +2112,17 @@ mod tests {
         // 2 verts match A's F0 + 1 novel → F0 attribution.
         let a = two_face_shared_vertex_brep();
         let b = two_face_shared_vertex_brep();
-        // Mock returns mesh with V1, V2 from A + 1 new coord.
         let mixed = Mesh::new(
             vec![
                 p(1.0, 0.0, 0.0),       // matches a.verts[1] (F0 only)
-                p(1.0, 1.0, 0.0),       // matches a.verts[2] (F0 only) — tracks moved V2
+                p(1.0, 1.0, 0.0),       // matches a.verts[2] (F0 only)
                 p(1000.0, 0.0, 1000.0), // novel
             ],
             vec![[0, 1, 2]],
         );
-        let mock = MockBackend::ok(mixed);
-        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        let attr = substitute_attribution(&mixed, &a, &b);
         assert_eq!(
-            r.triangle_attribution().lookup(0),
+            attr.lookup(0),
             Some(TriangleAttribution {
                 input: InputId::A,
                 face: 0
@@ -1988,7 +2135,6 @@ mod tests {
     fn boolean_no_majority_returns_none() {
         // 1 A-vert + 1 B-vert + 1 novel → no majority, None.
         let a = two_face_shared_vertex_brep();
-        // B has distinct coords from A (offset).
         let mut b_verts = a.vertices().to_vec();
         for v in &mut b_verts {
             v.point = Point3::new(v.point.x() + 100.0, v.point.y(), v.point.z());
@@ -2002,10 +2148,9 @@ mod tests {
             ],
             vec![[0, 1, 2]],
         );
-        let mock = MockBackend::ok(mixed);
-        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        let attr = substitute_attribution(&mixed, &a, &b);
         assert_eq!(
-            r.triangle_attribution().lookup(0),
+            attr.lookup(0),
             None,
             "1 A + 1 B + 1 novel → no 2-of-3 majority"
         );
@@ -2025,10 +2170,9 @@ mod tests {
             ],
             vec![[0, 1, 2]],
         );
-        let mock = MockBackend::ok(tie_mesh);
-        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        let attr = substitute_attribution(&tie_mesh, &a, &b);
         assert_eq!(
-            r.triangle_attribution().lookup(0),
+            attr.lookup(0),
             Some(TriangleAttribution {
                 input: InputId::A,
                 face: 0
@@ -2037,17 +2181,16 @@ mod tests {
         );
     }
 
-    // ----- PR-YR4: Group 3 — empty-topology degradation -----
+    // ----- PR-YR4: Group 3 — empty-topology degradation (substitute) -----
 
     #[test]
     fn boolean_both_inputs_from_mesh_all_none() {
         let a = BRep::from_mesh(sample_mesh());
         let b = BRep::from_mesh(sample_mesh());
-        let mock = MockBackend::ok(sample_mesh());
-        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
-        assert_eq!(r.triangle_attribution().len(), r.num_tris());
+        let attr = substitute_attribution(&sample_mesh(), &a, &b);
+        assert_eq!(attr.len(), sample_mesh().num_tris());
         assert_eq!(
-            r.triangle_attribution().lookup(0),
+            attr.lookup(0),
             None,
             "from_mesh inputs have all-Unknown sources → all-None attribution"
         );
@@ -2055,21 +2198,20 @@ mod tests {
 
     #[test]
     fn boolean_mixed_from_mesh_and_topologized() {
-        // a has topology, b is from_mesh. Mock returns a's mesh verbatim.
+        // a has topology, b is from_mesh. Substitute over a's mesh.
         // Attribution should reflect a's per-tri face ownership.
         let a = two_face_shared_vertex_brep();
         let b = BRep::from_mesh(sample_mesh());
-        let mock = MockBackend::ok(a.as_mesh().clone());
-        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        let attr = substitute_attribution(a.as_mesh(), &a, &b);
         assert_eq!(
-            r.triangle_attribution().lookup(0),
+            attr.lookup(0),
             Some(TriangleAttribution {
                 input: InputId::A,
                 face: 0
             })
         );
         assert_eq!(
-            r.triangle_attribution().lookup(1),
+            attr.lookup(1),
             Some(TriangleAttribution {
                 input: InputId::A,
                 face: 1
@@ -2078,25 +2220,33 @@ mod tests {
     }
 
     // ----- PR-YR5: topology reconstruction -----
+    //
+    // `reconstruct_topology` is UNCHANGED production. Per Manager policy
+    // (b), these tests previously routed through `boolean()` via the
+    // boolean-only MockBackend (which M3 no longer drives); they are
+    // reworked to build a `TriangleAttributionMap` via the #[cfg(test)]
+    // substitute and call `reconstruct_topology` DIRECTLY — exercising the
+    // same durable reconstruction logic without the removed substitute
+    // production path.
 
     #[test]
     fn yr5_single_triangle_round_trip_produces_one_face() {
-        // Pure-A on triangle_brep (1 face, 1 fan tri) → output has 1
-        // face with 3 boundary edges + 3 vertices forming a closed
-        // cycle.
+        // Pure-A on triangle_brep (1 face, 1 fan tri) → 1 face with 3
+        // boundary edges + 3 vertices forming a closed cycle.
         let a = triangle_brep();
         let b = triangle_brep();
-        let mock = MockBackend::ok(a.as_mesh().clone());
-        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
-        assert_eq!(r.faces().len(), 1, "expected 1 BRepFace");
-        assert_eq!(r.faces()[0].outer_loop.len(), 3, "expected 3-edge loop");
-        assert_eq!(r.edges().len(), 3, "expected 3 BRepEdges");
-        assert_eq!(r.vertices().len(), 3, "expected 3 BRepVertices");
+        let mesh = a.as_mesh().clone();
+        let attr = substitute_attribution(&mesh, &a, &b);
+        let (verts, edges, faces) = reconstruct_topology(&mesh, &attr, &a, &b).unwrap();
+        assert_eq!(faces.len(), 1, "expected 1 BRepFace");
+        assert_eq!(faces[0].outer_loop.len(), 3, "expected 3-edge loop");
+        assert_eq!(edges.len(), 3, "expected 3 BRepEdges");
+        assert_eq!(verts.len(), 3, "expected 3 BRepVertices");
         // Cycle closure
-        let f = &r.faces()[0];
+        let f = &faces[0];
         for i in 0..3 {
-            let e_curr = &r.edges()[f.outer_loop[i] as usize];
-            let e_next = &r.edges()[f.outer_loop[(i + 1) % 3] as usize];
+            let e_curr = &edges[f.outer_loop[i] as usize];
+            let e_next = &edges[f.outer_loop[(i + 1) % 3] as usize];
             assert_eq!(
                 e_curr.end, e_next.start,
                 "cycle break at edge {i}: {} != {}",
@@ -2107,30 +2257,28 @@ mod tests {
 
     #[test]
     fn yr5_two_face_round_trip_produces_two_faces() {
-        // two_face_shared_vertex_brep has 2 triangular faces sharing
-        // only V0. Fan-tri: 1 tri per face = 2 output tris with
-        // different attributions (F0 vs F1). PR-YR5 should produce 2
+        // two_face_shared_vertex_brep has 2 triangular faces sharing only
+        // V0; 2 output tris with different attributions (F0 vs F1) → 2
         // BRepFaces.
         let a = two_face_shared_vertex_brep();
         let b = two_face_shared_vertex_brep();
-        let mock = MockBackend::ok(a.as_mesh().clone());
-        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
-        assert_eq!(r.faces().len(), 2, "expected 2 BRepFaces");
-        // Each face is a triangle with 3 edges.
-        for f in r.faces() {
+        let mesh = a.as_mesh().clone();
+        let attr = substitute_attribution(&mesh, &a, &b);
+        let (_v, _e, faces) = reconstruct_topology(&mesh, &attr, &a, &b).unwrap();
+        assert_eq!(faces.len(), 2, "expected 2 BRepFaces");
+        for f in &faces {
             assert_eq!(f.outer_loop.len(), 3);
         }
     }
 
     #[test]
     fn yr5_disconnected_components_become_separate_faces() {
-        // Two output triangles with the SAME attribution but NO shared
-        // vertex → flood-fill leaves them as 2 patches → 2 faces.
-        // Regression guard vs. naive attribution-bucketing.
+        // Two tris with the SAME attribution but NO shared vertex →
+        // flood-fill leaves them as 2 patches → 2 faces. Regression guard
+        // vs. naive attribution-bucketing.
         let a = triangle_brep();
         let b = triangle_brep();
-        // Mock returns 6 vertices = TWO copies of A's 3 verts at distinct
-        // indices, and 2 disjoint triangles.
+        // 6 vertices = TWO copies of A's 3 verts at distinct indices.
         let dup = Mesh::new(
             vec![
                 p(0.0, 0.0, 0.0), // matches A.V0
@@ -2142,12 +2290,10 @@ mod tests {
             ],
             vec![[0, 1, 2], [3, 4, 5]],
         );
-        let mock = MockBackend::ok(dup);
-        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
-        // Both tris attribute to (A, F0), but they share no vertex
-        // index → connectivity flood-fill keeps them separate.
+        let attr = substitute_attribution(&dup, &a, &b);
+        let (_v, _e, faces) = reconstruct_topology(&dup, &attr, &a, &b).unwrap();
         assert_eq!(
-            r.faces().len(),
+            faces.len(),
             2,
             "disconnected same-attribution tris should be separate faces"
         );
@@ -2155,8 +2301,8 @@ mod tests {
 
     #[test]
     fn yr5_none_attributed_tris_omitted_from_faces() {
-        // Mock returns 2 tris: tri 0 matches A's verts (Some(A, F0)),
-        // tri 1 is all novel coords (None). Output has 1 face.
+        // tri 0 matches A's verts (Some(A, F0)); tri 1 is all novel coords
+        // (None). reconstruct_topology should yield 1 face.
         let a = triangle_brep();
         let b = triangle_brep();
         let mixed = Mesh::new(
@@ -2170,10 +2316,10 @@ mod tests {
             ],
             vec![[0, 1, 2], [3, 4, 5]],
         );
-        let mock = MockBackend::ok(mixed);
-        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        let attr = substitute_attribution(&mixed, &a, &b);
+        let (_v, _e, faces) = reconstruct_topology(&mixed, &attr, &a, &b).unwrap();
         assert_eq!(
-            r.faces().len(),
+            faces.len(),
             1,
             "None-attributed tris should not contribute faces"
         );
@@ -2183,11 +2329,12 @@ mod tests {
     fn yr5_vertex_count_matches_mesh() {
         let a = triangle_brep();
         let b = triangle_brep();
-        let mock = MockBackend::ok(a.as_mesh().clone());
-        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
-        assert_eq!(r.vertices().len(), r.as_mesh().num_verts());
-        for i in 0..r.vertices().len() {
-            assert_eq!(r.vertices()[i].point, r.as_mesh().verts[i]);
+        let mesh = a.as_mesh().clone();
+        let attr = substitute_attribution(&mesh, &a, &b);
+        let (verts, _e, _f) = reconstruct_topology(&mesh, &attr, &a, &b).unwrap();
+        assert_eq!(verts.len(), mesh.num_verts());
+        for (i, v) in verts.iter().enumerate() {
+            assert_eq!(v.point, mesh.verts[i]);
         }
     }
 
@@ -2195,11 +2342,12 @@ mod tests {
     fn yr5_surface_inherited_from_input() {
         let a = triangle_brep();
         let b = triangle_brep();
-        let mock = MockBackend::ok(a.as_mesh().clone());
-        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
-        assert_eq!(r.faces().len(), 1);
+        let mesh = a.as_mesh().clone();
+        let attr = substitute_attribution(&mesh, &a, &b);
+        let (_v, _e, faces) = reconstruct_topology(&mesh, &attr, &a, &b).unwrap();
+        assert_eq!(faces.len(), 1);
         assert_eq!(
-            r.faces()[0].surface,
+            faces[0].surface,
             a.faces()[0].surface,
             "output face should inherit input A's surface"
         );
@@ -2207,21 +2355,22 @@ mod tests {
 
     #[test]
     fn yr5_empty_input_produces_empty_face_set() {
-        // Both inputs from_mesh → all-None attribution → no faces.
+        // Both inputs from_mesh → all-None attribution → no faces/edges.
         let a = BRep::from_mesh(sample_mesh());
         let b = BRep::from_mesh(sample_mesh());
-        let mock = MockBackend::ok(sample_mesh());
-        let r = boolean(&a, &b, BoolOp::Union, &mock).unwrap();
+        let mesh = sample_mesh();
+        let attr = substitute_attribution(&mesh, &a, &b);
+        let (verts, edges, faces) = reconstruct_topology(&mesh, &attr, &a, &b).unwrap();
         assert!(
-            r.faces().is_empty(),
+            faces.is_empty(),
             "all-None attribution should yield empty faces"
         );
         assert!(
-            r.edges().is_empty(),
+            edges.is_empty(),
             "all-None attribution should yield empty edges"
         );
         // Vertices still populated 1:1 with mesh.
-        assert_eq!(r.vertices().len(), r.as_mesh().num_verts());
+        assert_eq!(verts.len(), mesh.num_verts());
     }
 
     // ====================================================================
@@ -2381,26 +2530,32 @@ mod tests {
 
     // ----- Group A.1: full attribution coverage + correctness -----
 
-    /// Hand-built arrangement: a Union of cube A@origin with cube B@origin
-    /// shifted +0.5 in x. We craft a tiny on-A-surface, outside-B sub-mesh
-    /// (3 tris on A's z=0 bottom face, all inside-vectors all-false → kept
-    /// by Union). Every kept tri's centroid lies on exactly one A face
-    /// plane (z=0) → I7 unique-face → full Some attribution.
-    fn arrangement_three_a_bottom_tris() -> LabeledArrangement {
-        // 3 triangles on A's bottom face (z=0), x∈[0,0.5] so they are
-        // outside B (B starts at x=0.5). Vertices in z=0.
+    /// Hand-built arrangement: a CLOSEABLE 2-triangle quad on cube A's
+    /// bottom face (z=0). The quad's 4 verts are A's exact bottom-face
+    /// corners (0,0,0)(1,0,0)(1,1,0)(0,1,0), so:
+    /// - real-label path: each tri's centroid lies on exactly one A face
+    ///   plane (z=0) → I7 unique-face → full Some(A, face0) attribution;
+    /// - the patch boundary 0→1→2→3→0 closes (single manifold cycle) so
+    ///   `reconstruct_topology` succeeds (no `NonManifoldOutput`);
+    /// - the verts coincide with A's `BRepVertex`es, so the M4 substitute's
+    ///   spatial matching also resolves to A's bottom face (vertex-face
+    ///   incidence majority → F0), letting the differential oracle agree.
+    ///
+    /// All `inside` all-false ⇒ both tris kept by Union.
+    fn arrangement_a_bottom_quad() -> LabeledArrangement {
         let verts = vec![
-            p(0.0, 0.0, 0.0),
-            p(0.5, 0.0, 0.0),
-            p(0.5, 0.5, 0.0),
-            p(0.0, 0.5, 0.0),
+            p(0.0, 0.0, 0.0), // A vert 0
+            p(1.0, 0.0, 0.0), // A vert 1
+            p(1.0, 1.0, 0.0), // A vert 2
+            p(0.0, 1.0, 0.0), // A vert 3
         ];
-        let tris = vec![[0u32, 1, 2], [0, 2, 3], [0, 1, 3]];
+        // Two tris forming the quad; boundary 0→1→2→3→0 closes cleanly.
+        let tris = vec![[0u32, 1, 2], [0, 2, 3]];
         let mesh = Mesh::new(verts, tris);
-        // All on A's surface (solid 0), none on B; inside all-false ⇒ kept by Union.
-        let surface = vec![vec![LaInputId(0)]; 3];
-        let inside = vec![vec![false, false]; 3];
-        let patch = vec![0u32, 0, 0];
+        // Both on A's surface (solid 0), none on B; inside all-false ⇒ Union keeps.
+        let surface = vec![vec![LaInputId(0)]; 2];
+        let inside = vec![vec![false, false]; 2];
+        let patch = vec![0u32, 0];
         LabeledArrangement {
             mesh,
             surface,
@@ -2415,7 +2570,7 @@ mod tests {
         // I7 + full-coverage: every kept output triangle resolves to Some.
         let a = cube_brep([0.0, 0.0, 0.0]);
         let b = cube_brep([0.5, 0.0, 0.0]);
-        let la = arrangement_three_a_bottom_tris();
+        let la = arrangement_a_bottom_quad();
         let backend = LabelMockBackend::new(la);
         let r = boolean(&a, &b, BoolOp::Union, &backend).unwrap();
 
@@ -2440,7 +2595,7 @@ mod tests {
         // centroid lies on (here A's bottom face, z=0).
         let a = cube_brep([0.0, 0.0, 0.0]);
         let b = cube_brep([0.5, 0.0, 0.0]);
-        let la = arrangement_three_a_bottom_tris();
+        let la = arrangement_a_bottom_quad();
         let mesh = la.mesh.clone();
         let backend = LabelMockBackend::new(la);
         let r = boolean(&a, &b, BoolOp::Union, &backend).unwrap();
@@ -2468,7 +2623,7 @@ mod tests {
         // Stage 4: the kept sub-mesh must contain exactly keep_set(op) tris.
         let a = cube_brep([0.0, 0.0, 0.0]);
         let b = cube_brep([0.5, 0.0, 0.0]);
-        let la = arrangement_three_a_bottom_tris();
+        let la = arrangement_a_bottom_quad();
         let expected_kept = la.keep_set(BoolOp::Union).len();
         let backend = LabelMockBackend::new(la);
         let r = boolean(&a, &b, BoolOp::Union, &backend).unwrap();
@@ -2513,11 +2668,7 @@ mod tests {
         let a = cube_brep([0.0, 0.0, 0.0]);
         let b = cube_brep([0.5, 0.0, 0.0]);
         // Triangle floating at z=0.5 (interior; off every cube face plane).
-        let verts = vec![
-            p(0.25, 0.25, 0.5),
-            p(0.5, 0.25, 0.5),
-            p(0.25, 0.5, 0.5),
-        ];
+        let verts = vec![p(0.25, 0.25, 0.5), p(0.5, 0.25, 0.5), p(0.25, 0.5, 0.5)];
         let mesh = Mesh::new(verts, vec![[0u32, 1, 2]]);
         let la = LabeledArrangement {
             mesh,
@@ -2547,7 +2698,7 @@ mod tests {
         // module. If those are not yet callable, this is a compile RED.
         let a = cube_brep([0.0, 0.0, 0.0]);
         let b = cube_brep([0.5, 0.0, 0.0]);
-        let la = arrangement_three_a_bottom_tris();
+        let la = arrangement_a_bottom_quad();
         let mesh = la.mesh.clone();
         let backend = LabelMockBackend::new(la);
 

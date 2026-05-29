@@ -372,6 +372,14 @@ impl MeshBoolean for SidecarBoolean {
         let mesh = obj::read_obj(&out_path).map_err(|source| SidecarError::ObjParse { source })?;
         Ok(mesh)
     }
+
+    fn labeled_arrangement(
+        &self,
+        a: &Mesh,
+        b: &Mesh,
+    ) -> Result<LabeledArrangement, Box<dyn Error + Send + Sync>> {
+        labeled_arrangement(a, b, self.timeout).map_err(|e| Box::new(e) as _)
+    }
 }
 
 /// Concrete error type for [`SidecarBoolean`] operations.

@@ -27,6 +27,24 @@ use crate::Mesh;
 pub trait MeshBoolean {
     fn boolean(&self, a: &Mesh, b: &Mesh, op: BoolOp)
         -> Result<Mesh, Box<dyn Error + Send + Sync>>;
+
+    /// Produce the full Stage-2 [`LabeledArrangement`](crate::labeled_arrangement::LabeledArrangement)
+    /// for `a` and `b`: the exact mesh arrangement plus per-triangle
+    /// surface/inside/patch labels.
+    ///
+    /// Default impl errors (`NotSupported`) so existing backends that only
+    /// implement [`MeshBoolean::boolean`] compile unchanged. Producers that
+    /// can surface labels (e.g. the patched `cherchi-sidecar-rs`) override it.
+    fn labeled_arrangement(
+        &self,
+        _a: &Mesh,
+        _b: &Mesh,
+    ) -> Result<
+        crate::labeled_arrangement::LabeledArrangement,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        Err("labeled_arrangement not supported by this backend".into())
+    }
 }
 
 #[cfg(test)]
