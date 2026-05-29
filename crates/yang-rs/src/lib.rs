@@ -500,6 +500,12 @@ pub enum YangError {
     /// lies on no input face plane / ties between ≥2 planes within
     /// `TAU_WORK`. P9: fail loud, never a silent `None`.
     FaceResolutionFailed { tri: usize },
+    /// The requested boolean op is not yet supported by the M3 pipeline.
+    /// Currently only `Xor` (its symmetric-difference result is multi-shell /
+    /// has a void that `reconstruct_topology` cannot reassemble yet — deferred
+    /// from M3, spec §Scope). Fails loud rather than producing a generic
+    /// `NonManifoldOutput` or a silently-wrong result (P9).
+    UnsupportedOp(BoolOp),
 }
 
 impl fmt::Display for YangError {
@@ -524,6 +530,13 @@ impl fmt::Display for YangError {
                     f,
                     "yang-rs: geometric face resolution failed for kept triangle {tri} \
                      (coplanar multi-solid label, or centroid off all face planes / tie)"
+                )
+            }
+            Self::UnsupportedOp(op) => {
+                write!(
+                    f,
+                    "yang-rs: operation {op:?} not yet supported \
+                     (XOR multi-shell reassembly deferred — M3)"
                 )
             }
         }
@@ -568,19 +581,36 @@ fn flip_for_op(op: BoolOp, la: &LabeledArrangement, t: usize) -> bool {
 /// **M3 functional pipeline** (replaces the PR-YR3/YR4 spatial-match +
 /// majority-vote substitute, now a `#[cfg(test)]` differential oracle):
 ///
+/// 0. **XOR is deferred (spec §Scope)** — its symmetric-difference result
+///    is multi-shell / has a void that `reconstruct_topology` cannot
+///    reassemble yet. `boolean()` errors loudly with `UnsupportedOp` once it
+///    sees a non-empty XOR kept-set (a degenerate XOR with nothing to
+///    reassemble still trivially yields an empty result).
 /// 1. Obtain the real Stage-2 [`LabeledArrangement`] from
 ///    `backend.labeled_arrangement(..)` (full arrangement mesh +
 ///    per-triangle `surface`/`inside`/`patch` labels).
-/// 2. **I6 weld guard** — the arrangement mesh must be index-welded (no
-///    two distinct vertex indices with bit-identical coords). yang's
-///    index-based adjacency depends on it; violation → `NonManifoldInput`.
+/// 2. **I6 weld** — the C++ producer does NOT always weld coincident
+///    vertices (e.g. A@[0,0,0]/B@[0.7,0.3,0.4] emits a bit-exact duplicate
+///    vertex used by shared triangles), so yang welds: map each vertex to
+///    the *original index* of its first bit-identical occurrence. yang's
+///    index-based adjacency then sees coincident points as one index. A
+///    kept triangle that welds to a repeated index is a zero-area sliver at
+///    that coincident point — dropped (no surface/volume; its edges pair up
+///    so the output stays watertight). Two *distinct* surviving triangles
+///    that weld to the same 3 indices are genuinely coincident faces →
+///    `NonManifoldInput` (the a4 bit-exact-coincident-vertex case).
 /// 3. `keep = la.keep_set(op)` — Stage 4 face survival.
-/// 4. Compact the kept tris into a fresh sub-mesh (the output mesh).
+/// 4. Compact the welded kept tris into a fresh sub-mesh (the output mesh).
 /// 5. **Geometric face resolution** (Stage 6) per kept tri → a FULL
 ///    `TriangleAttributionMap` (every entry `Some`). `surface[t]` of
-///    length ≠ 1 → `FaceResolutionFailed` (F2 coplanar / multi-solid);
-///    centroid off all planes or a tie within `TAU_WORK` →
-///    `FaceResolutionFailed` (F3). Never a silent `None` (P9).
+///    length ≠ 1 → `FaceResolutionFailed` (F2 coplanar / multi-solid). For a
+///    *non-degenerate* (positive-area) triangle: pick the unique labeled-solid
+///    face plane within `TAU_WORK` of the centroid; no match / a genuine tie →
+///    `FaceResolutionFailed` (F3). For a *degenerate* (zero-area sliver, kept
+///    because its edges pair into the watertight result) triangle: attribute
+///    to the LOWEST labeled-solid face index within `TAU_WORK` (its centroid
+///    sits on a solid edge, so the two adjacent planes tie — harmless for a
+///    zero-area tri; never F3). Never a silent `None` (P9).
 /// 6. `reconstruct_topology(..)` — flood-fill patches, walk boundary
 ///    cycles, inherit input-face `Surface`; full attribution ⇒ closed
 ///    boundary cycles ⇒ watertight 2-manifold output.
@@ -595,46 +625,84 @@ pub fn boolean(
         .labeled_arrangement(a.as_mesh(), b.as_mesh())
         .map_err(YangError::MeshBooleanFailed)?;
 
-    // (2) I6 weld guard: no two distinct vertex indices share bit-exact
-    // coords. O(n) via a bit-key hash set.
-    {
-        use std::collections::HashSet;
-        let mut seen: HashSet<[u64; 3]> = HashSet::with_capacity(la.mesh.verts.len());
-        for v in &la.mesh.verts {
-            let key = [v.x().to_bits(), v.y().to_bits(), v.z().to_bits()];
-            if !seen.insert(key) {
-                return Err(YangError::NonManifoldInput);
-            }
-        }
-    }
+    // (2) I6 weld: the C++ producer does NOT always weld coincident vertices
+    // (it can emit two distinct indices at bit-identical coordinates — a
+    // non-manifold touching point — used by shared triangles). yang's
+    // index-based adjacency requires coincident points to share one index, so
+    // weld each vertex to the ORIGINAL index of its first bit-identical
+    // occurrence. (Mapping to the original index — not a renumbered counter —
+    // keeps `la.mesh.verts[welded]` valid: coordinates are unchanged.)
+    let weld: Vec<u32> = {
+        use std::collections::HashMap;
+        let mut first: HashMap<[u64; 3], u32> = HashMap::with_capacity(la.mesh.verts.len());
+        la.mesh
+            .verts
+            .iter()
+            .enumerate()
+            .map(|(i, v)| {
+                let key = [v.x().to_bits(), v.y().to_bits(), v.z().to_bits()];
+                *first.entry(key).or_insert(i as u32)
+            })
+            .collect()
+    };
+    // A bit-exact weld is all the exact arrangement needs: the producer never
+    // emits TAU_WORK-near-but-bit-distinct coincident verts (they would survive
+    // as distinct indices and fragment adjacency). A defensive O(n²) near-check
+    // is therefore redundant for this producer and is omitted.
 
     // (3) Stage 4: which arrangement tris survive `op`.
     let kept = la.keep_set(op);
 
-    // (4) Compact kept sub-mesh: remap referenced verts to dense indices.
+    // (3a) XOR deferred (spec §Scope): its symmetric-difference result is
+    // multi-shell / has a void that `reconstruct_topology` cannot reassemble
+    // yet. Error LOUDLY (`UnsupportedOp`) rather than emitting a generic
+    // `NonManifoldOutput` or a silently-wrong result (P9). Gated on a
+    // non-empty XOR kept-set: a degenerate XOR with nothing to reassemble
+    // (empty arrangement) still trivially succeeds with an empty result, so
+    // op-dispatch over an empty arrangement is well-defined for all four ops.
+    if op == BoolOp::Xor && !kept.is_empty() {
+        return Err(YangError::UnsupportedOp(op));
+    }
+
+    // (4) Compact kept sub-mesh: weld + per-op winding fix, then remap the
+    // referenced (welded) verts to dense indices.
     let mut remap: Vec<Option<u32>> = vec![None; la.mesh.verts.len()];
     let mut compact_verts: Vec<Point3> = Vec::new();
     let mut compact_tris: Vec<[u32; 3]> = Vec::with_capacity(kept.len());
     // compact-tri index -> original `la` tri index (for surface lookup).
     let mut orig_tri: Vec<usize> = Vec::with_capacity(kept.len());
     for &orig_t in &kept {
-        let mut tri = la.mesh.tris[orig_t];
-        // Per-op winding fix (Cherchi booleans.cpp boolSubtraction:1480-1483 /
-        // boolXOR:1506-1509): the keep-rule selects triangles but some kept
-        // triangles bound the result with reversed orientation and must be
-        // flipped so the output is consistently outward-oriented (I9 signed
-        // volume). Union / Intersection keep winding as-is.
+        let raw = la.mesh.tris[orig_t];
+        // Apply the weld (coincident points → shared original index).
+        let mut tri = [
+            weld[raw[0] as usize],
+            weld[raw[1] as usize],
+            weld[raw[2] as usize],
+        ];
+        // A welded triangle with a repeated index is a zero-area sliver at a
+        // coincident (welded) point — it carries no surface and no volume, and
+        // its two non-degenerate directed edges are mutual opposites that
+        // cancel, so dropping it preserves the watertight half-edge pairing.
+        // (Real, in-scope arrangement artifact — NOT non-manifold input.)
+        if tri[0] == tri[1] || tri[1] == tri[2] || tri[2] == tri[0] {
+            continue;
+        }
+        // Per-op winding fix (Cherchi booleans.cpp boolSubtraction:1480-1483):
+        // the keep-rule selects triangles but some kept triangles bound the
+        // result with reversed orientation and must be flipped so the output
+        // is consistently outward-oriented (I9 signed volume). Union /
+        // Intersection keep winding as-is.
         if flip_for_op(op, &la, orig_t) {
             tri.swap(1, 2);
         }
         let mut new_tri = [0u32; 3];
-        for (k, &vi) in tri.iter().enumerate() {
-            let slot = &mut remap[vi as usize];
+        for (k, &wi) in tri.iter().enumerate() {
+            let slot = &mut remap[wi as usize];
             let new_vi = match slot {
                 Some(idx) => *idx,
                 None => {
                     let idx = compact_verts.len() as u32;
-                    compact_verts.push(la.mesh.verts[vi as usize]);
+                    compact_verts.push(la.mesh.verts[wi as usize]);
                     *slot = Some(idx);
                     idx
                 }
@@ -643,6 +711,22 @@ pub fn boolean(
         }
         compact_tris.push(new_tri);
         orig_tri.push(orig_t);
+    }
+    // (I6 guard) Two distinct surviving triangles that welded to the same 3
+    // vertices are genuinely coincident faces (non-manifold input) — e.g. the
+    // a4 fixture's two tris over bit-exact-coincident vertices. A valid
+    // arrangement has no such pair; reject it. (Compact indices are 1:1 with
+    // welded indices, so a sorted-index key suffices.)
+    {
+        use std::collections::HashSet;
+        let mut seen: HashSet<[u32; 3]> = HashSet::with_capacity(compact_tris.len());
+        for t in &compact_tris {
+            let mut sorted = *t;
+            sorted.sort_unstable();
+            if !seen.insert(sorted) {
+                return Err(YangError::NonManifoldInput);
+            }
+        }
     }
     let kept_submesh = Mesh::new(compact_verts, compact_tris);
 
@@ -672,34 +756,80 @@ pub fn boolean(
             (p0[2] + p1[2] + p2[2]) / 3.0,
         ];
 
-        // Pick the input face whose plane contains the centroid: smallest
-        // |n·c + d|. Require min < TAU_WORK AND 2nd-smallest >= TAU_WORK
-        // (unique, no tie). Else F3.
-        let mut best: Option<(f64, u32)> = None;
-        let mut second: f64 = f64::INFINITY;
-        for (fi, face) in input_brep.faces().iter().enumerate() {
+        // Is this kept triangle DEGENERATE (zero-area / collinear)? The exact
+        // arrangement emits sliver triangles along shared solid edges (3
+        // distinct welded verts, all collinear). They carry no surface and no
+        // volume but pair their edges into the watertight result, so they are
+        // kept (not dropped — dropping breaks edge-pairing). Their centroid
+        // lands on a solid edge, equidistant from the two adjacent face planes,
+        // so the unique-face rule would (wrongly) F3-tie them. Threshold is the
+        // M1 area threshold (2·area = ‖cross(e1,e2)‖; compare to MIN_FEATURE_SIZE²;
+        // governance A14.3 — shared constant, no ad-hoc epsilon).
+        let e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+        let e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+        let cross = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let twice_area = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
+        let degenerate =
+            twice_area < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
+
+        // Distance of the centroid to each labeled-solid face plane.
+        let plane_dist = |face: &BRepFace| {
             let Surface::Plane { normal, d } = face.surface;
             let n = normal.as_array();
-            let r = (n[0] * c[0] + n[1] * c[1] + n[2] * c[2] + d).abs();
-            match best {
-                None => best = Some((r, fi as u32)),
-                Some((br, _)) if r < br => {
-                    second = br;
-                    best = Some((r, fi as u32));
-                }
-                _ => {
-                    if r < second {
-                        second = r;
+            (n[0] * c[0] + n[1] * c[1] + n[2] * c[2] + d).abs()
+        };
+
+        let face = if degenerate {
+            // Degenerate sliver: attribute to the LOWEST face index within
+            // TAU_WORK of the centroid (a zero-area triangle has no area, so
+            // which adjacent face it joins is geometrically harmless). Never
+            // an error — the F3 tie contract is for *real* (positive-area)
+            // triangles only. If somehow no face is within TAU_WORK, that is a
+            // genuine producer fault → loud error (P9).
+            let hit = input_brep
+                .faces()
+                .iter()
+                .enumerate()
+                .find(|(_, f)| plane_dist(f) < cad_primitives::TAU_WORK)
+                .map(|(fi, _)| fi as u32);
+            match hit {
+                Some(fi) => fi,
+                None => return Err(YangError::FaceResolutionFailed { tri: compact_t }),
+            }
+        } else {
+            // Non-degenerate triangle: the existing F1/F3 rule — pick the face
+            // whose plane contains the centroid (smallest |n·c + d|); require
+            // min < TAU_WORK AND 2nd-smallest >= TAU_WORK (unique, no tie),
+            // else FaceResolutionFailed (F3).
+            let mut best: Option<(f64, u32)> = None;
+            let mut second: f64 = f64::INFINITY;
+            for (fi, f) in input_brep.faces().iter().enumerate() {
+                let r = plane_dist(f);
+                match best {
+                    None => best = Some((r, fi as u32)),
+                    Some((br, _)) if r < br => {
+                        second = br;
+                        best = Some((r, fi as u32));
+                    }
+                    _ => {
+                        if r < second {
+                            second = r;
+                        }
                     }
                 }
             }
-        }
-        let Some((min_r, face)) = best else {
-            return Err(YangError::FaceResolutionFailed { tri: compact_t });
+            let Some((min_r, fi)) = best else {
+                return Err(YangError::FaceResolutionFailed { tri: compact_t });
+            };
+            if min_r >= cad_primitives::TAU_WORK || second < cad_primitives::TAU_WORK {
+                return Err(YangError::FaceResolutionFailed { tri: compact_t });
+            }
+            fi
         };
-        if min_r >= cad_primitives::TAU_WORK || second < cad_primitives::TAU_WORK {
-            return Err(YangError::FaceResolutionFailed { tri: compact_t });
-        }
         attributions.push(Some(TriangleAttribution { input, face }));
     }
     let triangle_attribution = TriangleAttributionMap { attributions };

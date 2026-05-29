@@ -534,17 +534,30 @@ impl MeshBoolean for LabelMock {
 
 #[test]
 fn a6_equidistant_two_planes_tie_fails_resolution() {
-    // A tri whose centroid is equidistant (within TAU_WORK) from TWO A-face
-    // planes must FaceResolutionFailed (F3 tie), not silently pick one.
+    // A genuine attribution tie on a NON-DEGENERATE (positive-area) triangle
+    // must FaceResolutionFailed (F3 tie), not silently pick one.
     //
-    // Use a tiny cube `a` at the origin and a triangle whose centroid sits at
-    // a CORNER where two A planes (z=0 and y=0) both pass within TAU_WORK.
-    // Centroid (cx, 0, 0): on plane y=0 (dist 0) AND plane z=0 (dist 0) → tie.
+    // Post-fix scoping of the F3 tie-guard: the M3 production rule treats a
+    // DEGENERATE (zero-area) triangle as a harmless edge-sliver — it sits on a
+    // solid edge where two adjacent planes always tie — and attributes it
+    // deterministically to the lowest tied face (slivers are load-bearing for
+    // edge-pairing / watertightness, so dropping or erroring on them is wrong).
+    // Therefore the F3 tie-guard is scoped to REAL (positive-area) triangles
+    // only. This test exercises that scoped case: a triangle with substantial
+    // area whose CENTROID is genuinely ambiguous between two of solid A's face
+    // planes.
+    //
+    // Fixture: cube A @ origin (planes x=0, x=1, y=0, y=1, z=0, z=1). A real
+    // 2D triangle in the plane z=0.5 with vertices whose x- and y-coordinates
+    // each sum to zero ⇒ centroid = (0, 0, 0.5):
+    //   - ‖cross(e1, e2)‖ = 1.5  ≫ MIN_FEATURE_SIZE² (1e-12) ⇒ NON-degenerate.
+    //   - centroid distance to plane x=0 is 0 and to plane y=0 is 0 (both well
+    //     within TAU_WORK=1e-12) ⇒ a genuine 2-plane tie.
+    //   - every OTHER A plane is ≥ 0.5 away (x=1, y=1 at 1.0; z=0, z=1 at 0.5),
+    //     so exactly two planes tie at distance 0 — unambiguously F3.
     let a = cube([0.0, 0.0, 0.0]);
     let b = cube([0.5, 0.5, 0.5]);
-    // Triangle whose centroid is exactly (0.5, 0.0, 0.0): lies on BOTH the
-    // y=0 plane (front) and the z=0 plane (bottom) of A → equidistant tie.
-    let verts = vec![p(0.4, 0.0, 0.0), p(0.6, 0.0, 0.0), p(0.5, 0.0, 0.0)];
+    let verts = vec![p(-0.5, -0.5, 0.5), p(0.5, -0.5, 0.5), p(0.0, 1.0, 0.5)];
     let mesh = Mesh::new(verts, vec![[0u32, 1, 2]]);
     let la = LabeledArrangement {
         mesh,
