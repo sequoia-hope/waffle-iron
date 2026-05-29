@@ -277,7 +277,11 @@ fn cube_minus_interior_rod() {
     };
 
     // --- Exactly 2 holed faces (the z=0 and z=1 annuli). ---
-    let holed = r.faces().iter().filter(|f| f.inner_loops.len() == 1).count();
+    let holed = r
+        .faces()
+        .iter()
+        .filter(|f| f.inner_loops.len() == 1)
+        .count();
     assert_eq!(
         holed, 2,
         "expected exactly 2 faces with one inner loop (z=0 and z=1 annuli), got {holed}"
@@ -350,7 +354,11 @@ fn cube_minus_blind_rod() {
     };
 
     // --- Exactly 1 holed face (z=0). z=1 stays plain. ---
-    let holed = r.faces().iter().filter(|f| f.inner_loops.len() == 1).count();
+    let holed = r
+        .faces()
+        .iter()
+        .filter(|f| f.inner_loops.len() == 1)
+        .count();
     assert_eq!(
         holed, 1,
         "expected exactly 1 holed face (z=0 blind pit), got {holed}"
@@ -422,7 +430,11 @@ fn corner_clip_has_no_holes() {
     };
 
     // --- L0 regression: NO face has an inner loop. ---
-    let holed = r.faces().iter().filter(|f| !f.inner_loops.is_empty()).count();
+    let holed = r
+        .faces()
+        .iter()
+        .filter(|f| !f.inner_loops.is_empty())
+        .count();
     assert_eq!(
         holed, 0,
         "corner clip should yield only simple faces, but {holed} face(s) have inner loops"

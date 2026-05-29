@@ -127,6 +127,9 @@ pub struct BRepFace {
     /// `edges[outer_loop[i]].end == edges[outer_loop[i+1]].start`
     /// (modulo wrap). PR-YR2 does NOT validate this cycle continuity.
     pub outer_loop: Vec<u32>,
+    /// Inner loops (holes), each an edge-index list; CW viewed from
+    /// outside (opposite the outer loop). Empty for simple faces.
+    pub inner_loops: Vec<Vec<u32>>,
 }
 
 // =========================================================================
@@ -870,14 +873,17 @@ type ReconstructedTopology = (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFace>);
 /// 1. Build per-triangle adjacency via canonical-edge BTreeMap.
 /// 2. Flood-fill same-attribution patches. Skip None-attributed
 ///    triangles (cut surfaces → PR-YR6).
-/// 3. For each patch, walk the directed boundary cycle (edges in
+/// 3. For each patch, walk ALL directed boundary cycles (edges in
 ///    exactly one patch triangle, ordered).
-/// 4. Inherit `surface` from `input.faces()[attribution.face]`.
-/// 5. Output `vertices` is 1:1 with `mesh.verts`.
+/// 4. Classify cycles outer (signed area > 0) vs inner (< 0) along the
+///    face normal; build `BRepFace { outer_loop, inner_loops }` (PR-YR5c).
+/// 5. Inherit `surface` from `input.faces()[attribution.face]`.
+/// 6. Output `vertices` is 1:1 with `mesh.verts`.
 ///
 /// Errors:
-/// - `NonManifoldOutput`: cycle walking dead-ends, T-junctions, or
-///   patch has multiple boundary cycles (inner loops unsupported in v1).
+/// - `NonManifoldOutput`: cycle walking dead-ends / T-junctions (E1),
+///   a degenerate loop (E2), or not exactly one positive-area cycle
+///   (E3 — disconnected / nested patch, out of scope).
 /// - `MalformedTopology`: defensive; `attribution.face` out of range
 ///   in the input BRep.
 fn reconstruct_topology(
@@ -903,16 +909,7 @@ fn reconstruct_topology(
     let mut edges: Vec<BRepEdge> = Vec::new();
     let mut faces: Vec<BRepFace> = Vec::new();
     for patch in &patches {
-        let cycle = patch_boundary_cycle(patch, mesh)?;
-        let edge_start_idx = edges.len() as u32;
-        for (s, e) in &cycle {
-            edges.push(BRepEdge {
-                start: *s,
-                end: *e,
-                curve: Curve::LineSegment,
-            });
-        }
-        let outer_loop: Vec<u32> = (edge_start_idx..edges.len() as u32).collect();
+        let cycles = patch_boundary_cycle(patch, mesh)?;
 
         let input_brep = match patch.attribution.input {
             InputId::A => a,
@@ -925,10 +922,102 @@ fn reconstruct_topology(
                 input_brep.faces().len()
             )));
         }
-        let surface = input_brep.faces()[face_idx].surface;
+        let inherited = input_brep.faces()[face_idx].surface;
+        let Surface::Plane { normal, d } = inherited;
+        let n = normal.as_array();
+
+        // Per-cycle Newell area-vector `N = Σ v_i × v_{i+1}` and its signed
+        // area along the inherited face normal. The kept tris are outward-
+        // oriented w.r.t. the RESULT solid, but for Subtract the B-surface
+        // tris are flipped (`flip_for_op`) so a B-face patch winds OPPOSITE
+        // its inherited normal. So we cannot assume the inherited normal
+        // already agrees with the winding: instead, take the largest-area
+        // cycle as the patch's outer boundary, let ITS winding define the
+        // face's true outward normal (flip the inherited normal if the
+        // winding opposes it — a subtracted B-face becomes a cavity wall
+        // whose outward normal points into the cavity), then classify the
+        // remaining cycles relative to that corrected orientation.
+        let mut signed_areas: Vec<f64> = Vec::with_capacity(cycles.len());
+        for cycle in &cycles {
+            let mut nx = 0.0f64;
+            let mut ny = 0.0f64;
+            let mut nz = 0.0f64;
+            let m = cycle.len();
+            for i in 0..m {
+                let a_pt = mesh.verts[cycle[i].0 as usize].as_array();
+                let b_pt = mesh.verts[cycle[(i + 1) % m].0 as usize].as_array();
+                nx += a_pt[1] * b_pt[2] - a_pt[2] * b_pt[1];
+                ny += a_pt[2] * b_pt[0] - a_pt[0] * b_pt[2];
+                nz += a_pt[0] * b_pt[1] - a_pt[1] * b_pt[0];
+            }
+            // E2: degenerate loop — Newell area-vector magnitude below the
+            // minimum feature area (MIN_FEATURE_SIZE²; A14.3 shared constant).
+            let nrm_mag = (nx * nx + ny * ny + nz * nz).sqrt();
+            if nrm_mag < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE {
+                return Err(YangError::NonManifoldOutput);
+            }
+            signed_areas.push(nx * n[0] + ny * n[1] + nz * n[2]);
+        }
+
+        // Outer boundary = the largest-|area| cycle. Its sign (relative to
+        // the inherited normal) tells us whether the winding agrees with the
+        // inherited normal; if not, flip the stored normal so the output
+        // face's normal matches its outward winding.
+        let mut outer_idx = 0usize;
+        for (i, &s) in signed_areas.iter().enumerate() {
+            if s.abs() > signed_areas[outer_idx].abs() {
+                outer_idx = i;
+            }
+        }
+        let flip = signed_areas[outer_idx] < 0.0;
+        let surface = if flip {
+            Surface::Plane {
+                normal: Vector3::new(-n[0], -n[1], -n[2]),
+                d: -d,
+            }
+        } else {
+            inherited
+        };
+        // After any flip, the outer cycle's signed area is positive and the
+        // holes are negative. E3: a connected outward-oriented patch has
+        // EXACTLY one cycle whose corrected sign is positive (its outer
+        // boundary). 0 or ≥2 ⇒ disconnected / nested, out of scope.
+        let orient = if flip { -1.0 } else { 1.0 };
+        let positive_count = signed_areas.iter().filter(|&&s| s * orient > 0.0).count();
+        if positive_count != 1 {
+            return Err(YangError::NonManifoldOutput);
+        }
+        let outer_cycle = &cycles[outer_idx];
+        let inner_cycles: Vec<&Vec<(u32, u32)>> = cycles
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != outer_idx)
+            .map(|(_, c)| c)
+            .collect();
+
+        // Emit the outer loop's edges first, then each inner loop's edges.
+        let push_loop = |edges: &mut Vec<BRepEdge>, cycle: &[(u32, u32)]| -> Vec<u32> {
+            let start_idx = edges.len() as u32;
+            for &(s, e) in cycle {
+                edges.push(BRepEdge {
+                    start: s,
+                    end: e,
+                    curve: Curve::LineSegment,
+                });
+            }
+            (start_idx..edges.len() as u32).collect()
+        };
+
+        let outer_loop = push_loop(&mut edges, outer_cycle);
+        let mut inner_loops: Vec<Vec<u32>> = Vec::with_capacity(inner_cycles.len());
+        for inner in &inner_cycles {
+            inner_loops.push(push_loop(&mut edges, inner));
+        }
+
         faces.push(BRepFace {
             surface,
             outer_loop,
+            inner_loops,
         });
     }
 
@@ -1013,14 +1102,18 @@ fn flood_fill_patches(
     patches
 }
 
-/// PR-YR5 helper: recover the directed boundary cycle of a patch.
+/// PR-YR5c helper: recover ALL directed boundary cycles of a patch.
 /// Boundary edges = edges in exactly one patch triangle (canonical
-/// (min, max) test). Walk from the lowest start-vertex; follow
-/// start→end chain via `BTreeMap` (deterministic).
+/// (min, max) test). Walk each cycle from the lowest remaining
+/// start-vertex; follow start→end chain via `BTreeMap` (deterministic).
 ///
-/// Returns `Err(NonManifoldOutput)` on dead-end, T-junction, or
-/// multi-cycle patches (inner loops unsupported in v1).
-fn patch_boundary_cycle(patch: &Patch, mesh: &Mesh) -> Result<Vec<(u32, u32)>, YangError> {
+/// A simple face yields 1 cycle; an annulus (holed face) yields 2 (the
+/// outer boundary + one hole); etc. Classification of which cycle is
+/// outer vs inner happens in `reconstruct_topology`.
+///
+/// Returns `Err(NonManifoldOutput)` on dead-end or T-junction (a genuine
+/// non-manifold patch).
+fn patch_boundary_cycle(patch: &Patch, mesh: &Mesh) -> Result<Vec<Vec<(u32, u32)>>, YangError> {
     use std::collections::{BTreeMap, HashSet};
 
     let patch_set: HashSet<u32> = patch.tri_indices.iter().copied().collect();
@@ -1063,36 +1156,47 @@ fn patch_boundary_cycle(patch: &Patch, mesh: &Mesh) -> Result<Vec<(u32, u32)>, Y
         ends.sort_unstable();
     }
 
-    // Walk: start at lowest start vertex.
-    let start = *by_start.keys().next().expect("non-empty boundary");
-    let mut current = start;
-    let mut cycle: Vec<(u32, u32)> = Vec::new();
-    loop {
-        let next = {
-            let next_vec = by_start
-                .get_mut(&current)
-                .ok_or(YangError::NonManifoldOutput)?;
-            if next_vec.is_empty() {
+    // Track how many boundary edges remain unconsumed across all cycles, to
+    // bound a single cycle walk (per-cycle "loop escaped" safety guard).
+    let mut remaining = directed_boundary.len();
+    let mut cycles: Vec<Vec<(u32, u32)>> = Vec::new();
+
+    // Extract every cycle: while any start vertex still has an outgoing edge,
+    // begin a new cycle at the LOWEST such start vertex and walk it with the
+    // per-cycle start→end chain logic (consuming edges as we go).
+    while let Some((&start, _)) = by_start.iter().find(|(_, ends)| !ends.is_empty()) {
+        // `start` is the lowest start vertex whose end-list is still non-empty.
+        // Edges available when this cycle starts: it cannot exceed this.
+        let budget = remaining;
+        let mut current = start;
+        let mut cycle: Vec<(u32, u32)> = Vec::new();
+        loop {
+            let next = {
+                let next_vec = by_start
+                    .get_mut(&current)
+                    .ok_or(YangError::NonManifoldOutput)?;
+                if next_vec.is_empty() {
+                    // Dead-end / T-junction: a genuine non-manifold patch.
+                    return Err(YangError::NonManifoldOutput);
+                }
+                next_vec.remove(0)
+            };
+            cycle.push((current, next));
+            remaining -= 1;
+            current = next;
+            if current == start {
+                break;
+            }
+            // Per-cycle safety: a single cycle cannot be longer than the
+            // edges that remained when it started (else the walk escaped).
+            if cycle.len() > budget {
                 return Err(YangError::NonManifoldOutput);
             }
-            next_vec.remove(0)
-        };
-        cycle.push((current, next));
-        current = next;
-        if current == start {
-            break;
         }
-        if cycle.len() > directed_boundary.len() {
-            return Err(YangError::NonManifoldOutput);
-        }
+        cycles.push(cycle);
     }
 
-    if cycle.len() != directed_boundary.len() {
-        // Multi-cycle patch (inner loops / disjoint boundaries).
-        return Err(YangError::NonManifoldOutput);
-    }
-
-    Ok(cycle)
+    Ok(cycles)
 }
 
 // =========================================================================
