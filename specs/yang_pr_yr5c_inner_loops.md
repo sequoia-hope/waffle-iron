@@ -36,15 +36,23 @@ coplanar (M8); XOR (gated); curved/SSI (M5).
 | # | Patch boundary | Action |
 |---|---|---|
 | L0 | one cycle | `outer_loop` = that cycle; `inner_loops = []` (unchanged behavior) |
-| L1 | N cycles, exactly one with positive signed area | positive = `outer_loop`; the (N−1) negative = `inner_loops` (holes) |
+| L1 | N cycles | `outer_loop` = the **largest-\|area\| cycle**; the other (N−1) = `inner_loops` (holes) |
 | E1 | dead-end / T-junction during a cycle walk | `Err(NonManifoldOutput)` (genuine non-manifold — unchanged) |
 | E2 | a cycle's |signed area| < `MIN_FEATURE_SIZE²` (degenerate loop) | `Err(NonManifoldOutput)` |
-| E3 | not exactly one positive-area cycle (0 or ≥2) | `Err(NonManifoldOutput)` (disconnected / nested — out of scope) |
 
 **Classification (L1):** for each cycle, Newell area-vector `N_loop = Σ (v_i × v_{i+1})`
-over its ordered loop vertices; signed area along the face normal = `N_loop · n̂_face`.
-The kept tris are outward-oriented (M3 `flip_for_op` + arrangement), so the outer
-boundary is CCW-from-outside (`> 0`) and holes are CW-from-outside (`< 0`).
+over its ordered loop vertices; signed area along the inherited face normal =
+`N_loop · n̂_inherited`. The **outer** boundary is the cycle of largest \|area\| (it
+encloses the holes). **Normal orientation:** the kept mesh is outward-oriented
+(M3 `flip_for_op`), but for `Subtract` the B-surface (cavity-wall) tris were
+flipped, so a B-face patch winds *opposite* its inherited normal. So if the outer
+cycle's signed area is **< 0** (winding opposes the inherited normal), **flip the
+stored output-face normal** (`n → −n`, `d → −d`) so the face normal points
+*result*-outward. After this correction the outer loop is CCW-from-outside
+(positive vs the OUTPUT normal) and holes are CW (negative). The plane geometry /
+surface tier is preserved (A15.5); only orientation, which must bound the result
+solid, is corrected. (E3 "exactly one positive cycle" from the original draft was
+wrong for cavity walls — superseded by largest-|area|-outer + normal correction.)
 
 ## `BRepFace`
 
@@ -62,7 +70,7 @@ Test Author migrates the test fixtures, Implementer the 1 production site).
 
 - **I1 (loop closure):** every outer/inner loop is a closed directed cycle
   (`edges[loop[i]].end == edges[loop[(i+1)%n]].start`).
-- **I2 (orientation):** `outer_loop` signed area (Newell·n̂) > 0; each inner loop < 0.
+- **I2 (orientation):** relative to the OUTPUT face normal (the inherited normal, flipped for Subtract cavity walls), `outer_loop` signed area > 0 and each inner loop < 0.
 - **I3 (B-Rep manifold):** over ALL face loops (outer + inner) as directed edges,
   every directed edge `(a,b)` has exactly one reverse `(b,a)` — holed faces stitch
   closed with the tunnel-wall faces. (The key new structural oracle.)
@@ -88,7 +96,7 @@ annuli** (each `inner_loops.len() == 1`).
 ## Failure modes
 
 - T-junction / dead-end → `NonManifoldOutput` (E1, unchanged).
-- Degenerate / non-classifiable loops → `NonManifoldOutput` (E2/E3).
+- Degenerate loops → `NonManifoldOutput` (E2).
 - Nested holes → `NonManifoldOutput` (out of scope).
 
 ## Research basis
@@ -100,7 +108,7 @@ annuli** (each `inner_loops.len() == 1`).
 
 ## Definition of Done (DoD §1)
 
-Spec (this file); RED→GREEN separate commits; every branch (L0/L1/E1/E2/E3)
+Spec (this file); RED→GREEN separate commits; every branch (L0/L1/E1/E2)
 tested; numeric (volume) + structural (holed-face count, loop orientation, B-Rep
 manifold) oracles; canonical (cube-rod) + edge (part-way) + regression
 (corner-clip, no spurious holes) cases; no test weakened; CI gate (fmt + clippy
