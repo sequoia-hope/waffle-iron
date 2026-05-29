@@ -88,10 +88,14 @@ Let `D = |c_b − c_a|`.
   ordering; the in-plane basis construction is deterministic).
 
 ## Failure modes
-- Unimplemented pair (e.g. plane∩cylinder) → `Err(AnalyticalSolutionNotAvailable)`
-  (A15.2 — never a mesh/grid fallback).
 - Degenerate input (coincident planes, concentric/zero-radius spheres, zero normal)
   → `Err(DegenerateInput)`. No `panic!`.
+- `AnalyticalSolutionNotAvailable` is a **reserved** `pub` variant for A15.2 (no
+  mesh/grid fallback for unimplemented pairs). With only `Plane`+`Sphere` in S1,
+  all three pairs ARE implemented, so it is **not triggerable in S1** — its
+  exercise is deferred to the first PR that adds a surface whose solvers aren't all
+  done. (Keep the variant; do not write an unimplemented-pair test in S1 — none is
+  constructible.)
 
 ## Research basis
 - **Patrikalakis & Maekawa**, *Shape Interrogation for CAD/M*, **§5.8
@@ -105,5 +109,5 @@ Let `D = |c_b − c_a|`.
 Spec (this file); RED→GREEN separate commits; every branch (the tables) tested;
 numeric/structural oracles (on-surface + analytical geometry, not "no panic");
 canonical (transverse) + edge (tangent/disjoint/degenerate) cases; symmetry +
-determinism; an unimplemented-pair test asserts `AnalyticalSolutionNotAvailable`;
+determinism; (no unimplemented-pair test in S1 — none constructible);
 no `unsafe`/`panic!`; CI gate (fmt + clippy -D warnings) clean for `ssi-rs`.
