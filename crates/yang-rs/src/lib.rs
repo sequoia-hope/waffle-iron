@@ -2223,4 +2223,363 @@ mod tests {
         // Vertices still populated 1:1 with mesh.
         assert_eq!(r.vertices().len(), r.as_mesh().num_verts());
     }
+
+    // ====================================================================
+    // M3 — functional boolean via LabeledArrangement (Group A unit tests)
+    //
+    // These tests target the M3 rewire: boolean() must consume a real
+    // `LabeledArrangement` from `backend.labeled_arrangement(..)`, select
+    // result triangles via `keep_set(op)`, geometrically resolve each kept
+    // triangle's source face (centroid-in-plane), and produce a FULL
+    // attribution (every output triangle → Some). Spec:
+    // specs/yang_m3_functional_boolean.md (I7 unique-face, F1/F2/F3).
+    //
+    // RED expectations until the Implementer lands M3:
+    //   - `MeshBoolean::labeled_arrangement` trait method does not exist.
+    //   - `YangError::FaceResolutionFailed { tri }` variant does not exist.
+    //   - `LabeledArrangement` is not imported here yet.
+    //   - current boolean() ignores labels → no full coverage.
+    // ====================================================================
+
+    use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};
+
+    /// Mock backend that returns a hand-built `LabeledArrangement` from
+    /// the (M3) `labeled_arrangement` trait method. `boolean()` is still
+    /// required (object-safe trait) but is unused on the M3 path.
+    struct LabelMockBackend {
+        arrangement: LabeledArrangement,
+    }
+    impl LabelMockBackend {
+        fn new(arrangement: LabeledArrangement) -> Self {
+            Self { arrangement }
+        }
+    }
+    impl MeshBoolean for LabelMockBackend {
+        fn boolean(
+            &self,
+            _a: &Mesh,
+            _b: &Mesh,
+            _op: BoolOp,
+        ) -> Result<Mesh, Box<dyn Error + Send + Sync>> {
+            // Not exercised on the M3 path; return the arrangement mesh so
+            // a stray call is at least well-formed.
+            Ok(self.arrangement.mesh.clone())
+        }
+        // M3: the trait gains this method (default impl errors NotSupported);
+        // this mock overrides it with a hand-built arrangement.
+        fn labeled_arrangement(
+            &self,
+            _a: &Mesh,
+            _b: &Mesh,
+        ) -> Result<LabeledArrangement, Box<dyn Error + Send + Sync>> {
+            Ok(self.arrangement.clone())
+        }
+    }
+
+    /// Axis-aligned unit cube BRep at `origin` with correct OUTWARD face
+    /// normals — minimal topology sufficient for geometric face
+    /// resolution (centroid-in-plane). 8 verts, 24 edges, 6 quad faces.
+    fn cube_brep(origin: [f64; 3]) -> BRep {
+        let [x, y, z] = origin;
+        let verts = vec![
+            BRepVertex { point: p(x, y, z) },
+            BRepVertex {
+                point: p(x + 1.0, y, z),
+            },
+            BRepVertex {
+                point: p(x + 1.0, y + 1.0, z),
+            },
+            BRepVertex {
+                point: p(x, y + 1.0, z),
+            },
+            BRepVertex {
+                point: p(x, y, z + 1.0),
+            },
+            BRepVertex {
+                point: p(x + 1.0, y, z + 1.0),
+            },
+            BRepVertex {
+                point: p(x + 1.0, y + 1.0, z + 1.0),
+            },
+            BRepVertex {
+                point: p(x, y + 1.0, z + 1.0),
+            },
+        ];
+        let face_verts: [[u32; 4]; 6] = [
+            [0, 1, 2, 3], // bottom (z)
+            [4, 7, 6, 5], // top (z+1)
+            [0, 4, 5, 1], // front (y)
+            [1, 5, 6, 2], // right (x+1)
+            [2, 6, 7, 3], // back (y+1)
+            [3, 7, 4, 0], // left (x)
+        ];
+        let mut edges = Vec::new();
+        let mut loops = Vec::new();
+        for vs in &face_verts {
+            let base = edges.len() as u32;
+            for i in 0..4 {
+                edges.push(BRepEdge {
+                    start: vs[i],
+                    end: vs[(i + 1) % 4],
+                    curve: Curve::LineSegment,
+                });
+            }
+            loops.push(vec![base, base + 1, base + 2, base + 3]);
+        }
+        let normals = [
+            Vector3::new(0.0, 0.0, -1.0),
+            Vector3::new(0.0, 0.0, 1.0),
+            Vector3::new(0.0, -1.0, 0.0),
+            Vector3::new(1.0, 0.0, 0.0),
+            Vector3::new(0.0, 1.0, 0.0),
+            Vector3::new(-1.0, 0.0, 0.0),
+        ];
+        // Plane convention n·x + d = 0. For a face on plane n·x = c the
+        // offset is d = -c.
+        let offs = [-z, z + 1.0, -y, x + 1.0, y + 1.0, -x];
+        let faces: Vec<BRepFace> = (0..6)
+            .map(|i| BRepFace {
+                surface: Surface::Plane {
+                    normal: normals[i],
+                    d: offs[i],
+                },
+                outer_loop: loops[i].clone(),
+            })
+            .collect();
+        BRep::new(verts, edges, faces).unwrap()
+    }
+
+    /// Centroid of a triangle.
+    fn centroid(mesh: &Mesh, tri: [u32; 3]) -> Point3 {
+        let a = mesh.verts[tri[0] as usize].as_array();
+        let b = mesh.verts[tri[1] as usize].as_array();
+        let c = mesh.verts[tri[2] as usize].as_array();
+        Point3::new(
+            (a[0] + b[0] + c[0]) / 3.0,
+            (a[1] + b[1] + c[1]) / 3.0,
+            (a[2] + b[2] + c[2]) / 3.0,
+        )
+    }
+
+    /// Find the single face of `brep` whose plane contains `c` within
+    /// TAU_WORK; panics if zero or >1 (the expected-attribution helper
+    /// must be unambiguous for a well-posed fixture).
+    fn resolve_face(brep: &BRep, c: Point3) -> u32 {
+        let mut hit: Option<u32> = None;
+        for (i, f) in brep.faces().iter().enumerate() {
+            let Surface::Plane { normal, d } = f.surface;
+            let n = normal.as_array();
+            let cc = c.as_array();
+            let dist = (n[0] * cc[0] + n[1] * cc[1] + n[2] * cc[2] + d).abs();
+            if dist < cad_primitives::TAU_WORK {
+                assert!(hit.is_none(), "ambiguous: centroid on >1 face plane");
+                hit = Some(i as u32);
+            }
+        }
+        hit.expect("centroid lies on no face plane")
+    }
+
+    // ----- Group A.1: full attribution coverage + correctness -----
+
+    /// Hand-built arrangement: a Union of cube A@origin with cube B@origin
+    /// shifted +0.5 in x. We craft a tiny on-A-surface, outside-B sub-mesh
+    /// (3 tris on A's z=0 bottom face, all inside-vectors all-false → kept
+    /// by Union). Every kept tri's centroid lies on exactly one A face
+    /// plane (z=0) → I7 unique-face → full Some attribution.
+    fn arrangement_three_a_bottom_tris() -> LabeledArrangement {
+        // 3 triangles on A's bottom face (z=0), x∈[0,0.5] so they are
+        // outside B (B starts at x=0.5). Vertices in z=0.
+        let verts = vec![
+            p(0.0, 0.0, 0.0),
+            p(0.5, 0.0, 0.0),
+            p(0.5, 0.5, 0.0),
+            p(0.0, 0.5, 0.0),
+        ];
+        let tris = vec![[0u32, 1, 2], [0, 2, 3], [0, 1, 3]];
+        let mesh = Mesh::new(verts, tris);
+        // All on A's surface (solid 0), none on B; inside all-false ⇒ kept by Union.
+        let surface = vec![vec![LaInputId(0)]; 3];
+        let inside = vec![vec![false, false]; 3];
+        let patch = vec![0u32, 0, 0];
+        LabeledArrangement {
+            mesh,
+            surface,
+            inside,
+            patch,
+            num_inputs: 2,
+        }
+    }
+
+    #[test]
+    fn m3_union_full_attribution_coverage() {
+        // I7 + full-coverage: every kept output triangle resolves to Some.
+        let a = cube_brep([0.0, 0.0, 0.0]);
+        let b = cube_brep([0.5, 0.0, 0.0]);
+        let la = arrangement_three_a_bottom_tris();
+        let backend = LabelMockBackend::new(la);
+        let r = boolean(&a, &b, BoolOp::Union, &backend).unwrap();
+
+        let attr = r.triangle_attribution();
+        assert_eq!(
+            attr.len(),
+            r.num_tris(),
+            "attribution length must equal output triangle count"
+        );
+        assert!(r.num_tris() > 0, "expected non-empty kept sub-mesh");
+        for t in 0..attr.len() as u32 {
+            assert!(
+                attr.lookup(t).is_some(),
+                "M3 requires FULL attribution: tri {t} is None (skeleton, not closed)"
+            );
+        }
+    }
+
+    #[test]
+    fn m3_union_attribution_matches_geometric_face() {
+        // F1: each kept tri attributes to the unique A-face plane its
+        // centroid lies on (here A's bottom face, z=0).
+        let a = cube_brep([0.0, 0.0, 0.0]);
+        let b = cube_brep([0.5, 0.0, 0.0]);
+        let la = arrangement_three_a_bottom_tris();
+        let mesh = la.mesh.clone();
+        let backend = LabelMockBackend::new(la);
+        let r = boolean(&a, &b, BoolOp::Union, &backend).unwrap();
+        let attr = r.triangle_attribution();
+
+        // The kept sub-mesh re-indexes verts but preserves triangle geometry.
+        // For each output triangle, its centroid must lie on A's face that
+        // the attribution names.
+        for t in 0..r.num_tris() as u32 {
+            let got = attr.lookup(t).expect("full coverage");
+            assert_eq!(got.input, InputId::A, "tris are all on solid A's surface");
+            let c = centroid(r.as_mesh(), r.as_mesh().tris[t as usize]);
+            let expected_face = resolve_face(&a, c);
+            assert_eq!(
+                got.face, expected_face,
+                "tri {t}: attributed face {} != geometric face {}",
+                got.face, expected_face
+            );
+        }
+        let _ = mesh; // keep capture explicit
+    }
+
+    #[test]
+    fn m3_kept_submesh_is_keep_set_count() {
+        // Stage 4: the kept sub-mesh must contain exactly keep_set(op) tris.
+        let a = cube_brep([0.0, 0.0, 0.0]);
+        let b = cube_brep([0.5, 0.0, 0.0]);
+        let la = arrangement_three_a_bottom_tris();
+        let expected_kept = la.keep_set(BoolOp::Union).len();
+        let backend = LabelMockBackend::new(la);
+        let r = boolean(&a, &b, BoolOp::Union, &backend).unwrap();
+        assert_eq!(
+            r.num_tris(),
+            expected_kept,
+            "output mesh tri count must equal keep_set(Union) count"
+        );
+    }
+
+    // ----- Group A.2: F2 / F3 error cases (P9: loud, never None) -----
+
+    #[test]
+    fn m3_coplanar_surface_len_two_errors_f2() {
+        // F2: a kept tri whose surface label names BOTH solids (coplanar
+        // overlap, len==2) → FaceResolutionFailed (out of scope, M8).
+        let a = cube_brep([0.0, 0.0, 0.0]);
+        let b = cube_brep([0.0, 0.0, 0.0]); // coincident so a z=0 tri is on both
+        let verts = vec![p(0.0, 0.0, 0.0), p(0.5, 0.0, 0.0), p(0.0, 0.5, 0.0)];
+        let mesh = Mesh::new(verts, vec![[0u32, 1, 2]]);
+        let la = LabeledArrangement {
+            mesh,
+            // surface names BOTH A and B (coplanar multi-solid) — F2.
+            surface: vec![vec![LaInputId(0), LaInputId(1)]],
+            inside: vec![vec![false, false]], // kept by Union
+            patch: vec![0],
+            num_inputs: 2,
+        };
+        let backend = LabelMockBackend::new(la);
+        match boolean(&a, &b, BoolOp::Union, &backend) {
+            Err(YangError::FaceResolutionFailed { tri }) => {
+                assert_eq!(tri, 0, "F2 should name the offending tri index");
+            }
+            other => panic!("expected FaceResolutionFailed (F2), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn m3_centroid_off_all_planes_errors_f3() {
+        // F3: a kept tri on solid A's surface whose centroid lies on NO
+        // A-face plane → FaceResolutionFailed (loud, never None).
+        let a = cube_brep([0.0, 0.0, 0.0]);
+        let b = cube_brep([0.5, 0.0, 0.0]);
+        // Triangle floating at z=0.5 (interior; off every cube face plane).
+        let verts = vec![
+            p(0.25, 0.25, 0.5),
+            p(0.5, 0.25, 0.5),
+            p(0.25, 0.5, 0.5),
+        ];
+        let mesh = Mesh::new(verts, vec![[0u32, 1, 2]]);
+        let la = LabeledArrangement {
+            mesh,
+            surface: vec![vec![LaInputId(0)]], // claims solid A's surface
+            inside: vec![vec![false, false]],  // kept by Union
+            patch: vec![0],
+            num_inputs: 2,
+        };
+        let backend = LabelMockBackend::new(la);
+        match boolean(&a, &b, BoolOp::Union, &backend) {
+            Err(YangError::FaceResolutionFailed { tri }) => {
+                assert_eq!(tri, 0, "F3 should name the offending tri index");
+            }
+            other => panic!("expected FaceResolutionFailed (F3), got {other:?}"),
+        }
+    }
+
+    // ----- Group C: M4 differential oracle (real label vs substitute) -----
+
+    #[test]
+    fn m4_real_label_and_substitute_agree_on_pure_a() {
+        // The (now test-only) substitute attribution and the real-label
+        // path must agree on a pure-A fixture. Disagreement localizes a
+        // label-path bug. The substitute is exercised here via the M4
+        // test-only helpers (`match_with_input`/`face_candidates`/
+        // `majority_vote`), which the Implementer relocates into the test
+        // module. If those are not yet callable, this is a compile RED.
+        let a = cube_brep([0.0, 0.0, 0.0]);
+        let b = cube_brep([0.5, 0.0, 0.0]);
+        let la = arrangement_three_a_bottom_tris();
+        let mesh = la.mesh.clone();
+        let backend = LabelMockBackend::new(la);
+
+        // Real-label path:
+        let r = boolean(&a, &b, BoolOp::Union, &backend).unwrap();
+        let attr = r.triangle_attribution();
+
+        // Substitute path (vertex provenance + majority vote) over the
+        // SAME kept sub-mesh:
+        for t in 0..r.num_tris() {
+            let tri = r.as_mesh().tris[t];
+            let mut inputs = [None; 3];
+            let mut sources = [TessellationSource::Unknown; 3];
+            for (k, &vi) in tri.iter().enumerate() {
+                let target = r.as_mesh().verts[vi as usize];
+                let (inp, src) = match_with_input(&a, &b, target);
+                inputs[k] = inp;
+                sources[k] = src;
+            }
+            let sets = [
+                face_candidates(inputs[0], sources[0], &a, &b),
+                face_candidates(inputs[1], sources[1], &a, &b),
+                face_candidates(inputs[2], sources[2], &a, &b),
+            ];
+            let substitute = majority_vote(&sets);
+            let real = attr.lookup(t as u32);
+            assert_eq!(
+                real, substitute,
+                "M4 differential: real-label tri {t} attribution {real:?} \
+                 disagrees with substitute {substitute:?}"
+            );
+        }
+        let _ = mesh;
+    }
 }
