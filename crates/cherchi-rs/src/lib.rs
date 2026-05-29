@@ -31,6 +31,7 @@
 
 pub mod arrangements;
 pub mod boolean;
+pub mod labeled_arrangement;
 pub mod mesh;
 pub mod predicates;
 pub mod processing;
