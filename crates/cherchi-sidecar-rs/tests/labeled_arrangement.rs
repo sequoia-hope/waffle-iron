@@ -12,6 +12,7 @@
 //! idiom in `tests/smoke.rs`). Set `CHERCHI2022_BIN` or build per
 //! `docs/sidecar/cherchi2022_build_guide.md`.
 
+use std::sync::Mutex;
 use std::time::Duration;
 
 use cad_primitives::{BoolOp, Point3};
@@ -19,6 +20,12 @@ use cherchi_rs::{Mesh, MeshBoolean};
 use cherchi_sidecar_rs::{labeled_arrangement, SidecarBoolean, SidecarError};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Serializes every test that reads or mutates the `CHERCHI2022_BIN` env var.
+/// `cargo test` runs tests in this file on multiple threads; without this,
+/// `c5` (which sets a bogus path) can race a concurrent test resolving the env
+/// at call time. Poison-tolerant so one failing test doesn't cascade.
+static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 fn p(x: f64, y: f64, z: f64) -> Point3 {
     Point3::new(x, y, z)
@@ -99,6 +106,7 @@ fn canon_multiset(mesh: &Mesh) -> Vec<[[u64; 3]; 3]> {
 /// must label every triangle and subdivide beyond the 24 input triangles.
 #[test]
 fn c1_two_overlapping_cubes_shapes_and_subdivision() {
+    let _env = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let a = unit_cube_at([0.0, 0.0, 0.0]);
     let b = unit_cube_at([0.5, 0.5, 0.5]);
     let Some(la) = try_or_skip(labeled_arrangement(&a, &b, TIMEOUT), "c1") else {
@@ -137,6 +145,7 @@ fn c1_two_overlapping_cubes_shapes_and_subdivision() {
 /// stock `boolean(a,b,op)` result mesh.
 #[test]
 fn c2_keep_set_matches_stock_boolean_union_and_subtract() {
+    let _env = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let a = unit_cube_at([0.0, 0.0, 0.0]);
     let b = unit_cube_at([0.5, 0.5, 0.5]);
 
@@ -184,6 +193,7 @@ fn c2_keep_set_matches_stock_boolean_union_and_subtract() {
 /// (full unit-square overlap), the cleanest coplanar-overlap arrangement.
 #[test]
 fn c3_coplanar_face_yields_multi_attribution() {
+    let _env = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let a = unit_cube_at([0.0, 0.0, 0.0]);
     let b = unit_cube_at([1.0, 0.0, 0.0]);
     let Some(la) = try_or_skip(labeled_arrangement(&a, &b, TIMEOUT), "c3") else {
@@ -206,13 +216,15 @@ fn c3_coplanar_face_yields_multi_attribution() {
 /// and patch all equal.
 #[test]
 fn c4_determinism_identical_results() {
+    let _env = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let a = unit_cube_at([0.0, 0.0, 0.0]);
     let b = unit_cube_at([0.5, 0.5, 0.5]);
 
     let Some(la1) = try_or_skip(labeled_arrangement(&a, &b, TIMEOUT), "c4#1") else {
         return;
     };
-    let la2 = labeled_arrangement(&a, &b, TIMEOUT).expect("second call must succeed once first did");
+    let la2 =
+        labeled_arrangement(&a, &b, TIMEOUT).expect("second call must succeed once first did");
 
     assert_eq!(
         la1.mesh.verts, la2.mesh.verts,
@@ -241,6 +253,7 @@ fn c4_determinism_identical_results() {
 /// self-skip idiom in the other tests is exercising the real failure mode).
 #[test]
 fn c5_binary_absent_returns_binary_not_found() {
+    let _env = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let saved = std::env::var("CHERCHI2022_BIN").ok();
     std::env::set_var("CHERCHI2022_BIN", "/definitely/not/a/path/that/exists");
 
