@@ -129,8 +129,17 @@ reimplementation from Attene's paper restores WASM (M7).
   `a66460f6` (RED) → `7da238d4` (GREEN) → `24e73307`/`d356297b` (adversarial
   area-threshold fix). **Scope:** convex planar faces only; non-convex/holes are
   banked (PR-YR2b–d) and not yet made inputcheck-clean.
-- **M2 — Patched sidecar emits `LabeledArrangement`;** round-trips two-tet +
-  coplanar; §2 shape frozen.
+- **M2 — Patched sidecar emits `LabeledArrangement`.** ✅ **DONE.** A
+  version-controlled C++ patch (`patches/cherchi2022_labeled_arrangement.patch`,
+  applied by `scripts/build_sidecars.sh`) dumps, per arrangement triangle, the
+  surface solid(s) + per-solid in/out + Cherchi patch id; `cherchi_sidecar_rs::
+  labeled_arrangement()` parses it into a `cherchi_rs::LabeledArrangement` (the
+  **frozen, solid-level** §2 shape). Acceptance oracle green: `keep_set(op)`
+  reproduces the stock `boolean(op)` triangle set for all four ops; coplanar
+  cubes yield real multi-attribution; deterministic (TBB pinned to 1 thread).
+  Spec: `specs/yang_m2_labeled_arrangement.md`; commits `0d321e6a` (spec+§2) →
+  `3add0ebd` (RED) → `cd78d15b` (C++ patch+build) → `68bceb66` (GREEN Rust) →
+  `b091553d` (adversarial + env hardening).
 - **M3 — `yang-rs` Stage 5/6 consume true labels → FIRST functional
   (mesh-approximate) boolean.** Faceted output; validates Stage 1 → labels →
   reassembly end-to-end (never achieved before).
