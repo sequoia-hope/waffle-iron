@@ -33,10 +33,18 @@ BIN="${BUILD_DIR}/mesh_booleans"
 IP_SRC="${REPO_DIR}/arrangements/external/Indirect_Predicates"
 REPO_URL="https://github.com/gcherchi/InteractiveAndRobustMeshBooleans.git"
 
+# M2 labeled-arrangement patch: version-controlled diff + a sentinel marking it
+# applied. WORKSPACE is the repo root (this script lives in scripts/).
+WORKSPACE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LABELS_PATCH="${WORKSPACE}/patches/cherchi2022_labeled_arrangement.patch"
+LABELS_SENTINEL="${REPO_DIR}/.labels_patch_applied"
+
 log() { printf '[build_sidecars] %s\n' "$*"; }
 
-if [[ -x "${BIN}" && -f "${IP_SRC}/include/indirect_predicates.h" ]]; then
-  log "already built — binary at ${BIN}; IP source at ${IP_SRC}. Nothing to do."
+# Fast no-op ONLY if the binary exists AND it was built from the patched source.
+# M0 built the UNPATCHED binary, so the sentinel gate forces a patched rebuild.
+if [[ -x "${BIN}" && -f "${IP_SRC}/include/indirect_predicates.h" && -f "${LABELS_SENTINEL}" ]]; then
+  log "already built (patched) — binary at ${BIN}; IP source at ${IP_SRC}. Nothing to do."
   log "  export CHERCHI2022_BIN=${BIN}"
   log "  export INDIRECT_PREDICATES_SRC=${IP_SRC}"
   exit 0
@@ -56,6 +64,20 @@ if [[ ! -f "${IP_SRC}/include/indirect_predicates.h" ]]; then
   log "ERROR: Indirect_Predicates header not found at ${IP_SRC}/include/ after clone."
   log "       Check the upstream layout in docs/sidecar/cherchi2022_build_guide.md."
   exit 1
+fi
+
+# Apply the M2 labeled-arrangement patch idempotently (sentinel-gated). It teaches
+# mesh_booleans to dump per-triangle labels when CHERCHI_DUMP_LABELS is set.
+if [[ ! -f "${LABELS_SENTINEL}" ]]; then
+  if [[ ! -f "${LABELS_PATCH}" ]]; then
+    log "ERROR: labeled-arrangement patch not found at ${LABELS_PATCH}."
+    exit 1
+  fi
+  log "applying M2 labeled-arrangement patch ..."
+  git -C "${REPO_DIR}" apply "${LABELS_PATCH}"
+  touch "${LABELS_SENTINEL}"
+else
+  log "M2 labeled-arrangement patch already applied (sentinel present)."
 fi
 
 log "configuring + building (Release) — this is the ~22 min step ..."

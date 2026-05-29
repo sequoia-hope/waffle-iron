@@ -1,0 +1,71 @@
+diff --git a/code/booleans.cpp b/code/booleans.cpp
+index f60a4b4..93815dc 100644
+--- a/code/booleans.cpp
++++ b/code/booleans.cpp
+@@ -38,6 +38,8 @@
+ #include "debug.h"
+ #include "io_functions.h"
+ #include <tbb/tbb.h>
++#include <cstdlib>
++#include <fstream>
+ 
+ inline void customBooleanPipeline(std::vector<genericPoint*>& arr_verts, std::vector<uint>& arr_in_tris,
+                                   std::vector<uint>& arr_out_tris, std::vector<std::bitset<NBIT>>& arr_in_labels,
+@@ -57,6 +59,33 @@ inline void customBooleanPipeline(std::vector<genericPoint*>& arr_verts, std::ve
+     cinolib::vec3d max_coords(octree.root->bbox.max.x() +0.5, octree.root->bbox.max.y() +0.5, octree.root->bbox.max.z() +0.5);
+     computeInsideOut(tm, patches, octree, arr_verts, arr_in_tris, arr_in_labels, max_coords, labels);
+ 
++    // M2 labeled-arrangement dump (env-gated; see specs/yang_m2_labeled_arrangement.md).
++    // At this point tm, labels.surface, labels.inside, patches are all populated.
++    if (const char* dump = std::getenv("CHERCHI_DUMP_LABELS")) {
++        // 1. invert patches -> per-tri patch id (every tri is in exactly one patch)
++        std::vector<uint> tri_to_patch(tm.numTris(), 0);
++        for (uint p = 0; p < patches.size(); ++p)
++            for (uint t : patches[p]) tri_to_patch[t] = p;
++        // 2. emit the FULL arrangement: mark every tri kept, reuse computeFinalExplicitResult.
++        //    setTriInfo here is harmless: the op below calls resetTrianglesInfo() first.
++        for (uint t = 0; t < tm.numTris(); ++t) tm.setTriInfo(t, 1);
++        std::vector<double> arr_coords; std::vector<uint> arr_tris;
++        std::vector<std::bitset<NBIT>> arr_surface;
++        computeFinalExplicitResult(tm, labels, tm.numTris(), arr_coords, arr_tris, arr_surface, true);
++        // arr_tris[i] (tri i) <-> tm tri i <-> labels.*[i] <-> tri_to_patch[i]  (all kept, id order)
++        std::string base(dump);
++        cinolib::write_OBJ((base + ".obj").c_str(), arr_coords, arr_tris, {});
++        std::ofstream f(base + ".labels");
++        f << tm.numTris() << " " << labels.num << "\n";
++        for (uint t = 0; t < tm.numTris(); ++t) {
++            // surface set-bits, '|', inside set-bits, '|', patch
++            for (uint i = 0; i < NBIT; ++i) if (labels.surface[t][i]) f << i << " ";
++            f << "| ";
++            for (uint i = 0; i < NBIT; ++i) if (labels.inside[t][i]) f << i << " ";
++            f << "| " << tri_to_patch[t] << "\n";
++        }
++    }
++
+     // booleand operations
+     uint num_tris_in_final_solution;
+     if(op == INTERSECTION)
+diff --git a/main.cpp b/main.cpp
+index 3f65d2a..d86383f 100644
+--- a/main.cpp
++++ b/main.cpp
+@@ -41,11 +41,19 @@
+ #endif
+ 
+ #include "booleans.h"
++#include <tbb/global_control.h>
+ 
+ std::vector<std::string> files;
+ 
+ int main(int argc, char **argv)
+ {
++    // M2 determinism: TBB work-stealing makes the arrangement's vertex/triangle
++    // ordering non-deterministic across runs, which breaks the LabeledArrangement
++    // determinism contract (specs/yang_m2_labeled_arrangement.md I5; root
++    // CLAUDE.md hard rule #5 "determinism trumps speed during the port"). Pin
++    // TBB to a single thread so identical inputs yield byte-identical output.
++    tbb::global_control tbb_single_thread(tbb::global_control::max_allowed_parallelism, 1);
++
+     BoolOp op;
+     std::string file_out;
+ 
