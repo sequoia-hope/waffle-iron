@@ -269,11 +269,27 @@ reimplementation from Attene's paper restores WASM (M7).
     degenerate). Spec `specs/ssi_pr_ssi5_plane_cone_through_apex.md`; commits
     `e974295b`→`476fc663` (RED)→`c2d9ed47` (GREEN)→`9d109bef` (adversary). 129/129
     ssi-rs tests; CI gate clean. **plane∩{plane,sphere,cylinder,cone} fully done.**
-  - **Next M5 increments (sequenced):** the Degree-4 pairs (sphere∩cyl, cyl∩cyl,
-    cone∩cone, sphere∩cone, cyl∩cone) + torus pairs (rest of A15.4) → curved
-    `Surface` variants + curved Stage-1 tessellation in `yang-rs` → curved face
-    resolution + the planar-assumption migration → Stage 3 (wire `ssi-rs` into
-    `yang-rs` to refine mesh edges → SSI curves) → Stage 4 (CDT remesh).
+  - **Step 6 — `ssi-rs` sphere∩cylinder coaxial (first degree-4 pair, PR-SSI6) ✅
+    DONE.** The degree-4 pairs' **coaxial/special** configs reduce to analytic
+    conics (research-confirmed; the legacy code does the same). PR-SSI6 ships the
+    first: coaxial sphere∩cylinder (axis through sphere center) → circles
+    (`z²=r_s²−r_c²`): X2 two circles at `C±h·â`, X1 one tangent great circle, X0
+    empty. Reuses `Circle` — no new curve type, no enum-match migration.
+    **Non-coaxial (general degree-4) → `Err(AnalyticalSolutionNotAvailable)`** — a
+    staged gap (the general degree-4 curve needs a new `SsiCurve` variant, deferred),
+    never a fallback. Establishes the coaxial-detect→reduce-to-circles→general-ASNA
+    pattern for the other circle-reducible pairs. Adversary (15 attacks): no bugs;
+    clean tangent + coaxial-detection boundaries; two characterized absolute-`TAU`
+    ceilings (on-surface ~1e9, coaxial-detection ~1e8 → conservatively NC). Spec
+    `specs/ssi_pr_ssi6_sphere_cylinder_coaxial.md`; commits `16dca4a0`→`818f2882`
+    (RED)→`de7926c4` (GREEN)→`614292b1` (adversary). 141/141 ssi-rs tests; CI clean.
+  - **Next M5 increments (sequenced):** the remaining circle-reducible coaxial
+    pairs (sphere∩cone, cyl∩cone, cone∩cone) → cyl∩cyl special cases (equal-R
+    intersecting → two ellipses; parallel → two lines) → the **general degree-4
+    curve** (a new parametric `SsiCurve` variant + the 5 general-position solvers) +
+    torus pairs (rest of A15.4) → curved `Surface` variants + curved Stage-1
+    tessellation in `yang-rs` → curved face resolution + the planar-assumption
+    migration → Stage 3 (wire `ssi-rs` into `yang-rs`) → Stage 4 (CDT remesh).
 - **M6 — Native `cherchi-rs` Stage 2** behind the same interface, parity-green
   vs the sidecar on the corpus.
 - **M7 — Clean-room indirect predicates from Attene's paper → restore WASM.**
