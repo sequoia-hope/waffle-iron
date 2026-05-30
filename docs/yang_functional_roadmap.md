@@ -10,27 +10,37 @@
 ## 0. Honest status
 
 The kernel rewrite (tiered crates `cad-primitives` → `cherchi-rs`/`ssi-rs` →
-`yang-rs` → `kernel-v2`) has, after ~29 PRs, built real foundations:
+`yang-rs` → `kernel-v2`) has, after M0–M4 + 3 SSI increments, a **real but narrow
+working boolean** plus deep foundations:
 
-- `cherchi-rs`: pure-Rust predicates (via `geometry-predicates` + `dashu`),
-  `FastTrimesh`/`Tree` data structures, and arrangement **Stage 1 only**
-  (intersecting-pair detection). The arrangement *algorithm* (classify → split →
-  re-triangulate → assemble → label) is **not written**.
-- `yang-rs`: **Stage 1** bijective tessellation, real for planar convex faces.
-  Stages 2/5/6 are explicitly-labeled **substitutes** (post-hoc spatial
-  vertex-matching + majority-vote attribution + flood-fill), not real Yang.
-- `cherchi-sidecar-rs`: subprocess wrapper of the C++ `mesh_booleans` binary,
-  returns a result mesh only (no labels).
-- `indirect-predicates-sidecar-rs`: FFI to Attene's LGPL predicates; ported
-  IP1–IP6 with **no consumer yet**; intentionally non-WASM.
-- `ssi-rs`, `kernel-v2`: empty scaffolds.
+- `yang-rs`: **a functional boolean** — `boolean(brep_a, brep_b, op, backend)`
+  produces a correct, topologized B-Rep + mesh for **planar, convex** solids
+  (Union/Intersect/Subtract, **incl. holed faces / inner loops**, PR-YR5c). The
+  randomized box-boolean fuzz (900 cases, aligned + rotated) is **100% correct,
+  0 silent-wrong**. Real per-triangle labels flow from the patched sidecar.
+- `cherchi-sidecar-rs` (M2/M3): patched C++ `mesh_booleans` emitting a
+  `LabeledArrangement` (per-triangle labels + TBB-pinned determinism) — the
+  interim Stage-2 producer the boolean runs on. **Native-only (no WASM).**
+- `ssi-rs`: plane∩plane, plane∩sphere, sphere∩sphere, plane∩cylinder, and
+  plane∩cone (bounded) — 5 analytical solver families, on-surface-exact,
+  adversary-hardened. **Built in isolation; NOT yet wired into yang (Stage 3).**
+- `cherchi-rs`: pure-Rust predicates + `FastTrimesh`/`Tree` + arrangement **Stage
+  1 only**. The native arrangement *algorithm* (Stage 2) is **not written** (M6).
+- `indirect-predicates-sidecar-rs`: FFI to Attene's LGPL predicates, IP1–IP6;
+  intentionally non-WASM. Clean-room replacement is M7.
+- `kernel-v2`: **empty scaffold** — does NOT implement the `Kernel` trait. There
+  is **no path from a `.waffle`/feature tree to a yang-rs BRep** yet.
 
-**There is no working boolean end to end.** The historical metrics
-(`yang_fast 12/157`, `1250/34` kernel tests) measure the *legacy* `crates/kernel/`,
-not the new crates — do not cite them as new-kernel progress.
+**What this is NOT yet:** no curved geometry in the boolean path (planes only),
+no coplanar preprocessing (Stage 0), no non-convex tessellation, no `Kernel`-trait
+surface, native-only (no WASM). The legacy metrics (`yang_fast 12/157`, `1250/34`)
+measure *legacy* `crates/kernel/` — not new-kernel progress. The honest current
+new-kernel metric is the planar-convex box-boolean fuzz (**100%**).
 
-This roadmap charts the shortest honest path to a first **functional** Yang
-boolean and then to the full analytical pipeline.
+The shortest honest path to a first functional boolean is the M0–M8 milestones
+(§4); the full path to a kernel that **replaces legacy** is the Phase 1–6
+completion roadmap (§4b), which reconciles M5–M8 with the under-tracked
+`kernel-v2` driver + migration work.
 
 ## 1. Thesis: decouple "functional Yang" from "native arrangement complete"
 
@@ -238,6 +248,72 @@ reimplementation from Attene's paper restores WASM (M7).
   Removes the LGPL FFI dependency and the `compile_error!` WASM block.
 - **M8 — Stage 0 coplanar preprocessing** hardened last (special case that
   complicates everything earlier).
+
+## 4b. Completion roadmap — Phases 1–6 (the full path to replacing legacy)
+
+The M0–M8 list above is the *milestone* sequence for the boolean. This section is
+the **completion** view: what it takes for `kernel-v2` to **replace** the legacy
+kernel — handle planar + curved + coplanar + non-convex, implement the `Kernel`
+trait, pass assay at parity-or-better, and run in WASM. It reconciles M5–M8 with
+the **under-tracked** `kernel-v2` driver (Phase 4) + migration (Phase 6).
+
+**"Complete Yang" ::=** kernel-v2 implements `Kernel`/`KernelIntrospect`; planar +
+curved + coplanar + non-convex all handled; assay ≥ legacy on the supported
+corpus; runs in WASM; `crates/kernel/` deleted — with **reference parity vs the
+Cherchi C++ sidecar maintained throughout** (the non-negotiable correctness oracle).
+
+```
+Phase 1 ─► Phase 2 ─► Phase 3 ─► Phase 4 ─┐
+                                          ├─► Phase 6 (migrate, assay, delete legacy)
+Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joins before 6]
+```
+
+- **Phase 1 — Finish the analytical SSI engine (`ssi-rs`).** *[in progress; ⊂ M5]*
+  PR-SSI4 (parabola/hyperbola + through-apex), then the remaining A15.4 pairs
+  (Degree-4: sphere∩cyl, cyl∩cyl, cone∩cone, sphere∩cone, cyl∩cone; torus pairs).
+  **Exit:** all 15 quadric pairs analytically solved, adversary-hardened,
+  on-surface-exact. **Risk:** low–moderate. **Size:** medium (~10–15 PRs).
+  *Frontier (out of scope):* revolving an arbitrary profile → non-quadric surface
+  of revolution → numerical/marching SSI (Patrikalakis Case F), a later capability.
+- **Phase 2 — Curves enter the pipeline (Stages 1/3/4/6 curved).** *[⊂ M5; the
+  heart, highest risk]* Stage 1 curved tessellation (sample analytical surfaces →
+  mesh, keep the surface tier via the bijection) + non-convex profile triangulation
+  (Livesu earcut-CDT, for gears) + Steiner points; Stage 3 refine arrangement edges
+  on two analytical surfaces to the exact SSI curve (wire `ssi-rs` in); Stage 4 CDT
+  remesh conforming to refined curves; Stage 6 curved-face reassembly + 2-manifold
+  closure (cut-surface faces deferred in PR-YR5). **Exit:** cylinder ∪ box,
+  sphere − cylinder → correct curved B-Rep, sidecar mesh-parity + analytically
+  exact edges. **Risk:** HIGH (paper-critical). **Size:** large.
+- **Phase 3 — Coplanar preprocessing (Stage 0).** *[= M8]* detect coplanar face
+  pairs pre-tessellation; 2D boolean → A-only/B-only/overlap; shared trimmed
+  surface + identical meshes; overlap boundaries → intersection curves. **Exit:**
+  flush/stacked faces + multi-plane cross-booleans work without conformal-edge
+  explosions. **Risk:** moderate–high. **Size:** medium–large.
+- **Phase 4 — The `kernel-v2` driver (Kernel trait).** *[NEW — the integration
+  unlock; not in M0–M8]* implement `Kernel`/`KernelIntrospect` over yang-rs
+  (`make_faces_from_profiles`, `extrude_face`, `revolve_face`, `boolean_*(_multi)`,
+  `tessellate → RenderMesh`, `extract_edges`, introspection). **Strategic slice
+  (Phase 4a):** a **planar-only driver can land early** — right after the current
+  baseline — to get a *categorized* assay score and de-risk the feature-tree →
+  kernel → mesh path before the geometry mountain; expand as Phases 2–3 land.
+  **Exit:** feature-engine builds + tessellates through kernel-v2; assay runs
+  (categorized supported/correct/unsupported). **Risk:** moderate. **Size:** large.
+- **Phase 5 — Native arrangement + WASM.** *[= M6 + M7; parallel track]* M6 native
+  `cherchi-rs` Stage-2 behind the `LabeledArrangement` seam, parity-green vs the
+  sidecar (retires the C++ subprocess); M7 clean-room indirect predicates from
+  Attene's paper (drops LGPL FFI) + restore the WASM build (`compile_error!`
+  removed). **Exit:** pure-Rust boolean compiling to WASM, browser-parity with
+  native. **Risk:** moderate–high (subtle predicates; IP-sidecar is the oracle).
+  **Size:** large. **Runs in parallel** with Phases 2–4.
+- **Phase 6 — Migration + assay.** *[the finish line]* swap wasm-bridge +
+  feature-engine to kernel-v2; run the real assay; iterate to parity-or-better;
+  **delete `crates/kernel/`**; rebuild the WASM bundle. **Exit:** legacy gone,
+  assay ≥ legacy on the supported corpus, GUI on kernel-v2.
+
+**Where the risk lives:** almost all of it is Phase 2 (curved Stage 3/4). Phase 1
+is a steady low-risk grind; Phases 4/6 are large but mechanical once geometry
+works; Phase 5 is a contained predicates problem with a ready oracle. **Scale:**
+multi-month, not a few sessions.
 
 ## 5. Risks & decisions
 
