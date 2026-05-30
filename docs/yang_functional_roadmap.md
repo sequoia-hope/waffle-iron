@@ -322,9 +322,36 @@ reimplementation from Attene's paper restores WASM (M7).
     `specs/ssi_pr_ssi8_cylinder_cone_coaxial.md`; commits `7d820153` (spec)→
     `45c4eed1` (RED)→`d25fa0cb` (GREEN)→`e3285699` (adversary). 217/217 ssi-rs
     tests; CI clean.
-  - **Next M5 increments (sequenced):** the last circle-reducible coaxial
-    pair (cone∩cone) → cyl∩cyl special cases (equal-R
-    intersecting → two ellipses; parallel → two lines) → the **general degree-4
+  - **Step 9 — `ssi-rs` cone∩cone coaxial (fourth & LAST circle-reducible
+    degree-4 pair, PR-SSI9) ✅ DONE.** Reuses the SSI6/7/8
+    coaxial-detect→reduce-to-circles→general-ASNA pattern. Coaxial cone∩cone (axes
+    parallel AND apex₂ on the cone₁ axis line) reduces along the shared axis via
+    `|t|·tanα₁ = |t−δ|·tanα₂` (`δ` = signed apex offset, `t` = axial height from
+    apex₁) to the quadratic `(m₁²−m₂²)t² + 2m₂²δt − m₂²δ² = 0`. **No manufactured
+    discriminant/√ sign gate (P9/P10):** the discriminant `(2m₁m₂δ)²` is a
+    **perfect square** ⇒ always ≥0, so unequal-α offset input is *always* exactly
+    two circles; the equal/unequal split and the apex-collapse are gated on the
+    **linear** quantities `|α₁−α₂|` and `|δ|`, never on a square. Branches: X2 (two
+    circles at `t=(−m₂²δ±m₁m₂|δ|)/(m₁²−m₂²)`, larger-t first) / X1 (equal α, offset
+    → one circle at the bisector `t=δ/2`) / X0 (unequal α, apexes coincide →
+    `Ok(vec![])` radius-0 point-circle) / **CO** (equal α + coincident → identical
+    double cone → `Err(DegenerateInput)`) / **NC** (non-coaxial →
+    `Err(AnalyticalSolutionNotAvailable)`, staged, never a fallback) / E1 (bad α
+    either cone, zero axis either cone → `DegenerateInput`). Reuses `Circle` — no
+    new curve type, no enum-match migration. RED enforces the anti-hack invariant
+    (unequal-α × δ≠0 sweep asserting `len()==2` always). Adversary (10 attacks): no
+    bugs; parallelism + on-axis gate boundaries (each flips at `TAU_MODEL`), the
+    `|α₁−α₂|` equal/unequal and `|δ|` collapse boundaries, reversed/antiparallel
+    axis-sign set-invariance, α near both E1 limits, a 40-config determinism sweep,
+    cross-branch argument-swap symmetry, and characterized absolute-`TAU` ceilings
+    (on-surface oracle holds to ~1e8 → breaks at 1e9; coaxial band conservatively
+    flips to ASNA at large scale) plus the apex-grazing radius-0 (X0) collapse.
+    Spec `specs/ssi_pr_ssi9_cone_cone_coaxial.md`; commits `da98380e` (spec)→
+    `cc61f1bb` (RED)→`f960895d` (GREEN)→`6027d7c1` (adversary). 245/245 ssi-rs
+    tests; CI clean.
+  - **Next M5 increments (sequenced):** cyl∩cyl special cases (equal-R
+    intersecting → two ellipses; parallel → two lines, PR-SSI10/11) → the
+    **general degree-4
     curve** (a new parametric `SsiCurve` variant + the 5 general-position solvers) +
     torus pairs (rest of A15.4) → curved `Surface` variants + curved Stage-1
     tessellation in `yang-rs` → curved face resolution + the planar-assumption
