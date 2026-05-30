@@ -389,8 +389,8 @@ pub fn intersect(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCurve>
             // Symmetry (I4): swap so the cylinder is first.
             cylinder_cone(b, a)
         }
-        (QuadricSurface::Cylinder { .. }, QuadricSurface::Cylinder { .. })
-        | (QuadricSurface::Cone { .. }, QuadricSurface::Cone { .. }) => {
+        (QuadricSurface::Cone { .. }, QuadricSurface::Cone { .. }) => cone_cone(a, b),
+        (QuadricSurface::Cylinder { .. }, QuadricSurface::Cylinder { .. }) => {
             Err(SsiError::AnalyticalSolutionNotAvailable)
         }
     }
@@ -1306,6 +1306,143 @@ fn cylinder_cone(
             radius: r_c,
         },
     ])
+}
+
+/// Cone ∩ cone (coaxial).
+///
+/// Patrikalakis & Maekawa, *Shape Interrogation for CAD/M*, §5.8.3 (Case F8,
+/// implicit/implicit quadric pair). The general cone∩cone intersection is a
+/// degree-4 space curve, but the **coaxial** configuration (the two axis
+/// *lines* coincide) reduces to one or two **circles** — exact, reusing
+/// `SsiCurve::Circle`.
+///
+/// Coaxial reduction: along the shared axis `â = normalize(cone₁.axis_dir)`,
+/// each cone is `x² + y² = (t)²·tan²α₁` and `x² + y² = (t−δ)²·tan²α₂` with
+/// axial height `t = (x − P₁)·â` and signed apex offset `δ = (P₂ − P₁)·â`. A
+/// point lies on both cones iff `|t|·m₁ = |t−δ|·m₂` (`mᵢ = tanαᵢ`). Both sides
+/// are ≥ 0, so squaring is an **exact equivalence** (no extraneous roots):
+///
+/// ```text
+/// (m₁² − m₂²)·t²  +  2·m₂²·δ·t  −  m₂²·δ²  =  0
+/// ```
+///
+/// **No manufactured discriminant/√ sign gate (P9/P10).** The discriminant is
+/// `D = (2·m₁·m₂·δ)²`, a **perfect square** ⇒ always ≥ 0, never negative; so for
+/// `δ ≠ 0` and unequal α the equation has two real roots and the result is
+/// **always exactly two circles**. There is no √D sign test, no synthetic
+/// tangent/empty sub-branch. The only empty/degenerate outcomes are the
+/// geometrically real `δ → 0` apex collapse (X0 / CO), gated on the linear
+/// quantity `|δ|`, and the equal-vs-unequal half-angle split, gated on the
+/// linear quantity `|α₁−α₂|` (gate on a linear geometric quantity, never on a
+/// length² or a square). `TAU_MODEL` only — no new epsilons.
+///
+/// cone∩cone is a same-type symmetric pair; internal ordering is the solver's
+/// responsibility (cone₁ = first arg). The two X2 circles are returned
+/// **larger-`t` first** (I5).
+///
+/// Branches: a double cone is symmetric under `â → −â`, so only the half-angles
+/// and the apex position *along* the shared axis matter.
+/// - X2 (coaxial, unequal α, `|δ| > TAU_MODEL`): two circles at
+///   `t = (−m₂²·δ ± m₁·m₂·|δ|) / (m₁² − m₂²)`.
+/// - X1 (coaxial, equal α, `|δ| > TAU_MODEL`): one circle at the bisector
+///   `t = δ/2`.
+/// - X0 (coaxial, unequal α, `|δ| ≤ TAU_MODEL`): `Ok(vec![])` (the only common
+///   point is the shared apex, a radius-0 point-circle).
+/// - CO (coaxial, equal α, `|δ| ≤ TAU_MODEL`): `Err(DegenerateInput)`
+///   (identical double cone — the overlap is a 2D surface, not a curve).
+/// - NC (non-coaxial: apex₂ off axis₁ OR non-parallel axes):
+///   `Err(AnalyticalSolutionNotAvailable)` — a **staged** limitation (the
+///   general degree-4 curve + its new `SsiCurve` variant is a later increment).
+///   Loud, never a mesh/grid fallback (A15.2).
+/// - E1 (invalid α non-finite / `≤ TAU_MODEL` / `≥ π/2 − TAU_MODEL` either cone;
+///   zero / non-finite axis either cone): `Err(DegenerateInput)`.
+fn cone_cone(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCurve>, SsiError> {
+    let (
+        QuadricSurface::Cone {
+            apex: apex1,
+            axis_dir: ad1,
+            half_angle: alpha1,
+        },
+        QuadricSurface::Cone {
+            apex: apex2,
+            axis_dir: ad2,
+            half_angle: alpha2,
+        },
+    ) = (a, b)
+    else {
+        return Err(SsiError::AnalyticalSolutionNotAvailable);
+    };
+
+    let alpha1 = *alpha1;
+    let alpha2 = *alpha2;
+    // E1: invalid cone half-angle (a line at α→0, a plane at α→π/2), either
+    // cone. Mirrors `cylinder_cone` / `sphere_cone` / `plane_cone`.
+    let bad_alpha = |alpha: f64| {
+        !alpha.is_finite() || alpha <= TAU_MODEL || alpha >= std::f64::consts::FRAC_PI_2 - TAU_MODEL
+    };
+    if bad_alpha(alpha1) || bad_alpha(alpha2) {
+        return Err(SsiError::DegenerateInput);
+    }
+
+    // `normalize` rejects zero / non-finite vectors (E1: zero cone axis), either
+    // cone. `ahat` is the shared axis (cone₁); `ahat2` is only for the
+    // parallelism test.
+    let ahat = normalize(ad1.as_array())?;
+    let ahat2 = normalize(ad2.as_array())?;
+
+    let p1 = apex1.as_array();
+    let p2 = apex2.as_array();
+    let m1 = alpha1.tan();
+    let m2 = alpha2.tan();
+    let rel = sub(p2, p1);
+    let delta = dot(rel, ahat);
+
+    // Coaxial test: axes parallel AND apex₂ on the cone₁ axis line.
+    let axes_parallel = norm(cross(ahat2, ahat)) < TAU_MODEL;
+    let d_ax = norm(sub(rel, scale(ahat, delta)));
+    let on_axis = d_ax < TAU_MODEL;
+
+    // NC — non-coaxial general degree-4: staged (loud Err, no fallback; A15.2).
+    if !(axes_parallel && on_axis) {
+        return Err(SsiError::AnalyticalSolutionNotAvailable);
+    }
+
+    // Gate on the LINEAR geometric quantities: `|α₁−α₂|` for the equal/unequal
+    // half-angle split, `|δ|` for the apex-collapse. No length²/square gate.
+    let equal_alpha = (alpha1 - alpha2).abs() <= TAU_MODEL;
+    let collapsed = delta.abs() <= TAU_MODEL;
+
+    // Helper: build a circle at axial height `t` along the shared axis.
+    let circle_at = |t: f64| SsiCurve::Circle {
+        center: Point3::from(add(p1, scale(ahat, t))),
+        normal: Vector3::from(ahat),
+        radius: t.abs() * m1,
+    };
+
+    match (equal_alpha, collapsed) {
+        // CO — identical double cone: overlap is a 2D surface, not a curve.
+        (true, true) => Err(SsiError::DegenerateInput),
+        // X0 — apexes coincide, unequal α: only common point is the shared apex
+        // (a radius-0 point-circle).
+        (false, true) => Ok(Vec::new()),
+        // X1 — equal α, offset: one circle at the bisector t = δ/2.
+        (true, false) => Ok(vec![circle_at(delta / 2.0)]),
+        // X2 — unequal α, offset: always exactly two circles (perfect-square
+        // discriminant). Roots t = (−m₂²·δ ± m₁·m₂·|δ|) / (m₁² − m₂²).
+        (false, false) => {
+            let denom = m1 * m1 - m2 * m2;
+            let t_plus = (-m2 * m2 * delta + m1 * m2 * delta.abs()) / denom;
+            let t_minus = (-m2 * m2 * delta - m1 * m2 * delta.abs()) / denom;
+            // Larger-t first (I5): the sign of (m₁²−m₂²) flips the ± order, so
+            // sort by the actual `t` value, not the ± label.
+            let (t_hi, t_lo) = if t_plus >= t_minus {
+                (t_plus, t_minus)
+            } else {
+                (t_minus, t_plus)
+            };
+            Ok(vec![circle_at(t_hi), circle_at(t_lo)])
+        }
+    }
 }
 
 // `MIN_FEATURE_SIZE` is part of the cad-primitives tolerance vocabulary
