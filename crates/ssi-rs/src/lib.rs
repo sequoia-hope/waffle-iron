@@ -1493,6 +1493,18 @@ fn cylinder_cylinder(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCu
     if r1 <= 0.0 || r2 <= 0.0 || !r1.is_finite() || !r2.is_finite() {
         return Err(SsiError::DegenerateInput);
     }
+    // E1: a non-finite `axis_point` would poison the `d`-based branch logic — a
+    // NaN compares false against every threshold, so control silently falls
+    // through to the secant branch and returns a NaN-bearing `Line`. Guard it
+    // (the radius/axis_dir guards do not cover the point). Mirrors the other E1s.
+    if !q1
+        .as_array()
+        .iter()
+        .chain(q2.as_array().iter())
+        .all(|c| c.is_finite())
+    {
+        return Err(SsiError::DegenerateInput);
+    }
     // `normalize` rejects zero / non-finite axes (E1), either cylinder.
     let uhat = normalize(cd1.as_array())?;
     let uhat2 = normalize(cd2.as_array())?;
