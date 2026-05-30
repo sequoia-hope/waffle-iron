@@ -1026,38 +1026,40 @@ fn attack5c_half_angle_e1_boundary() {
 // ===========================================================================
 // Attack 6: AP through-apex boundary.
 //
-// Apex EXACTLY on the plane ⇒ Err(DegenerateInput). Apex just off the plane
-// (offset slightly more than TAU_MODEL along n̂) ⇒ a valid bounded curve — the
-// AP gate must NOT swallow valid near-apex sections beyond its TAU band.
+// Apex EXACTLY on the plane (⟂ axis ⇒ AP-pt⊥) ⇒ point ⇒ Ok(vec![]) (PR-SSI5
+// replaced the former Err(DegenerateInput)). Apex just off the plane (offset
+// slightly more than TAU_MODEL along n̂) ⇒ a valid bounded curve — the AP gate
+// must NOT swallow valid near-apex sections beyond its TAU band.
 // ===========================================================================
 
 #[test]
 fn attack6_ap_band_does_not_swallow_valid_sections() {
     // Perpendicular plane (⟂ +z) ⇒ C1 circle when off-apex. Apex at origin;
-    // plane z = h. AP fires when |n̂·(apex − p)| = |h| < TAU_MODEL.
+    // plane z = h. AP fires when |n̂·(apex − p)| = |h| < TAU_MODEL. With n̂ = +z
+    // (k = 1 ⇒ s_n = 0) the through-apex section is AP-pt⊥ ⇒ Ok(vec![]).
     let alpha = std::f64::consts::FRAC_PI_4;
     let cone = z_cone(alpha);
 
-    // Apex exactly on the plane (h = 0) ⇒ AP Err.
+    // Apex exactly on the plane (h = 0) ⇒ AP-pt⊥ ⇒ point ⇒ Ok(vec![]).
     let plane_on = QuadricSurface::Plane {
         point: Point3::new(0.0, 0.0, 0.0),
         normal: Vector3::new(0.0, 0.0, 1.0),
     };
     assert_eq!(
         intersect(&plane_on, &cone),
-        Err(SsiError::DegenerateInput),
-        "apex on plane must be AP DegenerateInput"
+        Ok(vec![]),
+        "apex on a ⟂-axis plane ⇒ AP-pt⊥ point ⇒ Ok(vec![])"
     );
 
-    // h just inside the AP band ⇒ still Err.
+    // h just inside the AP band ⇒ still AP-pt⊥ ⇒ point ⇒ Ok(vec![]).
     let plane_in = QuadricSurface::Plane {
         point: Point3::new(0.0, 0.0, TAU_MODEL * 0.5),
         normal: Vector3::new(0.0, 0.0, 1.0),
     };
     assert_eq!(
         intersect(&plane_in, &cone),
-        Err(SsiError::DegenerateInput),
-        "apex within TAU of plane is AP DegenerateInput"
+        Ok(vec![]),
+        "apex within TAU of a ⟂-axis plane ⇒ AP-pt⊥ point ⇒ Ok(vec![])"
     );
 
     // h just OUTSIDE the AP band ⇒ a VALID circle (gate must not over-reach).

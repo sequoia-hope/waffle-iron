@@ -8,7 +8,11 @@
 //! Spec: specs/ssi_pr_ssi3_plane_cone.md
 //! Branch table:
 //!   E1  invalid cone / degenerate input          → Err(DegenerateInput)
-//!   AP  through-apex (apex on cutting plane)      → Err(DegenerateInput)
+//!   AP  through-apex (apex on cutting plane)      → point/line/two-lines:
+//!         AP-pt   (point: |k| > sinα, incl. ⟂)   → Ok(vec![])
+//!         AP-line (tangent: |k| = sinα)          → one Line through the apex
+//!         AP-lines (crossed: |k| < sinα)         → two Lines through the apex
+//!       (PR-SSI5 replaced the former AP ⇒ Err(DegenerateInput); see ssi5.rs.)
 //!   C1  circle  (plane ⟂ axis, s_n < TAU)         → one Circle
 //!   C2  ellipse (closed oblique section)          → one Ellipse
 //!   PH  parabola / hyperbola (unbounded)          → Err(AnalyticalSolutionNotAvailable)
@@ -360,12 +364,16 @@ fn c2_oblique_yields_ellipse() {
 }
 
 // ---------------------------------------------------------------------------
-// AP — plane through the apex → Err(DegenerateInput) (degenerate conic).
+// AP — plane through the apex → degenerate conic (point / line / two lines).
+// PR-SSI5 replaced the former AP ⇒ Err(DegenerateInput). The conic type is
+// decided by k = |n̂·â| vs sinα (deep coverage of all AP sub-cases is in
+// ssi5.rs); these two migrated tests pin the sub-case each old fixture hits.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn ap_through_apex_is_degenerate() {
-    // Apex at (0,0,0) lies on the plane z = 0 ⇒ |n̂·(apex − p)| = 0 ⇒ AP.
+fn ap_through_apex_perp_is_point() {
+    // Apex (0,0,0) on the plane z = 0 ⇒ AP. Plane ⟂ axis (n̂ = +z, k = 1 ⇒
+    // s_n = 0) ⇒ AP-pt⊥: the cone meets the plane only at the apex ⇒ Ok(vec![]).
     let plane = QuadricSurface::Plane {
         point: Point3::new(0.0, 0.0, 0.0),
         normal: Vector3::new(0.0, 0.0, 1.0),
@@ -375,12 +383,14 @@ fn ap_through_apex_is_degenerate() {
         axis_dir: Vector3::new(0.0, 0.0, 1.0),
         half_angle: std::f64::consts::FRAC_PI_4,
     };
-    assert_eq!(intersect(&plane, &cone), Err(SsiError::DegenerateInput));
+    assert_eq!(intersect(&plane, &cone), Ok(vec![]));
 }
 
 #[test]
-fn ap_through_apex_oblique_is_degenerate() {
-    // Apex offset from origin, plane tilted but still passing through the apex.
+fn ap_through_apex_oblique_is_point() {
+    // Apex offset, plane tilted but through the apex. n̂ = (0.3,0,1)/√1.09 ⇒
+    // k = |n̂·â| = 1/√1.09 ≈ 0.958 > sinα = √2/2 ≈ 0.707 ⇒ AP-pt (steeper than
+    // the cone) ⇒ point only ⇒ Ok(vec![]).
     let apex = Point3::new(1.0, 2.0, 3.0);
     let plane = QuadricSurface::Plane {
         point: Point3::new(1.0, 2.0, 3.0), // plane passes through the apex
@@ -391,7 +401,8 @@ fn ap_through_apex_oblique_is_degenerate() {
         axis_dir: Vector3::new(0.0, 0.0, 1.0),
         half_angle: std::f64::consts::FRAC_PI_4,
     };
-    assert_eq!(intersect(&plane, &cone), Err(SsiError::DegenerateInput));
+    // sanity: k ≈ 0.958 > sinα ≈ 0.707 ⇒ point.
+    assert_eq!(intersect(&plane, &cone), Ok(vec![]));
 }
 
 // ---------------------------------------------------------------------------
