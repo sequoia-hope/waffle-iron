@@ -470,7 +470,17 @@ fn plane_cylinder(
     let c = dot(nhat, ahat);
     let abs_c = c.abs();
 
-    if abs_c > 1.0 - TAU_MODEL {
+    // In-plane projection of the axis: proj = â − c·n̂, with
+    // |proj| = √(1 − c²) = sin θ (θ = tilt of the plane normal from the axis).
+    // The C1/C2 split is gated on |proj| (the sine), NOT on 1 − |c|: the C1
+    // circle snaps the supporting plane to ⟂ â, so its points sit off the
+    // tilted cutting plane by ≤ r·sin θ = r·√(1−c²). Bounding the sine by
+    // TAU_MODEL bounds that off-plane error by r·TAU_MODEL, and the gate then
+    // exactly coincides with C2's normalize(proj) guard.
+    let proj = sub(ahat, scale(nhat, c));
+    let proj_norm = norm(proj);
+
+    if proj_norm < TAU_MODEL {
         // C1 — perpendicular: a circle of radius r in the cutting plane.
         // axis ∩ plane: center = q + s·â, s = (n̂·(p − q)) / c.
         let s = dot(nhat, sub(p, q)) / c;
@@ -487,9 +497,9 @@ fn plane_cylinder(
         // axis ∩ plane: center = q + s·â, s = (n̂·(p − q)) / c.
         let s = dot(nhat, sub(p, q)) / c;
         let center = add(q, scale(ahat, s));
-        // major_axis = projection of the axis onto the plane (in-plane,
-        // well-defined for 0 < |c| < 1).
-        let major_axis = normalize(sub(ahat, scale(nhat, c)))?;
+        // major_axis = projection of the axis onto the plane (in-plane);
+        // normalize succeeds because the C1 gate guarantees |proj| ≥ TAU_MODEL.
+        let major_axis = normalize(proj)?;
         return Ok(vec![SsiCurve::Ellipse {
             center: Point3::from(center),
             normal: Vector3::from(nhat),
