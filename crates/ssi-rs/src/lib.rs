@@ -391,7 +391,7 @@ pub fn intersect(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCurve>
         }
         (QuadricSurface::Cone { .. }, QuadricSurface::Cone { .. }) => cone_cone(a, b),
         (QuadricSurface::Cylinder { .. }, QuadricSurface::Cylinder { .. }) => {
-            Err(SsiError::AnalyticalSolutionNotAvailable)
+            cylinder_cylinder(a, b)
         }
     }
 }
@@ -1443,6 +1443,114 @@ fn cone_cone(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCurve>, Ss
             Ok(vec![circle_at(t_hi), circle_at(t_lo)])
         }
     }
+}
+
+/// Cylinder ∩ cylinder (parallel axes → lines).
+///
+/// Patrikalakis & Maekawa, *Shape Interrogation for CAD/M*, §5.8 (natural
+/// quadrics). The general cyl∩cyl intersection is a degree-4 space curve, but
+/// the **parallel-axis** configuration reduces to **circle∩circle** in the
+/// plane ⟂ the shared axis `û`, lifted along `û` → **lines** parallel to `û` —
+/// exact, reusing `SsiCurve::Line`. The non-parallel case (general degree-4,
+/// including the equal-radius intersecting → ellipses special case deferred to
+/// PR-SSI11) is staged `Err(AnalyticalSolutionNotAvailable)` (A15.2: loud,
+/// never a fallback).
+///
+/// Parallel reduction: `û = normalize(cyl₁.axis_dir)`, `rel = Q₂ − Q₁`,
+/// inter-axis perpendicular distance `d = |rel − (rel·û)·û|`. Circle∩circle
+/// (centres distance `d`, radii r₁,r₂) gives the chord offset
+/// `a = (d² + r₁² − r₂²)/(2d)` along `n̂ = unit(perp component of rel)` and the
+/// half-chord `h = √(max(0, r₁² − a²))`; with `p̂ = û × n̂` the cross-section
+/// points are `Q₁ + a·n̂ ± h·p̂`, each lifted to `Line { point, dir = û }`. (For
+/// such a point, perp-dist to axis 1 = √(a²+h²) = r₁ and to axis 2 =
+/// √((a−d)²+h²) = r₂.)
+///
+/// Branches gate on the LINEAR quantity `d` vs `r₁±r₂`: E1 (`DegenerateInput`:
+/// rᵢ ≤ 0 / non-finite, zero/non-finite axis) → NP (`|û₁×û₂| ≥ TAU` → ASNA) →
+/// coincident (d ≤ TAU, equal r → `DegenerateInput`, 2D overlap) → concentric
+/// (d ≤ TAU, unequal r → empty) → disjoint/contained (empty) → tangent (one
+/// line at Q₁+a·n̂) → secant (two lines, +h·p̂ first, I5).
+fn cylinder_cylinder(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCurve>, SsiError> {
+    let (
+        QuadricSurface::Cylinder {
+            axis_point: q1,
+            axis_dir: cd1,
+            radius: r1,
+        },
+        QuadricSurface::Cylinder {
+            axis_point: q2,
+            axis_dir: cd2,
+            radius: r2,
+        },
+    ) = (a, b)
+    else {
+        return Err(SsiError::AnalyticalSolutionNotAvailable);
+    };
+
+    let r1 = *r1;
+    let r2 = *r2;
+    // E1: degenerate radius (either cylinder).
+    if r1 <= 0.0 || r2 <= 0.0 || !r1.is_finite() || !r2.is_finite() {
+        return Err(SsiError::DegenerateInput);
+    }
+    // `normalize` rejects zero / non-finite axes (E1), either cylinder.
+    let uhat = normalize(cd1.as_array())?;
+    let uhat2 = normalize(cd2.as_array())?;
+
+    // NP — non-parallel general degree-4: staged (loud Err, no fallback; A15.2).
+    // (Includes the equal-R intersecting → ellipses case, deferred to PR-SSI11.)
+    if norm(cross(uhat, uhat2)) >= TAU_MODEL {
+        return Err(SsiError::AnalyticalSolutionNotAvailable);
+    }
+
+    // Parallel: circle∩circle in the plane ⟂ û. Gate on the LINEAR inter-axis
+    // distance `d`.
+    let q1 = q1.as_array();
+    let q2 = q2.as_array();
+    let rel = sub(q2, q1);
+    let rel_perp = sub(rel, scale(uhat, dot(rel, uhat)));
+    let d = norm(rel_perp);
+
+    // Coincident axis lines (d ≈ 0): handled before n̂ (which needs d > 0).
+    // Equal radius → 2D overlap (Err); unequal → concentric, no curve (empty).
+    if d <= TAU_MODEL {
+        if (r1 - r2).abs() <= TAU_MODEL {
+            return Err(SsiError::DegenerateInput);
+        }
+        return Ok(Vec::new());
+    }
+
+    // Disjoint (too far) or one strictly inside the other → empty.
+    if d > r1 + r2 + TAU_MODEL || d < (r1 - r2).abs() - TAU_MODEL {
+        return Ok(Vec::new());
+    }
+
+    let nhat = scale(rel_perp, 1.0 / d); // unit perp component (d > 0 here)
+    let a_off = (d * d + r1 * r1 - r2 * r2) / (2.0 * d);
+    let center = add(q1, scale(nhat, a_off));
+
+    // Tangent: external (d = r₁+r₂) or internal (d = |r₁−r₂|) → one line.
+    if (d - (r1 + r2)).abs() <= TAU_MODEL || (d - (r1 - r2).abs()).abs() <= TAU_MODEL {
+        return Ok(vec![SsiCurve::Line {
+            point: Point3::from(center),
+            dir: Vector3::from(uhat),
+        }]);
+    }
+
+    // Secant: two lines at center ± h·p̂, +h·p̂ first (I5). The branch table
+    // guarantees r₁² ≥ a², so `max(0, …)` only absorbs ε (√ never sees < 0).
+    let h = (r1 * r1 - a_off * a_off).max(0.0).sqrt();
+    let phat = cross(uhat, nhat);
+    Ok(vec![
+        SsiCurve::Line {
+            point: Point3::from(add(center, scale(phat, h))),
+            dir: Vector3::from(uhat),
+        },
+        SsiCurve::Line {
+            point: Point3::from(sub(center, scale(phat, h))),
+            dir: Vector3::from(uhat),
+        },
+    ])
 }
 
 // `MIN_FEATURE_SIZE` is part of the cad-primitives tolerance vocabulary
