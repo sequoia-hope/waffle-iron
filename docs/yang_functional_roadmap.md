@@ -208,11 +208,30 @@ reimplementation from Attene's paper restores WASM (M7).
     Spec `specs/ssi_pr_ssi2_plane_cylinder.md`; commits `b53e566c`→`22729f1f` (RED)
     →`394f772a` (GREEN)→`5a3cded6` (spec fix)→`9a8c6c37` (adversary RED)→`37e17ff7`
     (fix GREEN). 55/55 ssi-rs tests; CI gate clean; no sibling/legacy changes.
-  - **Next M5 increments (sequenced):** more solver pairs (plane-cone,
-    sphere-cylinder; the Degree4 conic/quartic curves) → curved `Surface` variants
-    + curved Stage-1 tessellation in `yang-rs` → curved face resolution + the
-    planar-assumption migration → Stage 3 (wire `ssi-rs` into `yang-rs` to refine
-    mesh edges → SSI curves) → Stage 4 (CDT remesh along refined curves).
+  - **Step 3 — `ssi-rs` plane∩cone, bounded sections (PR-SSI3) ✅ DONE.** A15.4
+    pair #3: adds the `QuadricSurface::Cone` surface (infinite double cone, pure
+    quadric) and `plane_cone` for the **bounded** sections — C1 circle (plane ⟂
+    axis) + C2 ellipse (closed section) — reusing `Circle`/`Ellipse`. Classifies
+    via the two symmetry-plane generators `g_±=cosα·â±sinα·û`; ellipse params from
+    the vertex method + closed-form `b²=(d·â)²/cos²α−|d|²`. **Scope (user decision):
+    bounded first** — parabola/hyperbola (PH) and through-apex (AP) return loud
+    `Err` (`AnalyticalSolutionNotAvailable`/`DegenerateInput`), a deliberate staged
+    gap removed in PR-SSI4, never a fallback (A15.2). On-surface oracle uses a cone
+    **radial** residual (length). Adversary (17 attacks) confirmed the dangerous
+    ellipse↔parabola boundary is robust (huge `a` stays finite + on-surface; clean
+    flip to `Err` at the `gd_±` gate; no NaN/Inf/misclassification) and flagged a
+    minor C1-gate conditioning inconsistency vs `plane_cylinder` — fixed for
+    consistency (gate on the stable `|n̂−k·â|`, not `√(1−k²)`; reuse `proj` for `û`).
+    Spec `specs/ssi_pr_ssi3_plane_cone.md`; commits `d0f3bfe1`→`f16f9fbd` (RED)→
+    `014e7445` (GREEN)→`f3cacaae` (adversary)→`64047b06` (spec fix)→`ddc5e2be`
+    (consistency fix). 86/86 ssi-rs tests; CI gate clean; no sibling/legacy changes.
+  - **Next M5 increments (sequenced):** PR-SSI4 = `Parabola` + `Hyperbola` curves
+    (+ `eval`, two-branch handling on the double cone) and the plane∩cone PH +
+    degenerate through-apex branches → more pairs (sphere-cylinder, cyl-cyl, …; the
+    Degree4 quartic curves) → curved `Surface` variants + curved Stage-1
+    tessellation in `yang-rs` → curved face resolution + the planar-assumption
+    migration → Stage 3 (wire `ssi-rs` into `yang-rs` to refine mesh edges → SSI
+    curves) → Stage 4 (CDT remesh along refined curves).
 - **M6 — Native `cherchi-rs` Stage 2** behind the same interface, parity-green
   vs the sidecar on the corpus.
 - **M7 — Clean-room indirect predicates from Attene's paper → restore WASM.**
