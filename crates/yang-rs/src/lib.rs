@@ -1398,7 +1398,212 @@ mod tests {
                 assert_eq!(normal, Vector3::new(0.0, 0.0, 1.0));
                 assert_eq!(d, -1.0);
             }
+            // `s` is constructed as `Plane`, so this arm is never hit; it
+            // only satisfies exhaustiveness once curved variants are added.
+            _ => panic!("expected Plane"),
         }
+    }
+
+    // ----- PR-YR6: curved Surface / Curve construction round-trips -----
+
+    #[test]
+    fn surface_sphere_construction() {
+        let s = Surface::Sphere {
+            center: p(1.0, 2.0, 3.0),
+            radius: 5.0,
+        };
+        match s {
+            Surface::Sphere { center, radius } => {
+                assert_eq!(center, p(1.0, 2.0, 3.0));
+                assert_eq!(radius, 5.0);
+            }
+            _ => panic!("expected Sphere"),
+        }
+    }
+
+    #[test]
+    fn surface_cylinder_construction() {
+        let s = Surface::Cylinder {
+            axis_point: p(1.0, 2.0, 3.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: 4.0,
+        };
+        match s {
+            Surface::Cylinder {
+                axis_point,
+                axis_dir,
+                radius,
+            } => {
+                assert_eq!(axis_point, p(1.0, 2.0, 3.0));
+                assert_eq!(axis_dir, Vector3::new(0.0, 0.0, 1.0));
+                assert_eq!(radius, 4.0);
+            }
+            _ => panic!("expected Cylinder"),
+        }
+    }
+
+    #[test]
+    fn surface_cone_construction() {
+        let s = Surface::Cone {
+            apex: p(0.0, 0.0, 10.0),
+            axis_dir: Vector3::new(0.0, 0.0, -1.0),
+            half_angle: 0.5,
+        };
+        match s {
+            Surface::Cone {
+                apex,
+                axis_dir,
+                half_angle,
+            } => {
+                assert_eq!(apex, p(0.0, 0.0, 10.0));
+                assert_eq!(axis_dir, Vector3::new(0.0, 0.0, -1.0));
+                assert_eq!(half_angle, 0.5);
+            }
+            _ => panic!("expected Cone"),
+        }
+    }
+
+    #[test]
+    fn curve_circle_construction() {
+        let c = Curve::Circle {
+            center: p(1.0, 2.0, 3.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            radius: 2.5,
+        };
+        match c {
+            Curve::Circle {
+                center,
+                normal,
+                radius,
+            } => {
+                assert_eq!(center, p(1.0, 2.0, 3.0));
+                assert_eq!(normal, Vector3::new(0.0, 0.0, 1.0));
+                assert_eq!(radius, 2.5);
+            }
+            _ => panic!("expected Circle"),
+        }
+    }
+
+    #[test]
+    fn curve_ellipse_construction() {
+        let c = Curve::Ellipse {
+            center: p(1.0, 2.0, 3.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            major_axis: Vector3::new(1.0, 0.0, 0.0),
+            major_radius: 6.0,
+            minor_radius: 3.0,
+        };
+        match c {
+            Curve::Ellipse {
+                center,
+                normal,
+                major_axis,
+                major_radius,
+                minor_radius,
+            } => {
+                assert_eq!(center, p(1.0, 2.0, 3.0));
+                assert_eq!(normal, Vector3::new(0.0, 0.0, 1.0));
+                assert_eq!(major_axis, Vector3::new(1.0, 0.0, 0.0));
+                assert_eq!(major_radius, 6.0);
+                assert_eq!(minor_radius, 3.0);
+            }
+            _ => panic!("expected Ellipse"),
+        }
+    }
+
+    // ----- PR-YR6: BRep::new loud-rejects curved surfaces -----
+
+    /// Minimal well-formed single-triangle topology (3 verts, 3 edges, one
+    /// face with a 3-edge outer loop). Mirrors the `brep_new_single_triangle`
+    /// fixture exactly except the single face's surface is caller-supplied,
+    /// so the ONLY variable across the loud-rejection tests is the surface.
+    fn single_triangle_topology(
+        surface: Surface,
+    ) -> (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFace>) {
+        let verts = vec![
+            BRepVertex {
+                point: p(0.0, 0.0, 0.0),
+            },
+            BRepVertex {
+                point: p(1.0, 0.0, 0.0),
+            },
+            BRepVertex {
+                point: p(0.0, 1.0, 0.0),
+            },
+        ];
+        let edges = vec![
+            BRepEdge {
+                start: 0,
+                end: 1,
+                curve: Curve::LineSegment,
+            },
+            BRepEdge {
+                start: 1,
+                end: 2,
+                curve: Curve::LineSegment,
+            },
+            BRepEdge {
+                start: 2,
+                end: 0,
+                curve: Curve::LineSegment,
+            },
+        ];
+        let faces = vec![BRepFace {
+            surface,
+            outer_loop: vec![0, 1, 2],
+            inner_loops: Vec::new(),
+        }];
+        (verts, edges, faces)
+    }
+
+    #[test]
+    fn brep_new_rejects_sphere_face() {
+        let (verts, edges, faces) = single_triangle_topology(Surface::Sphere {
+            center: p(0.0, 0.0, 0.0),
+            radius: 1.0,
+        });
+        let result = BRep::new(verts, edges, faces);
+        assert!(
+            matches!(
+                result,
+                Err(YangError::CurvedSurfaceNotYetSupported { face: 0 })
+            ),
+            "expected CurvedSurfaceNotYetSupported {{ face: 0 }}, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn brep_new_rejects_cylinder_face() {
+        let (verts, edges, faces) = single_triangle_topology(Surface::Cylinder {
+            axis_point: p(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        });
+        let result = BRep::new(verts, edges, faces);
+        assert!(
+            matches!(
+                result,
+                Err(YangError::CurvedSurfaceNotYetSupported { face: 0 })
+            ),
+            "expected CurvedSurfaceNotYetSupported {{ face: 0 }}, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn brep_new_rejects_cone_face() {
+        let (verts, edges, faces) = single_triangle_topology(Surface::Cone {
+            apex: p(0.0, 0.0, 1.0),
+            axis_dir: Vector3::new(0.0, 0.0, -1.0),
+            half_angle: 0.5,
+        });
+        let result = BRep::new(verts, edges, faces);
+        assert!(
+            matches!(
+                result,
+                Err(YangError::CurvedSurfaceNotYetSupported { face: 0 })
+            ),
+            "expected CurvedSurfaceNotYetSupported {{ face: 0 }}, got {result:?}"
+        );
     }
 
     #[test]
@@ -2770,7 +2975,9 @@ mod tests {
     fn resolve_face(brep: &BRep, c: Point3) -> u32 {
         let mut hit: Option<u32> = None;
         for (i, f) in brep.faces().iter().enumerate() {
-            let Surface::Plane { normal, d } = f.surface;
+            let Surface::Plane { normal, d } = f.surface else {
+                continue;
+            };
             let n = normal.as_array();
             let cc = c.as_array();
             let dist = (n[0] * cc[0] + n[1] * cc[1] + n[2] * cc[2] + d).abs();
