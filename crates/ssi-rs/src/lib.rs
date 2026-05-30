@@ -1445,16 +1445,31 @@ fn cone_cone(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCurve>, Ss
     }
 }
 
-/// Cylinder ∩ cylinder (parallel axes → lines).
+/// Cylinder ∩ cylinder (parallel axes → lines; equal-R intersecting → ellipses).
 ///
 /// Patrikalakis & Maekawa, *Shape Interrogation for CAD/M*, §5.8 (natural
 /// quadrics). The general cyl∩cyl intersection is a degree-4 space curve, but
-/// the **parallel-axis** configuration reduces to **circle∩circle** in the
-/// plane ⟂ the shared axis `û`, lifted along `û` → **lines** parallel to `û` —
-/// exact, reusing `SsiCurve::Line`. The non-parallel case (general degree-4,
-/// including the equal-radius intersecting → ellipses special case deferred to
-/// PR-SSI11) is staged `Err(AnalyticalSolutionNotAvailable)` (A15.2: loud,
-/// never a fallback).
+/// two configurations reduce to closed-form curves (A15.2: loud `Err` for
+/// everything else, never a fallback):
+///
+/// - **Parallel axes** reduce to **circle∩circle** in the plane ⟂ the shared
+///   axis `û`, lifted along `û` → **lines** parallel to `û` — exact, reusing
+///   `SsiCurve::Line` (see the parallel reduction below).
+/// - **Equal radius, coplanar & intersecting (non-parallel) axes** reduce to
+///   exactly **two ellipses** in the angle-bisecting planes. With unit axes
+///   `û₁,û₂`, intersection point `O`, `β = acos(û₁·û₂) ∈ (0,π)`, frame
+///   `b̂₊ = unit(û₁+û₂)`, `b̂₋ = unit(û₁−û₂)`: Ellipse A (emitted first, I5)
+///   has `center=O, normal=b̂₋, major_axis=b̂₊, major_radius = r/sin(β/2),
+///   minor_radius = r`; Ellipse B has `normal=b̂₊, major_axis=b̂₋,
+///   major_radius = r/cos(β/2), minor_radius = r`. On `β ∈ (0,π)` both
+///   `major_radius ≥ r`, so `major_radius ≥ minor_radius` holds. The
+///   non-parallel split gates on the LINEAR quantities `|r₁−r₂|` (equal-R) and
+///   the skew-line `line_gap` (coplanarity). See
+///   [`cyl_cyl_equal_radius_ellipses`] / [`line_line_intersection`].
+///
+/// **Unequal-radius** (intersecting or skew) and **equal-radius skew** axes are
+/// the remaining general degree-4 curve and stay staged
+/// `Err(AnalyticalSolutionNotAvailable)` (A15.2: loud, never a fallback).
 ///
 /// Parallel reduction: `û = normalize(cyl₁.axis_dir)`, `rel = Q₂ − Q₁`,
 /// inter-axis perpendicular distance `d = |rel − (rel·û)·û|`. Circle∩circle
@@ -1509,9 +1524,24 @@ fn cylinder_cylinder(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCu
     let uhat = normalize(cd1.as_array())?;
     let uhat2 = normalize(cd2.as_array())?;
 
-    // NP — non-parallel general degree-4: staged (loud Err, no fallback; A15.2).
-    // (Includes the equal-R intersecting → ellipses case, deferred to PR-SSI11.)
-    if norm(cross(uhat, uhat2)) >= TAU_MODEL {
+    // Non-parallel branch. Classify on the LINEAR geometric quantities: the
+    // equal-R / coplanar special case (Patrikalakis & Maekawa §5.8) reduces to
+    // two ellipses; everything else non-parallel (unequal R, or skew axes)
+    // stays staged `Err(AnalyticalSolutionNotAvailable)` (A15.2: loud, never a
+    // fallback). The arrays here are locals so the parallel arm below keeps its
+    // own `q1`/`q2` array bindings byte-identical.
+    let axis_cross = cross(uhat, uhat2);
+    let cross_norm = norm(axis_cross);
+    if cross_norm >= TAU_MODEL {
+        let q1a = q1.as_array();
+        let q2a = q2.as_array();
+        let rel = sub(q2a, q1a); // Q₂ − Q₁
+        let equal_r = (r1 - r2).abs() <= TAU_MODEL;
+        // Skew-line distance between the two axis lines (coplanarity test).
+        let line_gap = dot(rel, axis_cross).abs() / cross_norm;
+        if equal_r && line_gap < TAU_MODEL {
+            return cyl_cyl_equal_radius_ellipses(q1a, q2a, uhat, uhat2, r1);
+        }
         return Err(SsiError::AnalyticalSolutionNotAvailable);
     }
 
@@ -1563,6 +1593,79 @@ fn cylinder_cylinder(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCu
             dir: Vector3::from(uhat),
         },
     ])
+}
+
+/// Equal-radius, coplanar-intersecting (non-parallel) cyl∩cyl → two ellipses.
+///
+/// Patrikalakis & Maekawa, *Shape Interrogation for CAD/M*, §5.8. Caller has
+/// already established equal radius `r`, non-parallel axes, and coplanarity
+/// (intersecting axes). With unit axes `û₁,û₂`, intersection point `O`, and
+/// `β = acos(û₁·û₂) ∈ (0,π)`, the two intersection curves are ellipses in the
+/// angle-bisecting planes, both centred at `O` with semi-minor `r`:
+///
+/// - Ellipse A (emitted FIRST, determinism I5): `normal = b̂₋ = unit(û₁−û₂)`,
+///   `major_axis = b̂₊ = unit(û₁+û₂)`, `major_radius = r/sin(β/2)`.
+/// - Ellipse B: `normal = b̂₊`, `major_axis = b̂₋`, `major_radius = r/cos(β/2)`.
+///
+/// `b̂₊ ⟂ b̂₋` since `(û₁+û₂)·(û₁−û₂) = |û₁|²−|û₂|² = 0`. On `β ∈ (0,π)` both
+/// `sin(β/2), cos(β/2) ∈ (0,1)`, so each `major_radius ≥ r` (contract holds).
+fn cyl_cyl_equal_radius_ellipses(
+    q1: [f64; 3],
+    q2: [f64; 3],
+    uhat: [f64; 3],
+    uhat2: [f64; 3],
+    r: f64,
+) -> Result<Vec<SsiCurve>, SsiError> {
+    let b_plus = normalize(add(uhat, uhat2))?;
+    let b_minus = normalize(sub(uhat, uhat2))?;
+    let o = line_line_intersection(q1, uhat, q2, uhat2)?;
+    let beta = dot(uhat, uhat2).clamp(-1.0, 1.0).acos();
+    let half = beta / 2.0;
+    let center = Point3::from(o);
+    Ok(vec![
+        // Ellipse A — first (I5): normal b̂₋, major b̂₊, major_radius r/sin(β/2).
+        SsiCurve::Ellipse {
+            center,
+            normal: Vector3::from(b_minus),
+            major_axis: Vector3::from(b_plus),
+            major_radius: r / half.sin(),
+            minor_radius: r,
+        },
+        // Ellipse B: normal b̂₊, major b̂₋, major_radius r/cos(β/2).
+        SsiCurve::Ellipse {
+            center,
+            normal: Vector3::from(b_plus),
+            major_axis: Vector3::from(b_minus),
+            major_radius: r / half.cos(),
+            minor_radius: r,
+        },
+    ])
+}
+
+/// Intersection point of two lines via the standard two-line closest-point.
+///
+/// Patrikalakis & Maekawa, *Shape Interrogation for CAD/M*, §5.8. `d1`, `d2`
+/// are unit on entry. With `b = d1·d2`, `w0 = p1 − p2`, the parameter on line 1
+/// is `sc = (b·(d2·w0) − (d1·w0)) / (1 − b²)`, and the point is `p1 + sc·d1`.
+/// The denominator `1 − b² = sin²β` is bounded away from 0 by the caller's
+/// non-parallel guard; a defensive guard returns `Err(DegenerateInput)` when
+/// `denom < TAU_MODEL²` (not reachable through `cylinder_cylinder`).
+fn line_line_intersection(
+    p1: [f64; 3],
+    d1: [f64; 3],
+    p2: [f64; 3],
+    d2: [f64; 3],
+) -> Result<[f64; 3], SsiError> {
+    let b = dot(d1, d2);
+    let w0 = sub(p1, p2);
+    let dd = dot(d1, w0);
+    let ee = dot(d2, w0);
+    let denom = 1.0 - b * b;
+    if denom < TAU_MODEL * TAU_MODEL {
+        return Err(SsiError::DegenerateInput);
+    }
+    let sc = (b * ee - dd) / denom;
+    Ok(add(p1, scale(d1, sc)))
 }
 
 // `MIN_FEATURE_SIZE` is part of the cad-primitives tolerance vocabulary
