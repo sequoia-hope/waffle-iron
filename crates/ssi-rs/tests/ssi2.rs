@@ -573,18 +573,26 @@ fn determinism_c3a_two_lines_identical() {
 }
 
 // ---------------------------------------------------------------------------
-// AnalyticalSolutionNotAvailable — newly triggerable in PR-SSI2: sphere∩cylinder
-// has no solver (A15.2: loud, never a silent fallback).
+// AnalyticalSolutionNotAvailable — the NON-COAXIAL sphere∩cylinder path (the
+// general degree-4 curve) has no solver (A15.2: loud, never a silent fallback).
+//
+// NOTE (PR-SSI6): the COAXIAL sphere∩cylinder case now reduces to circles, so
+// this guard must use a clearly NON-coaxial config (cylinder axis offset from
+// the sphere center, d_ax ≥ TAU_MODEL) to still assert ASNA. The original
+// PR-SSI2 geometry (cylinder z-axis through the sphere center) was coaxial and
+// would now return circles.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn sphere_cylinder_not_available() {
+fn sphere_cylinder_non_coaxial_not_available() {
     let sphere = QuadricSurface::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
-        radius: 1.0,
+        radius: 2.0,
     };
+    // Cylinder axis ∥ +z but offset to x=0.5,y=0 — does NOT pass through the
+    // sphere center, so d_ax = 0.5 ≥ TAU_MODEL ⇒ non-coaxial (general degree-4).
     let cyl = QuadricSurface::Cylinder {
-        axis_point: Point3::new(0.0, 0.0, 0.0),
+        axis_point: Point3::new(0.5, 0.0, 0.0),
         axis_dir: Vector3::new(0.0, 0.0, 1.0),
         radius: 1.0,
     };
