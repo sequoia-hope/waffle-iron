@@ -59,19 +59,35 @@ quadric is a conic; `docs/references/patrikalakis-shape-interrogation.txt:1071`)
 
 Let `n̂` = unit plane normal, `p` = plane point, `q` = `axis_point`,
 `â` = unit `axis_dir`, `r` = cylinder radius, and `c = n̂·â`
-(`|c|` = sine of the dihedral angle between plane and axis; `|c|=1` ⇒ plane ⟂ axis,
-`|c|=0` ⇒ plane ∥ axis).
+(`|c|` = cosine of the angle between the plane normal and the axis; `|c|=1` ⇒
+plane ⟂ axis, `|c|=0` ⇒ plane ∥ axis). The **in-plane projection of the axis** is
+`proj = â − c·n̂`, with `|proj| = √(1 − c²) = sin θ`, where `θ` is the tilt of the
+plane normal away from the axis. **The C1/C2 boundary is gated on `|proj|`, NOT on
+`1 − |c|`** — see the rationale below.
 
 ### Branch table
 
 | # | case | condition | result |
 |---|---|---|---|
-| C1 | perpendicular | `\|c\| > 1 − TAU_MODEL` | one **Circle** { center = axis ∩ plane, normal = â, radius = r } |
-| C2 | oblique | `TAU_MODEL ≤ \|c\| ≤ 1 − TAU_MODEL` | one **Ellipse** (see below) |
+| C1 | perpendicular | `\|proj\| = √(1 − c²) < TAU_MODEL` | one **Circle** { center = axis ∩ plane, normal = â, radius = r } |
+| C2 | oblique | `√(1 − c²) ≥ TAU_MODEL` and `\|c\| ≥ TAU_MODEL` | one **Ellipse** (see below) |
 | C3a | parallel, secant | `\|c\| < TAU_MODEL` and `d < r − TAU_MODEL` | **two Lines** parallel to â (see below) |
 | C3b | parallel, tangent | `\|c\| < TAU_MODEL` and `\|d − r\| ≤ TAU_MODEL` | **one Line** (the tangent line) |
 | C3c | parallel, disjoint | `\|c\| < TAU_MODEL` and `d > r + TAU_MODEL` | `Ok([])` |
 | E1 | degenerate | `r ≤ 0` or non-finite `r`; or `axis_dir` / `normal` zero-length or non-finite | `Err(DegenerateInput)` |
+
+**Why the C1 band is on `√(1−c²)`, not `1−|c|` (the PR-SSI2 adversary fix):** the
+C1 circle is the *snap-to-perpendicular* result — its supporting plane is the
+plane through the center with normal `â`, so its points lie on the cylinder
+exactly but **off the (tilted) cutting plane by `≤ r·sin θ = r·√(1−c²)`**. To keep
+that off-plane error within `r·TAU_MODEL`, the band must bound the **sine**
+`√(1−c²)`, not `1−|c|` (a `TAU_MODEL` band on `1−|c|` is a `√(2·TAU_MODEL) ≈ 4.5e-4`
+band on the sine ⇒ off-plane error up to `4.5e-4·r`, ~4000× tolerance — the
+original draft's bug). Gating on `√(1−c²) < TAU_MODEL` also **exactly coincides
+with the C2 `major_axis = normalize(proj)` guard** (`normalize` succeeds iff
+`|proj| ≥ TAU_MODEL`): every plane that reaches C2 has a well-defined major axis,
+and every plane snapped to C1 has an off-plane error `≤ r·TAU_MODEL`. So a single
+`|proj|` test cleanly splits C1 from C2 with both branches correct to `O(r·TAU_MODEL)`.
 
 **Distances / center:**
 - `d = |n̂·(q − p)|` — distance from the axis to the plane. In C3 (`â ⟂ n̂`) the
@@ -83,10 +99,16 @@ Let `n̂` = unit plane normal, `p` = plane point, `q` = `axis_point`,
 - `minor_radius b = r`.
 - `major_radius a = r / |c|`  (`|c|→1` ⇒ `a→r`, the C1 circle limit; `|c|→0` ⇒
   `a→∞`, the C3 line limit — both routed away by the bands).
-- `major_axis = normalize(â − c·n̂)` — the projection of the axis onto the plane
-  (the "uphill" in-plane direction); this is the long axis. It is in-plane
-  (`n̂·(â − c n̂) = c − c = 0`) and well-defined whenever `0 < |c| < 1`.
+- `major_axis = normalize(proj)`, `proj = â − c·n̂` — the projection of the axis
+  onto the plane (the "uphill" in-plane direction); this is the long axis. It is
+  in-plane (`n̂·proj = c − c = 0`) and `normalize` is well-defined here because the
+  C2 band guarantees `|proj| = √(1−c²) ≥ TAU_MODEL` (the same quantity gating C1).
 - `normal = n̂`. (`minor_axis = n̂ × major_axis` is implied by `eval`.)
+
+Implementation note: compute `proj` and `|proj|` once; `|proj| < TAU_MODEL`
+selects C1 (and reusing `proj` avoids recomputation), else (with `|c| ≥ TAU_MODEL`)
+C2 normalizes `proj` for the major axis. A very oblique plane (`a = r/|c|` huge) is
+still exact on both surfaces — the on-surface residual tracks `r`, not `a`.
 
 **C3a two lines:**
 - `ŵ = normalize(n̂ × â)` — in-plane, perpendicular to the axis.
