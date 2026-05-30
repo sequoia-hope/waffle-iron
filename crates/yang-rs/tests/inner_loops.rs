@@ -232,6 +232,7 @@ fn brep_unpaired_loop_edges(brep: &BRep) -> usize {
 fn face_normal(f: &BRepFace) -> Vector3 {
     match f.surface {
         Surface::Plane { normal, .. } => normal,
+        _ => panic!("expected Plane"),
     }
 }
 

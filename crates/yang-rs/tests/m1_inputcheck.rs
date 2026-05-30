@@ -199,7 +199,9 @@ fn i1_cube_triangle_normals_agree_with_face_normals() {
     // Fan-triangulation in face order: tris 2*f and 2*f+1 come from face f.
     for (ti, &tri) in mesh.tris.iter().enumerate() {
         let face_idx = ti / 2;
-        let Surface::Plane { normal, .. } = b.faces()[face_idx].surface;
+        let Surface::Plane { normal, .. } = b.faces()[face_idx].surface else {
+            continue;
+        };
         let n = tri_normal(mesh, tri);
         let d = dot(n, normal.as_array());
         assert!(
@@ -218,7 +220,9 @@ fn i1_tetrahedron_triangle_normals_agree_with_face_normals() {
     assert_eq!(b.num_tris(), 4, "tetrahedron has 4 triangular faces");
     // One triangle per face, in face order.
     for (ti, &tri) in mesh.tris.iter().enumerate() {
-        let Surface::Plane { normal, .. } = b.faces()[ti].surface;
+        let Surface::Plane { normal, .. } = b.faces()[ti].surface else {
+            continue;
+        };
         let n = tri_normal(mesh, tri);
         let d = dot(n, normal.as_array());
         assert!(

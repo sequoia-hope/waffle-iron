@@ -304,6 +304,7 @@ fn loop_is_closed(brep: &BRep, loop_edge_indices: &[u32]) -> bool {
 fn face_normal(f: &BRepFace) -> Vector3 {
     match f.surface {
         Surface::Plane { normal, .. } => normal,
+        _ => panic!("expected Plane"),
     }
 }
 
@@ -519,7 +520,9 @@ fn cavity_wall_normals_point_result_outward() {
     let axis = [0.5, 0.5];
     let mut wall_faces = 0usize;
     for (fi, f) in r.faces().iter().enumerate() {
-        let Surface::Plane { normal, d } = f.surface;
+        let Surface::Plane { normal, d } = f.surface else {
+            continue;
+        };
         let n = normal.as_array();
         // Identify a tunnel WALL: a plane parallel to z whose |x or y| offset
         // is 0.3 or 0.7 (the rod sides). Walls have n_z ≈ 0.

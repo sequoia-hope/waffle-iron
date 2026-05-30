@@ -387,6 +387,7 @@ fn err_variant_name(e: &YangError) -> &'static str {
         YangError::DegenerateFace { .. } => "DegenerateFace",
         YangError::FaceResolutionFailed { .. } => "FaceResolutionFailed",
         YangError::UnsupportedOp(_) => "UnsupportedOp",
+        YangError::CurvedSurfaceNotYetSupported { .. } => "CurvedSurfaceNotYetSupported",
     }
 }
 
