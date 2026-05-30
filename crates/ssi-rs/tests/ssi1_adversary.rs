@@ -100,6 +100,21 @@ fn implicit_residual(surf: &QuadricSurface, x: [f64; 3]) -> f64 {
             let a = axis_dir.as_array();
             (norm(cross(v, a)) / norm(a) - radius).abs()
         }
+        QuadricSurface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => {
+            // Cone RADIAL residual: | r_actual − |h|·tanα |, where
+            //   h = (x − apex)·â, r_actual = |(x − apex) − h·â|.
+            // axis_dir normalized defensively; r_actual via |(x−apex)×â|/|â|.
+            let v = sub(x, apex.as_array());
+            let a = axis_dir.as_array();
+            let alen = norm(a);
+            let h = dot(v, a) / alen;
+            let r_actual = norm(cross(v, a)) / alen;
+            (r_actual - h.abs() * half_angle.tan()).abs()
+        }
     }
 }
 
