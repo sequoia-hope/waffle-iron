@@ -61,6 +61,13 @@ this branch). `d₁ = cφ·m̂ + sφ·ŵ`, `d₂ = cφ·m̂ − sφ·ŵ` (alread
 and at `|k| = sinα` ⇒ `s_n = cosα` ⇒ `m̂·â = cosα` on the cone; `m̂·n̂ = 0` in the
 plane.)
 
+*Tangent-window note (PR-SSI5 adversary):* the AP-line (tangent) sub-case is gated
+by `min(|gd₊|,|gd₋|) < TAU_MODEL` on a dimensionless dot product, so it occupies a
+k-window only ≈`1.4e-7` wide around `|k| = sinα` — correct and reachable, but a
+coarsely-sampled caller sweep can step over it. This is intrinsic to an
+exact-equality degenerate (the tangent conic is measure-zero), not a defect;
+either side of the window the result (point `Ok([])` / two Lines) is correct.
+
 **Evaluation order:** E1 (invalid cone / zero vectors → `Err(DegenerateInput)`) →
 compute `k, axis_in, s_n` → **AP branch** (if apex on plane) → else the existing
 non-apex path (C1 circle / C2 ellipse / PARA / HYPE, unchanged). The AP branch is
