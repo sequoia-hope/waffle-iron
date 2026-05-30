@@ -577,13 +577,14 @@ fn plane_cylinder(
 /// generators pierce the same nappe, and a parabola/hyperbola otherwise.
 ///
 /// With unit plane normal `n̂`, plane point `p`, unit axis `â`, apex, half-angle
-/// `α`, and `k = n̂·â`, `s_n = √(1 − k²)`:
+/// `α`, and `k = n̂·â`, the in-plane projection `proj = n̂ − k·â`
+/// (`proj_norm = |proj| = √(1 − k²) = sin θ`):
 ///
 /// - **E1** — `α` non-finite, `α ≤ TAU_MODEL`, or `α ≥ π/2 − TAU_MODEL`, or a
 ///   zero/non-finite axis or normal: `Err(DegenerateInput)`.
 /// - **AP** (through-apex, `|n̂·(apex − p)| < TAU_MODEL`): the section is a
 ///   degenerate conic (point/line/two-lines): `Err(DegenerateInput)`.
-/// - **C1** (`s_n < TAU_MODEL`, plane ⟂ axis): one `Circle` of radius
+/// - **C1** (`proj_norm < TAU_MODEL`, plane ⟂ axis): one `Circle` of radius
 ///   `|h|·tanα` centered at `apex + h·â`, normal `â`, `h = n̂·(p − apex)/k`.
 /// - **C2** (both `gd_±` same sign and non-negligible): one `Ellipse`
 ///   (vertex construction below).
@@ -631,16 +632,26 @@ fn plane_cone(plane: &QuadricSurface, cone: &QuadricSurface) -> Result<Vec<SsiCu
     let sina = alpha.sin();
     let tana = alpha.tan();
     let k = dot(nhat, ahat);
-    let s_n = (1.0 - k * k).sqrt();
+
+    // In-plane projection of the plane normal: proj = n̂ − k·â, with
+    // |proj| = √(1 − k²) = sin θ (θ = tilt of the plane normal from the axis).
+    // The C1/C2 split is gated on |proj| (the sine), NOT on √(1 − k²): the C1
+    // circle snaps the supporting plane to ⟂ â, so its points sit off the
+    // tilted cutting plane by an error scaling with sin θ = |proj|. The
+    // vector-norm form has no cancellation near k→1 (perpendicular plane),
+    // bounding the off-plane error by R·TAU_MODEL, and reuses proj for û below
+    // (matching plane_cylinder).
+    let proj = sub(nhat, scale(ahat, k));
+    let proj_norm = norm(proj);
 
     // AP — apex lies on the cutting plane ⇒ degenerate conic.
     if dot(nhat, sub(apex, p)).abs() < TAU_MODEL {
         return Err(SsiError::DegenerateInput);
     }
 
-    // C1 — plane ⟂ axis ⇒ circle. (s_n → 0 ⇒ û below is undefined, so this
-    // branch must precede the û computation.)
-    if s_n < TAU_MODEL {
+    // C1 — plane ⟂ axis ⇒ circle. (proj_norm → 0 ⇒ û below is undefined, so
+    // this branch must precede the û computation.)
+    if proj_norm < TAU_MODEL {
         let h = dot(nhat, sub(p, apex)) / k;
         let center = add(apex, scale(ahat, h));
         return Ok(vec![SsiCurve::Circle {
@@ -651,8 +662,8 @@ fn plane_cone(plane: &QuadricSurface, cone: &QuadricSurface) -> Result<Vec<SsiCu
     }
 
     // Symmetry-plane generators g_± = cosα·â ± sinα·û, where û is the unit
-    // component of n̂ ⟂ â (well-defined since C1 consumed s_n < TAU_MODEL).
-    let uhat = normalize(sub(nhat, scale(ahat, k)))?;
+    // component of n̂ ⟂ â (well-defined since C1 consumed proj_norm < TAU_MODEL).
+    let uhat = normalize(proj)?;
     let g_plus = add(scale(ahat, cosa), scale(uhat, sina));
     let g_minus = sub(scale(ahat, cosa), scale(uhat, sina));
     let gd_plus = dot(nhat, g_plus);
