@@ -540,24 +540,20 @@ fn attack2_ellipse_parabola_boundary_no_blowup_clean_switch() {
         let gd_plus = dot(nhat, g_plus);
         let min_gd = gd_minus.abs().min(gd_plus.abs());
 
-        let res = intersect(&plane, &cone);
-
-        match res {
-            Ok(curves) => {
-                assert_eq!(curves.len(), 1, "frac={frac}: expected one curve");
-                // (c) NEVER NaN/Inf.
-                assert_curve_finite(&curves[0]);
-                let SsiCurve::Ellipse {
-                    major_radius,
-                    minor_radius,
-                    ..
-                } = curves[0]
-                else {
-                    panic!(
-                        "frac={frac}: expected Ellipse (ellipse side), got {:?}",
-                        curves[0]
-                    );
-                };
+        // Off-apex + gap-closed ⇒ always Ok. Approaching the parabola from the
+        // ellipse side, the crossing yields a Parabola (PR-SSI4 closed the gap;
+        // the old version expected Err here).
+        let curves = intersect(&plane, &cone)
+            .unwrap_or_else(|e| panic!("frac={frac}: unexpected error {e:?}"));
+        // (c) NEVER NaN/Inf, on either side.
+        curves.iter().for_each(assert_curve_finite);
+        match curves[0] {
+            SsiCurve::Ellipse {
+                major_radius,
+                minor_radius,
+                ..
+            } => {
+                assert_eq!(curves.len(), 1, "frac={frac}: expected one ellipse");
                 saw_ellipse = true;
                 last_ellipse_frac = last_ellipse_frac.max(frac);
                 // (a) finite, a ≥ b > 0, NO Inf.
@@ -591,18 +587,19 @@ fn attack2_ellipse_parabola_boundary_no_blowup_clean_switch() {
                     );
                 }
             }
-            Err(SsiError::AnalyticalSolutionNotAvailable) => {
-                // (b) clean switch to the staged-gap Err — never a wrong curve.
+            // (b) clean switch to the unbounded section (parabola here) — never a
+            // wrong/blown-up bounded curve. The solver's gate must agree: the
+            // unbounded branch fires exactly when min|gd| ≤ TAU_MODEL.
+            SsiCurve::Parabola { .. } | SsiCurve::Hyperbola { .. } => {
                 saw_ph = true;
                 first_ph_frac = first_ph_frac.min(frac);
-                // The solver's gate must agree: PH ⇒ min|gd| ≤ TAU_MODEL.
                 assert!(
                     min_gd <= TAU_MODEL,
-                    "frac={frac}: PH Err returned but min|gd|={min_gd} > TAU_MODEL \
-                     — switched to Err while still a genuine (finite-a) ellipse"
+                    "frac={frac}: unbounded curve returned but min|gd|={min_gd} > TAU_MODEL \
+                     — switched while still a genuine (finite-a) ellipse"
                 );
             }
-            Err(other) => panic!("frac={frac}: unexpected error {other:?}"),
+            ref other => panic!("frac={frac}: unexpected curve type {other:?}"),
         }
     }
 
@@ -661,8 +658,10 @@ fn attack2b_huge_finite_ellipse_is_on_surface() {
 // ===========================================================================
 
 #[test]
-fn attack3_exact_parabola_is_err() {
-    // k = sinα exactly: tilt θ so cosθ = sinα ⇒ θ = π/2 − α.
+fn attack3_exact_parabola_yields_parabola() {
+    // k = sinα exactly: tilt θ so cosθ = sinα ⇒ θ = π/2 − α. PR-SSI3 staged this
+    // as Err; PR-SSI4 closes the gap ⇒ exactly one (finite) Parabola — and NEVER
+    // a bounded Circle/Ellipse for this genuinely unbounded section.
     let alpha = std::f64::consts::FRAC_PI_4;
     let cone = z_cone(alpha);
     let theta = std::f64::consts::FRAC_PI_2 - alpha;
@@ -670,31 +669,43 @@ fn attack3_exact_parabola_is_err() {
         point: Point3::new(0.0, 0.0, 2.0), // off-apex
         normal: tilted_z_normal(theta),
     };
-    assert_eq!(
-        intersect(&plane, &cone),
-        Err(SsiError::AnalyticalSolutionNotAvailable),
-        "exact parabola must be the staged-gap Err, never a bounded curve"
+    let curves = intersect(&plane, &cone).expect("exact parabola is now analytic");
+    assert_eq!(curves.len(), 1, "expected one parabola, got {curves:?}");
+    assert!(
+        matches!(curves[0], SsiCurve::Parabola { .. }),
+        "exact parabola must be a Parabola, never a bounded curve: {:?}",
+        curves[0]
     );
+    assert_curve_finite(&curves[0]);
 }
 
 #[test]
-fn attack3_hyperbola_axis_parallel_is_err() {
-    // Plane ∥ axis (normal ⟂ axis ⇒ k = 0 < sinα) ⇒ hyperbola.
+fn attack3_hyperbola_axis_parallel_yields_two_branches() {
+    // Plane ∥ axis (normal ⟂ axis ⇒ k = 0 < sinα) ⇒ hyperbola. PR-SSI4: two
+    // (finite) Hyperbola branches, never a bounded curve.
     let alpha = std::f64::consts::FRAC_PI_4;
     let cone = z_cone(alpha);
     let plane = QuadricSurface::Plane {
         point: Point3::new(1.0, 0.0, 0.0),
         normal: Vector3::new(1.0, 0.0, 0.0),
     };
+    let curves = intersect(&plane, &cone).expect("hyperbola is now analytic");
     assert_eq!(
-        intersect(&plane, &cone),
-        Err(SsiError::AnalyticalSolutionNotAvailable),
-        "hyperbola must be Err, never a bounded curve"
+        curves.len(),
+        2,
+        "expected two hyperbola branches, got {curves:?}"
     );
+    assert!(
+        curves
+            .iter()
+            .all(|c| matches!(c, SsiCurve::Hyperbola { .. })),
+        "hyperbola must be two Hyperbola, never a bounded curve: {curves:?}"
+    );
+    curves.iter().for_each(assert_curve_finite);
 }
 
 #[test]
-fn attack3_hyperbola_shallow_is_err_for_narrow_cone() {
+fn attack3_hyperbola_shallow_yields_two_branches_for_narrow_cone() {
     // Narrow cone α small (sinα small); a moderately tilted plane with
     // 0 < k < sinα ⇒ hyperbola. Use α = 0.2 (sinα ≈ 0.1987); pick k = 0.1.
     let alpha = 0.2_f64;
@@ -706,19 +717,30 @@ fn attack3_hyperbola_shallow_is_err_for_narrow_cone() {
         point: Point3::new(0.0, 0.0, 3.0),
         normal: tilted_z_normal(theta),
     };
+    let curves = intersect(&plane, &cone).expect("shallow-cut hyperbola is now analytic");
     assert_eq!(
-        intersect(&plane, &cone),
-        Err(SsiError::AnalyticalSolutionNotAvailable),
-        "k < sinα (shallow) must be a hyperbola Err"
+        curves.len(),
+        2,
+        "k < sinα (shallow) must be two hyperbola branches"
     );
+    assert!(
+        curves
+            .iter()
+            .all(|c| matches!(c, SsiCurve::Hyperbola { .. })),
+        "shallow cut must be two Hyperbola, never a bounded curve: {curves:?}"
+    );
+    curves.iter().for_each(assert_curve_finite);
 }
 
 #[test]
-fn attack3_sweep_no_unbounded_returns_bounded() {
+fn attack3_sweep_classification_matches_section_type() {
     // Sweep k from 0 (hyperbola) through sinα (parabola) up to ~1 (ellipse/
-    // circle). Assert: every k < sinα − slack and the exact parabola is Err;
-    // every comfortably-ellipse k yields a finite bounded curve; and the
-    // solver NEVER returns a bounded curve while k is below sinα.
+    // circle). The no-misclassification headline (preserved from the PR-SSI3
+    // staged-gap version): a BOUNDED curve (Circle/Ellipse) may appear ONLY on
+    // the ellipse side (k > sinα); an UNBOUNDED curve (Parabola/Hyperbola) ONLY
+    // at/below the parabola boundary (k ≤ sinα). PR-SSI4 closed the gap, so the
+    // unbounded side now returns curves instead of Err — but the classification
+    // boundary must still be clean. Every returned curve is finite.
     let alpha = std::f64::consts::FRAC_PI_4;
     let cone = z_cone(alpha);
     let sina = alpha.sin();
@@ -735,36 +757,29 @@ fn attack3_sweep_no_unbounded_returns_bounded() {
             point: Point3::new(3.0, 0.0, 5.0),
             normal: tilted_z_normal(theta),
         };
-        let res = intersect(&plane, &cone);
-        match res {
-            Ok(curves) => {
-                // A bounded curve is only legitimate on the ellipse side. If we
-                // got one while k is meaningfully BELOW sinα, that is a
-                // misclassification of an unbounded section — a hard failure.
-                assert_curve_finite(&curves[0]);
-                assert!(
-                    matches!(
-                        curves[0],
-                        SsiCurve::Ellipse { .. } | SsiCurve::Circle { .. }
-                    ),
-                    "k={k}: unexpected curve type {:?}",
-                    curves[0]
-                );
+        // PH no longer errs (gap closed) and AP never fires here ⇒ always Ok.
+        let curves =
+            intersect(&plane, &cone).unwrap_or_else(|e| panic!("k={k}: unexpected error {e:?}"));
+        curves.iter().for_each(assert_curve_finite);
+        match curves[0] {
+            // Bounded section: legitimate ONLY on the ellipse side.
+            SsiCurve::Ellipse { .. } | SsiCurve::Circle { .. } => {
+                assert_eq!(curves.len(), 1, "k={k}: bounded section must be one curve");
                 assert!(
                     k > sina - 1e-3,
                     "k={k} < sinα={sina}: solver returned a BOUNDED curve for an \
                      UNBOUNDED (hyperbola) section — misclassification"
                 );
             }
-            Err(SsiError::AnalyticalSolutionNotAvailable) => {
-                // Legit anywhere near/below sinα. Must NOT happen comfortably
-                // above sinα (that would drop a real ellipse).
+            // Unbounded section: legitimate ONLY at/below the parabola boundary.
+            SsiCurve::Parabola { .. } | SsiCurve::Hyperbola { .. } => {
                 assert!(
-                    k < sina + 1e-2,
-                    "k={k} ≫ sinα={sina}: solver returned PH Err for a genuine ellipse"
+                    k < sina + 1e-3,
+                    "k={k} ≫ sinα={sina}: solver returned an UNBOUNDED curve for a \
+                     genuine ellipse — misclassification"
                 );
             }
-            Err(other) => panic!("k={k}: unexpected error {other:?}"),
+            ref other => panic!("k={k}: unexpected curve type {other:?}"),
         }
     }
 }
@@ -1220,16 +1235,16 @@ fn attack7_symmetry_and_determinism() {
     parallel_up_to_sign(ne1, ne2);
     parallel_up_to_sign(me1, me2);
 
-    // Err symmetry: hyperbola both orders.
+    // Hyperbola symmetry: both argument orders byte-identical (Cone,Plane swaps
+    // to the same plane_cone call) and yield the two finite Hyperbola branches.
     let p_h = QuadricSurface::Plane {
         point: Point3::new(1.0, 0.0, 0.0),
         normal: Vector3::new(1.0, 0.0, 0.0),
     };
     assert_eq!(intersect(&p_h, &cone), intersect(&cone, &p_h));
-    assert_eq!(
-        intersect(&p_h, &cone),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
-    );
+    let h = intersect(&p_h, &cone).expect("hyperbola is now analytic");
+    assert_eq!(h.len(), 2, "expected two hyperbola branches, got {h:?}");
+    assert!(h.iter().all(|c| matches!(c, SsiCurve::Hyperbola { .. })));
 
     // Determinism: repeated identical calls byte-identical.
     let first = intersect(&p_c2, &cone);

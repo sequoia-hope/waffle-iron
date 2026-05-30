@@ -400,10 +400,12 @@ fn ap_through_apex_oblique_is_degenerate() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn ph_parabola_not_available() {
+fn ph_parabola_now_yields_one_parabola() {
     // α = π/4 ⇒ sinα = √2/2. Choose a plane normal tilted 45° from +z so
     //   |n̂·â| = cos45° = √2/2 = sinα EXACTLY ⇒ a generator ∥ plane ⇒ parabola.
     // Apex NOT on the plane (offset to z = 2) so this is PH, not AP.
+    // PR-SSI3 staged this as Err(AnalyticalSolutionNotAvailable); PR-SSI4 closes
+    // the gap ⇒ exactly one Parabola. (Deep on-surface checks live in ssi4.rs.)
     let alpha = std::f64::consts::FRAC_PI_4;
     let theta = std::f64::consts::FRAC_PI_4; // 45° tilt of n̂ from +z.
     let plane = QuadricSurface::Plane {
@@ -415,20 +417,24 @@ fn ph_parabola_not_available() {
         axis_dir: Vector3::new(0.0, 0.0, 1.0),
         half_angle: alpha,
     };
-    assert_eq!(
-        intersect(&plane, &cone),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
+    let curves = intersect(&plane, &cone).expect("parabola section is now analytic");
+    assert_eq!(curves.len(), 1, "expected one parabola, got {curves:?}");
+    assert!(
+        matches!(curves[0], SsiCurve::Parabola { .. }),
+        "expected Parabola, got {:?}",
+        curves[0]
     );
 }
 
 // ---------------------------------------------------------------------------
 // PH — hyperbola: plane "shallower than the cone" (|n̂·â| < sinα), e.g. a plane
-// parallel to the axis (normal ⟂ axis, |n̂·â| = 0).
-// → Err(AnalyticalSolutionNotAvailable) (staged gap, PR-SSI4).
+// parallel to the axis (normal ⟂ axis, |n̂·â| = 0). PR-SSI3 staged this as
+// Err(AnalyticalSolutionNotAvailable); PR-SSI4 closes the gap ⇒ two Hyperbola
+// branches (double cone). Deep on-surface checks live in ssi4.rs.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn ph_hyperbola_not_available() {
+fn ph_hyperbola_now_yields_two_branches() {
     // Plane x = 1 (normal +x ⟂ axis +z) ⇒ |n̂·â| = 0 < sinα ⇒ hyperbola.
     // Apex at origin is off the plane (x = 0 ≠ 1) ⇒ not AP.
     let plane = QuadricSurface::Plane {
@@ -440,9 +446,17 @@ fn ph_hyperbola_not_available() {
         axis_dir: Vector3::new(0.0, 0.0, 1.0),
         half_angle: std::f64::consts::FRAC_PI_4,
     };
+    let curves = intersect(&plane, &cone).expect("hyperbola section is now analytic");
     assert_eq!(
-        intersect(&plane, &cone),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
+        curves.len(),
+        2,
+        "expected two hyperbola branches, got {curves:?}"
+    );
+    assert!(
+        curves
+            .iter()
+            .all(|c| matches!(c, SsiCurve::Hyperbola { .. })),
+        "expected two Hyperbola, got {curves:?}"
     );
 }
 

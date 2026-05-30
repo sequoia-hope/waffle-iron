@@ -164,6 +164,40 @@ pub enum SsiCurve {
         /// Semi-minor length `b`.
         minor_radius: f64,
     },
+    /// Exact parabola in the plane with unit `normal`. The `vertex` (turning
+    /// point) lies on the cone and in the plane; the parabola opens toward
+    /// `axis_dir` (unit, in-plane axis of symmetry) with focal length
+    /// `focal_length > 0` (the `y² = 4f·x` parameter). The conjugate in-plane
+    /// direction is `normal × axis_dir`.
+    Parabola {
+        /// Turning point (on the cone & in the plane).
+        vertex: Point3,
+        /// Unit normal of the cutting plane.
+        normal: Vector3,
+        /// Unit in-plane axis of symmetry; the parabola opens toward `+axis_dir`.
+        axis_dir: Vector3,
+        /// Focal length `f > 0` (`y² = 4f·x`).
+        focal_length: f64,
+    },
+    /// Exact hyperbola **branch** centered at `center` (midpoint of the two
+    /// branch vertices) in the plane with unit `normal`. This curve traces the
+    /// single branch opening toward `+major_axis` (unit transverse axis);
+    /// `semi_transverse` is `a` (center → vertex) and `semi_conjugate` is `b`.
+    /// On the infinite double cone a hyperbola has two branches, returned as
+    /// two `Hyperbola` curves with opposite `major_axis`. The conjugate
+    /// in-plane direction is `normal × major_axis`.
+    Hyperbola {
+        /// Midpoint of the two branch vertices (in the plane).
+        center: Point3,
+        /// Unit normal of the cutting plane.
+        normal: Vector3,
+        /// Unit transverse axis; THIS branch opens toward `+major_axis`.
+        major_axis: Vector3,
+        /// Semi-transverse length `a` (center → vertex distance).
+        semi_transverse: f64,
+        /// Semi-conjugate length `b`.
+        semi_conjugate: f64,
+    },
 }
 
 /// Error categories for SSI. Both variants are part of the public API.
@@ -191,6 +225,12 @@ impl SsiCurve {
     ///   `normal ⟂ major_axis` and both are unit). Self-contained — the frame
     ///   is exactly the one the solver chose (I5), so this does not call
     ///   [`in_plane_basis`].
+    /// - `Parabola`: `vertex + (t²/(4·focal_length))·axis_dir + t·(normal ×
+    ///   axis_dir)`, `t ∈ ℝ`. Self-contained (the conjugate direction
+    ///   `normal × axis_dir` is unit and in-plane).
+    /// - `Hyperbola`: `center + (a·cosh t)·major_axis + (b·sinh t)·(normal ×
+    ///   major_axis)`, `t ∈ ℝ` (traces the single branch opening toward
+    ///   `+major_axis`). Self-contained.
     pub fn eval(&self, t: f64) -> Point3 {
         match self {
             SsiCurve::Line { point, dir } => {
@@ -228,6 +268,43 @@ impl SsiCurve {
                     add(
                         scale(major, major_radius * t.cos()),
                         scale(minor, minor_radius * t.sin()),
+                    ),
+                );
+                Point3::from(p)
+            }
+            SsiCurve::Parabola {
+                vertex,
+                normal,
+                axis_dir,
+                focal_length,
+            } => {
+                let axis = axis_dir.as_array();
+                // conjugate (in-plane) direction = normal × axis_dir (unit).
+                let cross_inplane = cross(normal.as_array(), axis);
+                let p = add(
+                    vertex.as_array(),
+                    add(
+                        scale(axis, t * t / (4.0 * focal_length)),
+                        scale(cross_inplane, t),
+                    ),
+                );
+                Point3::from(p)
+            }
+            SsiCurve::Hyperbola {
+                center,
+                normal,
+                major_axis,
+                semi_transverse,
+                semi_conjugate,
+            } => {
+                let major = major_axis.as_array();
+                // conjugate (in-plane) direction = normal × major_axis (unit).
+                let cross_inplane = cross(normal.as_array(), major);
+                let p = add(
+                    center.as_array(),
+                    add(
+                        scale(major, semi_transverse * t.cosh()),
+                        scale(cross_inplane, semi_conjugate * t.sinh()),
                     ),
                 );
                 Point3::from(p)
@@ -566,7 +643,7 @@ fn plane_cylinder(
     Ok(Vec::new())
 }
 
-/// Plane ∩ cone (bounded sections only: circle + ellipse).
+/// Plane ∩ cone (proper conics: circle + ellipse + parabola + hyperbola).
 ///
 /// Patrikalakis & Maekawa, *Shape Interrogation for CAD/M*, §5.8
 /// (Surface/Surface Intersections — natural quadrics; elliptic-cone implicit
@@ -588,11 +665,10 @@ fn plane_cylinder(
 ///   `|h|·tanα` centered at `apex + h·â`, normal `â`, `h = n̂·(p − apex)/k`.
 /// - **C2** (both `gd_±` same sign and non-negligible): one `Ellipse`
 ///   (vertex construction below).
-/// - **PH** (one `|gd_±| ≤ TAU_MODEL` ⇒ parabola, or opposite signs ⇒
-///   hyperbola): `Err(AnalyticalSolutionNotAvailable)`. **This is a deliberate
-///   staged limitation** — the unbounded conics are implemented in PR-SSI4, not
-///   a "no solver" verdict, and never a mesh/grid fallback (A15.2); the caller
-///   decides.
+/// - **PARA** (exactly one `|gd_±| < TAU_MODEL` — one generator ∥ plane): one
+///   `Parabola` (construction below).
+/// - **HYPE** (`gd₊.signum() ≠ gd₋.signum()`, both `|gd_±| ≥ TAU_MODEL` —
+///   vertices on opposite nappes): **two** `Hyperbola` (one per branch).
 ///
 /// **C2 ellipse construction (vertex method).** The two symmetry-plane
 /// generators each pierce the cutting plane at `V_± = apex + s_±·g_±`,
@@ -600,6 +676,20 @@ fn plane_cylinder(
 /// `major_radius a = |V₊ − V₋|/2`, `major_axis = normalize(V₊ − V₋)`, and the
 /// semi-minor length `b = √((d·â)²/cos²α − |d|²)` with `d = center − apex`
 /// (the cone equation collapsed along the minor direction `ŵ = n̂ × â`).
+///
+/// **Hyperbola construction.** Same vertex method, but the two generators hit
+/// opposite nappes (`gd_±` opposite signs). `center = ½(V₊ + V₋)`,
+/// `semi_transverse a = ½|V₊ − V₋|`, `major_axis m̂ = normalize(V₊ − V₋)`, and
+/// (sign-flipped from the ellipse, since the center sits *outside* the cone)
+/// `semi_conjugate b = √(|d|² − (d·â)²/cos²α)`. Returned as two branches
+/// (`+m̂` then `−m̂`; `+m̂` opens toward `V₊`).
+///
+/// **Parabola construction.** One generator is ∥ the plane; the finite one
+/// (larger `|gd|`) pierces the plane at the `vertex V = apex + (rhs/gd_fin)·g_fin`.
+/// With `m̂0 = normalize(â − k·n̂)` (the in-plane cone-axis projection,
+/// `|â − k·n̂| = cosα ≠ 0`) and `d0 = V − apex`, the signed focal parameter is
+/// `f = ((d0·â)/cosα − d0·m̂0)/2`; `focal_length = |f|` and `axis_dir = ±m̂0`
+/// orients the parabola toward the widening cone.
 fn plane_cone(plane: &QuadricSurface, cone: &QuadricSurface) -> Result<Vec<SsiCurve>, SsiError> {
     let (
         QuadricSurface::Plane {
@@ -669,17 +759,68 @@ fn plane_cone(plane: &QuadricSurface, cone: &QuadricSurface) -> Result<Vec<SsiCu
     let gd_plus = dot(nhat, g_plus);
     let gd_minus = dot(nhat, g_minus);
 
-    // PH — parabola (a generator ∥ the plane) takes precedence; only then test
-    // the hyperbola sign condition (both gd_± verified non-negligible here).
-    if gd_plus.abs() <= TAU_MODEL || gd_minus.abs() <= TAU_MODEL {
-        return Err(SsiError::AnalyticalSolutionNotAvailable);
+    // Common right-hand side for the generator∩plane parameters.
+    let rhs = dot(nhat, sub(p, apex));
+
+    // PARABOLA — exactly one generator ∥ the plane (one |gd_±| < TAU_MODEL).
+    // Takes precedence over the hyperbola sign test.
+    if gd_plus.abs() < TAU_MODEL || gd_minus.abs() < TAU_MODEL {
+        // The finite generator (larger |gd|) pierces the plane at the vertex;
+        // the other is the ∥ generator.
+        let (g_fin, gd_fin) = if gd_plus.abs() >= gd_minus.abs() {
+            (g_plus, gd_plus)
+        } else {
+            (g_minus, gd_minus)
+        };
+        let vertex = add(apex, scale(g_fin, rhs / gd_fin));
+        // In-plane projection of the cone axis (NOT û): |â − k·n̂| = cosα ≠ 0.
+        let m0 = normalize(sub(ahat, scale(nhat, k)))?;
+        let d0 = sub(vertex, apex);
+        let f = (dot(d0, ahat) / cosa - dot(d0, m0)) / 2.0;
+        let focal_length = f.abs();
+        // Orient the axis so the parabola opens toward the widening cone.
+        let axis_dir = if f >= 0.0 { m0 } else { scale(m0, -1.0) };
+        return Ok(vec![SsiCurve::Parabola {
+            vertex: Point3::from(vertex),
+            normal: Vector3::from(nhat),
+            axis_dir: Vector3::from(axis_dir),
+            focal_length,
+        }]);
     }
+
+    // HYPERBOLA — generators pierce opposite nappes (gd_± opposite signs; both
+    // |gd_±| ≥ TAU_MODEL here). Two branches, one per nappe.
     if gd_plus.signum() != gd_minus.signum() {
-        return Err(SsiError::AnalyticalSolutionNotAvailable);
+        let v_plus = add(apex, scale(g_plus, rhs / gd_plus));
+        let v_minus = add(apex, scale(g_minus, rhs / gd_minus));
+        let center = scale(add(v_plus, v_minus), 0.5);
+        let span = sub(v_plus, v_minus);
+        let a = norm(span) * 0.5;
+        let m = normalize(span)?;
+        // semi-conjugate: center lies OUTSIDE the cone ⇒ |d|² − (d·â)²/cos²α > 0.
+        let d = sub(center, apex);
+        let da = dot(d, ahat);
+        let b = (dot(d, d) - da * da / (cosa * cosa)).sqrt();
+        // +m̂ first (determinism); +m̂ opens toward V₊ (C + a·m̂ = V₊).
+        return Ok(vec![
+            SsiCurve::Hyperbola {
+                center: Point3::from(center),
+                normal: Vector3::from(nhat),
+                major_axis: Vector3::from(m),
+                semi_transverse: a,
+                semi_conjugate: b,
+            },
+            SsiCurve::Hyperbola {
+                center: Point3::from(center),
+                normal: Vector3::from(nhat),
+                major_axis: Vector3::from(scale(m, -1.0)),
+                semi_transverse: a,
+                semi_conjugate: b,
+            },
+        ]);
     }
 
     // C2 — closed ellipse via the vertex method.
-    let rhs = dot(nhat, sub(p, apex));
     let s_plus = rhs / gd_plus;
     let s_minus = rhs / gd_minus;
     let v_plus = add(apex, scale(g_plus, s_plus));
