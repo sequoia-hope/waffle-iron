@@ -200,7 +200,10 @@ pub struct BRepFace {
 pub enum TessellationSource {
     /// Mesh vertex coincides with B-Rep vertex (index into `BRep::vertices`).
     BRepVertex(u32),
-    /// Mesh vertex is on edge `edge` at parameter `t ∈ [0, 1]`.
+    /// Mesh vertex is on edge `edge` at parameter `t`. The meaning of `t`
+    /// depends on the edge's curve: for `Curve::LineSegment`, `t ∈ [0, 1]`
+    /// lerps start→end; for `Curve::Circle`, `t` is an **angle in radians** in
+    /// the circle's own `ortho_basis(normal)` frame (PR-YR7).
     BRepEdge { edge: u32, t: f64 },
     /// Mesh vertex is interior to face `face` at surface params `(u, v)`.
     BRepFace { face: u32, u: f64, v: f64 },
@@ -381,14 +384,12 @@ impl BRep {
             }
         }
 
-        // Validate: every face's outer_loop is well-formed.
+        // Validate: every face's outer_loop is well-formed. Out-of-range edge
+        // indices are always rejected. The `len >= 3` rule applies ONLY when
+        // EVERY loop edge is a `Curve::LineSegment` (PR-YR7 loop-length
+        // relaxation): a face bounded by a closed curve (a disk cap bounded by
+        // one `Curve::Circle`) has a 1-edge loop and is legal.
         for (f_idx, f) in faces.iter().enumerate() {
-            if f.outer_loop.len() < 3 {
-                return Err(YangError::MalformedTopology(format!(
-                    "face {f_idx}.outer_loop.len() = {} < 3",
-                    f.outer_loop.len()
-                )));
-            }
             for &e_idx in &f.outer_loop {
                 if (e_idx as usize) >= n_edges {
                     return Err(YangError::MalformedTopology(format!(
@@ -396,78 +397,219 @@ impl BRep {
                     )));
                 }
             }
+            let all_line = f
+                .outer_loop
+                .iter()
+                .all(|&e_idx| matches!(edges[e_idx as usize].curve, Curve::LineSegment));
+            if all_line && f.outer_loop.len() < 3 {
+                return Err(YangError::MalformedTopology(format!(
+                    "face {f_idx}.outer_loop.len() = {} < 3 (all-LineSegment loop)",
+                    f.outer_loop.len()
+                )));
+            }
         }
 
-        // Stage 1 fan-triangulation:
-        // - Mesh vertices = B-Rep vertices (1:1, no Steiner points)
-        // - Each face fan-triangulated from its first vertex (face_verts[0])
-        let out_verts: Vec<Point3> = verts.iter().map(|v| v.point).collect();
+        // Stage 1 tessellation (PR-YR7: planar Newell-fan + curved cylinder).
+        //
+        // Mesh vertices start 1:1 with the B-Rep vertices (the planar box path
+        // emits no Steiner points). The curved path appends rim-ring + cap-
+        // center Steiner vertices and indexes the SHARED cached rings so the
+        // cylinder mesh is watertight.
+        let mut out_verts: Vec<Point3> = verts.iter().map(|v| v.point).collect();
         let mut sources: Vec<TessellationSource> = (0..verts.len() as u32)
             .map(TessellationSource::BRepVertex)
             .collect();
-        // Pad sources to mesh-vertex count (it equals B-Rep vertex count
-        // in PR-YR2, so this is a no-op, but explicit for future PRs).
-        sources.truncate(out_verts.len());
-
         let mut out_tris: Vec<[u32; 3]> = Vec::new();
+
+        // ---- Curved pre-pass: choose N (chord error) + build shared rim rings.
+        //
+        // N is chosen once from the analytic AABB of ALL `Curve::Circle` rim
+        // edges combined (spec §3), and shared by every circle. The minimal
+        // cylinder has exactly two rims of equal radius, so a single N applies.
+        let circle_edges: Vec<(usize, Point3, Vector3, f64)> = edges
+            .iter()
+            .enumerate()
+            .filter_map(|(i, e)| match e.curve {
+                Curve::Circle {
+                    center,
+                    normal,
+                    radius,
+                } => Some((i, center, normal, radius)),
+                _ => None,
+            })
+            .collect();
+
+        // edge_idx -> the cached ring of mesh-vertex indices (ring[0] reuses the
+        // circle's seam B-Rep vertex; ring[1..N] are new Steiner verts).
+        let mut rim_rings: std::collections::BTreeMap<u32, Vec<u32>> =
+            std::collections::BTreeMap::new();
+
+        if !circle_edges.is_empty() {
+            // Analytic AABB over all rim circles: per axis a circle of center
+            // `c`, unit normal `n`, radius `r` spans `c_i ± r·√(max(0,1−n_i²))`.
+            let mut lo = [f64::INFINITY; 3];
+            let mut hi = [f64::NEG_INFINITY; 3];
+            for &(_, center, normal, radius) in &circle_edges {
+                let nu = normalize3(normal.as_array());
+                let c = center.as_array();
+                for i in 0..3 {
+                    let span = radius * (1.0 - nu[i] * nu[i]).max(0.0).sqrt();
+                    lo[i] = lo[i].min(c[i] - span);
+                    hi[i] = hi[i].max(c[i] + span);
+                }
+            }
+            let diag = {
+                let dx = hi[0] - lo[0];
+                let dy = hi[1] - lo[1];
+                let dz = hi[2] - lo[2];
+                (dx * dx + dy * dy + dz * dz).sqrt()
+            };
+            let d_eps = 1e-2 * diag;
+            // Smallest N >= 3 with max_radius·(1 − cos(π/N)) ≤ d_eps.
+            let max_r = circle_edges
+                .iter()
+                .map(|&(_, _, _, r)| r)
+                .fold(0.0f64, f64::max);
+            let mut n_seg = 3usize;
+            // d_eps > 0 for any non-degenerate cylinder; if it is somehow zero
+            // (a degenerate AABB), keep the floor N=3 rather than loop forever.
+            if d_eps > 0.0 {
+                while max_r * (1.0 - (std::f64::consts::PI / n_seg as f64).cos()) > d_eps {
+                    n_seg += 1;
+                }
+            }
+
+            // Build the shared ring for each circle edge.
+            for &(e_idx, center, normal, radius) in &circle_edges {
+                let (e1, e2) = ortho_basis(normal);
+                let c = center.as_array();
+                let e1a = e1.as_array();
+                let e2a = e2.as_array();
+                let seam_vertex = edges[e_idx].start;
+                // The seam B-Rep vertex is NOT required to lie at angle 0 of
+                // this circle's `ortho_basis` frame — the fixture chooses its
+                // own angle-0 convention. Recover the seam's ACTUAL angle `phi0`
+                // in this frame so the Steiner verts are placed at evenly-spaced
+                // angles STARTING FROM the seam (`phi0 + 2πk/N`). Then `ring[0]`
+                // (the seam) is consistent with `ring[1..N]` (chord spacing is
+                // uniform) and — crucially for the lateral — the two rims, whose
+                // seams sit at the same geometric azimuth, stay azimuth-aligned
+                // under the `(N−k)` opposite-rim mapping (spec §6).
+                let phi0 = {
+                    let sp = match verts.get(seam_vertex as usize) {
+                        Some(v) => v.point.as_array(),
+                        None => {
+                            return Err(YangError::MalformedTopology(format!(
+                                "circle edge {e_idx}: seam vertex {seam_vertex} out of range"
+                            )))
+                        }
+                    };
+                    let w = [sp[0] - c[0], sp[1] - c[1], sp[2] - c[2]];
+                    let wx = w[0] * e1a[0] + w[1] * e1a[1] + w[2] * e1a[2];
+                    let wy = w[0] * e2a[0] + w[1] * e2a[1] + w[2] * e2a[2];
+                    wy.atan2(wx)
+                };
+                let mut ring: Vec<u32> = Vec::with_capacity(n_seg);
+                // ring[0] = the seam B-Rep vertex (keep its BRepVertex source) —
+                // no duplicate at the seam.
+                ring.push(seam_vertex);
+                for k in 1..n_seg {
+                    let theta = phi0 + 2.0 * std::f64::consts::PI * (k as f64) / (n_seg as f64);
+                    let (ct, st) = (theta.cos(), theta.sin());
+                    let pt = [
+                        c[0] + radius * (ct * e1a[0] + st * e2a[0]),
+                        c[1] + radius * (ct * e1a[1] + st * e2a[1]),
+                        c[2] + radius * (ct * e1a[2] + st * e2a[2]),
+                    ];
+                    let vi = out_verts.len() as u32;
+                    out_verts.push(Point3::new(pt[0], pt[1], pt[2]));
+                    sources.push(TessellationSource::BRepEdge {
+                        edge: e_idx as u32,
+                        t: theta,
+                    });
+                    ring.push(vi);
+                }
+                rim_rings.insert(e_idx as u32, ring);
+            }
+        }
+
+        // ---- Per-face dispatch.
         for (f_idx, f) in faces.iter().enumerate() {
-            // Walk the outer loop: collect each edge's start vertex
-            // (which is the face's vertex at that loop position).
-            let mut face_verts: Vec<u32> = f
+            let all_line = f
                 .outer_loop
                 .iter()
-                .map(|&e_idx| edges[e_idx as usize].start)
-                .collect();
+                .all(|&e_idx| matches!(edges[e_idx as usize].curve, Curve::LineSegment));
 
-            // Stage-1 winding canonicalization (Yang 2025 §4.1: the
-            // tessellation must preserve the B-Rep surface orientation;
-            // Cherchi 2022 §3 requires globally-oriented input or the
-            // boolean is undefined). Per governance A15.5 the analytic
-            // surface normal is authoritative, so we orient each face's
-            // triangle winding to agree with `Surface::Plane.normal`
-            // rather than trusting the (possibly inside-out) loop order.
-            //
-            // Compute the polygon normal via Newell's method (Sutherland,
-            // Sproull & Schumacker 1974) — robust for (near-)planar loops:
-            //   nx += (y_i - y_j)*(z_i + z_j), etc., over consecutive
-            // loop vertices (j = next, wrapping).
-            let mut newell = [0.0f64; 3];
-            let m = face_verts.len();
-            for i in 0..m {
-                let vi = out_verts[face_verts[i] as usize].as_array();
-                let vj = out_verts[face_verts[(i + 1) % m] as usize].as_array();
-                newell[0] += (vi[1] - vj[1]) * (vi[2] + vj[2]);
-                newell[1] += (vi[2] - vj[2]) * (vi[0] + vj[0]);
-                newell[2] += (vi[0] - vj[0]) * (vi[1] + vj[1]);
-            }
-            let mag =
-                (newell[0] * newell[0] + newell[1] * newell[1] + newell[2] * newell[2]).sqrt();
-            // B3: zero-area / collinear / degenerate face. `mag` is the
-            // Newell magnitude = 2×(polygon area) (units length²), so the
-            // threshold is an AREA: compare against MIN_FEATURE_SIZE² (the
-            // minimum feature area, 1e-12 m²), computed inline from the
-            // shared length constant (governance A14.3: no ad-hoc epsilon).
-            if mag < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE {
-                return Err(YangError::DegenerateFace { face: f_idx });
-            }
+            match f.surface {
+                Surface::Plane { normal, d } if all_line => {
+                    // ===== Planar box path (UNCHANGED — Newell fan). =====
+                    let mut face_verts: Vec<u32> = f
+                        .outer_loop
+                        .iter()
+                        .map(|&e_idx| edges[e_idx as usize].start)
+                        .collect();
 
-            let normal = match f.surface {
-                Surface::Plane { normal, .. } => normal,
-                Surface::Sphere { .. } | Surface::Cylinder { .. } | Surface::Cone { .. } => {
+                    let mut newell = [0.0f64; 3];
+                    let m = face_verts.len();
+                    for i in 0..m {
+                        let vi = out_verts[face_verts[i] as usize].as_array();
+                        let vj = out_verts[face_verts[(i + 1) % m] as usize].as_array();
+                        newell[0] += (vi[1] - vj[1]) * (vi[2] + vj[2]);
+                        newell[1] += (vi[2] - vj[2]) * (vi[0] + vj[0]);
+                        newell[2] += (vi[0] - vj[0]) * (vi[1] + vj[1]);
+                    }
+                    let mag =
+                        (newell[0] * newell[0] + newell[1] * newell[1] + newell[2] * newell[2])
+                            .sqrt();
+                    if mag < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE {
+                        return Err(YangError::DegenerateFace { face: f_idx });
+                    }
+                    let n = normal.as_array();
+                    let dot = newell[0] * n[0] + newell[1] * n[1] + newell[2] * n[2];
+                    if dot < 0.0 {
+                        face_verts.reverse();
+                    }
+                    for i in 1..face_verts.len() - 1 {
+                        out_tris.push([face_verts[0], face_verts[i], face_verts[i + 1]]);
+                    }
+                    let _ = d;
+                }
+                Surface::Plane { normal, .. } => {
+                    // ===== Curved-bounded planar cap (disk fan). =====
+                    // A planar face whose loop contains a non-LineSegment edge
+                    // is a cap bounded by a `Curve::Circle`. Fan from a new
+                    // center Steiner vertex over the cached rim ring.
+                    tessellate_cap_face(
+                        f_idx,
+                        f,
+                        &edges,
+                        &rim_rings,
+                        normal,
+                        &mut out_verts,
+                        &mut sources,
+                        &mut out_tris,
+                    )?;
+                }
+                Surface::Cylinder {
+                    axis_point,
+                    axis_dir,
+                    radius,
+                } => {
+                    tessellate_lateral_face(
+                        f_idx,
+                        f,
+                        &edges,
+                        &rim_rings,
+                        &out_verts,
+                        axis_point,
+                        axis_dir,
+                        radius,
+                        &mut out_tris,
+                    )?;
+                }
+                Surface::Sphere { .. } | Surface::Cone { .. } => {
                     return Err(YangError::CurvedSurfaceNotYetSupported { face: f_idx });
                 }
-            };
-            let n = normal.as_array();
-            let dot = newell[0] * n[0] + newell[1] * n[1] + newell[2] * n[2];
-            // B2: Newell normal opposes the analytic outward normal →
-            // reverse the loop so the fan winds outward.
-            if dot < 0.0 {
-                face_verts.reverse();
-            }
-
-            // Fan-triangulate from the (possibly reversed) loop's first vertex.
-            for i in 1..face_verts.len() - 1 {
-                out_tris.push([face_verts[0], face_verts[i], face_verts[i + 1]]);
             }
         }
 
@@ -538,6 +680,445 @@ impl BRep {
 
     pub fn num_tris(&self) -> usize {
         self.mesh.num_tris()
+    }
+
+    /// Evaluate a [`TessellationSource`] back to its 3D point — the inverse of
+    /// the Stage-1 bijection (PR-YR7, spec §4).
+    ///
+    /// INFALLIBLE and panic-free (P9). For the variants the cylinder pipeline
+    /// emits (`BRepVertex`, `BRepEdge` over `LineSegment`/`Circle`, `BRepFace`
+    /// over `Plane`/`Cylinder`) it reproduces the sampled point exactly via the
+    /// SAME `ortho_basis` used during sampling. The remaining cases never occur
+    /// for the cylinder pipeline; they use a documented defensive fallback (a
+    /// representative point on the surface) rather than panicking.
+    pub fn eval_source(&self, src: TessellationSource) -> Point3 {
+        match src {
+            TessellationSource::BRepVertex(i) => {
+                // The source guarantees this index is valid (it was emitted for
+                // an existing B-Rep vertex). Defensive bounds-check keeps it
+                // panic-free if a caller hands in a stale source.
+                match self.vertices.get(i as usize) {
+                    Some(v) => v.point,
+                    None => Point3::new(0.0, 0.0, 0.0),
+                }
+            }
+            TessellationSource::BRepEdge { edge, t } => {
+                let Some(e) = self.edges.get(edge as usize) else {
+                    return Point3::new(0.0, 0.0, 0.0);
+                };
+                match e.curve {
+                    Curve::LineSegment => {
+                        let s = match self.vertices.get(e.start as usize) {
+                            Some(v) => v.point.as_array(),
+                            None => return Point3::new(0.0, 0.0, 0.0),
+                        };
+                        let en = match self.vertices.get(e.end as usize) {
+                            Some(v) => v.point.as_array(),
+                            None => return Point3::new(0.0, 0.0, 0.0),
+                        };
+                        Point3::new(
+                            s[0] + t * (en[0] - s[0]),
+                            s[1] + t * (en[1] - s[1]),
+                            s[2] + t * (en[2] - s[2]),
+                        )
+                    }
+                    Curve::Circle {
+                        center,
+                        normal,
+                        radius,
+                    } => {
+                        let (e1, e2) = ortho_basis(normal);
+                        let c = center.as_array();
+                        let e1a = e1.as_array();
+                        let e2a = e2.as_array();
+                        let (ct, st) = (t.cos(), t.sin());
+                        Point3::new(
+                            c[0] + radius * (ct * e1a[0] + st * e2a[0]),
+                            c[1] + radius * (ct * e1a[1] + st * e2a[1]),
+                            c[2] + radius * (ct * e1a[2] + st * e2a[2]),
+                        )
+                    }
+                    Curve::Ellipse { center, .. } => {
+                        // Not emitted by the cylinder pipeline; defensive
+                        // fallback to the ellipse center.
+                        center
+                    }
+                }
+            }
+            TessellationSource::BRepFace { face, u, v } => {
+                let Some(f) = self.faces.get(face as usize) else {
+                    return Point3::new(0.0, 0.0, 0.0);
+                };
+                match f.surface {
+                    Surface::Plane { normal, d } => {
+                        // Origin O = -d · normal_unit (the plane point closest
+                        // to the world origin).
+                        let nu = normalize3(normal.as_array());
+                        let o = [-d * nu[0], -d * nu[1], -d * nu[2]];
+                        let (e1, e2) = ortho_basis(normal);
+                        let e1a = e1.as_array();
+                        let e2a = e2.as_array();
+                        Point3::new(
+                            o[0] + u * e1a[0] + v * e2a[0],
+                            o[1] + u * e1a[1] + v * e2a[1],
+                            o[2] + u * e1a[2] + v * e2a[2],
+                        )
+                    }
+                    Surface::Cylinder {
+                        axis_point,
+                        axis_dir,
+                        radius,
+                    } => {
+                        let au = normalize3(axis_dir.as_array());
+                        let (e1, e2) = ortho_basis(axis_dir);
+                        let ap = axis_point.as_array();
+                        let e1a = e1.as_array();
+                        let e2a = e2.as_array();
+                        let (cu, su) = (u.cos(), u.sin());
+                        Point3::new(
+                            ap[0] + v * au[0] + radius * (cu * e1a[0] + su * e2a[0]),
+                            ap[1] + v * au[1] + radius * (cu * e1a[1] + su * e2a[1]),
+                            ap[2] + v * au[2] + radius * (cu * e1a[2] + su * e2a[2]),
+                        )
+                    }
+                    // Not emitted by the cylinder pipeline; defensive fallback
+                    // to a representative point (center / apex).
+                    Surface::Sphere { center, .. } => center,
+                    Surface::Cone { apex, .. } => apex,
+                }
+            }
+            // Boolean-output / degenerate sources have no B-Rep geometry to
+            // invert; defensive fallback to the origin (never emitted by the
+            // Stage-1 cylinder bijection the round-trip oracle exercises).
+            TessellationSource::Intersection | TessellationSource::Unknown => {
+                Point3::new(0.0, 0.0, 0.0)
+            }
+        }
+    }
+}
+
+// =========================================================================
+// PR-YR7 — curved Stage-1 geometry helpers
+// =========================================================================
+
+/// Normalize a `[f64; 3]`; returns the input unchanged if its length is below
+/// `TAU_WORK` (defensive — callers pass real surface normals / axes).
+fn normalize3(v: [f64; 3]) -> [f64; 3] {
+    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if len < cad_primitives::TAU_WORK {
+        return v;
+    }
+    [v[0] / len, v[1] / len, v[2] / len]
+}
+
+/// Deterministic orthonormal in-plane basis `(e1, e2)` for the plane with
+/// (not-necessarily-unit) normal `n` (PR-YR7, spec §2 "critical coupling").
+///
+/// USED BY BOTH Stage-1 sampling AND [`BRep::eval_source`] — if these two
+/// disagree, the bijection round-trip fails. Construction:
+/// 1. `nu = normalize(n)`.
+/// 2. Seed = the world axis with the SMALLEST `|nu_i|` (ties broken x<y<z) —
+///    the axis least aligned with `nu`, for numerical stability.
+/// 3. `e1 = normalize(seed − (seed·nu)·nu)` (Gram–Schmidt).
+/// 4. `e2 = nu × e1`.
+///
+/// `e1` and `e2` are unit and orthogonal to `nu` (and to each other). Note
+/// `ortho_basis(-n)` and `ortho_basis(n)` share the SAME `e1` (the projection
+/// is invariant to flipping `nu`) but have OPPOSITE `e2` (since `e2 = nu × e1`)
+/// — the opposite-rim twist the lateral tessellation must compensate for.
+fn ortho_basis(n: Vector3) -> (Vector3, Vector3) {
+    let nu = normalize3(n.as_array());
+    let abs = [nu[0].abs(), nu[1].abs(), nu[2].abs()];
+    // Seed = world axis with smallest |component| (tie-break x < y < z).
+    let seed = if abs[0] <= abs[1] && abs[0] <= abs[2] {
+        [1.0, 0.0, 0.0]
+    } else if abs[1] <= abs[2] {
+        [0.0, 1.0, 0.0]
+    } else {
+        [0.0, 0.0, 1.0]
+    };
+    let sdotn = seed[0] * nu[0] + seed[1] * nu[1] + seed[2] * nu[2];
+    let e1_raw = [
+        seed[0] - sdotn * nu[0],
+        seed[1] - sdotn * nu[1],
+        seed[2] - sdotn * nu[2],
+    ];
+    let e1 = normalize3(e1_raw);
+    // e2 = nu × e1.
+    let e2 = [
+        nu[1] * e1[2] - nu[2] * e1[1],
+        nu[2] * e1[0] - nu[0] * e1[2],
+        nu[0] * e1[1] - nu[1] * e1[0],
+    ];
+    (
+        Vector3::new(e1[0], e1[1], e1[2]),
+        Vector3::new(e2[0], e2[1], e2[2]),
+    )
+}
+
+/// PR-YR7: tessellate a planar disk cap bounded by a single `Curve::Circle`
+/// edge. A new center Steiner vertex (source `BRepFace { face, u: 0, v: 0 }`,
+/// which `eval_source` maps to the plane origin = the rim center) fans over the
+/// cached rim ring → `N` triangles, wound to agree with the cap plane normal.
+#[allow(clippy::too_many_arguments)]
+fn tessellate_cap_face(
+    f_idx: usize,
+    f: &BRepFace,
+    edges: &[BRepEdge],
+    rim_rings: &std::collections::BTreeMap<u32, Vec<u32>>,
+    normal: Vector3,
+    out_verts: &mut Vec<Point3>,
+    sources: &mut Vec<TessellationSource>,
+    out_tris: &mut Vec<[u32; 3]>,
+) -> Result<(), YangError> {
+    // Find the (single) Circle boundary edge.
+    let circle_edges: Vec<u32> = f
+        .outer_loop
+        .iter()
+        .copied()
+        .filter(|&e| matches!(edges[e as usize].curve, Curve::Circle { .. }))
+        .collect();
+    if circle_edges.len() != 1 {
+        return Err(YangError::MalformedTopology(format!(
+            "face {f_idx}: planar cap must be bounded by exactly one Circle edge, found {}",
+            circle_edges.len()
+        )));
+    }
+    let ring = rim_rings.get(&circle_edges[0]).ok_or_else(|| {
+        YangError::MalformedTopology(format!(
+            "face {f_idx}: rim ring for edge {} not built",
+            circle_edges[0]
+        ))
+    })?;
+    let nseg = ring.len();
+    if nseg < 3 {
+        return Err(YangError::MalformedTopology(format!(
+            "face {f_idx}: cap rim ring has {nseg} samples (< 3)"
+        )));
+    }
+
+    // Center Steiner vertex = the rim center. For a `Curve::Circle` boundary the
+    // center equals the cap plane origin; we read it from the circle to keep it
+    // exact, and tag its source so `eval_source` reproduces it.
+    let Curve::Circle { center, .. } = edges[circle_edges[0] as usize].curve else {
+        return Err(YangError::MalformedTopology(format!(
+            "face {f_idx}: cap boundary edge is not a Circle"
+        )));
+    };
+    // The center Steiner vertex sits at the rim center. Its source is the cap
+    // face's surface params `(u, v)` such that `eval_source` reproduces it:
+    // `center = O + u·e1 + v·e2`, `O = −d·n_unit`. Solve `u = (center−O)·e1`,
+    // `v = (center−O)·e2` (e1,e2 orthonormal). For a rim center that already
+    // lies on the world-origin normal line (the unit cylinder) `O == center`
+    // and `u = v = 0`, but the general off-origin cap needs the offset.
+    let (e1c, e2c) = ortho_basis(normal);
+    let nuc = normalize3(normal.as_array());
+    let dval = match f.surface {
+        Surface::Plane { d, .. } => d,
+        _ => 0.0,
+    };
+    let o = [-dval * nuc[0], -dval * nuc[1], -dval * nuc[2]];
+    let cc = center.as_array();
+    let rel = [cc[0] - o[0], cc[1] - o[1], cc[2] - o[2]];
+    let e1ca = e1c.as_array();
+    let e2ca = e2c.as_array();
+    let u_param = rel[0] * e1ca[0] + rel[1] * e1ca[1] + rel[2] * e1ca[2];
+    let v_param = rel[0] * e2ca[0] + rel[1] * e2ca[1] + rel[2] * e2ca[2];
+    let center_vi = out_verts.len() as u32;
+    out_verts.push(center);
+    sources.push(TessellationSource::BRepFace {
+        face: f_idx as u32,
+        u: u_param,
+        v: v_param,
+    });
+
+    let nu = normalize3(normal.as_array());
+    // Fan: triangle (center, ring[k], ring[k+1]); orient to the plane normal.
+    for k in 0..nseg {
+        let a = ring[k];
+        let bnext = ring[(k + 1) % nseg];
+        let mut tri = [center_vi, a, bnext];
+        orient_tri(out_verts, &mut tri, nu);
+        out_tris.push(tri);
+    }
+    Ok(())
+}
+
+/// PR-YR7: tessellate the lateral tube of a cylinder (2 axial rings → `2N`
+/// triangles, watertight via the shared cached rim rings).
+///
+/// HAZARD (spec §6): the bottom rim circle has `normal = −axis_dir`, the top
+/// `+axis_dir`. `ortho_basis(−d)` and `ortho_basis(+d)` share `e1` but have
+/// OPPOSITE `e2`, so the two rings — built at the same parameter angle `θ_k` in
+/// their OWN frames — counter-rotate. To align quads by GEOMETRIC azimuth, the
+/// bottom ring index for top azimuth `θ_k` is `(N − k) mod N` (its stored angle
+/// is `2π − θ_k`). `ring[0]` of each rim is its seam vertex at azimuth 0, so
+/// quad 0 aligns.
+#[allow(clippy::too_many_arguments)]
+fn tessellate_lateral_face(
+    f_idx: usize,
+    f: &BRepFace,
+    edges: &[BRepEdge],
+    rim_rings: &std::collections::BTreeMap<u32, Vec<u32>>,
+    out_verts: &[Point3],
+    axis_point: Point3,
+    axis_dir: Vector3,
+    _radius: f64,
+    out_tris: &mut Vec<[u32; 3]>,
+) -> Result<(), YangError> {
+    // The lateral must have exactly 2 Circle boundary edges (its two rims). A
+    // cylinder face on a triangle (no Circle rims) is MalformedTopology (loud).
+    let circle_edges: Vec<u32> = f
+        .outer_loop
+        .iter()
+        .copied()
+        .filter(|&e| matches!(edges[e as usize].curve, Curve::Circle { .. }))
+        .collect();
+    if circle_edges.len() != 2 {
+        return Err(YangError::MalformedTopology(format!(
+            "face {f_idx}: cylinder lateral must have exactly 2 Circle rim edges, found {} \
+             (a cylinder surface on a non-circular boundary is malformed topology)",
+            circle_edges.len()
+        )));
+    }
+
+    // Identify which rim is the +axis ("top") and which is −axis ("bottom") by
+    // the sign of (rim_center − axis_point) · axis_dir.
+    let au = normalize3(axis_dir.as_array());
+    let ap = axis_point.as_array();
+    let rim_param = |e: u32| -> f64 {
+        if let Curve::Circle { center, .. } = edges[e as usize].curve {
+            let c = center.as_array();
+            (c[0] - ap[0]) * au[0] + (c[1] - ap[1]) * au[1] + (c[2] - ap[2]) * au[2]
+        } else {
+            0.0
+        }
+    };
+    let (mut bottom_e, mut top_e) = (circle_edges[0], circle_edges[1]);
+    if rim_param(bottom_e) > rim_param(top_e) {
+        std::mem::swap(&mut bottom_e, &mut top_e);
+    }
+
+    let bottom_ring = rim_rings.get(&bottom_e).ok_or_else(|| {
+        YangError::MalformedTopology(format!(
+            "face {f_idx}: bottom rim ring {bottom_e} not built"
+        ))
+    })?;
+    let top_ring = rim_rings.get(&top_e).ok_or_else(|| {
+        YangError::MalformedTopology(format!("face {f_idx}: top rim ring {top_e} not built"))
+    })?;
+    let nseg = top_ring.len();
+    if nseg < 3 || bottom_ring.len() != nseg {
+        return Err(YangError::MalformedTopology(format!(
+            "face {f_idx}: cylinder rims have mismatched / too-few samples"
+        )));
+    }
+
+    // Connect by geometric azimuth: top_ring[k] ↔ bottom_ring[(N−k) mod N].
+    for k in 0..nseg {
+        let kn = (k + 1) % nseg;
+        let t0 = top_ring[k];
+        let t1 = top_ring[kn];
+        let b0 = bottom_ring[(nseg - k) % nseg];
+        let b1 = bottom_ring[(nseg - kn) % nseg];
+        // Quad (b0, b1, t1, t0) split into 2 tris; orient each radially outward.
+        for mut tri in [[b0, b1, t1], [b0, t1, t0]] {
+            let n = radial_outward_normal(out_verts, &tri, ap, au);
+            orient_tri(out_verts, &mut tri, n);
+            out_tris.push(tri);
+        }
+    }
+    Ok(())
+}
+
+/// PR-YR7: outward radial normal of the cylinder surface at the centroid of
+/// `tri` — the component of `(centroid − axis_point)` perpendicular to the
+/// axis, normalized. Used to orient lateral triangle winding (governance
+/// A15.5). Falls back to the raw radial vector if it is (near-)axial.
+fn radial_outward_normal(
+    verts: &[Point3],
+    tri: &[u32; 3],
+    axis_point: [f64; 3],
+    axis_unit: [f64; 3],
+) -> [f64; 3] {
+    let a = verts[tri[0] as usize].as_array();
+    let b = verts[tri[1] as usize].as_array();
+    let c = verts[tri[2] as usize].as_array();
+    let cen = [
+        (a[0] + b[0] + c[0]) / 3.0,
+        (a[1] + b[1] + c[1]) / 3.0,
+        (a[2] + b[2] + c[2]) / 3.0,
+    ];
+    let w = [
+        cen[0] - axis_point[0],
+        cen[1] - axis_point[1],
+        cen[2] - axis_point[2],
+    ];
+    let along = w[0] * axis_unit[0] + w[1] * axis_unit[1] + w[2] * axis_unit[2];
+    let radial = [
+        w[0] - along * axis_unit[0],
+        w[1] - along * axis_unit[1],
+        w[2] - along * axis_unit[2],
+    ];
+    normalize3(radial)
+}
+
+/// PR-YR7: flip `tri`'s winding (swap last two verts) if its geometric normal
+/// `(v1−v0)×(v2−v0)` opposes the analytic outward normal `target`.
+fn orient_tri(verts: &[Point3], tri: &mut [u32; 3], target: [f64; 3]) {
+    let a = verts[tri[0] as usize].as_array();
+    let b = verts[tri[1] as usize].as_array();
+    let c = verts[tri[2] as usize].as_array();
+    let e1 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let e2 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    let cross = [
+        e1[1] * e2[2] - e1[2] * e2[1],
+        e1[2] * e2[0] - e1[0] * e2[2],
+        e1[0] * e2[1] - e1[1] * e2[0],
+    ];
+    let dot = cross[0] * target[0] + cross[1] * target[1] + cross[2] * target[2];
+    if dot < 0.0 {
+        tri.swap(1, 2);
+    }
+}
+
+/// PR-YR7: signed distance from `point` to an analytic `surface` (spec §5).
+///
+/// - `Plane { normal, d }` → `normal·point + d` (the stored normal, as the
+///   planar fixtures use unit normals — same convention as the existing
+///   `plane_dist`).
+/// - `Cylinder { axis_point, axis_dir, radius }` → `dist(point, axis) − radius`.
+/// - `Sphere` / `Cone` → `Err(CurvedSurfaceNotYetSupported { face: usize::MAX })`
+///   (the free function has no face index; the boolean closure substitutes the
+///   real `fi`). LOUD rejection (P9) — never a panic or planar approximation.
+pub fn signed_distance_to_surface(surface: Surface, point: Point3) -> Result<f64, YangError> {
+    let x = point.as_array();
+    match surface {
+        Surface::Plane { normal, d } => {
+            let n = normal.as_array();
+            Ok(n[0] * x[0] + n[1] * x[1] + n[2] * x[2] + d)
+        }
+        Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => {
+            let au = normalize3(axis_dir.as_array());
+            let ap = axis_point.as_array();
+            let w = [x[0] - ap[0], x[1] - ap[1], x[2] - ap[2]];
+            let along = w[0] * au[0] + w[1] * au[1] + w[2] * au[2];
+            let radial = [
+                w[0] - along * au[0],
+                w[1] - along * au[1],
+                w[2] - along * au[2],
+            ];
+            let dist =
+                (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
+            Ok(dist - radius)
+        }
+        Surface::Sphere { .. } | Surface::Cone { .. } => {
+            Err(YangError::CurvedSurfaceNotYetSupported { face: usize::MAX })
+        }
     }
 }
 
@@ -862,14 +1443,17 @@ pub fn boolean(
         // it must compile and be LOUD (P9): a curved arm returns the carrying
         // `Err`, never `unreachable!`/panic. `fi` is the input B-Rep face index.
         let plane_dist = |fi: usize, face: &BRepFace| -> Result<f64, YangError> {
-            let (normal, d) = match face.surface {
-                Surface::Plane { normal, d } => (normal, d),
-                Surface::Sphere { .. } | Surface::Cylinder { .. } | Surface::Cone { .. } => {
-                    return Err(YangError::CurvedSurfaceNotYetSupported { face: fi });
+            // PR-YR7: delegate to the shared `signed_distance_to_surface`
+            // (Plane + Cylinder); take `.abs()` (distance to the surface).
+            // Sphere/Cone still reject loudly — the free function returns a
+            // sentinel face index, which we replace with the real input `fi`.
+            match signed_distance_to_surface(face.surface, Point3::new(c[0], c[1], c[2])) {
+                Ok(d) => Ok(d.abs()),
+                Err(YangError::CurvedSurfaceNotYetSupported { .. }) => {
+                    Err(YangError::CurvedSurfaceNotYetSupported { face: fi })
                 }
-            };
-            let n = normal.as_array();
-            Ok((n[0] * c[0] + n[1] * c[1] + n[2] * c[2] + d).abs())
+                Err(other) => Err(other),
+            }
         };
 
         let face = if degenerate {
@@ -1012,6 +1596,10 @@ fn reconstruct_topology(
         let inherited = input_brep.faces()[face_idx].surface;
         let (normal, d) = match inherited {
             Surface::Plane { normal, d } => (normal, d),
+            // PR-YR7 (P2a): curved Stage-6 reassembly (surface inheritance +
+            // the cavity-sense normal flip) is INTENTIONALLY deferred to P2c —
+            // this site stays a loud reject for all curved surfaces, including
+            // Cylinder, even though Stage-1 cylinder tessellation now exists.
             Surface::Sphere { .. } | Surface::Cylinder { .. } | Surface::Cone { .. } => {
                 return Err(YangError::CurvedSurfaceNotYetSupported { face: face_idx });
             }
