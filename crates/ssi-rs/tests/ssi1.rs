@@ -52,6 +52,16 @@ fn implicit_residual(surf: &QuadricSurface, x: [f64; 3]) -> f64 {
             // | |x − center| − radius |.
             (norm(sub(x, center.as_array())) - radius).abs()
         }
+        QuadricSurface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => {
+            // | dist(x, axisLine) − radius |, via |(x−q) × â| / |â|.
+            let v = sub(x, axis_point.as_array());
+            let a = axis_dir.as_array();
+            (norm(cross(v, a)) / norm(a) - radius).abs()
+        }
     }
 }
 
@@ -66,6 +76,11 @@ fn assert_on_both_surfaces(curve: &SsiCurve, a: &QuadricSurface, b: &QuadricSurf
             SsiCurve::Line { .. } => {
                 // [-5, 5]
                 -5.0 + (i as f64) / ((N - 1) as f64) * 10.0
+            }
+            SsiCurve::Ellipse { .. } => {
+                // [0, 2π) — not produced by PR-SSI1 solvers, but the match
+                // must cover the extended enum (PR-SSI2 added `Ellipse`).
+                (i as f64) / (N as f64) * std::f64::consts::TAU
             }
         };
         let p = curve.eval(t).as_array();

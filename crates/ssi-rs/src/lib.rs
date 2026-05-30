@@ -110,6 +110,15 @@ pub enum QuadricSurface {
         /// Sphere radius (must be positive for a valid surface).
         radius: f64,
     },
+    /// Infinite right-circular cylinder.
+    Cylinder {
+        /// Any point on the axis.
+        axis_point: Point3,
+        /// Axis direction (normalized defensively; need not be unit on input).
+        axis_dir: Vector3,
+        /// Cylinder radius (must be positive for a valid surface).
+        radius: f64,
+    }, // implicit: dist(x, axis line) = radius
 }
 
 /// An exact analytical intersection curve (never a polyline).
@@ -130,6 +139,21 @@ pub enum SsiCurve {
         normal: Vector3,
         /// Circle radius.
         radius: f64,
+    },
+    /// Exact ellipse centered at `center` in the plane with unit `normal`. The
+    /// semi-major axis lies along unit `major_axis` with length `major_radius`;
+    /// the semi-minor axis (`normal × major_axis`) has length `minor_radius`.
+    Ellipse {
+        /// Ellipse center (= axis ∩ plane).
+        center: Point3,
+        /// Unit normal of the cutting plane.
+        normal: Vector3,
+        /// Unit in-plane direction of the semi-major axis.
+        major_axis: Vector3,
+        /// Semi-major length `a` (`a ≥ b`).
+        major_radius: f64,
+        /// Semi-minor length `b`.
+        minor_radius: f64,
     },
 }
 
@@ -153,6 +177,11 @@ impl SsiCurve {
     ///   is a deterministic orthonormal in-plane basis derived from `normal`
     ///   (see [`in_plane_basis`]). Determinism (I5) requires that the basis is
     ///   a pure function of `normal`.
+    /// - `Ellipse`: `center + a·cos t · major_axis + b·sin t · minor_axis`,
+    ///   where `minor_axis = normal × major_axis` (unit and in-plane because
+    ///   `normal ⟂ major_axis` and both are unit). Self-contained — the frame
+    ///   is exactly the one the solver chose (I5), so this does not call
+    ///   [`in_plane_basis`].
     pub fn eval(&self, t: f64) -> Point3 {
         match self {
             SsiCurve::Line { point, dir } => {
@@ -172,6 +201,25 @@ impl SsiCurve {
                 let p = add(
                     center.as_array(),
                     add(scale(u, radius * t.cos()), scale(v, radius * t.sin())),
+                );
+                Point3::from(p)
+            }
+            SsiCurve::Ellipse {
+                center,
+                normal,
+                major_axis,
+                major_radius,
+                minor_radius,
+            } => {
+                let major = major_axis.as_array();
+                // minor_axis = normal × major_axis (unit and in-plane).
+                let minor = cross(normal.as_array(), major);
+                let p = add(
+                    center.as_array(),
+                    add(
+                        scale(major, major_radius * t.cos()),
+                        scale(minor, minor_radius * t.sin()),
+                    ),
                 );
                 Point3::from(p)
             }
@@ -227,6 +275,18 @@ pub fn intersect(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCurve>
             plane_sphere(b, a)
         }
         (QuadricSurface::Sphere { .. }, QuadricSurface::Sphere { .. }) => sphere_sphere(a, b),
+        (QuadricSurface::Plane { .. }, QuadricSurface::Cylinder { .. }) => plane_cylinder(a, b),
+        (QuadricSurface::Cylinder { .. }, QuadricSurface::Plane { .. }) => {
+            // Symmetry (I4): swap so the plane is first.
+            plane_cylinder(b, a)
+        }
+        // No analytical solver yet (Degree-4; future increment). A15.2: loud
+        // `Err`, never a silent mesh/grid fallback.
+        (QuadricSurface::Sphere { .. }, QuadricSurface::Cylinder { .. })
+        | (QuadricSurface::Cylinder { .. }, QuadricSurface::Sphere { .. })
+        | (QuadricSurface::Cylinder { .. }, QuadricSurface::Cylinder { .. }) => {
+            Err(SsiError::AnalyticalSolutionNotAvailable)
+        }
     }
 }
 
@@ -351,6 +411,129 @@ fn plane_sphere(
         normal: Vector3::from(n),
         radius,
     }])
+}
+
+/// Plane ∩ cylinder.
+///
+/// Patrikalakis & Maekawa, *Shape Interrogation for CAD/M*, §5.8
+/// (Surface/Surface Intersections — natural quadrics). A plane section of a
+/// (right-circular) cylinder is a conic section: a circle when the plane is
+/// perpendicular to the axis, an ellipse when oblique, and one or two lines
+/// (or nothing) when the plane is parallel to the axis.
+///
+/// With unit plane normal `n̂`, plane point `p`, axis point `q`, unit axis
+/// `â`, radius `r`, and `c = n̂·â` (the cosine of the angle between normal and
+/// axis; `|c|=1` ⇒ plane ⟂ axis, `|c|=0` ⇒ plane ∥ axis):
+///
+/// - **C1** (`|c| > 1 − TAU_MODEL`, perpendicular): one `Circle` of radius `r`
+///   centered at the axis∩plane point, normal `â`.
+/// - **C2** (`TAU_MODEL ≤ |c| ≤ 1 − TAU_MODEL`, oblique): one `Ellipse` with
+///   `minor_radius = r`, `major_radius = r/|c|`, centered at axis∩plane, with
+///   `major_axis = normalize(â − c·n̂)` and `normal = n̂`.
+/// - **C3a** (`|c| < TAU_MODEL` and `d < r − TAU_MODEL`, parallel secant): two
+///   `Line`s parallel to `â`, at `c0 ± off·ŵ` where `off = √(r²−d²)`.
+/// - **C3b** (`|c| < TAU_MODEL` and `|d − r| ≤ TAU_MODEL`, parallel tangent):
+///   one `Line` at the foot `c0`.
+/// - **C3c** (`|c| < TAU_MODEL` and `d > r + TAU_MODEL`, parallel disjoint):
+///   `Ok([])`.
+/// - `r ≤ 0` / non-finite, or zero/non-finite `axis_dir` or plane `normal`:
+///   `Err(DegenerateInput)`.
+fn plane_cylinder(
+    plane: &QuadricSurface,
+    cylinder: &QuadricSurface,
+) -> Result<Vec<SsiCurve>, SsiError> {
+    let (
+        QuadricSurface::Plane {
+            point: pp,
+            normal: pn,
+        },
+        QuadricSurface::Cylinder {
+            axis_point: ap,
+            axis_dir: ad,
+            radius: r,
+        },
+    ) = (plane, cylinder)
+    else {
+        return Err(SsiError::AnalyticalSolutionNotAvailable);
+    };
+
+    let r = *r;
+    if r <= 0.0 || !r.is_finite() {
+        return Err(SsiError::DegenerateInput);
+    }
+    // `normalize` rejects zero / non-finite vectors (E1: zero axis or normal).
+    let nhat = normalize(pn.as_array())?;
+    let ahat = normalize(ad.as_array())?;
+    let p = pp.as_array();
+    let q = ap.as_array();
+
+    let c = dot(nhat, ahat);
+    let abs_c = c.abs();
+
+    if abs_c > 1.0 - TAU_MODEL {
+        // C1 — perpendicular: a circle of radius r in the cutting plane.
+        // axis ∩ plane: center = q + s·â, s = (n̂·(p − q)) / c.
+        let s = dot(nhat, sub(p, q)) / c;
+        let center = add(q, scale(ahat, s));
+        return Ok(vec![SsiCurve::Circle {
+            center: Point3::from(center),
+            normal: Vector3::from(ahat),
+            radius: r,
+        }]);
+    }
+
+    if abs_c >= TAU_MODEL {
+        // C2 — oblique: an ellipse.
+        // axis ∩ plane: center = q + s·â, s = (n̂·(p − q)) / c.
+        let s = dot(nhat, sub(p, q)) / c;
+        let center = add(q, scale(ahat, s));
+        // major_axis = projection of the axis onto the plane (in-plane,
+        // well-defined for 0 < |c| < 1).
+        let major_axis = normalize(sub(ahat, scale(nhat, c)))?;
+        return Ok(vec![SsiCurve::Ellipse {
+            center: Point3::from(center),
+            normal: Vector3::from(nhat),
+            major_axis: Vector3::from(major_axis),
+            major_radius: r / abs_c,
+            minor_radius: r,
+        }]);
+    }
+
+    // C3 — plane parallel to the axis. The whole axis is at constant signed
+    // distance from the plane.
+    let d_signed = dot(nhat, sub(q, p));
+    let d = d_signed.abs();
+    // Foot of the axis on the plane (signed distance used here, not |d|).
+    let c0 = sub(q, scale(nhat, d_signed));
+    let what = normalize(cross(nhat, ahat))?; // in-plane, ⟂ the axis
+
+    if d < r - TAU_MODEL {
+        // C3a — secant: two lines, +ŵ first (deterministic order, I5).
+        let off = (r * r - d * d).sqrt();
+        let p_plus = add(c0, scale(what, off));
+        let p_minus = sub(c0, scale(what, off));
+        return Ok(vec![
+            SsiCurve::Line {
+                point: Point3::from(p_plus),
+                dir: Vector3::from(ahat),
+            },
+            SsiCurve::Line {
+                point: Point3::from(p_minus),
+                dir: Vector3::from(ahat),
+            },
+        ]);
+    }
+
+    if (d - r).abs() <= TAU_MODEL {
+        // C3b — tangent: a single line at the foot.
+        return Ok(vec![SsiCurve::Line {
+            point: Point3::from(c0),
+            dir: Vector3::from(ahat),
+        }]);
+    }
+
+    // C3c — disjoint: no intersection.
+    Ok(Vec::new())
 }
 
 /// Sphere ∩ sphere.

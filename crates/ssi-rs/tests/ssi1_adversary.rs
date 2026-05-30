@@ -56,6 +56,27 @@ fn assert_curve_finite(c: &SsiCurve) {
             assert!(radius.is_finite(), "Circle radius non-finite: {c:?}");
             assert!(*radius > 0.0, "Circle radius must be > 0: {c:?}");
         }
+        SsiCurve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            major_radius,
+            minor_radius,
+        } => {
+            // Not produced by PR-SSI1 solvers, but the match must cover the
+            // extended enum (PR-SSI2 added `Ellipse`).
+            for v in center
+                .as_array()
+                .iter()
+                .chain(normal.as_array().iter())
+                .chain(major_axis.as_array().iter())
+            {
+                assert!(v.is_finite(), "Ellipse field non-finite: {c:?}");
+            }
+            assert!(major_radius.is_finite(), "Ellipse major non-finite: {c:?}");
+            assert!(minor_radius.is_finite(), "Ellipse minor non-finite: {c:?}");
+            assert!(*minor_radius > 0.0, "Ellipse minor must be > 0: {c:?}");
+        }
     }
 }
 
@@ -68,6 +89,16 @@ fn implicit_residual(surf: &QuadricSurface, x: [f64; 3]) -> f64 {
         }
         QuadricSurface::Sphere { center, radius } => {
             (norm(sub(x, center.as_array())) - radius).abs()
+        }
+        QuadricSurface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => {
+            // | dist(x, axisLine) − radius |, via |(x−q) × â| / |â|.
+            let v = sub(x, axis_point.as_array());
+            let a = axis_dir.as_array();
+            (norm(cross(v, a)) / norm(a) - radius).abs()
         }
     }
 }
