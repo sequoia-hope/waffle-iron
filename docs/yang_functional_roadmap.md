@@ -376,13 +376,28 @@ reimplementation from Attene's paper restores WASM (M7).
     `specs/ssi_pr_ssi10_cylinder_cylinder_parallel.md`; commits `fed67c3c` (spec)→
     `b53e55a2` (RED)→`7100c143` (GREEN)→`f0927aec` (adversary)→`721d7b23` (fix)→
     `7a18bb66` (adversary verify). 277/277 ssi-rs tests; fmt + clippy clean.
-  - **Next M5 increments (sequenced):** cyl∩cyl equal-R
-    intersecting → two ellipses (PR-SSI11) → the
+  - **Step 11 — `ssi-rs` cylinder∩cylinder equal-R intersecting axes → two
+    ellipses (PR-SSI11) ✅ DONE.** Second of the two cyl∩cyl special cases, and
+    the LAST circle/conic-reducible quadric pair. Two cylinders of **equal radius**
+    whose axes are **coplanar and intersect** (non-parallel) meet in **two
+    ellipses** lying in the angle-bisecting planes (Patrikalakis & Maekawa §5.8) —
+    reuses the existing `SsiCurve::Ellipse` variant, no new curve type, no
+    enum-match migration. **Unequal-radius or skew (non-coplanar) axes stay staged
+    `Err(AnalyticalSolutionNotAvailable)`** — the general degree-4 curve, deferred,
+    never a fallback (A15.2). Built via the role-separated RED/GREEN/ADVERSARY
+    cycle (test-author ≠ implementer). Spec
+    `specs/ssi_pr_ssi11_cyl_cyl_equal_r_ellipses.md`; commits `7f6e2d44` (RED)→
+    `6bdcb05a` (GREEN)→`2e5e6e6f` (adversary). With Step 11, **ALL
+    circle/conic-reducible coaxial & special-case quadric pairs are now complete.**
+  - **Next M5 increments (sequenced):** the
     **general degree-4
     curve** (a new parametric `SsiCurve` variant + the 5 general-position solvers) +
     torus pairs (rest of A15.4) → curved `Surface` variants + curved Stage-1
     tessellation in `yang-rs` → curved face resolution + the planar-assumption
     migration → Stage 3 (wire `ssi-rs` into `yang-rs`) → Stage 4 (CDT remesh).
+    The next increment — the general degree-4 cyl∩cyl curve — requires a NEW
+    parametric `SsiCurve` variant + general-position solvers, and **MUST be planned
+    with a human before implementation.**
 - **M6 — Native `cherchi-rs` Stage 2** behind the same interface, parity-green
   vs the sidecar on the corpus.
 - **M7 — Clean-room indirect predicates from Attene's paper → restore WASM.**
