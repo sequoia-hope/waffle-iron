@@ -300,8 +300,30 @@ reimplementation from Attene's paper restores WASM (M7).
     filters it). Spec `specs/ssi_pr_ssi7_sphere_cone_coaxial.md`; commits
     `6d58f415` (spec)→`9144dfd4` (RED)→`8b12402d` (GREEN)→`d575280b` (adversary).
     189/189 ssi-rs tests; CI clean.
-  - **Next M5 increments (sequenced):** the remaining circle-reducible coaxial
-    pairs (cyl∩cone, cone∩cone) → cyl∩cyl special cases (equal-R
+  - **Step 8 — `ssi-rs` cylinder∩cone coaxial (third degree-4 pair, PR-SSI8) ✅
+    DONE.** Reuses the SSI6/SSI7 coaxial-detect→reduce-to-circles→general-ASNA
+    pattern. Coaxial cyl∩cone (axes parallel AND cyl axis_point on the cone axis
+    line) reduces to **exactly two circles** at `h = ± r_c·cotα` via the classical
+    `|h|·tanα = r_c` reduction. **Unlike SSI6/SSI7 there is NO discriminant / √ /
+    tangent / empty branch** — the cone's `[0,∞)` per-nappe radial range meets the
+    constant `r_c` at exactly one height per nappe, so valid coaxial input is
+    *always* two circles; manufacturing a discriminant to mirror SSI7 would be a
+    hack-to-pattern (P9/P10) and is prohibited. Branches: X2 (two circles, h>0
+    nappe first) / **NC** (non-coaxial → `Err(AnalyticalSolutionNotAvailable)`,
+    staged, never a fallback) / E1 (`r_c≤0`/non-finite, bad α, zero cone/cyl axis →
+    `DegenerateInput`). Reuses `Circle` — no new curve type, no enum-match
+    migration. RED enforces the anti-hack invariant (a 5×5 α/r_c sweep asserting
+    `len()==2` always). Adversary (13 attacks): no bugs; parallelism + on-axis gate
+    boundaries (each flips at `TAU_MODEL`), α near both E1 limits, reversed/
+    antiparallel axes, a 525-config determinism sweep, and characterized
+    absolute-`TAU` ceilings (on-surface oracle holds to r_c≈1e8 → breaks at 1e9;
+    `d_ax` coaxial band holds to scale ~7e8 → conservatively flips to ASNA by ~1e9)
+    plus the in-band snap-to-cone-axis slack. Spec
+    `specs/ssi_pr_ssi8_cylinder_cone_coaxial.md`; commits `7d820153` (spec)→
+    `45c4eed1` (RED)→`d25fa0cb` (GREEN)→`e3285699` (adversary). 217/217 ssi-rs
+    tests; CI clean.
+  - **Next M5 increments (sequenced):** the last circle-reducible coaxial
+    pair (cone∩cone) → cyl∩cyl special cases (equal-R
     intersecting → two ellipses; parallel → two lines) → the **general degree-4
     curve** (a new parametric `SsiCurve` variant + the 5 general-position solvers) +
     torus pairs (rest of A15.4) → curved `Surface` variants + curved Stage-1
