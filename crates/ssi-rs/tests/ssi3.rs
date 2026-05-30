@@ -109,6 +109,11 @@ fn assert_on_both_surfaces(curve: &SsiCurve, a: &QuadricSurface, b: &QuadricSurf
                 (i as f64) / (N as f64) * std::f64::consts::TAU
             }
             SsiCurve::Line { .. } => -5.0 + (i as f64) / ((N - 1) as f64) * 10.0,
+            // Not produced by PR-SSI3 solvers; compile-keepalive for the
+            // extended enum (PR-SSI4). Bounded range [−3, 3].
+            SsiCurve::Parabola { .. } | SsiCurve::Hyperbola { .. } => {
+                (i as f64) / ((N - 1) as f64) * 6.0 - 3.0
+            }
         };
         let p = curve.eval(t).as_array();
         let ra = implicit_residual(a, p);

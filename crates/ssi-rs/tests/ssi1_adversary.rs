@@ -77,6 +77,57 @@ fn assert_curve_finite(c: &SsiCurve) {
             assert!(minor_radius.is_finite(), "Ellipse minor non-finite: {c:?}");
             assert!(*minor_radius > 0.0, "Ellipse minor must be > 0: {c:?}");
         }
+        // Not produced by PR-SSI1 solvers; compile-keepalive for the extended
+        // enum (PR-SSI4 added `Parabola`/`Hyperbola`).
+        SsiCurve::Parabola {
+            vertex,
+            normal,
+            axis_dir,
+            focal_length,
+        } => {
+            for v in vertex
+                .as_array()
+                .iter()
+                .chain(normal.as_array().iter())
+                .chain(axis_dir.as_array().iter())
+            {
+                assert!(v.is_finite(), "Parabola field non-finite: {c:?}");
+            }
+            assert!(focal_length.is_finite(), "Parabola focal non-finite: {c:?}");
+            assert!(*focal_length > 0.0, "Parabola focal must be > 0: {c:?}");
+        }
+        SsiCurve::Hyperbola {
+            center,
+            normal,
+            major_axis,
+            semi_transverse,
+            semi_conjugate,
+        } => {
+            for v in center
+                .as_array()
+                .iter()
+                .chain(normal.as_array().iter())
+                .chain(major_axis.as_array().iter())
+            {
+                assert!(v.is_finite(), "Hyperbola field non-finite: {c:?}");
+            }
+            assert!(
+                semi_transverse.is_finite(),
+                "Hyperbola semi_transverse non-finite: {c:?}"
+            );
+            assert!(
+                semi_conjugate.is_finite(),
+                "Hyperbola semi_conjugate non-finite: {c:?}"
+            );
+            assert!(
+                *semi_transverse > 0.0,
+                "Hyperbola semi_transverse must be > 0: {c:?}"
+            );
+            assert!(
+                *semi_conjugate > 0.0,
+                "Hyperbola semi_conjugate must be > 0: {c:?}"
+            );
+        }
     }
 }
 

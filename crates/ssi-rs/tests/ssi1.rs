@@ -98,6 +98,12 @@ fn assert_on_both_surfaces(curve: &SsiCurve, a: &QuadricSurface, b: &QuadricSurf
                 // must cover the extended enum (PR-SSI2 added `Ellipse`).
                 (i as f64) / (N as f64) * std::f64::consts::TAU
             }
+            // Not produced by PR-SSI1 solvers; compile-keepalive for the
+            // extended enum (PR-SSI4 added `Parabola`/`Hyperbola`). Bounded
+            // range [−3, 3] like the unbounded `Line` arm.
+            SsiCurve::Parabola { .. } | SsiCurve::Hyperbola { .. } => {
+                (i as f64) / ((N - 1) as f64) * 6.0 - 3.0
+            }
         };
         let p = curve.eval(t).as_array();
         let ra = implicit_residual(a, p);

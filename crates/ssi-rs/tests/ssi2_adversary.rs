@@ -85,6 +85,57 @@ fn assert_curve_finite(c: &SsiCurve) {
             assert!(*major_radius > 0.0, "Ellipse major must be > 0: {c:?}");
             assert!(*minor_radius > 0.0, "Ellipse minor must be > 0: {c:?}");
         }
+        // Not produced by PR-SSI2 solvers; compile-keepalive for the extended
+        // enum (PR-SSI4 added `Parabola`/`Hyperbola`).
+        SsiCurve::Parabola {
+            vertex,
+            normal,
+            axis_dir,
+            focal_length,
+        } => {
+            for v in vertex
+                .as_array()
+                .iter()
+                .chain(normal.as_array().iter())
+                .chain(axis_dir.as_array().iter())
+            {
+                assert!(v.is_finite(), "Parabola field non-finite: {c:?}");
+            }
+            assert!(focal_length.is_finite(), "Parabola focal non-finite: {c:?}");
+            assert!(*focal_length > 0.0, "Parabola focal must be > 0: {c:?}");
+        }
+        SsiCurve::Hyperbola {
+            center,
+            normal,
+            major_axis,
+            semi_transverse,
+            semi_conjugate,
+        } => {
+            for v in center
+                .as_array()
+                .iter()
+                .chain(normal.as_array().iter())
+                .chain(major_axis.as_array().iter())
+            {
+                assert!(v.is_finite(), "Hyperbola field non-finite: {c:?}");
+            }
+            assert!(
+                semi_transverse.is_finite(),
+                "Hyperbola semi_transverse non-finite: {c:?}"
+            );
+            assert!(
+                semi_conjugate.is_finite(),
+                "Hyperbola semi_conjugate non-finite: {c:?}"
+            );
+            assert!(
+                *semi_transverse > 0.0,
+                "Hyperbola semi_transverse must be > 0: {c:?}"
+            );
+            assert!(
+                *semi_conjugate > 0.0,
+                "Hyperbola semi_conjugate must be > 0: {c:?}"
+            );
+        }
     }
 }
 
@@ -135,6 +186,11 @@ fn max_residual_on_both(curve: &SsiCurve, a: &QuadricSurface, b: &QuadricSurface
                 (i as f64) / (n as f64) * std::f64::consts::TAU
             }
             SsiCurve::Line { .. } => -5.0 + (i as f64) / ((n - 1) as f64) * 10.0,
+            // Not produced by PR-SSI2 solvers; compile-keepalive for the
+            // extended enum (PR-SSI4). Bounded range [−3, 3].
+            SsiCurve::Parabola { .. } | SsiCurve::Hyperbola { .. } => {
+                (i as f64) / ((n - 1) as f64) * 6.0 - 3.0
+            }
         };
         let p = curve.eval(t).as_array();
         m = m.max(implicit_residual(a, p)).max(implicit_residual(b, p));
