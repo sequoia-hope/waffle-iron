@@ -1,332 +1,139 @@
-# auto-waffle — Autonomous Kernel Development Loop
+# auto-waffle — Reactive-Driver Worker Loop
 
 ## Purpose
 
-auto-waffle is a headless loop that continuously develops the Waffle Iron
-modeling kernel (`crates/kernel/`) by running Claude Code sessions that follow
-the project's governance model (Engineering Constitution, FIP, DoD,
-Architectural Invariants). It exists because the kernel is a well-specified
-slog — the work is decomposable, the governance is strict, and a model that
-follows the rules produces correct, reviewable commits.
+auto-waffle runs **driver-authored** Claude Code worker sessions that advance the
+Waffle Iron kernel roadmap under the project's governance model (Engineering
+Constitution, FIP, DoD, Architectural Invariants).
 
-## Design Principles
+It is **not** an autonomous task-discovery loop. The intelligence lives in the
+**driver** — an interactive Claude session working through
+`docs/yang_functional_roadmap.md`. The driver decides the next increment, authors
+a context-rich prompt for it (the specific task + verified math + scope decision),
+and hands that prompt to a thin **worker** runner. The worker plans and executes
+it; the driver inspects the result and authors the next prompt.
 
-1. **Governance is the guardrail.** auto-waffle does not invent its own quality
-   checks. It relies on the existing governance documents to define what "good
-   work" looks like and asks Claude to follow them.
-2. **Honest self-assessment over mechanical checks.** The cleanup/commit
-   decision is made by Claude reading the governance model and judging its own
-   work, not by a script checking exit codes. This works because the governance
-   is strict enough to be unambiguous, and asking Claude to re-read it after
-   losing context is effective at restoring lucidity.
-3. **One loop, one kernel.** No parallelism. Each iteration completes or is
-   cleaned up before the next begins. Continuous, not concurrent.
-4. **Full FIP per iteration.** Each cycle is a complete Feature Implementation
-   Protocol pass (spec → test → implement → validate). Safer and slower by
-   design.
+This replaces the older design (a generic "read PLAN.md, pick a task" discovery
+prompt + a timeout-recovery/cleanup prompt). Those existed to keep a weaker model
+on the rails; they are no longer needed.
 
-## Architecture
+## Roles
 
 ```
-┌──────────────────────────────────────────────────┐
-│                   run.sh (driver)                │
-│                                                  │
-│  ┌──────────┐    ┌──────────┐    ┌───────────┐  │
-│  │  Work     │───▶│ Timeout  │───▶│ Cleanup   │  │
-│  │  Prompt   │    │ Monitor  │    │ Prompt    │  │
-│  └──────────┘    └──────────┘    └───────────┘  │
-│       │               │               │          │
-│       ▼               ▼               ▼          │
-│  ┌──────────────────────────────────────────┐   │
-│  │           logs/<timestamp>-*             │   │
-│  │  plan.md | output.log | cleanup.md      │   │
-│  └──────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────┘
+   ┌─────────────────────────────────────────────────────────────┐
+   │ DRIVER  (interactive Claude, working the roadmap)            │
+   │   reads roadmap + git log + last worker's result            │
+   │   authors the next increment's custom prompt  ──────────┐   │
+   │   inspects each worker result, reconciles, decides next │   │
+   └─────────────────────────────────────────────────────────┼───┘
+                                                              │
+                            custom prompt (one increment)     ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │ WORKER  (run.sh -> claude-runner.py, headless plan mode)    │
+   │   prompt = <custom prompt> + prompts/worker-suffix.md       │
+   │   plan mode: auto-create + auto-approve FIP plan,           │
+   │   role-separated cycle (spec -> RED -> GREEN -> adversary), │
+   │   commit each phase, push at end. No discovery. No recovery.│
+   └─────────────────────────────────────────────────────────────┘
 ```
 
-### Components
+The **worker suffix** (`prompts/worker-suffix.md`) carries the standing phrases
+("Go into plan mode. Follow governance docs.") plus the cross-cutting operating
+rules learned from real cycles: role-separated TDD with distinct sub-agents, stay
+on `main` (reconcile stray branches), commit-each-phase + push, faithful
+contract-migration when a change obsoletes prior test expectations, no
+hack-to-green / STOP-and-report on genuine conflicts, and a clean CI gate before
+done. This lets each per-increment custom prompt stay focused on task specifics.
 
-- **`run.sh`** — The loop driver. Parses arguments, manages iterations,
-  enforces timeouts, logs everything.
-- **`prompts/work.md`** — The static work prompt given to each Claude session.
-- **`prompts/cleanup.md`** — The cleanup prompt given when a session is
-  interrupted by timeout.
-- **`prompts/commit.md`** — The commit prompt given when a session completes
-  normally within the time limit.
-- **`prompts/review.md`** — The review-only prompt for review passes.
-- **`logs/`** — Timestamped directories, one per iteration, containing plans,
-  output, and cleanup/commit responses.
+## Components
 
-## Loop Lifecycle
+- **`run.sh`** — thin executor. Runs one custom prompt (`--prompt-file`) or drains
+  a queue (`--queue DIR`) as plan-mode workers. Logs each run; writes `meta.json`
+  (prompt, outcome, commit hashes). No loop intelligence — that's the driver.
+- **`claude-runner.py`** — runs the worker as **two turns of one session**:
+  Phase A in plan mode (`--permission-mode plan --dangerously-skip-permissions`),
+  where it writes + presents its plan and the `-p` turn ends; then Phase B resumes
+  the *same* session (`--resume`, plan mode off) with a fixed "your plan is
+  approved — execute it" prompt, releasing it to run the full FIP cycle, commit,
+  and push. (Empirically, headless plan mode on a real task presents-and-ends; the
+  execute-resume is load-bearing, not optional — see Limitations.) Assembles
+  `prompt-file + suffix-file`, persists the exact prompt to `prompt.md`. No
+  commit/cleanup *recovery* passes.
+- **`prompts/worker-suffix.md`** — the standing suffix appended to every worker
+  prompt.
+- **`prompts/{review,yang-review}.md`** — legacy standalone audit prompts; not
+  wired into the loop, but can be driven manually via `--prompt-file`.
+- **`logs/<ts>-<prompt>/`** — per-worker: `prompt.md` (exact assembled prompt),
+  `output.log` (full session stream), `plan.md` (the FIP plan the worker wrote),
+  `meta.json`.
 
-### Normal Completion (< 1 hour)
-
-```
-1. run.sh invokes: claude -p <work-prompt> --dangerously-skip-permissions
-2. Claude reads governance docs, picks highest-priority kernel task from PLAN.md
-3. Claude writes plan to logs/<ts>-plan.md
-4. Claude uses agent teams for FIP role separation:
-   - Teammate: spec writer (writes /specs/<feature>.md)
-   - Teammate: test author (writes failing tests)
-   - Teammate: implementer (makes tests pass)
-   - Teammate: adversary (edge cases, hardening)
-   - Lead coordinates, enforces FIP phases
-5. Claude completes within 1 hour
-6. run.sh captures session ID from output
-7. run.sh invokes: claude -p <commit-prompt> --resume <session-id>
-8. Claude runs cargo test/clippy/fmt, reviews against governance, commits or
-   reports what's incomplete
-9. Commit prompt response logged to logs/<ts>-commit.md
-10. Loop restarts
-```
-
-### Timeout (>= 1 hour)
+## Usage
 
 ```
-1-4. Same as above
-5. 1 hour elapses, run.sh sends SIGTERM to claude process
-6. run.sh invokes: claude -p <cleanup-prompt> --resume <session-id>
-7. Claude re-reads governance docs, reviews all uncommitted changes
-8. For each changed file, Claude decides:
-   - Commit: changes follow governance, tests pass, work is complete
-   - Revert: changes are incomplete, violate governance, or break tests
-9. Claude commits good work, reverts the rest, updates PLAN.md
-10. Cleanup response logged to logs/<ts>-cleanup.md
-11. Loop restarts
+# One increment (the driver writes /tmp/pr-ssi7.md, then):
+./scripts/auto-waffle/run.sh --prompt-file /tmp/pr-ssi7.md
+
+# Preview the assembled worker prompt without executing:
+./scripts/auto-waffle/run.sh --prompt-file /tmp/pr-ssi7.md --dry-run
+
+# Drain a pre-authored queue of increments (Option A, less reactive):
+./scripts/auto-waffle/run.sh --queue scripts/auto-waffle/queue
+
+# Options: -w/--work-timeout MINS (default 90, hang backstop only),
+#          --log-dir DIR, -v/--verbose
 ```
 
-### Review Pass
+### Driving via `/loop`
 
-A review pass is a non-implementation iteration focused on governance
-compliance, code health, and documentation freshness. Instead of the work
-prompt, Claude receives the review prompt, which asks it to:
+The intended mode is the driver (an interactive Claude session) running `/loop`:
+read the roadmap, author the next increment's prompt, invoke `run.sh
+--prompt-file`, read the worker's result + adversary report, author the next, and
+self-pace. The driver is where between-phase judgment lives — reconciling stray
+branches, migrating obsoleted tests, making scope-fork calls — the work a bare
+worker cannot do and correctly stops on.
 
-- Read all governance documents (Constitution, FIP, DoD, Architectural Invariants)
-- Audit the kernel codebase for governance compliance (tolerance escapes,
-  missing specs, missing research citations)
-- Check module health (split files over 2000 lines)
-- Strengthen tests that only check "no panic" without numeric oracles
-- Verify A15 compliance (no silent boolean fallbacks)
-- Remove dead code, stale TODOs, unreachable branches
-- Update PLAN.md, specs, and ARCHITECTURE.md to reflect current reality
-- Run the assay, categorize failures, write recommendations for next dev passes
-
-Review passes ARE authorized to make changes (refactor, split modules, fix
-tolerance escapes, update docs, strengthen tests). They are NOT authorized
-to add new features or change modeling behavior. Changes are committed with
-descriptive messages but not pushed to remote.
-
-### Pass Types
-
-auto-waffle has three pass types:
-
-| Type | Prompt | Purpose | Authorized Actions |
-|------|--------|---------|-------------------|
-| **develop** | `prompts/work.md` | Implement features, fix bugs, build Yang pipeline | Full FIP cycle, commits |
-| **repair** | `prompts/review.md` | Catch governance violations, tolerance escapes, dead code | Reverts, refactoring, test strengthening |
-| **yang_review** | `prompts/yang-review.md` | Audit Yang 2025 pipeline vs paper | Overwrites `docs/audits/yang_2025_audit.md` |
-
-The yang_review type spawns 5 parallel auditor agents, each covering 4
-contiguous pipeline steps. Output is always written to the same file
-(`docs/audits/yang_2025_audit.md`) — each run overwrites the previous.
-
-### Review Scheduling (Dev:Review Ratio)
-
-By default, auto-waffle runs a repeating cycle of 3 dev passes followed by
-2 review passes (ratio 3:2). In a cycle of 5 iterations:
+## Worker lifecycle (one increment)
 
 ```
-Iteration 1: dev
-Iteration 2: dev
-Iteration 3: dev
-Iteration 4: review
-Iteration 5: review
-Iteration 6: dev    (cycle repeats)
-...
+1. run.sh assembles: <custom prompt> + worker-suffix.md  -> prompt.md
+2. Phase A: claude -p --permission-mode plan ... <prompt>
+   -> worker enters plan mode, writes its FIP plan, presents it, turn ends
+3. Phase B: claude -p --resume <session> ... "<plan approved — execute>"
+   -> same session, plan mode off, runs the role-separated cycle with distinct
+      sub-agents: spec (Manager) -> RED tests -> GREEN impl -> adversary
+4. Worker commits each phase and pushes origin/main
+5. run.sh records meta.json; the driver inspects logs + git and authors the next
 ```
-
-The ratio is configurable via `--review-ratio D:R`. Set `--no-review` to
-disable automatic review passes entirely. A single review pass can also be
-triggered with `--review`.
-
-The 3:2 default reflects the observation that review passes tend to be
-lighter than dev passes, so running two consecutively covers more ground
-(the second review can catch issues introduced by the first review's
-refactoring).
-
-## CLI Interface
-
-```
-Usage: ./scripts/auto-waffle/run.sh [OPTIONS]
-
-Options:
-  -n, --iterations N     Run N iterations then stop (default: unlimited)
-  -t, --time-limit DURATION  Run for at most DURATION then stop (e.g., "4h", "30m")
-  -w, --work-timeout MINS    Per-iteration timeout in minutes (default: 60)
-  --review               Run a single review pass instead of work loop
-  --review-ratio D:R     Dev-to-review ratio per cycle (default: "3:2")
-  --no-review            Disable automatic review passes
-  --dry-run              Print prompts that would be sent without executing
-  --log-dir DIR          Override log directory (default: scripts/auto-waffle/logs)
-  --continue             Resume from last iteration (skip completed work)
-  -v, --verbose          Stream claude output to terminal in addition to logs
-```
-
-## Prompt Design
-
-### Work Prompt (prompts/work.md)
-
-The work prompt is static and generic. It does not name a specific task.
-Instead, it instructs Claude to:
-
-1. Read the governance documents (Constitution, FIP, DoD, Architectural
-   Invariants)
-2. Read the kernel's PLAN.md and ARCHITECTURE.md
-3. Read INTERFACES.md for type contracts
-4. Pick the highest-priority uncompleted task
-5. Write a plan to a specified log path before starting
-6. Use agent teams to maintain FIP role separation (P5):
-   - Spawn teammates for distinct roles
-   - Lead acts as Manager (never writes modeling code directly)
-   - Test Author teammate ≠ Implementer teammate
-7. Execute the full FIP cycle (spec → test → implement → validate)
-8. Run `cargo test -p kernel && cargo clippy -p kernel` before declaring done
-9. Update PLAN.md to reflect completed/discovered work
-
-The prompt also includes key reminders:
-- Analytical Primacy (A15) — exact SSI, no mesh fallbacks for quadrics
-- P9–P10 — no hack-to-green, abort if diagnosis is wrong
-- P8 — cite research references
-- Surface type taxonomy — never downgrade tiers
-
-### Cleanup Prompt (prompts/cleanup.md)
-
-Given to a resumed session after timeout. Instructs Claude to:
-
-1. Re-read governance documents (restores lucidity after context loss)
-2. Run `git diff` and `git status` to see all uncommitted changes
-3. Run `cargo test -p kernel` and `cargo clippy -p kernel`
-4. For each logical unit of change, assess:
-   - Does it follow the Engineering Constitution?
-   - Does it have a spec? Does the spec match?
-   - Are tests meaningful and passing?
-   - Does it maintain architectural invariants?
-5. Commit changes that pass governance review (with clear commit messages)
-6. Revert changes that don't (with explanation of why)
-7. Update PLAN.md: mark completed tasks, note partial progress, add blockers
-8. Write a summary of decisions to the log path
-
-### Commit Prompt (prompts/commit.md)
-
-Given to a resumed session after normal completion. Lighter than cleanup:
-
-1. Run `cargo test -p kernel && cargo clippy -p kernel && cargo fmt -p kernel -- --check`
-2. If all pass: commit all changes with descriptive message, update PLAN.md
-3. If any fail: assess what's broken, commit passing portions, revert broken
-   portions, document in PLAN.md
-4. Push to remote
-
-### Review Prompt (prompts/review.md)
-
-Instructs Claude to audit the kernel codebase against the governance model.
-The review pass is authorized to make refactoring changes (module splits,
-tolerance fixes, test strengthening, doc updates) but not to add features or
-change modeling behavior. The prompt covers:
-
-1. Governance compliance (tolerance escapes, missing specs, missing citations)
-2. Module health (split files over 2000 lines)
-3. Test quality (strengthen "no panic" tests with numeric oracles)
-4. A15 compliance (no silent boolean fallbacks)
-5. Dead code removal
-6. Documentation freshness (PLAN.md, specs, ARCHITECTURE.md)
-7. Assay triage (run assay, categorize failures, write recommendations)
-
-Like other prompts, it trusts the governance documents to provide detail and
-keeps instructions concise.
-
-## Logging
-
-Each iteration creates a timestamped directory:
-
-```
-logs/
-  2026-03-19T14-30-00/
-    plan.md          — The plan Claude wrote before executing
-    output.log       — Full claude session output
-    commit.md        — Commit prompt response (normal completion)
-    cleanup.md       — Cleanup prompt response (timeout)
-    review.md        — Review pass response (review mode)
-    meta.json        — Iteration metadata:
-                       { iteration: 3,
-                         started: "2026-03-19T14:30:00Z",
-                         ended: "2026-03-19T15:12:34Z",
-                         outcome: "completed|timeout|error",
-                         commits: ["abc1234"],
-                         task: "SSI solver: plane-torus" }
-```
-
-## Session Management
-
-### Session Continuity
-
-The work prompt runs as a fresh session (`claude -p`). When the session
-completes or times out, the commit/cleanup prompt resumes the same session
-(`claude -p --resume <session-id>`). This preserves context — the cleanup
-agent can see what the work agent was doing.
-
-### Session ID Capture
-
-`claude -p --output-format json` returns a JSON object containing
-`session_id`. The driver script captures this for `--resume`.
-
-### Timeout Implementation
-
-```bash
-timeout --signal=TERM "${WORK_TIMEOUT}m" claude -p "..." --output-format json
-exit_code=$?
-if [ $exit_code -eq 124 ]; then
-    # Timed out — run cleanup prompt with --resume
-fi
-```
-
-The `timeout` command sends SIGTERM, which Claude Code handles gracefully
-(completes current tool call, then exits). The session is persisted to disk
-automatically, allowing `--resume`.
 
 ## Safety
 
-- **No force pushes.** Prompts explicitly forbid `--force`.
-- **No destructive git ops.** Prompts forbid `reset --hard`, `checkout .`,
-  `clean -f`, `branch -D`.
-- **Governance is re-read on cleanup.** Even if the work session lost context,
-  the cleanup prompt starts by re-reading governance, which is effective at
-  restoring correct judgment.
-- **Atomic commits.** Each commit represents a complete, governance-compliant
-  unit of work. Partial work is reverted, not committed.
-- **PLAN.md is the record.** Every iteration updates PLAN.md, so the next
-  iteration (and any human reviewer) knows what happened.
-- **All output is logged.** Full session output is captured. Nothing is lost.
+- Plan mode + skip-permissions: the worker auto-approves its own plan and runs
+  unattended within one session. The governance docs (re-read each session) are
+  the guardrail.
+- No force pushes / destructive git ops (forbidden by governance + the suffix).
+- Commit-per-phase + push: each phase is an atomic, governance-compliant unit; the
+  driver can revert/redirect between increments if a worker goes wrong.
+- The driver is the human-adjacent reviewer in the loop: every worker result is
+  inspected before the next prompt is authored.
+
+## Removed vs the old design
+
+- **Removed:** generic discovery prompt (`work.md`/`plan.md`), timeout-recovery
+  prompt (`cleanup.md`), the two-phase plan/execute split, the commit follow-up
+  (`commit.md`), and the review-ratio scheduler. Recovery existed to catch an older
+  model going off the rails; the reactive driver replaces it.
+- **Kept:** plan mode, headless streaming + session capture, per-iteration logging,
+  the worktree-free `main`-linear workflow.
 
 ## Limitations
 
-- **Agent teams are experimental.** The teammate spawning mechanism may have
-  rough edges. If teams fail, the work prompt should degrade gracefully to
-  single-agent FIP (with a note in the log that P5 role separation was
-  compromised).
-- **Context window pressure.** Full FIP cycles on complex tasks (e.g., torus-
-  cylinder SSI) may exhaust the context window before completion. The 1-hour
-  timeout is a backstop, but the cleanup prompt may also face context pressure
-  on long sessions.
-- **No human in the loop.** auto-waffle trusts Claude's governance self-
-  assessment. Periodic human review of logs is expected.
-- **Single-model limitation.** All roles are played by the same model family.
-  The governance model was designed for this (P5 says "same agent role" not
-  "same model"), but it's worth noting.
-
-## Future Work
-
-- **Assay score tracking** — log assay score per iteration, plot progress
-- **Notification hooks** — notify on completion, timeout, or error
-- **Cost tracking** — log token usage per iteration via `--output-format json`
-- **Adaptive timeout** — shorter timeout for simpler tasks, longer for complex
-- **Multi-crate expansion** — extend beyond kernel to other crates once proven
+- **Headless plan mode presents-and-ends.** A real run (PR-SSI7) showed that
+  `claude -p --permission-mode plan` on a substantive task writes + presents its
+  plan via ExitPlanMode and then *ends the turn awaiting approval* — it does NOT
+  auto-continue into execution. (A trivial smoke barreled through and gave a false
+  positive.) Hence the Phase-B execute-resume is required. Re-verify this behavior
+  if the CLI version changes.
+- **Single model family** plays all roles (governance P5 is "same role," not "same
+  model" — designed for this).
+- **The driver must stay in the loop** for between-phase reconciliation; a bare
+  queue (`--queue`) trades that reactivity for unattended throughput.

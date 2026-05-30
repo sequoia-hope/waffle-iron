@@ -215,137 +215,115 @@ def _scan_for_session_id(chunk, callback):
         pass
 
 
+# Resume prompt that releases a plan-mode worker into execution. Empirically,
+# headless `claude -p --permission-mode plan` on a real task PRESENTS the plan via
+# ExitPlanMode and ENDS the turn awaiting approval — it does not auto-continue. So
+# we resume the same session (plan mode OFF, full permissions) and tell it the plan
+# is approved. The session already holds its plan in context.
+EXECUTE_PROMPT = (
+    "Your plan is approved. Execute it now, in full, in this same session.\n\n"
+    "Run the complete role-separated FIP cycle from the plan: write the spec "
+    "(you, the Manager) and commit it; then a distinct RED test-author sub-agent; "
+    "then a distinct GREEN implementer sub-agent; then a distinct Adversary "
+    "sub-agent. Commit each phase with the Co-Authored-By trailer and push to "
+    "origin/main at the end. Stay on `main`; reconcile any stray branch. The "
+    "crate's cargo test, cargo fmt --check, and cargo clippy --all-targets -- "
+    "-D warnings must be clean before you finish. If the plan's diagnosis turns "
+    "out wrong or you hit a genuine conflict, STOP and report — do not improvise "
+    "(P9/P10)."
+)
+
+
 def run_session(args):
-    """Run a full auto-waffle session."""
+    """Run ONE lean auto-waffle worker: a plan-mode planning turn, then an
+    execute-resume turn.
 
-    # Read prompt files
-    with open(args.work_prompt, 'r') as f:
-        work_prompt = f.read().strip()
+    The worker prompt = the driver-authored custom prompt (`--prompt-file`) + the
+    standing suffix (`--suffix-file`). Phase A runs in plan mode: the worker writes
+    its plan and presents it (ExitPlanMode), then the `-p` turn ends. Phase B
+    resumes the SAME session (plan mode off) with EXECUTE_PROMPT, releasing it to
+    run the full role-separated FIP cycle, commit each phase, and push. No
+    discovery prompt, no timeout-recovery prompt — the reactive driver inspects the
+    result and decides the next move.
+    """
 
-    commit_prompt = None
-    if args.commit_prompt and os.path.exists(args.commit_prompt):
-        with open(args.commit_prompt, 'r') as f:
-            commit_prompt = f.read().strip()
+    # Build the worker prompt: driver-authored custom prompt + standing suffix.
+    with open(args.prompt_file, 'r') as f:
+        custom = f.read().rstrip()
+    suffix = ""
+    if args.suffix_file and os.path.exists(args.suffix_file):
+        with open(args.suffix_file, 'r') as f:
+            suffix = f.read().rstrip()
+    worker_prompt = (custom + "\n" + suffix).strip()
 
-    cleanup_prompt = None
-    if args.cleanup_prompt and os.path.exists(args.cleanup_prompt):
-        with open(args.cleanup_prompt, 'r') as f:
-            cleanup_prompt = f.read().strip()
-
-    plan_prompt = None
-    execute_prompt = None
-    if args.plan_prompt and os.path.exists(args.plan_prompt):
-        with open(args.plan_prompt, 'r') as f:
-            plan_prompt = f.read().strip()
-    if args.execute_prompt and os.path.exists(args.execute_prompt):
-        with open(args.execute_prompt, 'r') as f:
-            execute_prompt = f.read().strip()
-
-    # Ensure output directory exists
     os.makedirs(args.output_dir, exist_ok=True)
-
-    # Environment variables for log paths
     env_extra = {
         'AUTO_WAFFLE_PLAN_PATH': os.path.join(args.output_dir, 'plan.md'),
-        'AUTO_WAFFLE_CLEANUP_PATH': os.path.join(args.output_dir, 'cleanup.md'),
         'AUTO_WAFFLE_COMMIT_PATH': os.path.join(args.output_dir, 'commit.md'),
     }
-
     if args.repo_root:
         os.chdir(args.repo_root)
 
-    timeout_secs = args.timeout * 60
+    # Persist the exact assembled prompt alongside the logs.
+    with open(os.path.join(args.output_dir, 'prompt.md'), 'w') as f:
+        f.write(worker_prompt + "\n")
 
-    # --- Two-phase mode: plan (actual plan mode) then execute ---
-    if plan_prompt and execute_prompt:
-        # Phase A: Generate plan using Claude's plan mode
-        plan_timeout = min(1800, timeout_secs // 3)
-        print(f"[claude-runner] Phase A: Plan mode ({plan_timeout//60}m timeout)...")
-        plan_session_id, plan_timed_out, plan_exit = run_claude_print(
-            plan_prompt,
-            os.path.join(args.output_dir, 'plan-output.log'),
-            timeout_secs=plan_timeout,
-            env_extra=env_extra,
-            verbose=args.verbose,
-            plan_mode=True,
-        )
+    total_secs = args.timeout * 60
 
-        plan_file = os.path.join(args.output_dir, 'plan.md')
-        if not os.path.exists(plan_file) or os.path.getsize(plan_file) == 0:
-            print(f"[claude-runner] Plan phase produced no plan. Aborting.")
-            return 1
+    if args.no_plan:
+        # Debug path: one non-plan-mode turn, no execute-resume.
+        print(f"[claude-runner] Worker (no-plan, timeout: {args.timeout}m)...")
+        _, timed_out, exit_code = run_claude_print(
+            worker_prompt, os.path.join(args.output_dir, 'output.log'),
+            timeout_secs=total_secs, env_extra=env_extra, verbose=args.verbose,
+            plan_mode=False)
+        return 2 if timed_out else (0 if exit_code == 0 else 1)
 
-        print(f"[claude-runner] Plan written ({os.path.getsize(plan_file)} bytes)")
+    # --- Phase A: plan mode — write + present the plan, then the turn ends. ---
+    plan_secs = min(1800, max(600, total_secs // 4))  # cap planning at ~30m
+    print(f"[claude-runner] Phase A: plan ({plan_secs//60}m cap)...")
+    session_id, plan_timed_out, plan_exit = run_claude_print(
+        worker_prompt, os.path.join(args.output_dir, 'plan-output.log'),
+        timeout_secs=plan_secs, env_extra=env_extra, verbose=args.verbose,
+        plan_mode=True)
+    print(f"[claude-runner] Phase A ended (exit={plan_exit}, session={session_id or 'unknown'})")
 
-        # Phase B: Execute plan — resume same session, no plan mode
-        remaining = timeout_secs - plan_timeout
-        print(f"[claude-runner] Phase B: Executing plan ({remaining//60}m timeout)...")
-        session_id, timed_out, exit_code = run_claude_print(
-            execute_prompt,
-            os.path.join(args.output_dir, 'output.log'),
-            timeout_secs=remaining,
-            env_extra=env_extra,
-            resume_session=plan_session_id,
-            verbose=args.verbose,
-        )
-    else:
-        # --- Single-phase mode (original behavior) ---
-        print(f"[claude-runner] Starting work session (timeout: {args.timeout}m)...")
-        session_id, timed_out, exit_code = run_claude_print(
-            work_prompt,
-            os.path.join(args.output_dir, 'output.log'),
-            timeout_secs=timeout_secs,
-            env_extra=env_extra,
-            verbose=args.verbose,
-        )
+    if plan_timed_out:
+        return 2
+    if not session_id:
+        print("[claude-runner] ERROR: no session id captured — cannot execute. Aborting.")
+        return 1
 
-    print(f"[claude-runner] Work session ended: "
-          f"{'TIMEOUT' if timed_out else 'completed'} "
-          f"(exit={exit_code}, session={session_id or 'unknown'})")
+    # --- Phase B: resume the SAME session, plan mode off, release to execute. ---
+    exec_secs = max(60, total_secs - plan_secs)
+    print(f"[claude-runner] Phase B: execute-resume ({exec_secs//60}m)...")
+    _, timed_out, exit_code = run_claude_print(
+        EXECUTE_PROMPT, os.path.join(args.output_dir, 'output.log'),
+        timeout_secs=exec_secs, env_extra=env_extra, resume_session=session_id,
+        verbose=args.verbose, plan_mode=False)
 
-    # --- Phase 2: Follow-up ---
-    if timed_out and cleanup_prompt and session_id:
-        print(f"[claude-runner] Running cleanup prompt on session {session_id}...")
-        run_claude_print(
-            cleanup_prompt,
-            os.path.join(args.output_dir, 'cleanup-output.log'),
-            timeout_secs=600,  # 10 min for cleanup
-            env_extra=env_extra,
-            resume_session=session_id,
-            verbose=args.verbose,
-        )
-        print(f"[claude-runner] Cleanup complete.")
+    print(f"[claude-runner] Worker ended: "
+          f"{'TIMEOUT' if timed_out else 'completed'} (exit={exit_code})")
 
-    elif not timed_out and exit_code == 0 and commit_prompt and session_id:
-        print(f"[claude-runner] Running commit prompt on session {session_id}...")
-        run_claude_print(
-            commit_prompt,
-            os.path.join(args.output_dir, 'commit-output.log'),
-            timeout_secs=600,  # 10 min for commit
-            env_extra=env_extra,
-            resume_session=session_id,
-            verbose=args.verbose,
-        )
-        print(f"[claude-runner] Commit step complete.")
-
-    elif not session_id:
-        print(f"[claude-runner] WARNING: Could not capture session ID for follow-up")
-
+    # No recovery/cleanup pass by design. Timeout is only a hang backstop.
     if timed_out:
         return 2
     return 0 if exit_code == 0 else 1
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Run Claude Code headless with timeout + follow-up')
-    parser.add_argument('--work-prompt', required=True, help='Path to work prompt file')
-    parser.add_argument('--commit-prompt', help='Path to commit prompt file')
-    parser.add_argument('--cleanup-prompt', help='Path to cleanup prompt file')
-    parser.add_argument('--plan-prompt', help='Path to plan-only prompt (enables two-phase mode)')
-    parser.add_argument('--execute-prompt', help='Path to execute prompt (enables two-phase mode)')
-    parser.add_argument('--timeout', type=int, default=60, help='Work timeout in minutes')
+    parser = argparse.ArgumentParser(
+        description='Run ONE Claude Code worker headless in plan mode (lean auto-waffle).')
+    parser.add_argument('--prompt-file', required=True,
+                        help='Path to the driver-authored custom prompt for this increment')
+    parser.add_argument('--suffix-file',
+                        help='Path to the standing suffix (plan-mode + operating rules)')
+    parser.add_argument('--timeout', type=int, default=90,
+                        help='Hang-backstop timeout in minutes (default: 90)')
     parser.add_argument('--output-dir', required=True, help='Directory for logs')
     parser.add_argument('--repo-root', help='Repository root directory')
+    parser.add_argument('--no-plan', action='store_true',
+                        help='Disable plan mode (debug only; the worker normally plans)')
     parser.add_argument('--verbose', action='store_true', help='Stream output to terminal')
 
     args = parser.parse_args()
