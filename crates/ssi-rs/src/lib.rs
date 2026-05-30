@@ -384,9 +384,12 @@ pub fn intersect(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCurve>
             // Symmetry (I4): swap so the sphere is first.
             sphere_cone(b, a)
         }
+        (QuadricSurface::Cylinder { .. }, QuadricSurface::Cone { .. }) => cylinder_cone(a, b),
+        (QuadricSurface::Cone { .. }, QuadricSurface::Cylinder { .. }) => {
+            // Symmetry (I4): swap so the cylinder is first.
+            cylinder_cone(b, a)
+        }
         (QuadricSurface::Cylinder { .. }, QuadricSurface::Cylinder { .. })
-        | (QuadricSurface::Cylinder { .. }, QuadricSurface::Cone { .. })
-        | (QuadricSurface::Cone { .. }, QuadricSurface::Cylinder { .. })
         | (QuadricSurface::Cone { .. }, QuadricSurface::Cone { .. }) => {
             Err(SsiError::AnalyticalSolutionNotAvailable)
         }
@@ -1193,6 +1196,114 @@ fn sphere_cone(sphere: &QuadricSurface, cone: &QuadricSurface) -> Result<Vec<Ssi
             center: Point3::from(add(apex, scale(ahat, h_minus))),
             normal: Vector3::from(ahat),
             radius: h_minus.abs() * tana,
+        },
+    ])
+}
+
+/// Cylinder ∩ cone (coaxial reduction to circles; general degree-4 staged).
+///
+/// Patrikalakis & Maekawa, *Shape Interrogation for CAD/M*, §5.8.3 (Case F8,
+/// implicit/implicit quadric pair). The general cylinder∩cone intersection is a
+/// degree-4 space curve, but the **coaxial** configuration — the two axis
+/// *lines* coincide — reduces to **exactly two circles**, exact, reusing
+/// `SsiCurve::Circle`. The general (non-coaxial) degree-4 curve is staged behind
+/// `Err(AnalyticalSolutionNotAvailable)` (a later increment adds the degree-4
+/// variant); this is a deliberate limitation, never a fallback (A15.2).
+///
+/// Math: cone apex `P`, unit axis `â`, half-angle `α`; cylinder axis point `A`,
+/// unit axis `ĉ`, radius `r_c`. **Coaxial** ::= the axis lines coincide:
+/// the axes are parallel (`|ĉ × â| < TAU_MODEL`) AND `A` lies on the cone axis
+/// line (`d_ax = |rel − (rel·â)·â| < TAU_MODEL`, `rel = A − P`). When coaxial, a
+/// cone point at axial height `h` has radial distance `|h|·tanα` from the shared
+/// axis and lies on the cylinder iff `|h|·tanα = r_c`, i.e.
+/// `|h| = r_c·cotα = r_c / tanα` (the classical `x²+y² = h²·tan²α` ∧
+/// `x²+y² = r_c²` reduction). The two roots `h = ± r_c·cotα` give **exactly two
+/// circles** `{ center = P ± h·â, normal = â, radius = r_c }` (`h < 0` is the
+/// other nappe of the double cone).
+///
+/// **Always two circles — no discriminant (the one design choice, P9/P10).**
+/// Unlike `sphere_cylinder` / `sphere_cone`, there is **no `√`, no discriminant,
+/// no tangent/empty branch.** A sphere's *finite* radius can miss, graze, or cut
+/// the other surface, so those solvers gate a `√D` to stay real. The cone's
+/// per-nappe radial range is `[0, ∞)`, so the constant cylinder radius `r_c` is
+/// met at exactly one axial height per nappe; coaxial cyl∩cone is therefore
+/// *always* two distinct circles for valid input. Manufacturing a discriminant /
+/// tangent / empty branch to mirror `sphere_cone` would be a hack-to-pattern and
+/// is prohibited.
+///
+/// Branch table:
+/// - **E1** (degenerate): `r_c ≤ 0` / non-finite; OR `α` non-finite /
+///   `α ≤ TAU_MODEL` / `α ≥ π/2 − TAU_MODEL`; OR zero / non-finite cone or
+///   cylinder `axis_dir` ⇒ `Err(DegenerateInput)`.
+/// - **NC** (non-coaxial general degree-4): NOT (`|ĉ × â| < TAU_MODEL` AND
+///   `d_ax < TAU_MODEL`) ⇒ `Err(AnalyticalSolutionNotAvailable)` — staged, never
+///   a fallback (A15.2).
+/// - **X2** (two circles): coaxial (always, for valid input) ⇒ two `Circle`s at
+///   `h = ± r_c·cotα`, `center = P ± h·â`, `normal = â`, `radius = r_c`; **h>0
+///   nappe first** (determinism, I5).
+fn cylinder_cone(
+    cylinder: &QuadricSurface,
+    cone: &QuadricSurface,
+) -> Result<Vec<SsiCurve>, SsiError> {
+    let (
+        QuadricSurface::Cylinder {
+            axis_point: ap,
+            axis_dir: cd,
+            radius: r_c,
+        },
+        QuadricSurface::Cone {
+            apex,
+            axis_dir: ad,
+            half_angle: alpha,
+        },
+    ) = (cylinder, cone)
+    else {
+        return Err(SsiError::AnalyticalSolutionNotAvailable);
+    };
+
+    let r_c = *r_c;
+    // E1: degenerate cylinder radius.
+    if r_c <= 0.0 || !r_c.is_finite() {
+        return Err(SsiError::DegenerateInput);
+    }
+    let alpha = *alpha;
+    // E1: invalid cone half-angle (a line at α→0, a plane at α→π/2). Mirrors
+    // `sphere_cone` / `plane_cone`.
+    if !alpha.is_finite() || alpha <= TAU_MODEL || alpha >= std::f64::consts::FRAC_PI_2 - TAU_MODEL
+    {
+        return Err(SsiError::DegenerateInput);
+    }
+    let apex = apex.as_array();
+    let a = ap.as_array();
+    // `normalize` rejects zero / non-finite vectors (E1: zero cone/cyl axis).
+    let ahat = normalize(ad.as_array())?; // cone axis
+    let chat = normalize(cd.as_array())?; // cylinder axis
+
+    // Coaxial test: axes parallel AND cylinder axis_point on the cone axis line.
+    let axes_parallel = norm(cross(chat, ahat)) < TAU_MODEL;
+    let rel = sub(a, apex);
+    let d_ax = norm(sub(rel, scale(ahat, dot(rel, ahat))));
+    let on_axis = d_ax < TAU_MODEL;
+
+    // NC — non-coaxial general degree-4: staged (loud Err, no fallback).
+    if !(axes_parallel && on_axis) {
+        return Err(SsiError::AnalyticalSolutionNotAvailable);
+    }
+
+    // X2 — two circles at h = ± r_c·cotα (always, for valid coaxial input).
+    // α ∈ (TAU_MODEL, π/2 − TAU_MODEL) ⇒ tanα bounded away from 0 and ∞, so the
+    // division is safe (no guard beyond the α E1 check); no √, no discriminant.
+    let h = r_c / alpha.tan();
+    Ok(vec![
+        SsiCurve::Circle {
+            center: Point3::from(add(apex, scale(ahat, h))), // h>0 nappe first (I5)
+            normal: Vector3::from(ahat),
+            radius: r_c,
+        },
+        SsiCurve::Circle {
+            center: Point3::from(sub(apex, scale(ahat, h))),
+            normal: Vector3::from(ahat),
+            radius: r_c,
         },
     ])
 }
