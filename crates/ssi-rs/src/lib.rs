@@ -379,9 +379,12 @@ pub fn intersect(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCurve>
         // No analytical solver yet (Degree-4 and unimplemented quadric pairs;
         // future increment). A15.2: loud `Err`, never a silent mesh/grid
         // fallback.
+        (QuadricSurface::Sphere { .. }, QuadricSurface::Cone { .. }) => sphere_cone(a, b),
+        (QuadricSurface::Cone { .. }, QuadricSurface::Sphere { .. }) => {
+            // Symmetry (I4): swap so the sphere is first.
+            sphere_cone(b, a)
+        }
         (QuadricSurface::Cylinder { .. }, QuadricSurface::Cylinder { .. })
-        | (QuadricSurface::Sphere { .. }, QuadricSurface::Cone { .. })
-        | (QuadricSurface::Cone { .. }, QuadricSurface::Sphere { .. })
         | (QuadricSurface::Cylinder { .. }, QuadricSurface::Cone { .. })
         | (QuadricSurface::Cone { .. }, QuadricSurface::Cylinder { .. })
         | (QuadricSurface::Cone { .. }, QuadricSurface::Cone { .. }) => {
@@ -1058,6 +1061,138 @@ fn sphere_cylinder(
             center: Point3::from(sub(c, scale(ahat, h))),
             normal: Vector3::from(ahat),
             radius: r_c,
+        },
+    ])
+}
+
+/// Sphere ∩ cone (coaxial reduction to circles).
+///
+/// Patrikalakis & Maekawa, *Shape Interrogation for CAD/M*, §5.8.3 (Case F8,
+/// implicit/implicit quadric pair). The general sphere∩cone intersection is a
+/// degree-4 space curve, but the **coaxial** configuration — the sphere center
+/// `C` lies on the cone's axis line — reduces to **one or two circles**, exact,
+/// reusing `SsiCurve::Circle`. The general (non-coaxial) degree-4 curve is
+/// staged behind `Err(AnalyticalSolutionNotAvailable)` (a later increment adds
+/// the degree-4 variant); this is a deliberate limitation, never a fallback
+/// (A15.2).
+///
+/// Math: cone apex `P`, unit axis `â`, half-angle `α`; sphere center `C`,
+/// radius `r_s`. With `rel = C − P`, the coaxial test is the perpendicular
+/// distance `d_ax = |rel − (rel·â)·â|`. Let `h0 = (C − P)·â` (signed axial
+/// height of the sphere center). A cone point at axial height `h` has radial
+/// distance `|h|·tanα` and lies on the sphere iff
+/// `(h − h0)² + h²·tan²α = r_s²`, i.e.
+/// `sec²α·h² − 2·h0·h + (h0² − r_s²) = 0`, with roots
+/// `h = (h0 ± √D)·cos²α`, `D = sec²α·r_s² − h0²·tan²α`. Each real root → one
+/// `Circle { center = P + h·â, normal = â, radius = |h|·tanα }` (`h < 0` is the
+/// other nappe of the double cone).
+///
+/// **Branch gate (the one design choice).** Per the SSI2/3/6 lesson, gate on a
+/// geometrically-meaningful *linear* quantity, not on the length² `D` nor on a
+/// square. Factoring with `tan²α = sec²α·sin²α`,
+/// `D = sec²α·(r_s − |h0|·sinα)·(r_s + |h0|·sinα)`. Since `sec²α > 0` and
+/// `r_s + |h0|·sinα > 0`, `sign(D) = sign(g)` where `g = r_s − |h0|·sinα` is the
+/// linear gap (sphere radius minus the on-axis tangent radius `|h0|·sinα`).
+/// Gating X2 on `g > TAU_MODEL` guarantees `D > 0` strictly, so `√D` never sees
+/// a negative argument (exactly how `sphere_cylinder`'s `r_s − r_c` gate
+/// protects `√(r_s²−r_c²)`).
+///
+/// Branch table:
+/// - **E1** (degenerate): `r_s ≤ 0` / non-finite; OR `α` non-finite /
+///   `α ≤ TAU_MODEL` / `α ≥ π/2 − TAU_MODEL`; OR zero / non-finite `axis_dir`
+///   ⇒ `Err(DegenerateInput)`.
+/// - **NC** (non-coaxial general degree-4): `d_ax ≥ TAU_MODEL` ⇒
+///   `Err(AnalyticalSolutionNotAvailable)` — staged, never a fallback.
+/// - **X0** (empty): coaxial and `g < −TAU_MODEL` (sphere too small to reach the
+///   cone) ⇒ `Ok(vec![])`.
+/// - **X1** (one tangent circle): coaxial and `|g| ≤ TAU_MODEL` ⇒ one `Circle`
+///   at `h_t = h0·cos²α`.
+/// - **X2** (two circles): coaxial and `g > TAU_MODEL` ⇒ two `Circle`s at
+///   `h_± = (h0 ± √D)·cos²α`, **+√D first** (determinism, I5).
+fn sphere_cone(sphere: &QuadricSurface, cone: &QuadricSurface) -> Result<Vec<SsiCurve>, SsiError> {
+    let (
+        QuadricSurface::Sphere {
+            center: sc,
+            radius: r_s,
+        },
+        QuadricSurface::Cone {
+            apex,
+            axis_dir: ad,
+            half_angle: alpha,
+        },
+    ) = (sphere, cone)
+    else {
+        return Err(SsiError::AnalyticalSolutionNotAvailable);
+    };
+
+    let r_s = *r_s;
+    // E1: degenerate sphere radius.
+    if r_s <= 0.0 || !r_s.is_finite() {
+        return Err(SsiError::DegenerateInput);
+    }
+    let alpha = *alpha;
+    // E1: invalid cone half-angle (a line at α→0, a plane at α→π/2). Mirrors
+    // `plane_cone`.
+    if !alpha.is_finite() || alpha <= TAU_MODEL || alpha >= std::f64::consts::FRAC_PI_2 - TAU_MODEL
+    {
+        return Err(SsiError::DegenerateInput);
+    }
+    let c = sc.as_array();
+    let apex = apex.as_array();
+    // `normalize` rejects zero / non-finite vectors (E1: zero axis).
+    let ahat = normalize(ad.as_array())?;
+
+    let cosa = alpha.cos();
+    let sina = alpha.sin();
+    let tana = alpha.tan();
+
+    // Coaxial discriminant: perpendicular distance from the sphere center to the
+    // cone axis line, and the signed axial height h0 of the center.
+    let rel = sub(c, apex);
+    let h0 = dot(rel, ahat);
+    let d_ax = norm(sub(rel, scale(ahat, h0)));
+
+    // NC — non-coaxial general degree-4: staged (loud Err, no fallback).
+    if d_ax >= TAU_MODEL {
+        return Err(SsiError::AnalyticalSolutionNotAvailable);
+    }
+
+    // Linear gate: g = r_s − |h0|·sinα, with sign(D) = sign(g).
+    let g = r_s - h0.abs() * sina;
+
+    // X0 — sphere too small to reach the cone (g < −TAU ⇒ D < 0).
+    if g < -TAU_MODEL {
+        return Ok(Vec::new());
+    }
+
+    let cos2 = cosa * cosa;
+
+    // X1 — tangent: |g| ≤ TAU ⇒ a single circle at h_t = h0·cos²α.
+    if g.abs() <= TAU_MODEL {
+        let h_t = h0 * cos2;
+        return Ok(vec![SsiCurve::Circle {
+            center: Point3::from(add(apex, scale(ahat, h_t))),
+            normal: Vector3::from(ahat),
+            radius: h_t.abs() * tana,
+        }]);
+    }
+
+    // X2 — two circles (g > TAU ⇒ D > 0 strictly, so √D is safe).
+    // D = sec²α·r_s² − h0²·tan²α = r_s²/cos²α − h0²·tan²α.
+    let disc = r_s * r_s / cos2 - h0 * h0 * tana * tana;
+    let sqrt_d = disc.sqrt();
+    let h_plus = (h0 + sqrt_d) * cos2;
+    let h_minus = (h0 - sqrt_d) * cos2;
+    Ok(vec![
+        SsiCurve::Circle {
+            center: Point3::from(add(apex, scale(ahat, h_plus))), // +√D first (I5)
+            normal: Vector3::from(ahat),
+            radius: h_plus.abs() * tana,
+        },
+        SsiCurve::Circle {
+            center: Point3::from(add(apex, scale(ahat, h_minus))),
+            normal: Vector3::from(ahat),
+            radius: h_minus.abs() * tana,
         },
     ])
 }
