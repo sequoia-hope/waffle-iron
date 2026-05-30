@@ -254,13 +254,26 @@ reimplementation from Attene's paper restores WASM (M7).
     commits `d7cbbd8a`→`39841dc5` (RED)→`b1f5da9f` (GREEN + faithful fixture
     migration)→`38f7d553` (adversary). 108/108 ssi-rs tests; CI gate clean.
     **plane∩{plane,sphere,cylinder,cone} now complete for all proper conics.**
-  - **Next M5 increments (sequenced):** PR-SSI5 = plane∩cone **through-apex**
-    degenerate conics (point → `[]`; tangent → one Line; crossed → two Lines) →
-    the Degree-4 pairs (sphere∩cyl, cyl∩cyl, cone∩cone, sphere∩cone, cyl∩cone) +
-    torus pairs (rest of A15.4) → curved `Surface` variants + curved Stage-1
-    tessellation in `yang-rs` → curved face resolution + the planar-assumption
-    migration → Stage 3 (wire `ssi-rs` into `yang-rs` to refine mesh edges → SSI
-    curves) → Stage 4 (CDT remesh along refined curves).
+  - **Step 5 — `ssi-rs` plane∩cone through-apex degenerate conics (PR-SSI5) ✅
+    DONE — plane∩cone now COMPLETE.** Replaced the AP `Err(DegenerateInput)` with
+    the degenerate result: point → `Ok([])` (`|k|>sinα`, incl. ⟂); one Line
+    (`|k|=sinα`, tangent generator); two Lines (`|k|<sinα`, crossed generators
+    through the apex). No new curve types (reuses `Line`); sub-case classified by
+    the proven `gd_±` sign test (`gd₊·gd₋=k²−sinα²`); two-line dirs `cφ·m̂±sφ·ŵ`.
+    Hand-verified (α=π/4, n̂=(1,0,0) → (0,∓1,1)/√2 = `z²=y²`; tangent → (−1,0,1)/√2;
+    ⟂ → []). The new AP contract obsoleted PR-SSI3's AP assertions (2 ssi3 tests +
+    1 adversary attack) — migrated to the new contract, **adversary-verified
+    faithful**. Adversary (13 attacks): no bugs; clean monotone point↔line↔two-line
+    boundary; clean AP-detection band; lines exact on both surfaces. Spec note: the
+    tangent sub-case is a ~1.4e-7-wide k-window (intrinsic to the exact `k=sinα`
+    degenerate). Spec `specs/ssi_pr_ssi5_plane_cone_through_apex.md`; commits
+    `e974295b`→`476fc663` (RED)→`c2d9ed47` (GREEN)→`9d109bef` (adversary). 129/129
+    ssi-rs tests; CI gate clean. **plane∩{plane,sphere,cylinder,cone} fully done.**
+  - **Next M5 increments (sequenced):** the Degree-4 pairs (sphere∩cyl, cyl∩cyl,
+    cone∩cone, sphere∩cone, cyl∩cone) + torus pairs (rest of A15.4) → curved
+    `Surface` variants + curved Stage-1 tessellation in `yang-rs` → curved face
+    resolution + the planar-assumption migration → Stage 3 (wire `ssi-rs` into
+    `yang-rs` to refine mesh edges → SSI curves) → Stage 4 (CDT remesh).
 - **M6 — Native `cherchi-rs` Stage 2** behind the same interface, parity-green
   vs the sidecar on the corpus.
 - **M7 — Clean-room indirect predicates from Attene's paper → restore WASM.**
