@@ -4,7 +4,8 @@ claude-runner.py — Run Claude Code in print mode with graceful SIGINT interrup
 
 Uses `claude -p` for reliable headless execution. On timeout, sends SIGINT
 (the signal equivalent of Ctrl-C / escape) for graceful interruption.
-Follow-up prompts use `--resume` with the captured session ID.
+The execute turn starts a FRESH session seeded with the approved plan (NOT
+`--resume`) — see build_execute_prompt for why.
 
 Streams output to log files in real-time so progress can be monitored
 with `tail -f`.
@@ -215,14 +216,20 @@ def _scan_for_session_id(chunk, callback):
         pass
 
 
-# Resume prompt that releases a plan-mode worker into execution. Empirically,
-# headless `claude -p --permission-mode plan` on a real task PRESENTS the plan via
-# ExitPlanMode and ENDS the turn awaiting approval — it does not auto-continue. So
-# we resume the same session (plan mode OFF, full permissions) and tell it the plan
-# is approved. The session already holds its plan in context.
-EXECUTE_PROMPT = (
-    "Your plan is approved. Execute it now, in full, in this same session.\n\n"
-    "Run the complete role-separated FIP cycle from the plan: write the spec "
+# The plan-mode worker (Phase A) PRESENTS its plan via ExitPlanMode and ENDS the
+# turn awaiting approval — headless `claude -p --permission-mode plan` does not
+# auto-continue. Phase B then executes the approved plan in a FRESH session.
+#
+# Why fresh and NOT `--resume`: resuming replays Phase A's final assistant turn.
+# If that turn ended on a thinking block followed by a parallel tool-call batch
+# that got cancelled mid-flight (one call errors -> its siblings are cancelled),
+# the turn is left half-finished, and the API refuses to replay it ("`thinking`
+# blocks in the latest assistant message cannot be modified"). A fresh session has
+# no prior turn to replay, so that whole failure class is structurally impossible.
+# We carry the plan forward explicitly instead: the ExitPlanMode payload is pulled
+# out of plan-output.log (extract_plan_from_log) and embedded verbatim below.
+EXECUTE_INSTRUCTIONS = (
+    "Run the complete role-separated FIP cycle from the plan above: write the spec "
     "(you, the Manager) and commit it; then a distinct RED test-author sub-agent; "
     "then a distinct GREEN implementer sub-agent; then a distinct Adversary "
     "sub-agent. Commit each phase with the Co-Authored-By trailer and push to "
@@ -233,18 +240,75 @@ EXECUTE_PROMPT = (
     "(P9/P10)."
 )
 
+# Below this length, treat Phase A as having produced no usable plan and abort
+# rather than hand off a hollow plan to the executor.
+MIN_PLAN_CHARS = 200
+
+
+def build_execute_prompt(plan_text):
+    """Phase B prompt for a FRESH session: the approved plan embedded verbatim,
+    then the standing execute instructions."""
+    return (
+        "You are executing a plan that was written and approved in a prior "
+        "planning session. The full plan is reproduced below; execute it now, in "
+        "full, in this session.\n\n"
+        "===== APPROVED PLAN =====\n"
+        f"{plan_text}\n"
+        "===== END APPROVED PLAN =====\n\n"
+        + EXECUTE_INSTRUCTIONS
+    )
+
+
+def extract_plan_from_log(log_path):
+    """Scan a stream-json log for the LAST ExitPlanMode tool_use payload and return
+    its `input.plan` text, or None if no ExitPlanMode plan is present.
+
+    The plan lives only here — there is no separate plan.md artifact written by the
+    worker. Walks nested JSON because the tool_use block is buried inside an
+    assistant `message.content` array.
+    """
+    found = None
+
+    def walk(o):
+        nonlocal found
+        if isinstance(o, dict):
+            if o.get('type') == 'tool_use' and o.get('name') == 'ExitPlanMode':
+                plan = o.get('input', {}).get('plan')
+                if plan:
+                    found = plan  # keep the last one if the worker re-presented
+            for v in o.values():
+                walk(v)
+        elif isinstance(o, list):
+            for v in o:
+                walk(v)
+
+    try:
+        with open(log_path, 'r', errors='replace') as f:
+            for line in f:
+                line = line.strip()
+                if 'ExitPlanMode' not in line:
+                    continue
+                try:
+                    walk(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+    except OSError:
+        return None
+    return found
+
 
 def run_session(args):
-    """Run ONE lean auto-waffle worker: a plan-mode planning turn, then an
-    execute-resume turn.
+    """Run ONE lean auto-waffle worker: a plan-mode planning turn, then a fresh
+    execute turn seeded with the approved plan.
 
     The worker prompt = the driver-authored custom prompt (`--prompt-file`) + the
     standing suffix (`--suffix-file`). Phase A runs in plan mode: the worker writes
-    its plan and presents it (ExitPlanMode), then the `-p` turn ends. Phase B
-    resumes the SAME session (plan mode off) with EXECUTE_PROMPT, releasing it to
-    run the full role-separated FIP cycle, commit each phase, and push. No
-    discovery prompt, no timeout-recovery prompt — the reactive driver inspects the
-    result and decides the next move.
+    its plan and presents it (ExitPlanMode), then the `-p` turn ends. Phase B pulls
+    that plan out of plan-output.log and runs it in a FRESH session (NOT --resume,
+    to avoid replaying a possibly-broken Phase A turn — see build_execute_prompt),
+    releasing the worker to run the full role-separated FIP cycle, commit each
+    phase, and push. No discovery prompt, no timeout-recovery prompt — the reactive
+    driver inspects the result and decides the next move.
     """
 
     # Build the worker prompt: driver-authored custom prompt + standing suffix.
@@ -290,16 +354,34 @@ def run_session(args):
 
     if plan_timed_out:
         return 2
-    if not session_id:
-        print("[claude-runner] ERROR: no session id captured — cannot execute. Aborting.")
+
+    # Carry the approved plan forward explicitly. It lives only as the ExitPlanMode
+    # payload in plan-output.log (no plan.md is written by the worker). Refuse to
+    # hand off a missing or hollow plan rather than launch the executor blind.
+    plan_log = os.path.join(args.output_dir, 'plan-output.log')
+    plan_text = extract_plan_from_log(plan_log)
+    if not plan_text or len(plan_text) < MIN_PLAN_CHARS:
+        got = len(plan_text) if plan_text else 0
+        print(f"[claude-runner] ERROR: Phase A produced no usable plan "
+              f"(ExitPlanMode plan = {got} chars, need >= {MIN_PLAN_CHARS}). "
+              f"Aborting before execute. session={session_id or 'unknown'}")
         return 1
 
-    # --- Phase B: resume the SAME session, plan mode off, release to execute. ---
+    # Persist the plan as a human-readable artifact (watch.sh + post-hoc review).
+    try:
+        with open(os.path.join(args.output_dir, 'plan.md'), 'w') as pf:
+            pf.write(plan_text + "\n")
+    except OSError:
+        pass
+    print(f"[claude-runner] Extracted approved plan ({len(plan_text)} chars); "
+          f"starting FRESH execute session (Phase A session={session_id or 'unknown'}).")
+
+    # --- Phase B: FRESH session (NOT --resume), plan mode off, execute the plan. ---
     exec_secs = max(60, total_secs - plan_secs)
-    print(f"[claude-runner] Phase B: execute-resume ({exec_secs//60}m)...")
+    print(f"[claude-runner] Phase B: execute (fresh session, {exec_secs//60}m)...")
     _, timed_out, exit_code = run_claude_print(
-        EXECUTE_PROMPT, os.path.join(args.output_dir, 'output.log'),
-        timeout_secs=exec_secs, env_extra=env_extra, resume_session=session_id,
+        build_execute_prompt(plan_text), os.path.join(args.output_dir, 'output.log'),
+        timeout_secs=exec_secs, env_extra=env_extra, resume_session=None,
         verbose=args.verbose, plan_mode=False)
 
     print(f"[claude-runner] Worker ended: "
