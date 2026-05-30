@@ -349,8 +349,35 @@ reimplementation from Attene's paper restores WASM (M7).
     Spec `specs/ssi_pr_ssi9_cone_cone_coaxial.md`; commits `da98380e` (spec)→
     `cc61f1bb` (RED)→`f960895d` (GREEN)→`6027d7c1` (adversary). 245/245 ssi-rs
     tests; CI clean.
-  - **Next M5 increments (sequenced):** cyl∩cyl special cases (equal-R
-    intersecting → two ellipses; parallel → two lines, PR-SSI10/11) → the
+  - **Step 10 — `ssi-rs` cylinder∩cylinder parallel axes → lines (PR-SSI10) ✅
+    DONE.** First of the two cyl∩cyl special cases. Parallel-axis cyl∩cyl reduces
+    to **circle∩circle** in the plane ⟂ the shared axis `û`, lifted along `û` →
+    **lines** (reuse `SsiCurve::Line`). Inter-axis distance `d = |rel − (rel·û)·û|`;
+    chord offset `a = (d²+r₁²−r₂²)/(2d)` along `n̂`, half-chord `h = √(r₁²−a²)`,
+    `p̂ = û×n̂`, points `Q₁+a·n̂ ± h·p̂`. Gate on the **linear** `d` vs `r₁±r₂`:
+    E1 (`DegenerateInput`) → NP (`|û₁×û₂|≥TAU` → ASNA) → coincident (d≤TAU, equal r
+    → `DegenerateInput`, 2D overlap) → concentric (d≤TAU, unequal r → empty) →
+    disjoint/contained (empty) → tangent (one line) → secant (two lines, +h·p̂
+    first). Non-parallel stays ASNA (the equal-R intersecting → ellipses case is
+    PR-SSI11). Reuses `Line` — no new curve type, no enum-match migration.
+    **Adversary found a real bug:** a non-finite `axis_point` (NaN/Inf) leaked a
+    NaN-bearing `Line` instead of erroring — `d=NaN` compares false against every
+    branch threshold, so control fell through to the secant branch; the radius and
+    axis_dir guards did not cover the point. Fixed with an early `axis_point`
+    finiteness guard → `DegenerateInput` (the coaxial-detect siblings degrade to
+    NC→ASNA on a NaN point, so the leak was unique to cyl∩cyl's curve-producing
+    fall-through). Adversary 13 attacks (parallelism/tangent/coincident boundaries,
+    argument-swap line-SET symmetry, antiparallel/non-unit axes, 36-config
+    determinism sweep, characterized absolute-`TAU` oracle ceiling ~1e8 via an
+    oblique config). **Process note:** the SSI10 worker hit the account usage limit
+    mid-cycle after committing spec+RED; the interactive driver completed GREEN
+    against the worker's frozen RED suite (test-author ≠ implementer preserved),
+    spawned a distinct Adversary sub-agent, and fixed its finding. Spec
+    `specs/ssi_pr_ssi10_cylinder_cylinder_parallel.md`; commits `fed67c3c` (spec)→
+    `b53e55a2` (RED)→`7100c143` (GREEN)→`f0927aec` (adversary)→`721d7b23` (fix)→
+    `7a18bb66` (adversary verify). 277/277 ssi-rs tests; fmt + clippy clean.
+  - **Next M5 increments (sequenced):** cyl∩cyl equal-R
+    intersecting → two ellipses (PR-SSI11) → the
     **general degree-4
     curve** (a new parametric `SsiCurve` variant + the 5 general-position solvers) +
     torus pairs (rest of A15.4) → curved `Surface` variants + curved Stage-1
