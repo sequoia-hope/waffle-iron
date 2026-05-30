@@ -404,13 +404,33 @@ reimplementation from Attene's paper restores WASM (M7).
     `specs/yang_rs_curved_surface_curve_types.md`; role-separated cycle, commits
     `441e8748`/`076bf661` (RED + integration-test contract migration)→`0afdc6a3`
     (GREEN)→`07f6d12e` (adversary).
-  - **Next M5 increments (sequenced):** the
-    **general degree-4
+  - **PR-YR7 — P2a curved Stage-1 tessellation: CYLINDER only. ✅ DONE.**
+    First curved-geometry *processing* step. `BRep::new` now dispatches by face
+    surface type: a closed-solid cylinder (encoded with a seam edge — lateral
+    `Surface::Cylinder` + 2 planar disk caps, no `BRepFace` two-loop change)
+    tessellates into a watertight, chord-error-bounded mesh (`d_ε = 1e-2 ×
+    AABB_diag`, `N` from `r·(1−cos(π/N)) ≤ d_ε`) with a correct
+    `TessellationMap`. A shared per-`Circle`-edge rim-ring pre-pass gives
+    cap+lateral identical rim vertices (watertight via shared indices, not
+    snap-weld); `ortho_basis` is shared by sampling AND the new infallible
+    `BRep::eval_source` bijection inverse (the round-trip oracle); the
+    opposite-rim-normal twist is resolved by axis-frame azimuth alignment.
+    Adds `signed_distance_to_surface` (Plane+Cylinder; Sphere/Cone loud) wired
+    into `boolean()`'s distance closure. **No boolean wiring, no `ssi-rs` call,
+    no exact intersection curves.** Sphere/Cone still reject loudly; the planar
+    box path is unchanged; `reconstruct_topology` still defers cylinder (P2c).
+    Cylinder-on-a-triangle is now `MalformedTopology` (lacks its 2 `Circle`
+    rims), not `CurvedSurfaceNotYetSupported`. Spec
+    `specs/yang_pr_yr7_cylinder_tessellation.md`; role-separated cycle, commits
+    `16570a20` (spec)→`aca9d7e4` (RED + contract migration)→`b3dc3f65`
+    (GREEN)→`81a3abcf` (adversary).
+  - **Next M5 increments (sequenced):** **P2b: sphere Stage-1 tessellation** →
+    **P2c: curved Stage-6 reassembly** (re-enable `reconstruct_topology` for
+    curved output surfaces + curved face resolution + the planar-assumption
+    migration) → the **general degree-4
     curve** (a new parametric `SsiCurve` variant + the 5 general-position solvers) +
     torus pairs (rest of A15.4) → ~~curved `Surface` variants~~ (PR-YR6 ✅) →
-    **P2: curved Stage-1 tessellation** (replace PR-YR6's loud rejection at
-    `BRep::new` with real bijective tessellation of curved faces) → curved face
-    resolution + the planar-assumption migration → **P3: Stage 3** (wire `ssi-rs`
+    ~~P2a curved cylinder tessellation~~ (PR-YR7 ✅) → **P3: Stage 3** (wire `ssi-rs`
     into `yang-rs`; yang `Surface` → ssi `QuadricSurface`) → Stage 4 (CDT remesh).
     The next increment — the general degree-4 cyl∩cyl curve — requires a NEW
     parametric `SsiCurve` variant + general-position solvers, and **MUST be planned
