@@ -235,10 +235,29 @@ reimplementation from Attene's paper restores WASM (M7).
     Spec `specs/ssi_pr_ssi3_plane_cone.md`; commits `d0f3bfe1`→`f16f9fbd` (RED)→
     `014e7445` (GREEN)→`f3cacaae` (adversary)→`64047b06` (spec fix)→`ddc5e2be`
     (consistency fix). 86/86 ssi-rs tests; CI gate clean; no sibling/legacy changes.
-  - **Next M5 increments (sequenced):** PR-SSI4 = `Parabola` + `Hyperbola` curves
-    (+ `eval`, two-branch handling on the double cone) and the plane∩cone PH +
-    degenerate through-apex branches → more pairs (sphere-cylinder, cyl-cyl, …; the
-    Degree4 quartic curves) → curved `Surface` variants + curved Stage-1
+  - **Step 4 — `ssi-rs` plane∩cone unbounded conics (PR-SSI4) ✅ DONE.** Completes
+    the **four proper** plane∩cone sections: adds the first two **unbounded**
+    `SsiCurve` types — `Parabola { vertex, normal, axis_dir, focal_length }` and
+    `Hyperbola { center, normal, major_axis, semi_transverse, semi_conjugate }` —
+    each with its own `eval`, and the `plane_cone` PARA/HYPE branches replacing the
+    SSI3 staged `Err`. On the infinite double cone a hyperbola returns **two**
+    branch curves (`±major_axis`, `+m̂` first). Constructions hand-verified before
+    coding (hyperbola α=π/4 plane x=1 → center(1,0,0),a=b=1,vertices(1,0,±1);
+    parabola → vertex(½,0,½),f=1/(2√2),eval(1)=(0,−1,1) on both surfaces). The new
+    PH contract obsoleted PR-SSI3's staged-gap assertions (2 `ssi3.rs` placeholders
+    + 6 `ssi3_adversary` attacks) — migrated to the new contract, **adversary-
+    verified faithful** (no attack weakened; the sweep guard tightened). Adversary
+    (13 attacks): no bugs; both classification boundaries clean (no NaN/blow-up/
+    misclassification); parabola on-surface to coord ~1e8, hyperbola exact to T≈7.
+    Through-apex degenerate conics (point/line/two-lines) **deferred to PR-SSI5**
+    (still `Err(DegenerateInput)`). Spec `specs/ssi_pr_ssi4_plane_cone_unbounded.md`;
+    commits `d7cbbd8a`→`39841dc5` (RED)→`b1f5da9f` (GREEN + faithful fixture
+    migration)→`38f7d553` (adversary). 108/108 ssi-rs tests; CI gate clean.
+    **plane∩{plane,sphere,cylinder,cone} now complete for all proper conics.**
+  - **Next M5 increments (sequenced):** PR-SSI5 = plane∩cone **through-apex**
+    degenerate conics (point → `[]`; tangent → one Line; crossed → two Lines) →
+    the Degree-4 pairs (sphere∩cyl, cyl∩cyl, cone∩cone, sphere∩cone, cyl∩cone) +
+    torus pairs (rest of A15.4) → curved `Surface` variants + curved Stage-1
     tessellation in `yang-rs` → curved face resolution + the planar-assumption
     migration → Stage 3 (wire `ssi-rs` into `yang-rs` to refine mesh edges → SSI
     curves) → Stage 4 (CDT remesh along refined curves).
