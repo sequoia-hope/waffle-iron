@@ -63,16 +63,26 @@ Let `n̂` = unit plane normal, `p` = plane point, `â` = unit axis, `α` = half_
 |---|---|---|---|
 | E1 | invalid cone / degenerate input | `α` non-finite or `α ≤ TAU_MODEL` or `α ≥ π/2 − TAU_MODEL`; or `axis_dir`/`normal` zero-length or non-finite | `Err(DegenerateInput)` |
 | AP | through-apex | `\|n̂·(apex − p)\| < TAU_MODEL` (apex lies on the cutting plane) | `Err(DegenerateInput)` — degenerate conic (point/line/two-lines), deferred to PR-SSI4 |
-| C1 | circle (plane ⟂ axis) | `s_n < TAU_MODEL` | one **Circle** { center = apex + h·â, normal = â, radius = \|h\|·tanα }, `h = n̂·(p − apex)/k` |
+| C1 | circle (plane ⟂ axis) | `proj_norm = \|proj\| < TAU_MODEL`, `proj = n̂ − k·â` | one **Circle** { center = apex + h·â, normal = â, radius = \|h\|·tanα }, `h = n̂·(p − apex)/k` |
 | C2 | ellipse (closed) | `sign(gd₊) = sign(gd₋)` and `min(\|gd₊\|, \|gd₋\|) > TAU_MODEL` | one **Ellipse** (construction below) |
 | PH | parabola / hyperbola | one `\|gd_±\| ≤ TAU_MODEL` (parabola: a generator ∥ plane) **or** `sign(gd₊) ≠ sign(gd₋)` (hyperbola: vertices on opposite nappes) | `Err(AnalyticalSolutionNotAvailable)` — staged gap, implemented in PR-SSI4 |
 
 The **symmetry-plane generators** (the two cone generators in `span{â, n̂}`, the
 plane that carries the ellipse's major axis) are
-`g_± = cosα·â ± sinα·û`, with `û = normalize(n̂ − k·â)` (the component of `n̂`
-perpendicular to `â`; `|n̂ − k·â| = s_n`, so `normalize` is well-defined because C1
-already consumed `s_n < TAU_MODEL`). `gd_± = n̂·g_±` measures how steeply each
-generator pierces the cutting plane.
+`g_± = cosα·â ± sinα·û`, with `û = normalize(proj)`, `proj = n̂ − k·â` (the
+component of `n̂` perpendicular to `â`; `|proj| = √(1−k²) = sin θ`, so `normalize`
+is well-defined because C1 already consumed `proj_norm < TAU_MODEL`). `gd_± = n̂·g_±`
+measures how steeply each generator pierces the cutting plane.
+
+**C1 gate uses the stable `|proj|`, not `√(1−k²)` (PR-SSI2 lesson):** compute
+`proj = n̂ − k·â` and `proj_norm = |proj|` **once**, gate C1 on
+`proj_norm < TAU_MODEL`, and reuse `proj` for `û`. Computing the discriminant as
+`(1−k²).sqrt()` is cancellation-prone near `k→1` (perpendicular plane) and lets the
+gate misclassify planes whose true tilt is modestly above `TAU_MODEL` — the same
+defect class fixed in `plane_cylinder` (the C1 snap-circle's off-plane error scales
+with `sin θ = |proj|`, so the band must bound `|proj|` directly). The vector-norm
+form has no cancellation, bounding the off-plane error by `R·TAU_MODEL`, and
+unifies the C1 gate with the `normalize(proj)` used for `û`.
 
 **Evaluation order in code:** E1 → AP → C1 → (compute `û`, `g_±`, `gd_±`) → C2 vs
 PH. (C1 must precede the `û` computation since `û` is undefined when `s_n→0`.)
