@@ -371,12 +371,15 @@ pub fn intersect(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCurve>
             // Symmetry (I4): swap so the plane is first.
             plane_cone(b, a)
         }
+        (QuadricSurface::Sphere { .. }, QuadricSurface::Cylinder { .. }) => sphere_cylinder(a, b),
+        (QuadricSurface::Cylinder { .. }, QuadricSurface::Sphere { .. }) => {
+            // Symmetry (I4): swap so the sphere is first.
+            sphere_cylinder(b, a)
+        }
         // No analytical solver yet (Degree-4 and unimplemented quadric pairs;
         // future increment). A15.2: loud `Err`, never a silent mesh/grid
         // fallback.
-        (QuadricSurface::Sphere { .. }, QuadricSurface::Cylinder { .. })
-        | (QuadricSurface::Cylinder { .. }, QuadricSurface::Sphere { .. })
-        | (QuadricSurface::Cylinder { .. }, QuadricSurface::Cylinder { .. })
+        (QuadricSurface::Cylinder { .. }, QuadricSurface::Cylinder { .. })
         | (QuadricSurface::Sphere { .. }, QuadricSurface::Cone { .. })
         | (QuadricSurface::Cone { .. }, QuadricSurface::Sphere { .. })
         | (QuadricSurface::Cylinder { .. }, QuadricSurface::Cone { .. })
@@ -959,6 +962,104 @@ fn sphere_sphere(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCurve>
         normal: Vector3::from(u),
         radius,
     }])
+}
+
+/// Sphere ∩ cylinder (coaxial reduction to circles; general degree-4 staged).
+///
+/// Patrikalakis & Maekawa, *Shape Interrogation for CAD/M*, §5.8.3 (Case F8,
+/// implicit/implicit quadric pair; Example 5.8.4 sphere∩cylinder). The general
+/// sphere∩cylinder intersection is a degree-4 space curve, but the **coaxial**
+/// configuration (cylinder axis passes through the sphere center) reduces to
+/// circles: with the axis along `â` and the sphere center `C` on it, a point at
+/// axial offset `h` from `C` and radial distance `r_c` from the axis lies on
+/// both surfaces iff `h² + r_c² = r_s²` ⇒ `z² = r_s² − r_c²` (the classical
+/// `x²+y² = r_c²` ∧ `x²+y²+z² = r_s²` reduction). Each resulting circle has
+/// radius `r_c` and normal `â`, centered at `C ± h·â` on the axis.
+///
+/// With sphere center `C`, sphere radius `r_s`, cylinder axis point `A`, unit
+/// axis `â = normalize(axis_dir)`, cylinder radius `r_c`, and coaxial
+/// discriminant `d_ax = |rel − (rel·â)·â|` (`rel = C − A`, the distance from the
+/// sphere center to the axis line):
+///
+/// - **E1** (`r_s ≤ 0` / `r_c ≤ 0` / non-finite, or zero/non-finite
+///   `axis_dir`): `Err(DegenerateInput)`.
+/// - **NC** (non-coaxial, `d_ax ≥ TAU_MODEL`): `Err(AnalyticalSolutionNotAvailable)`.
+///   **Deliberately staged** — the general (non-coaxial) degree-4 curve, and the
+///   new `SsiCurve` variant it requires, are a later increment. A15.2: loud
+///   `Err`, never a silent mesh/grid fallback.
+/// - **X0** (coaxial, `r_c − r_s > TAU_MODEL`, cylinder wider than sphere):
+///   `Ok([])` (no contact).
+/// - **X1** (coaxial tangent, `|r_s − r_c| ≤ TAU_MODEL`): one `Circle` of radius
+///   `r_c`, center `C`, normal `â` (the great-circle tangent, `h ≈ 0`).
+/// - **X2** (coaxial, `r_s − r_c > TAU_MODEL`): two `Circle`s of radius `r_c`,
+///   normal `â`, centered at `C ± h·â` with `h = √(r_s² − r_c²)` — `+h` first
+///   (determinism, I5).
+fn sphere_cylinder(
+    sphere: &QuadricSurface,
+    cylinder: &QuadricSurface,
+) -> Result<Vec<SsiCurve>, SsiError> {
+    let (
+        QuadricSurface::Sphere {
+            center: sc,
+            radius: r_s,
+        },
+        QuadricSurface::Cylinder {
+            axis_point: ap,
+            axis_dir: ad,
+            radius: r_c,
+        },
+    ) = (sphere, cylinder)
+    else {
+        return Err(SsiError::AnalyticalSolutionNotAvailable);
+    };
+
+    let r_s = *r_s;
+    let r_c = *r_c;
+    if r_s <= 0.0 || r_c <= 0.0 || !r_s.is_finite() || !r_c.is_finite() {
+        return Err(SsiError::DegenerateInput);
+    }
+    let c = sc.as_array();
+    let a = ap.as_array();
+    // `normalize` rejects zero / non-finite vectors (E1: zero axis).
+    let ahat = normalize(ad.as_array())?;
+
+    // Coaxial discriminant: distance from the sphere center to the axis line.
+    let rel = sub(c, a);
+    let d_ax = norm(sub(rel, scale(ahat, dot(rel, ahat))));
+
+    // NC — non-coaxial general degree-4: staged (loud Err, no fallback).
+    if d_ax >= TAU_MODEL {
+        return Err(SsiError::AnalyticalSolutionNotAvailable);
+    }
+
+    // X0 — cylinder strictly wider than the sphere: no contact.
+    if r_c - r_s > TAU_MODEL {
+        return Ok(Vec::new());
+    }
+
+    // X1 — tangent great circle at C (gate on the linear quantity r_s − r_c).
+    if (r_s - r_c).abs() <= TAU_MODEL {
+        return Ok(vec![SsiCurve::Circle {
+            center: Point3::from(c),
+            normal: Vector3::from(ahat),
+            radius: r_c,
+        }]);
+    }
+
+    // X2 — two circles at C ± h·â (r_s − r_c > TAU_MODEL ⇒ h real and > 0).
+    let h = (r_s * r_s - r_c * r_c).sqrt();
+    Ok(vec![
+        SsiCurve::Circle {
+            center: Point3::from(add(c, scale(ahat, h))), // +h first (I5)
+            normal: Vector3::from(ahat),
+            radius: r_c,
+        },
+        SsiCurve::Circle {
+            center: Point3::from(sub(c, scale(ahat, h))),
+            normal: Vector3::from(ahat),
+            radius: r_c,
+        },
+    ])
 }
 
 // `MIN_FEATURE_SIZE` is part of the cad-primitives tolerance vocabulary
