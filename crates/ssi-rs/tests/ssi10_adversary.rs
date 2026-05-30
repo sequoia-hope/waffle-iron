@@ -230,7 +230,7 @@ fn attack1_parallelism_gate_boundary() {
     // Just INSIDE the band (tilt sine = 0.9·TAU < TAU) ⇒ two lines on cyl₁.
     {
         let theta = (0.9 * TAU_MODEL).asin();
-        let cd = [theta.sin(), 0.0, theta.cos()]; // tilted in x–z
+        let cd = [0.0, theta.sin(), theta.cos()]; // tilted in y–z (skew when non-parallel)
         assert!(norm(cross(unit(cd), [0.0, 0.0, 1.0])) < TAU_MODEL);
         let c2 = cyl([8.0, 0.0, 0.0], cd, r);
         let curves = intersect(&c1, &c2)
@@ -260,7 +260,12 @@ fn attack1_parallelism_gate_boundary() {
     // Just OUTSIDE the band (tilt sine = 1.001·TAU ≥ TAU) ⇒ ASNA.
     {
         let theta = (1.001 * TAU_MODEL).asin();
-        let cd = [theta.sin(), 0.0, theta.cos()];
+        // Contract migration (PR-SSI11): a y–z tilt makes the non-parallel axes
+        // SKEW (not coplanar), which PR-SSI11 stages as ASNA — preserving this
+        // gate's "past the band ⇒ not parallel→lines ⇒ ASNA" intent without
+        // colliding with SSI11's equal-R coplanar-intersecting → ellipses path
+        // (the original x–z tilt was coplanar-intersecting, now solved).
+        let cd = [0.0, theta.sin(), theta.cos()];
         assert!(norm(cross(unit(cd), [0.0, 0.0, 1.0])) >= TAU_MODEL);
         let c2 = cyl([8.0, 0.0, 0.0], cd, r);
         assert_eq!(
@@ -281,7 +286,9 @@ fn attack1_parallelism_gate_boundary() {
 fn attack2_supra_tau_tilt_is_asna() {
     let c1 = zcyl([0.0, 0.0, 0.0], 5.0);
     for &theta in &[1e-3_f64, 1e-2, 0.1, std::f64::consts::FRAC_PI_2] {
-        let cd = [theta.sin(), 0.0, theta.cos()];
+        // y–z tilt ⇒ skew non-parallel axes ⇒ ASNA post-SSI11 (the equal-R
+        // coplanar-intersecting case is now solved → ellipses; see attack1).
+        let cd = [0.0, theta.sin(), theta.cos()];
         assert!(norm(cross(unit(cd), [0.0, 0.0, 1.0])) > 10.0 * TAU_MODEL);
         let c2 = cyl([8.0, 0.0, 0.0], cd, 5.0);
         assert_eq!(

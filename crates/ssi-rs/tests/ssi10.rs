@@ -449,6 +449,14 @@ fn conc_concentric_is_empty() {
 // Both argument orders.
 // ---------------------------------------------------------------------------
 
+// Contract migration (PR-SSI11): the original NP probe used two EQUAL-radius
+// perpendicular intersecting cylinders, which PR-SSI11 now solves analytically
+// (→ two ellipses). To preserve this test's intent — "a non-parallel cyl∩cyl
+// configuration the solver does NOT yet handle stays a loud ASNA" — the radii
+// are made UNEQUAL (2 vs 3): unequal-radius non-parallel axes remain the
+// general degree-4 curve, staged ASNA (A15.2). Every structural assertion
+// (both argument orders → ASNA) is unchanged; the input moves deeper into the
+// still-unhandled domain rather than weakening the check.
 #[test]
 fn np_non_parallel_yields_not_available() {
     let cyl1 = QuadricSurface::Cylinder {
@@ -459,7 +467,7 @@ fn np_non_parallel_yields_not_available() {
     let cyl2 = QuadricSurface::Cylinder {
         axis_point: Point3::new(0.0, 0.0, 0.0),
         axis_dir: Vector3::new(1.0, 0.0, 0.0), // ⟂ cyl₁ axis ⇒ |û₁ × û₂| = 1
-        radius: 2.0,
+        radius: 3.0,                           // ≠ cyl₁ r ⇒ still general degree-4 (ASNA)
     };
     assert_eq!(
         intersect(&cyl1, &cyl2),
