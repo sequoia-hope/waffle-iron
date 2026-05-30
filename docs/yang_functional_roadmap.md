@@ -283,8 +283,25 @@ reimplementation from Attene's paper restores WASM (M7).
     ceilings (on-surface ~1e9, coaxial-detection ~1e8 → conservatively NC). Spec
     `specs/ssi_pr_ssi6_sphere_cylinder_coaxial.md`; commits `16dca4a0`→`818f2882`
     (RED)→`de7926c4` (GREEN)→`614292b1` (adversary). 141/141 ssi-rs tests; CI clean.
+  - **Step 7 — `ssi-rs` sphere∩cone coaxial (second degree-4 pair, PR-SSI7) ✅
+    DONE.** Reuses the SSI6 coaxial-detect→reduce-to-circles→general-ASNA pattern.
+    Coaxial sphere∩cone (sphere center on the cone axis) reduces to one/two circles
+    via `sec²α·h² − 2h0·h + (h0²−r_s²)=0`, roots `h=(h0±√D)·cos²α`,
+    `D=sec²α·r_s²−h0²tan²α`. Gate on the **linear** gap `g=r_s−|h0|·sinα`
+    (`sign(D)=sign(g)`, since `D=sec²α(r_s−|h0|sinα)(r_s+|h0|sinα)`) per the
+    SSI2/3/6 lesson, so X2 (`g>TAU`) guarantees `D>0` and `√D` is safe: X2 two
+    circles (`+√D` first), X1 one tangent circle (`|g|≤TAU` at `h_t=h0·cos²α`), X0
+    empty (`g<−TAU`). Reuses `Circle` — no new curve type, no enum-match migration.
+    **Non-coaxial (general degree-4) → `Err(AnalyticalSolutionNotAvailable)`** —
+    staged, never a fallback. Adversary (18 attacks): no bugs; clean tangent
+    (α≠π/4 exercised) + coaxial-detection boundaries; characterized absolute-`TAU`
+    ceilings (on-surface ~1e8→1e9, coaxial-detection ~1e8→1e9 → conservatively NC)
+    and the apex-grazing `r_s=|h0|` radius-0 point-circle degeneracy (downstream
+    filters it). Spec `specs/ssi_pr_ssi7_sphere_cone_coaxial.md`; commits
+    `6d58f415` (spec)→`9144dfd4` (RED)→`8b12402d` (GREEN)→`d575280b` (adversary).
+    189/189 ssi-rs tests; CI clean.
   - **Next M5 increments (sequenced):** the remaining circle-reducible coaxial
-    pairs (sphere∩cone, cyl∩cone, cone∩cone) → cyl∩cyl special cases (equal-R
+    pairs (cyl∩cone, cone∩cone) → cyl∩cyl special cases (equal-R
     intersecting → two ellipses; parallel → two lines) → the **general degree-4
     curve** (a new parametric `SsiCurve` variant + the 5 general-position solvers) +
     torus pairs (rest of A15.4) → curved `Surface` variants + curved Stage-1
