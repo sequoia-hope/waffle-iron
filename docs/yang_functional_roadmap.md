@@ -389,12 +389,29 @@ reimplementation from Attene's paper restores WASM (M7).
     `specs/ssi_pr_ssi11_cyl_cyl_equal_r_ellipses.md`; commits `7f6e2d44` (RED)→
     `6bdcb05a` (GREEN)→`2e5e6e6f` (adversary). With Step 11, **ALL
     circle/conic-reducible coaxial & special-case quadric pairs are now complete.**
+  - **PR-YR6 — curved `Surface`/`Curve` types + loud rejection (first Phase-2
+    step). ✅ DONE.** Extends `yang-rs`'s `Surface` enum (`Sphere`, `Cylinder`,
+    `Cone`) and `Curve` enum (`Circle`, `Ellipse`) with field shapes mirroring
+    `ssi-rs` `QuadricSurface`/`SsiCurve` field-for-field (so the future Stage-3
+    mapping is a trivial copy; radially-outward convention, no `sense` field).
+    The pipeline **accepts curved faces at the type level** but **rejects them
+    LOUDLY** — new `YangError::CurvedSurfaceNotYetSupported { face }` returned at
+    the three `Surface::Plane` destructure sites (`BRep::new` winding
+    canonicalization is the observable one; `boolean()` `plane_dist` closure and
+    `reconstruct_topology` surface inheritance are defensive). P9/P10: never a
+    panic, silent skip, or planar approximation. **No `ssi-rs` call and no curved
+    tessellation exist yet** — this is a pure type extension. Spec
+    `specs/yang_rs_curved_surface_curve_types.md`; role-separated cycle, commits
+    `441e8748`/`076bf661` (RED + integration-test contract migration)→`0afdc6a3`
+    (GREEN)→`07f6d12e` (adversary).
   - **Next M5 increments (sequenced):** the
     **general degree-4
     curve** (a new parametric `SsiCurve` variant + the 5 general-position solvers) +
-    torus pairs (rest of A15.4) → curved `Surface` variants + curved Stage-1
-    tessellation in `yang-rs` → curved face resolution + the planar-assumption
-    migration → Stage 3 (wire `ssi-rs` into `yang-rs`) → Stage 4 (CDT remesh).
+    torus pairs (rest of A15.4) → ~~curved `Surface` variants~~ (PR-YR6 ✅) →
+    **P2: curved Stage-1 tessellation** (replace PR-YR6's loud rejection at
+    `BRep::new` with real bijective tessellation of curved faces) → curved face
+    resolution + the planar-assumption migration → **P3: Stage 3** (wire `ssi-rs`
+    into `yang-rs`; yang `Surface` → ssi `QuadricSurface`) → Stage 4 (CDT remesh).
     The next increment — the general degree-4 cyl∩cyl curve — requires a NEW
     parametric `SsiCurve` variant + general-position solvers, and **MUST be planned
     with a human before implementation.**
@@ -432,7 +449,11 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   *Frontier (out of scope):* revolving an arbitrary profile → non-quadric surface
   of revolution → numerical/marching SSI (Patrikalakis Case F), a later capability.
 - **Phase 2 — Curves enter the pipeline (Stages 1/3/4/6 curved).** *[⊂ M5; the
-  heart, highest risk]* Stage 1 curved tessellation (sample analytical surfaces →
+  heart, highest risk]* **First step done (PR-YR6 ✅):** curved `Surface`/`Curve`
+  enum variants exist (mirroring `ssi-rs` field shapes) and the pipeline rejects
+  them LOUDLY (`YangError::CurvedSurfaceNotYetSupported`) — no curved
+  tessellation or `ssi-rs` call yet. Remaining: Stage 1 curved tessellation
+  (sample analytical surfaces →
   mesh, keep the surface tier via the bijection) + non-convex profile triangulation
   (Livesu earcut-CDT, for gears) + Steiner points; Stage 3 refine arrangement edges
   on two analytical surfaces to the exact SSI curve (wire `ssi-rs` in); Stage 4 CDT
