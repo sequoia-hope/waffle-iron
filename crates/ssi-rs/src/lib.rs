@@ -660,7 +660,15 @@ fn plane_cylinder(
 /// - **E1** — `α` non-finite, `α ≤ TAU_MODEL`, or `α ≥ π/2 − TAU_MODEL`, or a
 ///   zero/non-finite axis or normal: `Err(DegenerateInput)`.
 /// - **AP** (through-apex, `|n̂·(apex − p)| < TAU_MODEL`): the section is a
-///   degenerate conic (point/line/two-lines): `Err(DegenerateInput)`.
+///   *degenerate* conic (Patrikalakis & Maekawa §5.8; the degenerate-conic
+///   case of the conic-section family). A plane through the apex meets the
+///   infinite double cone in: a **point** (the apex) when the plane is steeper
+///   than the cone (`|k| > sinα`, incl. plane ⟂ axis, `s_n < TAU_MODEL`) ⇒
+///   `Ok([])`; **one line** (a tangent generator, `dir = m̂ = (â − k·n̂)/s_n`)
+///   when `|k| = sinα` (`min(|gd₊|, |gd₋|) < TAU_MODEL`); **two crossed lines**
+///   when `|k| < sinα` (`gd₊, gd₋` opposite signs). The two-line directions are
+///   `d_{1,2} = (cosα/s_n)·m̂ ± (√(−gd₊·gd₋)/s_n)·ŵ`, `ŵ = normalize(n̂ × â)`
+///   (each unit: `cφ² + sφ² = (cos²α + sinα² − k²)/(1 − k²) = 1`), `+ŵ` first.
 /// - **C1** (`proj_norm < TAU_MODEL`, plane ⟂ axis): one `Circle` of radius
 ///   `|h|·tanα` centered at `apex + h·â`, normal `â`, `h = n̂·(p − apex)/k`.
 /// - **C2** (both `gd_±` same sign and non-negligible): one `Ellipse`
@@ -734,9 +742,53 @@ fn plane_cone(plane: &QuadricSurface, cone: &QuadricSurface) -> Result<Vec<SsiCu
     let proj = sub(nhat, scale(ahat, k));
     let proj_norm = norm(proj);
 
-    // AP — apex lies on the cutting plane ⇒ degenerate conic.
+    // AP — apex lies on the cutting plane ⇒ degenerate conic (point / one line /
+    // two crossed lines). Self-contained: computes its own in-plane axis
+    // projection, û, and the symmetry-plane generators g_±.
     if dot(nhat, sub(apex, p)).abs() < TAU_MODEL {
-        return Err(SsiError::DegenerateInput);
+        // In-plane projection of the cone axis: axis_in = â − k·n̂ (lies in the
+        // cutting plane since n̂·axis_in = k − k = 0), |axis_in| = √(1 − k²).
+        let axis_in = sub(ahat, scale(nhat, k));
+        let s_n = norm(axis_in);
+        // AP-pt⊥ — plane ⟂ axis ⇒ the cone meets the plane only at the apex.
+        if s_n < TAU_MODEL {
+            return Ok(Vec::new());
+        }
+        let mhat = scale(axis_in, 1.0 / s_n);
+        // û = unit component of n̂ ⟂ â (norm s_n > TAU here ⇒ normalize is safe).
+        let uhat = normalize(sub(nhat, scale(ahat, k)))?;
+        let g_plus = add(scale(ahat, cosa), scale(uhat, sina));
+        let g_minus = sub(scale(ahat, cosa), scale(uhat, sina));
+        let gd_plus = dot(nhat, g_plus);
+        let gd_minus = dot(nhat, g_minus);
+        // AP-line — a generator is ∥ the plane (tangent) ⇒ one line, dir = m̂.
+        if gd_plus.abs() < TAU_MODEL || gd_minus.abs() < TAU_MODEL {
+            return Ok(vec![SsiCurve::Line {
+                point: Point3::from(apex),
+                dir: Vector3::from(mhat),
+            }]);
+        }
+        // AP-lines — generators on opposite nappes ⇒ two crossed lines.
+        if gd_plus.signum() != gd_minus.signum() {
+            let what = normalize(cross(nhat, ahat))?; // in-plane, ⟂ m̂
+            let cphi = cosa / s_n;
+            // −gd₊·gd₋ = sinα² − k² > 0 in this branch.
+            let sphi = (-(gd_plus * gd_minus)).sqrt() / s_n;
+            let d1 = add(scale(mhat, cphi), scale(what, sphi));
+            let d2 = sub(scale(mhat, cphi), scale(what, sphi));
+            return Ok(vec![
+                SsiCurve::Line {
+                    point: Point3::from(apex),
+                    dir: Vector3::from(d1), // +ŵ first (determinism, I5)
+                },
+                SsiCurve::Line {
+                    point: Point3::from(apex),
+                    dir: Vector3::from(d2),
+                },
+            ]);
+        }
+        // AP-pt — steeper than the cone (same-sign gd ⇒ k² > sinα²) ⇒ apex only.
+        return Ok(Vec::new());
     }
 
     // C1 — plane ⟂ axis ⇒ circle. (proj_norm → 0 ⇒ û below is undefined, so
