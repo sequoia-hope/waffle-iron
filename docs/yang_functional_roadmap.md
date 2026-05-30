@@ -191,7 +191,24 @@ reimplementation from Attene's paper restores WASM (M7).
     larger-scale Stage-3 consumers). Spec `specs/ssi_pr_ssi1_foundation.md`;
     commits `8b1c7282`→`7255b380`→`c001101e` (RED)→`a508e865` (GREEN)→`c4e1efe0`
     (adversary). 28/28 ssi-rs tests; CI gate clean; no sibling/legacy changes.
-  - **Next M5 increments (sequenced):** more solver pairs (plane-cylinder/cone,
+  - **Step 2 — `ssi-rs` plane∩cylinder (PR-SSI2) ✅ DONE.** A15.4 pair #2: adds
+    the `QuadricSurface::Cylinder` surface and the first non-circular curve
+    (`SsiCurve::Ellipse` + its `eval`), with the `plane_cylinder` solver (C1
+    perpendicular→Circle, C2 oblique→Ellipse `a=r/|c|`, C3a parallel-secant→two
+    Lines, C3b tangent→one Line, C3c disjoint→[], E1 degenerate→Err) and the first
+    triggerable `AnalyticalSolutionNotAvailable` path (sphere∩cylinder). Stays in
+    closed-form conic territory — no Degree-4 quartics. **Adversary found a real
+    bug:** the C1 band, gated on `1−|c|`, let the snap-to-perpendicular circle sit
+    up to `√(2·TAU)·r ≈ 4.5e-4·r` off the cutting plane (~4000× tolerance) because
+    the off-plane error scales with the *sine* `√(1−c²)`. Fixed (RED→GREEN
+    sub-cycle) by gating C1 on `|proj|=√(1−c²)<TAU_MODEL` (the axis's in-plane
+    projection norm, which also unifies with C2's `normalize(proj)` guard) →
+    off-plane error bounded by `r·TAU_MODEL`. Adversary also confirmed a C2
+    ellipse's on-surface residual tracks `r`, not the (possibly huge) major axis.
+    Spec `specs/ssi_pr_ssi2_plane_cylinder.md`; commits `b53e566c`→`22729f1f` (RED)
+    →`394f772a` (GREEN)→`5a3cded6` (spec fix)→`9a8c6c37` (adversary RED)→`37e17ff7`
+    (fix GREEN). 55/55 ssi-rs tests; CI gate clean; no sibling/legacy changes.
+  - **Next M5 increments (sequenced):** more solver pairs (plane-cone,
     sphere-cylinder; the Degree4 conic/quartic curves) → curved `Surface` variants
     + curved Stage-1 tessellation in `yang-rs` → curved face resolution + the
     planar-assumption migration → Stage 3 (wire `ssi-rs` into `yang-rs` to refine
