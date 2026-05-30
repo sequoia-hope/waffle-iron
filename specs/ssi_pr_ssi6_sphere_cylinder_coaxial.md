@@ -53,6 +53,15 @@ discriminant** is the distance from the sphere center to the axis line:
 | X1 | one circle (tangent) | coaxial and `\|r_s − r_c\| ≤ TAU_MODEL` | one **Circle** { center = C, normal = â, radius = r_c } (great-circle tangent; `h ≈ 0`) |
 | X0 | empty | coaxial and `r_c − r_s > TAU_MODEL` | `Ok(vec![])` (cylinder radius exceeds sphere — no contact) |
 
+*Coaxial-detection scale note (PR-SSI6 adversary):* `d_ax` is an **absolute**
+distance compared to `TAU_MODEL`, so the coaxial/NC split is scale-sensitive like
+every absolute-tolerance gate (cf. the PR-SSI1 ~1e8 finding): a truly-coaxial
+generic-direction axis is detected correctly to coordinate magnitude ~1e8, and at
+~1e9+ f64 noise in `d_ax` can exceed `TAU_MODEL` so it conservatively reads as NC →
+`Err(ASNA)` (a loud, never-wrong failure mode, not a spurious circle). The
+on-surface circle oracle itself holds to ~1e9 for this pair. Both ceilings are
+inherent to absolute-`TAU_MODEL` comparisons (A14.3), not solver-logic defects.
+
 **Reduction (X2/X1):** with the axis along `â` and the sphere center on it, a point
 at axial offset `h` from `C` and radial distance `r_c` from the axis lies on the
 cylinder (radius `r_c`) and on the sphere iff `h² + r_c² = r_s²` ⇒
