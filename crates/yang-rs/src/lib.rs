@@ -1666,6 +1666,11 @@ mod tests {
 
     #[test]
     fn brep_new_rejects_cylinder_face() {
+        // PR-YR7 migration: the cylinder lateral path is now implemented, but a
+        // cylinder face on a single *triangle* (no Circle rim edges) lacks the
+        // lateral's 2 required Circle rims, so it is rejected as
+        // MalformedTopology rather than CurvedSurfaceNotYetSupported. It must
+        // STILL error loudly; only the error kind changed.
         let (verts, edges, faces) = single_triangle_topology(Surface::Cylinder {
             axis_point: p(0.0, 0.0, 0.0),
             axis_dir: Vector3::new(0.0, 0.0, 1.0),
@@ -1673,11 +1678,9 @@ mod tests {
         });
         let result = BRep::new(verts, edges, faces);
         assert!(
-            matches!(
-                result,
-                Err(YangError::CurvedSurfaceNotYetSupported { face: 0 })
-            ),
-            "expected CurvedSurfaceNotYetSupported {{ face: 0 }}, got {result:?}"
+            matches!(result, Err(YangError::MalformedTopology(_))),
+            "expected MalformedTopology (cylinder lateral on a triangle lacks its \
+             2 Circle rim edges), got {result:?}"
         );
     }
 

@@ -97,11 +97,17 @@ fn adversary_sphere_face0_rejected_exact() {
 
 #[test]
 fn adversary_cylinder_face0_rejected_exact() {
+    // PR-YR7 migration: a cylinder face on a *triangle* (no Circle rims) is no
+    // longer CurvedSurfaceNotYetSupported — the cylinder lateral path is now
+    // implemented, but this fixture lacks the lateral's 2 required Circle rim
+    // edges, so it is rejected as MalformedTopology. It must STILL error loudly
+    // (never silently succeed); only the error *kind* changed.
     let (v, e, f) = one_triangle(cylinder());
     let r = BRep::new(v, e, f);
     assert!(
-        matches!(r, Err(YangError::CurvedSurfaceNotYetSupported { face: 0 })),
-        "cylinder face 0: expected CurvedSurfaceNotYetSupported {{ face: 0 }}, got {r:?}"
+        matches!(r, Err(YangError::MalformedTopology(_))),
+        "cylinder face 0 on a triangle: expected MalformedTopology (lateral lacks \
+         its 2 Circle rim edges), got {r:?}"
     );
 }
 
@@ -188,7 +194,13 @@ fn three_faces_curved_at_2(curved: Surface) -> (Vec<BRepVertex>, Vec<BRepEdge>, 
 
 #[test]
 fn adversary_curved_face2_reports_index_2() {
-    for curved in [sphere(), cylinder(), cone()] {
+    // PR-YR7 migration: sphere/cone still report CurvedSurfaceNotYetSupported
+    // at the offending face index 2. The cylinder is now implemented for the
+    // proper seam-edge encoding, but THIS fixture's face 2 is a cylinder on a
+    // *triangle* (no Circle rims), so it is rejected as MalformedTopology. The
+    // intent — error loudly, not silently succeed — is preserved; only the
+    // cylinder's error kind changed.
+    for curved in [sphere(), cone()] {
         let (v, e, f) = three_faces_curved_at_2(curved);
         let r = BRep::new(v, e, f);
         assert!(
@@ -196,6 +208,15 @@ fn adversary_curved_face2_reports_index_2() {
             "curved face at index 2 must report face: 2 (not hardcoded 0), got {r:?}"
         );
     }
+
+    // Cylinder arm: now MalformedTopology (lateral on a triangle lacks its 2
+    // Circle rim edges). Still a loud error, never Ok.
+    let (v, e, f) = three_faces_curved_at_2(cylinder());
+    let r = BRep::new(v, e, f);
+    assert!(
+        matches!(r, Err(YangError::MalformedTopology(_))),
+        "cylinder face at index 2 on a triangle: expected MalformedTopology, got {r:?}"
+    );
 }
 
 /// Control: the SAME 3-face fixture with ALL planar faces must succeed —
