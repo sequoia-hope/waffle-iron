@@ -92,8 +92,8 @@ fn normalize(a: [f64; 3]) -> Result<[f64; 3], SsiError> {
 // Public types (see spec §Types).
 // ---------------------------------------------------------------------------
 
-/// A natural-quadric surface in implicit form. Only `Plane` and `Sphere` are
-/// present in PR-SSI1; `Cylinder`/`Cone`/`Torus` arrive with their solvers.
+/// A natural-quadric surface in implicit form. `Plane`/`Sphere`/`Cylinder`/
+/// `Cone` are present; `Torus` arrives with its solver.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum QuadricSurface {
     /// Plane through `point` with unit `normal`: `n·(x − point) = 0`.
@@ -119,6 +119,15 @@ pub enum QuadricSurface {
         /// Cylinder radius (must be positive for a valid surface).
         radius: f64,
     }, // implicit: dist(x, axis line) = radius
+    /// Infinite right-circular DOUBLE cone (both nappes).
+    Cone {
+        /// Cone apex.
+        apex: Point3,
+        /// Axis direction (normalized defensively; need not be unit on input).
+        axis_dir: Vector3,
+        /// Half-angle `α ∈ (0, π/2)` between the axis and a generator.
+        half_angle: f64,
+    }, // implicit: radial distance from axis = |h|·tanα, h=(x−apex)·â; both nappes
 }
 
 /// An exact analytical intersection curve (never a polyline).
@@ -280,11 +289,22 @@ pub fn intersect(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCurve>
             // Symmetry (I4): swap so the plane is first.
             plane_cylinder(b, a)
         }
-        // No analytical solver yet (Degree-4; future increment). A15.2: loud
-        // `Err`, never a silent mesh/grid fallback.
+        (QuadricSurface::Plane { .. }, QuadricSurface::Cone { .. }) => plane_cone(a, b),
+        (QuadricSurface::Cone { .. }, QuadricSurface::Plane { .. }) => {
+            // Symmetry (I4): swap so the plane is first.
+            plane_cone(b, a)
+        }
+        // No analytical solver yet (Degree-4 and unimplemented quadric pairs;
+        // future increment). A15.2: loud `Err`, never a silent mesh/grid
+        // fallback.
         (QuadricSurface::Sphere { .. }, QuadricSurface::Cylinder { .. })
         | (QuadricSurface::Cylinder { .. }, QuadricSurface::Sphere { .. })
-        | (QuadricSurface::Cylinder { .. }, QuadricSurface::Cylinder { .. }) => {
+        | (QuadricSurface::Cylinder { .. }, QuadricSurface::Cylinder { .. })
+        | (QuadricSurface::Sphere { .. }, QuadricSurface::Cone { .. })
+        | (QuadricSurface::Cone { .. }, QuadricSurface::Sphere { .. })
+        | (QuadricSurface::Cylinder { .. }, QuadricSurface::Cone { .. })
+        | (QuadricSurface::Cone { .. }, QuadricSurface::Cylinder { .. })
+        | (QuadricSurface::Cone { .. }, QuadricSurface::Cone { .. }) => {
             Err(SsiError::AnalyticalSolutionNotAvailable)
         }
     }
@@ -544,6 +564,132 @@ fn plane_cylinder(
 
     // C3c — disjoint: no intersection.
     Ok(Vec::new())
+}
+
+/// Plane ∩ cone (bounded sections only: circle + ellipse).
+///
+/// Patrikalakis & Maekawa, *Shape Interrogation for CAD/M*, §5.8
+/// (Surface/Surface Intersections — natural quadrics; elliptic-cone implicit
+/// form). A plane section of a (right-circular, double) cone is a classical
+/// conic section, classified by the two symmetry-plane generators
+/// `g_± = cosα·â ± sinα·û` (the cone generators lying in `span{â, n̂}`):
+/// a circle when the plane is ⟂ the axis, a closed ellipse when both
+/// generators pierce the same nappe, and a parabola/hyperbola otherwise.
+///
+/// With unit plane normal `n̂`, plane point `p`, unit axis `â`, apex, half-angle
+/// `α`, and `k = n̂·â`, `s_n = √(1 − k²)`:
+///
+/// - **E1** — `α` non-finite, `α ≤ TAU_MODEL`, or `α ≥ π/2 − TAU_MODEL`, or a
+///   zero/non-finite axis or normal: `Err(DegenerateInput)`.
+/// - **AP** (through-apex, `|n̂·(apex − p)| < TAU_MODEL`): the section is a
+///   degenerate conic (point/line/two-lines): `Err(DegenerateInput)`.
+/// - **C1** (`s_n < TAU_MODEL`, plane ⟂ axis): one `Circle` of radius
+///   `|h|·tanα` centered at `apex + h·â`, normal `â`, `h = n̂·(p − apex)/k`.
+/// - **C2** (both `gd_±` same sign and non-negligible): one `Ellipse`
+///   (vertex construction below).
+/// - **PH** (one `|gd_±| ≤ TAU_MODEL` ⇒ parabola, or opposite signs ⇒
+///   hyperbola): `Err(AnalyticalSolutionNotAvailable)`. **This is a deliberate
+///   staged limitation** — the unbounded conics are implemented in PR-SSI4, not
+///   a "no solver" verdict, and never a mesh/grid fallback (A15.2); the caller
+///   decides.
+///
+/// **C2 ellipse construction (vertex method).** The two symmetry-plane
+/// generators each pierce the cutting plane at `V_± = apex + s_±·g_±`,
+/// `s_± = n̂·(p − apex)/gd_±`, `gd_± = n̂·g_±`. Then `center = (V₊ + V₋)/2`,
+/// `major_radius a = |V₊ − V₋|/2`, `major_axis = normalize(V₊ − V₋)`, and the
+/// semi-minor length `b = √((d·â)²/cos²α − |d|²)` with `d = center − apex`
+/// (the cone equation collapsed along the minor direction `ŵ = n̂ × â`).
+fn plane_cone(plane: &QuadricSurface, cone: &QuadricSurface) -> Result<Vec<SsiCurve>, SsiError> {
+    let (
+        QuadricSurface::Plane {
+            point: pp,
+            normal: pn,
+        },
+        QuadricSurface::Cone {
+            apex,
+            axis_dir: ad,
+            half_angle: alpha,
+        },
+    ) = (plane, cone)
+    else {
+        return Err(SsiError::AnalyticalSolutionNotAvailable);
+    };
+
+    let alpha = *alpha;
+    // E1: invalid cone half-angle (a line at α→0, a plane at α→π/2).
+    if !alpha.is_finite() || alpha <= TAU_MODEL || alpha >= std::f64::consts::FRAC_PI_2 - TAU_MODEL
+    {
+        return Err(SsiError::DegenerateInput);
+    }
+    // `normalize` rejects zero / non-finite vectors (E1: zero axis or normal).
+    let nhat = normalize(pn.as_array())?;
+    let ahat = normalize(ad.as_array())?;
+    let p = pp.as_array();
+    let apex = apex.as_array();
+
+    let cosa = alpha.cos();
+    let sina = alpha.sin();
+    let tana = alpha.tan();
+    let k = dot(nhat, ahat);
+    let s_n = (1.0 - k * k).sqrt();
+
+    // AP — apex lies on the cutting plane ⇒ degenerate conic.
+    if dot(nhat, sub(apex, p)).abs() < TAU_MODEL {
+        return Err(SsiError::DegenerateInput);
+    }
+
+    // C1 — plane ⟂ axis ⇒ circle. (s_n → 0 ⇒ û below is undefined, so this
+    // branch must precede the û computation.)
+    if s_n < TAU_MODEL {
+        let h = dot(nhat, sub(p, apex)) / k;
+        let center = add(apex, scale(ahat, h));
+        return Ok(vec![SsiCurve::Circle {
+            center: Point3::from(center),
+            normal: Vector3::from(ahat),
+            radius: h.abs() * tana,
+        }]);
+    }
+
+    // Symmetry-plane generators g_± = cosα·â ± sinα·û, where û is the unit
+    // component of n̂ ⟂ â (well-defined since C1 consumed s_n < TAU_MODEL).
+    let uhat = normalize(sub(nhat, scale(ahat, k)))?;
+    let g_plus = add(scale(ahat, cosa), scale(uhat, sina));
+    let g_minus = sub(scale(ahat, cosa), scale(uhat, sina));
+    let gd_plus = dot(nhat, g_plus);
+    let gd_minus = dot(nhat, g_minus);
+
+    // PH — parabola (a generator ∥ the plane) takes precedence; only then test
+    // the hyperbola sign condition (both gd_± verified non-negligible here).
+    if gd_plus.abs() <= TAU_MODEL || gd_minus.abs() <= TAU_MODEL {
+        return Err(SsiError::AnalyticalSolutionNotAvailable);
+    }
+    if gd_plus.signum() != gd_minus.signum() {
+        return Err(SsiError::AnalyticalSolutionNotAvailable);
+    }
+
+    // C2 — closed ellipse via the vertex method.
+    let rhs = dot(nhat, sub(p, apex));
+    let s_plus = rhs / gd_plus;
+    let s_minus = rhs / gd_minus;
+    let v_plus = add(apex, scale(g_plus, s_plus));
+    let v_minus = add(apex, scale(g_minus, s_minus));
+
+    let center = scale(add(v_plus, v_minus), 0.5);
+    let span = sub(v_plus, v_minus);
+    let a = norm(span) * 0.5;
+    let major_axis = normalize(span)?;
+
+    let d = sub(center, apex);
+    let da = dot(d, ahat);
+    let b = (da * da / (cosa * cosa) - dot(d, d)).sqrt();
+
+    Ok(vec![SsiCurve::Ellipse {
+        center: Point3::from(center),
+        normal: Vector3::from(nhat),
+        major_axis: Vector3::from(major_axis),
+        major_radius: a,
+        minor_radius: b,
+    }])
 }
 
 /// Sphere ∩ sphere.
