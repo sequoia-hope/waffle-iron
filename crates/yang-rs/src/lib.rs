@@ -85,22 +85,81 @@ pub use cherchi_rs::{Mesh, MeshBoolean};
 
 /// Analytical surface for a B-Rep face.
 ///
-/// PR-YR2 supports `Plane` only. Future PRs add `Cylinder`, `Sphere`,
-/// `Cone`, `Torus`, `NurbsSurface`.
+/// PR-YR2 supports `Plane` end to end. PR-YR6 adds the curved variants
+/// `Sphere`, `Cylinder`, and `Cone` as TYPES so a B-Rep can carry curved
+/// faces, but the pipeline does **not** yet process curved geometry: every
+/// stage that consumes a `Surface` rejects the curved variants LOUDLY with
+/// `YangError::CurvedSurfaceNotYetSupported` (governance A15.2, P9/P10 — never
+/// a panic, silent skip, or planar approximation). Field shapes mirror
+/// `ssi-rs`'s `QuadricSurface` field-for-field so a future Stage-3 yang→ssi
+/// mapping is a trivial copy.
+///
+/// Future PRs add `Torus`, `NurbsSurface`.
+///
+/// **Banked deferrals:** subtracted/cavity curved-face *sense* (the curved
+/// analog of the plane's outward-normal flip at reconstruction) is deferred to
+/// the curved Stage-6 reassembly PR — this PR stores no curved output, so no
+/// `sense` field is carried (mirroring ssi-rs, which has none). The
+/// `Curve::Parabola`/`Hyperbola` variants are likewise deferred.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Surface {
     /// Plane: `n·x + d = 0`. Normal `n` points OUTWARD from the solid.
     Plane { normal: Vector3, d: f64 },
+    /// Sphere `|x − center| = radius`. Outward side = radially **away from
+    /// `center`** (a positive-radius solid ball). No `sense` field (mirrors
+    /// `ssi-rs`).
+    Sphere { center: Point3, radius: f64 },
+    /// Infinite right-circular cylinder, axis through `axis_point` along
+    /// `axis_dir`, of `radius`. Outward side = radially **away from the axis**
+    /// (a solid cylinder). No `sense` field (mirrors `ssi-rs`).
+    Cylinder {
+        axis_point: Point3,
+        axis_dir: Vector3,
+        radius: f64,
+    },
+    /// Infinite right-circular cone with `apex`, axis `axis_dir`, and
+    /// `half_angle`. Outward side = radially **away from the axis** (a solid
+    /// cone). No `sense` field (mirrors `ssi-rs`).
+    Cone {
+        apex: Point3,
+        axis_dir: Vector3,
+        half_angle: f64,
+    },
 }
 
 /// Analytical curve for a B-Rep edge.
 ///
-/// PR-YR2 supports `LineSegment` only (endpoints implicit from the
-/// edge's start/end vertices). Future PRs add `Circle`, `Ellipse`,
-/// `NurbsCurve`.
+/// PR-YR2 supports `LineSegment` (endpoints implicit from the edge's
+/// start/end vertices). PR-YR6 adds `Circle` and `Ellipse` as TYPES (field
+/// shapes mirror `ssi-rs`'s `SsiCurve` field-for-field). No production code
+/// consumes the curved variants yet — they exist so a future Stage-3 SSI
+/// wiring can store analytical intersection curves on output edges.
+///
+/// **Banked deferral:** `Parabola`/`Hyperbola` are not needed for the first
+/// curved demo pairs (plane∩sphere → circle, plane∩cylinder → circle/ellipse,
+/// sphere∩cylinder → circle/ellipse) and are deferred to a later PR. Future
+/// PRs also add `NurbsCurve`.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Curve {
+    /// Straight segment; endpoints implicit from the edge's start/end vertices.
     LineSegment,
+    /// Circle of `radius` centered at `center`, in the plane with unit
+    /// `normal`.
+    Circle {
+        center: Point3,
+        normal: Vector3,
+        radius: f64,
+    },
+    /// Ellipse centered at `center` in the plane with unit `normal`. The
+    /// semi-major axis lies along unit `major_axis` with length `major_radius`;
+    /// the semi-minor axis (`normal × major_axis`) has length `minor_radius`.
+    Ellipse {
+        center: Point3,
+        normal: Vector3,
+        major_axis: Vector3,
+        major_radius: f64,
+        minor_radius: f64,
+    },
 }
 
 // =========================================================================
@@ -392,7 +451,12 @@ impl BRep {
                 return Err(YangError::DegenerateFace { face: f_idx });
             }
 
-            let Surface::Plane { normal, .. } = f.surface;
+            let normal = match f.surface {
+                Surface::Plane { normal, .. } => normal,
+                Surface::Sphere { .. } | Surface::Cylinder { .. } | Surface::Cone { .. } => {
+                    return Err(YangError::CurvedSurfaceNotYetSupported { face: f_idx });
+                }
+            };
             let n = normal.as_array();
             let dot = newell[0] * n[0] + newell[1] * n[1] + newell[2] * n[2];
             // B2: Newell normal opposes the analytic outward normal →
@@ -509,6 +573,13 @@ pub enum YangError {
     /// from M3, spec §Scope). Fails loud rather than producing a generic
     /// `NonManifoldOutput` or a silently-wrong result (P9).
     UnsupportedOp(BoolOp),
+    /// An input B-Rep face carries a curved surface (`Surface::Sphere`,
+    /// `Cylinder`, or `Cone`). The face is well-formed, but the pipeline does
+    /// not yet process curved geometry (PR-YR6 added the curved variants as
+    /// types only). Carries the offending input B-Rep `face` index. This is a
+    /// P9/P10 LOUD rejection — never a panic, silent skip, or planar
+    /// approximation. Curved processing arrives in a later PR.
+    CurvedSurfaceNotYetSupported { face: usize },
 }
 
 impl fmt::Display for YangError {
@@ -540,6 +611,13 @@ impl fmt::Display for YangError {
                     f,
                     "yang-rs: operation {op:?} not yet supported \
                      (XOR multi-shell reassembly deferred — M3)"
+                )
+            }
+            Self::CurvedSurfaceNotYetSupported { face } => {
+                write!(
+                    f,
+                    "yang-rs: face {face} has a curved surface (Sphere/Cylinder/Cone) \
+                     which is not yet supported by the pipeline"
                 )
             }
         }
@@ -779,11 +857,19 @@ pub fn boolean(
         let degenerate =
             twice_area < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
 
-        // Distance of the centroid to each labeled-solid face plane.
-        let plane_dist = |face: &BRepFace| {
-            let Surface::Plane { normal, d } = face.surface;
+        // Distance of the centroid to each labeled-solid face plane. Curved
+        // faces are already rejected at `BRep::new`, so this is defensive — but
+        // it must compile and be LOUD (P9): a curved arm returns the carrying
+        // `Err`, never `unreachable!`/panic. `fi` is the input B-Rep face index.
+        let plane_dist = |fi: usize, face: &BRepFace| -> Result<f64, YangError> {
+            let (normal, d) = match face.surface {
+                Surface::Plane { normal, d } => (normal, d),
+                Surface::Sphere { .. } | Surface::Cylinder { .. } | Surface::Cone { .. } => {
+                    return Err(YangError::CurvedSurfaceNotYetSupported { face: fi });
+                }
+            };
             let n = normal.as_array();
-            (n[0] * c[0] + n[1] * c[1] + n[2] * c[2] + d).abs()
+            Ok((n[0] * c[0] + n[1] * c[1] + n[2] * c[2] + d).abs())
         };
 
         let face = if degenerate {
@@ -793,12 +879,13 @@ pub fn boolean(
             // an error — the F3 tie contract is for *real* (positive-area)
             // triangles only. If somehow no face is within TAU_WORK, that is a
             // genuine producer fault → loud error (P9).
-            let hit = input_brep
-                .faces()
-                .iter()
-                .enumerate()
-                .find(|(_, f)| plane_dist(f) < cad_primitives::TAU_WORK)
-                .map(|(fi, _)| fi as u32);
+            let mut hit: Option<u32> = None;
+            for (fi, f) in input_brep.faces().iter().enumerate() {
+                if plane_dist(fi, f)? < cad_primitives::TAU_WORK {
+                    hit = Some(fi as u32);
+                    break;
+                }
+            }
             match hit {
                 Some(fi) => fi,
                 None => return Err(YangError::FaceResolutionFailed { tri: compact_t }),
@@ -811,7 +898,7 @@ pub fn boolean(
             let mut best: Option<(f64, u32)> = None;
             let mut second: f64 = f64::INFINITY;
             for (fi, f) in input_brep.faces().iter().enumerate() {
-                let r = plane_dist(f);
+                let r = plane_dist(fi, f)?;
                 match best {
                     None => best = Some((r, fi as u32)),
                     Some((br, _)) if r < br => {
@@ -923,7 +1010,12 @@ fn reconstruct_topology(
             )));
         }
         let inherited = input_brep.faces()[face_idx].surface;
-        let Surface::Plane { normal, d } = inherited;
+        let (normal, d) = match inherited {
+            Surface::Plane { normal, d } => (normal, d),
+            Surface::Sphere { .. } | Surface::Cylinder { .. } | Surface::Cone { .. } => {
+                return Err(YangError::CurvedSurfaceNotYetSupported { face: face_idx });
+            }
+        };
         let n = normal.as_array();
 
         // Per-cycle Newell area-vector `N = Σ v_i × v_{i+1}` and its signed
