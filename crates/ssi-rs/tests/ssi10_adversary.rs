@@ -11,6 +11,13 @@
 //! coordinate-scale ceiling (CHARACTERIZED, not force-greened). They ADD tests
 //! only; they do NOT touch production code, the spec, or `ssi10.rs`.
 //!
+//! This audit found ONE genuine bug (attack13): a non-finite `axis_point`
+//! (NaN / +Inf) leaked a NaN-bearing `Line` instead of `Err(DegenerateInput)`,
+//! because the branch table compared a NaN `d` (false against every threshold)
+//! and fell through to the secant branch. The implementer fixed it with an
+//! early `axis_point` finiteness guard; attack13 is now an active regression
+//! lock on the fixed behavior.
+//!
 //! Spec: specs/ssi_pr_ssi10_cylinder_cylinder_parallel.md (the P9/P10 anti-hack
 //! note: a valid SEC config is ALWAYS exactly two lines, a TAN config exactly
 //! one — no manufactured fallback).
@@ -887,76 +894,44 @@ fn attack12_degenerate_nonfinite_inputs() {
 }
 
 // ===========================================================================
-// Attack 13 — GENUINE BUG (demonstrator, #[ignore]d so the suite stays green).
+// Attack 13 — non-finite `axis_point` (NaN / +Inf) ⇒ Err(DegenerateInput).
 //
-// A non-finite `axis_point` (NaN / +Inf) on a cylinder LEAKS a non-finite Line:
-// `intersect` returns `Ok([Line { point: [NaN,NaN,NaN], dir:[0,0,1] }, ...])`.
+// HISTORY: this attack ORIGINALLY found a GENUINE BUG. Before the fix,
+// `cylinder_cylinder` validated `radius` (finite, > 0) and the AXIS DIRECTION
+// (via `normalize`, which rejects non-finite / zero length) but NOT the
+// `axis_point`. A NaN axis_point made `rel`/`rel_perp`/`d` all NaN; every branch
+// comparison against a NaN is FALSE (`NaN <= TAU`, `NaN > r₁+r₂+TAU`,
+// `|NaN−…| <= TAU` all false), so control fell THROUGH the coincident / empty /
+// tangent guards into the SEC branch, which built `center`/`h`/the two `Line`s
+// out of NaN — leaking a NaN-bearing curve as a successful `Ok`. A downstream
+// consumer (yang-rs Stage 3 refinement, B-Rep assembly) would then ingest it.
 //
-// ROOT CAUSE: `cylinder_cylinder` validates `radius` (finite, > 0) and the AXIS
-// DIRECTION (via `normalize`, which rejects non-finite / zero length), but it
-// never validates `axis_point` finiteness. With a NaN axis_point, `rel`/
-// `rel_perp` become NaN ⇒ `d = NaN`. Every branch comparison against a NaN is
-// FALSE (`NaN <= TAU`, `NaN > r₁+r₂+TAU`, `|NaN−…| <= TAU` all false), so
-// control falls THROUGH the coincident / empty / tangent guards into the SEC
-// branch, which builds `center`/`h`/the two `Line`s out of NaN — emitting a
-// NaN-bearing curve as a successful `Ok`.
-//
-// This is a latent robustness hole: a NaN coordinate should be rejected as
-// `Err(SsiError::DegenerateInput)` (mirroring the radius / axis_dir guards),
-// never silently propagated into a "valid" intersection curve that downstream
-// (yang-rs Stage 3 refinement, B-Rep assembly) will then consume.
-//
-// Per P9/P10 the ADVERSARY only exposes; the implementer fixes (e.g. an early
-// `if !q1/q2 .iter().all(is_finite) { return Err(DegenerateInput) }`, or guard
-// `d.is_finite()` before the branch table). The assertion below DEMONSTRATES
-// the leak: it asserts that today a non-finite Line escapes. Once the bug is
-// fixed (axis_point validated ⇒ Err), this demonstrator's expectation flips, so
-// it is `#[ignore]`d and documents the current (buggy) behavior precisely.
+// FIXED by the implementer: `cylinder_cylinder` now has an early `axis_point`
+// finiteness guard returning `Err(SsiError::DegenerateInput)` for a non-finite
+// coordinate on EITHER cylinder, mirroring the existing radius / axis_dir E1
+// guards. This test (formerly an #[ignore]d leak-demonstrator) is now an active
+// regression lock asserting the fixed behavior.
 // ===========================================================================
 
 #[test]
-#[ignore = "GENUINE BUG: non-finite axis_point leaks a NaN-bearing Line instead \
-            of Err(DegenerateInput); see doc comment. Implementer must add an \
-            axis_point finiteness guard. Un-ignore & invert once fixed."]
-fn attack13_nonfinite_axis_point_leaks_nan_line_bug() {
+fn attack13_nonfinite_axis_point_is_degenerate() {
     let good = zcyl([0.0, 0.0, 0.0], 5.0);
 
-    // NaN axis_point on cyl₁.
-    let c_nan_pt = QuadricSurface::Cylinder {
-        axis_point: Point3::new(f64::NAN, 0.0, 0.0),
-        axis_dir: Vector3::new(0.0, 0.0, 1.0),
-        radius: 5.0,
-    };
-    let result = intersect(&c_nan_pt, &good);
-    // DEMONSTRATION of the bug: the call succeeds AND leaks a non-finite Line.
-    let curves = result.expect(
-        "BUG-DEMO: currently returns Ok (the leak); if this is now Err the bug is \
-         FIXED — un-ignore this test and assert Err(DegenerateInput) instead",
-    );
-    let leaked_nan = curves.iter().any(|c| {
-        let (p, dir) = line_fields(c);
-        p.iter().chain(dir.iter()).any(|v| !v.is_finite())
-    });
-    assert!(
-        leaked_nan,
-        "BUG-DEMO: expected a NaN-bearing Line to leak from a NaN axis_point; if \
-         no NaN leaked the bug is FIXED — un-ignore and assert Err instead"
-    );
-
-    // +Inf axis_point likewise leaks (same root cause).
-    let c_inf_pt = QuadricSurface::Cylinder {
-        axis_point: Point3::new(f64::INFINITY, 0.0, 0.0),
-        axis_dir: Vector3::new(0.0, 0.0, 1.0),
-        radius: 5.0,
-    };
-    let inf_curves = intersect(&c_inf_pt, &good)
-        .expect("BUG-DEMO: +Inf axis_point also returns Ok with a non-finite Line");
-    let inf_leak = inf_curves.iter().any(|c| {
-        let (p, dir) = line_fields(c);
-        p.iter().chain(dir.iter()).any(|v| !v.is_finite())
-    });
-    assert!(
-        inf_leak,
-        "BUG-DEMO: +Inf axis_point should also leak a non-finite Line"
-    );
+    // NaN / +Inf axis_point on EITHER cylinder, on EITHER coordinate ⇒
+    // DegenerateInput (no NaN-bearing Line leaks). Covers both argument orders.
+    for &bad in &[f64::NAN, f64::INFINITY] {
+        for axis_pt in &[[bad, 0.0, 0.0], [0.0, bad, 0.0], [0.0, 0.0, bad]] {
+            let c = cyl(*axis_pt, [0.0, 0.0, 1.0], 5.0);
+            assert_eq!(
+                intersect(&c, &good),
+                Err(SsiError::DegenerateInput),
+                "axis_point {axis_pt:?} (cyl₁) ⇒ DegenerateInput (no NaN-Line leak)"
+            );
+            assert_eq!(
+                intersect(&good, &c),
+                Err(SsiError::DegenerateInput),
+                "axis_point {axis_pt:?} (cyl₂) ⇒ DegenerateInput (no NaN-Line leak)"
+            );
+        }
+    }
 }
