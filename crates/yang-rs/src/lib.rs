@@ -445,26 +445,13 @@ impl BRep {
             std::collections::BTreeMap::new();
 
         if !circle_edges.is_empty() {
-            // Analytic AABB over all rim circles: per axis a circle of center
-            // `c`, unit normal `n`, radius `r` spans `c_i ± r·√(max(0,1−n_i²))`.
-            let mut lo = [f64::INFINITY; 3];
-            let mut hi = [f64::NEG_INFINITY; 3];
-            for &(_, center, normal, radius) in &circle_edges {
-                let nu = normalize3(normal.as_array());
-                let c = center.as_array();
-                for i in 0..3 {
-                    let span = radius * (1.0 - nu[i] * nu[i]).max(0.0).sqrt();
-                    lo[i] = lo[i].min(c[i] - span);
-                    hi[i] = hi[i].max(c[i] + span);
-                }
-            }
-            let diag = {
-                let dx = hi[0] - lo[0];
-                let dy = hi[1] - lo[1];
-                let dz = hi[2] - lo[2];
-                (dx * dx + dy * dy + dz * dz).sqrt()
-            };
-            let d_eps = 1e-2 * diag;
+            // Stage-1 chord bound `d_ε = 1e-2 × analytic-AABB-diag` over all rim
+            // circles, from the SINGLE shared source (governance A14.3). Since
+            // `circle_edges` is non-empty, `curved_chord_bound` returns `Some`;
+            // the `unwrap_or(0.0)` is an unreachable no-panic guard (P9 — a 0.0
+            // band is already handled by the `d_eps > 0.0` floor below, keeping
+            // the N=3 floor rather than panicking).
+            let d_eps = curved_chord_bound(&edges).unwrap_or(0.0);
             // Smallest N >= 3 with max_radius·(1 − cos(π/N)) ≤ d_eps.
             let max_r = circle_edges
                 .iter()
@@ -1082,6 +1069,53 @@ fn orient_tri(verts: &[Point3], tri: &mut [u32; 3], target: [f64; 3]) {
     }
 }
 
+/// PR-YR8 (P2c): the Stage-1 chord-error bound `d_ε = 1e-2 × analytic-AABB-diag`
+/// for a solid, derived from its `Curve::Circle` rim edges (spec §4 Blocker 1).
+///
+/// This is the **single source** (governance A14.3) of the `1e-2` chord-bound
+/// constant: both `BRep::new` (which derives the cylinder tessellation `n_seg`
+/// from it) and Stage-6 face resolution (which uses it as the per-curved-face
+/// membership tolerance, degenerate and non-degenerate alike) call this — there
+/// is no second copy of the math or the literal anywhere in the crate.
+///
+/// Per axis a circle of center `c`, unit normal `n`, radius `r` spans
+/// `c_i ± r·√(max(0, 1 − n_i²))`; the AABB is the union of those spans over all
+/// rim circles. Returns:
+/// - `Some(1e-2 × diag)` when the solid has ≥1 `Curve::Circle` rim (it has a
+///   tessellated curved face, so it exposes a chord band), or
+/// - `None` when there are no circle rims (an all-planar solid has zero chord
+///   error; its faces resolve at `TAU_WORK`, not at a curved band).
+fn curved_chord_bound(edges: &[BRepEdge]) -> Option<f64> {
+    let mut lo = [f64::INFINITY; 3];
+    let mut hi = [f64::NEG_INFINITY; 3];
+    let mut any = false;
+    for e in edges {
+        if let Curve::Circle {
+            center,
+            normal,
+            radius,
+        } = e.curve
+        {
+            any = true;
+            let nu = normalize3(normal.as_array());
+            let c = center.as_array();
+            for i in 0..3 {
+                let span = radius * (1.0 - nu[i] * nu[i]).max(0.0).sqrt();
+                lo[i] = lo[i].min(c[i] - span);
+                hi[i] = hi[i].max(c[i] + span);
+            }
+        }
+    }
+    if !any {
+        return None;
+    }
+    let dx = hi[0] - lo[0];
+    let dy = hi[1] - lo[1];
+    let dz = hi[2] - lo[2];
+    let diag = (dx * dx + dy * dy + dz * dz).sqrt();
+    Some(1e-2 * diag)
+}
+
 /// PR-YR7: signed distance from `point` to an analytic `surface` (spec §5).
 ///
 /// - `Plane { normal, d }` → `normal·point + d` (the stored normal, as the
@@ -1456,16 +1490,61 @@ pub fn boolean(
             }
         };
 
+        // PER-FACE membership tolerance (PR-YR8 Blocker 1, spec §4). The
+        // membership tolerance is the surface's OWN Stage-1 tessellation chord
+        // bound (governance A15 / A14.3 — not tolerance widening): a `Plane`
+        // face has zero chord error → `TAU_WORK`; a `Cylinder` face is a
+        // `d_ε`-chord approximation BY CONSTRUCTION → its labeled solid's curved
+        // chord band `d_ε`, the SAME bound Stage 1 guarantees. Computed once per
+        // labeled solid from the SINGLE shared source.
+        //
+        // A `Cylinder` face implies the solid HAS circle rims, so `band` is
+        // `Some`; if it is somehow `None` for a cylinder face that is a genuine
+        // producer fault → `FaceResolutionFailed` (do NOT silently default a
+        // cylinder face to `TAU_WORK`).
+        //
+        // For ALL-PLANAR inputs every face uses `TAU_WORK` (planar faces always
+        // do; an all-planar solid has `band == None` so no face consults it),
+        // making BOTH branches below byte-for-byte the OLD rules — the 900-case
+        // box fuzz and the m3/yr5c planar-sliver tests are unaffected.
+        let band = curved_chord_bound(input_brep.edges());
+        let tol_for = |fi: usize, surface: Surface| -> Result<f64, YangError> {
+            match surface {
+                Surface::Plane { .. } => Ok(cad_primitives::TAU_WORK),
+                Surface::Cylinder { .. } => match band {
+                    Some(de) => Ok(de),
+                    None => Err(YangError::FaceResolutionFailed { tri: compact_t }),
+                },
+                // Sphere/Cone never reach here (`plane_dist` propagates the loud
+                // CurvedSurfaceNotYetSupported first), but stay LOUD if they do.
+                Surface::Sphere { .. } | Surface::Cone { .. } => {
+                    Err(YangError::CurvedSurfaceNotYetSupported { face: fi })
+                }
+            }
+        };
+
         let face = if degenerate {
-            // Degenerate sliver: attribute to the LOWEST face index within
-            // TAU_WORK of the centroid (a zero-area triangle has no area, so
-            // which adjacent face it joins is geometrically harmless). Never
-            // an error — the F3 tie contract is for *real* (positive-area)
-            // triangles only. If somehow no face is within TAU_WORK, that is a
-            // genuine producer fault → loud error (P9).
+            // Degenerate sliver: attribute to the LOWEST face index within ITS
+            // per-face tolerance (a zero-area triangle has no area, so which
+            // adjacent face it joins is geometrically harmless). Never an F3
+            // tie — the tie contract is for *real* (positive-area) triangles.
+            //
+            // PR-YR8: this branch uses the PER-FACE tolerance, not absolute
+            // TAU_WORK. The spec §4 "degenerate branch keeps TAU_WORK" line was
+            // written for the planar-only world (slivers only on shared
+            // planar-planar solid edges, centroid on both planes within
+            // TAU_WORK). It did not foresee a sliver lying ON a tessellated
+            // CYLINDER face: the sidecar arrangement emits a near-zero-area
+            // sliver on the cylinder lateral surface whose centroid is ~d_ε
+            // inside the analytic cylinder (within the Stage-1 bound, but ≫
+            // TAU_WORK). The governing PRINCIPLE (§4 Blocker 1: test membership
+            // at the surface's own Stage-1 chord bound) applies to ANY triangle
+            // on the cylinder face, degenerate or not. For all-planar inputs
+            // this stays byte-identical (every tol = TAU_WORK). If no face is
+            // within tolerance, that is a genuine producer fault → loud (P9).
             let mut hit: Option<u32> = None;
             for (fi, f) in input_brep.faces().iter().enumerate() {
-                if plane_dist(fi, f)? < cad_primitives::TAU_WORK {
+                if plane_dist(fi, f)? < tol_for(fi, f.surface)? {
                     hit = Some(fi as u32);
                     break;
                 }
@@ -1475,34 +1554,29 @@ pub fn boolean(
                 None => return Err(YangError::FaceResolutionFailed { tri: compact_t }),
             }
         } else {
-            // Non-degenerate triangle: the existing F1/F3 rule — pick the face
-            // whose plane contains the centroid (smallest |n·c + d|); require
-            // min < TAU_WORK AND 2nd-smallest >= TAU_WORK (unique, no tie),
-            // else FaceResolutionFailed (F3).
-            let mut best: Option<(f64, u32)> = None;
-            let mut second: f64 = f64::INFINITY;
+            // Non-degenerate triangle: the F1/F3 rule generalized to the
+            // per-face tolerance — count faces whose surface contains the
+            // centroid within ITS tolerance: exactly one → attribute; zero →
+            // F3 (no match); ≥2 → F3 (tie).
+            //
+            // For all-planar inputs (every tol = TAU_WORK), "exactly one face
+            // with dist < TAU_WORK" is byte-for-byte the OLD rule ("min <
+            // TAU_WORK ∧ second ≥ TAU_WORK", argmin face): the single sub-tol
+            // face IS the overall argmin, so the attributed face is identical.
+            let mut hit: Option<u32> = None;
+            let mut n_hits = 0usize;
             for (fi, f) in input_brep.faces().iter().enumerate() {
-                let r = plane_dist(fi, f)?;
-                match best {
-                    None => best = Some((r, fi as u32)),
-                    Some((br, _)) if r < br => {
-                        second = br;
-                        best = Some((r, fi as u32));
-                    }
-                    _ => {
-                        if r < second {
-                            second = r;
-                        }
+                if plane_dist(fi, f)? < tol_for(fi, f.surface)? {
+                    n_hits += 1;
+                    if n_hits == 1 {
+                        hit = Some(fi as u32);
                     }
                 }
             }
-            let Some((min_r, fi)) = best else {
-                return Err(YangError::FaceResolutionFailed { tri: compact_t });
-            };
-            if min_r >= cad_primitives::TAU_WORK || second < cad_primitives::TAU_WORK {
-                return Err(YangError::FaceResolutionFailed { tri: compact_t });
+            match (n_hits, hit) {
+                (1, Some(fi)) => fi,
+                _ => return Err(YangError::FaceResolutionFailed { tri: compact_t }),
             }
-            fi
         };
         attributions.push(Some(TriangleAttribution { input, face }));
     }
@@ -1594,12 +1668,85 @@ fn reconstruct_topology(
             )));
         }
         let inherited = input_brep.faces()[face_idx].surface;
+
+        // PR-YR8 (P2c) Blocker 2, spec §4: curved-surface branch BEFORE the
+        // planar normal/Newell/flip machinery. A `Cylinder` patch is a barrel
+        // — a single plane normal + signed-area classification is meaningless,
+        // so we DROP the E3/`positive_count` check and the inherited-normal
+        // flip. We INHERIT the surface UNCHANGED (Union has no cavity → no
+        // sense flip; the curved cavity-sense flip for Subtract is explicitly
+        // DEFERRED). `patch_boundary_cycle` (called above) is surface-agnostic,
+        // so we reuse `cycles`. We KEEP the E2 degenerate-loop guard.
+        if let Surface::Cylinder { .. } = inherited {
+            let push_loop = |edges: &mut Vec<BRepEdge>, cycle: &[(u32, u32)]| -> Vec<u32> {
+                let start_idx = edges.len() as u32;
+                for &(s, e) in cycle {
+                    edges.push(BRepEdge {
+                        start: s,
+                        end: e,
+                        curve: Curve::LineSegment,
+                    });
+                }
+                (start_idx..edges.len() as u32).collect()
+            };
+
+            // E2 degenerate-loop guard: each cycle's Newell area-vector
+            // magnitude must exceed MIN_FEATURE_SIZE² (A14.3 shared constant).
+            for cycle in &cycles {
+                let mut nx = 0.0f64;
+                let mut ny = 0.0f64;
+                let mut nz = 0.0f64;
+                let m = cycle.len();
+                for i in 0..m {
+                    let a_pt = mesh.verts[cycle[i].0 as usize].as_array();
+                    let b_pt = mesh.verts[cycle[(i + 1) % m].0 as usize].as_array();
+                    nx += a_pt[1] * b_pt[2] - a_pt[2] * b_pt[1];
+                    ny += a_pt[2] * b_pt[0] - a_pt[0] * b_pt[2];
+                    nz += a_pt[0] * b_pt[1] - a_pt[1] * b_pt[0];
+                }
+                let nrm_mag = (nx * nx + ny * ny + nz * nz).sqrt();
+                if nrm_mag < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE {
+                    return Err(YangError::NonManifoldOutput);
+                }
+            }
+
+            // Deterministic loop assignment: outer = the cycle with the MOST
+            // edges; tie-break = lowest min start-vertex index within the
+            // cycle. All other cycles = inner_loops.
+            let cycle_min_vert = |c: &[(u32, u32)]| c.iter().map(|&(s, _)| s).min().unwrap_or(0);
+            let mut outer_idx = 0usize;
+            for i in 1..cycles.len() {
+                let cur_len = cycles[i].len();
+                let best_len = cycles[outer_idx].len();
+                if cur_len > best_len
+                    || (cur_len == best_len
+                        && cycle_min_vert(&cycles[i]) < cycle_min_vert(&cycles[outer_idx]))
+                {
+                    outer_idx = i;
+                }
+            }
+
+            let outer_loop = push_loop(&mut edges, &cycles[outer_idx]);
+            let mut inner_loops: Vec<Vec<u32>> = Vec::new();
+            for (i, cycle) in cycles.iter().enumerate() {
+                if i != outer_idx {
+                    inner_loops.push(push_loop(&mut edges, cycle));
+                }
+            }
+
+            faces.push(BRepFace {
+                surface: inherited,
+                outer_loop,
+                inner_loops,
+            });
+            continue;
+        }
+
         let (normal, d) = match inherited {
             Surface::Plane { normal, d } => (normal, d),
-            // PR-YR7 (P2a): curved Stage-6 reassembly (surface inheritance +
-            // the cavity-sense normal flip) is INTENTIONALLY deferred to P2c —
-            // this site stays a loud reject for all curved surfaces, including
-            // Cylinder, even though Stage-1 cylinder tessellation now exists.
+            // Sphere/Cone Stage-6 reassembly stays a loud reject (P9): they can
+            // never reach here through `BRep::new` (rejected at construction).
+            // Cylinder is handled by the curved branch above (unreachable here).
             Surface::Sphere { .. } | Surface::Cylinder { .. } | Surface::Cone { .. } => {
                 return Err(YangError::CurvedSurfaceNotYetSupported { face: face_idx });
             }
