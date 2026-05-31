@@ -23,7 +23,9 @@ working boolean** plus deep foundations:
   interim Stage-2 producer the boolean runs on. **Native-only (no WASM).**
 - `ssi-rs`: plane∩plane, plane∩sphere, sphere∩sphere, plane∩cylinder, and
   plane∩cone (bounded) — 5 analytical solver families, on-surface-exact,
-  adversary-hardened. **Built in isolation; NOT yet wired into yang (Stage 3).**
+  adversary-hardened. **Wired into yang Stage 3 as of PR-YR9** (plane∩cylinder
+  drives exact `cylinder ∪ box` intersection edges); the other pairs await their
+  consuming geometry.
 - `cherchi-rs`: pure-Rust predicates + `FastTrimesh`/`Tree` + arrangement **Stage
   1 only**. The native arrangement *algorithm* (Stage 2) is **not written** (M6).
 - `indirect-predicates-sidecar-rs`: FFI to Attene's LGPL predicates, IP1–IP6;
@@ -452,17 +454,51 @@ reimplementation from Attene's paper restores WASM (M7).
     everywhere. **Verified against the live Cherchi sidecar:** cylinder ∪ box is
     watertight (0 unpaired half-edges), Euler V−E+F=2, analytic `Surface::Cylinder`
     survives — no F3 tie, no `NonManifoldOutput` (spec §5 STOP conditions all
-    clear). **No `ssi-rs` call; intersection edges stay mesh-approximate
-    polylines (exact `Curve::Circle` = P3).** Spec
+    clear). **No `ssi-rs` call yet; intersection edges stayed mesh-approximate
+    polylines — now made exact in PR-YR9 (P3).** Spec
     `specs/yang_pr_yr8_curved_boolean.md`; role-separated cycle, commits
     `c2a81e05` (RED)→`da85f4bd` (GREEN)→`56f395ba` (adversary).
+  - **PR-YR9 — P3 Stage 3: exact intersection edges via `ssi-rs`. ✅ DONE.**
+    The **first real use of `ssi-rs` inside the boolean** (Yang 2025 §4.3).
+    `cylinder ∪ box` output intersection edges no longer carry P2c
+    mesh-approximate `Curve::LineSegment` polylines — they carry the **EXACT
+    analytical conic** from `ssi_rs::intersect`. An output intersection edge is
+    an undirected mesh boundary edge incident to two patches of **different
+    `InputId`** (one on a `Surface::Cylinder`, one on a box-cap `Surface::Plane`);
+    `ssi_rs::intersect(Plane, Cylinder)` of those inherited surfaces is the
+    plane∩cylinder solver → a `Circle` (cap ⟂ axis, canonical), `Ellipse`
+    (oblique), or `Line`s (parallel). New helpers in `crates/yang-rs/src/lib.rs`:
+    `surface_to_quadric` (yang `Surface` → ssi `QuadricSurface`; `Plane` point =
+    `-d·n`), `ssi_curve_to_curve` (field-for-field; `Line`→`LineSegment`),
+    `curve_contains_point` (implicit on-curve residual, no parameter solving),
+    and `build_intersection_curves` (per A↔B edge: intersect, select the
+    **unique** conic passing both endpoints within the cylinder owner's Stage-1
+    chord bound `d_ε` — `TAU_WORK` for plane∩plane — keyed by canonical edge).
+    `reconstruct_topology` refactored into two passes (a `PatchInfo` first pass
+    owning the face-range check + inherited lookup in one place; an emission pass
+    that sets each edge's `curve` via canonical-key lookup, falling back to
+    `LineSegment` ONLY for non-intersection edges). The Newell/flip/E2/E3
+    machinery is byte-unchanged. **P9 STOP**: a genuine `ssi_rs::intersect`
+    failure or a non-unique selection (`matched != 1`) returns
+    `Err(YangError::SsiRefinementFailed { edge, reason: SsiRefinementError })` —
+    **never** a silent fallback to the polyline. **Scope held**: planar
+    `fuzz_boxes` corpus stays all-`LineSegment` (plane∩plane → `Line` →
+    `LineSegment`); same-input rim/seam edges keep `LineSegment` (no SSI entry);
+    sphere/cone still loudly reject. Adversary proved the conic is analytic, not
+    a mesh re-fit (**byte-identical cap `Circle` across N=8 vs N=16 facet mocks**).
+    Role-separated cycle, commits `6e73a74d` (RED)→`f1c401f4` (GREEN)→`ec2b71d0`
+    (adversary); spec `specs/yang_pr_yr9_stage3_ssi.md`.
   - **Next M5 increments (sequenced):** **P2b: sphere Stage-1 tessellation**
-    (the remaining curved Stage-1 primitive) → the **general degree-4
-    curve** (a new parametric `SsiCurve` variant + the 5 general-position solvers) +
-    torus pairs (rest of A15.4) → ~~curved `Surface` variants~~ (PR-YR6 ✅) →
-    ~~P2a curved cylinder tessellation~~ (PR-YR7 ✅) → **P3: Stage 3** (wire `ssi-rs`
-    into `yang-rs`; yang `Surface` → ssi `QuadricSurface`) → Stage 4 (CDT remesh).
-    The next increment — the general degree-4 cyl∩cyl curve — requires a NEW
+    (the remaining curved Stage-1 primitive) → **Stage 4: CDT remesh** (retessellate
+    so the faceted triangulation conforms to the now-exact `Curve::Circle`/`Ellipse`
+    edges) → curved `Subtract` cavity-sense + cut-surface handling (deferred in
+    PR-YR8) → broader SSI surface/pair coverage (Ellipse **emission** via the
+    public path on an oblique cut — the conversion arm exists but the canonical
+    config is perpendicular, so emission is untested; cyl∩cyl) → the **general
+    degree-4 curve** (a new parametric `SsiCurve` variant + the 5 general-position
+    solvers) + torus pairs (rest of A15.4) → ~~curved `Surface` variants~~ (PR-YR6
+    ✅) → ~~P2a curved cylinder tessellation~~ (PR-YR7 ✅) → ~~P3: Stage 3 wire
+    `ssi-rs`~~ (PR-YR9 ✅). The general degree-4 cyl∩cyl curve requires a NEW
     parametric `SsiCurve` variant + general-position solvers, and **MUST be planned
     with a human before implementation.**
 - **M6 — Native `cherchi-rs` Stage 2** behind the same interface, parity-green
@@ -503,13 +539,16 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   enum variants exist (mirroring `ssi-rs` field shapes) and the pipeline rejects
   them LOUDLY (`YangError::CurvedSurfaceNotYetSupported`) — no curved
   tessellation or `ssi-rs` call yet. **Stage-1 cylinder tessellation done
-  (PR-YR7 ✅)** and **first end-to-end curved boolean done (PR-YR8 ✅):
+  (PR-YR7 ✅)**, **first end-to-end curved boolean done (PR-YR8 ✅):
   cylinder ∪ box flows through Stages 2/5/6, watertight + Euler=2, analytic
-  `Surface::Cylinder` survives with exact params — mesh-approximate edges.**
+  `Surface::Cylinder` survives with exact params**, and **Stage 3 exact
+  intersection edges done (PR-YR9 ✅): `ssi_rs::intersect` now refines the
+  cylinder∪cap arrangement edges to the exact `Curve::Circle`/`Ellipse` (no
+  longer mesh-approximate), with a P9 STOP on intersect/selection failure.**
   Remaining: Stage 1 curved tessellation for the rest (sphere — P2b; non-convex
-  profile triangulation via Livesu earcut-CDT, for gears; Steiner points); Stage
-  3 refine arrangement edges on two analytical surfaces to the exact SSI curve
-  (wire `ssi-rs` in — P3); Stage 4 CDT remesh conforming to refined curves;
+  profile triangulation via Livesu earcut-CDT, for gears; Steiner points);
+  ~~Stage 3 refine arrangement edges to the exact SSI curve (wire `ssi-rs` in —
+  P3)~~ (PR-YR9 ✅); Stage 4 CDT remesh conforming to refined curves;
   Stage 6 curved cavity-sense for Subtract (deferred in PR-YR8) + cut-surface
   faces (deferred in PR-YR5). **Exit:** cylinder ∪ box ✅ (mesh-approximate),
   sphere − cylinder → correct curved B-Rep, sidecar mesh-parity + analytically
