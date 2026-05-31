@@ -424,10 +424,40 @@ reimplementation from Attene's paper restores WASM (M7).
     `specs/yang_pr_yr7_cylinder_tessellation.md`; role-separated cycle, commits
     `16570a20` (spec)→`aca9d7e4` (RED + contract migration)→`b3dc3f65`
     (GREEN)→`81a3abcf` (adversary).
-  - **Next M5 increments (sequenced):** **P2b: sphere Stage-1 tessellation** →
-    **P2c: curved Stage-6 reassembly** (re-enable `reconstruct_topology` for
-    curved output surfaces + curved face resolution + the planar-assumption
-    migration) → the **general degree-4
+  - **PR-YR8 — P2c first curved boolean: cylinder ∪ box (mesh-approximate). ✅ DONE.**
+    A curved solid runs through the WHOLE pipeline for the first time:
+    `boolean(cylinder, box, Union)` flows Stage 2 (sidecar `LabeledArrangement`)
+    → Stage 5/6 reassembly, and a kept lateral patch emits a `BRepFace` carrying
+    `Surface::Cylinder` with the **input's exact parameters** (governance A15 —
+    the mesh is a tool, the analytic surface is the truth). Two honest fixes:
+    **(Blocker 1)** Stage-6 face resolution gains a **per-face membership
+    tolerance** — `TAU_WORK` for `Plane`, the surface's own Stage-1 chord bound
+    `d_ε` for `Cylinder` (NOT tolerance widening; the same bound Stage 1
+    guarantees). The `1e-2 × analytic-AABB-diag` math is extracted into ONE
+    shared `curved_chord_bound` helper consumed by both `BRep::new` (Stage-1
+    `n_seg`) and face resolution (A14.3 single source). Applied to BOTH the
+    non-degenerate count rule AND the degenerate-sliver branch (the sidecar
+    emits a near-zero-area sliver ON the cylinder lateral whose centroid is
+    ~`d_ε` inside the analytic surface — the §4-literal "keep TAU_WORK" was a
+    planar-world assumption; the governing principle applies to any triangle on
+    a curved face). Byte-for-byte identical for all-planar inputs (every face
+    uses `TAU_WORK`; an all-planar solid has `band == None`) — **fuzz_boxes
+    900/900 correct, 0 silent-wrong**. **(Blocker 2)** `reconstruct_topology`
+    gains a `Surface::Cylinder` branch BEFORE the planar Newell/flip machinery:
+    inherit the surface unchanged (Union = no cavity → no sense flip; curved
+    Subtract cavity-sense deferred), reuse `patch_boundary_cycle`, keep the E2
+    degenerate-loop guard, DROP the E3/`positive_count` + inherited-normal flip,
+    deterministic loop assignment (most-edges = outer, tie-break lowest min
+    start-vertex), edges = `Curve::LineSegment`. Sphere/Cone still loudly reject
+    everywhere. **Verified against the live Cherchi sidecar:** cylinder ∪ box is
+    watertight (0 unpaired half-edges), Euler V−E+F=2, analytic `Surface::Cylinder`
+    survives — no F3 tie, no `NonManifoldOutput` (spec §5 STOP conditions all
+    clear). **No `ssi-rs` call; intersection edges stay mesh-approximate
+    polylines (exact `Curve::Circle` = P3).** Spec
+    `specs/yang_pr_yr8_curved_boolean.md`; role-separated cycle, commits
+    `c2a81e05` (RED)→`da85f4bd` (GREEN)→`56f395ba` (adversary).
+  - **Next M5 increments (sequenced):** **P2b: sphere Stage-1 tessellation**
+    (the remaining curved Stage-1 primitive) → the **general degree-4
     curve** (a new parametric `SsiCurve` variant + the 5 general-position solvers) +
     torus pairs (rest of A15.4) → ~~curved `Surface` variants~~ (PR-YR6 ✅) →
     ~~P2a curved cylinder tessellation~~ (PR-YR7 ✅) → **P3: Stage 3** (wire `ssi-rs`
@@ -472,13 +502,16 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   heart, highest risk]* **First step done (PR-YR6 ✅):** curved `Surface`/`Curve`
   enum variants exist (mirroring `ssi-rs` field shapes) and the pipeline rejects
   them LOUDLY (`YangError::CurvedSurfaceNotYetSupported`) — no curved
-  tessellation or `ssi-rs` call yet. Remaining: Stage 1 curved tessellation
-  (sample analytical surfaces →
-  mesh, keep the surface tier via the bijection) + non-convex profile triangulation
-  (Livesu earcut-CDT, for gears) + Steiner points; Stage 3 refine arrangement edges
-  on two analytical surfaces to the exact SSI curve (wire `ssi-rs` in); Stage 4 CDT
-  remesh conforming to refined curves; Stage 6 curved-face reassembly + 2-manifold
-  closure (cut-surface faces deferred in PR-YR5). **Exit:** cylinder ∪ box,
+  tessellation or `ssi-rs` call yet. **Stage-1 cylinder tessellation done
+  (PR-YR7 ✅)** and **first end-to-end curved boolean done (PR-YR8 ✅):
+  cylinder ∪ box flows through Stages 2/5/6, watertight + Euler=2, analytic
+  `Surface::Cylinder` survives with exact params — mesh-approximate edges.**
+  Remaining: Stage 1 curved tessellation for the rest (sphere — P2b; non-convex
+  profile triangulation via Livesu earcut-CDT, for gears; Steiner points); Stage
+  3 refine arrangement edges on two analytical surfaces to the exact SSI curve
+  (wire `ssi-rs` in — P3); Stage 4 CDT remesh conforming to refined curves;
+  Stage 6 curved cavity-sense for Subtract (deferred in PR-YR8) + cut-surface
+  faces (deferred in PR-YR5). **Exit:** cylinder ∪ box ✅ (mesh-approximate),
   sphere − cylinder → correct curved B-Rep, sidecar mesh-parity + analytically
   exact edges. **Risk:** HIGH (paper-critical). **Size:** large.
 - **Phase 3 — Coplanar preprocessing (Stage 0).** *[= M8]* detect coplanar face
