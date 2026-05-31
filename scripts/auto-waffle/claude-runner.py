@@ -344,7 +344,7 @@ def run_session(args):
         return 2 if timed_out else (0 if exit_code == 0 else 1)
 
     # --- Phase A: plan mode — write + present the plan, then the turn ends. ---
-    plan_secs = min(1800, max(600, total_secs // 4))  # cap planning at ~30m
+    plan_secs = min(2700, max(600, total_secs // 3))  # cap planning at ~45m
     print(f"[claude-runner] Phase A: plan ({plan_secs//60}m cap)...")
     session_id, plan_timed_out, plan_exit = run_claude_print(
         worker_prompt, os.path.join(args.output_dir, 'plan-output.log'),
