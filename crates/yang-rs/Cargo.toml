@@ -18,3 +18,9 @@ ssi-rs = { path = "../ssi-rs" }
 # consumers pick their own backend via the MeshBoolean trait; the
 # sidecar is just today's testing default.
 cherchi-sidecar-rs = { path = "../cherchi-sidecar-rs" }
+# ssi-rs is a regular (non-dev) dependency of yang-rs, but integration test
+# crates can only reach a crate's *own* dependencies through the crate's
+# public surface (yang-rs does not `pub use` ssi-rs). The YR9 oracle calls
+# `ssi_rs::intersect` directly to build the EXACT-conic oracle, so it must be
+# a dev-dependency of the test crate as well.
+ssi-rs = { path = "../ssi-rs" }
