@@ -1157,6 +1157,255 @@ pub fn signed_distance_to_surface(surface: Surface, point: Point3) -> Result<f64
 }
 
 // =========================================================================
+// PR-YR9 (P3) — Stage 3: analytical SSI refinement of intersection edges
+// =========================================================================
+
+/// PR-YR9: convert a yang `Surface` into the analytical `ssi_rs::QuadricSurface`
+/// for Stage-3 SSI (spec §5.2).
+///
+/// `Surface::Plane { normal, d }` uses the convention `n·x + d = 0`, while
+/// `QuadricSurface::Plane` is `n·(x − point) = 0`, so a point on the plane is
+/// `point = -d · n` (with `n` the stored unit normal). `Cylinder` maps
+/// field-for-field. `Sphere`/`Cone` have no supported SSI pair in this PR and
+/// reject loudly (P9).
+fn surface_to_quadric(s: Surface) -> Result<ssi_rs::QuadricSurface, SsiRefinementError> {
+    match s {
+        Surface::Plane { normal, d } => {
+            let n = normal.as_array();
+            Ok(ssi_rs::QuadricSurface::Plane {
+                point: Point3::new(-d * n[0], -d * n[1], -d * n[2]),
+                normal,
+            })
+        }
+        Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => Ok(ssi_rs::QuadricSurface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        }),
+        Surface::Sphere { .. } | Surface::Cone { .. } => {
+            Err(SsiRefinementError::UnsupportedSurfaceForSsi)
+        }
+    }
+}
+
+/// PR-YR9: convert an `ssi_rs::SsiCurve` into a yang `Curve` (spec §5.3).
+/// `Circle`/`Ellipse` map field-for-field; `Line` becomes `LineSegment`
+/// (the edge's endpoints trim it). `Parabola`/`Hyperbola` cannot arise for the
+/// Cylinder∩Plane pair and reject loudly (P9, defensive).
+fn ssi_curve_to_curve(c: ssi_rs::SsiCurve) -> Result<Curve, SsiRefinementError> {
+    match c {
+        ssi_rs::SsiCurve::Circle {
+            center,
+            normal,
+            radius,
+        } => Ok(Curve::Circle {
+            center,
+            normal,
+            radius,
+        }),
+        ssi_rs::SsiCurve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            major_radius,
+            minor_radius,
+        } => Ok(Curve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            major_radius,
+            minor_radius,
+        }),
+        ssi_rs::SsiCurve::Line { .. } => Ok(Curve::LineSegment),
+        ssi_rs::SsiCurve::Parabola { .. } | ssi_rs::SsiCurve::Hyperbola { .. } => {
+            Err(SsiRefinementError::UnsupportedCurve)
+        }
+    }
+}
+
+/// PR-YR9: implicit on-curve test (spec §5.4) — does point `p` lie within `tol`
+/// of curve `c`? No parameter solving; uses the curve's implicit residual.
+/// `tol` is supplied by the caller (the Stage-1 chord bound `d_ε`); no ad-hoc
+/// epsilon is introduced. `Parabola`/`Hyperbola` always return `false`.
+fn curve_contains_point(c: &ssi_rs::SsiCurve, p: Point3, tol: f64) -> bool {
+    let x = p.as_array();
+    match c {
+        ssi_rs::SsiCurve::Circle {
+            center,
+            normal,
+            radius,
+        } => {
+            let n = normalize3(normal.as_array());
+            let cc = center.as_array();
+            let w = [x[0] - cc[0], x[1] - cc[1], x[2] - cc[2]];
+            let axial = w[0] * n[0] + w[1] * n[1] + w[2] * n[2];
+            let radial_vec = [
+                w[0] - axial * n[0],
+                w[1] - axial * n[1],
+                w[2] - axial * n[2],
+            ];
+            let radial = (radial_vec[0] * radial_vec[0]
+                + radial_vec[1] * radial_vec[1]
+                + radial_vec[2] * radial_vec[2])
+                .sqrt();
+            axial.abs() <= tol && (radial - radius).abs() <= tol
+        }
+        ssi_rs::SsiCurve::Line { point, dir } => {
+            let d = normalize3(dir.as_array());
+            let pt = point.as_array();
+            let w = [x[0] - pt[0], x[1] - pt[1], x[2] - pt[2]];
+            let along = w[0] * d[0] + w[1] * d[1] + w[2] * d[2];
+            let perp = [
+                w[0] - along * d[0],
+                w[1] - along * d[1],
+                w[2] - along * d[2],
+            ];
+            (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt() <= tol
+        }
+        ssi_rs::SsiCurve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            major_radius,
+            minor_radius,
+        } => {
+            let n = normalize3(normal.as_array());
+            let maj = normalize3(major_axis.as_array());
+            let min_axis = [
+                n[1] * maj[2] - n[2] * maj[1],
+                n[2] * maj[0] - n[0] * maj[2],
+                n[0] * maj[1] - n[1] * maj[0],
+            ];
+            let cc = center.as_array();
+            let w = [x[0] - cc[0], x[1] - cc[1], x[2] - cc[2]];
+            let out_of_plane = w[0] * n[0] + w[1] * n[1] + w[2] * n[2];
+            if out_of_plane.abs() > tol {
+                return false;
+            }
+            let u = w[0] * maj[0] + w[1] * maj[1] + w[2] * maj[2];
+            let v = w[0] * min_axis[0] + w[1] * min_axis[1] + w[2] * min_axis[2];
+            let residual = ((u / major_radius).powi(2) + (v / minor_radius).powi(2)).sqrt() - 1.0;
+            residual.abs() * major_radius.min(*minor_radius) <= tol
+        }
+        ssi_rs::SsiCurve::Parabola { .. } | ssi_rs::SsiCurve::Hyperbola { .. } => false,
+    }
+}
+
+/// PR-YR9: build the EXACT analytical `Curve` for each output intersection edge
+/// (spec §5.5). An intersection edge is an undirected mesh boundary edge whose
+/// incidence list has EXACTLY TWO entries with DIFFERENT `InputId` — it lies on
+/// one surface of input A and one of input B.
+///
+/// For each such edge: convert both surfaces to `QuadricSurface`, call
+/// `ssi_rs::intersect`, derive the selection tolerance `tol` from the
+/// cylinder-owning input's Stage-1 chord bound, and select the UNIQUE returned
+/// curve passing through BOTH mesh endpoints within `tol`. `matched != 1` is a
+/// P9/P10 LOUD stop (`AmbiguousCurve`) — never a silent polyline fallback.
+///
+/// Plane∩Plane edges yield a `Line` → `LineSegment` (equal to the caller's
+/// fallback, so the planar corpus is unchanged); their `tol` is `TAU_WORK`
+/// (a plane∩plane line has zero chord error).
+fn build_intersection_curves(
+    incidence: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+    mesh: &Mesh,
+    a: &BRep,
+    b: &BRep,
+) -> Result<std::collections::BTreeMap<(u32, u32), Curve>, YangError> {
+    let mut out: std::collections::BTreeMap<(u32, u32), Curve> = std::collections::BTreeMap::new();
+    for (&(s, e), entries) in incidence {
+        if entries.len() != 2 {
+            continue;
+        }
+        let (input0, surf0) = entries[0];
+        let (input1, surf1) = entries[1];
+        if input0 == input1 {
+            continue;
+        }
+
+        let q0 = surface_to_quadric(surf0).map_err(|reason| YangError::SsiRefinementFailed {
+            edge: (s, e),
+            reason,
+        })?;
+        let q1 = surface_to_quadric(surf1).map_err(|reason| YangError::SsiRefinementFailed {
+            edge: (s, e),
+            reason,
+        })?;
+
+        let returned =
+            ssi_rs::intersect(&q0, &q1).map_err(|err| YangError::SsiRefinementFailed {
+                edge: (s, e),
+                reason: SsiRefinementError::IntersectFailed(err),
+            })?;
+
+        // Selection tolerance: the Stage-1 chord bound of the cylinder-owning
+        // input (A14.3 single source). Plane∩Plane → no cylinder → TAU_WORK.
+        let cyl_input = if matches!(surf0, Surface::Cylinder { .. }) {
+            Some(input0)
+        } else if matches!(surf1, Surface::Cylinder { .. }) {
+            Some(input1)
+        } else {
+            None
+        };
+        let tol = match cyl_input {
+            Some(input) => {
+                let owner = match input {
+                    InputId::A => a,
+                    InputId::B => b,
+                };
+                match curved_chord_bound(owner.edges()) {
+                    Some(t) => t,
+                    // A cylinder-bearing input with no circle rims is a producer
+                    // fault: never default to TAU_WORK for a curved selection.
+                    None => {
+                        return Err(YangError::SsiRefinementFailed {
+                            edge: (s, e),
+                            reason: SsiRefinementError::AmbiguousCurve {
+                                candidates: returned.len(),
+                                matched: 0,
+                            },
+                        });
+                    }
+                }
+            }
+            None => cad_primitives::TAU_WORK,
+        };
+
+        let p_s = mesh.verts[s as usize];
+        let p_e = mesh.verts[e as usize];
+        let mut matched_idx: Option<usize> = None;
+        let mut matched = 0usize;
+        for (i, curve) in returned.iter().enumerate() {
+            if curve_contains_point(curve, p_s, tol) && curve_contains_point(curve, p_e, tol) {
+                matched += 1;
+                matched_idx = Some(i);
+            }
+        }
+
+        if matched != 1 {
+            return Err(YangError::SsiRefinementFailed {
+                edge: (s, e),
+                reason: SsiRefinementError::AmbiguousCurve {
+                    candidates: returned.len(),
+                    matched,
+                },
+            });
+        }
+        let curve = ssi_curve_to_curve(returned[matched_idx.unwrap()]).map_err(|reason| {
+            YangError::SsiRefinementFailed {
+                edge: (s, e),
+                reason,
+            }
+        })?;
+        out.insert((s, e), curve);
+    }
+    Ok(out)
+}
+
+// =========================================================================
 // Errors
 // =========================================================================
 
@@ -1195,6 +1444,38 @@ pub enum YangError {
     /// P9/P10 LOUD rejection — never a panic, silent skip, or planar
     /// approximation. Curved processing arrives in a later PR.
     CurvedSurfaceNotYetSupported { face: usize },
+    /// PR-YR9 (P3): Stage-3 SSI refinement of an output intersection edge
+    /// failed. The edge `(start, end)` (canonical mesh-vertex indices) lies on
+    /// two input surfaces of DIFFERENT inputs; converting them to analytical
+    /// quadrics and selecting the unique `ssi-rs` intersection curve passing
+    /// through both endpoints did not yield exactly one curve. P9/P10 LOUD —
+    /// never a silent fallback to `Curve::LineSegment`. Carries `reason`.
+    SsiRefinementFailed {
+        edge: (u32, u32),
+        reason: SsiRefinementError,
+    },
+}
+
+/// PR-YR9 (P3): why Stage-3 SSI refinement of an intersection edge failed.
+///
+/// Each variant is a P9/P10 LOUD stop — the boolean returns
+/// [`YangError::SsiRefinementFailed`] rather than silently emitting a
+/// mesh-approximate polyline on a genuine analytical failure.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SsiRefinementError {
+    /// `ssi_rs::intersect` returned an error for a surface pair we expected to
+    /// intersect (e.g. degenerate input).
+    IntersectFailed(ssi_rs::SsiError),
+    /// Selecting the unique on-curve solution failed: `matched` of `candidates`
+    /// returned curves pass through BOTH edge endpoints within tolerance, and
+    /// `matched != 1` (zero or ≥2). Never pick the first / nearest (P10).
+    AmbiguousCurve { candidates: usize, matched: usize },
+    /// The selected curve is a `Parabola`/`Hyperbola` (defensive — cannot occur
+    /// for the Cylinder∩Plane pair this PR handles).
+    UnsupportedCurve,
+    /// One of the two incident surfaces is a `Sphere`/`Cone`, which has no
+    /// supported analytical SSI in this PR (defensive).
+    UnsupportedSurfaceForSsi,
 }
 
 impl fmt::Display for YangError {
@@ -1233,6 +1514,13 @@ impl fmt::Display for YangError {
                     f,
                     "yang-rs: face {face} has a curved surface (Sphere/Cylinder/Cone) \
                      which is not yet supported by the pipeline"
+                )
+            }
+            Self::SsiRefinementFailed { edge, reason } => {
+                write!(
+                    f,
+                    "yang-rs: Stage-3 SSI refinement failed for intersection edge \
+                     {edge:?}: {reason:?}"
                 )
             }
         }
@@ -1650,13 +1938,21 @@ fn reconstruct_topology(
     // (3) Flood-fill same-attribution patches
     let patches = flood_fill_patches(mesh, attribution, &adjacency);
 
-    // (4) Per-patch boundary cycle + face construction
-    let mut edges: Vec<BRepEdge> = Vec::new();
-    let mut faces: Vec<BRepFace> = Vec::new();
+    // (4) First pass (PR-YR9): resolve each patch's boundary cycles, owning
+    // input, inherited surface, and face index ONCE. The face-range check and
+    // inherited-surface lookup live HERE only (spec §5.6 — "in exactly one
+    // place"), so the emission loop never re-derives them.
+    struct PatchInfo {
+        cycles: Vec<Vec<(u32, u32)>>,
+        input: InputId,
+        inherited: Surface,
+        face_idx: usize,
+    }
+    let mut infos: Vec<PatchInfo> = Vec::with_capacity(patches.len());
     for patch in &patches {
         let cycles = patch_boundary_cycle(patch, mesh)?;
-
-        let input_brep = match patch.attribution.input {
+        let input = patch.attribution.input;
+        let input_brep = match input {
             InputId::A => a,
             InputId::B => b,
         };
@@ -1668,6 +1964,44 @@ fn reconstruct_topology(
             )));
         }
         let inherited = input_brep.faces()[face_idx].surface;
+        infos.push(PatchInfo {
+            cycles,
+            input,
+            inherited,
+            face_idx,
+        });
+    }
+
+    // (4a) PR-YR9 Stage 3: build EXACT intersection curves. An output
+    // intersection edge is incident to two patches of DIFFERENT InputId; its
+    // analytical `Curve` comes from `ssi_rs::intersect` of the two inherited
+    // surfaces. The incidence map keys edges canonically; `info.inherited` is
+    // UNFLIPPED (the conic is sign-invariant and Union has no flip).
+    let mut incidence: std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>> =
+        std::collections::BTreeMap::new();
+    for info in &infos {
+        for cycle in &info.cycles {
+            for &(s, e) in cycle {
+                let key = if s < e { (s, e) } else { (e, s) };
+                incidence
+                    .entry(key)
+                    .or_default()
+                    .push((info.input, info.inherited));
+            }
+        }
+    }
+    let intersection_curves = build_intersection_curves(&incidence, mesh, a, b)?;
+
+    // (4b) Emission pass: walk `infos`, emit faces/edges. The Newell / flip /
+    // E2 / E3 machinery is UNCHANGED (it reads `cycles` / `signed_areas`, never
+    // the per-edge curve). The ONLY change vs PR-YR8 is the per-edge `curve`:
+    // an intersection edge gets its exact conic, all others stay LineSegment.
+    let mut edges: Vec<BRepEdge> = Vec::new();
+    let mut faces: Vec<BRepFace> = Vec::new();
+    for info in &infos {
+        let cycles = &info.cycles;
+        let inherited = info.inherited;
+        let face_idx = info.face_idx;
 
         // PR-YR8 (P2c) Blocker 2, spec §4: curved-surface branch BEFORE the
         // planar normal/Newell/flip machinery. A `Cylinder` patch is a barrel
@@ -1684,7 +2018,10 @@ fn reconstruct_topology(
                     edges.push(BRepEdge {
                         start: s,
                         end: e,
-                        curve: Curve::LineSegment,
+                        curve: intersection_curves
+                            .get(&if s < e { (s, e) } else { (e, s) })
+                            .copied()
+                            .unwrap_or(Curve::LineSegment),
                     });
                 }
                 (start_idx..edges.len() as u32).collect()
@@ -1692,7 +2029,7 @@ fn reconstruct_topology(
 
             // E2 degenerate-loop guard: each cycle's Newell area-vector
             // magnitude must exceed MIN_FEATURE_SIZE² (A14.3 shared constant).
-            for cycle in &cycles {
+            for cycle in cycles {
                 let mut nx = 0.0f64;
                 let mut ny = 0.0f64;
                 let mut nz = 0.0f64;
@@ -1765,7 +2102,7 @@ fn reconstruct_topology(
         // whose outward normal points into the cavity), then classify the
         // remaining cycles relative to that corrected orientation.
         let mut signed_areas: Vec<f64> = Vec::with_capacity(cycles.len());
-        for cycle in &cycles {
+        for cycle in cycles {
             let mut nx = 0.0f64;
             let mut ny = 0.0f64;
             let mut nz = 0.0f64;
@@ -1829,7 +2166,10 @@ fn reconstruct_topology(
                 edges.push(BRepEdge {
                     start: s,
                     end: e,
-                    curve: Curve::LineSegment,
+                    curve: intersection_curves
+                        .get(&if s < e { (s, e) } else { (e, s) })
+                        .copied()
+                        .unwrap_or(Curve::LineSegment),
                 });
             }
             (start_idx..edges.len() as u32).collect()

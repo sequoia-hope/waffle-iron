@@ -857,12 +857,35 @@ fn t1_cap_rings_carry_exact_ssi_circles() {
 }
 
 // =========================================================================
-// TEST 2 — Scope held: same-input boundaries keep LineSegment (spec §7.5).
+// TEST 2 — Scope held: SAME-INPUT boundaries never become conics (spec §7.5).
 //
-// The cylinder seam/rim edges (A↔A, both incidence entries InputId(0)) and the
-// box hull edges (B↔B, both InputId(1)) must remain Curve::LineSegment — only
-// the A↔B cap-ring edges become circles. Concretely: NOT every output edge is a
-// conic; at least one LineSegment survives (the lateral seam / cap-fan spokes).
+// PREMISE CORRECTION (RED follow-up #2): the canonical tube mock
+// (`hand_built_tube_arrangement`) has NO same-input boundary edge — its closed
+// lateral tube (label A) is bounded only by the top+bottom rings, and both cap
+// fans are label B, so EVERY emitted edge is an A↔B ring (correctly all become
+// Circles via t1). There is no LineSegment to "survive" there.
+//
+// To actually test the over-reach guard we need a genuine SAME-INPUT seam:
+// build a closed tube-WITH-CAPS where ALL triangles carry label 0 (= solid A =
+// the cylinder), with input `a` a cylinder whose caps lie EXACTLY on the mesh
+// ring planes (z=0 and z=2). Then:
+//   - lateral walls resolve to A's `Surface::Cylinder` face (centroids within
+//     the Stage-1 curved chord band d_ε of the analytic cylinder),
+//   - cap fans resolve to A's z=0 / z=2 `Surface::Plane` cap faces (centroids
+//     exactly ON those planes, within TAU_WORK),
+//   - the two rings are now lateral-patch(A) ↔ cap-patch(A): SAME InputId ⇒ NO
+//     ssi entry ⇒ every output edge stays `Curve::LineSegment`.
+//
+// NOTE on height: the N=8 facet ring has a chord sagitta r·(1−cos(π/8)) ≈
+// 0.0190; the cylinder face's Stage-1 band is d_ε = 1e-2 × AABB-diag, which for
+// a height-2 cylinder is ≈ 0.0212 > 0.0190 (lateral centroids resolve), but for
+// a height-1 cylinder is ≈ 0.0122 < 0.0190 (would F3-fail face resolution). So
+// the same-input tube uses height 2 (z = 0..2), matching the canonical
+// cylinder's geometry exactly.
+//
+// This is the STRONGEST form of "same-input edges never become conics": EVERY
+// output edge must be a LineSegment (no Circle/Ellipse anywhere), and ≥1 edge
+// must exist.
 //
 // RED: production emits all LineSegment today, so this PASSES trivially before
 // GREEN; after GREEN it guards that the conic conversion did not over-reach to
@@ -870,35 +893,112 @@ fn t1_cap_rings_carry_exact_ssi_circles() {
 // API.)
 // =========================================================================
 
+/// Height-2 cylinder with caps EXACTLY at z=0 and z=2 (axis +Z through
+/// (0.5,0.5)), so a z=0/z=2 cap-fan mesh resolves to this cylinder's OWN cap
+/// `Surface::Plane` faces. Same radius / d_ε as the canonical cylinder, so the
+/// N=8 lateral facets resolve to the `Surface::Cylinder` face.
+fn single_input_cylinder() -> BRep {
+    cylinder_brep([0.5, 0.5, 0.0], CYL_AXIS_DIR, CYL_RADIUS, 2.0)
+}
+
+/// Closed tube-WITH-CAPS, EVERY triangle labelled InputId(0) (= solid A). The
+/// lateral walls + both cap fans all belong to A, so the top/bottom rings are
+/// SAME-INPUT (A↔A) boundary edges — they must stay `Curve::LineSegment`.
+/// Geometry matches `single_input_cylinder` (rings on the analytic cylinder at
+/// z=0 / z=2; cap centers on the z=0 / z=2 planes).
+fn hand_built_single_input_tube() -> LabeledArrangement {
+    let cx = 0.5;
+    let cy = 0.5;
+    let r = CYL_RADIUS;
+    let (za, zb) = (0.0f64, 2.0f64);
+
+    let ring: Vec<(f64, f64)> = (0..N_FACETS)
+        .map(|k| {
+            let th = 2.0 * std::f64::consts::PI * (k as f64) / (N_FACETS as f64);
+            (cx + r * th.cos(), cy + r * th.sin())
+        })
+        .collect();
+
+    let mut verts: Vec<Point3> = Vec::new();
+    let mut bot = Vec::with_capacity(N_FACETS);
+    let mut top = Vec::with_capacity(N_FACETS);
+    for &(x, y) in &ring {
+        bot.push(verts.len() as u32);
+        verts.push(p(x, y, za));
+    }
+    for &(x, y) in &ring {
+        top.push(verts.len() as u32);
+        verts.push(p(x, y, zb));
+    }
+    let cb = verts.len() as u32;
+    verts.push(p(cx, cy, za));
+    let ct = verts.len() as u32;
+    verts.push(p(cx, cy, zb));
+
+    let mut tris: Vec<[u32; 3]> = Vec::new();
+    let mut surface: Vec<Vec<LaInputId>> = Vec::new();
+    let push = |t: [u32; 3], tris: &mut Vec<[u32; 3]>, surf: &mut Vec<Vec<LaInputId>>| {
+        tris.push(t);
+        surf.push(vec![LaInputId(0)]); // EVERY triangle is solid A.
+    };
+    // Lateral walls.
+    for k in 0..N_FACETS {
+        let k1 = (k + 1) % N_FACETS;
+        push([bot[k], bot[k1], top[k1]], &mut tris, &mut surface);
+        push([bot[k], top[k1], top[k]], &mut tris, &mut surface);
+    }
+    // Bottom cap fan (z=0, outward −z).
+    for k in 0..N_FACETS {
+        let k1 = (k + 1) % N_FACETS;
+        push([cb, bot[k1], bot[k]], &mut tris, &mut surface);
+    }
+    // Top cap fan (z=1, outward +z).
+    for k in 0..N_FACETS {
+        let k1 = (k + 1) % N_FACETS;
+        push([ct, top[k], top[k1]], &mut tris, &mut surface);
+    }
+
+    let n = tris.len();
+    let mesh = Mesh::new(verts, tris);
+    let inside = vec![vec![false, false]; n];
+    let patch = vec![0u32; n];
+    LabeledArrangement {
+        mesh,
+        surface,
+        inside,
+        patch,
+        num_inputs: 2,
+    }
+}
+
 #[test]
 fn t2_same_input_edges_stay_line_segments() {
-    let cyl = canonical_cylinder();
-    let bx = canonical_box();
+    let a = single_input_cylinder();
+    // Input B is irrelevant to the all-A arrangement; a far-away box keeps the
+    // pipeline's B branch valid without contributing any kept triangle.
+    let b = unit_cube_brep_offset_at([100.0, 100.0, 100.0]);
     let mock = LabelMock {
-        arrangement: hand_built_tube_arrangement(),
+        arrangement: hand_built_single_input_tube(),
     };
-    let r = boolean(&cyl, &bx, BoolOp::Union, &mock).expect("yr9: mock union must return Ok");
+    let r = boolean(&a, &b, BoolOp::Union, &mock).expect("yr9: single-input mock union must Ok");
 
-    let n_line = r
-        .edges()
-        .iter()
-        .filter(|e| matches!(e.curve, Curve::LineSegment))
-        .count();
-    assert!(
-        n_line >= 1,
-        "yr9: same-input boundaries (cylinder seam / box hull / cap-fan spokes) must keep \
-         Curve::LineSegment — at least one LineSegment edge must survive; got curves {:?}",
-        r.edges().iter().map(|e| e.curve).collect::<Vec<_>>()
-    );
-    // No conic may carry a non-finite or non-positive radius (defensive).
-    for e in r.edges() {
-        if let Curve::Circle { radius, .. } = e.curve {
-            assert!(
-                radius.is_finite() && radius > 0.0,
-                "yr9: a Circle edge has invalid radius {radius}"
-            );
-        }
+    assert!(!r.edges().is_empty(), "yr9: expected ≥1 output edge");
+    // SAME-INPUT (A↔A) edges must NEVER become conics: EVERY edge is LineSegment.
+    for (i, e) in r.edges().iter().enumerate() {
+        assert!(
+            matches!(e.curve, Curve::LineSegment),
+            "yr9 §7.5: same-input boundary edge {i} must stay Curve::LineSegment (no SSI \
+             entry for A↔A edges), got {:?}",
+            e.curve
+        );
     }
+    // And no Circle/Ellipse anywhere in the output (over-reach guard).
+    assert_eq!(
+        conic_edges(&r).len(),
+        0,
+        "yr9 §7.5: a single-input solid must produce ZERO conic edges; the SSI conversion \
+         over-reached to same-input boundaries"
+    );
 }
 
 // =========================================================================
@@ -1078,152 +1178,133 @@ fn t4_cone_face_still_loudly_rejected() {
 // `Err(YangError::SsiRefinementFailed { .. })` — NOT a silent LineSegment
 // fallback and NOT a panic.
 //
-// CONSTRUCTION (documented per the brief): the cap-ring intersection edges sit
-// between a label-0 (cylinder) lateral tri and a label-1 (box-cap) fan tri. The
-// production path converts the two incident surfaces to QuadricSurfaces, calls
-// `ssi_rs::intersect`, and selects the unique returned curve passing
-// `curve_contains_point` for BOTH edge endpoints within `tol`. To force a
-// deterministic AMBIGUOUS / zero-match selection WITHOUT touching production, we
-// move the BOX caps far away in z so the cylinder lateral patch's cap-ring
-// edges (whose mesh endpoints are at z≈0 / z≈1) lie on NO circle returned by
-// `intersect(Plane(cap), Cylinder)` for the DISPLACED caps. The exact circle is
-// then centred at the displaced cap z, and the edge endpoints (still at z≈0/1)
-// are NOT within `tol` of it ⇒ zero candidates ⇒ AmbiguousCurve STOP.
+// REACHABILITY CORRECTION (RED follow-up #3). The face-resolution gate (step 5
+// of `boolean()`) and the SSI selection (step 5/§5.5 `build_intersection_curves`)
+// use COMPATIBLE tolerances: any mesh/surface inconsistency that breaks SSI
+// breaks face resolution FIRST, so the previous "displaced cap box" construction
+// errored with `FaceResolutionFailed` (centroids off every box plane) and never
+// reached the SSI path. To reach the SSI STOP we need geometry that PASSES face
+// resolution but THEN fails `ssi_rs::intersect` or selection.
 //
-// We build the arrangement with lateral rings still at z=0/1 (label 0) but the
-// cap fans relabelled to a BOX whose plane is z=10 (label 1) — a deliberately
-// inconsistent mesh-vs-surface pairing that the producer would never emit but
-// which exercises the STOP path. The INPUT box BRep carries the displaced cap
-// plane so `surface_to_quadric` yields the far plane.
+// CONSTRUCTION — coincident planes → `IntersectFailed(DegenerateInput)`:
+//   - A closed unit cube mesh whose BOTTOM face (z=0) is split by the diagonal
+//     0–2 into two triangles: tri[0,2,1] labelled InputId(0) (= A) and
+//     tri[0,3,2] labelled InputId(1) (= B). The other 5 faces (10 tris) are all
+//     label A.
+//   - Input `a` and input `b` are BOTH unit cubes at the origin, so each has a
+//     z=0 bottom `Surface::Plane` face. Both bottom triangles' centroids lie
+//     EXACTLY on z=0, so face resolution succeeds: the A triangle resolves to
+//     A's z=0 face, the B triangle to B's z=0 face (each within TAU_WORK).
+//   - Flood-fill puts the A and B bottom triangles in DIFFERENT patches; their
+//     shared diagonal edge 0–2 is an A↔B boundary edge with incidence
+//     [(A, Plane z=0), (B, Plane z=0)]. `ssi_rs::intersect` of two COINCIDENT
+//     planes returns `Err(SsiError::DegenerateInput)` (verified below by reading
+//     ssi-rs `plane_plane`: coincident ⇒ Err) ⇒ the production path returns
+//     `SsiRefinementFailed { reason: IntersectFailed(..) }`.
+//   - The two bottom triangles are DISJOINT halves of one planar face (not
+//     coincident triangles), so there is NO non-manifold / coincident-triangle
+//     rejection.
 //
 // RED: this test only COMPILES once GREEN adds `SsiRefinementFailed` /
 // `SsiRefinementError`. Behaviorally, before the Stage-3 wiring exists,
-// production emits LineSegment (Ok), so the `matches!` on the error FAILS — the
-// intended RED. After GREEN, the loud STOP must fire.
+// production emits LineSegment (Ok), so the error `match` FAILS — the intended
+// RED. After GREEN, the loud STOP must fire.
 // =========================================================================
 
-/// Box whose top/bottom caps are displaced to z=±9 (so its cap planes are far
-/// from the z=0/1 mesh rings). All other faces are stretched accordingly so
-/// `BRep::new` accepts it; only the cap *planes* matter for the SSI oracle.
-fn displaced_cap_box() -> BRep {
-    // A tall box spanning z = -9 .. 10 over the unit x,y footprint. Its z=−9
-    // and z=10 caps are the planes the STOP arrangement (mis)labels onto the
-    // z≈0/1 cap-ring edges.
-    let z0 = -9.0;
-    let z1 = 10.0;
+/// Closed unit cube whose bottom (z=0) face is split A/B along the diagonal
+/// 0–2; all other faces are label A. The A↔B diagonal is a coincident-plane
+/// (both z=0) intersection edge → forces the SSI `IntersectFailed` STOP.
+fn hand_built_coincident_plane_arrangement() -> LabeledArrangement {
+    // Unit cube corners.
     let verts = vec![
-        BRepVertex {
-            point: p(0.0, 0.0, z0),
-        },
-        BRepVertex {
-            point: p(1.0, 0.0, z0),
-        },
-        BRepVertex {
-            point: p(1.0, 1.0, z0),
-        },
-        BRepVertex {
-            point: p(0.0, 1.0, z0),
-        },
-        BRepVertex {
-            point: p(0.0, 0.0, z1),
-        },
-        BRepVertex {
-            point: p(1.0, 0.0, z1),
-        },
-        BRepVertex {
-            point: p(1.0, 1.0, z1),
-        },
-        BRepVertex {
-            point: p(0.0, 1.0, z1),
-        },
+        p(0.0, 0.0, 0.0), // 0
+        p(1.0, 0.0, 0.0), // 1
+        p(1.0, 1.0, 0.0), // 2
+        p(0.0, 1.0, 0.0), // 3
+        p(0.0, 0.0, 1.0), // 4
+        p(1.0, 0.0, 1.0), // 5
+        p(1.0, 1.0, 1.0), // 6
+        p(0.0, 1.0, 1.0), // 7
     ];
-    let face_verts: [[u32; 4]; 6] = [
-        [0, 1, 2, 3],
-        [4, 7, 6, 5],
-        [0, 4, 5, 1],
-        [1, 5, 6, 2],
-        [2, 6, 7, 3],
-        [3, 7, 4, 0],
+    // (tri, label). Bottom face split: [0,2,1]→A, [0,3,2]→B (shared diag 0–2).
+    // Remaining 5 faces all label A. Windings are outward-facing for a closed,
+    // watertight cube.
+    let entries: &[([u32; 3], u32)] = &[
+        ([0, 2, 1], 0), // bottom A
+        ([0, 3, 2], 1), // bottom B  (coincident z=0 plane with the A tri)
+        ([4, 5, 6], 0), // top
+        ([4, 6, 7], 0),
+        ([0, 1, 5], 0), // front y=0
+        ([0, 5, 4], 0),
+        ([3, 7, 6], 0), // back y=1
+        ([3, 6, 2], 0),
+        ([0, 4, 7], 0), // left x=0
+        ([0, 7, 3], 0),
+        ([1, 2, 6], 0), // right x=1
+        ([1, 6, 5], 0),
     ];
-    let mut edges = Vec::with_capacity(24);
-    let mut loops = Vec::with_capacity(6);
-    for vs in &face_verts {
-        let base = edges.len() as u32;
-        for i in 0..4 {
-            edges.push(BRepEdge {
-                start: vs[i],
-                end: vs[(i + 1) % 4],
-                curve: Curve::LineSegment,
-            });
-        }
-        loops.push(vec![base, base + 1, base + 2, base + 3]);
+    let mut tris: Vec<[u32; 3]> = Vec::new();
+    let mut surface: Vec<Vec<LaInputId>> = Vec::new();
+    for &(t, label) in entries {
+        tris.push(t);
+        surface.push(vec![LaInputId(label)]);
     }
-    let normals: [Vector3; 6] = [
-        Vector3::new(0.0, 0.0, -1.0),
-        Vector3::new(0.0, 0.0, 1.0),
-        Vector3::new(0.0, -1.0, 0.0),
-        Vector3::new(1.0, 0.0, 0.0),
-        Vector3::new(0.0, 1.0, 0.0),
-        Vector3::new(-1.0, 0.0, 0.0),
-    ];
-    // n·x + d = 0 with outward normals: bottom z=z0 → d=z0; top z=z1 → d=−z1.
-    let offs = [z0, -z1, 0.0, -1.0, -1.0, 0.0];
-    let faces: Vec<BRepFace> = (0..6)
-        .map(|i| BRepFace {
-            surface: Surface::Plane {
-                normal: normals[i],
-                d: offs[i],
-            },
-            outer_loop: loops[i].clone(),
-            inner_loops: Vec::new(),
-        })
-        .collect();
-    BRep::new(verts, edges, faces).expect("displaced_cap_box BRep::new failed")
+    let n = tris.len();
+    let mesh = Mesh::new(verts, tris);
+    let inside = vec![vec![false, false]; n];
+    let patch = vec![0u32; n];
+    LabeledArrangement {
+        mesh,
+        surface,
+        inside,
+        patch,
+        num_inputs: 2,
+    }
 }
 
 #[test]
-fn t5_stop_path_ambiguous_selection_is_loud() {
-    // Sanity on the oracle: the displaced cap circle is centred at z=−9/10, so
-    // the z≈0/1 cap-ring edge endpoints are NOT on it within d_ε. This is the
-    // zero-candidate (AmbiguousCurve) condition the STOP path must report.
-    let de = d_eps(CYL_AXIS_POINT, CYL_AXIS_DIR, CYL_RADIUS, CYL_HEIGHT);
-    let plane = surface_to_quadric(Surface::Plane {
+fn t5_stop_path_coincident_planes_is_loud() {
+    // CONFIRM ssi-rs behavior on coincident planes (the STOP trigger): two
+    // bit-identical z=0 planes → Err (DegenerateInput per ssi-rs plane_plane).
+    let plane_a = surface_to_quadric(Surface::Plane {
         normal: Vector3::new(0.0, 0.0, -1.0),
-        d: -9.0, // z = 9 plane? n·x+d = -z-9 ⇒ z=-9. Far from z≈0.
+        d: 0.0,
     });
-    let cyl = surface_to_quadric(canonical_cylinder_surface());
-    let curves = ssi_rs::intersect(&plane, &cyl).expect("oracle intersect");
-    assert_eq!(curves.len(), 1, "displaced cap section is one circle");
-    let endpoint = [CYL_AXIS_POINT[0] + CYL_RADIUS, CYL_AXIS_POINT[1], 0.0];
+    let plane_b = surface_to_quadric(Surface::Plane {
+        normal: Vector3::new(0.0, 0.0, -1.0),
+        d: 0.0,
+    });
     assert!(
-        !ssi_curve_contains_point(&curves[0], endpoint, de),
-        "oracle: a z≈0 cap-ring endpoint must NOT lie on the displaced (z=−9) cap circle \
-         within d_ε — this is what forces the AmbiguousCurve STOP"
+        ssi_rs::intersect(&plane_a, &plane_b).is_err(),
+        "oracle: ssi_rs::intersect of two coincident planes must Err (the STOP trigger)"
     );
 
-    // Drive the inconsistent (z≈0/1 mesh rings, z=±9 box cap planes) input
-    // through boolean(). The STOP must be loud, never a silent polyline.
-    let cyl_brep = canonical_cylinder();
-    let bx = displaced_cap_box();
+    // Both inputs are unit cubes at the origin (each has a z=0 bottom Plane).
+    let a = unit_cube_brep_offset_at([0.0, 0.0, 0.0]);
+    let b = unit_cube_brep_offset_at([0.0, 0.0, 0.0]);
     let mock = LabelMock {
-        arrangement: hand_built_tube_arrangement(),
+        arrangement: hand_built_coincident_plane_arrangement(),
     };
-    let r = boolean(&cyl_brep, &bx, BoolOp::Union, &mock);
+    let r = boolean(&a, &b, BoolOp::Union, &mock);
     match r {
         Err(YangError::SsiRefinementFailed { reason, .. }) => {
-            // The reason must be a genuine selection failure (zero/≥2 match) or
-            // an intersect error — never a swallowed fallback.
+            // A genuine analytical failure: a coincident-plane intersect error,
+            // OR a zero-match selection (matched == 0) — never a swallowed
+            // fallback, never a panic. (If a future ssi-rs returns Ok(empty)
+            // for coincident planes, the reachable variant is
+            // AmbiguousCurve { matched: 0 } — also a valid loud STOP.)
             assert!(
                 matches!(
                     reason,
-                    SsiRefinementError::AmbiguousCurve { .. }
-                        | SsiRefinementError::IntersectFailed(_)
+                    SsiRefinementError::IntersectFailed(_)
+                        | SsiRefinementError::AmbiguousCurve { matched: 0, .. }
                 ),
-                "yr9 §7.6: STOP reason must be AmbiguousCurve or IntersectFailed, got {reason:?}"
+                "yr9 §7.6: STOP reason must be IntersectFailed or AmbiguousCurve{{matched:0}}, \
+                 got {reason:?}"
             );
         }
         other => panic!(
-            "yr9 §7.6: a forced selection failure must return \
+            "yr9 §7.6: a coincident-plane A↔B edge must return \
              Err(YangError::SsiRefinementFailed {{ .. }}), not a silent fallback; got {other:?}"
         ),
     }
