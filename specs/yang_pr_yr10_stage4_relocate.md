@@ -85,11 +85,15 @@ What Yang actually prescribes:
 
 Refactor `reconstruct_topology` to take `&mut Mesh`. After it builds the Phase-A
 structures (through the `intersection_curves` line, `:1993`): **if** any
-intersection edge carries a `Curve::Circle`, call the new
-`stage4_relocate_and_correct`. Then run the existing Phase-B emission **unchanged**
+intersection edge carries an analytic conic (`Curve::Circle` **or**
+`Curve::Ellipse`), call the new `stage4_relocate_and_correct`. (Entering on
+*any* conic — not just `Circle` — is required so an ellipse-only fixture reaches
+the loud `EllipseProjectionUnsupported` STOP instead of silently passing an
+un-relocated ellipse mesh; circles relocate, ellipses STOP — see §4.5 step 1.)
+Then run the existing Phase-B emission **unchanged**
 — it re-validates the relocated mesh for free (Newell area, E2/E3 degeneracy,
-winding-vs-normal). When there are no Circle edges, Stage 4 returns immediately and
-everything runs exactly as today (planar byte-identity).
+winding-vs-normal). When there are no conic edges (all `LineSegment`), Stage 4 returns immediately
+and everything runs exactly as today (planar byte-identity).
 
 `reconstruct_topology` gains a `Vec<TessellationSource>` return component (default
 `BRepVertex(i)` for every mesh vert, overridden to `BRepEdge{edge,t}` for relocated
