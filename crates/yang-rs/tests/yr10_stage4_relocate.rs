@@ -1063,15 +1063,20 @@ fn t3_reversed_loop_corrected_output_watertight() {
 }
 
 // =========================================================================
-// ORACLE 6a — LOUD ellipse rejection: an oblique cap section is an Ellipse, so
-// Stage 4 must return Stage4RegionInvalid{reason: EllipseProjectionUnsupported}
-// (no silent snap).
+// ORACLE 6a (migrated by PR-YR11) — an oblique cap section is an Ellipse, and
+// Stage 4 now RELOCATES it onto the exact ellipse (via the cylinder
+// parameterization) instead of STOPping. Under PR-YR10 this asserted a loud
+// `Stage4RegionInvalid{EllipseProjectionUnsupported}` reject; PR-YR11 lifts that
+// STOP, so the oblique cylinder ∪ box now SUCCEEDS and the output carries a
+// `Curve::Ellipse` intersection edge. Only the expected OUTCOME changed — the
+// independent ssi-rs "section is an Ellipse" oracle below is preserved verbatim.
+// (Full oblique relocation oracles live in tests/yr11_stage4_ellipse.rs.)
 //
 // Construction: an OBLIQUE cylinder whose axis is tilted relative to the box
-// cap plane z=0 ⇒ the cap section is an ELLIPSE. We feed an off-curve elliptical
-// ring through the LabelMock so the cap-ring intersection edge's incident
-// surfaces (oblique Cylinder ∩ z-plane) force `ssi_rs::intersect` to yield an
-// Ellipse curve — which the Circle-only Stage-4 projection must reject loudly.
+// cap plane z=0 ⇒ the cap section is an ELLIPSE. We feed an elliptical ring
+// through the LabelMock so the cap-ring intersection edge's incident surfaces
+// (oblique Cylinder ∩ z-plane) force `ssi_rs::intersect` to yield an Ellipse
+// curve, which Stage 4 relocates onto the exact ellipse.
 // =========================================================================
 
 /// An oblique cylinder (axis tilted in the x-z plane) of the same radius. Its
@@ -1138,9 +1143,9 @@ fn hand_built_oblique_ellipse_arrangement() -> LabeledArrangement {
 }
 
 #[test]
-fn t4_ellipse_edge_rejected_loudly() {
+fn t4_ellipse_edge_relocated_onto_ellipse() {
     // First confirm the INDEPENDENT oracle: an oblique-cylinder ∩ z-plane really
-    // is an Ellipse (so the production rejection is exercising the right path).
+    // is an Ellipse (so the production relocation is exercising the right path).
     let dir = unit([0.5, 0.0, 1.0]);
     let axis_point = [0.5 - 0.5 * dir[0], 0.5 - 0.5 * dir[1], -0.5];
     let cyl_q = surface_to_quadric(Surface::Cylinder {
@@ -1167,16 +1172,30 @@ fn t4_ellipse_edge_rejected_loudly() {
         arrangement: hand_built_oblique_ellipse_arrangement(),
     };
     let r = boolean(&a, &b, BoolOp::Union, &mock);
+
+    // PR-YR11: an Ellipse intersection edge must NO LONGER reject with
+    // EllipseProjectionUnsupported — Stage 4 relocates it onto the exact ellipse.
     assert!(
-        matches!(
+        !matches!(
             r,
             Err(YangError::Stage4RegionInvalid {
                 reason: Stage4InvalidReason::EllipseProjectionUnsupported,
                 ..
             })
         ),
-        "yr10 §5.6a: an Ellipse intersection edge must reject with \
-         Stage4RegionInvalid{{reason: EllipseProjectionUnsupported}} (no silent snap), got {r:?}"
+        "yr10 §5.6a (migrated by YR11): an Ellipse intersection edge must NO LONGER reject with \
+         Stage4RegionInvalid{{reason: EllipseProjectionUnsupported}}; it must be relocated, got {r:?}"
+    );
+
+    // The oblique cylinder ∪ box now SUCCEEDS and carries ≥1 Curve::Ellipse edge.
+    let brep = r.expect("yr10 §5.6a (migrated by YR11): oblique cylinder ∪ box must succeed (Ok)");
+    assert!(
+        brep.edges()
+            .iter()
+            .any(|e| matches!(e.curve, Curve::Ellipse { .. })),
+        "yr10 §5.6a (migrated by YR11): oblique union output must carry ≥1 Curve::Ellipse \
+         intersection edge; got {:?}",
+        brep.edges().iter().map(|e| e.curve).collect::<Vec<_>>()
     );
 }
 
