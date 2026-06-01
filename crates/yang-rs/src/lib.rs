@@ -725,10 +725,17 @@ impl BRep {
                             c[2] + radius * (ct * e1a[2] + st * e2a[2]),
                         )
                     }
-                    Curve::Ellipse { center, .. } => {
-                        // Not emitted by the cylinder pipeline; defensive
-                        // fallback to the ellipse center.
-                        center
+                    Curve::Ellipse {
+                        center,
+                        normal,
+                        major_axis,
+                        major_radius,
+                        minor_radius,
+                    } => {
+                        // PR-YR11: evaluate via the shared ellipse frame (spec §3)
+                        // so a relocated vertex tagged `BRepEdge { edge, t }`
+                        // round-trips exactly to its mesh position.
+                        ellipse_point(center, normal, major_axis, major_radius, minor_radius, t)
                     }
                 }
             }
@@ -841,6 +848,96 @@ fn ortho_basis(n: Vector3) -> (Vector3, Vector3) {
         Vector3::new(e1[0], e1[1], e1[2]),
         Vector3::new(e2[0], e2[1], e2[2]),
     )
+}
+
+// =========================================================================
+// PR-YR11 — ONE shared ellipse frame (analogous to `ortho_basis` for circles).
+//
+// The ellipse parameterization
+//   point(t) = C + major_radius·cos t·major + minor_radius·sin t·minor_dir
+// with  minor_dir = normalize(normal) × normalize(major_axis)
+// MUST be byte-identical in all THREE consumers (spec §3): Stage-4 relocation's
+// `t`, `eval_source`'s `Curve::Ellipse` arm, and `is_reversed`'s ellipse tangent.
+// These three helpers are the single source of truth; matching the
+// `curve_contains_point` Ellipse convention (lib.rs §PR-YR9) exactly.
+// =========================================================================
+
+/// PR-YR11 (spec §3): the ellipse's in-plane minor direction
+/// `minor_dir = normalize(normal) × normalize(major_axis)`. Returned as a unit
+/// `[f64; 3]`; the inputs are the stored `Curve::Ellipse` `normal` / `major_axis`.
+fn ellipse_frame(normal: Vector3, major_axis: Vector3) -> [f64; 3] {
+    let n = normalize3(normal.as_array());
+    let maj = normalize3(major_axis.as_array());
+    [
+        n[1] * maj[2] - n[2] * maj[1],
+        n[2] * maj[0] - n[0] * maj[2],
+        n[0] * maj[1] - n[1] * maj[0],
+    ]
+}
+
+/// PR-YR11 (spec §3): evaluate the exact ellipse point at parameter `t`:
+/// `C + major_radius·cos t·major + minor_radius·sin t·minor_dir`. `major` is
+/// normalized; `minor_dir` is [`ellipse_frame`]. Used by `eval_source` and the
+/// relocation round-trip oracle.
+fn ellipse_point(
+    center: Point3,
+    normal: Vector3,
+    major_axis: Vector3,
+    major_radius: f64,
+    minor_radius: f64,
+    t: f64,
+) -> Point3 {
+    let c = center.as_array();
+    let maj = normalize3(major_axis.as_array());
+    let mindir = ellipse_frame(normal, major_axis);
+    let (ct, st) = (t.cos(), t.sin());
+    Point3::new(
+        c[0] + major_radius * ct * maj[0] + minor_radius * st * mindir[0],
+        c[1] + major_radius * ct * maj[1] + minor_radius * st * mindir[1],
+        c[2] + major_radius * ct * maj[2] + minor_radius * st * mindir[2],
+    )
+}
+
+/// PR-YR11 (spec §3): the ellipse parameter `t` of a point `x` (assumed on / near
+/// the ellipse), in the SAME frame as [`ellipse_point`]:
+/// `u = (x−C)·major`, `v = (x−C)·minor_dir`,
+/// `t = atan2(v / minor_radius, u / major_radius)`.
+fn ellipse_param(
+    x: Point3,
+    center: Point3,
+    normal: Vector3,
+    major_axis: Vector3,
+    major_radius: f64,
+    minor_radius: f64,
+) -> f64 {
+    let c = center.as_array();
+    let xa = x.as_array();
+    let maj = normalize3(major_axis.as_array());
+    let mindir = ellipse_frame(normal, major_axis);
+    let w = [xa[0] - c[0], xa[1] - c[1], xa[2] - c[2]];
+    let u = w[0] * maj[0] + w[1] * maj[1] + w[2] * maj[2];
+    let v = w[0] * mindir[0] + w[1] * mindir[1] + w[2] * mindir[2];
+    (v / minor_radius).atan2(u / major_radius)
+}
+
+/// PR-YR11 (spec §3): the (unnormalized) ellipse tangent at parameter `t`:
+/// `−major_radius·sin t·major + minor_radius·cos t·minor_dir`. Used by
+/// `is_reversed` for the exact ellipse tangent at a relocated point.
+fn ellipse_tangent(
+    normal: Vector3,
+    major_axis: Vector3,
+    major_radius: f64,
+    minor_radius: f64,
+    t: f64,
+) -> [f64; 3] {
+    let maj = normalize3(major_axis.as_array());
+    let mindir = ellipse_frame(normal, major_axis);
+    let (ct, st) = (t.cos(), t.sin());
+    [
+        -major_radius * st * maj[0] + minor_radius * ct * mindir[0],
+        -major_radius * st * maj[1] + minor_radius * ct * mindir[1],
+        -major_radius * st * maj[2] + minor_radius * ct * mindir[2],
+    ]
 }
 
 /// PR-YR7: tessellate a planar disk cap bounded by a single `Curve::Circle`
@@ -1217,6 +1314,127 @@ fn circle_residual(pt: Point3, center: Point3, normal: Vector3, radius: f64) -> 
         + radial_vec[2] * radial_vec[2])
         .sqrt();
     axial.max((radial - radius).abs())
+}
+
+/// PR-YR11 (spec §1): the true cylinder + cutting plane for one oblique ellipse
+/// edge, carried per-vertex (analogous to `vert_circle`'s `(center, normal,
+/// radius)`). The cylinder fields are `Surface::Cylinder`; the plane fields are
+/// the cutting `Surface::Plane` (`n·x + d = 0`); the ellipse fields are the
+/// stored `Curve::Ellipse` (for the relocation parameter `t` + the round-trip).
+#[derive(Clone, Copy)]
+struct EllipseReloc {
+    axis_point: Point3,
+    axis_dir: Vector3,
+    radius: f64,
+    plane_n: Vector3,
+    plane_d: f64,
+    center: Point3,
+    normal: Vector3,
+    major_axis: Vector3,
+    major_radius: f64,
+    minor_radius: f64,
+}
+
+/// PR-YR11 (spec §2): relocate `p` onto the exact ellipse via the CYLINDER
+/// parameterization (Yang §4.3.2) — closed-form, NO quartic. The relocated point
+/// lies on BOTH the cylinder (radius `r` about its axis) AND the cutting plane
+/// (`n·x + d = 0`), hence exactly on `plane ∩ cylinder` = the ellipse. Returns
+/// `(proj, t)` where `t` is the ellipse parameter in the shared
+/// [`ellipse_point`] frame, so a relocated vertex tagged `BRepEdge { edge, t }`
+/// round-trips exactly.
+///
+/// LOUD STOPs (P9/P10), never a silent snap / divide-by-~0:
+/// - `Err(OnAxis)` when the radial component `ρ < MIN_FEATURE_SIZE`.
+/// - `Err(LocalRefinementRequired)` for the out-of-scope axis-parallel section
+///   `|n·â| < MIN_FEATURE_SIZE` (the linear axial solve is degenerate there).
+fn project_onto_ellipse_via_cylinder(
+    p: Point3,
+    er: &EllipseReloc,
+) -> Result<(Point3, f64), Stage4InvalidReason> {
+    let q = er.axis_point.as_array();
+    let a_hat = normalize3(er.axis_dir.as_array());
+    let n = normalize3(er.plane_n.as_array());
+    // The plane offset `d` must be expressed for the UNIT normal `n`. The stored
+    // `Surface::Plane` normals in the corpus are already unit, but normalize the
+    // offset defensively against the same scale used for `n`.
+    let n_raw = er.plane_n.as_array();
+    let n_len = (n_raw[0] * n_raw[0] + n_raw[1] * n_raw[1] + n_raw[2] * n_raw[2]).sqrt();
+    let d = if n_len < cad_primitives::TAU_WORK {
+        er.plane_d
+    } else {
+        er.plane_d / n_len
+    };
+    let r = er.radius;
+    let x = p.as_array();
+
+    let w = [x[0] - q[0], x[1] - q[1], x[2] - q[2]];
+    let along = w[0] * a_hat[0] + w[1] * a_hat[1] + w[2] * a_hat[2];
+    let radial = [
+        w[0] - along * a_hat[0],
+        w[1] - along * a_hat[1],
+        w[2] - along * a_hat[2],
+    ];
+    let rho = (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
+    if rho < cad_primitives::MIN_FEATURE_SIZE {
+        return Err(Stage4InvalidReason::OnAxis);
+    }
+    let rdir = [radial[0] / rho, radial[1] / rho, radial[2] / rho];
+
+    let n_dot_a = n[0] * a_hat[0] + n[1] * a_hat[1] + n[2] * a_hat[2];
+    if n_dot_a.abs() < cad_primitives::MIN_FEATURE_SIZE {
+        // Axis-parallel / degenerate-line section: out of scope. Loud STOP rather
+        // than dividing by ~0 (spec §6).
+        return Err(Stage4InvalidReason::LocalRefinementRequired);
+    }
+    let n_dot_q = n[0] * q[0] + n[1] * q[1] + n[2] * q[2];
+    let n_dot_rdir = n[0] * rdir[0] + n[1] * rdir[1] + n[2] * rdir[2];
+    let s = -(n_dot_q + r * n_dot_rdir + d) / n_dot_a;
+
+    let proj = Point3::new(
+        q[0] + s * a_hat[0] + r * rdir[0],
+        q[1] + s * a_hat[1] + r * rdir[1],
+        q[2] + s * a_hat[2] + r * rdir[2],
+    );
+    let t = ellipse_param(
+        proj,
+        er.center,
+        er.normal,
+        er.major_axis,
+        er.major_radius,
+        er.minor_radius,
+    );
+    Ok((proj, t))
+}
+
+/// PR-YR11 (spec §4): the on-both-surfaces residual `max(|dist(x,axis)−r|,
+/// |n·x+d|)` of `pt` to an exact oblique ellipse (cylinder ∩ plane). Matches the
+/// RED Oracle-1 contract. The plane offset is normalized to the unit normal.
+fn ellipse_residual(pt: Point3, er: &EllipseReloc) -> f64 {
+    let q = er.axis_point.as_array();
+    let a_hat = normalize3(er.axis_dir.as_array());
+    let x = pt.as_array();
+    let w = [x[0] - q[0], x[1] - q[1], x[2] - q[2]];
+    let along = w[0] * a_hat[0] + w[1] * a_hat[1] + w[2] * a_hat[2];
+    let radial = [
+        w[0] - along * a_hat[0],
+        w[1] - along * a_hat[1],
+        w[2] - along * a_hat[2],
+    ];
+    let dist = (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
+    let radial_res = (dist - er.radius).abs();
+
+    let n_raw = er.plane_n.as_array();
+    let n_len = (n_raw[0] * n_raw[0] + n_raw[1] * n_raw[1] + n_raw[2] * n_raw[2]).sqrt();
+    let (n, d) = if n_len < cad_primitives::TAU_WORK {
+        (n_raw, er.plane_d)
+    } else {
+        (
+            [n_raw[0] / n_len, n_raw[1] / n_len, n_raw[2] / n_len],
+            er.plane_d / n_len,
+        )
+    };
+    let plane_res = (x[0] * n[0] + x[1] * n[1] + x[2] * n[2] + d).abs();
+    radial_res.max(plane_res)
 }
 
 /// PR-YR10 (spec §4.4): the explicit Stage-4 watertightness gate (§4.4.3).
@@ -2231,6 +2449,59 @@ fn collapse_vertex(
     dropped
 }
 
+/// PR-YR11 helper: drop mesh vertices no surviving triangle references and remap
+/// triangle indices + the Stage-4 `relocations` keys to the dense vertex set.
+///
+/// A §4.5.3 [`collapse_vertex`] keeps the full vertex array (it only drops the
+/// now-degenerate triangles), leaving the collapsed-away vertices DANGLING. The
+/// internal per-shell `check_watertight_2manifold` gate ignores them (it sums V
+/// over triangle-referenced verts only), but they inflate a caller's GLOBAL
+/// `V − E + F`. An output mesh must carry no unreferenced vertices, so this
+/// compaction runs after Stage 4. It is a strict NO-OP (returns early, mesh and
+/// `relocations` untouched) when every vertex is already referenced — so the
+/// no-collapse paths (planar / perpendicular-circle / on-curve mock) stay
+/// byte-identical.
+fn compact_unreferenced_verts(mesh: &mut Mesh, relocations: &mut Vec<(u32, f64)>) {
+    let n = mesh.verts.len();
+    let mut referenced = vec![false; n];
+    for tri in &mesh.tris {
+        for &v in tri {
+            referenced[v as usize] = true;
+        }
+    }
+    if referenced.iter().all(|&r| r) {
+        return; // no danglers — byte-identical no-op.
+    }
+    // Dense remap preserving the relative order of surviving vertices.
+    let mut remap: Vec<Option<u32>> = vec![None; n];
+    let mut new_verts: Vec<Point3> = Vec::with_capacity(n);
+    for (i, &r) in referenced.iter().enumerate() {
+        if r {
+            remap[i] = Some(new_verts.len() as u32);
+            new_verts.push(mesh.verts[i]);
+        }
+    }
+    let new_tris: Vec<[u32; 3]> = mesh
+        .tris
+        .iter()
+        .map(|tri| {
+            [
+                remap[tri[0] as usize].unwrap(),
+                remap[tri[1] as usize].unwrap(),
+                remap[tri[2] as usize].unwrap(),
+            ]
+        })
+        .collect();
+    *mesh = Mesh::new(new_verts, new_tris);
+    // Remap (and drop) relocation keys: a relocation referencing a collapsed-away
+    // (now-unreferenced) vertex is no longer in the mesh, so it is dropped.
+    let remapped: Vec<(u32, f64)> = relocations
+        .iter()
+        .filter_map(|&(v, t)| remap[v as usize].map(|nv| (nv, t)))
+        .collect();
+    *relocations = remapped;
+}
+
 /// PR-YR10 (Yang §4.4.1 + §4.5.3): Stage 4 — relocate the mesh intersection
 /// points onto the exact analytical `Circle` curves, then correct any reversed
 /// intersection points by the §4.5.3 polyline-tangent sweep.
@@ -2243,9 +2514,8 @@ fn collapse_vertex(
 /// vertex (so the caller must recompute Phase A).
 ///
 /// LOUD STOPs (P9/P10), never a silent snap / tolerance widening / no-op:
-/// - `Stage4RegionInvalid { EllipseProjectionUnsupported }` — a conic edge is an
-///   `Ellipse` (closed-form ellipse relocation is a later PR).
-/// - `Stage4RegionInvalid { OnAxis }` — a point projects onto the circle axis.
+/// - `Stage4RegionInvalid { OnAxis }` — a point projects onto the circle/cylinder
+///   axis.
 /// - `Stage4RegionInvalid { OffCurveBeyondChordBand }` — residual `ρ > d_ε`.
 /// - `Stage4RegionInvalid { LoopTooSmall }` — a loop shrank below 3 verts.
 /// - `Stage4RegionInvalid { InvertedTriangle / DegenerateTriangle }` — a
@@ -2279,11 +2549,15 @@ fn stage4_relocate_and_correct(
     };
 
     // (1) Collect + classify every conic-edge endpoint from the CURRENT Phase A.
-    let (_infos0, _inc0, curves0) = compute_phase_a(mesh, attribution, a, b)?;
+    // PR-YR11: the incidence map (no longer discarded) supplies the TRUE cylinder
+    // + cutting plane per Ellipse edge for the closed-form cylinder relocation.
+    let (_infos0, inc0, curves0) = compute_phase_a(mesh, attribution, a, b)?;
 
-    // Per-vertex Circle assignment (deterministic via BTreeMap). An Ellipse
-    // edge endpoint is a loud STOP.
+    // Per-vertex Circle assignment (deterministic via BTreeMap).
     let mut vert_circle: BTreeMap<u32, (Point3, Vector3, f64)> = BTreeMap::new();
+    // PR-YR11: per-vertex Ellipse relocation data (the true cylinder + plane +
+    // stored ellipse), analogous to `vert_circle`.
+    let mut vert_ellipse: BTreeMap<u32, EllipseReloc> = BTreeMap::new();
     let mut endpoints: Vec<u32> = Vec::new();
     for (&(s, e), curve) in &curves0 {
         match *curve {
@@ -2297,13 +2571,75 @@ fn stage4_relocate_and_correct(
                     endpoints.push(v);
                 }
             }
-            Curve::Ellipse { .. } => {
-                return Err(YangError::Stage4RegionInvalid {
-                    vertex: s,
-                    reason: Stage4InvalidReason::EllipseProjectionUnsupported,
-                });
+            Curve::Ellipse {
+                center,
+                normal,
+                major_axis,
+                major_radius,
+                minor_radius,
+            } => {
+                // PR-YR11: identify the TRUE cylinder + cutting plane from this
+                // edge's incidence (the two incident surfaces of DIFFERENT
+                // inputs). A conic Ellipse edge is, by construction, one cylinder
+                // lateral + one cutting plane.
+                let key = if s < e { (s, e) } else { (e, s) };
+                let entries = inc0.get(&key);
+                let mut cyl: Option<(Point3, Vector3, f64)> = None;
+                let mut plane: Option<(Vector3, f64)> = None;
+                if let Some(entries) = entries {
+                    for &(_input, surf) in entries {
+                        match surf {
+                            Surface::Cylinder {
+                                axis_point,
+                                axis_dir,
+                                radius,
+                            } => cyl = Some((axis_point, axis_dir, radius)),
+                            Surface::Plane { normal: pn, d: pd } => plane = Some((pn, pd)),
+                            _ => {}
+                        }
+                    }
+                }
+                let (Some((axis_point, axis_dir, radius)), Some((plane_n, plane_d))) = (cyl, plane)
+                else {
+                    // An Ellipse edge whose incidence is not exactly one cylinder
+                    // + one plane is out of scope (e.g. sphere/cone, or coplanar
+                    // multi-solid). Loud STOP (P9/P10).
+                    return Err(YangError::Stage4RegionInvalid {
+                        vertex: s,
+                        reason: Stage4InvalidReason::LocalRefinementRequired,
+                    });
+                };
+                let er = EllipseReloc {
+                    axis_point,
+                    axis_dir,
+                    radius,
+                    plane_n,
+                    plane_d,
+                    center,
+                    normal,
+                    major_axis,
+                    major_radius,
+                    minor_radius,
+                };
+                for v in [s, e] {
+                    vert_ellipse.insert(v, er);
+                    endpoints.push(v);
+                }
             }
             Curve::LineSegment => {}
+        }
+    }
+
+    // A vertex shared by BOTH a circle and an ellipse edge (two distinct curves
+    // through one vertex) is a genuine ambiguity — relocating it twice would be
+    // wrong, so loud STOP rather than silently picking one (spec §4 no-skip
+    // audit / P10).
+    for v in vert_ellipse.keys() {
+        if vert_circle.contains_key(v) {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: *v,
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+            });
         }
     }
 
@@ -2330,6 +2666,27 @@ fn stage4_relocate_and_correct(
         // but still yields the retag `t`; for the relocate band it moves the
         // vertex onto the curve.
         let (proj, t) = project_onto_circle(p, center, normal, radius)
+            .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+        if rho > cad_primitives::TAU_WORK {
+            mesh.verts[v as usize] = proj;
+            moved.insert(v);
+        }
+        relocations.push((v, t));
+        processed.insert(v);
+    }
+
+    // PR-YR11: ellipse relocation loop, mirroring the circle loop above. Closed
+    // form via the cylinder parameterization (spec §2). Same `d_eps` chord band.
+    for (&v, er) in &vert_ellipse {
+        let p = mesh.verts[v as usize];
+        let rho = ellipse_residual(p, er);
+        if rho > d_eps {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: v,
+                reason: Stage4InvalidReason::OffCurveBeyondChordBand,
+            });
+        }
+        let (proj, t) = project_onto_ellipse_via_cylinder(p, er)
             .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
         if rho > cad_primitives::TAU_WORK {
             mesh.verts[v as usize] = proj;
@@ -2420,11 +2777,16 @@ fn sweep_reversed_intersections(
                 if cycle.len() < 3 {
                     continue;
                 }
-                let all_circle = cycle.iter().all(|&(s, e)| {
+                // PR-YR11: widen to `all_conic` — every edge is a Circle OR an
+                // Ellipse (the oblique cap sections), still EXCLUDING LineSegment.
+                let all_conic = cycle.iter().all(|&(s, e)| {
                     let key = if s < e { (s, e) } else { (e, s) };
-                    matches!(curves.get(&key), Some(Curve::Circle { .. }))
+                    matches!(
+                        curves.get(&key),
+                        Some(Curve::Circle { .. }) | Some(Curve::Ellipse { .. })
+                    )
                 });
-                if !all_circle {
+                if !all_conic {
                     continue;
                 }
                 let mut sorted: Vec<u32> = cycle.iter().map(|&(s, _)| s).collect();
@@ -2511,46 +2873,72 @@ fn is_reversed(
         return true;
     }
 
-    // Exact circle tangent at p_r: derivative of `center + r(cos t·e1 + sin t·e2)`
-    // ⇒ `-sin t·e1 + cos t·e2`. Find the Circle this edge carries.
+    // Exact conic tangent at p_r. Find the Circle OR Ellipse this edge carries
+    // (PR-YR11: ellipse edges compute the ellipse tangent). Prefer the current
+    // edge `(p_r, p_n)`; fall back to the previous edge `(p_b, p_r)`.
     let key = if p_r < p_n { (p_r, p_n) } else { (p_n, p_r) };
-    let circle = match curves.get(&key) {
-        Some(Curve::Circle {
-            center,
-            normal,
-            radius,
-        }) => Some((*center, *normal, *radius)),
-        _ => {
-            // Fall back to the previous edge's circle.
-            let key2 = if p_b < p_r { (p_b, p_r) } else { (p_r, p_b) };
-            match curves.get(&key2) {
-                Some(Curve::Circle {
-                    center,
-                    normal,
-                    radius,
-                }) => Some((*center, *normal, *radius)),
-                _ => None,
-            }
-        }
+    let key2 = if p_b < p_r { (p_b, p_r) } else { (p_r, p_b) };
+    let conic = match curves.get(&key) {
+        Some(c @ (Curve::Circle { .. } | Curve::Ellipse { .. })) => Some(*c),
+        _ => match curves.get(&key2) {
+            Some(c @ (Curve::Circle { .. } | Curve::Ellipse { .. })) => Some(*c),
+            _ => None,
+        },
     };
-    let Some((center, normal, radius)) = circle else {
+    let Some(conic) = conic else {
         // No exact tangent available — cannot diagnose; treat as healthy
         // (the validation pass still guards inverted/degenerate triangles).
         return false;
     };
-    let Ok((_proj, t)) = project_onto_circle(mesh.verts[p_r as usize], center, normal, radius)
-    else {
-        return false;
+    let p_r_pt = mesh.verts[p_r as usize];
+    let tan_c = match conic {
+        Curve::Circle {
+            center,
+            normal,
+            radius,
+        } => {
+            // Circle tangent: derivative of `center + r(cos t·e1 + sin t·e2)`
+            // ⇒ `-sin t·e1 + cos t·e2`.
+            let Ok((_proj, t)) = project_onto_circle(p_r_pt, center, normal, radius) else {
+                return false;
+            };
+            let (e1, e2) = ortho_basis(normal);
+            let e1a = e1.as_array();
+            let e2a = e2.as_array();
+            let (st, ct) = (t.sin(), t.cos());
+            normalize3([
+                -st * e1a[0] + ct * e2a[0],
+                -st * e1a[1] + ct * e2a[1],
+                -st * e1a[2] + ct * e2a[2],
+            ])
+        }
+        Curve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            major_radius,
+            minor_radius,
+        } => {
+            // PR-YR11: ellipse tangent `−a·sin t·major + b·cos t·minor_dir` at the
+            // p_r parameter, in the shared ellipse frame (spec §3).
+            let t = ellipse_param(
+                p_r_pt,
+                center,
+                normal,
+                major_axis,
+                major_radius,
+                minor_radius,
+            );
+            normalize3(ellipse_tangent(
+                normal,
+                major_axis,
+                major_radius,
+                minor_radius,
+                t,
+            ))
+        }
+        Curve::LineSegment => return false,
     };
-    let (e1, e2) = ortho_basis(normal);
-    let e1a = e1.as_array();
-    let e2a = e2.as_array();
-    let (st, ct) = (t.sin(), t.cos());
-    let tan_c = normalize3([
-        -st * e1a[0] + ct * e2a[0],
-        -st * e1a[1] + ct * e2a[1],
-        -st * e1a[2] + ct * e2a[2],
-    ]);
     let t_tilde_u = normalize3(t_tilde);
     let dotv = (t_tilde_u[0] * tan_c[0] + t_tilde_u[1] * tan_c[1] + t_tilde_u[2] * tan_c[2])
         .clamp(-1.0, 1.0);
@@ -2710,6 +3098,12 @@ fn reconstruct_topology_stage4(
         // pre-collapse Phase-A loops are stale (spec §4.1 note). Recompute them
         // before the Phase-B emission re-validates the corrected mesh.
         if collapsed {
+            // PR-YR11: drop the vertices the collapse left unreferenced (and
+            // remap triangle indices + `relocations`) BEFORE recomputing Phase A,
+            // so the emitted output mesh carries no dangling vertices (a global
+            // V−E+F = 2 for a single closed shell). Strict no-op when there were
+            // no danglers.
+            compact_unreferenced_verts(mesh, &mut relocations);
             let (i2, _inc2, cv2) = compute_phase_a(mesh, attribution, a, b)?;
             infos = i2;
             intersection_curves = cv2;
@@ -2947,7 +3341,8 @@ fn emit_topology(
             continue;
         }
         let edge_idx = edges.iter().position(|e| {
-            matches!(e.curve, Curve::Circle { .. }) && (e.start == vid || e.end == vid)
+            matches!(e.curve, Curve::Circle { .. } | Curve::Ellipse { .. })
+                && (e.start == vid || e.end == vid)
         });
         if let Some(ei) = edge_idx {
             sources[vid as usize] = TessellationSource::BRepEdge { edge: ei as u32, t };
