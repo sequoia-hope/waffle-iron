@@ -389,6 +389,8 @@ fn err_variant_name(e: &YangError) -> &'static str {
         YangError::UnsupportedOp(_) => "UnsupportedOp",
         YangError::CurvedSurfaceNotYetSupported { .. } => "CurvedSurfaceNotYetSupported",
         YangError::SsiRefinementFailed { .. } => "SsiRefinementFailed",
+        YangError::Stage4ReversalUnresolved { .. } => "Stage4ReversalUnresolved",
+        YangError::Stage4RegionInvalid { .. } => "Stage4RegionInvalid",
     }
 }
 

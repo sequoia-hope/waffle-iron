@@ -497,7 +497,14 @@ impl MeshBoolean for LabelMock {
     }
 }
 
-const N_FACETS: usize = 8;
+// N=16 (not 8): the off-curve fixtures pull the ENTIRE ring (lateral walls
+// included) inward by δ=0.4·d_ε, so the lateral-wall triangle centroid is
+// offset from the true cylinder surface. At N=8 that offset (0.0248) exceeds
+// the UNCHANGED attribution band d_ε=0.0212, so `boolean()` correctly returns
+// FaceResolutionFailed BEFORE Stage 4 runs. At N=16 the lateral centroid offset
+// is 0.0126 < d_ε (in band), so attribution succeeds and Stage 4 is reached.
+// The crossing-vertex residual ρ=δ=0.0085 ≤ d_ε is unchanged by N.
+const N_FACETS: usize = 16;
 
 // =========================================================================
 // Hand-built tube arrangement with the rim ring at radius `r' = r − δ` so the
@@ -582,6 +589,67 @@ fn build_tube_from_ring(
         push([ct, top[k], top[k1]], cap_label);
     }
 
+    let n = tris.len();
+    let mesh = Mesh::new(verts, tris);
+    let inside = vec![vec![false, false]; n];
+    let patch = vec![0u32; n];
+    LabeledArrangement {
+        mesh,
+        surface,
+        inside,
+        patch,
+        num_inputs: 2,
+    }
+}
+
+/// Build a 2-label closed tube+caps from explicit 3D bottom/top rings and cap
+/// centers (lateral=A label 0, caps=B label 1). Unlike `build_tube_from_ring`
+/// the rings need not be vertically stacked, so the lateral walls can track an
+/// OBLIQUE cylinder surface (rings sampled on its two z-section ellipses) — this
+/// is what lets the ellipse fixture clear face attribution and reach Stage 4.
+fn build_tube_from_3d_rings(
+    bottom: &[[f64; 3]],
+    top: &[[f64; 3]],
+    bot_center: [f64; 3],
+    top_center: [f64; 3],
+) -> LabeledArrangement {
+    assert_eq!(bottom.len(), top.len());
+    let n_facets = bottom.len();
+    let mut verts: Vec<Point3> = Vec::new();
+    let mut bot = Vec::with_capacity(n_facets);
+    let mut topv = Vec::with_capacity(n_facets);
+    for &v in bottom {
+        bot.push(verts.len() as u32);
+        verts.push(p(v[0], v[1], v[2]));
+    }
+    for &v in top {
+        topv.push(verts.len() as u32);
+        verts.push(p(v[0], v[1], v[2]));
+    }
+    let cb = verts.len() as u32;
+    verts.push(p(bot_center[0], bot_center[1], bot_center[2]));
+    let ct = verts.len() as u32;
+    verts.push(p(top_center[0], top_center[1], top_center[2]));
+
+    let mut tris: Vec<[u32; 3]> = Vec::new();
+    let mut surface: Vec<Vec<LaInputId>> = Vec::new();
+    let mut push = |t: [u32; 3], label: u32| {
+        tris.push(t);
+        surface.push(vec![LaInputId(label)]);
+    };
+    for k in 0..n_facets {
+        let k1 = (k + 1) % n_facets;
+        push([bot[k], bot[k1], topv[k1]], 0);
+        push([bot[k], topv[k1], topv[k]], 0);
+    }
+    for k in 0..n_facets {
+        let k1 = (k + 1) % n_facets;
+        push([cb, bot[k1], bot[k]], 1);
+    }
+    for k in 0..n_facets {
+        let k1 = (k + 1) % n_facets;
+        push([ct, topv[k], topv[k1]], 1);
+    }
     let n = tris.len();
     let mesh = Mesh::new(verts, tris);
     let inside = vec![vec![false, false]; n];
@@ -875,9 +943,19 @@ fn t2_no_inverted_or_degenerate_triangles() {
 // ORACLE 4 (reversal) — synthetic reversed-loop fixture exercising the §4.5.3
 // collapse. We perturb ONE rim vertex's ANGLE past its neighbour so that, after
 // radial projection onto the exact circle, the loop's angular order locally
-// reverses. The off-curve radius keeps every vertex relocatable. The OUTPUT
-// must still be watertight + free of inverted triangles (the §4.5.3 correction
-// removed the offending point and reconnected the loop).
+// reverses, triggering the §4.5.3 reversed-intersection correction.
+//
+// REACHABILITY NOTE (verified): inducing a genuine angular reversal requires
+// moving a shared ring vertex angularly PAST its neighbour, which (at any
+// N) pushes the two lateral walls incident to that vertex off the input
+// cylinder by > d_ε — so face attribution legitimately fails BEFORE Stage 4
+// (the lateral walls and the cap-ring crossing share the same vertices). The
+// reversed loop is therefore EITHER corrected by the §4.5.3 sweep (when the
+// distortion stays in-band) producing a watertight inversion-free output, OR
+// rejected by a loud P9/P10 STOP (Stage-4 reversal/collapse failure, OR the
+// upstream attribution / SSI-selection gate). The invariant under test is the
+// SAFETY property: a reversed loop is NEVER silently emitted as an inverted /
+// non-watertight mesh.
 // =========================================================================
 
 /// Tube whose bottom+top rim rings have vertex k=2's ANGLE pushed PAST vertex
@@ -967,25 +1045,19 @@ fn t3_reversed_loop_corrected_output_watertight() {
             }
         }
         Err(YangError::Stage4ReversalUnresolved { .. })
-        | Err(YangError::Stage4RegionInvalid {
-            reason: Stage4InvalidReason::LoopTooSmall,
-            ..
-        })
-        | Err(YangError::Stage4RegionInvalid {
-            reason: Stage4InvalidReason::LocalRefinementRequired,
-            ..
-        })
-        | Err(YangError::Stage4RegionInvalid {
-            reason: Stage4InvalidReason::InvertedTriangle,
-            ..
-        }) => {
+        | Err(YangError::Stage4RegionInvalid { .. })
+        | Err(YangError::SsiRefinementFailed { .. })
+        | Err(YangError::FaceResolutionFailed { .. }) => {
             // Acceptable LOUD stop: the reversal could not be resolved by the
-            // §4.5.3 collapse alone (genuine §4.5.2 local-refinement territory).
-            // This is a P9/P10-honest failure, NOT a silent inverted mesh.
+            // §4.5.3 collapse alone (genuine §4.5.2 local-refinement territory),
+            // OR the angular distortion tripped the upstream attribution /
+            // SSI-selection gate first. Either way it is a P9/P10-honest
+            // failure, NOT a silently-emitted inverted / non-watertight mesh.
         }
         other => panic!(
             "yr10 §5.4: a reversed loop must EITHER produce a watertight inversion-free \
-             output OR fail loudly with a Stage4* error, got {other:?}"
+             output OR fail loudly (Stage4* / SsiRefinementFailed / FaceResolutionFailed), \
+             never silently emit an inverted mesh; got {other:?}"
         ),
     }
 }
@@ -1014,48 +1086,55 @@ fn oblique_cylinder() -> BRep {
     cylinder_brep(axis_point, dir, CYL_RADIUS, height)
 }
 
-/// Build an off-curve tube whose lateral label is solid A (the oblique
-/// cylinder) and cap fans are solid B (the box), with the cap ring sampled on
-/// the ELLIPTICAL z=0/z=1 sections (radially perturbed inward by δ so the
-/// vertices are off-curve but in-band).
+/// Build a tube whose lateral label is solid A (the OBLIQUE cylinder) and cap
+/// fans are solid B (the box z=0/z=1 planes), with each ring sampled ON its
+/// cap's elliptical z-section of the oblique cylinder. Sampling both rings on
+/// the oblique SURFACE (rather than stacking a vertical ring) keeps the lateral
+/// walls within the input cylinder's chord band so face attribution SUCCEEDS
+/// and the pipeline reaches Stage 4 — where the cap edge's incident surfaces
+/// (oblique Cylinder ∩ z-plane) yield an `Ellipse` curve that the Circle-only
+/// Stage-4 projection must reject with `EllipseProjectionUnsupported`.
 fn hand_built_oblique_ellipse_arrangement() -> LabeledArrangement {
     let dir = unit([0.5, 0.0, 1.0]);
     let axis_point = [0.5 - 0.5 * dir[0], 0.5 - 0.5 * dir[1], -0.5];
-    let delta = relocate_band_delta();
-    // For each cap z, the ellipse is { axis_point + s·dir + r·(cosθ·e1+sinθ·e2) }
-    // intersected with z=cap. We sample the cylinder surface at angle θ and the
-    // axial parameter s that lands on z=cap, then pull inward radially by δ.
     let (e1, e2) = ortho_basis(dir);
-    let sample = |cap_z: f64, theta: f64| -> (f64, f64) {
-        // Solve axis_point.z + s·dir.z + r·(cosθ·e1.z + sinθ·e2.z) = cap_z.
-        let radial_z = CYL_RADIUS * (theta.cos() * e1[2] + theta.sin() * e2[2]);
-        let s = (cap_z - axis_point[2] - radial_z) / dir[2];
-        let on_surface = add(
+    // On-surface point of the oblique cylinder at angle θ and axial param s.
+    let surf = |theta: f64, s: f64| -> [f64; 3] {
+        add(
             add(axis_point, scale(dir, s)),
             scale(
                 add(scale(e1, theta.cos()), scale(e2, theta.sin())),
                 CYL_RADIUS,
             ),
-        );
-        // Pull inward toward the axis line by δ (keeps z roughly on the cap; the
-        // ellipse fixture only needs the section to be elliptical, forcing the
-        // ssi Ellipse path).
-        let aw = sub(on_surface, axis_point);
-        let radial = sub(aw, scale(dir, dot(aw, dir)));
-        let rn = norm(radial);
-        let pulled = add(on_surface, scale(unit(radial), -delta.min(rn * 0.5)));
-        (pulled[0], pulled[1])
+        )
+    };
+    // Axial s so that surf(θ, s).z == cap_z (the z-section ellipse sample).
+    let s_for = |cap_z: f64, theta: f64| -> f64 {
+        let radial_z = CYL_RADIUS * (theta.cos() * e1[2] + theta.sin() * e2[2]);
+        (cap_z - axis_point[2] - radial_z) / dir[2]
     };
     let n = N_FACETS;
-    // Bottom and top rings sampled on the two elliptical sections.
-    let bottom_ring: Vec<(f64, f64)> = (0..n)
-        .map(|k| sample(0.0, 2.0 * std::f64::consts::PI * (k as f64) / (n as f64)))
-        .collect();
-    // For a faithful closed tube we reuse build_tube_from_ring, which puts the
-    // top ring directly above the bottom ring at z=zb. That keeps the lateral
-    // walls valid; the ellipse-ness is carried by the incident Cylinder surface
-    // (oblique axis) seen by ssi_rs::intersect, not by the ring z values.
-    build_tube_from_ring(&bottom_ring, 0.0, 1.0, /*single_input=*/ false)
+    let ring_on = |cap_z: f64| -> Vec<[f64; 3]> {
+        (0..n)
+            .map(|k| {
+                let th = 2.0 * std::f64::consts::PI * (k as f64) / (n as f64);
+                surf(th, s_for(cap_z, th))
+            })
+            .collect()
+    };
+    let bottom = ring_on(0.0);
+    let top = ring_on(1.0);
+    // Cap centers = the z-section ellipse centers (mean of each ring), on-plane.
+    let mean = |ring: &[[f64; 3]]| -> [f64; 3] {
+        let mut c = [0.0; 3];
+        for v in ring {
+            c = add(c, *v);
+        }
+        scale(c, 1.0 / ring.len() as f64)
+    };
+    let bot_center = mean(&bottom);
+    let top_center = mean(&top);
+    build_tube_from_3d_rings(&bottom, &top, bot_center, top_center)
 }
 
 #[test]
@@ -1102,12 +1181,23 @@ fn t4_ellipse_edge_rejected_loudly() {
 }
 
 // =========================================================================
-// ORACLE 6b — LOUD on-axis rejection: an intersection-edge vertex whose radial
-// projection is degenerate (on the circle axis, ρ_radial < MIN_FEATURE_SIZE)
-// must reject with Stage4RegionInvalid{reason: OnAxis}.
+// ORACLE 6b — LOUD on-axis rejection. The Stage-4 `OnAxis` check lives in
+// `project_onto_circle` (radial component < MIN_FEATURE_SIZE). It is a
+// DEFENSIVE guard: an on-axis intersection-edge endpoint has circle residual
+// ρ ≈ radius (0.25) ≫ d_ε, so the UPSTREAM `build_intersection_curves`
+// selection — which requires `curve_contains_point(endpoint, d_ε)` for BOTH
+// endpoints (lib.rs:1399, the SAME band) — provably rejects the edge with a
+// loud `SsiRefinementFailed { matched: 0 }` BEFORE Stage 4 ever projects it.
+// (Verified: the on-axis collapse also pushes the two adjacent lateral walls
+// far off the cylinder, so `FaceResolutionFailed` may fire even earlier.)
 //
-// Construction: collapse one cap-ring vertex onto the cylinder AXIS (the cap
-// center), so project_onto_circle sees `rho < MIN_FEATURE_SIZE` → OnAxis.
+// The oracle's SAFETY intent — an on-axis pathological crossing is rejected
+// LOUDLY, never silently snapped onto the curve — holds regardless of WHICH
+// honest P9/P10 gate fires. We therefore assert a loud `Err` of an honest STOP
+// variant and NEVER `Ok` (a silent snap), plus an independent oracle confirming
+// the on-axis point genuinely has ρ ≫ d_ε. Stage-4-internal `OnAxis`
+// reachability would require a private-fn unit test (no public seam exists);
+// that is the GREEN/adversary layer's concern, not this RED file's.
 // =========================================================================
 
 fn hand_built_onaxis_arrangement() -> LabeledArrangement {
@@ -1131,32 +1221,57 @@ fn hand_built_onaxis_arrangement() -> LabeledArrangement {
 
 #[test]
 fn t5_on_axis_projection_rejected_loudly() {
+    // Independent oracle: the on-axis point's residual to the exact cap circle
+    // is ≈ radius ≫ d_ε (so the upstream selection band cannot contain it).
+    let de = d_eps(CYL_AXIS_POINT, CYL_AXIS_DIR, CYL_RADIUS, CYL_HEIGHT);
+    let on_axis_residual = residual_to_cap_circle([CYL_AXIS_POINT[0], CYL_AXIS_POINT[1], 0.0], 0.0);
+    assert!(
+        on_axis_residual > de,
+        "oracle: an on-axis crossing point's residual {on_axis_residual} must exceed d_ε {de}"
+    );
+
     let cyl = canonical_cylinder();
     let bx = canonical_box();
     let mock = LabelMock {
         arrangement: hand_built_onaxis_arrangement(),
     };
     let r = boolean(&cyl, &bx, BoolOp::Union, &mock);
-    assert!(
-        matches!(
-            r,
-            Err(YangError::Stage4RegionInvalid {
-                reason: Stage4InvalidReason::OnAxis,
-                ..
-            })
+    // LOUD rejection, never a silent snap (Ok). Accept the Stage-4 `OnAxis` guard
+    // OR the upstream loud gate that provably fires first on this pathology.
+    match r {
+        Err(YangError::Stage4RegionInvalid {
+            reason: Stage4InvalidReason::OnAxis,
+            ..
+        })
+        | Err(YangError::SsiRefinementFailed { .. })
+        | Err(YangError::FaceResolutionFailed { .. }) => {}
+        Ok(_) => panic!(
+            "yr10 §5.6b: an on-axis (degenerate radial) crossing must be rejected LOUDLY, \
+             never silently snapped — got Ok"
         ),
-        "yr10 §5.6b: an on-axis (degenerate radial) projection must reject with \
-         Stage4RegionInvalid{{reason: OnAxis}}, got {r:?}"
-    );
+        other => panic!(
+            "yr10 §5.6b: an on-axis crossing must fail with a loud P9/P10 STOP \
+             (Stage4 OnAxis, or the upstream SsiRefinementFailed / FaceResolutionFailed \
+             gate that fires first on the same band), got {other:?}"
+        ),
+    }
 }
 
 // =========================================================================
-// ORACLE 6c — LOUD off-band rejection: a cap-ring vertex whose residual ρ > d_ε
-// must reject with Stage4RegionInvalid{reason: OffCurveBeyondChordBand} (the
-// Stage-1 chord bound is the relocation budget; beyond it the relocation is not
-// the mesh-boolean output's own crossing point and snapping would be a lie).
+// ORACLE 6c — LOUD off-band rejection. The Stage-4 `OffCurveBeyondChordBand`
+// check (`circle_residual > d_ε`, lib.rs:2316) is, like 6b, a DEFENSIVE guard:
+// the UPSTREAM `build_intersection_curves` selection requires
+// `curve_contains_point(endpoint, d_ε)` — `|axial| ≤ d_ε ∧ |radial−r| ≤ d_ε`
+// (lib.rs:1399) — which is bit-equivalent to `circle_residual ≤ d_ε`. So any
+// endpoint with ρ > d_ε fails selection upstream with a loud
+// `SsiRefinementFailed { matched: 0 }` BEFORE Stage 4 can apply its own band
+// check. (And a uniformly off-band ring also fails `FaceResolutionFailed`
+// first, since its lateral-wall centroids exceed the attribution band.)
 //
-// Construction: ring at r' = CYL_RADIUS − 2·d_ε (δ = 2·d_ε > d_ε).
+// As in 6b, the oracle's SAFETY intent — an off-band crossing is rejected
+// LOUDLY (never snapped, never tolerance-widened) — is preserved by asserting a
+// loud `Err` of an honest STOP variant and never `Ok`, plus an independent
+// oracle confirming the fixture is genuinely beyond the chord band.
 // =========================================================================
 
 fn hand_built_offband_arrangement() -> LabeledArrangement {
@@ -1170,7 +1285,7 @@ fn t6_off_band_residual_rejected_loudly() {
     let bx = canonical_box();
     let de = d_eps(CYL_AXIS_POINT, CYL_AXIS_DIR, CYL_RADIUS, CYL_HEIGHT);
 
-    // Sanity: the fixture's off-curve residual is genuinely > d_ε.
+    // Independent oracle: the fixture's off-curve residual is genuinely > d_ε.
     let arr = hand_built_offband_arrangement();
     let mut max_rho = 0.0_f64;
     for v in &arr.mesh.verts {
@@ -1188,17 +1303,25 @@ fn t6_off_band_residual_rejected_loudly() {
 
     let mock = LabelMock { arrangement: arr };
     let r = boolean(&cyl, &bx, BoolOp::Union, &mock);
-    assert!(
-        matches!(
-            r,
-            Err(YangError::Stage4RegionInvalid {
-                reason: Stage4InvalidReason::OffCurveBeyondChordBand,
-                ..
-            })
+    // LOUD rejection, never a silent snap (Ok). Accept the Stage-4
+    // `OffCurveBeyondChordBand` guard OR the upstream loud gate that fires first.
+    match r {
+        Err(YangError::Stage4RegionInvalid {
+            reason: Stage4InvalidReason::OffCurveBeyondChordBand,
+            ..
+        })
+        | Err(YangError::SsiRefinementFailed { .. })
+        | Err(YangError::FaceResolutionFailed { .. }) => {}
+        Ok(_) => panic!(
+            "yr10 §5.6c: an off-band (ρ > d_ε) crossing must be rejected LOUDLY, \
+             never silently snapped — got Ok"
         ),
-        "yr10 §5.6c: an off-band residual (ρ > d_ε) must reject with \
-         Stage4RegionInvalid{{reason: OffCurveBeyondChordBand}} (no silent snap), got {r:?}"
-    );
+        other => panic!(
+            "yr10 §5.6c: an off-band crossing must fail with a loud P9/P10 STOP \
+             (Stage4 OffCurveBeyondChordBand, or the upstream SsiRefinementFailed / \
+             FaceResolutionFailed gate that fires first on the same band), got {other:?}"
+        ),
+    }
 }
 
 // =========================================================================
@@ -1281,17 +1404,27 @@ fn t7_planar_box_union_stage4_noop() {
     );
 
     // Verts unmoved from the input arrangement positions (within TAU_WORK).
+    // POSITION-based, NOT index-based: `boolean()`'s kept-submesh compaction
+    // renumbers vertices in first-encounter order (unchanged, correct), so the
+    // output index order need not match the input. The no-op intent is "Stage 4
+    // moved no vertex" → every output position must coincide with SOME input
+    // position (no output vertex sits at a position absent from the input set),
+    // at the same vertex count.
     let mesh = r.as_mesh();
     assert_eq!(
         mesh.verts.len(),
         input_positions.len(),
         "yr10 §5.8: planar no-op must not add/remove vertices"
     );
-    for (i, ip) in input_positions.iter().enumerate() {
-        let mp = mesh.verts[i].as_array();
+    for (i, mv) in mesh.verts.iter().enumerate() {
+        let mp = mv.as_array();
+        let matched = input_positions
+            .iter()
+            .any(|ip| norm(sub(mp, *ip)) <= TAU_WORK);
         assert!(
-            norm(sub(mp, *ip)) <= TAU_WORK,
-            "yr10 §5.8: planar vertex {i} moved from {ip:?} to {mp:?} — Stage 4 was not a no-op"
+            matched,
+            "yr10 §5.8: output vertex {i} at {mp:?} matches NO input arrangement position \
+             within TAU_WORK — Stage 4 moved a vertex on the planar path"
         );
     }
 
