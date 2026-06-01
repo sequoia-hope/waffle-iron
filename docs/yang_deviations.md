@@ -333,6 +333,136 @@ strategy — decouple "functional Yang" from "native arrangement complete";
 WASM-break during the development phase is accepted (no users; personal
 experiment). Tracking: `docs/yang_functional_roadmap.md` M6/M7.
 
+### N2 — Stage-4 mesh-updating / CDT absent (relocation-only)
+
+**Code location:** `crates/yang-rs/src/lib.rs` — no CDT call sites;
+`stage4_relocate_and_correct` (~2260-2479) relocates existing intersection
+vertices only.
+
+**Paper section:** §4.4.1 — mesh updating via CDT + split/merge/insert +
+per-triangle `d(T)` recalculation.
+
+**Current behavior:** `yang-rs` trusts the sidecar-trimmed mesh and performs only
+intersection-vertex relocation onto the exact curve + the §4.5.3 reversed-point
+sweep. No remeshing/CDT runs, yet the `lib.rs:6-14` stage docstring lists
+"Stage 4 (§4.4.1): Mesh updating via CDT" as if present. Distinct from legacy
+**D1** (which concerns `crates/kernel/`).
+
+**Severity:** fidelity gap, **not** a current correctness hole for analytic
+inputs — the sidecar mesh is validly trimmed and `check_watertight_2manifold`
+gates the output.
+
+**Remediation:** roadmap milestone for real Stage-4 remesh; in the interim, add a
+doc note (or a loud `YangError`) so the stage list is not mistaken for a running
+CDT. **Sign-off:** pending.
+
+### N3 — §4.5.3 collinear/degenerate-tangent treated as healthy (logic inversion)
+
+**Code location:** `crates/yang-rs/src/lib.rs:2504-2506` — returns `false` (no
+reversal) when `t_tilde_len < TAU_WORK`, commented "Degenerate/collinear t̃ ⇒
+healthy, no reversal."
+
+**Paper section:** §4.5.3 (refs/text/yang2025_hybrid_boolean.txt:743-745) — places
+collinear triples **within** the reversal subset: "if … collinear, t̃ is almost
+degenerate … we directly detect the reversal, avoiding the angle comparisons."
+
+**Current behavior:** inverts the paper — collinearity ⇒ *healthy* and the check
+is skipped. Harmless on circle/ellipse edges (no 3 collinear points), **but
+reachable on Line-type intersection edges** (axis-parallel `plane∩cylinder` →
+lines), which `cylinder ∪ box` can produce. The only finding where the code
+actively *contradicts* the paper rather than deferring.
+
+**Severity:** medium (latent — reachable via line edges; not exercised by the
+current circle/ellipse canonical tests).
+
+**Remediation:** implement the paper's branch (on collinear consecutive points,
+detect reversal directly by position order along the line, not the angle test);
+or, if a line-edge can be proven not to reach this path, guard with a
+`debug_assert!` + this note. **Sign-off:** pending — recommend fix.
+
+### N4 — Face provenance via centroid-proximity, not §4.2.3 barycentric implicit mapping
+
+**Code location:** `crates/yang-rs/src/lib.rs` (~1794-1798) — pick the unique
+labeled-solid face plane within `TAU_WORK` of the kept triangle's centroid.
+
+**Paper section:** §4.2.3 — map each intersection point to both surfaces via
+Cherchi implicit-point **barycentric** coordinates from the intersecting
+triangles.
+
+**Current behavior:** geometric centroid-in-plane proximity, not the
+arrangement's intrinsic per-triangle provenance. Works for the current scope; it
+is the proximate cause of the **F2** multi-solid `FaceResolutionFailed`. Forced
+by **N1** (the sidecar's `LabeledArrangement` exposes only *solid*-level
+provenance, not per-triangle barycentric data).
+
+**Remediation:** tied to roadmap **M6** (native arrangement exposes triangle-level
+provenance). **Sign-off:** pending.
+
+### N5 — Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2 CDT framework
+
+**Code location:** planar Newell fan `crates/yang-rs/src/lib.rs:531-563` (1:1, no
+`d_ε` iteration, no CDT); cylinder analytic rim rings (no u-v CDT).
+
+**Paper section:** §4.1 (298-322), §4.1.2 (404-407).
+
+**Current behavior:** planar faces use an exact 1:1 bijection (faithful-by-
+exactness for flat patches — no Steiner points needed); the cylinder uses a
+2-ring + chord-bound rim sampling; watertightness comes from shared rim rings
+rather than per-boundary CDT. Deliberate divergence, acceptable while inputs are
+analytic primitives. Distinct from legacy **D9/D10**.
+
+**Severity:** low. **Remediation:** closure bundled with NURBS support (legacy
+**D14** analog). **Sign-off:** candidate (faithful-by-exactness for the analytic
+scope).
+
+### N6 — §4.5.4 illegal self-intersection detection/removal absent
+
+**Code location:** not present in the new crates (legacy **D3** covers
+`crates/kernel/` only).
+
+**Paper section:** §4.5.4 (752-758).
+
+**Current behavior:** no post-trim self-intersection detection in `yang-rs`.
+Currently **silent**.
+
+**Severity:** medium. **Remediation:** convert to a loud STOP or a roadmap
+milestone so it is not a silent gap. **Sign-off:** pending.
+
+### N7 — Stage 3 uses closed-form algebraic SSI instead of §4.3 Newton/geometric optimization
+
+**Code location:** `crates/yang-rs/src/lib.rs:1316-1550` (`surface_to_quadric`,
+`ssi_curve_to_curve`, intersection-edge selection via `curve_contains_point`);
+prompt `specs/yang_pr_yr9_stage3_ssi.md`.
+
+**Paper section:** §4.3 (521-593) — Newton (§4.3.1) / geometric (§4.3.2) /
+method-selection (§4.3.3) / curvature refinement (§4.3.4).
+
+**Current behavior:** `ssi_rs::intersect` returns the **exact** closed-form
+Circle/Ellipse/Line; the relevant arc is selected by endpoint containment. This
+is a deliberate, **superior** substitute for the analytic-primitive scope —
+closed-form is exact and more robust than Newton iteration on NURBS Bézier
+sub-patches — a natural consequence of the **D14**/analytic-only scope. (§4.3.4
+curvature-based polyline refinement and the tangent/small-loop distinction are
+not implemented; moot for Circle/Ellipse/Line, open for general analytic pairs.)
+Documented in the PR-YR9 spec; recorded here for ledger completeness.
+
+**Severity:** low (documented design substitution, not a hidden divergence).
+**Sign-off:** *signed off* — sound in-scope substitution, mirroring the N1
+rationale.
+
+### Legacy ↔ new-crate cross-reference
+
+The legacy **D1–D14** entries scope to `crates/kernel/` and do **not** imply
+new-crate coverage. Map (legacy → new-crate analog):
+
+| Legacy (kernel) | New-crate (yang-rs) |
+|---|---|
+| D1 (CDT in §4.4.1) | **N2** (Stage-4 remesh absent) |
+| D3 (§4.5.4 self-intersection) | **N6** |
+| D4 (§4.5.2 localized refinement) | loud `LocalRefinementRequired` STOP (pr-yr10b) |
+| D9 / D10 (§4.1.2 CDT / d_ε density) | **N5** |
+| D13 / D14 (Gauss-map / NURBS scope) | loud `CurvedSurfaceNotYetSupported` (Sphere/Cone) |
+
 ---
 
 ## Priority order for remediation
