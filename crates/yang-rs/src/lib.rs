@@ -1157,6 +1157,151 @@ pub fn signed_distance_to_surface(surface: Surface, point: Point3) -> Result<f64
 }
 
 // =========================================================================
+// PR-YR10 — Stage 4: relocate mesh intersection points onto exact curves
+// (Yang §4.4.1 mesh updating) + §4.5.3 reversed-intersection correction.
+// =========================================================================
+
+/// PR-YR10 (spec §4.3): closed-form radial projection of `p` onto the exact
+/// `Circle { center, normal, radius }`. Returns `(proj, t)` where `t` is the
+/// angle in the circle's `ortho_basis(normal)` frame — the SAME frame Stage-1
+/// sampling and [`BRep::eval_source`] use, so a relocated vertex tagged
+/// `BRepEdge { edge, t }` round-trips exactly.
+///
+/// `Err(OnAxis)` when the point's radial component is below `MIN_FEATURE_SIZE`
+/// (the projection direction is undefined on the axis). No Newton, no tolerance
+/// widening (P9).
+fn project_onto_circle(
+    p: Point3,
+    center: Point3,
+    normal: Vector3,
+    radius: f64,
+) -> Result<(Point3, f64), Stage4InvalidReason> {
+    let (e1, e2) = ortho_basis(normal);
+    let e1a = e1.as_array();
+    let e2a = e2.as_array();
+    let c = center.as_array();
+    let x = p.as_array();
+    let w = [x[0] - c[0], x[1] - c[1], x[2] - c[2]];
+    let u = w[0] * e1a[0] + w[1] * e1a[1] + w[2] * e1a[2];
+    let v = w[0] * e2a[0] + w[1] * e2a[1] + w[2] * e2a[2];
+    let rho = u.hypot(v);
+    if rho < cad_primitives::MIN_FEATURE_SIZE {
+        return Err(Stage4InvalidReason::OnAxis);
+    }
+    let t = v.atan2(u);
+    let (ct, st) = (t.cos(), t.sin());
+    let proj = Point3::new(
+        c[0] + radius * (ct * e1a[0] + st * e2a[0]),
+        c[1] + radius * (ct * e1a[1] + st * e2a[1]),
+        c[2] + radius * (ct * e1a[2] + st * e2a[2]),
+    );
+    Ok((proj, t))
+}
+
+/// PR-YR10 (spec §4.4): residual `ρ = max(|axial|, |radial − r|)` of `pt` to an
+/// exact circle. This is the spec §4.5 classification residual the relocation
+/// drives ≤ `TAU_MODEL` (matching the RED oracle's `circle_residual`).
+fn circle_residual(pt: Point3, center: Point3, normal: Vector3, radius: f64) -> f64 {
+    let n = normalize3(normal.as_array());
+    let c = center.as_array();
+    let x = pt.as_array();
+    let w = [x[0] - c[0], x[1] - c[1], x[2] - c[2]];
+    let axial = (w[0] * n[0] + w[1] * n[1] + w[2] * n[2]).abs();
+    let radial_vec = [
+        w[0] - (w[0] * n[0] + w[1] * n[1] + w[2] * n[2]) * n[0],
+        w[1] - (w[0] * n[0] + w[1] * n[1] + w[2] * n[2]) * n[1],
+        w[2] - (w[0] * n[0] + w[1] * n[1] + w[2] * n[2]) * n[2],
+    ];
+    let radial = (radial_vec[0] * radial_vec[0]
+        + radial_vec[1] * radial_vec[1]
+        + radial_vec[2] * radial_vec[2])
+        .sqrt();
+    axial.max((radial - radius).abs())
+}
+
+/// PR-YR10 (spec §4.4): the explicit Stage-4 watertightness gate (§4.4.3).
+/// Every directed half-edge `(a, b)` must have exactly one opposite `(b, a)`
+/// (a watertight 2-manifold), and the Euler characteristic `V − E + F` of each
+/// connected shell must be 2. Returns `Err(NonManifoldOutput)` on failure.
+fn check_watertight_2manifold(mesh: &Mesh) -> Result<(), YangError> {
+    use std::collections::{BTreeMap, BTreeSet};
+    // Directed half-edge multiset: every (a,b) must be paired by one (b,a).
+    let mut dir: BTreeMap<(u32, u32), i32> = BTreeMap::new();
+    for tri in &mesh.tris {
+        for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+            *dir.entry((tri[i], tri[j])).or_insert(0) += 1;
+        }
+    }
+    for (&(s, e), &fwd) in &dir {
+        let rev = dir.get(&(e, s)).copied().unwrap_or(0);
+        if fwd != rev {
+            return Err(YangError::NonManifoldOutput);
+        }
+    }
+
+    // Euler χ = 2 per connected shell. Connectivity via undirected edges; the
+    // whole mesh is a union of disjoint closed shells, each of which must be a
+    // sphere (χ = 2).
+    let n_verts = mesh.num_verts();
+    if n_verts == 0 {
+        return Ok(());
+    }
+    // Union-find over vertices through triangle edges.
+    let mut parent: Vec<u32> = (0..n_verts as u32).collect();
+    fn find(parent: &mut [u32], x: u32) -> u32 {
+        let mut r = x;
+        while parent[r as usize] != r {
+            r = parent[r as usize];
+        }
+        // Path compression.
+        let mut cur = x;
+        while parent[cur as usize] != r {
+            let next = parent[cur as usize];
+            parent[cur as usize] = r;
+            cur = next;
+        }
+        r
+    }
+    let union = |parent: &mut Vec<u32>, a: u32, b: u32| {
+        let ra = find(parent, a);
+        let rb = find(parent, b);
+        if ra != rb {
+            parent[ra as usize] = rb;
+        }
+    };
+    for tri in &mesh.tris {
+        union(&mut parent, tri[0], tri[1]);
+        union(&mut parent, tri[1], tri[2]);
+    }
+    // Per-shell V, E (undirected), F.
+    let mut shell_v: BTreeMap<u32, BTreeSet<u32>> = BTreeMap::new();
+    let mut shell_e: BTreeMap<u32, BTreeSet<(u32, u32)>> = BTreeMap::new();
+    let mut shell_f: BTreeMap<u32, i64> = BTreeMap::new();
+    for tri in &mesh.tris {
+        let root = find(&mut parent, tri[0]);
+        let v_set = shell_v.entry(root).or_default();
+        for &vi in tri {
+            v_set.insert(vi);
+        }
+        let e_set = shell_e.entry(root).or_default();
+        for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+            let (a, b) = (tri[i], tri[j]);
+            e_set.insert(if a < b { (a, b) } else { (b, a) });
+        }
+        *shell_f.entry(root).or_insert(0) += 1;
+    }
+    for (root, v_set) in &shell_v {
+        let v = v_set.len() as i64;
+        let e = shell_e.get(root).map(|s| s.len()).unwrap_or(0) as i64;
+        let f = shell_f.get(root).copied().unwrap_or(0);
+        if v - e + f != 2 {
+            return Err(YangError::NonManifoldOutput);
+        }
+    }
+    Ok(())
+}
+
+// =========================================================================
 // PR-YR9 (P3) — Stage 3: analytical SSI refinement of intersection edges
 // =========================================================================
 
@@ -1454,6 +1599,49 @@ pub enum YangError {
         edge: (u32, u32),
         reason: SsiRefinementError,
     },
+    /// PR-YR10 (Stage 4, §4.5.3): the reversed-intersection correction sweep
+    /// could not resolve a reversal at `vertex` on intersection edge `edge`
+    /// by collapsing successive next-points. A P9/P10 LOUD stop — genuine
+    /// §4.5.2 local-refinement territory, never a silently-emitted inverted
+    /// mesh.
+    Stage4ReversalUnresolved { edge: (u32, u32), vertex: u32 },
+    /// PR-YR10 (Stage 4, §4.4.1 / §4.5): a relocation region around `vertex`
+    /// could not be made valid. `reason` names the specific failure. A P9/P10
+    /// LOUD stop — never a tolerance widening, silent snap, or fallback path.
+    Stage4RegionInvalid {
+        vertex: u32,
+        reason: Stage4InvalidReason,
+    },
+}
+
+/// PR-YR10 (Stage 4): why a relocation region could not be made valid.
+///
+/// Each variant is a P9/P10 LOUD stop — the boolean returns
+/// [`YangError::Stage4RegionInvalid`] rather than silently snapping a point,
+/// widening a tolerance, or emitting an inverted / degenerate mesh.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Stage4InvalidReason {
+    /// The mesh crossing point's residual to the exact curve exceeds the
+    /// Stage-1 chord bound `d_ε` — beyond the relocation budget, so it is not
+    /// this mesh-boolean output's own crossing point and snapping would lie.
+    OffCurveBeyondChordBand,
+    /// Radial projection onto the circle is degenerate: the point projects
+    /// onto the circle axis (`ρ_radial < MIN_FEATURE_SIZE`).
+    OnAxis,
+    /// The intersection edge carries a `Curve::Ellipse`; closed-form ellipse
+    /// relocation (a quartic) is not implemented in this PR. (Circle-only.)
+    EllipseProjectionUnsupported,
+    /// A relocated triangle's winding disagrees with its analytic surface
+    /// normal (`dot ≤ 0`) — an inverted triangle the §4.5.3 sweep could not fix.
+    InvertedTriangle,
+    /// A relocated triangle's area dropped below `MIN_FEATURE_SIZE²`.
+    DegenerateTriangle,
+    /// A §4.5.3 loop shrank below 3 vertices during collapse.
+    LoopTooSmall,
+    /// Relocate + §4.5.3 correction left the region invalid; genuine §4.5.2
+    /// local refinement (re-invoking the Stage-2 backend on a refined sub-mesh)
+    /// is required and is out of scope for this PR (loud STOP).
+    LocalRefinementRequired,
 }
 
 /// PR-YR9 (P3): why Stage-3 SSI refinement of an intersection edge failed.
@@ -1521,6 +1709,20 @@ impl fmt::Display for YangError {
                     f,
                     "yang-rs: Stage-3 SSI refinement failed for intersection edge \
                      {edge:?}: {reason:?}"
+                )
+            }
+            Self::Stage4ReversalUnresolved { edge, vertex } => {
+                write!(
+                    f,
+                    "yang-rs: Stage-4 §4.5.3 reversed-intersection correction could not \
+                     resolve a reversal at vertex {vertex} on edge {edge:?}"
+                )
+            }
+            Self::Stage4RegionInvalid { vertex, reason } => {
+                write!(
+                    f,
+                    "yang-rs: Stage-4 relocation region around vertex {vertex} is invalid: \
+                     {reason:?}"
                 )
             }
         }
@@ -1868,17 +2070,17 @@ pub fn boolean(
         };
         attributions.push(Some(TriangleAttribution { input, face }));
     }
-    let triangle_attribution = TriangleAttributionMap { attributions };
+    let mut triangle_attribution = TriangleAttributionMap { attributions };
 
-    // (6) Topology reconstruction (unchanged).
-    let (vertices, edges, faces) =
-        reconstruct_topology(&kept_submesh, &triangle_attribution, a, b)?;
+    // (6) Topology reconstruction + Stage-4 relocation (PR-YR10). Stage 4 may
+    // relocate intersection vertices in-place (onto the exact curves) and, on a
+    // §4.5.3 reversal, edge-collapse a mesh vertex — mutating BOTH the mesh and
+    // the attribution in lockstep — so both are passed by `&mut` and the
+    // tessellation sources come back from `reconstruct_topology`.
+    let mut kept_submesh = kept_submesh;
+    let (vertices, edges, faces, sources) =
+        reconstruct_topology_stage4(&mut kept_submesh, &mut triangle_attribution, a, b)?;
 
-    // Output mesh = the compact kept sub-mesh; tessellation 1:1 with its
-    // verts (BRepVertex(i)).
-    let sources: Vec<TessellationSource> = (0..kept_submesh.num_verts() as u32)
-        .map(TessellationSource::BRepVertex)
-        .collect();
     let tessellation = TessellationMap { sources };
 
     Ok(BRep {
@@ -1897,57 +2099,55 @@ pub fn boolean(
 
 /// PR-YR5 internal: the triple `(vertices, edges, faces)` produced
 /// by `reconstruct_topology` to populate the output `BRep`.
-type ReconstructedTopology = (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFace>);
+///
+/// PR-YR10: extended with a fourth component — the per-output-mesh-vertex
+/// `Vec<TessellationSource>` (default `BRepVertex(i)`, overridden to
+/// `BRepEdge { edge, t }` for Stage-4-relocated intersection vertices).
+type ReconstructedTopology = (
+    Vec<BRepVertex>,
+    Vec<BRepEdge>,
+    Vec<BRepFace>,
+    Vec<TessellationSource>,
+);
 
-/// PR-YR5: rebuild output `BRep` topology (`vertices`, `edges`,
-/// `faces`) from the per-triangle attribution map.
-///
-/// Algorithm:
-/// 1. Build per-triangle adjacency via canonical-edge BTreeMap.
-/// 2. Flood-fill same-attribution patches. Skip None-attributed
-///    triangles (cut surfaces → PR-YR6).
-/// 3. For each patch, walk ALL directed boundary cycles (edges in
-///    exactly one patch triangle, ordered).
-/// 4. Classify cycles outer (signed area > 0) vs inner (< 0) along the
-///    face normal; build `BRepFace { outer_loop, inner_loops }` (PR-YR5c).
-/// 5. Inherit `surface` from `input.faces()[attribution.face]`.
-/// 6. Output `vertices` is 1:1 with `mesh.verts`.
-///
-/// Errors:
-/// - `NonManifoldOutput`: cycle walking dead-ends / T-junctions (E1),
-///   a degenerate loop (E2), or not exactly one positive-area cycle
-///   (E3 — disconnected / nested patch, out of scope).
-/// - `MalformedTopology`: defensive; `attribution.face` out of range
-///   in the input BRep.
-fn reconstruct_topology(
+/// PR-YR5/9 `(vertices, edges, faces)` triple — the pre-PR-YR10 reconstruction
+/// shape retained for the `#[cfg(test)]` unit-test callers.
+#[cfg(test)]
+type LegacyTopology = (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFace>);
+
+/// PR-YR9 (lifted to module scope in PR-YR10 so `stage4_relocate_and_correct`
+/// can consume the same ordered, oriented patch loops + inherited surface that
+/// the Phase-B emission uses — no re-derivation, no classification drift).
+struct PatchInfo {
+    cycles: Vec<Vec<(u32, u32)>>,
+    input: InputId,
+    inherited: Surface,
+    face_idx: usize,
+}
+
+/// PR-YR10: the Phase-A structures `reconstruct_topology` derives before the
+/// Phase-B emission: per-patch ordered loops + inherited surface (`infos`), the
+/// edge→incident-(input,surface) map (`incidence`), and the exact per-edge
+/// analytical `Curve` map (`curves`). Recomputed after a §4.5.3 collapse.
+type PhaseA = (
+    Vec<PatchInfo>,
+    std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+    std::collections::BTreeMap<(u32, u32), Curve>,
+);
+
+/// PR-YR10: compute the Phase-A structures (adjacency → patches → cycles →
+/// incidence → exact intersection curves) from the current mesh + attribution.
+/// Factored out of `reconstruct_topology` so it can be re-run after a §4.5.3
+/// collapse mutates the mesh.
+fn compute_phase_a(
     mesh: &Mesh,
     attribution: &TriangleAttributionMap,
     a: &BRep,
     b: &BRep,
-) -> Result<ReconstructedTopology, YangError> {
-    // (1) Vertices: 1:1 with mesh.verts
-    let vertices: Vec<BRepVertex> = mesh
-        .verts
-        .iter()
-        .map(|&p| BRepVertex { point: p })
-        .collect();
-
-    // (2) Triangle adjacency
+) -> Result<PhaseA, YangError> {
     let adjacency = triangle_adjacency(mesh);
-
-    // (3) Flood-fill same-attribution patches
     let patches = flood_fill_patches(mesh, attribution, &adjacency);
 
-    // (4) First pass (PR-YR9): resolve each patch's boundary cycles, owning
-    // input, inherited surface, and face index ONCE. The face-range check and
-    // inherited-surface lookup live HERE only (spec §5.6 — "in exactly one
-    // place"), so the emission loop never re-derives them.
-    struct PatchInfo {
-        cycles: Vec<Vec<(u32, u32)>>,
-        input: InputId,
-        inherited: Surface,
-        face_idx: usize,
-    }
     let mut infos: Vec<PatchInfo> = Vec::with_capacity(patches.len());
     for patch in &patches {
         let cycles = patch_boundary_cycle(patch, mesh)?;
@@ -1972,11 +2172,6 @@ fn reconstruct_topology(
         });
     }
 
-    // (4a) PR-YR9 Stage 3: build EXACT intersection curves. An output
-    // intersection edge is incident to two patches of DIFFERENT InputId; its
-    // analytical `Curve` comes from `ssi_rs::intersect` of the two inherited
-    // surfaces. The incidence map keys edges canonically; `info.inherited` is
-    // UNFLIPPED (the conic is sign-invariant and Union has no flip).
     let mut incidence: std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>> =
         std::collections::BTreeMap::new();
     for info in &infos {
@@ -1990,15 +2185,560 @@ fn reconstruct_topology(
             }
         }
     }
-    let intersection_curves = build_intersection_curves(&incidence, mesh, a, b)?;
+    let curves = build_intersection_curves(&incidence, mesh, a, b)?;
+    Ok((infos, incidence, curves))
+}
 
-    // (4b) Emission pass: walk `infos`, emit faces/edges. The Newell / flip /
-    // E2 / E3 machinery is UNCHANGED (it reads `cycles` / `signed_areas`, never
-    // the per-edge curve). The ONLY change vs PR-YR8 is the per-edge `curve`:
-    // an intersection edge gets its exact conic, all others stay LineSegment.
+/// PR-YR10 helper: the Stage-4 chord-band relocation budget `d_ε` — the
+/// Stage-1 chord bound of whichever input bears circle rims (the curved solid).
+/// `None` only if NEITHER input has a circle rim, which cannot happen when a
+/// conic intersection edge exists (a conic edge implies a curved input).
+fn stage4_chord_band(a: &BRep, b: &BRep) -> Option<f64> {
+    curved_chord_bound(a.edges()).or_else(|| curved_chord_bound(b.edges()))
+}
+
+/// PR-YR10 helper: edge-collapse `victim` onto `survivor` in `mesh` + the
+/// parallel `attribution`. Replaces every `victim` index with `survivor`, then
+/// drops the now-degenerate triangles (two equal indices) from BOTH the mesh
+/// and the attribution in lockstep. A proper edge-collapse preserves the
+/// watertight half-edge pairing (the two collapsed slivers' surviving directed
+/// edges are mutual opposites that cancel — spec §4.5.3 / boolean() sliver rule
+/// at the compaction step). Returns the number of triangles dropped.
+fn collapse_vertex(
+    mesh: &mut Mesh,
+    attribution: &mut Vec<Option<TriangleAttribution>>,
+    victim: u32,
+    survivor: u32,
+) -> usize {
+    let mut new_tris: Vec<[u32; 3]> = Vec::with_capacity(mesh.tris.len());
+    let mut new_attr: Vec<Option<TriangleAttribution>> = Vec::with_capacity(attribution.len());
+    let mut dropped = 0usize;
+    for (t, tri) in mesh.tris.iter().enumerate() {
+        let mapped = [
+            if tri[0] == victim { survivor } else { tri[0] },
+            if tri[1] == victim { survivor } else { tri[1] },
+            if tri[2] == victim { survivor } else { tri[2] },
+        ];
+        if mapped[0] == mapped[1] || mapped[1] == mapped[2] || mapped[2] == mapped[0] {
+            dropped += 1;
+            continue;
+        }
+        new_tris.push(mapped);
+        new_attr.push(attribution.get(t).copied().flatten());
+    }
+    *mesh = Mesh::new(std::mem::take(&mut mesh.verts), new_tris);
+    *attribution = new_attr;
+    dropped
+}
+
+/// PR-YR10 (Yang §4.4.1 + §4.5.3): Stage 4 — relocate the mesh intersection
+/// points onto the exact analytical `Circle` curves, then correct any reversed
+/// intersection points by the §4.5.3 polyline-tangent sweep.
+///
+/// Returns `(relocations, collapsed)` where `relocations` is the list of
+/// `(vertex, t)` pairs (the circle-frame angle `t` for every relocated OR
+/// already-on-curve intersection vertex — the caller maps these to
+/// `BRepEdge { edge, t }` tessellation sources once the output edges exist), and
+/// `collapsed` is `true` iff the §4.5.3 sweep edge-collapsed at least one
+/// vertex (so the caller must recompute Phase A).
+///
+/// LOUD STOPs (P9/P10), never a silent snap / tolerance widening / no-op:
+/// - `Stage4RegionInvalid { EllipseProjectionUnsupported }` — a conic edge is an
+///   `Ellipse` (closed-form ellipse relocation is a later PR).
+/// - `Stage4RegionInvalid { OnAxis }` — a point projects onto the circle axis.
+/// - `Stage4RegionInvalid { OffCurveBeyondChordBand }` — residual `ρ > d_ε`.
+/// - `Stage4RegionInvalid { LoopTooSmall }` — a loop shrank below 3 verts.
+/// - `Stage4RegionInvalid { InvertedTriangle / DegenerateTriangle }` — a
+///   relocated triangle is inverted / degenerate after correction.
+/// - `Stage4ReversalUnresolved` — the §4.5.3 sweep could not resolve a reversal.
+/// - `Stage4RegionInvalid { LocalRefinementRequired }` — relocate + §4.5.3 left
+///   a region invalid (genuine §4.5.2 territory, out of scope).
+///
+/// No-skip audit (anti-disproven-attempt): a `processed` set tracks EVERY conic
+/// edge endpoint; it must equal the relocation-key set at the end. The function
+/// NEVER `continue`s past a `Circle` edge endpoint.
+fn stage4_relocate_and_correct(
+    mesh: &mut Mesh,
+    attribution: &mut TriangleAttributionMap,
+    a: &BRep,
+    b: &BRep,
+) -> Result<(Vec<(u32, f64)>, bool), YangError> {
+    use std::collections::{BTreeMap, HashSet};
+
+    // d_ε relocation budget (a conic edge implies a curved input ⇒ Some).
+    let d_eps = match stage4_chord_band(a, b) {
+        Some(de) => de,
+        None => {
+            // A conic edge with no circle-bearing input is a producer fault;
+            // never default to TAU_WORK for a curved relocation (P10).
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: u32::MAX,
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+            });
+        }
+    };
+
+    // (1) Collect + classify every conic-edge endpoint from the CURRENT Phase A.
+    let (_infos0, _inc0, curves0) = compute_phase_a(mesh, attribution, a, b)?;
+
+    // Per-vertex Circle assignment (deterministic via BTreeMap). An Ellipse
+    // edge endpoint is a loud STOP.
+    let mut vert_circle: BTreeMap<u32, (Point3, Vector3, f64)> = BTreeMap::new();
+    let mut endpoints: Vec<u32> = Vec::new();
+    for (&(s, e), curve) in &curves0 {
+        match *curve {
+            Curve::Circle {
+                center,
+                normal,
+                radius,
+            } => {
+                for v in [s, e] {
+                    vert_circle.insert(v, (center, normal, radius));
+                    endpoints.push(v);
+                }
+            }
+            Curve::Ellipse { .. } => {
+                return Err(YangError::Stage4RegionInvalid {
+                    vertex: s,
+                    reason: Stage4InvalidReason::EllipseProjectionUnsupported,
+                });
+            }
+            Curve::LineSegment => {}
+        }
+    }
+
+    // (2) Relocate / retag every endpoint. `processed` is the no-skip audit set;
+    // `moved` is the subset whose position actually changed (ρ > TAU_WORK) — the
+    // triangles touching THOSE verts are the ones Stage-4 validation gates
+    // (spec §4.5 step 4: validate per RELOCATED triangle, not pre-existing
+    // arrangement slivers that `boolean()` legitimately kept for watertightness).
+    let mut processed: HashSet<u32> = HashSet::new();
+    let mut moved: HashSet<u32> = HashSet::new();
+    let mut relocations: Vec<(u32, f64)> = Vec::new();
+    // Deterministic order: BTreeMap iteration.
+    for (&v, &(center, normal, radius)) in &vert_circle {
+        let p = mesh.verts[v as usize];
+        let rho = circle_residual(p, center, normal, radius);
+        if rho > d_eps {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: v,
+                reason: Stage4InvalidReason::OffCurveBeyondChordBand,
+            });
+        }
+        // Always project to obtain the circle-frame angle `t` (and the exact
+        // on-curve position). For ρ ≤ TAU_WORK the projection is a no-op move
+        // but still yields the retag `t`; for the relocate band it moves the
+        // vertex onto the curve.
+        let (proj, t) = project_onto_circle(p, center, normal, radius)
+            .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+        if rho > cad_primitives::TAU_WORK {
+            mesh.verts[v as usize] = proj;
+            moved.insert(v);
+        }
+        relocations.push((v, t));
+        processed.insert(v);
+    }
+
+    // No-skip audit (anti-disproven-attempt): every conic endpoint was handled.
+    let relocation_keys: HashSet<u32> = relocations.iter().map(|&(v, _)| v).collect();
+    let endpoint_set: HashSet<u32> = endpoints.iter().copied().collect();
+    if processed != endpoint_set || processed != relocation_keys {
+        return Err(YangError::Stage4RegionInvalid {
+            vertex: u32::MAX,
+            reason: Stage4InvalidReason::LocalRefinementRequired,
+        });
+    }
+
+    // (3) §4.5.3 reversed-intersection correction sweep.
+    let mut collapsed_any = false;
+    let mut attr_vec = std::mem::take(&mut attribution.attributions);
+    let sweep_result = sweep_reversed_intersections(mesh, &mut attr_vec, a, b, d_eps);
+    attribution.attributions = attr_vec;
+    let any_collapse = sweep_result?;
+    collapsed_any |= any_collapse;
+
+    // (4) Validate every RELOCATED triangle (one touching a moved vertex) for
+    // non-degeneracy (Yang §4.5 step 4). Reversed intersections are handled by
+    // the §4.5.3 sweep above; watertightness by the global gate below (§4.4.3).
+    validate_relocated_triangles(mesh, attribution, &moved)?;
+    // (4b) Explicit Stage-4 watertightness gate (§4.4.3).
+    check_watertight_2manifold(mesh)?;
+
+    // After a collapse the vertex set may have lost some relocated verts; keep
+    // only relocations whose vertex still carries a conic output edge. The
+    // caller resolves the output-edge index; relocations referencing a
+    // now-absent vertex are simply not emitted (the caller guards the index).
+    Ok((relocations, collapsed_any))
+}
+
+/// PR-YR10 (§4.5.3): walk every ordered intersection loop and correct reversed
+/// points by edge-collapsing the offending next-point. Returns `true` iff any
+/// collapse occurred. LOUD STOP on an unresolvable reversal.
+fn sweep_reversed_intersections(
+    mesh: &mut Mesh,
+    attribution: &mut Vec<Option<TriangleAttribution>>,
+    a: &BRep,
+    b: &BRep,
+    _d_eps: f64,
+) -> Result<bool, YangError> {
+    use std::collections::HashSet;
+    const ANG_TOL: f64 = 1e-6; // radians (Yang §5).
+    let lo = std::f64::consts::FRAC_PI_4 - ANG_TOL; // 45° − tol
+    let hi = 3.0 * std::f64::consts::FRAC_PI_4 + ANG_TOL; // 135° + tol
+
+    let mut collapsed_any = false;
+    // Bound the outer restart loop by the initial triangle count (each pass
+    // either makes progress by collapsing ≥1 triangle or terminates).
+    let max_passes = mesh.tris.len() + 1;
+    let mut passes = 0usize;
+    loop {
+        passes += 1;
+        if passes > max_passes {
+            // Could not reach a fixed point — genuine §4.5.2 territory.
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: u32::MAX,
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+            });
+        }
+
+        // Recompute Phase A so the loops reflect any prior collapse (spec §4.5.3
+        // step 3 — re-sweep on fresh loops, never stale ones).
+        let map = TriangleAttributionMap {
+            attributions: std::mem::take(attribution),
+        };
+        let phase_a = compute_phase_a(mesh, &map, a, b);
+        *attribution = map.attributions;
+        let (infos, _inc, curves) = phase_a?;
+
+        // Collect the ordered intersection loops: a patch boundary cycle whose
+        // every edge carries a `Circle` curve. Dedup by sorted vertex set so the
+        // cylinder-side and cap-side copies of the same ring are swept once.
+        let mut seen: HashSet<Vec<u32>> = HashSet::new();
+        let mut loops: Vec<Vec<(u32, u32)>> = Vec::new();
+        for info in &infos {
+            for cycle in &info.cycles {
+                if cycle.len() < 3 {
+                    continue;
+                }
+                let all_circle = cycle.iter().all(|&(s, e)| {
+                    let key = if s < e { (s, e) } else { (e, s) };
+                    matches!(curves.get(&key), Some(Curve::Circle { .. }))
+                });
+                if !all_circle {
+                    continue;
+                }
+                let mut sorted: Vec<u32> = cycle.iter().map(|&(s, _)| s).collect();
+                sorted.sort_unstable();
+                if seen.insert(sorted) {
+                    loops.push(cycle.clone());
+                }
+            }
+        }
+
+        // Find the FIRST reversal across all loops; collapse, then restart the
+        // whole sweep (re-deriving loops). Deterministic: loops are in the
+        // deterministic patch/cycle order; within a loop we scan in order.
+        let mut acted = false;
+        'outer: for cycle in &loops {
+            let m = cycle.len();
+            if m < 3 {
+                return Err(YangError::Stage4RegionInvalid {
+                    vertex: cycle.first().map(|&(s, _)| s).unwrap_or(u32::MAX),
+                    reason: Stage4InvalidReason::LoopTooSmall,
+                });
+            }
+            // Ordered vertex sequence of the loop (start vertices).
+            let verts: Vec<u32> = cycle.iter().map(|&(s, _)| s).collect();
+            for i in 0..m {
+                let p_b = verts[(i + m - 1) % m];
+                let p_r = verts[i];
+                let p_n = verts[(i + 1) % m];
+                if is_reversed(mesh, &curves, p_b, p_r, p_n, lo, hi) {
+                    // Collapse the next point p_n onto p_r (remove + reconnect).
+                    let dropped = collapse_vertex(mesh, attribution, p_n, p_r);
+                    if dropped == 0 {
+                        // Nothing collapsed ⇒ cannot make progress on this
+                        // reversal by removing the next point. LOUD STOP.
+                        return Err(YangError::Stage4ReversalUnresolved {
+                            edge: if p_r < p_n { (p_r, p_n) } else { (p_n, p_r) },
+                            vertex: p_r,
+                        });
+                    }
+                    collapsed_any = true;
+                    acted = true;
+                    break 'outer;
+                }
+            }
+        }
+
+        if !acted {
+            // Fixed point: no reversal remains.
+            return Ok(collapsed_any);
+        }
+    }
+}
+
+/// PR-YR10 (§4.5.3): is `p_r` a reversed intersection point? Compares the
+/// discrete polyline tangent `t̃ = unit(p_r − p_b) + unit(p_n − p_r)` against the
+/// exact circle tangent at `p_r`. Collinear `t̃` (`|t̃| < TAU_WORK`) is the
+/// HEALTHY case — skip the angle test (Yang §4.5.3). Reversal ⟺ the unsigned
+/// angle ∈ (45°, 135°) (with the supplied 1e-6 rad slack baked into `lo`/`hi`).
+#[allow(clippy::too_many_arguments)]
+fn is_reversed(
+    mesh: &Mesh,
+    curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    p_b: u32,
+    p_r: u32,
+    p_n: u32,
+    lo: f64,
+    hi: f64,
+) -> bool {
+    let pb = mesh.verts[p_b as usize].as_array();
+    let pr = mesh.verts[p_r as usize].as_array();
+    let pn = mesh.verts[p_n as usize].as_array();
+    let v1 = normalize3([pr[0] - pb[0], pr[1] - pb[1], pr[2] - pb[2]]);
+    let v2 = normalize3([pn[0] - pr[0], pn[1] - pr[1], pn[2] - pr[2]]);
+    let t_tilde = [v1[0] + v2[0], v1[1] + v2[1], v1[2] + v2[2]];
+    let t_tilde_len =
+        (t_tilde[0] * t_tilde[0] + t_tilde[1] * t_tilde[1] + t_tilde[2] * t_tilde[2]).sqrt();
+    if t_tilde_len < cad_primitives::TAU_WORK {
+        // Degenerate/collinear t̃ ⇒ healthy, no reversal.
+        return false;
+    }
+
+    // Exact circle tangent at p_r: derivative of `center + r(cos t·e1 + sin t·e2)`
+    // ⇒ `-sin t·e1 + cos t·e2`. Find the Circle this edge carries.
+    let key = if p_r < p_n { (p_r, p_n) } else { (p_n, p_r) };
+    let circle = match curves.get(&key) {
+        Some(Curve::Circle {
+            center,
+            normal,
+            radius,
+        }) => Some((*center, *normal, *radius)),
+        _ => {
+            // Fall back to the previous edge's circle.
+            let key2 = if p_b < p_r { (p_b, p_r) } else { (p_r, p_b) };
+            match curves.get(&key2) {
+                Some(Curve::Circle {
+                    center,
+                    normal,
+                    radius,
+                }) => Some((*center, *normal, *radius)),
+                _ => None,
+            }
+        }
+    };
+    let Some((center, normal, radius)) = circle else {
+        // No exact tangent available — cannot diagnose; treat as healthy
+        // (the validation pass still guards inverted/degenerate triangles).
+        return false;
+    };
+    let Ok((_proj, t)) = project_onto_circle(mesh.verts[p_r as usize], center, normal, radius)
+    else {
+        return false;
+    };
+    let (e1, e2) = ortho_basis(normal);
+    let e1a = e1.as_array();
+    let e2a = e2.as_array();
+    let (st, ct) = (t.sin(), t.cos());
+    let tan_c = normalize3([
+        -st * e1a[0] + ct * e2a[0],
+        -st * e1a[1] + ct * e2a[1],
+        -st * e1a[2] + ct * e2a[2],
+    ]);
+    let t_tilde_u = normalize3(t_tilde);
+    let dotv = (t_tilde_u[0] * tan_c[0] + t_tilde_u[1] * tan_c[1] + t_tilde_u[2] * tan_c[2])
+        .clamp(-1.0, 1.0);
+    // Unsigned angle between t̃ and the exact tangent (sign of the tangent is
+    // arbitrary, so fold to [0, π/2] via |dot|).
+    let angle = dotv.abs().acos();
+    angle > lo && angle < hi
+}
+
+/// Unnormalized triangle area-vector `(p1−p0) × (p2−p0)` (= 2·area·n̂).
+fn tri_area_vector(p0: [f64; 3], p1: [f64; 3], p2: [f64; 3]) -> [f64; 3] {
+    let e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+    let e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+    [
+        e1[1] * e2[2] - e1[2] * e2[1],
+        e1[2] * e2[0] - e1[0] * e2[2],
+        e1[0] * e2[1] - e1[1] * e2[0],
+    ]
+}
+
+/// PR-YR10 (Yang §4.4.1 / §4.4.3 / §4.5 step 4): validate every RELOCATED
+/// triangle (one touching a `moved` vertex) for **non-degeneracy** — its
+/// post-relocation area must stay ≥ `MIN_FEATURE_SIZE²`, else
+/// `DegenerateTriangle`. Triangles untouched by relocation are skipped:
+/// `boolean()` legitimately keeps near-zero-area arrangement slivers for
+/// watertightness, which Stage 4 must not re-litigate.
+///
+/// **Why there is no per-facet absolute "winding vs analytic normal" gate.**
+/// Yang §4.4.1 states plainly that relocating the discrete crossing points onto
+/// the exact curve "essentially breaks bijectivity, causing gaps or
+/// self-intersections," and that **watertightness is inherited from the
+/// mesh-boolean output and repaired locally** (§4.4.3) — it is NOT re-derived
+/// per facet. The genuine *reversed-intersection* defect (§4.5.3) is a
+/// non-monotonic ordering of points ALONG an intersection curve; that is
+/// detected and corrected by the polyline-tangent sweep
+/// (`sweep_reversed_intersections`) on the ordered conic loops, which either
+/// fixes it (edge-collapse) or STOPs loudly (`Stage4ReversalUnresolved` /
+/// `LocalRefinementRequired`). What remains after a monotonic-loop sweep is the
+/// benign in-surface self-intersection Yang accepts: e.g. a planar cap-fan
+/// triangle bridging the relocated ring to a fixed box corner can locally fold
+/// WITHIN its (unchanged) supporting plane when a ring vertex moves outward onto
+/// the true circle. That fold does NOT move the cap off its exact `Plane`, does
+/// NOT reverse the intersection curve, and does NOT break watertightness (pure
+/// relocation leaves mesh connectivity — hence half-edge pairing and χ —
+/// untouched). An absolute pointwise `dot(winding, surface_normal) > 0` test
+/// false-positives on exactly these facets (verified: the cap facet's kept
+/// winding is opposite the box's stored cap normal before
+/// `reconstruct_topology`'s Newell orientation pass reconciles it; and a
+/// faceted cylinder's facet normal legitimately deviates from the pointwise
+/// centroid radial by up to the facet half-angle). The faithful output
+/// invariant is therefore: non-degenerate relocated facets + the §4.5.3 sweep +
+/// the global `check_watertight_2manifold` gate (§4.4.3) — not a per-facet
+/// winding sign.
+fn validate_relocated_triangles(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    moved: &std::collections::HashSet<u32>,
+) -> Result<(), YangError> {
+    let _ = attribution; // attribution no longer consulted (no per-facet normal gate)
+    for tri in &mesh.tris {
+        // Only triangles incident to a relocated (moved) vertex are validated.
+        if !tri.iter().any(|v| moved.contains(v)) {
+            continue;
+        }
+        let p0 = mesh.verts[tri[0] as usize].as_array();
+        let p1 = mesh.verts[tri[1] as usize].as_array();
+        let p2 = mesh.verts[tri[2] as usize].as_array();
+        let nrm = tri_area_vector(p0, p1, p2);
+        let twice_area = (nrm[0] * nrm[0] + nrm[1] * nrm[1] + nrm[2] * nrm[2]).sqrt();
+        if twice_area * 0.5 < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: tri[0],
+                reason: Stage4InvalidReason::DegenerateTriangle,
+            });
+        }
+    }
+    Ok(())
+}
+
+/// PR-YR5: rebuild output `BRep` topology (`vertices`, `edges`,
+/// `faces`) from the per-triangle attribution map.
+///
+/// Algorithm:
+/// 1. Build per-triangle adjacency via canonical-edge BTreeMap.
+/// 2. Flood-fill same-attribution patches. Skip None-attributed
+///    triangles (cut surfaces → PR-YR6).
+/// 3. For each patch, walk ALL directed boundary cycles (edges in
+///    exactly one patch triangle, ordered).
+/// 4. Classify cycles outer (signed area > 0) vs inner (< 0) along the
+///    face normal; build `BRepFace { outer_loop, inner_loops }` (PR-YR5c).
+/// 5. Inherit `surface` from `input.faces()[attribution.face]`.
+/// 6. Output `vertices` is 1:1 with `mesh.verts`.
+///
+/// Errors:
+/// - `NonManifoldOutput`: cycle walking dead-ends / T-junctions (E1),
+///   a degenerate loop (E2), or not exactly one positive-area cycle
+///   (E3 — disconnected / nested patch, out of scope).
+/// - `MalformedTopology`: defensive; `attribution.face` out of range
+///   in the input BRep.
+///
+/// PR-YR10: the production boolean path now goes through
+/// [`reconstruct_topology_stage4`] (which runs Stage 4 then shares the same
+/// [`emit_topology`]). This `&Mesh` / 3-tuple form is retained for the PR-YR5/9
+/// unit-test callers (no-conic fixtures where Stage 4 would be a strict no-op),
+/// hence `#[cfg(test)]`.
+#[cfg(test)]
+fn reconstruct_topology(
+    mesh: &Mesh,
+    attribution: &TriangleAttributionMap,
+    a: &BRep,
+    b: &BRep,
+) -> Result<LegacyTopology, YangError> {
+    // PR-YR9 path (unchanged signature, used by the unit tests): build Phase A
+    // and emit with NO Stage-4 relocation (these fixtures carry no conic edges,
+    // so Stage 4 would be a strict no-op anyway). The Stage-4-aware entry point
+    // is `reconstruct_topology_stage4`, called by `boolean()`.
+    let (infos, _incidence, intersection_curves) = compute_phase_a(mesh, attribution, a, b)?;
+    let (vertices, edges, faces, _sources) =
+        emit_topology(mesh, &infos, &intersection_curves, &[])?;
+    Ok((vertices, edges, faces))
+}
+
+/// PR-YR10: the Stage-4-aware reconstruction `boolean()` calls. Builds Phase A,
+/// runs Stage 4 (relocate intersection points onto the exact curves + §4.5.3
+/// reversed-point correction), recomputes Phase A after any §4.5.3 collapse,
+/// then runs the SAME Phase-B emission as `reconstruct_topology` (via the shared
+/// [`emit_topology`]). Returns the 4-tuple including the per-output-vertex
+/// `TessellationSource` vector (relocated verts → `BRepEdge { edge, t }`).
+fn reconstruct_topology_stage4(
+    mesh: &mut Mesh,
+    attribution: &mut TriangleAttributionMap,
+    a: &BRep,
+    b: &BRep,
+) -> Result<ReconstructedTopology, YangError> {
+    // (4) Phase A: per-patch ordered loops + inherited surface (`infos`), and the
+    // exact per-edge intersection `Curve` map.
+    let (mut infos, _incidence, mut intersection_curves) =
+        compute_phase_a(mesh, attribution, a, b)?;
+
+    // (4a) Stage 4 (seam A1): relocate onto the exact analytical curves
+    // (Yang §4.4.1) + §4.5.3 reversal correction. Entered on ANY analytic conic
+    // (Circle OR Ellipse) so an ellipse-only fixture reaches the loud
+    // `EllipseProjectionUnsupported` STOP rather than silently passing an
+    // un-relocated mesh. No conic edges ⇒ Stage 4 is a strict no-op (planar
+    // byte-identity).
+    let has_conic = intersection_curves
+        .values()
+        .any(|c| matches!(c, Curve::Circle { .. } | Curve::Ellipse { .. }));
+    // (vertex, circle-frame angle t) for every relocated / retagged intersection
+    // vertex. Mapped to `BRepEdge { edge, t }` sources in `emit_topology` once
+    // the output edges exist.
+    let mut relocations: Vec<(u32, f64)> = Vec::new();
+    if has_conic {
+        let (relocs, collapsed) = stage4_relocate_and_correct(mesh, attribution, a, b)?;
+        relocations = relocs;
+        // A §4.5.3 collapse mutated the mesh topology + attribution, so the
+        // pre-collapse Phase-A loops are stale (spec §4.1 note). Recompute them
+        // before the Phase-B emission re-validates the corrected mesh.
+        if collapsed {
+            let (i2, _inc2, cv2) = compute_phase_a(mesh, attribution, a, b)?;
+            infos = i2;
+            intersection_curves = cv2;
+        }
+    }
+
+    emit_topology(mesh, &infos, &intersection_curves, &relocations)
+}
+
+/// PR-YR5/YR9 Phase-B emission (factored out in PR-YR10 so both
+/// [`reconstruct_topology`] and [`reconstruct_topology_stage4`] share ONE copy):
+/// walk `infos`, emit `edges`/`faces`, and build the per-vertex
+/// `TessellationSource` vector (relocated verts → `BRepEdge { edge, t }`).
+///
+/// The Newell / flip / E2 / E3 machinery is UNCHANGED from PR-YR8/YR9 (it reads
+/// `cycles` / `signed_areas`, never the per-edge curve). The per-edge `curve`
+/// comes from `intersection_curves` (an intersection edge gets its exact conic;
+/// all others stay `LineSegment`).
+fn emit_topology(
+    mesh: &Mesh,
+    infos: &[PatchInfo],
+    intersection_curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    relocations: &[(u32, f64)],
+) -> Result<ReconstructedTopology, YangError> {
+    // (1) Vertices: 1:1 with the (possibly relocated) mesh.verts.
+    let vertices: Vec<BRepVertex> = mesh
+        .verts
+        .iter()
+        .map(|&p| BRepVertex { point: p })
+        .collect();
+
     let mut edges: Vec<BRepEdge> = Vec::new();
     let mut faces: Vec<BRepFace> = Vec::new();
-    for info in &infos {
+    for info in infos {
         let cycles = &info.cycles;
         let inherited = info.inherited;
         let face_idx = info.face_idx;
@@ -2188,7 +2928,28 @@ fn reconstruct_topology(
         });
     }
 
-    Ok((vertices, edges, faces))
+    // Tessellation sources (PR-YR10): default `BRepVertex(i)`; each relocated /
+    // retagged intersection vertex overrides to `BRepEdge { edge, t }` where
+    // `edge` is the FIRST output Circle edge incident to the vertex (the output
+    // edges exist only after the emission pass above). The angle `t` is the
+    // circle-frame parameter Stage 4 computed, so `eval_source` reproduces the
+    // relocated position exactly.
+    let mut sources: Vec<TessellationSource> = (0..mesh.num_verts() as u32)
+        .map(TessellationSource::BRepVertex)
+        .collect();
+    for &(vid, t) in relocations {
+        if (vid as usize) >= sources.len() {
+            continue;
+        }
+        let edge_idx = edges.iter().position(|e| {
+            matches!(e.curve, Curve::Circle { .. }) && (e.start == vid || e.end == vid)
+        });
+        if let Some(ei) = edge_idx {
+            sources[vid as usize] = TessellationSource::BRepEdge { edge: ei as u32, t };
+        }
+    }
+
+    Ok((vertices, edges, faces, sources))
 }
 
 /// PR-YR5 internal: grouped patch of same-attribution triangles.
