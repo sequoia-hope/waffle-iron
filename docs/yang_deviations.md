@@ -376,9 +376,14 @@ actively *contradicts* the paper rather than deferring.
 current circle/ellipse canonical tests).
 
 **Remediation:** implement the paper's branch (on collinear consecutive points,
-detect reversal directly by position order along the line, not the angle test);
-or, if a line-edge can be proven not to reach this path, guard with a
-`debug_assert!` + this note. **Sign-off:** pending — recommend fix.
+detect reversal directly).
+
+**RESOLVED (2026-06-01):** `is_reversed` now returns `true` on degenerate t̃
+(`|t̃| < TAU_WORK` ⟺ `v1 ≈ −v2` ⟺ a U-turn at `p_r`), matching §4.5.3's
+direct-detection of the collinear reversal case. Regression test
+`tests::n3_degenerate_tangent_is_reversal`; full yang-rs suite unregressed (the
+fix does not over-trigger on healthy circle/ellipse edges, where `|t̃| ≈ 2`).
+No longer a deviation. **Sign-off:** resolved.
 
 ### N4 — Face provenance via centroid-proximity, not §4.2.3 barycentric implicit mapping
 

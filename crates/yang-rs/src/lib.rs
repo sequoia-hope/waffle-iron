@@ -2502,8 +2502,13 @@ fn is_reversed(
     let t_tilde_len =
         (t_tilde[0] * t_tilde[0] + t_tilde[1] * t_tilde[1] + t_tilde[2] * t_tilde[2]).sqrt();
     if t_tilde_len < cad_primitives::TAU_WORK {
-        // Degenerate/collinear t̃ ⇒ healthy, no reversal.
-        return false;
+        // Degenerate/collinear t̃ (|t̃| ≈ 0 ⟺ v1 ≈ −v2 ⟺ the polyline doubles
+        // back at p_r). Yang §4.5.3 (lines 743-745) places this collinear case
+        // WITHIN the reversal subset — the angle test is undefined here, so
+        // "directly detect the reversal, avoiding the angle comparisons." A
+        // U-turn IS a reversal. (Prior code returned `false`/"healthy" — the N3
+        // logic inversion; see docs/yang_deviations.md.)
+        return true;
     }
 
     // Exact circle tangent at p_r: derivative of `center + r(cos t·e1 + sin t·e2)`
@@ -3134,6 +3139,31 @@ fn patch_boundary_cycle(patch: &Patch, mesh: &Mesh) -> Result<Vec<Vec<(u32, u32)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // PR-YR10 N3 regression (Yang §4.5.3): a U-turn at p_r — consecutive points
+    // double back so v1 ≈ −v2 ⇒ |t̃| ≈ 0 — IS a reversal. The paper places the
+    // collinear/degenerate-t̃ case WITHIN the reversal subset ("directly detect
+    // the reversal, avoiding the angle comparisons"). p_b=(0,0,0) → p_r=(1,0,0)
+    // → p_n=(0.5,0,0) reverses direction (v1=+x, v2=−x, t̃=0). The degenerate
+    // branch must report a reversal. (Was the N3 logic inversion: returned
+    // `false` = "healthy", silently failing to correct the very reversal §4.5.3
+    // exists for; reachable whenever relocation produces an out-of-order point.)
+    #[test]
+    fn n3_degenerate_tangent_is_reversal() {
+        let mesh = Mesh::new(
+            vec![p(0.0, 0.0, 0.0), p(1.0, 0.0, 0.0), p(0.5, 0.0, 0.0)],
+            vec![],
+        );
+        let curves: std::collections::BTreeMap<(u32, u32), Curve> =
+            std::collections::BTreeMap::new();
+        let lo = std::f64::consts::FRAC_PI_4;
+        let hi = 3.0 * std::f64::consts::FRAC_PI_4;
+        assert!(
+            is_reversed(&mesh, &curves, 0, 1, 2, lo, hi),
+            "a 180° U-turn (degenerate t̃, Yang §4.5.3 collinear case) must be \
+             detected as a reversal, not treated as healthy"
+        );
+    }
 
     // =====================================================================
     // M4 — demoted substitutes (test-only differential oracle).
