@@ -31,6 +31,18 @@ mesh boolean + the combinatorial `check_watertight_2manifold` gate, the
 **no-skip `processed`-set audit**, and the `TessellationMap` update
 (`BRepEdge { edge, t }` on the exact ellipse).
 
+**Two integration points on the just-landed N3 fix (read first):**
+1. `is_reversed` (lib.rs ~2487) was corrected (N3, commit a0ba8f59): a degenerate
+   tangent (`|t̃| < TAU_WORK` ⟺ U-turn) now returns `true` (a reversal) per
+   §4.5.3. **Preserve that branch.** Extend the angle-test path to use the
+   **ellipse** tangent at `p_r` (derivative of the `center + a·cosθ·major +
+   b·sinθ·minor` parameterization) instead of only the circle tangent; the
+   degenerate-tangent branch is curve-agnostic and stays as-is.
+2. The reversal sweep currently filters loops to **all-`Circle`** edges
+   (lib.rs ~2423: `all_circle`). Widen it to include **`Ellipse`** loops so
+   oblique intersection rings are swept too (do NOT include `LineSegment` rings —
+   that is out of scope here).
+
 First **confirm P3 emits `Curve::Ellipse`** for the oblique cylinder∪box; if a
 minimal P3 gap exists for the oblique case, fix it minimally and note it.
 
