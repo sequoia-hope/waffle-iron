@@ -488,10 +488,55 @@ reimplementation from Attene's paper restores WASM (M7).
     a mesh re-fit (**byte-identical cap `Circle` across N=8 vs N=16 facet mocks**).
     Role-separated cycle, commits `6e73a74d` (RED)→`f1c401f4` (GREEN)→`ec2b71d0`
     (adversary); spec `specs/yang_pr_yr9_stage3_ssi.md`.
+  - **PR-YR10 — Stage 4: relocate mesh intersection points onto the exact
+    curves + §4.5.3 reversed-point correction. ✅ DONE.** Yang 2025 §4.4.1 +
+    §4.5.3 mesh updating. PR-YR9 gave the output edges exact analytical conics,
+    but the **mesh** still had its intersection-edge vertices on the faceted
+    polygon chords (inside the true circle by up to the Stage-1 chord bound
+    `d_ε`). Stage 4 now **relocates** those crossing points radially onto the
+    exact `Curve::Circle` (closed-form `project_onto_circle`, reusing
+    `ortho_basis` so the angle `t` round-trips through `eval_source`), retags
+    each moved/on-curve vertex's `TessellationSource` to `BRepEdge{edge,t}`, and
+    runs the §4.5.3 reversed-intersection sweep on the ordered, oriented conic
+    loops (discrete tangent `t̃` vs curve tangent; reversal ⟺ unsigned angle ∈
+    (45°,135°), 1e-6 rad slack; edge-collapse the next point, reconnect, repeat;
+    collinear `t̃` = healthy). **Watertightness is INHERITED** from the
+    mesh-boolean output and gated by a combinatorial `check_watertight_2manifold`
+    (half-edge pairing + Euler χ=2) — **not** a global CDT (per §4.4.3). Seam:
+    `reconstruct_topology` takes `&mut Mesh`, enters Stage 4 on ANY analytic
+    conic edge (Circle **or** Ellipse), and returns the per-vertex source vector
+    `boolean()` uses for the output `TessellationMap`; Phase-B emission is
+    otherwise unchanged. **Verified on the live sidecar**: `cylinder ∪ box`
+    relocates every cap-ring crossing onto the exact circle to `TAU_MODEL`,
+    chord deviation drops, output stays watertight χ=2; the adversary's
+    independent threshold-free geometric audit (1000×1000 per-cap winding sweep +
+    net-signed-area = exact analytic region to ~1e-16) found **NO cap fold**.
+    **Scope / loud STOPs (P9/P10)**: circle projection only — an `Ellipse`
+    intersection edge → `Err(Stage4RegionInvalid{EllipseProjectionUnsupported})`;
+    §4.5.2 real local refinement is a loud `LocalRefinementRequired` STOP (the
+    canonical fixture never triggers it); `OnAxis`/`OffCurveBeyondChordBand` are
+    defensive guards (public-path-unreachable — the upstream YR9
+    `curve_contains_point(·, d_ε)` selection is the same, strictly-tighter band,
+    so a pathological crossing is rejected by `SsiRefinementFailed`/
+    `FaceResolutionFailed` first; a `processed`-set no-skip audit forbids silently
+    passing any conic endpoint — the failure mode of the **disproven**
+    insert-and-fan attempt, branch `wip/yr10-insert-fan-disproven` commit
+    `46980456`, which must NOT be repeated). **Planar path byte-identical**
+    (Stage 4 early-returns when no conic edge exists; `fuzz_boxes` 900/900
+    unchanged). One faithful spec→reality correction (adversary-verified, NOT a
+    hack-to-green): the §4.5 step-4 literal per-facet "winding vs analytic
+    normal, dot>0" gate was **removed** — on a faceted curved surface a facet
+    normal legitimately deviates from the pointwise centroid normal, and a cap
+    facet's kept winding is reconciled downstream by `reconstruct_topology`'s
+    Newell orientation pass; orientation correctness is delegated to the §4.5.3
+    sweep (loop monotonicity) + the watertight gate, exactly where Yang §4.4.3
+    places it. Sphere/Cone still loudly reject. Role-separated cycle, commits
+    `5a2da9f0`/`d7540578` (spec)→`d4bbe446`/`03464b29` (RED + fixture
+    recalibration)→`e49a5a93` (GREEN)→`d402aa80` (adversary); spec
+    `specs/yang_pr_yr10_stage4_relocate.md`.
   - **Next M5 increments (sequenced):** **P2b: sphere Stage-1 tessellation**
-    (the remaining curved Stage-1 primitive) → **Stage 4: CDT remesh** (retessellate
-    so the faceted triangulation conforms to the now-exact `Curve::Circle`/`Ellipse`
-    edges) → curved `Subtract` cavity-sense + cut-surface handling (deferred in
+    (the remaining curved Stage-1 primitive) → curved `Subtract` cavity-sense +
+    cut-surface handling (deferred in
     PR-YR8) → broader SSI surface/pair coverage (Ellipse **emission** via the
     public path on an oblique cut — the conversion arm exists but the canonical
     config is perpendicular, so emission is untested; cyl∩cyl) → the **general
@@ -544,13 +589,19 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   `Surface::Cylinder` survives with exact params**, and **Stage 3 exact
   intersection edges done (PR-YR9 ✅): `ssi_rs::intersect` now refines the
   cylinder∪cap arrangement edges to the exact `Curve::Circle`/`Ellipse` (no
-  longer mesh-approximate), with a P9 STOP on intersect/selection failure.**
+  longer mesh-approximate), with a P9 STOP on intersect/selection failure**, and
+  **Stage 4 mesh updating done (PR-YR10 ✅): the mesh crossing points are
+  RELOCATED onto the exact circle (Yang §4.4.1, not a global CDT) + §4.5.3
+  reversed-point correction; watertightness inherited; cylinder ∪ box is now
+  exact-edge AND on-curve, adversary-verified fold-free.**
   Remaining: Stage 1 curved tessellation for the rest (sphere — P2b; non-convex
   profile triangulation via Livesu earcut-CDT, for gears; Steiner points);
   ~~Stage 3 refine arrangement edges to the exact SSI curve (wire `ssi-rs` in —
-  P3)~~ (PR-YR9 ✅); Stage 4 CDT remesh conforming to refined curves;
+  P3)~~ (PR-YR9 ✅); ~~Stage 4 conform mesh to refined curves~~ (PR-YR10 ✅,
+  circle only — ellipse relocation + §4.5.2 real local refinement still loud
+  STOPs);
   Stage 6 curved cavity-sense for Subtract (deferred in PR-YR8) + cut-surface
-  faces (deferred in PR-YR5). **Exit:** cylinder ∪ box ✅ (mesh-approximate),
+  faces (deferred in PR-YR5). **Exit:** cylinder ∪ box ✅ (exact edges + on-curve mesh),
   sphere − cylinder → correct curved B-Rep, sidecar mesh-parity + analytically
   exact edges. **Risk:** HIGH (paper-critical). **Size:** large.
 - **Phase 3 — Coplanar preprocessing (Stage 0).** *[= M8]* detect coplanar face
