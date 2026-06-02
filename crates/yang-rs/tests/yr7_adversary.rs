@@ -742,17 +742,20 @@ fn attack6_cylinder_on_triangle_is_malformed_not_silent() {
 }
 
 #[test]
-fn attack6_sphere_cone_still_curved_not_supported() {
+fn attack6_sphere_malformed_cone_still_curved_not_supported() {
+    // PR-YR12 migration: a sphere face on a *triangle* (no meridian seam Circle)
+    // is no longer CurvedSurfaceNotYetSupported — the sphere Stage-1 path is now
+    // implemented, but this fixture lacks the sphere's required seam Circle edge,
+    // so it is rejected as MalformedTopology (loud, never silent). Only the error
+    // kind changed; the cone arm below is unchanged.
     let (v, e, f) = one_triangle(Surface::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 2.0,
     });
     assert!(
-        matches!(
-            BRep::new(v, e, f),
-            Err(YangError::CurvedSurfaceNotYetSupported { face: 0 })
-        ),
-        "sphere face 0 must still be CurvedSurfaceNotYetSupported"
+        matches!(BRep::new(v, e, f), Err(YangError::MalformedTopology(_))),
+        "sphere face 0 on a triangle must be MalformedTopology (lacks its meridian \
+         seam Circle edge)"
     );
 
     let (v, e, f) = one_triangle(Surface::Cone {
@@ -838,18 +841,22 @@ fn attack7_signed_distance_sign_sanity() {
         "inside point must give −1.5, got {inside}"
     );
 
-    // Sphere / Cone reject.
+    // Sphere now evaluable (PR-YR12): signed distance = |x − center| − radius.
+    // At (2,0,0) about a unit sphere centered at the origin: 2 − 1 = +1.
+    let sphere_d = signed_distance_to_surface(
+        Surface::Sphere {
+            center: Point3::new(0.0, 0.0, 0.0),
+            radius: 1.0,
+        },
+        Point3::new(2.0, 0.0, 0.0),
+    )
+    .expect("Sphere must be Ok");
     assert!(
-        signed_distance_to_surface(
-            Surface::Sphere {
-                center: Point3::new(0.0, 0.0, 0.0),
-                radius: 1.0,
-            },
-            Point3::new(2.0, 0.0, 0.0)
-        )
-        .is_err(),
-        "Sphere must Err"
+        sphere_d > 0.0 && (sphere_d - 1.0).abs() < 1e-12,
+        "outside sphere point must give +1, got {sphere_d}"
     );
+
+    // Cone still rejects.
     assert!(
         signed_distance_to_surface(
             Surface::Cone {

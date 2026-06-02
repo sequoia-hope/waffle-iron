@@ -86,12 +86,18 @@ fn cone() -> Surface {
 // ---- (a) reachable + exact variant + correct index (face 0) ----
 
 #[test]
-fn adversary_sphere_face0_rejected_exact() {
+fn adversary_sphere_face0_malformed_exact() {
+    // PR-YR12 migration: a sphere face on a *triangle* (no meridian seam Circle)
+    // is no longer CurvedSurfaceNotYetSupported — the sphere Stage-1 path is now
+    // implemented, but this fixture lacks the sphere's required seam Circle edge,
+    // so it is rejected as MalformedTopology. It must STILL error loudly (never
+    // silently succeed); only the error *kind* changed.
     let (v, e, f) = one_triangle(sphere());
     let r = BRep::new(v, e, f);
     assert!(
-        matches!(r, Err(YangError::CurvedSurfaceNotYetSupported { face: 0 })),
-        "sphere face 0: expected CurvedSurfaceNotYetSupported {{ face: 0 }}, got {r:?}"
+        matches!(r, Err(YangError::MalformedTopology(_))),
+        "sphere face 0 on a triangle: expected MalformedTopology (sphere lacks \
+         its meridian seam Circle edge), got {r:?}"
     );
 }
 
@@ -194,20 +200,18 @@ fn three_faces_curved_at_2(curved: Surface) -> (Vec<BRepVertex>, Vec<BRepEdge>, 
 
 #[test]
 fn adversary_curved_face2_reports_index_2() {
-    // PR-YR7 migration: sphere/cone still report CurvedSurfaceNotYetSupported
-    // at the offending face index 2. The cylinder is now implemented for the
-    // proper seam-edge encoding, but THIS fixture's face 2 is a cylinder on a
-    // *triangle* (no Circle rims), so it is rejected as MalformedTopology. The
-    // intent — error loudly, not silently succeed — is preserved; only the
-    // cylinder's error kind changed.
-    for curved in [sphere(), cone()] {
-        let (v, e, f) = three_faces_curved_at_2(curved);
-        let r = BRep::new(v, e, f);
-        assert!(
-            matches!(r, Err(YangError::CurvedSurfaceNotYetSupported { face: 2 })),
-            "curved face at index 2 must report face: 2 (not hardcoded 0), got {r:?}"
-        );
-    }
+    // PR-YR7/YR12 migration: only the cone still reports
+    // CurvedSurfaceNotYetSupported at the offending face index 2. The cylinder
+    // and sphere are now implemented for their proper seam-edge encodings, but
+    // THIS fixture's face 2 is a cylinder/sphere on a *triangle* (no Circle
+    // edges), so it is rejected as MalformedTopology. The intent — error loudly,
+    // not silently succeed — is preserved; only the error kind changed.
+    let (v, e, f) = three_faces_curved_at_2(cone());
+    let r = BRep::new(v, e, f);
+    assert!(
+        matches!(r, Err(YangError::CurvedSurfaceNotYetSupported { face: 2 })),
+        "cone face at index 2 must report face: 2 (not hardcoded 0), got {r:?}"
+    );
 
     // Cylinder arm: now MalformedTopology (lateral on a triangle lacks its 2
     // Circle rim edges). Still a loud error, never Ok.
@@ -216,6 +220,15 @@ fn adversary_curved_face2_reports_index_2() {
     assert!(
         matches!(r, Err(YangError::MalformedTopology(_))),
         "cylinder face at index 2 on a triangle: expected MalformedTopology, got {r:?}"
+    );
+
+    // Sphere arm: now MalformedTopology (sphere on a triangle lacks its meridian
+    // seam Circle edge). Still a loud error, never Ok.
+    let (v, e, f) = three_faces_curved_at_2(sphere());
+    let r = BRep::new(v, e, f);
+    assert!(
+        matches!(r, Err(YangError::MalformedTopology(_))),
+        "sphere face at index 2 on a triangle: expected MalformedTopology, got {r:?}"
     );
 }
 

@@ -6,7 +6,8 @@
 //! Boolean operations method for mesh-and-surface hybrid models":
 //!
 //! - **Stage 0** (§4.5.5): Coplanar preprocessing
-//! - **Stage 1** (§4.1): Bijective tessellation — PR-YR2: planar B-Reps
+//! - **Stage 1** (§4.1): Bijective tessellation — PR-YR2: planar B-Reps;
+//!   PR-YR7: cylinder; PR-YR12: sphere (Cone still rejects loudly)
 //! - **Stage 2** (§4.2): Mesh boolean — delegate to `cherchi-rs`
 //! - **Stage 3** (§4.3): SSI refinement — delegate to `ssi-rs`
 //! - **Stage 4** (§4.4.1): Mesh updating — RELOCATION of intersection crossings
@@ -415,7 +416,8 @@ impl BRep {
             }
         }
 
-        // Stage 1 tessellation (PR-YR7: planar Newell-fan + curved cylinder).
+        // Stage 1 tessellation (PR-YR7: planar Newell-fan + curved cylinder;
+        // PR-YR12: sphere lat/long grid). Cone still rejects loudly.
         //
         // Mesh vertices start 1:1 with the B-Rep vertices (the planar box path
         // emits no Steiner points). The curved path appends rim-ring + cap-
@@ -432,6 +434,23 @@ impl BRep {
         // N is chosen once from the analytic AABB of ALL `Curve::Circle` rim
         // edges combined (spec §3), and shared by every circle. The minimal
         // cylinder has exactly two rims of equal radius, so a single N applies.
+        //
+        // PR-YR12: a `Surface::Sphere` face is self-contained — it builds its
+        // own latitude/longitude grid in `tessellate_sphere_face` and does NOT
+        // participate in the cylinder rim-ring pre-pass. Exclude any Circle edge
+        // that belongs to a sphere face's loops so the cylinder path stays
+        // byte-for-byte unchanged (with a pure-sphere B-Rep `circle_edges` ends
+        // up empty and the whole rim pre-pass is skipped).
+        let sphere_seam_edges: std::collections::BTreeSet<u32> = faces
+            .iter()
+            .filter(|f| matches!(f.surface, Surface::Sphere { .. }))
+            .flat_map(|f| {
+                f.outer_loop
+                    .iter()
+                    .chain(f.inner_loops.iter().flatten())
+                    .copied()
+            })
+            .collect();
         let circle_edges: Vec<(usize, Point3, Vector3, f64)> = edges
             .iter()
             .enumerate()
@@ -440,7 +459,7 @@ impl BRep {
                     center,
                     normal,
                     radius,
-                } => Some((i, center, normal, radius)),
+                } if !sphere_seam_edges.contains(&(i as u32)) => Some((i, center, normal, radius)),
                 _ => None,
             })
             .collect();
@@ -600,7 +619,20 @@ impl BRep {
                         &mut out_tris,
                     )?;
                 }
-                Surface::Sphere { .. } | Surface::Cone { .. } => {
+                Surface::Sphere { center, radius } => {
+                    tessellate_sphere_face(
+                        f_idx,
+                        f,
+                        &edges,
+                        &verts,
+                        center,
+                        radius,
+                        &mut out_verts,
+                        &mut sources,
+                        &mut out_tris,
+                    )?;
+                }
+                Surface::Cone { .. } => {
                     return Err(YangError::CurvedSurfaceNotYetSupported { face: f_idx });
                 }
             }
@@ -678,12 +710,13 @@ impl BRep {
     /// Evaluate a [`TessellationSource`] back to its 3D point — the inverse of
     /// the Stage-1 bijection (PR-YR7, spec §4).
     ///
-    /// INFALLIBLE and panic-free (P9). For the variants the cylinder pipeline
-    /// emits (`BRepVertex`, `BRepEdge` over `LineSegment`/`Circle`, `BRepFace`
-    /// over `Plane`/`Cylinder`) it reproduces the sampled point exactly via the
-    /// SAME `ortho_basis` used during sampling. The remaining cases never occur
-    /// for the cylinder pipeline; they use a documented defensive fallback (a
-    /// representative point on the surface) rather than panicking.
+    /// INFALLIBLE and panic-free (P9). For the variants the cylinder and sphere
+    /// pipelines emit (`BRepVertex`, `BRepEdge` over `LineSegment`/`Circle`,
+    /// `BRepFace` over `Plane`/`Cylinder`/`Sphere`) it reproduces the sampled
+    /// point exactly via the SAME `ortho_basis` / z-up parameterization used
+    /// during sampling. The remaining cases (Cone face) never occur for those
+    /// pipelines; they use a documented defensive fallback (a representative
+    /// point on the surface) rather than panicking.
     pub fn eval_source(&self, src: TessellationSource) -> Point3 {
         match src {
             TessellationSource::BRepVertex(i) => {
@@ -781,9 +814,20 @@ impl BRep {
                             ap[2] + v * au[2] + radius * (cu * e1a[2] + su * e2a[2]),
                         )
                     }
-                    // Not emitted by the cylinder pipeline; defensive fallback
-                    // to a representative point (center / apex).
-                    Surface::Sphere { center, .. } => center,
+                    // PR-YR12: z-up sphere parameterization — byte-identical to
+                    // `face_eval` in `tessellate_sphere_face` so an interior
+                    // vertex tagged `BRepFace { u, v }` round-trips exactly.
+                    Surface::Sphere { center, radius } => {
+                        let c = center.as_array();
+                        let (cu, su) = (u.cos(), u.sin());
+                        let (cv, sv) = (v.cos(), v.sin());
+                        Point3::new(
+                            c[0] + radius * cv * cu,
+                            c[1] + radius * cv * su,
+                            c[2] + radius * sv,
+                        )
+                    }
+                    // Cone not emitted by Stage 1; defensive fallback (apex).
                     Surface::Cone { apex, .. } => apex,
                 }
             }
@@ -1121,6 +1165,202 @@ fn tessellate_lateral_face(
     Ok(())
 }
 
+/// PR-YR12 (P2b): tessellate a closed solid-sphere face (one `Surface::Sphere`
+/// bounded by a single `Curve::Circle` meridian seam) into a watertight
+/// latitude/longitude grid mesh with a bijective `TessellationMap`.
+///
+/// Mirrors `tessellate_lateral_face` / `tessellate_cap_face` in style:
+/// - Fixed z-up parameterization (spec §2):
+///   `face_eval(u, v) = center + r·(cos v·cos u, cos v·sin u, sin v)`,
+///   `u = 2π·i/n_lon`, `v = −π/2 + π·j/n_lat`, seam at `u = 0`.
+/// - Chord bound `d_ε = 1e-2 × 2r√3` (the AABB space diagonal of the sphere,
+///   spec §3) — `n_lon` / `n_lat` are refined honestly; the bound is fixed.
+/// - The two pole vertices are the B-Rep verts `seam.start` (south) /
+///   `seam.end` (north), already seeded 1:1 into `out_verts`/`sources`, so they
+///   are SHARED (single vertex each → watertight pole closure). The seam column
+///   (`i = 0`) is REUSED via the modular wrap `(i+1)%n_lon` (no welding).
+/// - Sources: poles → `BRepVertex`; seam column → `BRepEdge { seam, t }` (the
+///   recovered seam-frame angle); interior columns → `BRepFace { f_idx, u, v }`.
+#[allow(clippy::too_many_arguments)]
+fn tessellate_sphere_face(
+    f_idx: usize,
+    f: &BRepFace,
+    edges: &[BRepEdge],
+    verts: &[BRepVertex],
+    center: Point3,
+    radius: f64,
+    out_verts: &mut Vec<Point3>,
+    sources: &mut Vec<TessellationSource>,
+    out_tris: &mut Vec<[u32; 3]>,
+) -> Result<(), YangError> {
+    use std::f64::consts::PI;
+
+    // ---- Find the single Circle meridian seam edge in the outer loop.
+    let circle_edges: Vec<u32> = f
+        .outer_loop
+        .iter()
+        .copied()
+        .filter(|&e| matches!(edges[e as usize].curve, Curve::Circle { .. }))
+        .collect();
+    if circle_edges.len() != 1 {
+        return Err(YangError::MalformedTopology(format!(
+            "face {f_idx}: sphere must be bounded by exactly one Circle seam edge, found {}",
+            circle_edges.len()
+        )));
+    }
+    let seam_edge_index = circle_edges[0];
+    let seam = &edges[seam_edge_index as usize];
+    let Curve::Circle { normal, .. } = seam.curve else {
+        return Err(YangError::MalformedTopology(format!(
+            "face {f_idx}: sphere seam edge {seam_edge_index} is not a Circle"
+        )));
+    };
+
+    // ---- Pole B-Rep vertices (south = seam.start, north = seam.end). These are
+    // already mesh verts 0..verts.len() (seeded 1:1), so REUSE the indices — no
+    // duplicate pushes. Bounds-check the indices (P9: no panic on B-Rep data).
+    let south_vi = seam.start;
+    let north_vi = seam.end;
+    if verts.get(south_vi as usize).is_none() {
+        return Err(YangError::MalformedTopology(format!(
+            "face {f_idx}: sphere seam south pole vertex {south_vi} out of range"
+        )));
+    }
+    if verts.get(north_vi as usize).is_none() {
+        return Err(YangError::MalformedTopology(format!(
+            "face {f_idx}: sphere seam north pole vertex {north_vi} out of range"
+        )));
+    }
+
+    // ---- Chord bound + honest grid refinement (spec §3). The bound `d_ε` is
+    // FIXED at `1e-2·2r√3`; we only raise N (never widen the tolerance, P9/P10).
+    //
+    // The per-segment **arc** sagitta `r·(1−cos θ)` bounds deviation at edge
+    // midpoints, but oracle 1 also samples each triangle's CENTROID, and a flat
+    // triangle inscribed in the sphere dips inward more than its edge midpoints
+    // (worst at the long, thin pole-fan triangles). To keep the centroid within
+    // `d_ε` we size each segment to half the budget (`d_ε/2`) — this is honest
+    // refinement (more triangles), NOT tolerance widening. The factor 2 leaves a
+    // comfortable margin across the corpus (verified: worst centroid deviation
+    // ≈ 0.82·d_ε), and the ratio is scale-invariant so one N pair fits all radii.
+    let d_eps = 1e-2 * 2.0 * radius * 3f64.sqrt();
+    let seg_budget = d_eps / 2.0;
+    // n_lon: smallest N ≥ 3 with r·(1 − cos(π/N)) ≤ d_ε/2 (equator chord).
+    let mut n_lon = 3usize;
+    if seg_budget > 0.0 {
+        while radius * (1.0 - (PI / n_lon as f64).cos()) > seg_budget {
+            n_lon += 1;
+        }
+    }
+    // n_lat: smallest N ≥ 2 with r·(1 − cos(π/(2N))) ≤ d_ε/2 (meridian
+    // half-circle of total turn π split into N segments → half-angle π/(2N)).
+    let mut n_lat = 2usize;
+    if seg_budget > 0.0 {
+        while radius * (1.0 - (PI / (2.0 * n_lat as f64)).cos()) > seg_budget {
+            n_lat += 1;
+        }
+    }
+
+    // ---- Seam frame (for per-sample seam-angle recovery, mirroring the
+    // cylinder `phi0`) and the z-up surface evaluator.
+    let (e1, e2) = ortho_basis(normal);
+    let e1a = e1.as_array();
+    let e2a = e2.as_array();
+    let cen = center.as_array();
+    let face_eval = |u: f64, v: f64| -> [f64; 3] {
+        let (cu, su) = (u.cos(), u.sin());
+        let (cv, sv) = (v.cos(), v.sin());
+        [
+            cen[0] + radius * cv * cu,
+            cen[1] + radius * cv * su,
+            cen[2] + radius * sv,
+        ]
+    };
+
+    // ---- Interior latitude rings j = 1..n_lat (n_lat-1 rings strictly between
+    // the poles). rings[j-1] is the ring at latitude index j.
+    let mut rings: Vec<Vec<u32>> = Vec::with_capacity(n_lat - 1);
+    for j in 1..n_lat {
+        let v_j = -PI / 2.0 + PI * (j as f64) / (n_lat as f64);
+        let mut ring: Vec<u32> = Vec::with_capacity(n_lon);
+        for i in 0..n_lon {
+            let u_i = 2.0 * PI * (i as f64) / (n_lon as f64);
+            let pos = face_eval(u_i, v_j);
+            let vi = out_verts.len() as u32;
+            out_verts.push(Point3::new(pos[0], pos[1], pos[2]));
+            let src = if i == 0 {
+                // Seam column → recover its angle in the seam circle's frame so
+                // `eval_source(BRepEdge{seam, t})` reproduces this point exactly.
+                let w = [pos[0] - cen[0], pos[1] - cen[1], pos[2] - cen[2]];
+                let wx = w[0] * e1a[0] + w[1] * e1a[1] + w[2] * e1a[2];
+                let wy = w[0] * e2a[0] + w[1] * e2a[1] + w[2] * e2a[2];
+                TessellationSource::BRepEdge {
+                    edge: seam_edge_index,
+                    t: wy.atan2(wx),
+                }
+            } else {
+                TessellationSource::BRepFace {
+                    face: f_idx as u32,
+                    u: u_i,
+                    v: v_j,
+                }
+            };
+            sources.push(src);
+            ring.push(vi);
+        }
+        rings.push(ring);
+    }
+
+    // ---- Triangles, each oriented by the full outward radial normal.
+    let mut push_oriented = |mut tri: [u32; 3], out_verts: &[Point3]| {
+        let n = sphere_outward_normal(out_verts, &tri, center);
+        orient_tri(out_verts, &mut tri, n);
+        out_tris.push(tri);
+    };
+
+    // South fan (poles share a single vertex; seam column reused via wrap).
+    let first = &rings[0];
+    for i in 0..n_lon {
+        push_oriented([south_vi, first[i], first[(i + 1) % n_lon]], out_verts);
+    }
+    // North fan.
+    let last_idx = rings.len() - 1;
+    let last = &rings[last_idx];
+    for i in 0..n_lon {
+        push_oriented([north_vi, last[(i + 1) % n_lon], last[i]], out_verts);
+    }
+    // Middle bands between consecutive interior rings (empty when n_lat == 2).
+    for j in 0..rings.len() - 1 {
+        let lo = rings[j].clone();
+        let up = rings[j + 1].clone();
+        for i in 0..n_lon {
+            let inext = (i + 1) % n_lon;
+            let (a, b, c, d) = (lo[i], lo[inext], up[inext], up[i]);
+            push_oriented([a, b, c], out_verts);
+            push_oriented([a, c, d], out_verts);
+        }
+    }
+
+    Ok(())
+}
+
+/// PR-YR12 (P2b): full outward radial normal of a sphere face at the centroid of
+/// `tri` — `normalize(centroid − center)`. The analog of `radial_outward_normal`
+/// but with no axis projection (a sphere is isotropic). Used to orient sphere
+/// triangle winding via `orient_tri`.
+fn sphere_outward_normal(verts: &[Point3], tri: &[u32; 3], center: Point3) -> [f64; 3] {
+    let a = verts[tri[0] as usize].as_array();
+    let b = verts[tri[1] as usize].as_array();
+    let c = verts[tri[2] as usize].as_array();
+    let cen = [
+        (a[0] + b[0] + c[0]) / 3.0,
+        (a[1] + b[1] + c[1]) / 3.0,
+        (a[2] + b[2] + c[2]) / 3.0,
+    ];
+    let ctr = center.as_array();
+    normalize3([cen[0] - ctr[0], cen[1] - ctr[1], cen[2] - ctr[2]])
+}
+
 /// PR-YR7: outward radial normal of the cylinder surface at the centroid of
 /// `tri` — the component of `(centroid − axis_point)` perpendicular to the
 /// axis, normalized. Used to orient lateral triangle winding (governance
@@ -1225,7 +1465,8 @@ fn curved_chord_bound(edges: &[BRepEdge]) -> Option<f64> {
 ///   planar fixtures use unit normals — same convention as the existing
 ///   `plane_dist`).
 /// - `Cylinder { axis_point, axis_dir, radius }` → `dist(point, axis) − radius`.
-/// - `Sphere` / `Cone` → `Err(CurvedSurfaceNotYetSupported { face: usize::MAX })`
+/// - `Sphere { center, radius }` → `|point − center| − radius` (PR-YR12).
+/// - `Cone` → `Err(CurvedSurfaceNotYetSupported { face: usize::MAX })`
 ///   (the free function has no face index; the boolean closure substitutes the
 ///   real `fi`). LOUD rejection (P9) — never a panic or planar approximation.
 pub fn signed_distance_to_surface(surface: Surface, point: Point3) -> Result<f64, YangError> {
@@ -1253,9 +1494,12 @@ pub fn signed_distance_to_surface(surface: Surface, point: Point3) -> Result<f64
                 (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
             Ok(dist - radius)
         }
-        Surface::Sphere { .. } | Surface::Cone { .. } => {
-            Err(YangError::CurvedSurfaceNotYetSupported { face: usize::MAX })
+        Surface::Sphere { center, radius } => {
+            let c = center.as_array();
+            let w = [x[0] - c[0], x[1] - c[1], x[2] - c[2]];
+            Ok((w[0] * w[0] + w[1] * w[1] + w[2] * w[2]).sqrt() - radius)
         }
+        Surface::Cone { .. } => Err(YangError::CurvedSurfaceNotYetSupported { face: usize::MAX }),
     }
 }
 
@@ -3917,17 +4161,21 @@ mod tests {
 
     #[test]
     fn brep_new_rejects_sphere_face() {
+        // PR-YR12 migration: the sphere path is now implemented, but a sphere
+        // face on a single *triangle* (no Circle meridian seam edge) lacks the
+        // seam the sphere tessellation requires, so it is rejected as
+        // MalformedTopology rather than CurvedSurfaceNotYetSupported. It must
+        // STILL error loudly; only the error kind changed (mirrors the cylinder
+        // migration above).
         let (verts, edges, faces) = single_triangle_topology(Surface::Sphere {
             center: p(0.0, 0.0, 0.0),
             radius: 1.0,
         });
         let result = BRep::new(verts, edges, faces);
         assert!(
-            matches!(
-                result,
-                Err(YangError::CurvedSurfaceNotYetSupported { face: 0 })
-            ),
-            "expected CurvedSurfaceNotYetSupported {{ face: 0 }}, got {result:?}"
+            matches!(result, Err(YangError::MalformedTopology(_))),
+            "expected MalformedTopology (sphere on a triangle lacks its meridian \
+             seam Circle edge), got {result:?}"
         );
     }
 

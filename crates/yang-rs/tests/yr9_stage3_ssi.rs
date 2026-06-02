@@ -1147,15 +1147,20 @@ fn one_triangle(surface: Surface) -> (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFa
 }
 
 #[test]
-fn t4_sphere_face_still_loudly_rejected() {
+fn t4_sphere_face_on_triangle_is_malformed() {
+    // PR-YR12 migration: a sphere face on a *triangle* (no meridian seam Circle)
+    // is now MalformedTopology, not CurvedSurfaceNotYetSupported — the sphere
+    // Stage-1 path is implemented but this fixture lacks the required seam Circle
+    // edge. Still a loud error, never silent.
     let (v, e, f) = one_triangle(Surface::Sphere {
         center: p(0.0, 0.0, 0.0),
         radius: 1.0,
     });
     let r = BRep::new(v, e, f);
     assert!(
-        matches!(r, Err(YangError::CurvedSurfaceNotYetSupported { face: 0 })),
-        "yr9: a Sphere face must STILL reject as CurvedSurfaceNotYetSupported, got {r:?}"
+        matches!(r, Err(YangError::MalformedTopology(_))),
+        "yr9: a Sphere face on a triangle must reject as MalformedTopology (lacks \
+         its meridian seam Circle edge), got {r:?}"
     );
 }
 
