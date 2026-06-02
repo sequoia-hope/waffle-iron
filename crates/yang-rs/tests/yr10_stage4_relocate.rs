@@ -1137,10 +1137,17 @@ fn hand_built_oblique_ellipse_arrangement() -> LabeledArrangement {
     build_tube_from_3d_rings(&bottom, &top, bot_center, top_center)
 }
 
+// PR-YR11 contract migration: this test originally asserted that an Ellipse
+// intersection edge was REJECTED loudly (`Stage4RegionInvalid::
+// EllipseProjectionUnsupported`) — the YR10-era scope where oblique relocation
+// was unimplemented. PR-YR11 implements oblique-ellipse relocation (via the
+// cylinder parameterization), so the oblique cylinder ∪ box now SUCCEEDS,
+// carrying exact `Curve::Ellipse` cap edges. Faithful migration: the independent
+// ssi-rs ellipse oracle and the `boolean()` call are unchanged; only the
+// expected outcome flips Err → Ok-with-Ellipse.
 #[test]
-fn t4_ellipse_edge_rejected_loudly() {
-    // First confirm the INDEPENDENT oracle: an oblique-cylinder ∩ z-plane really
-    // is an Ellipse (so the production rejection is exercising the right path).
+fn t4_ellipse_edge_relocates() {
+    // Independent oracle: an oblique-cylinder ∩ z-plane really is an Ellipse.
     let dir = unit([0.5, 0.0, 1.0]);
     let axis_point = [0.5 - 0.5 * dir[0], 0.5 - 0.5 * dir[1], -0.5];
     let cyl_q = surface_to_quadric(Surface::Cylinder {
@@ -1166,17 +1173,19 @@ fn t4_ellipse_edge_rejected_loudly() {
     let mock = LabelMock {
         arrangement: hand_built_oblique_ellipse_arrangement(),
     };
-    let r = boolean(&a, &b, BoolOp::Union, &mock);
+    // PR-YR11: oblique relocation is implemented — the Ellipse edge must now
+    // RELOCATE (Ok), not reject; the output carries ≥1 exact Curve::Ellipse edge.
+    let r = boolean(&a, &b, BoolOp::Union, &mock)
+        .expect("yr11: oblique Ellipse edge must now relocate (Ok), not reject");
+    let n_ellipse = r
+        .edges()
+        .iter()
+        .filter(|e| matches!(e.curve, Curve::Ellipse { .. }))
+        .count();
     assert!(
-        matches!(
-            r,
-            Err(YangError::Stage4RegionInvalid {
-                reason: Stage4InvalidReason::EllipseProjectionUnsupported,
-                ..
-            })
-        ),
-        "yr10 §5.6a: an Ellipse intersection edge must reject with \
-         Stage4RegionInvalid{{reason: EllipseProjectionUnsupported}} (no silent snap), got {r:?}"
+        n_ellipse >= 1,
+        "yr11: oblique cap section must be carried as a Curve::Ellipse edge, got {:?}",
+        r.edges().iter().map(|e| e.curve).collect::<Vec<_>>()
     );
 }
 
