@@ -48,6 +48,9 @@ fn p(x: f64, y: f64, z: f64) -> Point3 {
 // Pure-Rust array math (cad-primitives exposes only new/x/y/z/as_array).
 // =========================================================================
 
+fn sub3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
 fn add(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 }
@@ -108,7 +111,6 @@ fn euler_characteristic(mesh: &Mesh) -> i64 {
     v - e + f
 }
 
-#[allow(dead_code)]
 fn signed_volume(mesh: &Mesh) -> f64 {
     let mut acc = 0.0;
     for tri in &mesh.tris {
@@ -402,8 +404,17 @@ fn pocket_arrangement() -> LabeledArrangement {
     let rim = |k: usize| rim_base + (k % N) as u32;
     let flr = |k: usize| floor_base + (k % N) as u32;
 
+    // A real Cherchi arrangement is OUTWARD-oriented (positive signed volume).
+    // We author each face's triangles below using the SAME geometric vertex
+    // sequences as a CCW-from-outside box, then apply a single GLOBAL winding
+    // reversal at the two emit closures (`push_box`/`push_cyl` swap tri[1]↔tri[2]
+    // exactly once) so the boolean OUTPUT comes out outward-oriented: box-bottom
+    // normal −Z, positive signed volume, and the subtracted cavity wall winding
+    // pointing TOWARD the axis (matching `reversed == true`). The reversal is
+    // uniform, so watertightness/χ=2 and the `flip_for_op` relationship for the
+    // cylinder/B tris are preserved (the box-author and cyl-author flip together).
     let push_box = |t: [u32; 3], tris: &mut Vec<[u32; 3]>, surf: &mut Vec<Vec<LaInputId>>| {
-        tris.push(t);
+        tris.push([t[0], t[2], t[1]]); // global reversal → outward output
         surf.push(vec![LaInputId(0)]);
     };
 
@@ -411,16 +422,17 @@ fn pocket_arrangement() -> LabeledArrangement {
     push_box([b0, b0 + 1, b0 + 2], &mut tris, &mut surface);
     push_box([b0, b0 + 2, b0 + 3], &mut tris, &mut surface);
 
-    // === BOX 4 SIDES, outward horizontal (standard CCW-from-outside winding).
+    // === BOX 4 SIDES, outward horizontal (standard CCW-from-outside winding,
+    // then globally reversed at emit).
     let side = |a: u32,
                 bb: u32,
                 c: u32,
                 d: u32,
                 tris: &mut Vec<[u32; 3]>,
                 surf: &mut Vec<Vec<LaInputId>>| {
-        tris.push([a, bb, c]);
+        tris.push([a, c, bb]); // reversed [a,bb,c]
         surf.push(vec![LaInputId(0)]);
-        tris.push([a, c, d]);
+        tris.push([a, d, c]); // reversed [a,c,d]
         surf.push(vec![LaInputId(0)]);
     };
     side(b0, t0, t0 + 1, b0 + 1, &mut tris, &mut surface); // front −y
@@ -453,10 +465,13 @@ fn pocket_arrangement() -> LabeledArrangement {
 
     // === CYLINDER WALL (label 1) — rim ring (z=2) down to floor ring (z=0.5).
     // As a cavity wall the outward-from-result normal points TOWARD the axis
-    // (−radial). Authored PRE-SWAPPED (tri[1]↔tri[2] opposite of the final
-    // outward winding) so flip_for_op(Subtract)'s re-swap restores it outward.
+    // (−radial). The cylinder/B tris are authored with the global reversal AND a
+    // pre-swap for flip_for_op; the two swaps CANCEL, so the emit closure pushes
+    // the vertices unswapped ([t0,t1,t2]). flip_for_op(Subtract) then re-swaps
+    // these at compaction, restoring their outward (toward-axis) winding — the
+    // SAME signal that sets `reversed == true` (I-rev1).
     let push_cyl = |t: [u32; 3], tris: &mut Vec<[u32; 3]>, surf: &mut Vec<Vec<LaInputId>>| {
-        tris.push([t[0], t[2], t[1]]); // pre-swap tri[1] <-> tri[2]
+        tris.push([t[0], t[1], t[2]]); // global-reversal ∘ pre-swap = identity
         surf.push(vec![LaInputId(1)]);
     };
     for k in 0..N {
@@ -533,26 +548,20 @@ fn oracle1_cavity_wall_effective_normal_points_toward_axis() {
             .collect::<Vec<_>>()
     );
 
-    let axis_point = CYL_AXIS_POINT;
-    let axis_unit = unit(CYL_AXIS_DIR);
-
-    // Sample several points on the wall surface: angles around the axis at two
-    // heights. For each, the canonical analytic outward normal is the
-    // away-from-axis radial; reversed ⇒ effective normal = −radial. Assert the
-    // effective normal points TOWARD the axis (dot with the outward radial < 0)
-    // and is NOT the canonical away-from-axis direction.
+    // PART A — surface-param reasoning (the analytic side of I-rev1). For
+    // several sampled points on the wall surface, the canonical analytic outward
+    // normal is away-from-axis; reversed ⇒ effective = −radial, which must point
+    // TOWARD the axis.
     for wall in &walls {
         let Surface::Cylinder {
-            axis_point: ap,
             axis_dir: ad,
             radius,
+            ..
         } = wall.surface
         else {
             panic!("cavity wall must be Surface::Cylinder");
         };
-        let ap = ap.as_array();
         let au = unit(ad.as_array());
-        // basis perpendicular to the axis
         let absd = [au[0].abs(), au[1].abs(), au[2].abs()];
         let world = if absd[0] <= absd[1] && absd[0] <= absd[2] {
             [1.0, 0.0, 0.0]
@@ -563,39 +572,78 @@ fn oracle1_cavity_wall_effective_normal_points_toward_axis() {
         };
         let e1 = unit(cross(au, world));
         let e2 = unit(cross(au, e1));
-
-        for &h in &[0.6_f64, 1.2, 1.8] {
-            for k in 0..6 {
-                let th = 2.0 * std::f64::consts::PI * (k as f64) / 6.0;
-                let radial = add(scale(e1, th.cos()), scale(e2, th.sin())); // unit away-from-axis
-                let _surf_pt = add(add(ap, scale(au, h)), scale(radial, radius));
-
-                // canonical outward (away-from-axis) normal at this surface point
-                let canonical = unit(radial);
-                // reversed ⇒ effective outward normal is the negation
-                let effective = scale(canonical, -1.0);
-
-                // outward radial direction relative to the cylinder axis at the
-                // sampled point (independent of the surface params under test)
-                let outward_radial = unit(radial);
-
-                let d_eff = dot(effective, outward_radial);
-                assert!(
-                    d_eff < -1e-9,
-                    "yr13 O1: effective outward normal must point TOWARD the axis \
-                     (dot < 0); got dot {d_eff} at h={h} k={k}"
-                );
-                let d_canon = dot(canonical, outward_radial);
-                assert!(
-                    d_canon > 1e-9,
-                    "yr13 O1: canonical (away-from-axis) normal must NOT equal the \
-                     effective normal; canonical dot {d_canon}"
-                );
-            }
+        let _ = radius;
+        for k in 0..6 {
+            let th = 2.0 * std::f64::consts::PI * (k as f64) / 6.0;
+            let radial = unit(add(scale(e1, th.cos()), scale(e2, th.sin())));
+            let effective = scale(radial, -1.0); // reversed ⇒ −radial
+            assert!(
+                dot(effective, radial) < -1e-9,
+                "yr13 O1a: effective (reversed) normal must point TOWARD the axis"
+            );
         }
-        // sanity: axis_point/axis_dir match the input (exactness checked in O3)
-        let _ = (axis_point, axis_unit);
     }
+
+    // PART B — witness the ACTUAL emitted mesh winding (the mesh side of I-rev1).
+    // Identify cavity-wall mesh triangles geometrically: all 3 verts within d_ε
+    // of the cylinder lateral surface (radial dist ≈ radius) AND in the pocket
+    // band (FLOOR_Z < z < TOP_Z, excluding the floor cap which is planar at
+    // z=FLOOR_Z). For each, compute the geometric winding normal
+    // (v1−v0)×(v2−v0) at the centroid and assert it points TOWARD the axis
+    // (dot with the outward radial < 0). This proves the mesh winding agrees
+    // with `reversed == true` — not merely the surface params.
+    let axis_point = CYL_AXIS_POINT;
+    let axis_unit = unit(CYL_AXIS_DIR);
+    let mesh = r.as_mesh();
+    // d_ε chord band for r=1 cylinder spanning z=0.5..2.5 (AABB diag of the two
+    // rims): generous wall-membership tolerance.
+    let de = 0.05;
+    let mut wall_tris_checked = 0usize;
+    for tri in &mesh.tris {
+        let v0 = mesh.verts[tri[0] as usize].as_array();
+        let v1 = mesh.verts[tri[1] as usize].as_array();
+        let v2 = mesh.verts[tri[2] as usize].as_array();
+        let pts = [v0, v1, v2];
+        // radial distance to the cylinder axis for each vertex
+        let radial_dist = |x: [f64; 3]| -> f64 {
+            let w = sub3(x, axis_point);
+            let along = dot(w, axis_unit);
+            let proj = add(axis_point, scale(axis_unit, along));
+            norm(sub3(x, proj))
+        };
+        let on_lateral = pts.iter().all(|&x| (radial_dist(x) - CYL_R).abs() <= de);
+        // exclude the floor cap (all z == FLOOR_Z) and require the wall band
+        let all_on_floor = pts.iter().all(|&x| (x[2] - FLOOR_Z).abs() < 1e-9);
+        let in_band = pts
+            .iter()
+            .all(|&x| x[2] >= FLOOR_Z - 1e-9 && x[2] <= TOP_Z + 1e-9);
+        if !on_lateral || all_on_floor || !in_band {
+            continue;
+        }
+        // geometric winding normal
+        let u = sub3(v1, v0);
+        let w = sub3(v2, v0);
+        let gnorm = unit(cross(u, w));
+        // outward radial at the triangle centroid
+        let centroid = scale(add(add(v0, v1), v2), 1.0 / 3.0);
+        let cw = sub3(centroid, axis_point);
+        let along = dot(cw, axis_unit);
+        let proj = add(axis_point, scale(axis_unit, along));
+        let outward_radial = unit(sub3(centroid, proj));
+        let d = dot(gnorm, outward_radial);
+        assert!(
+            d < -1e-9,
+            "yr13 O1b: cavity-wall mesh triangle {tri:?} geometric winding normal \
+             {gnorm:?} must point TOWARD the axis (dot with outward radial < 0); \
+             got dot {d} (mesh winding must agree with reversed==true)"
+        );
+        wall_tris_checked += 1;
+    }
+    assert!(
+        wall_tris_checked >= N,
+        "yr13 O1b: expected to witness ≥{N} cavity-wall mesh triangles, found \
+         {wall_tris_checked}"
+    );
 }
 
 // =========================================================================
@@ -614,6 +662,13 @@ fn oracle2_watertight_euler_two() {
         euler_characteristic(r.as_mesh()),
         2,
         "yr13 O2: blind-pocket output must be genus 0 (χ = 2)"
+    );
+    // Outward-oriented solid (not inside-out): the result is a proper solid with
+    // POSITIVE signed volume (≈ box 4×4×2 = 32 minus the π·r²·h pocket ≈ 27.4).
+    let vol = signed_volume(r.as_mesh());
+    assert!(
+        vol > 0.0,
+        "yr13 O2: result must be outward-oriented (positive signed volume), got {vol}"
     );
 }
 
@@ -665,11 +720,67 @@ fn oracle3_analytic_survival_and_sense_encoding() {
         !plane_faces.is_empty(),
         "yr13 O3: expected ≥1 planar box face"
     );
+    // All planar faces (box outer faces AND the cylinder floor cap, which is
+    // the subtracted cap at z=FLOOR_Z) emit reversed == false: planar sense is
+    // encoded in Plane.normal, never in the flag (I-rev2, no double-flip).
     for f in &plane_faces {
         assert!(
             !f.reversed,
             "yr13 O3 (I-rev2): planar faces must emit reversed == false \
              (sense encoded in Plane.normal, never double-flipped)"
+        );
+    }
+
+    // The SIX box OUTER faces (lying on the box AABB boundary: z=0, z=2, x=±2,
+    // y=±2) must each carry an OUTWARD-pointing stored Plane.normal — i.e. the
+    // box centroid lies on the plane's negative side (n·c + d < 0). This catches
+    // the inside-out failure mode (production flipping a box face's normal to
+    // point inward, src/lib.rs ~3525). The cylinder floor cap (z=0.5, interior
+    // to the box) is NOT a box outer face and is excluded.
+    let box_centroid = [
+        0.5 * (BOX_LO[0] + BOX_HI[0]),
+        0.5 * (BOX_LO[1] + BOX_HI[1]),
+        0.5 * (BOX_LO[2] + BOX_HI[2]),
+    ];
+    // The six box face supporting planes, as (outward normal, plane point).
+    let box_faces: [([f64; 3], [f64; 3]); 6] = [
+        ([0.0, 0.0, -1.0], [0.0, 0.0, BOX_LO[2]]), // bottom z=0
+        ([0.0, 0.0, 1.0], [0.0, 0.0, BOX_HI[2]]),  // top z=2
+        ([0.0, -1.0, 0.0], [0.0, BOX_LO[1], 0.0]), // front y=-2
+        ([0.0, 1.0, 0.0], [0.0, BOX_HI[1], 0.0]),  // back y=2
+        ([-1.0, 0.0, 0.0], [BOX_LO[0], 0.0, 0.0]), // left x=-2
+        ([1.0, 0.0, 0.0], [BOX_HI[0], 0.0, 0.0]),  // right x=2
+    ];
+    for (bn, bp) in &box_faces {
+        // Find the output Surface::Plane lying on this box face plane (matching
+        // normal axis and offset), then assert its stored normal points outward.
+        let want_d = -dot(*bn, *bp);
+        let mut found = false;
+        for f in &plane_faces {
+            let Surface::Plane { normal, d } = f.surface else {
+                unreachable!("filtered to Surface::Plane");
+            };
+            let n = normal.as_array();
+            // Same supporting plane (normal parallel to bn AND offset matching),
+            // allowing either stored orientation (±) before the outward check.
+            let parallel = (dot(n, *bn)).abs() > 1.0 - 1e-9;
+            let on_plane = (dot(n, *bp) + d).abs() < 1e-6;
+            if parallel && on_plane {
+                found = true;
+                let sd = dot(n, box_centroid) + d;
+                assert!(
+                    sd < -1e-9,
+                    "yr13 O3: box outer face on plane (normal {bn:?}, point {bp:?}) \
+                     has stored normal {n:?} (d={d}) pointing INWARD (n·c+d={sd} ≥ 0); \
+                     must point OUTWARD"
+                );
+                let _ = want_d;
+            }
+        }
+        assert!(
+            found,
+            "yr13 O3: expected an output Surface::Plane on box face (normal {bn:?}, \
+             point {bp:?})"
         );
     }
 
