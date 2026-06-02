@@ -577,9 +577,40 @@ reimplementation from Attene's paper restores WASM (M7).
     `specs/yang_pr_yr12_sphere_tessellation.md`; role-separated cycle, commits
     `07c8cbe3` (spec)→`ee66cca3` (RED)→`b5b17e47` (GREEN)→`7e96e070` (adversary).
     184/184 yang-rs; fmt + clippy clean.
-  - **Next M5 increments (sequenced):** curved `Subtract` cavity-sense +
-    cut-surface handling (deferred in
-    PR-YR8) → side-face-exit / corner (triple-point) loud-STOP guard (oblique
+  - **PR-YR13 — curved `Subtract` box − cylinder, cavity-sense via
+    `BRepFace.reversed`. ✅ DONE.** The first M5 increment after the curved
+    `Union` chain (PR-YR8–YR11) and the curved Stage-1 primitives (PR-YR7/YR12).
+    Closes the curved cavity-sense gap banked in PR-YR8 for the **`box − cylinder`
+    BLIND POCKET** (genus 0, χ=2). A new `BRepFace.reversed: bool` records that a
+    face's effective outward normal (outward from the result solid) is the
+    **negation** of the surface's canonical analytic outward normal: the surviving
+    cylinder-lateral cavity wall is emitted as `Surface::Cylinder` with the input's
+    **exact** params and `reversed == true`, so its effective normal points
+    **toward the axis** (into the pocket). `reversed` is derived from the SAME
+    `flip_for_op` signal that flips the mesh winding —
+    `op == Subtract && info.input == InputId::B` (threaded `boolean()` →
+    `reconstruct_topology_stage4` → `emit_topology`) — so face sense and mesh
+    winding are **provably consistent** (witnessed absolutely: the emitted
+    cavity-wall mesh-triangle winding normals point toward-axis and the result has
+    positive signed volume). Planar faces keep encoding sense in the
+    possibly-flipped `Plane.normal` and stay `reversed == false` (no double-flip);
+    surface params are never perturbed to signal sense. Union + planar Subtract
+    are byte-identical (`reversed == false` everywhere). Faithful `reversed: false`
+    migration swept across all `tests/*.rs` + the `#[cfg(test)]` lib fixtures
+    (additive only). Adversary independently witnessed mesh↔`reversed` consistency
+    on a second outward-oriented mock + mutation-verified the derivation is
+    load-bearing. **Remaining curved-Subtract gaps:** through-hole (genus 1, χ=0),
+    sphere/cone cavities (`Cone` still rejects loudly), box-as-subtrahend,
+    side-face-exit / corner (triple-point) guard; cut-surface faces (PR-YR5
+    deferral) still open. **No new `ssi-rs`.** Spec
+    `specs/yr13_subtract_cylinder_cavity_sense.md`; role-separated cycle, commits
+    `c4abc69d` (spec)→`78f73f65` (RED)→`42972890` (GREEN)→`3839f558`/`41819459`
+    (RED fixups)→`85abbc10`/`86791834` (adversary). 195/195 yang-rs; fmt + clippy
+    clean.
+  - **Next M5 increments (sequenced):** ~~curved `Subtract` cavity-sense~~
+    (PR-YR13 ✅, box − cylinder blind pocket) + cut-surface handling (deferred in
+    PR-YR8/YR5; through-hole genus-1 + sphere/cone cavities still open)
+    → side-face-exit / corner (triple-point) loud-STOP guard (oblique
     out-of-scope case) → broader SSI surface/pair coverage (cyl∩cyl) → the **general
     degree-4 curve** (a new parametric `SsiCurve` variant + the 5 general-position
     solvers) + torus pairs (rest of A15.4) → ~~curved `Surface` variants~~ (PR-YR6
@@ -654,7 +685,9 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   P3)~~ (PR-YR9 ✅); ~~Stage 4 conform mesh to refined curves~~ (PR-YR10 ✅,
   circle only — ellipse relocation + §4.5.2 real local refinement still loud
   STOPs);
-  Stage 6 curved cavity-sense for Subtract (deferred in PR-YR8) + cut-surface
+  ~~Stage 6 curved cavity-sense for Subtract (deferred in PR-YR8)~~ (PR-YR13 ✅,
+  `box − cylinder` blind pocket via `BRepFace.reversed`; through-hole genus-1 +
+  sphere/cone cavities + box-as-subtrahend still open) + cut-surface
   faces (deferred in PR-YR5). **Exit:** cylinder ∪ box ✅ (exact edges + on-curve mesh),
   sphere − cylinder → correct curved B-Rep, sidecar mesh-parity + analytically
   exact edges. **Risk:** HIGH (paper-critical). **Size:** large.
