@@ -566,7 +566,16 @@ reimplementation from Attene's paper restores WASM (M7).
 - **M7 — Clean-room indirect predicates from Attene's paper → restore WASM.**
   Removes the LGPL FFI dependency and the `compile_error!` WASM block.
 - **M8 — Stage 0 coplanar preprocessing** hardened last (special case that
-  complicates everything earlier).
+  complicates everything earlier). **Verified a genuine native need** (deviation
+  N8, 2026-06-02): the patched sidecar emits multi-solid-labeled
+  (`surface.len()==2`) triangles on coplanar overlap (test
+  `c3_coplanar_face_yields_multi_attribution`), which surface in `yang-rs` as a
+  loud `FaceResolutionFailed` (F2) — coplanarity is NOT delegated away, so M8 must
+  implement the §4.5.5 2D-Boolean pre-pass (currently a correct loud-STOP
+  deferral). **Also folded into M8: §4.5.4 illegal-self-intersection
+  detection/removal** (deviation N6) — absent in the new crates; currently benign
+  for analytic inputs (sidecar mesh validly trimmed + `check_watertight_2manifold`
+  gate), to be added as a post-trim detector here.
 
 ## 4b. Completion roadmap — Phases 1–6 (the full path to replacing legacy)
 

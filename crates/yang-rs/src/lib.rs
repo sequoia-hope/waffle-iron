@@ -9,7 +9,13 @@
 //! - **Stage 1** (§4.1): Bijective tessellation — PR-YR2: planar B-Reps
 //! - **Stage 2** (§4.2): Mesh boolean — delegate to `cherchi-rs`
 //! - **Stage 3** (§4.3): SSI refinement — delegate to `ssi-rs`
-//! - **Stage 4** (§4.4.1): Mesh updating via CDT
+//! - **Stage 4** (§4.4.1): Mesh updating — RELOCATION of intersection crossings
+//!   onto the exact curve (+ §4.5.3 reversed-point sweep), watertightness
+//!   inherited from the mesh boolean. The paper's CDT remesh / split-merge-insert
+//!   is **NOT implemented** (deviation N2 in `docs/yang_deviations.md`); the
+//!   sidecar's trimmed mesh is trusted and `check_watertight_2manifold` gates the
+//!   output. Likewise §4.5.4 illegal-self-intersection removal is **NOT
+//!   implemented** (deviation N6, roadmap-tracked).
 //! - **Stage 5** (§4.4.2): Patch segmentation (flood-fill)
 //! - **Stage 6** (§4.4.2): B-Rep reassembly
 //!

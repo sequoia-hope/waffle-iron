@@ -428,10 +428,31 @@ scope).
 **Paper section:** §4.5.4 (752-758).
 
 **Current behavior:** no post-trim self-intersection detection in `yang-rs`.
-Currently **silent**.
 
-**Severity:** medium. **Remediation:** convert to a loud STOP or a roadmap
-milestone so it is not a silent gap. **Sign-off:** pending.
+**Severity:** medium. **Remediation (tracked 2026-06-02):** now **roadmap-tracked**
+— a §4.5.4 illegal-self-intersection removal milestone in
+`docs/yang_functional_roadmap.md` M8 (alongside Stage-0 coplanar). The crate-doc
+Stage list (`crates/yang-rs/src/lib.rs`) explicitly states §4.5.4 is NOT
+implemented, so the gap is documented, not silent. (Currently benign for the
+analytic primitives in scope: the sidecar emits a validly-trimmed mesh and
+`check_watertight_2manifold` gates the output; a true post-trim self-intersection
+detector is the milestone.) **Sign-off:** remediation tracked.
+
+### N8 — Stage 0 (§4.5.5 coplanar) verified NATIVE-need, not sidecar-delegated
+
+**Audit follow-up (resolved 2026-06-02).** The Yang-conformance audit flagged that
+"Stage 0" was conflated between *unimplemented* and *delegated to the sidecar's
+arrangement* — unverified. **Verified:** the patched `mesh_booleans` sidecar
+emits **multi-solid-labeled** triangles (`surface.len() == 2`) on coplanar-overlap
+input (confirmed by `cherchi-sidecar-rs` test
+`c3_coplanar_face_yields_multi_attribution`, run against the live binary). Those
+multi-attributed triangles flow into `yang-rs`, where the centroid-proximity face
+resolution (N4) cannot pick a single source face → loud `FaceResolutionFailed`
+(F2). **Conclusion:** coplanarity is NOT silently resolved by the sidecar; it
+surfaces as a multi-attributed arrangement. Therefore M8 "Stage 0" is a **genuine
+native pre-pass need** (2D coplanar Boolean before discretization, §4.5.5), not
+something delegated away. The current loud-F2 deferral is correct. **Sign-off:**
+remediation tracked (roadmap M8).
 
 ### N7 — Stage 3 uses closed-form algebraic SSI instead of §4.3 Newton/geometric optimization
 
