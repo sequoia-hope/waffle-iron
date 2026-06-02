@@ -534,12 +534,27 @@ reimplementation from Attene's paper restores WASM (M7).
     `5a2da9f0`/`d7540578` (spec)→`d4bbe446`/`03464b29` (RED + fixture
     recalibration)→`e49a5a93` (GREEN)→`d402aa80` (adversary); spec
     `specs/yang_pr_yr10_stage4_relocate.md`.
+  - **PR-YR11 — Stage 4 OBLIQUE: relocate onto the exact ellipse. ✅ DONE.**
+    Lifts PR-YR10's `EllipseProjectionUnsupported` STOP for oblique
+    `cylinder ∪ box`: an `Ellipse` intersection edge now relocates via the
+    **cylinder parameterization** (snap radius at angle θ, then snap axial to the
+    cutting plane → lands on `cylinder ∩ plane` exactly, closed-form, no quartic;
+    Yang §4.3.2), with the §4.5.3 reversal sweep extended to `Ellipse` loops and
+    the N3 degenerate-tangent fix preserved. **Verified on the live sidecar:** a
+    *contained* oblique `cylinder ∪ box` (tilt `unit([1,0,3])`, axis through the
+    box centre so both cap ellipses + the body stay inside the unit box — no
+    side-face exit) relocates every crossing onto the exact ellipse (on BOTH the
+    cylinder and the cutting plane to `TAU_MODEL`), chord deviation drops, output
+    watertight χ=2. yr10 `t4` migrated Err→Ok (the Ellipse edge now relocates, not
+    rejects — faithful contract migration). **Out of scope (deferred):**
+    side-face-exit / ellipse∩line corner (triple-point) configs — the contained
+    fixture avoids them; a loud-STOP guard for them is a follow-up. Commit
+    `e72f2313`; `tests/yr11_stage4_ellipse.rs`. 170/170 yang-rs; fmt + clippy clean.
   - **Next M5 increments (sequenced):** **P2b: sphere Stage-1 tessellation**
     (the remaining curved Stage-1 primitive) → curved `Subtract` cavity-sense +
     cut-surface handling (deferred in
-    PR-YR8) → broader SSI surface/pair coverage (Ellipse **emission** via the
-    public path on an oblique cut — the conversion arm exists but the canonical
-    config is perpendicular, so emission is untested; cyl∩cyl) → the **general
+    PR-YR8) → side-face-exit / corner (triple-point) loud-STOP guard (oblique
+    out-of-scope case) → broader SSI surface/pair coverage (cyl∩cyl) → the **general
     degree-4 curve** (a new parametric `SsiCurve` variant + the 5 general-position
     solvers) + torus pairs (rest of A15.4) → ~~curved `Surface` variants~~ (PR-YR6
     ✅) → ~~P2a curved cylinder tessellation~~ (PR-YR7 ✅) → ~~P3: Stage 3 wire
