@@ -16,30 +16,28 @@
 //! the band.
 //!
 //! The KEY independent check (oracle A1) reasons NOT from the surface params
-//! (as RED oracle 1 does) but from the ACTUAL emitted mesh triangle winding:
-//! for each cavity-wall triangle, the geometric normal `(v1−v0)×(v2−v0)` is
-//! brought into the mesh's own consistent global-orientation frame and must
-//! point TOWARD the axis (into the pocket). This verifies the mesh that
-//! `flip_for_op` produced AGREES with the `reversed == true` B-Rep flag — a
-//! property (spec invariant I-rev1) derived from geometry the RED oracle never
-//! inspects.
+//! (as the original RED oracle 1 did) but from the ACTUAL emitted mesh triangle
+//! winding: for each cavity-wall triangle, the geometric normal `(v1−v0)×(v2−v0)`
+//! must point TOWARD the axis (into the pocket), and the output must have
+//! positive signed volume. This verifies — in ABSOLUTE terms — that the mesh
+//! `flip_for_op` produced AGREES with the `reversed == true` B-Rep flag (spec
+//! invariant I-rev1), from geometry the param-only oracle never inspects.
 //!
-//! ADVERSARY FINDING (fixture weakness, NOT a production-code bug):
-//! the RED hand-built arrangement — whose authoring convention this file
-//! faithfully reproduces — is GLOBALLY INSIDE-OUT. The box-bottom mesh tri
-//! winds +Z (true outward is −Z) and the result mesh has signed volume < 0.
-//! No RED oracle detects this: RED oracle 1 reasons only from surface params
-//! and never reads the mesh, RED's `signed_volume` helper is dead code, and no
-//! oracle asserts box-face outward winding. So RED's oracle 1 cannot actually
-//! WITNESS the I-rev1 mesh↔flag consistency it nominally tests; on the
-//! as-authored fixture the cavity-wall MESH winding points away-from-axis while
-//! `reversed==true` claims its analytic normal must be negated to point toward
-//! the axis — the two disagree in absolute terms. With a real (outward)
-//! arrangement this would not arise; the production `reversed` derivation is
-//! correct and load-bearing (mutation-verified). This file therefore asserts
-//! I-rev1 in its orientation-INDEPENDENT form (winding coherent with the box
-//! faces in the mesh's own frame ⇒ analytic normal negated ⇒ `reversed`),
-//! which is the honest, fixture-orientation-robust statement.
+//! ADVERSARY FINDING — RESOLVED. The original RED hand-built arrangement (and,
+//! initially, this adversary mock which faithfully reproduced its convention)
+//! was GLOBALLY INSIDE-OUT: box-bottom mesh tri wound +Z (true outward is −Z),
+//! signed volume < 0. No RED oracle detected it (oracle 1 reasoned only from
+//! surface params, never reading the mesh; `signed_volume` was dead code), so
+//! oracle 1 could not actually WITNESS the I-rev1 mesh↔flag consistency it
+//! nominally tested. This was reported; the RED author then re-oriented the
+//! yr13 mock to OUTWARD and strengthened oracles 1–3 to witness consistency
+//! absolutely (commit 41819459). This adversary file is now ALSO re-oriented
+//! OUTWARD (a uniform tri[1]↔tri[2] reversal of every authored arrangement
+//! triangle — see pocket_arrangement) so it is a genuinely independent witness
+//! of the ABSOLUTE consistency: signed volume > 0, box-bottom −Z, cavity-wall
+//! mesh winding toward-axis. The production `reversed` derivation is UNCHANGED
+//! and was confirmed correct and LOAD-BEARING by the prior mutation check
+//! (force `reversed:false` and invert to `InputId::A` each fail RED oracle 1/3).
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
@@ -439,6 +437,22 @@ fn pocket_arrangement() -> LabeledArrangement {
         push_cyl([floor_center, flr(k1), flr(k)], &mut tris, &mut surface);
     }
 
+    // GLOBAL OUTWARD RE-ORIENTATION (adversary fixup): the authoring convention
+    // above (mirrored from the original RED mock) produced a GLOBALLY INSIDE-OUT
+    // surface (box-bottom tri winds +Z; signed volume < 0). A uniform tri[1]↔
+    // tri[2] swap on EVERY authored triangle flips the global orientation to
+    // OUTWARD (box-bottom → −Z, signed volume > 0) while preserving exact
+    // watertightness and χ (every directed edge reverses in lock-step). The
+    // per-triangle `surface`/`inside` labels are positional and unchanged, so
+    // the Subtract keep-set and the `flip_for_op` relationship are untouched —
+    // the cavity wall is still authored PRE-SWAPPED relative to its own facet
+    // winding, so flip_for_op(Subtract) restores it to the (now outward)
+    // toward-axis sense. This lets A1 witness mesh↔`reversed` consistency in
+    // ABSOLUTE terms (not merely orientation-independent).
+    for t in &mut tris {
+        t.swap(1, 2);
+    }
+
     let n = tris.len();
     let mesh = Mesh::new(verts, tris);
     let mut inside: Vec<Vec<bool>> = Vec::with_capacity(n);
@@ -527,60 +541,47 @@ fn is_cavity_wall_tri(mesh: &Mesh, tri: [u32; 3]) -> bool {
     has_rim && has_floor
 }
 
-// Global orientation sign of the result mesh, sampled from a box face whose
-// true geometric outward normal we know analytically. We use the box BOTTOM
-// (z=BOX_LO[2]): its true outward is −Z. `+1` ⇒ the mesh is consistently
-// OUTWARD-oriented (winding-normal == true outward); `-1` ⇒ the mesh is
-// consistently INWARD-oriented (inside-out).
-//
-// >>> FINDING (reported in the adversary writeup): for the RED fixture's
-// authoring convention (which this file faithfully reproduces) this returns
-// `-1` — the hand-built arrangement is GLOBALLY INSIDE-OUT (box bottom tri
-// winds +Z, signed volume < 0). No RED oracle detects this, because RED's
-// oracle 1 reasons only from surface params and never reads the mesh. The
-// mesh-winding ↔ `reversed` consistency below is therefore asserted RELATIVE
-// to this measured global orientation, which is the orientation-independent
-// statement of spec invariant I-rev1.
-fn box_global_orientation_sign(mesh: &Mesh) -> f64 {
+// Signed volume of a closed mesh (Σ a·(b×c) / 6). Positive ⇒ the mesh is
+// consistently OUTWARD-oriented (true B-Rep convention); negative ⇒ inside-out.
+fn signed_volume(mesh: &Mesh) -> f64 {
+    let mut acc = 0.0;
     for t in &mesh.tris {
         let a = mesh.verts[t[0] as usize].as_array();
         let b = mesh.verts[t[1] as usize].as_array();
         let c = mesh.verts[t[2] as usize].as_array();
-        if a[2].abs() < 1e-9 && b[2].abs() < 1e-9 && c[2].abs() < 1e-9 {
-            // box bottom (z=0); true outward is −Z
-            let gn = un(cr(sb(b, a), sb(c, a)));
-            return if dt(gn, [0.0, 0.0, -1.0]) > 0.0 {
-                1.0
-            } else {
-                -1.0
-            };
-        }
+        acc += dt(a, cr(b, c));
     }
-    panic!("yr13-adv: no box-bottom triangle found to fix global orientation");
+    acc / 6.0
 }
 
 // =========================================================================
 // Oracle A1 (THE independent check) — mesh-winding ↔ `reversed` consistency,
-// computed from the ACTUAL emitted mesh triangle winding (geometry the RED
-// surface-param oracle never inspects).
+// asserted in ABSOLUTE terms from the ACTUAL emitted mesh triangle winding
+// (geometry the RED surface-param oracle never inspected).
 //
-// Spec invariant I-rev1: the cavity-wall mesh winding and the `reversed` flag
-// derive from the same flip_for_op signal, so they are CONSISTENT. The
-// orientation-independent expression of that: for every cavity-wall triangle,
-// the mesh winding-normal, brought into the mesh's OWN consistent global
-// orientation frame (`× sign`), must point TOWARD the axis — i.e. its analytic
-// away-from-axis normal must be NEGATED to match the mesh, which is exactly
-// what `reversed == true` records. (On an outward-oriented input `sign=+1` and
-// this is the literal "toward-axis"; on the RED inside-out fixture `sign=-1`
-// and we verify the wall winds COHERENTLY with the box faces, the genuine
-// I-rev1 property — see box_global_orientation_sign's note.)
+// This independent mock is now OUTWARD-oriented (uniform tri[1]↔tri[2] reversal
+// at authoring — see pocket_arrangement), so the result mesh has positive
+// signed volume and the box-bottom winds −Z. Spec invariant I-rev1: the
+// cavity-wall mesh winding and the `reversed` flag derive from the same
+// flip_for_op signal. On an outward mesh that means, ABSOLUTELY: every
+// cavity-wall mesh triangle's winding-normal points TOWARD the axis (into the
+// pocket) — i.e. its analytic away-from-axis normal is NEGATED, which is exactly
+// what `reversed == true` records. We assert that directly (dot with the
+// outward radial < 0), plus signed_volume > 0 to pin the absolute frame.
 // =========================================================================
 
 #[test]
-fn a1_mesh_winding_consistent_with_reversed_flag() {
+fn a1_mesh_winding_points_toward_axis_absolute() {
     let r = run_subtract();
     let mesh = r.as_mesh();
-    let sign = box_global_orientation_sign(mesh);
+
+    // Pin the absolute orientation: a correct outward-from-result solid.
+    let vol = signed_volume(mesh);
+    assert!(
+        vol > 0.0,
+        "yr13-adv A1: independent mock output must be OUTWARD-oriented \
+         (positive signed volume); got {vol}"
+    );
 
     // The cavity wall MUST carry reversed == true (the flag under test).
     assert!(
@@ -609,19 +610,18 @@ fn a1_mesh_winding_consistent_with_reversed_flag() {
         let centroid = sc(ad(ad(v0, v1), v2), 1.0 / 3.0);
         let (_, outward) = axis_radial(centroid);
 
-        // In the mesh's own consistent global frame, the wall winding-normal
-        // must point TOWARD the axis (its analytic away-from-axis normal is
-        // negated — the meaning of reversed==true). `sign` removes the fixture's
-        // global orientation so this is an honest I-rev1 mesh↔flag check.
-        let d = sign * dt(gnu, outward);
+        // ABSOLUTE: on this outward-oriented mesh the cavity-wall winding-normal
+        // must point TOWARD the axis (dot with the outward radial clearly < 0).
+        // This is the mesh-side witness that `reversed == true` (negate the
+        // analytic away-from-axis normal) matches the emitted geometry (I-rev1).
+        let d = dt(gnu, outward);
         assert!(
             d < -0.5,
-            "yr13-adv A1: cavity-wall mesh winding (global-frame, sign={sign}) must \
-             point TOWARD the axis — i.e. the wall winds COHERENTLY with the box \
-             faces AND its analytic normal must be negated, which is what \
-             reversed==true records (I-rev1). Got framed-dot {d} for tri {tri:?} \
-             centroid {centroid:?}. A reversed/winding inconsistency flips this \
-             positive."
+            "yr13-adv A1: cavity-wall mesh-triangle winding-normal must point \
+             TOWARD the axis (dot with outward radial clearly < 0) on this \
+             outward-oriented result — the mesh-side witness of reversed==true \
+             (I-rev1). Got dot {d} for tri {tri:?} centroid {centroid:?}. A \
+             reversed/winding inconsistency flips this positive."
         );
         checked += 1;
     }
@@ -711,7 +711,6 @@ fn a2_effective_normal_toward_axis_dense_sampling() {
 fn a3_sense_encoding_and_exact_params() {
     let r = run_subtract();
     let want = cyl_surface();
-    let sign = box_global_orientation_sign(r.as_mesh());
 
     // The box interior reference point (geometric center of the solid box).
     let box_center = [
@@ -750,16 +749,11 @@ fn a3_sense_encoding_and_exact_params() {
                     || (n_abs[1] > 0.99 && n_abs[0] < 1e-6 && n_abs[2] < 1e-6)
                     || (n_abs[2] > 0.99 && n_abs[0] < 1e-6 && n_abs[1] < 1e-6);
                 // Identify the 6 box-wall planes by their offset matching a box
-                // extent (independent of the normal's sign, since the production
-                // planar branch may have flipped it to track the inside-out
-                // mesh winding). For each box wall, the stored Plane.normal must
-                // be COHERENT with the mesh's global orientation frame: in the
-                // `sign`-normalized outward frame the box center sits on the
-                // interior (negative) side. On an outward mesh (sign=+1) this is
-                // the literal "stored normal points outward"; on the RED
-                // inside-out fixture (sign=-1) the stored normal points inward,
-                // coherently with every other inside-out face — still a valid,
-                // self-consistent sense encoding, which is the honest assertion.
+                // extent. On this OUTWARD-oriented mock the production planar
+                // branch makes the stored Plane.normal track the (outward) mesh
+                // winding, so each box-wall normal points OUTWARD ABSOLUTELY:
+                // evaluated at the box center it gives a negative signed distance
+                // (the interior is on the negative-normal side).
                 let extent_match = |axis: usize| {
                     (d.abs() - BOX_HI[axis].abs()).abs() < 1e-9
                         || (d.abs() - BOX_LO[axis].abs()).abs() < 1e-9
@@ -769,12 +763,11 @@ fn a3_sense_encoding_and_exact_params() {
                         || (nrm[1].abs() > 0.99 && extent_match(1))
                         || (nrm[0].abs() > 0.99 && extent_match(0)));
                 if on_box_wall {
-                    let framed = sign * (dt(nrm, box_center) + d);
+                    let signed = dt(nrm, box_center) + d;
                     assert!(
-                        framed < -1e-9,
-                        "yr13-adv A3: box-wall Plane.normal must be coherent with the \
-                         mesh global orientation (sign={sign}): box center on the \
-                         interior side in the framed outward sense; framed {framed}"
+                        signed < -1e-9,
+                        "yr13-adv A3: box-wall Plane.normal must point OUTWARD \
+                         (box center on the interior/negative side); signed {signed}"
                     );
                     saw_box_plane = true;
                 }
