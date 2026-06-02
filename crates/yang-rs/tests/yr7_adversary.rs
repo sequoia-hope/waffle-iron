@@ -203,6 +203,7 @@ fn adv_cylinder_brep(
             },
             outer_loop: vec![0, 2, 1, 2],
             inner_loops: Vec::new(),
+            reversed: false,
         },
         BRepFace {
             surface: Surface::Plane {
@@ -211,6 +212,7 @@ fn adv_cylinder_brep(
             },
             outer_loop: vec![0],
             inner_loops: Vec::new(),
+            reversed: false,
         },
         BRepFace {
             surface: Surface::Plane {
@@ -219,6 +221,7 @@ fn adv_cylinder_brep(
             },
             outer_loop: vec![1],
             inner_loops: Vec::new(),
+            reversed: false,
         },
     ];
 
@@ -723,6 +726,7 @@ fn one_triangle(surface: Surface) -> (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFa
         surface,
         outer_loop: vec![0, 1, 2],
         inner_loops: Vec::new(),
+        reversed: false,
     }];
     (verts, edges, faces)
 }
@@ -809,6 +813,7 @@ fn attack6_cylinder_lateral_wrong_rim_count_rejected() {
         },
         outer_loop: vec![0, 1],
         inner_loops: Vec::new(),
+        reversed: false,
     }];
     let r = BRep::new(verts, edges, faces);
     assert!(

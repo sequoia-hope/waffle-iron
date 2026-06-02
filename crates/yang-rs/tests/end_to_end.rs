@@ -115,6 +115,7 @@ fn unit_cube_brep_offset_at(origin: [f64; 3]) -> BRep {
             },
             outer_loop: loops[i].clone(),
             inner_loops: Vec::new(),
+            reversed: false,
         })
         .collect();
     BRep::new(verts, edges, faces).expect("offset cube BRep::new failed")

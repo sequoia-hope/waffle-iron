@@ -58,6 +58,7 @@ fn square_face(s: f64, vert_order: [u32; 4], normal: Vector3) -> Result<BRep, Ya
         surface: Surface::Plane { normal, d: 0.0 },
         outer_loop: vec![0, 1, 2, 3],
         inner_loops: Vec::new(),
+        reversed: false,
     }];
     BRep::new(verts, edges, faces)
 }
@@ -183,6 +184,7 @@ fn t1_genuine_sliver_triangle_is_caught() {
         },
         outer_loop: vec![0, 1, 2],
         inner_loops: Vec::new(),
+        reversed: false,
     }];
     let r = BRep::new(verts, edges, faces);
     assert!(
@@ -356,6 +358,7 @@ fn t4_brep_new_is_deterministic() {
                 },
                 outer_loop: vec![base, base + 1, base + 2, base + 3],
                 inner_loops: Vec::new(),
+                reversed: false,
             });
         }
         BRep::new(verts, edges, faces).unwrap()

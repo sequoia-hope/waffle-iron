@@ -99,6 +99,7 @@ fn sphere_brep(center: [f64; 3], radius: f64) -> BRep {
         },
         outer_loop: vec![0],
         inner_loops: Vec::new(),
+        reversed: false,
     }];
 
     BRep::new(verts, edges, faces).expect("sphere_brep: BRep::new should tessellate the sphere")

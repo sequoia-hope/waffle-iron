@@ -157,6 +157,7 @@ fn adv_cylinder_brep(axis_point: [f64; 3], axis_dir: [f64; 3], radius: f64, heig
             },
             outer_loop: vec![0, 2, 1, 2],
             inner_loops: Vec::new(),
+            reversed: false,
         },
         BRepFace {
             surface: Surface::Plane {
@@ -165,6 +166,7 @@ fn adv_cylinder_brep(axis_point: [f64; 3], axis_dir: [f64; 3], radius: f64, heig
             },
             outer_loop: vec![0],
             inner_loops: Vec::new(),
+            reversed: false,
         },
         BRepFace {
             surface: Surface::Plane {
@@ -173,6 +175,7 @@ fn adv_cylinder_brep(axis_point: [f64; 3], axis_dir: [f64; 3], radius: f64, heig
             },
             outer_loop: vec![1],
             inner_loops: Vec::new(),
+            reversed: false,
         },
     ];
 
@@ -248,6 +251,7 @@ fn adv_box_brep(lo: [f64; 3], hi: [f64; 3]) -> BRep {
             },
             outer_loop: loops[i].clone(),
             inner_loops: Vec::new(),
+            reversed: false,
         })
         .collect();
     BRep::new(verts, edges, faces).expect("adv_box_brep: BRep::new failed")
@@ -657,6 +661,7 @@ fn one_triangle(surface: Surface) -> (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFa
         surface,
         outer_loop: vec![0, 1, 2],
         inner_loops: Vec::new(),
+        reversed: false,
     }];
     (verts, edges, faces)
 }

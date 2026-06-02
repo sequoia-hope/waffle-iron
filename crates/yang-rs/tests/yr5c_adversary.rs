@@ -181,6 +181,7 @@ impl OrientedBox {
                     surface: Surface::Plane { normal, d },
                     outer_loop: loops[i].clone(),
                     inner_loops: Vec::new(),
+                    reversed: false,
                 }
             })
             .collect();

@@ -164,6 +164,7 @@ fn cylinder_brep(axis_point: [f64; 3], axis_dir: [f64; 3], radius: f64, height: 
             },
             outer_loop: vec![0, 2, 1, 2],
             inner_loops: Vec::new(),
+            reversed: false,
         },
         BRepFace {
             surface: Surface::Plane {
@@ -172,6 +173,7 @@ fn cylinder_brep(axis_point: [f64; 3], axis_dir: [f64; 3], radius: f64, height: 
             },
             outer_loop: vec![0],
             inner_loops: Vec::new(),
+            reversed: false,
         },
         BRepFace {
             surface: Surface::Plane {
@@ -180,6 +182,7 @@ fn cylinder_brep(axis_point: [f64; 3], axis_dir: [f64; 3], radius: f64, height: 
             },
             outer_loop: vec![1],
             inner_loops: Vec::new(),
+            reversed: false,
         },
     ];
     BRep::new(verts, edges, faces).expect("cylinder_brep")
@@ -249,6 +252,7 @@ fn unit_cube_brep_offset_at(origin: [f64; 3]) -> BRep {
             },
             outer_loop: loops[i].clone(),
             inner_loops: Vec::new(),
+            reversed: false,
         })
         .collect();
     BRep::new(verts, edges, faces).expect("unit_cube_brep")

@@ -97,6 +97,7 @@ fn unit_cube_brep_at(origin: [f64; 3]) -> BRep {
             },
             outer_loop: face_outer_loops[i].clone(),
             inner_loops: Vec::new(),
+            reversed: false,
         })
         .collect();
     BRep::new(verts, edges, faces).expect("unit cube BRep::new failed")
@@ -153,6 +154,7 @@ fn tetrahedron_brep() -> BRep {
             },
             outer_loop: vec![base, base + 1, base + 2],
             inner_loops: Vec::new(),
+            reversed: false,
         });
     }
     BRep::new(verts, edges, faces).expect("tetrahedron BRep::new failed")
@@ -338,6 +340,7 @@ fn b3_degenerate_face_returns_degenerate_face_error() {
         },
         outer_loop: vec![0, 1, 2],
         inner_loops: Vec::new(),
+        reversed: false,
     }];
     let err = BRep::new(verts, edges, faces).unwrap_err();
     match err {

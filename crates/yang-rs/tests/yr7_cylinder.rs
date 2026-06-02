@@ -190,6 +190,7 @@ fn cylinder_brep(axis_point: [f64; 3], axis_dir: [f64; 3], radius: f64, height: 
             },
             outer_loop: vec![0, 2, 1, 2],
             inner_loops: Vec::new(),
+            reversed: false,
         },
         // f1 bottom cap
         BRepFace {
@@ -199,6 +200,7 @@ fn cylinder_brep(axis_point: [f64; 3], axis_dir: [f64; 3], radius: f64, height: 
             },
             outer_loop: vec![0],
             inner_loops: Vec::new(),
+            reversed: false,
         },
         // f2 top cap
         BRepFace {
@@ -208,6 +210,7 @@ fn cylinder_brep(axis_point: [f64; 3], axis_dir: [f64; 3], radius: f64, height: 
             },
             outer_loop: vec![1],
             inner_loops: Vec::new(),
+            reversed: false,
         },
     ];
 
@@ -307,6 +310,7 @@ fn unit_cube_brep_at(origin: [f64; 3]) -> BRep {
             },
             outer_loop: face_outer_loops[i].clone(),
             inner_loops: Vec::new(),
+            reversed: false,
         })
         .collect();
     BRep::new(verts, edges, faces).expect("unit cube BRep::new failed")
@@ -697,6 +701,7 @@ fn one_triangle(surface: Surface) -> (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFa
         surface,
         outer_loop: vec![0, 1, 2],
         inner_loops: Vec::new(),
+        reversed: false,
     }];
     (verts, edges, faces)
 }

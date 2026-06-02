@@ -146,6 +146,7 @@ fn sphere_brep_adv(
         },
         outer_loop: vec![0],
         inner_loops: Vec::new(),
+        reversed: false,
     }];
 
     (verts, edges, faces)
@@ -610,6 +611,7 @@ fn one_triangle(surface: Surface) -> (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFa
         surface,
         outer_loop: vec![0, 1, 2],
         inner_loops: Vec::new(),
+        reversed: false,
     }];
     (verts, edges, faces)
 }

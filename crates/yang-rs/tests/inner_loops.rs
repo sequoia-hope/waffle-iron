@@ -112,6 +112,7 @@ impl AaBox {
                     },
                     outer_loop: loops[i].clone(),
                     inner_loops: Vec::new(),
+                    reversed: false,
                 }
             })
             .collect();
