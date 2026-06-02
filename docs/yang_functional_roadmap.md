@@ -550,14 +550,41 @@ reimplementation from Attene's paper restores WASM (M7).
     side-face-exit / ellipse∩line corner (triple-point) configs — the contained
     fixture avoids them; a loud-STOP guard for them is a follow-up. Commit
     `e72f2313`; `tests/yr11_stage4_ellipse.rs`. 170/170 yang-rs; fmt + clippy clean.
-  - **Next M5 increments (sequenced):** **P2b: sphere Stage-1 tessellation**
-    (the remaining curved Stage-1 primitive) → curved `Subtract` cavity-sense +
+  - **PR-YR12 — P2b sphere Stage-1 tessellation. ✅ DONE.**
+    The remaining curved Stage-1 primitive (after the PR-YR7 cylinder). A closed
+    solid sphere — one `Surface::Sphere` face bounded by a single `Curve::Circle`
+    meridian seam + 2 pole `BRepVertex` (no `BRepFace` two-loop change) —
+    tessellates via `BRep::new` into a watertight (χ=2) lat/long grid mesh with a
+    bijective `TessellationMap`. Fixed **z-up** parameterization
+    `face_eval(u,v)=center+r·(cos v cos u, cos v sin u, sin v)` (a sphere is
+    isotropic — an oriented sphere is a documented out-of-scope limitation, like
+    the cylinder needing `axis_dir`); chord bound **`d_ε = 1e-2·2r√3`** (the
+    sphere's exact AABB space diagonal — diameter `2r` ≠ diagonal); grid `n_lon`/
+    `n_lat` refined honestly (segments sized to `d_ε/2` so triangle *centroids*
+    stay ≤ full `d_ε` — more triangles, **never** tolerance widening; worst
+    centroid dev 0.82·d_ε at n_lon=17/n_lat=9 for the unit sphere). Poles are the
+    shared seam-vertex indices and the seam column is reused via modular wrap →
+    watertight with no weld/snap/synthetic fill (verified on the live Cherchi
+    `inputcheck` sidecar). `eval_source` Sphere FACE arm is byte-identical to
+    `face_eval` (round-trip exact to 1e-9 over pole/seam/interior verts);
+    `signed_distance_to_surface` Sphere → `|x−center|−r`. The rim-ring pre-pass
+    excludes sphere-seam Circle edges so the **cylinder path is byte-for-byte
+    unchanged** (`tests/yr7_cylinder.rs` diff empty). **Cone still rejects**;
+    sphere-on-a-triangle is now `MalformedTopology` (lacks its seam Circle), a
+    faithful guard migration swept across yr6/yr7/yr8/yr9 (cone arms keep their
+    exact `CurvedSurfaceNotYetSupported { face: N }` assertions). **No boolean
+    wiring, no `ssi-rs`, no exact intersection curves, no NURBS.** Spec
+    `specs/yang_pr_yr12_sphere_tessellation.md`; role-separated cycle, commits
+    `07c8cbe3` (spec)→`ee66cca3` (RED)→`b5b17e47` (GREEN)→`7e96e070` (adversary).
+    184/184 yang-rs; fmt + clippy clean.
+  - **Next M5 increments (sequenced):** curved `Subtract` cavity-sense +
     cut-surface handling (deferred in
     PR-YR8) → side-face-exit / corner (triple-point) loud-STOP guard (oblique
     out-of-scope case) → broader SSI surface/pair coverage (cyl∩cyl) → the **general
     degree-4 curve** (a new parametric `SsiCurve` variant + the 5 general-position
     solvers) + torus pairs (rest of A15.4) → ~~curved `Surface` variants~~ (PR-YR6
-    ✅) → ~~P2a curved cylinder tessellation~~ (PR-YR7 ✅) → ~~P3: Stage 3 wire
+    ✅) → ~~P2a curved cylinder tessellation~~ (PR-YR7 ✅) → ~~P2b sphere Stage-1
+    tessellation~~ (PR-YR12 ✅) → ~~P3: Stage 3 wire
     `ssi-rs`~~ (PR-YR9 ✅). The general degree-4 cyl∩cyl curve requires a NEW
     parametric `SsiCurve` variant + general-position solvers, and **MUST be planned
     with a human before implementation.**
@@ -618,7 +645,10 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   RELOCATED onto the exact circle (Yang §4.4.1, not a global CDT) + §4.5.3
   reversed-point correction; watertightness inherited; cylinder ∪ box is now
   exact-edge AND on-curve, adversary-verified fold-free.**
-  Remaining: Stage 1 curved tessellation for the rest (sphere — P2b; non-convex
+  **Stage-1 sphere tessellation done (PR-YR12 ✅):** closed solid sphere → a
+  watertight z-up lat/long mesh with a bijective `TessellationMap` (`d_ε =
+  1e-2·2r√3`; cone still rejects loudly).
+  Remaining: Stage 1 curved tessellation for the rest (cone; non-convex
   profile triangulation via Livesu earcut-CDT, for gears; Steiner points);
   ~~Stage 3 refine arrangement edges to the exact SSI curve (wire `ssi-rs` in —
   P3)~~ (PR-YR9 ✅); ~~Stage 4 conform mesh to refined curves~~ (PR-YR10 ✅,
