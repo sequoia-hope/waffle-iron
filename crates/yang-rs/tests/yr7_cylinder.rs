@@ -632,15 +632,18 @@ fn signed_distance_to_surface_plane_formula() {
 }
 
 #[test]
-fn signed_distance_to_surface_sphere_and_cone_reject() {
+fn signed_distance_to_surface_sphere_ok_cone_reject() {
     let sphere = Surface::Sphere {
         center: p(0.0, 0.0, 0.0),
         radius: 3.0,
     };
+    // Signed distance to a sphere = |x − center| − radius. At (1,2,3) about a
+    // sphere centered at the origin with r = 3: |(1,2,3)| − 3.
     let r = signed_distance_to_surface(sphere, p(1.0, 2.0, 3.0));
+    let expected = norm([1.0, 2.0, 3.0]) - 3.0;
     assert!(
-        r.is_err(),
-        "Sphere must not be evaluable by signed_distance_to_surface, got {r:?}"
+        (r.unwrap() - expected).abs() < 1e-12,
+        "Sphere signed distance must be |x − center| − radius = {expected}"
     );
 
     let cone = Surface::Cone {
@@ -699,15 +702,18 @@ fn one_triangle(surface: Surface) -> (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFa
 }
 
 #[test]
-fn sphere_face_still_rejected() {
+fn sphere_face_on_triangle_is_malformed() {
+    // A one-triangle Sphere face lacks the meridian seam Circle the sphere
+    // tessellation path requires (spec §1) → MalformedTopology, mirroring how a
+    // cylinder-on-a-triangle is malformed rather than CurvedSurfaceNotYetSupported.
     let (v, e, f) = one_triangle(Surface::Sphere {
         center: p(0.0, 0.0, 0.0),
         radius: 1.0,
     });
     let r = BRep::new(v, e, f);
     assert!(
-        matches!(r, Err(YangError::CurvedSurfaceNotYetSupported { face: 0 })),
-        "sphere face 0 must still reject as CurvedSurfaceNotYetSupported, got {r:?}"
+        matches!(r, Err(YangError::MalformedTopology(_))),
+        "sphere face 0 on a triangle (no seam Circle) must reject as MalformedTopology, got {r:?}"
     );
 }
 
