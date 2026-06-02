@@ -103,10 +103,12 @@ pub use cherchi_rs::{Mesh, MeshBoolean};
 ///
 /// Future PRs add `Torus`, `NurbsSurface`.
 ///
-/// **Banked deferrals:** subtracted/cavity curved-face *sense* (the curved
-/// analog of the plane's outward-normal flip at reconstruction) is deferred to
-/// the curved Stage-6 reassembly PR — this PR stores no curved output, so no
-/// `sense` field is carried (mirroring ssi-rs, which has none). The
+/// **Cavity-sense (implemented PR-YR13):** the curved cavity-sense for the
+/// `box − cylinder` blind pocket is now implemented via the [`BRepFace`]`.reversed`
+/// flag (the curved analog of the plane's outward-normal flip at
+/// reconstruction). The surface enum still carries **no** `sense` field — sense
+/// lives on `BRepFace`, mirroring `ssi-rs` (which has none). Still-deferred
+/// curved cavities: through-hole (genus 1, χ=0) and sphere/cone cavities. The
 /// `Curve::Parabola`/`Hyperbola` variants are likewise deferred.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Surface {
@@ -196,6 +198,15 @@ pub struct BRepFace {
     /// Inner loops (holes), each an edge-index list; CW viewed from
     /// outside (opposite the outer loop). Empty for simple faces.
     pub inner_loops: Vec<Vec<u32>>,
+    /// When `true`, the face's effective outward normal (outward from the
+    /// result solid) is the **negation** of the surface's canonical analytic
+    /// outward normal. Planar faces encode sense in `Plane.normal` and keep
+    /// `reversed == false`; only curved cavity walls from a `Subtract`
+    /// subtrahend (input B) set `true`. Any future consumer that computes a
+    /// curved outward normal (Stage-1 winding, face resolution) MUST negate
+    /// when `reversed`; Stage-1 runs on canonical inputs (`reversed == false`)
+    /// so no current path needs the negation.
+    pub reversed: bool,
 }
 
 // =========================================================================
@@ -2547,7 +2558,7 @@ pub fn boolean(
     // tessellation sources come back from `reconstruct_topology`.
     let mut kept_submesh = kept_submesh;
     let (vertices, edges, faces, sources) =
-        reconstruct_topology_stage4(&mut kept_submesh, &mut triangle_attribution, a, b)?;
+        reconstruct_topology_stage4(&mut kept_submesh, &mut triangle_attribution, a, b, op)?;
 
     let tessellation = TessellationMap { sources };
 
@@ -3307,7 +3318,7 @@ fn reconstruct_topology(
     // is `reconstruct_topology_stage4`, called by `boolean()`.
     let (infos, _incidence, intersection_curves) = compute_phase_a(mesh, attribution, a, b)?;
     let (vertices, edges, faces, _sources) =
-        emit_topology(mesh, &infos, &intersection_curves, &[])?;
+        emit_topology(mesh, &infos, &intersection_curves, &[], BoolOp::Union)?;
     Ok((vertices, edges, faces))
 }
 
@@ -3322,6 +3333,7 @@ fn reconstruct_topology_stage4(
     attribution: &mut TriangleAttributionMap,
     a: &BRep,
     b: &BRep,
+    op: BoolOp,
 ) -> Result<ReconstructedTopology, YangError> {
     // (4) Phase A: per-patch ordered loops + inherited surface (`infos`), and the
     // exact per-edge intersection `Curve` map.
@@ -3360,7 +3372,7 @@ fn reconstruct_topology_stage4(
         }
     }
 
-    emit_topology(mesh, &infos, &intersection_curves, &relocations)
+    emit_topology(mesh, &infos, &intersection_curves, &relocations, op)
 }
 
 /// PR-YR5/YR9 Phase-B emission (factored out in PR-YR10 so both
@@ -3377,6 +3389,7 @@ fn emit_topology(
     infos: &[PatchInfo],
     intersection_curves: &std::collections::BTreeMap<(u32, u32), Curve>,
     relocations: &[(u32, f64)],
+    op: BoolOp,
 ) -> Result<ReconstructedTopology, YangError> {
     // (1) Vertices: 1:1 with the (possibly relocated) mesh.verts.
     let vertices: Vec<BRepVertex> = mesh
@@ -3396,10 +3409,14 @@ fn emit_topology(
         // planar normal/Newell/flip machinery. A `Cylinder` patch is a barrel
         // — a single plane normal + signed-area classification is meaningless,
         // so we DROP the E3/`positive_count` check and the inherited-normal
-        // flip. We INHERIT the surface UNCHANGED (Union has no cavity → no
-        // sense flip; the curved cavity-sense flip for Subtract is explicitly
-        // DEFERRED). `patch_boundary_cycle` (called above) is surface-agnostic,
-        // so we reuse `cycles`. We KEEP the E2 degenerate-loop guard.
+        // flip. We INHERIT the surface UNCHANGED (the canonical params must stay
+        // exact for downstream SSI / kernel-v2 — we never perturb them to signal
+        // sense). Instead, cavity-sense is recorded out-of-band in
+        // `BRepFace.reversed`, set from `op == Subtract && info.input == B` — the
+        // same `flip_for_op` signal the mesh winding used, so face sense and mesh
+        // winding are provably consistent (Union → no cavity → `reversed`
+        // false). `patch_boundary_cycle` (called above) is surface-agnostic, so
+        // we reuse `cycles`. We KEEP the E2 degenerate-loop guard.
         if let Surface::Cylinder { .. } = inherited {
             let push_loop = |edges: &mut Vec<BRepEdge>, cycle: &[(u32, u32)]| -> Vec<u32> {
                 let start_idx = edges.len() as u32;
@@ -3464,6 +3481,7 @@ fn emit_topology(
                 surface: inherited,
                 outer_loop,
                 inner_loops,
+                reversed: op == BoolOp::Subtract && info.input == InputId::B,
             });
             continue;
         }
@@ -3574,6 +3592,7 @@ fn emit_topology(
             surface,
             outer_loop,
             inner_loops,
+            reversed: false,
         });
     }
 
@@ -4155,6 +4174,7 @@ mod tests {
             surface,
             outer_loop: vec![0, 1, 2],
             inner_loops: Vec::new(),
+            reversed: false,
         }];
         (verts, edges, faces)
     }
@@ -4239,6 +4259,7 @@ mod tests {
             },
             outer_loop: vec![0, 1, 2],
             inner_loops: Vec::new(),
+            reversed: false,
         };
         assert_eq!(v.point, p(0.0, 0.0, 0.0));
         assert_eq!(e.start, 0);
@@ -4329,6 +4350,7 @@ mod tests {
             surface: plane_z_up(),
             outer_loop: vec![0, 1, 2],
             inner_loops: Vec::new(),
+            reversed: false,
         }];
         let b = BRep::new(verts, edges, faces).unwrap();
         assert_eq!(b.num_verts(), 3);
@@ -4383,6 +4405,7 @@ mod tests {
             surface: plane_z_up(),
             outer_loop: vec![0, 1, 2, 3],
             inner_loops: Vec::new(),
+            reversed: false,
         }];
         let b = BRep::new(verts, edges, faces).unwrap();
         assert_eq!(b.num_verts(), 4);
@@ -4478,21 +4501,25 @@ mod tests {
                 surface: plane_z_up(),
                 outer_loop: vec![0, 1, 2],
                 inner_loops: Vec::new(),
+                reversed: false,
             }, // bottom (verts 0,1,2)
             BRepFace {
                 surface: plane_z_up(),
                 outer_loop: vec![9, 3, 7],
                 inner_loops: Vec::new(),
+                reversed: false,
             }, // back (verts 1,0,3) - using 1→0,0→3,3→1
             BRepFace {
                 surface: plane_z_up(),
                 outer_loop: vec![10, 4, 8],
                 inner_loops: Vec::new(),
+                reversed: false,
             }, // right (verts 2,1,3)
             BRepFace {
                 surface: plane_z_up(),
                 outer_loop: vec![11, 5, 6],
                 inner_loops: Vec::new(),
+                reversed: false,
             }, // left (verts 0,2,3)
         ];
         let b = BRep::new(verts, edges, faces).unwrap();
@@ -4579,31 +4606,37 @@ mod tests {
                 surface: plane,
                 outer_loop: vec![0, 1, 2, 3],
                 inner_loops: Vec::new(),
+                reversed: false,
             },
             BRepFace {
                 surface: plane,
                 outer_loop: vec![4, 5, 6, 7],
                 inner_loops: Vec::new(),
+                reversed: false,
             },
             BRepFace {
                 surface: plane,
                 outer_loop: vec![8, 9, 10, 11],
                 inner_loops: Vec::new(),
+                reversed: false,
             },
             BRepFace {
                 surface: plane,
                 outer_loop: vec![12, 13, 14, 15],
                 inner_loops: Vec::new(),
+                reversed: false,
             },
             BRepFace {
                 surface: plane,
                 outer_loop: vec![16, 17, 18, 19],
                 inner_loops: Vec::new(),
+                reversed: false,
             },
             BRepFace {
                 surface: plane,
                 outer_loop: vec![20, 21, 22, 23],
                 inner_loops: Vec::new(),
+                reversed: false,
             },
         ];
         let b = BRep::new(verts, edges, faces).unwrap();
@@ -4650,6 +4683,7 @@ mod tests {
             surface: plane_z_up(),
             outer_loop: vec![0, 1, 2],
             inner_loops: Vec::new(),
+            reversed: false,
         }];
         let b = BRep::new(verts, edges, faces).unwrap();
         for i in 0..b.num_verts() as u32 {
@@ -4683,6 +4717,7 @@ mod tests {
             surface: plane_z_up(),
             outer_loop: vec![0],
             inner_loops: Vec::new(),
+            reversed: false,
         }];
         let err = BRep::new(verts, edges, faces).unwrap_err();
         match err {
@@ -4726,6 +4761,7 @@ mod tests {
             surface: plane_z_up(),
             outer_loop: vec![0, 1, 99],
             inner_loops: Vec::new(),
+            reversed: false,
         }];
         let err = BRep::new(verts, edges, faces).unwrap_err();
         match err {
@@ -4883,6 +4919,7 @@ mod tests {
             },
             outer_loop: vec![0, 1, 2],
             inner_loops: Vec::new(),
+            reversed: false,
         }];
         BRep::new(verts, edges, faces).unwrap()
     }
@@ -5083,11 +5120,13 @@ mod tests {
                 surface: f0_plane,
                 outer_loop: vec![0, 1, 2],
                 inner_loops: Vec::new(),
+                reversed: false,
             }, // F0
             BRepFace {
                 surface: f1_plane,
                 outer_loop: vec![3, 4, 5],
                 inner_loops: Vec::new(),
+                reversed: false,
             }, // F1
         ];
         BRep::new(verts, edges, faces).unwrap()
@@ -5562,6 +5601,7 @@ mod tests {
                 },
                 outer_loop: loops[i].clone(),
                 inner_loops: Vec::new(),
+                reversed: false,
             })
             .collect();
         BRep::new(verts, edges, faces).unwrap()
