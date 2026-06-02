@@ -48,9 +48,6 @@ fn p(x: f64, y: f64, z: f64) -> Point3 {
 // Pure-Rust array math (cad-primitives exposes only new/x/y/z/as_array).
 // =========================================================================
 
-fn sub(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
 fn add(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 }
@@ -134,7 +131,7 @@ fn signed_volume(mesh: &Mesh) -> f64 {
 //     box (discarded by the boolean). Lateral wall + floor cap survive.
 // =========================================================================
 
-const N: usize = 8;
+const N: usize = 16;
 const BOX_LO: [f64; 3] = [-2.0, -2.0, 0.0];
 const BOX_HI: [f64; 3] = [2.0, 2.0, 2.0];
 const CYL_AXIS_POINT: [f64; 3] = [0.0, 0.0, 0.5];
@@ -405,7 +402,7 @@ fn pocket_arrangement() -> LabeledArrangement {
     let rim = |k: usize| rim_base + (k % N) as u32;
     let flr = |k: usize| floor_base + (k % N) as u32;
 
-    let mut push_box = |t: [u32; 3], tris: &mut Vec<[u32; 3]>, surf: &mut Vec<Vec<LaInputId>>| {
+    let push_box = |t: [u32; 3], tris: &mut Vec<[u32; 3]>, surf: &mut Vec<Vec<LaInputId>>| {
         tris.push(t);
         surf.push(vec![LaInputId(0)]);
     };
@@ -415,12 +412,12 @@ fn pocket_arrangement() -> LabeledArrangement {
     push_box([b0, b0 + 2, b0 + 3], &mut tris, &mut surface);
 
     // === BOX 4 SIDES, outward horizontal (standard CCW-from-outside winding).
-    let mut side = |a: u32,
-                    bb: u32,
-                    c: u32,
-                    d: u32,
-                    tris: &mut Vec<[u32; 3]>,
-                    surf: &mut Vec<Vec<LaInputId>>| {
+    let side = |a: u32,
+                bb: u32,
+                c: u32,
+                d: u32,
+                tris: &mut Vec<[u32; 3]>,
+                surf: &mut Vec<Vec<LaInputId>>| {
         tris.push([a, bb, c]);
         surf.push(vec![LaInputId(0)]);
         tris.push([a, c, d]);
@@ -431,45 +428,53 @@ fn pocket_arrangement() -> LabeledArrangement {
     side(b0 + 2, t0 + 2, t0 + 3, b0 + 3, &mut tris, &mut surface); // back +y
     side(b0 + 3, t0 + 3, t0, b0, &mut tris, &mut surface); // left −x
 
-    // === BOX TOP ANNULUS (z=z1), outward +Z. Outer square boundary must
-    // traverse {4→7,7→6,6→5,5→4} to oppose the side faces. Inner ring runs
-    // ascending; the wall traverses the rim descending so shared edges pair.
-    let outer = [t0, t0 + 3, t0 + 2, t0 + 1];
-    let per = N / 4; // 2
-    let inner = |j: usize| rim(j % N);
+    // === BOX TOP ANNULUS (z=z1), outward +Z, with the rim ring as its hole.
+    // Per-sector fan between outer loop Lo = [4,7,6,5] (CW-from-above; edges
+    // {4→7,7→6,6→5,5→4} oppose the side faces) and inner loop Li = rim
+    // DESCENDING (`li(s)=rim((N−s)%N)`). Sector c fans Lo[c] over the inner arc
+    // Li[c*per..(c+1)*per]. This makes the outer-square cycle and the rim-ring
+    // hole wind in OPPOSITE rotational senses, so they have OPPOSITE signed-area
+    // signs — exactly the proper outer + hole the planar reconstruction requires
+    // (`positive_count == 1`). The inner-ring boundary edges run ASCENDING; the
+    // wall therefore traverses the rim DESCENDING so the shared rim edges pair.
+    let lo = [t0, t0 + 3, t0 + 2, t0 + 1];
+    let per = N / 4; // 4 for N=16
+    let li = |s: usize| rim((N - (s % N)) % N);
     for c in 0..4usize {
-        let oa = outer[c];
-        let ob = outer[(c + 1) % 4];
-        let ja = c * per;
-        let jb = (c + 1) * per;
-        for j in ja..jb {
-            push_box([oa, inner(j + 1), inner(j)], &mut tris, &mut surface);
+        let oa = lo[c];
+        let ob = lo[(c + 1) % 4];
+        let sa = c * per;
+        let sb = (c + 1) * per;
+        push_box([oa, ob, li(sb)], &mut tris, &mut surface);
+        for s in (sa..sb).rev() {
+            push_box([oa, li(s + 1), li(s)], &mut tris, &mut surface);
         }
-        push_box([oa, ob, inner(jb)], &mut tris, &mut surface);
     }
 
     // === CYLINDER WALL (label 1) — rim ring (z=2) down to floor ring (z=0.5).
     // As a cavity wall the outward-from-result normal points TOWARD the axis
     // (−radial). Authored PRE-SWAPPED (tri[1]↔tri[2] opposite of the final
     // outward winding) so flip_for_op(Subtract)'s re-swap restores it outward.
-    let mut push_cyl =
-        |t: [u32; 3], tris: &mut Vec<[u32; 3]>, surf: &mut Vec<Vec<LaInputId>>| {
-            tris.push([t[0], t[2], t[1]]); // pre-swap tri[1] <-> tri[2]
-            surf.push(vec![LaInputId(1)]);
-        };
+    let push_cyl = |t: [u32; 3], tris: &mut Vec<[u32; 3]>, surf: &mut Vec<Vec<LaInputId>>| {
+        tris.push([t[0], t[2], t[1]]); // pre-swap tri[1] <-> tri[2]
+        surf.push(vec![LaInputId(1)]);
+    };
     for k in 0..N {
         let k1 = k + 1;
-        // FINAL outward (toward-axis) winding: rim edges ascending
-        // (rim(k)→rim(k1)), floor edges descending (flr(k1)→flr(k)).
-        push_cyl([rim(k), rim(k1), flr(k1)], &mut tris, &mut surface);
-        push_cyl([rim(k), flr(k1), flr(k)], &mut tris, &mut surface);
+        // FINAL outward (toward-axis) winding: rim edges DESCENDING
+        // (rim(k1)→rim(k)) — opposite the annulus inner ring (ascending) so the
+        // shared rim edges pair; floor edges ASCENDING (flr(k)→flr(k1)) —
+        // opposite the floor-cap fan (descending).
+        push_cyl([rim(k1), rim(k), flr(k)], &mut tris, &mut surface);
+        push_cyl([rim(k1), flr(k), flr(k1)], &mut tris, &mut surface);
     }
 
     // === CYLINDER FLOOR CAP (label 1) @ z=0.5, outward +Z (up, into the void).
-    // FINAL outward winding: fan around floor_center, floor edges ascending.
+    // FINAL outward winding: fan around floor_center, floor edges DESCENDING
+    // (flr(k1)→flr(k)) — opposite the wall's ascending floor edges.
     for k in 0..N {
         let k1 = k + 1;
-        push_cyl([floor_center, flr(k), flr(k1)], &mut tris, &mut surface);
+        push_cyl([floor_center, flr(k1), flr(k)], &mut tris, &mut surface);
     }
 
     let n = tris.len();
