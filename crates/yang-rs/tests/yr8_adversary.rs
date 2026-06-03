@@ -681,17 +681,17 @@ fn attack4_sphere_malformed_cone_still_loudly_rejected() {
         "yr8-adv: Sphere on a triangle must reject loudly as MalformedTopology"
     );
 
+    // PR-YR16 migration: a cone on a *triangle* (no base-rim Circle) is now
+    // MalformedTopology, not CurvedSurfaceNotYetSupported — still a loud error,
+    // never silent. Only the error kind changed.
     let (v, e, f) = one_triangle(Surface::Cone {
         apex: p(0.0, 0.0, 5.0),
         axis_dir: Vector3::new(0.0, 0.0, -1.0),
         half_angle: 0.4,
     });
     assert!(
-        matches!(
-            BRep::new(v, e, f),
-            Err(YangError::CurvedSurfaceNotYetSupported { face: 0 })
-        ),
-        "yr8-adv: Cone must still reject loudly"
+        matches!(BRep::new(v, e, f), Err(YangError::MalformedTopology(_))),
+        "yr8-adv: Cone on a triangle must still reject loudly as MalformedTopology"
     );
 }
 

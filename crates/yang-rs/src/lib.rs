@@ -4306,6 +4306,10 @@ mod tests {
 
     #[test]
     fn brep_new_rejects_cone_face() {
+        // PR-YR16 migration: a Cone face on a *triangle* (no base-rim Circle the
+        // cone tessellation path requires) is now MalformedTopology, mirroring the
+        // cylinder/sphere-on-a-triangle rejection. It must STILL error loudly
+        // (never silently succeed); only the error *kind* changed.
         let (verts, edges, faces) = single_triangle_topology(Surface::Cone {
             apex: p(0.0, 0.0, 1.0),
             axis_dir: Vector3::new(0.0, 0.0, -1.0),
@@ -4313,11 +4317,9 @@ mod tests {
         });
         let result = BRep::new(verts, edges, faces);
         assert!(
-            matches!(
-                result,
-                Err(YangError::CurvedSurfaceNotYetSupported { face: 0 })
-            ),
-            "expected CurvedSurfaceNotYetSupported {{ face: 0 }}, got {result:?}"
+            matches!(result, Err(YangError::MalformedTopology(_))),
+            "expected MalformedTopology (cone lateral on a triangle lacks its \
+             base-rim Circle edge), got {result:?}"
         );
     }
 

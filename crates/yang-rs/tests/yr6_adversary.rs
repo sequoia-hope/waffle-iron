@@ -120,11 +120,15 @@ fn adversary_cylinder_face0_rejected_exact() {
 
 #[test]
 fn adversary_cone_face0_rejected_exact() {
+    // PR-YR16 migration: a cone on a *triangle* lacks the base-rim Circle the cone
+    // tessellation path requires, so it is rejected as MalformedTopology. It must
+    // STILL error loudly (never silently succeed); only the error *kind* changed.
     let (v, e, f) = one_triangle(cone());
     let r = BRep::new(v, e, f);
     assert!(
-        matches!(r, Err(YangError::CurvedSurfaceNotYetSupported { face: 0 })),
-        "cone face 0: expected CurvedSurfaceNotYetSupported {{ face: 0 }}, got {r:?}"
+        matches!(r, Err(YangError::MalformedTopology(_))),
+        "cone face 0 on a triangle: expected MalformedTopology (lateral lacks its \
+         base-rim Circle edge), got {r:?}"
     );
 }
 
@@ -202,17 +206,20 @@ fn three_faces_curved_at_2(curved: Surface) -> (Vec<BRepVertex>, Vec<BRepEdge>, 
 
 #[test]
 fn adversary_curved_face2_reports_index_2() {
-    // PR-YR7/YR12 migration: only the cone still reports
-    // CurvedSurfaceNotYetSupported at the offending face index 2. The cylinder
-    // and sphere are now implemented for their proper seam-edge encodings, but
-    // THIS fixture's face 2 is a cylinder/sphere on a *triangle* (no Circle
-    // edges), so it is rejected as MalformedTopology. The intent — error loudly,
-    // not silently succeed — is preserved; only the error kind changed.
+    // PR-YR16 migration: ALL THREE curved arms (cone, cylinder, sphere) on a
+    // *triangle* now reject as MalformedTopology. The indexed-rejection witness is
+    // RETIRED — no curved-on-triangle surface returns an indexed
+    // CurvedSurfaceNotYetSupported anymore; they are all seam/rim-malformed (the
+    // cone here lacks its base-rim Circle, the cylinder its 2 rim Circles, the
+    // sphere its meridian seam Circle). The structural intent — a curved face at a
+    // non-zero index still errors LOUDLY, never silently Ok — is preserved (the
+    // loud-error-at-nonzero-index witness now lands on MalformedTopology).
     let (v, e, f) = three_faces_curved_at_2(cone());
     let r = BRep::new(v, e, f);
     assert!(
-        matches!(r, Err(YangError::CurvedSurfaceNotYetSupported { face: 2 })),
-        "cone face at index 2 must report face: 2 (not hardcoded 0), got {r:?}"
+        matches!(r, Err(YangError::MalformedTopology(_))),
+        "cone face at index 2 on a triangle: expected MalformedTopology (lacks its \
+         base-rim Circle edge), got {r:?}"
     );
 
     // Cylinder arm: now MalformedTopology (lateral on a triangle lacks its 2

@@ -747,11 +747,10 @@ fn attack6_cylinder_on_triangle_is_malformed_not_silent() {
 
 #[test]
 fn attack6_sphere_malformed_cone_still_curved_not_supported() {
-    // PR-YR12 migration: a sphere face on a *triangle* (no meridian seam Circle)
-    // is no longer CurvedSurfaceNotYetSupported — the sphere Stage-1 path is now
-    // implemented, but this fixture lacks the sphere's required seam Circle edge,
-    // so it is rejected as MalformedTopology (loud, never silent). Only the error
-    // kind changed; the cone arm below is unchanged.
+    // PR-YR12/YR16 migration: BOTH the sphere and the cone faces on a *triangle*
+    // are now MalformedTopology (their Stage-1 paths are implemented, but this
+    // fixture lacks the required seam/rim Circle edges) — loud, never silent. Only
+    // the error kind changed.
     let (v, e, f) = one_triangle(Surface::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 2.0,
@@ -768,11 +767,9 @@ fn attack6_sphere_malformed_cone_still_curved_not_supported() {
         half_angle: 0.5,
     });
     assert!(
-        matches!(
-            BRep::new(v, e, f),
-            Err(YangError::CurvedSurfaceNotYetSupported { face: 0 })
-        ),
-        "cone face 0 must still be CurvedSurfaceNotYetSupported"
+        matches!(BRep::new(v, e, f), Err(YangError::MalformedTopology(_))),
+        "cone face 0 on a triangle must be MalformedTopology (lacks its base-rim \
+         Circle edge)"
     );
 }
 
@@ -861,17 +858,20 @@ fn attack7_signed_distance_sign_sanity() {
         "outside sphere point must give +1, got {sphere_d}"
     );
 
-    // Cone still rejects.
+    // Cone now evaluable (PR-YR16): signed radial residual = radial − |z|·tanα.
+    // 45° cone (apex = origin, axis = +z, tanα = 1) at (2,0,1): radial = 2,
+    // |z| = 1 → +1 (outside).
+    let cone_d = signed_distance_to_surface(
+        Surface::Cone {
+            apex: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            half_angle: std::f64::consts::FRAC_PI_4,
+        },
+        Point3::new(2.0, 0.0, 1.0),
+    )
+    .expect("Cone must be Ok");
     assert!(
-        signed_distance_to_surface(
-            Surface::Cone {
-                apex: Point3::new(0.0, 0.0, 0.0),
-                axis_dir: Vector3::new(0.0, 0.0, 1.0),
-                half_angle: 0.3,
-            },
-            Point3::new(1.0, 0.0, 1.0)
-        )
-        .is_err(),
-        "Cone must Err"
+        cone_d > 0.0 && (cone_d - 1.0).abs() < 1e-12,
+        "outside cone point must give +1, got {cone_d}"
     );
 }

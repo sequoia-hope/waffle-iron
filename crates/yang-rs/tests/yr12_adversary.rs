@@ -635,8 +635,9 @@ fn attack6_sphere_on_triangle_is_malformed_not_silent() {
 
 #[test]
 fn attack6_cone_on_triangle_still_curved_not_supported_face0() {
-    // The cone arm must be UNCHANGED: still the exact CurvedSurfaceNotYetSupported
-    // variant at the offending face index 0 (NOT weakened to a generic is_err()).
+    // PR-YR16 migration: a cone on a *triangle* (no base-rim Circle) is now
+    // MalformedTopology, not CurvedSurfaceNotYetSupported — still a loud error,
+    // NOT weakened to a generic is_err(). Only the error kind changed.
     let (v, e, f) = one_triangle(Surface::Cone {
         apex: Point3::new(0.0, 0.0, 5.0),
         axis_dir: Vector3::new(0.0, 0.0, -1.0),
@@ -644,8 +645,8 @@ fn attack6_cone_on_triangle_still_curved_not_supported_face0() {
     });
     let r = BRep::new(v, e, f);
     assert!(
-        matches!(r, Err(YangError::CurvedSurfaceNotYetSupported { face: 0 })),
-        "cone on a triangle must still be CurvedSurfaceNotYetSupported {{ face: 0 }}, got {r:?}"
+        matches!(r, Err(YangError::MalformedTopology(_))),
+        "cone on a triangle must be MalformedTopology (lacks its base-rim Circle edge), got {r:?}"
     );
 }
 
@@ -671,18 +672,21 @@ fn attack6_signed_distance_sphere_ok_cone_err() {
         "inside sphere point must give −1.5, got {inside}"
     );
 
-    // Cone still rejects loudly.
+    // Cone now evaluable (PR-YR16): signed radial residual = radial − |z|·tanα.
+    // 45° cone (apex = origin, axis = +z, tanα = 1) at (2,0,1): radial = 2,
+    // |z| = 1 → +1 (outside).
+    let cone_d = signed_distance_to_surface(
+        Surface::Cone {
+            apex: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            half_angle: std::f64::consts::FRAC_PI_4,
+        },
+        Point3::new(2.0, 0.0, 1.0),
+    )
+    .expect("Cone must be Ok");
     assert!(
-        signed_distance_to_surface(
-            Surface::Cone {
-                apex: Point3::new(0.0, 0.0, 0.0),
-                axis_dir: Vector3::new(0.0, 0.0, 1.0),
-                half_angle: 0.3,
-            },
-            Point3::new(1.0, 0.0, 1.0)
-        )
-        .is_err(),
-        "Cone must Err"
+        cone_d > 0.0 && (cone_d - 1.0).abs() < 1e-12,
+        "outside cone point must give +1, got {cone_d}"
     );
 }
 

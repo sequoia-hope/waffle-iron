@@ -650,15 +650,19 @@ fn signed_distance_to_surface_sphere_ok_cone_reject() {
         "Sphere signed distance must be |x − center| − radius = {expected}"
     );
 
+    // PR-YR16 migration: the Cone is now evaluable. 45° cone (apex = origin,
+    // axis = +z, tanα = 1): signed radial residual = radial − |z|·tanα. At
+    // (2,0,1): radial = 2, |z| = 1 → +1 (outside). (Name kept for discoverability;
+    // the cone half now asserts a concrete Ok value, not a bare is_err().)
     let cone = Surface::Cone {
-        apex: p(0.0, 0.0, 5.0),
-        axis_dir: Vector3::new(0.0, 0.0, -1.0),
-        half_angle: 0.4,
+        apex: p(0.0, 0.0, 0.0),
+        axis_dir: Vector3::new(0.0, 0.0, 1.0),
+        half_angle: std::f64::consts::FRAC_PI_4,
     };
-    let r = signed_distance_to_surface(cone, p(1.0, 0.0, 0.0));
+    let r = signed_distance_to_surface(cone, p(2.0, 0.0, 1.0)).expect("Cone must be Ok");
     assert!(
-        r.is_err(),
-        "Cone must not be evaluable by signed_distance_to_surface, got {r:?}"
+        (r - 1.0).abs() < 1e-12,
+        "Cone signed distance at (2,0,1) on a 45° cone must be +1, got {r}"
     );
 }
 
@@ -724,6 +728,11 @@ fn sphere_face_on_triangle_is_malformed() {
 
 #[test]
 fn cone_face_still_rejected() {
+    // PR-YR16 migration: a Cone face on a *triangle* (no base-rim Circle the cone
+    // tessellation path requires, spec §1) is now MalformedTopology, mirroring how
+    // a cylinder/sphere-on-a-triangle is malformed rather than
+    // CurvedSurfaceNotYetSupported. It must STILL error loudly (never silently
+    // succeed); only the error *kind* changed.
     let (v, e, f) = one_triangle(Surface::Cone {
         apex: p(0.0, 0.0, 5.0),
         axis_dir: Vector3::new(0.0, 0.0, -1.0),
@@ -731,8 +740,8 @@ fn cone_face_still_rejected() {
     });
     let r = BRep::new(v, e, f);
     assert!(
-        matches!(r, Err(YangError::CurvedSurfaceNotYetSupported { face: 0 })),
-        "cone face 0 must still reject as CurvedSurfaceNotYetSupported, got {r:?}"
+        matches!(r, Err(YangError::MalformedTopology(_))),
+        "cone face 0 on a triangle (no base-rim Circle) must reject as MalformedTopology, got {r:?}"
     );
 }
 

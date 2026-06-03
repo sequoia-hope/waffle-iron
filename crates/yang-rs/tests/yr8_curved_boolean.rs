@@ -816,6 +816,10 @@ fn t3_sphere_face_on_triangle_is_malformed() {
 
 #[test]
 fn t3_cone_face_still_loudly_rejected() {
+    // PR-YR16 migration: a Cone face on a *triangle* (no base-rim Circle) is now
+    // MalformedTopology, not CurvedSurfaceNotYetSupported — still a loud error,
+    // never silent (can never flow to reconstruct_topology). Only the error kind
+    // changed.
     let (v, e, f) = one_triangle(Surface::Cone {
         apex: p(0.0, 0.0, 5.0),
         axis_dir: Vector3::new(0.0, 0.0, -1.0),
@@ -823,8 +827,8 @@ fn t3_cone_face_still_loudly_rejected() {
     });
     let r = BRep::new(v, e, f);
     assert!(
-        matches!(r, Err(YangError::CurvedSurfaceNotYetSupported { face: 0 })),
-        "yr8: a Cone face must STILL reject as CurvedSurfaceNotYetSupported \
-         (can never flow to reconstruct_topology), got {r:?}"
+        matches!(r, Err(YangError::MalformedTopology(_))),
+        "yr8: a Cone face on a triangle must STILL reject loudly as MalformedTopology \
+         (lacks its base-rim Circle edge), got {r:?}"
     );
 }
