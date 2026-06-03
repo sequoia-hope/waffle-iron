@@ -1008,6 +1008,44 @@ reimplementation from Attene's paper restores WASM (M7).
     triangle that stops being an F3 tie simply refuses later for the deferred
     analytic-conic reason (`Parabola`/`Hyperbola`, oblique cone∩plane; see N7 /
     N10 / N11). That is correct, not a regression.
+  - **Cone analytic-conic sequence (PR-YR21→YR24, PLANNED 2026-06-03).** Cone is
+    `0/26` in the curved fuzz, blocked across ALL non-perpendicular sections. The
+    analytic math is DONE in `ssi-rs` (`plane_cone` returns Circle/Ellipse/
+    Parabola/Hyperbola); this is purely `yang-rs` integration. Missing pieces:
+    `Curve::Parabola`/`Hyperbola` variants, their `ssi_curve_to_curve` +
+    `curve_contains_point` arms, `eval_source` parametric eval, and — the
+    keystone — **Stage-4 relocation for cone sections** (the existing ellipse
+    relocation is hard-wired to the *cylinder* parameterization, YR11 §4.3.2, so a
+    cone+plane edge hits `LocalRefinementRequired` at lib.rs ~3616; this breaks
+    cone ELLIPSE too, not just parabola/hyperbola). **Design:** a
+    **cone-section parameterization** relocation (`project_onto_cone_section`):
+    for a mesh vertex take its angle θ around the cone axis, intersect that
+    generator with the cutting plane → the exact conic point. Type-AGNOSTIC
+    (ellipse/parabola/hyperbola identical), the cone analog of YR11's
+    cylinder-ellipse projector, avoids generic foot-of-perpendicular quartics.
+    **Sequence:**
+    - **PR-YR21 — cone-section relocation foundation + cone ellipse.** Build the
+      generator-angle relocation + residual; wire into Stage-4 for cone+plane
+      conic edges; land the existing `Curve::Ellipse` on a cone end-to-end. Begins
+      with an instrumented split of the cone refusals (ellipse/parabola/hyperbola/
+      axis-parallel) to confirm per-type counts. Gate: cone ellipse cuts →
+      `ok_correct`; cone ellipse `LocalRefinementRequired` → 0.
+    - **PR-YR22 — Parabola end-to-end.** `Curve::Parabola` (mirror `SsiCurve`) +
+      `ssi_curve_to_curve` + `curve_contains_point` + `parabola_point(t)` eval +
+      point→t inversion; relocation reused from YR21. Gate: cone parabola
+      `AmbiguousCurve` → 0, those cuts → `ok_correct`.
+    - **PR-YR23 — Hyperbola end-to-end.** `Curve::Hyperbola` + **two-branch
+      selection** in `build_intersection_curves` (ssi returns 2 candidates; pick
+      the branch the edge lies on) + `curve_contains_point` + `hyperbola_point(t)`
+      eval. Builds on YR22. Gate: cone hyperbola cuts → `ok_correct`.
+    - **PR-YR24 — residual triage (likely small).** Remaining
+      `LocalRefinementRequired` (axis-parallel / through-apex sections): confirm
+      genuinely-degenerate ones correctly stay LOUD (out of scope, not a
+      regression); close out cone. May fold into YR23.
+    Each is a full RED→GREEN→Adversary cycle with the calibrated fuzz gate (cone
+    `ok_correct` rises for the targeted section type; ZERO new silent-wrong;
+    driver-verified delta). Cavity-sense / watertightness / on-surface oracle are
+    surface-agnostic, so Subtract comes along per type.
   - **Next M5 increments (sequenced):** ~~curved `Subtract` cavity-sense~~
     (PR-YR13 ✅, box − cylinder blind pocket; ~~through-hole genus-1~~ PR-YR14 ✅;
     ~~box − sphere hemispherical dimple~~ PR-YR15 ✅; ~~box − cone conical pocket~~
