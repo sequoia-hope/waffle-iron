@@ -639,9 +639,57 @@ reimplementation from Attene's paper restores WASM (M7).
     `specs/yr14_subtract_through_hole.md`; role-separated cycle, commits
     `36d2a7c4` (spec)→`aeefb4cc` (RED)→`b52a78a3` (GREEN)→`6995b6ec` (adversary).
     208/208 yang-rs; fmt + clippy clean.
+  - **PR-YR15 — box − sphere HEMISPHERICAL DIMPLE (genus 0); `Surface::Sphere`
+    wiring + `sphere_chord_bound` single-source helper. ✅ DONE.** Extends the
+    curved `Subtract` cavity path to a **spherical** cavity: a sphere centred ON
+    one box face (poking through exactly that face) so `box − sphere` carves a
+    hemispherical dimple — a single shell, **genus 0 (χ=2)**, ONE exact great-
+    `Circle` rim (`sphere ∩ box-face plane`, great because the centre is ON the
+    plane), and a cavity wall that is the inside hemisphere (`Surface::Sphere`,
+    `reversed=true`, effective outward normal pointing INTO the dimple toward the
+    centre). The cavity-sense mechanism (`BRepFace.reversed` from
+    `op==Subtract && input==B`, PR-YR13) and the per-shell Euler gate (χ=2−2g,
+    PR-YR14) are surface-agnostic and REUSED unchanged. The work was honest wiring
+    of an already-type-supported surface, NOT new mechanism: `Surface::Sphere` was
+    loudly rejected at production sites that each mirror the existing `Cylinder`
+    arm. **The plan named three sites; the live-sidecar oracle surfaced two more**
+    — both governed by the spec's I-sphere-band invariant (a sphere face uses its
+    OWN Stage-1 chord bound `sphere_chord_bound(radius)=1e-2·2r√3`, NOT the rim-
+    AABB `curved_chord_bound`=2r√2, which underestimates). Final FIVE faithful
+    edits: (1) `surface_to_quadric` Sphere→`QuadricSurface::Sphere` (enables the
+    exact `plane ∩ sphere` rim); (2) `sphere_chord_bound` free helper extracted
+    from `tessellate_sphere_face` (A14.3 single source) + the `tol_for` Sphere arm;
+    (3) `emit_topology` curved-branch guard broadened to
+    `Cylinder | Sphere` (body unchanged — already surface-agnostic);
+    (4) `build_intersection_curves` selection tol (factored to
+    `chord_tol_for_curved_owner`; sphere arm uses `sphere_chord_bound`);
+    (5) `stage4_chord_band` relocation budget via new `input_curved_chord_bound`
+    (max of rim-AABB and per-sphere-face bound). **No tolerance widening, no
+    fallback** — each uses the surface's GUARANTEED Stage-1 bound; `Cone` stays a
+    loud reject at every site; cylinder/all-planar inputs byte-for-byte. Adversary
+    mutation-verified BOTH extra sites are load-bearing (each mutation reds a
+    distinct oracle: `AmbiguousCurve{matched:0}` and `Stage4RegionInvalid{
+    OffCurveBeyondChordBand}`), witnessed mesh-winding ↔ `reversed` consistency on
+    a SECOND independent OUTWARD-authored off-axis mock (center (1,−0.5,5), r=1.5,
+    different facet counts; χ=2, signed_volume>0, cap winding toward-centre), and
+    confirmed no migration weakened. **Honest coverage note:** the two extra
+    band sites are exercised only via the sidecar-backed oracle (the C++
+    `mesh_booleans` binary is present in this env, so they ARE verified here); the
+    mock-driven oracles 1–4 bypass real SSI/Stage-4, so on a machine WITHOUT the
+    sidecar those two edits are untested — a future mock-path Stage-3/4 sphere-rim
+    oracle would close that gap. All prior cases (`fuzz_boxes`, YR8–YR14)
+    byte-unchanged. **Remaining curved-Subtract gaps:** cone cavities (`Cone`
+    still rejects loudly), fully-internal spherical voids (multi-shell),
+    through-sphere, box-as-subtrahend, side-face-exit / corner (triple-point)
+    guard. **No new `ssi-rs`** (the `plane_sphere` solver already existed). Spec
+    `specs/yr15_subtract_sphere_dimple.md`; role-separated cycle, commits
+    `4b0b5af0` (spec)→`945c1c12` (RED)→`6e6239f0` (GREEN)→`bcdeecc4` (adversary).
+    219/219 yang-rs; fmt + clippy clean.
   - **Next M5 increments (sequenced):** ~~curved `Subtract` cavity-sense~~
-    (PR-YR13 ✅, box − cylinder blind pocket; ~~through-hole genus-1~~ PR-YR14 ✅)
-    + cut-surface handling (deferred in PR-YR8/YR5; sphere/cone cavities still open)
+    (PR-YR13 ✅, box − cylinder blind pocket; ~~through-hole genus-1~~ PR-YR14 ✅;
+    ~~box − sphere hemispherical dimple~~ PR-YR15 ✅)
+    + cut-surface handling (deferred in PR-YR8/YR5; CONE cavities + internal
+    spherical voids still open)
     → side-face-exit / corner (triple-point) loud-STOP guard (oblique
     out-of-scope case) → broader SSI surface/pair coverage (cyl∩cyl) → the **general
     degree-4 curve** (a new parametric `SsiCurve` variant + the 5 general-position
@@ -719,8 +767,10 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   STOPs);
   ~~Stage 6 curved cavity-sense for Subtract (deferred in PR-YR8)~~ (PR-YR13 ✅,
   `box − cylinder` blind pocket via `BRepFace.reversed`; ~~through-hole genus-1~~
-  PR-YR14 ✅ via per-shell Euler gate χ=2−2g; sphere/cone cavities +
-  box-as-subtrahend still open) + cut-surface
+  PR-YR14 ✅ via per-shell Euler gate χ=2−2g; ~~box − sphere hemispherical
+  dimple~~ PR-YR15 ✅ via `Surface::Sphere` wiring + `sphere_chord_bound`;
+  CONE cavities + internal spherical voids + box-as-subtrahend still open) +
+  cut-surface
   faces (deferred in PR-YR5). **Exit:** cylinder ∪ box ✅ (exact edges + on-curve mesh),
   sphere − cylinder → correct curved B-Rep, sidecar mesh-parity + analytically
   exact edges. **Risk:** HIGH (paper-critical). **Size:** large.
