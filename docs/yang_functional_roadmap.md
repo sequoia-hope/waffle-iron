@@ -741,11 +741,61 @@ reimplementation from Attene's paper restores WASM (M7).
     cycle, commits `8e569c14` (spec)→`8ceb8d65`/`8d2fe8c6` (RED + clippy
     fixup)→`7f0dfe4e` (GREEN)→`6013a1fc` (adversary). **Next: PR-YR17 cone cavity
     `box − cone`.**
+  - **PR-YR17 — box − cone CONICAL POCKET (curved `Subtract`, genus 0). ✅ DONE.**
+    Closes the loop PR-YR16 opened: a cone with its **apex inside the box** (pocket
+    bottom, `(0,0,0.5)`) and its **base above the box top** carves a conical pocket
+    via `box − cone`. Result = a single genus-0 shell (χ=2): cavity wall = the cone
+    lateral apex→rim (`Surface::Cone`, `reversed == true`), rim = exact `Circle`
+    (`cone ∩ box-top plane`, a **perpendicular** cut → `ssi-rs` `plane_cone` C1
+    branch → `radius = |h|·tanα`), apex = a singular pocket-bottom vertex closing
+    the fan, box-top = an annular planar face (rim hole). This is pure
+    **composition** — the cavity-sense mechanism (`BRepFace.reversed = op==Subtract
+    && input==B`) is surface-agnostic and unchanged; the job was flipping the cone's
+    loud-rejects to real wiring mirroring the Cylinder/Sphere precedent.
+    **Production sites (`src/lib.rs` only, NO `ssi-rs` change):** the spec named
+    FOUR — `emit_topology` curved-branch `matches!` (admit `Surface::Cone`),
+    `emit_topology` defensive arm (drop Cone), `surface_to_quadric` (field-for-field
+    → `QuadricSurface::Cone`, enabling the exact rim `Circle`), and `tol_for` (the
+    cone's OWN `cone_chord_bound`, **height derived from the rim Circle in the cone
+    face's outer loop** via the Stage-1 pre-pass idiom `|(rim_center−apex)·â|` —
+    single-source bound, NOT tolerance widening). The GREEN implementer surfaced a
+    **FIFTH** site (exactly the `yang_curved_primitive_guard_migration`
+    under-enumeration the YR15/YR16 cycles anticipate): `build_intersection_curves`
+    Stage-4 rim-curve selection had Cylinder/Sphere chord-tol arms but no Cone arm,
+    so a cone∩plane rim edge fell to `TAU_WORK` and failed `curve_contains_point`
+    against the exact circle (`AmbiguousCurve{matched:0}`). Added
+    `cone_chord_tol_for_owner`, a faithful mirror of `chord_tol_for_curved_owner`
+    (same loud-on-missing-rim producer-fault path, the cone's own single-source
+    `cone_chord_bound`). **Confirm-or-STOP (P9/P10):** the `tol_for` cone-height
+    anchor was verified (temporary `eprintln!`, removed) before coding; no
+    widening, no fallback. **Honest adversary findings (no defect):** a second,
+    distinct conical-pocket mock (shallow box, apex `(0,0,0.25)`, `tanα=2`) witnessed
+    winding ↔ `reversed` sampling **edge midpoints**; mutation-verified that flipping
+    `reversed` (M1), perturbing the cone params (M2), killing the SSI Cone arm (M3a),
+    and breaking the fifth-site bound→`TAU_WORK` (M3b, reds the sidecar oracle), and
+    flipping the tilted-normal **sign** (M4) each red a DISTINCT oracle. **M4b**
+    (pure-radial, *correct* sign) reds NO oracle — **confirming** the YR16 finding:
+    the cone cavity wall is still a pure apex-fan, so `orient_tri`'s binary flip is
+    byte-identical for `r̂` and `n̂=unit(r̂−tanα·â)`; the **sign** is load-bearing, the
+    tilt **magnitude** stays orientation-dead-code until interior-ring (non-fan)
+    triangles appear (per `yang_cone_tessellation_oracle_findings`). The fifth site
+    is verdicted a **faithful extension, not a tolerance hack** (M3b proves the bound
+    does real work). The env-gated `Subtract` sidecar-parity oracle ran for REAL
+    (default sidecar present), exercising the full pipeline (real `plane_cone` →
+    Circle) end-to-end. Curved `Subtract` now covers **cylinder + sphere + cone**.
+    **Still deferred (LOUD):** through-cone / cone-base-subtracted (two rims),
+    **oblique cuts** (ellipse / parabola / hyperbola rims — the `plane_cone` non-C1
+    branches), fully-internal cone void (multi-shell), side-face / corner
+    (triple-point) exit, box-as-subtrahend. Full `yang-rs` crate green; fmt + clippy
+    `--all-targets` clean. Spec `specs/yr17_subtract_cone_cavity.md`; role-separated
+    cycle, commits `f9d597d8` (spec)→`f6a06012` (RED)→`f21434a1` (GREEN)→`741b50f1`
+    (adversary).
   - **Next M5 increments (sequenced):** ~~curved `Subtract` cavity-sense~~
     (PR-YR13 ✅, box − cylinder blind pocket; ~~through-hole genus-1~~ PR-YR14 ✅;
-    ~~box − sphere hemispherical dimple~~ PR-YR15 ✅)
-    + cut-surface handling (deferred in PR-YR8/YR5; CONE cavities + internal
-    spherical voids still open)
+    ~~box − sphere hemispherical dimple~~ PR-YR15 ✅; ~~box − cone conical pocket~~
+    PR-YR17 ✅)
+    + cut-surface handling (deferred in PR-YR8/YR5; through-cone / oblique cone cuts
+    + internal spherical/conical voids still open)
     → side-face-exit / corner (triple-point) loud-STOP guard (oblique
     out-of-scope case) → broader SSI surface/pair coverage (cyl∩cyl) → the **general
     degree-4 curve** (a new parametric `SsiCurve` variant + the 5 general-position

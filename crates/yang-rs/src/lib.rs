@@ -108,9 +108,12 @@ pub use cherchi_rs::{Mesh, MeshBoolean};
 /// flag (the curved analog of the plane's outward-normal flip at
 /// reconstruction). The surface enum still carries **no** `sense` field — sense
 /// lives on `BRepFace`, mirroring `ssi-rs` (which has none). PR-YR15 extends the
-/// curved-cavity path to a spherical (hemispherical-dimple) cavity. Still-deferred
-/// curved cavities: cone cavities. The
-/// `Curve::Parabola`/`Hyperbola` variants are likewise deferred.
+/// curved-cavity path to a spherical (hemispherical-dimple) cavity; PR-YR17 extends
+/// it to a CONICAL POCKET (`box − cone`, apex inside / base above the top,
+/// perpendicular top-plane exit → exact `Circle` rim). Still-deferred curved
+/// cavities: through-cone / cone-base-subtracted, OBLIQUE cone cuts
+/// (ellipse/parabola/hyperbola rims), and fully-internal cone/sphere voids
+/// (multi-shell). The `Curve::Parabola`/`Hyperbola` variants are likewise deferred.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Surface {
     /// Plane: `n·x + d = 0`. Normal `n` points OUTWARD from the solid.
