@@ -573,3 +573,196 @@ fn all_planar_coplanar_tie_still_fails_resolution() {
         other => panic!("expected FaceResolutionFailed (all-planar EXACT tie), got {other:?}"),
     }
 }
+
+// =========================================================================
+// TEST 3 (ADVERSARY, PR-YR20 §9) — a genuine 0-EXACT + 2-BAND CURVED tie must
+// STILL raise FaceResolutionFailed under the new tiered rule.
+//
+// The GREEN match has FOUR live arms; the RED file exercised:
+//   (1, Some, _, _)        — unique exact hit       (cap_vs_curved_tie...)
+//   (≥2 exact)             — genuine EXACT tie       (all_planar_coplanar...)
+// and implicitly the no-match arm. It did NOT exercise the
+//   (0, _, ≥2, Some) → _   — genuine BAND tie
+// arm with two real band hits. This adversary fixture drives exactly that arm:
+// a kept triangle whose centroid is within the SHARED Stage-1 chord band of TWO
+// distinct coaxial cylinder faces and EXACTLY on NEITHER (0 exact, 2 band) ⇒
+// the tie path must still refuse (FaceResolutionFailed), proving the fix did
+// NOT silently start attributing curved ties.
+//
+// Construction (all arithmetic deterministic, no rand / time / FS):
+//   Input B-Rep = two coaxial cylinders (axis +z) of radii R1=1.00, R2=1.04,
+//   each with two rim circles at z=0 and z=H=1 (4 Circle edges total). The
+//   production band is `curved_chord_bound(edges)` = 1e-2 · diag(AABB of all 4
+//   rims). AABB spans 2·R2 in x and y and H in z ⇒ diag = √(2.08² + 2.08² + 1²)
+//   ≈ 3.1069 ⇒ band ≈ 0.031069. Both cylinder faces share this single band.
+//
+//   The single kept triangle's centroid sits at radius r_c = 1.02 (exactly
+//   midway between the two cylinders), z = 0.5:
+//     dist to cyl R1 = |1.02 − 1.00| = 0.02 ∈ [TAU_WORK, band)  → BAND hit
+//     dist to cyl R2 = |1.02 − 1.04| = 0.02 ∈ [TAU_WORK, band)  → BAND hit
+//     neither < TAU_WORK ⇒ 0 EXACT, 2 BAND ⇒ (0,_,2,Some) ⇒ F3.
+//
+// If a future change made the band tier pick a "closest" band hit (the ratio
+// variant the spec §3 explicitly rejected), this would flip to Ok and this test
+// would fail — that is its guard value.
+// =========================================================================
+
+/// Two coaxial cylinder faces (axis +z) of radii `R1`/`R2`, each face bounded
+/// by its own bottom+top rim Circle edges. No cap faces (not needed — the mock
+/// supplies the output mesh; `boolean()` only reads `faces()`/`edges()` here).
+fn two_cylinder_brep() -> BRep {
+    const R1: f64 = 1.00;
+    const R2: f64 = 1.04;
+    const HH: f64 = 1.0;
+    // Seam vertices (one per rim, reused as ring[0] by the lateral tessellation).
+    let verts = vec![
+        BRepVertex {
+            point: p(R1, 0.0, 0.0),
+        }, // v0 cyl1 bottom seam
+        BRepVertex {
+            point: p(R1, 0.0, HH),
+        }, // v1 cyl1 top seam
+        BRepVertex {
+            point: p(R2, 0.0, 0.0),
+        }, // v2 cyl2 bottom seam
+        BRepVertex {
+            point: p(R2, 0.0, HH),
+        }, // v3 cyl2 top seam
+    ];
+    let edges = vec![
+        // e0 cyl1 bottom rim
+        BRepEdge {
+            start: 0,
+            end: 0,
+            curve: Curve::Circle {
+                center: p(0.0, 0.0, 0.0),
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                radius: R1,
+            },
+        },
+        // e1 cyl1 top rim
+        BRepEdge {
+            start: 1,
+            end: 1,
+            curve: Curve::Circle {
+                center: p(0.0, 0.0, HH),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                radius: R1,
+            },
+        },
+        // e2 cyl1 seam
+        BRepEdge {
+            start: 0,
+            end: 1,
+            curve: Curve::LineSegment,
+        },
+        // e3 cyl2 bottom rim
+        BRepEdge {
+            start: 2,
+            end: 2,
+            curve: Curve::Circle {
+                center: p(0.0, 0.0, 0.0),
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                radius: R2,
+            },
+        },
+        // e4 cyl2 top rim
+        BRepEdge {
+            start: 3,
+            end: 3,
+            curve: Curve::Circle {
+                center: p(0.0, 0.0, HH),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                radius: R2,
+            },
+        },
+        // e5 cyl2 seam
+        BRepEdge {
+            start: 2,
+            end: 3,
+            curve: Curve::LineSegment,
+        },
+    ];
+    let faces = vec![
+        // f0 cyl1 lateral
+        BRepFace {
+            surface: Surface::Cylinder {
+                axis_point: p(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                radius: R1,
+            },
+            outer_loop: vec![0, 2, 1, 2],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+        // f1 cyl2 lateral
+        BRepFace {
+            surface: Surface::Cylinder {
+                axis_point: p(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                radius: R2,
+            },
+            outer_loop: vec![3, 5, 4, 5],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+    ];
+    BRep::new(verts, edges, faces).expect("two_cylinder_brep: BRep::new must tessellate")
+}
+
+#[test]
+fn curved_band_tie_two_cylinders_still_fails_resolution() {
+    // A real (positive-area) triangle whose centroid is at radius 1.02, z=0.5:
+    // 0.02 from BOTH cylinder surfaces (R1=1.00, R2=1.04), exactly on neither.
+    // Pick three verts whose mean is (1.02, 0.0, 0.5).
+    let verts = vec![
+        p(1.02, -0.10, 0.40),
+        p(1.02, 0.10, 0.40),
+        p(1.02, 0.00, 0.70),
+    ];
+    // Centroid = (1.02, 0.0, 0.5); r_c = 1.02 (the x/y mean lies on the x-axis).
+    let cx = (verts[0].as_array()[0] + verts[1].as_array()[0] + verts[2].as_array()[0]) / 3.0;
+    let cy = (verts[0].as_array()[1] + verts[1].as_array()[1] + verts[2].as_array()[1]) / 3.0;
+    let r_c = (cx * cx + cy * cy).sqrt();
+
+    // Load-bearing tie magnitude: assert 0-EXACT + 2-BAND BEFORE driving the SUT
+    // so the fixture cannot silently degrade to a non-tie. Band must equal the
+    // production `curved_chord_bound` over the four rim circles.
+    let band = {
+        // Reproduce curved_chord_bound's AABB over the 4 rims (R2 dominates xy).
+        let span_xy = 2.0 * 1.04_f64;
+        let diag = (span_xy * span_xy + span_xy * span_xy + 1.0_f64).sqrt();
+        1e-2 * diag
+    };
+    let tau = cad_primitives::TAU_WORK;
+    let d1 = (r_c - 1.00).abs();
+    let d2 = (r_c - 1.04).abs();
+    assert!(
+        d1 >= tau && d1 < band,
+        "cyl1 dist {d1:.4e} must be in [TAU_WORK {tau:.1e}, band {band:.4e}) (BAND-tier, not EXACT)"
+    );
+    assert!(
+        d2 >= tau && d2 < band,
+        "cyl2 dist {d2:.4e} must be in [TAU_WORK {tau:.1e}, band {band:.4e}) (BAND-tier, not EXACT)"
+    );
+
+    let mesh = Mesh::new(verts, vec![[0u32, 1, 2]]);
+    let arrangement = LabeledArrangement {
+        mesh,
+        surface: vec![vec![LaInputId(0)]], // on solid A's surface
+        inside: vec![vec![false, false]],  // kept by Union
+        patch: vec![0],
+        num_inputs: 2,
+    };
+    let backend = LabelMock { arrangement };
+    let a = two_cylinder_brep();
+    let b = two_cylinder_brep();
+
+    // 0 EXACT + 2 BAND ⇒ the (0,_,≥2,_) arm ⇒ still FaceResolutionFailed.
+    match boolean(&a, &b, BoolOp::Union, &backend) {
+        Err(YangError::FaceResolutionFailed { tri }) => assert_eq!(tri, 0),
+        other => panic!(
+            "expected FaceResolutionFailed (genuine 0-EXACT/2-BAND curved tie); got {other:?}"
+        ),
+    }
+}
