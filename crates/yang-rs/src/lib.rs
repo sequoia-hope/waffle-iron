@@ -2539,6 +2539,62 @@ fn build_intersection_curves(
             continue;
         }
 
+        // Selection tolerance: the Stage-1 chord bound of the CURVED-owning
+        // input (A14.3 single source). The mesh edge endpoints sit on the
+        // curved surface's Stage-1 chord approximation, off the EXACT analytic
+        // curve by up to that surface's own chord bound — so the on-curve test
+        // must admit them at that bound (the SAME bound Stage 1 guarantees, NOT
+        // tolerance widening). Plane∩Plane → no curved surface → TAU_WORK
+        // (zero chord error). PR-YR15 extends the cylinder-only logic to a
+        // SPHERE edge: a sphere uses its OWN bound `sphere_chord_bound(radius)`
+        // (2r√3), NOT the rim-AABB `curved_chord_bound` (2r√2, which would
+        // underestimate — I-sphere-band).
+        //
+        // PR-YR18: `tol` is computed FIRST (before `surface_to_quadric` /
+        // `ssi_rs::intersect`) so it can drive the on-both-surfaces gate below.
+        // The producer-fault helpers' `candidates` argument is diagnostic-only
+        // (untested); in this pre-intersect position we have no `returned.len()`
+        // yet, so we pass `0`.
+        let tol = if matches!(surf0, Surface::Cylinder { .. }) {
+            chord_tol_for_curved_owner(input0, a, b, 0, (s, e))?
+        } else if matches!(surf1, Surface::Cylinder { .. }) {
+            chord_tol_for_curved_owner(input1, a, b, 0, (s, e))?
+        } else if let Surface::Sphere { radius, .. } = surf0 {
+            sphere_chord_bound(radius)
+        } else if let Surface::Sphere { radius, .. } = surf1 {
+            sphere_chord_bound(radius)
+        } else if matches!(surf0, Surface::Cone { .. }) {
+            cone_chord_tol_for_owner(surf0, input0, a, b, 0, (s, e))?
+        } else if matches!(surf1, Surface::Cone { .. }) {
+            cone_chord_tol_for_owner(surf1, input1, a, b, 0, (s, e))?
+        } else {
+            cad_primitives::TAU_WORK
+        };
+
+        let p_s = mesh.verts[s as usize];
+        let p_e = mesh.verts[e as usize];
+
+        // PR-YR18 (spec §2/§3): on-both-surfaces gate. An edge handed to
+        // `ssi_rs::intersect` as a `(surf0, surf1)` intersection edge must have
+        // BOTH endpoints on BOTH attributed surfaces within the edge's Stage-1
+        // chord band `tol`. `compute_phase_a` pushes a patch's single inherited
+        // surface onto every boundary edge of the patch cycle, so a seam edge
+        // can be tagged `(surfA, surfB)` while one endpoint is genuinely off one
+        // surface — that is a single-surface internal edge, NOT a true
+        // intersection edge. Skip it (→ `Curve::LineSegment` fallback in
+        // `emit_topology`) before it reaches the SSI. Reuses the SAME `tol` the
+        // selection uses (no widening): the intersection curve lies ON both
+        // surfaces, so every edge that currently selects `matched == 1`
+        // necessarily passes this gate — it can only reclassify edges that today
+        // raise `AmbiguousCurve` with an endpoint off a surface beyond `tol`.
+        let on_both = |pt: Point3| -> Result<bool, YangError> {
+            Ok(signed_distance_to_surface(surf0, pt)?.abs() <= tol
+                && signed_distance_to_surface(surf1, pt)?.abs() <= tol)
+        };
+        if !(on_both(p_s)? && on_both(p_e)?) {
+            continue;
+        }
+
         let q0 = surface_to_quadric(surf0).map_err(|reason| YangError::SsiRefinementFailed {
             edge: (s, e),
             reason,
@@ -2554,34 +2610,6 @@ fn build_intersection_curves(
                 reason: SsiRefinementError::IntersectFailed(err),
             })?;
 
-        // Selection tolerance: the Stage-1 chord bound of the CURVED-owning
-        // input (A14.3 single source). The mesh edge endpoints sit on the
-        // curved surface's Stage-1 chord approximation, off the EXACT analytic
-        // curve by up to that surface's own chord bound — so the on-curve test
-        // must admit them at that bound (the SAME bound Stage 1 guarantees, NOT
-        // tolerance widening). Plane∩Plane → no curved surface → TAU_WORK
-        // (zero chord error). PR-YR15 extends the cylinder-only logic to a
-        // SPHERE edge: a sphere uses its OWN bound `sphere_chord_bound(radius)`
-        // (2r√3), NOT the rim-AABB `curved_chord_bound` (2r√2, which would
-        // underestimate — I-sphere-band).
-        let tol = if matches!(surf0, Surface::Cylinder { .. }) {
-            chord_tol_for_curved_owner(input0, a, b, returned.len(), (s, e))?
-        } else if matches!(surf1, Surface::Cylinder { .. }) {
-            chord_tol_for_curved_owner(input1, a, b, returned.len(), (s, e))?
-        } else if let Surface::Sphere { radius, .. } = surf0 {
-            sphere_chord_bound(radius)
-        } else if let Surface::Sphere { radius, .. } = surf1 {
-            sphere_chord_bound(radius)
-        } else if matches!(surf0, Surface::Cone { .. }) {
-            cone_chord_tol_for_owner(surf0, input0, a, b, returned.len(), (s, e))?
-        } else if matches!(surf1, Surface::Cone { .. }) {
-            cone_chord_tol_for_owner(surf1, input1, a, b, returned.len(), (s, e))?
-        } else {
-            cad_primitives::TAU_WORK
-        };
-
-        let p_s = mesh.verts[s as usize];
-        let p_e = mesh.verts[e as usize];
         let mut matched_idx: Option<usize> = None;
         let mut matched = 0usize;
         for (i, curve) in returned.iter().enumerate() {
