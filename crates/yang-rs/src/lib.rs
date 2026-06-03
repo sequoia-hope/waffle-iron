@@ -2032,10 +2032,16 @@ fn project_onto_circle(
     Ok((proj, t))
 }
 
-/// PR-YR10 (spec §4.4): residual `ρ = max(|axial|, |radial − r|)` of `pt` to an
-/// exact circle. This is the spec §4.5 classification residual the relocation
-/// drives ≤ `TAU_MODEL` (matching the RED oracle's `circle_residual`).
-fn circle_residual(pt: Point3, center: Point3, normal: Vector3, radius: f64) -> f64 {
+/// PR-YR10 (spec §4.4): per-component residual `(|axial|, |radial − r|)` of `pt`
+/// to an exact circle. This is the spec §4.5 classification residual the Stage-4
+/// relocation drives ≤ `TAU_MODEL`. The legacy combined form
+/// `ρ = max(|axial|, |radial − r|)` (PR-YR10) is recovered as `axial.max(radial_dev)`.
+///
+/// PR-YR19: the Stage-4 circle relocation guard splits the residual so the
+/// in-plane RADIAL band can be the propagated `(R/r_c)·d_ε` for a sphere section
+/// circle while the AXIAL band stays `d_ε` (spec §2/§4 Site 2, N11). Non-sphere
+/// callers fold it back to the combined max, so behavior there is byte-identical.
+fn circle_residual_split(pt: Point3, center: Point3, normal: Vector3, radius: f64) -> (f64, f64) {
     let n = normalize3(normal.as_array());
     let c = center.as_array();
     let x = pt.as_array();
@@ -2050,7 +2056,7 @@ fn circle_residual(pt: Point3, center: Point3, normal: Vector3, radius: f64) -> 
         + radial_vec[1] * radial_vec[1]
         + radial_vec[2] * radial_vec[2])
         .sqrt();
-    axial.max((radial - radius).abs())
+    (axial, (radial - radius).abs())
 }
 
 /// PR-YR11 (spec §1): the true cylinder + cutting plane for one oblique ellipse
@@ -2349,7 +2355,22 @@ fn ssi_curve_to_curve(c: ssi_rs::SsiCurve) -> Result<Curve, SsiRefinementError> 
 /// of curve `c`? No parameter solving; uses the curve's implicit residual.
 /// `tol` is supplied by the caller (the Stage-1 chord bound `d_ε`); no ad-hoc
 /// epsilon is introduced. `Parabola`/`Hyperbola` always return `false`.
-fn curve_contains_point(c: &ssi_rs::SsiCurve, p: Point3, tol: f64) -> bool {
+///
+/// PR-YR19 (spec §2/§4): `source_radius` carries the originating sphere radius
+/// `R` for a sphere section `Circle`, so the in-plane RADIAL band is scaled by
+/// the propagated factor `(R / r_circle)` (the projection of the surface-normal
+/// chord error `d_ε` onto the section plane — see spec §2's
+/// `dr ≈ (R/r_c)·d_sphere`). The AXIAL (out-of-plane) band stays the unscaled
+/// `tol` (the cut plane is exact). `source_radius = None` (every non-sphere
+/// path: cylinder / cone / plane) is BYTE-IDENTICAL to the old flat-`tol`
+/// behavior. A near-tangent section (`r_circle ≤ MIN_FEATURE_SIZE`) fails closed
+/// (keeps the unscaled band) so the factor cannot blow up.
+fn curve_contains_point(
+    c: &ssi_rs::SsiCurve,
+    p: Point3,
+    tol: f64,
+    source_radius: Option<f64>,
+) -> bool {
     let x = p.as_array();
     match c {
         ssi_rs::SsiCurve::Circle {
@@ -2370,7 +2391,13 @@ fn curve_contains_point(c: &ssi_rs::SsiCurve, p: Point3, tol: f64) -> bool {
                 + radial_vec[1] * radial_vec[1]
                 + radial_vec[2] * radial_vec[2])
                 .sqrt();
-            axial.abs() <= tol && (radial - radius).abs() <= tol
+            let radial_tol = match source_radius {
+                Some(big_r) if *radius > cad_primitives::MIN_FEATURE_SIZE => {
+                    (big_r / *radius) * tol
+                }
+                _ => tol,
+            };
+            axial.abs() <= tol && (radial - radius).abs() <= radial_tol
         }
         ssi_rs::SsiCurve::Line { point, dir } => {
             let d = normalize3(dir.as_array());
@@ -2555,20 +2582,32 @@ fn build_intersection_curves(
         // The producer-fault helpers' `candidates` argument is diagnostic-only
         // (untested); in this pre-intersect position we have no `returned.len()`
         // yet, so we pass `0`.
-        let tol = if matches!(surf0, Surface::Cylinder { .. }) {
-            chord_tol_for_curved_owner(input0, a, b, 0, (s, e))?
+        // PR-YR19: alongside `tol`, derive `source_radius` — `Some(R)` ONLY for
+        // a sphere-owning edge, so `curve_contains_point` scales the section
+        // `Circle`'s in-plane radial band by the propagated factor `(R/r_c)`
+        // (spec §2). Cylinder / cone / plane arms keep `None` (byte-identical to
+        // the pre-YR19 flat-band membership test).
+        let (tol, source_radius): (f64, Option<f64>) = if matches!(surf0, Surface::Cylinder { .. })
+        {
+            (chord_tol_for_curved_owner(input0, a, b, 0, (s, e))?, None)
         } else if matches!(surf1, Surface::Cylinder { .. }) {
-            chord_tol_for_curved_owner(input1, a, b, 0, (s, e))?
+            (chord_tol_for_curved_owner(input1, a, b, 0, (s, e))?, None)
         } else if let Surface::Sphere { radius, .. } = surf0 {
-            sphere_chord_bound(radius)
+            (sphere_chord_bound(radius), Some(radius))
         } else if let Surface::Sphere { radius, .. } = surf1 {
-            sphere_chord_bound(radius)
+            (sphere_chord_bound(radius), Some(radius))
         } else if matches!(surf0, Surface::Cone { .. }) {
-            cone_chord_tol_for_owner(surf0, input0, a, b, 0, (s, e))?
+            (
+                cone_chord_tol_for_owner(surf0, input0, a, b, 0, (s, e))?,
+                None,
+            )
         } else if matches!(surf1, Surface::Cone { .. }) {
-            cone_chord_tol_for_owner(surf1, input1, a, b, 0, (s, e))?
+            (
+                cone_chord_tol_for_owner(surf1, input1, a, b, 0, (s, e))?,
+                None,
+            )
         } else {
-            cad_primitives::TAU_WORK
+            (cad_primitives::TAU_WORK, None)
         };
 
         let p_s = mesh.verts[s as usize];
@@ -2613,7 +2652,9 @@ fn build_intersection_curves(
         let mut matched_idx: Option<usize> = None;
         let mut matched = 0usize;
         for (i, curve) in returned.iter().enumerate() {
-            if curve_contains_point(curve, p_s, tol) && curve_contains_point(curve, p_e, tol) {
+            if curve_contains_point(curve, p_s, tol, source_radius)
+                && curve_contains_point(curve, p_e, tol, source_radius)
+            {
                 matched += 1;
                 matched_idx = Some(i);
             }
@@ -3498,8 +3539,11 @@ fn stage4_relocate_and_correct(
     // + cutting plane per Ellipse edge for the closed-form cylinder relocation.
     let (_infos0, inc0, curves0) = compute_phase_a(mesh, attribution, a, b)?;
 
-    // Per-vertex Circle assignment (deterministic via BTreeMap).
-    let mut vert_circle: BTreeMap<u32, (Point3, Vector3, f64)> = BTreeMap::new();
+    // Per-vertex Circle assignment (deterministic via BTreeMap). PR-YR19: the
+    // 4th tuple element carries the originating sphere radius `Some(R)` for a
+    // sphere section circle (else `None`) so the relocation guard can scale the
+    // in-plane radial band by `(R/r_c)` (spec §2/§4 Site 2).
+    let mut vert_circle: BTreeMap<u32, (Point3, Vector3, f64, Option<f64>)> = BTreeMap::new();
     // PR-YR11: per-vertex Ellipse relocation data (the true cylinder + plane +
     // stored ellipse), analogous to `vert_circle`.
     let mut vert_ellipse: BTreeMap<u32, EllipseReloc> = BTreeMap::new();
@@ -3511,8 +3555,20 @@ fn stage4_relocate_and_correct(
                 normal,
                 radius,
             } => {
+                // PR-YR19: scan this edge's incidence for a `Surface::Sphere`
+                // owner → `Some(R)`; else `None`. Uses the SAME canonical key as
+                // the Ellipse arm below.
+                let key = if s < e { (s, e) } else { (e, s) };
+                let mut source_radius: Option<f64> = None;
+                if let Some(entries) = inc0.get(&key) {
+                    for &(_input, surf) in entries {
+                        if let Surface::Sphere { radius: sr, .. } = surf {
+                            source_radius = Some(sr);
+                        }
+                    }
+                }
                 for v in [s, e] {
-                    vert_circle.insert(v, (center, normal, radius));
+                    vert_circle.insert(v, (center, normal, radius, source_radius));
                     endpoints.push(v);
                 }
             }
@@ -3597,15 +3653,28 @@ fn stage4_relocate_and_correct(
     let mut moved: HashSet<u32> = HashSet::new();
     let mut relocations: Vec<(u32, f64)> = Vec::new();
     // Deterministic order: BTreeMap iteration.
-    for (&v, &(center, normal, radius)) in &vert_circle {
+    for (&v, &(center, normal, radius, src_r)) in &vert_circle {
         let p = mesh.verts[v as usize];
-        let rho = circle_residual(p, center, normal, radius);
-        if rho > d_eps {
+        // PR-YR19 (spec §4 Site 2): split the residual so the in-plane RADIAL
+        // band is the propagated `(R/r_c)·d_ε` for a sphere section circle while
+        // the AXIAL band stays `d_ε`. For `None`/non-sphere this is identical to
+        // `max(axial, radial_dev) > d_eps`, i.e. byte-identical to the prior
+        // `circle_residual > d_eps`. Near-tangent (`radius ≤ MIN_FEATURE_SIZE`)
+        // fails closed (keeps the unscaled band).
+        let (axial, radial_dev) = circle_residual_split(p, center, normal, radius);
+        let radial_band = match src_r {
+            Some(big_r) if radius > cad_primitives::MIN_FEATURE_SIZE => (big_r / radius) * d_eps,
+            _ => d_eps,
+        };
+        if axial > d_eps || radial_dev > radial_band {
             return Err(YangError::Stage4RegionInvalid {
                 vertex: v,
                 reason: Stage4InvalidReason::OffCurveBeyondChordBand,
             });
         }
+        // Preserve the original combined-max `rho` for the `> TAU_WORK`
+        // move-gate so its semantics are unchanged.
+        let rho = axial.max(radial_dev);
         // Always project to obtain the circle-frame angle `t` (and the exact
         // on-curve position). For ρ ≤ TAU_WORK the projection is a no-op move
         // but still yields the retag `t`; for the relocate band it moves the
