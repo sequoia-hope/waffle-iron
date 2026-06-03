@@ -4113,11 +4113,12 @@ fn emit_topology(
                 }
             }
 
-            // Empty-cycles guard (PR-CF1 case#23): a kept curved patch with no
-            // boundary cycle (e.g. sphere−box where the box fully encloses the
-            // sphere region, so the curved patch has no intersection boundary)
-            // cannot form a bounded face — out-of-scope reassembly, mirroring
-            // the E2/E3 degenerate-reassembly guards. Without this, the
+            // Empty-cycles guard (PR-CF1 case#23): a kept curved patch can come out with
+            // no boundary cycle for the box-as-subtrahend direction (prim − box), which
+            // is a DEFERRED, out-of-scope op direction (spec §2) — the reassembly leaves
+            // the curved patch with no intersection-boundary loop even though the solid
+            // result is non-empty. Such a patch cannot form a bounded face; refuse loudly,
+            // mirroring the E2/E3 degenerate-reassembly guards. Without this, the
             // `cycles[outer_idx]` index below panics on the empty set.
             if cycles.is_empty() {
                 return Err(YangError::NonManifoldOutput);
