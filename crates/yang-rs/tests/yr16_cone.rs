@@ -223,7 +223,7 @@ fn corpus() -> Vec<ConeCase> {
             name: "z-up unit",
             apex: [0.0, 0.0, 0.0],
             axis_dir: [0.0, 0.0, 1.0],
-            half_angle: (1.0_f64 / 1.0).atan(),
+            half_angle: std::f64::consts::FRAC_PI_4,
             height: 1.0,
         },
         ConeCase {
