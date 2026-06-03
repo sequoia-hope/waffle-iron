@@ -4113,6 +4113,16 @@ fn emit_topology(
                 }
             }
 
+            // Empty-cycles guard (PR-CF1 case#23): a kept curved patch with no
+            // boundary cycle (e.g. sphere−box where the box fully encloses the
+            // sphere region, so the curved patch has no intersection boundary)
+            // cannot form a bounded face — out-of-scope reassembly, mirroring
+            // the E2/E3 degenerate-reassembly guards. Without this, the
+            // `cycles[outer_idx]` index below panics on the empty set.
+            if cycles.is_empty() {
+                return Err(YangError::NonManifoldOutput);
+            }
+
             // Deterministic loop assignment: outer = the cycle with the MOST
             // edges; tie-break = lowest min start-vertex index within the
             // cycle. All other cycles = inner_loops.
@@ -4188,6 +4198,16 @@ fn emit_topology(
                 return Err(YangError::NonManifoldOutput);
             }
             signed_areas.push(nx * n[0] + ny * n[1] + nz * n[2]);
+        }
+
+        // Empty-cycles guard (PR-CF1 defensive mirror of the curved branch):
+        // a kept planar patch with no boundary cycle cannot form a bounded
+        // face. Latent here (the all-planar fuzz never produces empty cycles)
+        // but structurally identical to the curved-branch panic — the
+        // `signed_areas[outer_idx]` / `cycles[outer_idx]` index below would
+        // panic on the empty set. Mirrors the E2/E3 degenerate guards.
+        if cycles.is_empty() {
+            return Err(YangError::NonManifoldOutput);
         }
 
         // Outer boundary = the largest-|area| cycle. Its sign (relative to
