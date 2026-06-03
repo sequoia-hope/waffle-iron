@@ -790,6 +790,16 @@ reimplementation from Attene's paper restores WASM (M7).
     `--all-targets` clean. Spec `specs/yr17_subtract_cone_cavity.md`; role-separated
     cycle, commits `f9d597d8` (spec)→`f6a06012` (RED)→`f21434a1` (GREEN)→`741b50f1`
     (adversary).
+  - **Non-convex / holed planar Stage-1 tessellation** ✅ (PR-NC1): planar faces
+    with a reflex vertex (non-convex outer loop) **or** inner loops (holes) now
+    tessellate via a constrained Delaunay triangulation
+    (`cherchi_rs::cdt_polygon_with_holes`, backed by `spade` v2) instead of the
+    fan path. No interior Steiner points, no boundary subdivision (the
+    `TessellationMap` 1:1-on-boundary bijection is preserved); convex/box faces
+    stay byte-for-byte on the existing fan path (`fuzz_boxes` 900/900
+    unregressed). Resolves the D1-class (no ear-clipping) concern for the new
+    kernel's planar Stage 1. Spec `specs/yang_pr_nc1_nonconvex_cdt.md`; deviation
+    ledger **N9**.
   - **Next M5 increments (sequenced):** ~~curved `Subtract` cavity-sense~~
     (PR-YR13 ✅, box − cylinder blind pocket; ~~through-hole genus-1~~ PR-YR14 ✅;
     ~~box − sphere hemispherical dimple~~ PR-YR15 ✅; ~~box − cone conical pocket~~

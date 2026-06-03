@@ -37,6 +37,15 @@ projects MUST include a header comment naming the upstream file and license:
 //! See ../LICENSE-THIRD-PARTY.md for full attribution.
 ```
 
+## Cargo dependencies (linked crates, not vendored source)
+
+- **`spade`** (v2) — https://github.com/Stoeoef/spade — dual MIT / Apache-2.0.
+  Constrained Delaunay triangulation backend for
+  `triangulation::cdt_polygon_with_holes` (planar non-convex / holed face
+  tessellation). Pure-Rust, WASM-clean; exact orientation / in-circle predicates
+  via the `robust` crate (Shewchuk adaptive). We link it as a normal dependency
+  — no source is vendored or ported.
+
 ## Adaptation notes
 
 - Where the C++ uses cinolib's `Rational`, we use `dashu` (pure-Rust).

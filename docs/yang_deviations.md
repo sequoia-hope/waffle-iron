@@ -414,7 +414,9 @@ provenance). **Sign-off:** pending.
 exactness for flat patches — no Steiner points needed); the cylinder uses a
 2-ring + chord-bound rim sampling; watertightness comes from shared rim rings
 rather than per-boundary CDT. Deliberate divergence, acceptable while inputs are
-analytic primitives. Distinct from legacy **D9/D10**.
+analytic primitives. Distinct from legacy **D9/D10**. (PR-NC1 update: non-convex
+and holed *planar* faces now go through a no-Steiner CDT — see **N9** — but the
+1:1 / no-`d_ε` property is preserved for the planar scope.)
 
 **Severity:** low. **Remediation:** closure bundled with NURBS support (legacy
 **D14** analog). **Sign-off:** candidate (faithful-by-exactness for the analytic
@@ -475,6 +477,35 @@ Documented in the PR-YR9 spec; recorded here for ledger completeness.
 **Severity:** low (documented design substitution, not a hidden divergence).
 **Sign-off:** *signed off* — sound in-scope substitution, mirroring the N1
 rationale.
+
+### N9 — Planar non-convex / holed Stage-1 tessellation uses no-Steiner CDT (spade)
+
+**Code location:** `crates/yang-rs/src/lib.rs` planar dispatch arm
+(`tessellate_planar_cdt_face` + `planar_outer_loop_is_nonconvex`);
+`crates/cherchi-rs/src/triangulation/mod.rs` (`cdt_polygon_with_holes`,
+backed by `spade` v2). Prompt/spec `specs/yang_pr_nc1_nonconvex_cdt.md`.
+
+**Paper section:** §4.1.2 (404-407, CDT) — the §4.4.1 D1-class concern (plain
+ear-clipping is forbidden).
+
+**Current behavior:** convex, hole-free planar faces keep the original fan
+triangulation (byte-for-byte; `fuzz_boxes` 900/900 unregressed). Non-convex
+outer loops (a reflex vertex) and faces with inner loops route to a true
+**constrained Delaunay triangulation** with the boundary loops as hard
+constraint edges. The CDT is run with the **boundary vertex set only** — it
+adds **no** interior Steiner points and never subdivides a boundary edge, so the
+output vertex set equals the input boundary vertex set and the planar
+`TessellationMap` stays 1:1-on-boundary. This is the **no-Steiner planar
+simplification**, analogous to **N5** (faithful-by-exactness for flat patches:
+a planar polygon needs no interior density to be represented exactly). Using
+`spade` (Rust-native CDT via the `robust` adaptive predicates) rather than
+CGAL's CDT mirrors the long-standing D1 implementation-choice note — same
+algorithm class, not a behavioral deviation. This **resolves the D1-class
+concern for the new kernel's planar Stage-1** (no ear-clipping anywhere).
+
+**Severity:** low (faithful-by-exactness; documented design choice).
+**Sign-off:** candidate — sound in-scope simplification (planar faces carry no
+chord error, so no `d_ε` densification is warranted).
 
 ### Legacy ↔ new-crate cross-reference
 

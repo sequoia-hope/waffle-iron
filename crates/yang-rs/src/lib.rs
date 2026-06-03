@@ -371,12 +371,17 @@ pub struct BRep {
 impl BRep {
     /// Construct from B-Rep topology. **Eagerly tessellates** via Stage 1.
     ///
-    /// PR-YR2 limitations:
-    /// - `Surface::Plane` only (caller-provided)
-    /// - Convex faces only (fan-triangulation; non-convex produces
-    ///   self-intersecting triangles)
-    /// - No inner loops (no holes)
-    /// - No Steiner points (output `Mesh` has exactly `verts.len()` vertices)
+    /// Planar-face tessellation (PR-YR2 / PR-NC1):
+    /// - Convex, hole-free planar faces use the original fan triangulation
+    ///   (unchanged, byte-for-byte).
+    /// - Non-convex planar faces (a reflex vertex on the outer loop) **and**
+    ///   planar faces with inner loops (holes) tessellate via a constrained
+    ///   Delaunay triangulation (`cherchi_rs::cdt_polygon_with_holes`, PR-NC1).
+    ///   The CDT path adds **no** interior Steiner points and never subdivides
+    ///   a boundary edge — the output vertex set equals the input boundary
+    ///   vertex set, so the planar `TessellationMap` stays 1:1 on boundary.
+    /// - Curved surfaces (cylinder / sphere / cone) follow their own Stage-1
+    ///   paths and DO introduce Steiner rim / center vertices.
     ///
     /// Returns `Err(YangError::MalformedTopology)` for:
     /// - Any face with `outer_loop.len() < 3`
@@ -604,37 +609,58 @@ impl BRep {
 
             match f.surface {
                 Surface::Plane { normal, d } if all_line => {
-                    // ===== Planar box path (UNCHANGED — Newell fan). =====
-                    let mut face_verts: Vec<u32> = f
-                        .outer_loop
-                        .iter()
-                        .map(|&e_idx| edges[e_idx as usize].start)
-                        .collect();
+                    // Route non-convex (reflex-vertex) outer loops and any face
+                    // with inner loops (holes) to the CDT path; convex,
+                    // hole-free faces keep the existing byte-for-byte fan path.
+                    // (PR-NC1: a fan is valid only for convex, hole-free
+                    // polygons; CDT handles the rest with exact coverage and no
+                    // Steiner points.)
+                    let needs_cdt = !f.inner_loops.is_empty()
+                        || planar_outer_loop_is_nonconvex(f, &edges, &out_verts, normal);
 
-                    let mut newell = [0.0f64; 3];
-                    let m = face_verts.len();
-                    for i in 0..m {
-                        let vi = out_verts[face_verts[i] as usize].as_array();
-                        let vj = out_verts[face_verts[(i + 1) % m] as usize].as_array();
-                        newell[0] += (vi[1] - vj[1]) * (vi[2] + vj[2]);
-                        newell[1] += (vi[2] - vj[2]) * (vi[0] + vj[0]);
-                        newell[2] += (vi[0] - vj[0]) * (vi[1] + vj[1]);
+                    if needs_cdt {
+                        tessellate_planar_cdt_face(
+                            f_idx,
+                            f,
+                            &edges,
+                            normal,
+                            &out_verts,
+                            &mut out_tris,
+                        )?;
+                    } else {
+                        // ===== Planar box path (UNCHANGED — Newell fan). =====
+                        let mut face_verts: Vec<u32> = f
+                            .outer_loop
+                            .iter()
+                            .map(|&e_idx| edges[e_idx as usize].start)
+                            .collect();
+
+                        let mut newell = [0.0f64; 3];
+                        let m = face_verts.len();
+                        for i in 0..m {
+                            let vi = out_verts[face_verts[i] as usize].as_array();
+                            let vj = out_verts[face_verts[(i + 1) % m] as usize].as_array();
+                            newell[0] += (vi[1] - vj[1]) * (vi[2] + vj[2]);
+                            newell[1] += (vi[2] - vj[2]) * (vi[0] + vj[0]);
+                            newell[2] += (vi[0] - vj[0]) * (vi[1] + vj[1]);
+                        }
+                        let mag =
+                            (newell[0] * newell[0] + newell[1] * newell[1] + newell[2] * newell[2])
+                                .sqrt();
+                        if mag < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE
+                        {
+                            return Err(YangError::DegenerateFace { face: f_idx });
+                        }
+                        let n = normal.as_array();
+                        let dot = newell[0] * n[0] + newell[1] * n[1] + newell[2] * n[2];
+                        if dot < 0.0 {
+                            face_verts.reverse();
+                        }
+                        for i in 1..face_verts.len() - 1 {
+                            out_tris.push([face_verts[0], face_verts[i], face_verts[i + 1]]);
+                        }
+                        let _ = d;
                     }
-                    let mag =
-                        (newell[0] * newell[0] + newell[1] * newell[1] + newell[2] * newell[2])
-                            .sqrt();
-                    if mag < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE {
-                        return Err(YangError::DegenerateFace { face: f_idx });
-                    }
-                    let n = normal.as_array();
-                    let dot = newell[0] * n[0] + newell[1] * n[1] + newell[2] * n[2];
-                    if dot < 0.0 {
-                        face_verts.reverse();
-                    }
-                    for i in 1..face_verts.len() - 1 {
-                        out_tris.push([face_verts[0], face_verts[i], face_verts[i + 1]]);
-                    }
-                    let _ = d;
                 }
                 Surface::Plane { normal, .. } => {
                     // ===== Curved-bounded planar cap (disk fan). =====
@@ -1075,6 +1101,190 @@ fn ellipse_tangent(
         -major_radius * st * maj[1] + minor_radius * ct * mindir[1],
         -major_radius * st * maj[2] + minor_radius * ct * mindir[2],
     ]
+}
+
+/// PR-NC1: is the outer loop of a planar, all-LineSegment face **non-convex**
+/// (does it have a reflex vertex)?
+///
+/// Builds `face_verts` from each outer-loop edge's `.start` (the same vertex
+/// order the fan path uses), projects them into the plane's intrinsic 2D frame
+/// (`ortho_basis(normal)` — the SAME projection the CDT path uses, so the
+/// reflex test and the triangulation agree), then walks consecutive 2D cross
+/// products. The loop's overall orientation is the sign of its signed area; any
+/// turn whose cross product has the OPPOSITE sign is a reflex vertex ⇒
+/// non-convex. A near-zero cross (collinear vertices) is not reflex.
+fn planar_outer_loop_is_nonconvex(
+    f: &BRepFace,
+    edges: &[BRepEdge],
+    out_verts: &[Point3],
+    normal: Vector3,
+) -> bool {
+    let pts2d = project_loop_2d(&f.outer_loop, edges, out_verts, normal);
+    let m = pts2d.len();
+    if m < 4 {
+        // A triangle is always convex.
+        return false;
+    }
+
+    // Loop orientation = sign of the 2D signed (shoelace) area.
+    let mut area2 = 0.0;
+    for i in 0..m {
+        let a = pts2d[i];
+        let b = pts2d[(i + 1) % m];
+        area2 += a[0] * b[1] - b[0] * a[1];
+    }
+    // Degenerate (zero-area) projection: treat as convex (the fan path's
+    // own degeneracy guard will reject it downstream).
+    if area2.abs() < cad_primitives::TAU_WORK {
+        return false;
+    }
+    let orient = area2.signum();
+
+    // Tolerance scaled to the loop's area so it is invariant to model scale.
+    let eps = area2.abs() * 1e-9;
+    for i in 0..m {
+        let prev = pts2d[(i + m - 1) % m];
+        let cur = pts2d[i];
+        let next = pts2d[(i + 1) % m];
+        let d1 = [cur[0] - prev[0], cur[1] - prev[1]];
+        let d2 = [next[0] - cur[0], next[1] - cur[1]];
+        let cross = d1[0] * d2[1] - d1[1] * d2[0];
+        // A turn opposite the loop orientation is a reflex vertex.
+        if cross * orient < -eps {
+            return true;
+        }
+    }
+    false
+}
+
+/// PR-NC1: project an edge-index loop's vertices (each loop edge's `.start`)
+/// into the plane's intrinsic 2D frame `ortho_basis(normal)`. Returns the 2D
+/// coordinates in loop order. The 3D point of vertex `v` projects to
+/// `(p·e1, p·e2)` (the origin offset cancels for in-plane analysis).
+fn project_loop_2d(
+    loop_edges: &[u32],
+    edges: &[BRepEdge],
+    out_verts: &[Point3],
+    normal: Vector3,
+) -> Vec<[f64; 2]> {
+    let (e1, e2) = ortho_basis(normal);
+    let e1a = e1.as_array();
+    let e2a = e2.as_array();
+    loop_edges
+        .iter()
+        .map(|&e_idx| {
+            let p = out_verts[edges[e_idx as usize].start as usize].as_array();
+            [
+                p[0] * e1a[0] + p[1] * e1a[1] + p[2] * e1a[2],
+                p[0] * e2a[0] + p[1] * e2a[1] + p[2] * e2a[2],
+            ]
+        })
+        .collect()
+}
+
+/// PR-NC1: tessellate a planar, all-LineSegment face that is **non-convex** or
+/// has **inner loops** via a constrained Delaunay triangulation
+/// (`cherchi_rs::cdt_polygon_with_holes`).
+///
+/// Projects the outer loop + every inner loop into the plane's intrinsic 2D
+/// frame (`ortho_basis(normal)`, matching the reflex test), builds a *local*
+/// `Point2` pool with a `local → global out_verts index` map, triangulates, and
+/// maps the local tri indices back to global indices. Each output triangle is
+/// wound to agree with the plane normal (reusing `orient_tri`, the same sign
+/// rule the fan path uses).
+///
+/// Pushes **no** new vertices — the output indexes only into existing
+/// `out_verts`, so the `TessellationMap` 1:1-on-boundary bijection is preserved
+/// (no Steiner points, no boundary subdivision).
+fn tessellate_planar_cdt_face(
+    f_idx: usize,
+    f: &BRepFace,
+    edges: &[BRepEdge],
+    normal: Vector3,
+    out_verts: &[Point3],
+    out_tris: &mut Vec<[u32; 3]>,
+) -> Result<(), YangError> {
+    // Build local 2D pool + local→global map. Each loop vertex is keyed by its
+    // global `out_verts` index so shared vertices map to one local index.
+    let (e1, e2) = ortho_basis(normal);
+    let e1a = e1.as_array();
+    let e2a = e2.as_array();
+    let project = |g: u32| -> cad_primitives::Point2 {
+        let p = out_verts[g as usize].as_array();
+        cad_primitives::Point2::new(
+            p[0] * e1a[0] + p[1] * e1a[1] + p[2] * e1a[2],
+            p[0] * e2a[0] + p[1] * e2a[1] + p[2] * e2a[2],
+        )
+    };
+
+    let mut local_verts: Vec<cad_primitives::Point2> = Vec::new();
+    let mut global_of_local: Vec<u32> = Vec::new();
+    let mut local_of_global: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+
+    let intern = |g: u32,
+                  local_verts: &mut Vec<cad_primitives::Point2>,
+                  global_of_local: &mut Vec<u32>,
+                  local_of_global: &mut std::collections::HashMap<u32, u32>|
+     -> u32 {
+        if let Some(&l) = local_of_global.get(&g) {
+            return l;
+        }
+        let l = local_verts.len() as u32;
+        local_verts.push(project(g));
+        global_of_local.push(g);
+        local_of_global.insert(g, l);
+        l
+    };
+
+    let loop_to_local = |loop_edges: &[u32],
+                         local_verts: &mut Vec<cad_primitives::Point2>,
+                         global_of_local: &mut Vec<u32>,
+                         local_of_global: &mut std::collections::HashMap<u32, u32>|
+     -> Vec<u32> {
+        loop_edges
+            .iter()
+            .map(|&e_idx| {
+                let g = edges[e_idx as usize].start;
+                intern(g, local_verts, global_of_local, local_of_global)
+            })
+            .collect()
+    };
+
+    let outer_local = loop_to_local(
+        &f.outer_loop,
+        &mut local_verts,
+        &mut global_of_local,
+        &mut local_of_global,
+    );
+    let holes_local: Vec<Vec<u32>> = f
+        .inner_loops
+        .iter()
+        .map(|inner| {
+            loop_to_local(
+                inner,
+                &mut local_verts,
+                &mut global_of_local,
+                &mut local_of_global,
+            )
+        })
+        .collect();
+
+    let local_tris = cherchi_rs::cdt_polygon_with_holes(&local_verts, &outer_local, &holes_local)
+        .map_err(|e| {
+        YangError::MalformedTopology(format!("face {f_idx}: CDT triangulation failed: {e}"))
+    })?;
+
+    let nu = normalize3(normal.as_array());
+    for t in &local_tris {
+        let mut tri = [
+            global_of_local[t[0] as usize],
+            global_of_local[t[1] as usize],
+            global_of_local[t[2] as usize],
+        ];
+        orient_tri(out_verts, &mut tri, nu);
+        out_tris.push(tri);
+    }
+    Ok(())
 }
 
 /// PR-YR7: tessellate a planar disk cap bounded by a single `Curve::Circle`
