@@ -996,9 +996,15 @@ reimplementation from Attene's paper restores WASM (M7).
     `specs/yr20_face_resolution_tiered_tiebreak.md`; deviation **N12** (refines
     N4). **Calibrated metric:** total `FaceResolutionFailed → ~0`, cylinder
     `ok_correct` rises (the cap-tie unblocks it), **ZERO new silent-wrong / no new
-    `NonManifoldOutput`**. The curved-fuzz delta is driver-verified post-merge
-    (the worker hit `curved_fuzz_sidecar_zombie_blocker` and did NOT fabricate
-    numbers). **Deferred (still LOUD):** cone `ok_correct` stays 0 — a cone
+    `NonManifoldOutput`**. **Driver-verified empirical delta** (curved fuzz N=90,
+    same seed, before→after; worker hit `curved_fuzz_sidecar_zombie_blocker`, did
+    NOT fabricate): **total `FaceResolutionFailed` 16 → 0 (eliminated)**; cylinder
+    `ok_correct` 22 → 31 (Subtract now 12/12, Union 19/20 — the 1 remaining is an
+    unrelated `NonManifoldOutput`); total `ok_correct` 52 → **61**; **`SILENT_WRONG`
+    0 → 0**. As calibrated, cone `FaceResolutionFailed` 7 → 0 but cone `ok_correct`
+    stayed 0 — the refusal shifted to the deferred `AmbiguousCurve` conics (15 → 21)
+    + `LocalRefinementRequired`, exactly the intended sibling-variant shift, not a
+    real failure. **Deferred (still LOUD):** cone `ok_correct` stays 0 — a cone
     triangle that stops being an F3 tie simply refuses later for the deferred
     analytic-conic reason (`Parabola`/`Hyperbola`, oblique cone∩plane; see N7 /
     N10 / N11). That is correct, not a regression.
