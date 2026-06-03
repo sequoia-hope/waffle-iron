@@ -3215,27 +3215,35 @@ pub fn boolean(
                 None => return Err(YangError::FaceResolutionFailed { tri: compact_t }),
             }
         } else {
-            // Non-degenerate triangle: the F1/F3 rule generalized to the
-            // per-face tolerance — count faces whose surface contains the
-            // centroid within ITS tolerance: exactly one → attribute; zero →
-            // F3 (no match); ≥2 → F3 (tie).
-            //
-            // For all-planar inputs (every tol = TAU_WORK), "exactly one face
-            // with dist < TAU_WORK" is byte-for-byte the OLD rule ("min <
-            // TAU_WORK ∧ second ≥ TAU_WORK", argmin face): the single sub-tol
-            // face IS the overall argmin, so the attributed face is identical.
-            let mut hit: Option<u32> = None;
-            let mut n_hits = 0usize;
+            // PR-YR20 tiered tie-break: an EXACT membership (centroid within
+            // TAU_WORK of the surface — it lies ON it) dominates a
+            // within-chord-band membership. Each face still uses its own A14.3
+            // band via tol_for; we only rank the tie by tier. For all-planar
+            // inputs every hit is EXACT (planar tol == TAU_WORK), so this is
+            // byte-for-byte the old "exactly one face within TAU_WORK" rule.
+            let mut exact_hit: Option<u32> = None;
+            let mut n_exact = 0usize;
+            let mut band_hit: Option<u32> = None;
+            let mut n_band = 0usize;
             for (fi, f) in input_brep.faces().iter().enumerate() {
-                if plane_dist(fi, f)? < tol_for(fi, f.surface)? {
-                    n_hits += 1;
-                    if n_hits == 1 {
-                        hit = Some(fi as u32);
+                let d = plane_dist(fi, f)?;
+                if d < tol_for(fi, f.surface)? {
+                    if d < cad_primitives::TAU_WORK {
+                        n_exact += 1;
+                        if n_exact == 1 {
+                            exact_hit = Some(fi as u32);
+                        }
+                    } else {
+                        n_band += 1;
+                        if n_band == 1 {
+                            band_hit = Some(fi as u32);
+                        }
                     }
                 }
             }
-            match (n_hits, hit) {
-                (1, Some(fi)) => fi,
+            match (n_exact, exact_hit, n_band, band_hit) {
+                (1, Some(fi), _, _) => fi, // unique exact-tier hit dominates
+                (0, _, 1, Some(fi)) => fi, // no exact hit; unique band-tier hit
                 _ => return Err(YangError::FaceResolutionFailed { tri: compact_t }),
             }
         };
