@@ -845,6 +845,64 @@ reimplementation from Attene's paper restores WASM (M7).
     direction. Spec `specs/yang_pr_cf1_curved_boolean_fuzz.md`; role-separated cycle,
     commits `f0ea2e24` (spec)→`884726f5` (RED)→`a568d9e6` (GREEN)→`0771dcc6`
     (adversary).
+  - **PR-YR18 — Stage-5 intersection-edge attribution fix (the CF1 `AmbiguousCurve`
+    dominant-refusal). ✅ DONE.** Re-diagnoses CF1's biggest loud bucket: the
+    `SsiRefinementFailed::AmbiguousCurve` mass (183/300 in the CF1 histogram) is
+    **NOT** the "SSI rim-selection gap" the CF1 note guessed — a driver
+    investigation found **0 cases with `matched ≥ 2`; every `AmbiguousCurve` is
+    `matched == 0`**, and the bulk is **cylinder + sphere** (both fully handled by
+    `ssi-rs`), not missing conics. It is a **surface-attribution defect**:
+    `compute_phase_a` pushes a patch's single `info.inherited` face surface onto
+    *every* boundary edge of the patch cycle (`src/lib.rs:3279-3289`), so a seam
+    edge shared by two patches gets tagged `(surfA, surfB)` and handed to
+    `ssi_rs::intersect` even when **one endpoint is genuinely off one surface**
+    (decisive case: a cylinder∩plane edge, `tol≈3.1e-2`, one endpoint on both
+    surfaces, the other `~8.9e-2` — ~2.9× the chord band — off the plane). Such an
+    edge is an internal facet edge of a *single* surface, not a true intersection
+    arc; the returned curve cannot pass through both endpoints → `matched == 0`.
+    The SSI math is correct (`candidates == 1`); the defect is the
+    **classification**. **GREEN fix (`src/lib.rs` `build_intersection_curves`
+    only):** reorder so the Stage-1 chord band `tol` is computed FIRST, then gate
+    each candidate edge with an **on-both-surfaces predicate** — both mesh
+    endpoints must satisfy `|signed_distance_to_surface(surf, p)| <= tol` for BOTH
+    attributed surfaces — *before* `ssi_rs::intersect`. A failing edge `continue`s
+    and falls through to the unchanged `Curve::LineSegment` fallback in
+    `emit_topology` instead of raising `AmbiguousCurve`. **No tolerance widening
+    (P9/P10):** the gate reuses the SAME per-edge `tol` the selection already uses
+    (the producer-fault helpers' diagnostic-only `candidates` arg is passed `0` in
+    the pre-intersect position — untested). **No-regression invariant (proof):**
+    the intersection curve lies ON both surfaces, so any edge that currently
+    selects `matched == 1` necessarily passes the gate — the gate is a *necessary
+    condition* of existing success and cannot regress YR8–YR17 or the planar
+    corpus; it only reclassifies edges that today raise `AmbiguousCurve` with an
+    endpoint off a surface beyond `tol`. Coincident-plane / yr9 loud STOPs
+    preserved (both endpoints on both surfaces → pass the gate → reach the loud
+    path); cone conics stay loud (a true cone∩plane edge passes the gate then still
+    hits `matched != 1` because `curve_contains_point` returns `false` for conics —
+    correct, the deferred analytic-conic follow-up). **Before/after counts:** CF1
+    baseline = `AmbiguousCurve == 183` (cylinder + sphere `matched == 0` bulk). The
+    **empirical post-fix sidecar-fuzz histogram could NOT be obtained in this
+    container** — the Cherchi sidecar subprocesses zombie out and the
+    `fuzz_curved` harness hangs without printing a final histogram (pervasive
+    un-reaped `<defunct>`/`Z` processes, some days old, independent of this
+    change); repeated N=300/120/40 runs all stalled. Per
+    `feedback_no_regression_chasing` / "don't loop", no numbers were fabricated.
+    Correctness evidence is instead **deterministic, sidecar-free**: a RED fixture
+    (`tests/yr18_attribution.rs`) that reproduces the EXACT cylinder∩plane
+    `matched == 0` case (`AmbiguousCurve { candidates: 1, matched: 0 }`, edge
+    `(0,1)`, off endpoint 2.90× the band) and goes GREEN under the fix; the
+    no-regression invariant (proof, statically audited by the adversary); and the
+    adversary over-skip guard (`tests/yr18_adversary.rs`) proving genuine cap-ring
+    cylinder∩plane edges still pass the gate and emit `Curve::Circle` (the RED
+    test's negative-only assertions cannot catch a degenerate skip-everything
+    "fix"). Full `cargo test -p yang-rs` green; `cargo fmt -p yang-rs -- --check`
+    and `cargo clippy -p yang-rs --all-targets -- -D warnings` clean. Spec
+    `specs/yr18_intersection_edge_attribution.md`; role-separated cycle, commits
+    `ea94cc1c` (spec)→`5536432b` (RED)→`2345b791` (GREEN)→`44dc1cde` (clippy
+    chore)→docs+adversary. **Deferred follow-up:** analytic-conic support
+    (`Parabola`/`Hyperbola` for oblique cone cuts) so true cone∩plane edges that
+    pass the gate stop being loud; the empirical curved-fuzz `AmbiguousCurve` drop
+    once the sidecar/zombie environment is fixed.
   - **Next M5 increments (sequenced):** ~~curved `Subtract` cavity-sense~~
     (PR-YR13 ✅, box − cylinder blind pocket; ~~through-hole genus-1~~ PR-YR14 ✅;
     ~~box − sphere hemispherical dimple~~ PR-YR15 ✅; ~~box − cone conical pocket~~

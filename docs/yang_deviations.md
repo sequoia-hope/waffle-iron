@@ -507,6 +507,53 @@ concern for the new kernel's planar Stage-1** (no ear-clipping anywhere).
 **Sign-off:** candidate — sound in-scope simplification (planar faces carry no
 chord error, so no `d_ε` densification is warranted).
 
+### N10 — Stage-5 intersection-edge classification gated by on-both-surfaces predicate (PR-YR18)
+
+**Code location:** `crates/yang-rs/src/lib.rs` `build_intersection_curves`
+(the on-both-surfaces gate before `ssi_rs::intersect`); the mis-attribution
+source is `compute_phase_a` (`lib.rs:3279-3289`). Spec
+`specs/yr18_intersection_edge_attribution.md`.
+
+**Paper section:** §4.2 / §5.5 (intersection-edge identification) — the paper
+identifies an intersection edge from the labeled arrangement's true two-surface
+provenance; the new kernel instead derives a two-`InputId` incidence from
+per-patch boundary cycles, which can mis-tag a single-surface internal facet
+edge as `(surfA, surfB)`.
+
+**Current behavior (this PR — a resolution, not a new divergence):**
+`compute_phase_a` pushes a patch's single inherited face surface onto *every*
+boundary edge of its cycle, so a seam edge shared by two patches is tagged
+`(surfA, surfB)` even when one endpoint lies off one surface. Before PR-YR18
+such an edge was handed to `ssi_rs::intersect` and produced a loud
+`AmbiguousCurve { matched: 0 }` (the dominant CF1 loud refusal, mis-attributed
+there to an "SSI rim-selection gap"). PR-YR18 adds an **on-both-surfaces gate**:
+an edge reaches `ssi_rs::intersect` only if BOTH endpoints satisfy
+`|signed_distance_to_surface(surf, p)| <= tol` for BOTH attributed surfaces,
+reusing the SAME Stage-1 chord band `tol` the selection uses (no widening). A
+failing edge is reclassified as a single-surface internal edge and falls through
+to the `Curve::LineSegment` fallback. This is a *necessary condition* of the
+existing `matched == 1` selection, so it cannot regress correctly-classified
+edges; it only removes false `(surfA, surfB)` tags. The cleaner fix would be to
+re-tag incidence by the *local incident-triangle* surface (design "A"), or to
+consume true mesh-level two-surface provenance from the `LabeledArrangement`
+producer (the paper's intent); the predicate gate (design "B") is the surgical
+in-place enforcement that leaves the incidence map / PR-YR11 ellipse-relocation
+consumer / Stage-4 untouched.
+
+**Deferred follow-up (still LOUD):** analytic-conic SSI support
+(`Parabola`/`Hyperbola` for **oblique** cone∩plane cuts). A *true* oblique
+cone∩plane edge passes the on-both-surfaces gate (both endpoints on both
+surfaces) and then still yields a loud `AmbiguousCurve` because
+`curve_contains_point` returns `false` for conics — this loud refusal is
+**correct** and deliberately preserved by PR-YR18; resolving it is a separate
+increment (see N7 "open for general analytic pairs").
+
+**Severity:** low (resolves a mis-classification → loud-refusal defect; the
+residual is the documented conic deferral above).
+**Sign-off:** candidate — surgical in-scope enforcement of the stated
+intersection-edge invariant; the producer-provenance route remains the durable
+target.
+
 ### Legacy ↔ new-crate cross-reference
 
 The legacy **D1–D14** entries scope to `crates/kernel/` and do **not** imply
