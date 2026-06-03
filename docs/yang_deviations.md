@@ -610,6 +610,61 @@ defect; sphere∩plane only, surface-type-gated).
 the in-plane radial metric; the producer-provenance route (N10) remains the
 durable target for intersection-edge identification generally.
 
+### N12 — Stage-6 face resolution ranks ties by exact-vs-band tier (PR-YR20)
+
+**Code location:** `crates/yang-rs/src/lib.rs` — the **non-degenerate** branch of
+Stage-6 geometric face resolution (the centroid-membership counter). Spec
+`specs/yr20_face_resolution_tiered_tiebreak.md`. Refines **N4** (face provenance
+via centroid proximity, not the §4.2.3 barycentric implicit map).
+
+**Paper section:** §4.2.3 / §5.5 (mapping a kept mesh triangle back to its
+originating B-Rep face). The paper resolves provenance from the labeled
+arrangement's exact per-triangle face attribution; the new kernel instead tests
+which input face's surface contains the kept triangle's **centroid** within that
+face's Stage-1 chord band `tol_for` (see N4). When two faces of different
+curvature share a rim, a triangle exactly on a planar cap can also fall inside
+the curved lateral's necessarily-loose chord band → a two-hit tie.
+
+**Current behavior (this PR — a resolution, not a new divergence):** The pre-YR20
+rule counted faces whose surface contains the centroid within `tol_for`: exactly
+1 → attribute, 0 or ≥2 → `FaceResolutionFailed`. It treated an **exact**
+`TAU_WORK` planar hit (`dist = 5.5e-17`) and an **approximate** `d_ε` chord-band
+hit (`dist = 7.6e-3`, `tol = 2.4e-2`) as equal weight, so a cap-on-rim triangle
+that is genuinely on the cap raised a spurious `n_hits == 2` tie — the dominant
+non-cone curved-fuzz refusal. PR-YR20 ranks hits by **tier**: EXACT
+(`dist < TAU_WORK`, the centroid lies ON the surface) dominates BAND
+(`TAU_WORK ≤ dist < tol_for`). Attribute to the unique hit at the minimum
+populated tier; ≥2 at that tier, or no hit at all, still `FaceResolutionFailed`.
+`tol_for`, `plane_dist`, the band values, the degenerate-sliver branch, and the
+YR18/YR19 intersection-edge path are untouched.
+
+This is the natural generalization of the single-band membership test — each face
+still uses its own A14.3 band; we only break ties by the exact-vs-band tier the
+centroid satisfies. It is **not** a new looser constant: `TAU_WORK` is the
+existing planar tolerance reused as the tier boundary. For an **all-planar input**
+every hit is EXACT (planar `tol_for == TAU_WORK` ⇒ `dist < tol_for` ⇒
+`dist < TAU_WORK`), the BAND tier is unreachable, and the new rule reduces
+**byte-for-byte** to the old "exactly one face within `TAU_WORK`" rule — so the
+box fuzz, the m3 coplanar-tie tests, and the yr5c planar-sliver tests are
+unaffected and genuine coplanar / multi-solid ties (≥2 EXACT) still STOP loudly.
+
+**Why tier-by-distance and not the `dist/tol`-ratio variant:** a ratio would
+distinguish two planar hits at different sub-`TAU_WORK` distances and silently
+convert a current planar F3 into an attribution, breaking the all-planar safety
+property. Tier-by-distance keeps every planar hit in the same EXACT tier.
+
+**Deferred follow-up (still LOUD):** a **cone** triangle that stops being an F3
+tie under N12 simply refuses later for the deferred analytic-conic reason
+(`Parabola`/`Hyperbola` for oblique cone∩plane cuts; see N7 / N10 / N11) — cone
+`ok_correct` stays 0, which is correct.
+
+**Severity:** low (resolves a mixed exact-planar-vs-curved-band tie →
+loud-refusal defect; all-planar inputs byte-identical, single-tier curved/planar
+ties unchanged).
+**Sign-off:** candidate — tie-ranking generalization of the existing single-band
+centroid membership test; the producer-provenance route (N4) remains the durable
+target for face attribution generally.
+
 ### Legacy ↔ new-crate cross-reference
 
 The legacy **D1–D14** entries scope to `crates/kernel/` and do **not** imply

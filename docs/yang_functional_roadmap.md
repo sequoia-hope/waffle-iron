@@ -954,6 +954,54 @@ reimplementation from Attene's paper restores WASM (M7).
     downstream swap. **Deferred (still LOUD):** the cone analytic-conic share
     (`Parabola`/`Hyperbola`, oblique cone∩plane, the remaining 15) is unaffected
     and stays out of scope.
+  - **PR-YR20 — Stage-6 tiered face-resolution tie-break (the largest non-cone
+    `FaceResolutionFailed` bucket). ✅ DONE.** A driver investigation (env-gated
+    prints, since reverted) found 12/12 sampled curved-fuzz `FaceResolutionFailed`
+    cases share ONE uniform root cause — NOT a no-match. Stage-6 geometric face
+    resolution (non-degenerate branch) attributes a kept triangle to the input
+    face whose surface contains the triangle **centroid** within that face's
+    per-face tolerance `tol_for` (`TAU_WORK` for a `Plane`, the Stage-1 chord band
+    `d_ε` for `Cylinder`/`Sphere`/`Cone`): exactly 1 hit → attribute, 0 or ≥2 →
+    `FaceResolutionFailed`. Every refusal is an `n_hits == 2` tie of one shape —
+    a triangle lying **exactly on a planar cap near the rim** (`dist ≈ 5.5e-17`,
+    `tol = TAU_WORK = 1e-12` → HIT) ALSO falls inside the curved lateral's
+    necessarily-loose chord band (`dist ≈ 7.6e-3`, `tol ≈ 2.4e-2` → HIT) →
+    spurious second hit → tie → F3. The rule wrongly treated an **exact**
+    `TAU_WORK` planar hit and an **approximate** `d_ε` chord-band hit as equal
+    weight; the triangle's true face is the cap. **The fix (tiered tie-break,
+    `src/lib.rs` non-degenerate branch only):** rank hits by **tier** — EXACT
+    (`dist < TAU_WORK`, the centroid lies ON the surface) dominates BAND
+    (`TAU_WORK ≤ dist < tol_for`). Attribute to the unique hit at the minimum
+    populated tier; ≥2 at that tier, or no hit, still `FaceResolutionFailed`.
+    `tol_for` is untouched — each face keeps its own A14.3 single-source band; we
+    only break ties by the exact-vs-band tier. **All-planar byte-identity (the
+    critical non-regression):** for a `Plane` `tol_for == TAU_WORK`, so a hit
+    (`dist < tol_for`) means `dist < TAU_WORK` ⇒ ALWAYS EXACT tier; the BAND tier
+    is unreachable for planar faces. So for an all-planar input the BAND tier is
+    empty, `n_exact` == the old hit count, and the new `match` reduces
+    **byte-for-byte** to the old "exactly one face within `TAU_WORK`" rule — the
+    box fuzz, the m3 coplanar-tie tests, and the yr5c planar-sliver tests are
+    unaffected, and genuine coplanar / multi-solid ties (≥2 EXACT) still STOP
+    loudly. **Tier-by-distance, NOT a `dist/tol` ratio:** a ratio would
+    distinguish two sub-`TAU_WORK` planar hits and silently flip a current planar
+    F3 to an attribution, breaking that safety property. **NOT tolerance widening
+    (P9/P10):** `TAU_WORK` is the existing planar tolerance reused as the tier
+    boundary, not a new looser constant. The degenerate-sliver branch is left
+    unchanged (it never raises F3 for a tie; minimal regression surface). RED
+    `tests/yr20_tiered_tiebreak.rs` (a closed-cylinder boolean with a near-rim
+    cap triangle authored at the `n_hits == 2` cap-vs-lateral tie, tie magnitude
+    asserted load-bearing without the sidecar) + an all-planar coplanar-tie safety
+    canary that MUST still F3; adversary adds a 0-EXACT + 2-BAND two-cylinder
+    curved tie that MUST still F3. Spec
+    `specs/yr20_face_resolution_tiered_tiebreak.md`; deviation **N12** (refines
+    N4). **Calibrated metric:** total `FaceResolutionFailed → ~0`, cylinder
+    `ok_correct` rises (the cap-tie unblocks it), **ZERO new silent-wrong / no new
+    `NonManifoldOutput`**. The curved-fuzz delta is driver-verified post-merge
+    (the worker hit `curved_fuzz_sidecar_zombie_blocker` and did NOT fabricate
+    numbers). **Deferred (still LOUD):** cone `ok_correct` stays 0 — a cone
+    triangle that stops being an F3 tie simply refuses later for the deferred
+    analytic-conic reason (`Parabola`/`Hyperbola`, oblique cone∩plane; see N7 /
+    N10 / N11). That is correct, not a regression.
   - **Next M5 increments (sequenced):** ~~curved `Subtract` cavity-sense~~
     (PR-YR13 ✅, box − cylinder blind pocket; ~~through-hole genus-1~~ PR-YR14 ✅;
     ~~box − sphere hemispherical dimple~~ PR-YR15 ✅; ~~box − cone conical pocket~~
