@@ -10,6 +10,12 @@ description = "Pure-Rust port of Cherchi 2020 + 2022 (mesh arrangements + intera
 cad-primitives = { path = "../cad-primitives" }
 dashu = "0.4"                 # Exact arithmetic backend (pure-Rust, WASM-compatible)
 geometry-predicates = "0.3"   # Shewchuk-style exact orient2d / orient3d / etc.
+spade = "2"                   # Constrained Delaunay triangulation (CDT) for planar
+                              # face tessellation. Pure-Rust, WASM-clean: exact
+                              # orientation/in-circle predicates via `robust`
+                              # (Shewchuk adaptive), fixed-seed `foldhash` — no
+                              # threads / rand / system time, so insertion order
+                              # (caller's array order) makes it deterministic.
 
 [dev-dependencies]
 # Reference parity tests: differential diff against the upstream C++ sidecar

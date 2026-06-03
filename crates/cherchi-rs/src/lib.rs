@@ -35,7 +35,9 @@ pub mod labeled_arrangement;
 pub mod mesh;
 pub mod predicates;
 pub mod processing;
+pub mod triangulation;
 
 pub use boolean::MeshBoolean;
 pub use labeled_arrangement::{InputId, LabeledArrangement};
 pub use mesh::Mesh;
+pub use triangulation::{cdt_polygon_with_holes, CdtError};
