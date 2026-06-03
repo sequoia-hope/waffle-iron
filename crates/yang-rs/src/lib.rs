@@ -488,7 +488,42 @@ impl BRep {
             // the `unwrap_or(0.0)` is an unreachable no-panic guard (P9 — a 0.0
             // band is already handled by the `d_eps > 0.0` floor below, keeping
             // the N=3 floor rather than panicking).
-            let d_eps = curved_chord_bound(&edges).unwrap_or(0.0);
+            let mut d_eps = curved_chord_bound(&edges).unwrap_or(0.0);
+            // PR-YR16 (spec §3): the rim-AABB `curved_chord_bound` ignores the
+            // cone height and can EXCEED the cone's honest bound for wide-short
+            // cones (`h < 2R`), which would permit a residual larger than
+            // `cone_chord_bound`. When ANY `Surface::Cone` face is present,
+            // tighten `d_eps` by folding in each cone's own bound via min().
+            // Cylinder / sphere / all-planar inputs have no cone face, so this
+            // branch is never entered and those paths stay byte-for-byte.
+            if faces
+                .iter()
+                .any(|f| matches!(f.surface, Surface::Cone { .. }))
+            {
+                for f in faces.iter() {
+                    if let Surface::Cone {
+                        apex,
+                        axis_dir,
+                        half_angle,
+                    } = f.surface
+                    {
+                        let au = normalize3(axis_dir.as_array());
+                        let ap = apex.as_array();
+                        // Derive height_f from this cone's rim Circle (the
+                        // single Circle edge in its outer loop).
+                        for &e_idx in &f.outer_loop {
+                            if let Curve::Circle { center, .. } = edges[e_idx as usize].curve {
+                                let c = center.as_array();
+                                let height_f = ((c[0] - ap[0]) * au[0]
+                                    + (c[1] - ap[1]) * au[1]
+                                    + (c[2] - ap[2]) * au[2])
+                                    .abs();
+                                d_eps = d_eps.min(cone_chord_bound(height_f, half_angle));
+                            }
+                        }
+                    }
+                }
+            }
             // Smallest N >= 3 with max_radius·(1 − cos(π/N)) ≤ d_eps.
             let max_r = circle_edges
                 .iter()
@@ -644,8 +679,24 @@ impl BRep {
                         &mut out_tris,
                     )?;
                 }
-                Surface::Cone { .. } => {
-                    return Err(YangError::CurvedSurfaceNotYetSupported { face: f_idx });
+                Surface::Cone {
+                    apex,
+                    axis_dir,
+                    half_angle,
+                } => {
+                    tessellate_cone_face(
+                        f_idx,
+                        f,
+                        &edges,
+                        &rim_rings,
+                        &verts,
+                        apex,
+                        axis_dir,
+                        half_angle,
+                        &mut out_verts,
+                        &mut sources,
+                        &mut out_tris,
+                    )?;
                 }
             }
         }
@@ -839,8 +890,29 @@ impl BRep {
                             c[2] + radius * sv,
                         )
                     }
-                    // Cone not emitted by Stage 1; defensive fallback (apex).
-                    Surface::Cone { apex, .. } => apex,
+                    // PR-YR16: cone FACE arm (spec §5.2). `v` is the axial
+                    // height from the apex, `u` the angular param:
+                    //   point(u, v) = apex + v·â + v·tanα·(cos u·ê1 + sin u·ê2)
+                    // The pure apex-fan emits no `BRepFace`-cone vertices, so
+                    // this arm is exercised only by the focused unit test.
+                    Surface::Cone {
+                        apex,
+                        axis_dir,
+                        half_angle,
+                    } => {
+                        let ax = normalize3(axis_dir.as_array());
+                        let (e1, e2) = ortho_basis(axis_dir);
+                        let e1a = e1.as_array();
+                        let e2a = e2.as_array();
+                        let ap = apex.as_array();
+                        let (cu, su) = (u.cos(), u.sin());
+                        let rr = v * half_angle.tan();
+                        Point3::new(
+                            ap[0] + v * ax[0] + rr * (cu * e1a[0] + su * e2a[0]),
+                            ap[1] + v * ax[1] + rr * (cu * e1a[1] + su * e2a[1]),
+                            ap[2] + v * ax[2] + rr * (cu * e1a[2] + su * e2a[2]),
+                        )
+                    }
                 }
             }
             // Boolean-output / degenerate sources have no B-Rep geometry to
@@ -1356,6 +1428,97 @@ fn tessellate_sphere_face(
     Ok(())
 }
 
+/// PR-YR16 (P2c): tessellate a closed solid-cone lateral face (one
+/// `Surface::Cone` bounded by a single base-rim `Curve::Circle`) into a
+/// watertight apex fan with a bijective `TessellationMap`.
+///
+/// Spec §1/§2: the cone lateral is topologically a DISK — its only boundary is
+/// the base circle, the apex a single interior singular point (no seam edge).
+/// Because the cone is ruled (straight generators apex→rim, exactly on the
+/// surface), the lateral is a PURE fan with NO interior rings: `N` triangles
+/// (apex, `ring[k]`, `ring[(k+1) % N]`) over the cached base-rim ring. The apex
+/// is the pre-seeded B-Rep vertex (`verts` are seeded 1:1 into `out_verts` at
+/// the top of `BRep::new`), located by exact position match to
+/// `Surface::Cone.apex` within `TAU_MODEL` and REUSED (no duplicate keeps
+/// watertight + Euler valid). The base cap is tessellated by the existing
+/// `tessellate_cap_face` over the SAME ring (the watertightness mechanism), and
+/// each triangle is oriented outward via `cone_outward_normal` + `orient_tri`.
+#[allow(clippy::too_many_arguments)]
+fn tessellate_cone_face(
+    f_idx: usize,
+    f: &BRepFace,
+    edges: &[BRepEdge],
+    rim_rings: &std::collections::BTreeMap<u32, Vec<u32>>,
+    verts: &[BRepVertex],
+    apex: Point3,
+    axis_dir: Vector3,
+    half_angle: f64,
+    out_verts: &mut [Point3],
+    _sources: &mut [TessellationSource],
+    out_tris: &mut Vec<[u32; 3]>,
+) -> Result<(), YangError> {
+    // ---- Find the single base-rim Circle edge. A cone face on a triangle (no
+    // base rim Circle in its loop) is MalformedTopology (loud), mirroring the
+    // cylinder/sphere "wrong boundary" rejection.
+    let circle_edges: Vec<u32> = f
+        .outer_loop
+        .iter()
+        .copied()
+        .filter(|&e| matches!(edges[e as usize].curve, Curve::Circle { .. }))
+        .collect();
+    if circle_edges.len() != 1 {
+        return Err(YangError::MalformedTopology(format!(
+            "face {f_idx}: cone lateral must be bounded by exactly one base-rim Circle edge, \
+             found {} (a cone surface on a non-circular boundary is malformed topology)",
+            circle_edges.len()
+        )));
+    }
+    let ring = rim_rings.get(&circle_edges[0]).ok_or_else(|| {
+        YangError::MalformedTopology(format!(
+            "face {f_idx}: rim ring for edge {} not built",
+            circle_edges[0]
+        ))
+    })?;
+    let nseg = ring.len();
+    if nseg < 3 {
+        return Err(YangError::MalformedTopology(format!(
+            "face {f_idx}: cone rim ring has {nseg} samples (< 3)"
+        )));
+    }
+
+    // ---- Locate the pre-seeded apex mesh vertex by exact position match to the
+    // cone's `apex` (within `TAU_MODEL`). The B-Rep verts are seeded 1:1 into
+    // `out_verts` at the top of `BRep::new`, so a vertex's B-Rep index IS its
+    // mesh index. REUSE it (no duplicate apex push → watertight). No match →
+    // loud MalformedTopology.
+    let ap = apex.as_array();
+    let apex_vi = verts
+        .iter()
+        .position(|bv| {
+            let p = bv.point.as_array();
+            let dx = p[0] - ap[0];
+            let dy = p[1] - ap[1];
+            let dz = p[2] - ap[2];
+            (dx * dx + dy * dy + dz * dz).sqrt() <= cad_primitives::TAU_MODEL
+        })
+        .map(|i| i as u32)
+        .ok_or_else(|| {
+            YangError::MalformedTopology(format!(
+                "face {f_idx}: cone apex {ap:?} matches no pre-seeded B-Rep vertex"
+            ))
+        })?;
+
+    // ---- Apex fan: triangle (apex, ring[k], ring[(k+1) % N]); orient each
+    // outward via the tilted cone normal.
+    for k in 0..nseg {
+        let mut tri = [apex_vi, ring[k], ring[(k + 1) % nseg]];
+        let n = cone_outward_normal(out_verts, &tri, apex, axis_dir, half_angle);
+        orient_tri(out_verts, &mut tri, n);
+        out_tris.push(tri);
+    }
+    Ok(())
+}
+
 /// PR-YR12 (P2b): full outward radial normal of a sphere face at the centroid of
 /// `tri` — `normalize(centroid − center)`. The analog of `radial_outward_normal`
 /// but with no axis projection (a sphere is isotropic). Used to orient sphere
@@ -1403,6 +1566,49 @@ fn radial_outward_normal(
         w[2] - along * axis_unit[2],
     ];
     normalize3(radial)
+}
+
+/// PR-YR16 (spec §4): outward normal of a cone lateral at the centroid of `tri`.
+///
+/// The cone normal is TILTED ⟂ the generator (NOT purely radial like the
+/// cylinder). A cone point is `P = apex + s·â + s·tanα·r̂` with generator
+/// `g = â + tanα·r̂`; the surface normal lies in `span{â, r̂}` ⟂ `g`. Imposing
+/// `n·g = 0` on `n = a·r̂ + b·â` gives `b = −a·tanα`, so the outward
+/// (positive-radial) normal is `n̂ = unit(r̂ − tanα·â)`. The analog of
+/// `radial_outward_normal` / `sphere_outward_normal`, feeding `orient_tri`. The
+/// fan-triangle centroid sits at ≈ 2/3 of the way to the rim, so its radial
+/// component is never degenerate near the apex.
+fn cone_outward_normal(
+    verts: &[Point3],
+    tri: &[u32; 3],
+    apex: Point3,
+    axis_dir: Vector3,
+    half_angle: f64,
+) -> [f64; 3] {
+    let a = verts[tri[0] as usize].as_array();
+    let b = verts[tri[1] as usize].as_array();
+    let c = verts[tri[2] as usize].as_array();
+    let cen = [
+        (a[0] + b[0] + c[0]) / 3.0,
+        (a[1] + b[1] + c[1]) / 3.0,
+        (a[2] + b[2] + c[2]) / 3.0,
+    ];
+    let ax = normalize3(axis_dir.as_array());
+    let ap = apex.as_array();
+    let w = [cen[0] - ap[0], cen[1] - ap[1], cen[2] - ap[2]];
+    let along = w[0] * ax[0] + w[1] * ax[1] + w[2] * ax[2];
+    let radial_vec = [
+        w[0] - along * ax[0],
+        w[1] - along * ax[1],
+        w[2] - along * ax[2],
+    ];
+    let rhat = normalize3(radial_vec);
+    let t = half_angle.tan();
+    normalize3([
+        rhat[0] - t * ax[0],
+        rhat[1] - t * ax[1],
+        rhat[2] - t * ax[2],
+    ])
 }
 
 /// PR-YR7: flip `tri`'s winding (swap last two verts) if its geometric normal
@@ -1486,6 +1692,23 @@ fn sphere_chord_bound(radius: f64) -> f64 {
     1e-2 * 2.0 * radius * 3f64.sqrt()
 }
 
+/// PR-YR16 (spec §3): the Stage-1 chord bound for a `Surface::Cone`
+/// tessellation, `d_ε = 1e-2 · √((2R)² + h²)` with `R = height·tan(half_angle)`.
+/// SINGLE SOURCE OF TRUTH (A14.3) of the cone's `1e-2` literal: both the
+/// pre-pass N-sizing (folded in via `min()` whenever a cone face is present)
+/// and the test-side oracle compute this exact value, so they agree by
+/// construction.
+///
+/// NOTE: this is NOT `curved_chord_bound` (the Circle-rim AABB × 1e-2). The
+/// rim's AABB diagonal `2R√2` IGNORES the cone height and can EXCEED the cone's
+/// honest bound for wide-short cones (`h < 2R`), so a cone face must fold in its
+/// own bound — not rely on the rim band alone. This is A14.3/A15, not tolerance
+/// widening.
+fn cone_chord_bound(height: f64, half_angle: f64) -> f64 {
+    let r = height * half_angle.tan();
+    1e-2 * ((2.0 * r).powi(2) + height.powi(2)).sqrt()
+}
+
 /// PR-YR7: signed distance from `point` to an analytic `surface` (spec §5).
 ///
 /// - `Plane { normal, d }` → `normal·point + d` (the stored normal, as the
@@ -1493,9 +1716,10 @@ fn sphere_chord_bound(radius: f64) -> f64 {
 ///   `plane_dist`).
 /// - `Cylinder { axis_point, axis_dir, radius }` → `dist(point, axis) − radius`.
 /// - `Sphere { center, radius }` → `|point − center| − radius` (PR-YR12).
-/// - `Cone` → `Err(CurvedSurfaceNotYetSupported { face: usize::MAX })`
-///   (the free function has no face index; the boolean closure substitutes the
-///   real `fi`). LOUD rejection (P9) — never a panic or planar approximation.
+/// - `Cone { apex, axis_dir, half_angle }` → signed radial residual
+///   `radial − |h_axial|·tanα` (PR-YR16, spec §5.3): positive outside the
+///   lateral, negative inside, ≈ 0 on the surface. LOUD `Ok` — never a panic
+///   or planar approximation.
 pub fn signed_distance_to_surface(surface: Surface, point: Point3) -> Result<f64, YangError> {
     let x = point.as_array();
     match surface {
@@ -1526,7 +1750,30 @@ pub fn signed_distance_to_surface(surface: Surface, point: Point3) -> Result<f64
             let w = [x[0] - c[0], x[1] - c[1], x[2] - c[2]];
             Ok((w[0] * w[0] + w[1] * w[1] + w[2] * w[2]).sqrt() - radius)
         }
-        Surface::Cone { .. } => Err(YangError::CurvedSurfaceNotYetSupported { face: usize::MAX }),
+        // PR-YR16 (spec §5.3): SIGNED radial residual of the cone lateral.
+        // Positive outside the lateral, negative inside, ≈ 0 on the surface —
+        // the honest analog of the Cylinder/Sphere signed arms. LOUD `Ok`
+        // (never a panic or planar approximation).
+        Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => {
+            let au = normalize3(axis_dir.as_array());
+            let a = apex.as_array();
+            let w = [x[0] - a[0], x[1] - a[1], x[2] - a[2]];
+            let h_axial = w[0] * au[0] + w[1] * au[1] + w[2] * au[2];
+            let radial_vec = [
+                w[0] - h_axial * au[0],
+                w[1] - h_axial * au[1],
+                w[2] - h_axial * au[2],
+            ];
+            let radial = (radial_vec[0] * radial_vec[0]
+                + radial_vec[1] * radial_vec[1]
+                + radial_vec[2] * radial_vec[2])
+                .sqrt();
+            Ok(radial - h_axial.abs() * half_angle.tan())
+        }
     }
 }
 
