@@ -108,7 +108,7 @@ pub use cherchi_rs::{Mesh, MeshBoolean};
 /// flag (the curved analog of the plane's outward-normal flip at
 /// reconstruction). The surface enum still carries **no** `sense` field — sense
 /// lives on `BRepFace`, mirroring `ssi-rs` (which has none). Still-deferred
-/// curved cavities: through-hole (genus 1, χ=0) and sphere/cone cavities. The
+/// curved cavities: sphere/cone cavities. The
 /// `Curve::Parabola`/`Hyperbola` variants are likewise deferred.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Surface {
@@ -1700,8 +1700,11 @@ fn ellipse_residual(pt: Point3, er: &EllipseReloc) -> f64 {
 
 /// PR-YR10 (spec §4.4): the explicit Stage-4 watertightness gate (§4.4.3).
 /// Every directed half-edge `(a, b)` must have exactly one opposite `(b, a)`
-/// (a watertight 2-manifold), and the Euler characteristic `V − E + F` of each
-/// connected shell must be 2. Returns `Err(NonManifoldOutput)` on failure.
+/// (a watertight 2-manifold), and each connected shell must be a closed
+/// orientable 2-manifold with Euler characteristic
+/// `χ = V − E + F = 2 − 2g` for genus `g ≥ 0` (χ even and ≤ 2); odd χ or
+/// χ > 2 is impossible for such a shell and is rejected. Returns
+/// `Err(NonManifoldOutput)` on failure.
 fn check_watertight_2manifold(mesh: &Mesh) -> Result<(), YangError> {
     use std::collections::{BTreeMap, BTreeSet};
     // Directed half-edge multiset: every (a,b) must be paired by one (b,a).
@@ -1718,9 +1721,9 @@ fn check_watertight_2manifold(mesh: &Mesh) -> Result<(), YangError> {
         }
     }
 
-    // Euler χ = 2 per connected shell. Connectivity via undirected edges; the
-    // whole mesh is a union of disjoint closed shells, each of which must be a
-    // sphere (χ = 2).
+    // Euler χ = 2 − 2g per connected shell (g ≥ 0). Connectivity via undirected
+    // edges; the whole mesh is a union of disjoint closed orientable shells,
+    // each of which has χ = 2 − 2g (sphere g=0 / through-hole g=1 / …).
     let n_verts = mesh.num_verts();
     if n_verts == 0 {
         return Ok(());
@@ -1773,7 +1776,13 @@ fn check_watertight_2manifold(mesh: &Mesh) -> Result<(), YangError> {
         let v = v_set.len() as i64;
         let e = shell_e.get(root).map(|s| s.len()).unwrap_or(0) as i64;
         let f = shell_f.get(root).copied().unwrap_or(0);
-        if v - e + f != 2 {
+        let chi = v - e + f;
+        // A closed orientable 2-manifold shell has χ = 2 − 2g for integer genus
+        // g ≥ 0, so χ is EVEN and ≤ 2. Accept any such χ (sphere χ=2 / g=0;
+        // through-hole χ=0 / g=1; …). Reject odd χ or χ > 2 — impossible for a
+        // closed orientable manifold → a real defect (NOT a tolerance/fallback
+        // relaxation; P9/P10).
+        if chi > 2 || chi.rem_euclid(2) != 0 {
             return Err(YangError::NonManifoldOutput);
         }
     }
