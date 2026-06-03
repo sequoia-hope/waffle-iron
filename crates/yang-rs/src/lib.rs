@@ -107,8 +107,9 @@ pub use cherchi_rs::{Mesh, MeshBoolean};
 /// `box − cylinder` blind pocket is now implemented via the [`BRepFace`]`.reversed`
 /// flag (the curved analog of the plane's outward-normal flip at
 /// reconstruction). The surface enum still carries **no** `sense` field — sense
-/// lives on `BRepFace`, mirroring `ssi-rs` (which has none). Still-deferred
-/// curved cavities: sphere/cone cavities. The
+/// lives on `BRepFace`, mirroring `ssi-rs` (which has none). PR-YR15 extends the
+/// curved-cavity path to a spherical (hemispherical-dimple) cavity. Still-deferred
+/// curved cavities: cone cavities. The
 /// `Curve::Parabola`/`Hyperbola` variants are likewise deferred.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Surface {
@@ -1254,7 +1255,7 @@ fn tessellate_sphere_face(
     // refinement (more triangles), NOT tolerance widening. The factor 2 leaves a
     // comfortable margin across the corpus (verified: worst centroid deviation
     // ≈ 0.82·d_ε), and the ratio is scale-invariant so one N pair fits all radii.
-    let d_eps = 1e-2 * 2.0 * radius * 3f64.sqrt();
+    let d_eps = sphere_chord_bound(radius);
     let seg_budget = d_eps / 2.0;
     // n_lon: smallest N ≥ 3 with r·(1 − cos(π/N)) ≤ d_ε/2 (equator chord).
     let mut n_lon = 3usize;
@@ -1468,6 +1469,21 @@ fn curved_chord_bound(edges: &[BRepEdge]) -> Option<f64> {
     let dz = hi[2] - lo[2];
     let diag = (dx * dx + dy * dy + dz * dz).sqrt();
     Some(1e-2 * diag)
+}
+
+/// PR-YR15: the Stage-1 chord bound for a `Surface::Sphere` tessellation,
+/// `d_ε = 1e-2 · 2r√3` (the sphere's bounding-cube diagonal × 1e-2). SINGLE
+/// SOURCE OF TRUTH (A14.3): both `tessellate_sphere_face` (which derives the
+/// tessellation `n_lon`/`n_lat` from it) and Stage-6 face resolution (`tol_for`,
+/// which uses it as the per-sphere-face membership tolerance) call this — there
+/// is no second copy of the literal anywhere in the crate.
+///
+/// NOTE: this is NOT `curved_chord_bound` (the Circle-rim AABB × 1e-2). The
+/// rim circle's AABB diagonal is `2r√2`, which UNDERESTIMATES the sphere's own
+/// `2r√3` chord error, so a sphere face must use its own bound here — not the
+/// rim band. This is A14.3/A15, not tolerance widening.
+fn sphere_chord_bound(radius: f64) -> f64 {
+    1e-2 * 2.0 * radius * 3f64.sqrt()
 }
 
 /// PR-YR7: signed distance from `point` to an analytic `surface` (spec §5).
@@ -1798,9 +1814,10 @@ fn check_watertight_2manifold(mesh: &Mesh) -> Result<(), YangError> {
 ///
 /// `Surface::Plane { normal, d }` uses the convention `n·x + d = 0`, while
 /// `QuadricSurface::Plane` is `n·(x − point) = 0`, so a point on the plane is
-/// `point = -d · n` (with `n` the stored unit normal). `Cylinder` maps
-/// field-for-field. `Sphere`/`Cone` have no supported SSI pair in this PR and
-/// reject loudly (P9).
+/// `point = -d · n` (with `n` the stored unit normal). `Cylinder` and `Sphere`
+/// map field-for-field (PR-YR15 wires `Sphere`, enabling the exact
+/// `plane ∩ sphere` great-circle rim). `Cone` has no supported SSI pair yet and
+/// rejects loudly (P9).
 fn surface_to_quadric(s: Surface) -> Result<ssi_rs::QuadricSurface, SsiRefinementError> {
     match s {
         Surface::Plane { normal, d } => {
@@ -1819,9 +1836,8 @@ fn surface_to_quadric(s: Surface) -> Result<ssi_rs::QuadricSurface, SsiRefinemen
             axis_dir,
             radius,
         }),
-        Surface::Sphere { .. } | Surface::Cone { .. } => {
-            Err(SsiRefinementError::UnsupportedSurfaceForSsi)
-        }
+        Surface::Sphere { center, radius } => Ok(ssi_rs::QuadricSurface::Sphere { center, radius }),
+        Surface::Cone { .. } => Err(SsiRefinementError::UnsupportedSurfaceForSsi),
     }
 }
 
@@ -1928,6 +1944,37 @@ fn curve_contains_point(c: &ssi_rs::SsiCurve, p: Point3, tol: f64) -> bool {
     }
 }
 
+/// Selection tolerance for a CYLINDER-owning intersection edge: the cylinder
+/// input's Stage-1 chord bound via `curved_chord_bound` (the SINGLE source for
+/// the cylinder band). A cylinder-bearing input with NO circle rims is a
+/// producer fault → LOUD `AmbiguousCurve { matched: 0 }` (never silently
+/// default to `TAU_WORK` for a curved selection). Factored out of
+/// `build_intersection_curves` (PR-YR15) so the sphere arm can sit beside it
+/// without duplicating the producer-fault path; sphere uses its OWN
+/// `sphere_chord_bound` (2r√3), not this cylinder/rim-AABB band.
+fn chord_tol_for_curved_owner(
+    input: InputId,
+    a: &BRep,
+    b: &BRep,
+    candidates: usize,
+    edge: (u32, u32),
+) -> Result<f64, YangError> {
+    let owner = match input {
+        InputId::A => a,
+        InputId::B => b,
+    };
+    match curved_chord_bound(owner.edges()) {
+        Some(t) => Ok(t),
+        None => Err(YangError::SsiRefinementFailed {
+            edge,
+            reason: SsiRefinementError::AmbiguousCurve {
+                candidates,
+                matched: 0,
+            },
+        }),
+    }
+}
+
 /// PR-YR9: build the EXACT analytical `Curve` for each output intersection edge
 /// (spec §5.5). An intersection edge is an undirected mesh boundary edge whose
 /// incidence list has EXACTLY TWO entries with DIFFERENT `InputId` — it lies on
@@ -1935,7 +1982,8 @@ fn curve_contains_point(c: &ssi_rs::SsiCurve, p: Point3, tol: f64) -> bool {
 ///
 /// For each such edge: convert both surfaces to `QuadricSurface`, call
 /// `ssi_rs::intersect`, derive the selection tolerance `tol` from the
-/// cylinder-owning input's Stage-1 chord bound, and select the UNIQUE returned
+/// CURVED-owning input's Stage-1 chord bound (cylinder via `curved_chord_bound`,
+/// sphere via `sphere_chord_bound` — PR-YR15), and select the UNIQUE returned
 /// curve passing through BOTH mesh endpoints within `tol`. `matched != 1` is a
 /// P9/P10 LOUD stop (`AmbiguousCurve`) — never a silent polyline fallback.
 ///
@@ -1974,37 +2022,26 @@ fn build_intersection_curves(
                 reason: SsiRefinementError::IntersectFailed(err),
             })?;
 
-        // Selection tolerance: the Stage-1 chord bound of the cylinder-owning
-        // input (A14.3 single source). Plane∩Plane → no cylinder → TAU_WORK.
-        let cyl_input = if matches!(surf0, Surface::Cylinder { .. }) {
-            Some(input0)
+        // Selection tolerance: the Stage-1 chord bound of the CURVED-owning
+        // input (A14.3 single source). The mesh edge endpoints sit on the
+        // curved surface's Stage-1 chord approximation, off the EXACT analytic
+        // curve by up to that surface's own chord bound — so the on-curve test
+        // must admit them at that bound (the SAME bound Stage 1 guarantees, NOT
+        // tolerance widening). Plane∩Plane → no curved surface → TAU_WORK
+        // (zero chord error). PR-YR15 extends the cylinder-only logic to a
+        // SPHERE edge: a sphere uses its OWN bound `sphere_chord_bound(radius)`
+        // (2r√3), NOT the rim-AABB `curved_chord_bound` (2r√2, which would
+        // underestimate — I-sphere-band).
+        let tol = if matches!(surf0, Surface::Cylinder { .. }) {
+            chord_tol_for_curved_owner(input0, a, b, returned.len(), (s, e))?
         } else if matches!(surf1, Surface::Cylinder { .. }) {
-            Some(input1)
+            chord_tol_for_curved_owner(input1, a, b, returned.len(), (s, e))?
+        } else if let Surface::Sphere { radius, .. } = surf0 {
+            sphere_chord_bound(radius)
+        } else if let Surface::Sphere { radius, .. } = surf1 {
+            sphere_chord_bound(radius)
         } else {
-            None
-        };
-        let tol = match cyl_input {
-            Some(input) => {
-                let owner = match input {
-                    InputId::A => a,
-                    InputId::B => b,
-                };
-                match curved_chord_bound(owner.edges()) {
-                    Some(t) => t,
-                    // A cylinder-bearing input with no circle rims is a producer
-                    // fault: never default to TAU_WORK for a curved selection.
-                    None => {
-                        return Err(YangError::SsiRefinementFailed {
-                            edge: (s, e),
-                            reason: SsiRefinementError::AmbiguousCurve {
-                                candidates: returned.len(),
-                                matched: 0,
-                            },
-                        });
-                    }
-                }
-            }
-            None => cad_primitives::TAU_WORK,
+            cad_primitives::TAU_WORK
         };
 
         let p_s = mesh.verts[s as usize];
@@ -2456,8 +2493,8 @@ pub fn boolean(
         // `Err`, never `unreachable!`/panic. `fi` is the input B-Rep face index.
         let plane_dist = |fi: usize, face: &BRepFace| -> Result<f64, YangError> {
             // PR-YR7: delegate to the shared `signed_distance_to_surface`
-            // (Plane + Cylinder); take `.abs()` (distance to the surface).
-            // Sphere/Cone still reject loudly — the free function returns a
+            // (Plane + Cylinder + Sphere); take `.abs()` (distance to the
+            // surface). Cone still rejects loudly — the free function returns a
             // sentinel face index, which we replace with the real input `fi`.
             match signed_distance_to_surface(face.surface, Point3::new(c[0], c[1], c[2])) {
                 Ok(d) => Ok(d.abs()),
@@ -2493,11 +2530,15 @@ pub fn boolean(
                     Some(de) => Ok(de),
                     None => Err(YangError::FaceResolutionFailed { tri: compact_t }),
                 },
-                // Sphere/Cone never reach here (`plane_dist` propagates the loud
-                // CurvedSurfaceNotYetSupported first), but stay LOUD if they do.
-                Surface::Sphere { .. } | Surface::Cone { .. } => {
-                    Err(YangError::CurvedSurfaceNotYetSupported { face: fi })
-                }
+                // PR-YR15: a Sphere face uses its OWN Stage-1 chord bound
+                // `sphere_chord_bound(radius) = 1e-2·2r√3` — the SAME bound
+                // Stage 1 guarantees (A15/A14.3, NOT tolerance widening). It is
+                // deliberately NOT the Circle-rim `band` (2r√2), which would
+                // underestimate the sphere's chord error.
+                Surface::Sphere { radius, .. } => Ok(sphere_chord_bound(radius)),
+                // Cone never reaches here (`plane_dist` propagates the loud
+                // CurvedSurfaceNotYetSupported first), but stays LOUD if it does.
+                Surface::Cone { .. } => Err(YangError::CurvedSurfaceNotYetSupported { face: fi }),
             }
         };
 
@@ -2677,12 +2718,45 @@ fn compute_phase_a(
     Ok((infos, incidence, curves))
 }
 
+/// PR-YR15 helper: the Stage-1 curved chord bound of ONE input, choosing the
+/// surface's OWN bound (A14.3 / I-sphere-band). A `Surface::Sphere` face's
+/// tessellation vertices sit off the exact great circle by up to the sphere's
+/// own `sphere_chord_bound(radius) = 1e-2·2r√3`, which is LARGER than the
+/// rim-AABB `curved_chord_bound` (2r√2) — so a sphere-bearing input must report
+/// its sphere bound, NOT the rim band (which would underestimate and reject
+/// valid sphere-rim vertices). Cylinder/all-planar inputs keep the rim-AABB
+/// `curved_chord_bound` byte-for-byte. When both are present we take the MAX
+/// (the budget must admit every curved-surface vertex). `None` only for an
+/// all-planar input (zero chord error). This is the SINGLE source consulted by
+/// both `build_intersection_curves` (selection tol) and `stage4_chord_band`
+/// (relocation budget); it is NOT tolerance widening.
+fn input_curved_chord_bound(brep: &BRep) -> Option<f64> {
+    let rim = curved_chord_bound(brep.edges());
+    let sphere = brep
+        .faces()
+        .iter()
+        .filter_map(|f| match f.surface {
+            Surface::Sphere { radius, .. } => Some(sphere_chord_bound(radius)),
+            _ => None,
+        })
+        .fold(None, |acc: Option<f64>, b| {
+            Some(acc.map_or(b, |a| a.max(b)))
+        });
+    match (rim, sphere) {
+        (Some(r), Some(s)) => Some(r.max(s)),
+        (Some(r), None) => Some(r),
+        (None, s) => s,
+    }
+}
+
 /// PR-YR10 helper: the Stage-4 chord-band relocation budget `d_ε` — the
-/// Stage-1 chord bound of whichever input bears circle rims (the curved solid).
-/// `None` only if NEITHER input has a circle rim, which cannot happen when a
-/// conic intersection edge exists (a conic edge implies a curved input).
+/// Stage-1 chord bound of whichever input bears a curved surface (the curved
+/// solid). Uses [`input_curved_chord_bound`] so a sphere input reports its OWN
+/// (larger) 2r√3 bound, not the rim-AABB 2r√2 (I-sphere-band). `None` only if
+/// NEITHER input has a curved surface, which cannot happen when a conic
+/// intersection edge exists (a conic edge implies a curved input).
 fn stage4_chord_band(a: &BRep, b: &BRep) -> Option<f64> {
-    curved_chord_bound(a.edges()).or_else(|| curved_chord_bound(b.edges()))
+    input_curved_chord_bound(a).or_else(|| input_curved_chord_bound(b))
 }
 
 /// PR-YR10 helper: edge-collapse `victim` onto `survivor` in `mesh` + the
@@ -3416,8 +3490,9 @@ fn emit_topology(
 
         // PR-YR8 (P2c) Blocker 2, spec §4: curved-surface branch BEFORE the
         // planar normal/Newell/flip machinery. A `Cylinder` patch is a barrel
-        // — a single plane normal + signed-area classification is meaningless,
-        // so we DROP the E3/`positive_count` check and the inherited-normal
+        // and a `Sphere` patch is a cap (PR-YR15) — for either, a single plane
+        // normal + signed-area classification is meaningless, so we DROP the
+        // E3/`positive_count` check and the inherited-normal
         // flip. We INHERIT the surface UNCHANGED (the canonical params must stay
         // exact for downstream SSI / kernel-v2 — we never perturb them to signal
         // sense). Instead, cavity-sense is recorded out-of-band in
@@ -3426,7 +3501,7 @@ fn emit_topology(
         // winding are provably consistent (Union → no cavity → `reversed`
         // false). `patch_boundary_cycle` (called above) is surface-agnostic, so
         // we reuse `cycles`. We KEEP the E2 degenerate-loop guard.
-        if let Surface::Cylinder { .. } = inherited {
+        if matches!(inherited, Surface::Cylinder { .. } | Surface::Sphere { .. }) {
             let push_loop = |edges: &mut Vec<BRepEdge>, cycle: &[(u32, u32)]| -> Vec<u32> {
                 let start_idx = edges.len() as u32;
                 for &(s, e) in cycle {
@@ -3497,9 +3572,10 @@ fn emit_topology(
 
         let (normal, d) = match inherited {
             Surface::Plane { normal, d } => (normal, d),
-            // Sphere/Cone Stage-6 reassembly stays a loud reject (P9): they can
-            // never reach here through `BRep::new` (rejected at construction).
-            // Cylinder is handled by the curved branch above (unreachable here).
+            // Cylinder and Sphere are handled by the curved branch above, so
+            // these arms are unreachable-defensive; Cone Stage-6 reassembly is
+            // the live loud reject (P9) — a Cone can never reach here through
+            // `BRep::new` (rejected at construction) either, but stays LOUD.
             Surface::Sphere { .. } | Surface::Cylinder { .. } | Surface::Cone { .. } => {
                 return Err(YangError::CurvedSurfaceNotYetSupported { face: face_idx });
             }
