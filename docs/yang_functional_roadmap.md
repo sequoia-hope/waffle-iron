@@ -607,9 +607,41 @@ reimplementation from Attene's paper restores WASM (M7).
     `c4abc69d` (spec)→`78f73f65` (RED)→`42972890` (GREEN)→`3839f558`/`41819459`
     (RED fixups)→`85abbc10`/`86791834` (adversary). 195/195 yang-rs; fmt + clippy
     clean.
+  - **PR-YR14 — through-hole genus-1 Subtract; per-shell Euler gate generalized
+    to χ=2−2g. ✅ DONE.** Extends curved `Subtract` from PR-YR13's BLIND POCKET
+    (genus 0, χ=2) to a **THROUGH-HOLE**: the cylinder passes fully through the
+    box (both caps OUTSIDE the box) → a cylindrical tunnel, which is a single
+    connected closed orientable 2-manifold of **genus 1 → χ = 0**. The ONE
+    production change is in `check_watertight_2manifold`: the per-shell Euler gate
+    was `V−E+F == 2` ("each shell is a sphere"), which wrongly rejected the χ=0
+    result. Generalized to accept **χ = 2−2g for g ≥ 0** (χ even, ≤ 2) and reject
+    odd χ or χ > 2 — impossible for a closed orientable manifold, so still a LOUD
+    `NonManifoldOutput` (NOT a tolerance/fallback relaxation; P9/P10). The directed
+    half-edge pairing loop stays strict and untouched. Everything else the
+    through-hole needs already worked and is REUSED unchanged: the curved cavity-
+    sense (`BRepFace.reversed` from `op==Subtract && input==B`, PR-YR13) on the
+    tube wall, the annular box top+bottom faces (PR-YR5c multi-cycle /
+    `positive_count==1`), the two-rim tube wall (one connected same-attribution
+    patch → `patch_boundary_cycle` returns its two boundary cycles → curved branch
+    emits outer+inner loops), and the **two** exact `Circle` rim edges (cylinder ∩
+    box-top at z=2 AND cylinder ∩ box-bottom at z=0). Adversary independently
+    witnessed mesh-winding ↔ `reversed` consistency on a SECOND outward-oriented
+    through-hole mock (r=1.5, N=24, signed_volume>0, χ=0, wall winding toward-axis)
+    and mutation-verified the χ relaxation is LOAD-BEARING for the accept path
+    (reverting to `!= 2` turns the through-hole oracles red). Honest coverage note:
+    the χ-clause's REJECT branch (odd/`>2`) is mutually shadowed on the reachable
+    corpus by the half-edge-pairing and coincident-triangle guards — defects are
+    still loudly rejected, never `Ok` (oracle `a6` pins this). All genus-0 cases
+    (`fuzz_boxes`, YR8–YR13, YR13 blind-pocket χ=2) byte-unchanged. **Remaining
+    curved-Subtract gaps:** sphere/cone cavities (`Cone` still rejects loudly),
+    box-as-subtrahend, side-face-exit / corner (triple-point) guard; cut-surface
+    faces (PR-YR5 deferral) still open. **No new `ssi-rs`.** Spec
+    `specs/yr14_subtract_through_hole.md`; role-separated cycle, commits
+    `36d2a7c4` (spec)→`aeefb4cc` (RED)→`b52a78a3` (GREEN)→`6995b6ec` (adversary).
+    208/208 yang-rs; fmt + clippy clean.
   - **Next M5 increments (sequenced):** ~~curved `Subtract` cavity-sense~~
-    (PR-YR13 ✅, box − cylinder blind pocket) + cut-surface handling (deferred in
-    PR-YR8/YR5; through-hole genus-1 + sphere/cone cavities still open)
+    (PR-YR13 ✅, box − cylinder blind pocket; ~~through-hole genus-1~~ PR-YR14 ✅)
+    + cut-surface handling (deferred in PR-YR8/YR5; sphere/cone cavities still open)
     → side-face-exit / corner (triple-point) loud-STOP guard (oblique
     out-of-scope case) → broader SSI surface/pair coverage (cyl∩cyl) → the **general
     degree-4 curve** (a new parametric `SsiCurve` variant + the 5 general-position
@@ -686,8 +718,9 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   circle only — ellipse relocation + §4.5.2 real local refinement still loud
   STOPs);
   ~~Stage 6 curved cavity-sense for Subtract (deferred in PR-YR8)~~ (PR-YR13 ✅,
-  `box − cylinder` blind pocket via `BRepFace.reversed`; through-hole genus-1 +
-  sphere/cone cavities + box-as-subtrahend still open) + cut-surface
+  `box − cylinder` blind pocket via `BRepFace.reversed`; ~~through-hole genus-1~~
+  PR-YR14 ✅ via per-shell Euler gate χ=2−2g; sphere/cone cavities +
+  box-as-subtrahend still open) + cut-surface
   faces (deferred in PR-YR5). **Exit:** cylinder ∪ box ✅ (exact edges + on-curve mesh),
   sphere − cylinder → correct curved B-Rep, sidecar mesh-parity + analytically
   exact edges. **Risk:** HIGH (paper-critical). **Size:** large.
