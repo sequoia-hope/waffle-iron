@@ -899,10 +899,18 @@ reimplementation from Attene's paper restores WASM (M7).
     and `cargo clippy -p yang-rs --all-targets -- -D warnings` clean. Spec
     `specs/yr18_intersection_edge_attribution.md`; role-separated cycle, commits
     `ea94cc1c` (spec)→`5536432b` (RED)→`2345b791` (GREEN)→`44dc1cde` (clippy
-    chore)→docs+adversary. **Deferred follow-up:** analytic-conic support
-    (`Parabola`/`Hyperbola` for oblique cone cuts) so true cone∩plane edges that
-    pass the gate stop being loud; the empirical curved-fuzz `AmbiguousCurve` drop
-    once the sidecar/zombie environment is fixed.
+    chore)→docs+adversary. **Empirical delta (driver-verified post-merge, curved
+    fuzz N=90 same seed, before→after):** `ok_correct` **11 → 37** (3.4×);
+    `AmbiguousCurve` **56 → 30**; **cylinder `AmbiguousCurve` eliminated entirely
+    (21 → 0)**; sphere materially improved (20 → 15); cone unchanged (15 → 15, the
+    deferred-conic share); **`SILENT_WRONG` 0 → 0** (safety bar held). The worker
+    itself could not obtain these numbers (Cherchi sidecar subprocesses zombie out
+    in-container); the driver reproduced the run successfully at N=90. **Deferred
+    follow-ups:** (a) analytic-conic support (`Parabola`/`Hyperbola` for oblique
+    cone cuts) so true cone∩plane edges that pass the gate stop being loud — the
+    remaining cone `AmbiguousCurve=15`; (b) the residual **sphere**
+    `AmbiguousCurve=15` (a distinct, smaller cause — the gate only partially
+    cleared sphere; needs its own diagnosis).
   - **Next M5 increments (sequenced):** ~~curved `Subtract` cavity-sense~~
     (PR-YR13 ✅, box − cylinder blind pocket; ~~through-hole genus-1~~ PR-YR14 ✅;
     ~~box − sphere hemispherical dimple~~ PR-YR15 ✅; ~~box − cone conical pocket~~
