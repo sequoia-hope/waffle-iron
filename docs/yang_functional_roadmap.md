@@ -685,6 +685,62 @@ reimplementation from Attene's paper restores WASM (M7).
     `specs/yr15_subtract_sphere_dimple.md`; role-separated cycle, commits
     `4b0b5af0` (spec)→`945c1c12` (RED)→`6e6239f0` (GREEN)→`bcdeecc4` (adversary).
     219/219 yang-rs; fmt + clippy clean.
+  - **PR-YR16 — CONE Stage-1 tessellation (CONE only, no boolean); all three
+    curved primitives now tessellate. ✅ DONE.** The cone was the last curved
+    primitive still rejecting everywhere (`Surface::Cone` →
+    `CurvedSurfaceNotYetSupported`). This PR teaches `BRep::new` to tessellate a
+    closed solid cone, verified by the same 4-oracle contract as PR-YR7/YR12
+    (surface-to-mesh ≤ d_ε, watertight + 2-manifold + env-gated `inputcheck`,
+    bijection round-trip, Euler χ=2) over a corpus of 4 (z-up unit, wide-short,
+    tall-thin, off-axis non-unit axis). **Encoding (minimal, justified):** the
+    cone lateral is topologically a DISK — its only boundary is the base circle,
+    the apex is a single interior singular point — so NO seam edge (unlike the
+    cylinder). `verts=[apex, base_seam]`; one shared base-rim `Curve::Circle`
+    (shared by lateral + base cap = the watertightness mechanism); faces
+    `[Cone lateral, Plane base cap]`. The apex is a pre-seeded `BRepVertex`
+    located in `tessellate_cone_face` by exact `TAU_MODEL` position match (no
+    duplicate → watertight + Euler hold; round-trip via `BRepVertex`).
+    **Tessellation = apex fan + base cap fan** over the shared rim ring (cap
+    reuses the existing `tessellate_cap_face` unchanged). Because the cone is
+    **ruled** (straight generators apex→rim, exactly on the surface), the worst
+    residual anywhere on a lateral triangle — including its centroid — is the
+    base-rim sagitta `R·(1−cos π/N)`; there is NO centroid amplification (unlike
+    the sphere) and NO `/2` factor in N-sizing. **`cone_chord_bound(h,α)=
+    1e-2·√((2R)²+h²)`** is the new single source (A14.3), folded into the rim
+    pre-pass via `min(curved_chord_bound, cone_chord_bound)` ONLY when a cone
+    face is present (cylinder/sphere/planar paths byte-for-byte) — the min is
+    load-bearing for wide-short cones (`h<2R`, where the rim-AABB bound
+    overestimates the honest bound). **Tilted outward normal** (A15.5)
+    `n̂=unit(r̂−tanα·â)` ⟂ the generator (new `cone_outward_normal`). Three Stage-1
+    production sites changed (`BRep::new` dispatch, `eval_source` cone-FACE arm,
+    `signed_distance_to_surface` signed radial residual); the boolean-path cone
+    rejections (`surface_to_quadric`, `emit_topology`, Stage-6 reassembly) stay
+    LOUD — the cone never enters the boolean this PR. After this PR
+    `CurvedSurfaceNotYetSupported` is no longer reachable from `BRep::new` for any
+    curved surface on a triangle (all → `MalformedTopology`); it survives only on
+    the boolean Stage-6 paths. **Guard migration:** the plan named 9 sites; the
+    spec sweep surfaced 3 more (+1 inline `src/lib.rs` test) — exactly the
+    under-enumeration the `yang_curved_primitive_guard_migration` lesson and the
+    YR15 precedent anticipate — all migrated faithfully (only the expected
+    outcome changed; every structural assertion preserved). **Two honest
+    adversary findings (documented, no defect):** (1) oracle 1's 3-verts+centroid
+    sampling could not distinguish the rim-only N from the correct N (the
+    distinguishing sample is the base-edge MIDPOINT at f=1) — the adversary added
+    `adv_wide_short_base_edge_midpoint_within_cone_bound`, which reds the
+    dropped-`min` mutation with the exact residual-exceeds-bound assertion, so the
+    min IS mutation-verified load-bearing; (2) the tilted normal produces a
+    BYTE-IDENTICAL mesh to the pure-radial normal for the current pure apex-fan
+    (`orient_tri`'s binary flip is identical at every steepness since both r̂ and
+    n̂ share the fan triangle's half-space) — it is the *correct* surface normal
+    but **orientation-dead-code until interior-ring (non-fan) triangles appear**
+    (i.e. PR-YR17 cone cavity → a YR17 winding canary). The adversary pinned the
+    math witness (`n̂·ĝ≈0` vs `r̂·ĝ≈0.565`) rather than fabricating a false catch.
+    Independent second off-axis mock witnessed outward winding + `signed_volume>0`
+    (per `yang_mock_orientation_witness`). 232/232 yang-rs; fmt + clippy
+    `--all-targets` clean. Spec `specs/yr16_cone_tessellation.md`; role-separated
+    cycle, commits `8e569c14` (spec)→`8ceb8d65`/`8d2fe8c6` (RED + clippy
+    fixup)→`7f0dfe4e` (GREEN)→`6013a1fc` (adversary). **Next: PR-YR17 cone cavity
+    `box − cone`.**
   - **Next M5 increments (sequenced):** ~~curved `Subtract` cavity-sense~~
     (PR-YR13 ✅, box − cylinder blind pocket; ~~through-hole genus-1~~ PR-YR14 ✅;
     ~~box − sphere hemispherical dimple~~ PR-YR15 ✅)

@@ -28,8 +28,10 @@
 //! 4. No inversion: every triangle's geometric normal points outward.
 //! 5. Round-trip vs INDEPENDENT z-up geometry (own face_eval / seam / pole math).
 //! 6. Migrations not weakened (sphere-on-a-triangle → MalformedTopology;
-//!    cone-on-a-triangle → exact CurvedSurfaceNotYetSupported { face: 0 };
-//!    signed_distance sphere → Ok, cone → Err).
+//!    cone-on-a-triangle → MalformedTopology (PR-YR16: the cone tessellation
+//!    path is now live, so a cone-on-a-triangle is rim-malformed rather than
+//!    CurvedSurfaceNotYetSupported);
+//!    signed_distance sphere → Ok, cone → Ok (PR-YR16: cone radial residual)).
 //! 7. Euler χ = 2 independently.
 
 use std::collections::{BTreeMap, BTreeSet};
