@@ -800,6 +800,51 @@ reimplementation from Attene's paper restores WASM (M7).
     unregressed). Resolves the D1-class (no ear-clipping) concern for the new
     kernel's planar Stage 1. Spec `specs/yang_pr_nc1_nonconvex_cdt.md`; deviation
     ledger **N9**.
+  - **Curved boolean fuzz (the robustness-envelope map)** ✅ (PR-CF1): the curved
+    analog of `fuzz_boxes` — a deterministic N=300 **correct-or-loud** fuzz over
+    `boolean({cylinder|sphere|cone}, box, {Union|Subtract}, &sidecar)`
+    (`tests/fuzz_curved.rs`, SEED=`0xcf1cadef00d2026`). Every `Ok` is audited
+    (watertight `unpaired==0` / χ **==sidecar-reference χ** & even / analytic-surface
+    survival with exact params / on-surface residual ≤ `TAU_MODEL` sampled on the
+    exact `Curve::Circle/Ellipse` against BOTH incident surfaces / `vol>0` /
+    chord-band volume envelope scaled from the Stage-1 `d_ε`); every `Err` is
+    bucketed by `YangError` variant **and sub-reason**. Empty-result agreement
+    (both engines ∅ → `ok_correct`; disagreement → silent-wrong) is a deliberate
+    contract interpretation, not a relaxation. **Histogram (300 cases, all
+    accounted for): `ok_correct=42`, `SILENT_WRONG=0`, `classified_err=257`,
+    `skipped_bad_input=0`.** This **is the M5-gap map**: the dominant loud refusals
+    are `SsiRefinementFailed::AmbiguousCurve` (183 — the SSI rim-selection gap),
+    `FaceResolutionFailed` (54), and cone's `Stage4RegionInvalid::LocalRefinementRequired`
+    (17); cone Union/Subtract are 0/0 correct (all loud refusals — oblique/ssi gaps),
+    while sphere & cylinder land some correct results. Most `Subtract` cases are
+    correctly loud because `boolean(prim, box, Subtract)` = `prim − box` =
+    **box-as-subtrahend**, the DEFERRED direction (opposite of the `box − prim`
+    demos). **ONE genuine production defect surfaced (a P9 violation): `boolean()`
+    PANICKED** on sphere − box at case#23 — `emit_topology`'s curved branch indexed
+    `cycles[outer_idx]` on an **empty** `cycles`. **GREEN fix** (`src/lib.rs`,
+    commit `a568d9e6`): a minimal `if cycles.is_empty() { return
+    Err(NonManifoldOutput); }` guard on the curved branch (+ a defensive mirror on
+    the structurally-identical planar branch, latent since the all-planar fuzz never
+    produces empty cycles), mirroring the adjacent E2/E3 degenerate-reassembly
+    guards — converting the panic into a loud classified `Err`, so the fuzz now holds
+    correct-or-loud (panic→Err ⇒ `PANICKED=0`). **Mechanism correction (adversary):**
+    the case#23 sidecar reference is **NON-empty** (272 tris, vol≈0.0485) — the empty
+    curved cycles are a reassembly artifact of the **deferred box-as-subtrahend
+    direction**, NOT an enclosed-sphere empty solid; the loud `Err` is a legitimate
+    refusal of an out-of-scope direction, not a suppressed wrong `Ok`. **Adversary
+    verdict (`tests/cf1_adversary.rs`, commit `0771dcc6`):** all invariants real and
+    discriminating (proved inside-out caught by `vol>0`; determinism replays case#23
+    from SEED), GREEN fix principled; one noted **non-blocking GAP** — the chord-band
+    volume alone is a coarse dropped-chunk detector (~0.38 at r=0.6), so χ==ref +
+    on-surface residual are the real dropped-chunk gates (by design). The asserting
+    fuzz stays `#[ignore]`d (default `cargo test -p yang-rs` green); an `#[ignore]`d
+    `demonstrator_case23_*` pins the seed. **Follow-up increments seeded by the
+    histogram:** the SSI `AmbiguousCurve` rim-selection gap (the single biggest
+    blocker to curved `ok_correct`), `FaceResolutionFailed` coverage, cone Stage-4
+    `LocalRefinementRequired`, and eventually the deferred box-as-subtrahend
+    direction. Spec `specs/yang_pr_cf1_curved_boolean_fuzz.md`; role-separated cycle,
+    commits `f0ea2e24` (spec)→`884726f5` (RED)→`a568d9e6` (GREEN)→`0771dcc6`
+    (adversary).
   - **Next M5 increments (sequenced):** ~~curved `Subtract` cavity-sense~~
     (PR-YR13 ✅, box − cylinder blind pocket; ~~through-hole genus-1~~ PR-YR14 ✅;
     ~~box − sphere hemispherical dimple~~ PR-YR15 ✅; ~~box − cone conical pocket~~
