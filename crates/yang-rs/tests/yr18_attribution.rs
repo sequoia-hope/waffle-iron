@@ -24,6 +24,7 @@
 //!   - a cylinder WALL band (label B, `Surface::Cylinder` axis +Z r=1, seam ring
 //!     at z=2 → top ring at z=2.5), and
 //!   - a box-TOP plane disk fan (label A, `Surface::Plane` z=2),
+//!
 //! glued along the seam ring at z=2 (every seam edge is shared → an intersection
 //! edge). All wall-triangle centroids lie within the cylinder's Stage-1 chord
 //! band, and all plane-triangle centroids lie exactly on z=2, so both patches
@@ -372,7 +373,7 @@ impl MeshBoolean for LabelMock {
 /// which is pushed out to radius `1+off` (off the cylinder, still on z=2).
 fn seam_pt(k: usize) -> Point3 {
     let th = 2.0 * std::f64::consts::PI * ((k % N) as f64) / (N as f64);
-    let rad = if k % N == 0 {
+    let rad = if k.is_multiple_of(N) {
         CYL_R + off_dist()
     } else {
         CYL_R
