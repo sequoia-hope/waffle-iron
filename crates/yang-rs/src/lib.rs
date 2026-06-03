@@ -2061,10 +2061,11 @@ fn check_watertight_2manifold(mesh: &Mesh) -> Result<(), YangError> {
 ///
 /// `Surface::Plane { normal, d }` uses the convention `n·x + d = 0`, while
 /// `QuadricSurface::Plane` is `n·(x − point) = 0`, so a point on the plane is
-/// `point = -d · n` (with `n` the stored unit normal). `Cylinder` and `Sphere`
-/// map field-for-field (PR-YR15 wires `Sphere`, enabling the exact
-/// `plane ∩ sphere` great-circle rim). `Cone` has no supported SSI pair yet and
-/// rejects loudly (P9).
+/// `point = -d · n` (with `n` the stored unit normal). `Cylinder`, `Sphere`,
+/// and `Cone` map field-for-field (PR-YR15 wires `Sphere`, enabling the exact
+/// `plane ∩ sphere` great-circle rim; PR-YR17 wires `Cone`, enabling the exact
+/// `plane ∩ cone` perpendicular-cut `Circle` rim via the `ssi_rs` `plane_cone`
+/// C1 branch).
 fn surface_to_quadric(s: Surface) -> Result<ssi_rs::QuadricSurface, SsiRefinementError> {
     match s {
         Surface::Plane { normal, d } => {
@@ -2084,7 +2085,15 @@ fn surface_to_quadric(s: Surface) -> Result<ssi_rs::QuadricSurface, SsiRefinemen
             radius,
         }),
         Surface::Sphere { center, radius } => Ok(ssi_rs::QuadricSurface::Sphere { center, radius }),
-        Surface::Cone { .. } => Err(SsiRefinementError::UnsupportedSurfaceForSsi),
+        Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => Ok(ssi_rs::QuadricSurface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        }),
     }
 }
 
@@ -2222,6 +2231,68 @@ fn chord_tol_for_curved_owner(
     }
 }
 
+/// PR-YR17: selection tolerance for a CONE-owning intersection edge. A cone
+/// edge is the perpendicular `plane ∩ cone` cut whose returned `ssi_rs` curve is
+/// the exact rim `Circle`; the mesh endpoints sit on the cone's Stage-1 chord
+/// approximation, off that exact circle by up to the cone's OWN chord bound
+/// `cone_chord_bound(height, half_angle)` (A14.3 single source — the SAME bound
+/// Stage 1 guarantees, NOT tolerance widening). `Surface::Cone` carries no
+/// height, so it is derived from the cone owner's rim `Curve::Circle` edge in
+/// the cone face's outer loop exactly as the Stage-1 pre-pass / `tol_for` do:
+/// `height = |(rim_center − apex)·â|`. A cone-bearing input with NO rim Circle
+/// is a producer fault → LOUD `AmbiguousCurve { matched: 0 }` (never silently
+/// default to `TAU_WORK` for a curved selection), mirroring
+/// `chord_tol_for_curved_owner`.
+fn cone_chord_tol_for_owner(
+    cone_surface: Surface,
+    input: InputId,
+    a: &BRep,
+    b: &BRep,
+    candidates: usize,
+    edge: (u32, u32),
+) -> Result<f64, YangError> {
+    let Surface::Cone {
+        apex,
+        axis_dir,
+        half_angle,
+    } = cone_surface
+    else {
+        return Err(YangError::SsiRefinementFailed {
+            edge,
+            reason: SsiRefinementError::AmbiguousCurve {
+                candidates,
+                matched: 0,
+            },
+        });
+    };
+    let owner = match input {
+        InputId::A => a,
+        InputId::B => b,
+    };
+    let au = normalize3(axis_dir.as_array());
+    let ap = apex.as_array();
+    for f in owner.faces() {
+        if let Surface::Cone { .. } = f.surface {
+            for &e_idx in &f.outer_loop {
+                if let Curve::Circle { center, .. } = owner.edges()[e_idx as usize].curve {
+                    let c = center.as_array();
+                    let height =
+                        ((c[0] - ap[0]) * au[0] + (c[1] - ap[1]) * au[1] + (c[2] - ap[2]) * au[2])
+                            .abs();
+                    return Ok(cone_chord_bound(height, half_angle));
+                }
+            }
+        }
+    }
+    Err(YangError::SsiRefinementFailed {
+        edge,
+        reason: SsiRefinementError::AmbiguousCurve {
+            candidates,
+            matched: 0,
+        },
+    })
+}
+
 /// PR-YR9: build the EXACT analytical `Curve` for each output intersection edge
 /// (spec §5.5). An intersection edge is an undirected mesh boundary edge whose
 /// incidence list has EXACTLY TWO entries with DIFFERENT `InputId` — it lies on
@@ -2230,8 +2301,9 @@ fn chord_tol_for_curved_owner(
 /// For each such edge: convert both surfaces to `QuadricSurface`, call
 /// `ssi_rs::intersect`, derive the selection tolerance `tol` from the
 /// CURVED-owning input's Stage-1 chord bound (cylinder via `curved_chord_bound`,
-/// sphere via `sphere_chord_bound` — PR-YR15), and select the UNIQUE returned
-/// curve passing through BOTH mesh endpoints within `tol`. `matched != 1` is a
+/// sphere via `sphere_chord_bound` — PR-YR15, cone via `cone_chord_tol_for_owner`
+/// — PR-YR17), and select the UNIQUE returned curve passing through BOTH mesh
+/// endpoints within `tol`. `matched != 1` is a
 /// P9/P10 LOUD stop (`AmbiguousCurve`) — never a silent polyline fallback.
 ///
 /// Plane∩Plane edges yield a `Line` → `LineSegment` (equal to the caller's
@@ -2287,6 +2359,10 @@ fn build_intersection_curves(
             sphere_chord_bound(radius)
         } else if let Surface::Sphere { radius, .. } = surf1 {
             sphere_chord_bound(radius)
+        } else if matches!(surf0, Surface::Cone { .. }) {
+            cone_chord_tol_for_owner(surf0, input0, a, b, returned.len(), (s, e))?
+        } else if matches!(surf1, Surface::Cone { .. }) {
+            cone_chord_tol_for_owner(surf1, input1, a, b, returned.len(), (s, e))?
         } else {
             cad_primitives::TAU_WORK
         };
@@ -2783,9 +2859,46 @@ pub fn boolean(
                 // deliberately NOT the Circle-rim `band` (2r√2), which would
                 // underestimate the sphere's chord error.
                 Surface::Sphere { radius, .. } => Ok(sphere_chord_bound(radius)),
-                // Cone never reaches here (`plane_dist` propagates the loud
-                // CurvedSurfaceNotYetSupported first), but stays LOUD if it does.
-                Surface::Cone { .. } => Err(YangError::CurvedSurfaceNotYetSupported { face: fi }),
+                // PR-YR17: a Cone face uses its OWN Stage-1 chord bound
+                // `cone_chord_bound(height, half_angle)` — the SAME bound Stage 1
+                // guarantees (A15/A14.3, NOT tolerance widening). The cone height
+                // is not in `Surface::Cone` (only apex/axis_dir/half_angle), so it
+                // is derived from the cone face's rim `Curve::Circle` edge in its
+                // outer loop exactly as the Stage-1 pre-pass does (src/lib.rs
+                // ~503-525): `height = |(rim_center − apex)·â|`. This is the live
+                // reject site for a Cone (PR-YR16 made
+                // `signed_distance_to_surface(Cone)` return `Ok`, so `plane_dist`
+                // no longer rejects the cone upstream). If the cone face's outer
+                // loop has NO rim Circle, no sound height can be derived → loud
+                // `FaceResolutionFailed` (a genuine producer fault; P9 — NEVER a
+                // defaulted or widened tolerance).
+                Surface::Cone {
+                    apex,
+                    axis_dir,
+                    half_angle,
+                } => {
+                    let au = normalize3(axis_dir.as_array());
+                    let ap = apex.as_array();
+                    let mut height: Option<f64> = None;
+                    for &e_idx in &input_brep.faces()[fi].outer_loop {
+                        if let Curve::Circle { center, .. } =
+                            input_brep.edges()[e_idx as usize].curve
+                        {
+                            let c = center.as_array();
+                            height = Some(
+                                ((c[0] - ap[0]) * au[0]
+                                    + (c[1] - ap[1]) * au[1]
+                                    + (c[2] - ap[2]) * au[2])
+                                    .abs(),
+                            );
+                            break;
+                        }
+                    }
+                    match height {
+                        Some(h) => Ok(cone_chord_bound(h, half_angle)),
+                        None => Err(YangError::FaceResolutionFailed { tri: compact_t }),
+                    }
+                }
             }
         };
 
@@ -3748,7 +3861,10 @@ fn emit_topology(
         // winding are provably consistent (Union → no cavity → `reversed`
         // false). `patch_boundary_cycle` (called above) is surface-agnostic, so
         // we reuse `cycles`. We KEEP the E2 degenerate-loop guard.
-        if matches!(inherited, Surface::Cylinder { .. } | Surface::Sphere { .. }) {
+        if matches!(
+            inherited,
+            Surface::Cylinder { .. } | Surface::Sphere { .. } | Surface::Cone { .. }
+        ) {
             let push_loop = |edges: &mut Vec<BRepEdge>, cycle: &[(u32, u32)]| -> Vec<u32> {
                 let start_idx = edges.len() as u32;
                 for &(s, e) in cycle {
@@ -3819,10 +3935,9 @@ fn emit_topology(
 
         let (normal, d) = match inherited {
             Surface::Plane { normal, d } => (normal, d),
-            // Cylinder and Sphere are handled by the curved branch above, so
-            // these arms are unreachable-defensive; Cone Stage-6 reassembly is
-            // the live loud reject (P9) — a Cone can never reach here through
-            // `BRep::new` (rejected at construction) either, but stays LOUD.
+            // Cylinder, Sphere, and Cone are all handled by the curved branch
+            // above (PR-YR17 added Cone), so these arms are unreachable-
+            // defensive. Kept LOUD (P9) for any genuinely unexpected surface.
             Surface::Sphere { .. } | Surface::Cylinder { .. } | Surface::Cone { .. } => {
                 return Err(YangError::CurvedSurfaceNotYetSupported { face: face_idx });
             }
