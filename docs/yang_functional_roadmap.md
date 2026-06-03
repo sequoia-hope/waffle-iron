@@ -943,11 +943,16 @@ reimplementation from Attene's paper restores WASM (M7).
     `R/r_c≈3.2`, rim verts authored at `dr ∈ (d_ε, (R/r_c)·d_ε)` so the band is
     magnitude-load-bearing without the sidecar) reproduces the `AmbiguousCurve`
     today and goes GREEN under both fixes. Spec `specs/yr19_sphere_chord_band.md`;
-    deviation **N11** (cross-refs N10). Curved-fuzz sphere `ok_correct` expected to
-    rise with ZERO new silent-wrong; the in-container sidecar-zombie blocker
-    (memory `curved_fuzz_sidecar_zombie_blocker`) means the 300-case fuzz delta is
-    driver-verified, not worker-fabricated. **Deferred (still LOUD):** the cone
-    analytic-conic share (`Parabola`/`Hyperbola`, oblique cone∩plane) is unaffected
+    deviation **N11** (cross-refs N10). **Driver-verified empirical delta**
+    (curved fuzz N=90, same seed, before→after; the worker could not run the
+    sidecar fuzz — `curved_fuzz_sidecar_zombie_blocker`): **sphere `AmbiguousCurve`
+    15 → 0 (eliminated)**; sphere `ok_correct` 15 → 30 (Union 4→14, Subtract
+    11→16); total `ok_correct` 37 → **52**; total `AmbiguousCurve` 30 → 15 (now
+    ALL cone); **`SILENT_WRONG` 0 → 0**. Critically, **no conversion to
+    `Stage4RegionInvalid::OffCurveBeyondChordBand`** (sphere has zero Stage-4
+    errors post-fix) — confirming the dual-site fix yields real `Ok`, not a
+    downstream swap. **Deferred (still LOUD):** the cone analytic-conic share
+    (`Parabola`/`Hyperbola`, oblique cone∩plane, the remaining 15) is unaffected
     and stays out of scope.
   - **Next M5 increments (sequenced):** ~~curved `Subtract` cavity-sense~~
     (PR-YR13 ✅, box − cylinder blind pocket; ~~through-hole genus-1~~ PR-YR14 ✅;
