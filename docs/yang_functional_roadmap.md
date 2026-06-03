@@ -911,6 +911,44 @@ reimplementation from Attene's paper restores WASM (M7).
     remaining cone `AmbiguousCurve=15`; (b) the residual **sphere**
     `AmbiguousCurve=15` (a distinct, smaller cause — the gate only partially
     cleared sphere; needs its own diagnosis).
+  - **PR-YR19 — sphere∩plane chord-band metric consistency (the residual sphere
+    `AmbiguousCurve`). ✅ DONE.** Diagnoses PR-YR18's deferred follow-up (b): the
+    15 residual sphere `AmbiguousCurve` cases are all `surf0=Sphere`,
+    `surf1=Plane`, `candidates == 1` (sphere∩plane is never ambiguous). The mesh
+    endpoints PASS the YR18 on-both-surfaces gate (within `tol` of both surfaces
+    along the surface normal) but FAIL `curve_contains_point` because the
+    **in-plane radial** deviation `|radial − r_circle|` exceeds the flat `d_ε`,
+    even though the **sphere-normal** distance is within `d_ε`. A **metric
+    inconsistency**, not a real off-curve point: `d_ε` bounds the surface-normal
+    error; a vertex within `d_ε` of the sphere along its normal projects (on the
+    cut plane) to an in-plane radial deviation up to `(R/r_circle)·d_ε`
+    (derivation: `|p−C| = √(h²+radial²)`, `d/d(radial)√(h²+radial²) ≈ r_c/R` at
+    `radial=r_c`, so `dr ≈ (R/r_c)·d_sphere`). When the cut plane is far from the
+    sphere centre, `r_c` is small and `R/r_c` is large. **Approach (A)
+    projection-scaled radial band** (`src/lib.rs` only): the in-plane radial band
+    becomes `(R/r_circle)·d_ε` while the axial (out-of-plane) band stays `d_ε`
+    (the cut plane is exact). Surface-type-gated on a `Surface::Sphere` owner via
+    `source_radius: Option<f64>` — every non-sphere path (`None`) is byte-identical;
+    near-tangent guard (`r_circle > MIN_FEATURE_SIZE`) fails closed. **Two sites,
+    both load-bearing:** (1) selection — `curve_contains_point` + caller
+    `build_intersection_curves`; (2) Stage-4 relocation — `vert_circle` extended
+    to carry the source sphere radius, the combined `circle_residual > d_eps`
+    guard split into per-component axial/radial bands via `circle_residual_split`.
+    Fixing only site 1 would convert `AmbiguousCurve` → `OffCurveBeyondChordBand`
+    with **zero net `ok_correct` gain**, so the success criterion is `ok_correct`
+    **rising**, not the `AmbiguousCurve` count alone. **NOT tolerance widening
+    (P9/P10):** the band is the exact geometric propagation of the same `d_ε`,
+    derived not picked; a point off by more than the propagated band still STOPs
+    loudly. RED `tests/yr19_sphere_chord_band.rs` (a small-cap dimple, `r_c≈0.31`,
+    `R/r_c≈3.2`, rim verts authored at `dr ∈ (d_ε, (R/r_c)·d_ε)` so the band is
+    magnitude-load-bearing without the sidecar) reproduces the `AmbiguousCurve`
+    today and goes GREEN under both fixes. Spec `specs/yr19_sphere_chord_band.md`;
+    deviation **N11** (cross-refs N10). Curved-fuzz sphere `ok_correct` expected to
+    rise with ZERO new silent-wrong; the in-container sidecar-zombie blocker
+    (memory `curved_fuzz_sidecar_zombie_blocker`) means the 300-case fuzz delta is
+    driver-verified, not worker-fabricated. **Deferred (still LOUD):** the cone
+    analytic-conic share (`Parabola`/`Hyperbola`, oblique cone∩plane) is unaffected
+    and stays out of scope.
   - **Next M5 increments (sequenced):** ~~curved `Subtract` cavity-sense~~
     (PR-YR13 ✅, box − cylinder blind pocket; ~~through-hole genus-1~~ PR-YR14 ✅;
     ~~box − sphere hemispherical dimple~~ PR-YR15 ✅; ~~box − cone conical pocket~~

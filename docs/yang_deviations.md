@@ -554,6 +554,62 @@ residual is the documented conic deferral above).
 intersection-edge invariant; the producer-provenance route remains the durable
 target.
 
+### N11 — sphere section `Circle` membership uses a projection-scaled radial band (PR-YR19)
+
+**Code location:** `crates/yang-rs/src/lib.rs` — `curve_contains_point` (the
+`Circle` arm, plus its caller `build_intersection_curves` threading
+`source_radius`) and `stage4_relocate_and_correct` (the `vert_circle`
+relocation guard, split into per-component axial/radial bands). Spec
+`specs/yr19_sphere_chord_band.md`. Cross-reference **N10** (PR-YR18, the
+on-both-surfaces gate that cleared the cylinder mass but only partially cleared
+sphere — N11 resolves the residual).
+
+**Paper section:** §4.1 / §5.4 (Stage-1 chord error `d_ε` and the implicit
+on-curve membership residual). The paper's `d_ε` bounds the *surface-normal*
+tessellation error; it does not separately discuss how that bound propagates
+into the *in-plane radial* metric of a section circle when a curved surface is
+cut by a plane.
+
+**Current behavior (this PR — a resolution, not a new divergence):** A sphere
+mesh vertex within `d_ε` of the sphere *along its normal*, intersected with the
+cutting plane, can project to an in-plane radial deviation up to
+`(R / r_circle) · d_ε` (`R` = sphere radius, `r_circle` = section circle
+radius). Derivation: on the cut plane `|p − C| = √(h² + radial²)`, and
+`d/d(radial)√(h² + radial²) = radial/|p−C| ≈ r_circle/R` at `radial = r_circle`,
+so `d_sphere ≈ (r_circle/R)·dr`. Before PR-YR19 both membership sites compared
+the in-plane radial deviation to a flat `d_ε`, **under-bounding** it: a vertex
+genuinely on the section circle within the Stage-1 chord error (and passing the
+N10 on-both gate, which uses the correct surface-normal metric) was rejected by
+`curve_contains_point` → loud `AmbiguousCurve { candidates: 1, matched: 0 }`, or
+by the Stage-4 `circle_residual > d_eps` guard → `OffCurveBeyondChordBand`.
+PR-YR19 carries the SAME `d_ε` through the section projection: the in-plane
+**radial** band becomes `(R / r_circle) · d_ε` while the **axial**
+(out-of-plane) band stays `d_ε` (the cut plane is exact). Surface-type-gated on
+a `Surface::Sphere` owner via `source_radius: Option<f64>` — every non-sphere
+path (`None` factor) stays byte-for-byte identical. A near-tangent guard
+(`r_circle > MIN_FEATURE_SIZE`) fails **closed** (keeps the unscaled band) so the
+factor cannot blow up. This is the exact geometric propagation of the same
+`d_ε`, not tolerance widening (P9/P10): the band is *derived*, not picked to
+pass, and a point off by more than the propagated band still STOPs loudly.
+
+**Why approach (A) (projection-scaled radial band) and not (B)
+(surface-distance unification):** `curve_contains_point` also disambiguates the
+`matched == 1` selection (e.g. parallel cylinder∩plane two-`Line` candidates). A
+curve-independent on-both-surfaces test would test true for *every* candidate,
+collapsing `matched` to `candidates` and re-raising `AmbiguousCurve` on
+legitimate multi-candidate cases — a regression of the N10 cylinder result.
+Approach (A) keeps the per-curve geometric test intact.
+
+**Deferred follow-up (still LOUD):** the **cone** analytic-conic share
+(`Parabola`/`Hyperbola` for oblique cone∩plane cuts) is unaffected by N11 and
+stays loud (a separate increment; see N7 / N10).
+
+**Severity:** low (resolves a metric-inconsistency → loud-refusal/false-invalid
+defect; sphere∩plane only, surface-type-gated).
+**Sign-off:** candidate — exact geometric propagation of the existing `d_ε` in
+the in-plane radial metric; the producer-provenance route (N10) remains the
+durable target for intersection-edge identification generally.
+
 ### Legacy ↔ new-crate cross-reference
 
 The legacy **D1–D14** entries scope to `crates/kernel/` and do **not** imply
