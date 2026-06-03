@@ -270,6 +270,18 @@ pub fn cdt_polygon_with_holes(
     }
     tris.sort_unstable();
 
+    // A valid (≥3-vertex, in-range, non-crossing) outer loop that yields ZERO
+    // interior triangles encloses no area — a collinear / zero-area outer loop
+    // (or one fully covered by holes). That is degenerate input, NOT a valid
+    // empty result: spade accepts distinct-but-collinear points + non-crossing
+    // constraints and `inner_faces()` is simply empty, so without this guard the
+    // function would silently return `Ok(vec![])` (PR-NC1 adversary finding). A
+    // thin sliver with positive area still yields ≥1 interior triangle and is
+    // unaffected.
+    if tris.is_empty() {
+        return Err(CdtError::DegenerateInput);
+    }
+
     Ok(tris)
 }
 

@@ -463,10 +463,11 @@ fn err_duplicate_coincident_vertex() {
 }
 
 // ====================================================================
-// ADVERSARY BUG DEMONSTRATOR (FAILING — #[ignore]d so the suite is green).
+// ADVERSARY-FOUND BUG — NOW FIXED (PR-NC1 follow-up); live regression test.
 //
-// FINDING: a fully-COLLINEAR (zero-area) outer loop returns `Ok(vec![])` — a
-// SILENT EMPTY triangulation — instead of a LOUD `Err`.
+// FINDING (was): a fully-COLLINEAR (zero-area) outer loop returned `Ok(vec![])` —
+// a SILENT EMPTY triangulation — instead of a LOUD `Err`. FIXED by the
+// implementer's empty-output guard (`tris.is_empty()` ⇒ `DegenerateInput`).
 //
 // This violates two explicit PR-NC1 contracts:
 //   * `CdtError::DegenerateInput` is documented (triangulation/mod.rs:34-37) as
@@ -495,9 +496,7 @@ fn err_duplicate_coincident_vertex() {
 // >=3-vertex outer loop. Removing `#[ignore]` should then pass.
 // ====================================================================
 #[test]
-#[ignore = "ADVERSARY BUG DEMONSTRATOR: collinear outer loop returns Ok([]) \
-            instead of Err(DegenerateInput); see comment. Remove #[ignore] once fixed."]
-fn bug_collinear_outer_loop_returns_silent_empty() {
+fn collinear_outer_loop_errs_degenerate() {
     let verts = vec![
         Point2::new(0.0, 0.0),
         Point2::new(1.0, 0.0),
