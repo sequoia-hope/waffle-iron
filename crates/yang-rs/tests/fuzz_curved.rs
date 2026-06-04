@@ -1067,6 +1067,10 @@ fn sample_curve(curve: &Curve, n_samples: usize) -> Vec<[f64; 3]> {
             }
         }
         Curve::LineSegment => {}
+        // PR-YR22: this fuzz helper samples only the circle/ellipse families;
+        // a Parabola yields no samples here (same as LineSegment).
+        // Exhaustiveness arm forced by the new enum variant.
+        Curve::Parabola { .. } => {}
     }
     out
 }

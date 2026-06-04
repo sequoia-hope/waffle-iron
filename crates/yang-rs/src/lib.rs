@@ -173,7 +173,13 @@ pub enum Curve {
         major_radius: f64,
         minor_radius: f64,
     },
-    /// STUB for RED type-check only.
+    /// Parabola with `vertex` on the curve, in the plane with unit `normal`.
+    /// The axis of symmetry lies along unit `axis_dir`; the conjugate in-plane
+    /// direction is `normal × axis_dir` (unit, since both are unit and
+    /// orthogonal). `focal_length` is the focal distance `f > 0`. In the
+    /// in-plane frame `(x along axis_dir, y along normal × axis_dir)` the curve
+    /// satisfies `y² = 4f·x`, parameterized (matching `ssi_rs::SsiCurve`) as
+    /// `vertex + (t²/(4f))·axis_dir + t·(normal × axis_dir)`.
     Parabola {
         vertex: Point3,
         normal: Vector3,
@@ -832,7 +838,12 @@ impl BRep {
                     return Point3::new(0.0, 0.0, 0.0);
                 };
                 match e.curve {
-                    Curve::Parabola { .. } => return Point3::new(0.0, 0.0, 0.0),
+                    Curve::Parabola {
+                        vertex,
+                        normal,
+                        axis_dir,
+                        focal_length,
+                    } => parabola_point(vertex, normal, axis_dir, focal_length, t),
                     Curve::LineSegment => {
                         let s = match self.vertices.get(e.start as usize) {
                             Some(v) => v.point.as_array(),
@@ -1046,10 +1057,12 @@ fn ellipse_frame(normal: Vector3, major_axis: Vector3) -> [f64; 3] {
     ]
 }
 
-/// PR-YR11 (spec §3): evaluate the exact ellipse point at parameter `t`:
-/// `C + major_radius·cos t·major + minor_radius·sin t·minor_dir`. `major` is
-/// normalized; `minor_dir` is [`ellipse_frame`]. Used by `eval_source` and the
-/// relocation round-trip oracle.
+/// PR-YR22: evaluate the exact parabola point at parameter `t`, matching the
+/// `ssi_rs::SsiCurve::Parabola` convention field-for-field:
+/// `vertex + (t²/(4·focal_length))·axis_dir + t·(normal × axis_dir)`. The
+/// conjugate in-plane direction `normal × axis_dir` is unit when `normal` and
+/// `axis_dir` are unit and orthogonal (as ssi-rs guarantees). Used by
+/// `eval_source` and the relocation round-trip oracle.
 pub fn parabola_point(
     vertex: Point3,
     normal: Vector3,
@@ -1059,15 +1072,15 @@ pub fn parabola_point(
 ) -> Point3 {
     let ax = axis_dir.as_array();
     let conj = [
-        normal.as_array()[1]*ax[2]-normal.as_array()[2]*ax[1],
-        normal.as_array()[2]*ax[0]-normal.as_array()[0]*ax[2],
-        normal.as_array()[0]*ax[1]-normal.as_array()[1]*ax[0],
+        normal.as_array()[1] * ax[2] - normal.as_array()[2] * ax[1],
+        normal.as_array()[2] * ax[0] - normal.as_array()[0] * ax[2],
+        normal.as_array()[0] * ax[1] - normal.as_array()[1] * ax[0],
     ];
-    let v=vertex.as_array();
+    let v = vertex.as_array();
     Point3::new(
-        v[0]+ax[0]*t*t/(4.0*focal_length)+conj[0]*t,
-        v[1]+ax[1]*t*t/(4.0*focal_length)+conj[1]*t,
-        v[2]+ax[2]*t*t/(4.0*focal_length)+conj[2]*t,
+        v[0] + ax[0] * t * t / (4.0 * focal_length) + conj[0] * t,
+        v[1] + ax[1] * t * t / (4.0 * focal_length) + conj[1] * t,
+        v[2] + ax[2] * t * t / (4.0 * focal_length) + conj[2] * t,
     )
 }
 
@@ -2200,6 +2213,29 @@ struct ConeEllipseReloc {
     cone_d_eps: f64,
 }
 
+/// PR-YR22: per-vertex Parabola relocation data for a `cone ∩ plane` θ=α
+/// (generator-parallel) section — the parabola sibling of [`ConeEllipseReloc`].
+/// Carries the true cone (`apex` / `cone_axis_dir` / `half_angle`), the cutting
+/// plane (`plane_n` / `plane_d`), and the stored parabola params (`vertex` /
+/// parabola `normal` / `para_axis_dir` — these differ from the cone's
+/// `cone_axis_dir`/normal, hence the unambiguous names), plus the cone's OWN
+/// Stage-1 chord budget `cone_d_eps`. `focal_length` is not stored: the
+/// relocation tag `t` is the conjugate-axis coordinate (needs only `vertex` /
+/// `normal` / `para_axis_dir`), and `eval_source` / `is_reversed` recover the
+/// full parabola from the output edge's own `Curve::Parabola` fields.
+#[derive(Clone, Copy)]
+struct ConeParabolaReloc {
+    apex: Point3,
+    cone_axis_dir: Vector3,
+    half_angle: f64,
+    plane_n: Vector3,
+    plane_d: f64,
+    vertex: Point3,
+    normal: Vector3,
+    para_axis_dir: Vector3,
+    cone_d_eps: f64,
+}
+
 /// PR-YR21 (spec §3.1): relocate `p` onto the exact `cone ∩ plane` ellipse via
 /// the CONE GENERATOR parameterization (Yang §4.3.2) — closed-form, NO quartic.
 /// The cone analog of [`project_onto_ellipse_via_cylinder`]. The relocated point
@@ -2322,8 +2358,33 @@ fn cone_chord_budget_from_owner(
 /// residual `|ρ − |axial|·tanα|` + plane residual `|n·x + d|` (plane offset
 /// normalized to the unit normal).
 fn cone_ellipse_residual(pt: Point3, cer: &ConeEllipseReloc) -> f64 {
-    let ap = cer.apex.as_array();
-    let a_hat = normalize3(cer.axis_dir.as_array());
+    cone_plane_residual(
+        pt,
+        cer.apex,
+        cer.axis_dir,
+        cer.half_angle,
+        cer.plane_n,
+        cer.plane_d,
+    )
+}
+
+/// PR-YR22: the on-both-surfaces residual `max(cone radial, plane)` of `pt` to an
+/// exact `cone ∩ plane` section, recomputed from the stored cone/plane. Cone
+/// radial residual `|ρ − |axial|·tanα|` + plane residual `|n·x + d|` (plane
+/// offset normalized to the unit normal). Shared by [`cone_ellipse_residual`]
+/// (ellipse) and the Stage-4 parabola loop — the conic TYPE does not change this
+/// cone+plane residual (it only depends on the two surfaces, not the section
+/// shape), so both call it (spec §3.1/§4).
+fn cone_plane_residual(
+    pt: Point3,
+    apex: Point3,
+    axis_dir: Vector3,
+    half_angle: f64,
+    plane_n: Vector3,
+    plane_d: f64,
+) -> f64 {
+    let ap = apex.as_array();
+    let a_hat = normalize3(axis_dir.as_array());
     let x = pt.as_array();
     let w = [x[0] - ap[0], x[1] - ap[1], x[2] - ap[2]];
     let axial = w[0] * a_hat[0] + w[1] * a_hat[1] + w[2] * a_hat[2];
@@ -2333,16 +2394,16 @@ fn cone_ellipse_residual(pt: Point3, cer: &ConeEllipseReloc) -> f64 {
         w[2] - axial * a_hat[2],
     ];
     let rho = (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
-    let cone_res = (rho - axial.abs() * cer.half_angle.tan()).abs();
+    let cone_res = (rho - axial.abs() * half_angle.tan()).abs();
 
-    let n_raw = cer.plane_n.as_array();
+    let n_raw = plane_n.as_array();
     let n_len = (n_raw[0] * n_raw[0] + n_raw[1] * n_raw[1] + n_raw[2] * n_raw[2]).sqrt();
     let (n, d) = if n_len < cad_primitives::TAU_WORK {
-        (n_raw, cer.plane_d)
+        (n_raw, plane_d)
     } else {
         (
             [n_raw[0] / n_len, n_raw[1] / n_len, n_raw[2] / n_len],
-            cer.plane_d / n_len,
+            plane_d / n_len,
         )
     };
     let plane_res = (x[0] * n[0] + x[1] * n[1] + x[2] * n[2] + d).abs();
@@ -2545,9 +2606,20 @@ fn ssi_curve_to_curve(c: ssi_rs::SsiCurve) -> Result<Curve, SsiRefinementError> 
             minor_radius,
         }),
         ssi_rs::SsiCurve::Line { .. } => Ok(Curve::LineSegment),
-        ssi_rs::SsiCurve::Parabola { .. } | ssi_rs::SsiCurve::Hyperbola { .. } => {
-            Err(SsiRefinementError::UnsupportedCurve)
-        }
+        // PR-YR22: the θ=α cone∩plane section is a Parabola (the single-candidate
+        // conic). Map field-for-field. Hyperbola stays loud/unsupported (YR23).
+        ssi_rs::SsiCurve::Parabola {
+            vertex,
+            normal,
+            axis_dir,
+            focal_length,
+        } => Ok(Curve::Parabola {
+            vertex,
+            normal,
+            axis_dir,
+            focal_length,
+        }),
+        ssi_rs::SsiCurve::Hyperbola { .. } => Err(SsiRefinementError::UnsupportedCurve),
     }
 }
 
@@ -2636,7 +2708,45 @@ fn curve_contains_point(
             let residual = ((u / major_radius).powi(2) + (v / minor_radius).powi(2)).sqrt() - 1.0;
             residual.abs() * major_radius.min(*minor_radius) <= tol
         }
-        ssi_rs::SsiCurve::Parabola { .. } | ssi_rs::SsiCurve::Hyperbola { .. } => false,
+        ssi_rs::SsiCurve::Parabola {
+            vertex,
+            normal,
+            axis_dir,
+            focal_length,
+        } => {
+            // PR-YR22: in-plane implicit membership `y² = 4f·x` for the θ=α
+            // cone∩plane parabola. Out-of-plane reject first (the cut plane is
+            // exact), then the in-plane relation.
+            let n = normalize3(normal.as_array());
+            let ax = normalize3(axis_dir.as_array());
+            let conj = [
+                n[1] * ax[2] - n[2] * ax[1],
+                n[2] * ax[0] - n[0] * ax[2],
+                n[0] * ax[1] - n[1] * ax[0],
+            ];
+            let vtx = vertex.as_array();
+            let w = [x[0] - vtx[0], x[1] - vtx[1], x[2] - vtx[2]];
+            let out_of_plane = w[0] * n[0] + w[1] * n[1] + w[2] * n[2];
+            if out_of_plane.abs() > tol {
+                return false;
+            }
+            let px = w[0] * ax[0] + w[1] * ax[1] + w[2] * ax[2];
+            let py = w[0] * conj[0] + w[1] * conj[1] + w[2] * conj[2];
+            // The implicit residual `y² − 4f·x` has units length². Convert it to
+            // a perpendicular distance (length) by dividing by the in-plane
+            // gradient magnitude `|∇(y²−4f·x)| = |(−4f, 2y)| = 2√(4f²+y²)` —
+            // the parabola analog of the Ellipse arm's residual→length scaling.
+            // Compare that geometric residual against the cone chord band `tol`.
+            let implicit = (py * py - 4.0 * focal_length * px).abs();
+            let grad = 2.0 * (4.0 * focal_length * focal_length + py * py).sqrt();
+            let geo_res = if grad > cad_primitives::MIN_FEATURE_SIZE {
+                implicit / grad
+            } else {
+                implicit
+            };
+            geo_res <= tol
+        }
+        ssi_rs::SsiCurve::Hyperbola { .. } => false,
     }
 }
 
@@ -3760,10 +3870,79 @@ fn stage4_relocate_and_correct(
     // oblique section. Kept separate from `vert_ellipse` (cylinder) so the
     // cylinder path stays byte-identical.
     let mut vert_cone_ellipse: BTreeMap<u32, ConeEllipseReloc> = BTreeMap::new();
+    // PR-YR22: per-vertex cone-parabola relocation data for a `cone ∩ plane` θ=α
+    // (generator-parallel) section. Kept separate from the ellipse maps so the
+    // ellipse/cylinder paths stay byte-identical.
+    let mut vert_parabola: BTreeMap<u32, ConeParabolaReloc> = BTreeMap::new();
     let mut endpoints: Vec<u32> = Vec::new();
     for (&(s, e), curve) in &curves0 {
         match *curve {
-            Curve::Parabola { .. } => continue,
+            Curve::Parabola {
+                vertex,
+                normal,
+                axis_dir,
+                focal_length: _, // recovered from the output edge in eval_source.
+            } => {
+                // PR-YR22: identify the TRUE cone + cutting plane from this edge's
+                // incidence (the θ=α generator-parallel section), mirroring the
+                // cone-ellipse arm. Carry the cone's owning `InputId` so its chord
+                // budget can be derived from its rim Circle.
+                let key = if s < e { (s, e) } else { (e, s) };
+                let entries = inc0.get(&key);
+                let mut cone: Option<(InputId, Point3, Vector3, f64)> = None;
+                let mut plane: Option<(Vector3, f64)> = None;
+                if let Some(entries) = entries {
+                    for &(input, surf) in entries {
+                        match surf {
+                            Surface::Cone {
+                                apex,
+                                axis_dir: cone_axis,
+                                half_angle,
+                            } => cone = Some((input, apex, cone_axis, half_angle)),
+                            Surface::Plane { normal: pn, d: pd } => plane = Some((pn, pd)),
+                            _ => {}
+                        }
+                    }
+                }
+                let (Some((cone_input, apex, cone_axis_dir, half_angle)), Some((plane_n, plane_d))) =
+                    (cone, plane)
+                else {
+                    // A parabola section that is not a cone+plane pair is out of
+                    // scope (producer fault). Loud STOP (P9/P10), mirroring the
+                    // cone-ellipse `_ =>` arm.
+                    return Err(YangError::Stage4RegionInvalid {
+                        vertex: s,
+                        reason: Stage4InvalidReason::LocalRefinementRequired,
+                    });
+                };
+                let owner = match cone_input {
+                    InputId::A => a,
+                    InputId::B => b,
+                };
+                let Some(cone_d_eps) =
+                    cone_chord_budget_from_owner(apex, cone_axis_dir, half_angle, owner)
+                else {
+                    return Err(YangError::Stage4RegionInvalid {
+                        vertex: s,
+                        reason: Stage4InvalidReason::LocalRefinementRequired,
+                    });
+                };
+                let cpr = ConeParabolaReloc {
+                    apex,
+                    cone_axis_dir,
+                    half_angle,
+                    plane_n,
+                    plane_d,
+                    vertex,
+                    normal,
+                    para_axis_dir: axis_dir,
+                    cone_d_eps,
+                };
+                for v in [s, e] {
+                    vert_parabola.insert(v, cpr);
+                    endpoints.push(v);
+                }
+            }
             Curve::Circle {
                 center,
                 normal,
@@ -3919,6 +4098,20 @@ fn stage4_relocate_and_correct(
             });
         }
     }
+    // PR-YR22: a vertex shared by a cone-parabola edge AND any other conic edge
+    // (circle / cylinder-ellipse / cone-ellipse) is a genuine ambiguity — loud
+    // STOP (P10), the same no-skip audit extended to the parabola map.
+    for v in vert_parabola.keys() {
+        if vert_circle.contains_key(v)
+            || vert_ellipse.contains_key(v)
+            || vert_cone_ellipse.contains_key(v)
+        {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: *v,
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+            });
+        }
+    }
 
     // (2) Relocate / retag every endpoint. `processed` is the no-skip audit set;
     // `moved` is the subset whose position actually changed (ρ > TAU_WORK) — the
@@ -4018,6 +4211,59 @@ fn stage4_relocate_and_correct(
             cer.major_radius,
             cer.minor_radius,
         );
+        if rho > cad_primitives::TAU_WORK {
+            mesh.verts[v as usize] = proj;
+            moved.insert(v);
+        }
+        relocations.push((v, t));
+        processed.insert(v);
+    }
+
+    // PR-YR22: cone-parabola relocation loop, mirroring the cone-ellipse loop.
+    // Closed form via the cone GENERATOR parameterization (the section TYPE does
+    // not change the relocation — `project_onto_cone_section` is type-agnostic;
+    // its `s ≤ 0` / generator-parallel guards correctly reject the out-of-scope
+    // parabola tail, which the fixture's finite arc avoids). Gated against the
+    // cone's OWN chord budget `cone_d_eps`.
+    for (&v, cpr) in &vert_parabola {
+        let p = mesh.verts[v as usize];
+        let rho = cone_plane_residual(
+            p,
+            cpr.apex,
+            cpr.cone_axis_dir,
+            cpr.half_angle,
+            cpr.plane_n,
+            cpr.plane_d,
+        );
+        if rho > cpr.cone_d_eps {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: v,
+                reason: Stage4InvalidReason::OffCurveBeyondChordBand,
+            });
+        }
+        let proj = project_onto_cone_section(
+            p,
+            cpr.apex,
+            cpr.cone_axis_dir,
+            cpr.half_angle,
+            cpr.plane_n,
+            cpr.plane_d,
+        )
+        .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+        // Round-trip param `t` = the conjugate-axis coordinate of the parabola
+        // parameterization `(proj − vertex)·(normal × axis_dir)`, so the unchanged
+        // `eval_source` Parabola arm reproduces the relocated position (oracle3).
+        let n = normalize3(cpr.normal.as_array());
+        let ax = normalize3(cpr.para_axis_dir.as_array());
+        let conj = [
+            n[1] * ax[2] - n[2] * ax[1],
+            n[2] * ax[0] - n[0] * ax[2],
+            n[0] * ax[1] - n[1] * ax[0],
+        ];
+        let vtx = cpr.vertex.as_array();
+        let pr = proj.as_array();
+        let t =
+            (pr[0] - vtx[0]) * conj[0] + (pr[1] - vtx[1]) * conj[1] + (pr[2] - vtx[2]) * conj[2];
         if rho > cad_primitives::TAU_WORK {
             mesh.verts[v as usize] = proj;
             moved.insert(v);
@@ -4222,7 +4468,35 @@ fn is_reversed(
     };
     let p_r_pt = mesh.verts[p_r as usize];
     let tan_c = match conic {
-        Curve::Parabola { .. } => [0.0, 0.0, 0.0],
+        Curve::Parabola {
+            vertex,
+            normal,
+            axis_dir,
+            focal_length,
+        } => {
+            // PR-YR22: parabola tangent `d/dt point(t) = (t/(2f))·axis_dir +
+            // (normal × axis_dir)`, evaluated at the conjugate-axis coordinate
+            // `t = (p_r − vertex)·(normal × axis_dir)` (the same tag the Stage-4
+            // parabola loop stores). Defensively correct even though the open-arc
+            // parabola section is excluded from the closed-loop `all_conic` sweep.
+            let n = normalize3(normal.as_array());
+            let ax = normalize3(axis_dir.as_array());
+            let conj = [
+                n[1] * ax[2] - n[2] * ax[1],
+                n[2] * ax[0] - n[0] * ax[2],
+                n[0] * ax[1] - n[1] * ax[0],
+            ];
+            let vtx = vertex.as_array();
+            let pr = p_r_pt.as_array();
+            let t = (pr[0] - vtx[0]) * conj[0]
+                + (pr[1] - vtx[1]) * conj[1]
+                + (pr[2] - vtx[2]) * conj[2];
+            normalize3([
+                (t / (2.0 * focal_length)) * ax[0] + conj[0],
+                (t / (2.0 * focal_length)) * ax[1] + conj[1],
+                (t / (2.0 * focal_length)) * ax[2] + conj[2],
+            ])
+        }
         Curve::Circle {
             center,
             normal,
@@ -4416,9 +4690,14 @@ fn reconstruct_topology_stage4(
     // `EllipseProjectionUnsupported` STOP rather than silently passing an
     // un-relocated mesh. No conic edges ⇒ Stage 4 is a strict no-op (planar
     // byte-identity).
-    let has_conic = intersection_curves
-        .values()
-        .any(|c| matches!(c, Curve::Circle { .. } | Curve::Ellipse { .. }));
+    // PR-YR22: include `Parabola` so a parabola-only fixture enters Stage 4 and
+    // its cone-parabola seam is relocated onto the exact section.
+    let has_conic = intersection_curves.values().any(|c| {
+        matches!(
+            c,
+            Curve::Circle { .. } | Curve::Ellipse { .. } | Curve::Parabola { .. }
+        )
+    });
     // (vertex, circle-frame angle t) for every relocated / retagged intersection
     // vertex. Mapped to `BRepEdge { edge, t }` sources in `emit_topology` once
     // the output edges exist.
@@ -4705,8 +4984,10 @@ fn emit_topology(
             continue;
         }
         let edge_idx = edges.iter().position(|e| {
-            matches!(e.curve, Curve::Circle { .. } | Curve::Ellipse { .. })
-                && (e.start == vid || e.end == vid)
+            matches!(
+                e.curve,
+                Curve::Circle { .. } | Curve::Ellipse { .. } | Curve::Parabola { .. }
+            ) && (e.start == vid || e.end == vid)
         });
         if let Some(ei) = edge_idx {
             sources[vid as usize] = TessellationSource::BRepEdge { edge: ei as u32, t };
