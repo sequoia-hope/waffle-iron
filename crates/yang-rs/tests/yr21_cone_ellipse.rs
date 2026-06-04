@@ -558,6 +558,59 @@ fn dist_to_ellipse_sampled(x: [f64; 3], ell: &ssi_rs::SsiCurve) -> f64 {
     best
 }
 
+/// Resolution-INDEPENDENT perpendicular distance from `x` to the exact ellipse,
+/// via a two-level sampler. The coarse 200k sweep above has a nearest-sample
+/// floor of ~half the sample spacing (≈1.8e-5 for this ≈7.26-perimeter ellipse)
+/// — about 180× TAU_MODEL — so it CANNOT certify a tight (≤ TAU_MODEL) on-ellipse
+/// equality. This refinement first locates the nearest coarse sample param `t0`,
+/// then does a LOCAL fine sweep of `FINE` samples over `[t0 − Δ, t0 + Δ]` (one
+/// coarse step on each side). The fine spacing is `2·Δ / FINE ≈ 2π/(200000·50000)`
+/// ≈ 6e-10, so its nearest-sample floor (~3e-10) is negligible vs TAU_MODEL.
+/// Used ONLY for oracle3's tight after-relocate assertion; the coarse sampler is
+/// retained for the orders-of-magnitude strict-decrease comparison.
+fn dist_to_ellipse_refined(x: [f64; 3], ell: &ssi_rs::SsiCurve) -> f64 {
+    let ssi_rs::SsiCurve::Ellipse {
+        center,
+        normal,
+        major_axis,
+        major_radius,
+        minor_radius,
+    } = ell
+    else {
+        panic!("dist_to_ellipse_refined: not an ellipse");
+    };
+    let center = center.as_array();
+    let normal = normal.as_array();
+    let major_axis = major_axis.as_array();
+
+    // Coarse sweep: find nearest sample param t0.
+    let coarse = 200_000usize;
+    let two_pi = 2.0 * std::f64::consts::PI;
+    let mut best = f64::INFINITY;
+    let mut t0 = 0.0_f64;
+    for k in 0..coarse {
+        let t = two_pi * (k as f64) / (coarse as f64);
+        let pe = eval_ellipse_point(center, normal, major_axis, *major_radius, *minor_radius, t);
+        let d = norm(sub(x, pe));
+        if d < best {
+            best = d;
+            t0 = t;
+        }
+    }
+
+    // Local fine sweep over one coarse step on each side of t0.
+    let delta = two_pi / (coarse as f64);
+    let fine = 100_000usize;
+    let lo = t0 - delta;
+    let span = 2.0 * delta;
+    for k in 0..=fine {
+        let t = lo + span * (k as f64) / (fine as f64);
+        let pe = eval_ellipse_point(center, normal, major_axis, *major_radius, *minor_radius, t);
+        best = best.min(norm(sub(x, pe)));
+    }
+    best
+}
+
 // =========================================================================
 // `LabelMock`: drive the PUBLIC boolean() with a HAND-BUILT LabeledArrangement.
 // Re-declared verbatim from yr11/yr17.
@@ -1068,7 +1121,16 @@ fn oracle2_offcurve_relocate_on_ellipse_watertight() {
 // Oracle 3 (standalone, explicit) — chord deviation strictly DECREASES vs the
 // exact ellipse, measured by perpendicular distance to the ssi-rs ellipse (a
 // production-independent reference). Pre max deviation ≫ TAU_MODEL; post ≤
-// TAU_MODEL. RED: production STOPs.
+// TAU_MODEL.
+//
+// The strict-decrease comparison uses the coarse `dist_to_ellipse_sampled` —
+// both operands are orders of magnitude apart and well above its ≈1.8e-5
+// nearest-sample floor, so the floor is harmless there. The tight after-relocate
+// assertion (≤ TAU_MODEL) uses `dist_to_ellipse_refined` instead: a two-level
+// sampler whose nearest-sample floor (~3e-10) is negligible vs TAU_MODEL (1e-7),
+// so it can honor the tight bound that the coarse sampler's floor cannot. Both
+// measure against the SAME ssi-rs ellipse, keeping this oracle independent of
+// oracle2's cone/plane residual method. RED: production STOPs.
 // =========================================================================
 
 #[test]
@@ -1094,11 +1156,15 @@ fn oracle3_chord_deviation_strictly_decreases() {
     let r = boolean(&cone, &bx, BoolOp::Union, &mock)
         .expect("yr21 §4.3: oblique cone union must Ok after cone Stage-4 ellipse relocate");
 
+    // Coarse measurement for the orders-of-magnitude strict-decrease check.
     let mut after = 0.0_f64;
+    // Resolution-independent measurement for the tight ≤ TAU_MODEL check.
+    let mut after_refined = 0.0_f64;
     for e in ellipse_edges(&r) {
         let (s, t) = edge_endpoints(&r, e);
         for ep in [s, t] {
             after = after.max(dist_to_ellipse_sampled(ep, &ell));
+            after_refined = after_refined.max(dist_to_ellipse_refined(ep, &ell));
         }
     }
     assert!(
@@ -1106,8 +1172,8 @@ fn oracle3_chord_deviation_strictly_decreases() {
         "yr21 §4.3: ellipse deviation must strictly decrease (after {after} < before {before})"
     );
     assert!(
-        after <= TAU_MODEL,
-        "yr21 §4.3: ellipse deviation after relocate must be ≤ TAU_MODEL, got {after}"
+        after_refined <= TAU_MODEL,
+        "yr21 §4.3: ellipse deviation after relocate must be ≤ TAU_MODEL, got {after_refined}"
     );
 }
 
