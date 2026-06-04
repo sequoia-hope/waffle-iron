@@ -1170,7 +1170,43 @@ reimplementation from Attene's paper restores WASM (M7).
     parametric `SsiCurve` variant + general-position solvers, and **MUST be planned
     with a human before implementation.**
 - **M6 — Native `cherchi-rs` Stage 2** behind the same interface, parity-green
-  vs the sidecar on the corpus.
+  vs the sidecar on the corpus. **The biggest milestone — a faithful port of the
+  MIT Cherchi C++ (`/home/claude/cherchi2022/InteractiveAndRobustMeshBooleans/`)
+  to native Rust, removing the `cherchi-sidecar-rs` subprocess.** Reference parity
+  vs the C++ sidecar is the LOAD-BEARING oracle (every PR diffs native vs sidecar
+  on a corpus subset; CLAUDE.md hard-rule #2). MIT attribution header on every
+  ported file. Still uses the `indirect-predicates-sidecar-rs` FFI for LPI/TPI
+  until M7 (so M6 lands native-but-not-yet-WASM; M7 clean-rooms the predicates →
+  restores WASM). **Foundations already in `cherchi-rs`:** predicates (CR1–10),
+  FastTrimesh+Tree (CR11–12c), Stage-1 pair detection (CR13), the CDT (NC1), the
+  `MeshBoolean` trait + `LabeledArrangement` contract, and the IP FFI
+  (`lambda3d_lpi/tpi`, `orient3d`). **Decomposition (PR-CR-AR* arrangement /
+  PR-CR-BL* boolean-labeling; reference-parity-gated; demand-drive any missing IP
+  predicate wrapper per CLAUDE.md #8):**
+  - **PR-CR-AR1 — tri-tri intersection → implicit points.** Port
+    `arrangements/code/intersection_classification.cpp`: for each CR13 candidate
+    pair, classify (CR9) and construct the implicit intersection points/segments
+    via the IP FFI `lambda3d_lpi/tpi`. Parity: computed intersection points match
+    the C++ classification on a small corpus.
+  - **PR-CR-AR2 — per-triangle constrained re-triangulation.** Insert the
+    intersection segments into each affected triangle and re-triangulate (extend
+    the NC1 CDT to implicit points + constraints), producing subdivided triangles
+    with shared/welded vertices.
+  - **PR-CR-AR3 — global conforming soup + topology.** Assemble the
+    non-self-intersecting triangle soup with consistent shared topology
+    (`triangle_soup` / `solve_intersections`). Parity: the arrangement output
+    matches the C++ arrangement (canonicalized) on the corpus.
+  - **PR-CR-BL1 — patch flood-fill + octree.** Port `computeAllPatches` /
+    `computeSinglePatch` + the `foctree` octree (`code/foctree.cpp`).
+  - **PR-CR-BL2 — ray-cast in/out (2022 §5).** The robust per-patch in/out:
+    `findRayEndpoints` / `computeInsideOut` / ray-perturbation X/Y/Z /
+    `pruneIntersectionsAndSortAlongRay` / `analyzeSortedIntersections` (the
+    hardest part — implicit-point ray intersection sorting + perturbation).
+  - **PR-CR-BL3 — emit `LabeledArrangement` + native `MeshBoolean` impl.**
+    Assemble the per-tri source + patch_id + per-input in/out, implement
+    `MeshBoolean` natively, **parity-green vs the sidecar on the corpus**, then
+    switch `yang-rs` to the native backend behind the trait (the sidecar stays as
+    the `#[cfg(test)]` parity oracle).
 - **M7 — Clean-room indirect predicates from Attene's paper → restore WASM.**
   Removes the LGPL FFI dependency and the `compile_error!` WASM block.
 - **M8 — Stage 0 coplanar preprocessing** hardened last (special case that
