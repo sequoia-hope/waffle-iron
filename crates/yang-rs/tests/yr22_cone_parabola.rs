@@ -803,29 +803,6 @@ fn tri_normal(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> [f64; 3] {
     cross(sub(b, a), sub(c, a))
 }
 
-/// Analytic outward surface normal at a mesh triangle: the cutting-plane normal
-/// if all 3 verts lie on the plane (the cap), else the cone outward normal at the
-/// centroid (`n̂ = unit(r̂ − tanα·â)`). Used to check winding.
-fn analytic_normal_at_tri(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> Option<[f64; 3]> {
-    let on_plane = plane_residual(a) <= TAU_MODEL
-        && plane_residual(b) <= TAU_MODEL
-        && plane_residual(c) <= TAU_MODEL;
-    if on_plane {
-        return Some(cut_plane_normal()); // cap outward = +n̂
-    }
-    let centroid = scale(add(add(a, b), c), 1.0 / 3.0);
-    let ax = unit(CONE_AXIS);
-    let tana = cone_half_angle().tan();
-    let w = sub(centroid, CONE_APEX);
-    let h_axial = dot(w, ax);
-    let radial = sub(w, scale(ax, h_axial));
-    if norm(radial) < MIN_FEATURE_SIZE {
-        return None;
-    }
-    let rhat = unit(radial);
-    Some(unit(sub(rhat, scale(ax, tana))))
-}
-
 // =========================================================================
 // MANDATORY self-check — the authoritative fixture-validity gate. Builds the
 // SIMULATED Union output (keep-all, no flip) directly, NO boolean() call, and
@@ -1156,9 +1133,14 @@ fn oracle3_parabola_eval_round_trip() {
 }
 
 // =========================================================================
-// Oracle 4 — no inverted / degenerate triangles. Every output triangle has area
-// ≥ MIN_FEATURE_SIZE² and winding agreeing with the analytic outward normal where
-// defined.
+// Oracle 4 — no degenerate triangles, and the boolean output is a consistently-
+// oriented watertight 2-manifold. PR-YR22 (driver, post second-opinion review):
+// this asserts the invariant production ACTUALLY enforces — non-degeneracy +
+// inherited watertightness/local repair (Yang §4.4.1/§4.4.3, see lib.rs
+// `validate_relocated_triangles`) — NOT a per-facet winding-vs-analytic-normal
+// test. Production deliberately rejects that pointwise test because it
+// false-positives on the fixture's ring-closure scaffold facets (the wrap
+// "bridge" triangles that close the open 40° arc into a watertight ring).
 // =========================================================================
 
 #[test]
@@ -1172,27 +1154,41 @@ fn oracle4_no_inverted_or_degenerate_tris() {
         .expect("yr22 O4: θ=α cone union must Ok after cone Stage-4 parabola relocate");
     let mesh = r.as_mesh();
 
+    // (a) No DEGENERATE triangle (per-facet area floor).
     for (ti, tri) in mesh.tris.iter().enumerate() {
         let a = mesh.verts[tri[0] as usize].as_array();
         let b = mesh.verts[tri[1] as usize].as_array();
         let c = mesh.verts[tri[2] as usize].as_array();
-        let nrm = tri_normal(a, b, c);
-        let area2 = norm(nrm);
+        let area2 = norm(tri_normal(a, b, c));
         assert!(
             area2 * 0.5 >= MIN_FEATURE_SIZE * MIN_FEATURE_SIZE,
             "yr22 O4: triangle {ti} {tri:?} is degenerate (area {} < MIN_FEATURE_SIZE²)",
             area2 * 0.5
         );
-        if let Some(an) = analytic_normal_at_tri(a, b, c) {
-            let agree = dot(unit(nrm), an);
-            assert!(
-                agree > 0.0,
-                "yr22 O4: triangle {ti} {tri:?} winding (normal {:?}) disagrees with the \
-                 analytic outward normal {an:?} (dot {agree} ≤ 0) — inverted triangle",
-                unit(nrm)
-            );
-        }
     }
+
+    // (b) No INVERTED orientation — the REAL post-relocation boolean output must
+    // be a consistently-oriented watertight 2-manifold. A relocation that folds
+    // or tears a facet breaks half-edge pairing (unpaired != 0); a global
+    // inversion flips the signed volume. O2/O3 independently pin WHERE relocated
+    // vertices land (on the exact cone+plane+parabola to TAU_MODEL). This is the
+    // ONLY always-on check of signed-volume>0 on the real post-relocation output
+    // (mock_is_valid_genus0 is no-pipeline; O2 omits volume; O8 is sidecar-gated).
+    let unpaired = unpaired_half_edges(mesh);
+    assert_eq!(
+        unpaired, 0,
+        "yr22 O4: boolean output must be watertight (0 unpaired half-edges); got {unpaired}"
+    );
+    let chi = euler_characteristic(mesh);
+    assert_eq!(
+        chi, 2,
+        "yr22 O4: boolean output must be genus 0 (χ=2); got χ={chi}"
+    );
+    let vol = signed_volume(mesh);
+    assert!(
+        vol > 0.0,
+        "yr22 O4: boolean output must be OUTWARD-oriented (signed volume > 0); got {vol}"
+    );
 }
 
 // =========================================================================
