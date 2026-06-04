@@ -2149,6 +2149,177 @@ fn project_onto_ellipse_via_cylinder(
     Ok((proj, t))
 }
 
+/// PR-YR21 (spec §3.1/§3.2): per-vertex Ellipse relocation data for a
+/// `cone ∩ plane` oblique section — the cone analog of [`EllipseReloc`]. Carries
+/// the true cone (apex / axis / half-angle), the cutting plane (`plane_n` /
+/// `plane_d`), the stored ellipse params (for the `ellipse_param` round-trip),
+/// and the cone's OWN Stage-1 chord budget `cone_d_eps`
+/// (`cone_chord_bound(height, half_angle)`) — NOT the rim-AABB `d_eps`, so a
+/// tall-thin cone's residual is gated against the honest cone bound.
+#[derive(Clone, Copy)]
+struct ConeEllipseReloc {
+    apex: Point3,
+    axis_dir: Vector3,
+    half_angle: f64,
+    plane_n: Vector3,
+    plane_d: f64,
+    center: Point3,
+    normal: Vector3,
+    major_axis: Vector3,
+    major_radius: f64,
+    minor_radius: f64,
+    cone_d_eps: f64,
+}
+
+/// PR-YR21 (spec §3.1): relocate `p` onto the exact `cone ∩ plane` ellipse via
+/// the CONE GENERATOR parameterization (Yang §4.3.2) — closed-form, NO quartic.
+/// The cone analog of [`project_onto_ellipse_via_cylinder`]. The relocated point
+/// is built on the cone generator at `p`'s azimuth (so it lies on the cone) and
+/// solved to satisfy `n·x + d = 0` (so it lies on the plane), hence exactly on
+/// `plane ∩ cone` = the ellipse. Returns only the relocated 3D point
+/// (type-agnostic; the caller does its own conic param inversion — YR22/YR23
+/// reuse this unchanged for parabola/hyperbola).
+///
+/// LOUD STOPs (P9/P10), never a silent snap / divide-by-~0:
+/// - `Err(OnAxis)` when the radial component `ρ < MIN_FEATURE_SIZE`.
+/// - `Err(LocalRefinementRequired)` when the generator is parallel to the plane
+///   (`|n·g| < MIN_FEATURE_SIZE` — the asymptotic / parabola-tail direction,
+///   out of scope) or the solved generator parameter `s ≤ 0` (apex-coincident /
+///   wrong-nappe).
+fn project_onto_cone_section(
+    p: Point3,
+    apex: Point3,
+    axis_dir: Vector3,
+    half_angle: f64,
+    plane_n: Vector3,
+    plane_d: f64,
+) -> Result<Point3, Stage4InvalidReason> {
+    let ap = apex.as_array();
+    let a_hat = normalize3(axis_dir.as_array());
+    let n = normalize3(plane_n.as_array());
+    // The plane offset `d` must be expressed for the UNIT normal `n`. Stored
+    // `Surface::Plane` normals in the corpus are already unit, but normalize the
+    // offset defensively against the same scale used for `n` (same pattern as
+    // `project_onto_ellipse_via_cylinder`).
+    let n_raw = plane_n.as_array();
+    let n_len = (n_raw[0] * n_raw[0] + n_raw[1] * n_raw[1] + n_raw[2] * n_raw[2]).sqrt();
+    let d = if n_len < cad_primitives::TAU_WORK {
+        plane_d
+    } else {
+        plane_d / n_len
+    };
+    let x = p.as_array();
+
+    let w = [x[0] - ap[0], x[1] - ap[1], x[2] - ap[2]];
+    let axial = w[0] * a_hat[0] + w[1] * a_hat[1] + w[2] * a_hat[2];
+    let radial = [
+        w[0] - axial * a_hat[0],
+        w[1] - axial * a_hat[1],
+        w[2] - axial * a_hat[2],
+    ];
+    let rho = (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
+    if rho < cad_primitives::MIN_FEATURE_SIZE {
+        return Err(Stage4InvalidReason::OnAxis);
+    }
+    let rdir = [radial[0] / rho, radial[1] / rho, radial[2] / rho];
+
+    // Nappe sign from the axial component; the upper nappe (axial ≥ 0) uses
+    // `+cosα·â`, the lower (`axial < 0`) uses `−cosα·â`. ρ ≥ MIN_FEATURE_SIZE so
+    // the point is genuinely off-axis; the `|n·g|` / `s ≤ 0` guards below catch
+    // any apex-plane degeneracy.
+    let nappe = if axial < 0.0 { -1.0 } else { 1.0 };
+    let (ca, sa) = (half_angle.cos(), half_angle.sin());
+    // Unit generator at `p`'s azimuth (|g| = 1 by construction).
+    let g = [
+        nappe * ca * a_hat[0] + sa * rdir[0],
+        nappe * ca * a_hat[1] + sa * rdir[1],
+        nappe * ca * a_hat[2] + sa * rdir[2],
+    ];
+
+    let n_dot_g = n[0] * g[0] + n[1] * g[1] + n[2] * g[2];
+    if n_dot_g.abs() < cad_primitives::MIN_FEATURE_SIZE {
+        // Generator parallel to the plane: the asymptotic / parabola-tail
+        // direction — out of scope (spec §6). Loud STOP rather than dividing by
+        // ~0.
+        return Err(Stage4InvalidReason::LocalRefinementRequired);
+    }
+    let n_dot_apex = n[0] * ap[0] + n[1] * ap[1] + n[2] * ap[2];
+    let s = -(n_dot_apex + d) / n_dot_g;
+    if s <= 0.0 {
+        // Apex-coincident / wrong-nappe: the generator pierces the plane at or
+        // behind the apex — out of scope. Loud STOP.
+        return Err(Stage4InvalidReason::LocalRefinementRequired);
+    }
+    Ok(Point3::new(
+        ap[0] + s * g[0],
+        ap[1] + s * g[1],
+        ap[2] + s * g[2],
+    ))
+}
+
+/// PR-YR21 (spec §3.3): derive a cone's Stage-1 chord budget
+/// `cone_chord_bound(height, half_angle)` from the cone OWNER's rim
+/// `Curve::Circle`, using the SAME height derivation as `cone_chord_tol_for_owner`
+/// / `tol_for`: `height = |(rim_center − apex)·â|`. A cone owner with no rim
+/// Circle is a producer fault → `None` (the caller raises a loud STOP; NEVER a
+/// `TAU_WORK` default for a curved relocation — P10).
+fn cone_chord_budget_from_owner(
+    apex: Point3,
+    axis_dir: Vector3,
+    half_angle: f64,
+    owner: &BRep,
+) -> Option<f64> {
+    let au = normalize3(axis_dir.as_array());
+    let ap = apex.as_array();
+    for f in owner.faces() {
+        if let Surface::Cone { .. } = f.surface {
+            for &e_idx in &f.outer_loop {
+                if let Curve::Circle { center, .. } = owner.edges()[e_idx as usize].curve {
+                    let c = center.as_array();
+                    let height =
+                        ((c[0] - ap[0]) * au[0] + (c[1] - ap[1]) * au[1] + (c[2] - ap[2]) * au[2])
+                            .abs();
+                    return Some(cone_chord_bound(height, half_angle));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// PR-YR21 (spec §3.1/§4): the on-both-surfaces residual `max(cone radial,
+/// plane)` of `pt` to an exact `cone ∩ plane` ellipse, recomputed from the
+/// stored cone/plane. The cone analog of [`ellipse_residual`]. Cone radial
+/// residual `|ρ − |axial|·tanα|` + plane residual `|n·x + d|` (plane offset
+/// normalized to the unit normal).
+fn cone_ellipse_residual(pt: Point3, cer: &ConeEllipseReloc) -> f64 {
+    let ap = cer.apex.as_array();
+    let a_hat = normalize3(cer.axis_dir.as_array());
+    let x = pt.as_array();
+    let w = [x[0] - ap[0], x[1] - ap[1], x[2] - ap[2]];
+    let axial = w[0] * a_hat[0] + w[1] * a_hat[1] + w[2] * a_hat[2];
+    let radial = [
+        w[0] - axial * a_hat[0],
+        w[1] - axial * a_hat[1],
+        w[2] - axial * a_hat[2],
+    ];
+    let rho = (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
+    let cone_res = (rho - axial.abs() * cer.half_angle.tan()).abs();
+
+    let n_raw = cer.plane_n.as_array();
+    let n_len = (n_raw[0] * n_raw[0] + n_raw[1] * n_raw[1] + n_raw[2] * n_raw[2]).sqrt();
+    let (n, d) = if n_len < cad_primitives::TAU_WORK {
+        (n_raw, cer.plane_d)
+    } else {
+        (
+            [n_raw[0] / n_len, n_raw[1] / n_len, n_raw[2] / n_len],
+            cer.plane_d / n_len,
+        )
+    };
+    let plane_res = (x[0] * n[0] + x[1] * n[1] + x[2] * n[2] + d).abs();
+    cone_res.max(plane_res)
+}
+
 /// PR-YR11 (spec §4): the on-both-surfaces residual `max(|dist(x,axis)−r|,
 /// |n·x+d|)` of `pt` to an exact oblique ellipse (cylinder ∩ plane). Matches the
 /// RED Oracle-1 contract. The plane offset is normalized to the unit normal.
@@ -3555,6 +3726,11 @@ fn stage4_relocate_and_correct(
     // PR-YR11: per-vertex Ellipse relocation data (the true cylinder + plane +
     // stored ellipse), analogous to `vert_circle`.
     let mut vert_ellipse: BTreeMap<u32, EllipseReloc> = BTreeMap::new();
+    // PR-YR21: per-vertex cone-ellipse relocation data (the true cone + plane +
+    // stored ellipse + the cone's OWN chord budget), for a `cone ∩ plane`
+    // oblique section. Kept separate from `vert_ellipse` (cylinder) so the
+    // cylinder path stays byte-identical.
+    let mut vert_cone_ellipse: BTreeMap<u32, ConeEllipseReloc> = BTreeMap::new();
     let mut endpoints: Vec<u32> = Vec::new();
     for (&(s, e), curve) in &curves0 {
         match *curve {
@@ -3595,8 +3771,12 @@ fn stage4_relocate_and_correct(
                 let entries = inc0.get(&key);
                 let mut cyl: Option<(Point3, Vector3, f64)> = None;
                 let mut plane: Option<(Vector3, f64)> = None;
+                // PR-YR21: additionally scan for a `Surface::Cone` owner (the
+                // cone+plane oblique section). Carry the owning `InputId` so the
+                // cone's chord budget can be derived from its rim Circle.
+                let mut cone: Option<(InputId, Point3, Vector3, f64)> = None;
                 if let Some(entries) = entries {
-                    for &(_input, surf) in entries {
+                    for &(input, surf) in entries {
                         match surf {
                             Surface::Cylinder {
                                 axis_point,
@@ -3604,35 +3784,82 @@ fn stage4_relocate_and_correct(
                                 radius,
                             } => cyl = Some((axis_point, axis_dir, radius)),
                             Surface::Plane { normal: pn, d: pd } => plane = Some((pn, pd)),
+                            Surface::Cone {
+                                apex,
+                                axis_dir,
+                                half_angle,
+                            } => cone = Some((input, apex, axis_dir, half_angle)),
                             _ => {}
                         }
                     }
                 }
-                let (Some((axis_point, axis_dir, radius)), Some((plane_n, plane_d))) = (cyl, plane)
-                else {
-                    // An Ellipse edge whose incidence is not exactly one cylinder
-                    // + one plane is out of scope (e.g. sphere/cone, or coplanar
-                    // multi-solid). Loud STOP (P9/P10).
-                    return Err(YangError::Stage4RegionInvalid {
-                        vertex: s,
-                        reason: Stage4InvalidReason::LocalRefinementRequired,
-                    });
-                };
-                let er = EllipseReloc {
-                    axis_point,
-                    axis_dir,
-                    radius,
-                    plane_n,
-                    plane_d,
-                    center,
-                    normal,
-                    major_axis,
-                    major_radius,
-                    minor_radius,
-                };
-                for v in [s, e] {
-                    vert_ellipse.insert(v, er);
-                    endpoints.push(v);
+                match (cyl, cone, plane) {
+                    // YR11 cylinder + plane: the EXISTING path, byte-for-byte.
+                    (Some((axis_point, axis_dir, radius)), _, Some((plane_n, plane_d))) => {
+                        let er = EllipseReloc {
+                            axis_point,
+                            axis_dir,
+                            radius,
+                            plane_n,
+                            plane_d,
+                            center,
+                            normal,
+                            major_axis,
+                            major_radius,
+                            minor_radius,
+                        };
+                        for v in [s, e] {
+                            vert_ellipse.insert(v, er);
+                            endpoints.push(v);
+                        }
+                    }
+                    // PR-YR21 cone + plane (no cylinder): the new cone-ellipse
+                    // path. Derive the cone's OWN chord budget from the cone
+                    // owner's rim Circle (spec §3.3); a cone owner with no rim
+                    // Circle is a producer fault → loud STOP (never TAU_WORK).
+                    (
+                        None,
+                        Some((cone_input, apex, axis_dir, half_angle)),
+                        Some((plane_n, plane_d)),
+                    ) => {
+                        let owner = match cone_input {
+                            InputId::A => a,
+                            InputId::B => b,
+                        };
+                        let Some(cone_d_eps) =
+                            cone_chord_budget_from_owner(apex, axis_dir, half_angle, owner)
+                        else {
+                            return Err(YangError::Stage4RegionInvalid {
+                                vertex: s,
+                                reason: Stage4InvalidReason::LocalRefinementRequired,
+                            });
+                        };
+                        let cer = ConeEllipseReloc {
+                            apex,
+                            axis_dir,
+                            half_angle,
+                            plane_n,
+                            plane_d,
+                            center,
+                            normal,
+                            major_axis,
+                            major_radius,
+                            minor_radius,
+                            cone_d_eps,
+                        };
+                        for v in [s, e] {
+                            vert_cone_ellipse.insert(v, cer);
+                            endpoints.push(v);
+                        }
+                    }
+                    // Neither cylinder+plane nor cone+plane: out of scope (e.g.
+                    // sphere, or coplanar multi-solid). Loud STOP (P9/P10).
+                    _ => {
+                        return Err(YangError::Stage4RegionInvalid {
+                            vertex: s,
+                            reason: Stage4InvalidReason::LocalRefinementRequired,
+                        });
+                    }
                 }
             }
             Curve::LineSegment => {}
@@ -3645,6 +3872,17 @@ fn stage4_relocate_and_correct(
     // audit / P10).
     for v in vert_ellipse.keys() {
         if vert_circle.contains_key(v) {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: *v,
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+            });
+        }
+    }
+    // PR-YR21: a vertex shared by a cone-ellipse edge AND any other conic edge
+    // (cylinder-ellipse or circle) is a genuine ambiguity — loud STOP (spec
+    // §3.2 / P10), the same no-skip audit extended to the cone map.
+    for v in vert_cone_ellipse.keys() {
+        if vert_circle.contains_key(v) || vert_ellipse.contains_key(v) {
             return Err(YangError::Stage4RegionInvalid {
                 vertex: *v,
                 reason: Stage4InvalidReason::LocalRefinementRequired,
@@ -3710,6 +3948,46 @@ fn stage4_relocate_and_correct(
         }
         let (proj, t) = project_onto_ellipse_via_cylinder(p, er)
             .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+        if rho > cad_primitives::TAU_WORK {
+            mesh.verts[v as usize] = proj;
+            moved.insert(v);
+        }
+        relocations.push((v, t));
+        processed.insert(v);
+    }
+
+    // PR-YR21: cone-ellipse relocation loop, mirroring the cylinder-ellipse loop.
+    // Closed form via the cone GENERATOR parameterization (spec §3.1). Gated
+    // against the cone's OWN chord budget `cone_d_eps` (NOT the rim-AABB `d_eps`)
+    // so a tall-thin cone's residual is checked against the honest cone bound.
+    for (&v, cer) in &vert_cone_ellipse {
+        let p = mesh.verts[v as usize];
+        let rho = cone_ellipse_residual(p, cer);
+        if rho > cer.cone_d_eps {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: v,
+                reason: Stage4InvalidReason::OffCurveBeyondChordBand,
+            });
+        }
+        let proj = project_onto_cone_section(
+            p,
+            cer.apex,
+            cer.axis_dir,
+            cer.half_angle,
+            cer.plane_n,
+            cer.plane_d,
+        )
+        .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+        // Round-trip param `t` in the stored ellipse frame so the unchanged
+        // `eval_source` Ellipse arm reproduces the relocated position.
+        let t = ellipse_param(
+            proj,
+            cer.center,
+            cer.normal,
+            cer.major_axis,
+            cer.major_radius,
+            cer.minor_radius,
+        );
         if rho > cad_primitives::TAU_WORK {
             mesh.verts[v as usize] = proj;
             moved.insert(v);
