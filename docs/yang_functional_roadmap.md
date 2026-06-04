@@ -1053,7 +1053,13 @@ reimplementation from Attene's paper restores WASM (M7).
       per the `curved_fuzz_sidecar_zombie_blocker` (the bounded E2E oracle8 on the
       real `mesh_booleans` binary stands in as the live-boolean proof; no fabricated
       fuzz numbers). Gate: cone ELLIPSE `LocalRefinementRequired` → 0 (mock + real
-      sidecar). **Next: PR-YR22 (parabola), then YR23 (hyperbola).**
+      sidecar). **Driver-verified delta + Step-0 split** (curved fuzz N=90, same
+      seed, before→after): cone `ok_correct` **0 → 5** (Union 2, Subtract 3 — cone's
+      FIRST successes); cone `LocalRefinementRequired` **5 → 0** (eliminated); total
+      `ok_correct` 61 → **66**; `SILENT_WRONG` 0 → 0. **Cone-refusal split** (of the
+      26 cone cases): **5 ellipse** (now ✅), **21 parabola+hyperbola** (the
+      `AmbiguousCurve`, YR22/YR23 targets), **0 axis-parallel/through-apex** in this
+      sample. **Next: PR-YR22 (parabola), then YR23 (hyperbola) — target the 21.**
     - **PR-YR22 — Parabola end-to-end.** `Curve::Parabola` (mirror `SsiCurve`) +
       `ssi_curve_to_curve` + `curve_contains_point` + `parabola_point(t)` eval +
       point→t inversion; relocation reused from YR21. Gate: cone parabola
