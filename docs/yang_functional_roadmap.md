@@ -1024,12 +1024,36 @@ reimplementation from Attene's paper restores WASM (M7).
     (ellipse/parabola/hyperbola identical), the cone analog of YR11's
     cylinder-ellipse projector, avoids generic foot-of-perpendicular quartics.
     **Sequence:**
-    - **PR-YR21 — cone-section relocation foundation + cone ellipse.** Build the
-      generator-angle relocation + residual; wire into Stage-4 for cone+plane
-      conic edges; land the existing `Curve::Ellipse` on a cone end-to-end. Begins
-      with an instrumented split of the cone refusals (ellipse/parabola/hyperbola/
-      axis-parallel) to confirm per-type counts. Gate: cone ellipse cuts →
-      `ok_correct`; cone ellipse `LocalRefinementRequired` → 0.
+    - **PR-YR21 — cone-section relocation foundation + cone ellipse. ✅ DONE
+      (2026-06-04).** Shipped `project_onto_cone_section` (closed-form: relocate a
+      vertex along its azimuth's generator `g = nappe·cosα·â + sinα·r̂`, solving
+      `s` so `apex+s·g` lies on the cutting plane → on BOTH cone and plane = on the
+      conic; type-agnostic, reused by YR22/YR23) + `ConeEllipseReloc` +
+      `cone_chord_budget_from_owner` (per-cone-face budget `cone_chord_bound`,
+      height from the cone owner's rim Circle — the single source). The Stage-4
+      `Curve::Ellipse` arm now branches on incidence: cylinder+plane → the YR11
+      path **byte-identical**; cone+plane → the new cone relocation loop; neither →
+      the existing loud STOP. cone ELLIPSE now lands end-to-end (RED oracle1/2/3/4 +
+      **real-sidecar E2E oracle8** green; held loud-STOPs — asymptotic/through-apex/
+      parabola/hyperbola — stay LOUD per oracle6 + the adversary suite). Zero crate
+      regressions; cyl/sphere `stage4_chord_band` untouched. **Loud STOPs (P9/P10):**
+      `OnAxis` (ρ<MIN_FEATURE_SIZE), `LocalRefinementRequired` for `|n·g|≈0`
+      (generator ∥ plane / asymptotic) and `s≤0` (wrong-nappe / through-apex).
+      **Findings:** (1) the *spec's "secondary site"* Stage-4 cone budget gate
+      `OffCurveBeyondChordBand` is **defensively redundant** — it is shadowed by the
+      identical upstream `on_both` gate in `build_intersection_curves` (same
+      `cone_chord_bound` tol), so a beyond-band vertex is demoted to `LineSegment`
+      before Stage-4 (adversary-verified; kept as a fail-closed backstop, not
+      load-bearing through the public surface). (2) oracle3's chord-deviation tight
+      check inherited yr11's coarse 200k-sample `dist_to_ellipse_sampled` whose
+      ~1.8e-5 half-spacing floor (perimeter-7.26 ellipse) cannot resolve TAU_MODEL
+      — fixed with a resolution-independent two-level refined sampler; the rigorous
+      on-ellipse guarantee remains enforced by oracle2 + the real sidecar. **Step-0
+      cone-refusal split / curved-fuzz `ok_correct` delta deferred to the driver**
+      per the `curved_fuzz_sidecar_zombie_blocker` (the bounded E2E oracle8 on the
+      real `mesh_booleans` binary stands in as the live-boolean proof; no fabricated
+      fuzz numbers). Gate: cone ELLIPSE `LocalRefinementRequired` → 0 (mock + real
+      sidecar). **Next: PR-YR22 (parabola), then YR23 (hyperbola).**
     - **PR-YR22 — Parabola end-to-end.** `Curve::Parabola` (mirror `SsiCurve`) +
       `ssi_curve_to_curve` + `curve_contains_point` + `parabola_point(t)` eval +
       point→t inversion; relocation reused from YR21. Gate: cone parabola
