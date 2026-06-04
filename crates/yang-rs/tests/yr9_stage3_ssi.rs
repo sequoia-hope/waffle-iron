@@ -508,6 +508,9 @@ fn curve_to_ssi(c: &Curve) -> Option<ssi_rs::SsiCurve> {
         // emits; a Parabola has no closed `SsiCurve` form here (same as
         // LineSegment). Exhaustiveness arm forced by the new enum variant.
         Curve::Parabola { .. } => None,
+        // PR-YR23: likewise a Hyperbola has no closed `SsiCurve` form in this
+        // yr9 helper; exhaustiveness arm forced by the new enum variant.
+        Curve::Hyperbola { .. } => None,
     }
 }
 
