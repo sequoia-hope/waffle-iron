@@ -1125,10 +1125,27 @@ reimplementation from Attene's paper restores WASM (M7).
       from 5 toward ~26. **NOT fabricated here** (curved fuzz can't complete
       in-container per `curved_fuzz_sidecar_zombie_blocker`); capability proven by
       the unit oracles + the real-sidecar E2E (oracle8 ran green against the C++
-      binary). **⇒ DRIVER ACTION: the prim∪/−box curved fuzz is now mined out for
-      hyperbola; the driver should re-run the calibrated curved fuzz to confirm
-      cone `ok_correct` 5→~26 and `AmbiguousCurve`→~0, then attribute any residual
-      to PR-YR24 (axis-parallel / through-apex).**
+      binary). The worker PREDICTED cone `ok_correct` 5→~26.
+      **DRIVER-VERIFIED DELTA (CORRECTION — the prediction was wrong; cone is NOT
+      closed):** curved fuzz N=90 (same seed) post-YR23: cone `AmbiguousCurve`
+      **21 → 4** (hyperbola selection WORKS), but cone `ok_correct` only **5 → 6**
+      and the bulk **shifted to `LocalRefinementRequired` 0 → 16** (Union 5,
+      Subtract 11); overall `ok_correct` 66 → 67; `SILENT_WRONG` 0. The hyperbola
+      SELECTION is correct, but the YR21 cone-section relocation **breaks down for
+      hyperbola points reaching toward the ASYMPTOTIC generator** (where
+      `|n·g|→0` ⇒ the `project_onto_cone_section` guard fires
+      `LocalRefinementRequired`). The RED oracle + E2E sample near the vertex (where
+      relocation works), so they passed; the random fuzz generates arcs extending
+      toward the asymptote and exposes the gap. **This is the "moved-the-failure-
+      to-a-sibling-variant" pattern** (cf. memory [[fix_all_gates_sharing_a_metric]]):
+      the gate is cone `ok_correct` rising, not `AmbiguousCurve` dropping. **⇒ Cone
+      is NOT closed. Closing it needs a Stage-4 hyperbola near-asymptote relocation
+      cycle (a real geometric gap, larger than the PR-YR24 axis-parallel triage) —
+      OR an explicit decision to leave near-asymptote hyperbola arcs as a sanctioned
+      LOUD `LocalRefinementRequired` (out-of-scope), which is honest but caps cone
+      coverage.** Shipped YR23 is sound (selection + near-vertex relocation, zero
+      silent-wrong) and not a regression — it is progress that revealed a deeper
+      gap.
     - **PR-YR24 — residual triage (likely small).** Remaining
       `LocalRefinementRequired` (axis-parallel / through-apex sections): confirm
       genuinely-degenerate ones correctly stay LOUD (out of scope, not a
