@@ -1200,10 +1200,24 @@ reimplementation from Attene's paper restores WASM (M7).
     each LPI vertex lies on BOTH supporting triangles' planes, asserted via exact
     indirect `orient3d == Zero` (not a float tolerance); plus CR9-agreement and
     hand-verified transversal cases. Full sidecar-corpus parity engages at AR3/BL3.
-  - **PR-CR-AR2 — per-triangle constrained re-triangulation.** Insert the
-    intersection segments into each affected triangle and re-triangulate (extend
-    the NC1 CDT to implicit points + constraints), producing subdivided triangles
-    with shared/welded vertices.
+  - **PR-CR-AR2 — per-triangle constrained re-triangulation** (port
+    `arrangements/code/triangulation.cpp`, ~1366 lines — **split into two
+    slices**; NOT the spade NC1 CDT, which is f64-Delaunay and cannot handle
+    exact/implicit points — port Cherchi's incremental insertion on implicit
+    points via exact predicates + the CR12c `splitTri`/`splitEdge` API):
+    - **PR-CR-AR2a — point/edge insertion.** Port `triangulateSingleTriangle`'s
+      point-collection + `splitSingleTriangle` / `splitSingleEdge`: insert AR1's
+      intersection POINTS (interior → `splitTri`, on-edge → `splitEdge`) into the
+      per-triangle submesh, with exact point-location. Produces a valid
+      sub-triangulation whose vertices include every intersection point (segments
+      not yet enforced as edges). Oracle: valid covering triangulation (exact
+      orient2d), all intersection points are vertices.
+    - **PR-CR-AR2b — constraint segments + TPI.** Port
+      `addConstraintSegmentsInSingleTriangle` / `addConstraintSegment` + the
+      deferred `createTPI` (segment-segment crossings → `ImplicitPoint3DTpi` via
+      `lambda3d_tpi`): enforce the intersection segments as mesh edges, resolving
+      the N13-deferred TPI + coplanar-edge cases. Also swap the N13 raw-`f64`
+      `point_in_segment` guard for the exact CR1 collinearity predicate.
   - **PR-CR-AR3 — global conforming soup + topology.** Assemble the
     non-self-intersecting triangle soup with consistent shared topology
     (`triangle_soup` / `solve_intersections`). Parity: the arrangement output
