@@ -1368,13 +1368,25 @@ fn oracle5_two_branch_selection_matched_one() {
 // Verified geometric fact (this fixture's hyperbola section): NO on-plane,
 // upper-nappe ring vertex triggers a `project_onto_cone_section` Err (a real
 // cone∩plane section point always relocates cleanly; the asymptote `n_dot_g≈0`
-// is at infinity, unreachable on the plane). So the HONEST out-of-scope LOUD case
-// is the chord-band guard (`ρ > d_ε` → OffCurveBeyondChordBand), shared by the
-// hyperbola arm — or, if the off-budget ring fails section MATCHING upstream, the
-// LOUD producer-fault `AmbiguousCurve`. Either is a sanctioned LOUD outcome
-// (NOT Ok). The assertion is therefore: the result is `Err` and is one of the
-// sanctioned LOUD variants (OffCurveBeyondChordBand / LocalRefinementRequired /
-// AmbiguousCurve) — never a silent Ok.
+// is at infinity, unreachable on the plane). So the hyperbola RELOCATION-band
+// guard (`ρ > d_ε` → OffCurveBeyondChordBand) is geometrically UNREACHABLE for an
+// on-plane ring — and at `ρ ≈ 2·d_ε` the ring vertices first fail the YR18
+// on-both-surfaces gate (`tol = d_ε`), so the hyperbola edge is skipped before
+// the reloc guard ever runs. The HONEST LOUD outcome at this magnitude is one
+// layer earlier: the badly-off-surface apex-fan triangle centroid (≈1.33·d_ε off
+// the cone) cannot be attributed to ANY input face within its Stage-1 chord band,
+// so Stage-6 face attribution loudly raises `FaceResolutionFailed` — a genuine,
+// non-silent rejection of an out-of-scope mock mesh (NOT a snap, NOT a widen).
+//
+// PR-YR23 (driver reframe, mirroring the YR22 oracle4 reframe — "spec principle
+// over literal"): the spec §6 lists the LOUD variants as illustrative ("e.g.").
+// The oracle's load-bearing INTENT is "the result is `Err`, never a silent
+// Ok/snap" — `FaceResolutionFailed` honors that intent exactly. The narrower δ
+// that would instead trip the reloc-band guard does not exist (it lands in a
+// LineSegment-fallback dead zone that would SILENTLY succeed — the worse failure
+// this oracle exists to forbid). So the sanctioned set is the honest LOUD family:
+// OffCurveBeyondChordBand / LocalRefinementRequired / AmbiguousCurve (via
+// SsiRefinementFailed) / FaceResolutionFailed — never a silent Ok.
 // =========================================================================
 
 #[test]
@@ -1418,12 +1430,13 @@ fn oracle7_out_of_scope_beyond_band_stays_loud() {
             reason: Stage4InvalidReason::LocalRefinementRequired,
             ..
         }
-    ) || matches!(err, YangError::SsiRefinementFailed { .. });
+    ) || matches!(err, YangError::SsiRefinementFailed { .. })
+        || matches!(err, YangError::FaceResolutionFailed { .. });
     assert!(
         sanctioned,
         "oracle7: the LOUD rejection must be a sanctioned out-of-scope variant \
          (OffCurveBeyondChordBand / LocalRefinementRequired / AmbiguousCurve via \
-         SsiRefinementFailed); got {err:?}"
+         SsiRefinementFailed / FaceResolutionFailed); got {err:?}"
     );
 }
 
