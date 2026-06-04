@@ -1183,11 +1183,23 @@ reimplementation from Attene's paper restores WASM (M7).
   (`lambda3d_lpi/tpi`, `orient3d`). **Decomposition (PR-CR-AR* arrangement /
   PR-CR-BL* boolean-labeling; reference-parity-gated; demand-drive any missing IP
   predicate wrapper per CLAUDE.md #8):**
-  - **PR-CR-AR1 — tri-tri intersection → implicit points.** Port
+  - **PR-CR-AR1 — tri-tri intersection → implicit points. [DONE]** Ported
     `arrangements/code/intersection_classification.cpp`: for each CR13 candidate
-    pair, classify (CR9) and construct the implicit intersection points/segments
-    via the IP FFI `lambda3d_lpi/tpi`. Parity: computed intersection points match
-    the C++ classification on a small corpus.
+    pair, classify (sign-pattern decoders cpp:834-925) and construct the typed
+    intersection-vertex set per pair (`classify_pair` / `classify_all` in
+    `crates/cherchi-rs/src/arrangements/intersection_points.rs`). **First FFI
+    consumer inside `cherchi-rs`**, gated behind the off-by-default
+    `indirect-predicates` feature (WASM still builds with the feature off; CI runs
+    the crate both ways). **Scope (source-faithful, deviation N13):** builds
+    **explicit + LPI only** — the source constructs *no* TPI here; TPI lives in
+    `triangulation.cpp::createTPI`, deferred to **AR2**. AR1 ports the generic
+    non-coplanar **transversal** crossing (`checkSingleNoCoplanarEdgeIntersection`
+    → LPI via `ImplicitPoint3DLpi` + `lambda3d_lpi_*`; `checkVtxInTriangleIntersection`
+    → explicit). Fully-coplanar and single-coplanar-edge pairs are emitted with a
+    loud `Deferred(..)` marker (not dropped) for a later slice. Correctness oracle:
+    each LPI vertex lies on BOTH supporting triangles' planes, asserted via exact
+    indirect `orient3d == Zero` (not a float tolerance); plus CR9-agreement and
+    hand-verified transversal cases. Full sidecar-corpus parity engages at AR3/BL3.
   - **PR-CR-AR2 — per-triangle constrained re-triangulation.** Insert the
     intersection segments into each affected triangle and re-triangulate (extend
     the NC1 CDT to implicit points + constraints), producing subdivided triangles

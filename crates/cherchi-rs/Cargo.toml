@@ -6,8 +6,21 @@ description = "Pure-Rust port of Cherchi 2020 + 2022 (mesh arrangements + intera
 
 # Strict layering: cherchi-rs sits directly above cad-primitives. It does NOT
 # depend on yang-rs, ssi-rs, kernel-v2, or any crate from the old kernel tree.
+[features]
+# OFF by default (Hard Rule #7, amended 2026-05-28). Enabling this pulls in the
+# non-WASM `indirect-predicates-sidecar-rs` FFI for the Stage-2 arrangement's
+# implicit-point (LPI/TPI) predicates. WASM keeps building with the feature off
+# (the `arrangements::intersection_points` module is cfg'd out). CI runs the
+# crate BOTH with and without this feature.
+indirect-predicates = ["dep:indirect-predicates-sidecar-rs"]
+
 [dependencies]
 cad-primitives = { path = "../cad-primitives" }
+# Optional, feature-gated: the LGPL C++ FFI sidecar for indirect/implicit-point
+# predicates. Temporary (roadmap M7 clean-rooms it back to pure Rust). NOT
+# WASM-compatible — that is why it is gated behind the `indirect-predicates`
+# feature so the rest of the crate still builds for wasm32.
+indirect-predicates-sidecar-rs = { path = "../indirect-predicates-sidecar-rs", optional = true }
 dashu = "0.4"                 # Exact arithmetic backend (pure-Rust, WASM-compatible)
 geometry-predicates = "0.3"   # Shewchuk-style exact orient2d / orient3d / etc.
 spade = "2"                   # Constrained Delaunay triangulation (CDT) for planar

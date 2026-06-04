@@ -26,6 +26,12 @@ All upstream sources are MIT-licensed.
 - **Copyright**: © Marco Livesu
 - **What we port**: pieces required by the Cherchi codebases — typically `Rational`-like exact arithmetic helpers (replaced by `dashu` in our port), `points_are_colinear_3d` and similar predicate helpers
 
+## Per-file ported-source ledger
+
+| Rust file | Upstream source | Project |
+|---|---|---|
+| `src/arrangements/intersection_points.rs` | `arrangements/code/intersection_classification.cpp` | Cherchi 2022 |
+
 ## Per-file attribution
 
 Every `.rs` source file that contains code ported from one of the above

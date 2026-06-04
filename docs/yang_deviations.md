@@ -665,6 +665,56 @@ ties unchanged).
 centroid membership test; the producer-provenance route (N4) remains the durable
 target for face attribution generally.
 
+### N13 — PR-CR-AR1 builds explicit+LPI points only; TPI deferred to AR2 (scope correction)
+
+**Code location:** `crates/cherchi-rs/src/arrangements/intersection_points.rs`
+(new; `#[cfg(feature = "indirect-predicates")]`). Prompt PR-CR-AR1 ("tri-tri
+intersection → implicit points"). C++ reference
+`/home/claude/cherchi2022/InteractiveAndRobustMeshBooleans/arrangements/code/intersection_classification.cpp`.
+
+**Paper / source section:** Cherchi 2022 arrangement, `intersection_classification.cpp`
+(`checkTriangleTriangleIntersections` cpp:119-280; sign-pattern decoders
+cpp:834-925; `checkSingleNoCoplanarEdgeIntersection` cpp:679-730;
+`checkVtxInTriangleIntersection` cpp:734-784).
+
+**Prompt-vs-source divergence (this is the deviation):** the PR-CR-AR1 prompt's
+literal wording mentions constructing TPI (`implicitPoint3D_TPI`) points in this
+slice. **Direct reading of the source contradicts this.**
+`intersection_classification.cpp` constructs **only** explicit input vertices and
+`implicitPoint3D_LPI` points — three LPI call sites
+(`addEdgeCrossEdgeInters` ×2 at cpp:290/324, `addEdgeCrossTriInters` at cpp:358),
+**zero** TPI constructions. TPI (`implicitPoint3D_TPI`) is built in
+`triangulation.cpp::createTPI` — the **re-triangulation** stage, which the
+roadmap assigns to **PR-CR-AR2**.
+
+**Decision (source-faithful, governance "port what Cherchi does — don't invent
+mechanism"):** AR1 builds **explicit + LPI only**. TPI is deferred to AR2 where
+`createTPI` actually lives. Building a TPI path in AR1 would improvise mechanism
+the spec file does not contain. AR1 further restricts to the **generic
+non-coplanar transversal crossing** (the clean core):
+`checkSingleNoCoplanarEdgeIntersection` (edge-pierces-plane → LPI) +
+`checkVtxInTriangleIntersection` (vertex-in-triangle → explicit). Fully-coplanar
+pairs (`allCoplanarEdges`, orBA `0 0 0`) and the single-coplanar-edge degeneracy
+(`singleCoplanarEdge`, orBA e.g. `1 0 0`, handled in C++ by
+`checkSingleCoplanarEdgeIntersections` via jolly points + in-plane edge-edge LPIs)
+are emitted with a **classified `Deferred(..)` marker — loud, never silently
+dropped** — and deferred to a later slice.
+
+**Secondary note — coarse `point_in_triangle_3d`:** cherchi-rs's
+`point_in_triangle_3d` returns `{StrictlyInside, OnBoundary, StrictlyOutside}`,
+whereas the C++ needs `ON_VERT*` vs `ON_EDGE*` discrimination to decide explicit
+vs LPI. AR1 distinguishes "coincides with an input vertex" (→ explicit) via
+**exact coordinate equality** to the three triangle vertices, and uses
+`orient3d` sign patterns to decide piercing (→ LPI). **No tolerance — exact
+compares only.** A granular `PointInSimplex` port is future work (AR2 may need
+`ON_EDGE*` to route the coplanar-edge sub-cases).
+
+**Severity:** low (scope sequencing + a documented coarse-predicate workaround,
+not a hidden behavioral divergence). The transversal core is ported faithfully
+and reference-checked via the exact on-plane indirect-`orient3d` oracle.
+**Sign-off:** candidate — source-faithful scope split; TPI and the coplanar
+point-construction paths are roadmap-tracked to AR2 / a later slice.
+
 ### Legacy ↔ new-crate cross-reference
 
 The legacy **D1–D14** entries scope to `crates/kernel/` and do **not** imply
