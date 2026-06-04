@@ -1218,18 +1218,15 @@ fn oracle4_no_inverted_or_degenerate_tris() {
 }
 
 // =========================================================================
-// Oracle 6 (spec §4) — LOUD STOP for an asymptotic cone section. A cone+plane
-// section with the cutting plane PARALLEL to a cone generator (θ = α) is a
-// PARABOLA, out of scope (YR22). It MUST still return a loud `Err`, never `Ok`
-// and never a wrong curve. ssi-rs returns a Parabola for this pair, which
-// `ssi_curve_to_curve` rejects and `curve_contains_point` never matches → the
-// pipeline STOPs at selection with `SsiRefinementFailed { AmbiguousCurve }`.
+// Oracle 6 (spec §4) — PR-YR22 MIGRATION: the asymptotic (θ = α) cone section is
+// a PARABOLA, the single-candidate conic. As of PR-YR22 it is IN scope: ssi-rs
+// returns exactly one `SsiCurve::Parabola` for this pair, which
+// `ssi_curve_to_curve` now maps to `Curve::Parabola` and the Stage-4 cone arm
+// relocates onto. So the θ=α section now SUCCEEDS with a `Curve::Parabola` edge.
 //
-// (The asymptotic fixture is verified, INDEPENDENTLY via ssi-rs, to be a Parabola
-// — not an Ellipse — so this is genuinely the held out-of-scope case.)
-//
-// This test PASSES today (the asymptotic case never reaches the cone-ellipse
-// relocation) and MUST stay loud after GREEN.
+// (The asymptotic fixture is still verified, INDEPENDENTLY via ssi-rs, to be a
+// Parabola — NOT an Ellipse — so this is genuinely the parabola case; only the
+// expected OUTCOME flipped from loud-Err to Ok+Parabola. Hyperbola stays LOUD.)
 // =========================================================================
 
 /// A cutting plane PARALLEL to the +X cone generator (n·g = 0 ⇒ θ = α ⇒
@@ -1249,7 +1246,7 @@ fn parabola_plane_surface() -> Surface {
 }
 
 #[test]
-fn oracle6_asymptotic_section_stops_loudly() {
+fn oracle6_parabola_section_succeeds() {
     // INDEPENDENT ssi-rs oracle: this pair is a PARABOLA (θ = α), NOT an Ellipse.
     let plane = surface_to_quadric(parabola_plane_surface());
     let cone = surface_to_quadric(cone_surface());
@@ -1270,49 +1267,45 @@ fn oracle6_asymptotic_section_stops_loudly() {
 
     // Build a closed cone-cap mock whose seam ring sits on cone ∩ parabola-plane
     // (sampled where generators actually pierce the plane), so the seam edge is a
-    // genuine (cone, plane) intersection edge the SSI is invoked on. The exact
-    // closure validity is not asserted here — only the LOUD STOP.
+    // genuine (cone, plane) intersection edge the SSI is invoked on.
     let arr = build_parabola_cap_arrangement();
     let para_box = oblique_halfspace_box_for(parabola_plane_surface());
     let cone_brep = oblique_cone();
     let mock = LabelMock { arrangement: arr };
     let r = boolean(&cone_brep, &para_box, BoolOp::Union, &mock);
 
-    // Must be a LOUD Err — NEVER Ok, NEVER a wrong curve. This guards the held
-    // out-of-scope boundary (parabola/hyperbola → YR22/YR23): an asymptotic cone
-    // section must not silently produce a (wrong) Ellipse boolean.
-    //
-    // The pipeline rejects this asymptotic fixture during ATTRIBUTION
-    // (`FaceResolutionFailed`): the cone ∩ parabola-plane section is an unbounded
-    // single-nappe arc, so the closed cone-cap mock's wrap edge cannot lie on the
-    // cone, and the centroid of the bridging triangle resolves to no face within
-    // its band — a loud, faithful rejection BEFORE any wrong curve is emitted. Spec
-    // §4.6 admits whichever loud variant the pipeline actually produces
-    // (`SsiRefinementFailed{AmbiguousCurve}` at SSI selection,
-    // `Stage4RegionInvalid{LocalRefinementRequired}` at Stage 4, or
-    // `FaceResolutionFailed` at attribution) — all are loud `Err`, never `Ok`. The
-    // GREEN cone-ellipse wiring (which only touches the Stage-4 `Curve::Ellipse`
-    // arm for a TRUE cone∩plane ELLIPSE) does not reach this case, so it stays loud.
-    match r {
-        Ok(brep) => panic!(
-            "yr21 §4.6: an asymptotic (parabola) cone section must STOP loudly, not return \
-             Ok; got a BRep with edges {:?}",
-            brep.edges().iter().map(|e| e.curve).collect::<Vec<_>>()
+    // PR-YR22: the θ=α parabola section now SUCCEEDS. It must NOT be the old
+    // out-of-scope STOP (LocalRefinementRequired); it must return Ok and carry a
+    // `Curve::Parabola` intersection edge — never an Ellipse / wrong curve.
+    assert!(
+        !matches!(
+            r,
+            Err(YangError::Stage4RegionInvalid {
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+                ..
+            })
         ),
-        Err(YangError::FaceResolutionFailed { .. })
-        | Err(YangError::SsiRefinementFailed { .. })
-        | Err(YangError::Stage4RegionInvalid {
-            reason: Stage4InvalidReason::LocalRefinementRequired,
-            ..
-        }) => {
-            // Loud STOP (one of the three faithful out-of-scope rejections). Never Ok.
-        }
-        Err(other) => panic!(
-            "yr21 §4.6: asymptotic cone section must STOP loudly (FaceResolutionFailed, \
-             SsiRefinementFailed{{AmbiguousCurve}}, or Stage4RegionInvalid(\
-             LocalRefinementRequired)); got {other:?}"
-        ),
-    }
+        "yr21 §4.6 (YR22): the θ=α parabola section must NO LONGER STOP with \
+         Stage4RegionInvalid{{LocalRefinementRequired}}, got {r:?}"
+    );
+    let brep = r.expect(
+        "yr21 §4.6 (YR22): the θ=α (parabola) cone section must now SUCCEED (Ok) after the \
+         cone-parabola Stage-4 relocate",
+    );
+    let curves_out: Vec<_> = brep.edges().iter().map(|e| e.curve).collect();
+    assert!(
+        curves_out
+            .iter()
+            .any(|c| matches!(c, Curve::Parabola { .. })),
+        "yr21 §4.6 (YR22): the θ=α section output must carry ≥1 Curve::Parabola edge; got \
+         {curves_out:?}"
+    );
+    assert!(
+        !curves_out
+            .iter()
+            .any(|c| matches!(c, Curve::Ellipse { .. })),
+        "yr21 §4.6 (YR22): the θ=α section must NOT emit a (wrong) Ellipse edge; got {curves_out:?}"
+    );
 }
 
 /// The plane frame for an ARBITRARY oblique `Surface::Plane` (mirrors
@@ -1460,10 +1453,16 @@ fn build_parabola_cap_arrangement() -> LabeledArrangement {
     let mut ring: Vec<[f64; 3]> = Vec::new();
     let n_samp = 24usize;
     for k in 0..n_samp {
-        // restrict to a 180°-ish arc on the piercing side, away from the
-        // parallel generator azimuth (φ=0, the +X side).
-        let phi = std::f64::consts::PI * 0.25
-            + std::f64::consts::PI * 1.5 * (k as f64) / ((n_samp - 1) as f64);
+        // PR-YR22: restrict to a NARROW 40° arc centered on the φ=180° parabola
+        // VERTEX, on the piercing side away from the φ=0 parallel-generator
+        // azimuth. The narrow arc keeps the single wrap (apex-fan) triangle's
+        // cone-attribution residual (chord sagitta) well inside the cone band
+        // (≈0.021 < band 0.057), so Stage-6 attribution now SUCCEEDS and the
+        // pipeline reaches the SSI parabola selection the YR22 GREEN change wires.
+        // (The pre-YR22 LOUD-STOP contract used a wide 270° arc whose wrap chord
+        // failed attribution; for a SUCCESS contract the seam must be attributable.)
+        let phi = std::f64::consts::PI * (160.0 / 180.0)
+            + std::f64::consts::PI * (40.0 / 180.0) * (k as f64) / ((n_samp - 1) as f64);
         let rhat = add(scale(e1, phi.cos()), scale(e2, phi.sin()));
         let g = add(scale(ax, cosa), scale(rhat, sina)); // +nappe generator
         let n_dot_g = dot(n, g);

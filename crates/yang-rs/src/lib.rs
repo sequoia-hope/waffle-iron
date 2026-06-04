@@ -173,6 +173,13 @@ pub enum Curve {
         major_radius: f64,
         minor_radius: f64,
     },
+    /// STUB for RED type-check only.
+    Parabola {
+        vertex: Point3,
+        normal: Vector3,
+        axis_dir: Vector3,
+        focal_length: f64,
+    },
 }
 
 // =========================================================================
@@ -825,6 +832,7 @@ impl BRep {
                     return Point3::new(0.0, 0.0, 0.0);
                 };
                 match e.curve {
+                    Curve::Parabola { .. } => return Point3::new(0.0, 0.0, 0.0),
                     Curve::LineSegment => {
                         let s = match self.vertices.get(e.start as usize) {
                             Some(v) => v.point.as_array(),
@@ -1042,6 +1050,27 @@ fn ellipse_frame(normal: Vector3, major_axis: Vector3) -> [f64; 3] {
 /// `C + major_radius·cos t·major + minor_radius·sin t·minor_dir`. `major` is
 /// normalized; `minor_dir` is [`ellipse_frame`]. Used by `eval_source` and the
 /// relocation round-trip oracle.
+pub fn parabola_point(
+    vertex: Point3,
+    normal: Vector3,
+    axis_dir: Vector3,
+    focal_length: f64,
+    t: f64,
+) -> Point3 {
+    let ax = axis_dir.as_array();
+    let conj = [
+        normal.as_array()[1]*ax[2]-normal.as_array()[2]*ax[1],
+        normal.as_array()[2]*ax[0]-normal.as_array()[0]*ax[2],
+        normal.as_array()[0]*ax[1]-normal.as_array()[1]*ax[0],
+    ];
+    let v=vertex.as_array();
+    Point3::new(
+        v[0]+ax[0]*t*t/(4.0*focal_length)+conj[0]*t,
+        v[1]+ax[1]*t*t/(4.0*focal_length)+conj[1]*t,
+        v[2]+ax[2]*t*t/(4.0*focal_length)+conj[2]*t,
+    )
+}
+
 fn ellipse_point(
     center: Point3,
     normal: Vector3,
@@ -3734,6 +3763,7 @@ fn stage4_relocate_and_correct(
     let mut endpoints: Vec<u32> = Vec::new();
     for (&(s, e), curve) in &curves0 {
         match *curve {
+            Curve::Parabola { .. } => continue,
             Curve::Circle {
                 center,
                 normal,
@@ -4192,6 +4222,7 @@ fn is_reversed(
     };
     let p_r_pt = mesh.verts[p_r as usize];
     let tan_c = match conic {
+        Curve::Parabola { .. } => [0.0, 0.0, 0.0],
         Curve::Circle {
             center,
             normal,

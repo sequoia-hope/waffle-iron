@@ -1106,13 +1106,15 @@ fn adversary_on_axis_ring_vertex_loud_err() {
 }
 
 // =========================================================================
-// PROPERTY 2(a) — ASYMPTOTIC / GENERATOR-PARALLEL (PARABOLA) SECTION → loud Err.
+// PROPERTY 2(a) — PR-YR22 MIGRATION: ASYMPTOTIC / GENERATOR-PARALLEL (PARABOLA)
+// SECTION now SUCCEEDS with a Curve::Parabola edge.
 //
-// A cutting plane PARALLEL to a cone generator (θ = α) is a PARABOLA — out of
-// scope (YR22). `project_onto_cone_section`'s `|n·g| < MIN_FEATURE_SIZE` guard
-// (lib.rs:2240) is the asymptotic STOP; upstream, ssi-rs returns a Parabola which
-// `ssi_curve_to_curve` rejects. Either way the result MUST be a loud Err, never a
-// wrong Ok. Independently confirmed (ssi-rs) to be a Parabola, not an Ellipse.
+// A cutting plane PARALLEL to a cone generator (θ = α) is a PARABOLA — the
+// single-candidate conic, IN scope as of PR-YR22. ssi-rs returns exactly one
+// `SsiCurve::Parabola`, `ssi_curve_to_curve` now maps it to `Curve::Parabola`,
+// and the Stage-4 cone arm relocates onto it. So the section now returns Ok with
+// a `Curve::Parabola` edge — never an Ellipse / wrong curve. Independently
+// confirmed (ssi-rs) to be a Parabola, not an Ellipse. (Hyperbola stays LOUD.)
 // =========================================================================
 
 fn parabola_plane_normal() -> [f64; 3] {
@@ -1144,8 +1146,13 @@ fn build_parabola_cap_arrangement() -> LabeledArrangement {
     let mut ring: Vec<[f64; 3]> = Vec::new();
     let n_samp = 24usize;
     for k in 0..n_samp {
-        let phi = std::f64::consts::PI * 0.25
-            + std::f64::consts::PI * 1.5 * (k as f64) / ((n_samp - 1) as f64);
+        // PR-YR22: a NARROW 40° arc centered on the φ=180° parabola VERTEX (was a
+        // wide 270° arc for the old LOUD-STOP contract). The narrow arc keeps the
+        // lone wrap (apex-fan) triangle's cone-attribution residual inside the cone
+        // band (≈0.026 < band 0.057) so attribution SUCCEEDS and the pipeline
+        // reaches the SSI parabola selection the YR22 GREEN change wires.
+        let phi = std::f64::consts::PI * (160.0 / 180.0)
+            + std::f64::consts::PI * (40.0 / 180.0) * (k as f64) / ((n_samp - 1) as f64);
         let rhat = add(scale(e1, phi.cos()), scale(e2, phi.sin()));
         let g = add(scale(ax, cosa), scale(rhat, sina));
         let n_dot_g = dot(n, g);
@@ -1163,7 +1170,7 @@ fn build_parabola_cap_arrangement() -> LabeledArrangement {
 }
 
 #[test]
-fn adversary_asymptotic_parabola_section_loud_err() {
+fn adversary_asymptotic_parabola_section_succeeds() {
     // INDEPENDENT ssi-rs oracle: this pair is a PARABOLA, not an Ellipse.
     let plane = ssi_rs::QuadricSurface::Plane {
         point: Point3::from(scale(parabola_plane_normal(), -parabola_plane_d())),
@@ -1194,25 +1201,36 @@ fn adversary_asymptotic_parabola_section_loud_err() {
     let cone_brep = oblique_cone();
     let mock = LabelMock { arrangement: arr };
     let r = boolean(&cone_brep, &para_box, BoolOp::Union, &mock);
-    // SILENT_WRONG = 0: must be a loud Err (one of the faithful out-of-scope
-    // rejections), NEVER Ok with a wrong Ellipse.
-    match r {
-        Ok(brep) => panic!(
-            "adversary P2a: an asymptotic (parabola) cone section must STOP loudly, not Ok; \
-             got edges {:?}",
-            brep.edges().iter().map(|e| e.curve).collect::<Vec<_>>()
+    // PR-YR22: the parabola section now SUCCEEDS — Ok with a Curve::Parabola edge,
+    // never the old out-of-scope STOP and never a (wrong) Ellipse (SILENT_WRONG=0).
+    assert!(
+        !matches!(
+            r,
+            Err(YangError::Stage4RegionInvalid {
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+                ..
+            })
         ),
-        Err(YangError::FaceResolutionFailed { .. })
-        | Err(YangError::SsiRefinementFailed { .. })
-        | Err(YangError::Stage4RegionInvalid {
-            reason: Stage4InvalidReason::LocalRefinementRequired,
-            ..
-        }) => { /* loud, faithful */ }
-        Err(other) => panic!(
-            "adversary P2a: asymptotic cone section must STOP loudly (FaceResolutionFailed, \
-             SsiRefinementFailed, or Stage4RegionInvalid(LocalRefinementRequired)); got {other:?}"
-        ),
-    }
+        "adversary P2a (YR22): the θ=α parabola section must NO LONGER STOP with \
+         Stage4RegionInvalid{{LocalRefinementRequired}}, got {r:?}"
+    );
+    let brep = r.expect(
+        "adversary P2a (YR22): the θ=α (parabola) cone section must now SUCCEED (Ok) after the \
+         cone-parabola Stage-4 relocate",
+    );
+    let curves_out: Vec<_> = brep.edges().iter().map(|e| e.curve).collect();
+    assert!(
+        curves_out
+            .iter()
+            .any(|c| matches!(c, Curve::Parabola { .. })),
+        "adversary P2a (YR22): the θ=α output must carry ≥1 Curve::Parabola edge; got {curves_out:?}"
+    );
+    assert!(
+        !curves_out
+            .iter()
+            .any(|c| matches!(c, Curve::Ellipse { .. })),
+        "adversary P2a (YR22): the θ=α section must NOT emit a (wrong) Ellipse edge; got {curves_out:?}"
+    );
 }
 
 // =========================================================================
