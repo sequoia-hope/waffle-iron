@@ -1060,10 +1060,33 @@ reimplementation from Attene's paper restores WASM (M7).
       26 cone cases): **5 ellipse** (now ✅), **21 parabola+hyperbola** (the
       `AmbiguousCurve`, YR22/YR23 targets), **0 axis-parallel/through-apex** in this
       sample. **Next: PR-YR22 (parabola), then YR23 (hyperbola) — target the 21.**
-    - **PR-YR22 — Parabola end-to-end.** `Curve::Parabola` (mirror `SsiCurve`) +
-      `ssi_curve_to_curve` + `curve_contains_point` + `parabola_point(t)` eval +
-      point→t inversion; relocation reused from YR21. Gate: cone parabola
-      `AmbiguousCurve` → 0, those cuts → `ok_correct`.
+    - **PR-YR22 — Parabola end-to-end. ✅ DONE (2026-06-04).** `Curve::Parabola`
+      (mirrors `SsiCurve`) + `ssi_curve_to_curve` + `curve_contains_point` +
+      `parabola_point(t)` eval (`vertex + (t²/4f)·axis_dir + t·(normal×axis_dir)`)
+      + point→t (conjugate-axis) inversion; Stage-4 relocation reuses YR21's
+      `project_onto_cone_section`. **Recovered finish-from-RED across a session
+      limit:** the worker's RED phase (6 oracles + a real-sidecar E2E oracle8 +
+      the migrated yr21 oracle6) was preserved and committed; a GREEN subagent
+      implemented production; it STOPPED at a verified RED-author fixture/oracle
+      bug (oracle4's per-triangle winding check false-positived on the mock's
+      ring-closure scaffold). Resolution (driver + second-opinion review +
+      adversary): **reframe oracle4** to the invariant production actually enforces
+      — boolean output is a consistently-oriented watertight 2-manifold (0 unpaired
+      half-edges, χ=2, signed volume > 0) + the per-facet degenerate-area floor —
+      since production deliberately does NOT do a per-facet winding test
+      (`validate_relocated_triangles`, Yang §4.4.1/§4.4.3). Adversary added 9
+      canaries (no silent-wrong, eval round-trip vs independent re-impl, no
+      ellipse/cylinder/circle regression, hyperbola+axis-parallel stay loud, local
+      fold breaks watertight). Full `cargo test -p yang-rs` green; fmt+clippy clean.
+      Commits `3cf1f482` (RED)→`18909a5d` (GREEN)→`4fc114f2` (oracle4 reframe)→
+      `955ef698` (adversary). **Fuzz delta = 0 BY CONSTRUCTION** (driver-verified
+      N=90, unchanged from YR21): an exact parabola section needs the cut plane
+      EXACTLY parallel to a generator (θ=α), which is **measure-zero** in the random
+      fuzz — random box cuts give ellipses (YR21) or hyperbolas, never exact
+      parabolas. So the parabola capability is real (proven by the θ=α oracles +
+      E2E) but invisible to the random fuzz. **⇒ the 21 remaining cone
+      `AmbiguousCurve` are (near-)all HYPERBOLA — PR-YR23 is the high-leverage one
+      for the cone fuzz number.**
     - **PR-YR23 — Hyperbola end-to-end.** `Curve::Hyperbola` + **two-branch
       selection** in `build_intersection_curves` (ssi returns 2 candidates; pick
       the branch the edge lies on) + `curve_contains_point` + `hyperbola_point(t)`
