@@ -50,7 +50,12 @@
 //! `cinolib::orient3d` in the C++).
 
 use crate::arrangements::FastTrimesh;
+use crate::predicates::{
+    orient3d, point_in_triangle_3d, segment_intersects_triangle_3d, PointLocation,
+    SegmentTriangleIntersection, Sign,
+};
 use cad_primitives::Point3;
+use indirect_predicates_sidecar_rs::{init_fpu, lambda3d_lpi_interval, IntervalNumber};
 
 /// One endpoint of a tri-tri intersection, correctly typed.
 ///
@@ -109,9 +114,386 @@ pub enum PairClassification {
 /// Ports `checkTriangleTriangleIntersections` (cpp:119-280) restricted to the
 /// non-coplanar transversal path (deviation N13). See the module docs.
 pub fn classify_pair(soup: &FastTrimesh, ta: u32, tb: u32) -> PairClassification {
-    // PR-CR-AR1 GREEN phase implements the ported mechanism here.
-    let _ = (soup, ta, tb);
-    PairClassification::Disjoint
+    // Ports `checkTriangleTriangleIntersections` (cpp:119-280), restricted to
+    // the non-coplanar transversal path (deviation N13). Coplanar /
+    // single-coplanar-edge configurations are returned as `Deferred(..)` rather
+    // than constructed.
+
+    // The three corners of each triangle (explicit input coordinates).
+    let a0 = soup.tri_vert(ta, 0);
+    let a1 = soup.tri_vert(ta, 1);
+    let a2 = soup.tri_vert(ta, 2);
+    let b0 = soup.tri_vert(tb, 0);
+    let b1 = soup.tri_vert(tb, 1);
+    let b2 = soup.tri_vert(tb, 2);
+    let a = [a0, a1, a2];
+    let b = [b0, b1, b2];
+
+    // ── check of tB respect to tA (cpp:129-135) ──────────────────────
+    //
+    // orBA[i] = orient3d(B_i, A0, A1, A2) — same arg order/convention as
+    // `cinolib::orient3d` in the C++ (test point first).
+    let or_ba = normalize_orientations([
+        orient3d(b0, a0, a1, a2),
+        orient3d(b1, a0, a1, a2),
+        orient3d(b2, a0, a1, a2),
+    ]);
+
+    // No intersection: all three on the same (non-zero) side (cpp:135).
+    if same_orientation(or_ba[0], or_ba[1]) && same_orientation(or_ba[1], or_ba[2]) && or_ba[0] != 0
+    {
+        return PairClassification::Disjoint;
+    }
+
+    // Coplanar / single-coplanar-edge deferral (deviation N13). The C++
+    // handles these via `checkSingleCoplanarEdgeIntersections` (jolly points +
+    // in-plane edge-edge LPIs), which AR1 does not construct — defer loudly.
+    if all_coplanar_edges(or_ba) {
+        return PairClassification::Deferred(DeferReason::Coplanar);
+    }
+
+    // We need orAB for the single-coplanar-edge deferral check and for the
+    // A-vs-B transversal side (cpp:202-219).
+    let or_ab = normalize_orientations([
+        orient3d(a0, b0, b1, b2),
+        orient3d(a1, b0, b1, b2),
+        orient3d(a2, b0, b1, b2),
+    ]);
+
+    if single_coplanar_edge(or_ba).is_some() || single_coplanar_edge(or_ab).is_some() {
+        return PairClassification::Deferred(DeferReason::SingleCoplanarEdge);
+    }
+
+    // ── transversal: collect intersection vertices ───────────────────
+    //
+    // B-vs-A side first (vertex set = B, plane/triangle = A) (cpp:158-192).
+    let mut vertices: Vec<IntersectionVertex> = Vec::new();
+    collect_transversal_side(&b, tb, &a, ta, or_ba, &mut vertices);
+
+    // The `li.size() > 1` early-out (cpp:194): if the B side already produced
+    // more than one vertex, the segment is fully determined — skip the A side
+    // to avoid double-counting the endpoints.
+    if vertices.len() <= 1 {
+        // A-vs-B side (vertex set = A, triangle = B) (cpp:231-262).
+        //
+        // The C++ recomputes orAB after a possible early `return` at cpp:219
+        // (all three A vertices on the same non-zero side of B's plane). Mirror
+        // that disjoint early-out here.
+        if !(same_orientation(or_ab[0], or_ab[1])
+            && same_orientation(or_ab[1], or_ab[2])
+            && or_ab[0] != 0)
+        {
+            collect_transversal_side(&a, ta, &b, tb, or_ab, &mut vertices);
+        }
+    }
+
+    if vertices.is_empty() {
+        // Sign patterns admitted a transversal configuration but no edge
+        // actually pierced the other triangle's interior/boundary (the
+        // segment_intersects guard rejected every candidate). No real
+        // intersection.
+        return PairClassification::Disjoint;
+    }
+
+    PairClassification::Transversal { vertices }
+}
+
+/// One transversal "side" of `checkTriangleTriangleIntersections`
+/// (cpp:158-192 for B-vs-A, cpp:231-262 for A-vs-B). `verts`/`vtri` is the
+/// triangle whose vertices/edges are being tested; `plane`/`ptri` is the
+/// triangle whose supporting plane/interior they are tested against. `ori` is
+/// the normalized orientation triple of `verts` against `plane`'s plane.
+fn collect_transversal_side(
+    verts: &[Point3; 3],
+    vtri: u32,
+    plane: &[Point3; 3],
+    ptri: u32,
+    ori: [i8; 3],
+    out: &mut Vec<IntersectionVertex>,
+) {
+    // a vertex of `verts` is in `plane`'s plane and the opposite edge is on the
+    // same side → just the vertex may land inside (cpp:159-162).
+    if let Some(vtx) = vtx_in_plane_and_opposite_edge_on_same_side(ori) {
+        check_vtx_in_triangle_intersection(verts[vtx as usize], vtri, vtx, plane, out);
+    }
+
+    // a vertex in the plane and the opposite edge crosses the plane → the
+    // vertex (Explicit) plus the opposite edge piercing the triangle (Lpi)
+    // (cpp:165-173).
+    if let Some(vtx) = vtx_in_plane_and_opposite_edge_cross_plane(ori) {
+        check_vtx_in_triangle_intersection(verts[vtx as usize], vtri, vtx, plane, out);
+        // opposite edge = the two vertices that are NOT `vtx`.
+        let (e0, e1) = opposite_edge_endpoints(vtx);
+        check_single_no_coplanar_edge_intersection(verts[e0], verts[e1], plane, ptri, out);
+    }
+
+    // a vertex on one side and the opposite edge on the other → both edges from
+    // the lone vertex pierce the triangle → 2 Lpi (cpp:177-192).
+    if let Some((vtx, opp_v0, opp_v1)) = vtx_on_a_side_and_opposite_edge_on_the_other(ori) {
+        check_single_no_coplanar_edge_intersection(
+            verts[vtx as usize],
+            verts[opp_v0 as usize],
+            plane,
+            ptri,
+            out,
+        );
+        check_single_no_coplanar_edge_intersection(
+            verts[vtx as usize],
+            verts[opp_v1 as usize],
+            plane,
+            ptri,
+            out,
+        );
+    }
+}
+
+/// Ports `checkVtxInTriangleIntersection` (cpp:734-784) for the AR1 scope: if
+/// the vertex is not strictly outside the triangle, record it as an explicit
+/// intersection vertex (the C++ distinguishes ON_VERT/ON_EDGE/INSIDE for
+/// bookkeeping, but all non-STRICTLY_OUTSIDE cases record the vertex).
+fn check_vtx_in_triangle_intersection(
+    v: Point3,
+    vtri: u32,
+    corner: u32,
+    plane: &[Point3; 3],
+    out: &mut Vec<IntersectionVertex>,
+) {
+    match point_in_triangle_3d(v, plane[0], plane[1], plane[2]) {
+        PointLocation::StrictlyOutside => {}
+        PointLocation::StrictlyInside | PointLocation::OnBoundary => {
+            push_unique(
+                out,
+                IntersectionVertex::Explicit {
+                    tri: vtri,
+                    corner: corner as u8,
+                    point: v,
+                },
+            );
+        }
+    }
+}
+
+/// Ports `checkSingleNoCoplanarEdgeIntersection` (cpp:679-730) for the AR1
+/// scope: if the edge `(p, q)` actually crosses the triangle, construct the LPI
+/// point (line = the piercing edge's endpoints, plane = the pierced triangle's
+/// 3 vertices — cpp:324-328 and cpp:358-362 both pass the triangle's 3 verts as
+/// r,s,t) and record it.
+fn check_single_no_coplanar_edge_intersection(
+    p: Point3,
+    q: Point3,
+    plane: &[Point3; 3],
+    _ptri: u32,
+    out: &mut Vec<IntersectionVertex>,
+) {
+    // cpp:683-686: only proceed if the segment really intersects the triangle.
+    match segment_intersects_triangle_3d(p, q, plane[0], plane[1], plane[2]) {
+        SegmentTriangleIntersection::Disjoint | SegmentTriangleIntersection::Coplanar => return,
+        SegmentTriangleIntersection::Intersects => {}
+    }
+
+    // cpp:688-691: if a triangle vertex lies strictly inside the edge, return
+    // nothing. cinolib `point_in_segment_3d` (STRICTLY_INSIDE) is not available
+    // as a dedicated cherchi-rs predicate yet; reconstruct it from the
+    // available `orient`/`point_in_triangle` machinery would be ad-hoc, so this
+    // guard is kept conservative via a collinear+between test on exact
+    // coordinates (no tolerance). NOTE: AR1's transversal inputs do not trigger
+    // this degeneracy; it is ported for faithfulness.
+    if any_triangle_vertex_strictly_inside_segment(p, q, plane) {
+        return;
+    }
+
+    // Construct the LPI generators (mirrors implicitPoint3D_LPI(p,q,r,s,t)):
+    // line = edge endpoints, plane = the 3 pierced-triangle vertices.
+    let approx = lpi_approx(p, q, plane[0], plane[1], plane[2]);
+    push_unique(
+        out,
+        IntersectionVertex::Lpi {
+            line: [p, q],
+            plane: *plane,
+            approx,
+        },
+    );
+}
+
+/// Approximate explicit coordinates of the line-plane intersection, read back
+/// from the indirect-predicates interval lambdas. `approx` is for spatial
+/// bookkeeping only (not oracle-checked) — but it should land at the true
+/// piercing point. `lambda_d` may be negative, so divide using the true ratio
+/// (interval midpoints).
+fn lpi_approx(p: Point3, q: Point3, r: Point3, s: Point3, t: Point3) -> Point3 {
+    // One-time FPU init (idempotent); safe to call repeatedly.
+    init_fpu();
+
+    let iv = |pt: Point3| -> [IntervalNumber; 3] {
+        [
+            IntervalNumber::point(pt.x()),
+            IntervalNumber::point(pt.y()),
+            IntervalNumber::point(pt.z()),
+        ]
+    };
+    let res = lambda3d_lpi_interval(iv(p), iv(q), iv(r), iv(s), iv(t));
+    let mid = |n: IntervalNumber| -> f64 { (n.inf + n.sup) / 2.0 };
+
+    let d = mid(res.lambda_d);
+    if d == 0.0 {
+        // Degenerate denominator (line parallel to / in the plane). Fall back to
+        // the segment midpoint so `approx` stays finite; the generators (the
+        // load-bearing data) are exact regardless.
+        return Point3::new(
+            (p.x() + q.x()) / 2.0,
+            (p.y() + q.y()) / 2.0,
+            (p.z() + q.z()) / 2.0,
+        );
+    }
+    Point3::new(
+        mid(res.lambda_x) / d,
+        mid(res.lambda_y) / d,
+        mid(res.lambda_z) / d,
+    )
+}
+
+/// The two corner indices of a triangle that are NOT `vtx` (the opposite edge).
+fn opposite_edge_endpoints(vtx: u32) -> (usize, usize) {
+    match vtx {
+        0 => (1, 2),
+        1 => (2, 0),
+        _ => (0, 1),
+    }
+}
+
+/// Push `iv` only if no structurally-equal vertex is already present (mirrors
+/// the C++ `phmap::flat_hash_set` dedup of intersection vertices).
+fn push_unique(out: &mut Vec<IntersectionVertex>, iv: IntersectionVertex) {
+    if !out.contains(&iv) {
+        out.push(iv);
+    }
+}
+
+/// Conservative port of the cpp:688-691 guard: is any triangle vertex strictly
+/// inside the open segment `(p, q)`? Exact (collinear + strictly-between on
+/// every coordinate axis), no tolerance.
+fn any_triangle_vertex_strictly_inside_segment(p: Point3, q: Point3, plane: &[Point3; 3]) -> bool {
+    plane
+        .iter()
+        .any(|&w| point_strictly_inside_segment(w, p, q))
+}
+
+/// True iff `w` is collinear with `(p, q)` and lies strictly between them
+/// (excludes the endpoints). Exact.
+fn point_strictly_inside_segment(w: Point3, p: Point3, q: Point3) -> bool {
+    if w == p || w == q {
+        return false;
+    }
+    // Collinearity: (q - p) × (w - p) == 0.
+    let dx1 = q.x() - p.x();
+    let dy1 = q.y() - p.y();
+    let dz1 = q.z() - p.z();
+    let dx2 = w.x() - p.x();
+    let dy2 = w.y() - p.y();
+    let dz2 = w.z() - p.z();
+    let cx = dy1 * dz2 - dz1 * dy2;
+    let cy = dz1 * dx2 - dx1 * dz2;
+    let cz = dx1 * dy2 - dy1 * dx2;
+    if cx != 0.0 || cy != 0.0 || cz != 0.0 {
+        return false;
+    }
+    // Strictly between: w - p and w - q point in opposite directions on the
+    // line (dot of (w-p)·(w-q) < 0).
+    let ex = w.x() - q.x();
+    let ey = w.y() - q.y();
+    let ez = w.z() - q.z();
+    dx2 * ex + dy2 * ey + dz2 * ez < 0.0
+}
+
+// ── Sign-pattern decoders (cpp:834-925) ──────────────────────────────
+
+/// Ports `normalizeOrientations` (cpp:834): map each `orient3d` Sign to
+/// `i8` in {-1, 0, +1}.
+fn normalize_orientations(o: [Sign; 3]) -> [i8; 3] {
+    let n = |s: Sign| -> i8 {
+        match s {
+            Sign::Negative => -1,
+            Sign::Zero => 0,
+            Sign::Positive => 1,
+        }
+    };
+    [n(o[0]), n(o[1]), n(o[2])]
+}
+
+/// Ports `sameOrientation` (cpp:848): both strictly negative, both strictly
+/// positive, or both zero.
+fn same_orientation(o1: i8, o2: i8) -> bool {
+    o1 == o2
+}
+
+/// Ports `allCoplanarEdges` (cpp:859): all three are 0.
+fn all_coplanar_edges(o: [i8; 3]) -> bool {
+    o[0] == 0 && o[1] == 0 && o[2] == 0
+}
+
+/// Ports `singleCoplanarEdge` (cpp:869): returns 0/1/2 (the coplanar edge's
+/// first vertex) or `None`.
+fn single_coplanar_edge(o: [i8; 3]) -> Option<u32> {
+    if o[0] == 0 && o[1] == 0 && o[2] != 0 {
+        return Some(0);
+    }
+    if o[1] == 0 && o[2] == 0 && o[0] != 0 {
+        return Some(1);
+    }
+    if o[2] == 0 && o[0] == 0 && o[1] != 0 {
+        return Some(2);
+    }
+    None
+}
+
+/// Ports `vtxInPlaneAndOppositeEdgeOnSameSide` (cpp:880): one vertex in the
+/// plane, the other two on the same (non-zero) side.
+fn vtx_in_plane_and_opposite_edge_on_same_side(o: [i8; 3]) -> Option<u32> {
+    if o[0] == 0 && o[1] == o[2] && o[1] != 0 {
+        return Some(0);
+    }
+    if o[1] == 0 && o[0] == o[2] && o[0] != 0 {
+        return Some(1);
+    }
+    if o[2] == 0 && o[0] == o[1] && o[0] != 0 {
+        return Some(2);
+    }
+    None
+}
+
+/// Ports `vtxInPlaneAndOppositeEdgeCrossPlane` (cpp:891): one vertex in the
+/// plane, the other two on opposite (non-zero) sides.
+fn vtx_in_plane_and_opposite_edge_cross_plane(o: [i8; 3]) -> Option<u32> {
+    if o[0] == 0 && o[1] != o[2] && o[1] != 0 && o[2] != 0 {
+        return Some(0);
+    }
+    if o[1] == 0 && o[0] != o[2] && o[0] != 0 && o[2] != 0 {
+        return Some(1);
+    }
+    if o[2] == 0 && o[0] != o[1] && o[0] != 0 && o[1] != 0 {
+        return Some(2);
+    }
+    None
+}
+
+/// Ports `vtxOnASideAndOppositeEdgeOnTheOther` (cpp:902): a lone vertex on one
+/// side, the opposite edge on the other. Returns `(vtx_idx, opp_v0, opp_v1)`.
+fn vtx_on_a_side_and_opposite_edge_on_the_other(o: [i8; 3]) -> Option<(u32, u32, u32)> {
+    // One vertex on the plane → not this case.
+    if o[0] == 0 || o[1] == 0 || o[2] == 0 {
+        return None;
+    }
+    // All on the same side → not this case.
+    if o[0] == o[1] && o[1] == o[2] {
+        return None;
+    }
+    if o[0] == o[1] {
+        return Some((2, 0, 1));
+    }
+    if o[0] == o[2] {
+        return Some((1, 0, 2));
+    }
+    Some((0, 1, 2))
 }
 
 /// Classify every candidate pair (e.g. the output of [`detect_intersecting_pairs`]).
@@ -427,11 +809,16 @@ mod tests {
         };
 
         // The oracle must truly exercise the FFI. If the shim is not
-        // linked the test FAILS LOUDLY (never a silent skip).
-        assert!(
-            AVAILABLE,
-            "indirect-predicates FFI shim not linked — on-plane oracle cannot run"
-        );
+        // linked the test FAILS LOUDLY (never a silent skip). Written as
+        // an `if !AVAILABLE` panic rather than `assert!(AVAILABLE, ..)`
+        // because `AVAILABLE` is a `const bool` (clippy
+        // `assertions_on_constants`); the loud-failure intent is identical.
+        if !AVAILABLE {
+            panic!(
+                "indirect-predicates FFI shim not linked (AVAILABLE == false); \
+                 the on-plane oracle cannot run — refusing to pass silently"
+            );
+        }
         init_fpu();
 
         // Use the 2-LPI tilted transversal case (both LPIs interior).
