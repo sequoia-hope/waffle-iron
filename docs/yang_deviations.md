@@ -709,9 +709,22 @@ vs LPI. AR1 distinguishes "coincides with an input vertex" (→ explicit) via
 compares only.** A granular `PointInSimplex` port is future work (AR2 may need
 `ON_EDGE*` to route the coplanar-edge sub-cases).
 
-**Severity:** low (scope sequencing + a documented coarse-predicate workaround,
-not a hidden behavioral divergence). The transversal core is ported faithfully
-and reference-checked via the exact on-plane indirect-`orient3d` oracle.
+**Tertiary note — non-exact `point_in_segment_3d` guard (driver-flagged
+post-merge):** the adversary remediation added `point_strictly_inside_segment`
+as a **conservative raw-`f64` stopgap** (cpp:688-691; its own doc-comment states
+it is "NOT robustly exact"). This is a narrow degenerate guard (a triangle vertex
+lying strictly inside the opposite edge → explicit-vertex recording), NOT the LPI
+construction itself (which is FFI-exact and on-plane-verified). But it diverges
+from the cherchi-rs exact-arithmetic hard rule and partially contradicts the
+"exact compares only" claim above. **Fix (AR2/AR3 follow-up):** replace with the
+EXACT collinearity predicate cherchi-rs already has (CR1 `points_are_collinear_3d`)
++ an exact between-ness check; do NOT leave raw `f64` in the arrangement core.
+
+**Severity:** low (scope sequencing + two documented coarse/non-exact predicate
+workarounds in narrow guards, not a hidden behavioral divergence in the exact LPI
+core; all transparently flagged and roadmap-tracked to AR2/AR3). The transversal
+core is ported faithfully and reference-checked via the exact on-plane
+indirect-`orient3d` oracle.
 **Sign-off:** candidate — source-faithful scope split; TPI and the coplanar
 point-construction paths are roadmap-tracked to AR2 / a later slice.
 
