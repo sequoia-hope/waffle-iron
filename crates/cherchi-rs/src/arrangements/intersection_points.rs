@@ -369,17 +369,24 @@ fn push_unique(out: &mut Vec<IntersectionVertex>, iv: IntersectionVertex) {
     }
 }
 
-/// Conservative port of the cpp:688-691 guard: is any triangle vertex strictly
-/// inside the open segment `(p, q)`? Exact (collinear + strictly-between on
-/// every coordinate axis), no tolerance.
+/// Conservative `f64` stopgap port of the cpp:688-691 guard: is any triangle
+/// vertex strictly inside the open segment `(p, q)`? Delegates to
+/// [`point_strictly_inside_segment`] (see its NOTE on exactness).
 fn any_triangle_vertex_strictly_inside_segment(p: Point3, q: Point3, plane: &[Point3; 3]) -> bool {
     plane
         .iter()
         .any(|&w| point_strictly_inside_segment(w, p, q))
 }
 
-/// True iff `w` is collinear with `(p, q)` and lies strictly between them
-/// (excludes the endpoints). Exact.
+/// Conservative `f64` stopgap port of cinolib's exact `point_in_segment_3d`
+/// (cpp:688-691): true iff `w` is collinear with `(p, q)` and lies strictly
+/// between them (endpoints excluded).
+///
+/// NOTE: this is NOT robustly exact — it uses raw `f64` cross/dot products, not
+/// the Shewchuk-adaptive predicates used elsewhere in this crate. It is
+/// faithful for AR1's exactly-representable in-scope inputs, and the guard never
+/// even fires for AR1's transversal inputs. AR2 should replace it with a real
+/// exact `point_in_segment_3d`.
 fn point_strictly_inside_segment(w: Point3, p: Point3, q: Point3) -> bool {
     if w == p || w == q {
         return false;
@@ -576,9 +583,14 @@ mod tests {
 
     // ── Group 4 helper: CR9 agreement oracle ─────────────────────────
     //
-    // Transversal  ⟺ Intersects
-    // Deferred(Coplanar|SingleCoplanarEdge) ⟺ Coplanar
-    // Disjoint     ⟺ Disjoint
+    // Transversal                      ⟺ Intersects
+    // Deferred(Coplanar)               ⟺ Coplanar   (full coplanar always)
+    // Deferred(SingleCoplanarEdge)     ⟺ "contact"  (NOT Disjoint; a touching
+    //                                     single-coplanar-edge pair classifies
+    //                                     as Intersects in CR9, not Coplanar —
+    //                                     CR9 Coplanar is reserved for full /
+    //                                     no-vertex-coincidence coplanarity).
+    // Disjoint                         ⟺ Disjoint
     fn assert_cr9_agreement(c: &PairClassification, a: [Point3; 3], b: [Point3; 3]) {
         let cr9 = triangle_intersects_triangle_3d(a[0], a[1], a[2], b[0], b[1], b[2]);
         match c {
@@ -589,12 +601,22 @@ mod tests {
                     "Transversal must agree with CR9 Intersects"
                 );
             }
-            PairClassification::Deferred(DeferReason::Coplanar)
-            | PairClassification::Deferred(DeferReason::SingleCoplanarEdge) => {
+            PairClassification::Deferred(DeferReason::Coplanar) => {
                 assert_eq!(
                     cr9,
                     TriangleIntersection::Coplanar,
-                    "Deferred(Coplanar|SingleCoplanarEdge) must agree with CR9 Coplanar"
+                    "Deferred(Coplanar) must agree with CR9 Coplanar"
+                );
+            }
+            PairClassification::Deferred(DeferReason::SingleCoplanarEdge) => {
+                // The load-bearing property is "CR9 agrees there is contact",
+                // not the exact variant: a touching single-coplanar-edge pair
+                // is CR9 Intersects, a non-touching one would be Coplanar —
+                // both are acceptable, only Disjoint would be a disagreement.
+                assert_ne!(
+                    cr9,
+                    TriangleIntersection::Disjoint,
+                    "Deferred(SingleCoplanarEdge) must agree with CR9 that there is contact (not Disjoint)"
                 );
             }
             PairClassification::Deferred(DeferReason::Degenerate) => {
@@ -902,6 +924,15 @@ mod tests {
             Point3::new(3.0, 1.0, 0.0),
             Point3::new(1.0, 3.0, 0.0),
         ];
+        // Single-coplanar-edge (same fixture as `single_coplanar_edge_deferred`
+        // / `pattern_single_coplanar_edge…`): edge B0-B1 lies in A's plane and
+        // crosses A's interior, B2 off-plane. Exercises the SingleCoplanarEdge
+        // arm of the oracle (CR9 == Intersects here, NOT Disjoint).
+        let b_sce = [
+            Point3::new(1.0, 1.0, 0.0),
+            Point3::new(3.0, 1.0, 0.0),
+            Point3::new(2.0, 2.0, 3.0),
+        ];
         // Disjoint (far away).
         let b_disj = [
             Point3::new(100.0, 100.0, 100.0),
@@ -909,7 +940,7 @@ mod tests {
             Point3::new(100.0, 101.0, 100.0),
         ];
 
-        for b in [b_trans, b_copl, b_disj] {
+        for b in [b_trans, b_copl, b_sce, b_disj] {
             let (soup, aa, bb) = soup_pair(a, b);
             let c = classify_pair(&soup, 0, 1);
             assert_cr9_agreement(&c, aa, bb);
