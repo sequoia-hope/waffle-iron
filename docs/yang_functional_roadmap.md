@@ -1087,10 +1087,48 @@ reimplementation from Attene's paper restores WASM (M7).
       E2E) but invisible to the random fuzz. **⇒ the 21 remaining cone
       `AmbiguousCurve` are (near-)all HYPERBOLA — PR-YR23 is the high-leverage one
       for the cone fuzz number.**
-    - **PR-YR23 — Hyperbola end-to-end.** `Curve::Hyperbola` + **two-branch
-      selection** in `build_intersection_curves` (ssi returns 2 candidates; pick
-      the branch the edge lies on) + `curve_contains_point` + `hyperbola_point(t)`
-      eval. Builds on YR22. Gate: cone hyperbola cuts → `ok_correct`.
+    - **PR-YR23 — Hyperbola end-to-end. ✅ DONE (2026-06-04).** `Curve::Hyperbola`
+      (mirrors `SsiCurve`) + `ssi_curve_to_curve` + `curve_contains_point` +
+      `hyperbola_point(t)` eval (`center + a·cosh(t)·major + b·sinh(t)·(normal×
+      major)`) + point→t `asinh(v/b)` inversion (the bijective `sinh` coordinate);
+      Stage-4 relocation reuses YR21's `project_onto_cone_section` /
+      `cone_plane_residual` / `cone_chord_budget_from_owner` UNCHANGED (no new
+      relocation method). **The new mechanism = two-branch selection:**
+      `ssi_rs::intersect(Plane,Cone)` returns **2** `Hyperbola` for the HYPE case
+      (one per nappe, opposite `major_axis`); the existing `matched==1` loop in
+      `build_intersection_curves` needed NO structural change — `curve_contains_point`'s
+      `(u/a)²−(v/b)²=1` membership **with the `u>0` discriminator** rejects the
+      wrong-nappe branch (`u<0`), so exactly one matches and `matched==2/0` stays a
+      LOUD `AmbiguousCurve`. Membership band = the geometric residual `|F|/|∇F|`
+      (first-order perpendicular distance, the hyperbola analog of the
+      ellipse/parabola arms), **NOT** a flat widening (P9/P10 held; adversary
+      re-verified the band scales ~linearly with off-distance). Role-separated FIP
+      cycle: spec → RED (8 oracles incl. an independent 2-candidate ssi oracle, a
+      two-branch-selection oracle, the YR22 reframe oracle4 invariant, and a
+      real-sidecar E2E) → GREEN (production-only; **STOPPED at oracle7 P9/P10**
+      rather than widen a tolerance) → **driver oracle7 reframe** (the 2·cone_d_eps
+      beyond-band fixture rejects honestly with `FaceResolutionFailed` — the
+      reloc-band guard is geometrically UNREACHABLE for an on-plane ring since the
+      YR18 on-both gate skips the edge first, and a narrower δ lands in a
+      LineSegment-fallback dead zone that would SILENTLY succeed; "spec principle
+      over literal", mirroring the YR22 oracle4 reframe) → Adversary (7 attacks,
+      all PASS: wrong-nappe rejection witnessed by u-sign, band-not-flat,
+      no YR21/YR22 regression, no silent-wrong across δ∈{0.5,1,1.2,2}·d_ε,
+      independent oracle7-honesty recompute (centroid 1.33–1.60·d_ε off-cone),
+      from-scratch eval round-trip). Commits `c2e088e6` (spec)→`0e22956d` (RED)→
+      `c3dc4f13` (GREEN)→`713c9901` (oracle7 reframe)→`cca14e25` (adversary). Full
+      `cargo test -p yang-rs` green (yr23 8/8 + yr23_adversary 7/7); fmt+clippy
+      clean; kernel-v2 (consumer) still builds. **Fuzz delta: this DOES move the
+      number** (unlike the measure-zero parabola) — a random box cut of a cone is
+      (near-)always a hyperbola (`plane_cone` HYPE), so the ~21 remaining cone
+      `AmbiguousCurve` are (near-)all hyperbola and cone `ok_correct` should rise
+      from 5 toward ~26. **NOT fabricated here** (curved fuzz can't complete
+      in-container per `curved_fuzz_sidecar_zombie_blocker`); capability proven by
+      the unit oracles + the real-sidecar E2E (oracle8 ran green against the C++
+      binary). **⇒ DRIVER ACTION: the prim∪/−box curved fuzz is now mined out for
+      hyperbola; the driver should re-run the calibrated curved fuzz to confirm
+      cone `ok_correct` 5→~26 and `AmbiguousCurve`→~0, then attribute any residual
+      to PR-YR24 (axis-parallel / through-apex).**
     - **PR-YR24 — residual triage (likely small).** Remaining
       `LocalRefinementRequired` (axis-parallel / through-apex sections): confirm
       genuinely-degenerate ones correctly stay LOUD (out of scope, not a
