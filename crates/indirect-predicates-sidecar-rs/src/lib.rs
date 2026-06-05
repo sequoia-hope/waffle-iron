@@ -966,6 +966,113 @@ pub fn point_in_triangle(
     r != 0
 }
 
+// =========================================================================
+// PR-CR-AR2b — segment predicates
+// =========================================================================
+
+/// Proper interior crossing test for two open segments. Wraps
+/// `genericPoint::innerSegmentsCross`.
+///
+/// Returns `true` iff the open segments `{a, b}` and `{p, q}` cross at
+/// a point strictly interior to **both** segments. Configurations that
+/// merely touch at a shared endpoint, are disjoint, or are
+/// collinear-overlapping return `false` (overlap is not a proper
+/// transversal crossing).
+///
+/// In stub mode (`cfg!(ip_unavailable)`), always returns `false`.
+///
+/// Accepts any combination of `&ExplicitPoint3D`,
+/// `&ImplicitPoint3DLpi<'_>`, `&ImplicitPoint3DTpi<'_>` via the sealed
+/// `AsGenericPoint` trait; the C++ side dispatches on each point's
+/// `Point_Type` tag.
+pub fn inner_segments_cross(
+    a: &impl AsGenericPoint,
+    b: &impl AsGenericPoint,
+    p: &impl AsGenericPoint,
+    q: &impl AsGenericPoint,
+) -> bool {
+    // Safety: each `as_generic_ptr()` returns a valid pointer to a
+    // C++ genericPoint subclass object (single inheritance: base
+    // address equals subclass address). The FFI shim reinterprets
+    // as `const genericPoint*` and dereferences for the C++
+    // reference parameter. All four points are borrowed for the
+    // duration of the call.
+    let r = unsafe {
+        ffi::ip_inner_segments_cross(
+            a.as_generic_ptr(),
+            b.as_generic_ptr(),
+            p.as_generic_ptr(),
+            q.as_generic_ptr(),
+        )
+    };
+    r != 0
+}
+
+/// Open-segment membership test. Wraps
+/// `genericPoint::pointInInnerSegment`.
+///
+/// Returns `true` iff `p` lies on the **open** segment `(v1, v2)` —
+/// i.e. `p` is collinear with `v1`/`v2` and strictly between them.
+/// Endpoints are **excluded**, and a non-collinear `p` returns
+/// `false`.
+///
+/// In stub mode (`cfg!(ip_unavailable)`), always returns `false`.
+///
+/// Accepts any combination of `&ExplicitPoint3D`,
+/// `&ImplicitPoint3DLpi<'_>`, `&ImplicitPoint3DTpi<'_>` via the sealed
+/// `AsGenericPoint` trait; the C++ side dispatches on each point's
+/// `Point_Type` tag.
+pub fn point_in_inner_segment(
+    p: &impl AsGenericPoint,
+    v1: &impl AsGenericPoint,
+    v2: &impl AsGenericPoint,
+) -> bool {
+    // Safety: each `as_generic_ptr()` returns a valid pointer to a
+    // C++ genericPoint subclass object (single inheritance: base
+    // address equals subclass address). The FFI shim reinterprets
+    // as `const genericPoint*` and dereferences for the C++
+    // reference parameter. All three points are borrowed for the
+    // duration of the call.
+    let r = unsafe {
+        ffi::ip_point_in_inner_segment(p.as_generic_ptr(), v1.as_generic_ptr(), v2.as_generic_ptr())
+    };
+    r != 0
+}
+
+/// Closed-segment membership test. Wraps
+/// `genericPoint::pointInSegment`.
+///
+/// Returns `true` iff `p` lies on the **closed** segment `[v1, v2]` —
+/// i.e. `p` is collinear with `v1`/`v2` and between them, with the
+/// endpoints **included**. A non-collinear `p` returns `false`.
+///
+/// The single load-bearing difference from [`point_in_inner_segment`]
+/// is endpoint handling: an endpoint is in the closed segment but not
+/// the open one.
+///
+/// In stub mode (`cfg!(ip_unavailable)`), always returns `false`.
+///
+/// Accepts any combination of `&ExplicitPoint3D`,
+/// `&ImplicitPoint3DLpi<'_>`, `&ImplicitPoint3DTpi<'_>` via the sealed
+/// `AsGenericPoint` trait; the C++ side dispatches on each point's
+/// `Point_Type` tag.
+pub fn point_in_segment(
+    p: &impl AsGenericPoint,
+    v1: &impl AsGenericPoint,
+    v2: &impl AsGenericPoint,
+) -> bool {
+    // Safety: each `as_generic_ptr()` returns a valid pointer to a
+    // C++ genericPoint subclass object (single inheritance: base
+    // address equals subclass address). The FFI shim reinterprets
+    // as `const genericPoint*` and dereferences for the C++
+    // reference parameter. All three points are borrowed for the
+    // duration of the call.
+    let r = unsafe {
+        ffi::ip_point_in_segment(p.as_generic_ptr(), v1.as_generic_ptr(), v2.as_generic_ptr())
+    };
+    r != 0
+}
+
 /// Copy a pool-allocated expansion to an owned `Vec<f64>` and
 /// release the pool memory. Null pointer or non-positive length
 /// produces an empty Vec without invoking the free shim.

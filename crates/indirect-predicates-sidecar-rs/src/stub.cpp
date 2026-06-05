@@ -152,3 +152,21 @@ extern "C" int ip_point_in_triangle(
 ) {
     return 0;
 }
+
+// ----- PR-CR-AR2b stubs: segment predicates all return 0 (false).
+// Rust's stub-mode tests assert this sentinel.
+extern "C" int ip_inner_segments_cross(
+    const void* /*a*/, const void* /*b*/, const void* /*p*/, const void* /*q*/
+) {
+    return 0;
+}
+extern "C" int ip_point_in_inner_segment(
+    const void* /*p*/, const void* /*v1*/, const void* /*v2*/
+) {
+    return 0;
+}
+extern "C" int ip_point_in_segment(
+    const void* /*p*/, const void* /*v1*/, const void* /*v2*/
+) {
+    return 0;
+}

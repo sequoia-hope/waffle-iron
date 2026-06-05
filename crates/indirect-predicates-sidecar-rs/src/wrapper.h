@@ -274,6 +274,35 @@ int ip_orient2d_yz(const void* a, const void* b, const void* c);
 int ip_orient2d_zx(const void* a, const void* b, const void* c);
 int ip_point_in_triangle(const void* p, const void* a, const void* b, const void* c);
 
+/*
+ * PR-CR-AR2b — segment predicates.
+ *
+ * Same generic static-dispatch convention as the predicates above:
+ * each `const void*` is a pointer to one of our handle types'
+ * underlying C++ object — explicitPoint3D, implicitPoint3D_LPI, or
+ * implicitPoint3D_TPI. The shim reinterprets each as
+ * `const genericPoint*` (valid via subclass-to-base single-
+ * inheritance address equality) and binds to the C++ reference
+ * parameter. Each function returns 1 (true) or 0 (false).
+ *
+ * ip_inner_segments_cross wraps `genericPoint::innerSegmentsCross`
+ * (implicit_point.h:218): returns 1 iff the open segments {A,B} and
+ * {P,Q} cross at a point strictly interior to BOTH, 0 otherwise.
+ *
+ * ip_point_in_inner_segment wraps `genericPoint::pointInInnerSegment`
+ * (implicit_point.h:201): returns 1 iff p lies on the OPEN segment
+ * (v1,v2) — collinear and strictly between, endpoints excluded.
+ *
+ * ip_point_in_segment wraps `genericPoint::pointInSegment`
+ * (implicit_point.h:204): returns 1 iff p lies on the CLOSED segment
+ * [v1,v2] — collinear and between, endpoints INCLUDED.
+ *
+ * Stub build: all three return 0.
+ */
+int ip_inner_segments_cross(const void* a, const void* b, const void* p, const void* q);
+int ip_point_in_inner_segment(const void* p, const void* v1, const void* v2);
+int ip_point_in_segment(const void* p, const void* v1, const void* v2);
+
 #ifdef __cplusplus
 }
 #endif

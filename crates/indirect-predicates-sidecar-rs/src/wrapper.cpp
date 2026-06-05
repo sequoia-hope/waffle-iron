@@ -318,6 +318,34 @@ extern "C" int ip_point_in_triangle(
         *(const genericPoint*)b, *(const genericPoint*)c) ? 1 : 0;
 }
 
+// ----- PR-CR-AR2b: segment predicates. Same generic static-dispatch
+// convention as the orient2d / point_in_triangle shims above: each
+// `const void*` is reinterpreted as `const genericPoint*` and the static
+// `genericPoint::` method routes to the appropriate variant based on each
+// point's `Point_Type` tag. Each returns `bool`, normalized to 0/1 for the
+// C ABI.
+extern "C" int ip_inner_segments_cross(
+    const void* a, const void* b, const void* p, const void* q
+) {
+    return genericPoint::innerSegmentsCross(
+        *(const genericPoint*)a, *(const genericPoint*)b,
+        *(const genericPoint*)p, *(const genericPoint*)q) ? 1 : 0;
+}
+extern "C" int ip_point_in_inner_segment(
+    const void* p, const void* v1, const void* v2
+) {
+    return genericPoint::pointInInnerSegment(
+        *(const genericPoint*)p, *(const genericPoint*)v1,
+        *(const genericPoint*)v2) ? 1 : 0;
+}
+extern "C" int ip_point_in_segment(
+    const void* p, const void* v1, const void* v2
+) {
+    return genericPoint::pointInSegment(
+        *(const genericPoint*)p, *(const genericPoint*)v1,
+        *(const genericPoint*)v2) ? 1 : 0;
+}
+
 extern "C" void ip_lambda3d_tpi_exact(
     const double* v, const double* w, const double* u,
     double** lambda_x_out, int* lambda_x_len,

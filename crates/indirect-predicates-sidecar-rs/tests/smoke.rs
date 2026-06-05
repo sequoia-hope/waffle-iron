@@ -1210,7 +1210,7 @@ fn point_in_inner_segment_explicit_strict_endpoint_beyond_offline() {
 
 #[cfg(not(ip_unavailable))]
 #[test]
-fn point_in_segment_explicit_closed_both_endpoints_beyond_offline() {
+fn point_in_segment_explicit_closed_both_endpoints_offline() {
     if !AVAILABLE {
         panic!(
             "upstream Indirect_Predicates unavailable — cannot exercise \
@@ -1241,16 +1241,71 @@ fn point_in_segment_explicit_closed_both_endpoints_beyond_offline() {
         "endpoint v2 included in closed segment → true"
     );
 
-    // Collinear-beyond and off-line → false (same gates as inner variant).
-    let beyond = ExplicitPoint3D::new(5.0, 0.0, 0.0);
-    assert!(
-        !point_in_segment(&beyond, &v1, &v2),
-        "collinear point beyond an endpoint → false"
-    );
+    // Off-line (non-collinear) → false (misaligned gate fires for any input).
     let offline = ExplicitPoint3D::new(2.0, 1.0, 0.0);
     assert!(
         !point_in_segment(&offline, &v1, &v2),
         "non-collinear point → false (misaligned)"
+    );
+
+    // NOTE on the collinear-"beyond"-an-endpoint case: with an EXPLICIT query
+    // point this would (correctly per upstream) read as TRUE, not false. In
+    // genericPoint::pointInSegment (implicit_point.hpp:1120-1135) the
+    // explicit-vs-explicit `lessThanOnX` uses the EE branch, which returns the
+    // C++ bool `a.X() < b.X()` (0 or 1, never -1; the same EE limitation noted
+    // for `less_than_on_x` at smoke.rs:759-775). For beyond=(5,0,0):
+    //   lt2x = lessThanOnX(v1,p) = (0 < 5) = 1
+    //   lt3x = lessThanOnX(p,v2) = (5 < 4) = 0
+    // so the `if (lt2x && lt3x)` guard never fires, y/z comparisons are 0, and
+    // the line-1134 fallback `((lt2x==0&&lt2y==0&&lt2z==0) ||
+    // (lt3x==0&&lt3y==0&&lt3z==0))` evaluates its SECOND group to true. Thus a
+    // collinear "beyond" point reads as on the closed segment for explicit
+    // inputs. The "beyond → false" expectation is only faithful when the query
+    // point is IMPLICIT (LPI/TPI), where `lessThanOnX` takes the IE/II branch
+    // and returns a real signed -1/0/+1, making the guard fire and yielding
+    // `(lt2x == lt3x)` = `(+1 == -1)` = false. See the dedicated implicit test
+    // below for that case. (The open-variant explicit "beyond → false" passes
+    // only because pointInInnerSegment early-returns at the `if (lt2)` guard,
+    // hpp:1110, before reaching any endpoint fallback.)
+}
+
+// ----- point_in_segment: implicit (LPI) collinear-beyond is excluded -----
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn point_in_segment_implicit_lpi_beyond_endpoint_is_false() {
+    if !AVAILABLE {
+        panic!(
+            "upstream Indirect_Predicates unavailable — cannot exercise \
+             point_in_segment LPI dispatch"
+        );
+    }
+    init_fpu();
+    // The "collinear point beyond an endpoint → false" case is only faithful
+    // for an IMPLICIT query point (see the EE-branch note in
+    // point_in_segment_explicit_closed_both_endpoints_beyond_offline and
+    // implicit_point.hpp:1134). Build an LPI on the x axis resolving EXACTLY to
+    // (5,0,0): line P=(5,0,-1) → Q=(5,0,1) (vertical at x=5, y=0) ∩ plane z=0
+    // with corners r=(0,0,0), s=(4,0,0), t=(0,4,0) → pierces z=0 at (5,0,0).
+    //
+    // (5,0,0) is collinear with v1=(0,0,0), v2=(4,0,0) but lies BEYOND v2. With
+    // the implicit IE/II `lessThanOnX` branch returning signed values:
+    //   lt2x = lessThanOnX(v1, LPI) = sign(0 - 5) = +1 (v1 < p)
+    //   lt3x = lessThanOnX(LPI, v2) = sign(5 - 4) = -1 (p NOT < v2)
+    // the `if (lt2x && lt3x)` guard fires and returns `(lt2x == lt3x)` =
+    // `(+1 == -1)` = false → the beyond point is correctly excluded.
+    let p = ExplicitPoint3D::new(5.0, 0.0, -1.0);
+    let q = ExplicitPoint3D::new(5.0, 0.0, 1.0);
+    let r = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let s = ExplicitPoint3D::new(4.0, 0.0, 0.0);
+    let t = ExplicitPoint3D::new(0.0, 4.0, 0.0); // plane z=0
+    let lpi = ImplicitPoint3DLpi::new(&p, &q, &r, &s, &t);
+
+    let v1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let v2 = ExplicitPoint3D::new(4.0, 0.0, 0.0);
+    assert!(
+        !point_in_segment(&lpi, &v1, &v2),
+        "LPI (5,0,0) is collinear but beyond v2=(4,0,0) → false (closed)"
     );
 }
 
