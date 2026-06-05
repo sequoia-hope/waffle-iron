@@ -444,8 +444,10 @@ mod tests {
 
     /// After inserting an interior Explicit point AND an on-edge `Lpi` point,
     /// the result must EXACTLY tile the base triangle:
-    ///   - every sub-tri's signed area has the same sign as the base, and
-    ///   - the sum of sub-tri signed areas EXACTLY equals the base's.
+    ///
+    /// - every sub-tri's signed area has the same sign as the base, and
+    /// - the sum of sub-tri signed areas EXACTLY equals the base's.
+    ///
     /// All arithmetic in `RBig` (exact), independent of the FFI split path.
     /// Includes an `Lpi` vertex so LPI exact coords are exercised.
     #[test]
@@ -456,10 +458,7 @@ mod tests {
         // One interior Explicit + one on-edge LPI (on edge (0,1) at (2,0,0)).
         let line = [Point3::new(2.0, 0.0, -1.0), Point3::new(2.0, 0.0, 1.0)];
         let plane = [a[0], a[1], a[2]];
-        let pts = vec![
-            tp_explicit(Point3::new(1.0, 1.0, 0.0)),
-            tp_lpi(line, plane),
-        ];
+        let pts = vec![tp_explicit(Point3::new(1.0, 1.0, 0.0)), tp_lpi(line, plane)];
         split_single_triangle(&mut subm, &pts).expect("split must succeed");
 
         // Base triangle's exact (×2) signed area.

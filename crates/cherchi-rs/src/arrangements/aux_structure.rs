@@ -425,8 +425,7 @@ mod tests {
 
     /// Does any of a triangle's buckets (interior or any edge) contain `idx`?
     fn buckets_contain(aux: &TriangleAuxPoints, idx: u32) -> bool {
-        aux.interior.contains(&idx)
-            || aux.edges.iter().any(|e| e.contains(&idx))
+        aux.interior.contains(&idx) || aux.edges.iter().any(|e| e.contains(&idx))
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -472,14 +471,8 @@ mod tests {
         );
 
         // The two LPI generators (per AR1: line = piercing edge, plane = A).
-        let lpi_b0b1 = (
-            [b[0], b[1]],
-            [a[0], a[1], a[2]],
-        );
-        let lpi_b0b2 = (
-            [b[0], b[2]],
-            [a[0], a[1], a[2]],
-        );
+        let lpi_b0b1 = ([b[0], b[1]], [a[0], a[1], a[2]]);
+        let lpi_b0b2 = ([b[0], b[2]], [a[0], a[1], a[2]]);
 
         // Find the global indices of each LPI typed point.
         let idx_of = |line: [Point3; 2], plane: [Point3; 3]| -> u32 {
@@ -512,9 +505,8 @@ mod tests {
             !aux_b.interior.contains(&i01) && !aux_b.interior.contains(&i02),
             "triangle B must NOT record either LPI as interior, got {aux_b:?}"
         );
-        let count_in_edges = |idx: u32| -> usize {
-            aux_b.edges.iter().filter(|e| e.contains(&idx)).count()
-        };
+        let count_in_edges =
+            |idx: u32| -> usize { aux_b.edges.iter().filter(|e| e.contains(&idx)).count() };
         assert_eq!(
             count_in_edges(i01),
             1,
@@ -635,7 +627,7 @@ mod tests {
         // the piercing edge (and thus the LPI generators) are byte-identical.
         let verts = vec![
             a[0], a[1], a[2], // 0,1,2  (A)
-            pp, qq, // 3,4  (shared P,Q)
+            pp, qq,   // 3,4  (shared P,Q)
             b[2], // 5  (B apex)
             c[2], // 6  (C apex)
         ];
