@@ -728,6 +728,70 @@ indirect-`orient3d` oracle.
 **Sign-off:** candidate — source-faithful scope split; TPI and the coplanar
 point-construction paths are roadmap-tracked to AR2 / a later slice.
 
+### N14 — PR-CR-AR2a point/edge insertion: readable `splitSingleTriangle` with a uniform on-edge check; structural LPI dedup
+
+**Code location:** `crates/cherchi-rs/src/arrangements/retriangulate.rs` and
+`aux_structure.rs` (new; `#[cfg(feature = "indirect-predicates")]`). Prompt
+PR-CR-AR2a ("per-triangle POINT/EDGE insertion"). C++ reference
+`.../arrangements/code/triangulation.cpp` (`splitSingleTriangle` cpp:189-222,
+`splitSingleTriangleWithStack` cpp:225+, `findContainingTriangle` cpp:455,
+`fastPointOnLine` cpp:1153).
+
+**Paper / source section:** Cherchi 2022 re-triangulation (`triangulation.cpp`
+point-insertion phase, before `addConstraintSegmentsInSingleTriangle`).
+
+**Deviations (three, all source-faithful adaptations):**
+
+1. **Readable `splitSingleTriangle` ported instead of the active
+   `splitSingleTriangleWithStack`.** The C++ active path is the stack-based
+   variant (a perf optimization that pre-loads all points then walks a custom
+   stack); `splitSingleTriangle` (linear-scan `findContainingTriangle` per point)
+   is in a commented-out branch but produces the **same output mesh**. AR2a ports
+   the readable linear-scan form (simplest to oracle); the `WithStack`/`WithTree`
+   perf ports are deferred (the CR12c `Tree` API is already available if/when
+   `WithTree` is wanted).
+
+2. **Uniform on-edge check applied to every inserted point, including the first.**
+   The C++ `splitSingleTriangle(points)` special-cases the first point with
+   `splitTri(0, v)` unconditionally — but this is safe in C++ **only because that
+   function receives interior-only points** (`t_points`); on-edge points are
+   carried in separate `e0/e1/e2_points` lists and handled by
+   `splitSingleTriangleWithStack`. AR2a's `aux_structure` groups interior **and**
+   on-edge points and `split_single_triangle` consumes them as **one flat list**,
+   so an on-edge point can appear first. AR2a therefore runs
+   `find_containing_triangle` + the three `fast_point_on_line` edge tests
+   **uniformly for every point** (no `splitTri(0,v)` special-case): on-edge →
+   `split_edge` (2 tris, no degenerate fan), interior → `split_tri` (3 tris),
+   outside → `RetriangulateError::NoContainingTriangle`. This is the faithful
+   adaptation of the C++ semantics to AR2a's unified point list; the load-bearing
+   exact covering oracle (dashu `RBig` area-sum + same-sign winding, with LPI
+   coords from exact line-plane intersection) would catch any degenerate or
+   non-covering result.
+
+3. **LPI dedup by structural generator equality (first slice).** The global typed
+   -point set dedups `Explicit` by exact `Point3` equality and `Lpi` by structural
+   generator (`line` + `plane`) equality. Exact-coincident LPIs with *different*
+   generators (same geometric point, different constructing edge/plane) are NOT
+   merged in AR2a — that would need a `coincident`/`lessThan` FFI. Low likelihood
+   for transversal inputs; flagged for AR3 if differential parity surfaces a
+   merged-vertex mismatch.
+
+**Precursor:** PR-CR-AR2a Cycle 1 added the implicit 2D predicates the location
+tests need — `orient2d_xy/yz/zx` + 4-arg `point_in_triangle` — to
+`indirect-predicates-sidecar-rs` (CR-IP6b), via `genericPoint` static dispatch
+(demand-driven; AR2a is the caller).
+
+**Out of scope (AR2b/AR3):** enforcing intersection *segments* as constrained
+edges (`addConstraintSegment`), TPI construction (`createTPI`), cross-triangle
+weld parity, and replacing the N13 raw-`f64` `point_in_segment` guard with the
+exact CR1 collinearity predicate.
+
+**Severity:** low (readable-over-perf port with identical output; a uniform-check
+adaptation forced by — and consistent with — AR2a's unified point list; a
+first-slice dedup scope limit). All transparently flagged and roadmap-tracked.
+**Sign-off:** candidate — source-faithful insertion port; constraints + TPI +
+cross-triangle parity are roadmap-tracked to AR2b/AR3.
+
 ### Legacy ↔ new-crate cross-reference
 
 The legacy **D1–D14** entries scope to `crates/kernel/` and do **not** imply

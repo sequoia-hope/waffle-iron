@@ -31,6 +31,8 @@ All upstream sources are MIT-licensed.
 | Rust file | Upstream source | Project |
 |---|---|---|
 | `src/arrangements/intersection_points.rs` | `arrangements/code/intersection_classification.cpp` | Cherchi 2022 |
+| `src/arrangements/aux_structure.rs` | `arrangements/code/triangulation.cpp` (aux-structure / point grouping) | Cherchi 2022 |
+| `src/arrangements/retriangulate.rs` | `arrangements/code/triangulation.cpp` (`splitSingleTriangle` / `findContainingTriangle` / `fastPointOnLine`) | Cherchi 2022 |
 
 ## Per-file attribution
 

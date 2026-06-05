@@ -1205,13 +1205,23 @@ reimplementation from Attene's paper restores WASM (M7).
     slices**; NOT the spade NC1 CDT, which is f64-Delaunay and cannot handle
     exact/implicit points — port Cherchi's incremental insertion on implicit
     points via exact predicates + the CR12c `splitTri`/`splitEdge` API):
-    - **PR-CR-AR2a — point/edge insertion.** Port `triangulateSingleTriangle`'s
-      point-collection + `splitSingleTriangle` / `splitSingleEdge`: insert AR1's
-      intersection POINTS (interior → `splitTri`, on-edge → `splitEdge`) into the
-      per-triangle submesh, with exact point-location. Produces a valid
+    - **PR-CR-AR2a — point/edge insertion. ✅ DONE.** Ported
+      `triangulateSingleTriangle`'s point-collection (`aux_structure.rs`
+      `group_intersection_points` → per-base-tri interior/edge buckets) +
+      `splitSingleTriangle` (`retriangulate.rs` `split_single_triangle`): inserts
+      AR1's intersection POINTS (interior → `split_tri`, on-edge → `split_edge`)
+      into the per-triangle submesh with **exact** point-location via the FFI
+      generic dispatch on `vert_coords`. Produces a valid covering
       sub-triangulation whose vertices include every intersection point (segments
-      not yet enforced as edges). Oracle: valid covering triangulation (exact
-      orient2d), all intersection points are vertices.
+      not yet enforced as edges). **Precursor CR-IP6b** added the implicit 2D
+      predicates `orient2d_xy/yz/zx` + `point_in_triangle` to
+      `indirect-predicates-sidecar-rs`; **Cycle 2** generalized `FastTrimesh`
+      vertex storage to typed `VertexCoords { Explicit, Lpi }`. Oracle: exact
+      covering triangulation (pure-dashu `RBig` signed-area-sum + same-sign
+      winding, LPI coords from exact line-plane intersection — independent of the
+      FFI split path), all intersection points are vertices, completeness/incidence
+      via the exact FFI. Deviation **N14** (readable `splitSingleTriangle` with a
+      uniform on-edge check; structural LPI dedup). **AR2b is next.**
     - **PR-CR-AR2b — constraint segments + TPI.** Port
       `addConstraintSegmentsInSingleTriangle` / `addConstraintSegment` + the
       deferred `createTPI` (segment-segment crossings → `ImplicitPoint3DTpi` via
