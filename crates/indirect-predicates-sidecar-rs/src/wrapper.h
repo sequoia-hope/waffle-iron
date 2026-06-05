@@ -245,6 +245,35 @@ int ip_less_than_on_x_ii(const void* p1, const void* p2);
 int ip_less_than_on_y_ii(const void* p1, const void* p2);
 int ip_less_than_on_z_ii(const void* p1, const void* p2);
 
+/*
+ * PR-CR-AR2a Cycle 1 (CR-IP6b): 2D orientation + point-in-triangle.
+ *
+ * Each `const void*` is a pointer to one of our handle types'
+ * underlying C++ object — explicitPoint3D, implicitPoint3D_LPI,
+ * or implicitPoint3D_TPI. The shim reinterprets as
+ * `const genericPoint*` (valid via subclass-to-base single-
+ * inheritance address equality) and binds to the C++ reference
+ * parameter.
+ *
+ * ip_orient2d_{xy,yz,zx} wrap `genericPoint::orient2D{xy,yz,zx}`
+ * (implicit_point.h:138-140), the CCW/left-turn test for a triple
+ * projected onto the named coordinate pair. They return an `int`
+ * matching upstream's `IP_Sign` convention:
+ *   -1 = Negative (CW), 0 = Zero (collinear), +1 = Positive (CCW),
+ *    2 = Undefined (NaN / catastrophic cancellation).
+ *
+ * ip_point_in_triangle wraps `genericPoint::pointInTriangle`
+ * (implicit_point.h:212), boundary-inclusive: returns 1 when P is
+ * inside OR on the boundary of triangle ABC, 0 otherwise.
+ *
+ * Stub build: ip_orient2d_* return 2 (Undefined sentinel);
+ * ip_point_in_triangle returns 0.
+ */
+int ip_orient2d_xy(const void* a, const void* b, const void* c);
+int ip_orient2d_yz(const void* a, const void* b, const void* c);
+int ip_orient2d_zx(const void* a, const void* b, const void* c);
+int ip_point_in_triangle(const void* p, const void* a, const void* b, const void* c);
+
 #ifdef __cplusplus
 }
 #endif

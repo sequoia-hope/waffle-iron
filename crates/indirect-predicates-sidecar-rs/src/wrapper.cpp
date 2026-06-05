@@ -290,6 +290,34 @@ extern "C" int ip_less_than_on_z_ii(const void* p1, const void* p2) {
         *(const genericPoint*)p1, *(const genericPoint*)p2);
 }
 
+// ----- PR-CR-AR2a Cycle 1 (CR-IP6b): orient2d_{xy,yz,zx} + point_in_triangle.
+// Same generic static-dispatch convention as the PR-CR-IP6 shims: each
+// `const void*` is reinterpreted as `const genericPoint*` and the static
+// `genericPoint::orient2D*` / `genericPoint::pointInTriangle` methods route
+// to the appropriate IEEE / ... / IIII variant based on each point's
+// `Point_Type` tag. (The orient2d_indirect_* variants require all-implicit
+// inputs and segfault on explicit ones — same reason as orient3d.)
+extern "C" int ip_orient2d_xy(const void* a, const void* b, const void* c) {
+    return genericPoint::orient2Dxy(
+        *(const genericPoint*)a, *(const genericPoint*)b, *(const genericPoint*)c);
+}
+extern "C" int ip_orient2d_yz(const void* a, const void* b, const void* c) {
+    return genericPoint::orient2Dyz(
+        *(const genericPoint*)a, *(const genericPoint*)b, *(const genericPoint*)c);
+}
+extern "C" int ip_orient2d_zx(const void* a, const void* b, const void* c) {
+    return genericPoint::orient2Dzx(
+        *(const genericPoint*)a, *(const genericPoint*)b, *(const genericPoint*)c);
+}
+// pointInTriangle returns `bool`; normalize to 0/1 for the C ABI.
+extern "C" int ip_point_in_triangle(
+    const void* p, const void* a, const void* b, const void* c
+) {
+    return genericPoint::pointInTriangle(
+        *(const genericPoint*)p, *(const genericPoint*)a,
+        *(const genericPoint*)b, *(const genericPoint*)c) ? 1 : 0;
+}
+
 extern "C" void ip_lambda3d_tpi_exact(
     const double* v, const double* w, const double* u,
     double** lambda_x_out, int* lambda_x_len,

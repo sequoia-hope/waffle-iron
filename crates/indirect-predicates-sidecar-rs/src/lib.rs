@@ -852,6 +852,120 @@ pub fn less_than_on_z(p1: &impl AsGenericPoint, p2: &impl AsGenericPoint) -> Sig
     Sign::from_int(r)
 }
 
+// =========================================================================
+// PR-CR-AR2a Cycle 1 (CR-IP6b) — orient2d_{xy,yz,zx} + point_in_triangle
+// =========================================================================
+
+/// 2D orientation predicate on the `xy` projection. Wraps
+/// `genericPoint::orient2Dxy`.
+///
+/// Projects the triple onto the `(x, y)` plane and returns the
+/// CCW / left-turn sign:
+///
+/// - `Positive` if `(a, b, c)` is counter-clockwise.
+/// - `Negative` if clockwise.
+/// - `Zero` if collinear.
+/// - `Undefined` on NaN / catastrophic cancellation, or in stub mode.
+///
+/// Accepts any combination of `&ExplicitPoint3D`,
+/// `&ImplicitPoint3DLpi<'_>`, `&ImplicitPoint3DTpi<'_>` via the sealed
+/// `AsGenericPoint` trait; the C++ side dispatches on each point's
+/// `Point_Type` tag.
+pub fn orient2d_xy(
+    p1: &impl AsGenericPoint,
+    p2: &impl AsGenericPoint,
+    p3: &impl AsGenericPoint,
+) -> Sign {
+    // Safety: each `as_generic_ptr()` returns a valid pointer to a
+    // C++ genericPoint subclass object (single inheritance: base
+    // address equals subclass address). The FFI shim reinterprets
+    // as `const genericPoint*` and dereferences for the C++
+    // reference parameter. All three points are borrowed for the
+    // duration of the call.
+    let r = unsafe {
+        ffi::ip_orient2d_xy(
+            p1.as_generic_ptr(),
+            p2.as_generic_ptr(),
+            p3.as_generic_ptr(),
+        )
+    };
+    Sign::from_int(r)
+}
+
+/// 2D orientation predicate on the `yz` projection. Wraps
+/// `genericPoint::orient2Dyz`. See [`orient2d_xy`] for sign
+/// conventions and stub-mode behavior.
+pub fn orient2d_yz(
+    p1: &impl AsGenericPoint,
+    p2: &impl AsGenericPoint,
+    p3: &impl AsGenericPoint,
+) -> Sign {
+    // Safety: see [`orient2d_xy`].
+    let r = unsafe {
+        ffi::ip_orient2d_yz(
+            p1.as_generic_ptr(),
+            p2.as_generic_ptr(),
+            p3.as_generic_ptr(),
+        )
+    };
+    Sign::from_int(r)
+}
+
+/// 2D orientation predicate on the `zx` projection. Wraps
+/// `genericPoint::orient2Dzx`. See [`orient2d_xy`] for sign
+/// conventions and stub-mode behavior.
+pub fn orient2d_zx(
+    p1: &impl AsGenericPoint,
+    p2: &impl AsGenericPoint,
+    p3: &impl AsGenericPoint,
+) -> Sign {
+    // Safety: see [`orient2d_xy`].
+    let r = unsafe {
+        ffi::ip_orient2d_zx(
+            p1.as_generic_ptr(),
+            p2.as_generic_ptr(),
+            p3.as_generic_ptr(),
+        )
+    };
+    Sign::from_int(r)
+}
+
+/// Boundary-inclusive point-in-triangle test. Wraps
+/// `genericPoint::pointInTriangle`.
+///
+/// Returns `true` when `p` lies inside **or on the boundary** (an
+/// edge or vertex) of triangle `a, b, c`, and `false` when strictly
+/// outside.
+///
+/// In stub mode (`cfg!(ip_unavailable)`), always returns `false`.
+///
+/// Accepts any combination of `&ExplicitPoint3D`,
+/// `&ImplicitPoint3DLpi<'_>`, `&ImplicitPoint3DTpi<'_>` via the sealed
+/// `AsGenericPoint` trait; the C++ side dispatches on each point's
+/// `Point_Type` tag.
+pub fn point_in_triangle(
+    p: &impl AsGenericPoint,
+    a: &impl AsGenericPoint,
+    b: &impl AsGenericPoint,
+    c: &impl AsGenericPoint,
+) -> bool {
+    // Safety: each `as_generic_ptr()` returns a valid pointer to a
+    // C++ genericPoint subclass object (single inheritance: base
+    // address equals subclass address). The FFI shim reinterprets
+    // as `const genericPoint*` and dereferences for the C++
+    // reference parameter. All four points are borrowed for the
+    // duration of the call.
+    let r = unsafe {
+        ffi::ip_point_in_triangle(
+            p.as_generic_ptr(),
+            a.as_generic_ptr(),
+            b.as_generic_ptr(),
+            c.as_generic_ptr(),
+        )
+    };
+    r != 0
+}
+
 /// Copy a pool-allocated expansion to an owned `Vec<f64>` and
 /// release the pool memory. Null pointer or non-positive length
 /// produces an empty Vec without invoking the free shim.

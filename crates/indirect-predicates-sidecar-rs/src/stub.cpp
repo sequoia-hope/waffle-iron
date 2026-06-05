@@ -134,3 +134,21 @@ extern "C" int ip_less_than_on_y_ii(const void* /*p1*/, const void* /*p2*/) {
 extern "C" int ip_less_than_on_z_ii(const void* /*p1*/, const void* /*p2*/) {
     return 2;
 }
+
+// ----- PR-CR-AR2a Cycle 1 (CR-IP6b) stubs: orient2d_* return 2
+// (IP_Sign::UNDEFINED); point_in_triangle returns 0 (false). Rust's
+// stub-mode tests assert these sentinels.
+extern "C" int ip_orient2d_xy(const void* /*a*/, const void* /*b*/, const void* /*c*/) {
+    return 2;
+}
+extern "C" int ip_orient2d_yz(const void* /*a*/, const void* /*b*/, const void* /*c*/) {
+    return 2;
+}
+extern "C" int ip_orient2d_zx(const void* /*a*/, const void* /*b*/, const void* /*c*/) {
+    return 2;
+}
+extern "C" int ip_point_in_triangle(
+    const void* /*p*/, const void* /*a*/, const void* /*b*/, const void* /*c*/
+) {
+    return 0;
+}
