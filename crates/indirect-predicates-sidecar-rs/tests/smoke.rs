@@ -823,7 +823,10 @@ use indirect_predicates_sidecar_rs::{orient2d_xy, orient2d_yz, orient2d_zx, poin
 use indirect_predicates_sidecar_rs::{orient2d_xy, point_in_triangle};
 
 // ----- orient2d_xy: explicit handles, all three sign classes -----
+// Gated to real-mode like the rest of the FFI-exercising tests; stub mode
+// is covered separately by orient2d_xy_stub_returns_undefined.
 
+#[cfg(not(ip_unavailable))]
 #[test]
 fn orient2d_xy_ccw_cw_collinear() {
     if !AVAILABLE {
@@ -858,7 +861,10 @@ fn orient2d_xy_ccw_cw_collinear() {
 }
 
 // ----- orient2d_yz: explicit handles, all three sign classes -----
+// Gated to real-mode: `orient2d_yz` is only imported when the upstream
+// library is linked (stub mode imports only orient2d_xy + point_in_triangle).
 
+#[cfg(not(ip_unavailable))]
 #[test]
 fn orient2d_yz_ccw_cw_collinear() {
     if !AVAILABLE {
@@ -890,7 +896,10 @@ fn orient2d_yz_ccw_cw_collinear() {
 }
 
 // ----- orient2d_zx: explicit handles, all three sign classes -----
+// Gated to real-mode: `orient2d_zx` is only imported when the upstream
+// library is linked (stub mode imports only orient2d_xy + point_in_triangle).
 
+#[cfg(not(ip_unavailable))]
 #[test]
 fn orient2d_zx_ccw_cw_collinear() {
     if !AVAILABLE {
