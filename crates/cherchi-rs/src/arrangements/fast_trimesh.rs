@@ -2605,4 +2605,113 @@ mod tests {
         let t = ft.add_tri(0, 1, 2);
         assert_eq!(ft.tri_node_id(t), None);
     }
+
+    // -----------------------------------------------------------------
+    // PR-CR-AR2a Cycle 2 — typed vertices (VertexCoords)
+    //
+    // Generalizes vertex storage from a bare `Point3` to a `VertexCoords`
+    // enum (foreshadowed by deviation #1). WASM-clean / FFI-free: the
+    // `Lpi` variant carries only `Point3` generators (line + plane), NOT
+    // any FFI / genericPoint handle. Existing public signatures are
+    // UNCHANGED — `from_soup` / `add_vert` / `add_vert_with_orig_id` all
+    // wrap their inputs as `VertexCoords::Explicit`, and `vert` /
+    // `tri_vert` keep returning `Point3`. New surface:
+    //   - `pub fn add_vert_typed(&mut self, c: VertexCoords) -> u32`
+    //   - `pub fn vert_coords(&self, v: u32) -> &VertexCoords`
+    // For an `Lpi` vertex, `vert(v)` returns the documented finite approx
+    // = the line midpoint ((line[0] + line[1]) / 2). That approx is never
+    // oracle-checked; it exists only so the topology layer keeps working,
+    // and these tests pin the implementer to exactly that contract.
+    // -----------------------------------------------------------------
+
+    /// Line-midpoint approx that `vert(v)` must return for an `Lpi`
+    /// vertex (the documented finite stand-in; never oracle-checked).
+    fn lpi_line_midpoint(line: &[Point3; 2]) -> Point3 {
+        p(
+            (line[0].x() + line[1].x()) / 2.0,
+            (line[0].y() + line[1].y()) / 2.0,
+            (line[0].z() + line[1].z()) / 2.0,
+        )
+    }
+
+    #[test]
+    fn add_vert_typed_explicit_round_trips() {
+        let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        let pt = p(1.5, -2.5, 3.5);
+        let id = ft.add_vert_typed(VertexCoords::Explicit(pt));
+        assert_eq!(id, 0);
+        assert_eq!(ft.num_verts(), 1);
+        // vert_coords round-trips to the same Explicit variant.
+        assert_eq!(ft.vert_coords(id), &VertexCoords::Explicit(pt));
+        // vert() returns the explicit point directly.
+        assert_eq!(ft.vert(id), pt);
+    }
+
+    #[test]
+    fn add_vert_typed_lpi_round_trips_and_vert_is_line_midpoint() {
+        let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        let line = [p(0.0, 0.0, 0.0), p(4.0, 2.0, -6.0)];
+        let plane = [
+            p(0.0, 0.0, 1.0),
+            p(1.0, 0.0, 1.0),
+            p(0.0, 1.0, 1.0),
+        ];
+        let id = ft.add_vert_typed(VertexCoords::Lpi { line, plane });
+        assert_eq!(id, 0);
+        assert_eq!(ft.num_verts(), 1);
+        // vert_coords round-trips to the same Lpi variant (generators preserved).
+        assert_eq!(
+            ft.vert_coords(id),
+            &VertexCoords::Lpi { line, plane }
+        );
+        // vert() returns the documented finite approx = the line midpoint.
+        assert_eq!(ft.vert(id), lpi_line_midpoint(&line));
+        // Spell the expected midpoint out explicitly so the contract is
+        // unambiguous: midpoint of (0,0,0)-(4,2,-6) is (2,1,-3).
+        assert_eq!(ft.vert(id), p(2.0, 1.0, -3.0));
+    }
+
+    #[test]
+    fn explicit_constructors_yield_explicit_vert_coords() {
+        // from_soup wraps every input vertex as Explicit.
+        let (v, t) = single_tri();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        assert_eq!(ft.vert_coords(0), &VertexCoords::Explicit(v[0]));
+        assert_eq!(ft.vert_coords(2), &VertexCoords::Explicit(v[2]));
+
+        // add_vert wraps as Explicit.
+        let pa = p(7.0, 8.0, 9.0);
+        let ida = ft.add_vert(pa);
+        assert_eq!(ft.vert_coords(ida), &VertexCoords::Explicit(pa));
+
+        // add_vert_with_orig_id wraps as Explicit (orig_id is orthogonal).
+        let pb = p(-1.0, -2.0, -3.0);
+        let idb = ft.add_vert_with_orig_id(pb, 42);
+        assert_eq!(ft.vert_coords(idb), &VertexCoords::Explicit(pb));
+        assert_eq!(ft.vert_orig_id(idb), Some(42));
+    }
+
+    #[test]
+    fn add_vert_typed_preserves_sum_invariants() {
+        // Single-triangle soup: 3 verts, 3 edges, 1 tri. Appending one
+        // Lpi and one Explicit typed vertex bumps num_verts by exactly 2
+        // and leaves edges / tris untouched (no adjacency for bare verts).
+        let (v, t) = single_tri();
+        let mut ft = FastTrimesh::from_soup(&v, &t, Plane::XY).unwrap();
+        let v_before = ft.num_verts();
+        let e_before = ft.num_edges();
+        let t_before = ft.num_tris();
+
+        let line = [p(0.0, 0.0, 0.0), p(2.0, 0.0, 0.0)];
+        let plane = [p(0.0, 0.0, 0.0), p(1.0, 0.0, 0.0), p(0.0, 1.0, 0.0)];
+        let id_lpi = ft.add_vert_typed(VertexCoords::Lpi { line, plane });
+        let id_exp = ft.add_vert_typed(VertexCoords::Explicit(p(9.0, 9.0, 9.0)));
+
+        assert_eq!(ft.num_verts(), v_before + 2);
+        assert_eq!(ft.num_edges(), e_before);
+        assert_eq!(ft.num_tris(), t_before);
+        // New typed verts start isolated (no incident edges).
+        assert_eq!(ft.vert_valence(id_lpi), 0);
+        assert_eq!(ft.vert_valence(id_exp), 0);
+    }
 }
