@@ -31,6 +31,202 @@
 //! result is an exact sub-triangulation of the base triangle (no flips, no
 //! gaps/overlaps), and that every inserted point is incident as a vertex.
 //! Segment conformance and cross-triangle parity are AR2b / AR3.
+//!
+//! ## Deviation: uniform on-edge check (vs C++ partitioned point lists)
+//!
+//! The C++ `splitSingleTriangle(points)` special-cases the very first point
+//! with `splitTri(0, v)` because it receives **interior-only** points (on-edge
+//! points are handled separately, via `t_points` + per-edge `e0/e1/e2` lists +
+//! `addVertexInSortedList` / `WithStack`). AR2a deliberately feeds interior AND
+//! on-edge points as ONE flat `&[TypedPoint]`, so this port applies the on-edge
+//! check **uniformly to every point including the first** — no `splitTri(0, v)`
+//! special-case. Each point: locate its containing sub-triangle, then if it lies
+//! on one of that triangle's edges `split_edge`, else `split_tri`. A point with
+//! no containing triangle (fed an out-of-range point) is a hard error
+//! ([`RetriangulateError::NoContainingTriangle`]).
+
+use crate::arrangements::aux_structure::TypedPoint;
+use crate::arrangements::fast_trimesh::VertexCoords;
+use crate::arrangements::{FastTrimesh, Plane};
+use indirect_predicates_sidecar_rs::{
+    init_fpu, orient2d_xy, orient2d_yz, orient2d_zx, point_in_triangle, AsGenericPoint,
+    ExplicitPoint3D, ImplicitPoint3DLpi, Sign as IpSign,
+};
+
+/// Error from [`split_single_triangle`].
+#[derive(Debug, PartialEq)]
+pub enum RetriangulateError {
+    /// An inserted point could not be located in any sub-triangle of the base
+    /// (it lies outside the base triangle). `point_id` is the just-added
+    /// submesh vertex id.
+    NoContainingTriangle { point_id: u32 },
+}
+
+/// Insert each auxiliary point into the 1-triangle submesh, splitting the
+/// containing sub-triangle (interior point → fan into 3; on-edge point → split
+/// the edge, each incident sub-triangle becomes 2).
+///
+/// Ports the per-base-triangle insertion loop of the C++ `triangulation.cpp`
+/// re-triangulator (the part that places intersection points before constraint
+/// insertion). See the module docs for the uniform-on-edge-check deviation.
+///
+/// All point location uses EXACT coordinates via the indirect-predicates FFI
+/// (built from `vert_coords`, NOT the `vert()` midpoint approx), so `Lpi`
+/// vertices are located robustly.
+pub fn split_single_triangle(
+    subm: &mut FastTrimesh,
+    points: &[TypedPoint],
+) -> Result<(), RetriangulateError> {
+    init_fpu();
+
+    for tp in points {
+        let v = subm.add_vert_typed(tp.coords);
+        let cont_t = find_containing_triangle(subm, v)
+            .ok_or(RetriangulateError::NoContainingTriangle { point_id: v })?;
+        let [e0, e1, e2] = subm.tri_edges(cont_t);
+        if fast_point_on_line(subm, e0, v) {
+            subm.split_edge(e0, v);
+        } else if fast_point_on_line(subm, e1, v) {
+            subm.split_edge(e1, v);
+        } else if fast_point_on_line(subm, e2, v) {
+            subm.split_edge(e2, v);
+        } else {
+            subm.split_tri(cont_t, v);
+        }
+    }
+    Ok(())
+}
+
+/// The sub-triangle (boundary-inclusive) containing vertex `v`, located on
+/// EXACT coordinates via the FFI. Returns `None` if `v` lies outside every
+/// triangle (i.e. outside the base).
+fn find_containing_triangle(subm: &FastTrimesh, v: u32) -> Option<u32> {
+    let vb = backing(subm.vert_coords(v));
+    let vp = gp(subm.vert_coords(v), &vb);
+    for t in 0..subm.num_tris() {
+        let c0 = subm.vert_coords(subm.tri_vert_id(t, 0));
+        let c1 = subm.vert_coords(subm.tri_vert_id(t, 1));
+        let c2 = subm.vert_coords(subm.tri_vert_id(t, 2));
+        let b0 = backing(c0);
+        let b1 = backing(c1);
+        let b2 = backing(c2);
+        let g0 = gp(c0, &b0);
+        let g1 = gp(c1, &b1);
+        let g2 = gp(c2, &b2);
+        if dispatch_point_in_triangle(&vp, &g0, &g1, &g2) {
+            return Some(t);
+        }
+    }
+    None
+}
+
+/// True iff vertex `v` lies on the supporting line of edge `e`, via exact FFI
+/// `orient2d` in the submesh's reference plane (`Sign::Zero`).
+fn fast_point_on_line(subm: &FastTrimesh, e: u32, v: u32) -> bool {
+    let a = subm.vert_coords(subm.edge_vert_id(e, 0));
+    let b = subm.vert_coords(subm.edge_vert_id(e, 1));
+    let p = subm.vert_coords(v);
+    let ba = backing(a);
+    let bb = backing(b);
+    let bp = backing(p);
+    let ga = gp(a, &ba);
+    let gb = gp(b, &bb);
+    let gpv = gp(p, &bp);
+    dispatch_orient2d(subm.ref_plane(), &ga, &gb, &gpv) == IpSign::Zero
+}
+
+// ── FFI handle dispatch (no self-referential structs) ─────────────────
+
+/// Backing explicit generators for a `VertexCoords`. Empty for `Explicit`; the
+/// 5 LPI generators for `Lpi`. Kept SEPARATE from the handle so the handle can
+/// borrow them without self-reference.
+struct Backing {
+    gens: Vec<ExplicitPoint3D>,
+}
+
+fn backing(c: &VertexCoords) -> Backing {
+    match c {
+        VertexCoords::Explicit(_) => Backing { gens: vec![] },
+        VertexCoords::Lpi { line, plane } => Backing {
+            gens: vec![
+                ExplicitPoint3D::new(line[0].x(), line[0].y(), line[0].z()),
+                ExplicitPoint3D::new(line[1].x(), line[1].y(), line[1].z()),
+                ExplicitPoint3D::new(plane[0].x(), plane[0].y(), plane[0].z()),
+                ExplicitPoint3D::new(plane[1].x(), plane[1].y(), plane[1].z()),
+                ExplicitPoint3D::new(plane[2].x(), plane[2].y(), plane[2].z()),
+            ],
+        },
+    }
+}
+
+/// A generic-point handle over a `VertexCoords`: either an owned explicit point
+/// or an LPI borrowing its backing generators.
+enum Gp<'a> {
+    E(ExplicitPoint3D),
+    L(ImplicitPoint3DLpi<'a>),
+}
+
+fn gp<'a>(c: &VertexCoords, b: &'a Backing) -> Gp<'a> {
+    match c {
+        VertexCoords::Explicit(p) => Gp::E(ExplicitPoint3D::new(p.x(), p.y(), p.z())),
+        VertexCoords::Lpi { .. } => Gp::L(ImplicitPoint3DLpi::new(
+            &b.gens[0], &b.gens[1], &b.gens[2], &b.gens[3], &b.gens[4],
+        )),
+    }
+}
+
+/// `point_in_triangle` over four `Gp` handles (each arg its own static type).
+fn dispatch_point_in_triangle(p: &Gp, a: &Gp, b: &Gp, c: &Gp) -> bool {
+    macro_rules! pit {
+        ($p:expr, $a:expr, $b:expr, $c:expr) => {
+            point_in_triangle($p, $a, $b, $c)
+        };
+    }
+    match (p, a, b, c) {
+        (Gp::E(p), Gp::E(a), Gp::E(b), Gp::E(c)) => pit!(p, a, b, c),
+        (Gp::E(p), Gp::E(a), Gp::E(b), Gp::L(c)) => pit!(p, a, b, c),
+        (Gp::E(p), Gp::E(a), Gp::L(b), Gp::E(c)) => pit!(p, a, b, c),
+        (Gp::E(p), Gp::E(a), Gp::L(b), Gp::L(c)) => pit!(p, a, b, c),
+        (Gp::E(p), Gp::L(a), Gp::E(b), Gp::E(c)) => pit!(p, a, b, c),
+        (Gp::E(p), Gp::L(a), Gp::E(b), Gp::L(c)) => pit!(p, a, b, c),
+        (Gp::E(p), Gp::L(a), Gp::L(b), Gp::E(c)) => pit!(p, a, b, c),
+        (Gp::E(p), Gp::L(a), Gp::L(b), Gp::L(c)) => pit!(p, a, b, c),
+        (Gp::L(p), Gp::E(a), Gp::E(b), Gp::E(c)) => pit!(p, a, b, c),
+        (Gp::L(p), Gp::E(a), Gp::E(b), Gp::L(c)) => pit!(p, a, b, c),
+        (Gp::L(p), Gp::E(a), Gp::L(b), Gp::E(c)) => pit!(p, a, b, c),
+        (Gp::L(p), Gp::E(a), Gp::L(b), Gp::L(c)) => pit!(p, a, b, c),
+        (Gp::L(p), Gp::L(a), Gp::E(b), Gp::E(c)) => pit!(p, a, b, c),
+        (Gp::L(p), Gp::L(a), Gp::E(b), Gp::L(c)) => pit!(p, a, b, c),
+        (Gp::L(p), Gp::L(a), Gp::L(b), Gp::E(c)) => pit!(p, a, b, c),
+        (Gp::L(p), Gp::L(a), Gp::L(b), Gp::L(c)) => pit!(p, a, b, c),
+    }
+}
+
+/// `orient2d` (in `plane`) over three `Gp` handles.
+fn dispatch_orient2d(plane: Plane, a: &Gp, b: &Gp, c: &Gp) -> IpSign {
+    fn o2d(
+        plane: Plane,
+        a: &impl AsGenericPoint,
+        b: &impl AsGenericPoint,
+        c: &impl AsGenericPoint,
+    ) -> IpSign {
+        match plane {
+            Plane::XY => orient2d_xy(a, b, c),
+            Plane::YZ => orient2d_yz(a, b, c),
+            Plane::ZX => orient2d_zx(a, b, c),
+        }
+    }
+    match (a, b, c) {
+        (Gp::E(a), Gp::E(b), Gp::E(c)) => o2d(plane, a, b, c),
+        (Gp::E(a), Gp::E(b), Gp::L(c)) => o2d(plane, a, b, c),
+        (Gp::E(a), Gp::L(b), Gp::E(c)) => o2d(plane, a, b, c),
+        (Gp::E(a), Gp::L(b), Gp::L(c)) => o2d(plane, a, b, c),
+        (Gp::L(a), Gp::E(b), Gp::E(c)) => o2d(plane, a, b, c),
+        (Gp::L(a), Gp::E(b), Gp::L(c)) => o2d(plane, a, b, c),
+        (Gp::L(a), Gp::L(b), Gp::E(c)) => o2d(plane, a, b, c),
+        (Gp::L(a), Gp::L(b), Gp::L(c)) => o2d(plane, a, b, c),
+    }
+}
 
 #[cfg(test)]
 mod tests {

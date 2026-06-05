@@ -32,6 +32,325 @@
 //! cross-triangle parity (matching split vertices across the shared edge of
 //! two base triangles) are **out of scope** here — they are AR2b / AR3. The
 //! tests below assert only bucketing, corner-drop, dedup, and length.
+//!
+//! ## Edge-index convention
+//!
+//! Edge `i` of a triangle connects corners `i` and `(i + 1) % 3`
+//! (`edge0 = (0, 1)`, `edge1 = (1, 2)`, `edge2 = (2, 0)`). The buckets here are
+//! indexed identically, matching the AR1 LPI generators and the per-triangle
+//! re-triangulator (`retriangulate.rs`).
+
+use crate::arrangements::fast_trimesh::VertexCoords;
+use crate::arrangements::{FastTrimesh, IntersectionVertex, PairClassification, Plane};
+use crate::predicates::{point_in_triangle_3d, PointLocation};
+use cad_primitives::Point3;
+use indirect_predicates_sidecar_rs::{
+    init_fpu, orient2d_xy, orient2d_yz, orient2d_zx, point_in_triangle, AsGenericPoint,
+    ExplicitPoint3D, ImplicitPoint3DLpi, Sign as IpSign,
+};
+
+/// A typed intersection point destined to become a re-triangulation vertex.
+///
+/// Wraps the [`VertexCoords`] kind so the global deduplicated set can carry
+/// both explicit input points and `Lpi` line-plane intersections by their
+/// generators (exact equality via `VertexCoords`'s derived `PartialEq`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TypedPoint {
+    pub coords: VertexCoords,
+}
+
+/// Per-base-triangle bucket of intersection-point ids.
+///
+/// `interior` holds points strictly inside the triangle; `edges[i]` holds
+/// points on edge `i` (corners `i` and `(i + 1) % 3`). Ids index the global
+/// `Vec<TypedPoint>` returned alongside the buckets.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TriangleAuxPoints {
+    pub interior: Vec<u32>,
+    pub edges: [Vec<u32>; 3],
+}
+
+/// Group the AR1 per-pair classification into a global deduplicated typed-point
+/// set plus per-base-triangle buckets (interior vs. each of the three edges).
+///
+/// Mirrors the `AuxiliaryStructure` population in the C++ `triangulation.cpp`
+/// setup: each base triangle accumulates the intersection points falling in its
+/// interior or on one of its edges, with corner-coincident points dropped from
+/// their owner (they are already vertices and introduce no split).
+///
+/// Only `Transversal` pairs contribute; `Deferred` / `Disjoint` pairs are
+/// skipped (loud markers handled upstream in AR1).
+pub fn group_intersection_points(
+    soup: &FastTrimesh,
+    classified: &[((u32, u32), PairClassification)],
+) -> (Vec<TypedPoint>, Vec<TriangleAuxPoints>) {
+    init_fpu();
+
+    let mut points: Vec<TypedPoint> = Vec::new();
+    let mut buckets: Vec<TriangleAuxPoints> =
+        vec![TriangleAuxPoints::default(); soup.num_tris() as usize];
+
+    // Intern a `VertexCoords` into the global set, returning its index. Exact
+    // structural dedup via `VertexCoords: PartialEq` (mirrors the C++
+    // `flat_hash_set` dedup of intersection vertices).
+    let intern = |points: &mut Vec<TypedPoint>, coords: VertexCoords| -> u32 {
+        if let Some(i) = points.iter().position(|tp| tp.coords == coords) {
+            return i as u32;
+        }
+        points.push(TypedPoint { coords });
+        (points.len() - 1) as u32
+    };
+
+    for ((ta, tb), classification) in classified {
+        let vertices = match classification {
+            PairClassification::Transversal { vertices } => vertices,
+            PairClassification::Deferred(_) | PairClassification::Disjoint => continue,
+        };
+
+        for iv in vertices {
+            match iv {
+                IntersectionVertex::Explicit { tri, point, .. } => {
+                    // The OTHER triangle (the one that does NOT own this corner)
+                    // is the pierced triangle; the owner drops the point (it is
+                    // already a corner there).
+                    let other = if *tri == *ta { *tb } else { *ta };
+                    place_point_in_triangle(
+                        soup,
+                        other,
+                        *point,
+                        &mut points,
+                        &mut buckets,
+                        &intern,
+                    );
+                }
+                IntersectionVertex::Lpi { line, plane, .. } => {
+                    let coords = VertexCoords::Lpi {
+                        line: *line,
+                        plane: *plane,
+                    };
+                    let id = intern(&mut points, coords);
+
+                    // OWNER X: the triangle whose two corners equal `line` — the
+                    // LPI sits on that edge.
+                    if let Some((x, edge_i)) = owner_edge(soup, *ta, *tb, line) {
+                        push_unique(&mut buckets[x as usize].edges[edge_i], id);
+                    }
+
+                    // PIERCED Y: the triangle whose 3 corners equal `plane`.
+                    if let Some(y) = pierced_triangle(soup, *ta, *tb, plane) {
+                        place_lpi_in_pierced(soup, y, line, plane, id, &mut buckets);
+                    }
+                }
+            }
+        }
+    }
+
+    (points, buckets)
+}
+
+/// Place an explicit intersection `point` into base triangle `t`'s buckets,
+/// classifying it as interior / on-edge / outside (outside → dropped).
+fn place_point_in_triangle(
+    soup: &FastTrimesh,
+    t: u32,
+    point: Point3,
+    points: &mut Vec<TypedPoint>,
+    buckets: &mut [TriangleAuxPoints],
+    intern: &impl Fn(&mut Vec<TypedPoint>, VertexCoords) -> u32,
+) {
+    let c0 = soup.tri_vert(t, 0);
+    let c1 = soup.tri_vert(t, 1);
+    let c2 = soup.tri_vert(t, 2);
+    match point_in_triangle_3d(point, c0, c1, c2) {
+        PointLocation::StrictlyOutside => {}
+        PointLocation::StrictlyInside => {
+            let id = intern(points, VertexCoords::Explicit(point));
+            push_unique(&mut buckets[t as usize].interior, id);
+        }
+        PointLocation::OnBoundary => {
+            let id = intern(points, VertexCoords::Explicit(point));
+            if let Some(edge_i) = explicit_edge_of(soup, t, point) {
+                push_unique(&mut buckets[t as usize].edges[edge_i], id);
+            }
+            // On-boundary but no single edge identified (corner-coincident); it
+            // is already a vertex of `t` → introduces no split, so drop it.
+        }
+    }
+}
+
+/// Edge index `i` of triangle `t` (corners `i`, `(i + 1) % 3`) on which the
+/// explicit `point` lies, via the soup's reference-plane `orient2d` (exact,
+/// CR10). Returns `None` if `point` coincides with a corner or lies on no
+/// single edge.
+fn explicit_edge_of(soup: &FastTrimesh, t: u32, point: Point3) -> Option<usize> {
+    let c = [
+        soup.tri_vert(t, 0),
+        soup.tri_vert(t, 1),
+        soup.tri_vert(t, 2),
+    ];
+    // Corner-coincident → no split edge.
+    if point == c[0] || point == c[1] || point == c[2] {
+        return None;
+    }
+    for (i, _) in c.iter().enumerate() {
+        let a = c[i];
+        let b = c[(i + 1) % 3];
+        if orient2d_plane_sign(soup.ref_plane(), a, b, point) == crate::predicates::Sign::Zero {
+            return Some(i);
+        }
+    }
+    None
+}
+
+/// Exact `orient2d` of three explicit points projected to the soup's reference
+/// plane, returning a cherchi-rs [`Sign`](crate::predicates::Sign).
+fn orient2d_plane_sign(plane: Plane, a: Point3, b: Point3, p: Point3) -> crate::predicates::Sign {
+    use crate::predicates::orient2d;
+    use cad_primitives::Point2;
+    match plane {
+        Plane::XY => orient2d(
+            Point2::new(a.x(), a.y()),
+            Point2::new(b.x(), b.y()),
+            Point2::new(p.x(), p.y()),
+        ),
+        Plane::YZ => orient2d(
+            Point2::new(a.y(), a.z()),
+            Point2::new(b.y(), b.z()),
+            Point2::new(p.y(), p.z()),
+        ),
+        Plane::ZX => orient2d(
+            Point2::new(a.z(), a.x()),
+            Point2::new(b.z(), b.x()),
+            Point2::new(p.z(), p.x()),
+        ),
+    }
+}
+
+/// Of the pair `(ta, tb)`, the triangle whose two corners equal the LPI's
+/// `line` endpoints (exact `Point3` eq), plus the edge index `i` on which the
+/// line lies (corners `i`, `(i + 1) % 3`).
+fn owner_edge(soup: &FastTrimesh, ta: u32, tb: u32, line: &[Point3; 2]) -> Option<(u32, usize)> {
+    for &t in &[ta, tb] {
+        let c = [
+            soup.tri_vert(t, 0),
+            soup.tri_vert(t, 1),
+            soup.tri_vert(t, 2),
+        ];
+        for (i, _) in c.iter().enumerate() {
+            let a = c[i];
+            let b = c[(i + 1) % 3];
+            let unordered_match = (a == line[0] && b == line[1]) || (a == line[1] && b == line[0]);
+            if unordered_match {
+                return Some((t, i));
+            }
+        }
+    }
+    None
+}
+
+/// Of the pair `(ta, tb)`, the triangle whose three corners equal the LPI's
+/// `plane` generators (exact `Point3` eq, order-agnostic).
+fn pierced_triangle(soup: &FastTrimesh, ta: u32, tb: u32, plane: &[Point3; 3]) -> Option<u32> {
+    for &t in &[ta, tb] {
+        let c = [
+            soup.tri_vert(t, 0),
+            soup.tri_vert(t, 1),
+            soup.tri_vert(t, 2),
+        ];
+        if same_point_set(&c, plane) {
+            return Some(t);
+        }
+    }
+    None
+}
+
+/// True iff the two 3-point arrays are the same set (order-agnostic, exact eq).
+fn same_point_set(a: &[Point3; 3], b: &[Point3; 3]) -> bool {
+    a.iter().all(|p| b.contains(p)) && b.iter().all(|p| a.contains(p))
+}
+
+/// Place an LPI (by interned `id`) into the pierced triangle `y`'s buckets:
+/// on the unique edge whose supporting line passes through the LPI (exact FFI
+/// `orient2d == Zero`), else in the interior.
+fn place_lpi_in_pierced(
+    soup: &FastTrimesh,
+    y: u32,
+    line: &[Point3; 2],
+    plane: &[Point3; 3],
+    id: u32,
+    buckets: &mut [TriangleAuxPoints],
+) {
+    let c = [
+        soup.tri_vert(y, 0),
+        soup.tri_vert(y, 1),
+        soup.tri_vert(y, 2),
+    ];
+
+    // Backing generators (kept alive for the LPI handle) + corner handles.
+    let gens = lpi_backing(line, plane);
+    let lpi = ImplicitPoint3DLpi::new(&gens[0], &gens[1], &gens[2], &gens[3], &gens[4]);
+    let ce: [ExplicitPoint3D; 3] = [explicit(c[0]), explicit(c[1]), explicit(c[2])];
+
+    // Confirm the LPI is in `y` (boundary-inclusive). If not, drop it.
+    if !point_in_triangle(&lpi, &ce[0], &ce[1], &ce[2]) {
+        return;
+    }
+
+    let mut on_edge: Option<usize> = None;
+    for (i, _) in ce.iter().enumerate() {
+        let a = &ce[i];
+        let b = &ce[(i + 1) % 3];
+        if ip_orient2d_plane(soup.ref_plane(), a, b, &lpi) == IpSign::Zero {
+            on_edge = Some(i);
+            break;
+        }
+    }
+
+    match on_edge {
+        Some(i) => push_unique(&mut buckets[y as usize].edges[i], id),
+        None => push_unique(&mut buckets[y as usize].interior, id),
+    }
+}
+
+/// The five explicit generators backing an LPI handle (`line` = `p, q`;
+/// `plane` = `r, s, t`). Kept in a separate array so the handle can borrow them
+/// without a self-referential struct.
+fn lpi_backing(line: &[Point3; 2], plane: &[Point3; 3]) -> [ExplicitPoint3D; 5] {
+    [
+        explicit(line[0]),
+        explicit(line[1]),
+        explicit(plane[0]),
+        explicit(plane[1]),
+        explicit(plane[2]),
+    ]
+}
+
+/// Build an FFI explicit-point handle from a `Point3`.
+fn explicit(p: Point3) -> ExplicitPoint3D {
+    ExplicitPoint3D::new(p.x(), p.y(), p.z())
+}
+
+/// `orient2d` of `(a, b, p)` projected to `plane`, via the FFI (so an implicit
+/// `p` is handled exactly).
+fn ip_orient2d_plane(
+    plane: Plane,
+    a: &impl AsGenericPoint,
+    b: &impl AsGenericPoint,
+    p: &impl AsGenericPoint,
+) -> IpSign {
+    match plane {
+        Plane::XY => orient2d_xy(a, b, p),
+        Plane::YZ => orient2d_yz(a, b, p),
+        Plane::ZX => orient2d_zx(a, b, p),
+    }
+}
+
+/// Push `id` into `vec` only if not already present.
+fn push_unique(vec: &mut Vec<u32>, id: u32) {
+    if !vec.contains(&id) {
+        vec.push(id);
+    }
+}
 
 #[cfg(test)]
 mod tests {
