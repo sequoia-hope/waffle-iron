@@ -1056,3 +1056,333 @@ fn point_in_triangle_stub_returns_false() {
     let inside = ExplicitPoint3D::new(1.0, 1.0, 0.0);
     assert!(!point_in_triangle(&inside, &a, &b, &c));
 }
+
+// =========================================================================
+// PR-CR-AR2b Cycle A — inner_segments_cross + point_in_{inner_,}segment
+// =========================================================================
+//
+// Three new `genericPoint` static-dispatch predicate wrappers, all derived
+// from the upstream `implicit_point.hpp` definitions:
+//
+//   * `inner_segments_cross`  → genericPoint::innerSegmentsCross
+//     (implicit_point.hpp:1038-1061). True iff open segments {A,B} and {P,Q}
+//     cross at a point strictly interior to BOTH. The algorithm projects onto
+//     xy, then yz, then zx; in the first projection with a non-collinear
+//     configuration it returns `(o11 == o12 && o21 == o22)` where
+//       o11 = orient2D(P,A,B), o12 = orient2D(Q,B,A),
+//       o21 = orient2D(A,P,Q), o22 = orient2D(B,Q,P).
+//     A fully-collinear/overlapping configuration (all orients zero in every
+//     projection) falls through to `return false` (hpp:1060) — overlap is NOT
+//     a proper interior crossing.
+//
+//   * `point_in_inner_segment` → genericPoint::pointInInnerSegment
+//     (implicit_point.hpp:1103-1118). True iff p is collinear with and
+//     STRICTLY between v1 and v2 (endpoints excluded). `misaligned` rejects
+//     non-collinear p; at an endpoint the `lessThanOn*(v1,p)` term is 0, so the
+//     `if (lt2) ...` guards never fire and it returns false (hpp:1117).
+//
+//   * `point_in_segment` → genericPoint::pointInSegment
+//     (implicit_point.hpp:1120-1135). True iff p lies on the CLOSED [v1,v2]
+//     (endpoints INCLUDED). Same `misaligned` collinearity gate, but the final
+//     `return ((lt2*==0 ...) || (lt3*==0 ...))` (hpp:1134) makes an endpoint
+//     (where all the v1↔p or p↔v2 comparisons are 0) return true.
+//
+// Stub mode: all three return the sentinel `false` (mirrors
+// `point_in_triangle_stub_returns_false`).
+
+#[cfg(not(ip_unavailable))]
+use indirect_predicates_sidecar_rs::{
+    inner_segments_cross, point_in_inner_segment, point_in_segment,
+};
+#[cfg(ip_unavailable)]
+use indirect_predicates_sidecar_rs::{
+    inner_segments_cross, point_in_inner_segment, point_in_segment,
+};
+
+// ----- inner_segments_cross: explicit handles, four configurations -----
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn inner_segments_cross_explicit_crossing_disjoint_endpoint_collinear() {
+    if !AVAILABLE {
+        panic!(
+            "upstream Indirect_Predicates unavailable — cannot exercise \
+             inner_segments_cross FFI"
+        );
+    }
+    init_fpu();
+
+    // (1) Proper interior crossing: the two diagonals of the unit-ish square
+    // in the z=0 plane. A=(0,0,0)→B=(2,2,0) and P=(0,2,0)→Q=(2,0,0) cross at
+    // (1,1,0), strictly interior to BOTH segments → true.
+    let a = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let b = ExplicitPoint3D::new(2.0, 2.0, 0.0);
+    let p = ExplicitPoint3D::new(0.0, 2.0, 0.0);
+    let q = ExplicitPoint3D::new(2.0, 0.0, 0.0);
+    assert!(
+        inner_segments_cross(&a, &b, &p, &q),
+        "diagonals crossing at interior (1,1,0) → true"
+    );
+
+    // (2) Disjoint pair: A=(0,0,0)→B=(1,0,0) sits far from
+    // P=(0,5,0)→Q=(1,5,0) (parallel, 5 units apart). No crossing → false.
+    let a2 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let b2 = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+    let p2 = ExplicitPoint3D::new(0.0, 5.0, 0.0);
+    let q2 = ExplicitPoint3D::new(1.0, 5.0, 0.0);
+    assert!(
+        !inner_segments_cross(&a2, &b2, &p2, &q2),
+        "disjoint parallel segments → false"
+    );
+
+    // (3) Touch only at a shared endpoint: A=(0,0,0)→B=(2,0,0) and
+    // P=(2,0,0)→Q=(2,2,0) meet at (2,0,0), which is an ENDPOINT of both, not a
+    // strict interior point → false (no inner crossing).
+    let a3 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let b3 = ExplicitPoint3D::new(2.0, 0.0, 0.0);
+    let p3 = ExplicitPoint3D::new(2.0, 0.0, 0.0);
+    let q3 = ExplicitPoint3D::new(2.0, 2.0, 0.0);
+    assert!(
+        !inner_segments_cross(&a3, &b3, &p3, &q3),
+        "segments touching only at a shared endpoint → false"
+    );
+
+    // (4) Collinear-overlapping: both segments lie on the x axis and overlap.
+    // A=(0,0,0)→B=(3,0,0), P=(1,0,0)→Q=(4,0,0) overlap on [1,3] but there is
+    // no proper transversal interior crossing → false (hpp:1060 fall-through:
+    // all xy/yz/zx orients are zero).
+    let a4 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let b4 = ExplicitPoint3D::new(3.0, 0.0, 0.0);
+    let p4 = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+    let q4 = ExplicitPoint3D::new(4.0, 0.0, 0.0);
+    assert!(
+        !inner_segments_cross(&a4, &b4, &p4, &q4),
+        "collinear overlapping segments → false (no proper crossing)"
+    );
+}
+
+// ----- point_in_inner_segment: explicit handles, strict (open) -----
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn point_in_inner_segment_explicit_strict_endpoint_beyond_offline() {
+    if !AVAILABLE {
+        panic!(
+            "upstream Indirect_Predicates unavailable — cannot exercise \
+             point_in_inner_segment FFI"
+        );
+    }
+    init_fpu();
+    // Segment v1=(0,0,0) → v2=(4,0,0) along the x axis.
+    let v1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let v2 = ExplicitPoint3D::new(4.0, 0.0, 0.0);
+
+    // Strictly between: (2,0,0) is the midpoint → true.
+    let mid = ExplicitPoint3D::new(2.0, 0.0, 0.0);
+    assert!(
+        point_in_inner_segment(&mid, &v1, &v2),
+        "midpoint (2,0,0) strictly inside → true"
+    );
+
+    // An endpoint: v1=(0,0,0). Strict (open) → false.
+    let endpoint = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    assert!(
+        !point_in_inner_segment(&endpoint, &v1, &v2),
+        "endpoint (0,0,0) is excluded by the open segment → false"
+    );
+
+    // Collinear but beyond v2: (5,0,0) is on the line but outside [v1,v2].
+    let beyond = ExplicitPoint3D::new(5.0, 0.0, 0.0);
+    assert!(
+        !point_in_inner_segment(&beyond, &v1, &v2),
+        "collinear point beyond an endpoint → false"
+    );
+
+    // Non-collinear: (2,1,0) is off the x axis (misaligned) → false.
+    let offline = ExplicitPoint3D::new(2.0, 1.0, 0.0);
+    assert!(
+        !point_in_inner_segment(&offline, &v1, &v2),
+        "non-collinear point → false (misaligned)"
+    );
+}
+
+// ----- point_in_segment: explicit handles, closed; endpoint contrast -----
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn point_in_segment_explicit_closed_both_endpoints_beyond_offline() {
+    if !AVAILABLE {
+        panic!(
+            "upstream Indirect_Predicates unavailable — cannot exercise \
+             point_in_segment FFI"
+        );
+    }
+    init_fpu();
+    // Segment v1=(0,0,0) → v2=(4,0,0) along the x axis.
+    let v1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let v2 = ExplicitPoint3D::new(4.0, 0.0, 0.0);
+
+    // Strictly between → true (also in inner segment).
+    let mid = ExplicitPoint3D::new(2.0, 0.0, 0.0);
+    assert!(
+        point_in_segment(&mid, &v1, &v2),
+        "midpoint (2,0,0) on the closed segment → true"
+    );
+
+    // BOTH endpoints are INCLUDED by the closed segment → true each.
+    let ep1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let ep2 = ExplicitPoint3D::new(4.0, 0.0, 0.0);
+    assert!(
+        point_in_segment(&ep1, &v1, &v2),
+        "endpoint v1 included in closed segment → true"
+    );
+    assert!(
+        point_in_segment(&ep2, &v1, &v2),
+        "endpoint v2 included in closed segment → true"
+    );
+
+    // Collinear-beyond and off-line → false (same gates as inner variant).
+    let beyond = ExplicitPoint3D::new(5.0, 0.0, 0.0);
+    assert!(
+        !point_in_segment(&beyond, &v1, &v2),
+        "collinear point beyond an endpoint → false"
+    );
+    let offline = ExplicitPoint3D::new(2.0, 1.0, 0.0);
+    assert!(
+        !point_in_segment(&offline, &v1, &v2),
+        "non-collinear point → false (misaligned)"
+    );
+}
+
+// ----- closed-vs-open contrast on the SAME endpoint -----
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn point_in_segment_vs_inner_segment_endpoint_distinction() {
+    if !AVAILABLE {
+        panic!(
+            "upstream Indirect_Predicates unavailable — cannot exercise \
+             point_in_segment / point_in_inner_segment FFI"
+        );
+    }
+    init_fpu();
+    // The single load-bearing distinction between the two predicates: an
+    // endpoint is IN the closed segment but NOT in the open (inner) segment.
+    let v1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let v2 = ExplicitPoint3D::new(4.0, 0.0, 0.0);
+    let endpoint = ExplicitPoint3D::new(0.0, 0.0, 0.0); // == v1
+
+    assert!(
+        point_in_segment(&endpoint, &v1, &v2),
+        "endpoint IS in the CLOSED segment"
+    );
+    assert!(
+        !point_in_inner_segment(&endpoint, &v1, &v2),
+        "endpoint is NOT in the OPEN (inner) segment"
+    );
+}
+
+// ----- implicit dispatch: LPI handle as the query point -----
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn point_in_inner_segment_implicit_lpi_midpoint() {
+    if !AVAILABLE {
+        panic!(
+            "upstream Indirect_Predicates unavailable — cannot exercise \
+             point_in_inner_segment LPI dispatch"
+        );
+    }
+    init_fpu();
+    // Build an LPI = (vertical line at x=1,y=1) ∩ (plane z=0). Line
+    // P=(1,1,-1) → Q=(1,1,1) pierces z=0 at exactly (1,1,0). The plane z=0 is
+    // given by corners r=(0,0,0), s=(4,0,0), t=(0,4,0).
+    //
+    // (1,1,0) is the MIDPOINT of segment v1=(0,0,0) → v2=(2,2,0): it is
+    // collinear (the segment is the line y=x in z=0) and strictly between, so
+    // point_in_inner_segment(LPI, v1, v2) → true. This also exercises the
+    // generic static-dispatch path with a non-explicit query argument.
+    let p = ExplicitPoint3D::new(1.0, 1.0, -1.0);
+    let q = ExplicitPoint3D::new(1.0, 1.0, 1.0);
+    let r = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let s = ExplicitPoint3D::new(4.0, 0.0, 0.0);
+    let t = ExplicitPoint3D::new(0.0, 4.0, 0.0); // plane z=0
+    let lpi = ImplicitPoint3DLpi::new(&p, &q, &r, &s, &t);
+
+    let v1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let v2 = ExplicitPoint3D::new(2.0, 2.0, 0.0);
+    assert!(
+        point_in_inner_segment(&lpi, &v1, &v2),
+        "LPI (1,1,0) is the strict midpoint of (0,0,0)→(2,2,0) → true"
+    );
+}
+
+// ----- implicit dispatch: TPI handle as the query point -----
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn point_in_inner_segment_implicit_tpi_origin_midpoint() {
+    if !AVAILABLE {
+        panic!(
+            "upstream Indirect_Predicates unavailable — cannot exercise \
+             point_in_inner_segment TPI dispatch"
+        );
+    }
+    init_fpu();
+    // TPI of the three orthogonal coordinate planes (same geometry as
+    // implicit_point_3d_tpi_construct_and_drop): plane x=0, plane y=0, plane
+    // z=0 meet at exactly the origin (0,0,0).
+    //   Triangle 1 (x=0): (0,0,0),(0,1,0),(0,0,1)
+    //   Triangle 2 (y=0): (0,0,0),(1,0,0),(0,0,1)
+    //   Triangle 3 (z=0): (0,0,0),(1,0,0),(0,1,0)
+    let v1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let v2 = ExplicitPoint3D::new(0.0, 1.0, 0.0);
+    let v3 = ExplicitPoint3D::new(0.0, 0.0, 1.0);
+    let w1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let w2 = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+    let w3 = ExplicitPoint3D::new(0.0, 0.0, 1.0);
+    let u1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let u2 = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+    let u3 = ExplicitPoint3D::new(0.0, 1.0, 0.0);
+    let tpi = ImplicitPoint3DTpi::new(&v1, &v2, &v3, &w1, &w2, &w3, &u1, &u2, &u3);
+
+    // The origin is the strict midpoint of seg (-1,0,0) → (1,0,0) on the x
+    // axis: collinear and strictly between → true. Exercises TPI dispatch.
+    let s1 = ExplicitPoint3D::new(-1.0, 0.0, 0.0);
+    let s2 = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+    assert!(
+        point_in_inner_segment(&tpi, &s1, &s2),
+        "TPI origin (0,0,0) is the strict midpoint of (-1,0,0)→(1,0,0) → true"
+    );
+}
+
+// ----- stub-mode behavior: all three return the sentinel false -----
+
+#[cfg(ip_unavailable)]
+#[test]
+fn inner_segments_cross_stub_returns_false() {
+    // Even a clearly-crossing pair returns the false sentinel in stub mode.
+    let a = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let b = ExplicitPoint3D::new(2.0, 2.0, 0.0);
+    let p = ExplicitPoint3D::new(0.0, 2.0, 0.0);
+    let q = ExplicitPoint3D::new(2.0, 0.0, 0.0);
+    assert!(!inner_segments_cross(&a, &b, &p, &q));
+}
+
+#[cfg(ip_unavailable)]
+#[test]
+fn point_in_inner_segment_stub_returns_false() {
+    let v1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let v2 = ExplicitPoint3D::new(4.0, 0.0, 0.0);
+    let mid = ExplicitPoint3D::new(2.0, 0.0, 0.0);
+    assert!(!point_in_inner_segment(&mid, &v1, &v2));
+}
+
+#[cfg(ip_unavailable)]
+#[test]
+fn point_in_segment_stub_returns_false() {
+    let v1 = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let v2 = ExplicitPoint3D::new(4.0, 0.0, 0.0);
+    let mid = ExplicitPoint3D::new(2.0, 0.0, 0.0);
+    assert!(!point_in_segment(&mid, &v1, &v2));
+}
