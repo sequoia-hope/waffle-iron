@@ -32,13 +32,19 @@
 //!
 //! ## Deliberate deviations from upstream
 //!
-//! 1. **Explicit points only.** Upstream stores `const genericPoint*`
-//!    to support implicit (LPI/TPI) points from the LGPL
-//!    `Indirect_Predicates` library. cherchi-rs does NOT depend on
-//!    LGPL code (paused; see project memory). We store `Point3`
-//!    by value — explicit-only. When the LGPL decision resolves,
-//!    `Vertex` will gain an implicit-point variant; the topology
-//!    layer is unaffected.
+//! 1. **Typed vertex coordinates (`VertexCoords`).** Upstream stores
+//!    `const genericPoint*` to support implicit (LPI/TPI) points from
+//!    the LGPL `Indirect_Predicates` library. cherchi-rs stores a
+//!    `VertexCoords` enum by value: `Explicit(Point3)` for input
+//!    points, and (since PR-CR-AR2a Cycle 2) `Lpi { line, plane }` for
+//!    line-plane intersection points carried by their `Point3`
+//!    generators. This is WASM-clean / FFI-free — only `Point3`
+//!    generators are stored, never a `genericPoint` handle. Exact
+//!    queries on an `Lpi` vertex route through `vert_coords` + the
+//!    indirect-predicates FFI in the feature-gated arrangement code;
+//!    `vert()` returns only a finite midpoint approx for the topology
+//!    layer. The TPI variant is deferred to a later PR. The topology
+//!    layer is unaffected by the variant — it reads `vert` / `tri_vert`.
 //!
 //! 2. **No parallel constructor.** cherchi-rs `CLAUDE.md` Hard Rule #5
 //!    is single-threaded by default. We use the same sorted-unique
@@ -162,6 +168,25 @@ pub enum Plane {
     ZX,
 }
 
+/// Coordinates of a `FastTrimesh` vertex. Generalizes the original
+/// `Point3`-only storage (deviation #1) to admit implicit line-plane
+/// intersection (LPI) points carried by their generators. WASM-clean /
+/// FFI-free: only `Point3` generators are stored — exact queries on an
+/// `Lpi` vertex route through `vert_coords` + the indirect-predicates FFI
+/// (in the feature-gated arrangement code), never through `vert()`.
+#[derive(Copy, Clone, Debug, PartialEq)]
+pub enum VertexCoords {
+    /// An explicit input point.
+    Explicit(Point3),
+    /// A line-plane intersection point. `line` = the two endpoints of the
+    /// piercing edge; `plane` = the three vertices of the pierced triangle.
+    /// Mirrors `implicitPoint3D_LPI(p, q, r, s, t)` generators.
+    Lpi {
+        line: [Point3; 2],
+        plane: [Point3; 3],
+    },
+}
+
 /// Bulk-load error returned by [`FastTrimesh::from_soup`].
 ///
 /// All variants describe caller-supplied data errors. Out-of-range query
@@ -212,7 +237,7 @@ pub struct FastTrimesh {
 
 #[derive(Copy, Clone, Debug)]
 pub(crate) struct Vertex {
-    point: Point3,
+    coords: VertexCoords,
     info: u32,
     /// Original mesh vertex ID, populated by `add_vert_with_orig_id`.
     /// `None` for vertices added via `add_vert` (no orig ID source) or
@@ -293,7 +318,7 @@ impl FastTrimesh {
         let vertices: Vec<Vertex> = verts
             .iter()
             .map(|&p| Vertex {
-                point: p,
+                coords: VertexCoords::Explicit(p),
                 info: 0,
                 orig_id: None,
             })
@@ -379,9 +404,14 @@ impl FastTrimesh {
 
     // ----- Vertex queries -----
 
+    /// Finite `Point3` for a vertex. For `Explicit(p)` this is `p`; for
+    /// an `Lpi` vertex this is the line midpoint — `// approx only for
+    /// Lpi`, a stand-in so the topology layer keeps working. Exact LPI
+    /// queries must route through `vert_coords` + the indirect-predicates
+    /// FFI, never through `vert()`.
     pub fn vert(&self, v: u32) -> Point3 {
         debug_assert!(v < self.num_verts(), "vert: id {v} out of range");
-        self.vertices[v as usize].point
+        vert_point(&self.vertices[v as usize].coords)
     }
 
     pub fn vert_info(&self, v: u32) -> u32 {
@@ -481,7 +511,7 @@ impl FastTrimesh {
         debug_assert!(t < self.num_tris(), "tri_vert: id {t} out of range");
         debug_assert!(off < 3, "tri_vert: off {off} not in {{0, 1, 2}}");
         let vid = self.triangles[t as usize].v[off as usize];
-        self.vertices[vid as usize].point
+        vert_point(&self.vertices[vid as usize].coords)
     }
 
     pub fn tri_vert_offset(&self, t: u32, v: u32) -> Option<u32> {
@@ -527,7 +557,7 @@ impl FastTrimesh {
     pub fn add_vert(&mut self, p: Point3) -> u32 {
         let v_id = self.vertices.len() as u32;
         self.vertices.push(Vertex {
-            point: p,
+            coords: VertexCoords::Explicit(p),
             info: 0,
             orig_id: None,
         });
@@ -540,13 +570,32 @@ impl FastTrimesh {
     pub fn add_vert_with_orig_id(&mut self, p: Point3, orig_id: u32) -> u32 {
         let v_id = self.vertices.len() as u32;
         self.vertices.push(Vertex {
-            point: p,
+            coords: VertexCoords::Explicit(p),
             info: 0,
             orig_id: Some(orig_id),
         });
         self.v2e.push(Vec::new());
         self.rev_vtx_map.insert(orig_id, v_id);
         v_id
+    }
+
+    /// Append a vertex with explicit coordinates or LPI generators.
+    /// Returns the new id. The vertex starts isolated (empty `v2e`).
+    pub fn add_vert_typed(&mut self, c: VertexCoords) -> u32 {
+        let v_id = self.vertices.len() as u32;
+        self.vertices.push(Vertex {
+            coords: c,
+            info: 0,
+            orig_id: None,
+        });
+        self.v2e.push(Vec::new());
+        v_id
+    }
+
+    /// The stored coordinates (`Explicit` or `Lpi`) of a vertex.
+    pub fn vert_coords(&self, v: u32) -> &VertexCoords {
+        debug_assert!(v < self.num_verts(), "vert_coords: id {v} out of range");
+        &self.vertices[v as usize].coords
     }
 
     /// Original mesh ID of a vertex, or `None` if not assigned.
@@ -939,6 +988,23 @@ impl FastTrimesh {
         use crate::predicates::orient2d;
         use cad_primitives::Point2;
         debug_assert!(t < self.num_tris(), "tri_orientation: id {t} out of range");
+        // Base-triangle corners are always explicit input points. Misuse on
+        // an implicit (Lpi) corner would silently use the midpoint approx, so
+        // catch it in debug builds. (AR2b's triOrientation(0) is on explicit
+        // base corners — unaffected.)
+        debug_assert!(
+            matches!(
+                self.vert_coords(self.tri_vert_id(t, 0)),
+                VertexCoords::Explicit(_)
+            ) && matches!(
+                self.vert_coords(self.tri_vert_id(t, 1)),
+                VertexCoords::Explicit(_)
+            ) && matches!(
+                self.vert_coords(self.tri_vert_id(t, 2)),
+                VertexCoords::Explicit(_)
+            ),
+            "tri_orientation: triangle {t} has a non-explicit corner"
+        );
         let a = self.tri_vert(t, 0);
         let b = self.tri_vert(t, 1);
         let c = self.tri_vert(t, 2);
@@ -1080,6 +1146,21 @@ impl FastTrimesh {
 // =========================================================================
 // Internal helpers
 // =========================================================================
+
+/// Finite `Point3` for stored vertex coordinates. `Explicit(p)` → `p`;
+/// `Lpi { line, .. }` → the line midpoint (`// approx only for Lpi`, never
+/// oracle-checked — exact LPI queries route through the indirect-predicates
+/// FFI on the `VertexCoords::Lpi` generators).
+fn vert_point(coords: &VertexCoords) -> Point3 {
+    match coords {
+        VertexCoords::Explicit(p) => *p,
+        VertexCoords::Lpi { line, .. } => Point3::new(
+            (line[0].x() + line[1].x()) / 2.0,
+            (line[0].y() + line[1].y()) / 2.0,
+            (line[0].z() + line[1].z()) / 2.0,
+        ),
+    }
+}
 
 fn sort_pair(a: u32, b: u32) -> [u32; 2] {
     if a < b {
@@ -2651,19 +2732,12 @@ mod tests {
     fn add_vert_typed_lpi_round_trips_and_vert_is_line_midpoint() {
         let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
         let line = [p(0.0, 0.0, 0.0), p(4.0, 2.0, -6.0)];
-        let plane = [
-            p(0.0, 0.0, 1.0),
-            p(1.0, 0.0, 1.0),
-            p(0.0, 1.0, 1.0),
-        ];
+        let plane = [p(0.0, 0.0, 1.0), p(1.0, 0.0, 1.0), p(0.0, 1.0, 1.0)];
         let id = ft.add_vert_typed(VertexCoords::Lpi { line, plane });
         assert_eq!(id, 0);
         assert_eq!(ft.num_verts(), 1);
         // vert_coords round-trips to the same Lpi variant (generators preserved).
-        assert_eq!(
-            ft.vert_coords(id),
-            &VertexCoords::Lpi { line, plane }
-        );
+        assert_eq!(ft.vert_coords(id), &VertexCoords::Lpi { line, plane });
         // vert() returns the documented finite approx = the line midpoint.
         assert_eq!(ft.vert(id), lpi_line_midpoint(&line));
         // Spell the expected midpoint out explicitly so the contract is
