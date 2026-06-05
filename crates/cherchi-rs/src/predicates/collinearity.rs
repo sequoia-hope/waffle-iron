@@ -180,4 +180,204 @@ mod tests {
         // Exact orient2d returns 0 here → must report collinear.
         assert!(points_are_collinear_3d(a, b, c));
     }
+
+    // ════════════════════════════════════════════════════════════════
+    // PR-CR-AR2b Cycle B, Deliverable 1 — exact
+    // `point_strictly_inside_segment_3d` (WASM-clean predicate).
+    //
+    // GREEN will add:
+    //   pub fn point_strictly_inside_segment_3d(w: Point3, p: Point3,
+    //       q: Point3) -> bool
+    // Semantics: true iff `w` is EXACTLY collinear with (p, q) AND lies
+    // STRICTLY between them (both endpoints excluded). Built from CR1
+    // `points_are_collinear_3d` + EXACT `dashu` betweenness — NO raw f64
+    // cross/dot, NO tolerance. It replaces the raw-f64 private
+    // `point_strictly_inside_segment` in `intersection_points.rs`
+    // (closing deviation N13's f64 sub-note).
+    //
+    // These tests are NOT feature-gated — the predicate is pure-Rust /
+    // WASM-clean. They MUST fail to RESOLVE against the missing symbol
+    // (RED by compile error), and by assertion once the symbol exists but
+    // is wrong. No production code is authored here.
+    //
+    // Hand-derivations are documented inline.
+    // ════════════════════════════════════════════════════════════════
+
+    use super::point_strictly_inside_segment_3d;
+
+    // ── D1 Group 1: strictly-between collinear point → true ───────────
+
+    #[test]
+    fn d1_strictly_between_axis_aligned() {
+        // Segment on the X axis from (0,0,0) to (4,0,0). The point (2,0,0)
+        // is collinear and strictly interior (0 < 2 < 4) → true.
+        let p = Point3::new(0.0, 0.0, 0.0);
+        let q = Point3::new(4.0, 0.0, 0.0);
+        let w = Point3::new(2.0, 0.0, 0.0);
+        assert!(point_strictly_inside_segment_3d(w, p, q));
+    }
+
+    #[test]
+    fn d1_strictly_between_off_axis_tilted() {
+        // Segment from (0,0,0) along direction (1,2,3) to (2,4,6).
+        // The point (1,2,3) is the midpoint — collinear and strictly
+        // interior → true. (Tilted: not aligned with any coordinate axis.)
+        let p = Point3::new(0.0, 0.0, 0.0);
+        let q = Point3::new(2.0, 4.0, 6.0);
+        let w = Point3::new(1.0, 2.0, 3.0);
+        assert!(point_strictly_inside_segment_3d(w, p, q));
+    }
+
+    // ── D1 Group 2: endpoints → false (strict) ───────────────────────
+
+    #[test]
+    fn d1_endpoint_p_is_excluded() {
+        // w == p: collinear (degenerate) but NOT strictly interior → false.
+        let p = Point3::new(0.0, 0.0, 0.0);
+        let q = Point3::new(4.0, 0.0, 0.0);
+        assert!(!point_strictly_inside_segment_3d(p, p, q));
+    }
+
+    #[test]
+    fn d1_endpoint_q_is_excluded() {
+        // w == q: collinear but NOT strictly interior → false.
+        let p = Point3::new(0.0, 0.0, 0.0);
+        let q = Point3::new(4.0, 0.0, 0.0);
+        assert!(!point_strictly_inside_segment_3d(q, p, q));
+    }
+
+    #[test]
+    fn d1_endpoint_off_axis_excluded() {
+        // Both endpoints excluded on a tilted segment too.
+        let p = Point3::new(1.0, 2.0, 3.0);
+        let q = Point3::new(4.0, 8.0, 12.0);
+        assert!(!point_strictly_inside_segment_3d(p, p, q));
+        assert!(!point_strictly_inside_segment_3d(q, p, q));
+    }
+
+    // ── D1 Group 3: collinear-but-beyond an endpoint → false ─────────
+
+    #[test]
+    fn d1_collinear_beyond_q_is_false() {
+        // (6,0,0) is exactly on the X axis (collinear with the segment
+        // (0,0,0)-(4,0,0)) but lies BEYOND q (6 > 4) → false.
+        let p = Point3::new(0.0, 0.0, 0.0);
+        let q = Point3::new(4.0, 0.0, 0.0);
+        let w = Point3::new(6.0, 0.0, 0.0);
+        assert!(!point_strictly_inside_segment_3d(w, p, q));
+    }
+
+    #[test]
+    fn d1_collinear_before_p_is_false() {
+        // (-2,0,0) is collinear but lies BEFORE p (−2 < 0) → false.
+        let p = Point3::new(0.0, 0.0, 0.0);
+        let q = Point3::new(4.0, 0.0, 0.0);
+        let w = Point3::new(-2.0, 0.0, 0.0);
+        assert!(!point_strictly_inside_segment_3d(w, p, q));
+    }
+
+    #[test]
+    fn d1_collinear_beyond_tilted_is_false() {
+        // Tilted segment (0,0,0)-(2,4,6); (3,6,9) is collinear (3·(1,2,3))
+        // but beyond q (parameter 1.5 > 1) → false.
+        let p = Point3::new(0.0, 0.0, 0.0);
+        let q = Point3::new(2.0, 4.0, 6.0);
+        let w = Point3::new(3.0, 6.0, 9.0);
+        assert!(!point_strictly_inside_segment_3d(w, p, q));
+    }
+
+    // ── D1 Group 4: non-collinear point → false ──────────────────────
+
+    #[test]
+    fn d1_non_collinear_is_false() {
+        // (2,1,0) is NOT on the X axis (y ≠ 0) → not collinear → false,
+        // even though its x-projection (2) would be "between".
+        let p = Point3::new(0.0, 0.0, 0.0);
+        let q = Point3::new(4.0, 0.0, 0.0);
+        let w = Point3::new(2.0, 1.0, 0.0);
+        assert!(!point_strictly_inside_segment_3d(w, p, q));
+    }
+
+    // ── D1 Group 5: load-bearing exactness case ──────────────────────
+
+    /// A collinear-but-JUST-OUTSIDE case that an exact predicate must
+    /// reject. This mirrors the spirit of
+    /// `a01_regression_large_coords_on_line`: the point is constructed to
+    /// be EXACTLY on the segment's supporting line (so `dashu`-exact
+    /// collinearity holds), yet strictly beyond endpoint q by one ULP, so
+    /// strict betweenness is false.
+    ///
+    /// Hand-derivation:
+    ///   Segment on the X axis: p = (0,0,0), q = (1,0,0).
+    ///   w = (1 + 2^-52, 0, 0) = (`f64::from_bits(q.x().to_bits()+1)`, 0, 0),
+    ///   the next f64 above 1.0. This w is collinear (still y=z=0, exactly
+    ///   on the X axis) but its x-coordinate is strictly greater than q.x
+    ///   (1 + ε > 1), so it is NOT strictly inside (p, q). Exact betweenness
+    ///   correctly returns false; a tolerance-based test that accepted
+    ///   "within ε of the endpoint" could wrongly return true.
+    #[test]
+    fn d1_exact_just_outside_endpoint_is_false() {
+        let p = Point3::new(0.0, 0.0, 0.0);
+        let q = Point3::new(1.0, 0.0, 0.0);
+        // Next representable f64 strictly above 1.0.
+        let just_past = f64::from_bits(1.0_f64.to_bits() + 1);
+        assert!(just_past > 1.0, "construction sanity: just_past must exceed q.x");
+        let w = Point3::new(just_past, 0.0, 0.0);
+        // Collinear (on the X axis) but strictly beyond q → must be false.
+        assert!(
+            !point_strictly_inside_segment_3d(w, p, q),
+            "a collinear point one ULP past the endpoint is NOT strictly inside"
+        );
+    }
+
+    /// Companion exact case: a collinear point one ULP strictly INSIDE the
+    /// endpoint must be accepted. `just_inside = nextafter(1.0, 0.0)` is the
+    /// largest f64 below 1.0; it lies exactly on the X axis and strictly
+    /// between p=(0,0,0) and q=(1,0,0) → true.
+    #[test]
+    fn d1_exact_just_inside_endpoint_is_true() {
+        let p = Point3::new(0.0, 0.0, 0.0);
+        let q = Point3::new(1.0, 0.0, 0.0);
+        let just_inside = f64::from_bits(1.0_f64.to_bits() - 1);
+        assert!(
+            just_inside < 1.0 && just_inside > 0.0,
+            "construction sanity: 0 < just_inside < 1"
+        );
+        let w = Point3::new(just_inside, 0.0, 0.0);
+        assert!(
+            point_strictly_inside_segment_3d(w, p, q),
+            "a collinear point one ULP inside the endpoint IS strictly inside"
+        );
+    }
+
+    // ── D1 Group 6: order / endpoint symmetry ────────────────────────
+
+    #[test]
+    fn d1_order_symmetric_interior() {
+        // Swapping the two endpoints must not change the verdict for an
+        // interior point.
+        let p = Point3::new(0.0, 0.0, 0.0);
+        let q = Point3::new(4.0, 2.0, -6.0);
+        let w = Point3::new(2.0, 1.0, -3.0); // midpoint → interior
+        assert_eq!(
+            point_strictly_inside_segment_3d(w, p, q),
+            point_strictly_inside_segment_3d(w, q, p),
+            "predicate must be symmetric in the two segment endpoints"
+        );
+        assert!(point_strictly_inside_segment_3d(w, p, q));
+    }
+
+    #[test]
+    fn d1_order_symmetric_outside() {
+        // Symmetry also for a collinear-but-outside point.
+        let p = Point3::new(0.0, 0.0, 0.0);
+        let q = Point3::new(4.0, 2.0, -6.0);
+        let w = Point3::new(6.0, 3.0, -9.0); // beyond q → outside
+        assert_eq!(
+            point_strictly_inside_segment_3d(w, p, q),
+            point_strictly_inside_segment_3d(w, q, p),
+            "predicate must be symmetric in the two segment endpoints"
+        );
+        assert!(!point_strictly_inside_segment_3d(w, p, q));
+    }
 }

@@ -670,4 +670,178 @@ mod tests {
     // conversions). Harmless in RED.
     #[allow(unused_imports)]
     use IntersectionVertex as _Ar1Vertex;
+
+    // ════════════════════════════════════════════════════════════════
+    // PR-CR-AR2b Cycle B, Deliverable 3 — constraint-segment extraction.
+    //
+    // GREEN will add to this module:
+    //   pub struct ConstraintSegment {
+    //       pub endpoints: (u32, u32),
+    //       pub source_tri: [Point3; 3],
+    //   }
+    //   pub fn group_constraint_segments(
+    //       soup: &FastTrimesh,
+    //       classified: &[((u32, u32), PairClassification)],
+    //       points: &[TypedPoint],
+    //   ) -> Vec<Vec<ConstraintSegment>>   // indexed by base-tri id
+    // (re-exported from `arrangements/mod.rs`).
+    //
+    // Contract (the load-bearing shape these tests pin): for each
+    // `Transversal` pair (ta, tb) yielding two intersection vertices, BOTH
+    // base triangles ta and tb receive ONE ConstraintSegment whose two
+    // `endpoints` are the interned ids (in the `points`/`TypedPoint` set
+    // from `group_intersection_points`) of the pair's two intersection
+    // vertices, and whose `source_tri` is the OTHER triangle's 3 corners
+    // (in ta's list source_tri = tb's corners; in tb's list = ta's).
+    //
+    // FEATURE-GATED: this whole module is `#[cfg(feature =
+    // "indirect-predicates")]`, so run with `--features indirect-predicates`.
+    // These tests MUST fail to RESOLVE against the missing symbols (RED by
+    // compile error). No production code is authored here.
+    //
+    // GREEN may adjust the param list slightly to reuse interned ids; the
+    // tests below depend only on the contract above, not the exact params,
+    // EXCEPT they call the documented 3-arg signature. If GREEN narrows the
+    // signature it must keep this call shape (soup, classified, points).
+    // ════════════════════════════════════════════════════════════════
+
+    use crate::arrangements::{group_constraint_segments, ConstraintSegment};
+
+    /// The AR2a tilted 2-LPI transversal fixture (same as
+    /// `transversal_two_lpi_bucketing`): A = xy_triangle_a; B forms one
+    /// intersection SEGMENT with A from two LPIs (edges B0-B1 and B0-B2
+    /// piercing A). This yields exactly one constraint segment per base
+    /// triangle of the pair.
+    fn tilted_b() -> [Point3; 3] {
+        [
+            Point3::new(1.0, 1.0, -1.0),
+            Point3::new(1.5, 0.5, 1.0),
+            Point3::new(0.5, 1.5, 1.0),
+        ]
+    }
+
+    /// True iff the two 3-point arrays are the same SET (order-agnostic).
+    fn same_corner_set(a: &[Point3; 3], b: &[Point3; 3]) -> bool {
+        a.iter().all(|p| b.contains(p)) && b.iter().all(|p| a.contains(p))
+    }
+
+    /// The interned id (in `points`) of the LPI typed point with the given
+    /// generators. Panics if absent.
+    fn lpi_id(points: &[TypedPoint], line: [Point3; 2], plane: [Point3; 3]) -> u32 {
+        points
+            .iter()
+            .position(|tp| is_lpi_with(tp, line, plane))
+            .unwrap_or_else(|| panic!("LPI generator not interned: {points:?}"))
+            as u32
+    }
+
+    /// Each `Transversal` pair contributes ONE ConstraintSegment to BOTH
+    /// base triangles' lists; the returned Vec is length == num_tris; the
+    /// segment's source_tri is the OPPOSITE triangle's 3 corners; and its
+    /// endpoints are the interned ids of the two intersection vertices.
+    #[test]
+    fn transversal_one_constraint_segment_per_base_triangle() {
+        let a = xy_triangle_a();
+        let b = tilted_b();
+        let soup = soup_pair(a, b);
+        let classified = classify(&soup);
+        // Interned point set (same call the extraction reuses).
+        let (points, _buckets) = group_intersection_points(&soup, &classified);
+
+        let segs: Vec<Vec<ConstraintSegment>> =
+            group_constraint_segments(&soup, &classified, &points);
+
+        // Length == num_tris (indexed by base-tri id).
+        assert_eq!(
+            segs.len() as u32,
+            soup.num_tris(),
+            "constraint-segment lists must be indexed by base-tri id"
+        );
+
+        // Triangle A (id 0) has exactly one ConstraintSegment.
+        assert_eq!(
+            segs[0].len(),
+            1,
+            "triangle A must have exactly one constraint segment, got {:?}",
+            segs[0]
+        );
+        // Triangle B (id 1) has exactly one ConstraintSegment.
+        assert_eq!(
+            segs[1].len(),
+            1,
+            "triangle B must have exactly one constraint segment, got {:?}",
+            segs[1]
+        );
+
+        let seg_a = &segs[0][0];
+        let seg_b = &segs[1][0];
+
+        // source_tri: A's segment carries B's corners; B's carries A's.
+        assert!(
+            same_corner_set(&seg_a.source_tri, &b),
+            "triangle A's constraint segment source_tri must be B's corners, got {:?}",
+            seg_a.source_tri
+        );
+        assert!(
+            same_corner_set(&seg_b.source_tri, &a),
+            "triangle B's constraint segment source_tri must be A's corners, got {:?}",
+            seg_b.source_tri
+        );
+
+        // endpoints: the interned ids of the two intersection vertices
+        // (the two LPIs of this pair). For this fixture both LPIs share
+        // plane = A and have line = B0-B1 and B0-B2 respectively.
+        let id01 = lpi_id(&points, [b[0], b[1]], [a[0], a[1], a[2]]);
+        let id02 = lpi_id(&points, [b[0], b[2]], [a[0], a[1], a[2]]);
+        let expected: std::collections::BTreeSet<u32> = [id01, id02].into_iter().collect();
+
+        let endpoints_set = |s: &ConstraintSegment| -> std::collections::BTreeSet<u32> {
+            [s.endpoints.0, s.endpoints.1].into_iter().collect()
+        };
+
+        assert_eq!(
+            endpoints_set(seg_a),
+            expected,
+            "A's constraint-segment endpoints must be the two interned LPI ids"
+        );
+        assert_eq!(
+            endpoints_set(seg_b),
+            expected,
+            "B's constraint-segment endpoints must be the two interned LPI ids"
+        );
+
+        // Endpoints are distinct (a real segment, not a degenerate point).
+        assert_ne!(
+            seg_a.endpoints.0, seg_a.endpoints.1,
+            "A's constraint segment endpoints must be distinct"
+        );
+        assert_ne!(
+            seg_b.endpoints.0, seg_b.endpoints.1,
+            "B's constraint segment endpoints must be distinct"
+        );
+    }
+
+    /// A disjoint pair contributes NO constraint segment to any base
+    /// triangle's list.
+    #[test]
+    fn disjoint_pair_contributes_no_constraint_segment() {
+        let a = xy_triangle_a();
+        // Far-away B — well separated, Disjoint per AR1.
+        let b = [
+            Point3::new(100.0, 100.0, 100.0),
+            Point3::new(101.0, 100.0, 100.0),
+            Point3::new(100.0, 101.0, 100.0),
+        ];
+        let soup = soup_pair(a, b);
+        let classified = classify(&soup);
+        let (points, _buckets) = group_intersection_points(&soup, &classified);
+
+        let segs = group_constraint_segments(&soup, &classified, &points);
+
+        assert_eq!(segs.len(), 2, "indexed by base-tri id");
+        assert!(
+            segs.iter().all(|list| list.is_empty()),
+            "a disjoint pair must contribute no constraint segments, got {segs:?}"
+        );
+    }
 }

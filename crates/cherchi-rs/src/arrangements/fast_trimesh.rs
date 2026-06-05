@@ -2788,4 +2788,101 @@ mod tests {
         assert_eq!(ft.vert_valence(id_lpi), 0);
         assert_eq!(ft.vert_valence(id_exp), 0);
     }
+
+    // -----------------------------------------------------------------
+    // PR-CR-AR2b Cycle B, Deliverable 2 — `VertexCoords::Tpi` variant
+    //
+    // GREEN will add a third variant to the `VertexCoords` enum:
+    //   Tpi { v: [Point3; 3], w: [Point3; 3], u: [Point3; 3] }
+    // (9 generators — three triangles — matching
+    // `ImplicitPoint3DTpi::new`). `vert_point` (the FFI-FREE finite
+    // approx used by `vert()`) returns a pure-arithmetic stand-in for
+    // Tpi (bookkeeping only, never oracle-checked — mirroring the Lpi
+    // line-midpoint convention; NOT the FFI lambda, because fast_trimesh.rs
+    // must stay WASM-clean). The exact value is UNSPECIFIED; these tests
+    // assert only finiteness, never a specific point.
+    //
+    // These tests are NOT feature-gated (the variant is pure data). They
+    // MUST fail to RESOLVE against the missing variant (RED by compile
+    // error). No production code is authored here.
+    // -----------------------------------------------------------------
+
+    /// A `VertexCoords::Tpi` value can be constructed; `add_vert_typed`
+    /// accepts it and `vert_coords(id)` round-trips it (exact PartialEq).
+    #[test]
+    fn add_vert_typed_tpi_round_trips() {
+        let mut ft = FastTrimesh::from_soup(&single_tri().0, &single_tri().1, Plane::XY).unwrap();
+        let v_tri = [p(0.0, 0.0, 0.0), p(4.0, 0.0, 0.0), p(0.0, 4.0, 0.0)];
+        let w_tri = [p(1.0, 1.0, -1.0), p(1.5, 0.5, 1.0), p(0.5, 1.5, 1.0)];
+        let u_tri = [p(0.0, 0.0, 2.0), p(2.0, 0.0, -2.0), p(0.0, 2.0, 0.0)];
+        let before = ft.num_verts();
+
+        let id = ft.add_vert_typed(VertexCoords::Tpi {
+            v: v_tri,
+            w: w_tri,
+            u: u_tri,
+        });
+
+        assert_eq!(ft.num_verts(), before + 1);
+        // Round-trips to the same Tpi variant (all 9 generators preserved).
+        assert_eq!(
+            ft.vert_coords(id),
+            &VertexCoords::Tpi {
+                v: v_tri,
+                w: w_tri,
+                u: u_tri,
+            }
+        );
+    }
+
+    /// `vert(id)` on a Tpi vertex returns a FINITE point. The exact value
+    /// is an unspecified bookkeeping approx — do NOT assert a specific
+    /// point; assert only that all coordinates are finite.
+    #[test]
+    fn tpi_vert_is_finite() {
+        let mut ft = FastTrimesh::from_soup(&[], &[], Plane::XY).unwrap();
+        let v_tri = [p(0.0, 0.0, 0.0), p(4.0, 0.0, 0.0), p(0.0, 4.0, 0.0)];
+        let w_tri = [p(1.0, 1.0, -1.0), p(1.5, 0.5, 1.0), p(0.5, 1.5, 1.0)];
+        let u_tri = [p(0.0, 0.0, 2.0), p(2.0, 0.0, -2.0), p(0.0, 2.0, 0.0)];
+        let id = ft.add_vert_typed(VertexCoords::Tpi {
+            v: v_tri,
+            w: w_tri,
+            u: u_tri,
+        });
+
+        let pt = ft.vert(id);
+        assert!(
+            pt.x().is_finite() && pt.y().is_finite() && pt.z().is_finite(),
+            "Tpi vert() approx must be finite, got {pt:?}"
+        );
+    }
+
+    /// Derived `PartialEq`: two Tpi values with different generators are
+    /// `!=`; identical generators are `==`.
+    #[test]
+    fn tpi_partial_eq_by_generators() {
+        let v_tri = [p(0.0, 0.0, 0.0), p(4.0, 0.0, 0.0), p(0.0, 4.0, 0.0)];
+        let w_tri = [p(1.0, 1.0, -1.0), p(1.5, 0.5, 1.0), p(0.5, 1.5, 1.0)];
+        let u_tri = [p(0.0, 0.0, 2.0), p(2.0, 0.0, -2.0), p(0.0, 2.0, 0.0)];
+
+        let base = VertexCoords::Tpi {
+            v: v_tri,
+            w: w_tri,
+            u: u_tri,
+        };
+        let same = VertexCoords::Tpi {
+            v: v_tri,
+            w: w_tri,
+            u: u_tri,
+        };
+        // Differ in one generator of `u`.
+        let different = VertexCoords::Tpi {
+            v: v_tri,
+            w: w_tri,
+            u: [p(9.0, 9.0, 9.0), u_tri[1], u_tri[2]],
+        };
+
+        assert_eq!(base, same, "identical Tpi generators must compare equal");
+        assert_ne!(base, different, "differing Tpi generators must compare unequal");
+    }
 }
