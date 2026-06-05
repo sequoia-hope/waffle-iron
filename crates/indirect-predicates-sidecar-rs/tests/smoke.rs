@@ -795,3 +795,255 @@ fn less_than_on_z_stub_returns_undefined() {
     let p2 = ExplicitPoint3D::new(0.0, 0.0, 1.0);
     assert_eq!(less_than_on_z(&p1, &p2), Sign::Undefined);
 }
+
+// =========================================================================
+// PR-CR-AR2a Cycle 1 (CR-IP6b) — orient2d_{xy,yz,zx} + point_in_triangle
+// =========================================================================
+//
+// Sign convention (derived from upstream hand_optimized_predicates.hpp:36-42,
+// the 2D `orient2d` base): for a triple (a, b, c) projected onto the relevant
+// coordinate pair (u, v),
+//
+//     orient2d = sign((b_u - a_u)(c_v - a_v) - (b_v - a_v)(c_u - a_u))
+//
+// i.e. the left-turn / CCW test. A CCW triple → Positive, a CW (reversed)
+// triple → Negative, a collinear triple → Zero.
+//
+// `genericPoint::orient2Dxy` projects onto (x, y) (implicit_point.hpp:157),
+// `orient2Dyz` onto (y, z) (hpp:178), `orient2Dzx` onto (z, x) (hpp:199).
+//
+// `genericPoint::pointInTriangle` (implicit_point.hpp:1137-1152) is
+// boundary-inclusive: it returns true when P is inside OR on an edge OR on a
+// vertex of triangle ABC (the `o >= 0` / `o <= 0` chains include the zero
+// case). Stub mode returns false; the orient2d stub returns Sign::Undefined.
+
+#[cfg(not(ip_unavailable))]
+use indirect_predicates_sidecar_rs::{orient2d_xy, orient2d_yz, orient2d_zx, point_in_triangle};
+#[cfg(ip_unavailable)]
+use indirect_predicates_sidecar_rs::{orient2d_xy, point_in_triangle};
+
+// ----- orient2d_xy: explicit handles, all three sign classes -----
+
+#[test]
+fn orient2d_xy_ccw_cw_collinear() {
+    if !AVAILABLE {
+        panic!("upstream Indirect_Predicates unavailable — cannot exercise orient2d_xy FFI");
+    }
+    init_fpu();
+    // Projected onto (x, y): a=(0,0), b=(1,0), c=(0,1).
+    //   det = (1-0)(1-0) - (0-0)(0-0) = 1 > 0 → Positive (CCW).
+    let a = ExplicitPoint3D::new(0.0, 0.0, 7.0);
+    let b = ExplicitPoint3D::new(1.0, 0.0, -3.0);
+    let c = ExplicitPoint3D::new(0.0, 1.0, 11.0);
+    assert_eq!(
+        orient2d_xy(&a, &b, &c),
+        Sign::Positive,
+        "CCW triple in xy should be Positive"
+    );
+    // Reverse the last two → CW.
+    //   det = (0-0)(0-0) - (1-0)(1-0) = -1 < 0 → Negative.
+    assert_eq!(
+        orient2d_xy(&a, &c, &b),
+        Sign::Negative,
+        "CW triple in xy should be Negative"
+    );
+    // Collinear along the x axis: a=(0,0), b=(1,0), d=(2,0).
+    //   det = (1)(0) - (0)(2) = 0 → Zero.
+    let d = ExplicitPoint3D::new(2.0, 0.0, 5.0);
+    assert_eq!(
+        orient2d_xy(&a, &b, &d),
+        Sign::Zero,
+        "collinear triple in xy should be Zero"
+    );
+}
+
+// ----- orient2d_yz: explicit handles, all three sign classes -----
+
+#[test]
+fn orient2d_yz_ccw_cw_collinear() {
+    if !AVAILABLE {
+        panic!("upstream Indirect_Predicates unavailable — cannot exercise orient2d_yz FFI");
+    }
+    init_fpu();
+    // Projected onto (y, z): a=(0,0), b=(1,0), c=(0,1).
+    //   det = (1-0)(1-0) - (0-0)(0-0) = 1 > 0 → Positive (CCW).
+    let a = ExplicitPoint3D::new(7.0, 0.0, 0.0);
+    let b = ExplicitPoint3D::new(-3.0, 1.0, 0.0);
+    let c = ExplicitPoint3D::new(11.0, 0.0, 1.0);
+    assert_eq!(
+        orient2d_yz(&a, &b, &c),
+        Sign::Positive,
+        "CCW triple in yz should be Positive"
+    );
+    assert_eq!(
+        orient2d_yz(&a, &c, &b),
+        Sign::Negative,
+        "CW triple in yz should be Negative"
+    );
+    // Collinear along the y axis: (y,z) = (0,0),(1,0),(2,0).
+    let d = ExplicitPoint3D::new(5.0, 2.0, 0.0);
+    assert_eq!(
+        orient2d_yz(&a, &b, &d),
+        Sign::Zero,
+        "collinear triple in yz should be Zero"
+    );
+}
+
+// ----- orient2d_zx: explicit handles, all three sign classes -----
+
+#[test]
+fn orient2d_zx_ccw_cw_collinear() {
+    if !AVAILABLE {
+        panic!("upstream Indirect_Predicates unavailable — cannot exercise orient2d_zx FFI");
+    }
+    init_fpu();
+    // Projected onto (z, x): a=(0,0), b=(1,0), c=(0,1).
+    //   det = (1-0)(1-0) - (0-0)(0-0) = 1 > 0 → Positive (CCW).
+    // Pick points whose (z, x) pairs are a, b, c. The y coordinate is free.
+    let a = ExplicitPoint3D::new(0.0, 7.0, 0.0); // (z,x) = (0,0)
+    let b = ExplicitPoint3D::new(0.0, -3.0, 1.0); // (z,x) = (1,0)
+    let c = ExplicitPoint3D::new(1.0, 11.0, 0.0); // (z,x) = (0,1)
+    assert_eq!(
+        orient2d_zx(&a, &b, &c),
+        Sign::Positive,
+        "CCW triple in zx should be Positive"
+    );
+    assert_eq!(
+        orient2d_zx(&a, &c, &b),
+        Sign::Negative,
+        "CW triple in zx should be Negative"
+    );
+    // Collinear along the z axis: (z,x) = (0,0),(1,0),(2,0).
+    let d = ExplicitPoint3D::new(0.0, 5.0, 2.0); // (z,x) = (2,0)
+    assert_eq!(
+        orient2d_zx(&a, &b, &d),
+        Sign::Zero,
+        "collinear triple in zx should be Zero"
+    );
+}
+
+// ----- implicit-dispatch smoke: LPI point ON the test line -----
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn orient2d_xy_implicit_lpi_on_line_is_defined_zero() {
+    // Verifies the generic static-dispatch path handles an implicit
+    // (LPI) input without segfaulting AND returns a DEFINED sign.
+    //
+    // Build an LPI = (line P→Q) ∩ (plane z=0). Line P=(2,5,3) → Q=(2,5,-1)
+    // is the vertical line x=2, y=5; it pierces z=0 at (2, 5, 0). So the
+    // LPI's (x, y) projection is exactly (2, 5).
+    //
+    // Then test orient2d_xy(LPI, A, B) with A=(0,5,0), B=(4,5,0): in the
+    // (x, y) plane A=(0,5), B=(4,5), LPI=(2,5) are all collinear (y=5),
+    // so the predicate must return Sign::Zero — a defined, hand-derivable
+    // result that proves the implicit path is live.
+    init_fpu();
+    let p = ExplicitPoint3D::new(2.0, 5.0, 3.0);
+    let q = ExplicitPoint3D::new(2.0, 5.0, -1.0);
+    let r = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let s = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+    let t = ExplicitPoint3D::new(0.0, 1.0, 0.0); // plane z=0
+    let lpi = ImplicitPoint3DLpi::new(&p, &q, &r, &s, &t);
+    let a = ExplicitPoint3D::new(0.0, 5.0, 0.0);
+    let b = ExplicitPoint3D::new(4.0, 5.0, 0.0);
+    let sign = orient2d_xy(&lpi, &a, &b);
+    assert_ne!(
+        sign,
+        Sign::Undefined,
+        "implicit LPI dispatch must produce a DEFINED sign, not Undefined"
+    );
+    assert_eq!(
+        sign,
+        Sign::Zero,
+        "LPI at (2,5) is collinear with A=(0,5), B=(4,5) in xy → Zero"
+    );
+}
+
+// ----- point_in_triangle: explicit handles, boundary-inclusive -----
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn point_in_triangle_explicit_inside_boundary_outside() {
+    init_fpu();
+    // Triangle in the z=0 plane: A=(0,0,0), B=(4,0,0), C=(0,4,0).
+    let a = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let b = ExplicitPoint3D::new(4.0, 0.0, 0.0);
+    let c = ExplicitPoint3D::new(0.0, 4.0, 0.0);
+
+    // Strictly inside (centroid-ish): (1,1,0).
+    let inside = ExplicitPoint3D::new(1.0, 1.0, 0.0);
+    assert!(
+        point_in_triangle(&inside, &a, &b, &c),
+        "point strictly inside should be true"
+    );
+
+    // Exactly on a vertex: A=(0,0,0). Boundary-inclusive → true.
+    let on_vertex = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    assert!(
+        point_in_triangle(&on_vertex, &a, &b, &c),
+        "point on a vertex should be true (boundary-inclusive)"
+    );
+
+    // Exactly on edge AB midpoint: (2,0,0). Boundary-inclusive → true.
+    let on_edge = ExplicitPoint3D::new(2.0, 0.0, 0.0);
+    assert!(
+        point_in_triangle(&on_edge, &a, &b, &c),
+        "point on an edge midpoint should be true (boundary-inclusive)"
+    );
+
+    // Strictly outside (beyond the hypotenuse): (3,3,0).
+    let outside = ExplicitPoint3D::new(3.0, 3.0, 0.0);
+    assert!(
+        !point_in_triangle(&outside, &a, &b, &c),
+        "point strictly outside should be false"
+    );
+}
+
+// ----- point_in_triangle: LPI point strictly inside -----
+
+#[cfg(not(ip_unavailable))]
+#[test]
+fn point_in_triangle_implicit_lpi_strictly_inside() {
+    init_fpu();
+    // Triangle in the z=0 plane: A=(0,0,0), B=(4,0,0), C=(0,4,0).
+    let a = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let b = ExplicitPoint3D::new(4.0, 0.0, 0.0);
+    let c = ExplicitPoint3D::new(0.0, 4.0, 0.0);
+
+    // Construct an LPI as (line piercing the triangle interior) ∩ (z=0).
+    // Line P=(1,1,5) → Q=(1,1,-5) is vertical at (x=1, y=1); it crosses
+    // z=0 at (1, 1, 0), which is strictly inside triangle ABC.
+    let p = ExplicitPoint3D::new(1.0, 1.0, 5.0);
+    let q = ExplicitPoint3D::new(1.0, 1.0, -5.0);
+    let r = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let s = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+    let t = ExplicitPoint3D::new(0.0, 1.0, 0.0); // plane z=0
+    let lpi = ImplicitPoint3DLpi::new(&p, &q, &r, &s, &t);
+
+    assert!(
+        point_in_triangle(&lpi, &a, &b, &c),
+        "LPI point (1,1,0) is strictly inside triangle ABC → true"
+    );
+}
+
+// ----- stub-mode behavior -----
+
+#[cfg(ip_unavailable)]
+#[test]
+fn orient2d_xy_stub_returns_undefined() {
+    let a = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let b = ExplicitPoint3D::new(1.0, 0.0, 0.0);
+    let c = ExplicitPoint3D::new(0.0, 1.0, 0.0);
+    assert_eq!(orient2d_xy(&a, &b, &c), Sign::Undefined);
+}
+
+#[cfg(ip_unavailable)]
+#[test]
+fn point_in_triangle_stub_returns_false() {
+    let a = ExplicitPoint3D::new(0.0, 0.0, 0.0);
+    let b = ExplicitPoint3D::new(4.0, 0.0, 0.0);
+    let c = ExplicitPoint3D::new(0.0, 4.0, 0.0);
+    let inside = ExplicitPoint3D::new(1.0, 1.0, 0.0);
+    assert!(!point_in_triangle(&inside, &a, &b, &c));
+}
