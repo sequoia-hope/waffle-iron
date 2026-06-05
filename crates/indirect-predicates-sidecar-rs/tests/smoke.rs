@@ -1283,7 +1283,7 @@ fn point_in_segment_implicit_lpi_beyond_endpoint_is_false() {
     init_fpu();
     // The "collinear point beyond an endpoint → false" case is only faithful
     // for an IMPLICIT query point (see the EE-branch note in
-    // point_in_segment_explicit_closed_both_endpoints_beyond_offline and
+    // point_in_segment_explicit_closed_both_endpoints_offline and
     // implicit_point.hpp:1134). Build an LPI on the x axis resolving EXACTLY to
     // (5,0,0): line P=(5,0,-1) → Q=(5,0,1) (vertical at x=5, y=0) ∩ plane z=0
     // with corners r=(0,0,0), s=(4,0,0), t=(0,4,0) → pierces z=0 at (5,0,0).
