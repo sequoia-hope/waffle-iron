@@ -35,6 +35,7 @@ All upstream sources are MIT-licensed.
 | `src/arrangements/retriangulate.rs` | `arrangements/code/triangulation.cpp` (`splitSingleTriangle` / `findContainingTriangle` / `fastPointOnLine`) | Cherchi 2022 |
 | `src/arrangements/gp_dispatch.rs` | `arrangements/code/triangulation.cpp` (generic-point predicate dispatch — extracted from `retriangulate.rs`, PR-CR-AR3a) | Cherchi 2022 |
 | `src/arrangements/enforce.rs` | `arrangements/code/triangulation.cpp` (`addConstraintSegment` / `findIntersectingElements` / `boundaryWalker` / `earcutLinear` / `createTPI` / `segmentsIntersectInside` / `pointInsideSegment` / `splitSegmentInSubSegments`) | Cherchi 2022 |
+| `src/arrangements/soup.rs` | `arrangements/code/solve_intersections.cpp` (`meshArrangementPipeline`) + `triangle_soup.{h,cpp}` (`initJollyPoints` / `appendJollyPoints` / `triPlane`) + `processing.cpp` (`mergeDuplicatedVertices` / `removeDegenerateAndDuplicatedTriangles`) + `triangulation.cpp` (per-base-triangle assembly / `vertOrigID` loop) | Cherchi 2020 / 2022 |
 
 ## Per-file attribution
 

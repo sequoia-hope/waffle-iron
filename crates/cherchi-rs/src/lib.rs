@@ -37,6 +37,8 @@ pub mod predicates;
 pub mod processing;
 pub mod triangulation;
 
+#[cfg(feature = "indirect-predicates")]
+pub use arrangements::{mesh_arrangement, ArrangementError, ArrangementSoup};
 pub use boolean::MeshBoolean;
 pub use labeled_arrangement::{InputId, LabeledArrangement};
 pub use mesh::Mesh;

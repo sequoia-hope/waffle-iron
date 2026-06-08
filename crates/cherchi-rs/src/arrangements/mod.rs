@@ -34,4 +34,6 @@ pub use intersection_points::{
 };
 #[cfg(feature = "indirect-predicates")]
 pub use retriangulate::{split_single_triangle, RetriangulateError};
+#[cfg(feature = "indirect-predicates")]
+pub use soup::{mesh_arrangement, ArrangementError, ArrangementSoup, Label};
 pub use tree::{Node, Tree};
