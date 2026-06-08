@@ -115,9 +115,7 @@ macro_rules! with_gp {
 }
 
 // Re-export the macro for cross-module use (enforce.rs builds its own
-// dispatchers; retriangulate.rs uses the dispatch fns below). Consumed by
-// enforce.rs in PR-CR-AR3a sub-step 3b; allow unused until that lands.
-#[allow(unused_imports)]
+// dispatchers; retriangulate.rs uses the dispatch fns below).
 pub(crate) use with_gp;
 
 /// `point_in_triangle` over four `Gp` handles (each arg its own static type).

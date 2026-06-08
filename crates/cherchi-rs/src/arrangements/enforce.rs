@@ -29,6 +29,707 @@
 //! copied verbatim from `retriangulate.rs`'s test module (test-only duplication is
 //! expected and fine). `find_explicit_vert` is a new FFI-free explicit-coord lookup.
 
+use crate::arrangements::aux_structure::{ConstraintSegment, TypedPoint};
+use crate::arrangements::gp_dispatch::{backing, gp, with_gp, Gp};
+use crate::arrangements::{FastTrimesh, Plane};
+use cad_primitives::Point3;
+use indirect_predicates_sidecar_rs::{
+    init_fpu, inner_segments_cross, point_in_inner_segment, AsGenericPoint, Sign as IpSign,
+};
+use std::collections::HashMap;
+
+/// A constraint segment expressed in SUBMESH-vertex-id terms (the form the
+/// enforcement core consumes). `v0`/`v1` are submesh vertex ids; `source_tri`
+/// is the segment's supporting plane (the OPPOSITE triangle's 3 corners — for
+/// an original transversal segment this is exactly
+/// `ConstraintSegment.source_tri`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct SegmentSpec {
+    pub v0: u32,
+    pub v1: u32,
+    pub source_tri: [Point3; 3],
+}
+
+/// Error from constraint enforcement.
+#[derive(Debug, PartialEq)]
+pub enum EnforceError {
+    /// A `ConstraintSegment` endpoint's interned coords are not present as a
+    /// submesh vertex (the submesh was not produced by `split_single_triangle`
+    /// over the same `points` set). `interned_id` is the offending endpoint.
+    EndpointNotInSubmesh { interned_id: u32 },
+    /// The topology walk could not locate the segment in the submesh (e.g. the
+    /// endpoints are not both submesh vertices, or the fan is malformed). Wraps
+    /// the offending `(v0, v1)` submesh vertex ids.
+    SegmentNotLocatable { v0: u32, v1: u32 },
+    /// A crossed constraint edge has no recorded supporting plane, so the TPI's
+    /// third plane is unavailable. This is the AR3b global-state wall
+    /// (`computeTriangleOfSegment`'s global `seg2tris` / coplanar `jollyPoint`):
+    /// a sub-segment born mid-recursion that lost its directly-available
+    /// `source_tri`. **STOP and report — do not improvise.** Deferred to AR3b.
+    SourcePlaneUnavailable { v0: u32, v1: u32 },
+    /// The three TPI supporting planes are not in general position (no single
+    /// common intersection point — parallel / shared-line / coplanar). The
+    /// coplanar `jollyPoint` fallback is AR3b. **STOP and report.**
+    DegenerateTpi,
+}
+
+/// A pending constraint segment to realize, in submesh-vertex-id terms. The
+/// per-item `source_tri` is AR3a's minimal replacement for the C++ global
+/// `seg2tris` / `sub_segs_map`: a sub-segment born from a split inherits its
+/// parent's supporting plane (a collinear sub-piece has the same plane).
+#[derive(Clone, Debug)]
+struct WorkItem {
+    v0: u32,
+    v1: u32,
+    source_tri: [Point3; 3],
+}
+
+/// Sorted vertex-id pair (vertex ids are stable under `add_*`/`split_*`; edge
+/// ids are not — so the source-plane side map is keyed by vertex pair).
+fn sorted_pair(a: u32, b: u32) -> (u32, u32) {
+    if a < b {
+        (a, b)
+    } else {
+        (b, a)
+    }
+}
+
+/// Enforce a list of constraint segments (submesh-vertex-id form) into the
+/// submesh. Seeds an internal work-list from `specs`, then repeatedly pops a
+/// work item and calls the `add_constraint_segment` port until the list is
+/// empty. Each resulting constraint edge is flagged via `set_edge_constr`.
+/// Orientation is computed once internally from the base corners (submesh
+/// vertices 0,1,2 — always explicit, never removed).
+pub fn enforce_constraint_segments(
+    subm: &mut FastTrimesh,
+    specs: &[SegmentSpec],
+) -> Result<(), EnforceError> {
+    init_fpu();
+
+    // Orientation: computed once from the base corners (submesh vertex ids
+    // 0,1,2 — always explicit, never removed). Do NOT use tri_orientation(0):
+    // after splits the triangle at slot 0 may have a non-explicit corner.
+    let orientation = base_orientation(subm);
+
+    // Source-plane side map (the minimal `TriangleSoup` — see spec).
+    let mut constraint_planes: HashMap<(u32, u32), [Point3; 3]> = HashMap::new();
+
+    // Work-list seeded from the specs.
+    let mut work: Vec<WorkItem> = specs
+        .iter()
+        .map(|s| WorkItem {
+            v0: s.v0,
+            v1: s.v1,
+            source_tri: s.source_tri,
+        })
+        .collect();
+
+    while let Some(item) = work.pop() {
+        add_constraint_segment(subm, &item, orientation, &mut constraint_planes, &mut work)?;
+    }
+    Ok(())
+}
+
+/// AR2b adapter: enforce `ConstraintSegment`s (interned-id endpoints) by
+/// resolving each endpoint id → its `TypedPoint` coords → the submesh vertex
+/// carrying those exact coords (structural `VertexCoords` equality, FFI-free),
+/// building `SegmentSpec`s, and delegating to `enforce_constraint_segments`.
+/// `points` MUST be the interned set the submesh was built from. Returns
+/// `EndpointNotInSubmesh` if a resolution fails.
+pub fn enforce_constraints(
+    subm: &mut FastTrimesh,
+    segments: &[ConstraintSegment],
+    points: &[TypedPoint],
+) -> Result<(), EnforceError> {
+    let resolve = |subm: &FastTrimesh, interned_id: u32| -> Result<u32, EnforceError> {
+        let coords = points[interned_id as usize].coords;
+        (0..subm.num_verts())
+            .find(|&v| *subm.vert_coords(v) == coords)
+            .ok_or(EnforceError::EndpointNotInSubmesh { interned_id })
+    };
+
+    let mut specs: Vec<SegmentSpec> = Vec::with_capacity(segments.len());
+    for seg in segments {
+        let v0 = resolve(subm, seg.endpoints.0)?;
+        let v1 = resolve(subm, seg.endpoints.1)?;
+        specs.push(SegmentSpec {
+            v0,
+            v1,
+            source_tri: seg.source_tri,
+        });
+    }
+    enforce_constraint_segments(subm, &specs)
+}
+
+/// The base triangle's 2D orientation sign, computed from submesh vertices
+/// 0,1,2 (always explicit, never removed) via the reference-plane `orient2d`.
+fn base_orientation(subm: &FastTrimesh) -> IpSign {
+    let c0 = subm.vert_coords(0);
+    let c1 = subm.vert_coords(1);
+    let c2 = subm.vert_coords(2);
+    let b0 = backing(c0);
+    let b1 = backing(c1);
+    let b2 = backing(c2);
+    let g0 = gp(c0, &b0);
+    let g1 = gp(c1, &b1);
+    let g2 = gp(c2, &b2);
+    dispatch_orient2d(subm.ref_plane(), &g0, &g1, &g2)
+}
+
+/// Port of `addConstraintSegment` (cpp:597). Realizes one work item into the
+/// submesh; sub-segments born from a split are pushed back to `work`.
+fn add_constraint_segment(
+    subm: &mut FastTrimesh,
+    item: &WorkItem,
+    orientation: IpSign,
+    constraint_planes: &mut HashMap<(u32, u32), [Point3; 3]>,
+    work: &mut Vec<WorkItem>,
+) -> Result<(), EnforceError> {
+    let v0_id = item.v0;
+    let v1_id = item.v1;
+
+    // Branch 1 — the segment is already an edge: flag it, record its plane.
+    if let Some(e) = subm.edge_id(v0_id, v1_id) {
+        subm.set_edge_constr(e);
+        constraint_planes.insert(sorted_pair(v0_id, v1_id), item.source_tri);
+        return Ok(());
+    }
+
+    // Start from the lower-valence endpoint (cpp:609).
+    let (v_start, v_stop) = if subm.vert_valence(v0_id) < subm.vert_valence(v1_id) {
+        (v0_id, v1_id)
+    } else {
+        (v1_id, v0_id)
+    };
+
+    let mut intersected_edges: Vec<u32> = Vec::new();
+    let mut intersected_tris: Vec<u32> = Vec::new();
+
+    // Port of findIntersectingElements (cpp:644). May push sub-segments to
+    // `work` (T-junction / crossing) and leave `intersected_edges` empty.
+    let split_happened = find_intersecting_elements(
+        subm,
+        v_start,
+        v_stop,
+        item,
+        &mut intersected_edges,
+        &mut intersected_tris,
+        constraint_planes,
+        work,
+    )?;
+
+    // A point_inside_segment / crossing split already flagged a sub-edge and
+    // pushed the remainder — re-processed from the work-list (cpp:617).
+    if split_happened || intersected_edges.is_empty() {
+        return Ok(());
+    }
+
+    // Branch 3 — non-crossing transversal: re-triangulate the two boundary
+    // walks and flag the new (v_start, v_stop) edge (cpp:619-639).
+    let h0 = boundary_walker(
+        subm,
+        v_start,
+        v_stop,
+        &intersected_tris,
+        &intersected_edges,
+        false,
+    )
+    .ok_or(EnforceError::SegmentNotLocatable {
+        v0: v_start,
+        v1: v_stop,
+    })?;
+    let h1 = boundary_walker(
+        subm,
+        v_stop,
+        v_start,
+        &intersected_tris,
+        &intersected_edges,
+        true,
+    )
+    .ok_or(EnforceError::SegmentNotLocatable {
+        v0: v_start,
+        v1: v_stop,
+    })?;
+
+    let mut new_tris: Vec<u32> = Vec::new();
+    earcut_linear(subm, &h0, &mut new_tris, orientation);
+    earcut_linear(subm, &h1, &mut new_tris, orientation);
+
+    for tri in new_tris.chunks_exact(3) {
+        subm.add_tri(tri[0], tri[1], tri[2]);
+    }
+
+    subm.remove_tris(intersected_tris);
+
+    let e = subm
+        .edge_id(v_start, v_stop)
+        .ok_or(EnforceError::SegmentNotLocatable {
+            v0: v_start,
+            v1: v_stop,
+        })?;
+    subm.set_edge_constr(e);
+    constraint_planes.insert(sorted_pair(v_start, v_stop), item.source_tri);
+    Ok(())
+}
+
+/// Port of findIntersectingElements (cpp:644). Returns `Ok(true)` if a split
+/// happened (T-junction or — in 3c — a crossing TPI), in which case the
+/// remaining sub-segment(s) are already pushed to `work` and `intersected_*`
+/// are empty. Returns `Ok(false)` for the non-crossing transversal case, with
+/// the intersected edge/tri lists populated.
+#[allow(clippy::too_many_arguments)]
+fn find_intersecting_elements(
+    subm: &mut FastTrimesh,
+    v_start: u32,
+    v_stop: u32,
+    item: &WorkItem,
+    intersected_edges: &mut Vec<u32>,
+    intersected_tris: &mut Vec<u32>,
+    constraint_planes: &mut HashMap<(u32, u32), [Point3; 3]>,
+    work: &mut Vec<WorkItem>,
+) -> Result<bool, EnforceError> {
+    // First loop (cpp:651-698): find the edge in link(v_start) that the
+    // segment {v_start, v_stop} crosses, or a vertex it passes through.
+    for t_id in subm.adj_v2t(v_start) {
+        let e_id = match edge_opp_to_vert(subm, t_id, v_start) {
+            Some(e) => e,
+            None => continue,
+        };
+        let ev0_id = subm.edge_vert_id(e_id, 0);
+        let ev1_id = subm.edge_vert_id(e_id, 1);
+        // The opposite edge cannot contain v_stop (cpp:656 assert).
+        if ev0_id == v_stop || ev1_id == v_stop {
+            continue;
+        }
+
+        if segments_intersect_inside(subm, v_start, v_stop, ev0_id, ev1_id) {
+            intersected_edges.push(e_id);
+            intersected_tris.push(t_id);
+            break;
+        } else if point_inside_segment(subm, v_start, v_stop, ev0_id) {
+            // T-junction through ev0: flag (v_start, ev0), push the remainder.
+            t_junction_split(subm, v_start, ev0_id, v_stop, item, constraint_planes, work)?;
+            intersected_edges.clear();
+            return Ok(true);
+        } else if point_inside_segment(subm, v_start, v_stop, ev1_id) {
+            // T-junction through ev1: flag (v_start, ev1), push the remainder.
+            t_junction_split(subm, v_start, ev1_id, v_stop, item, constraint_planes, work)?;
+            intersected_edges.clear();
+            return Ok(true);
+        }
+    }
+
+    if intersected_edges.is_empty() {
+        // No crossed edge AND no T-junction found in link(v_start): the
+        // segment is not locatable in the fan.
+        return Err(EnforceError::SegmentNotLocatable {
+            v0: v_start,
+            v1: v_stop,
+        });
+    }
+
+    // Second loop (cpp:703-801): walk the topology, accumulating the sorted
+    // list of crossed edges/tris until reaching v_stop.
+    loop {
+        let e_id = *intersected_edges.last().expect("non-empty by construction");
+        let ev0_id = subm.edge_vert_id(e_id, 0);
+        let ev1_id = subm.edge_vert_id(e_id, 1);
+
+        if !subm.edge_is_constr(e_id) {
+            let t_id = tri_opp_to_edge(subm, e_id, *intersected_tris.last().unwrap()).ok_or(
+                EnforceError::SegmentNotLocatable {
+                    v0: v_start,
+                    v1: v_stop,
+                },
+            )?;
+            let v2 = subm.tri_vert_opposite_to(t_id, ev0_id, ev1_id).ok_or(
+                EnforceError::SegmentNotLocatable {
+                    v0: v_start,
+                    v1: v_stop,
+                },
+            )?;
+
+            if segments_intersect_inside(subm, v_start, v_stop, ev0_id, v2) {
+                let int_edge =
+                    subm.edge_id(ev0_id, v2)
+                        .ok_or(EnforceError::SegmentNotLocatable {
+                            v0: v_start,
+                            v1: v_stop,
+                        })?;
+                intersected_edges.push(int_edge);
+                intersected_tris.push(t_id);
+            } else if segments_intersect_inside(subm, v_start, v_stop, ev1_id, v2) {
+                let int_edge =
+                    subm.edge_id(ev1_id, v2)
+                        .ok_or(EnforceError::SegmentNotLocatable {
+                            v0: v_start,
+                            v1: v_stop,
+                        })?;
+                intersected_edges.push(int_edge);
+                intersected_tris.push(t_id);
+            } else if v2 != v_stop {
+                // The segment passes through the interior vertex v2 (cpp:731).
+                t_junction_split(subm, v_start, v2, v_stop, item, constraint_planes, work)?;
+                intersected_edges.clear();
+                return Ok(true);
+            } else {
+                break; // converged (v2 == v_stop)
+            }
+        } else {
+            // e_id is an existing constraint edge — TPI creation (3c).
+            constraint_crossing_tpi(
+                subm,
+                v_start,
+                v_stop,
+                e_id,
+                ev0_id,
+                ev1_id,
+                item,
+                constraint_planes,
+                work,
+            )?;
+            intersected_edges.clear();
+            return Ok(true);
+        }
+    }
+
+    // Append the last triangle (cpp:791-799).
+    let e_id = *intersected_edges.last().unwrap();
+    let t_id = tri_opp_to_edge(subm, e_id, *intersected_tris.last().unwrap()).ok_or(
+        EnforceError::SegmentNotLocatable {
+            v0: v_start,
+            v1: v_stop,
+        },
+    )?;
+    intersected_tris.push(t_id);
+
+    Ok(false)
+}
+
+/// A T-junction split: the segment {v_start, v_stop} passes through the
+/// existing vertex `mid`. Flag the sub-edge (v_start, mid) and push the
+/// remaining sub-segment (mid, v_stop), carrying the same supporting plane.
+fn t_junction_split(
+    subm: &mut FastTrimesh,
+    v_start: u32,
+    mid: u32,
+    v_stop: u32,
+    item: &WorkItem,
+    constraint_planes: &mut HashMap<(u32, u32), [Point3; 3]>,
+    work: &mut Vec<WorkItem>,
+) -> Result<(), EnforceError> {
+    let e = subm
+        .edge_id(v_start, mid)
+        .ok_or(EnforceError::SegmentNotLocatable {
+            v0: v_start,
+            v1: mid,
+        })?;
+    subm.set_edge_constr(e);
+    constraint_planes.insert(sorted_pair(v_start, mid), item.source_tri);
+    work.push(WorkItem {
+        v0: mid,
+        v1: v_stop,
+        source_tri: item.source_tri,
+    });
+    Ok(())
+}
+
+/// Constraint-crossing TPI construction — implemented in 3c. In 3b this is
+/// unreachable for the in-scope tests (the X-crossing test is 3c).
+#[allow(clippy::too_many_arguments)]
+fn constraint_crossing_tpi(
+    subm: &mut FastTrimesh,
+    v_start: u32,
+    v_stop: u32,
+    e_id: u32,
+    ev0_id: u32,
+    ev1_id: u32,
+    item: &WorkItem,
+    constraint_planes: &mut HashMap<(u32, u32), [Point3; 3]>,
+    work: &mut Vec<WorkItem>,
+) -> Result<(), EnforceError> {
+    // Placeholder for 3b; replaced by the real createTPI port in 3c.
+    let _ = (
+        subm,
+        v_stop,
+        e_id,
+        ev0_id,
+        ev1_id,
+        item,
+        constraint_planes,
+        work,
+    );
+    Err(EnforceError::SegmentNotLocatable {
+        v0: v_start,
+        v1: v_stop,
+    })
+}
+
+/// Port of `boundaryWalker` (cpp:806). Walks the border of the intersected-tri
+/// fan from `v_start` to `v_stop`, producing the boundary polygon `h`. When
+/// `reversed` is set, the tri/edge cursors advance from the back (the C++
+/// `rbegin()` form). Returns `None` if the walk cannot make progress.
+fn boundary_walker(
+    subm: &FastTrimesh,
+    v_start: u32,
+    v_stop: u32,
+    intersected_tris: &[u32],
+    intersected_edges: &[u32],
+    reversed: bool,
+) -> Option<Vec<u32>> {
+    let n = intersected_tris.len();
+    debug_assert_eq!(n, intersected_edges.len());
+    // Cursor into the tri/edge lists; `at` maps the logical step to an index.
+    let tri_at = |i: usize| -> u32 {
+        if reversed {
+            intersected_tris[n - 1 - i]
+        } else {
+            intersected_tris[i]
+        }
+    };
+    let edge_at = |i: usize| -> u32 {
+        if reversed {
+            intersected_edges[n - 1 - i]
+        } else {
+            intersected_edges[i]
+        }
+    };
+
+    let mut h: Vec<u32> = vec![v_start];
+    let mut p = 0usize; // current tri cursor
+    let mut e = 0usize; // current edge cursor
+
+    loop {
+        let curr_v = *h.last().unwrap();
+        let mut curr_p = tri_at(p);
+        let off = subm.tri_vert_offset(curr_p, curr_v)?;
+        let mut next_v = subm.tri_vert_id(curr_p, (off + 1) % 3);
+
+        // Skip across edges equal to the current intersected edge (cpp:818).
+        while subm.edge_id(curr_v, next_v) == Some(edge_at(e)) {
+            p += 1;
+            if p >= n {
+                return None;
+            }
+            curr_p = tri_at(p);
+            if subm.tri_contains_vert(curr_p, v_stop) {
+                h.push(v_stop);
+                return Some(h);
+            }
+            e += 1;
+            if e >= n {
+                return None;
+            }
+            let off = subm.tri_vert_offset(curr_p, curr_v)?;
+            next_v = subm.tri_vert_id(curr_p, (off + 1) % 3);
+        }
+
+        h.push(next_v);
+        p += 1;
+        if p >= n {
+            // Past the last tri: must have reached v_stop.
+            if next_v == v_stop {
+                return Some(h);
+            }
+            return None;
+        }
+        let curr_p = tri_at(p);
+        if subm.tri_contains_vert(curr_p, v_stop) {
+            h.push(v_stop);
+            return Some(h);
+        }
+        e += 1;
+        if e >= n {
+            return None;
+        }
+        if *h.last().unwrap() == v_stop {
+            return Some(h);
+        }
+    }
+}
+
+/// Port of `earcutLinear` (cpp:912) — the doubly-linked-list O(n) ear cut. The
+/// polygon `poly` is a boundary walk (`v_start ... v_stop`); ears are emitted
+/// to `tris` as flat vertex-id triples. The ear test compares the
+/// reference-plane `orient2d` sign against `orientation`.
+fn earcut_linear(subm: &FastTrimesh, poly: &[u32], tris: &mut Vec<u32>, orientation: IpSign) {
+    let size = poly.len();
+    debug_assert!(size >= 3, "earcut_linear: poly must have >= 3 verts");
+    if size < 3 {
+        return;
+    }
+    if size == 3 {
+        tris.extend_from_slice(poly);
+        return;
+    }
+
+    // Doubly linked list over poly indices.
+    let mut prev: Vec<usize> = (0..size)
+        .map(|i| if i == 0 { size - 1 } else { i - 1 })
+        .collect();
+    let mut next: Vec<usize> = (0..size)
+        .map(|i| if i == size - 1 { 0 } else { i + 1 })
+        .collect();
+
+    let ear_ok = |subm: &FastTrimesh, a: u32, b: u32, c: u32| -> bool {
+        let ca = subm.vert_coords(a);
+        let cb = subm.vert_coords(b);
+        let cc = subm.vert_coords(c);
+        let ba = backing(ca);
+        let bb = backing(cb);
+        let bc = backing(cc);
+        let ga = gp(ca, &ba);
+        let gb = gp(cb, &bb);
+        let gc = gp(cc, &bc);
+        let check = dispatch_orient2d(subm.ref_plane(), &ga, &gb, &gc);
+        check == orientation
+    };
+
+    let mut is_ear = vec![false; size];
+    let mut ears: Vec<usize> = Vec::with_capacity(size);
+
+    // Detect all initial ears (convex corners, excluding the constrained-edge
+    // endpoints poly[0] and poly[size-1]).
+    for curr in 1..size - 1 {
+        if prev[curr] != next[curr] && ear_ok(subm, poly[prev[curr]], poly[curr], poly[next[curr]])
+        {
+            ears.push(curr);
+            is_ear[curr] = true;
+        }
+    }
+
+    let mut length = size;
+    while let Some(curr) = ears.pop() {
+        // Emit the ear triangle.
+        tris.push(poly[prev[curr]]);
+        tris.push(poly[curr]);
+        tris.push(poly[next[curr]]);
+
+        // Unlink curr.
+        let pc = prev[curr];
+        let nc = next[curr];
+        next[pc] = nc;
+        prev[nc] = pc;
+
+        length -= 1;
+        if length < 3 {
+            return;
+        }
+
+        // prev[curr] may become a new ear.
+        if !is_ear[pc] && pc != 0 {
+            let ppc = prev[pc];
+            if ppc != nc && ear_ok(subm, poly[ppc], poly[pc], poly[nc]) {
+                ears.push(pc);
+                is_ear[pc] = true;
+            }
+        }
+        // next[curr] may become a new ear.
+        if !is_ear[nc] && nc < size - 1 {
+            let nnc = next[nc];
+            if nnc != pc && ear_ok(subm, poly[pc], poly[nc], poly[nnc]) {
+                ears.push(nc);
+                is_ear[nc] = true;
+            }
+        }
+    }
+}
+
+// ── Topology helpers (cpp:328 edgeOppToVert, cpp:470 triOppToEdge) ────
+
+/// The edge of triangle `t` opposite vertex `v` (the edge joining `t`'s two
+/// corners other than `v`). Mirrors `edgeOppToVert` (cpp:328). Returns `None`
+/// if `t` does not contain `v` or the edge is absent.
+fn edge_opp_to_vert(subm: &FastTrimesh, t: u32, v: u32) -> Option<u32> {
+    let tri = subm.tri(t);
+    let off = subm.tri_vert_offset(t, v)?;
+    let a = tri[((off + 1) % 3) as usize];
+    let b = tri[((off + 2) % 3) as usize];
+    subm.edge_id(a, b)
+}
+
+/// The triangle adjacent to edge `e` on the side opposite triangle `t`.
+/// Mirrors `triOppToEdge` (cpp:470). Returns `None` for a boundary edge.
+fn tri_opp_to_edge(subm: &FastTrimesh, e: u32, t: u32) -> Option<u32> {
+    let adj = subm.adj_e2t(e);
+    if adj.len() == 1 {
+        return None; // boundary edge
+    }
+    adj.iter().copied().find(|&x| x != t)
+}
+
+// ── Predicate dispatchers over Gp handles ─────────────────────────────
+
+/// `orient2d` (in `plane`) over three `Gp` handles.
+fn dispatch_orient2d(plane: Plane, a: &Gp, b: &Gp, c: &Gp) -> IpSign {
+    use indirect_predicates_sidecar_rs::{orient2d_xy, orient2d_yz, orient2d_zx};
+    fn o2d(
+        plane: Plane,
+        a: &impl AsGenericPoint,
+        b: &impl AsGenericPoint,
+        c: &impl AsGenericPoint,
+    ) -> IpSign {
+        match plane {
+            Plane::XY => orient2d_xy(a, b, c),
+            Plane::YZ => orient2d_yz(a, b, c),
+            Plane::ZX => orient2d_zx(a, b, c),
+        }
+    }
+    with_gp!(o2d(plane, a, b, c); a, b, c)
+}
+
+/// True iff the open segments {v_start, v_stop} and {ev0, ev1} cross at a point
+/// strictly interior to both (port of `segmentsIntersectInside`, cpp:1170 →
+/// `innerSegmentsCross`).
+fn segments_intersect_inside(
+    subm: &FastTrimesh,
+    v_start: u32,
+    v_stop: u32,
+    ev0: u32,
+    ev1: u32,
+) -> bool {
+    let (ca, cb, cc, cd) = (
+        subm.vert_coords(v_start),
+        subm.vert_coords(v_stop),
+        subm.vert_coords(ev0),
+        subm.vert_coords(ev1),
+    );
+    let (ba, bb, bc, bd) = (backing(ca), backing(cb), backing(cc), backing(cd));
+    let (ga, gb, gc, gd) = (gp(ca, &ba), gp(cb, &bb), gp(cc, &bc), gp(cd, &bd));
+    let (ga, gb, gc, gd) = (&ga, &gb, &gc, &gd);
+    with_gp!(inner_segments_cross(ga, gb, gc, gd); ga, gb, gc, gd)
+}
+
+/// True iff vertex `p` lies on the OPEN segment (ev0, ev1) — collinear and
+/// strictly between, endpoints excluded (port of `pointInsideSegment`,
+/// cpp:1178 → `pointInInnerSegment`).
+///
+/// `pointInInnerSegment(p, v1, v2)` is mathematically symmetric in `v1 ↔ v2`
+/// ("p strictly between v1 and v2"), and IS symmetric for implicit (LPI/TPI)
+/// endpoints, where `lessThanOn*` returns a real signed −1/0/+1. For two
+/// EXPLICIT endpoints the EE branch returns the C++ `bool` `a.X() < b.X()`
+/// (0 or 1, never −1), so a single call only fires when `v1 < p < v2`
+/// componentwise — i.e. it becomes endpoint-order-sensitive (the documented
+/// sidecar EE limitation; see `indirect-predicates-sidecar-rs` smoke tests).
+/// To restore the intended symmetric semantics regardless of the
+/// valence-chosen endpoint order, query BOTH orders and OR them. For implicit
+/// endpoints this is a no-op (the symmetric result is unchanged); for explicit
+/// endpoints it makes "strictly inside" order-independent without widening any
+/// tolerance or special-casing a fixture.
+fn point_inside_segment(subm: &FastTrimesh, ev0: u32, ev1: u32, p: u32) -> bool {
+    let (cp, c0, c1) = (
+        subm.vert_coords(p),
+        subm.vert_coords(ev0),
+        subm.vert_coords(ev1),
+    );
+    let (bp, b0, b1) = (backing(cp), backing(c0), backing(c1));
+    let (gpp, g0, g1) = (gp(cp, &bp), gp(c0, &b0), gp(c1, &b1));
+    let (gpp, g0, g1) = (&gpp, &g0, &g1);
+    let fwd = with_gp!(point_in_inner_segment(gpp, g0, g1); gpp, g0, g1);
+    let rev = with_gp!(point_in_inner_segment(gpp, g1, g0); gpp, g0, g1);
+    fwd || rev
+}
+
 #[cfg(test)]
 mod tests {
     //! RED tests for PR-CR-AR3a (`enforce_constraint_segments` /
@@ -206,7 +907,7 @@ mod tests {
     /// True iff the submesh has an edge between vertex ids `a` and `b` AND that
     /// edge is constraint-flagged.
     fn edge_is_constr_between(subm: &FastTrimesh, a: u32, b: u32) -> bool {
-        subm.edge_id(a, b).map_or(false, |e| subm.edge_is_constr(e))
+        subm.edge_id(a, b).is_some_and(|e| subm.edge_is_constr(e))
     }
 
     // ════════════════════════════════════════════════════════════════
