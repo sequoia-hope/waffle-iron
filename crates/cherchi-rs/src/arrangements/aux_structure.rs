@@ -148,6 +148,115 @@ pub fn group_intersection_points(
     (points, buckets)
 }
 
+/// The [`VertexCoords`] an [`IntersectionVertex`] interns as, identical to the
+/// mapping used inside [`group_intersection_points`] (Explicit → `Explicit`,
+/// Lpi → `Lpi { line, plane }`). Keeps both call sites' interning consistent.
+fn vertex_coords_of(iv: &IntersectionVertex) -> VertexCoords {
+    match iv {
+        IntersectionVertex::Explicit { point, .. } => VertexCoords::Explicit(*point),
+        IntersectionVertex::Lpi { line, plane, .. } => VertexCoords::Lpi {
+            line: *line,
+            plane: *plane,
+        },
+    }
+}
+
+/// A constraint segment to be enforced as constrained mesh edge(s) within a
+/// base triangle's submesh during re-triangulation (AR2b/Cycle C).
+///
+/// `endpoints` are interned `TypedPoint` ids (positions in the `points` Vec
+/// produced by [`group_intersection_points`]); `source_tri` is the OPPOSITE
+/// triangle of the originating AR1 pair (its 3 corners define the supporting
+/// plane used to construct TPI points where two constraint segments cross —
+/// see the spec's `create_tpi` design).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ConstraintSegment {
+    /// Interned `TypedPoint` ids (into the `points` Vec) of the two endpoints.
+    pub endpoints: (u32, u32),
+    /// The OPPOSITE triangle's 3 corners (the segment's supporting plane).
+    pub source_tri: [Point3; 3],
+}
+
+/// Extract one constraint segment per `Transversal` pair per base triangle.
+///
+/// For each `PairClassification::Transversal { vertices }` of pair `(ta, tb)`,
+/// the transversal intersection segment is defined by the interned ids of its
+/// intersection vertices. A non-degenerate crossing has exactly two distinct
+/// endpoint ids → one `ConstraintSegment` is pushed to `result[ta]` (with
+/// `source_tri` = `tb`'s 3 corners) and one to `result[tb]` (with `source_tri`
+/// = `ta`'s 3 corners). If, after de-duping interned ids, there are not exactly
+/// two distinct endpoints (e.g. a single touch point), NO segment is emitted
+/// for that pair. `Deferred` / `Disjoint` pairs contribute nothing.
+///
+/// `points` MUST be the same interned set returned by
+/// [`group_intersection_points`] for `(soup, classified)` — ids are resolved by
+/// structural equality of each vertex's [`VertexCoords`] against it.
+///
+/// The returned Vec is indexed by base-triangle id (length == `num_tris`).
+pub fn group_constraint_segments(
+    soup: &FastTrimesh,
+    classified: &[((u32, u32), PairClassification)],
+    points: &[TypedPoint],
+) -> Vec<Vec<ConstraintSegment>> {
+    let mut result: Vec<Vec<ConstraintSegment>> = vec![Vec::new(); soup.num_tris() as usize];
+
+    // Resolve an IntersectionVertex to its interned id in `points` by structural
+    // equality of its VertexCoords (same logic `group_intersection_points` uses
+    // to intern). Returns None if the vertex was not interned (should not happen
+    // when `points` is the matching set, but we never panic in production).
+    let interned_id = |iv: &IntersectionVertex| -> Option<u32> {
+        let coords = vertex_coords_of(iv);
+        points
+            .iter()
+            .position(|tp| tp.coords == coords)
+            .map(|i| i as u32)
+    };
+
+    for ((ta, tb), classification) in classified {
+        let vertices = match classification {
+            PairClassification::Transversal { vertices } => vertices,
+            PairClassification::Deferred(_) | PairClassification::Disjoint => continue,
+        };
+
+        // Collect distinct interned endpoint ids (order-preserving dedup).
+        let mut ids: Vec<u32> = Vec::new();
+        for iv in vertices {
+            if let Some(id) = interned_id(iv) {
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+            }
+        }
+
+        // Only a non-degenerate crossing (exactly two distinct endpoints)
+        // yields a constraint segment; a single touch contributes nothing.
+        if ids.len() != 2 {
+            continue;
+        }
+        let endpoints = (ids[0], ids[1]);
+
+        let corners = |t: u32| -> [Point3; 3] {
+            [
+                soup.tri_vert(t, 0),
+                soup.tri_vert(t, 1),
+                soup.tri_vert(t, 2),
+            ]
+        };
+
+        // In ta's list the source_tri is tb's corners, and vice-versa.
+        result[*ta as usize].push(ConstraintSegment {
+            endpoints,
+            source_tri: corners(*tb),
+        });
+        result[*tb as usize].push(ConstraintSegment {
+            endpoints,
+            source_tri: corners(*ta),
+        });
+    }
+
+    result
+}
+
 /// Place an explicit intersection `point` into base triangle `t`'s buckets,
 /// classifying it as interior / on-edge / outside (outside → dropped).
 fn place_point_in_triangle(
@@ -731,8 +840,7 @@ mod tests {
         points
             .iter()
             .position(|tp| is_lpi_with(tp, line, plane))
-            .unwrap_or_else(|| panic!("LPI generator not interned: {points:?}"))
-            as u32
+            .unwrap_or_else(|| panic!("LPI generator not interned: {points:?}")) as u32
     }
 
     /// Each `Transversal` pair contributes ONE ConstraintSegment to BOTH

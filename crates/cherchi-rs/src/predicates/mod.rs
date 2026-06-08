@@ -21,7 +21,7 @@ pub mod segment_triangle;
 pub mod triangle_intersect;
 pub mod triangle_pair;
 
-pub use collinearity::points_are_collinear_3d;
+pub use collinearity::{point_strictly_inside_segment_3d, points_are_collinear_3d};
 pub use orient::{orient2d, orient3d, Sign};
 pub use orientation::{max_component_in_triangle_normal, Axis};
 pub use point_in_triangle::{point_in_triangle_3d, PointLocation};

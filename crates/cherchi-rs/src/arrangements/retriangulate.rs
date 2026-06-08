@@ -156,6 +156,13 @@ fn backing(c: &VertexCoords) -> Backing {
                 ExplicitPoint3D::new(plane[2].x(), plane[2].y(), plane[2].z()),
             ],
         },
+        // PR-CR-AR2b Cycle B: the `Tpi` variant exists but is NOT yet routed
+        // through the submesh re-triangulation handles — the exact TPI FFI
+        // dispatch (real `ImplicitPoint3DTpi` handle + expanded `Gp` arms) is
+        // Cycle C. No Tpi vertex reaches `backing` in Cycle B, so this arm is
+        // a total, panic-free placeholder (no backing generators needed by the
+        // explicit-centroid stand-in `gp` returns). Superseded in Cycle C.
+        VertexCoords::Tpi { .. } => Backing { gens: vec![] },
     }
 }
 
@@ -172,6 +179,21 @@ fn gp<'a>(c: &VertexCoords, b: &'a Backing) -> Gp<'a> {
         VertexCoords::Lpi { .. } => Gp::L(ImplicitPoint3DLpi::new(
             &b.gens[0], &b.gens[1], &b.gens[2], &b.gens[3], &b.gens[4],
         )),
+        // PR-CR-AR2b Cycle B placeholder (see `backing`): no Tpi vertex flows
+        // through re-triangulation yet, so return an explicit-centroid stand-in
+        // rather than the exact `ImplicitPoint3DTpi` handle (Cycle C adds the
+        // real `Gp::T` arm + 81-way dispatch). Never exercised in Cycle B.
+        VertexCoords::Tpi { v, w, u } => {
+            let (mut sx, mut sy, mut sz) = (0.0, 0.0, 0.0);
+            for tri in [v, w, u] {
+                for g in tri {
+                    sx += g.x();
+                    sy += g.y();
+                    sz += g.z();
+                }
+            }
+            Gp::E(ExplicitPoint3D::new(sx / 9.0, sy / 9.0, sz / 9.0))
+        }
     }
 }
 
@@ -338,6 +360,22 @@ mod tests {
                     &p[1] + &(&u * &qp[1]),
                     &p[2] + &(&u * &qp[2]),
                 ]
+            }
+            // PR-CR-AR2b Cycle B added the `Tpi` variant; this AR2a covering
+            // oracle never constructs Tpi vertices (Cycle C does), so this arm
+            // is unreachable in these tests. Mirror the bookkeeping centroid
+            // approx in exact RBig for totality (not used by any assertion).
+            VertexCoords::Tpi { v, w, u } => {
+                let nine = to_r(9.0);
+                let mut acc = [RBig::ZERO, RBig::ZERO, RBig::ZERO];
+                for tri in [v, w, u] {
+                    for g in tri {
+                        acc[0] += to_r(g.x());
+                        acc[1] += to_r(g.y());
+                        acc[2] += to_r(g.z());
+                    }
+                }
+                [&acc[0] / &nine, &acc[1] / &nine, &acc[2] / &nine]
             }
         }
     }

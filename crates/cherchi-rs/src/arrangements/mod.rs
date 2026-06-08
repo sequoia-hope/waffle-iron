@@ -14,7 +14,10 @@ pub mod retriangulate;
 pub mod tree;
 
 #[cfg(feature = "indirect-predicates")]
-pub use aux_structure::{group_intersection_points, TriangleAuxPoints, TypedPoint};
+pub use aux_structure::{
+    group_constraint_segments, group_intersection_points, ConstraintSegment, TriangleAuxPoints,
+    TypedPoint,
+};
 pub use fast_trimesh::{FastTrimesh, FastTrimeshError, Plane};
 pub use intersection_detection::detect_intersecting_pairs;
 #[cfg(feature = "indirect-predicates")]

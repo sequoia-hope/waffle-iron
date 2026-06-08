@@ -33,6 +33,64 @@ pub fn points_are_collinear_3d(a: Point3, b: Point3, c: Point3) -> bool {
     drop_z == 0.0 && drop_y == 0.0 && drop_x == 0.0
 }
 
+/// Exact "strictly inside the open segment" test in 3D.
+///
+/// Returns `true` iff `w` is EXACTLY collinear with `(p, q)` AND lies
+/// STRICTLY between the two endpoints (both endpoints excluded). No
+/// tolerance, no raw-`f64` cross/dot — collinearity is the exact
+/// [`points_are_collinear_3d`] test and betweenness is computed in
+/// `dashu::rational::RBig` (exact rationals over the `f64` coordinates).
+///
+/// Ported from cinolib's `point_in_segment_3d` with the `STRICTLY_INSIDE`
+/// semantics referenced by Cherchi's `triangulation.cpp:1178` (and the
+/// edge-guard at `cpp:688-691`). cinolib is MIT-licensed (see the file
+/// header). This is the exact replacement for the AR1 raw-`f64`
+/// `point_strictly_inside_segment` stopgap (deviation N13, `f64` sub-note).
+///
+/// Algorithm:
+/// 1. `w == p || w == q` → `false` (endpoints are excluded).
+/// 2. `!points_are_collinear_3d(w, p, q)` → `false` (off the line).
+/// 3. Strictly between ⟺ the exact dot product `(w − p) · (w − q) < 0`
+///    (the two vectors from `w` to the endpoints point in opposite
+///    directions iff `w` is interior to the segment).
+///
+/// # Failure modes
+///
+/// NaN / infinite inputs produce undefined behavior. Caller's responsibility.
+pub fn point_strictly_inside_segment_3d(w: Point3, p: Point3, q: Point3) -> bool {
+    use dashu::float::FBig;
+    use dashu::rational::RBig;
+
+    // Endpoints are excluded by the STRICTLY_INSIDE semantics.
+    if w == p || w == q {
+        return false;
+    }
+    // Off the supporting line → not on the segment at all.
+    if !points_are_collinear_3d(w, p, q) {
+        return false;
+    }
+
+    // Exact f64 → RBig conversion (both steps are total for finite f64).
+    let to_r = |x: f64| -> RBig {
+        let fb: FBig = FBig::try_from(x).expect("finite f64 → FBig is total");
+        RBig::try_from(fb).expect("FBig → RBig is total")
+    };
+
+    // dot = (w − p) · (w − q), exact in RBig. Strictly between ⟺ dot < 0.
+    let wp = [
+        to_r(w.x()) - to_r(p.x()),
+        to_r(w.y()) - to_r(p.y()),
+        to_r(w.z()) - to_r(p.z()),
+    ];
+    let wq = [
+        to_r(w.x()) - to_r(q.x()),
+        to_r(w.y()) - to_r(q.y()),
+        to_r(w.z()) - to_r(q.z()),
+    ];
+    let dot = &wp[0] * &wq[0] + &wp[1] * &wq[1] + &wp[2] * &wq[2];
+    dot < RBig::ZERO
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -321,7 +379,10 @@ mod tests {
         let q = Point3::new(1.0, 0.0, 0.0);
         // Next representable f64 strictly above 1.0.
         let just_past = f64::from_bits(1.0_f64.to_bits() + 1);
-        assert!(just_past > 1.0, "construction sanity: just_past must exceed q.x");
+        assert!(
+            just_past > 1.0,
+            "construction sanity: just_past must exceed q.x"
+        );
         let w = Point3::new(just_past, 0.0, 0.0);
         // Collinear (on the X axis) but strictly beyond q → must be false.
         assert!(

@@ -369,47 +369,14 @@ fn push_unique(out: &mut Vec<IntersectionVertex>, iv: IntersectionVertex) {
     }
 }
 
-/// Conservative `f64` stopgap port of the cpp:688-691 guard: is any triangle
-/// vertex strictly inside the open segment `(p, q)`? Delegates to
-/// [`point_strictly_inside_segment`] (see its NOTE on exactness).
+/// Port of the cpp:688-691 guard: is any triangle vertex strictly inside the
+/// open segment `(p, q)`? Delegates to the EXACT
+/// [`crate::predicates::point_strictly_inside_segment_3d`] (CR1 collinearity +
+/// `dashu` betweenness) — no raw `f64`, closing deviation N13's `f64` sub-note.
 fn any_triangle_vertex_strictly_inside_segment(p: Point3, q: Point3, plane: &[Point3; 3]) -> bool {
     plane
         .iter()
-        .any(|&w| point_strictly_inside_segment(w, p, q))
-}
-
-/// Conservative `f64` stopgap port of cinolib's exact `point_in_segment_3d`
-/// (cpp:688-691): true iff `w` is collinear with `(p, q)` and lies strictly
-/// between them (endpoints excluded).
-///
-/// NOTE: this is NOT robustly exact — it uses raw `f64` cross/dot products, not
-/// the Shewchuk-adaptive predicates used elsewhere in this crate. It is
-/// faithful for AR1's exactly-representable in-scope inputs, and the guard never
-/// even fires for AR1's transversal inputs. AR2 should replace it with a real
-/// exact `point_in_segment_3d`.
-fn point_strictly_inside_segment(w: Point3, p: Point3, q: Point3) -> bool {
-    if w == p || w == q {
-        return false;
-    }
-    // Collinearity: (q - p) × (w - p) == 0.
-    let dx1 = q.x() - p.x();
-    let dy1 = q.y() - p.y();
-    let dz1 = q.z() - p.z();
-    let dx2 = w.x() - p.x();
-    let dy2 = w.y() - p.y();
-    let dz2 = w.z() - p.z();
-    let cx = dy1 * dz2 - dz1 * dy2;
-    let cy = dz1 * dx2 - dx1 * dz2;
-    let cz = dx1 * dy2 - dy1 * dx2;
-    if cx != 0.0 || cy != 0.0 || cz != 0.0 {
-        return false;
-    }
-    // Strictly between: w - p and w - q point in opposite directions on the
-    // line (dot of (w-p)·(w-q) < 0).
-    let ex = w.x() - q.x();
-    let ey = w.y() - q.y();
-    let ez = w.z() - q.z();
-    dx2 * ex + dy2 * ey + dz2 * ez < 0.0
+        .any(|&w| crate::predicates::point_strictly_inside_segment_3d(w, p, q))
 }
 
 // ── Sign-pattern decoders (cpp:834-925) ──────────────────────────────

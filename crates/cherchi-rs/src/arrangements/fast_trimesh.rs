@@ -43,8 +43,12 @@
 //!    queries on an `Lpi` vertex route through `vert_coords` + the
 //!    indirect-predicates FFI in the feature-gated arrangement code;
 //!    `vert()` returns only a finite midpoint approx for the topology
-//!    layer. The TPI variant is deferred to a later PR. The topology
-//!    layer is unaffected by the variant — it reads `vert` / `tri_vert`.
+//!    layer. Since PR-CR-AR2b the `Tpi { v, w, u }` variant (nine
+//!    `Point3` generators — three triangles' corners — mirroring
+//!    `implicitPoint3D_TPI`) is also present; `vert()` returns the
+//!    9-generator centroid approx for it (bookkeeping only, like the Lpi
+//!    midpoint). The topology layer is unaffected by the variants — it
+//!    reads `vert` / `tri_vert`.
 //!
 //! 2. **No parallel constructor.** cherchi-rs `CLAUDE.md` Hard Rule #5
 //!    is single-threaded by default. We use the same sorted-unique
@@ -184,6 +188,14 @@ pub enum VertexCoords {
     Lpi {
         line: [Point3; 2],
         plane: [Point3; 3],
+    },
+    /// A triangle-plane intersection point. `v`, `w`, `u` are the three
+    /// triangles (3 corners each) whose supporting planes meet at this
+    /// point. Mirrors `implicitPoint3D_TPI(v1..v3, w1..w3, u1..u3)` generators.
+    Tpi {
+        v: [Point3; 3],
+        w: [Point3; 3],
+        u: [Point3; 3],
     },
 }
 
@@ -1159,6 +1171,22 @@ fn vert_point(coords: &VertexCoords) -> Point3 {
             (line[0].y() + line[1].y()) / 2.0,
             (line[0].z() + line[1].z()) / 2.0,
         ),
+        // approx only for Tpi — centroid of the 9 generators, bookkeeping only
+        // (never oracle-checked; exact Tpi queries route through `vert_coords`
+        // + the indirect-predicates FFI in the feature-gated arrangement code).
+        VertexCoords::Tpi { v, w, u } => {
+            let mut sx = 0.0;
+            let mut sy = 0.0;
+            let mut sz = 0.0;
+            for tri in [v, w, u] {
+                for g in tri {
+                    sx += g.x();
+                    sy += g.y();
+                    sz += g.z();
+                }
+            }
+            Point3::new(sx / 9.0, sy / 9.0, sz / 9.0)
+        }
     }
 }
 
@@ -2883,6 +2911,9 @@ mod tests {
         };
 
         assert_eq!(base, same, "identical Tpi generators must compare equal");
-        assert_ne!(base, different, "differing Tpi generators must compare unequal");
+        assert_ne!(
+            base, different,
+            "differing Tpi generators must compare unequal"
+        );
     }
 }
