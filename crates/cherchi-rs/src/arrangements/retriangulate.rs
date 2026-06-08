@@ -308,6 +308,50 @@ mod tests {
         }
     }
 
+    /// A `Tpi` `TypedPoint` from three triangles (each triangle = a plane;
+    /// the point is the three planes' common intersection). Generator order
+    /// `v,w,u` mirrors `ImplicitPoint3DTpi::new(v1..v3, w1..w3, u1..u3)`.
+    fn tp_tpi(v: [Point3; 3], w: [Point3; 3], u: [Point3; 3]) -> TypedPoint {
+        TypedPoint {
+            coords: VertexCoords::Tpi { v, w, u },
+        }
+    }
+
+    // ── The load-bearing Cycle-C1 TPI fixture ────────────────────────
+    //
+    // Three planes intersecting at the *interior* point P_true = (1,1,0) of
+    // base triangle A:
+    //   v (plane z = 0): (0,0,0),(10,0,0),(0,10,0)
+    //   w (plane x = 1): (1,0,0),(1,10,0),(1,0,10)
+    //   u (plane y = 1): (0,1,0),(10,1,0),(0,1,10)
+    // Their common intersection is exactly (1,1,0) — inside A (x>0,y>0,x+y<4).
+    //
+    // The CENTROID `sum/9` of these nine generators is (23/9, 23/9, 20/9) ≈
+    // (2.556, 2.556, 2.222): projected to XY, x+y = 46/9 ≈ 5.11 > 4, i.e.
+    // OUTSIDE base triangle A. That is the RED lever — under the Cycle-B
+    // centroid placeholder `gp()` returns that out-of-base centroid, so
+    // `find_containing_triangle` fails and `split_single_triangle` returns
+    // `NoContainingTriangle`. Real-TPI routing (Cycle C1) places the point at
+    // the interior (1,1,0) and the split succeeds.
+    fn tpi_fixture_planes() -> ([Point3; 3], [Point3; 3], [Point3; 3]) {
+        let v = [
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(10.0, 0.0, 0.0),
+            Point3::new(0.0, 10.0, 0.0),
+        ];
+        let w = [
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(1.0, 10.0, 0.0),
+            Point3::new(1.0, 0.0, 10.0),
+        ];
+        let u = [
+            Point3::new(0.0, 1.0, 0.0),
+            Point3::new(10.0, 1.0, 0.0),
+            Point3::new(0.0, 1.0, 10.0),
+        ];
+        (v, w, u)
+    }
+
     // ── Exact-rational helpers (pure dashu — independent of the FFI) ──
 
     fn to_r(x: f64) -> RBig {
@@ -361,21 +405,70 @@ mod tests {
                     &p[2] + &(&u * &qp[2]),
                 ]
             }
-            // PR-CR-AR2b Cycle B added the `Tpi` variant; this AR2a covering
-            // oracle never constructs Tpi vertices (Cycle C does), so this arm
-            // is unreachable in these tests. Mirror the bookkeeping centroid
-            // approx in exact RBig for totality (not used by any assertion).
+            // PR-CR-AR2b Cycle C1: the `Tpi` point is the EXACT common
+            // intersection of the three planes (one per generator-triangle).
+            // Each plane i gives `n_i · X = n_i · p_i` with `n_i` the exact
+            // cross-product normal of that triangle's three generators and
+            // `p_i` one of its generators. Solve the resulting 3×3 system
+            // exactly in `RBig` (Cramer's rule, exact determinants). This is
+            // the true point used by all covering / location assertions — NOT
+            // the Cycle-B `sum/9` centroid bookkeeping approximation.
             VertexCoords::Tpi { v, w, u } => {
-                let nine = to_r(9.0);
-                let mut acc = [RBig::ZERO, RBig::ZERO, RBig::ZERO];
-                for tri in [v, w, u] {
-                    for g in tri {
-                        acc[0] += to_r(g.x());
-                        acc[1] += to_r(g.y());
-                        acc[2] += to_r(g.z());
-                    }
-                }
-                [&acc[0] / &nine, &acc[1] / &nine, &acc[2] / &nine]
+                let to_r3 = |p: &Point3| [to_r(p.x()), to_r(p.y()), to_r(p.z())];
+                let sub = |a: &[RBig; 3], b: &[RBig; 3]| -> [RBig; 3] {
+                    [&a[0] - &b[0], &a[1] - &b[1], &a[2] - &b[2]]
+                };
+                let cross = |a: &[RBig; 3], b: &[RBig; 3]| -> [RBig; 3] {
+                    [
+                        &(&a[1] * &b[2]) - &(&a[2] * &b[1]),
+                        &(&a[2] * &b[0]) - &(&a[0] * &b[2]),
+                        &(&a[0] * &b[1]) - &(&a[1] * &b[0]),
+                    ]
+                };
+                let dot = |a: &[RBig; 3], b: &[RBig; 3]| -> RBig {
+                    &(&(&a[0] * &b[0]) + &(&a[1] * &b[1])) + &(&a[2] * &b[2])
+                };
+
+                // Per-plane normal n_i and rhs d_i = n_i · p_i.
+                let plane_eqn = |tri: &[Point3; 3]| -> ([RBig; 3], RBig) {
+                    let r = to_r3(&tri[0]);
+                    let s = to_r3(&tri[1]);
+                    let t = to_r3(&tri[2]);
+                    let n = cross(&sub(&s, &r), &sub(&t, &r));
+                    let d = dot(&n, &r);
+                    (n, d)
+                };
+                let (n0, d0) = plane_eqn(v);
+                let (n1, d1) = plane_eqn(w);
+                let (n2, d2) = plane_eqn(u);
+
+                // System matrix M has ROWS n0, n1, n2 (so M·X = d). Cramer's
+                // rule substitutes the rhs into a COLUMN. det of a 3×3 given as
+                // three rows r0,r1,r2 is r0 · (r1 × r2).
+                let det_rows = |r0: &[RBig; 3], r1: &[RBig; 3], r2: &[RBig; 3]| -> RBig {
+                    dot(r0, &cross(r1, r2))
+                };
+                let det = det_rows(&n0, &n1, &n2);
+                assert!(
+                    det != RBig::ZERO,
+                    "exact_coords: TPI planes are not in general position (det == 0) — bad fixture"
+                );
+                let rhs = [d0, d1, d2];
+                // Substitute rhs into column k (k = x,y,z) of M, then det.
+                let sub_col = |k: usize| -> [[RBig; 3]; 3] {
+                    let mut rows = [n0.clone(), n1.clone(), n2.clone()];
+                    rows[0][k] = rhs[0].clone();
+                    rows[1][k] = rhs[1].clone();
+                    rows[2][k] = rhs[2].clone();
+                    rows
+                };
+                let mx = sub_col(0);
+                let my = sub_col(1);
+                let mz = sub_col(2);
+                let det_x = det_rows(&mx[0], &mx[1], &mx[2]);
+                let det_y = det_rows(&my[0], &my[1], &my[2]);
+                let det_z = det_rows(&mz[0], &mz[1], &mz[2]);
+                [&det_x / &det, &det_y / &det, &det_z / &det]
             }
         }
     }
@@ -690,6 +783,244 @@ mod tests {
         assert!(
             matches!(err, RetriangulateError::NoContainingTriangle { .. }),
             "expected NoContainingTriangle, got {err:?}"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Group 6 — TPI routing (PR-CR-AR2b Cycle C1).
+    //
+    // These insert a `VertexCoords::Tpi` interior point through the PUBLIC
+    // `split_single_triangle`. Under the Cycle-B centroid (`sum/9`) placeholder
+    // `gp()`, the located point lands OUTSIDE base triangle A → the split
+    // returns `NoContainingTriangle`, so every `.expect(..)` here PANICS (RED).
+    // Cycle C1 routes the point through a real exact `ImplicitPoint3DTpi` handle
+    // at the interior (1,1,0) → the split succeeds (GREEN).
+    // ════════════════════════════════════════════════════════════════
+
+    /// Exact-solve fixture sanity: the three TPI fixture planes intersect at
+    /// EXACTLY (1,1,0) (pure dashu, independent of the FFI). This anchors the
+    /// RED lever — the real intersection is interior to A while the centroid
+    /// `sum/9` is outside.
+    #[test]
+    fn tpi_fixture_exact_intersection_is_interior_point() {
+        let (v, w, u) = tpi_fixture_planes();
+        let xc = exact_coords(&VertexCoords::Tpi { v, w, u });
+        assert_eq!(
+            xc,
+            [to_r(1.0), to_r(1.0), to_r(0.0)],
+            "TPI fixture planes must intersect exactly at (1,1,0)"
+        );
+        // And the centroid placeholder really is outside base A in XY.
+        let (mut sx, mut sy) = (RBig::ZERO, RBig::ZERO);
+        for tri in [&v, &w, &u] {
+            for g in tri.iter() {
+                sx = &sx + &to_r(g.x());
+                sy = &sy + &to_r(g.y());
+            }
+        }
+        let nine = to_r(9.0);
+        let cx = &sx / &nine;
+        let cy = &sy / &nine;
+        // x + y of the centroid > 4 (the base edge A1A2 line x+y=4) → outside A.
+        assert!(
+            &(&cx + &cy) > &to_r(4.0),
+            "centroid placeholder must be OUTSIDE base A (x+y > 4) — this is the RED lever"
+        );
+    }
+
+    /// (1) Insert one interior `Tpi` point → 3 tris (barycentric fan).
+    ///   RED: errors (NoContainingTriangle) under the centroid placeholder.
+    ///   GREEN: interior (1,1,0) → fan into 3.
+    #[test]
+    fn tpi_interior_one_point_three_tris() {
+        let a = xy_triangle_a();
+        let mut subm = one_tri(a[0], a[1], a[2]);
+        let (v, w, u) = tpi_fixture_planes();
+        let pts = vec![tp_tpi(v, w, u)];
+        split_single_triangle(&mut subm, &pts)
+            .expect("interior TPI split must succeed (real handle routes to (1,1,0))");
+        assert_eq!(subm.num_tris(), 3, "1 interior TPI point → 3 tris");
+    }
+
+    /// (2) EXACT exactness oracle (NOT float tolerance), `AVAILABLE`-gated
+    /// fail-loud like `oracle_completeness_and_incidence_ffi`. After inserting
+    /// the `Tpi` point, locate the inserted submesh vertex, read back its
+    /// stored `VertexCoords::Tpi` generators, build a real `ImplicitPoint3DTpi`
+    /// handle, and assert it lies on ALL THREE supporting planes via exact
+    /// `orient3d == Sign::Zero`. Then assert the placeholder centroid would be
+    /// WRONG: an `ExplicitPoint3D` at `sum/9` is OFF plane v (z ≠ 0) →
+    /// `orient3d != Zero`.
+    #[test]
+    fn tpi_exact_on_three_planes_after_insertion() {
+        use indirect_predicates_sidecar_rs::{
+            init_fpu, orient3d, ExplicitPoint3D, ImplicitPoint3DTpi, Sign as IpSign, AVAILABLE,
+        };
+
+        if !AVAILABLE {
+            panic!(
+                "indirect-predicates FFI shim not linked (AVAILABLE == false); \
+                 the TPI exactness oracle cannot run — refusing to pass silently"
+            );
+        }
+        init_fpu();
+
+        let a = xy_triangle_a();
+        let mut subm = one_tri(a[0], a[1], a[2]);
+        let (v, w, u) = tpi_fixture_planes();
+        split_single_triangle(&mut subm, &[tp_tpi(v, w, u)])
+            .expect("interior TPI split must succeed");
+
+        // Locate the inserted Tpi vertex by exact coords (== (1,1,0)).
+        let tpi_vid = find_vert_by_exact(&subm, &VertexCoords::Tpi { v, w, u })
+            .expect("inserted TPI point must be a submesh vertex at the exact intersection");
+
+        // Read back its stored generators (must be a Tpi vertex).
+        let (gv, gw, gu) = match subm.vert_coords(tpi_vid) {
+            VertexCoords::Tpi { v, w, u } => (*v, *w, *u),
+            other => panic!("located vertex must store VertexCoords::Tpi, got {other:?}"),
+        };
+
+        // Build the real implicit TPI handle from the stored generators.
+        let ip = |p: Point3| ExplicitPoint3D::new(p.x(), p.y(), p.z());
+        let (gv0, gv1, gv2) = (ip(gv[0]), ip(gv[1]), ip(gv[2]));
+        let (gw0, gw1, gw2) = (ip(gw[0]), ip(gw[1]), ip(gw[2]));
+        let (gu0, gu1, gu2) = (ip(gu[0]), ip(gu[1]), ip(gu[2]));
+        let tpi = ImplicitPoint3DTpi::new(&gv0, &gv1, &gv2, &gw0, &gw1, &gw2, &gu0, &gu1, &gu2);
+
+        // The TPI point lies on ALL THREE supporting planes (exact orient3d).
+        assert_eq!(
+            orient3d(&gv0, &gv1, &gv2, &tpi),
+            IpSign::Zero,
+            "TPI must lie exactly on plane v (z=0)"
+        );
+        assert_eq!(
+            orient3d(&gw0, &gw1, &gw2, &tpi),
+            IpSign::Zero,
+            "TPI must lie exactly on plane w (x=1)"
+        );
+        assert_eq!(
+            orient3d(&gu0, &gu1, &gu2, &tpi),
+            IpSign::Zero,
+            "TPI must lie exactly on plane u (y=1)"
+        );
+
+        // The placeholder centroid sum/9 does NOT lie on the planes: build an
+        // explicit point at the centroid and assert it is OFF plane v (z≈2.22).
+        let (mut sx, mut sy, mut sz) = (0.0f64, 0.0f64, 0.0f64);
+        for tri in [&gv, &gw, &gu] {
+            for g in tri.iter() {
+                sx += g.x();
+                sy += g.y();
+                sz += g.z();
+            }
+        }
+        let centroid = ExplicitPoint3D::new(sx / 9.0, sy / 9.0, sz / 9.0);
+        assert_ne!(
+            orient3d(&gv0, &gv1, &gv2, &centroid),
+            IpSign::Zero,
+            "centroid placeholder must NOT lie on plane v (z != 0) — encodes the placeholder is wrong"
+        );
+    }
+
+    /// (3) Pure-`dashu` covering oracle (independent of the FFI split path),
+    /// mirroring `oracle_exact_covering_subtriangulation`. After inserting the
+    /// interior `Tpi` point, the 3 sub-tris must EXACTLY tile base A: every
+    /// sub-tri's exact signed area (XY projection) shares the base sign and they
+    /// sum EXACTLY to the base area. Uses the exact 3-plane-solve `exact_coords`
+    /// `Tpi` arm (the inserted vertex resolves to (1,1,0)).
+    #[test]
+    fn tpi_interior_exact_covering_subtriangulation() {
+        let a = xy_triangle_a();
+        let mut subm = one_tri(a[0], a[1], a[2]);
+        let (v, w, u) = tpi_fixture_planes();
+
+        // Fixture sanity: the exact solve yields exactly (1,1,0).
+        assert_eq!(
+            exact_coords(&VertexCoords::Tpi { v, w, u }),
+            [to_r(1.0), to_r(1.0), to_r(0.0)],
+            "TPI exact solve must be (1,1,0)"
+        );
+
+        split_single_triangle(&mut subm, &[tp_tpi(v, w, u)])
+            .expect("interior TPI split must succeed");
+
+        let ba = exact_coords(&VertexCoords::Explicit(a[0]));
+        let bb = exact_coords(&VertexCoords::Explicit(a[1]));
+        let bc = exact_coords(&VertexCoords::Explicit(a[2]));
+        let base_area2 = exact_signed_area2_xy(&ba, &bb, &bc);
+        assert!(
+            base_area2 != RBig::ZERO,
+            "base triangle must be non-degenerate"
+        );
+        let base_positive = base_area2 > RBig::ZERO;
+
+        let mut sum = RBig::ZERO;
+        for t in 0..subm.num_tris() {
+            let v0 = exact_coords(subm.vert_coords(subm.tri_vert_id(t, 0)));
+            let v1 = exact_coords(subm.vert_coords(subm.tri_vert_id(t, 1)));
+            let v2 = exact_coords(subm.vert_coords(subm.tri_vert_id(t, 2)));
+            let area2 = exact_signed_area2_xy(&v0, &v1, &v2);
+            assert!(
+                area2 != RBig::ZERO,
+                "sub-tri {t} is degenerate (exact zero area)"
+            );
+            assert_eq!(
+                area2 > RBig::ZERO,
+                base_positive,
+                "sub-tri {t} winding sign disagrees with base (flip)"
+            );
+            sum = &sum + &area2;
+        }
+        assert_eq!(
+            sum, base_area2,
+            "TPI sub-tri signed areas must sum EXACTLY to the base (covering, no gaps/overlaps)"
+        );
+    }
+
+    /// (4) The interior `Tpi` point inserted ALONGSIDE other routed point types
+    /// (a DIFFERENT interior Explicit and an on-edge `Lpi`) still tiles A
+    /// exactly — exercises Tpi mixed with Explicit/Lpi. Points are distinct so
+    /// no coincidence: TPI at (1,1,0), Explicit at (2,1,0), Lpi on edge (0,1) at
+    /// (2,0,0).
+    #[test]
+    fn tpi_interior_covering_with_lpi_and_explicit() {
+        let a = xy_triangle_a();
+        let mut subm = one_tri(a[0], a[1], a[2]);
+        let (v, w, u) = tpi_fixture_planes();
+        let line = [Point3::new(2.0, 0.0, -1.0), Point3::new(2.0, 0.0, 1.0)];
+        let plane = [a[0], a[1], a[2]]; // z = 0; LPI lands at (2,0,0) on edge (0,1)
+
+        let pts = vec![
+            tp_tpi(v, w, u),
+            tp_explicit(Point3::new(2.0, 1.0, 0.0)),
+            tp_lpi(line, plane),
+        ];
+        split_single_triangle(&mut subm, &pts)
+            .expect("mixed TPI + Explicit + Lpi split must succeed");
+
+        let ba = exact_coords(&VertexCoords::Explicit(a[0]));
+        let bb = exact_coords(&VertexCoords::Explicit(a[1]));
+        let bc = exact_coords(&VertexCoords::Explicit(a[2]));
+        let base_area2 = exact_signed_area2_xy(&ba, &bb, &bc);
+        let base_positive = base_area2 > RBig::ZERO;
+
+        let mut sum = RBig::ZERO;
+        for t in 0..subm.num_tris() {
+            let v0 = exact_coords(subm.vert_coords(subm.tri_vert_id(t, 0)));
+            let v1 = exact_coords(subm.vert_coords(subm.tri_vert_id(t, 1)));
+            let v2 = exact_coords(subm.vert_coords(subm.tri_vert_id(t, 2)));
+            let area2 = exact_signed_area2_xy(&v0, &v1, &v2);
+            assert!(area2 != RBig::ZERO, "sub-tri {t} degenerate");
+            assert_eq!(
+                area2 > RBig::ZERO,
+                base_positive,
+                "sub-tri {t} winding flip"
+            );
+            sum = &sum + &area2;
+        }
+        assert_eq!(
+            sum, base_area2,
+            "mixed TPI/Explicit/Lpi covering must tile the base EXACTLY"
         );
     }
 }
