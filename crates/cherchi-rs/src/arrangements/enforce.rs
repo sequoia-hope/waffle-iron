@@ -1475,6 +1475,699 @@ mod tests {
         );
     }
 
+    // ════════════════════════════════════════════════════════════════
+    // ── PR-CR-AR3a Adversary ──────────────────────────────────────
+    //
+    // Independent re-verification of the GREEN exactness claims and an
+    // attempt to break the implementation with pathological inputs. All
+    // probes drive the PUBLIC surface (`enforce_constraint_segments` /
+    // `enforce_constraints`). NO production code is modified by this block.
+    //
+    // Background re-verified directly against the upstream C++
+    // (`implicit_point.hpp`, vendored at /home/claude/cherchi2022/...):
+    //   * `pointInInnerSegment` (cpp:1103) routes through `lessThanOnX/Y/Z`,
+    //     whose explicit-explicit branch (cpp:73/83/93) returns the C++ `bool`
+    //     `a.X() < b.X()` — 0 or 1, NEVER −1. For a DESCENDING explicit segment
+    //     `lt2 = lessThanOnX(v1, p)` is 0, the branch is skipped, and a segment
+    //     purely along that descending axis returns `false`. This confirms the
+    //     EE endpoint-order asymmetry GREEN's `point_inside_segment` repairs by
+    //     OR-ing both endpoint orders.
+    //   * `innerSegmentsCross` (cpp:1038), by contrast, routes through
+    //     `orient2Dxy/yz/zx` whose EE branch is `orient2d_EEE` (cpp:137) — a real
+    //     signed Shewchuk determinant (−1/0/+1). Its decision `o11==o12 &&
+    //     o21==o22` is fully sign-aware and symmetric under A↔B / P↔Q swaps, so
+    //     it does NOT share the EE asymmetry. Probe 2 confirms this empirically
+    //     (a reversed-order crossing still yields exactly one correct TPI).
+    // ════════════════════════════════════════════════════════════════
+
+    // ── Probe 1: segment coincident with an existing BASE edge → flag only ──
+
+    /// A constraint segment lying exactly along a base-triangle edge (A0,A1),
+    /// distinct from the existing `segment_already_an_edge_flags_no_new_vertex`
+    /// fixture (which uses a fan spoke born of an interior split). No points are
+    /// inserted, so edge (A0,A1) is a pristine base edge. Enforcing it must flag
+    /// that edge and add NO vertex and NO TPI (oracle 4).
+    #[test]
+    fn adv_segment_coincident_with_base_edge_flags_no_new_vertex() {
+        let a = xy_triangle_a();
+        let mut subm = one_tri(a[0], a[1], a[2]);
+
+        let v_a0 = find_explicit_vert(&subm, a[0]).expect("A0 vertex");
+        let v_a1 = find_explicit_vert(&subm, a[1]).expect("A1 vertex");
+        assert!(
+            subm.edge_id(v_a0, v_a1).is_some(),
+            "base edge (A0,A1) must exist in a bare 1-tri submesh"
+        );
+        let nverts_before = subm.num_verts();
+        let ntris_before = subm.num_tris();
+
+        enforce_constraint_segments(
+            &mut subm,
+            &[SegmentSpec {
+                v0: v_a0,
+                v1: v_a1,
+                // A plane through the base edge, lifted out of z=0.
+                source_tri: [a[0], a[1], Point3::new(2.0, 0.0, 5.0)],
+            }],
+        )
+        .expect("flagging a base edge must succeed");
+
+        assert_eq!(
+            subm.num_verts(),
+            nverts_before,
+            "flagging an existing base edge must NOT add a vertex"
+        );
+        assert_eq!(
+            subm.num_tris(),
+            ntris_before,
+            "flagging an existing base edge must NOT re-triangulate"
+        );
+        assert!(
+            edge_is_constr_between(&subm, v_a0, v_a1),
+            "the base edge (A0,A1) must be constraint-flagged"
+        );
+    }
+
+    // ── Probe 2: reversed-order X-crossing (the EE-asymmetry probe) ──
+
+    /// THE highest-value probe. Identical fixture to Test 3's X-crossing, but
+    /// BOTH segments are given with their endpoints SWAPPED (descending v0/v1)
+    /// AND the spec order is reversed (S2 before S1). If the
+    /// `inner_segments_cross` / `segmentsIntersectInside` path shared the EE
+    /// `lessThanOn*` asymmetry, a descending/reversed crossing could miss the
+    /// crossing, place the TPI wrong, or error. The reference analysis says it
+    /// does NOT (it uses sign-aware `orient2d`). Verify exactly ONE Tpi at the
+    /// exact (1,1,0), on all three planes via EXACT orient3d == Zero, and an
+    /// exact covering. ANY ordering breakage here is a real defect → STOP.
+    #[test]
+    fn adv_reversed_order_x_crossing_one_tpi_on_three_planes() {
+        use indirect_predicates_sidecar_rs::{
+            init_fpu, orient3d, ExplicitPoint3D, ImplicitPoint3DTpi, Sign as IpSign, AVAILABLE,
+        };
+
+        if !AVAILABLE {
+            panic!(
+                "indirect-predicates FFI shim not linked (AVAILABLE == false); \
+                 the reversed-order X-crossing probe cannot run — refusing to pass silently"
+            );
+        }
+        init_fpu();
+
+        let a = xy_triangle_a();
+        let s1a = Point3::new(1.0, 0.0, 0.0);
+        let s1b = Point3::new(1.0, 3.0, 0.0);
+        let s2a = Point3::new(0.0, 1.0, 0.0);
+        let s2b = Point3::new(3.0, 1.0, 0.0);
+
+        let mut subm = one_tri(a[0], a[1], a[2]);
+        split_single_triangle(
+            &mut subm,
+            &[
+                tp_explicit(s1a),
+                tp_explicit(s1b),
+                tp_explicit(s2a),
+                tp_explicit(s2b),
+            ],
+        )
+        .expect("inserting the four on-edge endpoints must succeed");
+
+        let v_s1a = find_explicit_vert(&subm, s1a).expect("s1a vertex");
+        let v_s1b = find_explicit_vert(&subm, s1b).expect("s1b vertex");
+        let v_s2a = find_explicit_vert(&subm, s2a).expect("s2a vertex");
+        let v_s2b = find_explicit_vert(&subm, s2b).expect("s2b vertex");
+
+        let nverts_before = subm.num_verts();
+
+        // Reversed: endpoints swapped (v0=b, v1=a) AND S2 listed before S1.
+        enforce_constraint_segments(
+            &mut subm,
+            &[
+                SegmentSpec {
+                    v0: v_s2b,
+                    v1: v_s2a,
+                    source_tri: [s2a, s2b, s2_third()],
+                },
+                SegmentSpec {
+                    v0: v_s1b,
+                    v1: v_s1a,
+                    source_tri: [s1a, s1b, s1_third()],
+                },
+            ],
+        )
+        .expect("reversed-order X-crossing enforcement must succeed");
+
+        // Exactly ONE new vertex — the TPI at the crossing — regardless of order.
+        assert_eq!(
+            subm.num_verts(),
+            nverts_before + 1,
+            "reversed-order X-crossing must STILL add exactly one TPI vertex"
+        );
+
+        let want = [to_r(1.0), to_r(1.0), to_r(0.0)];
+        let tpi_vid = (0..subm.num_verts())
+            .find(|&v| {
+                matches!(subm.vert_coords(v), VertexCoords::Tpi { .. })
+                    && exact_coords(subm.vert_coords(v)) == want
+            })
+            .expect("a Tpi at the exact crossing (1,1,0) must exist for reversed order");
+
+        // EXACT orient3d == Zero on all three supporting planes.
+        let (gv, gw, gu) = match subm.vert_coords(tpi_vid) {
+            VertexCoords::Tpi { v, w, u } => (*v, *w, *u),
+            other => panic!("TPI vertex must store VertexCoords::Tpi, got {other:?}"),
+        };
+        let ip = |p: Point3| ExplicitPoint3D::new(p.x(), p.y(), p.z());
+        let (gv0, gv1, gv2) = (ip(gv[0]), ip(gv[1]), ip(gv[2]));
+        let (gw0, gw1, gw2) = (ip(gw[0]), ip(gw[1]), ip(gw[2]));
+        let (gu0, gu1, gu2) = (ip(gu[0]), ip(gu[1]), ip(gu[2]));
+        let tpi = ImplicitPoint3DTpi::new(&gv0, &gv1, &gv2, &gw0, &gw1, &gw2, &gu0, &gu1, &gu2);
+        let (ea0, ea1, ea2) = (ip(a[0]), ip(a[1]), ip(a[2]));
+        let (e_s1_0, e_s1_1, e_s1_2) = (ip(s1a), ip(s1b), ip(s1_third()));
+        let (e_s2_0, e_s2_1, e_s2_2) = (ip(s2a), ip(s2b), ip(s2_third()));
+        assert_eq!(
+            orient3d(&ea0, &ea1, &ea2, &tpi),
+            IpSign::Zero,
+            "reversed: TPI must lie exactly on base plane A (z=0)"
+        );
+        assert_eq!(
+            orient3d(&e_s1_0, &e_s1_1, &e_s1_2, &tpi),
+            IpSign::Zero,
+            "reversed: TPI must lie exactly on S1's source plane (x=1)"
+        );
+        assert_eq!(
+            orient3d(&e_s2_0, &e_s2_1, &e_s2_2, &tpi),
+            IpSign::Zero,
+            "reversed: TPI must lie exactly on S2's source plane (y=1)"
+        );
+
+        // Each endpoint connects to the TPI by a constraint edge (both realized).
+        for &endpoint in &[v_s1a, v_s1b, v_s2a, v_s2b] {
+            assert!(
+                edge_is_constr_between(&subm, endpoint, tpi_vid),
+                "reversed: each endpoint must connect to the TPI by a constraint edge"
+            );
+        }
+
+        // Exact covering: sub-tri signed areas sum exactly to the base, same sign.
+        let ba = exact_coords(&VertexCoords::Explicit(a[0]));
+        let bb = exact_coords(&VertexCoords::Explicit(a[1]));
+        let bc = exact_coords(&VertexCoords::Explicit(a[2]));
+        let base_area2 = exact_signed_area2_xy(&ba, &bb, &bc);
+        let base_positive = base_area2 > RBig::ZERO;
+        let mut sum = RBig::ZERO;
+        for t in 0..subm.num_tris() {
+            let v0 = exact_coords(subm.vert_coords(subm.tri_vert_id(t, 0)));
+            let v1 = exact_coords(subm.vert_coords(subm.tri_vert_id(t, 1)));
+            let v2 = exact_coords(subm.vert_coords(subm.tri_vert_id(t, 2)));
+            let area2 = exact_signed_area2_xy(&v0, &v1, &v2);
+            assert!(area2 != RBig::ZERO, "reversed: sub-tri {t} degenerate");
+            assert_eq!(
+                area2 > RBig::ZERO,
+                base_positive,
+                "reversed: sub-tri {t} winding flip"
+            );
+            sum = &sum + &area2;
+        }
+        assert_eq!(
+            sum, base_area2,
+            "reversed-order enforcement must still tile the base exactly"
+        );
+    }
+
+    // ── Probe 3: two independent interior crossings → two TPIs (or AR3b wall) ──
+
+    /// Three mutually transversal constraint segments producing TWO distinct
+    /// interior crossings:
+    ///   V  (line x=1): from (1,0,0) to (1,3,0)            — plane x=1
+    ///   H1 (line y=0.5): from (0,0.5,0) to (3,0.5,0)      — plane y=0.5,
+    ///        crosses V at (1,0.5,0)
+    ///   H2 (line y=2): from (0,2,0) to (2,2,0)            — plane y=2,
+    ///        crosses V at (1,2,0)
+    /// Both crossings are strictly interior to base A {x>0,y>0,x+y<4}:
+    ///   (1,0.5): 1.5<4 ok;  (1,2): 3<4 ok.
+    /// Each crossing's third plane (the crossed edge's plane) is a sub-edge of V
+    /// whose plane was recorded when V's first crossing was enforced, so the
+    /// in-scope path SHOULD resolve both. If a second crossing trips the AR3b
+    /// wall (`SourcePlaneUnavailable` / `DegenerateTpi`), this asserts the
+    /// specific error and documents the deferral rather than asserting success.
+    #[test]
+    fn adv_two_interior_crossings_two_tpis_or_ar3b_wall() {
+        use indirect_predicates_sidecar_rs::AVAILABLE;
+        if !AVAILABLE {
+            panic!("FFI shim not linked; multi-crossing probe cannot run");
+        }
+
+        let a = xy_triangle_a();
+        let v0 = Point3::new(1.0, 0.0, 0.0);
+        let v1 = Point3::new(1.0, 3.0, 0.0);
+        let h1a = Point3::new(0.0, 0.5, 0.0);
+        let h1b = Point3::new(3.0, 0.5, 0.0);
+        let h2a = Point3::new(0.0, 2.0, 0.0);
+        let h2b = Point3::new(2.0, 2.0, 0.0);
+
+        let mut subm = one_tri(a[0], a[1], a[2]);
+        split_single_triangle(
+            &mut subm,
+            &[
+                tp_explicit(v0),
+                tp_explicit(v1),
+                tp_explicit(h1a),
+                tp_explicit(h1b),
+                tp_explicit(h2a),
+                tp_explicit(h2b),
+            ],
+        )
+        .expect("inserting the six on-edge endpoints must succeed");
+
+        let r = |p: Point3| find_explicit_vert(&subm, p).expect("endpoint vertex");
+        let (vv0, vv1) = (r(v0), r(v1));
+        let (vh1a, vh1b) = (r(h1a), r(h1b));
+        let (vh2a, vh2b) = (r(h2a), r(h2b));
+
+        let nverts_before = subm.num_verts();
+
+        let result = enforce_constraint_segments(
+            &mut subm,
+            &[
+                SegmentSpec {
+                    v0: vv0,
+                    v1: vv1,
+                    source_tri: [v0, v1, Point3::new(1.0, 0.0, 5.0)],
+                },
+                SegmentSpec {
+                    v0: vh1a,
+                    v1: vh1b,
+                    source_tri: [h1a, h1b, Point3::new(0.0, 0.5, 5.0)],
+                },
+                SegmentSpec {
+                    v0: vh2a,
+                    v1: vh2b,
+                    source_tri: [h2a, h2b, Point3::new(0.0, 2.0, 5.0)],
+                },
+            ],
+        );
+
+        match result {
+            Ok(()) => {
+                // Count the genuine interior crossings realized as Tpi vertices.
+                let want_lo = [to_r(1.0), to_r(0.5), to_r(0.0)];
+                let want_hi = [to_r(1.0), to_r(2.0), to_r(0.0)];
+                let mut tpi_lo = None;
+                let mut tpi_hi = None;
+                let mut tpi_count = 0usize;
+                for v in 0..subm.num_verts() {
+                    if matches!(subm.vert_coords(v), VertexCoords::Tpi { .. }) {
+                        tpi_count += 1;
+                        let ec = exact_coords(subm.vert_coords(v));
+                        if ec == want_lo {
+                            tpi_lo = Some(v);
+                        } else if ec == want_hi {
+                            tpi_hi = Some(v);
+                        }
+                    }
+                }
+                assert_eq!(
+                    tpi_count, 2,
+                    "two interior crossings must create exactly two Tpi vertices, got {tpi_count}"
+                );
+                assert_eq!(
+                    subm.num_verts(),
+                    nverts_before + 2,
+                    "two crossings must add exactly two vertices"
+                );
+                let tpi_lo = tpi_lo.expect("a Tpi at (1,0.5,0) must exist");
+                let tpi_hi = tpi_hi.expect("a Tpi at (1,2,0) must exist");
+
+                // Each crossing exactly on its three planes (base + the two
+                // crossing segments). Recompute from stored generators.
+                exact_tpi_on_three_planes(&subm, tpi_lo);
+                exact_tpi_on_three_planes(&subm, tpi_hi);
+
+                // Exact covering still tiles base A.
+                assert_exact_covering(&subm, a);
+            }
+            Err(EnforceError::SourcePlaneUnavailable { .. }) | Err(EnforceError::DegenerateTpi) => {
+                // Documented AR3b wall: a second crossing whose crossed-edge
+                // plane is not directly available halts the cycle. This is the
+                // correct deferral, not a defect. Assert the specific error
+                // variant so a future regression (e.g. a silent wrong answer)
+                // is caught.
+            }
+            Err(other) => panic!(
+                "multi-crossing produced an unexpected error variant: {other:?} \
+                 (expected Ok with two TPIs, or the documented AR3b wall)"
+            ),
+        }
+    }
+
+    /// Recompute and assert (EXACT orient3d == Zero) that the `Tpi` vertex
+    /// `tpi_vid` lies on each of its three stored supporting planes.
+    fn exact_tpi_on_three_planes(subm: &FastTrimesh, tpi_vid: u32) {
+        use indirect_predicates_sidecar_rs::{
+            orient3d, ExplicitPoint3D, ImplicitPoint3DTpi, Sign as IpSign,
+        };
+        let (gv, gw, gu) = match subm.vert_coords(tpi_vid) {
+            VertexCoords::Tpi { v, w, u } => (*v, *w, *u),
+            other => panic!("expected Tpi, got {other:?}"),
+        };
+        let ip = |p: Point3| ExplicitPoint3D::new(p.x(), p.y(), p.z());
+        let g = |t: [Point3; 3]| (ip(t[0]), ip(t[1]), ip(t[2]));
+        let (gv0, gv1, gv2) = g(gv);
+        let (gw0, gw1, gw2) = g(gw);
+        let (gu0, gu1, gu2) = g(gu);
+        let tpi = ImplicitPoint3DTpi::new(&gv0, &gv1, &gv2, &gw0, &gw1, &gw2, &gu0, &gu1, &gu2);
+        for tri in [gv, gw, gu] {
+            let (p0, p1, p2) = (ip(tri[0]), ip(tri[1]), ip(tri[2]));
+            assert_eq!(
+                orient3d(&p0, &p1, &p2, &tpi),
+                IpSign::Zero,
+                "Tpi must lie exactly on each stored supporting plane"
+            );
+        }
+    }
+
+    /// Assert (pure dashu) that the submesh exactly tiles base triangle `a`.
+    fn assert_exact_covering(subm: &FastTrimesh, a: [Point3; 3]) {
+        let ba = exact_coords(&VertexCoords::Explicit(a[0]));
+        let bb = exact_coords(&VertexCoords::Explicit(a[1]));
+        let bc = exact_coords(&VertexCoords::Explicit(a[2]));
+        let base_area2 = exact_signed_area2_xy(&ba, &bb, &bc);
+        let base_positive = base_area2 > RBig::ZERO;
+        let mut sum = RBig::ZERO;
+        for t in 0..subm.num_tris() {
+            let p0 = exact_coords(subm.vert_coords(subm.tri_vert_id(t, 0)));
+            let p1 = exact_coords(subm.vert_coords(subm.tri_vert_id(t, 1)));
+            let p2 = exact_coords(subm.vert_coords(subm.tri_vert_id(t, 2)));
+            let area2 = exact_signed_area2_xy(&p0, &p1, &p2);
+            assert!(area2 != RBig::ZERO, "sub-tri {t} degenerate");
+            assert_eq!(
+                area2 > RBig::ZERO,
+                base_positive,
+                "sub-tri {t} winding flip"
+            );
+            sum = &sum + &area2;
+        }
+        assert_eq!(sum, base_area2, "sub-tris must tile base exactly");
+    }
+
+    // ── Probe 4: degenerate / collinear pathologies → no spurious TPI ──
+
+    /// (a) Two segments that SHARE an endpoint (meet at a common interior
+    /// vertex), not a transversal X. `inner_segments_cross` must reject this
+    /// (shared-endpoint is excluded), so NO TPI is created. Both segments are
+    /// realized as constraint chains through the shared vertex.
+    #[test]
+    fn adv_shared_endpoint_creates_no_tpi() {
+        use indirect_predicates_sidecar_rs::AVAILABLE;
+        if !AVAILABLE {
+            panic!("FFI shim not linked; shared-endpoint probe cannot run");
+        }
+
+        let a = xy_triangle_a();
+        // Shared interior vertex M; two arms going to distinct on-edge points.
+        let m = Point3::new(1.0, 1.0, 0.0);
+        let arm1 = Point3::new(2.0, 0.0, 0.0); // on edge A0A1 (y=0)
+        let arm2 = Point3::new(0.0, 2.0, 0.0); // on edge A0A2 (x=0)
+
+        let mut subm = one_tri(a[0], a[1], a[2]);
+        split_single_triangle(
+            &mut subm,
+            &[tp_explicit(m), tp_explicit(arm1), tp_explicit(arm2)],
+        )
+        .expect("inserting M + two arm endpoints must succeed");
+
+        let v_m = find_explicit_vert(&subm, m).expect("M vertex");
+        let v_a1 = find_explicit_vert(&subm, arm1).expect("arm1 vertex");
+        let v_a2 = find_explicit_vert(&subm, arm2).expect("arm2 vertex");
+
+        let nverts_before = subm.num_verts();
+
+        enforce_constraint_segments(
+            &mut subm,
+            &[
+                SegmentSpec {
+                    v0: v_m,
+                    v1: v_a1,
+                    source_tri: [m, arm1, Point3::new(1.0, 1.0, 5.0)],
+                },
+                SegmentSpec {
+                    v0: v_m,
+                    v1: v_a2,
+                    source_tri: [m, arm2, Point3::new(1.0, 1.0, 7.0)],
+                },
+            ],
+        )
+        .expect("two segments sharing an endpoint must enforce without a crossing");
+
+        assert_eq!(
+            subm.num_verts(),
+            nverts_before,
+            "a shared endpoint is NOT a transversal crossing — no TPI must be created"
+        );
+        assert!(
+            !(0..subm.num_verts()).any(|v| matches!(subm.vert_coords(v), VertexCoords::Tpi { .. })),
+            "no Tpi vertex must exist for a shared-endpoint configuration"
+        );
+        assert!(
+            edge_is_constr_between(&subm, v_m, v_a1),
+            "arm (M, arm1) must be a constraint edge"
+        );
+        assert!(
+            edge_is_constr_between(&subm, v_m, v_a2),
+            "arm (M, arm2) must be a constraint edge"
+        );
+    }
+
+    /// (b) Collinear-overlap: two segments on the SAME supporting line (y=x),
+    /// where the second is contained in the first. `innerSegmentsCross` excludes
+    /// collinear-overlap, so no spurious TPI must appear; the shorter segment is
+    /// realized as a sub-chain of the longer via T-junction splits at the shared
+    /// interior vertices. No panic, no error, no new vertex.
+    #[test]
+    fn adv_collinear_overlap_no_spurious_tpi() {
+        use indirect_predicates_sidecar_rs::AVAILABLE;
+        if !AVAILABLE {
+            panic!("FFI shim not linked; collinear-overlap probe cannot run");
+        }
+
+        let a = xy_triangle_a();
+        // Four collinear interior points on y=x: q1<q2<q3<q4.
+        let q1 = Point3::new(0.5, 0.5, 0.0);
+        let q2 = Point3::new(1.0, 1.0, 0.0);
+        let q3 = Point3::new(1.5, 1.5, 0.0);
+        let q4 = Point3::new(2.0, 2.0, 0.0);
+
+        let mut subm = one_tri(a[0], a[1], a[2]);
+        split_single_triangle(
+            &mut subm,
+            &[
+                tp_explicit(q1),
+                tp_explicit(q2),
+                tp_explicit(q3),
+                tp_explicit(q4),
+            ],
+        )
+        .expect("inserting four collinear interior points must succeed");
+
+        let r = |p: Point3| find_explicit_vert(&subm, p).expect("collinear vertex");
+        let (vq1, vq2, vq3, vq4) = (r(q1), r(q2), r(q3), r(q4));
+
+        let nverts_before = subm.num_verts();
+
+        // Long segment q1→q4 and an overlapping inner segment q2→q3 (same line).
+        let plane = [q1, q4, Point3::new(1.0, 1.0, 5.0)]; // y=x lifted
+        enforce_constraint_segments(
+            &mut subm,
+            &[
+                SegmentSpec {
+                    v0: vq1,
+                    v1: vq4,
+                    source_tri: plane,
+                },
+                SegmentSpec {
+                    v0: vq2,
+                    v1: vq3,
+                    source_tri: plane,
+                },
+            ],
+        )
+        .expect("collinear-overlap segments must enforce without a transversal crossing");
+
+        assert_eq!(
+            subm.num_verts(),
+            nverts_before,
+            "collinear-overlap must NOT add a vertex (no transversal crossing)"
+        );
+        assert!(
+            !(0..subm.num_verts()).any(|v| matches!(subm.vert_coords(v), VertexCoords::Tpi { .. })),
+            "no Tpi vertex must exist for a collinear-overlap configuration"
+        );
+        // The overlap interior chain (q2,q3) is realized as a constraint edge.
+        assert!(
+            edge_is_constr_between(&subm, vq2, vq3),
+            "the overlapping inner segment (q2,q3) must be a constraint edge"
+        );
+    }
+
+    // ── Probe 5: TPI-exactness re-verification WITH a negative control ──
+
+    /// Forward X-crossing. Locate the TPI by exact coords, re-derive its three
+    /// supporting planes from the stored generators, and assert EXACT orient3d
+    /// == Zero on all three (positive control — the exactness claim). Then assert
+    /// the NEGATIVE control the spec implies: a point perturbed off the crossing
+    /// (an ExplicitPoint3D at (1,1,ε)) is NOT on plane z=0. This proves the
+    /// exactness assertion has teeth (isn't trivially Zero for everything).
+    #[test]
+    fn adv_tpi_exactness_with_negative_control() {
+        use indirect_predicates_sidecar_rs::{
+            init_fpu, orient3d, ExplicitPoint3D, Sign as IpSign, AVAILABLE,
+        };
+        if !AVAILABLE {
+            panic!("FFI shim not linked; TPI-exactness probe cannot run");
+        }
+        init_fpu();
+
+        let a = xy_triangle_a();
+        let s1a = Point3::new(1.0, 0.0, 0.0);
+        let s1b = Point3::new(1.0, 3.0, 0.0);
+        let s2a = Point3::new(0.0, 1.0, 0.0);
+        let s2b = Point3::new(3.0, 1.0, 0.0);
+
+        let mut subm = one_tri(a[0], a[1], a[2]);
+        split_single_triangle(
+            &mut subm,
+            &[
+                tp_explicit(s1a),
+                tp_explicit(s1b),
+                tp_explicit(s2a),
+                tp_explicit(s2b),
+            ],
+        )
+        .expect("inserting endpoints must succeed");
+
+        let (v_s1a, v_s1b, v_s2a, v_s2b) = (
+            find_explicit_vert(&subm, s1a).expect("s1a vertex"),
+            find_explicit_vert(&subm, s1b).expect("s1b vertex"),
+            find_explicit_vert(&subm, s2a).expect("s2a vertex"),
+            find_explicit_vert(&subm, s2b).expect("s2b vertex"),
+        );
+        enforce_constraint_segments(
+            &mut subm,
+            &[
+                SegmentSpec {
+                    v0: v_s1a,
+                    v1: v_s1b,
+                    source_tri: [s1a, s1b, s1_third()],
+                },
+                SegmentSpec {
+                    v0: v_s2a,
+                    v1: v_s2b,
+                    source_tri: [s2a, s2b, s2_third()],
+                },
+            ],
+        )
+        .expect("X-crossing enforcement must succeed");
+
+        let want = [to_r(1.0), to_r(1.0), to_r(0.0)];
+        let tpi_vid = (0..subm.num_verts())
+            .find(|&v| {
+                matches!(subm.vert_coords(v), VertexCoords::Tpi { .. })
+                    && exact_coords(subm.vert_coords(v)) == want
+            })
+            .expect("a Tpi at (1,1,0) must exist");
+
+        // POSITIVE control: exactly on all three planes (generator-order-agnostic).
+        exact_tpi_on_three_planes(&subm, tpi_vid);
+
+        // NEGATIVE control: a point lifted off z=0 must NOT be on the base plane.
+        let ip = |p: Point3| ExplicitPoint3D::new(p.x(), p.y(), p.z());
+        let (ea0, ea1, ea2) = (ip(a[0]), ip(a[1]), ip(a[2]));
+        let off_plane = ExplicitPoint3D::new(1.0, 1.0, 0.5);
+        assert_ne!(
+            orient3d(&ea0, &ea1, &ea2, &off_plane),
+            IpSign::Zero,
+            "a point at (1,1,0.5) must NOT be on base plane z=0 — the exactness \
+             assertion would be vacuous if everything returned Zero"
+        );
+    }
+
+    // ── Probe 6: gp_dispatch refactor parity (sub-step 3a was a pure move) ──
+
+    /// The 3a refactor moved `Gp`/`backing`/`gp`/`dispatch_orient2d`/
+    /// `dispatch_point_in_triangle` out of `retriangulate.rs` verbatim. Exercise
+    /// the moved helpers directly on a known Explicit input and assert the
+    /// expected sign/bool, demonstrating identical behaviour post-move. (The full
+    /// retriangulate suite — run separately — confirms no behavioural regression.)
+    #[test]
+    fn adv_gp_dispatch_refactor_parity() {
+        use crate::arrangements::gp_dispatch::{
+            backing, dispatch_orient2d, dispatch_point_in_triangle, gp,
+        };
+        use indirect_predicates_sidecar_rs::{init_fpu, Sign as IpSign, AVAILABLE};
+        if !AVAILABLE {
+            panic!("FFI shim not linked; gp_dispatch parity probe cannot run");
+        }
+        init_fpu();
+
+        // CCW triangle in XY → orient2d positive; a known interior point inside.
+        let c0 = VertexCoords::Explicit(Point3::new(0.0, 0.0, 0.0));
+        let c1 = VertexCoords::Explicit(Point3::new(4.0, 0.0, 0.0));
+        let c2 = VertexCoords::Explicit(Point3::new(0.0, 4.0, 0.0));
+        let cp = VertexCoords::Explicit(Point3::new(1.0, 1.0, 0.0));
+
+        let (b0, b1, b2, bp) = (backing(&c0), backing(&c1), backing(&c2), backing(&cp));
+        let (g0, g1, g2, gpp) = (gp(&c0, &b0), gp(&c1, &b1), gp(&c2, &b2), gp(&cp, &bp));
+
+        assert_eq!(
+            dispatch_orient2d(Plane::XY, &g0, &g1, &g2),
+            IpSign::Positive,
+            "CCW explicit triangle must give positive XY orient2d via gp_dispatch"
+        );
+        assert!(
+            dispatch_point_in_triangle(&gpp, &g0, &g1, &g2),
+            "an interior explicit point must test inside via gp_dispatch"
+        );
+        // A point clearly outside must test outside.
+        let cout = VertexCoords::Explicit(Point3::new(5.0, 5.0, 0.0));
+        let bout = backing(&cout);
+        let gout = gp(&cout, &bout);
+        assert!(
+            !dispatch_point_in_triangle(&gout, &g0, &g1, &g2),
+            "an exterior explicit point must test outside via gp_dispatch"
+        );
+    }
+
+    // ── Probe 7: edge_is_constr_between semantics after the helper migration ──
+
+    /// GREEN migrated `edge_is_constr_between`'s `map_or(false, ..)` →
+    /// `is_some_and(..)`. Both forms return `false` when the edge is absent.
+    /// Assert that for a non-adjacent vertex pair (no edge between them) the
+    /// helper returns `false` (rather than panicking or returning `true`).
+    #[test]
+    fn adv_edge_is_constr_between_false_for_nonadjacent() {
+        let a = xy_triangle_a();
+        // Insert an interior point so a non-adjacent pair (the interior point and
+        // a base corner not on its fan… here all corners ARE adjacent to a single
+        // interior fan point) — use two interior points instead so they are
+        // mutually non-adjacent across the fan.
+        let p1 = Point3::new(1.0, 1.0, 0.0);
+        let p2 = Point3::new(2.0, 1.0, 0.0);
+        let mut subm = one_tri(a[0], a[1], a[2]);
+        split_single_triangle(&mut subm, &[tp_explicit(p1), tp_explicit(p2)])
+            .expect("two interior splits must succeed");
+
+        let v_p1 = find_explicit_vert(&subm, p1).expect("p1 vertex");
+        let v_p2 = find_explicit_vert(&subm, p2).expect("p2 vertex");
+
+        // Whatever the fan topology, the helper must be total: if no edge exists
+        // between the pair it returns false; if one exists it is simply not
+        // constraint-flagged (nothing was enforced) → also false.
+        assert!(
+            !edge_is_constr_between(&subm, v_p1, v_p2),
+            "edge_is_constr_between must be false when the edge is absent or unflagged"
+        );
+    }
+
     /// Negative case: a `ConstraintSegment` whose endpoint coords are NOT present
     /// in the submesh must return `EnforceError::EndpointNotInSubmesh`. Built by
     /// passing A's segment list to a BARE base submesh (no inserted points), so
