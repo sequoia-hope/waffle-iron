@@ -1240,10 +1240,34 @@ reimplementation from Attene's paper restores WASM (M7).
         fallback) is AR3-level global state — the Cycle-B `source_tri` covers only
         an original transversal's witness, not mid-recursion sub-segments or the
         coplanar fallback. Deferred to Cycle C2 / AR3 rather than improvised.
-  - **PR-CR-AR3 — global conforming soup + topology.** Assemble the
-    non-self-intersecting triangle soup with consistent shared topology
-    (`triangle_soup` / `solve_intersections`). Parity: the arrangement output
-    matches the C++ arrangement (canonicalized) on the corpus.
+  - **PR-CR-AR3 — constraint enforcement + global conforming soup** (absorbs the
+    AR2b-deferred Cycle-C2 enforcement, which needs global cross-triangle state).
+    **Parity-oracle correction (2026-06-08):** there is NO standalone C++
+    arrangement binary (the 2020 arrangement code is embedded library-only — no
+    main, no CMake target; only `mesh_booleans` (full boolean) is built). So AR3
+    does NOT diff against a C++ arrangement. **AR3 oracle = structural + EXACT
+    predicate invariants** (no self-intersections via exact `orient3d`; every
+    detected intersecting pair realized as shared/constrained edges; consistent
+    topology; Euler sanity) — strong for an exact arrangement. **Full C++
+    reference parity engages at BL3** (the existing `mesh_booleans` binary
+    transitively validates the arrangement: a wrong arrangement → wrong boolean →
+    parity fail), honoring the parity-rule intent without speculative C++
+    arrangement-dump infra. (Build such a sidecar later only if the structural
+    oracle proves insufficient.) **Split:**
+    - **PR-CR-AR3a — constraint-edge enforcement.** Port
+      `triangulation.cpp::addConstraintSegment` (cpp:597) + `createTPI` (cpp:1007)
+      + helpers (`findIntersectingElements`, `computeTriangleOfSegment`,
+      `segmentsIntersectInside`, `splitSegmentInSubSegments`) onto a minimal
+      `TriangleSoup`: realize each AR2b `ConstraintSegment` as constraint-flagged
+      mesh edge(s), constructing `createTPI` (real `ImplicitPoint3DTpi` from C1) at
+      segment crossings. Oracle: constraints realized end-to-end; TPI exact on all
+      3 planes (`orient3d == Zero`); valid conforming sub-triangulation. The TPI
+      handle/predicate dispatch (C1) + grouping (Cycle B) are reused.
+    - **PR-CR-AR3b — global conforming soup + topology** (`triangle_soup` /
+      `meshArrangementPipeline` / `solveIntersections`): assemble the global
+      non-self-intersecting soup, dedup/weld shared vertices across triangles,
+      wire the full detect→classify→insert→enforce→assemble pipeline. Oracle: the
+      structural/exact invariants above on the global soup; feeds BL*.
   - **PR-CR-BL1 — patch flood-fill + octree.** Port `computeAllPatches` /
     `computeSinglePatch` + the `foctree` octree (`code/foctree.cpp`).
   - **PR-CR-BL2 — ray-cast in/out (2022 §5).** The robust per-patch in/out:
