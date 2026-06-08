@@ -1222,12 +1222,24 @@ reimplementation from Attene's paper restores WASM (M7).
       FFI split path), all intersection points are vertices, completeness/incidence
       via the exact FFI. Deviation **N14** (readable `splitSingleTriangle` with a
       uniform on-edge check; structural LPI dedup). **AR2b is next.**
-    - **PR-CR-AR2b — constraint segments + TPI.** Port
-      `addConstraintSegmentsInSingleTriangle` / `addConstraintSegment` + the
-      deferred `createTPI` (segment-segment crossings → `ImplicitPoint3DTpi` via
-      `lambda3d_tpi`): enforce the intersection segments as mesh edges, resolving
-      the N13-deferred TPI + coplanar-edge cases. Also swap the N13 raw-`f64`
-      `point_in_segment` guard for the exact CR1 collinearity predicate.
+    - **PR-CR-AR2b — constraint segments + TPI.** Decomposed A/B/C.
+      - **Cycle A (done)** — FFI segment predicates (`inner_segments_cross` /
+        `point_in_inner_segment` / `point_in_segment`).
+      - **Cycle B (done)** — exact `point_in_segment_3d` (swaps the N13 raw-`f64`
+        guard for the CR1 collinearity predicate) + `ConstraintSegment` grouping.
+      - **Cycle C1 (done, PR-CR-AR2b Cycle C1)** — real `ImplicitPoint3DTpi`
+        handle routing: `VertexCoords::Tpi` now flows through the
+        per-base-triangle re-triangulation as an exact TPI handle (replacing the
+        Cycle-B `sum/9` centroid placeholder), with macro-generated E/L/T
+        predicate dispatch (`with_gp!`). Exact on-3-planes `orient3d==Zero`
+        oracle. **The N13 TPI-handle deferral is RESOLVED at the routing layer.**
+      - **Cycle C2 (remaining → AR3-coupled)** — `addConstraintSegment`
+        enforcement + the segment-crossing `createTPI`. **STOP banked (P9/P10):**
+        `createTPI`'s 2nd/3rd supporting-plane sourcing
+        (`computeTriangleOfSegment` → global `seg2tris` + `jollyPoint` coplanar
+        fallback) is AR3-level global state — the Cycle-B `source_tri` covers only
+        an original transversal's witness, not mid-recursion sub-segments or the
+        coplanar fallback. Deferred to Cycle C2 / AR3 rather than improvised.
   - **PR-CR-AR3 — global conforming soup + topology.** Assemble the
     non-self-intersecting triangle soup with consistent shared topology
     (`triangle_soup` / `solve_intersections`). Parity: the arrangement output

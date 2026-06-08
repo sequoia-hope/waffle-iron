@@ -719,6 +719,10 @@ from the cherchi-rs exact-arithmetic hard rule and partially contradicts the
 "exact compares only" claim above. **Fix (AR2/AR3 follow-up):** replace with the
 EXACT collinearity predicate cherchi-rs already has (CR1 `points_are_collinear_3d`)
 + an exact between-ness check; do NOT leave raw `f64` in the arrangement core.
+**RESOLVED (PR-CR-AR2b Cycle B):** the raw-`f64` guard was replaced by the exact
+CR1 collinearity + between-ness predicate. The TPI-handle deferral noted in this
+entry is RESOLVED at the routing layer by Cycle C1 (see N15); the TPI
+*enforcement* (`createTPI`) remains banked to Cycle C2 / AR3.
 
 **Severity:** low (scope sequencing + two documented coarse/non-exact predicate
 workarounds in narrow guards, not a hidden behavioral divergence in the exact LPI
@@ -791,6 +795,59 @@ adaptation forced by — and consistent with — AR2a's unified point list; a
 first-slice dedup scope limit). All transparently flagged and roadmap-tracked.
 **Sign-off:** candidate — source-faithful insertion port; constraints + TPI +
 cross-triangle parity are roadmap-tracked to AR2b/AR3.
+
+### N15 — PR-CR-AR2b Cycle C1 TPI routing: macro dispatch (faithful) + the createTPI STOP (blocking re-scope to C2/AR3)
+
+**Code location:** `crates/cherchi-rs/src/arrangements/retriangulate.rs`
+(`#[cfg(feature = "indirect-predicates")]`). Prompt PR-CR-AR2b Cycle C1. C++
+reference `.../arrangements/code/triangulation.cpp` (`createTPI` cpp:1007,
+`computeTriangleOfSegment` cpp:1041, `computeTriangleOfSegmentInCoplanarCase`
+cpp:1076).
+
+**Paper / source section:** Cherchi 2022 re-triangulation TPI construction.
+
+**Resolution (what C1 fixes):** the **N13 TPI-handle deferral is RESOLVED at the
+routing layer.** `VertexCoords::Tpi` now flows through the per-base-triangle
+re-triangulation as a real, exact `ImplicitPoint3DTpi` handle (nine generators =
+three supporting planes), replacing the Cycle-B `sum/9` explicit-centroid
+placeholder in `gp()`. Verified by an exact on-three-planes oracle (`orient3d ==
+Zero` on each supporting plane, FFI, not float tolerance) plus a pure-`dashu`
+3×3 plane-solve cross-check and the AR2a covering oracle. Likewise the **N13
+raw-`f64` `point_in_segment` guard was already RESOLVED in Cycle B** (exact CR1
+collinearity + between-ness).
+
+**Deviation (faithful):** the C++ dispatches predicates over the runtime
+`genericPoint` type tag via hand-enumerated branches; the Rust port uses one
+recursive `macro_rules! with_gp!` that destructures `Gp` over the three variants
+(`E`/`L`/`T`) and monomorphizes to the identical safe `genericPoint::`-static
+wrappers (`point_in_triangle`, `orient2d_{xy,yz,zx}`), generating the full 3^N
+(81 for `point_in_triangle`, 27 for `orient2d`) concrete instantiations. Only the
+safe static wrappers are called — never `_II`/`_IIII` (segfault on explicit
+input, CR-IP6). Behavior-identical to the C++; local-only Tpi handling (no global
+dedup), same precedent as the existing Lpi routing.
+
+**BLOCKING re-scope (the STOP, P9/P10) — TPI *enforcement* deferred to Cycle
+C2 / AR3:** `createTPI` (the segment-crossing creator) sources the TPI's 2nd/3rd
+supporting planes via `computeTriangleOfSegment` (cpp:1041), which queries the
+**global** `AuxiliaryStructure::seg2tris` map for a non-coplanar witness triangle
+and falls back to a global `jollyPoint` for coplanar cases
+(`computeTriangleOfSegmentInCoplanarCase` cpp:1076). The Cycle-B
+`ConstraintSegment.source_tri` is a correct local substitute **only** for an
+original transversal segment's witness — it does NOT cover mid-recursion
+sub-segments' provenance or the coplanar fallback without reintroducing the
+global structures (AR3-level state). Per the brief's STOP condition, the
+`addConstraintSegment` enforcement core (`findIntersectingElements`,
+`boundaryWalker`, `earcutLinear`, the segment-crossing `createTPI`) is re-scoped
+to **Cycle C2 / AR3** rather than improvised. C1 lands only Piece 1 (handle
+routing); it constructs **no** constraint-enforcement code.
+
+**Severity:** low (a behavior-identical macro for the dispatch; the deferred
+piece is explicitly STOP-banked, loud, and roadmap-tracked — no hidden
+divergence). The TPI handle is reference-checked via the exact on-plane
+indirect-`orient3d` oracle.
+**Sign-off:** candidate — source-faithful handle routing; the createTPI
+enforcement (global `seg2tris` + `jollyPoint`) is roadmap-tracked to Cycle
+C2 / AR3.
 
 ### Legacy ↔ new-crate cross-reference
 
