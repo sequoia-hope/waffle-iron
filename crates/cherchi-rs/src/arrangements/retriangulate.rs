@@ -50,7 +50,7 @@ use crate::arrangements::fast_trimesh::VertexCoords;
 use crate::arrangements::{FastTrimesh, Plane};
 use indirect_predicates_sidecar_rs::{
     init_fpu, orient2d_xy, orient2d_yz, orient2d_zx, point_in_triangle, AsGenericPoint,
-    ExplicitPoint3D, ImplicitPoint3DLpi, Sign as IpSign,
+    ExplicitPoint3D, ImplicitPoint3DLpi, ImplicitPoint3DTpi, Sign as IpSign,
 };
 
 /// Error from [`split_single_triangle`].
@@ -138,8 +138,8 @@ fn fast_point_on_line(subm: &FastTrimesh, e: u32, v: u32) -> bool {
 // ── FFI handle dispatch (no self-referential structs) ─────────────────
 
 /// Backing explicit generators for a `VertexCoords`. Empty for `Explicit`; the
-/// 5 LPI generators for `Lpi`. Kept SEPARATE from the handle so the handle can
-/// borrow them without self-reference.
+/// 5 LPI generators for `Lpi`; the 9 TPI generators for `Tpi`. Kept SEPARATE
+/// from the handle so the handle can borrow them without self-reference.
 struct Backing {
     gens: Vec<ExplicitPoint3D>,
 }
@@ -156,21 +156,27 @@ fn backing(c: &VertexCoords) -> Backing {
                 ExplicitPoint3D::new(plane[2].x(), plane[2].y(), plane[2].z()),
             ],
         },
-        // PR-CR-AR2b Cycle B: the `Tpi` variant exists but is NOT yet routed
-        // through the submesh re-triangulation handles — the exact TPI FFI
-        // dispatch (real `ImplicitPoint3DTpi` handle + expanded `Gp` arms) is
-        // Cycle C. No Tpi vertex reaches `backing` in Cycle B, so this arm is
-        // a total, panic-free placeholder (no backing generators needed by the
-        // explicit-centroid stand-in `gp` returns). Superseded in Cycle C.
-        VertexCoords::Tpi { .. } => Backing { gens: vec![] },
+        // PR-CR-AR2b Cycle C1: the 9 TPI generators (three triangles `v,w,u`,
+        // each defining one supporting plane), in the exact arg order
+        // `ImplicitPoint3DTpi::new` expects: v[0..3], w[0..3], u[0..3].
+        VertexCoords::Tpi { v, w, u } => {
+            let mut gens = Vec::with_capacity(9);
+            for tri in [v, w, u] {
+                for p in tri {
+                    gens.push(ExplicitPoint3D::new(p.x(), p.y(), p.z()));
+                }
+            }
+            Backing { gens }
+        }
     }
 }
 
-/// A generic-point handle over a `VertexCoords`: either an owned explicit point
-/// or an LPI borrowing its backing generators.
+/// A generic-point handle over a `VertexCoords`: an owned explicit point, an
+/// LPI, or a TPI — the implicit variants borrowing their backing generators.
 enum Gp<'a> {
     E(ExplicitPoint3D),
     L(ImplicitPoint3DLpi<'a>),
+    T(ImplicitPoint3DTpi<'a>),
 }
 
 fn gp<'a>(c: &VertexCoords, b: &'a Backing) -> Gp<'a> {
@@ -179,49 +185,43 @@ fn gp<'a>(c: &VertexCoords, b: &'a Backing) -> Gp<'a> {
         VertexCoords::Lpi { .. } => Gp::L(ImplicitPoint3DLpi::new(
             &b.gens[0], &b.gens[1], &b.gens[2], &b.gens[3], &b.gens[4],
         )),
-        // PR-CR-AR2b Cycle B placeholder (see `backing`): no Tpi vertex flows
-        // through re-triangulation yet, so return an explicit-centroid stand-in
-        // rather than the exact `ImplicitPoint3DTpi` handle (Cycle C adds the
-        // real `Gp::T` arm + 81-way dispatch). Never exercised in Cycle B.
-        VertexCoords::Tpi { v, w, u } => {
-            let (mut sx, mut sy, mut sz) = (0.0, 0.0, 0.0);
-            for tri in [v, w, u] {
-                for g in tri {
-                    sx += g.x();
-                    sy += g.y();
-                    sz += g.z();
-                }
-            }
-            Gp::E(ExplicitPoint3D::new(sx / 9.0, sy / 9.0, sz / 9.0))
-        }
+        // PR-CR-AR2b Cycle C1: the exact `ImplicitPoint3DTpi` handle over the 9
+        // backing generators (three supporting planes), replacing the Cycle-B
+        // `sum/9` explicit-centroid stand-in. Borrows the backing generators in
+        // the same v[0..3],w[0..3],u[0..3] order `backing` pushed them.
+        VertexCoords::Tpi { .. } => Gp::T(ImplicitPoint3DTpi::new(
+            &b.gens[0], &b.gens[1], &b.gens[2], &b.gens[3], &b.gens[4], &b.gens[5], &b.gens[6],
+            &b.gens[7], &b.gens[8],
+        )),
     }
+}
+
+/// Destructure one or more `&Gp` into concrete sized handles (binding each to
+/// the SAME identifier it came in as), then evaluate `$body`. The nested
+/// 3-variant (`E`/`L`/`T`) match monomorphizes `$body` to the concrete static
+/// types each arg actually holds — the faithful Rust equivalent of the C++
+/// hand-enumerated generic-point dispatch (`genericPoint` runtime-tag switch),
+/// here turning `&Gp` into the sized `&impl AsGenericPoint` the underlying safe
+/// `genericPoint::`-static predicate wrappers require. DRY: each predicate body
+/// is written once; the macro supplies the 3^N concrete instantiations.
+macro_rules! with_gp {
+    // Bind one `Gp` (named `$id`), then recurse over the rest.
+    ($body:expr; $id:ident $(, $rest:ident)*) => {
+        match $id {
+            Gp::E($id) => with_gp!($body; $($rest),*),
+            Gp::L($id) => with_gp!($body; $($rest),*),
+            Gp::T($id) => with_gp!($body; $($rest),*),
+        }
+    };
+    // All handles bound to concrete types — evaluate the predicate.
+    ($body:expr;) => {
+        $body
+    };
 }
 
 /// `point_in_triangle` over four `Gp` handles (each arg its own static type).
 fn dispatch_point_in_triangle(p: &Gp, a: &Gp, b: &Gp, c: &Gp) -> bool {
-    macro_rules! pit {
-        ($p:expr, $a:expr, $b:expr, $c:expr) => {
-            point_in_triangle($p, $a, $b, $c)
-        };
-    }
-    match (p, a, b, c) {
-        (Gp::E(p), Gp::E(a), Gp::E(b), Gp::E(c)) => pit!(p, a, b, c),
-        (Gp::E(p), Gp::E(a), Gp::E(b), Gp::L(c)) => pit!(p, a, b, c),
-        (Gp::E(p), Gp::E(a), Gp::L(b), Gp::E(c)) => pit!(p, a, b, c),
-        (Gp::E(p), Gp::E(a), Gp::L(b), Gp::L(c)) => pit!(p, a, b, c),
-        (Gp::E(p), Gp::L(a), Gp::E(b), Gp::E(c)) => pit!(p, a, b, c),
-        (Gp::E(p), Gp::L(a), Gp::E(b), Gp::L(c)) => pit!(p, a, b, c),
-        (Gp::E(p), Gp::L(a), Gp::L(b), Gp::E(c)) => pit!(p, a, b, c),
-        (Gp::E(p), Gp::L(a), Gp::L(b), Gp::L(c)) => pit!(p, a, b, c),
-        (Gp::L(p), Gp::E(a), Gp::E(b), Gp::E(c)) => pit!(p, a, b, c),
-        (Gp::L(p), Gp::E(a), Gp::E(b), Gp::L(c)) => pit!(p, a, b, c),
-        (Gp::L(p), Gp::E(a), Gp::L(b), Gp::E(c)) => pit!(p, a, b, c),
-        (Gp::L(p), Gp::E(a), Gp::L(b), Gp::L(c)) => pit!(p, a, b, c),
-        (Gp::L(p), Gp::L(a), Gp::E(b), Gp::E(c)) => pit!(p, a, b, c),
-        (Gp::L(p), Gp::L(a), Gp::E(b), Gp::L(c)) => pit!(p, a, b, c),
-        (Gp::L(p), Gp::L(a), Gp::L(b), Gp::E(c)) => pit!(p, a, b, c),
-        (Gp::L(p), Gp::L(a), Gp::L(b), Gp::L(c)) => pit!(p, a, b, c),
-    }
+    with_gp!(point_in_triangle(p, a, b, c); p, a, b, c)
 }
 
 /// `orient2d` (in `plane`) over three `Gp` handles.
@@ -238,16 +238,7 @@ fn dispatch_orient2d(plane: Plane, a: &Gp, b: &Gp, c: &Gp) -> IpSign {
             Plane::ZX => orient2d_zx(a, b, c),
         }
     }
-    match (a, b, c) {
-        (Gp::E(a), Gp::E(b), Gp::E(c)) => o2d(plane, a, b, c),
-        (Gp::E(a), Gp::E(b), Gp::L(c)) => o2d(plane, a, b, c),
-        (Gp::E(a), Gp::L(b), Gp::E(c)) => o2d(plane, a, b, c),
-        (Gp::E(a), Gp::L(b), Gp::L(c)) => o2d(plane, a, b, c),
-        (Gp::L(a), Gp::E(b), Gp::E(c)) => o2d(plane, a, b, c),
-        (Gp::L(a), Gp::E(b), Gp::L(c)) => o2d(plane, a, b, c),
-        (Gp::L(a), Gp::L(b), Gp::E(c)) => o2d(plane, a, b, c),
-        (Gp::L(a), Gp::L(b), Gp::L(c)) => o2d(plane, a, b, c),
-    }
+    with_gp!(o2d(plane, a, b, c); a, b, c)
 }
 
 #[cfg(test)]
