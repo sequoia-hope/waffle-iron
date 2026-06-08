@@ -416,8 +416,7 @@ mod tests {
         let (gv0, gv1, gv2) = (ip(gv[0]), ip(gv[1]), ip(gv[2]));
         let (gw0, gw1, gw2) = (ip(gw[0]), ip(gw[1]), ip(gw[2]));
         let (gu0, gu1, gu2) = (ip(gu[0]), ip(gu[1]), ip(gu[2]));
-        let tpi =
-            ImplicitPoint3DTpi::new(&gv0, &gv1, &gv2, &gw0, &gw1, &gw2, &gu0, &gu1, &gu2);
+        let tpi = ImplicitPoint3DTpi::new(&gv0, &gv1, &gv2, &gw0, &gw1, &gw2, &gu0, &gu1, &gu2);
 
         // Base triangle A (z=0).
         let (ea0, ea1, ea2) = (ip(a[0]), ip(a[1]), ip(a[2]));

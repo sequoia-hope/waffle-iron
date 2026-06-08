@@ -8,6 +8,8 @@ pub mod aux_structure;
 #[cfg(feature = "indirect-predicates")]
 pub mod enforce;
 pub mod fast_trimesh;
+#[cfg(feature = "indirect-predicates")]
+pub(crate) mod gp_dispatch;
 pub mod intersection_detection;
 #[cfg(feature = "indirect-predicates")]
 pub mod intersection_points;
