@@ -139,6 +139,83 @@ Document that full cross-triangle C++-binary parity is AR3.
 
 ---
 
+---
+
+## Cycle C RE-SCOPE — C1 (real TPI routing) lands; C2 (enforcement) STOP→AR3
+
+**Status:** the original Cycle C above is **split**. Investigation (this section
+is the report) confirmed the anticipated STOP: the C++ `createTPI`
+(triangulation.cpp:1007) sources the TPI's 2nd/3rd supporting planes via
+`computeTriangleOfSegment` (cpp:1041), which queries the **global**
+`AuxiliaryStructure::seg2tris` map for a non-coplanar witness triangle and falls
+back to a global `jollyPoint` for coplanar cases. The Cycle-B
+`ConstraintSegment.source_tri` is a correct local substitute **only** for an
+original transversal segment's witness — it does NOT cover mid-recursion
+sub-segments' provenance or the coplanar fallback without reintroducing the
+global structures. That is AR3-level state. Per the brief's P9/P10 STOP
+condition, the `addConstraintSegment` / `createTPI` enforcement core is
+**re-scoped to Cycle C2 / AR3** — it is NOT improvised here.
+
+### Cycle C1 (THIS PR) — Piece 1 only: real `ImplicitPoint3DTpi` handle routing
+
+Make `VertexCoords::Tpi` points route through the per-base-triangle
+re-triangulation machinery as **real, exact** `ImplicitPoint3DTpi` handles,
+replacing the Cycle-B centroid (`sum/9`) placeholder, with predicate dispatch
+covering the Tpi arm. This **resolves the N13 TPI-deferral at the
+predicate/handle layer** and de-risks C2; it does NOT realize segments as
+constrained edges (that needs the global state above → C2).
+
+All edits in `crates/cherchi-rs/src/arrangements/retriangulate.rs`. The IP FFI
+already exposes everything needed (`ImplicitPoint3DTpi::new(v1..v3,w1..w3,u1..u3)`
+at lib.rs:648, `orient3d`/`point_in_triangle`/`orient2d_*` accept all handle
+types via the sealed `AsGenericPoint`) — **no new FFI wrapper**.
+
+Work items (GREEN):
+1. Import `ImplicitPoint3DTpi` into the sidecar `use` list.
+2. `Backing.gens` for the `Tpi` arm: the 9 explicit generators in
+   `v1,v2,v3,w1,w2,w3,u1,u2,u3` order (mirrors `ImplicitPoint3DTpi::new`).
+3. `Gp<'a>` enum: add `T(ImplicitPoint3DTpi<'a>)`.
+4. `gp()` `Tpi` arm: build `Gp::T(ImplicitPoint3DTpi::new(&b.gens[0], … &b.gens[8]))`
+   — delete the `sum/9` centroid stand-in.
+5. `dispatch_point_in_triangle` (E/L → E/L/T, 16→81) and `dispatch_orient2d`
+   (8→27): a `macro_rules!` (`with_gp!`) that nests the 3-variant destructure,
+   monomorphizing to the identical concrete `point_in_triangle` / `orient2d_*`
+   calls (these are already generic over `&impl AsGenericPoint`).
+
+**Safety (load-bearing):** call ONLY the safe `genericPoint::`-static wrappers
+(`point_in_triangle`, `orient2d_*`). NEVER `_II`/`_IIII` variants — they segfault
+on explicit input (CR-IP6 memory).
+
+### Cycle C1 test surface (RED)
+
+Exercise routing through the **public** `split_single_triangle` by inserting a
+`VertexCoords::Tpi` interior point — no new private hook. Construct a known
+3-plane configuration whose exact intersection is a known interior point of the
+base triangle, build the `Tpi` generators, insert it.
+
+**Oracle (exact, NOT float tolerance):** build the real `ImplicitPoint3DTpi`
+handle + explicit corner handles; assert the inserted TPI lies on **all three**
+supporting planes via `indirect_predicates_sidecar_rs::orient3d == Sign::Zero`
+(each plane = three of the nine generators). The placeholder centroid does NOT
+lie on the planes → `orient3d != Zero`, so this is RED before C1, GREEN after.
+Add an independent pure-`dashu` 3×3 plane-solve cross-check of the point, and
+reuse the existing exact covering-triangulation oracle (signed-area-sum +
+same-sign winding) to confirm a valid covering survives Tpi insertion. Group in
+the established 5-group structure; mirror the AR2a hand-case naming.
+
+### Cycle C2 (deferred → AR3) — OUT of scope here
+
+`addConstraintSegmentsInSingleTriangle` / `addConstraintSegment` /
+`findIntersectingElements` / `createTPI` (the segment-crossing creator) /
+`computeTriangleOfSegment` / `segmentsIntersectInside` /
+`splitSegmentInSubSegments` / `boundaryWalker` / `earcutLinear`; global
+conforming soup / cross-triangle welding; boolean labeling; the C++ `tbb`
+parallel path. N13's `f64`-guard was resolved in Cycle B; the **N13 TPI-handle
+deferral is RESOLVED by C1** at the routing layer; the TPI *enforcement*
+(segment-crossing → createTPI) remains open at AR3.
+
+---
+
 ## Verification / CI gate (each cycle, before close-out)
 
 - `cargo test -p cherchi-rs` (DEFAULT — FFI-free/WASM-clean; arrangement modules
