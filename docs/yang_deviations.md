@@ -849,6 +849,73 @@ indirect-`orient3d` oracle.
 enforcement (global `seg2tris` + `jollyPoint`) is roadmap-tracked to Cycle
 C2 / AR3.
 
+### N16 — PR-CR-AR3a constraint enforcement: per-work-item `source_tri` replaces the global `seg2tris`; deep-recursion/coplanar TPI deferred to AR3b
+
+**Code location:** `crates/cherchi-rs/src/arrangements/enforce.rs` +
+`arrangements/gp_dispatch.rs` (both `#[cfg(feature = "indirect-predicates")]`).
+Prompt PR-CR-AR3a. C++ reference `.../arrangements/code/triangulation.cpp`
+(`addConstraintSegment` cpp:597, `findIntersectingElements` cpp:644,
+`boundaryWalker` cpp:806, `earcutLinear` cpp:912, `createTPI` cpp:1007,
+`segmentsIntersectInside` cpp:1170, `pointInsideSegment` cpp:1178,
+`splitSegmentInSubSegments` cpp:1185).
+
+**Paper / source section:** Cherchi 2022 re-triangulation constraint enforcement.
+
+**Resolution (what AR3a completes):** the N15 BLOCKING re-scope is now resolved
+for the in-scope case. The `addConstraintSegment` enforcement core is ported:
+already-an-edge flagging; non-crossing enforcement (`findIntersectingElements`
+over non-constraint edges + `boundaryWalker` ×2 + `earcutLinear` ×2 +
+`add_tri`/`remove_tris` + `set_edge_constr`); and the segment-crossing branch
+constructing a real `ImplicitPoint3DTpi` (`createTPI`) where two constraint
+segments cross. The **N13 TPI deferral is now fully resolved** (construction at
+C1 + enforcement at AR3a). Public surface: `SegmentSpec` / `EnforceError` /
+`enforce_constraint_segments` / `enforce_constraints`.
+
+**Deviation 1 (the minimal `TriangleSoup`, faithful substitute):** the C++
+`createTPI` sources the crossing planes via `computeTriangleOfSegment`, which
+queries the **global** `AuxiliaryStructure::seg2tris`. AR3a replaces that global
+state with a **per-work-item carried `source_tri`** plus a `constraint_planes`
+`HashMap<(u32,u32), [Point3;3]>` side map keyed by the constraint edge's sorted
+vertex-id pair (vertex ids are stable under `add_*`/`split_*`; edge ids are not).
+Sub-segments born mid-recursion inherit their parent's plane (a collinear
+sub-piece has the same supporting plane), so the original-transversal X-crossing
+— and, empirically, the two-independent-crossings case, which resolves the second
+crossing's plane from the first crossing's recorded sub-edge planes — is handled
+with directly-available planes, no global structure.
+
+**Deviation 2 (EE-bool asymmetry repair, faithful):** `point_inside_segment`
+queries `genericPoint::pointInInnerSegment` in **both** endpoint orders and ORs
+them. Justification: the sidecar's `lessThanOnX/Y/Z` explicit-explicit branch
+(`implicit_point.hpp:73/83/93`) returns a C++ `bool` (0/1, never −1), so
+`pointInInnerSegment(p,v1,v2)` silently returns `false` for a *descending*
+explicit segment — an endpoint-order asymmetry. The OR restores the symmetric
+"strictly inside" semantics and is a no-op for implicit endpoints (the real
+Cherchi path, where `lessThanOn` is sign-aware). NOT a tolerance widening or
+fixture special-case. `innerSegmentsCross` (the `segmentsIntersectInside` path)
+does **not** share the asymmetry — it routes through the signed Shewchuk
+`orient2d_EEE` determinant — so it is ported verbatim (adversary-verified).
+
+**STOP walls deferred to AR3b (P9/P10):** `computeTriangleOfSegment`'s global
+`seg2tris` sourcing and the coplanar `jollyPoint` fallback. A sub-segment that
+loses its directly-available `source_tri` surfaces as
+`EnforceError::SourcePlaneUnavailable`; a non-general-position three-plane TPI
+surfaces as `EnforceError::DegenerateTpi` (guarded by an exact `dashu` 3×3
+normal-determinant check). Neither is hit by the in-scope corpus; both are loud,
+roadmap-tracked errors rather than improvised fallbacks.
+
+**Deviation 3 (pure move):** the `Gp`/`backing`/`gp`/`with_gp!`/`dispatch_*`
+toolkit was factored out of `retriangulate.rs` into `gp_dispatch.rs` and reused
+by both `retriangulate` and `enforce` — no behaviour change (retriangulate suite
+unregressed).
+
+**Severity:** low — source-faithful enforcement; the deferred global/coplanar TPI
+is loud (typed errors) and roadmap-tracked; both deviations are behavior-identical
+to the C++ on the real (implicit-point) path. Oracle is structural + EXACT
+(`orient3d == Zero` on 3 planes; pure-`dashu` covering), per the parity-oracle
+correction (no standalone C++ arrangement binary; full parity at BL3).
+**Sign-off:** candidate — source-faithful enforcement core; global conforming
+soup + global `seg2tris`/coplanar `jollyPoint` TPI roadmap-tracked to AR3b.
+
 ### Legacy ↔ new-crate cross-reference
 
 The legacy **D1–D14** entries scope to `crates/kernel/` and do **not** imply

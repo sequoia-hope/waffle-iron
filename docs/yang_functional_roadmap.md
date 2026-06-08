@@ -1254,15 +1254,28 @@ reimplementation from Attene's paper restores WASM (M7).
     parity fail), honoring the parity-rule intent without speculative C++
     arrangement-dump infra. (Build such a sidecar later only if the structural
     oracle proves insufficient.) **Split:**
-    - **PR-CR-AR3a — constraint-edge enforcement.** Port
+    - **PR-CR-AR3a — constraint-edge enforcement (DONE, 2026-06-08).** Ported
       `triangulation.cpp::addConstraintSegment` (cpp:597) + `createTPI` (cpp:1007)
-      + helpers (`findIntersectingElements`, `computeTriangleOfSegment`,
-      `segmentsIntersectInside`, `splitSegmentInSubSegments`) onto a minimal
-      `TriangleSoup`: realize each AR2b `ConstraintSegment` as constraint-flagged
-      mesh edge(s), constructing `createTPI` (real `ImplicitPoint3DTpi` from C1) at
-      segment crossings. Oracle: constraints realized end-to-end; TPI exact on all
-      3 planes (`orient3d == Zero`); valid conforming sub-triangulation. The TPI
-      handle/predicate dispatch (C1) + grouping (Cycle B) are reused.
+      + helpers (`findIntersectingElements`, `boundaryWalker`, `earcutLinear`,
+      `segmentsIntersectInside`, `pointInsideSegment`, `splitSegmentInSubSegments`)
+      into `arrangements/enforce.rs`: realizes each AR2b `ConstraintSegment` as
+      constraint-flagged mesh edge(s), constructing `createTPI` (real
+      `ImplicitPoint3DTpi` from C1) at segment crossings. Public surface
+      `SegmentSpec` / `EnforceError` / `enforce_constraint_segments` /
+      `enforce_constraints`. The C++ global `seg2tris` is replaced by a
+      per-work-item carried `source_tri` plus a `constraint_planes` side map keyed
+      by sorted vertex-id pair (the minimal `TriangleSoup`). Oracle met
+      (structural + EXACT, no C++ arrangement binary): constraints realized
+      end-to-end; TPI exact on all 3 planes (`orient3d == Zero`); exact conforming
+      sub-triangulation (pure-`dashu` covering); no spurious TPI (one crossing →
+      one TPI, robust to endpoint/spec ordering — adversary-verified). The TPI
+      handle/predicate dispatch (C1) was factored into a shared
+      `arrangements/gp_dispatch.rs` (pure move) and reused. **Deferred to AR3b
+      (the STOP walls, P9/P10):** `computeTriangleOfSegment`'s global `seg2tris`
+      sourcing and the coplanar `jollyPoint` fallback — surfaced as the
+      `EnforceError::SourcePlaneUnavailable` / `DegenerateTpi` errors (not hit by
+      the in-scope original-transversal crossings; the multi-crossing case
+      resolves its planes from the recorded sub-edge planes).
     - **PR-CR-AR3b — global conforming soup + topology** (`triangle_soup` /
       `meshArrangementPipeline` / `solveIntersections`): assemble the global
       non-self-intersecting soup, dedup/weld shared vertices across triangles,

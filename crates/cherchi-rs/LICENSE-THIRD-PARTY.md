@@ -33,6 +33,8 @@ All upstream sources are MIT-licensed.
 | `src/arrangements/intersection_points.rs` | `arrangements/code/intersection_classification.cpp` | Cherchi 2022 |
 | `src/arrangements/aux_structure.rs` | `arrangements/code/triangulation.cpp` (aux-structure / point grouping) | Cherchi 2022 |
 | `src/arrangements/retriangulate.rs` | `arrangements/code/triangulation.cpp` (`splitSingleTriangle` / `findContainingTriangle` / `fastPointOnLine`) | Cherchi 2022 |
+| `src/arrangements/gp_dispatch.rs` | `arrangements/code/triangulation.cpp` (generic-point predicate dispatch — extracted from `retriangulate.rs`, PR-CR-AR3a) | Cherchi 2022 |
+| `src/arrangements/enforce.rs` | `arrangements/code/triangulation.cpp` (`addConstraintSegment` / `findIntersectingElements` / `boundaryWalker` / `earcutLinear` / `createTPI` / `segmentsIntersectInside` / `pointInsideSegment` / `splitSegmentInSubSegments`) | Cherchi 2022 |
 
 ## Per-file attribution
 
