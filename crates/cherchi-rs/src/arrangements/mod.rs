@@ -15,6 +15,8 @@ pub mod intersection_detection;
 pub mod intersection_points;
 #[cfg(feature = "indirect-predicates")]
 pub mod retriangulate;
+#[cfg(feature = "indirect-predicates")]
+pub mod soup;
 pub mod tree;
 
 #[cfg(feature = "indirect-predicates")]
