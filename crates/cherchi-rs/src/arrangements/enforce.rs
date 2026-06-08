@@ -30,6 +30,7 @@
 //! expected and fine). `find_explicit_vert` is a new FFI-free explicit-coord lookup.
 
 use crate::arrangements::aux_structure::{ConstraintSegment, TypedPoint};
+use crate::arrangements::fast_trimesh::VertexCoords;
 use crate::arrangements::gp_dispatch::{backing, gp, with_gp, Gp};
 use crate::arrangements::{FastTrimesh, Plane};
 use cad_primitives::Point3;
@@ -434,8 +435,11 @@ fn t_junction_split(
     Ok(())
 }
 
-/// Constraint-crossing TPI construction — implemented in 3c. In 3b this is
-/// unreachable for the in-scope tests (the X-crossing test is 3c).
+/// Constraint-crossing TPI construction (port of the cpp:754-787 constraint
+/// branch and cpp:1007 `createTPI`). The walk has met an EXISTING constraint
+/// edge `e_id = (ev0_id, ev1_id)`: construct the TPI where the base plane and
+/// the two crossing segments' planes meet, insert it, split the crossed edge,
+/// flag both halves, and push the two sub-segments of the current segment.
 #[allow(clippy::too_many_arguments)]
 fn constraint_crossing_tpi(
     subm: &mut FastTrimesh,
@@ -448,21 +452,135 @@ fn constraint_crossing_tpi(
     constraint_planes: &mut HashMap<(u32, u32), [Point3; 3]>,
     work: &mut Vec<WorkItem>,
 ) -> Result<(), EnforceError> {
-    // Placeholder for 3b; replaced by the real createTPI port in 3c.
-    let _ = (
-        subm,
-        v_stop,
-        e_id,
-        ev0_id,
-        ev1_id,
-        item,
-        constraint_planes,
-        work,
-    );
-    Err(EnforceError::SegmentNotLocatable {
+    // The crossed constraint edge's supporting plane (the AR3b global-state
+    // wall): if it was never recorded, the third TPI plane is unavailable.
+    let plane_e = *constraint_planes.get(&sorted_pair(ev0_id, ev1_id)).ok_or(
+        EnforceError::SourcePlaneUnavailable {
+            v0: ev0_id,
+            v1: ev1_id,
+        },
+    )?;
+
+    // Base triangle corners (submesh vertices 0,1,2 — always explicit).
+    let base = base_corners(subm);
+
+    // Build the TPI coords (base plane ∩ segment plane ∩ crossed-edge plane),
+    // guarding general position exactly (else DegenerateTpi).
+    let tpi_coords = create_tpi(base, item.source_tri, plane_e)?;
+
+    // Dedup vs an existing submesh vertex carrying those exact Tpi coords
+    // (the C++ `addVertexInSortedList` reuse). For the in-scope single
+    // X-crossing this never fires (the crossing is detected once).
+    let tpi_vid = match (0..subm.num_verts()).find(|&v| *subm.vert_coords(v) == tpi_coords) {
+        Some(v) => v,
+        None => subm.add_vert_typed(tpi_coords),
+    };
+
+    // Split the crossed constraint edge at the TPI; flag both halves and
+    // record the crossed edge's plane for each (so a later crossing of a half
+    // resolves its plane).
+    subm.split_edge(e_id, tpi_vid);
+    let e0 = subm
+        .edge_id(ev0_id, tpi_vid)
+        .ok_or(EnforceError::SegmentNotLocatable {
+            v0: ev0_id,
+            v1: tpi_vid,
+        })?;
+    let e1 = subm
+        .edge_id(tpi_vid, ev1_id)
+        .ok_or(EnforceError::SegmentNotLocatable {
+            v0: tpi_vid,
+            v1: ev1_id,
+        })?;
+    subm.set_edge_constr(e0);
+    subm.set_edge_constr(e1);
+    constraint_planes.insert(sorted_pair(ev0_id, tpi_vid), plane_e);
+    constraint_planes.insert(sorted_pair(tpi_vid, ev1_id), plane_e);
+
+    // Push the two sub-segments of the CURRENT segment (carrying its plane).
+    work.push(WorkItem {
         v0: v_start,
+        v1: tpi_vid,
+        source_tri: item.source_tri,
+    });
+    work.push(WorkItem {
+        v0: tpi_vid,
         v1: v_stop,
-    })
+        source_tri: item.source_tri,
+    });
+    Ok(())
+}
+
+/// Base triangle corners (submesh vertices 0,1,2 — always explicit, never
+/// removed). Used as the TPI's first supporting plane.
+fn base_corners(subm: &FastTrimesh) -> [Point3; 3] {
+    let corner = |v: u32| match subm.vert_coords(v) {
+        VertexCoords::Explicit(p) => *p,
+        // Base corners are explicit by construction; fall back to the finite
+        // approx only to stay panic-free (never reached for a valid submesh).
+        _ => subm.vert(v),
+    };
+    [corner(0), corner(1), corner(2)]
+}
+
+/// Construct a `VertexCoords::Tpi` at the common intersection of three
+/// supporting planes (`v` = base triangle, `w` = segment plane, `u` =
+/// crossed-edge plane), port of cpp:1007 `createTPI`. The point itself is
+/// carried symbolically by its nine generators; here we ONLY validate general
+/// position (the three plane normals' exact 3×3 determinant ≠ 0 in `RBig`),
+/// returning `DegenerateTpi` otherwise (the coplanar / parallel `jollyPoint`
+/// fallback is AR3b).
+fn create_tpi(
+    v: [Point3; 3],
+    w: [Point3; 3],
+    u: [Point3; 3],
+) -> Result<VertexCoords, EnforceError> {
+    if tpi_planes_general_position(&v, &w, &u) {
+        Ok(VertexCoords::Tpi { v, w, u })
+    } else {
+        Err(EnforceError::DegenerateTpi)
+    }
+}
+
+/// True iff the three planes (each given by a triangle's 3 corners) meet in a
+/// single point: the exact `RBig` determinant of their normals is non-zero.
+/// Mirrors the `exact_coords` Tpi-arm general-position check; reimplemented in
+/// production (does not import the test helper).
+fn tpi_planes_general_position(v: &[Point3; 3], w: &[Point3; 3], u: &[Point3; 3]) -> bool {
+    use dashu::float::FBig;
+    use dashu::rational::RBig;
+
+    let to_r = |x: f64| -> RBig {
+        let fb: FBig = FBig::try_from(x).expect("finite f64 → FBig is total");
+        RBig::try_from(fb).expect("FBig → RBig is total")
+    };
+    let to_r3 = |p: &Point3| [to_r(p.x()), to_r(p.y()), to_r(p.z())];
+    let sub = |a: &[RBig; 3], b: &[RBig; 3]| -> [RBig; 3] {
+        [&a[0] - &b[0], &a[1] - &b[1], &a[2] - &b[2]]
+    };
+    let cross = |a: &[RBig; 3], b: &[RBig; 3]| -> [RBig; 3] {
+        [
+            &(&a[1] * &b[2]) - &(&a[2] * &b[1]),
+            &(&a[2] * &b[0]) - &(&a[0] * &b[2]),
+            &(&a[0] * &b[1]) - &(&a[1] * &b[0]),
+        ]
+    };
+    let dot = |a: &[RBig; 3], b: &[RBig; 3]| -> RBig {
+        &(&(&a[0] * &b[0]) + &(&a[1] * &b[1])) + &(&a[2] * &b[2])
+    };
+    // Per-plane normal = cross of two edge vectors of its generator triangle.
+    let normal = |tri: &[Point3; 3]| -> [RBig; 3] {
+        let r = to_r3(&tri[0]);
+        let s = to_r3(&tri[1]);
+        let t = to_r3(&tri[2]);
+        cross(&sub(&s, &r), &sub(&t, &r))
+    };
+    let n0 = normal(v);
+    let n1 = normal(w);
+    let n2 = normal(u);
+    // det of the 3×3 with rows n0,n1,n2 is n0 · (n1 × n2).
+    let det = dot(&n0, &cross(&n1, &n2));
+    det != RBig::ZERO
 }
 
 /// Port of `boundaryWalker` (cpp:806). Walks the border of the intersected-tri
@@ -477,27 +595,32 @@ fn boundary_walker(
     intersected_edges: &[u32],
     reversed: bool,
 ) -> Option<Vec<u32>> {
-    let n = intersected_tris.len();
-    debug_assert_eq!(n, intersected_edges.len());
-    // Cursor into the tri/edge lists; `at` maps the logical step to an index.
+    // The intersected-tri list has ONE MORE entry than the edge list (the
+    // last triangle is appended after the second walk converges, cpp:796), so
+    // the tri and edge cursors range over different lengths.
+    let nt = intersected_tris.len();
+    let ne = intersected_edges.len();
+    debug_assert_eq!(nt, ne + 1, "boundary_walker: tris must be edges + 1");
+    // `at` maps the logical step to an index, mirroring the C++ forward
+    // (`begin`) / reverse (`rbegin`) iterator pair.
     let tri_at = |i: usize| -> u32 {
         if reversed {
-            intersected_tris[n - 1 - i]
+            intersected_tris[nt - 1 - i]
         } else {
             intersected_tris[i]
         }
     };
     let edge_at = |i: usize| -> u32 {
         if reversed {
-            intersected_edges[n - 1 - i]
+            intersected_edges[ne - 1 - i]
         } else {
             intersected_edges[i]
         }
     };
 
     let mut h: Vec<u32> = vec![v_start];
-    let mut p = 0usize; // current tri cursor
-    let mut e = 0usize; // current edge cursor
+    let mut p = 0usize; // current tri cursor (0..nt)
+    let mut e = 0usize; // current edge cursor (0..ne)
 
     loop {
         let curr_v = *h.last().unwrap();
@@ -506,9 +629,9 @@ fn boundary_walker(
         let mut next_v = subm.tri_vert_id(curr_p, (off + 1) % 3);
 
         // Skip across edges equal to the current intersected edge (cpp:818).
-        while subm.edge_id(curr_v, next_v) == Some(edge_at(e)) {
+        while e < ne && subm.edge_id(curr_v, next_v) == Some(edge_at(e)) {
             p += 1;
-            if p >= n {
+            if p >= nt {
                 return None;
             }
             curr_p = tri_at(p);
@@ -517,7 +640,7 @@ fn boundary_walker(
                 return Some(h);
             }
             e += 1;
-            if e >= n {
+            if e >= ne {
                 return None;
             }
             let off = subm.tri_vert_offset(curr_p, curr_v)?;
@@ -526,7 +649,7 @@ fn boundary_walker(
 
         h.push(next_v);
         p += 1;
-        if p >= n {
+        if p >= nt {
             // Past the last tri: must have reached v_stop.
             if next_v == v_stop {
                 return Some(h);
@@ -539,7 +662,7 @@ fn boundary_walker(
             return Some(h);
         }
         e += 1;
-        if e >= n {
+        if e >= ne && *h.last().unwrap() != v_stop {
             return None;
         }
         if *h.last().unwrap() == v_stop {
