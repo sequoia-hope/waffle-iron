@@ -5,6 +5,8 @@
 
 #[cfg(feature = "indirect-predicates")]
 pub mod aux_structure;
+#[cfg(feature = "indirect-predicates")]
+pub mod enforce;
 pub mod fast_trimesh;
 pub mod intersection_detection;
 #[cfg(feature = "indirect-predicates")]
