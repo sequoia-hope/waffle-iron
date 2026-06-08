@@ -814,7 +814,7 @@ mod tests {
         let cy = &sy / &nine;
         // x + y of the centroid > 4 (the base edge A1A2 line x+y=4) → outside A.
         assert!(
-            &(&cx + &cy) > &to_r(4.0),
+            (&cx + &cy) > to_r(4.0),
             "centroid placeholder must be OUTSIDE base A (x+y > 4) — this is the RED lever"
         );
     }
