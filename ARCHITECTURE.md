@@ -1,5 +1,17 @@
 # Waffle Iron — System Architecture
 
+> **⚠ Kernel sections below are STALE — the legacy kernel is unmaintained and
+> being removed (policy 2026-06-09).** Everything this document says about
+> `crates/kernel/` (its boolean pipeline, test counts, SSI solver counts,
+> assay targets) describes the **legacy** kernel, which receives no further
+> fixes and is deleted incrementally as the clean-sheet rewrite lands. The
+> actual current architecture for kernel work is the layered rewrite stack —
+> `cad-primitives` → `cherchi-rs` / `ssi-rs` (+ the two non-WASM C++ sidecar
+> crates) → `yang-rs` → `kernel-v2` — documented in root `CLAUDE.md`
+> §"Kernel Rewrite In Progress" and `docs/yang_functional_roadmap.md` (the
+> plan of record). Only the Yang rewrite is maintained. The non-kernel layers
+> below (engine, bridge, presentation) remain accurate.
+
 ## Vision
 
 Waffle Iron is the "KiCad of mechanical CAD" — an open-source parametric CAD system that replaces Onshape for daily mechanical design work. GPL-3.0 licensed, community-driven, built for the workflow engineers actually use: sketch on plane → constrain sketch → extrude/revolve → fillet/chamfer → pattern → assemble. The architecture prioritizes determinism, testability, and autonomous agent development.

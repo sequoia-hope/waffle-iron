@@ -42,6 +42,9 @@ quietly rotting (WASM bundle out of sync, 34 failing legacy kernel tests).
 ## Findings, ranked
 
 ### F1 — `cherchi-rs --features indirect-predicates`: 35 test failures from silent stub fallback (HIGH)
+> **Resolved 2026-06-09** (commit 8674e53a): require_ffi_shim() test guard,
+> ArrangementError::FfiShimUnavailable production guard, build.rs self-heal;
+> FFI suite in test.sh tiers (25a06dd5). 372/372 green with real shim.
 Reproduced directly. `/home/claude/cherchi2022/.../Indirect_Predicates` is absent, so
 `indirect-predicates-sidecar-rs/build.rs` emits a warning and builds the no-op stub
 (`AVAILABLE = false`). All 35 FFI-dependent tests in `arrangements::{aux_structure,
@@ -58,6 +61,8 @@ Two distinct defects:
    the M6 arrangement would also be invisible.
 
 ### F2 — Sidecar absence makes the roadmap's DONE claims unreproducible (HIGH)
+> **Resolved 2026-06-09:** scripts/build_sidecars.sh run; both sidecars built
+> at /home/claude/cherchi2022/ (M2 labels patch applied). Parity oracle live.
 `docs/yang_functional_roadmap.md` marks M0–M3 DONE ("900-case fuzz, 100% correct,
 0 silent-wrong") and most of M5 DONE with sidecar verification. The sidecars don't
 exist in this container; `scripts/build_sidecars.sh` exists and looks correct but has
@@ -72,6 +77,9 @@ work, and annotate the roadmap's DONE entries as "verified against sidecar build
 <date>; re-verification requires M0 setup".
 
 ### F3 — `scripts/test.sh` covers zero new crates, and its fast tier is RED (HIGH)
+> **Resolved 2026-06-09** (commit 25a06dd5): new `rewrite` tier covers all
+> seven crates + FFI suite; wired into fast/full. Legacy reds are policy-
+> quarantined (see F8 resolution), not fixed.
 - The fast/full crate lists (`scripts/test.sh:26-70`) include only legacy crates. The
   crates that constitute the actual project priority (cherchi-rs, yang-rs, ssi-rs,
   cad-primitives, kernel-v2, both sidecars) are not in any tier.
@@ -84,6 +92,8 @@ Recommend: add a `new`/`rewrite` tier (or fold new crates into `fast`), and eith
 or explicitly quarantine the legacy failures with a tracking note so `fast` is green.
 
 ### F4 — Production panic sites in yang-rs (MEDIUM)
+> **Resolved 2026-06-09** (commit e242df4a): both yang-rs sites fixed; the
+> compact_unreferenced_verts invariant proved local (audit overstated it).
 - `crates/yang-rs/src/lib.rs:3130` — `matched_idx.unwrap()` in `ssi_curve_to_curve`
   can panic if an SSI curve matches no candidate.
 - `crates/yang-rs/src/lib.rs:3941-3943` — `.unwrap()` on `remap[...]` during Stage-5/6
@@ -116,6 +126,8 @@ untested. This feeds Yang Stage 4; wrong curves there become wrong B-Rep edges.
   REMOVED) with active new-crate deviations (N1-N18) without a clear split.
 
 ### F7 — WASM bundle out of sync with kernel source (MEDIUM, legacy)
+> **Resolved by policy 2026-06-09:** the bundle is frozen at its last legacy
+> build; next rebuild is the Phase 5 migration to kernel-v2.
 `app/static/pkg/` was last rebuilt at `db657fd3` (Y62, May 21), but `crates/kernel`
 has at least one later behavioral fix (`e96d725a`, Y63 Newell face-normal fix, May 22).
 CLAUDE.md requires the bundle to ship in the same commit as Rust changes. The app is
@@ -123,6 +135,9 @@ running stale kernel behavior. Either rebuild+commit, or decide the legacy app b
 is frozen until Phase 5 and write that down.
 
 ### F8 — Legacy-patch policy vs. actual kernel commit stream (DECISION NEEDED)
+> **Decided 2026-06-09:** only the Yang rewrite is maintained; the legacy-patch
+> exception is revoked; legacy code is deleted incrementally as rewrite
+> milestones land. See root CLAUDE.md §"Maintenance policy".
 `crates/kernel` received the full Y58–Y63 cycle series (active debugging of
 `yang_integration.rs` / tessellation) after the rewrite was declared. Under CLAUDE.md
 these should be rare, flagged "legacy patch", and minimized. Either these were

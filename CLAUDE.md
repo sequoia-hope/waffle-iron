@@ -41,7 +41,14 @@ When asked to work on boolean / Yang / SSI / B-Rep code:
 | Shared primitive type (Point3 etc.) | `crates/cad-primitives/` | n/a |
 | Public Kernel trait refinement | `crates/kernel-v2/` + `crates/waffle-types/` | `crates/kernel/` |
 
-When asked to "fix a Yang bug" or "make Y62-style probe" on the existing code: **do not**. The existing Yang code is being deleted. Any new work goes into the new crates. The exception is bug fixes that are urgently needed for shipping the legacy code while the rewrite proceeds — those still go in `crates/kernel/` but should be flagged as "legacy patch" and minimized.
+When asked to "fix a Yang bug" or "make Y62-style probe" on the existing code: **do not**. The existing Yang code is being deleted. Any new work goes into the new crates.
+
+**Maintenance policy (decided 2026-06-09): only the Yang rewrite is maintained. Everything legacy is being actively removed, incrementally.** Concretely:
+
+- **No legacy patches.** The former "urgent legacy patch" exception is revoked. Do not fix bugs in `crates/kernel/`, its boolean/SSI/Yang-integration code, or the legacy WASM bundle — not even small ones. A legacy bug report is a non-event; the answer is the rewrite.
+- **Legacy test failures are expected and are NOT work items.** The legacy kernel's failing tests (34 lib tests, the red legacy portions of `test.sh fast`: file-format STEP export, modeling-ops `truck_*`, wasm-bridge boolean) stay red until their code is deleted. Do not fix, do not widen tolerances, do not delete individual tests to get green.
+- **The app's WASM bundle is frozen** at its last build (May 2026). No rebuilds for legacy kernel changes (there should be none). The next bundle rebuild is the Phase 5 migration to `kernel-v2`.
+- **Deletion is incremental, tied to rewrite milestones.** When a rewrite milestone makes a legacy area redundant, delete that legacy area in the same PR or the immediately following one (e.g. yang-rs functional boolean → delete `crates/kernel/src/boolean/yang_integration.rs` + the Yang assay plumbing; kernel-v2 trait implementation → delete `crates/kernel/` wholesale per Phase 5). Do not delete ahead of the milestone that replaces the capability the app actually uses.
 
 ### What stays unchanged
 
@@ -208,12 +215,20 @@ Do NOT skip to lower-priority items because they are easier.
 
 Run the appropriate test tier for your workflow:
 
-- `./scripts/test.sh fast` — During development, runs MockKernel + pure logic tests (~30s)
-- `./scripts/test.sh full` — Before committing, runs all ~910 Rust tests (~5min)
+- `./scripts/test.sh rewrite` — **The gating tier for maintained code.** All seven
+  new kernel crates + the FFI-feature cherchi-rs suite (~70s). Must be green
+  before every commit touching the rewrite.
+- `./scripts/test.sh fast` — Rewrite tier + legacy MockKernel/pure-logic tests
+- `./scripts/test.sh full` — Rewrite tier + all legacy Rust tests (~5min)
 - `./scripts/test.sh gui-fast` — Quick GUI smoke tests (~2min)
 - `./scripts/test.sh gui-full` — All ~55 GUI spec files (~5min)
 - `./scripts/test.sh all-fast` — Rust fast + GUI fast combined
 - `./scripts/test.sh all` — Full Rust + full GUI (pre-merge)
+
+**Legacy portions of `fast`/`full` are red and stay red** (see Maintenance
+policy above) — known failures in file-format, modeling-ops `truck_*`, kernel
+tessellation, and wasm-bridge boolean are unmaintained code awaiting deletion,
+not work items. Gate on `rewrite` being green.
 
 See `docs/TESTING.md` for tier definitions and how to add tests.
 
@@ -299,6 +314,13 @@ See `docs/TESTING.md` for tier definitions and how to add tests.
   Use `expectNoAnyCrash` (strict, zero crashes) for new tests.
 
 ## WASM Rebuild Workflow
+
+> **Frozen during the rewrite (policy 2026-06-09).** The shipped bundle in
+> `app/static/pkg/` is pinned at its last legacy build; legacy kernel changes
+> no longer trigger rebuilds (there should be no legacy kernel changes). This
+> workflow next applies at the Phase 5 migration, when `wasm-bridge` switches
+> to `kernel-v2` (which targets stable Rust — at that point standard
+> `wasm-pack` replaces the nightly two-step below).
 
 After any Rust crate changes that affect the WASM bridge:
 
