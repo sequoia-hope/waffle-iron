@@ -1297,12 +1297,30 @@ reimplementation from Attene's paper restores WASM (M7).
       overlap + single-coplanar-edge-through-interior are loud
       `CoplanarPairDeferred` (the §4.5.5 2D-Boolean pre-pass is **M8**). Feeds
       BL*.
-  - **PR-CR-BL1 — patch flood-fill + octree.** Port `computeAllPatches` /
-    `computeSinglePatch` + the `foctree` octree (`code/foctree.cpp`).
+  - **PR-CR-BL1 — patch flood-fill (DONE, 2026-06-09).** Ported
+    `computeAllPatches` / `computeSinglePatch` (booleans.cpp:396/426, serial
+    variant) into the new feature-gated `labeling/patches.rs`:
+    `compute_all_patches(&ArrangementSoup) -> Patches { patches, tri_to_patch,
+    border_verts }` — ascending seed scan + stack flood across manifold edges
+    (≤2 incident tris), stop at non-manifold intersection edges, border-vert
+    marking for BL2 `findRayEndpoints`. Oracle (10 invariants): partition /
+    label-constant / manifold-maximality / intersection-cuts / border-verts ==
+    non-manifold endpoints / disjoint + enclosed + point-touch degeneracies /
+    determinism / loud errors. Independently-authored ADVERSARY (12 tests):
+    ordering/winding/concat invariance, 3-solid two-loop chain, through-cut
+    (3 patches per solid), hand-built 3-incident edge, LabelMismatch path.
+    Deviations: adjacency built from the soup (Rust FastTrimesh is
+    per-base-triangle), serial-only (rule #5), sorted-Vec patches, returned
+    border set, loud error for the C++ assert. **Scope note:** the `foctree`
+    octree is NOT built here — it has no consumer until the BL2 ray-cast
+    (demand-driven, CLAUDE.md #8 spirit); port it in BL2 alongside
+    `findRayEndpoints`/`computeInsideOut`.
   - **PR-CR-BL2 — ray-cast in/out (2022 §5).** The robust per-patch in/out:
-    `findRayEndpoints` / `computeInsideOut` / ray-perturbation X/Y/Z /
-    `pruneIntersectionsAndSortAlongRay` / `analyzeSortedIntersections` (the
-    hardest part — implicit-point ray intersection sorting + perturbation).
+    the `foctree` octree (deferred from BL1; built here with its first
+    consumer) + `findRayEndpoints` / `computeInsideOut` / ray-perturbation
+    X/Y/Z / `pruneIntersectionsAndSortAlongRay` / `analyzeSortedIntersections`
+    (the hardest part — implicit-point ray intersection sorting +
+    perturbation).
   - **PR-CR-BL3 — emit `LabeledArrangement` + native `MeshBoolean` impl.**
     Assemble the per-tri source + patch_id + per-input in/out, implement
     `MeshBoolean` natively, **parity-green vs the sidecar on the corpus**, then
