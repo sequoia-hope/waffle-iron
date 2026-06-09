@@ -916,6 +916,75 @@ correction (no standalone C++ arrangement binary; full parity at BL3).
 **Sign-off:** candidate — source-faithful enforcement core; global conforming
 soup + global `seg2tris`/coplanar `jollyPoint` TPI roadmap-tracked to AR3b.
 
+### N17 — PR-CR-AR3b coplanar/single-coplanar-edge: defer ONLY a real intersection AR1 cannot construct; benign touches pass through
+
+**Code location:** `crates/cherchi-rs/src/arrangements/soup.rs` —
+`deferred_pair_must_defer` / `coplanar_tris_overlap` /
+`single_coplanar_edge_introduces_geometry` (step 7 of `mesh_arrangement`).
+Prompt PR-CR-AR3b. C++ reference `.../arrangements/code/triangulation.cpp`
+(`checkSingleCoplanarEdgeIntersections`) + the coplanar-triangle handling in
+`solve_intersections.cpp`.
+
+**Paper / source section:** Cherchi 2022 arrangement of coplanar / edge-coplanar
+triangle pairs.
+
+**Deviation:** AR1 (`classify_all`) returns `Deferred(Coplanar | SingleCoplanarEdge)`
+for **every** coplanar-or-edge-coplanar pair, because the native arrangement does
+not (yet) implement the C++ `checkSingleCoplanarEdgeIntersections` in-plane
+resolution path. Rather than loud-defer *all* of them (which would reject every
+valid solid, whose adjacent faces share coplanar edges), AR3b adds an EXACT,
+tolerance-free triage: a deferred pair is surfaced as
+`ArrangementError::CoplanarPairDeferred` **iff** it introduces real geometry AR1
+cannot construct —
+- **Coplanar pair:** the two triangles overlap in **positive area** (exact 2D
+  test); edge-/vertex-only touches (a solid's adjacent or co-planar faces) are
+  benign and pass through.
+- **SingleCoplanarEdge pair** (non-coplanar): the coplanar edge passes through
+  the other triangle's **strict interior** or **properly crosses** one of its
+  edges in the shared plane; a boundary/shared-edge touch is benign.
+
+This matches the C++ reference outcome (benign coplanar adjacency does not
+generate intersection geometry) while keeping the genuinely-unhandled cases
+**loud** (P9/P10), roadmap-tracked to the §4.5.5 2D-Boolean pre-pass at **M8**.
+The `SingleCoplanarEdge`-through-interior loud-defer branch is pinned end-to-end
+by `adversary_coplanar_edge_through_interior_is_loudly_deferred`.
+
+**Severity:** low — the pass-through is EXACT (no tolerance, no fixture special
+case) and behavior-identical to the C++ on benign coplanar adjacency; the
+unhandled positive-area / interior-crossing cases are loud typed errors deferred
+to M8. **Sign-off:** candidate.
+
+### N18 — PR-CR-AR3b exact-coordinate canonicalization welds coincident implicit points across triangles
+
+**Code location:** `crates/cherchi-rs/src/arrangements/soup.rs` —
+`canonicalize_points` (step 8 of `mesh_arrangement`). Prompt PR-CR-AR3b. C++
+reference: the global vertex identity maintained by
+`AuxiliaryStructure` / `mergeDuplicatedVertices` over the arrangement's point set.
+
+**Paper / source section:** Cherchi 2022 global arrangement point identity (one
+geometric point ⇒ one vertex id across all incident triangles).
+
+**Deviation:** the same geometric intersection point can be interned via
+**different generator tuples** (e.g. an LPI from triangle `t`'s edge vs a TPI from
+the three-plane crossing on triangle `u`), yielding structurally-distinct
+`VertexCoords` that are nonetheless the *same* point. The C++ keeps a single
+global vertex identity; the native port reaches the points per-pair first, so
+AR3b adds a post-grouping pass that canonicalizes the interned points by **EXACT
+geometric coordinates** (pure-`dashu`, rewriting only `.coords`, preserving
+length and indices so segment-endpoint ids stay stable). Coincident LPI/TPI
+points then weld to one identity downstream (re-triangulate / enforce / global
+weld), so a shared intersection vertex is not duplicated across the two incident
+base triangles.
+
+The weld is **anti-over-weld safe**: it collapses only points equal under EXACT
+coordinate comparison; genuinely-distinct intersection points stay distinct
+(pinned by the N18 dedup adversary test). NOT a tolerance-based merge.
+
+**Severity:** low — EXACT coordinate equality (no epsilon); restores the C++'s
+global one-point-one-id invariant the per-pair construction order would otherwise
+break. Oracle: structural + EXACT (conforming soup + implicit-points-welded
+invariants; anti-over-weld adversary). **Sign-off:** candidate.
+
 ### Legacy ↔ new-crate cross-reference
 
 The legacy **D1–D14** entries scope to `crates/kernel/` and do **not** imply

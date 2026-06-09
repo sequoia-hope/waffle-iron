@@ -1276,11 +1276,27 @@ reimplementation from Attene's paper restores WASM (M7).
       `EnforceError::SourcePlaneUnavailable` / `DegenerateTpi` errors (not hit by
       the in-scope original-transversal crossings; the multi-crossing case
       resolves its planes from the recorded sub-edge planes).
-    - **PR-CR-AR3b — global conforming soup + topology** (`triangle_soup` /
-      `meshArrangementPipeline` / `solveIntersections`): assemble the global
-      non-self-intersecting soup, dedup/weld shared vertices across triangles,
-      wire the full detect→classify→insert→enforce→assemble pipeline. Oracle: the
-      structural/exact invariants above on the global soup; feeds BL*.
+    - **PR-CR-AR3b — global conforming soup + topology (DONE, 2026-06-09).**
+      `mesh_arrangement` (`arrangements/soup.rs`) wires the full
+      detect→classify→group/canonicalize→split→enforce→assemble pipeline into a
+      global non-self-intersecting soup: input scaling (`compute_multiplier`),
+      global vertex dedup/weld (`merge_duplicated_vertices` +
+      degenerate/duplicate-triangle removal), per-pair AR1 classification, global
+      intersection-point grouping with N18 EXACT-coordinate canonicalization
+      (coincident LPI/TPI points reached via different generator tuples weld to
+      one identity across triangles), per-base-triangle fast-path-or-split+enforce,
+      and a global weld of the emitted submeshes. Oracle met (structural + EXACT,
+      RED 5-invariant + hand corpus; no C++ arrangement binary): conforming,
+      jolly-tailed, label-aligned, no-degenerate, implicit-points-welded. An
+      independently-authored ADVERSARY module pins input-ordering invariance
+      (winding/order/label-swap), multi-crossing faces (conform or loud
+      `DeepRecursionRequired`), the `SingleCoplanarEdge` loud-defer branch, N18
+      anti-over-weld, and planar fast-path fidelity (resolved-position parity).
+      **Still deferred (loud, P9/P10):** the AR3a `SourcePlaneUnavailable` /
+      `DegenerateTpi` walls remain typed errors where unreached; coplanar
+      overlap + single-coplanar-edge-through-interior are loud
+      `CoplanarPairDeferred` (the §4.5.5 2D-Boolean pre-pass is **M8**). Feeds
+      BL*.
   - **PR-CR-BL1 — patch flood-fill + octree.** Port `computeAllPatches` /
     `computeSinglePatch` + the `foctree` octree (`code/foctree.cpp`).
   - **PR-CR-BL2 — ray-cast in/out (2022 §5).** The robust per-patch in/out:
