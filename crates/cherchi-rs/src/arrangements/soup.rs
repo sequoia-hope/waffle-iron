@@ -1841,3 +1841,956 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod adversary_tests {
+    //! PR-CR-AR3b ADVERSARY tests (sub-agent C). Authored SEPARATELY from the
+    //! frozen RED `mod tests`; this module references neither the production
+    //! internals nor the RED module's private helpers (it re-derives its own
+    //! pure-`dashu` exact oracles in the SAME style). It adversarially stresses
+    //! the just-landed `mesh_arrangement` orchestration to pin guarantees the
+    //! RED tests leave un-pinned:
+    //!
+    //! 1. **Output invariance under pathological input orderings** — reversed
+    //!    per-triangle winding, reversed triangle order, A↔B label swap: the soup
+    //!    stays conforming, intersection-realized, topologically sane.
+    //! 2. **Multiple independent crossings** on one base face — conforms exactly,
+    //!    or a LOUD `DeepRecursionRequired` (never a silent / wrong soup). The
+    //!    observed outcome is asserted + documented inline.
+    //! 3. **Near-shared faces — loud deferral.** A near-coplanar pair whose
+    //!    contact includes a coplanar EDGE crossing the other's interior, and a
+    //!    genuinely coplanar overlap, both → loud `CoplanarPairDeferred` (never a
+    //!    silent/wrong soup). Pins the `SingleCoplanarEdge` deferral branch
+    //!    end-to-end. Exact rational offsets.
+    //! 4. **Dedup is load-bearing** — N18 canonicalization welds COINCIDENT
+    //!    implicit points to one id BUT keeps GENUINELY-DISTINCT intersection
+    //!    points DISTINCT (anti-over-weld guard).
+    //! 5. **Planar fast-path == inputs modulo prep** — disjoint pair: out_tris is
+    //!    the prepped input set (same count, same resolved vertex POSITIONS up to
+    //!    per-triangle rotation — prep renumbers ids), no new real verts,
+    //!    jolly_count == 5, labels preserved per triangle.
+    //! 6. **Loud-deferral never silent (P9/P10)** — every out-of-scope input
+    //!    classified as `Err`, explicitly NOT `Ok`.
+
+    use crate::arrangements::fast_trimesh::VertexCoords;
+    use crate::arrangements::{mesh_arrangement, ArrangementError, ArrangementSoup, Label};
+    use crate::labeled_arrangement::InputId;
+    use crate::processing::multiplier::{compute_multiplier, multiply_coordinates};
+    use cad_primitives::Point3;
+    use dashu::float::FBig;
+    use dashu::rational::RBig;
+
+    const A: InputId = InputId(0);
+    const B: InputId = InputId(1);
+
+    // ════════════════════════════════════════════════════════════════
+    // Exact-rational helpers (own copies, pure dashu — FFI-independent).
+    // ════════════════════════════════════════════════════════════════
+
+    fn to_r(x: f64) -> RBig {
+        let fb: FBig = FBig::try_from(x).expect("finite f64 → FBig is total");
+        RBig::try_from(fb).expect("FBig → RBig is total")
+    }
+    fn sub3(a: &[RBig; 3], b: &[RBig; 3]) -> [RBig; 3] {
+        [&a[0] - &b[0], &a[1] - &b[1], &a[2] - &b[2]]
+    }
+    fn cross3(a: &[RBig; 3], b: &[RBig; 3]) -> [RBig; 3] {
+        [
+            &(&a[1] * &b[2]) - &(&a[2] * &b[1]),
+            &(&a[2] * &b[0]) - &(&a[0] * &b[2]),
+            &(&a[0] * &b[1]) - &(&a[1] * &b[0]),
+        ]
+    }
+    fn dot3(a: &[RBig; 3], b: &[RBig; 3]) -> RBig {
+        &(&(&a[0] * &b[0]) + &(&a[1] * &b[1])) + &(&a[2] * &b[2])
+    }
+
+    /// Exact coordinates of a stored `VertexCoords`. Mirrors the production
+    /// `exact_vertex_coords` / RED `exact_coords` (line∩plane for Lpi; Cramer
+    /// 3-plane solve for Tpi). Panics on a degenerate fixture (caught by the
+    /// production canonicalizer in real runs; our fixtures are non-degenerate).
+    fn exact_coords(c: &VertexCoords) -> [RBig; 3] {
+        let to_r3 = |p: &Point3| [to_r(p.x()), to_r(p.y()), to_r(p.z())];
+        match c {
+            VertexCoords::Explicit(p) => to_r3(p),
+            VertexCoords::Lpi { line, plane } => {
+                let p = to_r3(&line[0]);
+                let q = to_r3(&line[1]);
+                let r = to_r3(&plane[0]);
+                let s = to_r3(&plane[1]);
+                let t = to_r3(&plane[2]);
+                let n = cross3(&sub3(&s, &r), &sub3(&t, &r));
+                let num = dot3(&sub3(&r, &p), &n);
+                let den = dot3(&sub3(&q, &p), &n);
+                assert!(den != RBig::ZERO, "LPI parallel to plane — bad fixture");
+                let u = &num / &den;
+                let qp = sub3(&q, &p);
+                [
+                    &p[0] + &(&u * &qp[0]),
+                    &p[1] + &(&u * &qp[1]),
+                    &p[2] + &(&u * &qp[2]),
+                ]
+            }
+            VertexCoords::Tpi { v, w, u } => {
+                let plane_eqn = |tri: &[Point3; 3]| -> ([RBig; 3], RBig) {
+                    let r = to_r3(&tri[0]);
+                    let s = to_r3(&tri[1]);
+                    let t = to_r3(&tri[2]);
+                    let n = cross3(&sub3(&s, &r), &sub3(&t, &r));
+                    let d = dot3(&n, &r);
+                    (n, d)
+                };
+                let (n0, d0) = plane_eqn(v);
+                let (n1, d1) = plane_eqn(w);
+                let (n2, d2) = plane_eqn(u);
+                let det_rows = |r0: &[RBig; 3], r1: &[RBig; 3], r2: &[RBig; 3]| -> RBig {
+                    dot3(r0, &cross3(r1, r2))
+                };
+                let det = det_rows(&n0, &n1, &n2);
+                assert!(det != RBig::ZERO, "TPI planes degenerate — bad fixture");
+                let rhs = [d0, d1, d2];
+                let sub_col = |k: usize| -> [[RBig; 3]; 3] {
+                    let mut rows = [n0.clone(), n1.clone(), n2.clone()];
+                    rows[0][k] = rhs[0].clone();
+                    rows[1][k] = rhs[1].clone();
+                    rows[2][k] = rhs[2].clone();
+                    rows
+                };
+                let mx = sub_col(0);
+                let my = sub_col(1);
+                let mz = sub_col(2);
+                [
+                    &det_rows(&mx[0], &mx[1], &mx[2]) / &det,
+                    &det_rows(&my[0], &my[1], &my[2]) / &det,
+                    &det_rows(&mz[0], &mz[1], &mz[2]) / &det,
+                ]
+            }
+        }
+    }
+
+    fn exact_signed_area2(axis: usize, a: &[RBig; 3], b: &[RBig; 3], c: &[RBig; 3]) -> RBig {
+        let (i, j) = match axis {
+            0 => (1, 2),
+            1 => (2, 0),
+            _ => (0, 1),
+        };
+        let bx = &b[i] - &a[i];
+        let by = &b[j] - &a[j];
+        let cx = &c[i] - &a[i];
+        let cy = &c[j] - &a[j];
+        &(&bx * &cy) - &(&by * &cx)
+    }
+
+    fn dominant_axis(a: &[RBig; 3], b: &[RBig; 3], c: &[RBig; 3]) -> usize {
+        let n = cross3(&sub3(b, a), &sub3(c, a));
+        let abs = |r: &RBig| {
+            if r < &RBig::ZERO {
+                -r.clone()
+            } else {
+                r.clone()
+            }
+        };
+        let nx = abs(&n[0]);
+        let ny = abs(&n[1]);
+        let nz = abs(&n[2]);
+        if nx >= ny && nx >= nz {
+            0
+        } else if ny >= nz {
+            1
+        } else {
+            2
+        }
+    }
+
+    fn tri_exact(soup: &ArrangementSoup, t: usize) -> [[RBig; 3]; 3] {
+        let [a, b, c] = soup.tris[t];
+        [
+            exact_coords(&soup.verts[a as usize]),
+            exact_coords(&soup.verts[b as usize]),
+            exact_coords(&soup.verts[c as usize]),
+        ]
+    }
+
+    fn coplanar4(p: &[RBig; 3], a: &[RBig; 3], b: &[RBig; 3], c: &[RBig; 3]) -> bool {
+        dot3(&sub3(a, p), &cross3(&sub3(b, p), &sub3(c, p))) == RBig::ZERO
+    }
+    fn tris_coplanar(t0: &[[RBig; 3]; 3], t1: &[[RBig; 3]; 3]) -> bool {
+        t1.iter().all(|p| coplanar4(&t0[0], &t0[1], &t0[2], p))
+    }
+    fn point_strictly_in_tri2(
+        axis: usize,
+        p: &[RBig; 3],
+        a: &[RBig; 3],
+        b: &[RBig; 3],
+        c: &[RBig; 3],
+    ) -> bool {
+        let d0 = exact_signed_area2(axis, a, b, p);
+        let d1 = exact_signed_area2(axis, b, c, p);
+        let d2 = exact_signed_area2(axis, c, a, p);
+        let pos = d0 > RBig::ZERO && d1 > RBig::ZERO && d2 > RBig::ZERO;
+        let neg = d0 < RBig::ZERO && d1 < RBig::ZERO && d2 < RBig::ZERO;
+        pos || neg
+    }
+    fn segments_properly_cross2(
+        axis: usize,
+        p0: &[RBig; 3],
+        p1: &[RBig; 3],
+        q0: &[RBig; 3],
+        q1: &[RBig; 3],
+    ) -> bool {
+        let o1 = exact_signed_area2(axis, p0, p1, q0);
+        let o2 = exact_signed_area2(axis, p0, p1, q1);
+        let o3 = exact_signed_area2(axis, q0, q1, p0);
+        let o4 = exact_signed_area2(axis, q0, q1, p1);
+        let opp = |a: &RBig, b: &RBig| {
+            (a > &RBig::ZERO && b < &RBig::ZERO) || (a < &RBig::ZERO && b > &RBig::ZERO)
+        };
+        opp(&o1, &o2) && opp(&o3, &o4)
+    }
+    fn tris_interiors_overlap(t0: &[[RBig; 3]; 3], t1: &[[RBig; 3]; 3]) -> bool {
+        if !tris_coplanar(t0, t1) {
+            return false;
+        }
+        let axis = dominant_axis(&t0[0], &t0[1], &t0[2]);
+        for p in t1.iter() {
+            if point_strictly_in_tri2(axis, p, &t0[0], &t0[1], &t0[2]) {
+                return true;
+            }
+        }
+        for p in t0.iter() {
+            if point_strictly_in_tri2(axis, p, &t1[0], &t1[1], &t1[2]) {
+                return true;
+            }
+        }
+        let e = [(0usize, 1usize), (1, 2), (2, 0)];
+        for (a, b) in e {
+            for (c, d) in e {
+                if segments_properly_cross2(axis, &t0[a], &t0[b], &t1[c], &t1[d]) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Invariant #1: no two output triangles overlap in their interiors.
+    fn assert_conforming(soup: &ArrangementSoup) {
+        let n = soup.tris.len();
+        let exacts: Vec<[[RBig; 3]; 3]> = (0..n).map(|t| tri_exact(soup, t)).collect();
+        for a in 0..n {
+            for b in (a + 1)..n {
+                assert!(
+                    !tris_interiors_overlap(&exacts[a], &exacts[b]),
+                    "output triangles {a} and {b} overlap interiors — soup not conforming"
+                );
+            }
+        }
+    }
+
+    /// Invariant #3: every output triangle has exact non-zero area.
+    fn assert_no_degenerate_tris(soup: &ArrangementSoup) {
+        for t in 0..soup.tris.len() {
+            let [a, b, c] = tri_exact(soup, t);
+            let axis = dominant_axis(&a, &b, &c);
+            assert!(
+                exact_signed_area2(axis, &a, &b, &c) != RBig::ZERO,
+                "output triangle {t} is degenerate (exact zero area)"
+            );
+        }
+    }
+
+    fn assert_jolly_tail(soup: &ArrangementSoup) -> usize {
+        assert_eq!(soup.jolly_count, 5, "jolly_count must be exactly 5");
+        let n = soup.verts.len();
+        assert!(n >= 5, "verts must include the 5 jolly points");
+        let real = n - 5;
+        for tri in &soup.tris {
+            for &id in tri {
+                assert!(
+                    (id as usize) < real,
+                    "triangle references a jolly id {id} (real verts = {real})"
+                );
+            }
+        }
+        real
+    }
+    fn assert_label_alignment(soup: &ArrangementSoup) {
+        assert_eq!(soup.tris.len(), soup.labels.len(), "labels 1:1 with tris");
+    }
+
+    /// All distinct exact intersection-vertex locations referenced by `soup`'s
+    /// real triangles that are NOT one of `corners` (the input-corner coords).
+    fn intersection_locations(soup: &ArrangementSoup, corners: &[[RBig; 3]]) -> Vec<[RBig; 3]> {
+        let real = soup.verts.len() - 5;
+        let mut out: Vec<[RBig; 3]> = Vec::new();
+        for v in 0..real {
+            let xc = exact_coords(&soup.verts[v]);
+            if corners.iter().any(|c| *c == xc) {
+                continue;
+            }
+            if !out.iter().any(|e| *e == xc) {
+                out.push(xc);
+            }
+        }
+        out
+    }
+
+    /// Assert each intersection vertex of `soup` is welded to a SINGLE global id
+    /// (no two real verts share exact coords). Returns the welded id count.
+    fn assert_implicit_points_welded(soup: &ArrangementSoup) -> usize {
+        let real = soup.verts.len() - 5;
+        let mut count = 0;
+        for v in 0..real {
+            let xv = exact_coords(&soup.verts[v]);
+            let dups = (0..real)
+                .filter(|&w| exact_coords(&soup.verts[w]) == xv)
+                .count();
+            assert_eq!(
+                dups, 1,
+                "vertex {v} must be welded to a SINGLE global id (found {dups})"
+            );
+            count += 1;
+        }
+        count
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Hand corpus builders (own copies; same style as RED).
+    // ════════════════════════════════════════════════════════════════
+
+    fn cube(
+        x0: f64,
+        y0: f64,
+        z0: f64,
+        side: f64,
+        label: InputId,
+    ) -> (Vec<f64>, Vec<[u32; 3]>, Vec<Label>) {
+        let x1 = x0 + side;
+        let y1 = y0 + side;
+        let z1 = z0 + side;
+        let corners = [
+            (x0, y0, z0),
+            (x1, y0, z0),
+            (x1, y1, z0),
+            (x0, y1, z0),
+            (x0, y0, z1),
+            (x1, y0, z1),
+            (x1, y1, z1),
+            (x0, y1, z1),
+        ];
+        let mut coords = Vec::with_capacity(24);
+        for (x, y, z) in corners {
+            coords.push(x);
+            coords.push(y);
+            coords.push(z);
+        }
+        let tris = vec![
+            [0, 2, 1],
+            [0, 3, 2],
+            [4, 5, 6],
+            [4, 6, 7],
+            [0, 1, 5],
+            [0, 5, 4],
+            [3, 7, 6],
+            [3, 6, 2],
+            [0, 4, 7],
+            [0, 7, 3],
+            [1, 2, 6],
+            [1, 6, 5],
+        ];
+        let labels = vec![vec![label]; tris.len()];
+        (coords, tris, labels)
+    }
+
+    fn concat(
+        s0: (Vec<f64>, Vec<[u32; 3]>, Vec<Label>),
+        s1: (Vec<f64>, Vec<[u32; 3]>, Vec<Label>),
+    ) -> (Vec<f64>, Vec<[u32; 3]>, Vec<Label>) {
+        let (mut coords, mut tris, mut labels) = s0;
+        let off = (coords.len() / 3) as u32;
+        coords.extend_from_slice(&s1.0);
+        for t in s1.1 {
+            tris.push([t[0] + off, t[1] + off, t[2] + off]);
+        }
+        labels.extend(s1.2);
+        (coords, tris, labels)
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // 1. Pathological orderings — output invariance.
+    //
+    // Same axis-aligned two-box overlap geometry (A=[0,2]^3, B=[1,3]^3) fed
+    // under three input perturbations that must NOT change the arrangement's
+    // correctness: (a) reversed per-triangle winding, (b) reversed triangle
+    // order, (c) A↔B label swap. Each must still be conforming, non-degenerate,
+    // welded, and intersection-realized (the boxes were cut → > 24 tris,
+    // > 16 real verts). The arrangement must not depend on incidental input
+    // ordering.
+    // ════════════════════════════════════════════════════════════════
+
+    /// Baseline geometry: interpenetrating axis-aligned boxes.
+    fn two_box_overlap() -> (Vec<f64>, Vec<[u32; 3]>, Vec<Label>) {
+        concat(cube(0.0, 0.0, 0.0, 2.0, A), cube(1.0, 1.0, 1.0, 2.0, B))
+    }
+
+    /// Assert a two-box-overlap soup is fully correct AND realized a cut.
+    fn assert_two_box_overlap_correct(soup: &ArrangementSoup) {
+        assert_label_alignment(soup);
+        assert_jolly_tail(soup);
+        assert_no_degenerate_tris(soup);
+        assert_conforming(soup);
+        assert_implicit_points_welded(soup);
+        let real = soup.verts.len() - 5;
+        assert!(
+            real > 16,
+            "interpenetrating boxes must introduce intersection verts (real = {real})"
+        );
+        assert!(
+            soup.tris.len() > 24,
+            "interpenetrating boxes must produce > 24 triangles (got {})",
+            soup.tris.len()
+        );
+        for lab in &soup.labels {
+            assert!(!lab.is_empty(), "every output label is non-empty");
+            for id in lab {
+                assert!(*id == A || *id == B, "labels only over A/B");
+            }
+        }
+    }
+
+    #[test]
+    fn adversary_reversed_winding_is_invariant() {
+        // Reverse every triangle's vertex order [a,b,c] → [c,b,a] (flips winding
+        // / normal). The non-self-intersection + intersection-realization must be
+        // unaffected — the arrangement is winding-agnostic for the conforming soup
+        // (orientation matters only to later in/out, not here).
+        let (coords, tris, labels) = two_box_overlap();
+        let rev_tris: Vec<[u32; 3]> = tris.iter().map(|t| [t[2], t[1], t[0]]).collect();
+        let soup = mesh_arrangement(&coords, &rev_tris, &labels)
+            .expect("reversed-winding box overlap must not error");
+        assert_two_box_overlap_correct(&soup);
+    }
+
+    #[test]
+    fn adversary_reversed_triangle_order_is_invariant() {
+        // Reverse the order triangles appear in the input arrays (and labels in
+        // lockstep). Global vertex ids change but the soup must remain conforming
+        // + realized; the per-triangle serial loop must not depend on input order.
+        let (coords, tris, labels) = two_box_overlap();
+        let rev_tris: Vec<[u32; 3]> = tris.iter().rev().copied().collect();
+        let rev_labels: Vec<Label> = labels.iter().rev().cloned().collect();
+        let soup = mesh_arrangement(&coords, &rev_tris, &rev_labels)
+            .expect("reversed-tri-order box overlap must not error");
+        assert_two_box_overlap_correct(&soup);
+    }
+
+    #[test]
+    fn adversary_swapped_ab_labels_is_invariant() {
+        // Swap the input-solid label assignment (A↔B). The geometry is identical;
+        // only the carried labels swap. Soup must stay conforming + realized, and
+        // every label is still a non-empty subset of {A,B}. (The label-set is
+        // symmetric here, so this also guards that label routing is per-parent,
+        // not order-coupled.)
+        let swapped = |lab: InputId| if lab == A { B } else { A };
+        let a = cube(0.0, 0.0, 0.0, 2.0, swapped(A)); // now B
+        let b = cube(1.0, 1.0, 1.0, 2.0, swapped(B)); // now A
+        let (coords, tris, labels) = concat(a, b);
+        let soup = mesh_arrangement(&coords, &tris, &labels)
+            .expect("A↔B-swapped box overlap must not error");
+        assert_two_box_overlap_correct(&soup);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // 2. Multiple independent crossings on ONE base face.
+    //
+    // A large triangle Ta in the z=0 plane is pierced by TWO disjoint
+    // protrusions of the other solid, so Ta's submesh receives several separate
+    // constraint segments. Two small tetra-like "spikes" each puncture Ta in a
+    // separate, well-separated region. Assert conforming + every crossing
+    // realized — OR a LOUD DeepRecursionRequired (never silent / wrong). The
+    // observed outcome is documented inline.
+    // ════════════════════════════════════════════════════════════════
+
+    /// A single closed triangular "spike" tetra that punctures the z=0 plane near
+    /// `(cx, cy)`: base above the plane, apex below it, so two of its faces cross
+    /// z=0 transversally, each contributing a constraint segment to the z=0 face.
+    fn spike(cx: f64, cy: f64, label: InputId) -> (Vec<f64>, Vec<[u32; 3]>, Vec<Label>) {
+        // 3 top corners (z = +1) around (cx,cy), 1 apex (z = -1) at (cx,cy).
+        let h = 0.6;
+        let coords = vec![
+            cx - h,
+            cy - h,
+            1.0, // 0 top
+            cx + h,
+            cy - h,
+            1.0, // 1 top
+            cx,
+            cy + h,
+            1.0, // 2 top
+            cx,
+            cy,
+            -1.0, // 3 apex below plane
+        ];
+        // Outward-ish winding (immaterial to arrangement correctness).
+        let tris = vec![[0u32, 1, 2], [0, 3, 1], [1, 3, 2], [2, 3, 0]];
+        let labels = vec![vec![label]; tris.len()];
+        (coords, tris, labels)
+    }
+
+    #[test]
+    fn adversary_multiple_independent_crossings_on_one_face() {
+        // Ta: a big z=0 triangle covering the region where both spikes land.
+        let mut coords = vec![
+            -5.0, -5.0, 0.0, // 0
+            10.0, -5.0, 0.0, // 1
+            -5.0, 10.0, 0.0, // 2
+        ];
+        let mut tris = vec![[0u32, 1, 2]];
+        let mut labels: Vec<Label> = vec![vec![A]];
+
+        // Two disjoint spikes piercing Ta in well-separated regions.
+        for (cx, cy) in [(0.0_f64, 0.0_f64), (4.0, 4.0)] {
+            let (sc, st, sl) = spike(cx, cy, B);
+            let off = (coords.len() / 3) as u32;
+            coords.extend_from_slice(&sc);
+            for t in st {
+                tris.push([t[0] + off, t[1] + off, t[2] + off]);
+            }
+            labels.extend(sl);
+        }
+
+        match mesh_arrangement(&coords, &tris, &labels) {
+            Ok(soup) => {
+                // OBSERVED OUTCOME: Ok — the big base face conforms exactly even
+                // with multiple disjoint constraint segments from separate
+                // protrusions. Pin the strong guarantees.
+                assert_label_alignment(&soup);
+                assert_jolly_tail(&soup);
+                assert_no_degenerate_tris(&soup);
+                assert_conforming(&soup);
+                assert_implicit_points_welded(&soup);
+
+                // Both crossings must be realized: the base face was split into
+                // more than the 1 input triangle, and intersection vertices were
+                // introduced for BOTH spike regions (x<2 region and x>2 region).
+                assert!(
+                    soup.tris.len() > 1 + 8,
+                    "multi-crossing base face must split (got {} tris)",
+                    soup.tris.len()
+                );
+                let corners: Vec<[RBig; 3]> = (0..coords.len() / 3)
+                    .map(|i| {
+                        [
+                            to_r(coords[3 * i]),
+                            to_r(coords[3 * i + 1]),
+                            to_r(coords[3 * i + 2]),
+                        ]
+                    })
+                    .collect();
+                let locs = intersection_locations(&soup, &corners);
+                let near_first = locs.iter().any(|p| p[0] < to_r(2.0));
+                let near_second = locs.iter().any(|p| p[0] > to_r(2.0));
+                assert!(
+                    near_first && near_second,
+                    "BOTH disjoint crossings must be realized (near_first={near_first}, \
+                     near_second={near_second}); intersection locs = {}",
+                    locs.len()
+                );
+            }
+            Err(ArrangementError::DeepRecursionRequired { base_tri, detail }) => {
+                // ACCEPTABLE LOUD OUTCOME: the multi-segment base face drove the
+                // N16 deep-recursion wall. This is the contract's loud deferral —
+                // never a silent / wrong soup. (Documented as a permissible
+                // outcome by the brief.) Pin only that it is THIS error variant.
+                let _ = (base_tri, detail);
+            }
+            Err(other) => {
+                panic!(
+                    "multi-crossing face must be Ok(conforming) OR loud \
+                     DeepRecursionRequired — got {other:?}"
+                );
+            }
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // 3. Near-shared faces — loud deferral, never a silent/wrong soup.
+    //
+    // (a) Two near-coplanar boxes whose contact includes a single coplanar EDGE
+    //     lying in the other's face-plane and crossing its interior (plus an
+    //     independent coplanar y-face overlap). Both are real intersections AR1
+    //     cannot construct (N13/N17, M8 scope) → loud CoplanarPairDeferred. This
+    //     pins the SingleCoplanarEdge deferral branch end-to-end. The
+    //     transversal-CONFORMING guarantee for near-coplanar faces is covered by
+    //     the box-overlap family (case_b/case_c + winding/order invariance).
+    // (b) A genuinely coplanar OVERLAPPING pair → loud CoplanarPairDeferred.
+    // ════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn adversary_coplanar_edge_through_interior_is_loudly_deferred() {
+        // Box A = axis-aligned [0,2]^3.
+        // Box B = [1,3]x[0,2]x[0,2] but its z=0 / z=2 faces are TILTED by a small
+        // exact slope (1/8 per unit x) so B is a transversal slab, NOT coplanar
+        // with any A face. The tilt 1/8 = 0.125 is exact in f64 → no float fuzz.
+        // B therefore interpenetrates A and the facing faces meet transversally.
+        let s = 0.125_f64; // exact in binary.
+                           // B's 8 corners: x in {1,3}, y in {0,2}, z tilted: z = base + s*(x-1).
+        let bx = |xi: usize| if xi == 0 { 1.0 } else { 3.0 };
+        let by = |yi: usize| if yi == 0 { 0.0 } else { 2.0 };
+        // base z: bottom face base 0, top face base 2; tilt adds s*(x-1).
+        let mut bcoords = Vec::with_capacity(24);
+        let mut bidx = Vec::new();
+        for zi in 0..2 {
+            for yi in 0..2 {
+                for xi in 0..2 {
+                    let x = bx(xi);
+                    let y = by(yi);
+                    let zbase = if zi == 0 { 0.0 } else { 2.0 };
+                    let z = zbase + s * (x - 1.0);
+                    bcoords.push(x);
+                    bcoords.push(y);
+                    bcoords.push(z);
+                    bidx.push((xi, yi, zi));
+                }
+            }
+        }
+        // Helper to map (xi,yi,zi) → linear corner id in the pushed order.
+        let cid = |xi: usize, yi: usize, zi: usize| (zi * 4 + yi * 2 + xi) as u32;
+        // 12 triangles of B (winding immaterial).
+        let q = |a: u32, b: u32, c: u32, d: u32| vec![[a, b, c], [a, c, d]];
+        let mut btris: Vec<[u32; 3]> = Vec::new();
+        btris.extend(q(cid(0, 0, 0), cid(1, 0, 0), cid(1, 1, 0), cid(0, 1, 0))); // bottom
+        btris.extend(q(cid(0, 0, 1), cid(1, 0, 1), cid(1, 1, 1), cid(0, 1, 1))); // top
+        btris.extend(q(cid(0, 0, 0), cid(1, 0, 0), cid(1, 0, 1), cid(0, 0, 1))); // y=0
+        btris.extend(q(cid(0, 1, 0), cid(1, 1, 0), cid(1, 1, 1), cid(0, 1, 1))); // y=2
+        btris.extend(q(cid(0, 0, 0), cid(0, 1, 0), cid(0, 1, 1), cid(0, 0, 1))); // x=1
+        btris.extend(q(cid(1, 0, 0), cid(1, 1, 0), cid(1, 1, 1), cid(1, 0, 1))); // x=3
+        let blabels = vec![vec![B]; btris.len()];
+
+        let (coords, tris, labels) = concat(cube(0.0, 0.0, 0.0, 2.0, A), (bcoords, btris, blabels));
+
+        // The 1/8 tilt pivots at x=1, so B's bottom-face x=1 edge (1,0,0)→(1,2,0)
+        // lies EXACTLY in A's z=0 plane and runs through the strict interior of
+        // A's bottom face — a genuine SingleCoplanarEdge intersection. B's
+        // untilted y=0/y=2 faces additionally overlap A's y-planes in positive
+        // area (an independent Coplanar contact). Both are real intersections AR1
+        // cannot construct (deviation N13/N17, M8 / Stage-0 scope), so the
+        // pipeline MUST surface a loud CoplanarPairDeferred — never a silent or
+        // wrong soup (P9/P10).
+        let res = mesh_arrangement(&coords, &tris, &labels);
+        assert!(
+            res.is_err(),
+            "coplanar-edge-through-interior must NOT be a silent Ok soup, got Ok"
+        );
+        assert!(
+            matches!(res, Err(ArrangementError::CoplanarPairDeferred { .. })),
+            "coplanar-edge-through-interior must be the classified \
+             CoplanarPairDeferred, got {res:?}"
+        );
+    }
+
+    #[test]
+    fn adversary_genuinely_coplanar_overlap_is_loudly_deferred() {
+        // Two triangles in the SAME plane z=0, overlapping in positive area.
+        // Must be loud CoplanarPairDeferred — and explicitly NOT Ok.
+        let coords = vec![
+            0.0, 0.0, 0.0, // 0
+            4.0, 0.0, 0.0, // 1
+            0.0, 4.0, 0.0, // 2
+            1.0, 1.0, 0.0, // 3 (in Ta interior)
+            5.0, 1.0, 0.0, // 4
+            1.0, 5.0, 0.0, // 5
+        ];
+        let tris = vec![[0u32, 1, 2], [3u32, 4, 5]];
+        let labels = vec![vec![A], vec![B]];
+        let res = mesh_arrangement(&coords, &tris, &labels);
+        assert!(
+            matches!(res, Err(ArrangementError::CoplanarPairDeferred { .. })),
+            "coplanar positive-area overlap must be loud CoplanarPairDeferred, got {res:?}"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // 4. Dedup is load-bearing (anti-over-weld + weld-happens).
+    //
+    // (a) Anti-over-weld: a transversal pair whose intersection produces TWO
+    //     intersection vertices at DIFFERENT exact locations must keep them as
+    //     DISTINCT global ids (canonicalization must not collapse distinct
+    //     points). Compute both exact coords; assert they differ AND map to
+    //     different ids.
+    // (b) Weld-happens: a configuration where the SAME geometric intersection
+    //     point is reachable from both triangles must yield exactly ONE welded
+    //     id (coincident → one id). The transversal-X case's two pierce points
+    //     are each shared by both base triangles' sub-triangulations.
+    // ════════════════════════════════════════════════════════════════
+
+    /// Transversal X: Ta in z=0, Tb crossing it, producing exactly TWO distinct
+    /// LPI pierce points. Used by both the distinctness and the weld assertions.
+    fn transversal_x() -> (Vec<f64>, Vec<[u32; 3]>, Vec<Label>) {
+        let coords = vec![
+            0.0, 0.0, 0.0, // 0  Ta
+            4.0, 0.0, 0.0, // 1
+            0.0, 4.0, 0.0, // 2
+            1.0, 1.0, -1.0, // 3  Tb
+            1.0, 1.0, 1.0, // 4
+            3.0, 0.0, 1.0, // 5
+        ];
+        let tris = vec![[0u32, 1, 2], [3u32, 4, 5]];
+        let labels = vec![vec![A], vec![B]];
+        (coords, tris, labels)
+    }
+
+    #[test]
+    fn adversary_distinct_intersection_points_stay_distinct() {
+        let (coords, tris, labels) = transversal_x();
+        let soup = mesh_arrangement(&coords, &tris, &labels).expect("transversal X must not error");
+        assert_conforming(&soup);
+        assert_no_degenerate_tris(&soup);
+
+        let corners: Vec<[RBig; 3]> = (0..6)
+            .map(|i| {
+                [
+                    to_r(coords[3 * i]),
+                    to_r(coords[3 * i + 1]),
+                    to_r(coords[3 * i + 2]),
+                ]
+            })
+            .collect();
+        let locs = intersection_locations(&soup, &corners);
+
+        // There must be at least TWO distinct intersection locations (the segment
+        // Ta∩Tb has two endpoints at different exact coords). Anti-over-weld: if
+        // canonicalization collapsed distinct points, we'd see < 2.
+        assert!(
+            locs.len() >= 2,
+            "two distinct pierce points must remain DISTINCT global verts \
+             (anti-over-weld); found {} intersection locations",
+            locs.len()
+        );
+
+        // And those distinct locations really are pairwise different exact coords
+        // mapping to different global ids.
+        let real = soup.verts.len() - 5;
+        let ids_for_loc = |target: &[RBig; 3]| -> Vec<usize> {
+            (0..real)
+                .filter(|&v| exact_coords(&soup.verts[v]) == *target)
+                .collect()
+        };
+        let id0 = ids_for_loc(&locs[0]);
+        let id1 = ids_for_loc(&locs[1]);
+        assert_eq!(id0.len(), 1, "loc0 must weld to exactly one id");
+        assert_eq!(id1.len(), 1, "loc1 must weld to exactly one id");
+        assert_ne!(locs[0], locs[1], "the two pierce points differ exactly");
+        assert_ne!(
+            id0[0], id1[0],
+            "distinct intersection points must map to DIFFERENT global ids"
+        );
+    }
+
+    #[test]
+    fn adversary_coincident_point_welds_to_one_id() {
+        // The SAME transversal X: each pierce point lies on the conformed edge of
+        // BOTH base triangles. The N18 weld must collapse each coincident
+        // implicit point to exactly ONE global id (weld IS happening), and that
+        // id is referenced by sub-triangles inheriting BOTH the A and the B label.
+        let (coords, tris, labels) = transversal_x();
+        let soup = mesh_arrangement(&coords, &tris, &labels).expect("transversal X must not error");
+
+        // Every real implicit point appears exactly once (welded).
+        assert_implicit_points_welded(&soup);
+
+        let corners: Vec<[RBig; 3]> = (0..6)
+            .map(|i| {
+                [
+                    to_r(coords[3 * i]),
+                    to_r(coords[3 * i + 1]),
+                    to_r(coords[3 * i + 2]),
+                ]
+            })
+            .collect();
+        let locs = intersection_locations(&soup, &corners);
+        assert!(!locs.is_empty(), "the X must realize intersection points");
+
+        // At least one welded intersection vertex is shared across A and B
+        // sub-triangles — proving the weld unifies the two triangles' copies of
+        // the coincident point into ONE id.
+        let real = soup.verts.len() - 5;
+        let mut shared = false;
+        for loc in &locs {
+            let vid = (0..real as u32).find(|&v| exact_coords(&soup.verts[v as usize]) == *loc);
+            let Some(vid) = vid else { continue };
+            let mut on_a = false;
+            let mut on_b = false;
+            for (t, tri) in soup.tris.iter().enumerate() {
+                if tri.contains(&vid) {
+                    if soup.labels[t].contains(&A) {
+                        on_a = true;
+                    }
+                    if soup.labels[t].contains(&B) {
+                        on_b = true;
+                    }
+                }
+            }
+            if on_a && on_b {
+                shared = true;
+            }
+        }
+        assert!(
+            shared,
+            "a coincident pierce point must weld to ONE id shared by both A and B \
+             sub-triangles (weld is happening)"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // 5. Planar fast-path == inputs modulo prep.
+    //
+    // A disjoint pair: out_tris must be EXACTLY the prepped input triangle set —
+    // same count, same global-id triples up to per-triangle vertex rotation —
+    // no new real vertices (only the 5 jolly tail), jolly_count == 5, labels
+    // preserved per triangle.
+    // ════════════════════════════════════════════════════════════════
+
+    /// A triple of exact positions in rotation-canonical form
+    /// (lexicographically-smallest vertex first, cyclic order preserved — NOT
+    /// reflection, since the fast path emits `soup.tri(t)` verbatim which
+    /// preserves winding).
+    fn rot_canon_pos(t: [[RBig; 3]; 3]) -> [[RBig; 3]; 3] {
+        let min_at = (0..3).min_by_key(|&i| t[i].clone()).unwrap();
+        [
+            t[min_at].clone(),
+            t[(min_at + 1) % 3].clone(),
+            t[(min_at + 2) % 3].clone(),
+        ]
+    }
+
+    #[test]
+    fn adversary_disjoint_fast_path_is_prepped_inputs() {
+        let a = cube(0.0, 0.0, 0.0, 1.0, A);
+        let b = cube(5.0, 5.0, 5.0, 1.0, B);
+        let (coords, tris, labels) = concat(a, b);
+        let n_in_tris = tris.len();
+        let n_in_verts = coords.len() / 3;
+
+        let soup = mesh_arrangement(&coords, &tris, &labels).expect("disjoint pair must not error");
+
+        // jolly tail + no new real verts.
+        let real = assert_jolly_tail(&soup);
+        assert_eq!(soup.jolly_count, 5);
+        assert_eq!(
+            real, n_in_verts,
+            "disjoint fast-path introduces no new real vertices"
+        );
+        assert_eq!(soup.tris.len(), n_in_tris, "fast-path: same triangle count");
+        assert_label_alignment(&soup);
+
+        // out_tris == prepped input tris, compared by resolved vertex POSITIONS
+        // (not raw ids). `merge_duplicated_vertices` renumbers vertices by
+        // first-appearance order, so a faithful fast-path passthrough legitimately
+        // carries DIFFERENT global ids than the input coord-slot ids — comparing
+        // ids would spuriously fail. Resolve every triangle's 3 ids to exact
+        // coordinates instead. The pipeline scales coords by `compute_multiplier`
+        // and the soup stores the SCALED corners, so scale a copy of the input the
+        // same way before resolving; then compare multisets of rotation-canonical
+        // position triples.
+        let mut scaled_in = coords.clone();
+        multiply_coordinates(&mut scaled_in, compute_multiplier(&coords));
+        let in_pos = |id: u32| -> [RBig; 3] {
+            let i = id as usize;
+            [
+                to_r(scaled_in[3 * i]),
+                to_r(scaled_in[3 * i + 1]),
+                to_r(scaled_in[3 * i + 2]),
+            ]
+        };
+        let in_tri = |t: [u32; 3]| rot_canon_pos([in_pos(t[0]), in_pos(t[1]), in_pos(t[2])]);
+        let soup_tri = |t: [u32; 3]| {
+            rot_canon_pos([
+                exact_coords(&soup.verts[t[0] as usize]),
+                exact_coords(&soup.verts[t[1] as usize]),
+                exact_coords(&soup.verts[t[2] as usize]),
+            ])
+        };
+
+        let mut want: Vec<[[RBig; 3]; 3]> = tris.iter().map(|&t| in_tri(t)).collect();
+        let mut got: Vec<[[RBig; 3]; 3]> = soup.tris.iter().map(|&t| soup_tri(t)).collect();
+        want.sort();
+        got.sort();
+        assert_eq!(
+            got, want,
+            "fast-path out_tris must equal the prepped input geometry \
+             (resolved vertex positions, up to per-tri rotation)"
+        );
+
+        // Labels preserved per triangle: each fast-path triangle keeps its
+        // parent's label. Key by canonical position triple (ids are renumbered).
+        let mut want_lbl: Vec<([[RBig; 3]; 3], Label)> = tris
+            .iter()
+            .zip(labels.iter())
+            .map(|(&t, l)| (in_tri(t), l.clone()))
+            .collect();
+        let mut got_lbl: Vec<([[RBig; 3]; 3], Label)> = soup
+            .tris
+            .iter()
+            .zip(soup.labels.iter())
+            .map(|(&t, l)| (soup_tri(t), l.clone()))
+            .collect();
+        want_lbl.sort_by(|x, y| x.0.cmp(&y.0));
+        got_lbl.sort_by(|x, y| x.0.cmp(&y.0));
+        assert_eq!(
+            got_lbl, want_lbl,
+            "fast-path must preserve each triangle's parent label"
+        );
+
+        // No implicit (Lpi/Tpi) vertices among real verts — all Explicit.
+        for v in 0..real {
+            assert!(
+                matches!(soup.verts[v], VertexCoords::Explicit(_)),
+                "fast-path real vert {v} must be an Explicit input corner"
+            );
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // 6. Loud-deferral never silent (the P9/P10 guarantee).
+    //
+    // For every out-of-scope input we can construct, assert a CLASSIFIED Err is
+    // returned — and EXPLICITLY assert it is NOT Ok (no silently-wrong/empty
+    // soup). Covers: coplanar overlap (CoplanarPairDeferred) and label/tri count
+    // mismatch (LabelCountMismatch). (DeepRecursionRequired is covered as an
+    // accepted outcome in test #2; degenerate-pair is not deterministically
+    // reachable past prep, which removes degenerate tris first — documented.)
+    // ════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn adversary_out_of_scope_inputs_are_never_silent_ok() {
+        // (a) Coplanar positive-area overlap.
+        let coplanar = (
+            vec![
+                0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 0.0, 4.0, 0.0, // Ta z=0
+                1.0, 1.0, 0.0, 5.0, 1.0, 0.0, 1.0, 5.0, 0.0, // Tb z=0 overlapping
+            ],
+            vec![[0u32, 1, 2], [3u32, 4, 5]],
+            vec![vec![A], vec![B]],
+        );
+        let r = mesh_arrangement(&coplanar.0, &coplanar.1, &coplanar.2);
+        assert!(
+            r.is_err(),
+            "coplanar overlap must NOT be Ok (silent), got Ok"
+        );
+        assert!(
+            matches!(r, Err(ArrangementError::CoplanarPairDeferred { .. })),
+            "coplanar overlap must be the classified CoplanarPairDeferred, got {r:?}"
+        );
+
+        // (b) Label/triangle count mismatch.
+        let (c2, t2, mut l2) = cube(0.0, 0.0, 0.0, 1.0, A);
+        l2.pop();
+        let r2 = mesh_arrangement(&c2, &t2, &l2);
+        assert!(r2.is_err(), "count mismatch must NOT be Ok, got Ok");
+        assert!(
+            matches!(r2, Err(ArrangementError::LabelCountMismatch { .. })),
+            "count mismatch must be the classified LabelCountMismatch, got {r2:?}"
+        );
+    }
+}
