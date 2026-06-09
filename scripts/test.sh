@@ -35,6 +35,27 @@ RUST_FAST_FULL_CRATES=(
 WASM_BRIDGE_CRATE="wasm-bridge"
 
 # ---------------------------------------------------------------------------
+# Kernel-rewrite crates (root CLAUDE.md §"Kernel Rewrite In Progress").
+# Run in BOTH fast and full tiers — these are the project's #1 priority and
+# their suites are quick.
+# ---------------------------------------------------------------------------
+RUST_REWRITE_CRATES=(
+  cad-primitives
+  cherchi-rs
+  ssi-rs
+  yang-rs
+  kernel-v2
+  cherchi-sidecar-rs
+  indirect-predicates-sidecar-rs
+)
+
+# cherchi-rs FFI tier: the M6 native arrangement only compiles under
+# --features indirect-predicates; without this run a real arrangement
+# regression is invisible to every tier. Requires the Indirect_Predicates
+# C++ source (scripts/build_sidecars.sh, roadmap M0).
+IP_SRC_DEFAULT="/home/claude/cherchi2022/InteractiveAndRobustMeshBooleans/arrangements/external/Indirect_Predicates"
+
+# ---------------------------------------------------------------------------
 # Rust Fast Tier — kernel filtered modules
 # ---------------------------------------------------------------------------
 KERNEL_FAST_FILTERS=(
@@ -219,9 +240,52 @@ run_cargo_test_binary() {
 }
 
 # ---------------------------------------------------------------------------
+# Tier: Kernel Rewrite (new crates; part of fast AND full)
+# ---------------------------------------------------------------------------
+run_rust_rewrite() {
+  header "Kernel Rewrite Crates"
+  local tier_start
+  tier_start=$(timer_start)
+
+  for crate in "${RUST_REWRITE_CRATES[@]}"; do
+    run_cargo_test "$crate"
+  done
+
+  # cherchi-rs M6 native arrangement (FFI-backed). Skipping is LOUD — a skip
+  # here means the native-arrangement path is not being tested at all.
+  local ip_src="${INDIRECT_PREDICATES_SRC:-$IP_SRC_DEFAULT}"
+  if [[ -f "$ip_src/include/indirect_predicates.h" ]]; then
+    local start rc=0
+    start=$(timer_start)
+    mem_guard cargo test -p cherchi-rs --features indirect-predicates \
+      -- --test-threads="$TEST_THREADS" || rc=$?
+    local elapsed
+    elapsed=$(timer_elapsed "$start")
+    if [[ $rc -eq 0 ]]; then
+      pass "cherchi-rs [--features indirect-predicates] (${elapsed}s)"
+    else
+      fail "cherchi-rs [--features indirect-predicates] (${elapsed}s)"
+    fi
+  else
+    echo -e "  ${YELLOW}${BOLD}⚠ SKIPPED: cherchi-rs --features indirect-predicates${NC}"
+    echo -e "  ${YELLOW}  Indirect_Predicates source not found at:${NC}"
+    echo -e "  ${YELLOW}    $ip_src${NC}"
+    echo -e "  ${YELLOW}  The M6 native arrangement is NOT being tested.${NC}"
+    echo -e "  ${YELLOW}  Fix: ./scripts/build_sidecars.sh  (roadmap M0)${NC}"
+  fi
+
+  local elapsed
+  elapsed=$(timer_elapsed "$tier_start")
+  echo ""
+  echo -e "${CYAN}  Kernel Rewrite tier completed in ${elapsed}s${NC}"
+}
+
+# ---------------------------------------------------------------------------
 # Tier: Rust Fast (~420 tests, target <30s)
 # ---------------------------------------------------------------------------
 run_rust_fast() {
+  run_rust_rewrite
+
   header "Rust Fast Tier"
   local tier_start
   tier_start=$(timer_start)
@@ -254,6 +318,8 @@ run_rust_fast() {
 # Tier: Rust Full (~910 tests)
 # ---------------------------------------------------------------------------
 run_rust_full() {
+  run_rust_rewrite
+
   header "Rust Full Tier"
   local tier_start
   tier_start=$(timer_start)
@@ -413,7 +479,8 @@ print_help() {
   echo -e "Usage: ${CYAN}scripts/test.sh <subcommand>${NC}"
   echo ""
   echo -e "${BOLD}Subcommands:${NC}"
-  echo -e "  ${GREEN}fast${NC}         Rust fast tier       (~420 tests, <30s target)"
+  echo -e "  ${GREEN}rewrite${NC}      Kernel-rewrite crates only (new-crate suites + FFI tier)"
+  echo -e "  ${GREEN}fast${NC}         Rust fast tier       (rewrite crates + legacy fast, <60s target)"
   echo -e "  ${GREEN}full${NC}         Rust full tier        (~910 tests)"
   echo -e "  ${GREEN}gui-fast${NC}     GUI fast tier         (~260 tests, 35 spec files)"
   echo -e "  ${GREEN}gui-full${NC}     GUI full tier         (~425 tests, all spec files)"
@@ -424,6 +491,10 @@ print_help() {
   echo -e "  ${GREEN}assay-deep${NC}   Assay proptest        (100 cases, nightly)"
   echo -e "  ${GREEN}profile${NC}      Run Rust test profiler (delegates to scripts/profile-rust.sh)"
   echo -e "  ${GREEN}help${NC}         Print this help"
+  echo ""
+  echo -e "${BOLD}Kernel Rewrite Crates (run in fast AND full):${NC}"
+  echo "  ${RUST_REWRITE_CRATES[*]}"
+  echo "  + cherchi-rs --features indirect-predicates (loud skip if sidecar unbuilt)"
   echo ""
   echo -e "${BOLD}Rust Fast Tier:${NC}"
   echo "  Full crates: ${RUST_FAST_FULL_CRATES[*]} $WASM_BRIDGE_CRATE"
@@ -452,6 +523,9 @@ main() {
   local cmd="${1:-help}"
 
   case "$cmd" in
+    rewrite)
+      run_rust_rewrite
+      ;;
     fast)
       run_rust_fast
       ;;
