@@ -3118,21 +3118,23 @@ fn build_intersection_curves(
             }
         }
 
-        if matched != 1 {
-            return Err(YangError::SsiRefinementFailed {
-                edge: (s, e),
-                reason: SsiRefinementError::AmbiguousCurve {
-                    candidates: returned.len(),
-                    matched,
-                },
-            });
-        }
-        let curve = ssi_curve_to_curve(returned[matched_idx.unwrap()]).map_err(|reason| {
-            YangError::SsiRefinementFailed {
+        let idx = match (matched, matched_idx) {
+            (1, Some(idx)) => idx,
+            _ => {
+                return Err(YangError::SsiRefinementFailed {
+                    edge: (s, e),
+                    reason: SsiRefinementError::AmbiguousCurve {
+                        candidates: returned.len(),
+                        matched,
+                    },
+                });
+            }
+        };
+        let curve =
+            ssi_curve_to_curve(returned[idx]).map_err(|reason| YangError::SsiRefinementFailed {
                 edge: (s, e),
                 reason,
-            }
-        })?;
+            })?;
         out.insert((s, e), curve);
     }
     Ok(out)
@@ -3937,11 +3939,12 @@ fn compact_unreferenced_verts(mesh: &mut Mesh, relocations: &mut Vec<(u32, f64)>
         .tris
         .iter()
         .map(|tri| {
-            [
-                remap[tri[0] as usize].unwrap(),
-                remap[tri[1] as usize].unwrap(),
-                remap[tri[2] as usize].unwrap(),
-            ]
+            // Invariant: `referenced` was built from this same triangle list
+            // above, so every triangle vertex has a `Some` remap entry.
+            tri.map(|v| {
+                remap[v as usize]
+                    .expect("compact_unreferenced_verts: triangle vertex not marked referenced")
+            })
         })
         .collect();
     *mesh = Mesh::new(new_verts, new_tris);
