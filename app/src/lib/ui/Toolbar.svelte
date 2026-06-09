@@ -35,7 +35,6 @@
 		setProjectName,
 		toggleTestCaseBrowser,
 		toggleAssayBrowser,
-		toggleYangDebugPane,
 		getShowDatumPlanes,
 		getShowOriginTriad,
 		toggleDatumPlanes,
@@ -651,9 +650,6 @@
 			<button class="toolbar-btn" disabled={!ready} title="Assay Browser"
 				data-testid="toolbar-btn-assay"
 				onclick={() => toggleAssayBrowser()}>Assay</button>
-			<button class="toolbar-btn" disabled={!ready} title="Yang Debug Pane"
-				data-testid="toolbar-btn-yang-debug"
-				onclick={() => toggleYangDebugPane()}>Yang</button>
 			<div class="dropdown-container">
 				<button class="toolbar-btn dropdown-trigger"
 					data-testid="toolbar-btn-debug-dropdown"

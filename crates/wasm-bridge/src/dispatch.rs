@@ -82,33 +82,7 @@ fn handle_message(
                 constraints,
             )?;
             let op = Operation::Sketch { sketch };
-            // PR-VIZ-3a-fix: arm Yang capture buffer if enabled (spec §7).
-            // Mirrors the AddFeature wrap above. PR-VIZ-3a missed this third
-            // dispatch path; PR-VIZ-3b's canary test #3 (sketch→extrude→
-            // boolean) empirically required it to capture stages from the
-            // auto-union triggered downstream of FinishSketch.
-            if state.yang_debug_capture_enabled {
-                kernel::start_yang_debug_capture();
-            }
             let result = state.engine.add_feature("Sketch".to_string(), op, kb);
-            if state.yang_debug_capture_enabled {
-                let stages = kernel::drain_yang_debug_capture();
-                if let Some(feature_id) = state.engine.tree.features.last().map(|f| f.id) {
-                    let failed_at = if state.engine.errors.iter().any(|(id, _)| *id == feature_id) {
-                        Some(stages.len().saturating_sub(1))
-                    } else {
-                        None
-                    };
-                    state.yang_debug_captures.insert(
-                        feature_id.to_string(),
-                        kernel::FeatureStageCapture {
-                            feature_id: feature_id.to_string(),
-                            stages,
-                            failed_at_stage: failed_at,
-                        },
-                    );
-                }
-            }
             result?;
             Ok(model_updated_response(state))
         }
@@ -116,35 +90,7 @@ fn handle_message(
         // -- Feature operations --
         UiToEngine::AddFeature { operation } => {
             let name = operation_name(&operation);
-            // PR-VIZ-3a: arm Yang capture buffer if enabled (spec §7).
-            // The drain MUST run on every exit path — success OR error —
-            // or a leftover buffer would leak into the next dispatch and
-            // mis-attribute stages. The early `?` return therefore needs
-            // the manual two-phase wrap rather than a trailing block.
-            if state.yang_debug_capture_enabled {
-                kernel::start_yang_debug_capture();
-            }
             let result = state.engine.add_feature(name, operation, kb);
-            if state.yang_debug_capture_enabled {
-                let stages = kernel::drain_yang_debug_capture();
-                // Per resolved ambiguity #1: the just-added feature_id is
-                // `tree.features.last()` AFTER add_feature returns.
-                if let Some(feature_id) = state.engine.tree.features.last().map(|f| f.id) {
-                    let failed_at = if state.engine.errors.iter().any(|(id, _)| *id == feature_id) {
-                        Some(stages.len().saturating_sub(1))
-                    } else {
-                        None
-                    };
-                    state.yang_debug_captures.insert(
-                        feature_id.to_string(),
-                        kernel::FeatureStageCapture {
-                            feature_id: feature_id.to_string(),
-                            stages,
-                            failed_at_stage: failed_at,
-                        },
-                    );
-                }
-            }
             result?;
             Ok(model_updated_response(state))
         }
@@ -153,29 +99,7 @@ fn handle_message(
             feature_id,
             operation,
         } => {
-            // PR-VIZ-3a: arm Yang capture buffer if enabled (spec §7).
-            if state.yang_debug_capture_enabled {
-                kernel::start_yang_debug_capture();
-            }
             let result = state.engine.edit_feature(feature_id, operation, kb);
-            if state.yang_debug_capture_enabled {
-                let stages = kernel::drain_yang_debug_capture();
-                // Per resolved ambiguity #2: EditFeature uses the
-                // message's own feature_id (not tree.last).
-                let failed_at = if state.engine.errors.iter().any(|(id, _)| *id == feature_id) {
-                    Some(stages.len().saturating_sub(1))
-                } else {
-                    None
-                };
-                state.yang_debug_captures.insert(
-                    feature_id.to_string(),
-                    kernel::FeatureStageCapture {
-                        feature_id: feature_id.to_string(),
-                        stages,
-                        failed_at_stage: failed_at,
-                    },
-                );
-            }
             result?;
             Ok(model_updated_response(state))
         }

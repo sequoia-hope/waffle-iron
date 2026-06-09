@@ -16,8 +16,6 @@
 	import TestCaseBrowser from '$lib/ui/TestCaseBrowser.svelte';
 	import SaveTestCaseDialog from '$lib/ui/SaveTestCaseDialog.svelte';
 	import AssayBrowser from '$lib/ui/AssayBrowser.svelte';
-	import YangDebugPane from '$lib/ui/YangDebugPane.svelte';
-	import { getYangDebugVisible } from '$lib/engine/store.svelte.js';
 	import TabBar from '$lib/ui/TabBar.svelte';
 
 	let tabs = $derived(getDocumentTabs().length > 0
@@ -106,7 +104,6 @@
 	</div>
 	<div class="viewport-area">
 		<Viewport />
-		{#if getYangDebugVisible()}<YangDebugPane />{/if}
 		<button class="fab fab-left" data-testid="mobile-toggle-tree" onclick={() => toggleMobilePanel('left')} title="Feature Tree">&#x2630;</button>
 		<button class="fab fab-right" data-testid="mobile-toggle-props" onclick={() => toggleMobilePanel('right')} title="Properties">&#x2699;</button>
 	</div>
@@ -155,7 +152,6 @@
 	></div>
 	<div class="viewport-area">
 		<Viewport />
-		{#if getYangDebugVisible()}<YangDebugPane />{/if}
 	</div>
 	<div
 		class="divider"

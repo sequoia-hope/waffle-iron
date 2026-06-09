@@ -485,10 +485,14 @@ fn check_brep_mode(
                     // M4 sub-variant classification
                     let classify = match (p_face, s_loop_face.and_then(|(_, f)| f)) {
                         (Some(pf), Some(sf)) if pf == sf => "M4b: SAME face for HE_p and HE_s",
-                        (Some(pf), Some(sf)) if (pf == face_a && sf == face_b) || (pf == face_b && sf == face_a) => {
+                        (Some(pf), Some(sf))
+                            if (pf == face_a && sf == face_b) || (pf == face_b && sf == face_a) =>
+                        {
                             "M4a/c: arena correct — bug in tessellation"
                         }
-                        (Some(_), Some(_)) => "M4-other: primary/secondary face mismatch with oracle pair",
+                        (Some(_), Some(_)) => {
+                            "M4-other: primary/secondary face mismatch with oracle pair"
+                        }
                         _ => "M4-other: missing face on primary or secondary HE",
                     };
                     eprintln!("[y59-bij]   classification: {}", classify);

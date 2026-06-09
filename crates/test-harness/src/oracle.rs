@@ -342,13 +342,7 @@ fn y38_near_pair_scan(
         for &(dax, day, daz) in &neighbors {
             for &(dbx, dby, dbz) in &neighbors {
                 // Skip the original edge itself.
-                if dax == 0
-                    && day == 0
-                    && daz == 0
-                    && dbx == 0
-                    && dby == 0
-                    && dbz == 0
-                {
+                if dax == 0 && day == 0 && daz == 0 && dbx == 0 && dby == 0 && dbz == 0 {
                     continue;
                 }
                 let va2 = (va.0 + dax, va.1 + day, va.2 + daz);
@@ -399,8 +393,7 @@ fn y38_grid_sensitivity_probe(
         eprintln!("[Y38_GRID_PROBE] failed to create dir {}; skipping", dir);
         return;
     }
-    let inv_n =
-        Y38_INVOCATION_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let inv_n = Y38_INVOCATION_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
     let multipliers: [(f64, &str); 6] = [
         (0.5, "05x"),

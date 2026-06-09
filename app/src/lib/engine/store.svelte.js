@@ -162,14 +162,6 @@ let saveTestCaseDialogState = $state(null);
 /** @type {{ visible: boolean, cases: Array<object>, activeCase: string | null, activeMeta: object | null, loading: boolean, error: string | null, results: Object<string, { status: string, category: string, detail: string }> }} */
 let assayBrowserState = $state({ visible: false, cases: [], activeCase: null, activeMeta: null, loading: false, error: null, results: {} });
 
-// -- Yang debug pane (PR-VIZ-3b) --
-let yangDebugVisible = $state(false);
-/** @type {string | null} feature id currently selected in the pane */
-let yangDebugFeatureId = $state(null);
-let yangDebugStageIndex = $state(0);
-/** @type {Map<string, { feature_id: string, stages: Array<any>, failed_at_stage?: number | null }>} */
-let yangDebugCaptures = $state(new Map());
-
 /** @type {{ entityA: number, entityB: number | null, sketchX: number, sketchY: number, dimType: 'distance'|'radius'|'angle', defaultValue: number } | null} */
 let dimensionPopup = $state(null);
 
@@ -611,17 +603,6 @@ export async function initEngine() {
 			getUnderConstrained: () => [...getUnderConstrainedEntities()],
 			getFailedConstraintIndices: () => [...failedConstraintIndices],
 			getFeatureErrors: () => new Map(featureErrors),
-			// PR-VIZ-3b: Yang debug capture controls (async — wraps worker round-trip)
-			setYangDebugCapture: async (b) => { await _yangSendCapture(!!b); },
-			getYangStages: async (id) => await _yangFetchStages(id),
-			clearYangDebugCaptures: async () => { await _yangSendClear(); },
-			// Test-only helper: synthesizes a featureErrors entry without running
-			// a real failing feature. Used by yang-debug-pane.spec.js test #4.
-			injectFeatureError: (featureId, message) => {
-				const newErrors = new Map(featureErrors);
-				newErrors.set(featureId, message);
-				featureErrors = newErrors;
-			},
 			projectFaceCentroids: () => {
 				const cam = cameraObject;
 				const canvas = document.querySelector('canvas');
@@ -4105,90 +4086,6 @@ export async function loadAssayCase(id) {
 	} catch (err) {
 		showToast('error', `Failed to load assay case: ${err.message}`);
 	}
-}
-
-// -- Yang debug pane (PR-VIZ-3b) --
-
-export function getYangDebugVisible() { return yangDebugVisible; }
-export function getYangDebugState() {
-	return {
-		visible: yangDebugVisible,
-		featureId: yangDebugFeatureId,
-		stageIndex: yangDebugStageIndex,
-		captures: yangDebugCaptures,
-	};
-}
-
-async function _yangSendCapture(enabled) {
-	if (!bridge) return;
-	try { await bridge.send({ type: 'SetYangDebugCapture', enabled }); } catch (err) {
-		log('error', `SetYangDebugCapture failed: ${err.message}`);
-	}
-}
-async function _yangSendClear() {
-	if (!bridge) return;
-	try { await bridge.send({ type: 'ClearYangDebugCaptures' }); } catch (err) {
-		log('error', `ClearYangDebugCaptures failed: ${err.message}`);
-	}
-}
-async function _yangFetchStages(featureId) {
-	if (!bridge) return 'null';
-	try {
-		const resp = await bridge.send({ type: 'GetYangStages', featureId });
-		return resp?.json ?? 'null';
-	} catch (err) {
-		log('error', `GetYangStages failed: ${err.message}`);
-		return 'null';
-	}
-}
-
-export function toggleYangDebugPane() {
-	if (yangDebugVisible) {
-		hideYangDebugPane();
-	} else {
-		yangDebugVisible = true;
-		_yangSendCapture(true);
-	}
-}
-
-export function hideYangDebugPane() {
-	yangDebugVisible = false;
-	_yangSendCapture(false);
-	_yangSendClear();
-	yangDebugCaptures = new Map();
-	yangDebugFeatureId = null;
-	yangDebugStageIndex = 0;
-}
-
-export async function selectYangDebugFeature(featureId) {
-	yangDebugFeatureId = featureId;
-	// Re-run the feature so the dispatch wrap drains a fresh capture for it.
-	// Sketches don't enter Yang; skip the rebuild to avoid pointless work.
-	const feature = featureTree.features.find((f) => f.id === featureId);
-	if (feature && feature.operation && feature.operation.type !== 'Sketch') {
-		try {
-			// Strip Svelte proxies before postMessage to worker.
-			const op = JSON.parse(JSON.stringify(feature.operation));
-			await editFeature(featureId, op);
-		} catch {
-			// editFeature already surfaces toast/log; continue to fetch
-			// whatever's in the buffer (may be partial-then-error stages).
-		}
-	}
-	const json = await _yangFetchStages(featureId);
-	let parsed = null;
-	try { parsed = JSON.parse(json); } catch { parsed = null; }
-	if (parsed) {
-		yangDebugCaptures = new Map(yangDebugCaptures).set(featureId, parsed);
-		const failed = parsed.failed_at_stage;
-		yangDebugStageIndex = (typeof failed === 'number') ? failed : 0;
-	} else {
-		yangDebugStageIndex = 0;
-	}
-}
-
-export function setYangDebugStageIndex(i) {
-	yangDebugStageIndex = i;
 }
 
 /**

@@ -1434,8 +1434,8 @@ fn tessellate_polygon_face(
                     vec![v3_dot(d, u_axis), v3_dot(d, v_axis)]
                 })
                 .collect();
-            let tri_indices = cdt::cdt_triangulate_flat(&coords_2d, &[])
-                .expect("CDT failed on convex polygon");
+            let tri_indices =
+                cdt::cdt_triangulate_flat(&coords_2d, &[]).expect("CDT failed on convex polygon");
             for chunk in tri_indices.chunks(3) {
                 indices.push(base_vertex + chunk[0] as u32);
                 indices.push(base_vertex + chunk[1] as u32);
@@ -1461,8 +1461,8 @@ fn tessellate_polygon_face(
             })
             .collect();
 
-        let tri_indices = cdt::cdt_triangulate_flat(&coords_2d, &[])
-            .expect("CDT failed on polygon face");
+        let tri_indices =
+            cdt::cdt_triangulate_flat(&coords_2d, &[]).expect("CDT failed on polygon face");
 
         for chunk in tri_indices.chunks(3) {
             indices.push(base_vertex + chunk[0] as u32);
@@ -1761,8 +1761,8 @@ fn tessellate_revolve_cap_polygon(
                 vec![v3_dot(d, u_axis), v3_dot(d, v_axis)]
             })
             .collect();
-        let tri_indices = cdt::cdt_triangulate_flat(&coords_2d, &[])
-            .expect("CDT failed on revolve cap polygon");
+        let tri_indices =
+            cdt::cdt_triangulate_flat(&coords_2d, &[]).expect("CDT failed on revolve cap polygon");
         for chunk in tri_indices.chunks(3) {
             push_triangle(
                 indices,
@@ -3345,8 +3345,7 @@ fn tessellate_planar_face_bounded(
                 })
                 .collect();
             let outer_loop: Vec<usize> = (0..points_2d.len()).collect();
-            let cdt_result =
-                cdt::cdt_triangulate_2d_with_loops(&points_2d, &[outer_loop]);
+            let cdt_result = cdt::cdt_triangulate_2d_with_loops(&points_2d, &[outer_loop]);
             match cdt_result {
                 Ok(triangles) => {
                     // Y62: see fan-path comment. CDT emits CCW 2D tris; when the
@@ -4180,11 +4179,11 @@ fn weld_smooth_vertices(vertices: &[f32], normals: &[f32], indices: &mut [u32]) 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Y36Class {
-    D1a,     // boundary.len() < 3 planar entry gate
-    D1b,     // 3-vertex earcut returned empty (coincident verts)
-    D1c,     // all-NMM boundary (>=90% NMM)
-    D1d,     // 3-vert clean boundary lost between F.0 and F.4 (repair-pass drop)
-    Other,   // none of the above patterns — pre-PR-Y37 catch-all (sub-classified in writer)
+    D1a,   // boundary.len() < 3 planar entry gate
+    D1b,   // 3-vertex earcut returned empty (coincident verts)
+    D1c,   // all-NMM boundary (>=90% NMM)
+    D1d,   // 3-vert clean boundary lost between F.0 and F.4 (repair-pass drop)
+    Other, // none of the above patterns — pre-PR-Y37 catch-all (sub-classified in writer)
     // PR-Y37 sub-classifications of Other (computed in writer with edge-level data):
     OtherH1, // sub-grid seam dominant (≥80% boundary edges axis-aligned + grid-quantized)
     OtherH2, // NMM-pair render asymmetric dominant (≥50% NMM edges with topology-present-but-render-absent twin)
@@ -4283,10 +4282,7 @@ fn y37_edge_axis_aligned(a: Y36QPos, b: Y36QPos) -> bool {
 
 /// Count of boundary edges that are axis-aligned (and trivially grid-quantized
 /// since the endpoints are already quantized to integer grid cells).
-fn y37_count_axis_aligned_edges(
-    boundary_positions: &[[f64; 3]],
-    inv_grid: f64,
-) -> usize {
+fn y37_count_axis_aligned_edges(boundary_positions: &[[f64; 3]], inv_grid: f64) -> usize {
     let n = boundary_positions.len();
     if n < 2 {
         return 0;
@@ -4348,7 +4344,9 @@ fn y37_count_nmm_asymmetric(
         // are dropped (not in final mesh). Both conditions = "topology says
         // I should have a peer, but no peer's render produced this edge."
         let has_peer_in_final = match candidates {
-            Some(v) => v.iter().any(|&kid| kid != info.kid && kids_in_final.contains(&kid)),
+            Some(v) => v
+                .iter()
+                .any(|&kid| kid != info.kid && kids_in_final.contains(&kid)),
             None => false,
         };
         if !has_peer_in_final {
@@ -4390,7 +4388,6 @@ fn y37_sub_classify(
     }
     (Y36Class::OtherH3, aligned, asym)
 }
-
 
 fn y36_quantize_pos(pos: [f64; 3], inv_grid: f64) -> Y36QPos {
     (
@@ -4459,8 +4456,7 @@ fn y36_write_inverse_attribution(
         Ok(d) => d,
         Err(_) => return, // gate fires but no dir → no-op
     };
-    let case = crate::boolean::yang_integration::current_case_id()
-        .unwrap_or_else(|| format!("seq_{}", std::process::id()));
+    let case = format!("seq_{}", std::process::id());
     let _ = std::fs::create_dir_all(&dump_dir);
 
     let inv_grid = y36_inv_grid(final_vertices);
@@ -4529,8 +4525,7 @@ fn y36_write_inverse_attribution(
         face_boundary_qedge_set.insert(info.kid, set);
     }
 
-    let face_by_kid: BTreeMap<u64, &Y36ProbeFaceInfo> =
-        faces.iter().map(|f| (f.kid, f)).collect();
+    let face_by_kid: BTreeMap<u64, &Y36ProbeFaceInfo> = faces.iter().map(|f| (f.kid, f)).collect();
 
     // Build TSV rows for unpaired edges (count != 2)
     // Header: unpaired_edge_id, v0_x, v0_y, v0_z, v1_x, v1_y, v1_z,
@@ -4567,8 +4562,8 @@ fn y36_write_inverse_attribution(
             if !kids_in_final.contains(cand) {
                 attributed_kid = *cand;
                 if let Some(info) = face_by_kid.get(cand) {
-                    let dropped_in_repair = info.face_range_pushed
-                        && !kids_in_final.contains(&info.kid);
+                    let dropped_in_repair =
+                        info.face_range_pushed && !kids_in_final.contains(&info.kid);
                     class = y36_classify(info, dropped_in_repair);
                 }
                 break;
@@ -4580,8 +4575,8 @@ fn y36_write_inverse_attribution(
         if attributed_kid == 0 {
             attributed_kid = kept_face_id;
             if let Some(info) = face_by_kid.get(&kept_face_id) {
-                let dropped_in_repair = info.face_range_pushed
-                    && !kids_in_final.contains(&info.kid);
+                let dropped_in_repair =
+                    info.face_range_pushed && !kids_in_final.contains(&info.kid);
                 class = y36_classify(info, dropped_in_repair);
                 // If the kept face's classification is Other but it is fully
                 // present in the final mesh, leave as Other (genuine non-D.1
@@ -4612,13 +4607,8 @@ fn y36_write_inverse_attribution(
         // PR-Y37: sub-classify Other rows into H1/H2/H3 using edge-level features.
         let (final_class, grid_aligned_cnt, nmm_asym_cnt) = match attr_info {
             Some(info) => {
-                let (sub, ga, asym) = y37_sub_classify(
-                    class,
-                    info,
-                    inv_grid,
-                    &face_boundary_edges,
-                    &kids_in_final,
-                );
+                let (sub, ga, asym) =
+                    y37_sub_classify(class, info, inv_grid, &face_boundary_edges, &kids_in_final);
                 (sub, ga, asym)
             }
             None => (class, 0usize, 0usize),
@@ -4721,16 +4711,8 @@ fn y36_write_inverse_attribution(
     let unpaired_header =
         "unpaired_edge_id\tv0_x\tv0_y\tv0_z\tv1_x\tv1_y\tv1_z\tkept_face_id\tattributed_source_face_id\tclassification\touter_boundary_len\touter_he_count\touter_nmm_count\tnmm_pct\twas_dropped_in_repair\tedge_count\tgrid_aligned_count\tgrid_aligned_pct\tnmm_asym_count\tnmm_asym_pct";
     let faces_header = "kid\tface_idx\tgeom\touter_he_count\touter_nmm_count\tis_self_loop\touter_boundary_len\tinner_loop_count\tindices_emitted_dispatch\tface_range_pushed\tnmm_pct\tclassification\tgrid_aligned_count\tgrid_aligned_pct\tnmm_asym_count\tnmm_asym_pct";
-    let _ = crate::boolean::yang_integration::dump_labels_as_csv(
-        unpaired_header,
-        &rows,
-        &unpaired_path,
-    );
-    let _ = crate::boolean::yang_integration::dump_labels_as_csv(
-        faces_header,
-        &face_rows,
-        &faces_path,
-    );
+    let _ = dump_rows_as_tsv(unpaired_header, &rows, &unpaired_path);
+    let _ = dump_rows_as_tsv(faces_header, &face_rows, &faces_path);
 
     let total = rows.len();
     let d1a = tally.get("D1a").copied().unwrap_or(0);
@@ -4771,8 +4753,22 @@ fn y36_write_inverse_attribution(
     };
     let row = format!(
         "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:.1}\t{:.1}\t{:.1}",
-        case, invocation, total, d1a, d1b, d1c, d1d, other_legacy,
-        other_h1, other_h2, other_h3, d1_total, other_total, h1_pct, h2_pct, h3_pct,
+        case,
+        invocation,
+        total,
+        d1a,
+        d1b,
+        d1c,
+        d1d,
+        other_legacy,
+        other_h1,
+        other_h2,
+        other_h3,
+        d1_total,
+        other_total,
+        h1_pct,
+        h2_pct,
+        h3_pct,
     );
     use std::io::Write;
     let header_needed = std::fs::metadata(&summary_path)
@@ -4868,14 +4864,10 @@ fn y41_write_dispatch_tsv(records: Vec<(u64, usize, Y41DispatchRecord)>) {
         Ok(d) => d,
         Err(_) => return,
     };
-    let case = crate::boolean::yang_integration::current_case_id()
-        .unwrap_or_else(|| format!("seq_{}", std::process::id()));
+    let case = format!("seq_{}", std::process::id());
     let _ = std::fs::create_dir_all(&dump_dir);
 
-    let path = format!(
-        "{}/{}_inv{:03}_dispatch.tsv",
-        dump_dir, case, invocation
-    );
+    let path = format!("{}/{}_inv{:03}_dispatch.tsv", dump_dir, case, invocation);
 
     let mut rows: Vec<String> = Vec::new();
     for (kid, face_idx, rec) in &records {
@@ -4894,7 +4886,7 @@ fn y41_write_dispatch_tsv(records: Vec<(u64, usize, Y41DispatchRecord)>) {
     }
     let header =
         "kid\tface_idx\tdispatch_type\tboundary_size\tinner_count\tindices_emitted\tdistinct_quantized_tris\tdegenerate_collapse_count\tsingle_vert_collision_count";
-    let _ = crate::boolean::yang_integration::dump_labels_as_csv(header, &rows, &path);
+    let _ = dump_rows_as_tsv(header, &rows, &path);
 
     // F0020 18-index accounting summary: sum kids 218/232/233 indices_emitted.
     let mut d1d_sum: usize = 0;
@@ -4926,8 +4918,7 @@ fn y41_write_dispatch_tsv(records: Vec<(u64, usize, Y41DispatchRecord)>) {
     ));
     let sum_header =
         "kid\tindices_emitted\tdistinct_quantized_tris\tdegenerate_collapse_count\tsingle_vert_collision_count";
-    let _ =
-        crate::boolean::yang_integration::dump_labels_as_csv(sum_header, &sum_rows, &sum_path);
+    let _ = dump_rows_as_tsv(sum_header, &sum_rows, &sum_path);
 
     eprintln!(
         "[y41-dispatch-probe] case={} inv#{} faces={} d1d_kids_present={} d1d_indices_total={} wrote={}",
@@ -5168,10 +5159,7 @@ fn y48_dump_face_boundaries(arena: &TopoArena, face_map: &BTreeMap<u64, FaceIdx>
             }
         }
     }
-    eprintln!(
-        "[y48-face-dump] zero_area_faces_total={}",
-        total_zero_area
-    );
+    eprintln!("[y48-face-dump] zero_area_faces_total={}", total_zero_area);
 }
 
 fn tessellate_solid_bounded(
@@ -5207,10 +5195,7 @@ fn tessellate_solid_bounded(
             disc.positions.len()
         );
         for (e_idx, verts) in disc.edge_verts.iter() {
-            eprintln!(
-                "[y60-bnd-edges]   edge={} disc_verts={:?}",
-                e_idx.0, verts
-            );
+            eprintln!("[y60-bnd-edges]   edge={} disc_verts={:?}", e_idx.0, verts);
         }
     }
 
@@ -5344,10 +5329,7 @@ fn tessellate_solid_bounded(
                         outer_loop_idx.0,
                         outer_boundary.len()
                     );
-                    eprintln!(
-                        "[y60-bnd]   verts: {:?}",
-                        outer_boundary
-                    );
+                    eprintln!("[y60-bnd]   verts: {:?}", outer_boundary);
                     for (i, &v) in outer_boundary.iter().enumerate() {
                         let p = disc.positions.get(v).copied().unwrap_or([0.0, 0.0, 0.0]);
                         eprintln!(
@@ -5356,10 +5338,7 @@ fn tessellate_solid_bounded(
                         );
                     }
                     if !inner_boundaries.is_empty() {
-                        eprintln!(
-                            "[y60-bnd]   inner_loop_count={}",
-                            inner_boundaries.len()
-                        );
+                        eprintln!("[y60-bnd]   inner_loop_count={}", inner_boundaries.len());
                         for (j, inner) in inner_boundaries.iter().enumerate() {
                             eprintln!(
                                 "[y60-bnd]   inner[{}] n_verts={} verts={:?}",
@@ -5544,10 +5523,8 @@ fn tessellate_solid_bounded(
         if let Some((geom_label, outer_boundary, he_count, nmm_count, inner_count, is_self_loop)) =
             y36_info_pre
         {
-            let boundary_positions: Vec<[f64; 3]> = outer_boundary
-                .iter()
-                .map(|&i| disc.positions[i])
-                .collect();
+            let boundary_positions: Vec<[f64; 3]> =
+                outer_boundary.iter().map(|&i| disc.positions[i]).collect();
             y36_face_infos.push(Y36ProbeFaceInfo {
                 kid,
                 face_idx: face_idx.0,
@@ -5564,19 +5541,6 @@ fn tessellate_solid_bounded(
         }
     }
 
-    // [stage-f] F.0 baseline: after per-face dispatch loop, before fix_winding_consistency.
-    // PR-VIZ-3a-fix: in-memory capture path runs even without env var (WASM).
-    let probe_on = std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1");
-    let capture_armed = crate::boolean::yang_integration::is_yang_capture_armed();
-    if probe_on {
-        let unpaired = count_unpaired_in_mesh(&vertices, &indices);
-        let tri_count = indices.len() / 3;
-        eprintln!("[stage-f] sub=0 tri_count={tri_count} unpaired={unpaired}");
-    }
-    if probe_on || capture_armed {
-        dump_stage_f_viz("F.0", &vertices, &indices, &face_ranges);
-    }
-
     // D2 (2026-05-18): stage-f post-tessellation repair pipeline removed.
     // Yang §4.4.3 says watertightness is "inherited from the mesh Boolean
     // output" — F.0-F.4 sub-stages (fix_winding, remove_winding_insensitive_duplicates,
@@ -5584,30 +5548,6 @@ fn tessellate_solid_bounded(
     // remove_nonmanifold_topology_aware, remove_nonmanifold_duplicates_aggressive,
     // fix_global_orientation, weld_smooth_vertices) were all legacy S-H residue
     // masking upstream defects.
-
-    // [stage-f] post-CDT diagnostics only — no repair.
-    let probe_on = std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1");
-    let capture_armed = crate::boolean::yang_integration::is_yang_capture_armed();
-    if probe_on {
-        let unpaired = count_unpaired_in_mesh(&vertices, &indices);
-        let tri_count = indices.len() / 3;
-        eprintln!("[stage-f] post-cdt tri_count={tri_count} unpaired={unpaired}");
-    }
-    if probe_on || capture_armed {
-        dump_stage_f_viz("F.4", &vertices, &indices, &face_ranges);
-    }
-
-    // [stage-f] F.4: after weld_smooth_vertices, just before return.
-    let probe_on = std::env::var("YANG_CONFORMAL_PROBE").as_deref() == Ok("1");
-    let capture_armed = crate::boolean::yang_integration::is_yang_capture_armed();
-    if probe_on {
-        let unpaired = count_unpaired_in_mesh(&vertices, &indices);
-        let tri_count = indices.len() / 3;
-        eprintln!("[stage-f] sub=4 tri_count={tri_count} unpaired={unpaired}");
-    }
-    if probe_on || capture_armed {
-        dump_stage_f_viz("F.4", &vertices, &indices, &face_ranges);
-    }
 
     // PR-Y36 inverse-direction probe: emit attribution TSV for unpaired
     // edges in the final render mesh. Default-off (gated on
@@ -5632,59 +5572,16 @@ fn tessellate_solid_bounded(
     })
 }
 
-// ── PR-VIZ-1: Stage F per-pass OBJ dump helper ──────────────────────────
-//
-// Called from each F.0–F.4 probe site under a `YANG_CONFORMAL_PROBE=1`
-// guard. Inner `YANG_STAGE_DUMP=<dir>` env check makes the file-dump path
-// no-op when dumps are disabled; PR-VIZ-3a's in-memory `record_stage`
-// runs unconditionally (no env gate; CAPTURE_BUFFER controls the no-op).
-// Spec: specs/yang_pr_viz_1_per_stage_obj_dump.md +
-// specs/yang_pr_viz_3a_in_memory_capture.md
-fn dump_stage_f_viz(stage_tag: &str, vertices: &[f32], indices: &[u32], face_ranges: &[FaceRange]) {
-    // PR-VIZ-3a: in-memory capture. Spec §4 row 6: labels = face_id per
-    // tri (mirrors the file-dump CSV's mapping logic).
-    let n_tris = indices.len() / 3;
-    let labels: Vec<u32> = (0..n_tris)
-        .map(|i| {
-            let i3 = (i * 3) as u32;
-            face_ranges
-                .iter()
-                .find(|fr| fr.start_index <= i3 && i3 < fr.end_index)
-                .map(|fr| fr.face_id.0 as u32)
-                .unwrap_or(0)
-        })
-        .collect();
-    crate::boolean::yang_integration::record_stage(stage_tag, vertices, indices, &labels);
-
-    let dump_dir = match std::env::var("YANG_STAGE_DUMP") {
-        Ok(d) => d,
-        Err(_) => return,
-    };
-    let case_dir = crate::boolean::yang_integration::ensure_stage_dump_case_dir(&dump_dir);
-    let safe_tag = crate::boolean::yang_integration::sanitize_stage_tag(stage_tag);
-    let (verts, tris) =
-        crate::boolean::yang_integration::pack_f32_indices_to_f64_mesh(vertices, indices);
-    let _ = crate::boolean::yang_integration::dump_mesh_as_obj(
-        &verts,
-        &tris,
-        &format!("{case_dir}/stage_{safe_tag}.obj"),
-    );
-    let rows: Vec<String> = (0..tris.len())
-        .map(|i| {
-            let i3 = (i * 3) as u32;
-            let face_id = face_ranges
-                .iter()
-                .find(|fr| fr.start_index <= i3 && i3 < fr.end_index)
-                .map(|fr| fr.face_id.0)
-                .unwrap_or(0);
-            format!("{i},{face_id}")
-        })
-        .collect();
-    let _ = crate::boolean::yang_integration::dump_labels_as_csv(
-        "tri_idx,face_id",
-        &rows,
-        &format!("{case_dir}/stage_{safe_tag}_labels.csv"),
-    );
+/// Local TSV writer for the Y36/Y41 debug probes (formerly borrowed from
+/// the deleted legacy `yang_integration` module).
+fn dump_rows_as_tsv(header: &str, rows: &[String], path: &str) -> Result<(), String> {
+    use std::io::Write;
+    let mut f = std::fs::File::create(path).map_err(|e| e.to_string())?;
+    writeln!(f, "{header}").map_err(|e| e.to_string())?;
+    for row in rows {
+        writeln!(f, "{row}").map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 // ── Geometry helpers ─────────────────────────────────────────────────────
@@ -6758,11 +6655,11 @@ mod tests {
 
         // Five positions: P0, P1, P2, P3, mid (in order)
         let positions: Vec<[f64; 3]> = vec![
-            [0.0, 0.0, 0.0], // 0 = P0
-            [2.0, 0.0, 0.0], // 1 = P1
-            [1.0, 1.0, 0.0], // 2 = P2 (face A apex)
+            [0.0, 0.0, 0.0],  // 0 = P0
+            [2.0, 0.0, 0.0],  // 1 = P1
+            [1.0, 1.0, 0.0],  // 2 = P2 (face A apex)
             [1.0, -1.0, 0.0], // 3 = P3 (face B apex)
-            [1.0, 0.0, 0.0], // 4 = mid (intermediate on shared edge P0–P1)
+            [1.0, 0.0, 0.0],  // 4 = mid (intermediate on shared edge P0–P1)
         ];
 
         for (i, _pos) in positions.iter().enumerate() {
@@ -6855,11 +6752,21 @@ mod tests {
         });
 
         // Edges (primary HE = the one in face A's loop for the shared edge)
-        arena.edges.push(Edge { half_edge: HalfEdgeIdx(0) }); // shared
-        arena.edges.push(Edge { half_edge: HalfEdgeIdx(1) }); // e_a1
-        arena.edges.push(Edge { half_edge: HalfEdgeIdx(2) }); // e_a2
-        arena.edges.push(Edge { half_edge: HalfEdgeIdx(4) }); // e_b1
-        arena.edges.push(Edge { half_edge: HalfEdgeIdx(5) }); // e_b2
+        arena.edges.push(Edge {
+            half_edge: HalfEdgeIdx(0),
+        }); // shared
+        arena.edges.push(Edge {
+            half_edge: HalfEdgeIdx(1),
+        }); // e_a1
+        arena.edges.push(Edge {
+            half_edge: HalfEdgeIdx(2),
+        }); // e_a2
+        arena.edges.push(Edge {
+            half_edge: HalfEdgeIdx(4),
+        }); // e_b1
+        arena.edges.push(Edge {
+            half_edge: HalfEdgeIdx(5),
+        }); // e_b2
 
         // EdgeDiscretization: shared edge has 3 verts [P0(0), mid(4), P1(1)]
         let mut edge_verts: BTreeMap<EdgeIdx, Vec<usize>> = BTreeMap::new();
@@ -7070,10 +6977,7 @@ mod tests {
             bnd_a.len(),
             bnd_b.len()
         );
-        eprintln!(
-            "Reciprocal (q,p in B for each (p,q) in A): {}",
-            reciprocal
-        );
+        eprintln!("Reciprocal (q,p in B for each (p,q) in A): {}", reciprocal);
         eprintln!(
             "Same-direction (p,q in B for (p,q) in A — Y61 cascade bug signature): {}",
             same_direction
@@ -7165,5 +7069,4 @@ mod tests {
             );
         }
     }
-
 }

@@ -57,10 +57,7 @@ pub fn cdt_triangulate_2d_with_loops(
         }
     }
 
-    let spade_points: Vec<Point2<f64>> = points
-        .iter()
-        .map(|&(x, y)| Point2::new(x, y))
-        .collect();
+    let spade_points: Vec<Point2<f64>> = points.iter().map(|&(x, y)| Point2::new(x, y)).collect();
 
     // Use try_bulk_load_cdt which routes intersecting/conflicting constraint
     // edges through an on_conflict_found callback rather than panicking. Still
@@ -182,8 +179,14 @@ mod tests {
     #[test]
     fn triangulates_square_with_hole() {
         let pts = vec![
-            (0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0),  // outer
-            (1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0),  // hole
+            (0.0, 0.0),
+            (4.0, 0.0),
+            (4.0, 4.0),
+            (0.0, 4.0), // outer
+            (1.0, 1.0),
+            (3.0, 1.0),
+            (3.0, 3.0),
+            (1.0, 3.0), // hole
         ];
         let loops = vec![vec![0, 1, 2, 3], vec![4, 5, 6, 7]];
         let tris = cdt_triangulate_2d_with_loops(&pts, &loops).unwrap();
@@ -195,7 +198,11 @@ mod tests {
             let cx = (pts[t[0]].0 + pts[t[1]].0 + pts[t[2]].0) / 3.0;
             let cy = (pts[t[0]].1 + pts[t[1]].1 + pts[t[2]].1) / 3.0;
             let in_hole = cx > 1.0 && cx < 3.0 && cy > 1.0 && cy < 3.0;
-            assert!(!in_hole, "Triangle {:?} centroid in hole at ({}, {})", t, cx, cy);
+            assert!(
+                !in_hole,
+                "Triangle {:?} centroid in hole at ({}, {})",
+                t, cx, cy
+            );
         }
     }
 
@@ -203,7 +210,12 @@ mod tests {
     fn triangulates_concave_polygon() {
         // L-shape: 6 vertices.
         let pts = vec![
-            (0.0, 0.0), (2.0, 0.0), (2.0, 1.0), (1.0, 1.0), (1.0, 2.0), (0.0, 2.0),
+            (0.0, 0.0),
+            (2.0, 0.0),
+            (2.0, 1.0),
+            (1.0, 1.0),
+            (1.0, 2.0),
+            (0.0, 2.0),
         ];
         let loops = vec![vec![0, 1, 2, 3, 4, 5]];
         let tris = cdt_triangulate_2d_with_loops(&pts, &loops).unwrap();
@@ -215,7 +227,11 @@ mod tests {
             let cx = (pts[t[0]].0 + pts[t[1]].0 + pts[t[2]].0) / 3.0;
             let cy = (pts[t[0]].1 + pts[t[1]].1 + pts[t[2]].1) / 3.0;
             let in_missing = cx > 1.0 && cx < 2.0 && cy > 1.0 && cy < 2.0;
-            assert!(!in_missing, "Triangle {:?} centroid in missing corner at ({}, {})", t, cx, cy);
+            assert!(
+                !in_missing,
+                "Triangle {:?} centroid in missing corner at ({}, {})",
+                t, cx, cy
+            );
         }
     }
 
@@ -229,8 +245,8 @@ mod tests {
     #[test]
     fn flat_api_with_holes_annulus() {
         let coords: Vec<f64> = vec![
-            0.0, 0.0, 4.0, 0.0, 4.0, 4.0, 0.0, 4.0,  // outer (4 verts)
-            1.0, 1.0, 3.0, 1.0, 3.0, 3.0, 1.0, 3.0,  // hole (4 verts), starts at vertex 4
+            0.0, 0.0, 4.0, 0.0, 4.0, 4.0, 0.0, 4.0, // outer (4 verts)
+            1.0, 1.0, 3.0, 1.0, 3.0, 3.0, 1.0, 3.0, // hole (4 verts), starts at vertex 4
         ];
         let hole_indices = vec![4];
         let tris = cdt_triangulate_flat(&coords, &hole_indices).unwrap();

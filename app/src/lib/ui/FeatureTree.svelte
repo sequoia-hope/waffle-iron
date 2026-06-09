@@ -27,10 +27,7 @@
 		hideAllAxes,
 		enterSketchEditMode,
 		getFeatureErrors,
-		showEditFeatureDialog,
-		selectYangDebugFeature,
-		toggleYangDebugPane,
-		getYangDebugVisible
+		showEditFeatureDialog
 	} from '$lib/engine/store.svelte.js';
 	import { BUILTIN_PLANES, makePlaneRef } from '$lib/engine/planes.js';
 	import { longPressContextMenu } from './longPressContextMenu.js';
@@ -416,8 +413,6 @@
 							data-testid="feature-error-{i}"
 							onclick={(e) => {
 								e.stopPropagation();
-								selectYangDebugFeature(feature.id);
-								if (!getYangDebugVisible()) toggleYangDebugPane();
 							}}
 						>⚠</button>
 					{/if}

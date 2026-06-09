@@ -7,7 +7,7 @@
  *
  * Scoped to the Threlte viewport (`[data-testid="viewport"] canvas`) rather
  * than the bare `canvas` selector, so auxiliary mini-canvases (e.g.
- * YangDebugPane, ThumbnailViewport) do not trip Playwright's strict-mode
+ * ThumbnailViewport) do not trip Playwright's strict-mode
  * "resolved to N elements" violation.
  * @param {import('@playwright/test').Page} page
  * @returns {Promise<{x: number, y: number, width: number, height: number, centerX: number, centerY: number} | null>}

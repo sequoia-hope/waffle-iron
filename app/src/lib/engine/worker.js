@@ -259,36 +259,6 @@ self.onmessage = async function (event) {
 		return;
 	}
 
-	// PR-VIZ-3b: Yang debug capture controls — direct wasm-export calls,
-	// bypass UiToEngine/process_message because they're not engine commands.
-	if (msg.type === 'SetYangDebugCapture') {
-		try {
-			wasmModule?.set_yang_debug_capture(!!msg.enabled);
-			self.postMessage({ type: 'YangDebugCaptureSet', enabled: !!msg.enabled });
-		} catch (err) {
-			self.postMessage({ type: 'Error', message: `set_yang_debug_capture failed: ${err.message}`, feature_id: null });
-		}
-		return;
-	}
-	if (msg.type === 'GetYangStages') {
-		try {
-			const json = wasmModule?.get_yang_stages_json(msg.featureId) ?? 'null';
-			self.postMessage({ type: 'YangStagesResult', featureId: msg.featureId, json });
-		} catch (err) {
-			self.postMessage({ type: 'Error', message: `get_yang_stages_json failed: ${err.message}`, feature_id: null });
-		}
-		return;
-	}
-	if (msg.type === 'ClearYangDebugCaptures') {
-		try {
-			wasmModule?.clear_yang_debug_captures();
-			self.postMessage({ type: 'YangDebugCapturesCleared' });
-		} catch (err) {
-			self.postMessage({ type: 'Error', message: `clear_yang_debug_captures failed: ${err.message}`, feature_id: null });
-		}
-		return;
-	}
-
 	const response = processMessage(msg);
 
 	// If the WASM module crashed, try to auto-restart before responding.

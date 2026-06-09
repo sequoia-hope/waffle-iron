@@ -34,9 +34,9 @@ When asked to work on boolean / Yang / SSI / B-Rep code:
 
 | Task | Crate to work in | DO NOT touch |
 |---|---|---|
-| Mesh boolean (Cherchi port) | `crates/cherchi-rs/` | `crates/kernel/src/boolean/cherchi/` |
+| Mesh boolean (Cherchi port) | `crates/cherchi-rs/` | legacy port deleted 2026-06-09 |
 | Analytical SSI solver | `crates/ssi-rs/` | `crates/kernel/src/ssi/` |
-| Yang pipeline stage | `crates/yang-rs/` | `crates/kernel/src/boolean/yang_integration.rs` |
+| Yang pipeline stage | `crates/yang-rs/` | legacy port deleted 2026-06-09 |
 | B-Rep / Euler ops / primitives / tessellation | `crates/kernel-v2/` | `crates/kernel/src/` (except Kernel trait signature reference) |
 | Shared primitive type (Point3 etc.) | `crates/cad-primitives/` | n/a |
 | Public Kernel trait refinement | `crates/kernel-v2/` + `crates/waffle-types/` | `crates/kernel/` |
@@ -46,9 +46,9 @@ When asked to "fix a Yang bug" or "make Y62-style probe" on the existing code: *
 **Maintenance policy (decided 2026-06-09): only the Yang rewrite is maintained. Everything legacy is being actively removed, incrementally.** Concretely:
 
 - **No legacy patches.** The former "urgent legacy patch" exception is revoked. Do not fix bugs in `crates/kernel/`, its boolean/SSI/Yang-integration code, or the legacy WASM bundle — not even small ones. A legacy bug report is a non-event; the answer is the rewrite.
-- **Legacy test failures are expected and are NOT work items.** The legacy kernel's failing tests (34 lib tests, the red legacy portions of `test.sh fast`: file-format STEP export, modeling-ops `truck_*`, wasm-bridge boolean) stay red until their code is deleted. Do not fix, do not widen tolerances, do not delete individual tests to get green.
+- **Legacy test failures are expected and are NOT work items.** The legacy kernel's failing tests (11 lib tests after the 2026-06-09 deletion pass, the red legacy portions of `test.sh fast`: file-format STEP export, modeling-ops `truck_*`, wasm-bridge boolean) stay red until their code is deleted. Do not fix, do not widen tolerances, do not delete individual tests to get green.
 - **The app's WASM bundle is frozen** at its last build (May 2026). No rebuilds for legacy kernel changes (there should be none). The next bundle rebuild is the Phase 5 migration to `kernel-v2`.
-- **Deletion is incremental, tied to rewrite milestones.** When a rewrite milestone makes a legacy area redundant, delete that legacy area in the same PR or the immediately following one (e.g. yang-rs functional boolean → delete `crates/kernel/src/boolean/yang_integration.rs` + the Yang assay plumbing; kernel-v2 trait implementation → delete `crates/kernel/` wholesale per Phase 5). Do not delete ahead of the milestone that replaces the capability the app actually uses.
+- **Deletion is incremental, tied to rewrite milestones.** When a rewrite milestone makes a legacy area redundant, delete that legacy area in the same PR or the immediately following one (kernel-v2 trait implementation → delete `crates/kernel/` wholesale per Phase 5). Do not delete ahead of the milestone that replaces the capability the app actually uses. *First pass done 2026-06-09:* the legacy Yang/Cherchi port (`crates/kernel/src/boolean/{yang_integration,cherchi,mesh_arrangement,exact_mesh,indirect_predicates,intersection_opt,ssi_refinement,topology_extract,coplanar_preprocess,pipeline_oracles,oracles}`), the `kernel::diagnostics` oracle surface, the PR-VIZ Yang debug pane (wasm-bridge + app UI), and the Yang assay tests (`yang_fast`, spotlights, comparison, ~26 test-harness files) are deleted. The S-H clipping path, legacy B-Rep/tessellation, and legacy SSI remain until Phase 5 because the app runs on them.
 
 ### What stays unchanged
 
@@ -78,7 +78,7 @@ When asked to "fix a Yang bug" or "make Y62-style probe" on the existing code: *
 ### Why this rewrite
 
 - The Y62 / Y63 cycles found the Yang code was patching around legacy assumptions (face stored_normal didn't track polygon walk; legacy boolean output preserved wrong normals after subtract; `tessellate_planar_face_bounded` was force-aligning to mask upstream defects)
-- yang_fast is 12/157 currently, but most of that is Yang inheriting broken inputs from legacy assembly, not Yang itself being wrong
+- yang_fast was 12/157 at decision time (test deleted 2026-06-09 with the legacy port), mostly Yang inheriting broken inputs from legacy assembly, not Yang itself being wrong
 - Reference parity against Cherchi C++ was deferred until PR-Y29 instead of being load-bearing from day one (per `feedback_external_coherence.md`)
 - The "tests pass" metric (1250/34 in current kernel) measures how legacy + Yang patches handle the corpus, NOT how Yang handles it — false project status signal
 
@@ -113,10 +113,10 @@ Do NOT skip to lower-priority items because they are easier.
    emit Cherchi-`inputcheck`-clean meshes — the real gate, since Cherchi hangs
    on malformed input).
 
-   > The legacy oracle guidance that used to sit here (`spotlight_<CASE>_oracles`,
-   > `default_oracle_registry` in `crates/kernel/src/boolean/pipeline_oracles.rs`,
-   > the Y48–Y57 canary family, `yang_fast 12/157`) all concern the **legacy**
-   > `crates/kernel/` port and its assay. They do not apply to the new crates.
+   > The legacy oracle guidance that used to sit here (spotlight oracles, the
+   > stage-invariant registry, the Y48–Y57 canary family, `yang_fast 12/157`)
+   > concerned the **legacy** `crates/kernel/` port, which was DELETED on
+   > 2026-06-09. It does not apply to the new crates.
    > In the new world the correctness oracle is **reference parity against the
    > Cherchi C++ sidecar** (roadmap §6: GREEN ::= matches the sidecar on a
    > corpus subset), not the legacy stage-invariant registry.
@@ -160,7 +160,6 @@ Do NOT skip to lower-priority items because they are easier.
    - Cherchi 2022 C++ reference (full Boolean pipeline + ray-cast in/out):
      `github.com/gcherchi/InteractiveAndRobustMeshBooleans`
    - Livesu et al. 2021 (simplified earcut CDT): "Deterministic Linear Time Constrained Triangulation Using Simplified Earcut"
-   - Yang fast test: `YANG_BOOLEAN=1 cargo test -p test-harness --test assay_randomized -- yang_fast --ignored --nocapture`
    - **Implementation audit:** `docs/audits/yang_2025_audit.md` — per-step assessment
      of what's CORRECT, INCOMPLETE, WRONG, or STUB vs the paper. Read this before
      working on the Yang pipeline to know what actually needs fixing.

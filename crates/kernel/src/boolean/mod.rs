@@ -15,21 +15,9 @@
 //! in improving these paths — see `specs/yang_hybrid_migration.md`.
 
 pub(crate) mod analytical;
-pub(crate) mod cherchi;
 pub(crate) mod classify;
 mod clip;
-pub(crate) mod coplanar_preprocess;
-pub(crate) mod exact_mesh;
-pub(crate) mod indirect_predicates;
-pub(crate) mod intersection_opt;
-#[allow(dead_code)] // Not yet wired into pipeline
-pub(crate) mod mesh_arrangement;
-pub(crate) mod oracles;
-pub(crate) mod pipeline_oracles;
-pub(crate) mod ssi_refinement;
 pub(crate) mod stitch;
-pub(crate) mod topology_extract;
-pub(crate) mod yang_integration;
 
 #[cfg(test)]
 pub(crate) use analytical::build_cyl_result;
