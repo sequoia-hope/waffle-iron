@@ -18,7 +18,7 @@ use crate::Mesh;
 ///
 /// A newtype over the raw solid index so per-triangle surface labels are
 /// self-describing rather than bare integers.
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct InputId(pub u32);
 
 /// Stage-2 output of the Yang pipeline: the FULL exact mesh arrangement plus,

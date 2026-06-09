@@ -32,6 +32,10 @@
 pub mod arrangements;
 pub mod boolean;
 pub mod labeled_arrangement;
+/// Boolean labeling (Cherchi 2022 §5) over the AR3b arrangement soup —
+/// feature-gated with the arrangement it consumes (M6 BL* slices).
+#[cfg(feature = "indirect-predicates")]
+pub mod labeling;
 pub mod mesh;
 pub mod predicates;
 pub mod processing;
