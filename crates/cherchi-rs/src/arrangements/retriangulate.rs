@@ -385,6 +385,7 @@ mod tests {
     ///   base A; interior Explicit (2,1,0): x>0,y>0,x+y=3<4 → inside.
     #[test]
     fn case_a_one_interior_three_tris() {
+        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let mut subm = one_tri(a[0], a[1], a[2]);
         let pts = vec![tp_explicit(Point3::new(2.0, 1.0, 0.0))];
@@ -396,6 +397,7 @@ mod tests {
     ///   Explicit (2,0,0) lies on it.
     #[test]
     fn case_b_one_on_edge_two_tris_explicit() {
+        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let mut subm = one_tri(a[0], a[1], a[2]);
         let pts = vec![tp_explicit(Point3::new(2.0, 0.0, 0.0))];
@@ -410,6 +412,7 @@ mod tests {
     ///   intersection = (2,0,0), on edge (0,1).
     #[test]
     fn case_b_one_on_edge_two_tris_lpi() {
+        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let mut subm = one_tri(a[0], a[1], a[2]);
         let line = [Point3::new(2.0, 0.0, -1.0), Point3::new(2.0, 0.0, 1.0)];
@@ -433,6 +436,7 @@ mod tests {
     ///   (2,1,0) and (1,2,0): both interior (sums 3<4).
     #[test]
     fn case_c_two_interior_five_tris() {
+        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let mut subm = one_tri(a[0], a[1], a[2]);
         let pts = vec![
@@ -467,6 +471,7 @@ mod tests {
     /// Includes an `Lpi` vertex so LPI exact coords are exercised.
     #[test]
     fn oracle_exact_covering_subtriangulation() {
+        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let mut subm = one_tri(a[0], a[1], a[2]);
 
@@ -618,6 +623,7 @@ mod tests {
     /// and the tri count matches the fan/edge-split Euler expectation.
     #[test]
     fn topology_validity_after_insertion() {
+        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let mut subm = one_tri(a[0], a[1], a[2]);
         let pts = vec![
@@ -717,6 +723,7 @@ mod tests {
     ///   GREEN: interior (1,1,0) → fan into 3.
     #[test]
     fn tpi_interior_one_point_three_tris() {
+        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let mut subm = one_tri(a[0], a[1], a[2]);
         let (v, w, u) = tpi_fixture_planes();
@@ -814,6 +821,7 @@ mod tests {
     /// `Tpi` arm (the inserted vertex resolves to (1,1,0)).
     #[test]
     fn tpi_interior_exact_covering_subtriangulation() {
+        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let mut subm = one_tri(a[0], a[1], a[2]);
         let (v, w, u) = tpi_fixture_planes();
@@ -868,6 +876,7 @@ mod tests {
     /// (2,0,0).
     #[test]
     fn tpi_interior_covering_with_lpi_and_explicit() {
+        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let mut subm = one_tri(a[0], a[1], a[2]);
         let (v, w, u) = tpi_fixture_planes();

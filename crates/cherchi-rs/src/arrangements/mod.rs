@@ -37,3 +37,21 @@ pub use retriangulate::{split_single_triangle, RetriangulateError};
 #[cfg(feature = "indirect-predicates")]
 pub use soup::{mesh_arrangement, ArrangementError, ArrangementSoup, Label};
 pub use tree::{Node, Tree};
+
+/// Loud guard for FFI-dependent tests. When the Indirect_Predicates C++
+/// source is missing at build time, indirect-predicates-sidecar-rs compiles a
+/// no-op stub (`AVAILABLE == false`) whose predicates return garbage — which
+/// surfaces as baffling geometric failures (`NoContainingTriangle`, exactness
+/// oracle misses) instead of pointing at the real cause. Refuse to run
+/// against the stub (P9/P10: never fail for the wrong reason).
+#[cfg(all(test, feature = "indirect-predicates"))]
+pub(crate) fn require_ffi_shim() {
+    assert!(
+        indirect_predicates_sidecar_rs::AVAILABLE,
+        "indirect-predicates FFI shim not linked (AVAILABLE == false): the \
+         Indirect_Predicates C++ source was missing at build time, so the \
+         no-op stub was compiled and every predicate returns garbage. Run \
+         scripts/build_sidecars.sh (roadmap M0) or set \
+         INDIRECT_PREDICATES_SRC, then rebuild."
+    );
+}

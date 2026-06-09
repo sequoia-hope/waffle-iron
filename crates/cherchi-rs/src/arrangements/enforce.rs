@@ -1043,6 +1043,7 @@ mod tests {
     /// existing edge and add NO new vertex (no spurious TPI).
     #[test]
     fn segment_already_an_edge_flags_no_new_vertex() {
+        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let p = Point3::new(1.0, 1.0, 0.0);
         let mut subm = one_tri(a[0], a[1], a[2]);
@@ -1093,6 +1094,7 @@ mod tests {
     /// realized as the constraint chain (A0,M) + (M,P).
     #[test]
     fn t_junction_segment_through_interior_vertex() {
+        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let m = Point3::new(1.0, 1.0, 0.0);
         let p = Point3::new(1.5, 1.5, 0.0);
@@ -1317,6 +1319,7 @@ mod tests {
     /// base's; no degenerate sub-tri. Pure `RBig`, independent of the FFI path.
     #[test]
     fn x_crossing_exact_covering_subtriangulation() {
+        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let s1a = Point3::new(1.0, 0.0, 0.0);
         let s1b = Point3::new(1.0, 3.0, 0.0);
@@ -1417,6 +1420,7 @@ mod tests {
     /// the two submesh vertices carrying the endpoint coords.
     #[test]
     fn enforce_constraints_adapter_resolves_interned_endpoints() {
+        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let b = tilted_b();
         let soup = soup_pair(a, b);
@@ -2145,6 +2149,7 @@ mod tests {
     /// helper returns `false` (rather than panicking or returning `true`).
     #[test]
     fn adv_edge_is_constr_between_false_for_nonadjacent() {
+        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         // Insert an interior point so a non-adjacent pair (the interior point and
         // a base corner not on its fan… here all corners ARE adjacent to a single

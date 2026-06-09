@@ -26,8 +26,33 @@ fn main() {
 
     let src_dir = resolve_source_dir();
     match src_dir {
-        Some(dir) => compile_real_shim(&dir),
-        None => compile_stub(),
+        Some(dir) => {
+            // Re-run when the upstream header changes (e.g. sidecar re-cloned).
+            println!(
+                "cargo:rerun-if-changed={}",
+                dir.join("include").join("indirect_predicates.h").display()
+            );
+            compile_real_shim(&dir);
+        }
+        None => {
+            // Watch the probed header path even though it is currently
+            // missing: cargo re-runs a build script whose watched path does
+            // not exist, so the stub self-heals into the real shim on the
+            // first build after scripts/build_sidecars.sh populates it.
+            // Without this, the stub result is cached and 35+ FFI tests fail
+            // with baffling geometric errors until a manual `cargo clean`.
+            let probe = env::var("INDIRECT_PREDICATES_SRC")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| PathBuf::from(DEFAULT_SRC));
+            println!(
+                "cargo:rerun-if-changed={}",
+                probe
+                    .join("include")
+                    .join("indirect_predicates.h")
+                    .display()
+            );
+            compile_stub();
+        }
     }
 
     generate_bindings();

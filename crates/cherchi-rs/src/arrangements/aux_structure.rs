@@ -555,6 +555,7 @@ mod tests {
     ///   - Returned `Vec<TriangleAuxPoints>` length == num_tris == 2.
     #[test]
     fn transversal_two_lpi_bucketing() {
+        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let b = [
             Point3::new(1.0, 1.0, -1.0),
@@ -726,6 +727,7 @@ mod tests {
     /// Dedup ⇒ that generator appears once in the global set.
     #[test]
     fn dedup_identical_lpi_across_pairs() {
+        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let pp = Point3::new(1.0, 1.0, -1.0);
         let qq = Point3::new(1.0, 1.0, 1.0);
