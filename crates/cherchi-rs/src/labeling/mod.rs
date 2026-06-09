@@ -5,6 +5,8 @@
 //! requires: patch flood-fill (BL1, this module), ray-cast in/out (BL2),
 //! and the native `MeshBoolean` assembly (BL3).
 
+#[cfg(test)]
+mod adversary_tests;
 pub mod patches;
 
 pub use patches::{compute_all_patches, PatchError, Patches};
