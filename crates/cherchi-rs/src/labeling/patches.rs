@@ -30,6 +30,8 @@
 //!   sorted `border_verts` vec — the BL2 `findRayEndpoints` consumer reads
 //!   it instead of mutating shared mesh state.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use crate::arrangements::soup::{ArrangementSoup, Label};
 
 /// Result of the patch flood-fill over an arrangement soup.
@@ -62,20 +64,92 @@ pub enum PatchError {
 /// Port of `computeAllPatches` (booleans.cpp:396, serial variant):
 /// partition the soup's triangles into patches by flood-fill across
 /// manifold edges, stopping at non-manifold (intersection) edges.
+///
+/// The C++ seeds patches by an ascending scan over triangle ids
+/// (`for t_id ... if triInfo(t_id) != 1`) and floods each with the
+/// stack-based `computeSinglePatch`; this port keeps both, so patch
+/// order and membership are deterministic.
 pub fn compute_all_patches(soup: &ArrangementSoup) -> Result<Patches, PatchError> {
-    // GREEN lands in the next commit; RED stub fails every oracle loudly.
-    let _ = soup;
+    if soup.labels.len() != soup.tris.len() {
+        return Err(PatchError::InputMismatch {
+            tris: soup.tris.len(),
+            labels: soup.labels.len(),
+        });
+    }
+
+    // Edge → incident triangles, key = sorted vertex pair. This is the
+    // FastTrimesh `adjE2T` equivalent (module-doc deviation: built directly
+    // from the soup; manifold ::= ≤ 2 incident tris, cinolib semantics).
+    let mut e2t: BTreeMap<(u32, u32), Vec<u32>> = BTreeMap::new();
+    for (t, tri) in soup.tris.iter().enumerate() {
+        for k in 0..3 {
+            let (u, v) = (tri[k], tri[(k + 1) % 3]);
+            e2t.entry((u.min(v), u.max(v))).or_default().push(t as u32);
+        }
+    }
+
+    let n = soup.tris.len();
+    let mut visited = vec![false; n]; // C++ triInfo == 1
+    let mut tri_to_patch = vec![0u32; n];
+    let mut patches: Vec<Vec<u32>> = Vec::new();
+    let mut border: BTreeSet<u32> = BTreeSet::new(); // C++ vertInfo == 1
+
+    for seed in 0..n as u32 {
+        if visited[seed as usize] {
+            continue;
+        }
+        // ----- computeSinglePatch (booleans.cpp:426, serial) -----
+        let pid = patches.len() as u32;
+        let ref_l = canonical(&soup.labels[seed as usize]);
+        let mut patch: Vec<u32> = Vec::new();
+        let mut stack = vec![seed];
+        while let Some(curr) = stack.pop() {
+            // The C++ stack can hold duplicate pushes (visited is set at
+            // pop; its hash-set `patch.insert` dedups). The Vec port skips
+            // already-visited pops instead.
+            if visited[curr as usize] {
+                continue;
+            }
+            visited[curr as usize] = true;
+            patch.push(curr);
+            tri_to_patch[curr as usize] = pid;
+            // C++ `assert(labels.surface[t_id] == ref_l)` — loud here.
+            if canonical(&soup.labels[curr as usize]) != ref_l {
+                return Err(PatchError::LabelMismatch { seed, tri: curr });
+            }
+            let tri = soup.tris[curr as usize];
+            for k in 0..3 {
+                let (u, v) = (tri[k], tri[(k + 1) % 3]);
+                let inc = &e2t[&(u.min(v), u.max(v))];
+                if inc.len() <= 2 {
+                    // Manifold edge → keep flooding.
+                    for &t2 in inc {
+                        if t2 != curr && !visited[t2 as usize] {
+                            stack.push(t2);
+                        }
+                    }
+                } else {
+                    // Non-manifold (intersection) edge → stop flooding;
+                    // mark patch-border vertices for BL2 ray endpoints.
+                    border.insert(u);
+                    border.insert(v);
+                }
+            }
+        }
+        patch.sort_unstable();
+        patches.push(patch);
+    }
+
     Ok(Patches {
-        patches: Vec::new(),
-        tri_to_patch: Vec::new(),
-        border_verts: Vec::new(),
+        patches,
+        tri_to_patch,
+        border_verts: border.into_iter().collect(),
     })
 }
 
 /// Canonical (sorted) copy of a label for set-equality comparison.
 /// The C++ compares `std::bitset` surface labels (order-free); the Rust
 /// `Label` is a `Vec<InputId>`, so comparison canonicalizes first.
-#[allow(dead_code)] // used by GREEN
 fn canonical(label: &Label) -> Label {
     let mut l = label.clone();
     l.sort_unstable();
