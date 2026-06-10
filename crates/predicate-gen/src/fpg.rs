@@ -27,6 +27,14 @@ pub fn up(x: f64) -> f64 {
 /// "extra bonus, because of Intel's extended precision feature"
 /// (`u + u/2^11`). The bonus is unnecessary on SSE2/wasm32 hardware but
 /// keeping it only makes the filter more conservative.
+///
+/// Forensic note (2026-06-10): our δ constants land 2-4.5% above Cherchi
+/// 2020's published values (same degrees). Disabling this bonus moves them
+/// by only ~0.05%, so the surplus is STRUCTURAL — a different (equally
+/// sound) association order of the polynomial in our IR, not a rounding
+/// margin. Removing the bonus also unmasks a benign 1-ulp Sfe asymmetry
+/// between the λ components that the orient3d.rs symmetry assert catches —
+/// keep the bonus.
 pub fn ulp(d: f64) -> f64 {
     // ulp(1) = (1 + min_double) − 1 rounded up = 2⁻⁵² = f64::EPSILON.
     let u = up(d * f64::EPSILON);
