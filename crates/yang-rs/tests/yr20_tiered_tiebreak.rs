@@ -245,13 +245,13 @@ fn build_cylinder_mesh() -> (Vec<Point3>, Vec<[u32; 3]>, Vec<u32>) {
 /// (Seam-edge encoding per the yr7/yr13 `cylinder_brep` convention; this is the
 /// `a`/`b` argument to `boolean()` — its `as_mesh()` is ignored by `LabelMock`,
 /// but `boolean()` reads its `faces()`/`edges()` for Stage-6 resolution.)
-fn cyl_brep() -> BRep {
+fn cyl_brep_at(z0: f64) -> BRep {
     let verts = vec![
         BRepVertex {
-            point: p(R, 0.0, 0.0),
+            point: p(R, 0.0, z0),
         },
         BRepVertex {
-            point: p(R, 0.0, H),
+            point: p(R, 0.0, z0 + H),
         },
     ];
     let edges = vec![
@@ -260,7 +260,7 @@ fn cyl_brep() -> BRep {
             start: 0,
             end: 0,
             curve: Curve::Circle {
-                center: p(0.0, 0.0, 0.0),
+                center: p(0.0, 0.0, z0),
                 normal: Vector3::new(0.0, 0.0, -1.0),
                 radius: R,
             },
@@ -270,7 +270,7 @@ fn cyl_brep() -> BRep {
             start: 1,
             end: 1,
             curve: Curve::Circle {
-                center: p(0.0, 0.0, H),
+                center: p(0.0, 0.0, z0 + H),
                 normal: Vector3::new(0.0, 0.0, 1.0),
                 radius: R,
             },
@@ -286,7 +286,7 @@ fn cyl_brep() -> BRep {
         // f0 lateral Cylinder
         BRepFace {
             surface: Surface::Cylinder {
-                axis_point: p(0.0, 0.0, 0.0),
+                axis_point: p(0.0, 0.0, z0),
                 axis_dir: Vector3::new(0.0, 0.0, 1.0),
                 radius: R,
             },
@@ -294,21 +294,21 @@ fn cyl_brep() -> BRep {
             inner_loops: Vec::new(),
             reversed: false,
         },
-        // f1 bottom cap Plane (−z)
+        // f1 bottom cap Plane (−z), n·x + d = 0 at z = z0 ⇒ d = z0
         BRepFace {
             surface: Surface::Plane {
                 normal: Vector3::new(0.0, 0.0, -1.0),
-                d: 0.0,
+                d: z0,
             },
             outer_loop: vec![0],
             inner_loops: Vec::new(),
             reversed: false,
         },
-        // f2 top cap Plane (+z), n·x + d = 0 at z = H ⇒ d = −H
+        // f2 top cap Plane (+z), n·x + d = 0 at z = z0 + H ⇒ d = −(z0 + H)
         BRepFace {
             surface: Surface::Plane {
                 normal: Vector3::new(0.0, 0.0, 1.0),
-                d: -H,
+                d: -(z0 + H),
             },
             outer_loop: vec![1],
             inner_loops: Vec::new(),
@@ -389,8 +389,12 @@ fn cap_vs_curved_tie_resolves_to_cap() {
         num_inputs: 2,
     };
     let backend = LabelMock { arrangement };
-    let a = cyl_brep();
-    let b = cyl_brep();
+    let a = cyl_brep_at(0.0);
+    // PR-YR24: B was a COINCIDENT copy of A, whose planar cap pairs the
+    // near-coplanar input gate now rejects before the (mock) backend runs.
+    // The arrangement labels every tri to solid A, so B's geometry is unused
+    // by resolution — shift it well clear of A's cap planes.
+    let b = cyl_brep_at(3.0 * H);
 
     let r = boolean(&a, &b, BoolOp::Union, &backend);
 

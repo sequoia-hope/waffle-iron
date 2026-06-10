@@ -392,6 +392,7 @@ fn err_variant_name(e: &YangError) -> &'static str {
         YangError::SsiRefinementFailed { .. } => "SsiRefinementFailed",
         YangError::Stage4ReversalUnresolved { .. } => "Stage4ReversalUnresolved",
         YangError::Stage4RegionInvalid { .. } => "Stage4RegionInvalid",
+        YangError::CoplanarFacesUnsupported { .. } => "CoplanarFacesUnsupported",
     }
 }
 

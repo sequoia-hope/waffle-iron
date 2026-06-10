@@ -870,7 +870,12 @@ mod tjunction {
     fn tjunction_patch_still_errors_nonmanifold() {
         // No sidecar needed — the backend is the mock.
         let a = cube();
-        let b = cube(); // unused by the mock arrangement, but yang needs a B BRep.
+        // B is unused by the mock arrangement, but yang needs a B BRep — and
+        // (PR-YR24) it must not be input-coplanar with A or the near-coplanar
+        // gate rejects the pair before the mock backend runs. Diagonal offset.
+        let b = OrientedBox::aligned([5.5, 5.5, 5.5], [0.5, 0.5, 0.5])
+            .to_brep()
+            .expect("cube b");
         let backend = TJunctionBackend {
             la: nonmanifold_edge_arrangement(),
         };

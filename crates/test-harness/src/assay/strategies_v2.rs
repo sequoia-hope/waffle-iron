@@ -1447,6 +1447,10 @@ mod tests {
     }
 
     #[test]
+    // The 0.7071 literals are deliberately NOT f64::consts::FRAC_1_SQRT_2:
+    // this test feeds hand-rounded normals (as a corpus author would write
+    // them) into the normalization check below.
+    #[allow(clippy::approx_constant)]
     fn tilted_plane_has_unit_normal() {
         // Verify tilted plane normals are unit vectors
         let planes = [

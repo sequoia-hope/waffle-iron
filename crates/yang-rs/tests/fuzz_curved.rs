@@ -1139,6 +1139,7 @@ fn err_variant_name(e: &YangError) -> &'static str {
         YangError::UnsupportedOp(_) => "UnsupportedOp",
         YangError::CurvedSurfaceNotYetSupported { .. } => "CurvedSurfaceNotYetSupported",
         YangError::Stage4ReversalUnresolved { .. } => "Stage4ReversalUnresolved",
+        YangError::CoplanarFacesUnsupported { .. } => "CoplanarFacesUnsupported",
         // Sub-reason-resolved buckets (the specific M5 gaps).
         YangError::SsiRefinementFailed { reason, .. } => match reason {
             yang_rs::SsiRefinementError::IntersectFailed(_) => {

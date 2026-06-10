@@ -253,7 +253,10 @@ fn find_ray_endpoints(
         let cen = [
             (a.x() + b.x() + c.x()) / 3.0,
             (a.y() + b.y() + c.y()) / 3.0,
-            (a.z() + c.z() + b.z()) / 3.0,
+            // PR-YR24 fidelity nit: sum in a,b,c operand order like the C++
+            // reference (f64 addition is not associative — the previous
+            // a,c,b order could differ in the last ulp on needle triangles).
+            (a.z() + b.z() + c.z()) / 3.0,
         ];
         let k = match dir {
             Axis::X => 0,

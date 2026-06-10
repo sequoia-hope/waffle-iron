@@ -1388,10 +1388,93 @@ fn hand_built_planar_box_arrangement() -> LabeledArrangement {
     }
 }
 
+/// Axis-aligned box B-Rep spanning `lo..hi` on every axis — the t7 fixture
+/// needs DIFFERENT-extent A/B boxes (see t7's comment), which the unit-size
+/// `unit_cube_brep_offset_at` cannot express. Same face order / outward
+/// normals as that helper.
+fn aa_box_brep(lo: f64, hi: f64) -> BRep {
+    let verts = vec![
+        BRepVertex {
+            point: p(lo, lo, lo),
+        },
+        BRepVertex {
+            point: p(hi, lo, lo),
+        },
+        BRepVertex {
+            point: p(hi, hi, lo),
+        },
+        BRepVertex {
+            point: p(lo, hi, lo),
+        },
+        BRepVertex {
+            point: p(lo, lo, hi),
+        },
+        BRepVertex {
+            point: p(hi, lo, hi),
+        },
+        BRepVertex {
+            point: p(hi, hi, hi),
+        },
+        BRepVertex {
+            point: p(lo, hi, hi),
+        },
+    ];
+    let face_verts: [[u32; 4]; 6] = [
+        [0, 1, 2, 3], // F0 bottom (z=lo)
+        [4, 7, 6, 5], // F1 top (z=hi)
+        [0, 4, 5, 1], // F2 front (y=lo)
+        [1, 5, 6, 2], // F3 right (x=hi)
+        [2, 6, 7, 3], // F4 back (y=hi)
+        [3, 7, 4, 0], // F5 left (x=lo)
+    ];
+    let mut edges = Vec::with_capacity(24);
+    let mut loops = Vec::with_capacity(6);
+    for vs in &face_verts {
+        let base = edges.len() as u32;
+        for i in 0..4 {
+            edges.push(BRepEdge {
+                start: vs[i],
+                end: vs[(i + 1) % 4],
+                curve: Curve::LineSegment,
+            });
+        }
+        loops.push(vec![base, base + 1, base + 2, base + 3]);
+    }
+    let normals: [Vector3; 6] = [
+        Vector3::new(0.0, 0.0, -1.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        Vector3::new(0.0, -1.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        Vector3::new(-1.0, 0.0, 0.0),
+    ];
+    let offs = [lo, -hi, lo, -hi, -hi, lo];
+    let faces: Vec<BRepFace> = (0..6)
+        .map(|i| BRepFace {
+            surface: Surface::Plane {
+                normal: normals[i],
+                d: offs[i],
+            },
+            outer_loop: loops[i].clone(),
+            inner_loops: Vec::new(),
+            reversed: false,
+        })
+        .collect();
+    BRep::new(verts, edges, faces).expect("aa_box_brep BRep::new failed")
+}
+
 #[test]
 fn t7_planar_box_union_stage4_noop() {
-    let a = unit_cube_brep_offset_at([0.0, 0.0, 0.0]);
-    let b = unit_cube_brep_offset_at([0.0, 0.0, 0.0]);
+    // PR-YR24: the original fixture used two COINCIDENT unit cubes, which the
+    // near-coplanar input gate now rejects before the (mock) backend runs.
+    // The hand-built arrangement labels the unit cube's {z=0, y=0, x=0} faces
+    // to A and {z=1, y=1, x=1} to B, so face resolution needs A to carry the
+    // lo=0 planes and B the hi=1 planes — WITHOUT A and B sharing any face
+    // plane. A = [0, 1.3]³ (planes {0, 1.3}) and B = [−0.3, 1]³ (planes
+    // {−0.3, 1}) satisfy both: resolution still finds the unique labeled
+    // plane for every tri, and no A-plane coincides with a B-plane.
+    let a = aa_box_brep(0.0, 1.3);
+    let b = aa_box_brep(-0.3, 1.0);
     let arr = hand_built_planar_box_arrangement();
     // Capture the input arrangement's vertex positions; Stage 4 must NOT move any.
     let input_positions: Vec<[f64; 3]> = arr.mesh.verts.iter().map(|v| v.as_array()).collect();

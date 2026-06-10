@@ -596,6 +596,37 @@ fn smoke_corpus_boundary_categories() {
             "F0003",
             Category::Unsupported(UnsupportedReason::CoplanarBoolean),
         ),
+        // PR-YR24 (KV4-F1): oblique-box unions whose operands share ONE
+        // sketch plane with femto-scale f64 residuals — NEAR-coplanar, so
+        // the exact N17 deferral never fired and these were ERROR
+        // (NoExplicitRayOrigin). The yang-rs Stage-1 near-coplanar gate
+        // (Yang 2025 §4.5.5 / M8 boundary) now rejects them loudly and
+        // typed; pinned so a regression back to ERROR (or a silent Ok) is
+        // a finding.
+        (
+            "R0029",
+            Category::Unsupported(UnsupportedReason::CoplanarBoolean),
+        ),
+        (
+            "F0016",
+            Category::Unsupported(UnsupportedReason::CoplanarBoolean),
+        ),
+        (
+            "F0018",
+            Category::Unsupported(UnsupportedReason::CoplanarBoolean),
+        ),
+        (
+            "F0019",
+            Category::Unsupported(UnsupportedReason::CoplanarBoolean),
+        ),
+        (
+            "F0021",
+            Category::Unsupported(UnsupportedReason::CoplanarBoolean),
+        ),
+        (
+            "F0025",
+            Category::Unsupported(UnsupportedReason::CoplanarBoolean),
+        ),
         // circle profiles → curved geometry not in Phase 4a
         (
             "F0030",

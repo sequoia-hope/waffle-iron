@@ -26,7 +26,7 @@
 //! vs 23.84180252162625.
 
 use cad_primitives::{BoolOp, Point3, Vector3};
-use yang_rs::{boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, Surface, YangError};
+use yang_rs::{boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, InputId, Surface, YangError};
 
 /// Build a hexahedral (8-vertex, 6-quad-face) B-Rep from verbatim dumped
 /// data: vertex coordinates, per-face plane (normal, d with n·x + d = 0),
@@ -205,12 +205,17 @@ fn r0029_near_coplanar_union_hits_typed_m8_wall() {
     let a = r0029_a();
     let b = r0029_b();
     match boolean(&a, &b, BoolOp::Union, &sb) {
-        Err(YangError::CoplanarFacesUnsupported { face_a, face_b }) => {
+        Err(YangError::CoplanarFacesUnsupported {
+            input_a,
+            face_a,
+            input_b,
+            face_b,
+        }) => {
             // The recovered pair: A face 1 ↔ B face 1 (the shared oblique
             // sketch plane, d residual ~1.4e-13).
             assert_eq!(
-                (face_a, face_b),
-                (1, 1),
+                (input_a, face_a, input_b, face_b),
+                (InputId::A, 1, InputId::B, 1),
                 "expected the shared-sketch-plane pair A#1/B#1"
             );
         }

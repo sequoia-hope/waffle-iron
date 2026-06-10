@@ -555,13 +555,21 @@ pub fn boolean_op(
 
 /// Map a yang-rs pipeline error to the kernel-v2 typed error contract.
 ///
-/// The ONE structurally-recognized case is the M8 boundary: the cherchi-rs
-/// arrangement's coplanar-pair deferral, nested as
-/// `YangError::MeshBooleanFailed(NativeBooleanError::Arrangement(
-/// ArrangementError::CoplanarPairDeferred { .. }))` → the typed
-/// [`KernelV2Error::UnsupportedCoplanar`]. Everything else is a loud
-/// [`KernelV2Error::BooleanFailed`] carrying the full Display text.
+/// The structurally-recognized cases are the M8 boundary:
+/// - yang-rs's own Stage-1 NEAR-coplanar input gate (PR-YR24),
+///   `YangError::CoplanarFacesUnsupported { .. }` — coplanar within the
+///   sub-model-resolution band, per Yang 2025 §4.5.5 / roadmap M8;
+/// - the cherchi-rs arrangement's bit-EXACT coplanar-pair deferral, nested
+///   as `YangError::MeshBooleanFailed(NativeBooleanError::Arrangement(
+///   ArrangementError::CoplanarPairDeferred { .. }))`.
+///
+/// Both map to the typed [`KernelV2Error::UnsupportedCoplanar`]. Everything
+/// else is a loud [`KernelV2Error::BooleanFailed`] carrying the full
+/// Display text.
 fn map_yang_error(e: yang_rs::YangError) -> KernelV2Error {
+    if let yang_rs::YangError::CoplanarFacesUnsupported { .. } = &e {
+        return KernelV2Error::UnsupportedCoplanar;
+    }
     if let yang_rs::YangError::MeshBooleanFailed(src) = &e {
         if let Some(yang_rs::NativeBooleanError::Arrangement(
             yang_rs::ArrangementError::CoplanarPairDeferred { .. },

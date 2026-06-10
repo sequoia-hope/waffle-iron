@@ -1078,12 +1078,91 @@ fn hand_built_planar_box_arrangement() -> LabeledArrangement {
     }
 }
 
+/// Axis-aligned box B-Rep spanning `lo..hi` on every axis — the t3 fixture
+/// (PR-YR24) needs DIFFERENT-extent A/B boxes so the inputs are not
+/// coplanar; same face order / outward normals as `unit_cube_brep_offset_at`.
+fn aa_box_brep(lo: f64, hi: f64) -> BRep {
+    let verts = vec![
+        BRepVertex {
+            point: p(lo, lo, lo),
+        },
+        BRepVertex {
+            point: p(hi, lo, lo),
+        },
+        BRepVertex {
+            point: p(hi, hi, lo),
+        },
+        BRepVertex {
+            point: p(lo, hi, lo),
+        },
+        BRepVertex {
+            point: p(lo, lo, hi),
+        },
+        BRepVertex {
+            point: p(hi, lo, hi),
+        },
+        BRepVertex {
+            point: p(hi, hi, hi),
+        },
+        BRepVertex {
+            point: p(lo, hi, hi),
+        },
+    ];
+    let face_verts: [[u32; 4]; 6] = [
+        [0, 1, 2, 3], // F0 bottom (z=lo)
+        [4, 7, 6, 5], // F1 top (z=hi)
+        [0, 4, 5, 1], // F2 front (y=lo)
+        [1, 5, 6, 2], // F3 right (x=hi)
+        [2, 6, 7, 3], // F4 back (y=hi)
+        [3, 7, 4, 0], // F5 left (x=lo)
+    ];
+    let mut edges = Vec::with_capacity(24);
+    let mut loops = Vec::with_capacity(6);
+    for vs in &face_verts {
+        let base = edges.len() as u32;
+        for i in 0..4 {
+            edges.push(BRepEdge {
+                start: vs[i],
+                end: vs[(i + 1) % 4],
+                curve: Curve::LineSegment,
+            });
+        }
+        loops.push(vec![base, base + 1, base + 2, base + 3]);
+    }
+    let normals: [Vector3; 6] = [
+        Vector3::new(0.0, 0.0, -1.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        Vector3::new(0.0, -1.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        Vector3::new(-1.0, 0.0, 0.0),
+    ];
+    let offs = [lo, -hi, lo, -hi, -hi, lo];
+    let faces: Vec<BRepFace> = (0..6)
+        .map(|i| BRepFace {
+            surface: Surface::Plane {
+                normal: normals[i],
+                d: offs[i],
+            },
+            outer_loop: loops[i].clone(),
+            inner_loops: Vec::new(),
+            reversed: false,
+        })
+        .collect();
+    BRep::new(verts, edges, faces).expect("aa_box_brep BRep::new failed")
+}
+
 #[test]
 fn t3_planar_box_union_all_line_segments() {
     // Two planar boxes (A and B inputs). The hand-built arrangement provides
-    // the labeling; the input BReps are two unit cubes (planar only).
-    let a = unit_cube_brep_offset_at([0.0, 0.0, 0.0]);
-    let b = unit_cube_brep_offset_at([0.0, 0.0, 0.0]);
+    // the labeling: the unit cube's {z=0, y=0, x=0} faces label to A and
+    // {z=1, y=1, x=1} to B. PR-YR24: the original COINCIDENT unit cubes are
+    // rejected by the near-coplanar input gate before the (mock) backend
+    // runs; A = [0, 1.3]³ (planes {0, 1.3}) and B = [−0.3, 1]³ (planes
+    // {−0.3, 1}) still give resolution a unique labeled plane for every tri
+    // while sharing NO face plane.
+    let a = aa_box_brep(0.0, 1.3);
+    let b = aa_box_brep(-0.3, 1.0);
     let mock = LabelMock {
         arrangement: hand_built_planar_box_arrangement(),
     };
@@ -1299,9 +1378,16 @@ fn t5_stop_path_coincident_planes_is_loud() {
         "oracle: ssi_rs::intersect of two coincident planes must Err (the STOP trigger)"
     );
 
-    // Both inputs are unit cubes at the origin (each has a z=0 bottom Plane).
+    // A is a unit cube at the origin; B is a unit cube at x = 5 — its bottom
+    // face lies on the SAME infinite z=0 plane (so the B-labeled bottom tri
+    // still resolves to B's bottom face, and the A↔B intersection edge hits
+    // the coincident-plane SSI STOP under test) but the two faces' AABBs are
+    // DISJOINT, so the PR-YR24 near-coplanar input gate deliberately does
+    // NOT fire (far-apart same-plane faces cannot interact — the gate's
+    // documented over-deferral avoidance). The original fixture used two
+    // COINCIDENT cubes, which the gate now rejects before Stage 3 runs.
     let a = unit_cube_brep_offset_at([0.0, 0.0, 0.0]);
-    let b = unit_cube_brep_offset_at([0.0, 0.0, 0.0]);
+    let b = unit_cube_brep_offset_at([5.0, 0.0, 0.0]);
     let mock = LabelMock {
         arrangement: hand_built_coincident_plane_arrangement(),
     };
