@@ -62,10 +62,12 @@
 //! required.)
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::time::Duration;
 
 use cad_primitives::{BoolOp, Point3};
+use cherchi_rs::arrangements::fast_trimesh::VertexCoords;
 use cherchi_rs::labeling::NativeBoolean;
-use cherchi_rs::{Mesh, MeshBoolean};
+use cherchi_rs::{mesh_arrangement, native_labeled_arrangement, InputId, Mesh, MeshBoolean};
 use cherchi_sidecar_rs::{SidecarBoolean, SidecarError};
 
 const ALL_OPS: [BoolOp; 4] = [
@@ -104,6 +106,21 @@ const EXCLUDED_FIXTURES: &[(&str, &str)] = &[
          this; the corpus fixture now uses center x = 2.1 to stay generic-\
          position. When the C++ checkSingleCoplanarEdgeIntersections port \
          lands, promote a deliberate edge-in-plane fixture into the corpus.",
+    ),
+    (
+        "tpi-x-crossing-shells (BOOLEAN cells only — arrangement cell IS in \
+         the suite)",
+        "PR-CR-M7c-tpi: TPI vertices are STRUCTURALLY IMPOSSIBLE for a binary \
+         boolean of two watertight, 2-manifold, non-self-intersecting solids \
+         (see tpi_xcrossing docs below), so any fixture that produces TPIs \
+         end-to-end necessarily violates the solid-input contract of the \
+         BOOLEAN labeling stage — empirically both backends emit junk that \
+         diverges (native union vol 8.0 vs sidecar 10.38, sidecar output has \
+         odd-multiplicity open edges). The ARRANGEMENT stage, by contrast, is \
+         defined for arbitrary soups in both implementations, and that is \
+         where TPIs live — so the fixture is covered by the arrangement-level \
+         parity cell tpi_xcrossing_arrangement_parity below, never by the \
+         4-op boolean matrix.",
     ),
 ];
 
@@ -226,6 +243,47 @@ fn oriented(mut m: Mesh) -> Mesh {
         }
     }
     m
+}
+
+/// TPI X-crossing fixture "B": ONE mesh containing TWO disjoint clean box
+/// shells that overlap EACH OTHER (PR-CR-M7c-tpi).
+///
+/// Why this shape: a TPI vertex is the common point of THREE input-triangle
+/// planes, lying inside all three (closed) triangles — it is born when two
+/// constraint segments t∩t₁ and t∩t₂ CROSS in the interior of a base
+/// triangle t. With only two inputs, two of {t, t₁, t₂} come from the same
+/// input, and a point common to two triangles of one input means that input's
+/// surface touches itself there (any other contact — shared edge or shared
+/// vertex — makes the segments MEET at an existing LPI/explicit vertex, a
+/// V/T-junction, never a crossing). So the only way to force TPIs through the
+/// production binary-input pipeline is an input whose surface crosses itself
+/// while staying combinatorially watertight and 2-manifold: two clean shells
+/// in one mesh, interpenetrating.
+///
+/// Geometry (all coordinates dyadic, axis-aligned ⇒ the TPI coordinates are
+/// exactly representable):
+///   A  = cube(0,0,0,2)                       — top face plane z = 2
+///   B1 = box x∈[0.5,1.25] y∈[0.25,1.125] z∈[1,3]
+///   B2 = box x∈[0.375,1.875] y∈[0.625,1.5] z∈[0.875,3.125]
+/// B1 ∩ B2 ≠ ∅ and both pierce A's top face, so the B1×B2 wall-crossing
+/// lines pierce z = 2 inside A's top-face triangles. Exactly TWO geometric
+/// TPI points result, at the triple-plane meets
+///   (x=0.5)  ∩ (y=0.625) ∩ (z=2) = (0.5,  0.625, 2)   and
+///   (x=1.25) ∩ (y=0.625) ∩ (z=2) = (1.25, 0.625, 2)
+/// (the remaining face-plane triples all miss at least one closed face: e.g.
+/// y=1.5 > B1's y-max 1.125, x=0.375 < B1's x-min 0.5). Every other axis
+/// offset is distinct per axis, so there are no coplanar input pairs and no
+/// edge-in-plane degeneracies, and neither point lies on A's top-face
+/// diagonal y = x.
+fn two_overlapping_shells() -> Mesh {
+    let b1 = boxx(0.5, 0.25, 1.0, 0.75, 0.875, 2.0);
+    let b2 = boxx(0.375, 0.625, 0.875, 1.5, 0.875, 2.25);
+    let mut verts = b1.verts.clone();
+    verts.extend(b2.verts.iter().copied());
+    let off = b1.verts.len() as u32;
+    let mut tris = b1.tris.clone();
+    tris.extend(b2.tris.iter().map(|t| [t[0] + off, t[1] + off, t[2] + off]));
+    Mesh::new(verts, tris)
 }
 
 /// The 12-fixture corpus: (name, A, B). All generic-position (no coplanar
@@ -752,4 +810,199 @@ fn excluded_coplanar_fixture_defers_loudly() {
         msg.contains("Coplanar"),
         "expected a CoplanarPairDeferred arrangement error, got: {msg}"
     );
+}
+
+// ===========================================================================
+// TPI coverage (PR-CR-M7c-tpi): arrangement-level parity on an X-crossing
+// fixture + the structural no-TPI theorem over the boolean corpus
+// ===========================================================================
+
+/// Run the production arrangement on the concatenated two-input soup (the
+/// exact label setup `native_labeled_arrangement` uses) and count vertex
+/// kinds: (explicit, lpi, tpi).
+fn arrangement_vertex_census(a: &Mesh, b: &Mesh) -> (usize, usize, usize) {
+    let mut coords = Vec::with_capacity(3 * (a.verts.len() + b.verts.len()));
+    for v in a.verts.iter().chain(b.verts.iter()) {
+        coords.extend_from_slice(&[v.x(), v.y(), v.z()]);
+    }
+    let off = a.verts.len() as u32;
+    let mut tris = a.tris.clone();
+    tris.extend(b.tris.iter().map(|t| [t[0] + off, t[1] + off, t[2] + off]));
+    let mut labels = vec![vec![InputId(0)]; a.tris.len()];
+    labels.extend(std::iter::repeat_n(vec![InputId(1)], b.tris.len()));
+    let soup = mesh_arrangement(&coords, &tris, &labels).expect("arrangement must succeed");
+    let mut census = (0usize, 0usize, 0usize);
+    for v in &soup.verts {
+        match v {
+            VertexCoords::Explicit(_) => census.0 += 1,
+            VertexCoords::Lpi { .. } => census.1 += 1,
+            VertexCoords::Tpi { .. } => census.2 += 1,
+        }
+    }
+    census
+}
+
+/// Loud sidecar arrangement handle (same P9 posture as [`sidecar`]).
+fn sidecar_arrangement(a: &Mesh, b: &Mesh) -> Mesh {
+    match cherchi_sidecar_rs::labeled_arrangement(a, b, Duration::from_secs(60)) {
+        Ok(la) => la.mesh,
+        Err(SidecarError::BinaryNotFound { path }) => panic!(
+            "reference-parity oracle unavailable: mesh_booleans binary not \
+             found at {} (set CHERCHI2022_BIN or build per \
+             docs/sidecar/cherchi2022_build_guide.md). Refusing to skip.",
+            path.display()
+        ),
+        Err(e) => panic!("sidecar labeled_arrangement failed: {e}"),
+    }
+}
+
+/// ARRANGEMENT-level reference parity on the TPI X-crossing fixture, plus the
+/// fixture-sanity tooth: the native arrangement MUST construct TPI vertices
+/// (this is the only end-to-end production-pipeline TPI coverage — the
+/// boolean corpus is TPI-free by the structural theorem below, so without
+/// this test the createTPI path would regress silently).
+///
+/// Why arrangement-level and not the 4-op boolean matrix: see the
+/// `tpi-x-crossing-shells` entry in [`EXCLUDED_FIXTURES`]. The arrangement is
+/// defined for arbitrary (even self-crossing) soups in BOTH implementations,
+/// so the triangulation-independent metrics apply verbatim; the boolean
+/// labeling is not (winding-2 regions), and the backends demonstrably
+/// diverge there.
+///
+/// Metrics (all triangulation-independent, no tolerance widening):
+///   * vertex-set Hausdorff-0 at `VERT_TOL`, both directions — this is the
+///     one that validates the native TPI COORDINATES against the C++
+///     indirect-predicate TPIs end to end;
+///   * the two analytically-known TPI points appear EXACTLY (they are
+///     dyadic: axis-aligned plane triples) in the native output;
+///   * total surface area at `REL_TOL` (bbox floor);
+///   * Euler characteristic after exact weld;
+///   * every welded edge has EVEN, direction-balanced multiplicity (both
+///     input surfaces are closed and outward), and the per-multiplicity
+///     histogram of edges with multiplicity ≥ 4 (the intersection-curve
+///     sub-edges — a property of the complex, not the triangulation)
+///     matches.
+#[test]
+fn tpi_xcrossing_arrangement_parity() {
+    let a = cube(0.0, 0.0, 0.0, 2.0);
+    let b = two_overlapping_shells();
+
+    // ----- fixture-sanity tooth: the native arrangement constructs TPIs ----
+    let (_, lpi, tpi) = arrangement_vertex_census(&a, &b);
+    assert!(
+        tpi >= 1,
+        "TPI coverage lost: the X-crossing fixture no longer produces any \
+         VertexCoords::Tpi in the native arrangement (lpi count {lpi})"
+    );
+    // Deterministic snapshot: 2 geometric TPI points, each constructed once
+    // per base triangle that hosts the X-crossing (A-top, B1-wall, B2-wall →
+    // 3 structurally distinct generator triples per point; the §7 global weld
+    // interns by STRUCTURAL equality, so all 3 survive as soup vertices).
+    // If a future slice normalizes TPI generator triples (deduping the three
+    // representations to one), update this to 2 — but `tpi >= 1` above is the
+    // load-bearing assertion.
+    assert_eq!(
+        tpi, 6,
+        "TPI census changed — re-derive the fixture geometry before updating"
+    );
+
+    // ----- arrangement-level reference parity ------------------------------
+    let native = weld(&native_labeled_arrangement(&a, &b).expect("native").mesh);
+    let sidecar = weld(&sidecar_arrangement(&a, &b));
+
+    // The two analytically-known TPI points, exact in the native output
+    // (dyadic coordinates survive scale-up/descale and RBig→f64 rounding
+    // exactly), within VERT_TOL in the sidecar's (OBJ-roundtripped) output.
+    for tgt in [p(0.5, 0.625, 2.0), p(1.25, 0.625, 2.0)] {
+        assert!(
+            native.verts.contains(&tgt),
+            "native arrangement is missing the exact TPI vertex {tgt:?}"
+        );
+        let near_tgt = |v: &Point3| {
+            (v.x() - tgt.x()).powi(2) + (v.y() - tgt.y()).powi(2) + (v.z() - tgt.z()).powi(2)
+                <= VERT_TOL * VERT_TOL
+        };
+        assert!(
+            sidecar.verts.iter().any(near_tgt),
+            "sidecar arrangement is missing the TPI vertex {tgt:?}"
+        );
+    }
+
+    // Vertex-set Hausdorff-0, both directions.
+    if let Some(v) = vertex_cover_gap(&native, &sidecar, VERT_TOL) {
+        panic!("native arrangement vertex {v:?} has no sidecar vertex within {VERT_TOL}");
+    }
+    if let Some(v) = vertex_cover_gap(&sidecar, &native, VERT_TOL) {
+        panic!("sidecar arrangement vertex {v:?} has no native vertex within {VERT_TOL}");
+    }
+
+    // Surface area parity.
+    let (_, area_scale) = bbox_scales(&a, &b);
+    let (an, as_) = (surface_area(&native), surface_area(&sidecar));
+    let atol = REL_TOL * as_.abs().max(area_scale);
+    assert!(
+        (an - as_).abs() <= atol,
+        "arrangement surface area: native {an:.15} vs sidecar {as_:.15} (tol {atol:.3e})"
+    );
+
+    // Euler characteristic (invariant under re-triangulation of the complex).
+    assert_eq!(
+        euler_characteristic(&native),
+        euler_characteristic(&sidecar),
+        "arrangement Euler characteristic mismatch"
+    );
+
+    // Edge structure: even + balanced everywhere on both sides; the ≥4
+    // multiplicity histogram (intersection-curve sub-edges) matches.
+    let mult_hist = |m: &Mesh, tag: &str| -> BTreeMap<usize, usize> {
+        let mut hist: BTreeMap<usize, usize> = BTreeMap::new();
+        for (edge, (count, balance)) in edge_stats(m) {
+            assert!(
+                count % 2 == 0,
+                "{tag}: arrangement edge {edge:?} has ODD multiplicity {count}"
+            );
+            assert_eq!(
+                balance, 0,
+                "{tag}: arrangement edge {edge:?} direction-unbalanced"
+            );
+            if count >= 4 {
+                *hist.entry(count).or_insert(0) += 1;
+            }
+        }
+        hist
+    };
+    assert_eq!(
+        mult_hist(&native, "native"),
+        mult_hist(&sidecar, "sidecar"),
+        "intersection-curve edge-multiplicity histograms differ"
+    );
+}
+
+/// The structural no-TPI theorem, pinned as an invariant: every boolean
+/// corpus fixture (two watertight, 2-manifold, non-self-intersecting solids)
+/// produces an arrangement with ZERO TPI vertices.
+///
+/// Sketch: a TPI lies inside three closed input triangles t, t₁, t₂ whose
+/// constraint segments t∩t₁ and t∩t₂ CROSS in t's interior. Two of the three
+/// triangles share an input; a common point of two same-input triangles
+/// means that input self-touches there, unless the triangles are adjacent —
+/// and for adjacent triangles the common point sits on the shared edge (an
+/// LPI of that edge with t's plane, where the two segments MEET end-to-end
+/// as a V-junction, not a crossing: two distinct coplanar lines meet only
+/// once, at that very point). Hence clean binary inputs ⇒ no TPIs.
+///
+/// If this test ever fails, a corpus change introduced TPIs from clean
+/// inputs — that contradicts the theorem, so first suspect a fixture that is
+/// secretly self-intersecting (or an arrangement bug), and if it is neither,
+/// PROMOTE the fixture: it would be the better TPI-coverage cell.
+#[test]
+fn corpus_arrangements_are_tpi_free() {
+    for (name, a, b) in corpus() {
+        let (_, _, tpi) = arrangement_vertex_census(&a, &b);
+        assert_eq!(
+            tpi, 0,
+            "[{name}] clean binary fixture produced {tpi} TPI vertices — \
+             see the structural theorem in this test's docs"
+        );
+    }
 }
