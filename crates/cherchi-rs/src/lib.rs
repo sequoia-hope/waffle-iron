@@ -45,5 +45,7 @@ pub mod triangulation;
 pub use arrangements::{mesh_arrangement, ArrangementError, ArrangementSoup};
 pub use boolean::MeshBoolean;
 pub use labeled_arrangement::{InputId, LabeledArrangement};
+#[cfg(feature = "indirect-predicates")]
+pub use labeling::{native_labeled_arrangement, NativeBoolean, NativeBooleanError};
 pub use mesh::Mesh;
 pub use triangulation::{cdt_polygon_with_holes, CdtError};
