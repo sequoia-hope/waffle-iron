@@ -51,12 +51,13 @@
 //! construction no duplicated triangles exist here and there is nothing to
 //! restore.
 
-use cad_primitives::BoolOp;
+use cad_primitives::{BoolOp, Point3};
 
-use crate::arrangements::soup::ArrangementError;
-use crate::labeled_arrangement::LabeledArrangement;
-use crate::labeling::inside_out::InsideOutError;
-use crate::labeling::patches::PatchError;
+use crate::arrangements::aux_structure::exact_point_coords;
+use crate::arrangements::soup::{mesh_arrangement, ArrangementError, ArrangementSoup};
+use crate::labeled_arrangement::{InputId, LabeledArrangement};
+use crate::labeling::inside_out::{compute_inside_out, InsideOutError};
+use crate::labeling::patches::{compute_all_patches, PatchError};
 use crate::mesh::Mesh;
 
 /// Loud failure surface — never silent (P9/P10). Wraps each upstream
@@ -104,15 +105,86 @@ pub fn native_labeled_arrangement(
     a: &Mesh,
     b: &Mesh,
 ) -> Result<LabeledArrangement, NativeBooleanError> {
-    // GREEN lands in the next commit; RED stub fails every oracle loudly.
-    let _ = (a, b);
+    // Concat a+b into (coords, tris, labels): a's tris carry [InputId(0)],
+    // b's [InputId(1)] (the C++ booleanPipeline label setup).
+    let mut coords = Vec::with_capacity(3 * (a.verts.len() + b.verts.len()));
+    for p in a.verts.iter().chain(b.verts.iter()) {
+        coords.push(p.x());
+        coords.push(p.y());
+        coords.push(p.z());
+    }
+    let off = a.verts.len() as u32;
+    let mut tris = a.tris.clone();
+    tris.extend(b.tris.iter().map(|t| [t[0] + off, t[1] + off, t[2] + off]));
+    let mut labels = vec![vec![InputId(0)]; a.tris.len()];
+    labels.extend(std::iter::repeat_n(vec![InputId(1)], b.tris.len()));
+
+    // Arrangement (AR3b) → patches (BL1) → in/out (BL2), each loud.
+    let soup =
+        mesh_arrangement(&coords, &tris, &labels).map_err(NativeBooleanError::Arrangement)?;
+    let patches = compute_all_patches(&soup).map_err(NativeBooleanError::Patches)?;
+    let inner = compute_inside_out(&soup, &patches).map_err(NativeBooleanError::InsideOut)?;
+
+    // Per-triangle labels: surface = the soup label (canonicalized sorted),
+    // patch = the BL1 patch id, inside[t][k] = the triangle's patch's inner
+    // label contains InputId(k).
+    let n = soup.tris.len();
+    let mut surface = Vec::with_capacity(n);
+    let mut inside = Vec::with_capacity(n);
+    let mut patch = Vec::with_capacity(n);
+    for t in 0..n {
+        let mut s = soup.labels[t].clone();
+        s.sort_unstable();
+        s.dedup();
+        surface.push(s);
+        let pid = patches.tri_to_patch[t];
+        patch.push(pid);
+        let inn = &inner[pid as usize];
+        inside.push((0..2u32).map(|k| inn.contains(&InputId(k))).collect());
+    }
+
+    // Explicit DESCALED mesh over the REFERENCED vertices only, compacted
+    // in first-reference order (the C++ computeFinalExplicitResult
+    // `vertex_index` walk) — the jolly tail and any unreferenced vertices
+    // never enter the output.
+    let mut remap: Vec<Option<u32>> = vec![None; soup.verts.len()];
+    let mut out_verts: Vec<Point3> = Vec::new();
+    let mut out_tris: Vec<[u32; 3]> = Vec::with_capacity(n);
+    for tri in &soup.tris {
+        let mut g = [0u32; 3];
+        for (k, &v) in tri.iter().enumerate() {
+            g[k] = match remap[v as usize] {
+                Some(id) => id,
+                None => {
+                    let id = out_verts.len() as u32;
+                    out_verts.push(emit_vertex(&soup, v)?);
+                    remap[v as usize] = Some(id);
+                    id
+                }
+            };
+        }
+        out_tris.push(g);
+    }
+
     Ok(LabeledArrangement {
-        mesh: Mesh::empty(),
-        surface: Vec::new(),
-        inside: Vec::new(),
-        patch: Vec::new(),
+        mesh: Mesh::new(out_verts, out_tris),
+        surface,
+        inside,
+        patch,
         num_inputs: 2,
     })
+}
+
+/// Resolve one soup vertex to explicit DESCALED f64 coordinates: exact
+/// rational evaluation (`exact_point_coords`, pure dashu) → nearest f64 →
+/// divide by the soup's power-of-two multiplier (exact). Mirrors the C++
+/// `getApproxXYZCoordinates` + `c /= multiplier` emission.
+fn emit_vertex(soup: &ArrangementSoup, v: u32) -> Result<Point3, NativeBooleanError> {
+    let xc = exact_point_coords(&soup.verts[v as usize])
+        .ok_or(NativeBooleanError::UnresolvableVertex { vert: v })?;
+    let m = soup.multiplier;
+    let c = |i: usize| xc[i].to_f64().value() / m;
+    Ok(Point3::new(c(0), c(1), c(2)))
 }
 
 /// The native, pure-pipeline [`MeshBoolean`](crate::boolean::MeshBoolean)
@@ -128,9 +200,35 @@ impl crate::boolean::MeshBoolean for NativeBoolean {
         b: &Mesh,
         op: BoolOp,
     ) -> Result<Mesh, Box<dyn std::error::Error + Send + Sync>> {
-        // GREEN lands in the next commit; RED stub fails every oracle loudly.
-        let _ = (a, b, op);
-        Ok(Mesh::empty())
+        let la = native_labeled_arrangement(a, b)?;
+        let keep = la.keep_set(op);
+
+        // Emit the kept triangles with compacted vertices (first-reference
+        // order), applying the per-op orientation fix at emission (the
+        // boolSubtraction / boolXOR flip loops — see module docs).
+        let mut remap: Vec<Option<u32>> = vec![None; la.mesh.verts.len()];
+        let mut out_verts: Vec<Point3> = Vec::new();
+        let mut out_tris: Vec<[u32; 3]> = Vec::with_capacity(keep.len());
+        for t in keep {
+            let mut tri = la.mesh.tris[t];
+            if flip_at_emission(&la, op, t) {
+                tri.swap(1, 2);
+            }
+            let mut g = [0u32; 3];
+            for (k, &v) in tri.iter().enumerate() {
+                g[k] = match remap[v as usize] {
+                    Some(id) => id,
+                    None => {
+                        let id = out_verts.len() as u32;
+                        out_verts.push(la.mesh.verts[v as usize]);
+                        remap[v as usize] = Some(id);
+                        id
+                    }
+                };
+            }
+            out_tris.push(g);
+        }
+        Ok(Mesh::new(out_verts, out_tris))
     }
 
     fn labeled_arrangement(
@@ -139,6 +237,21 @@ impl crate::boolean::MeshBoolean for NativeBoolean {
         b: &Mesh,
     ) -> Result<LabeledArrangement, Box<dyn std::error::Error + Send + Sync>> {
         Ok(native_labeled_arrangement(a, b)?)
+    }
+}
+
+/// Per-op orientation fix for a KEPT triangle `t`:
+/// - `boolSubtraction` (booleans.cpp:1480-1485) flips kept triangles NOT on
+///   A's surface (the cavity wall, which faces into A's interior);
+/// - `boolXOR` (booleans.cpp:1506-1510) flips kept triangles whose inside
+///   set is non-empty (each shell's wall toward the intersection region);
+/// - union / intersection keep the original winding (no flip loop in the
+///   C++ `boolUnion` / `boolIntersection`).
+fn flip_at_emission(la: &LabeledArrangement, op: BoolOp, t: usize) -> bool {
+    match op {
+        BoolOp::Union | BoolOp::Intersect => false,
+        BoolOp::Subtract => !la.surface[t].contains(&InputId(0)),
+        BoolOp::Xor => la.inside[t].iter().any(|&b| b),
     }
 }
 

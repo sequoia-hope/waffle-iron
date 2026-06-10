@@ -106,6 +106,11 @@ pub struct ArrangementSoup {
     pub in_tris: Vec<[u32; 3]>,
     /// Per-`in_tris` labels (OR-merged on duplicate removal) — `arr_in_labels`.
     pub in_labels: Vec<Label>,
+    /// The `compute_multiplier` scale factor applied to ALL coordinates in
+    /// `verts` (a power of two; `1.0` means unscaled). Output emission
+    /// (`computeFinalExplicitResult`) divides by it to descale — the C++
+    /// reads it back from the last jolly point's X coordinate.
+    pub multiplier: f64,
 }
 
 /// Loud failure surface — never silent (P9/P10). Wraps the deferred walls.
@@ -788,6 +793,7 @@ pub fn mesh_arrangement(
         jolly_count: 5,
         in_tris: kept_tris,
         in_labels: kept_labels,
+        multiplier: m,
     })
 }
 

@@ -125,6 +125,7 @@ fn hand_soup(n_verts: u32, tris: Vec<[u32; 3]>, labels: Vec<Label>) -> Arrangeme
         jolly_count: 0,
         in_tris: Vec::new(),
         in_labels: Vec::new(),
+        multiplier: 1.0,
     }
 }
 

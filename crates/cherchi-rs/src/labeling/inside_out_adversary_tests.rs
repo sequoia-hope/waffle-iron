@@ -734,6 +734,7 @@ fn adversary_empty_soup_is_ok_empty() {
         jolly_count: 0,
         in_tris: Vec::new(),
         in_labels: Vec::new(),
+        multiplier: 1.0,
     };
     let patches = Patches {
         patches: Vec::new(),
