@@ -1599,20 +1599,37 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   flush/stacked faces + multi-plane cross-booleans work without conformal-edge
   explosions. **Risk:** moderate–high. **Size:** medium–large.
 - **Phase 4 — The `kernel-v2` driver (Kernel trait).** *[NEW — the integration
-  unlock; not in M0–M8]* **Phase 4a IN PROGRESS (2026-06-10):** PR-KV1 DONE —
-  half-edge arena + Euler operators (mvfs/mev/mef/kemr/kfmrh, Stroud-cited,
-  atomic, Newell-derived normals, Euler–Poincaré bookkeeping incl. genus;
-  cube/prism/through-hole construction oracles; 20 tests; wasm32-clean).
-  Next: KV2 planar constructors → KV3 boolean-via-yang-rs + tessellation +
-  introspection → KV4 legacy-trait adapter in test-harness for the
-  categorized assay replay. implement `Kernel`/`KernelIntrospect` over yang-rs
-  (`make_faces_from_profiles`, `extrude_face`, `revolve_face`, `boolean_*(_multi)`,
-  `tessellate → RenderMesh`, `extract_edges`, introspection). **Strategic slice
-  (Phase 4a):** a **planar-only driver can land early** — right after the current
-  baseline — to get a *categorized* assay score and de-risk the feature-tree →
-  kernel → mesh path before the geometry mountain; expand as Phases 2–3 land.
-  **Exit:** feature-engine builds + tessellates through kernel-v2; assay runs
-  (categorized supported/correct/unsupported). **Risk:** moderate. **Size:** large.
+  unlock; not in M0–M8]* **Phase 4a COMPLETE (2026-06-10):** PR-KV1 (arena +
+  Euler operators) → PR-KV2 (Profile + lamina/extrude constructors) →
+  PR-KV3 (boolean via yang-rs, exact tessellation, introspection) →
+  **PR-KV4 (EXIT)**: `KernelV2Adapter` in test-harness implements the legacy
+  `Kernel`/`KernelIntrospect` traits over kernel-v2 (polygon profiles,
+  extrude, booleans, tessellate→RenderMesh, extract_edges, signatures;
+  revolve / curved profiles / fillet-chamfer-shell are loud `NotSupported`),
+  and `tests/assay_kv2.rs` replays the 190-case corpus categorized.
+  **First honest corpus score (2026-06-10): 0 SUPPORTED_CORRECT / 5
+  SUPPORTED_WRONG / 173 UNSUPPORTED (137 curved-profile, 24 revolve, 12
+  coplanar-boolean) / 12 ERROR.** Every corpus case has ≥2 ops; the planar
+  multi-op cases all hit either the M8 coplanar wall or real yang-rs boolean
+  defects, so the always-on SUPPORTED_CORRECT gate is synthetic dispatch-path
+  scenarios (single/oblique/L-profile extrudes pass ALL mesh oracles;
+  subtract/intersect/cut/union pass with exact volumes but fail render-mesh
+  conformity — finding KV4-F3). **Findings logged in PR-KV4:**
+  KV4-F1 yang-rs `NoExplicitRayOrigin` in/out classification failure on
+  oblique-box unions (R0029, F0016, F0018, F0019, F0021, F0025);
+  KV4-F2 yang-rs "geometric face resolution failed (coplanar multi-solid
+  label)" on coincident/oblique unions (F0001, F0017, F0022–F0024) and
+  "input B-Rep is not 2-manifold" on a union-of-union round trip (F0020);
+  KV4-F3 kernel-v2 tessellation drops exactly-collinear chain vertices
+  per face → boolean render meshes are not position-paired watertight
+  (B-Rep validates, volumes exact); KV4-F4 disjoint-operand unions return
+  valid 2-shell solids that the legacy meta scores as wrong (F0011–F0015,
+  χ=4 vs euler_target 2 — needs triage: correct output vs legacy
+  expectation). The curved/coplanar walls confirm Phases 2–3 as the score
+  unlock (137 + 12 cases). **Exit (met):** feature-engine builds +
+  tessellates through kernel-v2; assay runs categorized
+  (`cargo test -p test-harness --test assay_kv2 -- --ignored --nocapture`,
+  report at `target/assay_kv2_report.json`).
 - **Phase 5 — Native arrangement + WASM.** *[= M6 + M7; parallel track]* M6 native
   `cherchi-rs` Stage-2 behind the `LabeledArrangement` seam, parity-green vs the
   sidecar (retires the C++ subprocess) — **✅ COMPLETE (M6: PR-CR-BL3c; M7:

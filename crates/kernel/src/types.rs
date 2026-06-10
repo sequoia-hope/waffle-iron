@@ -14,6 +14,20 @@ impl KernelSolidHandle {
     pub(crate) fn id(&self) -> u64 {
         self.0
     }
+
+    /// Construct a handle from a raw id.
+    ///
+    /// Public seam for EXTERNAL implementations of the `Kernel` trait (the
+    /// kernel-v2 adapter in test-harness, PR-KV4). Not a legacy bug fix —
+    /// the legacy kernels keep allocating their own handles internally.
+    pub fn from_raw(id: u64) -> Self {
+        Self(id)
+    }
+
+    /// Raw id of this handle (counterpart of [`Self::from_raw`]).
+    pub fn raw(&self) -> u64 {
+        self.0
+    }
 }
 
 /// Transient kernel-internal entity identifier.
