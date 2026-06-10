@@ -8,12 +8,12 @@
 //! ## Submodules
 //!
 //! - `collinearity`: 3D collinearity tests (PR-CR1)
-//!
-//! Future modules (one PR each):
-//! - `orientation`: orient2d/orient3d wrappers + indirect variants
-//! - `intersection`: triangle-triangle, segment-triangle, etc.
+//! - `indirect`: clean-room pure-Rust indirect predicates over implicit
+//!   (LPI/TPI) points — Attene 2025 + Cherchi 2020 §4.2.2 (PR-CR-M7a).
+//!   Ungated, WASM-clean; replaces the FFI sidecar tier by tier (M7).
 
 pub mod collinearity;
+pub mod indirect;
 pub mod orient;
 pub mod orientation;
 pub mod point_in_triangle;
