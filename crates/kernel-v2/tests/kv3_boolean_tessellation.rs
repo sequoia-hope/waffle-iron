@@ -502,6 +502,16 @@ fn boolean_coplanar_touching_succeeds_via_stage0_overlay() {
     let out = boolean_op(&mut arena, a, b, BoolOp::Subtract).expect("coplanar-touching subtract");
     validate_solid(&arena, out).expect("subtract validates");
     assert_eq!(signed_volume(&arena, out).expect("vol"), 8.0, "A unchanged");
+    // PR-YR27 hygiene (Finding 8): the Intersect cell was silently dropped
+    // in the PR-YR26 rewrite of this test ("for ALL ops" — header line 22).
+    // Touching boxes intersect in the zero-volume shared sheet only, which
+    // is NOT a solid: kernel-v2's documented empty-result contract applies.
+    let err = boolean_op(&mut arena, a, b, BoolOp::Intersect).unwrap_err();
+    assert_eq!(
+        err,
+        KernelV2Error::EmptyBooleanResult,
+        "coplanar-touching intersect: zero-volume sheet is empty, typed"
+    );
     // Coplanar OVERLAP (shared bottom plane, EQUAL normals): the overlap
     // sheet is part of the union's bottom face. 8 + 8 − 1·1·2 = 14.
     let c = make_box(&mut arena, [1.0, 1.0, 0.0], [3.0, 3.0, 2.0]);
