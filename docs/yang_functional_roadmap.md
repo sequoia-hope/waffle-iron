@@ -1446,6 +1446,31 @@ reimplementation from Attene's paper restores WASM (M7).
       planar.
 - **M7 — Clean-room indirect predicates from Attene's paper → restore WASM.**
   Removes the LGPL FFI dependency and the `compile_error!` WASM block.
+  - **PR-CR-M7a DONE (2026-06-10): pattern-setter slice.** New
+    `crates/predicate-gen` (dev tool, zero deps): SSA polynomial IR + FPG
+    (Meyer-Pion 2008) forward error analysis → Attene App. A semi-static
+    constants `δ(1)`/degree, emitting the checked-in
+    `cherchi-rs/src/predicates/indirect/generated.rs` (byte-frozen by a
+    freshness test; `cargo run -p predicate-gen` regenerates). cherchi-rs
+    gains the UNGATED pure-Rust `predicates::indirect` module:
+    `GenericPoint3D` (owned Explicit/Lpi/Tpi, §5.4 lambda caching) +
+    `orient3d_indirect` over all 14 canonical instances (§6 reduction),
+    cascading semi-static filter (§5.1) → interval arithmetic (§5.2,
+    next_up/next_down outward rounding — no FPU modes, WASM-clean) →
+    exact RBig (§5.3, `d == 0` → Undefined).
+    `cargo check -p cherchi-rs --target wasm32-unknown-unknown` PASSES —
+    first WASM proof-point. Oracles: filter soundness (95.6% generic
+    implicit hit rate, gate ≥90%), ~357-case differential parity vs the
+    black-box FFI sidecar (C++ orient3d is the MIRROR of Shewchuk's
+    convention), δ cross-checks vs Cherchi's published εdL/εdT constants
+    (ours 5.11e-15 / 8.89e-14 vs 4.885e-15 / 8.704e-14 — same degrees,
+    few % more conservative). **Banked lesson:** the semi-static
+    worst-case bound alone certifies only ~52% of generic TPI-heavy
+    cases (degree up to 39) — the paper's interval tier is load-bearing,
+    not an optimization; plan it into every remaining M7 predicate
+    slice. Remaining for M7: orient2d projections, pointCompare/lessThan
+    family, point-in-triangle/segment wrappers, then swap
+    `arrangements/` consumers off the FFI and drop the gate.
 - **M8 — Stage 0 coplanar preprocessing** hardened last (special case that
   complicates everything earlier). **Verified a genuine native need** (deviation
   N8, 2026-06-02): the patched sidecar emits multi-solid-labeled
