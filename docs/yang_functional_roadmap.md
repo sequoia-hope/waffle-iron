@@ -1315,12 +1315,32 @@ reimplementation from Attene's paper restores WASM (M7).
     octree is NOT built here — it has no consumer until the BL2 ray-cast
     (demand-driven, CLAUDE.md #8 spirit); port it in BL2 alongside
     `findRayEndpoints`/`computeInsideOut`.
-  - **PR-CR-BL2 — ray-cast in/out (2022 §5).** The robust per-patch in/out:
-    the `foctree` octree (deferred from BL1; built here with its first
-    consumer) + `findRayEndpoints` / `computeInsideOut` / ray-perturbation
-    X/Y/Z / `pruneIntersectionsAndSortAlongRay` / `analyzeSortedIntersections`
-    (the hardest part — implicit-point ray intersection sorting +
-    perturbation).
+  - **PR-CR-BL2 — ray-cast in/out (2022 §5).** The robust per-patch in/out.
+    - **Cycle A (DONE, 2026-06-10)** — `labeling/inside_out.rs`:
+      `compute_inside_out(&soup, &patches) -> Vec<Label>` (per-patch inner
+      labels). Full port of `findRayEndpoints` (explicit-origin branch) /
+      `fast2DCheckIntersectionOnRay` / `checkIntersectionInsideTriangle3D` /
+      `perturbX|Y|ZRay` + `perturbRayAndFindIntersTri` /
+      `sortIntersectedTrisAlong*` (exact LPI sort keys via FFI
+      `lessThanOnX/Y/Z`, btree-set equal-key-drop semantics) /
+      `analyzeSortedIntersections`. Structural prerequisite: the soup now
+      carries the prepped original `in_tris`/`in_labels` (C++ `arr_in_tris`).
+      Oracle (5 invariants) + independent ADVERSARY (11 tests) — the
+      adversary found 3 real bugs, all fixed: winner-less perturbation
+      events now SKIP (N19, C++ `winner != -1` semantics; the fatal error
+      was wrong on grazing input) and ray-parameter-ZERO hits are discarded
+      (N20 — the C++ keeps them and silently mislabels point-touching
+      solids; justified deviation, see docs/yang_deviations.md). Port
+      finding: the C++ octree rayAABB query is semantically LOAD-BEARING
+      (excludes behind-origin events); the brute-force port reproduces it
+      with an explicit ray-AABB pre-filter.
+    - **Cycle B (next)** — the C++ "generated ray" branch for patches with
+      no explicit non-border vertex (`NoExplicitRayOrigin` today: cap-disc
+      patches bounded entirely by intersection loops, e.g. through-cuts).
+      Approx-centroid ray + exact orient3d crossing checks + the
+      generated-ray discard branch in the sort.
+    - **Cycle C** — the `foctree` octree as the candidate-set producer
+      (oracle: pruned ⊆ brute AND identical final labels).
   - **PR-CR-BL3 — emit `LabeledArrangement` + native `MeshBoolean` impl.**
     Assemble the per-tri source + patch_id + per-input in/out, implement
     `MeshBoolean` natively, **parity-green vs the sidecar on the corpus**, then
