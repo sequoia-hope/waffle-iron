@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 kernel = { path = "../kernel" }
+kernel-v2 = { path = "../kernel-v2" }
+cad-primitives = { path = "../cad-primitives" }
 feature-engine = { path = "../feature-engine" }
 modeling-ops = { path = "../modeling-ops" }
 wasm-bridge = { path = "../wasm-bridge" }

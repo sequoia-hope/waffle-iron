@@ -55,6 +55,19 @@ impl ModelBuilder {
         }
     }
 
+    /// Create a new ModelBuilder backed by kernel-v2 through the legacy-trait
+    /// adapter ([`crate::kv2_adapter::KernelV2Adapter`], PR-KV4). Unsupported
+    /// operations surface as loud `KernelError::NotSupported` engine errors.
+    pub fn kernel_v2() -> Self {
+        Self {
+            state: EngineState::new(),
+            kernel: Box::new(crate::kv2_adapter::KernelV2Adapter::new()),
+            named_features: HashMap::new(),
+            history: Vec::new(),
+            auto_check: false,
+        }
+    }
+
     /// Enable auto-checking: after every operation, verify no engine errors.
     pub fn with_auto_check(mut self) -> Self {
         self.auto_check = true;

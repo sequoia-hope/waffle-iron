@@ -16,6 +16,7 @@ pub mod assay;
 pub mod assertions;
 pub mod cherchi_sidecar;
 pub mod helpers;
+pub mod kv2_adapter;
 pub mod oracle;
 pub mod report;
 pub mod stl;
