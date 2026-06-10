@@ -43,7 +43,6 @@ use std::error::Error;
 use cad_primitives::{BoolOp, Point3, Vector3, MIN_FEATURE_SIZE, TAU_MODEL, TAU_WORK};
 use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};
 use cherchi_rs::{Mesh, MeshBoolean};
-use cherchi_sidecar_rs::SidecarBoolean;
 use yang_rs::{
     boolean, parabola_point, BRep, BRepEdge, BRepFace, BRepVertex, Curve, Stage4InvalidReason,
     Surface, TessellationSource, YangError,
@@ -1198,10 +1197,8 @@ fn oracle4_no_inverted_or_degenerate_tris() {
 
 #[test]
 fn oracle8_e2e_theta_eq_alpha_cone_union_box_on_parabola() {
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!(
-            "[yr22] SKIPPED: sidecar binary not found — set CHERCHI2022_BIN to run the cone-parabola E2E"
-        );
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[yr22] SKIP: native FFI shim not linked (stub build)");
         return;
     };
     let cone = oblique_cone();

@@ -39,7 +39,6 @@
 
 use cad_primitives::{BoolOp, Point3, Vector3};
 use cherchi_rs::{Mesh, MeshBoolean};
-use cherchi_sidecar_rs::SidecarBoolean;
 use yang_rs::{boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, Surface, YangError};
 
 // =========================================================================
@@ -632,8 +631,8 @@ fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
 #[ignore = "sidecar-gated: independent witness of the PR-CF1 GREEN fix (case#23 \
             sphere−box now returns Err, not a panic); set CHERCHI2022_BIN"]
 fn green_fix_case23_no_panic() {
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!("[adversary green] SKIP: sidecar binary not found (set CHERCHI2022_BIN)");
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[adversary green] SKIP: native FFI shim not linked (stub build)");
         return;
     };
 

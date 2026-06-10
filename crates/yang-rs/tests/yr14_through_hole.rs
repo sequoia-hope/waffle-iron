@@ -48,7 +48,6 @@ use std::error::Error;
 use cad_primitives::{BoolOp, Point3, Vector3};
 use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};
 use cherchi_rs::{Mesh, MeshBoolean};
-use cherchi_sidecar_rs::SidecarBoolean;
 use yang_rs::{boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, Surface, YangError};
 
 fn p(x: f64, y: f64, z: f64) -> Point3 {
@@ -1091,8 +1090,8 @@ fn oracle5_sidecar_parity_and_determinism() {
     }
 
     // (b) Env-gated sidecar parity (LOUD skip when unset).
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!("[yang-rs yr14] SKIP: sidecar binary not found (set CHERCHI2022_BIN)");
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[yang-rs yr14] SKIP: native FFI shim not linked (stub build)");
         return;
     };
     let bx = hole_box();

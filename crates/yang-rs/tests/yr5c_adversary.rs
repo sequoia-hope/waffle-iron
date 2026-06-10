@@ -17,7 +17,7 @@
 //!    holes; correct volume.
 //!
 //! Self-skips cleanly when the C++ sidecar binary is absent
-//! (`SidecarBoolean::from_env()` → `Err`). Determinism: all geometry is a fixed
+//! (`yang_rs::native_backend()` → `None`, FFI stub build). Determinism: all geometry is a fixed
 //! constant; the rotation matrix is a fixed (non-axis-aligned) rigid rotation.
 //!
 //! No production code is modified by this file. Where an attack confirms a real
@@ -25,7 +25,6 @@
 
 use cad_primitives::{BoolOp, Point3, Vector3};
 use cherchi_rs::Mesh;
-use cherchi_sidecar_rs::SidecarBoolean;
 use std::collections::HashMap;
 use yang_rs::{BRep, BRepEdge, BRepFace, Curve, Surface, YangError};
 
@@ -350,11 +349,11 @@ fn assert_brep_invariants(r: &BRep) {
     }
 }
 
-fn skip_or_sidecar() -> Option<SidecarBoolean> {
-    match SidecarBoolean::from_env() {
-        Ok(sb) => Some(sb),
-        Err(_) => {
-            eprintln!("[yr5c_adversary] SKIP: sidecar binary not found");
+fn skip_or_backend() -> Option<yang_rs::NativeBoolean> {
+    match yang_rs::native_backend() {
+        Some(nb) => Some(nb),
+        None => {
+            eprintln!("[yr5c_adversary] SKIP: native FFI shim not linked (stub build)");
             None
         }
     }
@@ -383,7 +382,7 @@ fn skip_or_sidecar() -> Option<SidecarBoolean> {
 /// chaining is supported; otherwise this documents the limitation.
 #[test]
 fn two_holes_in_one_face_via_chained_subtract() {
-    let Some(sb) = skip_or_sidecar() else {
+    let Some(sb) = skip_or_backend() else {
         return;
     };
 
@@ -497,7 +496,7 @@ fn two_holes_in_one_face_via_chained_subtract() {
 
 #[test]
 fn cavity_wall_normals_point_result_outward() {
-    let Some(sb) = skip_or_sidecar() else {
+    let Some(sb) = skip_or_backend() else {
         return;
     };
 
@@ -584,7 +583,7 @@ fn cavity_wall_normals_point_result_outward() {
 
 #[test]
 fn rotated_cube_minus_rod_holed_faces() {
-    let Some(sb) = skip_or_sidecar() else {
+    let Some(sb) = skip_or_backend() else {
         return;
     };
 
@@ -636,7 +635,7 @@ fn rotated_cube_minus_rod_holed_faces() {
 /// Companion: a rotated BLIND rod (mixed L0/L1 off-axis) — 1 holed + plain.
 #[test]
 fn rotated_cube_minus_blind_rod() {
-    let Some(sb) = skip_or_sidecar() else {
+    let Some(sb) = skip_or_backend() else {
         return;
     };
 
@@ -693,7 +692,7 @@ fn rotated_cube_minus_blind_rod() {
 
 #[test]
 fn corner_clip_no_spurious_holes() {
-    let Some(sb) = skip_or_sidecar() else {
+    let Some(sb) = skip_or_backend() else {
         return;
     };
 
@@ -738,7 +737,7 @@ fn corner_clip_no_spurious_holes() {
 /// 0.25 ⇒ subtract 0.75.
 #[test]
 fn edge_clip_no_spurious_holes() {
-    let Some(sb) = skip_or_sidecar() else {
+    let Some(sb) = skip_or_backend() else {
         return;
     };
 

@@ -1325,11 +1325,17 @@ fn key_label(idx: usize) -> &'static str {
 #[test]
 #[ignore = "deep curved fuzz: N=300 cases, ~1200 sidecar subprocess calls; run with --ignored"]
 fn fuzz_curved_booleans() {
+    // Reference-mesh oracle: the C++ sidecar (test-only parity oracle since
+    // PR-CR-BL3c). Backend under test: the native cherchi-rs pipeline.
     let Ok(sb) = SidecarBoolean::from_env() else {
         eprintln!(
             "[fuzz_curved] SKIP: sidecar binary not found (SidecarBoolean::from_env() Err). \
              Set CHERCHI2022_BIN to run the curved fuzz."
         );
+        return;
+    };
+    let Some(nb) = yang_rs::native_backend() else {
+        eprintln!("[fuzz_curved] SKIP: native FFI shim not linked (stub build)");
         return;
     };
 
@@ -1381,7 +1387,7 @@ fn fuzz_curved_booleans() {
         // aborting on the first one. The test still FAILS loudly on any panic
         // (asserted below). This is a test-diagnostic, not a production path.
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            boolean(&prim, &bx, c.op, &sb)
+            boolean(&prim, &bx, c.op, &nb)
         }));
 
         let yang = match result {
@@ -1644,10 +1650,8 @@ const DEMONSTRATOR_CASE: usize = 23;
 #[ignore = "demonstrator: reproduces the sphere−box PANIC at SEED case #23 (src/lib.rs ~4132 \
             empty-cycles index in emit_topology curved branch); reports outcome, asserts nothing"]
 fn demonstrator_case23_sphere_subtract_box_panics() {
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!(
-            "[fuzz_curved demonstrator] SKIP: sidecar binary not found (set CHERCHI2022_BIN)"
-        );
+    let Some(nb) = yang_rs::native_backend() else {
+        eprintln!("[fuzz_curved demonstrator] SKIP: native FFI shim not linked (stub build)");
         return;
     };
 
@@ -1676,7 +1680,7 @@ fn demonstrator_case23_sphere_subtract_box_panics() {
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        boolean(&prim, &bx, c.op, &sb)
+        boolean(&prim, &bx, c.op, &nb)
     }));
     std::panic::set_hook(prev_hook);
 

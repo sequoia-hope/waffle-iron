@@ -45,7 +45,6 @@ use std::collections::{HashMap, HashSet};
 use cad_primitives::{BoolOp, Point3, Vector3, TAU_MODEL};
 use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};
 use cherchi_rs::{Mesh, MeshBoolean};
-use cherchi_sidecar_rs::SidecarBoolean;
 use std::error::Error;
 use yang_rs::{
     boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, SsiRefinementError, Surface, YangError,
@@ -1341,8 +1340,8 @@ fn t5_stop_path_coincident_planes_is_loud() {
 
 #[test]
 fn t6_e2e_cylinder_union_box_has_exact_cap_circle() {
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!("[yr9] SKIP: sidecar binary not found (set CHERCHI2022_BIN)");
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[yr9] SKIP: native FFI shim not linked (stub build)");
         return;
     };
     let cyl = canonical_cylinder();

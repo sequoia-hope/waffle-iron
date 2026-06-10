@@ -46,7 +46,6 @@ use std::collections::{HashMap, HashSet};
 use cad_primitives::{BoolOp, Point3, Vector3, MIN_FEATURE_SIZE, TAU_MODEL, TAU_WORK};
 use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};
 use cherchi_rs::{Mesh, MeshBoolean};
-use cherchi_sidecar_rs::SidecarBoolean;
 use std::error::Error;
 use yang_rs::{
     boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, Stage4InvalidReason, Surface,
@@ -1473,8 +1472,8 @@ fn t7_planar_box_union_stage4_noop() {
 
 #[test]
 fn t8_e2e_cylinder_union_box_relocated_on_curve() {
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!("[yr10] SKIP: sidecar binary not found (set CHERCHI2022_BIN)");
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[yr10] SKIP: native FFI shim not linked (stub build)");
         return;
     };
     let cyl = canonical_cylinder();

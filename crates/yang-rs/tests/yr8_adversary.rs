@@ -39,7 +39,6 @@ use std::collections::{HashMap, HashSet};
 use cad_primitives::{BoolOp, Point3, Vector3};
 use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};
 use cherchi_rs::{Mesh, MeshBoolean};
-use cherchi_sidecar_rs::SidecarBoolean;
 use std::error::Error;
 use yang_rs::{boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, Surface, YangError};
 
@@ -702,8 +701,8 @@ fn attack4_sphere_malformed_cone_still_loudly_rejected() {
 
 #[test]
 fn attack5_e2e_independent_cylinder_union_box() {
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!("[yr8-adv] SKIP: sidecar binary not found (set CHERCHI2022_BIN)");
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[yr8-adv] SKIP: native FFI shim not linked (stub build)");
         return;
     };
     let cyl = adv_cylinder();

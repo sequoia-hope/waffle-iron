@@ -50,7 +50,6 @@ use std::error::Error;
 use cad_primitives::{BoolOp, Point3, Vector3, MIN_FEATURE_SIZE, TAU_MODEL, TAU_WORK};
 use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};
 use cherchi_rs::{Mesh, MeshBoolean};
-use cherchi_sidecar_rs::SidecarBoolean;
 use yang_rs::{
     boolean, hyperbola_point, BRep, BRepEdge, BRepFace, BRepVertex, Curve, Stage4InvalidReason,
     Surface, TessellationSource, YangError,
@@ -1447,10 +1446,8 @@ fn oracle7_out_of_scope_beyond_band_stays_loud() {
 
 #[test]
 fn oracle8_e2e_hyperbola_cone_union_box_on_hyperbola() {
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!(
-            "[yr23] SKIPPED: sidecar binary not found — set CHERCHI2022_BIN to run the cone-hyperbola E2E"
-        );
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[yr23] SKIP: native FFI shim not linked (stub build)");
         return;
     };
     let cone = oblique_cone();

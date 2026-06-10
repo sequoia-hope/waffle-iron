@@ -14,11 +14,10 @@
 //!   - `corner_clip_has_no_holes` → L0 regression (no spurious inner loops)
 //!
 //! Self-skips cleanly when the C++ sidecar binary is absent
-//! (`SidecarBoolean::from_env()` → `Err`).
+//! (`yang_rs::native_backend()` → `None`, FFI stub build).
 
 use cad_primitives::{BoolOp, Point3, Vector3};
 use cherchi_rs::Mesh;
-use cherchi_sidecar_rs::SidecarBoolean;
 use std::collections::HashMap;
 use yang_rs::{BRep, BRepEdge, BRepFace, Curve, Surface, YangError};
 
@@ -250,8 +249,8 @@ const VOL_TOL: f64 = 1e-6;
 /// `r.is_ok()`.
 #[test]
 fn cube_minus_interior_rod() {
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!("[inner_loops] SKIP: sidecar binary not found");
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[inner_loops] SKIP: native FFI shim not linked (stub build)");
         return;
     };
 
@@ -330,8 +329,8 @@ fn cube_minus_interior_rod() {
 /// inside A — a blind square pit. The z=0 face is holed; the z=1 face is plain.
 #[test]
 fn cube_minus_blind_rod() {
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!("[inner_loops] SKIP: sidecar binary not found");
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[inner_loops] SKIP: native FFI shim not linked (stub build)");
         return;
     };
 
@@ -406,8 +405,8 @@ fn cube_minus_blind_rod() {
 /// (the M3 diagonal case). Every output face is simple.
 #[test]
 fn corner_clip_has_no_holes() {
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!("[inner_loops] SKIP: sidecar binary not found");
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[inner_loops] SKIP: native FFI shim not linked (stub build)");
         return;
     };
 

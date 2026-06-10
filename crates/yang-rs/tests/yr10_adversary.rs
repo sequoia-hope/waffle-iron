@@ -60,7 +60,6 @@ use std::collections::HashMap;
 
 use cad_primitives::{BoolOp, Point3, Vector3, TAU_MODEL};
 use cherchi_rs::{Mesh, MeshBoolean};
-use cherchi_sidecar_rs::SidecarBoolean;
 use yang_rs::{boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, Surface};
 
 // =========================================================================
@@ -269,8 +268,8 @@ fn canonical_box() -> BRep {
 /// Cherchi 2022 sidecar. Returns `None` (after a LOUD skip eprintln) when the
 /// binary is absent so the test is a no-op in environments without the sidecar.
 fn real_union() -> Option<BRep> {
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!("[yr10-adv] SKIP: sidecar binary not found (set CHERCHI2022_BIN)");
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[yr10-adv] SKIP: native FFI shim not linked (stub build)");
         return None;
     };
     let r = boolean(&canonical_cylinder(), &canonical_box(), BoolOp::Union, &sb)
@@ -627,7 +626,7 @@ fn adv3_ring_on_curve_and_simple_polygon() {
     // (c) any near-coincident ring vertices are INHERITED from the raw sidecar
     // mesh, not introduced by Stage 4. Recompute the raw mesh independently and
     // confirm it already contains coincident-vertex pairs.
-    let Ok(sb) = SidecarBoolean::from_env() else {
+    let Some(sb) = yang_rs::native_backend() else {
         return;
     };
     let raw = sb
@@ -707,7 +706,7 @@ fn adv4_geometric_closed_two_manifold() {
     // Confirm any near-zero-area output triangle is INHERITED from the raw
     // sidecar mesh (not a Stage-4 relocation artifact). Recompute the raw mesh
     // independently and gather its degenerate-triangle areas.
-    let Ok(sb) = SidecarBoolean::from_env() else {
+    let Some(sb) = yang_rs::native_backend() else {
         return;
     };
     let raw = sb

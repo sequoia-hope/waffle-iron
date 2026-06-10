@@ -37,7 +37,6 @@ use std::error::Error;
 use cad_primitives::{BoolOp, Point3, Vector3};
 use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};
 use cherchi_rs::{Mesh, MeshBoolean};
-use cherchi_sidecar_rs::SidecarBoolean;
 use yang_rs::{boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, Surface};
 
 fn p(x: f64, y: f64, z: f64) -> Point3 {
@@ -799,8 +798,8 @@ fn oracle3_analytic_survival_and_sense_encoding() {
 
 #[test]
 fn oracle4_sidecar_mesh_parity_env_gated() {
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!("[yang-rs yr13] SKIP: sidecar binary not found (set CHERCHI2022_BIN)");
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[yang-rs yr13] SKIP: native FFI shim not linked (stub build)");
         return;
     };
     let bx = pocket_box();

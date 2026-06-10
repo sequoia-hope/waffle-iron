@@ -45,7 +45,6 @@ use std::error::Error;
 use cad_primitives::{BoolOp, Point3, Vector3, MIN_FEATURE_SIZE, TAU_MODEL, TAU_WORK};
 use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};
 use cherchi_rs::{Mesh, MeshBoolean};
-use cherchi_sidecar_rs::SidecarBoolean;
 use yang_rs::{
     boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, Stage4InvalidReason, Surface,
     TessellationSource, YangError,
@@ -1534,10 +1533,8 @@ fn build_parabola_cap_arrangement() -> LabeledArrangement {
 
 #[test]
 fn oracle8_e2e_oblique_cone_union_box_on_ellipse() {
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!(
-            "[yr21] SKIPPED: sidecar binary not found — set CHERCHI2022_BIN to run the cone-ellipse E2E"
-        );
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[yr21] SKIP: native FFI shim not linked (stub build)");
         return;
     };
     let cone = oblique_cone();

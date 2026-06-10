@@ -45,7 +45,6 @@ use std::collections::{HashMap, HashSet};
 use cad_primitives::{BoolOp, Point3, Vector3, MIN_FEATURE_SIZE, TAU_MODEL, TAU_WORK};
 use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};
 use cherchi_rs::{Mesh, MeshBoolean};
-use cherchi_sidecar_rs::SidecarBoolean;
 use std::error::Error;
 use yang_rs::{
     boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, Stage4InvalidReason, Surface,
@@ -1237,10 +1236,8 @@ fn t4_oblique_no_inverted_tris_and_tangent_order() {
 
 #[test]
 fn t5_e2e_oblique_cylinder_union_box_on_ellipse() {
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!(
-            "[yr11] SKIPPED: sidecar binary not found — set CHERCHI2022_BIN to run the oblique E2E"
-        );
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[yr11] SKIP: native FFI shim not linked (stub build)");
         return;
     };
     let cyl = oblique_cylinder();

@@ -5,7 +5,6 @@
 
 use cad_primitives::{BoolOp, Point3, Vector3};
 use cherchi_rs::Mesh;
-use cherchi_sidecar_rs::SidecarBoolean;
 use yang_rs::{boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, Surface};
 
 fn p(x: f64, y: f64, z: f64) -> Point3 {
@@ -175,8 +174,8 @@ fn euler_characteristic(mesh: &Mesh) -> i64 {
 
 /// Run M3 oracles for one op over the diagonal cubes.
 fn m3_oracles(op: BoolOp, expected_volume: f64) {
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!("[yang-rs end_to_end] SKIP: sidecar binary not found");
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[yang-rs end_to_end] SKIP: native FFI shim not linked (stub build)");
         return;
     };
     let a = unit_cube_brep_offset_at([0.0, 0.0, 0.0]);

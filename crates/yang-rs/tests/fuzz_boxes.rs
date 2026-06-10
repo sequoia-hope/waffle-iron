@@ -452,9 +452,13 @@ impl std::fmt::Debug for SilentWrong {
 // The harness.
 // =========================================================================
 
+// 8 args since BL3c added the native backend alongside the sidecar oracle;
+// a params struct for a one-caller test harness would be noise.
+#[allow(clippy::too_many_arguments)]
 fn run_tier(
     rng: &mut SplitMix64,
     sb: &SidecarBoolean,
+    nb: &yang_rs::NativeBoolean,
     tier: &'static str,
     n_cases: usize,
     rotated: bool,
@@ -502,7 +506,7 @@ fn run_tier(
                 }
             };
 
-            match boolean(&a_brep, &b_brep, op, sb) {
+            match boolean(&a_brep, &b_brep, op, nb) {
                 Ok(brep) => {
                     let mesh = brep.as_mesh();
                     let vol_y = signed_volume(mesh);
@@ -572,8 +576,14 @@ fn run_tier(
 #[test]
 #[ignore = "deep fuzz: ~30 min / ~1800 sidecar subprocess calls; run with --ignored"]
 fn fuzz_two_box_booleans() {
+    // Reference-mesh oracle: the C++ sidecar (test-only parity oracle since
+    // PR-CR-BL3c). Backend under test: the native cherchi-rs pipeline.
     let Ok(sb) = SidecarBoolean::from_env() else {
         eprintln!("[fuzz_boxes] SKIP: sidecar binary not found (SidecarBoolean::from_env() Err)");
+        return;
+    };
+    let Some(nb) = yang_rs::native_backend() else {
+        eprintln!("[fuzz_boxes] SKIP: native FFI shim not linked (stub build)");
         return;
     };
 
@@ -585,6 +595,7 @@ fn fuzz_two_box_booleans() {
     run_tier(
         &mut rng,
         &sb,
+        &nb,
         "aligned",
         N_ALIGNED,
         false,
@@ -594,6 +605,7 @@ fn fuzz_two_box_booleans() {
     run_tier(
         &mut rng,
         &sb,
+        &nb,
         "rotated",
         N_ROTATED,
         true,

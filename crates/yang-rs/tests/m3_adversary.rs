@@ -11,12 +11,11 @@
 //! error, near-coincident weld, mislabeled tri).
 //!
 //! Sidecar-backed tests self-skip when the C++ binary is absent
-//! (`SidecarBoolean::from_env()` → `Err`).
+//! (`yang_rs::native_backend()` → `None`, FFI stub build).
 
 use cad_primitives::{BoolOp, Point3, Vector3};
 use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};
 use cherchi_rs::{Mesh, MeshBoolean};
-use cherchi_sidecar_rs::SidecarBoolean;
 use std::error::Error;
 use yang_rs::{boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, Surface, YangError};
 
@@ -149,8 +148,8 @@ fn euler_characteristic(mesh: &Mesh) -> i64 {
 
 /// Full structural + numeric audit on a sidecar result.
 fn audit(op: BoolOp, a: &BRep, b: &BRep, expected_volume: f64) {
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!("[m3_adversary] SKIP: sidecar binary not found");
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[m3_adversary] SKIP: native FFI shim not linked (stub build)");
         return;
     };
     let r = boolean(a, b, op, &sb).expect("yang-rs boolean failed");
@@ -288,8 +287,8 @@ fn a2_xor_diagonal_cubes() {
     // DEFERRED from M3 (spec §Scope) — boolean() must error LOUDLY with
     // YangError::UnsupportedOp, not a generic NonManifoldOutput or a silently
     // wrong result.
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!("[m3_adversary] SKIP: sidecar binary not found");
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[m3_adversary] SKIP: native FFI shim not linked (stub build)");
         return;
     };
     let a = cube([0.0, 0.0, 0.0]);
@@ -303,8 +302,8 @@ fn a2_xor_diagonal_cubes() {
 #[test]
 fn a2_xor_independent_geometry() {
     // XOR is deferred (spec §Scope) — must error loudly regardless of geometry.
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!("[m3_adversary] SKIP: sidecar binary not found");
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[m3_adversary] SKIP: native FFI shim not linked (stub build)");
         return;
     };
     let a = cube([0.0, 0.0, 0.0]);
@@ -322,12 +321,18 @@ fn a2_xor_independent_geometry() {
 // face). The arrangement produces coplanar tris whose surface label names BOTH
 // solids → F2 → FaceResolutionFailed. M3's contract (spec failure modes) is
 // "error loudly", not a wrong-but-Ok result.
+//
+// PR-CR-BL3c (native backend): the loud error now fires EARLIER —
+// `MeshBooleanFailed(Arrangement(CoplanarPairDeferred))`, the native
+// arrangement's explicit M8 deferral — instead of the sidecar-era Stage-6
+// FaceResolutionFailed. Same M8 boundary, same loudness; both variants
+// satisfy this test's any-Err contract.
 // =========================================================================
 
 #[test]
 fn a3_coplanar_shared_face_errors_loudly() {
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!("[m3_adversary] SKIP: sidecar binary not found");
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[m3_adversary] SKIP: native FFI shim not linked (stub build)");
         return;
     };
     let a = cube([0.0, 0.0, 0.0]);
@@ -356,8 +361,8 @@ fn a3_coplanar_shared_face_errors_loudly() {
 fn a3_coplanar_face_overlap_x_offset_errors_loudly() {
     // B offset only in x by 0.5: shares the y∈{0,1} and z∈{0,1} face planes
     // with A (coplanar face overlap on 4 faces). Out of scope → must error.
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!("[m3_adversary] SKIP: sidecar binary not found");
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[m3_adversary] SKIP: native FFI shim not linked (stub build)");
         return;
     };
     let a = cube([0.0, 0.0, 0.0]);
@@ -471,8 +476,8 @@ fn a4_near_coincident_within_tau_work_bypasses_guard() {
 
 #[test]
 fn a5_determinism_union_diagonal_cubes() {
-    let Ok(sb) = SidecarBoolean::from_env() else {
-        eprintln!("[m3_adversary] SKIP: sidecar binary not found");
+    let Some(sb) = yang_rs::native_backend() else {
+        eprintln!("[m3_adversary] SKIP: native FFI shim not linked (stub build)");
         return;
     };
     let a = cube([0.0, 0.0, 0.0]);
