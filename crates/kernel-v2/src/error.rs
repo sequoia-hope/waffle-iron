@@ -107,6 +107,48 @@ pub enum KernelV2Error {
     /// the plane produces no volume.
     ExtrudeDirectionInPlane,
 
+    // ----- boolean delegation (PR-KV3, `boolean::boolean_op`) -------------
+    /// The boolean inputs contain a coplanar face pair (touching or
+    /// overlapping on a shared plane). The cherchi-rs arrangement defers
+    /// coplanar pairs (`ArrangementError::CoplanarPairDeferred`); handling
+    /// them is Yang 2025 §4.5.5 Stage-0 coplanar preprocessing — roadmap
+    /// milestone M8, not yet implemented. Typed and loud so callers can
+    /// distinguish this KNOWN Phase-3/M8 boundary from a pipeline bug.
+    UnsupportedCoplanar,
+
+    /// The yang-rs boolean pipeline failed for a non-coplanar reason. The
+    /// payload is the yang error's full Display text — loud, no masking,
+    /// no retry, no tolerance fallback (P9/P10).
+    BooleanFailed(String),
+
+    /// The boolean result is empty (e.g. intersection of disjoint solids).
+    /// kernel-v2 has no empty solid; callers treat this as "no body".
+    EmptyBooleanResult,
+
+    /// A yang-rs output face carries a non-planar surface. Phase 4a
+    /// reassembles planar output only; curved reassembly arrives with the
+    /// curved-primitive constructors. Carries the yang output face index.
+    UnsupportedBooleanOutputSurface { face: usize },
+
+    /// The yang-rs output B-Rep could not be reassembled into a kernel-v2
+    /// solid: a structural defect (open or discontinuous loop, an
+    /// undirected edge not used by exactly two opposite directed edges,
+    /// a degenerate or plane-disagreeing loop normal, non-integral genus).
+    /// This is a REAL pipeline finding — surfaced loudly, never repaired
+    /// silently (P9). The payload names the violated condition.
+    InvalidBooleanOutput(&'static str),
+
+    // ----- render tessellation (PR-KV3, `tessellate`) ----------------------
+    /// Planar-face tessellation failed: the exact ear-clipping pass could
+    /// not find a valid hole bridge or a clippable ear. Unreachable for the
+    /// valid (weakly simple) loops a validated solid carries; surfaced
+    /// loudly instead of looping or guessing (P9). The payload names the
+    /// failing step.
+    TessellationFailed { face: FaceId, reason: &'static str },
+
+    /// RED-phase stub marker (PR-KV3). Removed at GREEN.
+    NotImplemented(&'static str),
+
     // ----- validation findings (produced by `validate_solid`) ------------
     /// A face reachable from the validated solid has no surface descriptor.
     /// Finished solids must have `Some(Surface)` on every face.

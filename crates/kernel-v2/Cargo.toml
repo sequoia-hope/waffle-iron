@@ -13,5 +13,8 @@ cad-primitives = { path = "../cad-primitives" }
 # This is an EXTERNAL crate: the "cad-primitives, yang-rs only" rule in
 # CLAUDE.md governs workspace-crate layering, not third-party deps.
 dashu = "0.4"
-# yang-rs is added when the boolean-delegation slice lands (KV1 mandate:
-# do not add the dep until a slice consumes it).
+# Boolean delegation (PR-KV3): kernel-v2 converts its B-Rep to yang-rs's
+# BRep at the boundary, calls yang_rs::boolean with the native backend, and
+# rebuilds a kernel-v2 solid from the output. yang-rs re-exports the
+# cherchi-rs backend types (NativeBoolean) — NO direct cherchi-rs dep here.
+yang-rs = { path = "../yang-rs" }

@@ -15,13 +15,18 @@
 //! - **PR-KV1** (done): the arena types, the Euler operator set sufficient
 //!   for planar prismatic solids and through-holes (Stroud 2006, ch. 4 +
 //!   appendix F), and `validate_solid`.
-//! - **PR-KV2** (this slice): planar primitive constructors — [`Profile`]
+//! - **PR-KV2** (done): planar primitive constructors — [`Profile`]
 //!   (validated planar region, exact simplicity check),
 //!   [`make_face_from_profile`] (lamina), [`extrude`] (linear sweep with
 //!   through-holes; Stroud 2006 §6.2), plus the [`geom::signed_volume`]
 //!   orientation oracle.
-//! - Later slices: revolve + curved primitives, tessellation, and the
-//!   trait surface.
+//! - **PR-KV3** (this slice): boolean ops via yang-rs ([`boolean`] —
+//!   B-Rep conversion at the kernel-v2/yang-rs boundary + typed error
+//!   mapping), render tessellation ([`tessellate`] — exact-rational ear
+//!   clipping with hole bridging), and introspection basics
+//!   ([`introspect`] — edge extraction, surface area, face plane).
+//! - Later slices: revolve + curved primitives, curved tessellation, and
+//!   the trait surface.
 //!
 //! ## Invariants enforced at construction
 //!
@@ -49,21 +54,27 @@
 #![forbid(unsafe_code)]
 
 pub mod arena;
+pub mod boolean;
 pub mod construct;
 pub mod error;
 pub mod euler;
 pub mod geom;
+pub mod introspect;
 pub mod profile;
+pub mod tessellate;
 pub mod validate;
 
 pub use arena::{
     BrepArena, EulerCounts, Face, FaceId, HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId,
     LoopKind, Plane, Shell, ShellId, Solid, SolidId, Surface, UnitVector3, Vertex, VertexId,
 };
+pub use boolean::{boolean_op, from_yang_brep, to_yang_brep};
 pub use construct::{extrude, make_face_from_profile, ExtrudeResult, LaminaResult};
 pub use error::KernelV2Error;
 pub use euler::{
     kemr, kfmrh, mef, mev, mev_lone, mvfs, KemrResult, MefResult, MevResult, MvfsResult,
 };
+pub use introspect::{extract_edges, face_plane, surface_area};
 pub use profile::Profile;
+pub use tessellate::{tessellate, FaceRange, RenderMesh};
 pub use validate::{validate_solid, TopologyReport};
