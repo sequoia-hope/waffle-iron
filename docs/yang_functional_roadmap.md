@@ -1350,8 +1350,20 @@ reimplementation from Attene's paper restores WASM (M7).
       established the rayAABB filter is semantically LOAD-BEARING (not
       mere acceleration); the brute-force port carries an explicit
       ray-AABB pre-filter the octree must reproduce exactly.
-  - **PR-CR-AR3c — input-order-invariant constraint realization (OPENED
-    2026-06-10, blocks BL3 corpus parity).** The BL2-Cycle-B adversary
+  - **PR-CR-AR3c — input-order-invariant constraint realization (DONE,
+    2026-06-10).** Fixed at the diagnosed anchor: AR1/aux point identity
+    was STRUCTURAL (generator-tuple) where the C++ interns by EXACT
+    geometry (aux_structure.cpp:230) — one geometric point reached via two
+    generator tuples counted twice, and `group_constraint_segments`
+    silently dropped any pair resolving to ≠2 ids. New `PointInterner`
+    keyed by exact rational coords (pure-dashu Lpi/Tpi evaluation) interns
+    at SOURCE; >2 geometric endpoints is the loud
+    `TransversalEndpointOvercount`; N18's post-hoc `canonicalize_points`
+    folded into the interner (see amended N18 in yang_deviations.md).
+    Oracles: anchor pair both orders, `segments_per_tri` keyed by triangle
+    geometry invariant under reversal/concat-swap, end-to-end 16-fence +
+    patch-count invariance; the BL2 RED witness un-ignored and green.
+    Originally: **(OPENED 2026-06-10, blocked BL3 corpus parity).** The BL2-Cycle-B adversary
     found AR3b's constraint realization is input-order-DEPENDENT on
     CLOSED intersection loops: reversing global triangle order or
     swapping the two solids' concat order on a through-cut fixture
