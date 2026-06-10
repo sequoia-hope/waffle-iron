@@ -86,6 +86,12 @@ pub use cad_primitives::{BoolOp, Point3, Vector3};
 pub use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};
 pub use cherchi_rs::{Mesh, MeshBoolean};
 pub use cherchi_rs::{NativeBoolean, NativeBooleanError};
+// `ArrangementError` is re-exported so that kernel-v2 (whose dep rules allow
+// `yang-rs` but NOT `cherchi-rs`) can pattern-match the M8 boundary inside
+// `NativeBooleanError::Arrangement` — specifically
+// `ArrangementError::CoplanarPairDeferred`, which kernel-v2 maps to its
+// typed `UnsupportedCoplanar` error. Public-surface addition only.
+pub use cherchi_rs::ArrangementError;
 
 /// Construct the PRODUCTION boolean backend: the native, in-process
 /// cherchi-rs pipeline ([`NativeBoolean`]) — `mesh_arrangement` → labeling →

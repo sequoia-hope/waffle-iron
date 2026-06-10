@@ -301,109 +301,11 @@ fn loops_touch(a: &[Point2], b: &[Point2]) -> bool {
     false
 }
 
-/// Exact 2D predicates over `dashu` rationals. Every finite `f64` converts
-/// losslessly to `RBig`, so these are decision procedures (see the module
-/// docs' simplicity-validation rationale). All callers guarantee finiteness
-/// before calling (checked in `Profile::new` step 1 / loop validation), so
-/// the conversions are total.
-mod exact {
-    use cad_primitives::Point2;
-    use dashu::float::FBig;
-    use dashu::rational::RBig;
-    use std::cmp::Ordering;
-
-    /// Lossless f64 → rational. Total for finite input (pre-checked).
-    fn r(x: f64) -> RBig {
-        let fb: FBig = FBig::try_from(x).expect("finite f64 → FBig is total");
-        RBig::try_from(fb).expect("FBig → RBig is total")
-    }
-
-    /// Exact orientation of `c` relative to the directed line `a → b`:
-    /// `Greater` = left, `Less` = right, `Equal` = collinear.
-    pub(super) fn orient2d(a: Point2, b: Point2, c: Point2) -> Ordering {
-        let det = (r(b.x()) - r(a.x())) * (r(c.y()) - r(a.y()))
-            - (r(b.y()) - r(a.y())) * (r(c.x()) - r(a.x()));
-        det.cmp(&RBig::ZERO)
-    }
-
-    /// Spike test at vertex `b` of the path `a → b → c`: the incident edges
-    /// are collinear AND `c` heads back toward `a` (exact dot > 0).
-    pub(super) fn doubles_back(a: Point2, b: Point2, c: Point2) -> bool {
-        if orient2d(a, b, c) != Ordering::Equal {
-            return false;
-        }
-        let dot = (r(c.x()) - r(b.x())) * (r(a.x()) - r(b.x()))
-            + (r(c.y()) - r(b.y())) * (r(a.y()) - r(b.y()));
-        dot.cmp(&RBig::ZERO) == Ordering::Greater
-    }
-
-    /// `q` is known collinear with `a`–`b`; is it within the segment's
-    /// closed bounding box? (f64 comparisons are exact — no arithmetic.)
-    fn on_collinear_segment(a: Point2, b: Point2, q: Point2) -> bool {
-        q.x() >= a.x().min(b.x())
-            && q.x() <= a.x().max(b.x())
-            && q.y() >= a.y().min(b.y())
-            && q.y() <= a.y().max(b.y())
-    }
-
-    /// Do CLOSED segments `p1p2` and `p3p4` share any point (proper
-    /// crossing, endpoint touch, or collinear overlap)? Exact.
-    pub(super) fn closed_segments_intersect(
-        p1: Point2,
-        p2: Point2,
-        p3: Point2,
-        p4: Point2,
-    ) -> bool {
-        let d1 = orient2d(p3, p4, p1);
-        let d2 = orient2d(p3, p4, p2);
-        let d3 = orient2d(p1, p2, p3);
-        let d4 = orient2d(p1, p2, p4);
-        if ((d1 == Ordering::Greater && d2 == Ordering::Less)
-            || (d1 == Ordering::Less && d2 == Ordering::Greater))
-            && ((d3 == Ordering::Greater && d4 == Ordering::Less)
-                || (d3 == Ordering::Less && d4 == Ordering::Greater))
-        {
-            return true; // proper crossing
-        }
-        (d1 == Ordering::Equal && on_collinear_segment(p3, p4, p1))
-            || (d2 == Ordering::Equal && on_collinear_segment(p3, p4, p2))
-            || (d3 == Ordering::Equal && on_collinear_segment(p1, p2, p3))
-            || (d4 == Ordering::Equal && on_collinear_segment(p1, p2, p4))
-    }
-
-    /// Exact sign of the loop's shoelace sum (`Greater` = CCW).
-    pub(super) fn signed_area_sign(pts: &[Point2]) -> Ordering {
-        let mut sum = RBig::ZERO;
-        let n = pts.len();
-        for i in 0..n {
-            let (p, q) = (pts[i], pts[(i + 1) % n]);
-            sum += r(p.x()) * r(q.y()) - r(q.x()) * r(p.y());
-        }
-        sum.cmp(&RBig::ZERO)
-    }
-
-    /// Exact crossing-parity point-in-polygon, STRICT interior. The caller
-    /// guarantees `q` does not lie on the boundary (loop disjointness is
-    /// established first), which rules out the `orient == Equal` crossing
-    /// ambiguity: a straddling edge with `q` on its supporting line would
-    /// put `q` on the segment itself.
-    pub(super) fn point_strictly_inside(q: Point2, pts: &[Point2]) -> bool {
-        let mut inside = false;
-        let n = pts.len();
-        for i in 0..n {
-            let (a, b) = (pts[i], pts[(i + 1) % n]);
-            // Half-open straddle test (exact f64 comparisons).
-            if (a.y() > q.y()) == (b.y() > q.y()) {
-                continue;
-            }
-            let upward = b.y() > a.y();
-            let o = orient2d(a, b, q);
-            // Ray +x from q crosses an upward edge iff q is strictly left
-            // of it, a downward edge iff strictly right.
-            if (upward && o == Ordering::Greater) || (!upward && o == Ordering::Less) {
-                inside = !inside;
-            }
-        }
-        inside
-    }
-}
+/// Exact 2D predicates over `dashu` rationals — see [`crate::exact2d`]
+/// (PR-KV3 promoted the predicates that originally lived here to a shared
+/// crate-internal module so the tessellation pass uses the identical exact
+/// arithmetic). Every finite `f64` converts losslessly to `RBig`, so these
+/// are decision procedures (see the module docs' simplicity-validation
+/// rationale). All callers guarantee finiteness before calling (checked in
+/// `Profile::new` step 1 / loop validation), so the conversions are total.
+use crate::exact2d as exact;

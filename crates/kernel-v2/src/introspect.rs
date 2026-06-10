@@ -12,8 +12,11 @@
 //! - boundary edges — [`extract_edges`] (this slice; straight segments,
 //!   trivial for planar faces — one polyline segment per undirected edge)
 
-use crate::arena::{BrepArena, FaceId, Plane, SolidId};
+use std::collections::BTreeSet;
+
+use crate::arena::{BrepArena, Face, FaceId, LoopBoundary, Plane, SolidId, Surface};
 use crate::error::KernelV2Error;
+use crate::geom;
 use cad_primitives::Point3;
 
 /// Every undirected edge of `solid` as a straight segment `[start, end]`
@@ -21,24 +24,79 @@ use cad_primitives::Point3;
 /// reported ONCE (half-edge pairs deduplicated), in deterministic
 /// half-edge id order; the endpoint order is the lower-id half-edge's
 /// direction.
-pub fn extract_edges(
-    _arena: &BrepArena,
-    _solid: SolidId,
-) -> Result<Vec<[Point3; 2]>, KernelV2Error> {
-    Err(KernelV2Error::NotImplemented("extract_edges"))
+pub fn extract_edges(arena: &BrepArena, solid: SolidId) -> Result<Vec<[Point3; 2]>, KernelV2Error> {
+    let he_set = solid_half_edges(arena, solid)?;
+    let mut out = Vec::with_capacity(he_set.len() / 2);
+    for &h in &he_set {
+        let he = arena.half_edge(h)?;
+        if he.twin < h {
+            continue; // the twin (lower id) already reported this edge
+        }
+        let start = arena.vertex(he.origin)?.point;
+        let end = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+        out.push([start, end]);
+    }
+    Ok(out)
 }
 
 /// Total surface area of `solid`: per face, the polygon-with-holes area
 /// `(Newell(outer) + Σ Newell(ring)) · n̂ / 2` — rings wind opposite the
 /// outer loop, so holes subtract automatically (same identity the signed
 /// volume uses).
-pub fn surface_area(_arena: &BrepArena, _solid: SolidId) -> Result<f64, KernelV2Error> {
-    Err(KernelV2Error::NotImplemented("surface_area"))
+pub fn surface_area(arena: &BrepArena, solid: SolidId) -> Result<f64, KernelV2Error> {
+    let mut total = 0.0f64;
+    let solid_ref = arena.solid(solid)?;
+    for &sh in &solid_ref.shells {
+        for &f in &arena.shell(sh)?.faces {
+            let face = arena.face(f)?;
+            let plane = plane_of(face, f)?;
+            let n = plane.normal;
+            let mut twice = 0.0f64;
+            let mut loops = vec![face.outer_loop];
+            loops.extend(face.inner_loops.iter().copied());
+            for lid in loops {
+                let nw = geom::newell(&arena.loop_points(lid)?);
+                twice += nw[0] * n.x + nw[1] * n.y + nw[2] * n.z;
+            }
+            total += twice / 2.0;
+        }
+    }
+    Ok(total)
 }
 
 /// The face's plane (point + outward unit normal). Typed accessor over
 /// `Face::surface`: `Err(FaceWithoutSurface)` while a face is under
 /// construction (finished solids always carry `Some`).
-pub fn face_plane(_arena: &BrepArena, _face: FaceId) -> Result<Plane, KernelV2Error> {
-    Err(KernelV2Error::NotImplemented("face_plane"))
+pub fn face_plane(arena: &BrepArena, face: FaceId) -> Result<Plane, KernelV2Error> {
+    plane_of(arena.face(face)?, face)
+}
+
+fn plane_of(face: &Face, id: FaceId) -> Result<Plane, KernelV2Error> {
+    match face.surface {
+        Some(Surface::Plane(plane)) => Ok(plane),
+        None => Err(KernelV2Error::FaceWithoutSurface { face: id }),
+    }
+}
+
+/// All half-edges reachable from a solid, in id order.
+pub(crate) fn solid_half_edges(
+    arena: &BrepArena,
+    solid: SolidId,
+) -> Result<BTreeSet<crate::arena::HalfEdgeId>, KernelV2Error> {
+    let mut he_set = BTreeSet::new();
+    let solid_ref = arena.solid(solid)?;
+    for &sh in &solid_ref.shells {
+        for &f in &arena.shell(sh)?.faces {
+            let face = arena.face(f)?;
+            let mut loops = vec![face.outer_loop];
+            loops.extend(face.inner_loops.iter().copied());
+            for lid in loops {
+                if matches!(arena.loop_(lid)?.boundary, LoopBoundary::Lone(_)) {
+                    continue;
+                }
+                he_set.extend(arena.loop_half_edges(lid)?);
+            }
+        }
+    }
+    Ok(he_set)
 }

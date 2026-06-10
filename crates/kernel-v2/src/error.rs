@@ -146,9 +146,6 @@ pub enum KernelV2Error {
     /// failing step.
     TessellationFailed { face: FaceId, reason: &'static str },
 
-    /// RED-phase stub marker (PR-KV3). Removed at GREEN.
-    NotImplemented(&'static str),
-
     // ----- validation findings (produced by `validate_solid`) ------------
     /// A face reachable from the validated solid has no surface descriptor.
     /// Finished solids must have `Some(Surface)` on every face.

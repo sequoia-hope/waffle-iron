@@ -58,6 +58,7 @@ pub mod boolean;
 pub mod construct;
 pub mod error;
 pub mod euler;
+pub(crate) mod exact2d;
 pub mod geom;
 pub mod introspect;
 pub mod profile;
