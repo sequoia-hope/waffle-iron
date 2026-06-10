@@ -1,1148 +1,1148 @@
 {
   "errored": 0,
-  "failed": 178,
-  "generated": "2026-05-21",
-  "passed": 12,
+  "failed": 1,
+  "generated": "kernel-v2 (assay_kv2 categorized run)",
+  "passed": 14,
   "results": [
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1 unpaired edges out of 4067 total (0 boundary, 1 non-manifold); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,15), (0,47), (0,60), (0,70), (0,70), ...; mesh_euler_characteristic: V(1362) - E(4067) + F(2712) = 7 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: ea56a34e-0e5a-4ec1-8dcc-930158ff9799: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0001",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 71 of 100 triangles have reversed normals; outward_normals: only 71 of 100 triangles (71.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -2.380589e0 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,4), (0,4), (0,4), (0,4), ...",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "2 NotSupported boundary(ies); first: 37d2ae84-7b7c-49f1-a69b-4bd920519a27: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0002",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 9bf3f664-2436-4144-9e52-9e07c56f21d4: operation error: kernel error: operation not supported: yang_boolean: bijective map has unmapped triangles; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,7), (0,9), (0,9), (0,22), (0,23), ...",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 123feb17-ce9f-4b21-9efb-738804ee4ad2: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0003",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-normals",
-      "detail": "partial rebuild (1 error(s)): 63633bdd-9ad7-4f2e-b1e0-d195797e95aa: operation error: kernel error: kernel error: revolve self-intersection: profile straddles the revolve axis (vertices lie on both sides); sweeping a straddling profile produces a self-intersecting solid; watertight_mesh: 12 unpaired edges out of 54 total; outward_normals: only 0 of 32 triangles (0.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -2.986357e0 (should be > 0); no_self_intersection: 4 inter-face triangle penetrations, face pairs: (2,5), (3,4), (3,5), (3,5); minimum_triangle_count: 32 triangles < expected minimum 36 for operations [(\"revolve\", \"rectangle\"), (\"revolve\", \"rectangle\"), (\"extrude\", \"gear\")]; mesh_euler_characteristic: V(20) - E(54) + F(32) = -2 (expected 2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "3 NotSupported boundary(ies); first: 63633bdd-9ad7-4f2e-b1e0-d195797e95aa: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0004",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "revolve-normals",
-      "detail": "partial rebuild (1 error(s)): 77a3e8b2-affb-4ec7-b0ae-db59a0accf23: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 36172656 exceeds limit 5000000; consistent_normals: 1172 of 5876 triangles have reversed normals; outward_normals: only 1172 of 5876 triangles (19.9%) have outward normals (need 95%); positive_signed_volume: signed volume = -5.632646e-3 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,22), (0,22), (0,44), (0,44), (0,50), ...",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: 0bead6cf-0a4e-4261-8c9b-60755ae1c4df: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0005",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3 unpaired edges out of 63 total (0 boundary, 3 non-manifold); consistent_normals: 8 of 44 triangles have reversed normals; outward_normals: only 36 of 44 triangles (81.8%) have outward normals (need 95%); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (1,3), (6,8), (6,8); mesh_euler_characteristic: V(28) - E(63) + F(44) = 9 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 35bcb1f0-84e4-4f15-ac2e-80ed9a83fdc8: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0006",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-normals",
-      "detail": "partial rebuild (1 error(s)): e37f2bcc-225b-4613-b693-d37261699f51: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: assertion `left == right` failed: PR10: STAGE2 orientation conflict for sorted_key=[5, 6, 9]\n  left: AntiParallel\n right: Parallel; watertight_mesh: 183 unpaired edges out of 262 total (50 boundary, 133 non-manifold); no_degenerate_triangles: 32 of 387 triangles are degenerate; outward_normals: only 0 of 13 triangles (0.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -5.381028e-14 (should be > 0); mesh_euler_characteristic: V(85) - E(262) + F(387) = 210 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: dfbba61c-e180-47a4-adc1-c912f74e886b: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0007",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 28 unpaired edges out of 93 total (25 boundary, 3 non-manifold); consistent_normals: 2 of 55 triangles have reversed normals; no_degenerate_triangles: 1 of 55 triangles are degenerate; outward_normals: only 2 of 54 triangles (3.7%) have outward normals (need 95%); positive_signed_volume: signed volume = -2.248511e7 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (1,2), (1,4), (1,6), (1,6), ...; mesh_euler_characteristic: V(33) - E(93) + F(55) = -5 (expected 2); bbox diagonal 3.913e3 exceeds max 1.268e3",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: 7881d881-9651-4c6a-9e89-5cce683ff777: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0008",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 10 unpaired edges out of 14 total; minimum_triangle_count: 6 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 94d41391-6c53-4847-86f8-39d68986864f: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0009",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 12 unpaired edges out of 5052 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,8), (2,15), (2,22), (2,23), (2,23), ...; mesh_euler_characteristic: V(1692) - E(5052) + F(3364) = 4 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 8af80969-7603-4fb4-a9e5-ce97b72e2896: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0010",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 74 of 1664 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,4), (0,4), (1,4), (1,4), ...; mesh_euler_characteristic: V(836) - E(2496) + F(1664) = 4 (expected 2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "2 NotSupported boundary(ies); first: f05a854a-526f-4346-85b1-343432f1b097: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0011",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): efc36393-87a3-4385-80aa-b1155847f9e9: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2273].twin = 0 but twin.twin = 1843 (expected 2273); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,6), (0,8), (0,13), (0,13), (0,17), ...",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 8e18ae8f-62ac-40eb-9a58-16dada6dc409: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0012",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3364 unpaired edges out of 9366 total (2985 boundary, 379 non-manifold); consistent_normals: 2045 of 5497 triangles have reversed normals; outward_normals: only 3450 of 5495 triangles (62.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(3342) - E(9366) + F(5497) = -527 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 175ae351-0e7e-4964-b34e-39ed10d01765: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0013",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 0 face_a=FaceIdx(1) face_b=FaceIdx(1) same_dir=true produced empty overlap from i_overlay (poly_a.len=5, poly_b.len=4). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\")]",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 37e8c6dc-9e75-4ad4-a5b4-10e5d74ef4be: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0014",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: label_cells timeout (per-patch loop). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_degenerate_triangles: 43 of 8316 triangles are degenerate; outward_normals: only 0 of 19 triangles (0.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -1.583459e-12 (should be > 0)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "3 NotSupported boundary(ies); first: 7bc60e38-545e-4c66-8968-9709b9887ade: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0015",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 9019b316-6a4a-4ae9-9240-e61a4e650e51: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 14268144 exceeds limit 5000000; watertight_mesh: 10586 unpaired edges out of 23502 total (8162 boundary, 2424 non-manifold); consistent_normals: 5114 of 14948 triangles have reversed normals; no_degenerate_triangles: 621 of 14948 triangles are degenerate; outward_normals: only 9173 of 14287 triangles (64.2%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,32), (0,57), (0,87), (0,90), (0,95), ...; mesh_euler_characteristic: V(7195) - E(23502) + F(14948) = -1359 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: 807ef981-2925-42b8-bd76-2447169a035c: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0016",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 58 unpaired edges out of 130 total (50 boundary, 8 non-manifold); consistent_normals: 2 of 80 triangles have reversed normals; no_degenerate_triangles: 11 of 80 triangles are degenerate; outward_normals: only 2 of 69 triangles (2.9%) have outward normals (need 95%); positive_signed_volume: signed volume = -3.808821e10 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,5), (1,5), (1,14), (2,15), (2,15), ...; mesh_euler_characteristic: V(47) - E(130) + F(80) = -3 (expected 2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: 4dd5e51a-775e-4d8e-a0ab-5d090c0b0f76: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0017",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "pass-genuine",
-      "detail": "9 oracles passed",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: c229369f-2b4a-4b07-b3c4-8cefb8ac8c9a: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0018",
-      "status": "pass"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 319 unpaired edges out of 722 total (237 boundary, 82 non-manifold); consistent_normals: 80 of 559 triangles have reversed normals; no_degenerate_triangles: 130 of 559 triangles are degenerate; outward_normals: only 80 of 421 triangles (19.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -2.302265e-6 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(354) - E(722) + F(559) = 191 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 938a666d-349a-47bb-866a-b5e1a9adde1c: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0019",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 16 unpaired edges out of 45 total (9 boundary, 7 non-manifold); consistent_normals: 4 of 56 triangles have reversed normals; no_degenerate_triangles: 31 of 56 triangles are degenerate; outward_normals: only 4 of 25 triangles (16.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -1.014457e4 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,6), (1,6), (1,6), (1,6), (1,6), ...; mesh_euler_characteristic: V(21) - E(45) + F(56) = 32 (expected 2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "3 NotSupported boundary(ies); first: 2d767b57-d3b2-4dc7-8df1-908e4e8675f2: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0020",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 3 face_a=FaceIdx(9) face_b=FaceIdx(0) same_dir=true produced empty overlap from i_overlay (poly_a.len=6, poly_b.len=1259). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 054f58d6-65a0-4d08-8acd-44e044335ecb: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0021",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 216 unpaired edges out of 3402 total (69 boundary, 147 non-manifold); consistent_normals: 433 of 2917 triangles have reversed normals; no_degenerate_triangles: 4 of 2917 triangles are degenerate; outward_normals: only 2480 of 2913 triangles (85.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,9), (0,33), (0,37), (0,42), (0,50), ...; mesh_euler_characteristic: V(1110) - E(3402) + F(2917) = 625 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: bcdab152-ae1a-4b54-be69-5243aea7c098: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0022",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 862 unpaired edges out of 981 total (375 boundary, 487 non-manifold); consistent_normals: 790 of 2120 triangles have reversed normals; no_degenerate_triangles: 2 of 2120 triangles are degenerate; outward_normals: only 1328 of 2118 triangles (62.7%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (3,9), (4,5), (4,5), (4,5), ...; mesh_euler_characteristic: V(362) - E(981) + F(2120) = 1501 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: dab78e80-e724-4e6d-bcd8-173a5da98bdb: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0023",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 75 unpaired edges out of 2746 total (49 boundary, 26 non-manifold); consistent_normals: 132 of 1830 triangles have reversed normals; no_degenerate_triangles: 2 of 1830 triangles are degenerate; outward_normals: only 1696 of 1828 triangles (92.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,14), (0,16), (0,17), (0,21), (0,30), ...; mesh_euler_characteristic: V(925) - E(2746) + F(1830) = 9 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: c9d36e68-39b5-48aa-beaa-06e2ed8a6a6f: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0024",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): aa386512-2ca8-4946-88e7-831532802329: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: assertion `left == right` failed: PR10: STAGE2 orientation conflict for sorted_key=[561, 562, 564]\n  left: Parallel\n right: AntiParallel; watertight_mesh: 124 unpaired edges out of 1886 total (74 boundary, 50 non-manifold); consistent_normals: 117 of 1259 triangles have reversed normals; outward_normals: only 1142 of 1259 triangles (90.7%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,6), (0,16), (0,28), (0,28), (0,30), ...; mesh_euler_characteristic: V(651) - E(1886) + F(1259) = 24 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: 6eeaf061-7a5e-41ef-9c58-a70321b2bef1: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0025",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[28].twin = 0 but twin.twin = 427 (expected 28). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 735 (expected 1). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged); minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"revolve\", \"circle\"), (\"extrude\", \"rectangle\")]",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 4ebfd380-3fde-4d9c-8b4b-d5445af6b1d8: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0026",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 47 unpaired edges out of 538 total (30 boundary, 17 non-manifold); consistent_normals: 230 of 361 triangles have reversed normals; no_degenerate_triangles: 1 of 361 triangles are degenerate; outward_normals: only 130 of 360 triangles (36.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,4), ...; mesh_euler_characteristic: V(190) - E(538) + F(361) = 13 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 8492418f-aba5-4982-893d-b463f23ca0a3: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0027",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[295].twin = 0 but twin.twin = 26 (expected 295). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[129].twin = 0 but twin.twin = 838 (expected 129). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged); no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,2), (0,2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 862d85cd-fc35-45c0-bd80-3d3aca13fcc8: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0028",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3 unpaired edges out of 22 total (0 boundary, 3 non-manifold); consistent_normals: 1 of 18 triangles have reversed normals; no_degenerate_triangles: 4 of 18 triangles are degenerate; outward_normals: only 13 of 14 triangles (92.9%) have outward normals (need 95%); no_self_intersection: 2 inter-face triangle penetrations, face pairs: (1,2), (1,7); mesh_euler_characteristic: V(11) - E(22) + F(18) = 7 (expected 2)",
+      "category": "SUPPORTED_WRONG",
+      "detail": "watertight_mesh: 2 unpaired edges out of 47 total (0 boundary, 2 non-manifold); mesh_euler_characteristic: V(18) - E(47) + F(32) = 3 (expected 2 for 1 shell(s))",
       "id": "R0029",
       "status": "fail"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 5 unpaired edges out of 61 total (0 boundary, 5 non-manifold); consistent_normals: 8 of 44 triangles have reversed normals; outward_normals: only 36 of 44 triangles (81.8%) have outward normals (need 95%); mesh_euler_characteristic: V(28) - E(61) + F(44) = 11 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: f6617424-9f53-4192-a776-c1bc70719ab2: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0030",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): 928dac13-3f25-4663-995b-95e5c33bfcf3: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: PR-Y19-MODE-B: canonical directed edge (49, 1074) sourced from 5 distinct candidate-owner patches (≥4) — upstream patch segmentation violates Yang §4.4.2 1:1 mandate; no_self_intersection: 3 inter-face triangle penetrations, face pairs: (3,4), (4,5), (4,5)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 928dac13-3f25-4663-995b-95e5c33bfcf3: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0031",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: label_cells timeout (per-patch loop). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,2), (1,2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: 9aa7e2ee-a9e0-4adc-a381-74087f2ac11f: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0032",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 65 of 92 triangles have reversed normals; outward_normals: only 65 of 92 triangles (70.7%) have outward normals (need 95%); positive_signed_volume: signed volume = -7.906531e-7 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,4), (0,4), (0,4), (1,4), ...",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "2 NotSupported boundary(ies); first: fcdf2168-9a67-4081-9676-f7b0db34fdd1: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0033",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 49 unpaired edges out of 4388 total (17 boundary, 32 non-manifold); consistent_normals: 604 of 2956 triangles have reversed normals; no_degenerate_triangles: 23 of 2956 triangles are degenerate; outward_normals: only 604 of 2932 triangles (20.6%) have outward normals (need 95%); positive_signed_volume: signed volume = -4.046405e7 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,30), (0,30), (0,30), ...; mesh_euler_characteristic: V(1468) - E(4388) + F(2956) = 36 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: e93c858a-12b4-441d-b3c0-350e7ef2a4da: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0034",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 760 unpaired edges out of 3416 total (526 boundary, 234 non-manifold); consistent_normals: 364 of 2273 triangles have reversed normals; no_degenerate_triangles: 103 of 2273 triangles are degenerate; outward_normals: only 364 of 2170 triangles (16.8%) have outward normals (need 95%); positive_signed_volume: signed volume = -4.546127e0 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (1,10), (2,3), (2,3), (2,3), ...; mesh_euler_characteristic: V(1185) - E(3416) + F(2273) = 42 (expected 2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "3 NotSupported boundary(ies); first: f1fbf2e5-b10c-4000-9c67-ff5bb7aa15a6: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0035",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,15), (0,34), (0,71), (0,83), ...",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: 63a63905-9999-4922-96f1-5ddfbab1efee: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0036",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (1 error(s)): f6b85cd1-3786-4649-90f6-d3d8517ab7cb: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 14390896 exceeds limit 5000000; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,70), (0,75), (0,75), (0,85), (0,86), ...",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: 0837ce72-519f-4ed5-9301-a31f6ab7b3e0: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0037",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): c399daad-a0c2-485c-930d-ece364b19523: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 0 face_a=FaceIdx(0) face_b=FaceIdx(1) same_dir=true produced empty overlap from i_overlay (poly_a.len=4, poly_b.len=64). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.; watertight_mesh: 22 unpaired edges out of 173 total (14 boundary, 8 non-manifold); consistent_normals: 94 of 257 triangles have reversed normals; no_degenerate_triangles: 147 of 257 triangles are degenerate; outward_normals: only 94 of 110 triangles (85.5%) have outward normals (need 95%); positive_signed_volume: signed volume = -9.852496e1 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (1,2), ...; mesh_euler_characteristic: V(63) - E(173) + F(257) = 147 (expected 2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "3 NotSupported boundary(ies); first: 274dfa2f-b750-4e66-ba42-450a98753f04: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0038",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,14), (0,14), (0,20), (0,37), (0,38), ...",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: beaab915-074a-48c7-bebe-2633667f6662: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0039",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 4117 unpaired edges out of 8508 total (4029 boundary, 88 non-manifold); consistent_normals: 2204 of 4447 triangles have reversed normals; no_degenerate_triangles: 1 of 4447 triangles are degenerate; outward_normals: only 2204 of 4446 triangles (49.6%) have outward normals (need 95%); positive_signed_volume: signed volume = -5.359745e4 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,7), (2,7), (2,7), (2,9), (2,11), ...; mesh_euler_characteristic: V(4078) - E(8508) + F(4447) = 17 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: ad941094-9f0e-46db-aa05-ba2ff4928bd6: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0040",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 321 unpaired edges out of 718 total (37 boundary, 284 non-manifold); consistent_normals: 525 of 1237 triangles have reversed normals; no_degenerate_triangles: 3 of 1237 triangles are degenerate; outward_normals: only 709 of 1234 triangles (57.5%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(242) - E(718) + F(1237) = 761 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 003527de-b6d0-4a81-8e66-059133de62e8: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0041",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3 unpaired edges out of 57 total (0 boundary, 3 non-manifold); consistent_normals: 9 of 40 triangles have reversed normals; outward_normals: only 9 of 40 triangles (22.5%) have outward normals (need 95%); positive_signed_volume: signed volume = -1.843826e0 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; volume_magnitude: volume 1.843826e0 outside [6.340544e0, 6.340544e16] for scale 8.590969e2; mesh_euler_characteristic: V(24) - E(57) + F(40) = 7 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 06e5e00c-0867-42e4-8d4e-d13170ab752b: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0042",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,34), (0,81), (0,117), (0,192), (0,201), ...",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: bb771f1f-33fd-4429-aef2-0eb5e785a020: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0043",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): b488b5aa-45ac-4df0-9c53-8513ae4cfe01: operation error: kernel error: operation not supported: yang_boolean: label_cells timeout (per-patch loop); watertight_mesh: 1180 unpaired edges out of 8457 total (1017 boundary, 163 non-manifold); consistent_normals: 781 of 5411 triangles have reversed normals; no_degenerate_triangles: 36 of 5411 triangles are degenerate; outward_normals: only 781 of 5375 triangles (14.5%) have outward normals (need 95%); positive_signed_volume: signed volume = -6.343166e10 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,5), (0,5), (0,5), (0,5), ...; mesh_euler_characteristic: V(2770) - E(8457) + F(5411) = -276 (expected 2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "3 NotSupported boundary(ies); first: 91266e3c-6b2f-42be-8669-5edf21a91618: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0044",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-normals",
-      "detail": "watertight_mesh: 84 unpaired edges out of 954 total; outward_normals: only 0 of 608 triangles (0.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -2.522241e-8 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,21), (0,21), (0,22), (0,53), (1,42), ...; mesh_euler_characteristic: V(320) - E(954) + F(608) = -26 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 80a58f19-3649-4be1-a0d9-d1e2c5ce5723: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0045",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 81386d33-9388-425f-b09f-5dc1c63a818b: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 3 face_a=FaceIdx(9) face_b=FaceIdx(1) same_dir=true produced empty overlap from i_overlay (poly_a.len=3, poly_b.len=24). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.; watertight_mesh: 558 unpaired edges out of 912 total (95 boundary, 463 non-manifold); consistent_normals: 312 of 2316 triangles have reversed normals; no_degenerate_triangles: 11 of 2316 triangles are degenerate; outward_normals: only 1993 of 2305 triangles (86.5%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(220) - E(912) + F(2316) = 1624 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 36939748-04d9-450b-9cac-4f51903b0f66: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0046",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 189 unpaired edges out of 606 total (108 boundary, 81 non-manifold); consistent_normals: 5 of 427 triangles have reversed normals; no_degenerate_triangles: 92 of 427 triangles are degenerate; mesh_euler_characteristic: V(259) - E(606) + F(427) = 80 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 34f17562-4f26-450c-bb46-fd2e004b22a7: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0047",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 1 inter-face triangle penetrations, face pairs: (1,4)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: c7e0bff0-824b-4332-929a-0a56ca705f1f: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0048",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-normals",
-      "detail": "watertight_mesh: 4 unpaired edges out of 82 total (3 boundary, 1 non-manifold); no_degenerate_triangles: 1 of 54 triangles are degenerate; outward_normals: only 0 of 53 triangles (0.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -8.924321e-9 (should be > 0); no_self_intersection: 5 inter-face triangle penetrations, face pairs: (1,3), (1,4), (1,4), (1,4), (1,4); mesh_euler_characteristic: V(29) - E(82) + F(54) = 1 (expected 2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "2 NotSupported boundary(ies); first: 2d84f5bd-82b5-4840-86d9-66d597f4ce1e: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0049",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 3 face_a=FaceIdx(4) face_b=FaceIdx(1) same_dir=true produced empty overlap from i_overlay (poly_a.len=6, poly_b.len=5). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); outward_normals: only 0 of 8316 triangles (0.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -4.316916e2 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,6), (0,17), (0,42), (0,45), ...",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "3 NotSupported boundary(ies); first: 983f37b6-403f-4bf9-8e68-f4bfdc3db088: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0050",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 9 face_a=FaceIdx(87) face_b=FaceIdx(1) same_dir=false produced empty overlap from i_overlay (poly_a.len=2, poly_b.len=4). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); outward_normals: only 0 of 516 triangles (0.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -4.827403e-9 (should be > 0); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (1,3), (3,4), (3,4), (3,4), (3,4), ...",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: 383cdc4a-90d9-49f2-8da6-c1481430ed6b: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0051",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: triangle-pair count 12013584 exceeds limit 5000000. Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,19), (0,19), (0,23), (0,23), (0,29), ...",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: d9355958-8380-4a33-882a-8feaf57e78a7: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0052",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: triangle-pair count 5176800 exceeds limit 5000000. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,42), (0,58), (0,78), (0,85), (0,102), ...",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "2 NotSupported boundary(ies); first: 089a182a-0218-46c2-9db2-226c66b2321d: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0053",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-normals",
-      "detail": "watertight_mesh: 16 unpaired edges out of 8092 total (0 boundary, 16 non-manifold); no_degenerate_triangles: 8 of 5408 triangles are degenerate; outward_normals: only 7 of 5399 triangles (0.1%) have outward normals (need 95%); positive_signed_volume: signed volume = -1.539636e5 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,2), (1,2), (1,2), (1,5), (1,5), ...; mesh_euler_characteristic: V(2700) - E(8092) + F(5408) = 16 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 60bf9f53-5a1d-40ba-b547-c10debfc2246: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0054",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): e1bbe8fb-fcf1-4eba-b0f6-18712d4b1010: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 0 face_a=FaceIdx(5) face_b=FaceIdx(0) same_dir=true produced empty overlap from i_overlay (poly_a.len=4, poly_b.len=32803). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.; watertight_mesh: 5 unpaired edges out of 32 total (0 boundary, 5 non-manifold); no_degenerate_triangles: 4 of 24 triangles are degenerate; no_self_intersection: 4 inter-face triangle penetrations, face pairs: (0,1), (0,2), (1,4), (1,7); mesh_euler_characteristic: V(12) - E(32) + F(24) = 4 (expected 2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "2 NotSupported boundary(ies); first: 94b5ac1d-556c-4884-b3d2-a65ad527e119: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0055",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "no_degenerate_triangles: 88 of 2460 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,142), (0,211), (0,239), (0,253), (0,267), ...",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 3e3b3abd-3120-43af-a684-c2271860c502: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0056",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 8 unpaired edges out of 1047 total (1 boundary, 7 non-manifold); consistent_normals: 131 of 705 triangles have reversed normals; no_degenerate_triangles: 6 of 705 triangles are degenerate; outward_normals: only 131 of 699 triangles (18.7%) have outward normals (need 95%); positive_signed_volume: signed volume = -2.291790e5 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,7), (0,7), (0,9), (1,9), (2,3), ...; mesh_euler_characteristic: V(356) - E(1047) + F(705) = 14 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 845ce807-854e-4e70-8660-c24d8552f35a: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0057",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: PR-Y19-MODE-B: canonical directed edge (893, 921) sourced from 4 distinct candidate-owner patches (≥4) — upstream patch segmentation violates Yang §4.4.2 1:1 mandate. Body created as standalone.; partial rebuild (1 error(s)): 14c8d47a-d667-435e-902f-c7745c307a90: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: PR-Y19-MODE-B: canonical directed edge (854, 855) sourced from 4 distinct candidate-owner patches (≥4) — upstream patch segmentation violates Yang §4.4.2 1:1 mandate; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,23), (0,25), (0,27), (0,52), (0,53), ...",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: efa1b1ac-9fe6-4e1b-b549-6cd412424c7b: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0058",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[422].twin = 0 but twin.twin = 317 (expected 422). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[65].twin = 0 but twin.twin = 761 (expected 65). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (0,4); minimum_triangle_count: 12 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"revolve\", \"circle\"), (\"extrude\", \"rectangle\")]",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 74629bff-066b-4807-ba59-3c866a76372c: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0059",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3 unpaired edges out of 126 total (0 boundary, 3 non-manifold); consistent_normals: 25 of 86 triangles have reversed normals; outward_normals: only 61 of 86 triangles (70.9%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,7), (0,7), (0,7), (0,7), (0,7), ...; mesh_euler_characteristic: V(49) - E(126) + F(86) = 9 (expected 2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "2 NotSupported boundary(ies); first: 028391ad-4654-4f7b-8992-9b566a1f4e21: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0060",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 13 unpaired edges out of 851 total (11 boundary, 2 non-manifold); consistent_normals: 152 of 565 triangles have reversed normals; outward_normals: only 413 of 565 triangles (73.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(292) - E(851) + F(565) = 6 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: fc68955d-ab39-45e4-8dc2-705ab2f49d73: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0061",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 107 of 1800 triangles have reversed normals; outward_normals: only 107 of 1049 triangles (10.2%) have outward normals (need 95%); positive_signed_volume: signed volume = -2.445715e-12 (should be > 0); mesh_euler_characteristic: V(904) - E(2700) + F(1800) = 4 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 92dbb5ec-a3ec-4312-acc1-cf9abe48a3e2: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0062",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: assertion `left == right` failed: PR10: STAGE2 orientation conflict for sorted_key=[25, 33, 38]\n  left: Parallel\n right: AntiParallel. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_degenerate_triangles: 88 of 2460 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,280), (0,309), (0,449), (1,226), (28,29), ...",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 785d49a0-d926-4235-91a6-69d1290b2f65: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0063",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3 unpaired edges out of 1823 total (2 boundary, 1 non-manifold); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,76), (0,88), (0,98), (0,99), (0,106), ...; mesh_euler_characteristic: V(609) - E(1823) + F(1215) = 1 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 32db5a1b-c481-4dce-97b7-ae7e035ee239: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0064",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): c669447b-0493-429f-a95f-f3bfb244c721: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1); watertight_mesh: 81 unpaired edges out of 8856 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,4), (2,23), (2,30), (2,31), (2,31), ...; mesh_euler_characteristic: V(2963) - E(8856) + F(5877) = -16 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: 45bafd8c-24f2-4d99-8905-1a28e438a9db: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0065",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 16 unpaired edges out of 32 total (12 boundary, 4 non-manifold); consistent_normals: 4 of 20 triangles have reversed normals; outward_normals: only 16 of 20 triangles (80.0%) have outward normals (need 95%); minimum_triangle_count: 20 triangles < expected minimum 32 for operations [(\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"circle\")]; mesh_euler_characteristic: V(22) - E(32) + F(20) = 10 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: d506ba2c-a99b-4595-89ad-8b2c0b68a1d0: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0066",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3 unpaired edges out of 66 total (0 boundary, 3 non-manifold); consistent_normals: 8 of 46 triangles have reversed normals; no_degenerate_triangles: 2 of 46 triangles are degenerate; outward_normals: only 36 of 44 triangles (81.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,3), (0,3), (0,3), (0,3), ...; mesh_euler_characteristic: V(27) - E(66) + F(46) = 7 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: cdc207a1-390f-4204-8df0-03df5c17286c: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0067",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 6 unpaired edges out of 72 total (0 boundary, 6 non-manifold); consistent_normals: 6 of 52 triangles have reversed normals; outward_normals: only 6 of 52 triangles (11.5%) have outward normals (need 95%); positive_signed_volume: signed volume = -4.356499e-5 (should be > 0); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (2,3), (2,3), (4,5); mesh_euler_characteristic: V(32) - E(72) + F(52) = 12 (expected 2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "2 NotSupported boundary(ies); first: e36d39c4-9ef8-48a2-aba3-9c873c5fddc5: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0068",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 4 of 48 triangles have reversed normals; outward_normals: only 4 of 48 triangles (8.3%) have outward normals (need 95%); positive_signed_volume: signed volume = -2.221155e-12 (should be > 0); mesh_euler_characteristic: V(28) - E(72) + F(48) = 4 (expected 2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: 262d96b2-2140-48a4-8e40-e2ab9b6daba3: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0069",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (2 error(s)): fa84b5e5-66a1-4e8b-b1d4-e3991e3ea322: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[532].twin = 0 but twin.twin = 426 (expected 532); 67cb1e5c-5d7d-43e6-ab14-f986cb5715e2: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = 0 but twin.twin = 221 (expected 13); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,3), (2,3), (2,3), (2,3), (2,3), ...",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "3 NotSupported boundary(ies); first: 0af735bc-c968-4f0a-81f6-4fee788a7ac4: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0070",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "tessellation-degenerate",
-      "detail": "partial rebuild (1 error(s)): 2c659565-295a-4d6d-9582-dc2859b55e11: operation error: kernel error: operation not supported: polygon boolean: 8572 total faces exceeds limit (8000); no_degenerate_triangles: 648 of 2012 triangles are degenerate",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 4c275065-7184-416a-863e-7b6cce4dc839: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0071",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1119 unpaired edges out of 1910 total (234 boundary, 885 non-manifold); consistent_normals: 944 of 3304 triangles have reversed normals; no_degenerate_triangles: 75 of 3304 triangles are degenerate; outward_normals: only 2208 of 3152 triangles (70.1%) have outward normals (need 95%); no_self_intersection: 2 inter-face triangle penetrations, face pairs: (6,25), (6,25); mesh_euler_characteristic: V(255) - E(1910) + F(3304) = 1649 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 053c901c-af92-46c9-aded-04d14e9a6017: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0072",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (4,5), (6,30), (6,31), (6,35), ...; mesh_euler_characteristic: V(512) - E(1524) + F(1016) = 4 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 8aaa6514-6746-4699-ad62-108753a6ab7c: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0073",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1047 unpaired edges out of 5496 total (726 boundary, 321 non-manifold); consistent_normals: 471 of 3660 triangles have reversed normals; no_degenerate_triangles: 153 of 3660 triangles are degenerate; outward_normals: only 471 of 3509 triangles (13.4%) have outward normals (need 95%); positive_signed_volume: signed volume = -3.114442e-3 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(1817) - E(5496) + F(3660) = -19 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: ae911092-12e7-4a23-9ffa-f923b5a8dfcc: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0074",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 80a0905f-8a98-48c5-a505-475f18a473b3: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 6946192 exceeds limit 5000000; watertight_mesh: 6 unpaired edges out of 3876 total (0 boundary, 6 non-manifold); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,4), (0,49), (0,49), (0,72), ...; mesh_euler_characteristic: V(1300) - E(3876) + F(2588) = 12 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: ce51b1bb-dd66-44be-8621-7e97e1f640c5: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0075",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 0 face_a=FaceIdx(7) face_b=FaceIdx(0) same_dir=true produced empty overlap from i_overlay (poly_a.len=3, poly_b.len=5568). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.. Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 7 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (1,2), (1,2), ...",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: bc2f620d-b753-47c0-9f31-c66e10b01613: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0076",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3682 unpaired edges out of 8502 total (3666 boundary, 16 non-manifold); consistent_normals: 93 of 4453 triangles have reversed normals; no_degenerate_triangles: 3 of 4453 triangles are degenerate; outward_normals: only 93 of 4453 triangles (2.1%) have outward normals (need 95%); positive_signed_volume: signed volume = -3.516492e10 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,38), (0,62), (0,62), (0,75), (0,86), ...; mesh_euler_characteristic: V(4012) - E(8502) + F(4453) = -37 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: a69855b9-6abf-4870-a38b-e1fbc3869311: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0077",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 578 unpaired edges out of 847 total (79 boundary, 499 non-manifold); consistent_normals: 569 of 3129 triangles have reversed normals; no_degenerate_triangles: 8 of 3129 triangles are degenerate; outward_normals: only 2548 of 3117 triangles (81.7%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,4), (0,7), (0,7), (0,7), ...; mesh_euler_characteristic: V(177) - E(847) + F(3129) = 2459 (expected 0)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 15f16cc9-bee8-49fa-80fb-1516f33eccc8: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0078",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): 39b1c7c4-f107-4b35-8f35-aaa29d059d99: operation error: kernel error: operation not supported: yang_boolean: label_cells timeout (per-patch loop); watertight_mesh: 269 unpaired edges out of 473 total (62 boundary, 207 non-manifold); consistent_normals: 44 of 645 triangles have reversed normals; no_degenerate_triangles: 9 of 645 triangles are degenerate; outward_normals: only 592 of 636 triangles (93.1%) have outward normals (need 95%); mesh_euler_characteristic: V(148) - E(473) + F(645) = 320 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: c5b38315-2592-48a3-b0d9-887b5b06849a: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0079",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "pass-genuine",
-      "detail": "9 oracles passed",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: c54b273b-9f0d-4bc9-b234-91f97afcab2e: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0080",
-      "status": "pass"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 1 face_a=FaceIdx(15) face_b=FaceIdx(15) same_dir=true produced empty overlap from i_overlay (poly_a.len=4, poly_b.len=3373). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.. Body created as standalone.; partial rebuild (1 error(s)): 72ce3e9a-5ff4-43d6-8777-d96db7d1dd4d: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3622].twin = None but arena contains a HE for the reverse direction (699->699) — this is a missing-edge defect (Yang Step 6/7 boundary-classification dropped the reverse), not a legitimate non-manifold edge. Banked PR-Y21+.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,48), (0,80), (0,80), (0,84), (0,84), ...",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 1ff66a24-b712-4db3-ac80-9dc915991bbf: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0081",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 8 unpaired edges out of 3040 total (0 boundary, 8 non-manifold); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (4,30), (4,45), (4,61), (4,88), (4,88), ...; mesh_euler_characteristic: V(1022) - E(3040) + F(2032) = 14 (expected 2); bbox diagonal 1.965e3 exceeds max 1.921e3",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: f6cdd1cf-4e29-4fd2-b3ce-ff80abc086f6: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0082",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 10 unpaired edges out of 44 total (0 boundary, 10 non-manifold); consistent_normals: 8 of 36 triangles have reversed normals; outward_normals: only 28 of 36 triangles (77.8%) have outward normals (need 95%); mesh_euler_characteristic: V(24) - E(44) + F(36) = 16 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 0aacdcfc-599c-4493-a601-c626161cc9ae: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0083",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 8 unpaired edges out of 208 total (0 boundary, 8 non-manifold); consistent_normals: 100 of 144 triangles have reversed normals; outward_normals: only 100 of 144 triangles (69.4%) have outward normals (need 95%); positive_signed_volume: signed volume = -1.450065e-10 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (2,3), (3,4), (3,4), (3,4), ...; mesh_euler_characteristic: V(78) - E(208) + F(144) = 14 (expected 2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "2 NotSupported boundary(ies); first: fdbc254d-045c-4d86-98dc-bebdf5190911: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0084",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Revolve 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[521].twin = 0 but twin.twin = 3873 (expected 521). Body created as standalone.; Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[66].twin = 0 but twin.twin = 689 (expected 66). Body created as standalone.; merge incomplete: 3 operations produced 3 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,3), (2,3), (2,5), (2,5), (2,5), ...",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: 41ccd58b-581a-4309-87da-5ea667d81eb8: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0085",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 19 unpaired edges out of 147 total (0 boundary, 19 non-manifold); consistent_normals: 41 of 115 triangles have reversed normals; no_degenerate_triangles: 9 of 115 triangles are degenerate; outward_normals: only 66 of 107 triangles (61.7%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,5), (0,10), (0,10), (0,10), (0,10), ...; volume_magnitude: volume 3.508328e-2 outside [7.518494e-2, 7.518494e14] for scale 1.959041e2; mesh_euler_characteristic: V(59) - E(147) + F(115) = 27 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 98458872-ab4f-40f3-a32b-00b16cd1c0b1: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0086",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 124 of 2312 triangles have reversed normals; outward_normals: only 124 of 2312 triangles (5.4%) have outward normals (need 95%); positive_signed_volume: signed volume = -9.828684e3 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,10), (0,12), (0,47), (0,51), (0,51), ...; mesh_euler_characteristic: V(1160) - E(3468) + F(2312) = 4 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 03f4813e-94d5-4944-b1a7-466abc00a0ac: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0087",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (1 error(s)): f2076600-1597-4345-98d9-a609f15f25cf: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 2 face_a=FaceIdx(7) face_b=FaceIdx(1) same_dir=true produced empty overlap from i_overlay (poly_a.len=4, poly_b.len=4). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.; watertight_mesh: 348 unpaired edges out of 599 total (90 boundary, 258 non-manifold); consistent_normals: 520 of 1449 triangles have reversed normals; no_degenerate_triangles: 6 of 1449 triangles are degenerate; outward_normals: only 923 of 1443 triangles (64.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(117) - E(599) + F(1449) = 967 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 882cdf70-494e-4f0a-9001-3f19faa70552: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0088",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 81 unpaired edges out of 172 total (21 boundary, 60 non-manifold); consistent_normals: 60 of 150 triangles have reversed normals; no_degenerate_triangles: 6 of 150 triangles are degenerate; outward_normals: only 83 of 143 triangles (58.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,8), (0,8), ...; mesh_euler_characteristic: V(79) - E(172) + F(150) = 57 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 7d2fd568-ae12-4c82-a12e-8622630d709f: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0089",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 208 unpaired edges out of 2403 total (45 boundary, 163 non-manifold); consistent_normals: 195 of 1721 triangles have reversed normals; no_degenerate_triangles: 6 of 1721 triangles are degenerate; outward_normals: only 195 of 1715 triangles (11.4%) have outward normals (need 95%); positive_signed_volume: signed volume = -1.142958e8 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,4), (3,4), (3,4), (3,4), ...; mesh_euler_characteristic: V(802) - E(2403) + F(1721) = 120 (expected 2); bbox diagonal 3.413e3 exceeds max 2.491e3",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: 3da99ca9-3ca7-4e76-af27-4d4a609e397d: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0090",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "revolve-normals",
-      "detail": "outward_normals: only 0 of 551 triangles (0.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -2.998104e-12 (should be > 0); mesh_euler_characteristic: V(328) - E(972) + F(648) = 4 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: c7b1979a-9521-4f37-b8df-73ba68c35609: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0091",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 259 unpaired edges out of 512 total (54 boundary, 205 non-manifold); consistent_normals: 84 of 515 triangles have reversed normals; no_degenerate_triangles: 38 of 515 triangles are degenerate; outward_normals: only 84 of 477 triangles (17.6%) have outward normals (need 95%); positive_signed_volume: signed volume = -4.199198e-9 (should be > 0); mesh_euler_characteristic: V(195) - E(512) + F(515) = 198 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 7018a340-ed88-41fc-8730-5647da6cd313: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0092",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-normals",
-      "detail": "partial rebuild (1 error(s)): 0af1f6a6-52d1-42e2-badf-2bcbcd271c7a: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 85607344 exceeds limit 5000000; watertight_mesh: 260 unpaired edges out of 9231 total (259 boundary, 1 non-manifold); outward_normals: only 16 of 5980 triangles (0.3%) have outward normals (need 95%); positive_signed_volume: signed volume = -1.190644e-7 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,15), (0,67), (0,70), (0,71), (0,76), ...; mesh_euler_characteristic: V(3080) - E(9231) + F(6068) = -83 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: f34e875b-aa21-45ec-999c-b2a41a849c94: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0093",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "revolve-normals",
-      "detail": "partial rebuild (1 error(s)): 33244152-c88e-4610-a26d-13646fd7f58a: operation error: kernel error: operation not supported: yang_boolean: triangle-pair count 15454224 exceeds limit 5000000; consistent_normals: 627 of 7276 triangles have reversed normals; outward_normals: only 627 of 7276 triangles (8.6%) have outward normals (need 95%); positive_signed_volume: signed volume = -1.017037e8 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,42), (0,57), (0,63), (0,64), (0,66), ...",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: 05e21dc2-42d2-4fcb-8100-a72a1f6f5b73: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0094",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 457 unpaired edges out of 1780 total (418 boundary, 39 non-manifold); consistent_normals: 116 of 1140 triangles have reversed normals; no_degenerate_triangles: 344 of 1140 triangles are degenerate; outward_normals: only 404 of 520 triangles (77.7%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,12), (0,158), (0,158), (0,158), (0,158), ...; mesh_euler_characteristic: V(691) - E(1780) + F(1140) = 51 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: 8956b813-b171-4376-adc6-427bf7b98635: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0095",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 151 unpaired edges out of 461 total (120 boundary, 31 non-manifold); consistent_normals: 9 of 371 triangles have reversed normals; no_degenerate_triangles: 102 of 371 triangles are degenerate; outward_normals: only 9 of 269 triangles (3.3%) have outward normals (need 95%); positive_signed_volume: signed volume = -3.224358e-9 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,5), (0,5), (0,14), (0,26), (0,27), ...; mesh_euler_characteristic: V(165) - E(461) + F(371) = 75 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 3dd4af97-3355-4b7e-814c-5599d9aa3eac: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0096",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 10 inter-face triangle penetrations, face pairs: (4,5), (6,16), (6,34), (6,36), (6,36), ...; mesh_euler_characteristic: V(1128) - E(3372) + F(2248) = 4 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 60fcaae5-77d9-4a12-8cda-fdbe7fb4851b: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0097",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 7 unpaired edges out of 2990 total (0 boundary, 7 non-manifold); consistent_normals: 90 of 1998 triangles have reversed normals; no_degenerate_triangles: 4 of 1998 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,31), (0,65), (0,71), (0,74), (0,74), ...; mesh_euler_characteristic: V(998) - E(2990) + F(1998) = 6 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: a6903cba-1b96-4050-b4b8-f2082a081a14: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0098",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (2 error(s)): ab9806ea-6e17-4bf2-b85d-6803b3009b37: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[294].twin = 0 but twin.twin = 300 (expected 294); 03c04280-8758-4d9b-8f37-b93314b3c217: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[104].twin = 0 but twin.twin = 81 (expected 104); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (1,2), (1,2), (1,2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: 07d14cde-1e07-42ae-a015-287f9f136682: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "R0099",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[9].twin = 0 but twin.twin = 70 (expected 9). Body created as standalone.; merge incomplete: 3 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,5), (1,4), (2,3), (2,3), ...",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "2 NotSupported boundary(ies); first: 1a53051b-69ce-4fc9-9d72-d1ca6f7cc147: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0100",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0001",
       "status": "pass"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0002",
-      "status": "pass"
+      "status": "unsupported"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0003",
       "status": "pass"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0004",
-      "status": "pass"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 20 unpaired edges out of 28 total (3 boundary, 17 non-manifold); consistent_normals: 6 of 48 triangles have reversed normals; no_degenerate_triangles: 18 of 48 triangles are degenerate; outward_normals: only 9 of 21 triangles (42.9%) have outward normals (need 95%); no_self_intersection: 6 inter-face triangle penetrations, face pairs: (5,14), (5,16), (5,18), (14,16), (14,16), ...; mesh_euler_characteristic: V(11) - E(28) + F(48) = 31 (expected 2)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0005",
-      "status": "fail"
-    },
-    {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
-      "id": "F0006",
       "status": "pass"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "id": "F0006",
+      "status": "unsupported"
+    },
+    {
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0007",
       "status": "pass"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1 unpaired edges out of 19 total (0 boundary, 1 non-manifold); no_degenerate_triangles: 4 of 16 triangles are degenerate; mesh_euler_characteristic: V(8) - E(19) + F(16) = 5 (expected 2)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0008",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 6 unpaired edges out of 113 total (2 boundary, 4 non-manifold); no_degenerate_triangles: 2 of 76 triangles are degenerate",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0009",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0010",
       "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 2 inter-face triangle penetrations, face pairs: (4,5), (7,10); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0011",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,2), (9,10); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0012",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 3 inter-face triangle penetrations, face pairs: (2,3), (3,4), (6,9); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0013",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0014",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "multiple-failures",
-      "detail": "no_self_intersection: 1 inter-face triangle penetrations, face pairs: (8,9); mesh_euler_characteristic: V(16) - E(36) + F(24) = 4 (expected 2)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0015",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 7 unpaired edges out of 319 total (6 boundary, 1 non-manifold); no_degenerate_triangles: 1 of 211 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,11), (1,4), (1,7), (1,7), (2,5), ...; mesh_euler_characteristic: V(108) - E(319) + F(211) = 0 (expected 2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0016",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3 unpaired edges out of 254 total (2 boundary, 1 non-manifold); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,27), (4,27), (5,24), (8,25), (10,13), ...; mesh_euler_characteristic: V(86) - E(254) + F(169) = 1 (expected 2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0017",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 7 unpaired edges out of 344 total (4 boundary, 3 non-manifold); no_degenerate_triangles: 4 of 231 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,22), (3,5), (3,5), (3,5), (5,7), ...; mesh_euler_characteristic: V(116) - E(344) + F(231) = 3 (expected 2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0018",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 14 unpaired edges out of 305 total (7 boundary, 7 non-manifold); no_degenerate_triangles: 4 of 205 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,9), (1,9), (1,9), (3,9), (4,15), ...",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0019",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 32 unpaired edges out of 218 total (16 boundary, 16 non-manifold); consistent_normals: 10 of 157 triangles have reversed normals; no_degenerate_triangles: 12 of 157 triangles are degenerate; outward_normals: only 135 of 145 triangles (93.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (3,4), (3,20), (5,6), (5,6), ...; mesh_euler_characteristic: V(79) - E(218) + F(157) = 18 (expected 2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0020",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 23 of 382 triangles have reversed normals; outward_normals: only 359 of 382 triangles (94.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,8), (2,4), (3,5), (3,5), ...; mesh_euler_characteristic: V(197) - E(573) + F(382) = 6 (expected 2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0021",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 34 unpaired edges out of 564 total (23 boundary, 11 non-manifold); consistent_normals: 14 of 375 triangles have reversed normals; no_degenerate_triangles: 5 of 375 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (1,7), (1,7), (1,9), (1,9), ...; mesh_euler_characteristic: V(192) - E(564) + F(375) = 3 (expected 2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0022",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 97 unpaired edges out of 540 total (66 boundary, 31 non-manifold); consistent_normals: 26 of 368 triangles have reversed normals; no_degenerate_triangles: 26 of 368 triangles are degenerate; outward_normals: only 312 of 338 triangles (92.3%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,4), (1,4), (1,9), (2,6), (2,22), ...; mesh_euler_characteristic: V(185) - E(540) + F(368) = 13 (expected 2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0023",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 5 unpaired edges out of 478 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (5,18), (7,9), (7,9), (8,13), (8,13), ...; mesh_euler_characteristic: V(161) - E(478) + F(317) = 0 (expected 2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0024",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 2 unpaired edges out of 439 total (0 boundary, 2 non-manifold); no_degenerate_triangles: 2 of 294 triangles are degenerate; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,4), (3,7), (3,7), (4,6), (5,7), ...; mesh_euler_characteristic: V(148) - E(439) + F(294) = 3 (expected 2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0025",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-normals",
-      "detail": "watertight_mesh: 5 unpaired edges out of 30 total (0 boundary, 5 non-manifold); no_degenerate_triangles: 12 of 34 triangles are degenerate; outward_normals: only 17 of 22 triangles (77.3%) have outward normals (need 95%); mesh_euler_characteristic: V(15) - E(30) + F(34) = 19 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: f36f602e-9f1e-458f-bbe5-29adfa104c12: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0026",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-normals",
-      "detail": "watertight_mesh: 1 unpaired edges out of 40 total (0 boundary, 1 non-manifold); no_degenerate_triangles: 16 of 42 triangles are degenerate; outward_normals: only 19 of 26 triangles (73.1%) have outward normals (need 95%); mesh_euler_characteristic: V(17) - E(40) + F(42) = 19 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 29765841-eb52-42c2-83e1-2dc4968e1010: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0027",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 164 unpaired edges out of 213 total (28 boundary, 136 non-manifold); consistent_normals: 9 of 569 triangles have reversed normals; no_degenerate_triangles: 516 of 569 triangles are degenerate; outward_normals: only 36 of 53 triangles (67.9%) have outward normals (need 95%); mesh_euler_characteristic: V(92) - E(213) + F(569) = 448 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: cdfd46ad-5617-406e-a31c-ea9fd66c446b: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0028",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-normals",
-      "detail": "watertight_mesh: 6 unpaired edges out of 32 total (0 boundary, 6 non-manifold); no_degenerate_triangles: 14 of 38 triangles are degenerate; outward_normals: only 18 of 24 triangles (75.0%) have outward normals (need 95%); mesh_euler_characteristic: V(16) - E(32) + F(38) = 22 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: e5c285cc-0699-4eda-a389-7f0fb742232f: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0029",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3 unpaired edges out of 70 total (1 boundary, 2 non-manifold); consistent_normals: 19 of 47 triangles have reversed normals; outward_normals: only 20 of 46 triangles (43.5%) have outward normals (need 95%); mesh_euler_characteristic: V(29) - E(70) + F(47) = 6 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: e7680cc3-f98a-4287-be6b-ff5ec07675d5: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0030",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1 unpaired edges out of 59 total (0 boundary, 1 non-manifold); consistent_normals: 14 of 40 triangles have reversed normals; outward_normals: only 12 of 40 triangles (30.0%) have outward normals (need 95%); mesh_euler_characteristic: V(26) - E(59) + F(40) = 7 (expected 4)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 5daf4d73-b254-49ed-ad7a-ae5073b4972a: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0031",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 12 of 36 triangles have reversed normals; outward_normals: only 12 of 36 triangles (33.3%) have outward normals (need 95%); mesh_euler_characteristic: V(24) - E(54) + F(36) = 6 (expected 4)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 05e05299-a959-4db5-8224-f2645fc680fe: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0032",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 12 of 36 triangles have reversed normals; outward_normals: only 12 of 36 triangles (33.3%) have outward normals (need 95%); mesh_euler_characteristic: V(24) - E(54) + F(36) = 6 (expected 4)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 95722390-a5b6-468f-94ca-fb696aa1d4d5: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0033",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3 unpaired edges out of 63 total (0 boundary, 3 non-manifold); consistent_normals: 16 of 44 triangles have reversed normals; outward_normals: only 12 of 44 triangles (27.3%) have outward normals (need 95%); mesh_euler_characteristic: V(28) - E(63) + F(44) = 9 (expected 4)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: c8f2ad20-fada-4dc2-8b06-d7696232fb00: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0034",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "revolve-normals",
-      "detail": "consistent_normals: 12 of 36 triangles have reversed normals; outward_normals: only 12 of 36 triangles (33.3%) have outward normals (need 95%); mesh_euler_characteristic: V(24) - E(54) + F(36) = 6 (expected 4)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 5cf46d49-f2e5-4bc7-8c9d-43ea0dbe4f85: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0035",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 2 unpaired edges out of 112 total (0 boundary, 2 non-manifold); consistent_normals: 12 of 76 triangles have reversed normals; outward_normals: only 44 of 76 triangles (57.9%) have outward normals (need 95%); positive_signed_volume: signed volume = -1.974685e-2 (should be > 0); mesh_euler_characteristic: V(44) - E(112) + F(76) = 8 (expected 4)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 188687bc-1883-4028-9757-33f3eb305911: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0036",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 7 unpaired edges out of 107 total (0 boundary, 7 non-manifold); consistent_normals: 12 of 76 triangles have reversed normals; outward_normals: only 44 of 76 triangles (57.9%) have outward normals (need 95%); positive_signed_volume: signed volume = -3.518631e-2 (should be > 0); mesh_euler_characteristic: V(44) - E(107) + F(76) = 13 (expected 4)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: a24e4101-f3cd-4464-92fe-9bca1cf70424: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0037",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1 unpaired edges out of 113 total (0 boundary, 1 non-manifold); consistent_normals: 12 of 76 triangles have reversed normals; outward_normals: only 44 of 76 triangles (57.9%) have outward normals (need 95%); positive_signed_volume: signed volume = -1.314225e-2 (should be > 0); mesh_euler_characteristic: V(44) - E(113) + F(76) = 7 (expected 4)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 1d1369ca-fd72-4472-8a80-49abe00fa5d4: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0038",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3 unpaired edges out of 99 total (0 boundary, 3 non-manifold); consistent_normals: 12 of 68 triangles have reversed normals; outward_normals: only 40 of 68 triangles (58.8%) have outward normals (need 95%); positive_signed_volume: signed volume = -2.238923e-2 (should be > 0); mesh_euler_characteristic: V(40) - E(99) + F(68) = 9 (expected 4)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 9d284dee-29b1-40c9-806d-c3600e0fdb59: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0039",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 3 unpaired edges out of 111 total (0 boundary, 3 non-manifold); consistent_normals: 12 of 76 triangles have reversed normals; outward_normals: only 44 of 76 triangles (57.9%) have outward normals (need 95%); positive_signed_volume: signed volume = -1.225395e-2 (should be > 0); mesh_euler_characteristic: V(44) - E(111) + F(76) = 9 (expected 4)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 010ec7a1-977d-4b5a-8dfa-fb9b57bd02e0: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0040",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 666 unpaired edges out of 1347 total (514 boundary, 152 non-manifold); consistent_normals: 191 of 2104 triangles have reversed normals; no_degenerate_triangles: 2 of 2104 triangles are degenerate; outward_normals: only 318 of 2085 triangles (15.3%) have outward normals (need 95%); positive_signed_volume: signed volume = -7.036766e-2 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,7), (1,7), (1,7), (1,7), (1,7), ...; mesh_euler_characteristic: V(564) - E(1347) + F(2104) = 1321 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 7f373dcf-a01d-4d96-9ac4-d5c35dc72d2c: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0041",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 125 unpaired edges out of 628 total (8 boundary, 117 non-manifold); consistent_normals: 158 of 494 triangles have reversed normals; no_degenerate_triangles: 2 of 494 triangles are degenerate; outward_normals: only 204 of 492 triangles (41.5%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (4,5), (4,5), (4,5), (4,5), (4,5), ...; mesh_euler_characteristic: V(255) - E(628) + F(494) = 121 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: da5ad3c5-8f39-49de-92b4-1036197c2f97: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0042",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-normals",
-      "detail": "watertight_mesh: 456 unpaired edges out of 801 total (64 boundary, 392 non-manifold); no_degenerate_triangles: 36 of 5294 triangles are degenerate; outward_normals: only 4017 of 5258 triangles (76.4%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,6), (1,6), (1,6), (1,6), (1,6), ...; mesh_euler_characteristic: V(226) - E(801) + F(5294) = 4719 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 68f960a0-c14b-4d0b-b169-0fa0030f1738: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0043",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 7 unpaired edges out of 173 total (0 boundary, 7 non-manifold); consistent_normals: 20 of 120 triangles have reversed normals; outward_normals: only 80 of 120 triangles (66.7%) have outward normals (need 95%); positive_signed_volume: signed volume = -2.949030e-17 (should be > 0); volume_magnitude: volume 2.949030e-17 outside [1.000000e-8, 1.000000e8] for scale 1.000000e0; mesh_euler_characteristic: V(68) - E(173) + F(120) = 15 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: e1844675-80f6-47bd-b5c9-c7738453d9c7: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0044",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-normals",
-      "detail": "watertight_mesh: 486 unpaired edges out of 858 total (95 boundary, 391 non-manifold); outward_normals: only 91 of 7067 triangles (1.3%) have outward normals (need 95%); positive_signed_volume: signed volume = -3.318219e-1 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,3), (1,3), (1,3), (1,6), (1,6), ...; mesh_euler_characteristic: V(251) - E(858) + F(7067) = 6460 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 74c74ea3-3199-48d8-ace5-75b7395d6b15: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0045",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 317 unpaired edges out of 671 total (72 boundary, 245 non-manifold); consistent_normals: 237 of 1126 triangles have reversed normals; no_degenerate_triangles: 6 of 1126 triangles are degenerate; outward_normals: only 883 of 1120 triangles (78.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,3), (0,3), (0,4), (0,4), ...; mesh_euler_characteristic: V(194) - E(671) + F(1126) = 649 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: ce7bed0b-5383-4e20-920a-79c0f9877aea: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0046",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 678 unpaired edges out of 1226 total (131 boundary, 547 non-manifold); consistent_normals: 436 of 3312 triangles have reversed normals; outward_normals: only 436 of 3312 triangles (13.2%) have outward normals (need 95%); positive_signed_volume: signed volume = -9.061632e-2 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (2,5), (2,5), (2,5), (2,5), ...; mesh_euler_characteristic: V(313) - E(1226) + F(3312) = 2399 (expected 2); bbox diagonal 3.007e0 exceeds max 3.000e0",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 14302ad0-68bb-4b83-bac1-0de0c1bc7313: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0047",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 780 unpaired edges out of 1506 total (184 boundary, 596 non-manifold); consistent_normals: 1338 of 4674 triangles have reversed normals; no_degenerate_triangles: 54 of 4674 triangles are degenerate; outward_normals: only 3282 of 4620 triangles (71.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,4), (0,4), (0,4), (0,4), (0,4), ...; mesh_euler_characteristic: V(320) - E(1506) + F(4674) = 3488 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 358c3caa-ebc6-410f-a935-d169c9b174f2: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0048",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 393 unpaired edges out of 779 total (111 boundary, 282 non-manifold); consistent_normals: 1005 of 2180 triangles have reversed normals; no_degenerate_triangles: 29 of 2180 triangles are degenerate; outward_normals: only 1146 of 2151 triangles (53.3%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,4), (1,5), (1,5), (1,5), (1,5), ...; mesh_euler_characteristic: V(208) - E(779) + F(2180) = 1609 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 2d800786-6c91-4e6c-bfc6-0573f319e93e: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0049",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1060 unpaired edges out of 1859 total (219 boundary, 841 non-manifold); consistent_normals: 1736 of 5503 triangles have reversed normals; no_degenerate_triangles: 66 of 5503 triangles are degenerate; outward_normals: only 3701 of 5437 triangles (68.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...; mesh_euler_characteristic: V(430) - E(1859) + F(5503) = 4074 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 122b4bf4-1359-404e-99f1-97a6d056cbe7: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0050",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 1 unpaired edges out of 19 total (0 boundary, 1 non-manifold); no_degenerate_triangles: 4 of 16 triangles are degenerate; mesh_euler_characteristic: V(8) - E(19) + F(16) = 5 (expected 2)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0051",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "boolean-normals",
-      "detail": "watertight_mesh: 1 unpaired edges out of 139 total (0 boundary, 1 non-manifold); no_degenerate_triangles: 32 of 124 triangles are degenerate; outward_normals: only 34 of 54 triangles (63.0%) have outward normals (need 95%); positive_signed_volume: signed volume = -2.982880e-30 (should be > 0); volume_magnitude: volume 2.982880e-30 outside [1.000000e-20, 1.000000e-4] for scale 1.000000e-4; mesh_euler_characteristic: V(50) - E(139) + F(124) = 35 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 5cf512d7-9053-48ef-a327-1a58f46c04ed: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0052",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0053",
       "status": "pass"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 6 unpaired edges out of 143 total (2 boundary, 4 non-manifold); consistent_normals: 26 of 96 triangles have reversed normals; no_degenerate_triangles: 2 of 96 triangles are degenerate; outward_normals: only 60 of 94 triangles (63.8%) have outward normals (need 95%); positive_signed_volume: signed volume = -3.375000e9 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,6), (0,6), (0,7), (0,7), (0,8), ...; mesh_euler_characteristic: V(53) - E(143) + F(96) = 6 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 56f446b7-6af9-493a-a88e-cf4f0626cb61: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0054",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 165 unpaired edges out of 264 total (38 boundary, 127 non-manifold); consistent_normals: 457 of 521 triangles have reversed normals; no_degenerate_triangles: 2 of 521 triangles are degenerate; outward_normals: only 46 of 519 triangles (8.9%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,7), (6,8), (6,8), (6,8), (8,13), ...; mesh_euler_characteristic: V(112) - E(264) + F(521) = 369 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: f08ea688-e714-45fe-ad30-6b90f2f52e9f: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0055",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 13 unpaired edges out of 185 total (4 boundary, 9 non-manifold); consistent_normals: 42 of 129 triangles have reversed normals; outward_normals: only 78 of 129 triangles (60.5%) have outward normals (need 95%); positive_signed_volume: signed volume = -1.703331e-2 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (6,15), (6,15), (7,15), (7,15), (7,15), ...; mesh_euler_characteristic: V(82) - E(185) + F(129) = 26 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 86c43f2e-6f93-420f-a59d-bf48d4a0c42d: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0056",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 29 unpaired edges out of 171 total (0 boundary, 29 non-manifold); consistent_normals: 41 of 133 triangles have reversed normals; no_degenerate_triangles: 1 of 133 triangles are degenerate; outward_normals: only 77 of 132 triangles (58.3%) have outward normals (need 95%); positive_signed_volume: signed volume = -5.312591e-18 (should be > 0); volume_magnitude: volume 5.312591e-18 outside [1.000000e-8, 1.000000e8] for scale 1.000000e0; mesh_euler_characteristic: V(83) - E(171) + F(133) = 45 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 515e5605-aad6-48ef-a490-7217ff702be1: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0057",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 22 unpaired edges out of 124 total (4 boundary, 18 non-manifold); consistent_normals: 39 of 94 triangles have reversed normals; outward_normals: only 57 of 94 triangles (60.6%) have outward normals (need 95%); positive_signed_volume: signed volume = -5.876193e-4 (should be > 0); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (7,18), (7,18), (7,18), (7,18), (7,18), ...; mesh_euler_characteristic: V(61) - E(124) + F(94) = 31 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 7a0bee91-a638-4adb-9837-c80f7204cd2a: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0058",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 2160 unpaired edges out of 4934 total (2147 boundary, 13 non-manifold); consistent_normals: 2068 of 2608 triangles have reversed normals; no_degenerate_triangles: 34 of 2608 triangles are degenerate; outward_normals: only 436 of 2541 triangles (17.2%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,6), (0,6), (0,6), (0,6), (0,6), ...; mesh_euler_characteristic: V(2350) - E(4934) + F(2608) = 24 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 87de355c-68a1-4a37-ae03-841d56c879c1: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0059",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 32 unpaired edges out of 189 total (17 boundary, 15 non-manifold); consistent_normals: 33 of 131 triangles have reversed normals; no_degenerate_triangles: 3 of 131 triangles are degenerate; outward_normals: only 74 of 128 triangles (57.8%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,5), (0,5), (0,5), (0,5), (0,5), ...; mesh_euler_characteristic: V(68) - E(189) + F(131) = 10 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 82144e62-e71f-46c9-a8d8-c0526a24afe5: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0060",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 25 unpaired edges out of 2063 total (0 boundary, 25 non-manifold); consistent_normals: 26 of 1392 triangles have reversed normals; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,6), (0,26), (0,44), (0,72), (0,90), ...; mesh_euler_characteristic: V(700) - E(2063) + F(1392) = 29 (expected 0)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 21a0ece4-3733-446e-8c61-0a20a8938a1f: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0061",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 23 unpaired edges out of 67 total (0 boundary, 23 non-manifold); consistent_normals: 24 of 60 triangles have reversed normals; outward_normals: only 36 of 60 triangles (60.0%) have outward normals (need 95%); no_self_intersection: 7 inter-face triangle penetrations, face pairs: (1,7), (1,7), (1,7), (1,7), (1,7), ...; mesh_euler_characteristic: V(34) - E(67) + F(60) = 27 (expected 0)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 0dd82986-b702-4394-962a-a02b5fe7b901: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0062",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (4 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 357 (expected 8). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[9].twin = 0 but twin.twin = 765 (expected 9). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[12].twin = 0 but twin.twin = 24 (expected 12). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 15 (expected 8). Body created as standalone.; merge incomplete: 5 operations produced 5 separate solids (expected 1 merged)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 2ac9a365-cab0-4bee-bcaf-e4fdc3d3209a: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0063",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: label_cells timeout (per-patch loop). Body created as standalone.; merge incomplete: 5 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 41 unpaired edges out of 69 total (33 boundary, 8 non-manifold); consistent_normals: 1 of 56 triangles have reversed normals; no_degenerate_triangles: 24 of 56 triangles are degenerate; outward_normals: only 28 of 32 triangles (87.5%) have outward normals (need 95%); no_self_intersection: 7 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,8), (0,8), (0,8), ...; minimum_triangle_count: 56 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"polygon\"), (\"extrude\", \"circle\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\")]; mesh_euler_characteristic: V(32) - E(69) + F(56) = 19 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 14558bf7-a2e0-4c05-ab0c-2ff5ea49d696: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0064",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (7 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 68 (expected 4). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = 0 but twin.twin = 19 (expected 13). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[9].twin = 0 but twin.twin = 18 (expected 9). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[644].twin = 0 but twin.twin = 654 (expected 644). Body created as standalone.; Extrude 6: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[12].twin = 0 but twin.twin = 471 (expected 12). Body created as standalone.; Extrude 7: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[253].twin = 0 but twin.twin = 256 (expected 253). Body created as standalone.; Extrude 8: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[9].twin = 0 but twin.twin = 15 (expected 9). Body created as standalone.; merge incomplete: 8 operations produced 8 separate solids (expected 1 merged)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: ed7bf426-59ef-4b7c-9a39-d9a15fd3ba5b: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0065",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "watertight_mesh: 81 unpaired edges out of 197 total (30 boundary, 51 non-manifold); consistent_normals: 47 of 185 triangles have reversed normals; no_degenerate_triangles: 28 of 185 triangles are degenerate; outward_normals: only 110 of 157 triangles (70.1%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (15,17), (15,21), (15,21), (15,22), (15,23), ...; mesh_euler_characteristic: V(68) - E(197) + F(185) = 56 (expected 2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "2 NotSupported boundary(ies); first: Extrude 4: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0066",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (9 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 43 (expected 1). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[204].twin = 0 but twin.twin = 355 (expected 204). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[254].twin = 0 but twin.twin = 257 (expected 254). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2].twin = 0 but twin.twin = 87 (expected 2). Body created as standalone.; Extrude 6: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = 0 but twin.twin = 46 (expected 13). Body created as standalone.; Extrude 7: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 36 (expected 3). Body created as standalone.; Extrude 8: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 56 (expected 3). Body created as standalone.; Extrude 9: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[23].twin = 0 but twin.twin = 21 (expected 23). Body created as standalone.; Extrude 10: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[27].twin = 0 but twin.twin = 1314 (expected 27). Body created as standalone.; merge incomplete: 10 operations produced 10 separate solids (expected 1 merged); no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,2), (1,2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "5 NotSupported boundary(ies); first: 8b3429bc-adb3-4fe9-94c2-fe5ab590041d: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0067",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (11 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = 0 but twin.twin = 19 (expected 13). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 27 (expected 8). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 35 (expected 6). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[22].twin = 0 but twin.twin = 21 (expected 22). Body created as standalone.; Extrude 6: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[16].twin = 0 but twin.twin = 15 (expected 16). Body created as standalone.; Extrude 7: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[337].twin = 0 but twin.twin = 343 (expected 337). Body created as standalone.; Extrude 8: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 381 (expected 6). Body created as standalone.; Extrude 9: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 511 (expected 3). Body created as standalone.; Extrude 10: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 29 (expected 6). Body created as standalone.; Extrude 11: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 98 (expected 3). Body created as standalone.; Extrude 12: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 222 (expected 1). Body created as standalone.; merge incomplete: 12 operations produced 12 separate solids (expected 1 merged)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "6 NotSupported boundary(ies); first: 673d459f-ed39-4605-a0b7-41974de56673: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0068",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (14 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[589].twin = 0 but twin.twin = 592 (expected 589). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[14].twin = 0 but twin.twin = 35 (expected 14). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[9].twin = 0 but twin.twin = 16 (expected 9). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 38 (expected 4). Body created as standalone.; Extrude 6: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = 0 but twin.twin = 19 (expected 13). Body created as standalone.; Extrude 7: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 25 (expected 6). Body created as standalone.; Extrude 8: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 63 (expected 1). Body created as standalone.; Extrude 9: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 438 (expected 3). Body created as standalone.; Extrude 10: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[477].twin = 0 but twin.twin = 2859 (expected 477). Body created as standalone.; Extrude 11: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[16].twin = 0 but twin.twin = 15 (expected 16). Body created as standalone.; Extrude 12: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[14].twin = 0 but twin.twin = 42 (expected 14). Body created as standalone.; Extrude 13: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2].twin = 0 but twin.twin = 0 (expected 2). Body created as standalone.; Extrude 14: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 25 (expected 6). Body created as standalone.; Extrude 15: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[9].twin = 0 but twin.twin = 14 (expected 9). Body created as standalone.; merge incomplete: 15 operations produced 15 separate solids (expected 1 merged); minimum_triangle_count: 28 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\"), (\"extrude\", \"gear\"), (\"extrude\", \"circle\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\")]",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "7 NotSupported boundary(ies); first: 066425c1-58ec-41a8-8d43-c118d03ade99: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0069",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (14 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[253].twin = 0 but twin.twin = 255 (expected 253). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[9].twin = 0 but twin.twin = 15 (expected 9). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[5].twin = 0 but twin.twin = 28 (expected 5). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[48].twin = 0 but twin.twin = 37 (expected 48). Body created as standalone.; Extrude 6: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[32].twin = 0 but twin.twin = 31 (expected 32). Body created as standalone.; Extrude 7: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[17].twin = 0 but twin.twin = 74 (expected 17). Body created as standalone.; Extrude 8: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 76 (expected 1). Body created as standalone.; Extrude 9: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[5].twin = 0 but twin.twin = 0 (expected 5). Body created as standalone.; Extrude 10: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[5].twin = 0 but twin.twin = 22 (expected 5). Body created as standalone.; Extrude 11: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2].twin = 0 but twin.twin = 3248 (expected 2). Body created as standalone.; Extrude 12: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 114 (expected 1). Body created as standalone.; Extrude 13: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 1096 (expected 8). Body created as standalone.; Extrude 14: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[2].twin = 0 but twin.twin = 1204 (expected 2). Body created as standalone.; Extrude 15: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[10].twin = 0 but twin.twin = 31 (expected 10). Body created as standalone.; merge incomplete: 15 operations produced 15 separate solids (expected 1 merged); minimum_triangle_count: 28 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"polygon\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"polygon\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"gear\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"polygon\"), (\"extrude\", \"gear\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\")]",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "6 NotSupported boundary(ies); first: 120627e9-5349-44c0-b52e-1cbc4c63213b: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0070",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (19 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[9].twin = 0 but twin.twin = 12 (expected 9). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[133].twin = 0 but twin.twin = 45 (expected 133). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = 0 but twin.twin = 19 (expected 13). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 25 (expected 8). Body created as standalone.; Extrude 6: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 19 (expected 6). Body created as standalone.; Extrude 7: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 135 (expected 3). Body created as standalone.; Extrude 8: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 452 (expected 8). Body created as standalone.; Extrude 9: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[253].twin = 0 but twin.twin = 256 (expected 253). Body created as standalone.; Extrude 10: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 42 (expected 1). Body created as standalone.; Extrude 11: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 27 (expected 8). Body created as standalone.; Extrude 12: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 19 (expected 6). Body created as standalone.; Extrude 13: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 19 (expected 6). Body created as standalone.; Extrude 14: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 0 (expected 3). Body created as standalone.; Extrude 15: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 56 (expected 8). Body created as standalone.; Extrude 16: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[16].twin = 0 but twin.twin = 15 (expected 16). Body created as standalone.; Extrude 17: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[10].twin = 0 but twin.twin = 30 (expected 10). Body created as standalone.; Extrude 18: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[9].twin = 0 but twin.twin = 15 (expected 9). Body created as standalone.; Extrude 19: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[7].twin = 0 but twin.twin = 762 (expected 7). Body created as standalone.; Extrude 20: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[337].twin = 0 but twin.twin = 343 (expected 337). Body created as standalone.; merge incomplete: 20 operations produced 20 separate solids (expected 1 merged)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "6 NotSupported boundary(ies); first: 18d2aacb-67fe-4502-b39b-824930181694: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0071",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (19 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: triangle-pair count 5400208 exceeds limit 5000000. Body created as standalone.; Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[7].twin = 0 but twin.twin = 113 (expected 7). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = 0 but twin.twin = 16 (expected 13). Body created as standalone.; Extrude 6: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 33 (expected 8). Body created as standalone.; Extrude 7: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[12].twin = 0 but twin.twin = 18 (expected 12). Body created as standalone.; Extrude 8: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; Extrude 9: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[477].twin = 0 but twin.twin = 2859 (expected 477). Body created as standalone.; Extrude 10: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[27].twin = 0 but twin.twin = 25 (expected 27). Body created as standalone.; Extrude 11: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[14].twin = 0 but twin.twin = 59 (expected 14). Body created as standalone.; Extrude 12: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 579 (expected 8). Body created as standalone.; Extrude 13: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[9].twin = 0 but twin.twin = 52 (expected 9). Body created as standalone.; Extrude 14: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[17].twin = 0 but twin.twin = 15 (expected 17). Body created as standalone.; Extrude 15: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[560].twin = 0 but twin.twin = 1137 (expected 560). Body created as standalone.; Extrude 16: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = 0 but twin.twin = 19 (expected 13). Body created as standalone.; Extrude 17: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[674].twin = 0 but twin.twin = 1360 (expected 674). Body created as standalone.; Extrude 18: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 71 (expected 1). Body created as standalone.; Extrude 19: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[10].twin = 0 but twin.twin = 15 (expected 10). Body created as standalone.; Extrude 20: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 47 (expected 3). Body created as standalone.; merge incomplete: 20 operations produced 20 separate solids (expected 1 merged); minimum_triangle_count: 20 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"gear\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\"), (\"extrude\", \"gear\"), (\"extrude\", \"circle\"), (\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"polygon\"), (\"extrude\", \"circle\"), (\"extrude\", \"gear\"), (\"extrude\", \"polygon\"), (\"extrude\", \"gear\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\")]",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "11 NotSupported boundary(ies); first: 29058458-cc9d-4d17-9c94-6a8150ded07e: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0072",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "expected rebuild error (disjoint operands): 2e612f7b-d14f-41ee-b3c3-3cb8a015fa72: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 0.00e0 from axis (min 1.00e-7)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: 2e612f7b-d14f-41ee-b3c3-3cb8a015fa72: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "F0073",
-      "status": "pass"
+      "status": "unsupported"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "expected rebuild error (disjoint operands): c4465b32-ce18-44a2-a2a8-458402c2948f: operation error: kernel error: kernel error: revolve self-intersection: profile vertex at distance 0.00e0 from axis (min 1.00e-7)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: c4465b32-ce18-44a2-a2a8-458402c2948f: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "F0074",
-      "status": "pass"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Revolve Offset: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 0 face_a=FaceIdx(1) face_b=FaceIdx(0) same_dir=true produced empty overlap from i_overlay (poly_a.len=4, poly_b.len=4). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.. Body created as standalone.; merge incomplete: 2 operations produced 2 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,3), (2,5), (2,5), (3,4), (3,4), ...",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: 4765faf7-5628-4565-9cb7-68eb2c82bd85: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "F0075",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (1 warning(s)): Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: pipeline panicked: assertion `left == right` failed: PR10: STAGE2 orientation conflict for sorted_key=[27, 29, 31]\n  left: AntiParallel\n right: Parallel. Body created as standalone.; merge incomplete: 5 operations produced 2 separate solids (expected 1 merged); watertight_mesh: 3 unpaired edges out of 70 total (1 boundary, 2 non-manifold); consistent_normals: 8 of 47 triangles have reversed normals; outward_normals: only 39 of 47 triangles (83.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,7), (0,7), (2,7), (2,7), (2,7), ...; mesh_euler_characteristic: V(27) - E(70) + F(47) = 4 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 539e006b-d570-4606-8166-b7ae508946b1: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0076",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (2 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[5].twin = 0 but twin.twin = 338 (expected 5). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[5].twin = 0 but twin.twin = 47 (expected 5). Body created as standalone.; merge incomplete: 5 operations produced 3 separate solids (expected 1 merged); no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,12), (1,4)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: b5218860-44e2-4011-ae9c-21e2b5544a31: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0077",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (4 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[33].twin = 0 but twin.twin = 165 (expected 33). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 455 (expected 4). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[730].twin = 0 but twin.twin = 738 (expected 730). Body created as standalone.; Extrude 7: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[27].twin = 0 but twin.twin = 390 (expected 27). Body created as standalone.; merge incomplete: 8 operations produced 5 separate solids (expected 1 merged); watertight_mesh: 7 unpaired edges out of 131 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,3), (0,12), (0,12), (0,12), (0,12), ...; mesh_euler_characteristic: V(46) - E(131) + F(85) = 0 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "5 NotSupported boundary(ies); first: f98470f0-fe4b-4052-86c7-1a63adf19e68: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0078",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (3 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[14].twin = 0 but twin.twin = 2557 (expected 14). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[400].twin = 0 but twin.twin = 2016 (expected 400). Body created as standalone.; Extrude 7: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[19].twin = 0 but twin.twin = 26 (expected 19). Body created as standalone.; merge incomplete: 8 operations produced 4 separate solids (expected 1 merged); watertight_mesh: 6 unpaired edges out of 2586 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,5), (0,5), (0,15), (0,25), (0,29), ...",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "4 NotSupported boundary(ies); first: 5739107a-8068-4297-a07a-b9e7bf1816f9: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0079",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (4 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[15].twin = 0 but twin.twin = 91 (expected 15). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 50 (expected 8). Body created as standalone.; Extrude 7: Auto-union failed: kernel error: operation not supported: yang_boolean: triangle-pair count 5104552 exceeds limit 5000000. Body created as standalone.; Extrude 9: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[593].twin = 0 but twin.twin = 3694 (expected 593). Body created as standalone.; merge incomplete: 10 operations produced 5 separate solids (expected 1 merged); watertight_mesh: 3 unpaired edges out of 204 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,1), (0,1), (0,1), (0,1), (0,1), ...; mesh_euler_characteristic: V(72) - E(204) + F(135) = 3 (expected 2)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "6 NotSupported boundary(ies); first: bccce3ac-3ee6-4ccf-a0e3-da7fb8af7c30: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0080",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (6 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 22 (expected 1). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 15 (expected 6). Body created as standalone.; Extrude 6: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[37].twin = 0 but twin.twin = 27 (expected 37). Body created as standalone.; Extrude 8: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[13].twin = 0 but twin.twin = 35 (expected 13). Body created as standalone.; Extrude 10: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 0 (expected 4). Body created as standalone.; Extrude 12: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[20].twin = 0 but twin.twin = 28 (expected 20). Body created as standalone.; merge incomplete: 12 operations produced 7 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,8), (0,29), (0,32), (0,39), ...",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: 79c39a11-e603-4c41-bdc5-b1041ed35c1b: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0081",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (7 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[21].twin = 0 but twin.twin = 2090 (expected 21). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[4].twin = 0 but twin.twin = 0 (expected 4). Body created as standalone.; Extrude 7: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[48].twin = 0 but twin.twin = 35 (expected 48). Body created as standalone.; Extrude 9: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; Extrude 11: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; Extrude 13: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; Extrude 15: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 3343 (expected 1). Body created as standalone.; merge incomplete: 15 operations produced 8 separate solids (expected 1 merged); no_self_intersection: 1 inter-face triangle penetrations, face pairs: (0,2); minimum_triangle_count: 12 triangles < expected minimum 96 for operations [(\"extrude\", \"gear\"), (\"extrude\", \"polygon\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"polygon\"), (\"extrude\", \"circle\"), (\"extrude\", \"polygon\"), (\"extrude\", \"polygon\"), (\"extrude\", \"circle\"), (\"extrude\", \"rectangle\"), (\"extrude\", \"circle\"), (\"extrude\", \"polygon\"), (\"extrude\", \"gear\"), (\"extrude\", \"polygon\"), (\"extrude\", \"rectangle\")]",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "7 NotSupported boundary(ies); first: 591d1da1-d15f-49fd-a604-0e09bca0fbd7: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0082",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (7 warning(s)): Extrude 2: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[75].twin = 0 but twin.twin = 61 (expected 75). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; Extrude 6: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[6].twin = 0 but twin.twin = 56 (expected 6). Body created as standalone.; Extrude 8: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[18].twin = 0 but twin.twin = 34 (expected 18). Body created as standalone.; Extrude 10: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[3].twin = 0 but twin.twin = 59 (expected 3). Body created as standalone.; Extrude 12: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[23].twin = 0 but twin.twin = 20 (expected 23). Body created as standalone.; Extrude 15: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 0 (expected 1). Body created as standalone.; merge incomplete: 15 operations produced 8 separate solids (expected 1 merged); no_self_intersection: 3 inter-face triangle penetrations, face pairs: (0,6), (1,5), (1,6)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "7 NotSupported boundary(ies); first: 4bccbcac-8a32-43b4-b800-0dbb0ca832c8: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0083",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (10 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[27].twin = 0 but twin.twin = 53 (expected 27). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[15].twin = 0 but twin.twin = 249 (expected 15). Body created as standalone.; Extrude 7: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[20].twin = 0 but twin.twin = 128 (expected 20). Body created as standalone.; Extrude 9: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[17].twin = 0 but twin.twin = 54 (expected 17). Body created as standalone.; Extrude 11: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 1852 (expected 1). Body created as standalone.; Extrude 13: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[7].twin = 0 but twin.twin = 46 (expected 7). Body created as standalone.; Extrude 14: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[21].twin = 0 but twin.twin = 61 (expected 21). Body created as standalone.; Extrude 16: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[30].twin = 0 but twin.twin = 47 (expected 30). Body created as standalone.; Extrude 18: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[16].twin = 0 but twin.twin = 173 (expected 16). Body created as standalone.; Extrude 20: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[17].twin = 0 but twin.twin = 64 (expected 17). Body created as standalone.; merge incomplete: 20 operations produced 11 separate solids (expected 1 merged); no_self_intersection: 2 inter-face triangle penetrations, face pairs: (0,6), (1,8)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "14 NotSupported boundary(ies); first: 392709a8-fbfc-415c-be66-88be883b5e20: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0084",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "auto-union-failed",
-      "detail": "auto-union-failed (11 warning(s)): Extrude 3: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[53].twin = 0 but twin.twin = 35 (expected 53). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 46 (expected 8). Body created as standalone.; Extrude 7: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[18].twin = 0 but twin.twin = 1290 (expected 18). Body created as standalone.; Extrude 9: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 51 (expected 8). Body created as standalone.; Extrude 11: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[644].twin = 0 but twin.twin = 4525 (expected 644). Body created as standalone.; Extrude 12: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[88].twin = 0 but twin.twin = 87 (expected 88). Body created as standalone.; Extrude 13: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[1].twin = 0 but twin.twin = 21 (expected 1). Body created as standalone.; Extrude 15: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[12].twin = 0 but twin.twin = 1284 (expected 12). Body created as standalone.; Extrude 17: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[8].twin = 0 but twin.twin = 150 (expected 8). Body created as standalone.; Extrude 19: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[7].twin = 0 but twin.twin = 121 (expected 7). Body created as standalone.; Extrude 20: Auto-union failed: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[18].twin = 0 but twin.twin = 47 (expected 18). Body created as standalone.; merge incomplete: 20 operations produced 12 separate solids (expected 1 merged); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (0,2), ...",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "15 NotSupported boundary(ies); first: 610a1c24-ad45-42e3-bc09-3827ae4bb49f: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0085",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "boolean-watertight",
-      "detail": "partial rebuild (4 error(s)): 5f972110-a034-443e-ac83-67c10803dd1d: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 1 face_a=FaceIdx(1) face_b=FaceIdx(0) same_dir=true produced empty overlap from i_overlay (poly_a.len=18250, poly_b.len=1825). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.; 515c09a8-b9fd-42ef-8f73-d2e3b039f2a1: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 1 face_a=FaceIdx(1) face_b=FaceIdx(0) same_dir=true produced empty overlap from i_overlay (poly_a.len=18250, poly_b.len=1825). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.; 6b500242-98e3-4108-875b-289135532aa0: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 1 face_a=FaceIdx(1) face_b=FaceIdx(0) same_dir=true produced empty overlap from i_overlay (poly_a.len=18250, poly_b.len=1825). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.; 8f009a73-3027-4a3e-a4bb-992311835d2e: operation error: kernel error: operation not supported: yang_boolean: pipeline panicked: coplanar_preprocess: pair 1 face_a=FaceIdx(1) face_b=FaceIdx(0) same_dir=true produced empty overlap from i_overlay (poly_a.len=18250, poly_b.len=1825). Per Yang §4.5.5 detected coplanar pairs MUST be processable; see specs/yang_pr_y17_coplanar_completion.md §8.; watertight_mesh: 16 unpaired edges out of 236 total (0 boundary, 16 non-manifold); consistent_normals: 16 of 168 triangles have reversed normals; outward_normals: only 84 of 168 triangles (50.0%) have outward normals (need 95%); no_self_intersection: 10 inter-face triangle penetrations, face pairs: (1,2), (1,2), (1,2), (1,2), (1,5), ...; volume_magnitude: volume 1.546072e-16 outside [1.000000e-8, 1.000000e8] for scale 1.000000e0; mesh_euler_characteristic: V(90) - E(236) + F(168) = 22 (expected -4)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "6 NotSupported boundary(ies); first: 6caeba5e-0cff-4ef3-b921-04f15b0272c3: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0086",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (10 error(s)): 9a4cf100-ac4f-42a0-adb3-f9a4cee558ec: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[65].twin = 0 but twin.twin = 173 (expected 65); f370c601-6173-4fa0-bcdb-a384c23e2e12: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[82].twin = 0 but twin.twin = 245 (expected 82); ad3107ef-71da-464c-9883-b17e8601c6fb: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[56].twin = 0 but twin.twin = 144 (expected 56); 1fce12cd-06a2-46fa-a773-3372196e63a2: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[56].twin = 0 but twin.twin = 148 (expected 56); 1e857e68-b413-4ddc-ab4f-18be396a5030: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[52].twin = 0 but twin.twin = 134 (expected 52); 0e34effc-5173-4a86-86ac-f7697c434bb2: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[20].twin = 0 but twin.twin = 54 (expected 20); 959d490e-56d0-468d-a685-f787822d9eb3: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[37].twin = 0 but twin.twin = 101 (expected 37); 5a5d97c0-6c53-4c58-adc6-2b3076f28261: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[32].twin = 0 but twin.twin = 84 (expected 32); 8177419b-a800-45e5-aa21-8dbfb551cedd: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[31].twin = 0 but twin.twin = 81 (expected 31); cff4b068-f798-465e-b66f-9c0d8c2d49ac: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[25].twin = 0 but twin.twin = 65 (expected 25); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (1,2), ...; mesh_euler_characteristic: V(130) - E(384) + F(256) = 2 (expected -8)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "11 NotSupported boundary(ies); first: 18af2d5f-c522-4708-8325-dc72744cc447: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0087",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (15 error(s)): d1869bd1-f4f0-4f55-b802-93ee0dedc815: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[56].twin = 0 but twin.twin = 148 (expected 56); 8c108f30-0855-43ac-bc9f-3332064fb031: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[45].twin = 0 but twin.twin = 119 (expected 45); 2e368bb6-7488-46b1-997f-b03bf14bbab0: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[57].twin = 0 but twin.twin = 147 (expected 57); ddd8a54b-7ef1-4ef9-8f15-ae211886b7dd: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[41].twin = 0 but twin.twin = 125 (expected 41); 774634cf-e563-4ef6-978f-213b98317311: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[61].twin = 0 but twin.twin = 159 (expected 61); 491b74f0-5d81-44ff-9ed4-51a0dccd58db: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[60].twin = 0 but twin.twin = 146 (expected 60); 53e5d13d-c8d4-41b4-b5b6-0553164eed3d: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[73].twin = 0 but twin.twin = 195 (expected 73); 65997bcd-8cce-4955-a5fa-4007c36a485b: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[46].twin = 0 but twin.twin = 122 (expected 46); 1ff19d8e-50e8-4fd7-99ea-044622eacb70: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[23].twin = 0 but twin.twin = 63 (expected 23); 39562d75-57bf-424f-8553-f9fface8d3ef: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[25].twin = 0 but twin.twin = 69 (expected 25); 8c2f0277-43bf-460f-ac7d-881d6fa0fda3: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[35].twin = 0 but twin.twin = 95 (expected 35); f4419909-683a-4567-a004-1132367e5063: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[26].twin = 0 but twin.twin = 68 (expected 26); ec22ad34-47f6-433d-a85e-f0b0ac8600af: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[25].twin = 0 but twin.twin = 69 (expected 25); c413d083-e5da-4259-966a-7596541bfc1b: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[21].twin = 0 but twin.twin = 57 (expected 21); ea9a7ea4-7533-4ae6-b36c-91b4d152fb2d: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[25].twin = 0 but twin.twin = 69 (expected 25); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (1,2), ...; mesh_euler_characteristic: V(130) - E(384) + F(256) = 2 (expected -14)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "16 NotSupported boundary(ies); first: 53ce64bc-e60d-4036-81e4-b829b3ea7152: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0088",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (20 error(s)): c0b431e9-9ee1-408d-ab60-a213303a1b81: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[46].twin = 0 but twin.twin = 124 (expected 46); cbea4dd4-9b5b-42c1-8416-386ae6bde49b: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[53].twin = 0 but twin.twin = 139 (expected 53); 98a39c03-d381-4fc6-9f6b-de96077387df: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[46].twin = 0 but twin.twin = 138 (expected 46); 6162aeff-da32-4283-9c9b-c919d15b354c: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[53].twin = 0 but twin.twin = 143 (expected 53); b8dc061b-23be-4cc8-bd38-852945c3b1ed: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[52].twin = 0 but twin.twin = 140 (expected 52); 62b2bc64-0ac7-427b-9c49-3617bbd5eaed: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[56].twin = 0 but twin.twin = 144 (expected 56); 4b4b1f73-9f9f-49ba-9124-5e78a444c070: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[68].twin = 0 but twin.twin = 184 (expected 68); d408b545-8073-45b8-9dea-dcc53f9d1ebf: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[56].twin = 0 but twin.twin = 148 (expected 56); 4ba184ed-da21-478b-8f45-9327a3a2f667: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[59].twin = 0 but twin.twin = 176 (expected 59); 5c486a6a-5f02-4342-9858-edafe6c11dc8: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[56].twin = 0 but twin.twin = 152 (expected 56); 50feefd7-0d6c-477b-9198-17942abb96f3: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[24].twin = 0 but twin.twin = 66 (expected 24); d1f95069-ee42-483b-ac04-30d0b02241d6: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[26].twin = 0 but twin.twin = 68 (expected 26); ddf765c6-7d03-4316-bf6d-5f4b06d92817: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[31].twin = 0 but twin.twin = 87 (expected 31); 730c6eb2-6810-4cd5-86b8-6d118769a144: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[27].twin = 0 but twin.twin = 75 (expected 27); fde4ddce-30d2-481b-93d1-d5ef19cc527a: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[45].twin = 0 but twin.twin = 121 (expected 45); 57df6be1-c725-4e4c-977f-e1fb2e39c81d: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[26].twin = 0 but twin.twin = 68 (expected 26); eaa27840-c8d0-4fc8-a720-6881c5b7cb2a: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[42].twin = 0 but twin.twin = 88 (expected 42); 366a388b-c020-4642-b7db-01bff0baa439: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[30].twin = 0 but twin.twin = 84 (expected 30); 81d50645-8b9a-4add-b592-e10d425fbe44: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[33].twin = 0 but twin.twin = 91 (expected 33); 4e4cf4af-2738-4dde-ba64-5d13694e073f: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[31].twin = 0 but twin.twin = 83 (expected 31); no_self_intersection: 8 inter-face triangle penetrations, face pairs: (0,2), (0,2), (0,2), (0,2), (1,2), ...; mesh_euler_characteristic: V(130) - E(384) + F(256) = 2 (expected -18)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "21 NotSupported boundary(ies); first: 36a8d3a8-07d9-4961-acd0-a9913f42ffc6: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0089",
-      "status": "fail"
+      "status": "unsupported"
     },
     {
-      "category": "multiple-failures",
-      "detail": "partial rebuild (30 error(s)): fbc71d84-18dc-45af-9813-b32ddadd59c1: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[51].twin = 0 but twin.twin = 141 (expected 51); 46f44c9a-34aa-4b56-a77e-c2c57128f7d5: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[41].twin = 0 but twin.twin = 113 (expected 41); 3615f278-0e3f-487f-8310-b72ffe9028f8: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[39].twin = 0 but twin.twin = 107 (expected 39); e096d8bc-7bc4-44bb-b112-9ee91b623d9a: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[39].twin = 0 but twin.twin = 111 (expected 39); fb01851b-4b11-4099-bb58-918a783f2c66: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[45].twin = 0 but twin.twin = 127 (expected 45); 29715837-ab98-4953-b9d7-6bdf4e1e5d7b: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[55].twin = 0 but twin.twin = 137 (expected 55); fdfd7e9a-1c85-4a18-8c5b-1f29497a4cf3: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[59].twin = 0 but twin.twin = 167 (expected 59); 485890bb-27b6-4eec-9cdf-b45ca7ab511e: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[48].twin = 0 but twin.twin = 136 (expected 48); 0c9b36e3-ff84-4968-b2e7-77c978b5f301: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[53].twin = 0 but twin.twin = 139 (expected 53); d62b3b66-a4ff-4c5e-80b8-5fc049dc41f1: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[39].twin = 0 but twin.twin = 111 (expected 39); 781a278e-7b28-4177-8a5d-0da524aa13ee: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[39].twin = 0 but twin.twin = 111 (expected 39); c894b663-bf1a-467c-977d-f819030a6fce: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[45].twin = 0 but twin.twin = 127 (expected 45); 39df4b93-47a9-4169-8799-cd5078301f05: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[52].twin = 0 but twin.twin = 146 (expected 52); 6379063d-ec0d-472a-84b5-4a7844f75093: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[45].twin = 0 but twin.twin = 127 (expected 45); 670cd229-1738-4d8b-a75e-43ecd4c677c2: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[38].twin = 0 but twin.twin = 108 (expected 38); cb47a826-970a-4098-8f85-1cff362422d0: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[27].twin = 0 but twin.twin = 75 (expected 27); 0ca92907-cdf3-4715-8cc2-cf958790df53: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[25].twin = 0 but twin.twin = 69 (expected 25); 129db7f9-c1ca-4959-92b0-9d1c9173f43e: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[24].twin = 0 but twin.twin = 66 (expected 24); f5f54959-b1cf-49b9-bc59-b5db7971471b: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[27].twin = 0 but twin.twin = 71 (expected 27); d3650c80-b7d6-43c2-81c1-415a4c2255ba: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[30].twin = 0 but twin.twin = 84 (expected 30); d7855346-989a-4a11-94c6-340fc47ac58f: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[34].twin = 0 but twin.twin = 96 (expected 34); 3cd86634-ee93-47c2-bdc4-31c9d3256e0c: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[27].twin = 0 but twin.twin = 71 (expected 27); 78806cea-a9ac-40a6-a206-a4b88ff8d54c: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[26].twin = 0 but twin.twin = 68 (expected 26); c8c56c89-89b1-4c67-8f8e-fbbbf1f5614f: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[23].twin = 0 but twin.twin = 63 (expected 23); e6cdf8b5-4c4e-4d1f-bf04-b1112272bacf: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[25].twin = 0 but twin.twin = 69 (expected 25); 43306642-d7d5-46e3-abb9-03b05b46bbf2: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[45].twin = 0 but twin.twin = 127 (expected 45); bb939f98-6086-44ac-aaf0-506810bcf56e: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[27].twin = 0 but twin.twin = 71 (expected 27); 7537b9a5-6a67-4464-acc1-633a832906e2: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[20].twin = 0 but twin.twin = 54 (expected 20); 5197e397-351d-46b4-b80f-c2a0c90d891b: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[40].twin = 0 but twin.twin = 110 (expected 40); b40378ad-3947-4b02-a651-ec3270051d9b: operation error: kernel error: operation not supported: yang_boolean: result validation failed: half_edge[22].twin = 0 but twin.twin = 60 (expected 22); mesh_euler_characteristic: V(130) - E(384) + F(256) = 2 (expected -28)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "31 NotSupported boundary(ies); first: 817b2b85-15a7-4930-a8c3-03e95bbfe562: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
       "id": "F0090",
-      "status": "fail"
+      "status": "unsupported"
     }
   ],
   "total": 190

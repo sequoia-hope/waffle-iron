@@ -12,10 +12,17 @@
 #[cfg(ip_unavailable)]
 use indirect_predicates_sidecar_rs::less_than_on_z;
 use indirect_predicates_sidecar_rs::{
-    init_fpu, lambda3d_lpi_exact, lambda3d_lpi_interval, lambda3d_tpi_exact, lambda3d_tpi_interval,
-    link_probe, orient3d, AsGenericPoint, ExplicitPoint3D, ImplicitPoint3DLpi, ImplicitPoint3DTpi,
-    IntervalNumber, LpiExactResult, Sign, TpiExactResult, TpiIntervalResult, AVAILABLE,
+    init_fpu, lambda3d_lpi_exact, lambda3d_lpi_interval, link_probe, orient3d, AsGenericPoint,
+    ExplicitPoint3D, ImplicitPoint3DLpi, ImplicitPoint3DTpi, IntervalNumber, LpiExactResult, Sign,
+    TpiExactResult, TpiIntervalResult, AVAILABLE,
 };
+// The TPI lambda fns are consumed only by the real-shim-gated tests below;
+// under the stub build (`ip_unavailable`, the CI runner case) they would be
+// unused imports and trip `clippy -D warnings` — gate them identically to
+// their consumers. (The Tpi*Result structs stay ungated: the stub-state
+// sentinel tests use them.)
+#[cfg(not(ip_unavailable))]
+use indirect_predicates_sidecar_rs::{lambda3d_tpi_exact, lambda3d_tpi_interval};
 #[cfg(not(ip_unavailable))]
 use indirect_predicates_sidecar_rs::{less_than_on_x, less_than_on_y};
 
@@ -382,9 +389,11 @@ fn tpi_exact_result_clone_and_eq() {
 }
 
 /// Triangle as 3 vertices × 3 IntervalNumber coordinates.
+#[cfg(not(ip_unavailable))]
 type IntervalTri = [[IntervalNumber; 3]; 3];
 
 /// Triangle as 3 vertices × 3 f64 coordinates.
+#[cfg(not(ip_unavailable))]
 type ExactTri = [[f64; 3]; 3];
 
 /// Helper: three coordinate planes (x=0, y=0, z=0) as IntervalNumber

@@ -777,4 +777,42 @@ fn full_corpus_categorized() {
     fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap())
         .unwrap_or_else(|e| panic!("cannot write {report_path:?}: {e}"));
     eprintln!("report written to {report_path:?}");
+
+    // Also emit the UI-schema results.json consumed by the app's
+    // AssayBrowser (app/src/lib/engine/assayCaseApi.js → /assay/results.json
+    // or the vite dev plugin), so the in-app assay browser reflects the NEW
+    // kernel's categorized score rather than stale legacy-WaffleKernel runs.
+    // Status mapping: SUPPORTED_CORRECT→pass, SUPPORTED_WRONG→fail,
+    // ERROR→error, UNSUPPORTED(*)→"unsupported" (sorts after error in the
+    // browser; the reason rides in `category`).
+    let ui_status = |c: &Category| -> &'static str {
+        match c {
+            Category::SupportedCorrect => "pass",
+            Category::SupportedWrong => "fail",
+            Category::Error => "error",
+            Category::Unsupported(_) => "unsupported",
+        }
+    };
+    let ui_results = serde_json::json!({
+        "generated": format!("kernel-v2 (assay_kv2 categorized run)"),
+        "total": outcomes.len(),
+        "passed": count(&|c| *c == Category::SupportedCorrect),
+        "failed": count(&|c| *c == Category::SupportedWrong),
+        "errored": count(&|c| *c == Category::Error),
+        "results": outcomes.iter().map(|o| serde_json::json!({
+            "id": o.id,
+            "status": ui_status(&o.category),
+            "category": o.category.label(),
+            "detail": o.detail,
+        })).collect::<Vec<_>>(),
+    });
+    let ui_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("app/tests/cases/assay/results.json");
+    fs::write(&ui_path, serde_json::to_string_pretty(&ui_results).unwrap())
+        .unwrap_or_else(|e| panic!("cannot write {ui_path:?}: {e}"));
+    eprintln!("UI results.json written to {ui_path:?} (new-kernel categorized score)");
 }
