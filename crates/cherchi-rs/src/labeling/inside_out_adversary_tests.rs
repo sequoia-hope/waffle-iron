@@ -743,3 +743,470 @@ fn adversary_empty_soup_is_ok_empty() {
     let inner = compute_inside_out(&soup, &patches).expect("empty soup must be Ok");
     assert!(inner.is_empty(), "no patches → no inner labels");
 }
+
+// ═════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
+//
+//   PR-CR-BL2 Cycle B ADVERSARY — the GENERATED-RAY branch
+//   (`find_ray_endpoints`, inside_out.rs generated-ray section, commit
+//   83d9f165; C++ booleans.cpp:525-575 + the `ray.tv` discard branches
+//   of sortIntersectedTrisAlong*).
+//
+//   Every fixture below contains at least one ORIGINLESS patch — a
+//   through-cut band or a hole disc bounded entirely by intersection
+//   loops, whose every vertex is implicit (LPI) or on the patch border
+//   — so `compute_inside_out` must take the synthetic-origin path:
+//   approximate centroid, −0.1 offset along the dominant-normal axis,
+//   exact straddle + strict-interior validation, `seed_tri` recorded,
+//   and the sort discarding hits on the opposite side of the seed plane
+//   from v1.
+//
+//   Truth stays implementation-independent: strict AABB containment of
+//   patch-triangle centroids for all-box fixtures (exact — boxes are
+//   their own AABBs), with LPI vertices resolved by the adversary's own
+//   f64 line-plane math (`approx_coords` above), plus a hand-rolled
+//   diamond-prism membership test for the rotated-peg fixture.
+//
+// ═════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════
+
+/// Shared per-patch box-truth assertion: every patch's inner label equals
+/// the strict-containment truth; returns the number of inside patches.
+fn assert_all_match_box_truth(soup: &ArrangementSoup, patches: &Patches, inner: &[Label]) -> usize {
+    let mut inside_seen = 0;
+    for (pi, patch) in patches.patches.iter().enumerate() {
+        let expect = expected_inner_boxes(soup, patch);
+        if !expect.is_empty() {
+            inside_seen += 1;
+        }
+        assert_eq!(
+            canonical(&inner[pi]),
+            expect,
+            "patch {pi} (own {:?}): inner label vs box-containment truth",
+            soup.labels[patch[0] as usize]
+        );
+    }
+    inside_seen
+}
+
+/// Count patches whose surface label is exactly `{l}`.
+fn count_label(soup: &ArrangementSoup, patches: &Patches, l: InputId) -> usize {
+    patches
+        .patches
+        .iter()
+        .filter(|p| canonical(&soup.labels[p[0] as usize]) == vec![l])
+        .count()
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Attack B1 — dominant-axis coverage, X: the peg pierces cube A along
+// the X axis, so A's two hole discs sit on its x=0 / x=2 faces (seed
+// plane normal X, origin offset along −x, +X validation ray) and the
+// band's side walls have Y- and Z-dominant normals. The BL2 oracle
+// only ever pierces along Z; a projection / perturbation-axis mix-up
+// in the Axis::X arm would be invisible to it.
+// Truth: band inside A; A's 2 discs inside B; everything else outside.
+// ════════════════════════════════════════════════════════════════════
+#[test]
+fn adversary_b_generated_ray_through_cut_along_x() {
+    let (soup, patches, inner) = run(concat(
+        cube(0.0, 0.0, 0.0, 2.0, A),
+        boxx(-1.0, 0.5, 0.5, 4.0, 1.0, 1.0, B),
+    ));
+    let inside = assert_all_match_box_truth(&soup, &patches, &inner);
+    assert_eq!(inside, 3, "band + two discs inside");
+    assert_eq!(count_label(&soup, &patches, A), 3, "A: shell + 2 discs");
+    assert_eq!(
+        count_label(&soup, &patches, B),
+        3,
+        "B: below / band / above"
+    );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Attack B2 — dominant-axis coverage, Y: same through-cut rotated to
+// pierce along Y (discs on y=0 / y=2, Axis::Y seed planes).
+// ════════════════════════════════════════════════════════════════════
+#[test]
+fn adversary_b_generated_ray_through_cut_along_y() {
+    let (soup, patches, inner) = run(concat(
+        cube(0.0, 0.0, 0.0, 2.0, A),
+        boxx(0.5, -1.0, 0.5, 1.0, 4.0, 1.0, B),
+    ));
+    let inside = assert_all_match_box_truth(&soup, &patches, &inner);
+    assert_eq!(inside, 3, "band + two discs inside");
+    assert_eq!(count_label(&soup, &patches, A), 3, "A: shell + 2 discs");
+    assert_eq!(
+        count_label(&soup, &patches, B),
+        3,
+        "B: below / band / above"
+    );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Attack B3 — TWO separate pegs through one cube: two independent
+// originless bands and four originless discs in the same soup, three
+// input labels. Each band's generated ray crosses only ITS hole's
+// geometry; each disc must come out inside exactly its own peg. A
+// patch-indexed mix-up between generated rays (e.g. a cached seed_tri
+// leaking across patches) would cross-contaminate the labels.
+// Truth: B band {A}, C band {A}, 2 discs {B}, 2 discs {C}, rest {}.
+// ════════════════════════════════════════════════════════════════════
+#[test]
+fn adversary_b_two_pegs_one_cube() {
+    let (soup, patches, inner) = run(concat(
+        concat(
+            cube(0.0, 0.0, 0.0, 2.0, A),
+            boxx(0.2, 0.2, -1.0, 0.6, 0.6, 4.0, B),
+        ),
+        boxx(1.2, 1.2, -1.0, 0.6, 0.6, 4.0, C),
+    ));
+    let inside = assert_all_match_box_truth(&soup, &patches, &inner);
+    assert_eq!(inside, 6, "2 bands + 4 discs inside");
+    assert_eq!(count_label(&soup, &patches, A), 5, "A: shell + 4 discs");
+    assert_eq!(count_label(&soup, &patches, B), 3);
+    assert_eq!(count_label(&soup, &patches, C), 3);
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Attack B4 — one peg through TWO stacked (separated) cubes: the peg
+// splits into five segments (below A / band-in-A / between / band-in-C
+// / above), two of which are originless bands inside DIFFERENT
+// containers, and each cube grows two originless discs. The generated
+// rays of A's discs travel up through the gap and through cube C —
+// forward hits on a third solid must be kept and classified by
+// orientation (front-face first → outside C).
+// Truth: band-in-A {A}, band-in-C {C}, A discs {B}×2, C discs {B}×2.
+// ════════════════════════════════════════════════════════════════════
+#[test]
+fn adversary_b_peg_through_two_stacked_cubes() {
+    let (soup, patches, inner) = run(concat(
+        concat(cube(0.0, 0.0, 0.0, 2.0, A), cube(0.0, 0.0, 3.0, 2.0, C)),
+        boxx(0.5, 0.5, -1.0, 1.0, 1.0, 7.0, B),
+    ));
+    let inside = assert_all_match_box_truth(&soup, &patches, &inner);
+    assert_eq!(inside, 6, "2 bands + 4 discs inside");
+    assert_eq!(count_label(&soup, &patches, A), 3, "A: shell + 2 discs");
+    assert_eq!(count_label(&soup, &patches, C), 3, "C: shell + 2 discs");
+    assert_eq!(
+        count_label(&soup, &patches, B),
+        5,
+        "B: below / band-in-A / between / band-in-C / above"
+    );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Attack B5 — the seed-plane discard, armed: slab C spans the FULL xy
+// footprint under cube A at z ∈ [-2, -0.05], so the generated origin
+// of A's bottom disc (seed plane z=0, origin at centroid z −0.1) lands
+// strictly INSIDE C, and its +Z ray crosses C's top face at z=-0.05 —
+// a BACK-face hit that, if kept, would silently label the disc inside
+// C. Only the seed-plane discard (hits on the opposite side of z=0
+// from v1) rejects it; the explicit-ray origin filter (lessThan vs v0)
+// would KEEP it, since z=-0.05 is past v0's z=-0.1. The peg also
+// pierces C's top face, adding a gap band between C and A that is
+// inside NEITHER solid.
+// Truth: A discs {B} (never C!), B below-segment {C}, gap band {},
+// band-in-A {A}, C's disc {B}, shells {}.
+// ════════════════════════════════════════════════════════════════════
+#[test]
+fn adversary_b_behind_seed_plane_solid_must_be_discarded() {
+    let (soup, patches, inner) = run(concat(
+        concat(
+            cube(0.0, 0.0, 0.0, 2.0, A),
+            boxx(-1.0, -1.0, -2.0, 4.0, 4.0, 1.95, C),
+        ),
+        boxx(0.5, 0.5, -1.0, 1.0, 1.0, 4.0, B),
+    ));
+    let inside = assert_all_match_box_truth(&soup, &patches, &inner);
+    // A's discs ({B}×2) + band-in-A ({A}) + B's below-segment ({C}) +
+    // C's hole disc ({B}) = 5 inside patches.
+    assert_eq!(inside, 5, "discs + band + below-segment + C disc");
+    // The sharpest assertion: no A patch may be labeled inside C — the
+    // only C crossing an A-disc ray ever sees is behind its seed plane.
+    for (pi, patch) in patches.patches.iter().enumerate() {
+        if canonical(&soup.labels[patch[0] as usize]) == vec![A] {
+            assert!(
+                !inner[pi].contains(&C),
+                "patch {pi} (own A): behind-seed-plane hit on C leaked into \
+                 the inner label, got {:?}",
+                inner[pi]
+            );
+        }
+    }
+    assert_eq!(count_label(&soup, &patches, A), 3, "A: shell + 2 discs");
+    assert_eq!(
+        count_label(&soup, &patches, B),
+        4,
+        "B: in-C (incl bottom cap) / gap band / band-in-A / above (incl top cap)"
+    );
+    assert_eq!(count_label(&soup, &patches, C), 2, "C: shell + 1 disc");
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Attack B6 — forward third-solid hits must be KEPT: slab D spans the
+// full xy footprint ABOVE cube A at z ∈ [2.5, 3.5], so the generated
+// +Z rays of BOTH A discs cross D's bottom face in FRONT of their seed
+// planes — a front-face hit that must be kept and classified outside
+// (an over-eager discard, or a wrongly-oriented seed test, would also
+// be caught by the peg's in-D segment expecting {C}... naming: D is
+// labeled C here). The peg's top cap (z=3) sits INSIDE the slab.
+// Truth: A discs {B}, band-in-A {A}, gap band {}, B top segment {C},
+// C's hole disc {B}, shells {}.
+// ════════════════════════════════════════════════════════════════════
+#[test]
+fn adversary_b_forward_solid_hits_are_kept_and_outside() {
+    let (soup, patches, inner) = run(concat(
+        concat(
+            cube(0.0, 0.0, 0.0, 2.0, A),
+            boxx(-1.0, -1.0, 2.5, 4.0, 4.0, 1.0, C),
+        ),
+        boxx(0.5, 0.5, -1.0, 1.0, 1.0, 4.0, B),
+    ));
+    let inside = assert_all_match_box_truth(&soup, &patches, &inner);
+    // A discs ({B}×2) + band-in-A ({A}) + B's in-slab segment ({C}) +
+    // C's hole disc ({B}) = 5.
+    assert_eq!(inside, 5);
+    // No A patch is inside the slab (front-face first ⇒ outside).
+    for (pi, patch) in patches.patches.iter().enumerate() {
+        if canonical(&soup.labels[patch[0] as usize]) == vec![A] {
+            assert!(
+                !inner[pi].contains(&C),
+                "patch {pi} (own A): forward front-face hit on the slab must \
+                 classify OUTSIDE, got {:?}",
+                inner[pi]
+            );
+        }
+    }
+    assert_eq!(count_label(&soup, &patches, A), 3);
+    assert_eq!(count_label(&soup, &patches, C), 2, "slab: shell + 1 disc");
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Attack B7 — oblique peg: the square peg is rotated 45° about its Z
+// axis (a diamond prism), so the intersection loops on A's faces run
+// diagonally, every loop vertex is an LPI point with non-trivial
+// coordinates (1 ± 0.7 off the binary grid), the band's side-wall
+// normals are (±1,±1,0)/√2 (dominant-axis TIE between X and Y), and
+// the disc seed triangles are diagonal slivers. Truth for "inside the
+// peg" is a hand-rolled strict diamond-prism membership test —
+// expected_inner_boxes would be UNSOUND here (the peg's AABB strictly
+// contains the diamond, so shell centroids near the hole could sit in
+// the AABB while outside the solid).
+// ════════════════════════════════════════════════════════════════════
+fn diamond_prism(cx: f64, cy: f64, d: f64, zlo: f64, zhi: f64, label: InputId) -> Solid {
+    // verts 0..3 at zlo (CCW from +z), 4..7 at zhi.
+    let ring = [(cx + d, cy), (cx, cy + d), (cx - d, cy), (cx, cy - d)];
+    let mut coords = Vec::with_capacity(24);
+    for &z in &[zlo, zhi] {
+        for &(x, y) in &ring {
+            coords.push(x);
+            coords.push(y);
+            coords.push(z);
+        }
+    }
+    let mut tris = vec![
+        [0, 2, 1],
+        [0, 3, 2], // bottom cap (normal -z)
+        [4, 5, 6],
+        [4, 6, 7], // top cap (normal +z)
+    ];
+    for i in 0..4u32 {
+        let j = (i + 1) % 4;
+        tris.push([i, j, 4 + j]);
+        tris.push([i, 4 + j, 4 + i]);
+    }
+    let labels = vec![vec![label]; tris.len()];
+    (coords, tris, labels)
+}
+
+/// Strict membership of every patch-triangle centroid in the OPEN diamond
+/// prism |x-cx|+|y-cy| < d, zlo < z < zhi (relative margin as elsewhere).
+fn patch_inside_diamond(
+    soup: &ArrangementSoup,
+    patch: &[u32],
+    cx: f64,
+    cy: f64,
+    d: f64,
+    zlo: f64,
+    zhi: f64,
+) -> bool {
+    let eps = d * 1e-9;
+    patch.iter().all(|&t| {
+        let tri = soup.tris[t as usize];
+        let mut c = [0.0; 3];
+        for &v in &tri {
+            let p = approx_coords(&soup.verts[v as usize]);
+            for k in 0..3 {
+                c[k] += p[k] / 3.0;
+            }
+        }
+        (c[0] - cx).abs() + (c[1] - cy).abs() < d - eps && c[2] > zlo + eps && c[2] < zhi - eps
+    })
+}
+
+#[test]
+fn adversary_b_rotated_diamond_peg_through_cube() {
+    let (soup, patches, inner) = run(concat(
+        cube(0.0, 0.0, 0.0, 2.0, A),
+        diamond_prism(1.0, 1.0, 0.7, -1.0, 3.0, B),
+    ));
+    // The soup lives in the arrangement's SCALED coordinate space (the
+    // Cherchi compute_multiplier scale-up), so the diamond parameters are
+    // re-derived from B's prepped input AABB: the diamond's AABB is
+    // [cx−d, cx+d] × [cy−d, cy+d] × [zlo, zhi] exactly.
+    let (lo, hi) = input_aabb(&soup, B);
+    let (cx, cy) = ((lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0);
+    let d = (hi[0] - lo[0]) / 2.0;
+    let (zlo, zhi) = (lo[2], hi[2]);
+    let mut a_inside = 0;
+    let mut b_inside = 0;
+    for (pi, patch) in patches.patches.iter().enumerate() {
+        let own = canonical(&soup.labels[patch[0] as usize]);
+        let expect: Label = if own == vec![A] {
+            if patch_inside_diamond(&soup, patch, cx, cy, d, zlo, zhi) {
+                a_inside += 1;
+                vec![B]
+            } else {
+                vec![]
+            }
+        } else if patch_inside_box(&soup, patch, A) {
+            b_inside += 1;
+            vec![A]
+        } else {
+            vec![]
+        };
+        assert_eq!(
+            canonical(&inner[pi]),
+            expect,
+            "patch {pi} (own {own:?}): rotated-peg inner label vs diamond/box truth"
+        );
+    }
+    assert_eq!(
+        a_inside, 2,
+        "A's two diagonal hole discs are inside the peg"
+    );
+    assert_eq!(b_inside, 1, "exactly the peg's band is inside A");
+    assert_eq!(count_label(&soup, &patches, A), 3, "A: shell + 2 discs");
+    assert_eq!(
+        count_label(&soup, &patches, B),
+        3,
+        "B: below / band / above"
+    );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Attack B8 — sliver peg: a 0.01 × 0.01 cross-section peg (at the
+// non-representable offset 0.495) through the unit cube. The disc
+// patches' triangles are tiny and thin, so the f64 approximate
+// centroid is maximally stressed relative to the triangle size — the
+// EXACT straddle + strict-interior validation must still accept (or
+// reject and move to the next triangle), never mislabel. The band's
+// −0.1 origin offset is 10× the peg width, placing the side-wall rays'
+// origins well OUTSIDE the peg (but inside A).
+// ════════════════════════════════════════════════════════════════════
+#[test]
+fn adversary_b_sliver_peg_through_unit_cube() {
+    let (soup, patches, inner) = run(concat(
+        cube(0.0, 0.0, 0.0, 1.0, A),
+        boxx(0.495, 0.495, -1.0, 0.01, 0.01, 3.0, B),
+    ));
+    let inside = assert_all_match_box_truth(&soup, &patches, &inner);
+    assert_eq!(inside, 3, "band + two tiny discs inside");
+    assert_eq!(count_label(&soup, &patches, A), 3, "A: shell + 2 discs");
+    assert_eq!(
+        count_label(&soup, &patches, B),
+        3,
+        "B: below / band / above"
+    );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Attack B9 — determinism + triangle-permutation invariance for the
+// generated-ray fixture: reversing the global triangle order (and the
+// solid concat order) re-shuffles which patch triangle seeds the
+// synthetic ray and re-orders the candidate scan, but the multiset of
+// (own label, inner label) pairs is a topological invariant. (The
+// bit-identical two-run determinism check runs inside `run` for every
+// fixture above; this attack covers the *input-presentation* axis.)
+//
+// FAILING — BOTH sub-attacks (UPSTREAM BUG, confirmed by probe — NOT
+// the generated-ray branch): under the REVERSED triangle order (and
+// equally under the swapped concat order, which fails with the same
+// 2-patch merged signature), `mesh_arrangement` (arrangements/soup.rs)
+// emits a soup with the same vert/tri counts
+// (37/88) but a DIFFERENT edge structure: 120 edges with only 12
+// non-manifold, vs the forward order's 116 edges with 16 non-manifold.
+// The two intersection loops need 16 shared (multiplicity-4) edges to
+// fence the patches; the reversed soup is missing 4 loop segments
+// (scaled coords: z=0 loop (2,2,0)-(2,5,0) and (6,3,0)-(6,6,0); z=8
+// loop (2,2,8)-(5,2,8) and (3,6,8)-(6,6,8)). Probe evidence: the two
+// z=8 segments exist only as multiplicity-2 edges incident to PEG
+// (label B) wall triangles — cube A's top-face re-triangulation does
+// not contain its constraint segment as an edge — and the two z=0
+// segments exist as an edge on NEITHER side. With those fence gaps
+// manifold (≤2 incident tris), the BL1 flood-fill (patches.rs:124-136,
+// faithful: it stops only at >2-incident edges) leaks through, and
+// shell + discs merge into ONE patch per solid (2 patches instead of
+// 6). `compute_inside_out` then labels the merged patches correctly
+// *for its input* (a merged patch has an explicit non-border origin
+// and is mostly outside) — the wrong final labels are inherited, not
+// produced, by BL2. The conforming-soup invariant the AR3b suite
+// checks (no interior AREA overlaps, soup.rs:1196) is blind to this:
+// a constraint segment crossing a perpendicular face's triangulation
+// overlaps no triangle interior. Fix belongs in the AR3b global-soup
+// orchestration: every intersection-curve segment must end up a
+// shared (multiplicity-4) edge of both incident surfaces, independent
+// of input triangle order.
+// ════════════════════════════════════════════════════════════════════
+#[test]
+#[ignore = "RED witness for PR-CR-AR3c: AR3b constraint realization is input-order-DEPENDENT \
+            on closed intersection loops (4 fence segments unrealized under reversed tri order / \
+            swapped concat order -> BL1 flood leaks). Upstream arrangement bug, not BL2. \
+            Un-ignore when AR3c lands. Run: cargo test -p cherchi-rs --features indirect-predicates \
+            adversary_b_generated_ray_permutation -- --ignored"]
+fn adversary_b_generated_ray_permutation_invariance() {
+    let through_cut = || {
+        concat(
+            cube(0.0, 0.0, 0.0, 2.0, A),
+            boxx(0.5, 0.5, -1.0, 1.0, 1.0, 4.0, B),
+        )
+    };
+
+    let (s0, p0, i0) = run(through_cut());
+    let baseline = label_fingerprint(&s0, &p0, &i0);
+    assert_eq!(
+        baseline.iter().filter(|(_, il)| !il.is_empty()).count(),
+        3,
+        "fixture sanity: band + two discs inside"
+    );
+
+    // (a) swap the solid concat order (the peg becomes input 0).
+    // FAILING — same upstream fence-gap merge (2 patches, all outside).
+    let (s2, p2, i2) = run(concat(
+        boxx(0.5, 0.5, -1.0, 1.0, 1.0, 4.0, B),
+        cube(0.0, 0.0, 0.0, 2.0, A),
+    ));
+    assert_eq!(
+        label_fingerprint(&s2, &p2, &i2),
+        baseline,
+        "swapping solid concat order changed the (own, inner) multiset"
+    );
+
+    // (b) reverse the global triangle order (labels permuted alongside).
+    // FAILING — see the header comment (upstream fence gaps).
+    let (coords, tris, labels) = through_cut();
+    let rev: Solid = (
+        coords,
+        tris.into_iter().rev().collect(),
+        labels.into_iter().rev().collect(),
+    );
+    let (s1, p1, i1) = run(rev);
+    assert_eq!(
+        label_fingerprint(&s1, &p1, &i1),
+        baseline,
+        "reversing input triangle order changed the (own, inner) multiset \
+         (upstream: the reversed soup is missing 4 of 16 intersection-loop \
+         fence edges, so BL1 patches leak and merge)"
+    );
+}
