@@ -2109,4 +2109,299 @@ mod tests {
             verdict.detail
         );
     }
+    // ── PR-TH1: T-junction-aware watertight/χ + normalized penetration ──────
+
+    /// Push one triangle with per-triangle vertices and dummy unit normals.
+    fn push_tri(mesh: &mut RenderMesh, p0: [f32; 3], p1: [f32; 3], p2: [f32; 3]) {
+        let base = (mesh.vertices.len() / 3) as u32;
+        for p in [p0, p1, p2] {
+            mesh.vertices.extend_from_slice(&p);
+            mesh.normals.extend_from_slice(&[0.0, 0.0, 1.0]);
+        }
+        mesh.indices.extend_from_slice(&[base, base + 1, base + 2]);
+    }
+
+    fn finish_single_range(mesh: &mut RenderMesh) {
+        mesh.face_ranges = vec![FaceRange {
+            face_id: KernelId(0),
+            start_index: 0,
+            end_index: mesh.indices.len() as u32,
+        }];
+    }
+
+    fn empty_mesh() -> RenderMesh {
+        RenderMesh {
+            vertices: vec![],
+            normals: vec![],
+            indices: vec![],
+            face_ranges: vec![],
+        }
+    }
+
+    /// Unit cube where five faces are 2-triangle quads but the x=1 face is a
+    /// 3-triangle fan around m=(1, 0.5, 0) — the exact midpoint of the cube
+    /// edge A=(1,0,0)→B=(1,1,0). The z=0 face emits the full edge [A,B] while
+    /// the x=1 face emits [A,m]+[m,B]: a T-junction that CLOSES under
+    /// subdivision. This is the shape kernel-v2's render tessellation
+    /// legitimately emits (collinear chain vertex kept on one face only).
+    fn make_t_junction_cube_mesh() -> RenderMesh {
+        let mut mesh = empty_mesh();
+        let mut quad = |c: [[f32; 3]; 4]| {
+            push_tri(&mut mesh, c[0], c[1], c[2]);
+            push_tri(&mut mesh, c[0], c[2], c[3]);
+        };
+        // z=0, z=1, x=0, y=0, y=1 as plain quads
+        quad([
+            [0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ]);
+        quad([
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [0.0, 1.0, 1.0],
+        ]);
+        quad([
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 1.0, 1.0],
+            [0.0, 1.0, 0.0],
+        ]);
+        quad([
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 1.0],
+            [0.0, 0.0, 1.0],
+        ]);
+        quad([
+            [0.0, 1.0, 0.0],
+            [0.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [1.0, 1.0, 0.0],
+        ]);
+        // x=1 face: fan around the A–B midpoint m
+        let a = [1.0, 0.0, 0.0];
+        let b = [1.0, 1.0, 0.0];
+        let c = [1.0, 1.0, 1.0];
+        let d = [1.0, 0.0, 1.0];
+        let m = [1.0, 0.5, 0.0];
+        push_tri(&mut mesh, m, b, c);
+        push_tri(&mut mesh, m, c, d);
+        push_tri(&mut mesh, m, d, a);
+        finish_single_range(&mut mesh);
+        mesh
+    }
+
+    #[test]
+    fn watertight_passes_t_junction_that_closes_under_subdivision() {
+        let mesh = make_t_junction_cube_mesh();
+        let verdict = check_watertight_mesh(&mesh);
+        assert!(
+            verdict.passed,
+            "T-junction mesh that closes under subdivision must be watertight: {}",
+            verdict.detail
+        );
+    }
+
+    #[test]
+    fn euler_characteristic_t_junction_cube_chi_2() {
+        let mesh = make_t_junction_cube_mesh();
+        let verdict = check_mesh_euler_characteristic(&mesh, 2);
+        assert!(
+            verdict.passed,
+            "T-junction cube must have χ=2 on the subdivided complex: {}",
+            verdict.detail
+        );
+        assert_eq!(verdict.value, Some(2.0));
+    }
+
+    #[test]
+    fn watertight_fails_real_hole_even_with_subdivision() {
+        // Same T-junction cube but with the last fan triangle removed — a
+        // REAL hole. Its boundary edges do not close under subdivision, so
+        // the oracle must stay strict and fail.
+        let mut mesh = make_t_junction_cube_mesh();
+        mesh.indices.truncate(mesh.indices.len() - 3);
+        finish_single_range(&mut mesh);
+        let verdict = check_watertight_mesh(&mesh);
+        assert!(
+            !verdict.passed,
+            "a real hole must fail even with T-junction subdivision: {}",
+            verdict.detail
+        );
+    }
+
+    #[test]
+    fn watertight_does_not_split_at_vertex_off_the_edge() {
+        // Cube whose x=1 face is fanned from m'=(1, 0.5, 0.1) — 0.1 off the
+        // A–B edge line (=10⁴ lattice cells at unit scale) — and missing the
+        // (m',A,B) triangle, leaving a real slit. m' must NOT split [A,B]:
+        // the mesh stays non-watertight.
+        let mut mesh = empty_mesh();
+        let mut quad = |c: [[f32; 3]; 4]| {
+            push_tri(&mut mesh, c[0], c[1], c[2]);
+            push_tri(&mut mesh, c[0], c[2], c[3]);
+        };
+        quad([
+            [0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [1.0, 0.0, 0.0],
+        ]);
+        quad([
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [0.0, 1.0, 1.0],
+        ]);
+        quad([
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 1.0, 1.0],
+            [0.0, 1.0, 0.0],
+        ]);
+        quad([
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 1.0],
+            [0.0, 0.0, 1.0],
+        ]);
+        quad([
+            [0.0, 1.0, 0.0],
+            [0.0, 1.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [1.0, 1.0, 0.0],
+        ]);
+        let a = [1.0, 0.0, 0.0];
+        let b = [1.0, 1.0, 0.0];
+        let c = [1.0, 1.0, 1.0];
+        let d = [1.0, 0.0, 1.0];
+        let m = [1.0, 0.5, 0.1]; // NOT on [A,B]
+        push_tri(&mut mesh, m, b, c);
+        push_tri(&mut mesh, m, c, d);
+        push_tri(&mut mesh, m, d, a);
+        finish_single_range(&mut mesh);
+        let verdict = check_watertight_mesh(&mesh);
+        assert!(
+            !verdict.passed,
+            "a vertex off the edge line must not split it: {}",
+            verdict.detail
+        );
+    }
+
+    /// Plain 12-triangle cube spanning [origin, origin+1]³.
+    fn push_plain_cube(mesh: &mut RenderMesh, o: [f32; 3]) {
+        let p = |dx: f32, dy: f32, dz: f32| -> [f32; 3] { [o[0] + dx, o[1] + dy, o[2] + dz] };
+        let quads = [
+            [p(0., 0., 0.), p(0., 1., 0.), p(1., 1., 0.), p(1., 0., 0.)],
+            [p(0., 0., 1.), p(1., 0., 1.), p(1., 1., 1.), p(0., 1., 1.)],
+            [p(0., 0., 0.), p(0., 0., 1.), p(0., 1., 1.), p(0., 1., 0.)],
+            [p(1., 0., 0.), p(1., 1., 0.), p(1., 1., 1.), p(1., 0., 1.)],
+            [p(0., 0., 0.), p(1., 0., 0.), p(1., 0., 1.), p(0., 0., 1.)],
+            [p(0., 1., 0.), p(0., 1., 1.), p(1., 1., 1.), p(1., 1., 0.)],
+        ];
+        for q in quads {
+            push_tri(mesh, q[0], q[1], q[2]);
+            push_tri(mesh, q[0], q[2], q[3]);
+        }
+    }
+
+    #[test]
+    fn euler_characteristic_two_shell_mesh_expects_2_per_shell() {
+        // KV4-F4: a disjoint-union output is ONE solid with TWO closed
+        // shells; total χ = 4, not 2. The oracle derives the shell count
+        // from the welded complex and adjusts the expectation.
+        let mut mesh = empty_mesh();
+        push_plain_cube(&mut mesh, [0.0, 0.0, 0.0]);
+        push_plain_cube(&mut mesh, [3.0, 0.0, 0.0]);
+        finish_single_range(&mut mesh);
+        let verdict = check_mesh_euler_characteristic(&mesh, 2);
+        assert!(
+            verdict.passed,
+            "2-shell complex must be scored as χ=2 per shell: {}",
+            verdict.detail
+        );
+        assert_eq!(verdict.value, Some(4.0));
+        // Both shells must also be watertight.
+        let wt = check_watertight_mesh(&mesh);
+        assert!(wt.passed, "two clean shells: {}", wt.detail);
+    }
+
+    #[test]
+    fn euler_characteristic_two_shell_mesh_with_defect_still_fails() {
+        // Strictness: a 2-shell mesh whose χ is NOT 2 per shell still fails.
+        let mut mesh = empty_mesh();
+        push_plain_cube(&mut mesh, [0.0, 0.0, 0.0]);
+        push_plain_cube(&mut mesh, [3.0, 0.0, 0.0]);
+        mesh.indices.truncate(mesh.indices.len() - 3); // hole in shell 2
+        finish_single_range(&mut mesh);
+        let verdict = check_mesh_euler_characteristic(&mesh, 2);
+        assert!(
+            !verdict.passed,
+            "defective 2-shell mesh must still fail: {}",
+            verdict.detail
+        );
+    }
+
+    /// Two-face-range mesh: a LARGE triangle in the z=0 plane (unnormalized
+    /// plane normal |n| ≈ 8e4) plus a second triangle positioned by `dip`.
+    fn make_large_plane_pair(dip_z: f32) -> RenderMesh {
+        let mut mesh = empty_mesh();
+        // Face 0: large triangle, max_abs = 100 → depth_threshold = 1e-2
+        push_tri(
+            &mut mesh,
+            [-100.0, -100.0, 0.0],
+            [100.0, -100.0, 0.0],
+            [0.0, 100.0, 0.0],
+        );
+        // Face 1: triangle touching/penetrating the plane near the origin
+        push_tri(
+            &mut mesh,
+            [-1.0, 0.0, dip_z],
+            [1.0, 0.0, dip_z],
+            [0.0, 1.0, 50.0],
+        );
+        mesh.face_ranges = vec![
+            FaceRange {
+                face_id: KernelId(0),
+                start_index: 0,
+                end_index: 3,
+            },
+            FaceRange {
+                face_id: KernelId(1),
+                start_index: 3,
+                end_index: 6,
+            },
+        ];
+        mesh
+    }
+
+    #[test]
+    fn self_intersection_ignores_grazing_contact_with_large_normal() {
+        // f32-noise-scale dip (1e-5 ≪ depth_threshold 1e-2): a grazing
+        // contact, NOT a penetration. Before normalization the |n|≈8e4 plane
+        // scaled the 1e-5 dip to 0.8 ≫ threshold → false positive.
+        let mesh = make_large_plane_pair(-1e-5);
+        let verdict = check_no_self_intersection(&mesh);
+        assert!(
+            verdict.passed,
+            "grazing contact at f32 noise must not be a penetration: {}",
+            verdict.detail
+        );
+    }
+
+    #[test]
+    fn self_intersection_catches_real_penetration_with_large_normal() {
+        // Deep crossing (50 units below the plane) must fail before AND
+        // after normalization — the guard is normalized, not widened.
+        let mesh = make_large_plane_pair(-50.0);
+        let verdict = check_no_self_intersection(&mesh);
+        assert!(
+            !verdict.passed,
+            "a real penetration must still fail: {}",
+            verdict.detail
+        );
+    }
 }
