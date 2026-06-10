@@ -26,7 +26,7 @@
 //! vs 23.84180252162625.
 
 use cad_primitives::{BoolOp, Point3, Vector3};
-use yang_rs::{boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, InputId, Surface, YangError};
+use yang_rs::{boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, Surface, YangError};
 
 /// Build a hexahedral (8-vertex, 6-quad-face) B-Rep from verbatim dumped
 /// data: vertex coordinates, per-face plane (normal, d with n·x + d = 0),
@@ -193,37 +193,88 @@ fn r0029_b() -> BRep {
     )
 }
 
-/// RED (KV4-F1): the verbatim R0029 union must hit the typed NEAR-coplanar
-/// M8 wall, not the raw arrangement/in-out failure
-/// (`MeshBooleanFailed(NoExplicitRayOrigin)`) it produced before PR-YR24.
+/// PR-YR26 (M8 slice b): the verbatim R0029 union now SUCCEEDS through the
+/// §4.5.5 Stage-0 coplanar overlay. The PR-YR24 gate used to convert this
+/// case into the loud `CoplanarFacesUnsupported` M8 wall; M8 slice b is that
+/// wall coming down for planar A×B pairs: the near-coplanar pair A#1/B#1
+/// (d residual ~1.4e-13) is snapped onto ONE canonical shared plane (the
+/// §4.5.5 "trimmed common planar surface" — THE place the femto residual is
+/// reconciled), the exact 2D overlay segments it into A-only / B-only /
+/// Overlap regions, and the Overlap is tessellated IDENTICALLY for both
+/// solids, so the femto sliver patches that used to defeat in/out
+/// classification (`NoExplicitRayOrigin`) never exist.
+///
+/// Union invariants asserted (the exact volume is not hand-derivable for
+/// this oblique corpus geometry, so the oracle pins the solid-semantics
+/// bounds + mesh validity instead): watertight, outward-oriented, χ = 2,
+/// and max(vol A, vol B) ≤ vol(A∪B) ≤ vol A + vol B.
 #[test]
-fn r0029_near_coplanar_union_hits_typed_m8_wall() {
+fn r0029_near_coplanar_union_succeeds_via_stage0_overlay() {
     let Some(sb) = yang_rs::native_backend() else {
         eprintln!("[yr24] SKIP: native FFI shim not linked (stub build)");
         return;
     };
     let a = r0029_a();
     let b = r0029_b();
-    match boolean(&a, &b, BoolOp::Union, &sb) {
-        Err(YangError::CoplanarFacesUnsupported {
-            input_a,
-            face_a,
-            input_b,
-            face_b,
-        }) => {
-            // The recovered pair: A face 1 ↔ B face 1 (the shared oblique
-            // sketch plane, d residual ~1.4e-13).
-            assert_eq!(
-                (input_a, face_a, input_b, face_b),
-                (InputId::A, 1, InputId::B, 1),
-                "expected the shared-sketch-plane pair A#1/B#1"
-            );
-        }
-        other => panic!(
-            "R0029 union: expected Err(CoplanarFacesUnsupported) — the loud \
-             M8 near-coplanar wall — got {other:?}"
+    let out = match boolean(&a, &b, BoolOp::Union, &sb) {
+        Ok(out) => out,
+        Err(e) => panic!(
+            "R0029 union: M8 slice b must HANDLE the planar near-coplanar \
+             pair via the §4.5.5 overlay, got Err({e})"
         ),
+    };
+
+    let signed_volume = |mesh: &yang_rs::Mesh| -> f64 {
+        mesh.tris
+            .iter()
+            .map(|t| {
+                let a = mesh.verts[t[0] as usize];
+                let b = mesh.verts[t[1] as usize];
+                let c = mesh.verts[t[2] as usize];
+                (a.x() * (b.y() * c.z() - b.z() * c.y())
+                    - a.y() * (b.x() * c.z() - b.z() * c.x())
+                    + a.z() * (b.x() * c.y() - b.y() * c.x()))
+                    / 6.0
+            })
+            .sum()
+    };
+
+    // Watertight 2-manifold + χ = 2 on position-welded elements.
+    use std::collections::{BTreeMap, BTreeSet};
+    let mesh = out.as_mesh();
+    let key = |v: u32| {
+        let p = mesh.verts[v as usize];
+        [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()]
+    };
+    let mut edges: BTreeMap<([u64; 3], [u64; 3]), (usize, i64)> = BTreeMap::new();
+    let mut verts: BTreeSet<[u64; 3]> = BTreeSet::new();
+    for t in &mesh.tris {
+        for k in 0..3 {
+            verts.insert(key(t[k]));
+            let (p, q) = (key(t[k]), key(t[(k + 1) % 3]));
+            let (lo, hi, dir) = if p <= q { (p, q, 1) } else { (q, p, -1) };
+            let e = edges.entry((lo, hi)).or_insert((0, 0));
+            e.0 += 1;
+            e.1 += dir;
+        }
     }
+    for (e, (count, balance)) in &edges {
+        assert_eq!(*count, 2, "R0029 union: edge {e:?} must have 2 tris");
+        assert_eq!(*balance, 0, "R0029 union: edge {e:?} direction-balanced");
+    }
+    let euler = verts.len() as i64 - edges.len() as i64 + mesh.tris.len() as i64;
+    assert_eq!(euler, 2, "R0029 union result is sphere-like (χ = 2)");
+
+    let (va, vb) = (signed_volume(a.as_mesh()), signed_volume(b.as_mesh()));
+    let vu = signed_volume(mesh);
+    assert!(vu > 0.0, "R0029 union: outward orientation, got {vu}");
+    let tol = (va + vb) * 1e-9;
+    assert!(
+        vu >= va.max(vb) - tol && vu <= va + vb + tol,
+        "R0029 union volume {vu} outside solid bounds [{}, {}]",
+        va.max(vb),
+        va + vb
+    );
 }
 
 /// Negative control: the SAME oblique geometry with B translated 5.0 along
