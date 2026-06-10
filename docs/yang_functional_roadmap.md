@@ -1334,13 +1334,40 @@ reimplementation from Attene's paper restores WASM (M7).
       finding: the C++ octree rayAABB query is semantically LOAD-BEARING
       (excludes behind-origin events); the brute-force port reproduces it
       with an explicit ray-AABB pre-filter.
-    - **Cycle B (next)** — the C++ "generated ray" branch for patches with
-      no explicit non-border vertex (`NoExplicitRayOrigin` today: cap-disc
-      patches bounded entirely by intersection loops, e.g. through-cuts).
-      Approx-centroid ray + exact orient3d crossing checks + the
-      generated-ray discard branch in the sort.
+    - **Cycle B (DONE, 2026-06-10)** — the C++ "generated ray" branch:
+      synthetic origin at a patch triangle's approx centroid −0.1 along its
+      dominant-normal axis (pure-f64 LPI/TPI approx eval; CR1/CR4 gates),
+      EXACT validation (orient3d straddle + strict interior passage via
+      gp_dispatch E/L/T), `seed_tri` recorded, and the sort's
+      seed-plane-side discard (C++ `ray.tv` branch). Through-cut bands +
+      hole discs now classify correctly (RED draft's expectation was
+      itself corrected: a pierced solid's through-hole DISCS are inside
+      the peg). ADVERSARY (9 more tests): X/Y-axis cuts, two pegs, peg
+      through two stacked cubes, behind/forward seed-plane third solids,
+      45° diamond peg, 0.01 sliver peg — no Cycle-B bugs.
     - **Cycle C** — the `foctree` octree as the candidate-set producer
-      (oracle: pruned ⊆ brute AND identical final labels).
+      (oracle: pruned ⊆ brute AND identical final labels). NOTE: Cycle A
+      established the rayAABB filter is semantically LOAD-BEARING (not
+      mere acceleration); the brute-force port carries an explicit
+      ray-AABB pre-filter the octree must reproduce exactly.
+  - **PR-CR-AR3c — input-order-invariant constraint realization (OPENED
+    2026-06-10, blocks BL3 corpus parity).** The BL2-Cycle-B adversary
+    found AR3b's constraint realization is input-order-DEPENDENT on
+    CLOSED intersection loops: reversing global triangle order or
+    swapping the two solids' concat order on a through-cut fixture
+    leaves 4 intersection-loop fence segments unrealized as shared
+    multiplicity-4 edges (two realized on only one side, two on
+    neither), so the BL1 flood leaks and 6 patches collapse to 2. The
+    AR3b conforming oracle (no interior AREA overlap) is structurally
+    blind to a constraint segment missing from a perpendicular face's
+    re-triangulation. RED witness: `#[ignore]`d
+    `adversary_b_generated_ray_permutation_invariance`
+    (labeling/inside_out_adversary_tests.rs) — un-ignore when fixed.
+    Fix belongs in the `mesh_arrangement` orchestration (soup.rs):
+    every intersection-curve segment must end as a shared edge of BOTH
+    incident surfaces regardless of input presentation. New invariant
+    for the AR3b oracle suite: per-pair constraint segments appear as
+    multiplicity-4 edges, asserted under order/winding permutations.
   - **PR-CR-BL3 — emit `LabeledArrangement` + native `MeshBoolean` impl.**
     Assemble the per-tri source + patch_id + per-input in/out, implement
     `MeshBoolean` natively, **parity-green vs the sidecar on the corpus**, then
