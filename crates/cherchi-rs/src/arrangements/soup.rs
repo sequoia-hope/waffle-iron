@@ -99,11 +99,16 @@ pub struct ArrangementSoup {
     /// real arrangement vertices are `verts[..verts.len() - jolly_count]`.
     pub jolly_count: u32,
     /// The PREPPED ORIGINAL input triangles over the same welded vertex
-    /// array (post vertex-merge, post degenerate/duplicate removal) — the
-    /// C++ `arr_in_tris`. BL2 ray-casting tests in/out against these closed
-    /// input shells, not against the cut output triangles.
+    /// array (post vertex-merge, post degenerate/duplicate removal, with
+    /// removed duplicates RESTORED as winding-corrected single-label copies
+    /// — the C++ `arr_in_tris` after `addDuplicateTrisInfoInStructures`,
+    /// booleans.cpp:358-393). BL2 ray-casting tests in/out against these
+    /// closed input shells, not against the cut output triangles.
     pub in_tris: Vec<[u32; 3]>,
-    /// Per-`in_tris` labels (OR-merged on duplicate removal) — `arr_in_labels`.
+    /// Per-`in_tris` labels — `arr_in_labels`. Single-input per entry after
+    /// duplicate restoration (each solid's shell is closed under its own
+    /// label); the OR-merged multi-label survives only on `labels` (the
+    /// keep-rule surface labels), exactly as in the C++.
     pub in_labels: Vec<Label>,
     /// The `compute_multiplier` scale factor applied to ALL coordinates in
     /// `verts` (a power of two; `1.0` means unscaled). Output emission
@@ -206,25 +211,64 @@ pub fn merge_duplicated_vertices(
     (verts, remapped)
 }
 
+/// One removed duplicate input triangle, recorded so it can be RESTORED into
+/// the ray-cast in/out substrate (`in_tris`/`in_labels`) before labeling.
+///
+/// Port of the C++ `DuplTriInfo { t_id, l_id, w }` (booleans.h) produced by
+/// `customRemoveDegenerateAndDuplicatedTriangles` (booleans.cpp:179-313) and
+/// consumed by `addDuplicateTrisInfoInStructures` (booleans.cpp:358-393).
+/// Coplanar-overlap regions (Yang §4.5.5 Stage-0 emits IDENTICAL meshes on
+/// the overlap for both solids) dedup into ONE arrangement triangle with an
+/// OR-merged label — correct for the OUTPUT surface labels, but the in/out
+/// ray cast needs each input as a CLOSED single-label shell with its OWN
+/// winding, so the removed copy is restored there.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DuplTriInfo {
+    /// Index (into the kept triangle array) of the surviving first copy —
+    /// the C++ `t_id`.
+    pub t_off: usize,
+    /// The DUPLICATE's own label (the C++ single-bit `l_id`; kept as a
+    /// `Label` set since the port's labels are id-sets).
+    pub label: Label,
+    /// Winding of the duplicate relative to the survivor — the C++ `w`
+    /// (`consistentWinding`, booleans.cpp:1530-1539): `true` = same
+    /// cyclic order, `false` = opposite.
+    pub w: bool,
+}
+
+/// Port of `consistentWinding` (booleans.cpp:1530-1539): do two triangles
+/// over the SAME vertex set share cyclic winding order?
+fn consistent_winding(t0: &[u32; 3], t1: &[u32; 3]) -> bool {
+    let Some(j) = (0..3).find(|&j| t1[j] == t0[0]) else {
+        unreachable!("consistent_winding: not the same triangle");
+    };
+    t0[1] == t1[(j + 1) % 3] && t0[2] == t1[(j + 2) % 3]
+}
+
 /// Drop exact-collinear (degenerate) triangles and dedup sorted-vertex
 /// duplicates, OR-merging duplicate labels into the first survivor.
 ///
-/// Port of `processing.cpp:124-172`. For each triangle in order:
+/// Port of `customRemoveDegenerateAndDuplicatedTriangles`
+/// (booleans.cpp:179-313). For each triangle in order:
 /// - **Degenerate**: if `points_are_collinear_3d(v0, v1, v2)` (CR1 — exact),
 ///   drop it (and its label).
 /// - **Duplicate**: key by the **sorted** `[v0, v1, v2]`. First occurrence
 ///   keeps the triangle (original winding) + label; a later duplicate is
 ///   dropped but its label is OR-merged (sorted-unique set-union of `InputId`s)
-///   into the first occurrence's label.
+///   into the first occurrence's label, AND a [`DuplTriInfo`] records the
+///   duplicate's own label + relative winding so `mesh_arrangement` can
+///   restore it into the in/out substrate (the C++ `dupl_triangles`
+///   out-param, booleans.cpp:233-247).
 ///
 /// Output `tris` preserves first-seen order; `labels` is 1:1 with it.
 pub fn remove_degenerate_and_duplicated_triangles(
     verts: &[Point3],
     tris: &[[u32; 3]],
     labels: &[Label],
-) -> (Vec<[u32; 3]>, Vec<Label>) {
+) -> (Vec<[u32; 3]>, Vec<Label>, Vec<DuplTriInfo>) {
     let mut kept_tris: Vec<[u32; 3]> = Vec::new();
     let mut kept_labels: Vec<Label> = Vec::new();
+    let mut dupl: Vec<DuplTriInfo> = Vec::new();
     // Sorted-vertex key → output index of the first occurrence.
     let mut seen: Vec<([u32; 3], usize)> = Vec::new();
 
@@ -241,8 +285,14 @@ pub fn remove_degenerate_and_duplicated_triangles(
         let label = labels.get(ti).cloned().unwrap_or_default();
 
         if let Some(&(_, out_idx)) = seen.iter().find(|(k, _)| *k == key) {
-            // Duplicate: OR-merge its label into the survivor (sorted-unique).
+            // Duplicate: OR-merge its label into the survivor (sorted-unique)
+            // and record the restoration info (booleans.cpp:233-247).
             or_merge_label(&mut kept_labels[out_idx], &label);
+            dupl.push(DuplTriInfo {
+                t_off: out_idx,
+                label: sorted_unique_label(&label),
+                w: consistent_winding(tri, &kept_tris[out_idx]),
+            });
         } else {
             let out_idx = kept_tris.len();
             kept_tris.push(*tri);
@@ -251,7 +301,7 @@ pub fn remove_degenerate_and_duplicated_triangles(
         }
     }
 
-    (kept_tris, kept_labels)
+    (kept_tris, kept_labels, dupl)
 }
 
 /// Sorted-unique copy of a label (set of `InputId`s, ascending by raw id).
@@ -623,8 +673,9 @@ pub fn mesh_arrangement(
     // 3. Merge duplicated input vertices (prep).
     let (verts, remapped_tris) = merge_duplicated_vertices(&sc, tris);
 
-    // 4. Remove degenerate / duplicate input triangles (prep, labels OR-merged).
-    let (kept_tris, kept_labels) =
+    // 4. Remove degenerate / duplicate input triangles (prep, labels
+    //    OR-merged, duplicates recorded for the in/out restoration below).
+    let (kept_tris, kept_labels, dupl_triangles) =
         remove_degenerate_and_duplicated_triangles(&verts, &remapped_tris, in_labels);
 
     // 5. Build the global soup. `from_soup` takes ONE plane; the per-triangle
@@ -773,14 +824,35 @@ pub fn mesh_arrangement(
     let jolly = jolly_points(m);
     globals.verts.extend_from_slice(&jolly);
 
-    // 11. Return the assembled soup.
+    // 11. Restore removed duplicates into the in/out substrate — the port of
+    //     `addDuplicateTrisInfoInStructures` (booleans.cpp:358-393). The
+    //     OUTPUT labels (`out_labels`) keep the OR-merged multi-label (the
+    //     keep-rule input), but the BL2 ray cast needs each input as a
+    //     CLOSED single-label shell: a merged {A,B} in-label is skipped by
+    //     the prune for BOTH solids' patches (`tested_label ∩
+    //     patch_surface_label`, booleans.cpp:680), leaving both shells open
+    //     at the overlap, and the surviving copy carries only the FIRST
+    //     solid's winding, breaking the back-face orientation verdict for
+    //     the other. So: append a fresh copy with the duplicate's OWN label
+    //     and `w`-corrected winding (cpp:375-386), and remove that label
+    //     from the survivor (cpp:390).
+    let mut arr_in_tris = kept_tris;
+    let mut arr_in_labels = kept_labels;
+    for d in &dupl_triangles {
+        let [v0, v1, v2] = arr_in_tris[d.t_off];
+        arr_in_tris.push(if d.w { [v0, v1, v2] } else { [v0, v2, v1] });
+        arr_in_labels.push(d.label.clone());
+        arr_in_labels[d.t_off].retain(|id| !d.label.contains(id));
+    }
+
+    // 12. Return the assembled soup.
     Ok(ArrangementSoup {
         verts: globals.verts,
         tris: out_tris,
         labels: out_labels,
         jolly_count: 5,
-        in_tris: kept_tris,
-        in_labels: kept_labels,
+        in_tris: arr_in_tris,
+        in_labels: arr_in_labels,
         multiplier: m,
     })
 }
@@ -1306,7 +1378,7 @@ mod tests {
         ];
         let labels = vec![vec![A], vec![A], vec![B]];
 
-        let (kept_tris, kept_labels) =
+        let (kept_tris, kept_labels, _dupl) =
             remove_degenerate_and_duplicated_triangles(&verts, &tris, &labels);
 
         assert_eq!(
@@ -1338,7 +1410,7 @@ mod tests {
         ];
         let tris = vec![[0u32, 1, 2], [1u32, 2, 0]]; // same sorted set
         let labels = vec![vec![A], vec![A]];
-        let (kept_tris, kept_labels) =
+        let (kept_tris, kept_labels, _dupl) =
             remove_degenerate_and_duplicated_triangles(&verts, &tris, &labels);
         assert_eq!(kept_tris.len(), 1, "duplicate dropped");
         assert_eq!(kept_labels[0], vec![A], "idempotent OR-merge keeps just A");
@@ -2899,7 +2971,7 @@ mod ar3c_tests {
         let mut sc = coords.clone();
         multiply_coordinates(&mut sc, m);
         let (verts, remapped) = merge_duplicated_vertices(&sc, tris);
-        let (kept_tris, _kept_labels) =
+        let (kept_tris, _kept_labels, _dupl) =
             remove_degenerate_and_duplicated_triangles(&verts, &remapped, labels);
         let soup = FastTrimesh::from_soup(&verts, &kept_tris, Plane::XY).unwrap();
         let pairs = detect_intersecting_pairs(&soup);

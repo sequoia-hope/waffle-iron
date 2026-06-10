@@ -40,16 +40,21 @@
 //! original winding. The flips happen at *emission* (this module), not in
 //! `keep_set` — the keep-rules stay pure label logic.
 //!
-//! ## Duplicated (coplanar) triangles — nothing to restore
+//! ## Duplicated (coplanar) triangles — restored in the arrangement
 //!
 //! The C++ `customBooleanPipeline` re-adds the duplicated coplanar input
-//! triangles (`addDuplicateTrisInfoInStructures` / `dupl_triangles`) before
-//! the final result so coplanar-overlap regions survive the boolean. This
-//! port's arrangement loudly DEFERS real coplanar-overlap pairs upstream
-//! (`ArrangementError::CoplanarPairDeferred`, deviation N17 — Stage-0 / M8
-//! handles coplanarity before the mesh boolean per Yang 2025 §4.5.5), so by
-//! construction no duplicated triangles exist here and there is nothing to
-//! restore.
+//! triangles (`addDuplicateTrisInfoInStructures` / `dupl_triangles`,
+//! booleans.cpp:358-393) before ray casting so each input stays a CLOSED
+//! single-label shell with its own winding. Since PR-YR26 (M8 slice b) the
+//! port performs that restoration inside `mesh_arrangement` itself (step 11
+//! of `soup.rs`): identical coplanar-overlap meshes — which Yang §4.5.5
+//! Stage-0 emits for both solids on an overlap region — dedup into ONE
+//! arrangement triangle with the OR-merged `{A,B}` surface label, and the
+//! removed copy is restored into `in_tris`/`in_labels` with its own label
+//! and `consistentWinding`-corrected winding. NON-identical coplanar
+//! overlaps (positive-area overlap that does not weld away in dedup) are
+//! still loudly deferred upstream (`ArrangementError::CoplanarPairDeferred`,
+//! deviation N17) — Stage 0 must resolve them before the mesh boolean.
 
 use cad_primitives::{BoolOp, Point3};
 

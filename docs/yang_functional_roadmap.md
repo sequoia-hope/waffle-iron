@@ -1549,10 +1549,45 @@ swapped every consumer to `predicates::indirect`).
     intersection curves). `cherchi_rs::cdt_polygon_with_holes` was evaluated
     and rejected (loops-only contract, no interior constraints, f64-only).
     10 oracle tests in `tests/yr25_coplanar_overlay.rs` (yang-rs 336→346).
-  - **M8 slice b (next): wire into `boolean()`** — coplanar face-pair
-    detection (YR24 gate reuse), 3D→2D shared-frame projection, identical
-    region meshes for both operands, overlap boundaries → intersection
-    curves; retire the `CoplanarFacesUnsupported` wall case by case.
+  - **M8 slice b ✅ (PR-YR26, 2026-06-10): wired into `boolean()`** —
+    coplanar-overlap booleans now produce correct MESH-level results through
+    the native backend. The YR24 gate became the Stage-0 DETECTOR
+    (`scan_near_coplanar`, ALL cross pairs); `stage0_preprocess`
+    (`yang-rs/src/stage0.rs`) snaps both faces of each planar A×B pair onto
+    ONE canonical plane (face A's — the §4.5.5 "trimmed common planar
+    surface" where femto residuals are reconciled; cross-solid corner weld
+    by exact in-plane coordinates), runs the PR-YR25 exact overlay, and
+    re-tessellates Stage 1: face A gets AOnly+Overlap, face B BOnly+Overlap,
+    Overlap triangles BIT-IDENTICAL in both meshes (wound per solid);
+    boundary subdivision propagates into adjacent faces (Fig. 16 "identical
+    sampling points"), re-triangulated by an exact strictly-positive
+    apex-fan with an exact area-coverage certificate (a generic ear-clip can
+    chord across the femto-crooked subdivided chain and re-create YR24-style
+    sliver patches — found on the R0029 oblique corpus geometry). Downstream
+    the duplicates weld into multi-label `{A,B}` triangles; cherchi-rs now
+    restores removed duplicates into `in_tris`/`in_labels`
+    (`DuplTriInfo` + the `addDuplicateTrisInfoInStructures` port,
+    booleans.cpp:179-313/358-393/1530-1539) so each input stays a closed
+    single-label shell for BL2. The C++ keep-rules keep the zero-volume
+    overlap sheet for EVERY op (verified vs the sidecar); `boolean()`
+    resolves it by the result-boundary rule (keep iff exactly one side of
+    the plane is inside the result): opposite normals → keep only for
+    Subtract; equal normals → keep only for Union/Intersect. Plane∩Plane
+    intersection edges short-circuit to `Curve::LineSegment` (exact; SSI
+    correctly refuses coincident planes — the §4.5.5 seam curve comes from
+    the overlay). Oracles: stacked/near-stacked/partial/pocket fixtures with
+    exact volumes + watertight + χ=2 + analytic sidecar-deviation pins
+    (`tests/yr26_coplanar_boolean.rs`, 12), in/out restoration
+    (`cherchi-rs/tests/coplanar_dupl_restore.rs`, 4), and **R0029 — the
+    KV4-F1 corpus case — now unions successfully end to end** (yr24 test
+    flipped to success). Unsupported residue keeps the typed wall:
+    intra-solid near pairs (chained-output class), curved faces in a pair,
+    faces in >1 pair, holed/non-continuous neighbor rings, overlay engine
+    failures. yang-rs 346→358; cherchi-rs 559→563; kernel-v2 + rewrite tier
+    + wasm32 checks green. §4.5.4 illegal-self-intersection detection (N6)
+    remains the open M8 remainder, and B-Rep-level shared-face output
+    topology (the slice-c question: today the kept sheet attributes to input
+    A's face) is deferred to a future slice.
 
 ## 4b. Completion roadmap — Phases 1–6 (the full path to replacing legacy)
 

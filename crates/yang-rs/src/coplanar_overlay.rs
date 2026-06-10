@@ -149,6 +149,18 @@ pub struct ExactPoint2 {
     pub y: RBig,
 }
 
+impl ExactPoint2 {
+    /// Exact lift of finite f64 coordinates (f64 → rational is exact).
+    /// `None` on NaN / infinity. Used by the M8b Stage-0 wiring to compare
+    /// input-corner coordinates against overlay `exact_verts`.
+    pub fn from_f64(x: f64, y: f64) -> Option<Self> {
+        Some(ExactPoint2 {
+            x: rat(x).ok()?,
+            y: rat(y).ok()?,
+        })
+    }
+}
+
 /// One shared classified triangulation of the union of A and B.
 ///
 /// `tris[i]` indexes into `verts` / `exact_verts`; `class[i]` is its region.
@@ -531,7 +543,8 @@ pub fn coplanar_overlay(
 // ───────────────────────────── exact helpers ────────────────────────────
 
 /// `cross(b−a, c−a)` — twice the signed area of triangle (a, b, c), exact.
-fn cross_r(a: &ExactPoint2, b: &ExactPoint2, c: &ExactPoint2) -> RBig {
+/// (`pub(crate)` since PR-YR26 for the Stage-0 ring-orientation check.)
+pub(crate) fn cross_r(a: &ExactPoint2, b: &ExactPoint2, c: &ExactPoint2) -> RBig {
     (&b.x - &a.x) * (&c.y - &a.y) - (&b.y - &a.y) * (&c.x - &a.x)
 }
 
@@ -772,7 +785,13 @@ fn point_in_even_odd(p: &ExactPoint2, edges: &[(ExactPoint2, ExactPoint2)]) -> b
 /// clipped, so every emitted triangle is CCW with exact area > 0, and the
 /// ears partition the ring exactly (area is conserved in rational
 /// arithmetic).
-fn ear_clip(ring: &[ExactPoint2]) -> Result<Vec<[usize; 3]>, CoplanarOverlayError> {
+///
+/// `pub(crate)` since PR-YR26: the Stage-0 wiring re-triangulates faces
+/// whose boundary edges were subdivided by overlay points (the §4.5.5
+/// "identical sampling points on their boundaries" propagation) — those
+/// rings carry collinear boundary runs a fan cannot handle, exactly the
+/// case this routine covers.
+pub(crate) fn ear_clip(ring: &[ExactPoint2]) -> Result<Vec<[usize; 3]>, CoplanarOverlayError> {
     let mut idx: Vec<usize> = (0..ring.len()).collect();
     let mut out = Vec::with_capacity(ring.len() - 2);
     while idx.len() > 3 {

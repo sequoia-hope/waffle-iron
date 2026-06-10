@@ -32,5 +32,5 @@ pub use intersection_points::{
     classify_all, classify_pair, DeferReason, IntersectionVertex, PairClassification,
 };
 pub use retriangulate::{split_single_triangle, RetriangulateError};
-pub use soup::{mesh_arrangement, ArrangementError, ArrangementSoup, Label};
+pub use soup::{mesh_arrangement, ArrangementError, ArrangementSoup, DuplTriInfo, Label};
 pub use tree::{Node, Tree};

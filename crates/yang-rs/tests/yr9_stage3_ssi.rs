@@ -46,9 +46,7 @@ use cad_primitives::{BoolOp, Point3, Vector3, TAU_MODEL};
 use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};
 use cherchi_rs::{Mesh, MeshBoolean};
 use std::error::Error;
-use yang_rs::{
-    boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, SsiRefinementError, Surface, YangError,
-};
+use yang_rs::{boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, Surface, YangError};
 
 fn p(x: f64, y: f64, z: f64) -> Point3 {
     Point3::new(x, y, z)
@@ -1380,40 +1378,38 @@ fn t5_stop_path_coincident_planes_is_loud() {
 
     // A is a unit cube at the origin; B is a unit cube at x = 5 — its bottom
     // face lies on the SAME infinite z=0 plane (so the B-labeled bottom tri
-    // still resolves to B's bottom face, and the A↔B intersection edge hits
-    // the coincident-plane SSI STOP under test) but the two faces' AABBs are
-    // DISJOINT, so the PR-YR24 near-coplanar input gate deliberately does
-    // NOT fire (far-apart same-plane faces cannot interact — the gate's
-    // documented over-deferral avoidance). The original fixture used two
-    // COINCIDENT cubes, which the gate now rejects before Stage 3 runs.
+    // still resolves to B's bottom face) but the two faces' AABBs are
+    // DISJOINT, so the PR-YR24 near-coplanar scan deliberately does NOT
+    // flag the pair (far-apart same-plane faces cannot interact — the
+    // documented over-deferral avoidance).
+    //
+    // PR-YR26 (M8 slice b) CONTRACT CHANGE: a Plane∩Plane intersection edge
+    // no longer consults `ssi_rs::intersect` at all. The YR18 on-both gate
+    // already verifies both endpoints lie on both planes within TAU_WORK,
+    // and the unique line through two distinct points on both planes is the
+    // edge's own line — `Curve::LineSegment` EXACTLY (zero chord error),
+    // byte-equivalent to the SSI route for transversal planes. For the
+    // §4.5.5 coplanar seams the boundary of the trimmed common surface IS
+    // the intersection curve ("The boundaries of the common surface are
+    // regarded as intersection curves between the two models",
+    // refs/text/yang2025_hybrid_boolean.txt:728-730) and comes from the 2D
+    // overlay, not from SSI — so the former coincident-plane SSI STOP is no
+    // longer reachable for planes (the ssi-rs oracle above still pins that
+    // ssi_rs itself refuses the pair). The hand-built coincident-plane
+    // arrangement must now reassemble cleanly with LineSegment edges.
     let a = unit_cube_brep_offset_at([0.0, 0.0, 0.0]);
     let b = unit_cube_brep_offset_at([5.0, 0.0, 0.0]);
     let mock = LabelMock {
         arrangement: hand_built_coincident_plane_arrangement(),
     };
-    let r = boolean(&a, &b, BoolOp::Union, &mock);
-    match r {
-        Err(YangError::SsiRefinementFailed { reason, .. }) => {
-            // A genuine analytical failure: a coincident-plane intersect error,
-            // OR a zero-match selection (matched == 0) — never a swallowed
-            // fallback, never a panic. (If a future ssi-rs returns Ok(empty)
-            // for coincident planes, the reachable variant is
-            // AmbiguousCurve { matched: 0 } — also a valid loud STOP.)
-            assert!(
-                matches!(
-                    reason,
-                    SsiRefinementError::IntersectFailed(_)
-                        | SsiRefinementError::AmbiguousCurve { matched: 0, .. }
-                ),
-                "yr9 §7.6: STOP reason must be IntersectFailed or AmbiguousCurve{{matched:0}}, \
-                 got {reason:?}"
-            );
-        }
-        other => panic!(
-            "yr9 §7.6: a coincident-plane A↔B edge must return \
-             Err(YangError::SsiRefinementFailed {{ .. }}), not a silent fallback; got {other:?}"
-        ),
-    }
+    let r = boolean(&a, &b, BoolOp::Union, &mock)
+        .expect("yr9 §7.6 (PR-YR26): a Plane∩Plane edge resolves to LineSegment, no SSI STOP");
+    assert!(
+        r.edges()
+            .iter()
+            .all(|e| matches!(e.curve, Curve::LineSegment)),
+        "yr9 §7.6 (PR-YR26): all-planar output edges must be LineSegment"
+    );
 }
 
 // =========================================================================

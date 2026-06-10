@@ -85,6 +85,7 @@ use std::fmt;
 // Stage 0 (Yang §4.5.5) coplanar-overlay geometric engine — M8 slice a
 // (PR-YR25). NOT yet wired into `boolean()`; that's M8 slice b.
 pub mod coplanar_overlay;
+mod stage0;
 
 pub use cad_primitives::{BoolOp, Point3, Vector3};
 pub use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};
@@ -492,13 +493,70 @@ impl BRep {
             }
         }
 
-        // Stage 1 tessellation (PR-YR7: planar Newell-fan + curved cylinder;
-        // PR-YR12: sphere lat/long grid). Cone still rejects loudly.
-        //
-        // Mesh vertices start 1:1 with the B-Rep vertices (the planar box path
-        // emits no Steiner points). The curved path appends rim-ring + cap-
-        // center Steiner vertices and indexes the SHARED cached rings so the
-        // cylinder mesh is watertight.
+        // Stage 1 tessellation — extracted to `stage1_tessellate` (PR-YR26)
+        // so the Stage-0 coplanar overlay can re-tessellate with snapped
+        // vertices + per-face overrides. Byte-for-byte the pre-YR26 output.
+        let tess = stage1_tessellate(&verts, &edges, &faces)?;
+        let mesh = Mesh::new(tess.verts, tess.tris);
+        let tessellation = TessellationMap {
+            sources: tess.sources,
+        };
+
+        Ok(Self {
+            vertices: verts,
+            edges,
+            faces,
+            mesh,
+            tessellation,
+            triangle_attribution: TriangleAttributionMap::empty(),
+        })
+    }
+
+    /// Construct from a pre-tessellated mesh (no topology).
+    /// Degenerate B-Rep: `TessellationMap` entries are all `Unknown`.
+    pub fn from_mesh(mesh: Mesh) -> Self {
+        let n = mesh.num_verts();
+        Self {
+            vertices: Vec::new(),
+            edges: Vec::new(),
+            faces: Vec::new(),
+            tessellation: TessellationMap {
+                sources: vec![TessellationSource::Unknown; n],
+            },
+            mesh,
+            triangle_attribution: TriangleAttributionMap::empty(),
+        }
+    }
+}
+
+/// Stage-1 tessellation output (PR-YR26 extraction of the `BRep::new` body):
+/// the mesh vertex pool (B-Rep vertices first, Steiner appended), the 1:1
+/// `TessellationSource` per vertex, the triangles, and per input face the
+/// range of `tris` it produced (consumed by the Stage-0 overlay
+/// re-tessellation to splice per-face replacements).
+pub(crate) struct Stage1Tess {
+    pub(crate) verts: Vec<Point3>,
+    pub(crate) sources: Vec<TessellationSource>,
+    pub(crate) tris: Vec<[u32; 3]>,
+    pub(crate) face_tri_ranges: Vec<std::ops::Range<usize>>,
+}
+
+/// Stage 1 tessellation (PR-YR7: planar Newell-fan + curved cylinder;
+/// PR-YR12: sphere lat/long grid; PR-NC1: CDT for non-convex/holed planar
+/// faces). Extracted verbatim from `BRep::new` in PR-YR26 (plus per-face
+/// triangle-range recording) so Stage-0 coplanar preprocessing can
+/// re-tessellate with snapped vertex coordinates.
+///
+/// Mesh vertices start 1:1 with the B-Rep vertices (the planar box path
+/// emits no Steiner points). The curved path appends rim-ring + cap-
+/// center Steiner vertices and indexes the SHARED cached rings so the
+/// cylinder mesh is watertight.
+pub(crate) fn stage1_tessellate(
+    verts: &[BRepVertex],
+    edges: &[BRepEdge],
+    faces: &[BRepFace],
+) -> Result<Stage1Tess, YangError> {
+    {
         let mut out_verts: Vec<Point3> = verts.iter().map(|v| v.point).collect();
         let mut sources: Vec<TessellationSource> = (0..verts.len() as u32)
             .map(TessellationSource::BRepVertex)
@@ -552,7 +610,7 @@ impl BRep {
             // the `unwrap_or(0.0)` is an unreachable no-panic guard (P9 — a 0.0
             // band is already handled by the `d_eps > 0.0` floor below, keeping
             // the N=3 floor rather than panicking).
-            let mut d_eps = curved_chord_bound(&edges).unwrap_or(0.0);
+            let mut d_eps = curved_chord_bound(edges).unwrap_or(0.0);
             // PR-YR16 (spec §3): the rim-AABB `curved_chord_bound` ignores the
             // cone height and can EXCEED the cone's honest bound for wide-short
             // cones (`h < 2R`), which would permit a residual larger than
@@ -657,7 +715,9 @@ impl BRep {
         }
 
         // ---- Per-face dispatch.
+        let mut face_tri_ranges: Vec<std::ops::Range<usize>> = Vec::with_capacity(faces.len());
         for (f_idx, f) in faces.iter().enumerate() {
+            let range_start = out_tris.len();
             let all_line = f
                 .outer_loop
                 .iter()
@@ -672,13 +732,13 @@ impl BRep {
                     // polygons; CDT handles the rest with exact coverage and no
                     // Steiner points.)
                     let needs_cdt = !f.inner_loops.is_empty()
-                        || planar_outer_loop_is_nonconvex(f, &edges, &out_verts, normal);
+                        || planar_outer_loop_is_nonconvex(f, edges, &out_verts, normal);
 
                     if needs_cdt {
                         tessellate_planar_cdt_face(
                             f_idx,
                             f,
-                            &edges,
+                            edges,
                             normal,
                             &out_verts,
                             &mut out_tris,
@@ -726,7 +786,7 @@ impl BRep {
                     tessellate_cap_face(
                         f_idx,
                         f,
-                        &edges,
+                        edges,
                         &rim_rings,
                         normal,
                         &mut out_verts,
@@ -742,7 +802,7 @@ impl BRep {
                     tessellate_lateral_face(
                         f_idx,
                         f,
-                        &edges,
+                        edges,
                         &rim_rings,
                         &out_verts,
                         axis_point,
@@ -755,8 +815,8 @@ impl BRep {
                     tessellate_sphere_face(
                         f_idx,
                         f,
-                        &edges,
-                        &verts,
+                        edges,
+                        verts,
                         center,
                         radius,
                         &mut out_verts,
@@ -772,9 +832,9 @@ impl BRep {
                     tessellate_cone_face(
                         f_idx,
                         f,
-                        &edges,
+                        edges,
                         &rim_rings,
-                        &verts,
+                        verts,
                         apex,
                         axis_dir,
                         half_angle,
@@ -784,37 +844,19 @@ impl BRep {
                     )?;
                 }
             }
+            face_tri_ranges.push(range_start..out_tris.len());
         }
 
-        let mesh = Mesh::new(out_verts, out_tris);
-        let tessellation = TessellationMap { sources };
-
-        Ok(Self {
-            vertices: verts,
-            edges,
-            faces,
-            mesh,
-            tessellation,
-            triangle_attribution: TriangleAttributionMap::empty(),
+        Ok(Stage1Tess {
+            verts: out_verts,
+            sources,
+            tris: out_tris,
+            face_tri_ranges,
         })
     }
+}
 
-    /// Construct from a pre-tessellated mesh (no topology).
-    /// Degenerate B-Rep: `TessellationMap` entries are all `Unknown`.
-    pub fn from_mesh(mesh: Mesh) -> Self {
-        let n = mesh.num_verts();
-        Self {
-            vertices: Vec::new(),
-            edges: Vec::new(),
-            faces: Vec::new(),
-            tessellation: TessellationMap {
-                sources: vec![TessellationSource::Unknown; n],
-            },
-            mesh,
-            triangle_attribution: TriangleAttributionMap::empty(),
-        }
-    }
-
+impl BRep {
     pub fn vertices(&self) -> &[BRepVertex] {
         &self.vertices
     }
@@ -1036,7 +1078,7 @@ impl BRep {
 
 /// Normalize a `[f64; 3]`; returns the input unchanged if its length is below
 /// `TAU_WORK` (defensive — callers pass real surface normals / axes).
-fn normalize3(v: [f64; 3]) -> [f64; 3] {
+pub(crate) fn normalize3(v: [f64; 3]) -> [f64; 3] {
     let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
     if len < cad_primitives::TAU_WORK {
         return v;
@@ -1059,7 +1101,7 @@ fn normalize3(v: [f64; 3]) -> [f64; 3] {
 /// `ortho_basis(-n)` and `ortho_basis(n)` share the SAME `e1` (the projection
 /// is invariant to flipping `nu`) but have OPPOSITE `e2` (since `e2 = nu × e1`)
 /// — the opposite-rim twist the lateral tessellation must compensate for.
-fn ortho_basis(n: Vector3) -> (Vector3, Vector3) {
+pub(crate) fn ortho_basis(n: Vector3) -> (Vector3, Vector3) {
     let nu = normalize3(n.as_array());
     let abs = [nu[0].abs(), nu[1].abs(), nu[2].abs()];
     // Seed = world axis with smallest |component| (tie-break x < y < z).
@@ -3120,6 +3162,22 @@ fn build_intersection_curves(
             continue;
         }
 
+        // Plane∩Plane: the curve is the unique line through the two (gate-
+        // verified on-both-planes) endpoints — `Curve::LineSegment`, exact,
+        // zero chord error. This short-circuit is byte-equivalent to the
+        // SSI route for TRANSVERSAL planes (ssi returns the Line, which
+        // maps to `LineSegment`) and is REQUIRED for the §4.5.5 coplanar
+        // seams (PR-YR26): the boundary of a trimmed common planar surface
+        // is an intersection curve between two COINCIDENT planes ("The
+        // boundaries of the common surface are regarded as intersection
+        // curves between the two models"), where `ssi_rs::intersect`
+        // correctly refuses the parallel-plane pair (`DegenerateInput`) —
+        // the curve comes from the 2D overlay, not from SSI.
+        if matches!(surf0, Surface::Plane { .. }) && matches!(surf1, Surface::Plane { .. }) {
+            out.insert((s, e), Curve::LineSegment);
+            continue;
+        }
+
         let q0 = surface_to_quadric(surf0).map_err(|reason| YangError::SsiRefinementFailed {
             edge: (s, e),
             reason,
@@ -3189,10 +3247,12 @@ pub enum YangError {
     /// so its winding cannot be canonicalized. M1 (Stage-1 orientation).
     DegenerateFace { face: usize },
     /// Geometric face resolution failed for a kept arrangement triangle
-    /// (M3, Stage 6). Either the triangle's surface label names ≥2 solids
-    /// (coplanar multi-solid overlap, out of scope → M8), or its centroid
-    /// lies on no input face plane / ties between ≥2 planes within
-    /// `TAU_WORK`. P9: fail loud, never a silent `None`.
+    /// (M3, Stage 6). Either the triangle's centroid lies on no input face
+    /// plane / ties between ≥2 planes within `TAU_WORK`, or (PR-YR26) a
+    /// multi-solid-labeled triangle has no matching Stage-0 pair plane —
+    /// in-scope coplanar overlaps now resolve via the §4.5.5 Stage-0
+    /// overlay instead of erroring here. P9: fail loud, never a silent
+    /// `None`.
     FaceResolutionFailed { tri: usize },
     /// The requested boolean op is not yet supported by the M3 pipeline.
     /// Currently only `Xor` (its symmetric-difference result is multi-shell /
@@ -3230,25 +3290,21 @@ pub enum YangError {
         vertex: u32,
         reason: Stage4InvalidReason,
     },
-    /// PR-YR24: input faces `face_a` (of solid `input_a`) and `face_b` (of
-    /// solid `input_b`) are coplanar — bit-exactly or within a
-    /// sub-model-resolution band — and their AABBs overlap, so they would
-    /// interact in the boolean. `input_a == input_b` is the CHAINED form:
-    /// a previous exact boolean's output re-imported with internal
-    /// near-but-not-bit-identical face planes (see
-    /// `near_coplanar_face_pair`).
-    /// Handling coplanar face pairs is Yang 2025 §4.5.5 Stage-0 coplanar
-    /// preprocessing (PRE-discretization 2D Boolean segmentation at the
-    /// B-Rep level, `refs/text/yang2025_hybrid_boolean.txt:717-731`) —
-    /// roadmap milestone M8, not yet implemented. Until M8, NEAR-coplanar
-    /// pairs must hit the SAME loud wall as bit-exact coplanar pairs (which
-    /// the cherchi-rs arrangement defers via `CoplanarPairDeferred`,
-    /// deviation N17): the exact arrangement would otherwise faithfully
-    /// build sub-f64-ulp sliver patches from the femto-scale residual
-    /// geometry, which no in/out ray seed can classify (the C++ reference
-    /// `booleans.cpp:504-575` exits there too). A P9/P10 LOUD boundary —
-    /// NOT tolerance-masking: nothing is snapped or widened, the case is
-    /// rejected as out of scope until Stage 0 lands.
+    /// PR-YR24/PR-YR26: input faces `face_a` (of solid `input_a`) and
+    /// `face_b` (of solid `input_b`) are coplanar — bit-exactly or within a
+    /// sub-model-resolution band — with overlapping AABBs, AND the case is
+    /// in the UNSUPPORTED RESIDUE of Yang 2025 §4.5.5 Stage-0 coplanar
+    /// preprocessing. Since PR-YR26 (M8 slice b) planar A×B pairs are
+    /// HANDLED (`stage0::stage0_preprocess`: canonical-plane snap + exact
+    /// 2D overlay + identical overlap meshes), so this error remains only
+    /// for: intra-solid near pairs (`input_a == input_b`, the CHAINED form
+    /// — a previous exact boolean's output re-imported with internal
+    /// near-but-not-bit-identical face planes, see `scan_near_coplanar`),
+    /// curved faces in a pair, a face in MORE than one pair, neighbor
+    /// faces whose subdivided ring cannot be re-triangulated (holes /
+    /// non-continuous loops / no valid fan apex), and overlay engine
+    /// failures (e.g. `RoundingCollapse` on sub-ulp in-plane slivers). A
+    /// P9/P10 LOUD boundary — never a silent wrong result.
     CoplanarFacesUnsupported {
         input_a: InputId,
         face_a: usize,
@@ -3418,21 +3474,23 @@ fn flip_for_op(op: BoolOp, la: &LabeledArrangement, t: usize) -> bool {
     }
 }
 
-/// PR-YR24: Stage-1 NEAR-coplanar input gate.
+/// PR-YR24: Stage-1 NEAR-coplanar input scan (PR-YR26: now the Stage-0
+/// DETECTOR, no longer a hard gate).
 ///
 /// Scans A-face × B-face pairs of the two input B-Reps (planar faces only,
 /// while their surfaces are still symbolic `Surface::Plane`s — i.e. BEFORE
-/// any mesh-level processing) and returns the first pair that is coplanar
+/// any mesh-level processing) and returns ALL cross pairs that are coplanar
 /// within the sub-model-resolution band AND could actually interact
-/// (overlapping AABBs).
+/// (overlapping AABBs), plus the first INTRA-solid pair (which remains the
+/// loud unsupported residue).
 ///
-/// **Why this gate exists.** Yang 2025 §4.5.5 requires coplanar face pairs
+/// **Why this scan exists.** Yang 2025 §4.5.5 requires coplanar face pairs
 /// to be detected and resolved by a 2D Boolean at the B-Rep level BEFORE
 /// mesh discretization ("it is necessary to check coplanar planes and
 /// perform 2D Boolean operations before mesh discretizations",
-/// `refs/text/yang2025_hybrid_boolean.txt:717-731`) — that is Stage 0,
-/// roadmap milestone M8, not yet implemented. Bit-EXACT coplanar pairs
-/// already hit a loud M8 wall today (cherchi-rs `CoplanarPairDeferred`,
+/// `refs/text/yang2025_hybrid_boolean.txt:717-731`) — Stage 0, roadmap
+/// milestone M8. Bit-EXACT coplanar overlaps that reach the arrangement
+/// unhandled hit cherchi-rs's loud deferral (`CoplanarPairDeferred`,
 /// deviation N17, `arrangements/soup.rs`). But f64 vertex construction
 /// leaves femto-scale residuals on faces built on the SAME oblique sketch
 /// plane (the KV4-F1 corpus family: R0029, F0016/18/19/21/25), so the EXACT
@@ -3440,10 +3498,11 @@ fn flip_for_op(op: BoolOp, la: &LabeledArrangement, t: usize) -> bool {
 /// builds sub-f64-ulp sliver patches (all-LPI, all-border, width < 1 ulp)
 /// whose in/out classification has no seedable ray origin
 /// (`NoExplicitRayOrigin` — the C++ reference `booleans.cpp:504-575` would
-/// exit there too). Until M8 lands, near-coplanar must hit the SAME loud
-/// wall as exact-coplanar. This is NOT tolerance-masking (P9): nothing is
-/// snapped, widened, or silently accepted — femto-scale geometry is
-/// converted into the loud, typed, documented M8 boundary.
+/// exit there too). PR-YR24 converted both classes into the loud typed
+/// `CoplanarFacesUnsupported` wall; PR-YR26 (M8 slice b) HANDLES the
+/// cross-pair planar class via the §4.5.5 overlay (`stage0_preprocess`) and
+/// keeps the wall only for the residue (intra pairs, unsupported face
+/// shapes, multi-pair faces).
 ///
 /// **The band.** For a candidate pair, with unit normals `n̂a`, `n̂b`
 /// (orientation-aligned: `s = sign(n̂a·n̂b)`) and unit-normal plane offsets
@@ -3512,7 +3571,23 @@ fn flip_for_op(op: BoolOp, la: &LabeledArrangement, t: usize) -> bool {
 /// accepted: a loud typed M8 deferral is strictly better than
 /// `NoExplicitRayOrigin` (P9), and a boolean that stays clear of the
 /// region entirely is still NOT flagged.
-fn near_coplanar_face_pair(a: &BRep, b: &BRep) -> Option<(InputId, usize, InputId, usize)> {
+/// One near-coplanar CROSS (A-face × B-face) pair found by
+/// [`scan_near_coplanar`], with the pair's detection `band`.
+pub(crate) struct CrossCoplanarPair {
+    pub(crate) face_a: usize,
+    pub(crate) face_b: usize,
+    pub(crate) band: f64,
+}
+
+/// Output of [`scan_near_coplanar`]: ALL cross pairs (PR-YR26 Stage-0
+/// handles each via the §4.5.5 overlay) plus the FIRST intra-solid pair
+/// (still the loud unsupported-residue error — the chained-output class).
+pub(crate) struct CoplanarScan {
+    pub(crate) cross: Vec<CrossCoplanarPair>,
+    pub(crate) intra: Option<(InputId, usize, usize)>,
+}
+
+pub(crate) fn scan_near_coplanar(a: &BRep, b: &BRep) -> CoplanarScan {
     /// Per-face plane data: unit normal, unit-normal offset, loop-vertex
     /// AABB, plus the RAW (un-normalized) plane bits for the intra-solid
     /// bit-identical exclusion.
@@ -3646,13 +3721,20 @@ fn near_coplanar_face_pair(a: &BRep, b: &BRep) -> Option<(InputId, usize, InputI
 
     // Cross pairs (A×B): bit-exact AND near-coplanar both flag; condition 3
     // is mutual AABB overlap (the two faces must be able to interact).
+    // PR-YR26: collect ALL such pairs (Stage 0 overlays each), not just the
+    // first.
+    let mut cross: Vec<CrossCoplanarPair> = Vec::new();
     for (ia, pa) in fa.iter().enumerate() {
         let Some(pa) = pa else { continue };
         for (ib, pb) in fb.iter().enumerate() {
             let Some(pb) = pb else { continue };
             if let Some(band) = near_coplanar_band(pa, pb) {
                 if aabbs_overlap(&pa.lo, &pa.hi, &pb.lo, &pb.hi, band) {
-                    return Some((InputId::A, ia, InputId::B, ib));
+                    cross.push(CrossCoplanarPair {
+                        face_a: ia,
+                        face_b: ib,
+                        band,
+                    });
                 }
             }
         }
@@ -3665,7 +3747,8 @@ fn near_coplanar_face_pair(a: &BRep, b: &BRep) -> Option<(InputId, usize, InputI
     // flagged iff the other solid's whole-solid AABB overlaps EITHER
     // fragment (see the function docs for the F0018/F0025 evidence and the
     // weighed over-deferral).
-    for (input, fp, other) in [
+    let mut intra: Option<(InputId, usize, usize)> = None;
+    'intra: for (input, fp, other) in [
         (InputId::A, &fa, solid_aabb(b)),
         (InputId::B, &fb, solid_aabb(a)),
     ] {
@@ -3681,13 +3764,14 @@ fn near_coplanar_face_pair(a: &BRep, b: &BRep) -> Option<(InputId, usize, InputI
                     if aabbs_overlap(&pi.lo, &pi.hi, &olo, &ohi, band)
                         || aabbs_overlap(&pj.lo, &pj.hi, &olo, &ohi, band)
                     {
-                        return Some((input, i, input, j));
+                        intra = Some((input, i, j));
+                        break 'intra;
                     }
                 }
             }
         }
     }
-    None
+    CoplanarScan { cross, intra }
 }
 
 /// Boolean operation on two B-Rep solids via a `MeshBoolean` backend.
@@ -3716,8 +3800,11 @@ fn near_coplanar_face_pair(a: &BRep, b: &BRep) -> Option<(InputId, usize, InputI
 /// 3. `keep = la.keep_set(op)` — Stage 4 face survival.
 /// 4. Compact the welded kept tris into a fresh sub-mesh (the output mesh).
 /// 5. **Geometric face resolution** (Stage 6) per kept tri → a FULL
-///    `TriangleAttributionMap` (every entry `Some`). `surface[t]` of
-///    length ≠ 1 → `FaceResolutionFailed` (F2 coplanar / multi-solid). For a
+///    `TriangleAttributionMap` (every entry `Some`). A SURVIVING
+///    multi-solid `surface[t]` (a §4.5.5 overlap-sheet triangle the (3b)
+///    side rule kept) attributes to input A — the dedup survivor's side,
+///    whose winding it carries (PR-YR26; B's coincident face has the same
+///    plane, so the inherited output surface is identical). For a
 ///    *non-degenerate* (positive-area) triangle: pick the unique labeled-solid
 ///    face plane within `TAU_WORK` of the centroid; no match / a genuine tie →
 ///    `FaceResolutionFailed` (F3). For a *degenerate* (zero-area sliver, kept
@@ -3734,21 +3821,25 @@ pub fn boolean(
     op: BoolOp,
     backend: &dyn MeshBoolean,
 ) -> Result<BRep, YangError> {
-    // (0) PR-YR24 near-coplanar input gate — the loud M8 boundary for input
-    // face pairs the EXACT cherchi-rs deferral (N17) cannot see. See
-    // `near_coplanar_face_pair` for the band and the §4.5.5 citation.
-    if let Some((input_a, face_a, input_b, face_b)) = near_coplanar_face_pair(a, b) {
-        return Err(YangError::CoplanarFacesUnsupported {
-            input_a,
-            face_a,
-            input_b,
-            face_b,
-        });
-    }
+    // (0) Stage 0 — §4.5.5 coplanar preprocessing (PR-YR26, M8 slice b).
+    // Near-coplanar planar A×B face pairs are HANDLED: both faces snapped
+    // onto one canonical shared plane, segmented by the exact 2D overlay,
+    // and re-tessellated so the overlap region carries IDENTICAL meshes on
+    // both solids (see `stage0::stage0_preprocess`). Unsupported residue
+    // (intra-solid near pairs — the chained-output class — plus curved /
+    // multi-pair faces and overlay failures) keeps the loud typed PR-YR24
+    // wall (`CoplanarFacesUnsupported`).
+    let stage0 = stage0::stage0_preprocess(a, b)?;
+    let (mesh_a, mesh_b): (&Mesh, &Mesh) = match &stage0 {
+        Some(s0) => (&s0.mesh_a, &s0.mesh_b),
+        // No coplanar pairs: the B-Reps' own Stage-1 meshes — byte-for-byte
+        // the pre-YR26 path.
+        None => (a.as_mesh(), b.as_mesh()),
+    };
 
     // (1) Stage 2: full labeled arrangement.
     let la = backend
-        .labeled_arrangement(a.as_mesh(), b.as_mesh())
+        .labeled_arrangement(mesh_a, mesh_b)
         .map_err(YangError::MeshBooleanFailed)?;
 
     // (2) I6 weld: the C++ producer does NOT always weld coincident vertices
@@ -3799,6 +3890,64 @@ pub fn boolean(
     let mut orig_tri: Vec<usize> = Vec::with_capacity(kept.len());
     for &orig_t in &kept {
         let raw = la.mesh.tris[orig_t];
+
+        // (3b) §4.5.5 overlap-sheet ("membrane") resolution. A triangle with
+        // a multi-solid surface label lies on the trimmed common planar
+        // surface of a Stage-0 pair. Cherchi's keep-rules alone keep it for
+        // EVERY op (surface = {A,B}, inside = ∅ satisfies the union /
+        // intersection / subtraction-branch-1 rules, booleans.cpp:1397/
+        // 1422/1467 — the C++ emits the zero-volume sheet); solid semantics
+        // instead keep it iff exactly ONE side of its plane is inside the
+        // result. With the pair's normal-agreement flag (`opposite`: solids
+        // on opposite sides, stacked; else both interiors on the same
+        // side, flush/pocket) that side rule reduces to:
+        //
+        //   Union:     keep iff !opposite (boundary of both ⇒ of the union)
+        //   Intersect: keep iff !opposite (boundary of A∩B; opposite ⇒ the
+        //              intersection is the zero-volume sheet itself: drop)
+        //   Subtract:  keep iff opposite (B is beyond the plane: the sheet
+        //              stays A's boundary; equal ⇒ B consumes it: the
+        //              pocket OPENING is removed)
+        //
+        // The kept copy is the dedup survivor — input A's, with A's winding
+        // — which is the correct result orientation in every kept case
+        // (subtract-opposite / union-equal / intersect-equal all bound the
+        // result with A's outward direction).
+        if la.surface[orig_t].len() > 1 {
+            let Some(s0) = &stage0 else {
+                // Multi-label tris can only come from Stage-0 overlap
+                // welds; without a Stage-0 plan this is out of scope (P9).
+                return Err(YangError::FaceResolutionFailed { tri: orig_t });
+            };
+            let p0 = la.mesh.verts[raw[0] as usize].as_array();
+            let p1 = la.mesh.verts[raw[1] as usize].as_array();
+            let p2 = la.mesh.verts[raw[2] as usize].as_array();
+            let c = [
+                (p0[0] + p1[0] + p2[0]) / 3.0,
+                (p0[1] + p1[1] + p2[1]) / 3.0,
+                (p0[2] + p1[2] + p2[2]) / 3.0,
+            ];
+            let Some(pair) = s0
+                .pairs
+                .iter()
+                .find(|p| (p.n[0] * c[0] + p.n[1] * c[1] + p.n[2] * c[2] + p.d).abs() <= p.band)
+            else {
+                // On no known pair plane — loud, never a guessed config.
+                return Err(YangError::FaceResolutionFailed { tri: orig_t });
+            };
+            let keep_sheet = match op {
+                BoolOp::Union | BoolOp::Intersect => !pair.opposite,
+                BoolOp::Subtract => pair.opposite,
+                // XOR never reaches here (rejected at (3a) on a non-empty
+                // kept set), but the side rule drops the sheet in both
+                // configs anyway.
+                BoolOp::Xor => false,
+            };
+            if !keep_sheet {
+                continue;
+            }
+        }
+
         // Apply the weld (coincident points → shared original index).
         let mut tri = [
             weld[raw[0] as usize],
@@ -3860,15 +4009,23 @@ pub fn boolean(
     let mut attributions: Vec<Option<TriangleAttribution>> = Vec::with_capacity(orig_tri.len());
     for (compact_t, &orig_t) in orig_tri.iter().enumerate() {
         let surf = &la.surface[orig_t];
-        // F2: coplanar / multi-solid surface label (out of scope, M8).
-        if surf.len() != 1 {
-            return Err(YangError::FaceResolutionFailed { tri: compact_t });
-        }
-        let LaInputId(k) = surf[0];
-        // cherchi InputId(u32): 0 → A, 1 → B.
-        let (input_brep, input) = match k {
-            0 => (a, InputId::A),
-            _ => (b, InputId::B),
+        let (input_brep, input) = if surf.len() > 1 {
+            // §4.5.5 trimmed common surface (PR-YR26): a SURVIVING
+            // multi-label triangle is a kept overlap-sheet triangle (the
+            // (3b) side rule already decided it bounds the result). It
+            // descends from coincident faces of BOTH inputs; the kept copy
+            // is the dedup survivor — input A's, with A's winding — so it
+            // attributes to input A (its plane equals B's, so the
+            // inherited output surface is identical either way; A is the
+            // deterministic choice consistent with the kept orientation).
+            (a, InputId::A)
+        } else {
+            let LaInputId(k) = surf[0];
+            // cherchi InputId(u32): 0 → A, 1 → B.
+            match k {
+                0 => (a, InputId::A),
+                _ => (b, InputId::B),
+            }
         };
 
         // Centroid of the (compact) triangle — same coords as `la.mesh`.

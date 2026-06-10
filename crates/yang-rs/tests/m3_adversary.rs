@@ -318,63 +318,59 @@ fn a2_xor_independent_geometry() {
 // ATTACK 3 — Out-of-scope coplanar overlap must FAIL LOUDLY, not silently wrong.
 //
 // A@[0,0,0], B@[1,0,0] abut sharing the x=1 plane (A's right face == B's left
-// face). The arrangement produces coplanar tris whose surface label names BOTH
-// solids → F2 → FaceResolutionFailed. M3's contract (spec failure modes) is
-// "error loudly", not a wrong-but-Ok result.
+// face).
 //
-// PR-CR-BL3c (native backend): the loud error now fires EARLIER —
-// `MeshBooleanFailed(Arrangement(CoplanarPairDeferred))`, the native
-// arrangement's explicit M8 deferral — instead of the sidecar-era Stage-6
-// FaceResolutionFailed. Same M8 boundary, same loudness; both variants
-// satisfy this test's any-Err contract.
+// HISTORY: the pre-M8 contract was "error loudly" (Stage-6 F2
+// FaceResolutionFailed, later MeshBooleanFailed(CoplanarPairDeferred) under
+// the native backend). PR-YR26 (M8 slice b) HANDLES planar A×B coplanar
+// pairs via the §4.5.5 Stage-0 overlay, so the contract flips: these cases
+// must now produce the CORRECT solid, asserted against the analytic volume
+// + watertightness — a far stronger oracle than any-Err.
 // =========================================================================
 
 #[test]
-fn a3_coplanar_shared_face_errors_loudly() {
+fn a3_coplanar_shared_face_union_is_merged_box() {
     let Some(sb) = yang_rs::native_backend() else {
         eprintln!("[m3_adversary] SKIP: native FFI shim not linked (stub build)");
         return;
     };
     let a = cube([0.0, 0.0, 0.0]);
-    let b = cube([1.0, 0.0, 0.0]); // shares plane x=1
-    let res = boolean(&a, &b, BoolOp::Union, &sb);
-    // Must be an Err — either FaceResolutionFailed (coplanar multi-solid label,
-    // the spec'd M8 case) or a backend failure. It must NOT be a silently-wrong
-    // Ok result.
-    match res {
-        Err(YangError::FaceResolutionFailed { .. }) => { /* spec'd M8 loud error */ }
-        Err(other) => {
-            // Any loud error is acceptable for an out-of-scope case; the
-            // anti-requirement is a wrong Ok. Record which we hit.
-            eprintln!("[a3] coplanar abut errored (acceptable): {other:?}");
-        }
-        Ok(r) => panic!(
-            "a3: coplanar abut produced Ok (vol={}, {} tris) — M3 must error loudly, \
-             not silently produce a result for an out-of-scope coplanar overlap",
-            signed_volume(r.as_mesh()),
-            r.num_tris()
-        ),
-    }
+    let b = cube([1.0, 0.0, 0.0]); // shares plane x=1 (opposite normals)
+    let r = boolean(&a, &b, BoolOp::Union, &sb)
+        .expect("PR-YR26: coplanar abut is handled by the Stage-0 overlay");
+    let mesh = r.as_mesh();
+    assert_eq!(unpaired_half_edges(mesh), 0, "a3: union watertight");
+    let vol = signed_volume(mesh);
+    assert!(
+        (vol - 2.0).abs() < 1e-9,
+        "a3: side-by-side unit cubes union to the 2×1×1 box, got vol {vol}"
+    );
+    assert_eq!(euler_characteristic(mesh), 2, "a3: χ = 2");
 }
 
 #[test]
-fn a3_coplanar_face_overlap_x_offset_errors_loudly() {
-    // B offset only in x by 0.5: shares the y∈{0,1} and z∈{0,1} face planes
-    // with A (coplanar face overlap on 4 faces). Out of scope → must error.
+fn a3_coplanar_face_overlap_x_offset_union_is_exact() {
+    // B offset only in x by 0.5: the solids overlap in [0.5,1]×[0,1]² AND
+    // share the y∈{0,1} / z∈{0,1} face planes (4 simultaneous equal-normal
+    // coplanar pairs). PR-YR26: all four pairs are overlaid; the overlap
+    // sheets on each shared plane are part of the union boundary (equal
+    // normals → keep). Union volume = 1 + 1 − 0.5 = 1.5.
     let Some(sb) = yang_rs::native_backend() else {
         eprintln!("[m3_adversary] SKIP: native FFI shim not linked (stub build)");
         return;
     };
     let a = cube([0.0, 0.0, 0.0]);
     let b = cube([0.5, 0.0, 0.0]);
-    match boolean(&a, &b, BoolOp::Union, &sb) {
-        Err(YangError::FaceResolutionFailed { .. }) => {}
-        Err(other) => eprintln!("[a3-xoff] errored (acceptable): {other:?}"),
-        Ok(r) => panic!(
-            "a3-xoff: x-only coplanar overlap produced Ok (vol={}) — must error loudly",
-            signed_volume(r.as_mesh())
-        ),
-    }
+    let r = boolean(&a, &b, BoolOp::Union, &sb)
+        .expect("PR-YR26: 4-pair coplanar overlap is handled by the Stage-0 overlay");
+    let mesh = r.as_mesh();
+    assert_eq!(unpaired_half_edges(mesh), 0, "a3-xoff: union watertight");
+    let vol = signed_volume(mesh);
+    assert!(
+        (vol - 1.5).abs() < 1e-9,
+        "a3-xoff: union volume must be 1.5, got {vol}"
+    );
+    assert_eq!(euler_characteristic(mesh), 2, "a3-xoff: χ = 2");
 }
 
 // =========================================================================

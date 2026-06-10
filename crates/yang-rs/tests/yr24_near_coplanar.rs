@@ -231,8 +231,7 @@ fn r0029_near_coplanar_union_succeeds_via_stage0_overlay() {
                 let a = mesh.verts[t[0] as usize];
                 let b = mesh.verts[t[1] as usize];
                 let c = mesh.verts[t[2] as usize];
-                (a.x() * (b.y() * c.z() - b.z() * c.y())
-                    - a.y() * (b.x() * c.z() - b.z() * c.x())
+                (a.x() * (b.y() * c.z() - b.z() * c.y()) - a.y() * (b.x() * c.z() - b.z() * c.x())
                     + a.z() * (b.x() * c.y() - b.y() * c.x()))
                     / 6.0
             })

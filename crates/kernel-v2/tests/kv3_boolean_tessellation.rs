@@ -480,22 +480,38 @@ fn boolean_disjoint_intersect_is_empty() {
 /// defers coplanar pairs — Yang Stage 0 / roadmap M8 boundary. Must be
 /// the TYPED UnsupportedCoplanar for every op, not a generic failure.
 #[test]
-fn boolean_coplanar_touching_is_typed_unsupported() {
+fn boolean_coplanar_touching_succeeds_via_stage0_overlay() {
+    // PR-YR26 (M8 slice b) CONTRACT CHANGE: planar A×B coplanar face pairs
+    // are now HANDLED by yang-rs's §4.5.5 Stage-0 overlay (canonical-plane
+    // snap + exact 2D overlay + identical overlap meshes), so these cases
+    // produce the CORRECT solid instead of the typed `UnsupportedCoplanar`
+    // M8 wall — a strictly stronger oracle. The wall remains only for the
+    // unsupported residue (intra-solid near pairs, curved/multi-pair faces).
     let mut arena = BrepArena::new();
     let a = make_box(&mut arena, [0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
     let b = make_box(&mut arena, [2.0, 0.0, 0.0], [4.0, 2.0, 2.0]);
-    for op in [BoolOp::Union, BoolOp::Intersect, BoolOp::Subtract] {
-        let err = boolean_op(&mut arena, a, b, op).unwrap_err();
-        assert_eq!(
-            err,
-            KernelV2Error::UnsupportedCoplanar,
-            "op {op:?}: coplanar-touching must surface as the typed M8 boundary"
-        );
-    }
-    // Coplanar OVERLAP (shared bottom plane) is the same class.
+    // Side-by-side boxes sharing the full x = 2 face (opposite normals):
+    // union = the merged 4×2×2 box (16); subtract A−B = A (8).
+    let out = boolean_op(&mut arena, a, b, BoolOp::Union).expect("coplanar-touching union");
+    validate_solid(&arena, out).expect("union validates");
+    assert_eq!(
+        signed_volume(&arena, out).expect("vol"),
+        16.0,
+        "8 + 8, exactly"
+    );
+    let out = boolean_op(&mut arena, a, b, BoolOp::Subtract).expect("coplanar-touching subtract");
+    validate_solid(&arena, out).expect("subtract validates");
+    assert_eq!(signed_volume(&arena, out).expect("vol"), 8.0, "A unchanged");
+    // Coplanar OVERLAP (shared bottom plane, EQUAL normals): the overlap
+    // sheet is part of the union's bottom face. 8 + 8 − 1·1·2 = 14.
     let c = make_box(&mut arena, [1.0, 1.0, 0.0], [3.0, 3.0, 2.0]);
-    let err = boolean_op(&mut arena, a, c, BoolOp::Union).unwrap_err();
-    assert_eq!(err, KernelV2Error::UnsupportedCoplanar);
+    let out = boolean_op(&mut arena, a, c, BoolOp::Union).expect("shared-bottom union");
+    validate_solid(&arena, out).expect("shared-bottom union validates");
+    assert_eq!(
+        signed_volume(&arena, out).expect("vol"),
+        14.0,
+        "8 + 8 − 2, exactly"
+    );
 }
 
 /// XOR is deferred by yang-rs (UnsupportedOp) — surfaces loudly as

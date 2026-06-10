@@ -378,7 +378,12 @@ fn pocket_union_is_a() {
 
 #[test]
 fn pocket_intersect_is_b() {
-    let out = run(&solid_a(), &b_pocket(), BoolOp::Intersect, "pocket intersect");
+    let out = run(
+        &solid_a(),
+        &b_pocket(),
+        BoolOp::Intersect,
+        "pocket intersect",
+    );
     assert_solid(&out, 1.0, "pocket intersect");
 }
 

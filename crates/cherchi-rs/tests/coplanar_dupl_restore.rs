@@ -186,12 +186,7 @@ fn in_labels_are_single_id_after_restoration() {
         24,
         "both copies of the 2 shared-face triangles must be present in in_tris"
     );
-    let count = |l: InputId| {
-        soup.in_labels
-            .iter()
-            .filter(|lab| lab.contains(&l))
-            .count()
-    };
+    let count = |l: InputId| soup.in_labels.iter().filter(|lab| lab.contains(&l)).count();
     assert_eq!(count(A), 12, "A's closed shell has 12 triangles");
     assert_eq!(count(B), 12, "B's closed shell has 12 triangles");
 }
