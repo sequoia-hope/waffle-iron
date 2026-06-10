@@ -3226,6 +3226,22 @@ pub enum YangError {
         vertex: u32,
         reason: Stage4InvalidReason,
     },
+    /// PR-YR24: input faces `face_a` (of solid A) and `face_b` (of solid B)
+    /// are coplanar — bit-exactly or within a sub-model-resolution band —
+    /// and their AABBs overlap, so they would interact in the boolean.
+    /// Handling coplanar face pairs is Yang 2025 §4.5.5 Stage-0 coplanar
+    /// preprocessing (PRE-discretization 2D Boolean segmentation at the
+    /// B-Rep level, `refs/text/yang2025_hybrid_boolean.txt:717-731`) —
+    /// roadmap milestone M8, not yet implemented. Until M8, NEAR-coplanar
+    /// pairs must hit the SAME loud wall as bit-exact coplanar pairs (which
+    /// the cherchi-rs arrangement defers via `CoplanarPairDeferred`,
+    /// deviation N17): the exact arrangement would otherwise faithfully
+    /// build sub-f64-ulp sliver patches from the femto-scale residual
+    /// geometry, which no in/out ray seed can classify (the C++ reference
+    /// `booleans.cpp:504-575` exits there too). A P9/P10 LOUD boundary —
+    /// NOT tolerance-masking: nothing is snapped or widened, the case is
+    /// rejected as out of scope until Stage 0 lands.
+    CoplanarFacesUnsupported { face_a: usize, face_b: usize },
 }
 
 /// PR-YR10 (Stage 4): why a relocation region could not be made valid.
@@ -3337,6 +3353,14 @@ impl fmt::Display for YangError {
                     f,
                     "yang-rs: Stage-4 relocation region around vertex {vertex} is invalid: \
                      {reason:?}"
+                )
+            }
+            Self::CoplanarFacesUnsupported { face_a, face_b } => {
+                write!(
+                    f,
+                    "yang-rs: input faces A#{face_a} and B#{face_b} are coplanar (within \
+                     the sub-model-resolution band) — coplanar boolean requires Yang 2025 \
+                     §4.5.5 Stage-0 preprocessing (M8), not yet supported"
                 )
             }
         }
