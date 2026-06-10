@@ -16,7 +16,6 @@
 //!   endpoints; consumers OR both orders (`enforce.rs`). Parity is
 //!   asserted against `FFI(fwd) || FFI(rev)` — exactly the symmetric
 //!   semantics our native composites implement directly.
-#![cfg(feature = "indirect-predicates")]
 
 mod indirect_common;
 
@@ -98,7 +97,7 @@ macro_rules! with_h {
 /// Build the explicit-point arena + typed handles for a slice of specs,
 /// then run `f` over the handles.
 fn with_handles<R>(specs: &[&Spec], f: impl FnOnce(&[Handle<'_>]) -> R) -> R {
-    cherchi_rs::arrangements::require_ffi_shim();
+    indirect_common::require_ffi_shim();
     ip::init_fpu();
     let mut pts: Vec<ip::ExplicitPoint3D> = Vec::new();
     let mut ranges: Vec<(usize, usize)> = Vec::new();
@@ -789,7 +788,7 @@ fn point_in_segment_exact_degenerate_parity() {
 
 #[test]
 fn approx_lpi_matches_ffi_interval_midpoints() {
-    cherchi_rs::arrangements::require_ffi_shim();
+    indirect_common::require_ffi_shim();
     ip::init_fpu();
     let iv = |pt: Point3| -> [ip::IntervalNumber; 3] {
         [

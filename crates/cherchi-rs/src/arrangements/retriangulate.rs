@@ -21,9 +21,10 @@
 //! constraint insertion). Constraint/segment insertion and the
 //! cross-triangle conformance are AR2b / AR3.
 //!
-//! **Feature-gated FFI consumer**: locating an `Lpi` point (interior vs. which
-//! edge) uses the indirect-predicates sidecar (LGPL FFI), so the whole module
-//! is behind the off-by-default `indirect-predicates` feature.
+//! Pure Rust since PR-CR-M7c: locating an `Lpi`/`Tpi` point (interior vs.
+//! which edge) uses the clean-room native indirect predicates
+//! (`crate::predicates::indirect`), so the module compiles unconditionally
+//! (WASM-clean).
 //!
 //! ## Scope (RED — Cycle 3a)
 //!
@@ -46,11 +47,9 @@
 //! ([`RetriangulateError::NoContainingTriangle`]).
 
 use crate::arrangements::aux_structure::TypedPoint;
-use crate::arrangements::gp_dispatch::{
-    backing, dispatch_orient2d, dispatch_point_in_triangle, gp,
-};
+use crate::arrangements::gp_dispatch::{dispatch_orient2d, dispatch_point_in_triangle, to_generic};
 use crate::arrangements::FastTrimesh;
-use indirect_predicates_sidecar_rs::{init_fpu, Sign as IpSign};
+use crate::predicates::indirect::Sign as IpSign;
 
 /// Error from [`split_single_triangle`].
 #[derive(Debug, PartialEq)]
@@ -69,15 +68,13 @@ pub enum RetriangulateError {
 /// re-triangulator (the part that places intersection points before constraint
 /// insertion). See the module docs for the uniform-on-edge-check deviation.
 ///
-/// All point location uses EXACT coordinates via the indirect-predicates FFI
-/// (built from `vert_coords`, NOT the `vert()` midpoint approx), so `Lpi`
-/// vertices are located robustly.
+/// All point location uses EXACT coordinates via the native indirect
+/// predicates (built from `vert_coords`, NOT the `vert()` midpoint approx),
+/// so `Lpi` vertices are located robustly.
 pub fn split_single_triangle(
     subm: &mut FastTrimesh,
     points: &[TypedPoint],
 ) -> Result<(), RetriangulateError> {
-    init_fpu();
-
     for tp in points {
         let v = subm.add_vert_typed(tp.coords);
         let cont_t = find_containing_triangle(subm, v)
@@ -97,21 +94,16 @@ pub fn split_single_triangle(
 }
 
 /// The sub-triangle (boundary-inclusive) containing vertex `v`, located on
-/// EXACT coordinates via the FFI. Returns `None` if `v` lies outside every
-/// triangle (i.e. outside the base).
+/// EXACT coordinates via the native indirect predicates. Returns `None` if
+/// `v` lies outside every triangle (i.e. outside the base).
 fn find_containing_triangle(subm: &FastTrimesh, v: u32) -> Option<u32> {
-    let vb = backing(subm.vert_coords(v));
-    let vp = gp(subm.vert_coords(v), &vb);
+    // One generic point per vertex, constructed once and reused across the
+    // triangle loop (its lambdas are cached internally — PR-CR-M7c).
+    let vp = to_generic(subm.vert_coords(v));
     for t in 0..subm.num_tris() {
-        let c0 = subm.vert_coords(subm.tri_vert_id(t, 0));
-        let c1 = subm.vert_coords(subm.tri_vert_id(t, 1));
-        let c2 = subm.vert_coords(subm.tri_vert_id(t, 2));
-        let b0 = backing(c0);
-        let b1 = backing(c1);
-        let b2 = backing(c2);
-        let g0 = gp(c0, &b0);
-        let g1 = gp(c1, &b1);
-        let g2 = gp(c2, &b2);
+        let g0 = to_generic(subm.vert_coords(subm.tri_vert_id(t, 0)));
+        let g1 = to_generic(subm.vert_coords(subm.tri_vert_id(t, 1)));
+        let g2 = to_generic(subm.vert_coords(subm.tri_vert_id(t, 2)));
         if dispatch_point_in_triangle(&vp, &g0, &g1, &g2) {
             return Some(t);
         }
@@ -119,18 +111,12 @@ fn find_containing_triangle(subm: &FastTrimesh, v: u32) -> Option<u32> {
     None
 }
 
-/// True iff vertex `v` lies on the supporting line of edge `e`, via exact FFI
-/// `orient2d` in the submesh's reference plane (`Sign::Zero`).
+/// True iff vertex `v` lies on the supporting line of edge `e`, via the exact
+/// native `orient2d` in the submesh's reference plane (`Sign::Zero`).
 fn fast_point_on_line(subm: &FastTrimesh, e: u32, v: u32) -> bool {
-    let a = subm.vert_coords(subm.edge_vert_id(e, 0));
-    let b = subm.vert_coords(subm.edge_vert_id(e, 1));
-    let p = subm.vert_coords(v);
-    let ba = backing(a);
-    let bb = backing(b);
-    let bp = backing(p);
-    let ga = gp(a, &ba);
-    let gb = gp(b, &bb);
-    let gpv = gp(p, &bp);
+    let ga = to_generic(subm.vert_coords(subm.edge_vert_id(e, 0)));
+    let gb = to_generic(subm.vert_coords(subm.edge_vert_id(e, 1)));
+    let gpv = to_generic(subm.vert_coords(v));
     dispatch_orient2d(subm.ref_plane(), &ga, &gb, &gpv) == IpSign::Zero
 }
 
@@ -385,7 +371,6 @@ mod tests {
     ///   base A; interior Explicit (2,1,0): x>0,y>0,x+y=3<4 → inside.
     #[test]
     fn case_a_one_interior_three_tris() {
-        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let mut subm = one_tri(a[0], a[1], a[2]);
         let pts = vec![tp_explicit(Point3::new(2.0, 1.0, 0.0))];
@@ -397,7 +382,6 @@ mod tests {
     ///   Explicit (2,0,0) lies on it.
     #[test]
     fn case_b_one_on_edge_two_tris_explicit() {
-        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let mut subm = one_tri(a[0], a[1], a[2]);
         let pts = vec![tp_explicit(Point3::new(2.0, 0.0, 0.0))];
@@ -412,7 +396,6 @@ mod tests {
     ///   intersection = (2,0,0), on edge (0,1).
     #[test]
     fn case_b_one_on_edge_two_tris_lpi() {
-        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let mut subm = one_tri(a[0], a[1], a[2]);
         let line = [Point3::new(2.0, 0.0, -1.0), Point3::new(2.0, 0.0, 1.0)];
@@ -436,7 +419,6 @@ mod tests {
     ///   (2,1,0) and (1,2,0): both interior (sums 3<4).
     #[test]
     fn case_c_two_interior_five_tris() {
-        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let mut subm = one_tri(a[0], a[1], a[2]);
         let pts = vec![
@@ -471,7 +453,6 @@ mod tests {
     /// Includes an `Lpi` vertex so LPI exact coords are exercised.
     #[test]
     fn oracle_exact_covering_subtriangulation() {
-        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let mut subm = one_tri(a[0], a[1], a[2]);
 
@@ -623,7 +604,6 @@ mod tests {
     /// and the tri count matches the fan/edge-split Euler expectation.
     #[test]
     fn topology_validity_after_insertion() {
-        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let mut subm = one_tri(a[0], a[1], a[2]);
         let pts = vec![
@@ -723,7 +703,6 @@ mod tests {
     ///   GREEN: interior (1,1,0) → fan into 3.
     #[test]
     fn tpi_interior_one_point_three_tris() {
-        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let mut subm = one_tri(a[0], a[1], a[2]);
         let (v, w, u) = tpi_fixture_planes();
@@ -821,7 +800,6 @@ mod tests {
     /// `Tpi` arm (the inserted vertex resolves to (1,1,0)).
     #[test]
     fn tpi_interior_exact_covering_subtriangulation() {
-        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let mut subm = one_tri(a[0], a[1], a[2]);
         let (v, w, u) = tpi_fixture_planes();
@@ -876,7 +854,6 @@ mod tests {
     /// (2,0,0).
     #[test]
     fn tpi_interior_covering_with_lpi_and_explicit() {
-        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let mut subm = one_tri(a[0], a[1], a[2]);
         let (v, w, u) = tpi_fixture_planes();

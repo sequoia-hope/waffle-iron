@@ -32,20 +32,17 @@
 pub mod arrangements;
 pub mod boolean;
 pub mod labeled_arrangement;
-/// Boolean labeling (Cherchi 2022 §5) over the AR3b arrangement soup —
-/// feature-gated with the arrangement it consumes (M6 BL* slices).
-#[cfg(feature = "indirect-predicates")]
+/// Boolean labeling (Cherchi 2022 §5) over the AR3b arrangement soup
+/// (M6 BL* slices). Pure Rust since PR-CR-M7c (clean-room predicates).
 pub mod labeling;
 pub mod mesh;
 pub mod predicates;
 pub mod processing;
 pub mod triangulation;
 
-#[cfg(feature = "indirect-predicates")]
-pub use arrangements::{ffi_shim_available, mesh_arrangement, ArrangementError, ArrangementSoup};
+pub use arrangements::{mesh_arrangement, ArrangementError, ArrangementSoup};
 pub use boolean::MeshBoolean;
 pub use labeled_arrangement::{InputId, LabeledArrangement};
-#[cfg(feature = "indirect-predicates")]
 pub use labeling::{native_labeled_arrangement, NativeBoolean, NativeBooleanError};
 pub use mesh::Mesh;
 pub use triangulation::{cdt_polygon_with_holes, CdtError};

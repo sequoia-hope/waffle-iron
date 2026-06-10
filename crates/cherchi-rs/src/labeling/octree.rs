@@ -330,7 +330,6 @@ mod tests {
     }
 
     fn arrange(s0: Solid, s1: Solid) -> ArrangementSoup {
-        crate::arrangements::require_ffi_shim();
         let (coords, tris, labels) = concat(s0, s1);
         mesh_arrangement(&coords, &tris, &labels).expect("arrangement")
     }

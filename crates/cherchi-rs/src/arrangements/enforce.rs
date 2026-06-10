@@ -31,12 +31,12 @@
 
 use crate::arrangements::aux_structure::{ConstraintSegment, TypedPoint};
 use crate::arrangements::fast_trimesh::VertexCoords;
-use crate::arrangements::gp_dispatch::{backing, gp, with_gp, Gp};
-use crate::arrangements::{FastTrimesh, Plane};
-use cad_primitives::Point3;
-use indirect_predicates_sidecar_rs::{
-    init_fpu, inner_segments_cross, point_in_inner_segment, AsGenericPoint, Sign as IpSign,
+use crate::arrangements::gp_dispatch::{dispatch_orient2d, to_generic};
+use crate::arrangements::FastTrimesh;
+use crate::predicates::indirect::{
+    inner_segments_cross_indirect, point_in_inner_segment_indirect, Sign as IpSign,
 };
+use cad_primitives::Point3;
 use std::collections::HashMap;
 
 /// A constraint segment expressed in SUBMESH-vertex-id terms (the form the
@@ -105,8 +105,6 @@ pub fn enforce_constraint_segments(
     subm: &mut FastTrimesh,
     specs: &[SegmentSpec],
 ) -> Result<(), EnforceError> {
-    init_fpu();
-
     // Orientation: computed once from the base corners (submesh vertex ids
     // 0,1,2 — always explicit, never removed). Do NOT use tri_orientation(0):
     // after splits the triangle at slot 0 may have a non-explicit corner.
@@ -165,15 +163,9 @@ pub fn enforce_constraints(
 /// The base triangle's 2D orientation sign, computed from submesh vertices
 /// 0,1,2 (always explicit, never removed) via the reference-plane `orient2d`.
 fn base_orientation(subm: &FastTrimesh) -> IpSign {
-    let c0 = subm.vert_coords(0);
-    let c1 = subm.vert_coords(1);
-    let c2 = subm.vert_coords(2);
-    let b0 = backing(c0);
-    let b1 = backing(c1);
-    let b2 = backing(c2);
-    let g0 = gp(c0, &b0);
-    let g1 = gp(c1, &b1);
-    let g2 = gp(c2, &b2);
+    let g0 = to_generic(subm.vert_coords(0));
+    let g1 = to_generic(subm.vert_coords(1));
+    let g2 = to_generic(subm.vert_coords(2));
     dispatch_orient2d(subm.ref_plane(), &g0, &g1, &g2)
 }
 
@@ -695,15 +687,9 @@ fn earcut_linear(subm: &FastTrimesh, poly: &[u32], tris: &mut Vec<u32>, orientat
         .collect();
 
     let ear_ok = |subm: &FastTrimesh, a: u32, b: u32, c: u32| -> bool {
-        let ca = subm.vert_coords(a);
-        let cb = subm.vert_coords(b);
-        let cc = subm.vert_coords(c);
-        let ba = backing(ca);
-        let bb = backing(cb);
-        let bc = backing(cc);
-        let ga = gp(ca, &ba);
-        let gb = gp(cb, &bb);
-        let gc = gp(cc, &bc);
+        let ga = to_generic(subm.vert_coords(a));
+        let gb = to_generic(subm.vert_coords(b));
+        let gc = to_generic(subm.vert_coords(c));
         let check = dispatch_orient2d(subm.ref_plane(), &ga, &gb, &gc);
         check == orientation
     };
@@ -781,29 +767,11 @@ fn tri_opp_to_edge(subm: &FastTrimesh, e: u32, t: u32) -> Option<u32> {
     adj.iter().copied().find(|&x| x != t)
 }
 
-// ── Predicate dispatchers over Gp handles ─────────────────────────────
-
-/// `orient2d` (in `plane`) over three `Gp` handles.
-fn dispatch_orient2d(plane: Plane, a: &Gp, b: &Gp, c: &Gp) -> IpSign {
-    use indirect_predicates_sidecar_rs::{orient2d_xy, orient2d_yz, orient2d_zx};
-    fn o2d(
-        plane: Plane,
-        a: &impl AsGenericPoint,
-        b: &impl AsGenericPoint,
-        c: &impl AsGenericPoint,
-    ) -> IpSign {
-        match plane {
-            Plane::XY => orient2d_xy(a, b, c),
-            Plane::YZ => orient2d_yz(a, b, c),
-            Plane::ZX => orient2d_zx(a, b, c),
-        }
-    }
-    with_gp!(o2d(plane, a, b, c); a, b, c)
-}
+// ── Predicate dispatchers over native generic points ──────────────────
 
 /// True iff the open segments {v_start, v_stop} and {ev0, ev1} cross at a point
 /// strictly interior to both (port of `segmentsIntersectInside`, cpp:1170 →
-/// `innerSegmentsCross`).
+/// `innerSegmentsCross`; native since PR-CR-M7c).
 fn segments_intersect_inside(
     subm: &FastTrimesh,
     v_start: u32,
@@ -811,46 +779,29 @@ fn segments_intersect_inside(
     ev0: u32,
     ev1: u32,
 ) -> bool {
-    let (ca, cb, cc, cd) = (
-        subm.vert_coords(v_start),
-        subm.vert_coords(v_stop),
-        subm.vert_coords(ev0),
-        subm.vert_coords(ev1),
-    );
-    let (ba, bb, bc, bd) = (backing(ca), backing(cb), backing(cc), backing(cd));
-    let (ga, gb, gc, gd) = (gp(ca, &ba), gp(cb, &bb), gp(cc, &bc), gp(cd, &bd));
-    let (ga, gb, gc, gd) = (&ga, &gb, &gc, &gd);
-    with_gp!(inner_segments_cross(ga, gb, gc, gd); ga, gb, gc, gd)
+    let ga = to_generic(subm.vert_coords(v_start));
+    let gb = to_generic(subm.vert_coords(v_stop));
+    let gc = to_generic(subm.vert_coords(ev0));
+    let gd = to_generic(subm.vert_coords(ev1));
+    inner_segments_cross_indirect(&ga, &gb, &gc, &gd)
 }
 
 /// True iff vertex `p` lies on the OPEN segment (ev0, ev1) — collinear and
 /// strictly between, endpoints excluded (port of `pointInsideSegment`,
 /// cpp:1178 → `pointInInnerSegment`).
 ///
-/// `pointInInnerSegment(p, v1, v2)` is mathematically symmetric in `v1 ↔ v2`
-/// ("p strictly between v1 and v2"), and IS symmetric for implicit (LPI/TPI)
-/// endpoints, where `lessThanOn*` returns a real signed −1/0/+1. For two
-/// EXPLICIT endpoints the EE branch returns the C++ `bool` `a.X() < b.X()`
-/// (0 or 1, never −1), so a single call only fires when `v1 < p < v2`
-/// componentwise — i.e. it becomes endpoint-order-sensitive (the documented
-/// sidecar EE limitation; see `indirect-predicates-sidecar-rs` smoke tests).
-/// To restore the intended symmetric semantics regardless of the
-/// valence-chosen endpoint order, query BOTH orders and OR them. For implicit
-/// endpoints this is a no-op (the symmetric result is unchanged); for explicit
-/// endpoints it makes "strictly inside" order-independent without widening any
-/// tolerance or special-casing a fixture.
+/// PR-CR-M7c: the pre-M7c FFI version queried BOTH endpoint orders and OR-ed
+/// them to recover symmetric semantics around the sidecar's order-sensitive
+/// explicit-explicit comparator branch (the C++ `bool a.X() < b.X()` quirk).
+/// The clean-room native `point_in_inner_segment_indirect` is symmetric in
+/// `v1 ↔ v2` by construction (its comparator is a true signed −1/0/+1 on every
+/// arm, including explicit-explicit), so the fwd||rev pair collapses to ONE
+/// call with identical semantics.
 fn point_inside_segment(subm: &FastTrimesh, ev0: u32, ev1: u32, p: u32) -> bool {
-    let (cp, c0, c1) = (
-        subm.vert_coords(p),
-        subm.vert_coords(ev0),
-        subm.vert_coords(ev1),
-    );
-    let (bp, b0, b1) = (backing(cp), backing(c0), backing(c1));
-    let (gpp, g0, g1) = (gp(cp, &bp), gp(c0, &b0), gp(c1, &b1));
-    let (gpp, g0, g1) = (&gpp, &g0, &g1);
-    let fwd = with_gp!(point_in_inner_segment(gpp, g0, g1); gpp, g0, g1);
-    let rev = with_gp!(point_in_inner_segment(gpp, g1, g0); gpp, g0, g1);
-    fwd || rev
+    let gpp = to_generic(subm.vert_coords(p));
+    let g0 = to_generic(subm.vert_coords(ev0));
+    let g1 = to_generic(subm.vert_coords(ev1));
+    point_in_inner_segment_indirect(&gpp, &g0, &g1)
 }
 
 #[cfg(test)]
@@ -1043,7 +994,6 @@ mod tests {
     /// existing edge and add NO new vertex (no spurious TPI).
     #[test]
     fn segment_already_an_edge_flags_no_new_vertex() {
-        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let p = Point3::new(1.0, 1.0, 0.0);
         let mut subm = one_tri(a[0], a[1], a[2]);
@@ -1094,7 +1044,6 @@ mod tests {
     /// realized as the constraint chain (A0,M) + (M,P).
     #[test]
     fn t_junction_segment_through_interior_vertex() {
-        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let m = Point3::new(1.0, 1.0, 0.0);
         let p = Point3::new(1.5, 1.5, 0.0);
@@ -1319,7 +1268,6 @@ mod tests {
     /// base's; no degenerate sub-tri. Pure `RBig`, independent of the FFI path.
     #[test]
     fn x_crossing_exact_covering_subtriangulation() {
-        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let s1a = Point3::new(1.0, 0.0, 0.0);
         let s1b = Point3::new(1.0, 3.0, 0.0);
@@ -1420,7 +1368,6 @@ mod tests {
     /// the two submesh vertices carrying the endpoint coords.
     #[test]
     fn enforce_constraints_adapter_resolves_interned_endpoints() {
-        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let b = tilted_b();
         let soup = soup_pair(a, b);
@@ -2098,23 +2045,21 @@ mod tests {
         );
     }
 
-    // ── Probe 6: gp_dispatch refactor parity (sub-step 3a was a pure move) ──
+    // ── Probe 6: gp_dispatch swap parity (M7c: FFI handles → native points) ──
 
-    /// The 3a refactor moved `Gp`/`backing`/`gp`/`dispatch_orient2d`/
-    /// `dispatch_point_in_triangle` out of `retriangulate.rs` verbatim. Exercise
-    /// the moved helpers directly on a known Explicit input and assert the
-    /// expected sign/bool, demonstrating identical behaviour post-move. (The full
-    /// retriangulate suite — run separately — confirms no behavioural regression.)
+    /// PR-CR-M7c rewired `gp_dispatch` from FFI handles (`Gp`/`backing`/`gp`)
+    /// to native `GenericPoint3D` conversion (`to_generic`). Exercise the new
+    /// helpers directly on a known Explicit input and assert the expected
+    /// sign/bool, demonstrating identical behaviour post-swap. (The full
+    /// retriangulate suite — run separately — confirms no behavioural
+    /// regression.)
     #[test]
     fn adv_gp_dispatch_refactor_parity() {
         use crate::arrangements::gp_dispatch::{
-            backing, dispatch_orient2d, dispatch_point_in_triangle, gp,
+            dispatch_orient2d, dispatch_point_in_triangle, to_generic,
         };
-        use indirect_predicates_sidecar_rs::{init_fpu, Sign as IpSign, AVAILABLE};
-        if !AVAILABLE {
-            panic!("FFI shim not linked; gp_dispatch parity probe cannot run");
-        }
-        init_fpu();
+        use crate::arrangements::Plane;
+        use crate::predicates::indirect::Sign as IpSign;
 
         // CCW triangle in XY → orient2d positive; a known interior point inside.
         let c0 = VertexCoords::Explicit(Point3::new(0.0, 0.0, 0.0));
@@ -2122,8 +2067,12 @@ mod tests {
         let c2 = VertexCoords::Explicit(Point3::new(0.0, 4.0, 0.0));
         let cp = VertexCoords::Explicit(Point3::new(1.0, 1.0, 0.0));
 
-        let (b0, b1, b2, bp) = (backing(&c0), backing(&c1), backing(&c2), backing(&cp));
-        let (g0, g1, g2, gpp) = (gp(&c0, &b0), gp(&c1, &b1), gp(&c2, &b2), gp(&cp, &bp));
+        let (g0, g1, g2, gpp) = (
+            to_generic(&c0),
+            to_generic(&c1),
+            to_generic(&c2),
+            to_generic(&cp),
+        );
 
         assert_eq!(
             dispatch_orient2d(Plane::XY, &g0, &g1, &g2),
@@ -2136,8 +2085,7 @@ mod tests {
         );
         // A point clearly outside must test outside.
         let cout = VertexCoords::Explicit(Point3::new(5.0, 5.0, 0.0));
-        let bout = backing(&cout);
-        let gout = gp(&cout, &bout);
+        let gout = to_generic(&cout);
         assert!(
             !dispatch_point_in_triangle(&gout, &g0, &g1, &g2),
             "an exterior explicit point must test outside via gp_dispatch"
@@ -2152,7 +2100,6 @@ mod tests {
     /// helper returns `false` (rather than panicking or returning `true`).
     #[test]
     fn adv_edge_is_constr_between_false_for_nonadjacent() {
-        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         // Insert an interior point so a non-adjacent pair (the interior point and
         // a base corner not on its fan… here all corners ARE adjacent to a single

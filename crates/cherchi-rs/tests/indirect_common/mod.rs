@@ -105,3 +105,22 @@ pub fn tuple_stream(n: usize, count: usize) -> Vec<[usize; 4]> {
     }
     out
 }
+
+/// Loud guard for the dev-only FFI differential oracles (PR-CR-M7c: the FFI
+/// shim is a dev-dependency, used strictly as a black-box reference). When
+/// the Indirect_Predicates C++ source is missing at build time, the shim
+/// compiles as a no-op stub (`AVAILABLE == false`) whose predicates return
+/// garbage — refuse to run the parity oracle against it (P9/P10: never fail
+/// — or pass — for the wrong reason).
+#[allow(dead_code)] // not every includer of indirect_common runs FFI oracles
+#[allow(clippy::assertions_on_constants)] // the assert on a const IS the point
+pub fn require_ffi_shim() {
+    assert!(
+        indirect_predicates_sidecar_rs::AVAILABLE,
+        "indirect-predicates FFI shim not linked (AVAILABLE == false): the \
+         Indirect_Predicates C++ source was missing at build time, so the \
+         no-op stub was compiled and every predicate returns garbage. Run \
+         scripts/build_sidecars.sh (roadmap M0) or set \
+         INDIRECT_PREDICATES_SRC, then rebuild."
+    );
+}

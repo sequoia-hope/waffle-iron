@@ -20,10 +20,10 @@
 //! on one of its edges, with corner-coincident points dropped (they are
 //! already vertices, so they introduce no new split).
 //!
-//! **Feature-gated FFI consumer**: exact "is this point on edge `i` / in the
-//! interior" classification of an `Lpi` point routes through the
-//! indirect-predicates sidecar (LGPL FFI), so the whole module is behind the
-//! off-by-default `indirect-predicates` feature (WASM builds with it off).
+//! Pure Rust since PR-CR-M7c: exact "is this point on edge `i` / in the
+//! interior" classification of an `Lpi` point routes through the clean-room
+//! native indirect predicates (`crate::predicates::indirect`), so the module
+//! compiles unconditionally (WASM-clean).
 //!
 //! ## Scope (RED — Cycle 3a)
 //!
@@ -44,14 +44,11 @@ use std::collections::BTreeMap;
 
 use crate::arrangements::fast_trimesh::VertexCoords;
 use crate::arrangements::{FastTrimesh, IntersectionVertex, PairClassification, Plane};
+use crate::predicates::indirect::{point_in_triangle_indirect, GenericPoint3D, Sign as IpSign};
 use crate::predicates::{point_in_triangle_3d, PointLocation};
 use cad_primitives::Point3;
 use dashu::float::FBig;
 use dashu::rational::RBig;
-use indirect_predicates_sidecar_rs::{
-    init_fpu, orient2d_xy, orient2d_yz, orient2d_zx, point_in_triangle, AsGenericPoint,
-    ExplicitPoint3D, ImplicitPoint3DLpi, Sign as IpSign,
-};
 
 // =========================================================================
 // Exact geometric point identity (PR-CR-AR3c, supersedes deviation N18)
@@ -253,8 +250,6 @@ pub fn group_intersection_points(
     soup: &FastTrimesh,
     classified: &[((u32, u32), PairClassification)],
 ) -> (Vec<TypedPoint>, Vec<TriangleAuxPoints>) {
-    init_fpu();
-
     let mut interner = PointInterner::new();
     let mut buckets: Vec<TriangleAuxPoints> =
         vec![TriangleAuxPoints::default(); soup.num_tris() as usize];
@@ -569,8 +564,8 @@ fn same_point_set(a: &[Point3; 3], b: &[Point3; 3]) -> bool {
 }
 
 /// Place an LPI (by interned `id`) into the pierced triangle `y`'s buckets:
-/// on the unique edge whose supporting line passes through the LPI (exact FFI
-/// `orient2d == Zero`), else in the interior.
+/// on the unique edge whose supporting line passes through the LPI (exact
+/// native `orient2d == Zero`), else in the interior.
 fn place_lpi_in_pierced(
     soup: &FastTrimesh,
     y: u32,
@@ -585,13 +580,17 @@ fn place_lpi_in_pierced(
         soup.tri_vert(y, 2),
     ];
 
-    // Backing generators (kept alive for the LPI handle) + corner handles.
-    let gens = lpi_backing(line, plane);
-    let lpi = ImplicitPoint3DLpi::new(&gens[0], &gens[1], &gens[2], &gens[3], &gens[4]);
-    let ce: [ExplicitPoint3D; 3] = [explicit(c[0]), explicit(c[1]), explicit(c[2])];
+    // One native generic point per vertex (lambdas cached inside, reused
+    // across the predicate calls below — PR-CR-M7c).
+    let lpi = GenericPoint3D::lpi(line[0], line[1], plane[0], plane[1], plane[2]);
+    let ce: [GenericPoint3D; 3] = [
+        GenericPoint3D::explicit(c[0]),
+        GenericPoint3D::explicit(c[1]),
+        GenericPoint3D::explicit(c[2]),
+    ];
 
     // Confirm the LPI is in `y` (boundary-inclusive). If not, drop it.
-    if !point_in_triangle(&lpi, &ce[0], &ce[1], &ce[2]) {
+    if !point_in_triangle_indirect(&lpi, &ce[0], &ce[1], &ce[2]) {
         return;
     }
 
@@ -611,37 +610,15 @@ fn place_lpi_in_pierced(
     }
 }
 
-/// The five explicit generators backing an LPI handle (`line` = `p, q`;
-/// `plane` = `r, s, t`). Kept in a separate array so the handle can borrow them
-/// without a self-referential struct.
-fn lpi_backing(line: &[Point3; 2], plane: &[Point3; 3]) -> [ExplicitPoint3D; 5] {
-    [
-        explicit(line[0]),
-        explicit(line[1]),
-        explicit(plane[0]),
-        explicit(plane[1]),
-        explicit(plane[2]),
-    ]
-}
-
-/// Build an FFI explicit-point handle from a `Point3`.
-fn explicit(p: Point3) -> ExplicitPoint3D {
-    ExplicitPoint3D::new(p.x(), p.y(), p.z())
-}
-
-/// `orient2d` of `(a, b, p)` projected to `plane`, via the FFI (so an implicit
-/// `p` is handled exactly).
+/// `orient2d` of `(a, b, p)` projected to `plane`, via the native indirect
+/// predicates (so an implicit `p` is handled exactly).
 fn ip_orient2d_plane(
     plane: Plane,
-    a: &impl AsGenericPoint,
-    b: &impl AsGenericPoint,
-    p: &impl AsGenericPoint,
+    a: &GenericPoint3D,
+    b: &GenericPoint3D,
+    p: &GenericPoint3D,
 ) -> IpSign {
-    match plane {
-        Plane::XY => orient2d_xy(a, b, p),
-        Plane::YZ => orient2d_yz(a, b, p),
-        Plane::ZX => orient2d_zx(a, b, p),
-    }
+    crate::arrangements::gp_dispatch::dispatch_orient2d(plane, a, b, p)
 }
 
 /// Push `id` into `vec` only if not already present.
@@ -745,7 +722,6 @@ mod tests {
     ///   - Returned `Vec<TriangleAuxPoints>` length == num_tris == 2.
     #[test]
     fn transversal_two_lpi_bucketing() {
-        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let b = [
             Point3::new(1.0, 1.0, -1.0),
@@ -917,7 +893,6 @@ mod tests {
     /// Dedup ⇒ that generator appears once in the global set.
     #[test]
     fn dedup_identical_lpi_across_pairs() {
-        crate::arrangements::require_ffi_shim();
         let a = xy_triangle_a();
         let pp = Point3::new(1.0, 1.0, -1.0);
         let qq = Point3::new(1.0, 1.0, 1.0);
@@ -1278,8 +1253,6 @@ mod ar3c_tests {
     /// silently dropped from both triangles.
     #[test]
     fn anchor_pair_order_invariant_geometric_endpoints() {
-        crate::arrangements::require_ffi_shim();
-
         for (name, first, second) in [
             ("cube-first", cube_tri(), peg_tri()),
             ("peg-first", peg_tri(), cube_tri()),

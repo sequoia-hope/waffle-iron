@@ -101,7 +101,6 @@ fn concat(s0: Solid, s1: Solid) -> Solid {
 }
 
 fn arrange(solid: Solid) -> ArrangementSoup {
-    crate::arrangements::require_ffi_shim();
     let (coords, tris, labels) = solid;
     mesh_arrangement(&coords, &tris, &labels).expect("arrangement")
 }

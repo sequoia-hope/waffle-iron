@@ -245,10 +245,9 @@ fn all_explicit_delegates_to_cr6_orient3d() {
 
 // ---------------------------------------------------------------------
 // Group 5 — exact lambda cross-checks vs our AR3c Cramer machinery
-// (gated: `exact_point_coords` lives in the feature-gated aux_structure)
+// (ungated since PR-CR-M7c: aux_structure is always compiled)
 // ---------------------------------------------------------------------
 
-#[cfg(feature = "indirect-predicates")]
 mod ar3c_cross_check {
     use super::*;
     use crate::arrangements::aux_structure::exact_point_coords;

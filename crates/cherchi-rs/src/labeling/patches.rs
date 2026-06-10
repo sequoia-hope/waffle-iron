@@ -258,7 +258,6 @@ mod tests {
     /// edges with 4 incident triangles (2 per input), verified by probe
     /// (edge-incidence histogram {2: 60, 4: 6} on this fixture).
     fn cut_boxes_soup() -> ArrangementSoup {
-        crate::arrangements::require_ffi_shim();
         let (coords, tris, labels) =
             concat(cube(0.0, 0.0, 0.0, 2.0, A), cube(1.0, 1.0, 1.0, 2.0, B));
         mesh_arrangement(&coords, &tris, &labels).expect("box overlap arrangement")
@@ -269,14 +268,12 @@ mod tests {
     /// (B's apex splits A's slant face, 8 real verts / 10 tris) but creates
     /// NO intersection segments — every edge stays manifold.
     fn touching_tetra_soup() -> ArrangementSoup {
-        crate::arrangements::require_ffi_shim();
         let (coords, tris, labels) =
             concat(tetra(0.0, 0.0, 0.0, 3.0, A), tetra(1.0, 1.0, 1.0, 3.0, B));
         mesh_arrangement(&coords, &tris, &labels).expect("tetra touch arrangement")
     }
 
     fn disjoint_tetra_soup() -> ArrangementSoup {
-        crate::arrangements::require_ffi_shim();
         let (coords, tris, labels) = concat(
             tetra(0.0, 0.0, 0.0, 1.0, A),
             tetra(10.0, 10.0, 10.0, 1.0, B),
@@ -287,7 +284,6 @@ mod tests {
     /// Cube B strictly inside cube A — fully enclosed: no surface
     /// intersection, two separate shells.
     fn enclosed_cube_soup() -> ArrangementSoup {
-        crate::arrangements::require_ffi_shim();
         let (coords, tris, labels) =
             concat(cube(0.0, 0.0, 0.0, 2.0, A), cube(0.5, 0.5, 0.5, 1.0, B));
         mesh_arrangement(&coords, &tris, &labels).expect("enclosed arrangement")

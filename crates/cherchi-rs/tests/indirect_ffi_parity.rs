@@ -9,7 +9,6 @@
 //! OTHER; only a differential test against the independent reference can
 //! catch a mis-derived lambda or determinant that is internally
 //! consistent but wrong.
-#![cfg(feature = "indirect-predicates")]
 
 mod indirect_common;
 
@@ -73,7 +72,7 @@ macro_rules! with_h {
 
 /// Evaluate the reference (FFI) orient3d on the four specs.
 fn ffi_orient3d(specs: &[&Spec; 4]) -> ip::Sign {
-    cherchi_rs::arrangements::require_ffi_shim();
+    indirect_common::require_ffi_shim();
     ip::init_fpu();
     // Build all explicit handles first (implicit handles borrow them).
     let mut pts: Vec<ip::ExplicitPoint3D> = Vec::new();

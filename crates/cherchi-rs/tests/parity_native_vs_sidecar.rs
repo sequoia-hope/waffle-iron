@@ -52,14 +52,14 @@
 //! same metric). Note `Subtract(A,B)` and `Subtract(B,A)` differ by
 //! definition — the swap checks compare like with like.
 //!
-//! ## Sidecar requirement — LOUD, per `require_ffi_shim` style
+//! ## Sidecar requirement — LOUD
 //!
 //! This suite is the M6 gate; silently green-without-the-oracle is the worst
 //! failure mode (P9). A missing `mesh_booleans` binary PANICS with an
-//! actionable message instead of self-skipping (strictest existing pattern:
-//! `arrangements::require_ffi_shim`).
-
-#![cfg(feature = "indirect-predicates")]
+//! actionable message instead of self-skipping. (PR-CR-M7c: the former
+//! `require_ffi_shim` guard is gone from this suite — the native side is
+//! pure Rust and needs no FFI shim; only the subprocess sidecar binary is
+//! required.)
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -579,8 +579,8 @@ fn compare_cell(
     Ok(())
 }
 
-/// Loud sidecar handle: PANICS (require_ffi_shim style) when the C++ binary
-/// is missing — a silently-skipped reference oracle is a false GREEN (P9).
+/// Loud sidecar handle: PANICS when the C++ binary is missing — a
+/// silently-skipped reference oracle is a false GREEN (P9).
 fn sidecar() -> SidecarBoolean {
     match SidecarBoolean::from_env() {
         Ok(sb) => sb,
@@ -598,7 +598,6 @@ fn sidecar() -> SidecarBoolean {
 /// Run all 4 ops for one fixture, accumulating per-cell failures so a single
 /// run reports the full row of the parity matrix.
 fn run_fixture(name: &str, a: &Mesh, b: &Mesh) {
-    cherchi_rs::arrangements::require_ffi_shim();
     let sb = sidecar();
     let (vol_scale, area_scale) = bbox_scales(a, b);
     let mut failures: Vec<String> = Vec::new();
@@ -667,7 +666,6 @@ fixture_test!(parity_non_representable_offset_boxes, 11);
 /// triangulation-independent metric. Subtract(B,A) ≠ Subtract(A,B) by
 /// definition — it is covered by check (a) only.
 fn run_swap_invariance(name: &str, a: &Mesh, b: &Mesh) {
-    cherchi_rs::arrangements::require_ffi_shim();
     let sb = sidecar();
     let (vol_scale, area_scale) = bbox_scales(a, b);
     let mut failures: Vec<String> = Vec::new();
@@ -740,7 +738,6 @@ fn parity_swap_interpenetrating_tetrahedra() {
 /// reconciled), never left silently un-tested.
 #[test]
 fn excluded_coplanar_fixture_defers_loudly() {
-    cherchi_rs::arrangements::require_ffi_shim();
     assert!(
         !EXCLUDED_FIXTURES.is_empty(),
         "exclusion list documents the deferred families"

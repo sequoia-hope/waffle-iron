@@ -49,11 +49,11 @@ RUST_REWRITE_CRATES=(
   indirect-predicates-sidecar-rs
 )
 
-# cherchi-rs FFI tier: the M6 native arrangement only compiles under
-# --features indirect-predicates; without this run a real arrangement
-# regression is invisible to every tier. Requires the Indirect_Predicates
-# C++ source (scripts/build_sidecars.sh, roadmap M0).
-IP_SRC_DEFAULT="/home/claude/cherchi2022/InteractiveAndRobustMeshBooleans/arrangements/external/Indirect_Predicates"
+# (PR-CR-M7c) The former cherchi-rs `--features indirect-predicates` FFI tier
+# is gone: the M6 native arrangement now uses the clean-room pure-Rust
+# predicates and compiles unconditionally, so the plain `cargo test -p
+# cherchi-rs` run above covers it. The FFI shim survives only as a
+# dev-dependency parity oracle inside cherchi-rs's own test suite.
 
 # ---------------------------------------------------------------------------
 # Rust Fast Tier — kernel filtered modules
@@ -250,29 +250,6 @@ run_rust_rewrite() {
   for crate in "${RUST_REWRITE_CRATES[@]}"; do
     run_cargo_test "$crate"
   done
-
-  # cherchi-rs M6 native arrangement (FFI-backed). Skipping is LOUD — a skip
-  # here means the native-arrangement path is not being tested at all.
-  local ip_src="${INDIRECT_PREDICATES_SRC:-$IP_SRC_DEFAULT}"
-  if [[ -f "$ip_src/include/indirect_predicates.h" ]]; then
-    local start rc=0
-    start=$(timer_start)
-    mem_guard cargo test -p cherchi-rs --features indirect-predicates \
-      -- --test-threads="$TEST_THREADS" || rc=$?
-    local elapsed
-    elapsed=$(timer_elapsed "$start")
-    if [[ $rc -eq 0 ]]; then
-      pass "cherchi-rs [--features indirect-predicates] (${elapsed}s)"
-    else
-      fail "cherchi-rs [--features indirect-predicates] (${elapsed}s)"
-    fi
-  else
-    echo -e "  ${YELLOW}${BOLD}⚠ SKIPPED: cherchi-rs --features indirect-predicates${NC}"
-    echo -e "  ${YELLOW}  Indirect_Predicates source not found at:${NC}"
-    echo -e "  ${YELLOW}    $ip_src${NC}"
-    echo -e "  ${YELLOW}  The M6 native arrangement is NOT being tested.${NC}"
-    echo -e "  ${YELLOW}  Fix: ./scripts/build_sidecars.sh  (roadmap M0)${NC}"
-  fi
 
   local elapsed
   elapsed=$(timer_elapsed "$tier_start")
@@ -479,7 +456,7 @@ print_help() {
   echo -e "Usage: ${CYAN}scripts/test.sh <subcommand>${NC}"
   echo ""
   echo -e "${BOLD}Subcommands:${NC}"
-  echo -e "  ${GREEN}rewrite${NC}      Kernel-rewrite crates only (new-crate suites + FFI tier)"
+  echo -e "  ${GREEN}rewrite${NC}      Kernel-rewrite crates only (new-crate suites)"
   echo -e "  ${GREEN}fast${NC}         Rust fast tier       (rewrite crates + legacy fast, <60s target)"
   echo -e "  ${GREEN}full${NC}         Rust full tier        (~910 tests)"
   echo -e "  ${GREEN}gui-fast${NC}     GUI fast tier         (~260 tests, 35 spec files)"
@@ -494,7 +471,6 @@ print_help() {
   echo ""
   echo -e "${BOLD}Kernel Rewrite Crates (run in fast AND full):${NC}"
   echo "  ${RUST_REWRITE_CRATES[*]}"
-  echo "  + cherchi-rs --features indirect-predicates (loud skip if sidecar unbuilt)"
   echo ""
   echo -e "${BOLD}Rust Fast Tier:${NC}"
   echo "  Full crates: ${RUST_FAST_FULL_CRATES[*]} $WASM_BRIDGE_CRATE"

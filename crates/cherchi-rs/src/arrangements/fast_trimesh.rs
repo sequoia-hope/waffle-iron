@@ -38,10 +38,10 @@
 //!    `VertexCoords` enum by value: `Explicit(Point3)` for input
 //!    points, and (since PR-CR-AR2a Cycle 2) `Lpi { line, plane }` for
 //!    line-plane intersection points carried by their `Point3`
-//!    generators. This is WASM-clean / FFI-free — only `Point3`
-//!    generators are stored, never a `genericPoint` handle. Exact
-//!    queries on an `Lpi` vertex route through `vert_coords` + the
-//!    indirect-predicates FFI in the feature-gated arrangement code;
+//!    generators. This is WASM-clean — only `Point3` generators are
+//!    stored, never a `genericPoint` handle. Exact queries on an `Lpi`
+//!    vertex route through `vert_coords` + the clean-room native
+//!    indirect predicates (`predicates::indirect`, PR-CR-M7c);
 //!    `vert()` returns only a finite midpoint approx for the topology
 //!    layer. Since PR-CR-AR2b the `Tpi { v, w, u }` variant (nine
 //!    `Point3` generators — three triangles' corners — mirroring
@@ -174,10 +174,10 @@ pub enum Plane {
 
 /// Coordinates of a `FastTrimesh` vertex. Generalizes the original
 /// `Point3`-only storage (deviation #1) to admit implicit line-plane
-/// intersection (LPI) points carried by their generators. WASM-clean /
-/// FFI-free: only `Point3` generators are stored — exact queries on an
-/// `Lpi` vertex route through `vert_coords` + the indirect-predicates FFI
-/// (in the feature-gated arrangement code), never through `vert()`.
+/// intersection (LPI) points carried by their generators. WASM-clean:
+/// only `Point3` generators are stored — exact queries on an `Lpi`
+/// vertex route through `vert_coords` + the clean-room native indirect
+/// predicates (`predicates::indirect`), never through `vert()`.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum VertexCoords {
     /// An explicit input point.
@@ -419,8 +419,8 @@ impl FastTrimesh {
     /// Finite `Point3` for a vertex. For `Explicit(p)` this is `p`; for
     /// an `Lpi` vertex this is the line midpoint — `// approx only for
     /// Lpi`, a stand-in so the topology layer keeps working. Exact LPI
-    /// queries must route through `vert_coords` + the indirect-predicates
-    /// FFI, never through `vert()`.
+    /// queries must route through `vert_coords` + the native indirect
+    /// predicates, never through `vert()`.
     pub fn vert(&self, v: u32) -> Point3 {
         debug_assert!(v < self.num_verts(), "vert: id {v} out of range");
         vert_point(&self.vertices[v as usize].coords)
@@ -1161,8 +1161,8 @@ impl FastTrimesh {
 
 /// Finite `Point3` for stored vertex coordinates. `Explicit(p)` → `p`;
 /// `Lpi { line, .. }` → the line midpoint (`// approx only for Lpi`, never
-/// oracle-checked — exact LPI queries route through the indirect-predicates
-/// FFI on the `VertexCoords::Lpi` generators).
+/// oracle-checked — exact LPI queries route through the native indirect
+/// predicates on the `VertexCoords::Lpi` generators).
 fn vert_point(coords: &VertexCoords) -> Point3 {
     match coords {
         VertexCoords::Explicit(p) => *p,
@@ -1173,7 +1173,7 @@ fn vert_point(coords: &VertexCoords) -> Point3 {
         ),
         // approx only for Tpi — centroid of the 9 generators, bookkeeping only
         // (never oracle-checked; exact Tpi queries route through `vert_coords`
-        // + the indirect-predicates FFI in the feature-gated arrangement code).
+        // + the native indirect predicates in the arrangement code).
         VertexCoords::Tpi { v, w, u } => {
             let mut sx = 0.0;
             let mut sy = 0.0;

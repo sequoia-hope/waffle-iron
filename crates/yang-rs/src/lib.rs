@@ -85,7 +85,6 @@ use std::fmt;
 pub use cad_primitives::{BoolOp, Point3, Vector3};
 pub use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};
 pub use cherchi_rs::{Mesh, MeshBoolean};
-#[cfg(feature = "native-boolean")]
 pub use cherchi_rs::{NativeBoolean, NativeBooleanError};
 
 /// Construct the PRODUCTION boolean backend: the native, in-process
@@ -95,23 +94,14 @@ pub use cherchi_rs::{NativeBoolean, NativeBooleanError};
 /// the C++ subprocess sidecar (`cherchi-sidecar-rs`) is demoted to a
 /// test-only parity oracle (PR-CR-BL3c).
 ///
-/// Returns `None` when the build linked the no-op indirect-predicates FFI
-/// stub (the Indirect_Predicates C++ source was missing at build time —
-/// `scripts/build_sidecars.sh`, roadmap M0). In that build every predicate
-/// returns garbage, so handing out a backend would produce silently-wrong
-/// geometry (P9: fail loud / skip loud, never wrong-quietly). Tests use
-/// `let Some(nb) = yang_rs::native_backend() else { /* skip */ }` exactly
-/// like the old `SidecarBoolean::from_env()` self-skip.
-///
-/// Non-WASM until roadmap M7 (clean-room predicates); see the
-/// `native-boolean` feature docs in Cargo.toml.
-#[cfg(feature = "native-boolean")]
+/// Always `Some` since PR-CR-M7c: the predicates are clean-room pure Rust
+/// (`cherchi-rs::predicates::indirect`) — there is no FFI stub build left to
+/// guard against, and the backend is WASM-clean. The `Option` signature is
+/// retained for the many existing
+/// `let Some(nb) = yang_rs::native_backend() else { /* skip */ }` call
+/// sites (their skip arms are now dead but harmless).
 pub fn native_backend() -> Option<NativeBoolean> {
-    if cherchi_rs::ffi_shim_available() {
-        Some(NativeBoolean)
-    } else {
-        None
-    }
+    Some(NativeBoolean)
 }
 
 // =========================================================================

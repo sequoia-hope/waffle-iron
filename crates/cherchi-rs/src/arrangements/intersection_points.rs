@@ -13,9 +13,10 @@
 //! (`/home/claude/cherchi2022/InteractiveAndRobustMeshBooleans/`), emitting a
 //! **typed intersection-vertex set per pair** (AR2 re-triangulates from it).
 //!
-//! **First FFI consumer inside `cherchi-rs`**: the LPI point construction uses
-//! `indirect-predicates-sidecar-rs`, so the whole module is gated behind the
-//! off-by-default `indirect-predicates` feature (WASM builds with it off).
+//! Pure Rust since PR-CR-M7c: the LPI approx readback routes through the
+//! clean-room `crate::predicates::indirect::approx_lpi` (formerly the FFI
+//! `lambda3d_lpi_interval`), so the module compiles unconditionally
+//! (WASM-clean).
 //!
 //! ## Scope (source-faithful — deviation N13 in `docs/yang_deviations.md`)
 //!
@@ -55,7 +56,6 @@ use crate::predicates::{
     SegmentTriangleIntersection, Sign,
 };
 use cad_primitives::Point3;
-use indirect_predicates_sidecar_rs::{init_fpu, lambda3d_lpi_interval, IntervalNumber};
 
 /// One endpoint of a tri-tri intersection, correctly typed.
 ///
@@ -316,40 +316,23 @@ fn check_single_no_coplanar_edge_intersection(
 }
 
 /// Approximate explicit coordinates of the line-plane intersection, read back
-/// from the indirect-predicates interval lambdas. `approx` is for spatial
+/// from the native indirect-predicates interval lambdas (PR-CR-M7c:
+/// [`crate::predicates::indirect::approx_lpi`], the clean-room equivalent of
+/// the former FFI `lambda3d_lpi_interval` readback). `approx` is for spatial
 /// bookkeeping only (not oracle-checked) — but it should land at the true
-/// piercing point. `lambda_d` may be negative, so divide using the true ratio
-/// (interval midpoints).
+/// piercing point.
 fn lpi_approx(p: Point3, q: Point3, r: Point3, s: Point3, t: Point3) -> Point3 {
-    // One-time FPU init (idempotent); safe to call repeatedly.
-    init_fpu();
-
-    let iv = |pt: Point3| -> [IntervalNumber; 3] {
-        [
-            IntervalNumber::point(pt.x()),
-            IntervalNumber::point(pt.y()),
-            IntervalNumber::point(pt.z()),
-        ]
-    };
-    let res = lambda3d_lpi_interval(iv(p), iv(q), iv(r), iv(s), iv(t));
-    let mid = |n: IntervalNumber| -> f64 { (n.inf + n.sup) / 2.0 };
-
-    let d = mid(res.lambda_d);
-    if d == 0.0 {
-        // Degenerate denominator (line parallel to / in the plane). Fall back to
-        // the segment midpoint so `approx` stays finite; the generators (the
-        // load-bearing data) are exact regardless.
-        return Point3::new(
+    match crate::predicates::indirect::approx_lpi(p, q, r, s, t) {
+        Some(pt) => pt,
+        // Degenerate denominator (line parallel to / in the plane). KEEP the
+        // segment-midpoint fallback so `approx` stays finite; the generators
+        // (the load-bearing data) are exact regardless.
+        None => Point3::new(
             (p.x() + q.x()) / 2.0,
             (p.y() + q.y()) / 2.0,
             (p.z() + q.z()) / 2.0,
-        );
+        ),
     }
-    Point3::new(
-        mid(res.lambda_x) / d,
-        mid(res.lambda_y) / d,
-        mid(res.lambda_z) / d,
-    )
 }
 
 /// The two corner indices of a triangle that are NOT `vtx` (the opposite edge).

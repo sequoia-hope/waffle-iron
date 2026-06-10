@@ -76,7 +76,6 @@ use crate::processing::multiplier::{compute_multiplier, multiply_coordinates};
 use cad_primitives::Point3;
 use dashu::float::FBig;
 use dashu::rational::RBig;
-use indirect_predicates_sidecar_rs::init_fpu;
 
 /// Per-output-triangle "which input solid(s) it lies on" — the set-of-solids
 /// label. Reuses the existing `InputId` newtype (labeled_arrangement.rs).
@@ -147,12 +146,6 @@ pub enum ArrangementError {
     Input(FastTrimeshError),
     /// `labels.len()` != input triangle count.
     LabelCountMismatch { tris: usize, labels: usize },
-    /// The indirect-predicates FFI shim was compiled as the no-op stub
-    /// (`indirect_predicates_sidecar_rs::AVAILABLE == false`) because the
-    /// Indirect_Predicates C++ source was missing at build time. Every
-    /// predicate would return garbage, so the arrangement refuses to run.
-    /// Fix: run `scripts/build_sidecars.sh` (roadmap M0) and rebuild.
-    FfiShimUnavailable,
 }
 
 // =========================================================================
@@ -617,14 +610,9 @@ pub fn mesh_arrangement(
         });
     }
 
-    // 1. Refuse to run on the no-op FFI stub — its predicates return garbage,
-    //    which would surface as silent-wrong geometry downstream.
-    if !indirect_predicates_sidecar_rs::AVAILABLE {
-        return Err(ArrangementError::FfiShimUnavailable);
-    }
-
-    //    FPU rounding mode for the FFI predicates.
-    init_fpu();
+    // 1. (Removed at PR-CR-M7c.) The pre-M7c FFI-stub refusal and `init_fpu`
+    //    FPU-mode setup are gone: the clean-room native predicates are pure
+    //    Rust — always available, no FPU rounding-mode requirement.
 
     // 2. Multiplier — scale a copy of the coordinates; all downstream geometry
     //    uses the scaled copy.
@@ -1403,7 +1391,6 @@ mod tests {
     /// labels 1:1, jolly tail present.
     #[test]
     fn case_b_axis_aligned_box_overlap_conforming() {
-        crate::arrangements::require_ffi_shim();
         let a = cube(0.0, 0.0, 0.0, 2.0, A);
         let b = cube(1.0, 1.0, 1.0, 2.0, B);
         let (coords, tris, labels) = concat(a, b);
@@ -1458,7 +1445,6 @@ mod tests {
     /// The exact z=0 crossings of Tb's edges with Ta lie on the segment Ta∩Tb.
     #[test]
     fn case_intersection_realized_welded_lpi_ids() {
-        crate::arrangements::require_ffi_shim();
         // Two single triangles forming a transversal X. Each triangle is its own
         // "solid" label for this structural check.
         let coords = vec![
@@ -1558,7 +1544,6 @@ mod tests {
     /// only → no TPI). Result must be a conforming soup.
     #[test]
     fn case_a_two_tetrahedra_overlap_conforming() {
-        crate::arrangements::require_ffi_shim();
         let a = tetra(0.0, 0.0, 0.0, 3.0, A);
         // B offset along the (1,1,1) diagonal so it pierces A transversally.
         let b = tetra(1.0, 1.0, 1.0, 3.0, B);
@@ -1588,7 +1573,6 @@ mod tests {
     /// TPI. Result must be conforming.
     #[test]
     fn case_c_rotated_box_overlap_conforming() {
-        crate::arrangements::require_ffi_shim();
         // Box B: a rectangular prism whose footprint is a 45°-rotated square
         // centred at (1,1, z) spanning z in [-1, 3] (so it pierces A top/bottom
         // and the oblique side walls cross A's vertical faces transversally).
@@ -2180,7 +2164,6 @@ mod adversary_tests {
 
     #[test]
     fn adversary_reversed_winding_is_invariant() {
-        crate::arrangements::require_ffi_shim();
         // Reverse every triangle's vertex order [a,b,c] → [c,b,a] (flips winding
         // / normal). The non-self-intersection + intersection-realization must be
         // unaffected — the arrangement is winding-agnostic for the conforming soup
@@ -2194,7 +2177,6 @@ mod adversary_tests {
 
     #[test]
     fn adversary_reversed_triangle_order_is_invariant() {
-        crate::arrangements::require_ffi_shim();
         // Reverse the order triangles appear in the input arrays (and labels in
         // lockstep). Global vertex ids change but the soup must remain conforming
         // + realized; the per-triangle serial loop must not depend on input order.
@@ -2208,7 +2190,6 @@ mod adversary_tests {
 
     #[test]
     fn adversary_swapped_ab_labels_is_invariant() {
-        crate::arrangements::require_ffi_shim();
         // Swap the input-solid label assignment (A↔B). The geometry is identical;
         // only the carried labels swap. Soup must stay conforming + realized, and
         // every label is still a non-empty subset of {A,B}. (The label-set is
@@ -2465,7 +2446,6 @@ mod adversary_tests {
 
     #[test]
     fn adversary_distinct_intersection_points_stay_distinct() {
-        crate::arrangements::require_ffi_shim();
         let (coords, tris, labels) = transversal_x();
         let soup = mesh_arrangement(&coords, &tris, &labels).expect("transversal X must not error");
         assert_conforming(&soup);
@@ -2513,7 +2493,6 @@ mod adversary_tests {
 
     #[test]
     fn adversary_coincident_point_welds_to_one_id() {
-        crate::arrangements::require_ffi_shim();
         // The SAME transversal X: each pierce point lies on the conformed edge of
         // BOTH base triangles. The N18 weld must collapse each coincident
         // implicit point to exactly ONE global id (weld IS happening), and that
@@ -2914,7 +2893,6 @@ mod ar3c_tests {
     /// geometry: which constraint segments (as exact endpoint-coordinate
     /// pairs) does each GEOMETRIC base triangle receive?
     fn segments_fingerprint(solid: &Solid) -> BTreeMap<TriKey, SegSet> {
-        crate::arrangements::require_ffi_shim();
         let (coords, tris, labels) = solid;
 
         let m = compute_multiplier(coords);
@@ -3039,7 +3017,6 @@ mod ar3c_tests {
     /// (12 non-manifold edges) and the BL1 flood leaks: 1 patch per label.
     #[test]
     fn through_cut_end_to_end_presentation_invariant() {
-        crate::arrangements::require_ffi_shim();
         for (name, (coords, tris, labels)) in presentations() {
             let soup = mesh_arrangement(&coords, &tris, &labels)
                 .unwrap_or_else(|e| panic!("{name}: through-cut must not error: {e:?}"));

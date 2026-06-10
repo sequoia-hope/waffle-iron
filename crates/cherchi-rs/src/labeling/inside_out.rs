@@ -48,17 +48,17 @@
 use std::collections::BTreeSet;
 
 use cad_primitives::{Point2, Point3};
-use indirect_predicates_sidecar_rs::{
-    init_fpu, less_than_on_x, less_than_on_y, less_than_on_z, orient3d as ip_orient3d,
-    AsGenericPoint, ExplicitPoint3D, ImplicitPoint3DLpi, Sign as IpSign,
-};
 
 use crate::arrangements::fast_trimesh::VertexCoords;
-use crate::arrangements::gp_dispatch::{backing, gp, with_gp, Backing, Gp};
+use crate::arrangements::gp_dispatch::to_generic;
 use crate::arrangements::soup::{ArrangementSoup, Label};
 use crate::labeled_arrangement::InputId;
 use crate::labeling::octree::TriOctree;
 use crate::labeling::patches::Patches;
+use crate::predicates::indirect::{
+    less_than_on_x_indirect, less_than_on_y_indirect, less_than_on_z_indirect, orient3d_indirect,
+    GenericPoint3D, Sign as IpSign,
+};
 use crate::predicates::{
     max_component_in_triangle_normal, orient2d, orient3d, points_are_collinear_3d, Axis, Sign,
 };
@@ -130,7 +130,6 @@ where
     if soup.in_tris.is_empty() && !soup.tris.is_empty() {
         return Err(InsideOutError::MissingInputTris);
     }
-    init_fpu();
 
     // C++ max_coords = octree-root bbox max + 0.5 (over the input tris).
     let mut max_c = [f64::NEG_INFINITY; 3];
@@ -269,18 +268,18 @@ fn find_ray_endpoints(
         let v1 = Point3::new(v1c[0], v1c[1], v1c[2]);
 
         // EXACT validation against the (possibly implicit) triangle.
-        let backs: [Backing; 3] = [
-            backing(&soup.verts[tri[0] as usize]),
-            backing(&soup.verts[tri[1] as usize]),
-            backing(&soup.verts[tri[2] as usize]),
-        ];
         let gps = [
-            gp(&soup.verts[tri[0] as usize], &backs[0]),
-            gp(&soup.verts[tri[1] as usize], &backs[1]),
-            gp(&soup.verts[tri[2] as usize], &backs[2]),
+            to_generic(&soup.verts[tri[0] as usize]),
+            to_generic(&soup.verts[tri[1] as usize]),
+            to_generic(&soup.verts[tri[2] as usize]),
         ];
-        let v0e = ExplicitPoint3D::new(v0.x(), v0.y(), v0.z());
-        let v1e = ExplicitPoint3D::new(v1.x(), v1.y(), v1.z());
+        let v0e = GenericPoint3D::explicit(v0);
+        let v1e = GenericPoint3D::explicit(v1);
+        // M7c mirror note: the native orient3d uses the Shewchuk convention,
+        // which is the MIRROR of the former FFI's sign. Both uses here are
+        // sign-RELATIVE (straddle = orf/ors strictly opposite; below: all
+        // three o01/o12/o20 share one non-zero sign), so a global sign flip
+        // leaves the verdicts unchanged — no `.flipped()` needed.
         let orf = orient3d_gp3(&gps, &v0e);
         let ors = orient3d_gp3(&gps, &v1e);
         let straddles = (orf == IpSign::Negative && ors == IpSign::Positive)
@@ -371,15 +370,27 @@ fn approx_point(c: &VertexCoords) -> Option<Point3> {
     }
 }
 
-/// `orient3D(a, b, c, q)` with three `Gp` handles and one extra point.
-fn orient3d_gp3(gps: &[Gp; 3], q: &impl AsGenericPoint) -> IpSign {
+/// `orient3D(a, b, c, q)` over three generic points and one extra point.
+///
+/// PR-CR-M7c: native `orient3d_indirect` (Shewchuk convention — the MIRROR
+/// of the former FFI sign). Every production caller consumes the result
+/// RELATIVELY (straddle / all-same-sign / Zero tests), never as an absolute
+/// above/below verdict, so no sign flip is applied. Callers are annotated
+/// per-site.
+fn orient3d_gp3(gps: &[GenericPoint3D; 3], q: &GenericPoint3D) -> IpSign {
     let [a, b, c] = gps;
-    with_gp!(ip_orient3d(a, b, c, q); a, b, c)
+    orient3d_indirect(a, b, c, q)
 }
 
-/// `orient3D(a, b, p, q)` with two `Gp` handles and two explicit points.
-fn orient3d_gp2_e2(a: &Gp, b: &Gp, p: &ExplicitPoint3D, q: &ExplicitPoint3D) -> IpSign {
-    with_gp!(ip_orient3d(a, b, p, q); a, b)
+/// `orient3D(a, b, p, q)` over two generic points and two explicit points.
+/// Same mirror-invariance note as [`orient3d_gp3`].
+fn orient3d_gp2_e2(
+    a: &GenericPoint3D,
+    b: &GenericPoint3D,
+    p: &GenericPoint3D,
+    q: &GenericPoint3D,
+) -> IpSign {
+    orient3d_indirect(a, b, p, q)
 }
 
 /// 2D classification of one input triangle against the ray (port of
@@ -531,27 +542,25 @@ fn in_tri_verts(soup: &ArrangementSoup, t: u32) -> [Point3; 3] {
 /// equal-keyed hits collapse to the first inserted (C++ `btree_set`
 /// semantics); hits strictly before the ray origin are discarded.
 fn sort_hits_along_ray(soup: &ArrangementSoup, ray: &Ray, hits: &[u32]) -> Vec<u32> {
-    let e = |p: Point3| ExplicitPoint3D::new(p.x(), p.y(), p.z());
-    let ray_v0 = e(ray.v0);
-    let ray_v1 = e(ray.v1);
+    let ray_v0 = GenericPoint3D::explicit(ray.v0);
+    let ray_v1 = GenericPoint3D::explicit(ray.v1);
 
-    // Arena of the per-hit plane corners (kept alive for the LPI handles).
-    let arena: Vec<[ExplicitPoint3D; 3]> = hits
+    // One owned LPI generic point per hit, constructed ONCE and reused across
+    // every comparison below (PR-CR-M7c: replaces the FFI handle arena — the
+    // native `GenericPoint3D` caches its f64/interval lambdas internally, so
+    // the O(n²) insert-sort never re-derives a hit's lambdas).
+    let lpis: Vec<GenericPoint3D> = hits
         .iter()
         .map(|&t| {
             let tv = in_tri_verts(soup, t);
-            [e(tv[0]), e(tv[1]), e(tv[2])]
+            GenericPoint3D::lpi(ray.v0, ray.v1, tv[0], tv[1], tv[2])
         })
         .collect();
-    let lpis: Vec<ImplicitPoint3DLpi<'_>> = arena
-        .iter()
-        .map(|tv| ImplicitPoint3DLpi::new(&ray_v0, &ray_v1, &tv[0], &tv[1], &tv[2]))
-        .collect();
 
-    let less = |a: &ImplicitPoint3DLpi<'_>, b: &ImplicitPoint3DLpi<'_>| match ray.dir {
-        Axis::X => less_than_on_x(a, b),
-        Axis::Y => less_than_on_y(a, b),
-        Axis::Z => less_than_on_z(a, b),
+    let less = |a: &GenericPoint3D, b: &GenericPoint3D| match ray.dir {
+        Axis::X => less_than_on_x_indirect(a, b),
+        Axis::Y => less_than_on_y_indirect(a, b),
+        Axis::Z => less_than_on_z_indirect(a, b),
     };
 
     // Ordered insert with set semantics (drop Equal keys).
@@ -586,16 +595,15 @@ fn sort_hits_along_ray(soup: &ArrangementSoup, ray: &Ray, hits: &[u32]) -> Vec<u
     // t=0 hit crosses nothing. The C++ keeps t=0 hits (`lessThanOnX(hit,
     // v0) < 0` discard only) and silently mislabels point-touch inputs.
     if let Some(seed) = &ray.seed_tri {
-        let backs: [Backing; 3] = [
-            backing(&soup.verts[seed[0] as usize]),
-            backing(&soup.verts[seed[1] as usize]),
-            backing(&soup.verts[seed[2] as usize]),
-        ];
         let gps = [
-            gp(&soup.verts[seed[0] as usize], &backs[0]),
-            gp(&soup.verts[seed[1] as usize], &backs[1]),
-            gp(&soup.verts[seed[2] as usize], &backs[2]),
+            to_generic(&soup.verts[seed[0] as usize]),
+            to_generic(&soup.verts[seed[1] as usize]),
+            to_generic(&soup.verts[seed[2] as usize]),
         ];
+        // M7c mirror note: native orient3d is the MIRROR of the former FFI
+        // sign, but this discard test is sign-RELATIVE — a hit is "behind"
+        // iff its sign strictly OPPOSES v1's sign against the seed plane —
+        // so a global flip changes nothing. No `.flipped()`.
         let s1 = orient3d_gp3(&gps, &ray_v1);
         debug_assert_ne!(
             s1,
@@ -615,9 +623,9 @@ fn sort_hits_along_ray(soup: &ArrangementSoup, ray: &Ray, hits: &[u32]) -> Vec<u
     } else {
         let before_origin = |i: usize| {
             let s = match ray.dir {
-                Axis::X => less_than_on_x(&lpis[i], &ray_v0),
-                Axis::Y => less_than_on_y(&lpis[i], &ray_v0),
-                Axis::Z => less_than_on_z(&lpis[i], &ray_v0),
+                Axis::X => less_than_on_x_indirect(&lpis[i], &ray_v0),
+                Axis::Y => less_than_on_y_indirect(&lpis[i], &ray_v0),
+                Axis::Z => less_than_on_z_indirect(&lpis[i], &ray_v0),
             };
             s == IpSign::Negative || s == IpSign::Zero
         };
@@ -858,7 +866,6 @@ mod tests {
         s0: (Vec<f64>, Vec<[u32; 3]>, Vec<Label>),
         s1: (Vec<f64>, Vec<[u32; 3]>, Vec<Label>),
     ) -> ArrangementSoup {
-        crate::arrangements::require_ffi_shim();
         let (coords, tris, labels) = concat(s0, s1);
         mesh_arrangement(&coords, &tris, &labels).expect("arrangement")
     }

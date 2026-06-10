@@ -411,7 +411,6 @@ mod tests {
     // ════════════════════════════════════════════════════════════════
     #[test]
     fn labeled_arrangement_contract_invariants() {
-        crate::arrangements::require_ffi_shim();
         let a = cube_mesh(0.0, 0.0, 0.0, 2.0);
         let b = cube_mesh(1.0, 1.0, 1.0, 2.0);
         let la = native_labeled_arrangement(&a, &b).expect("native labeled arrangement");
@@ -523,7 +522,6 @@ mod tests {
     // ════════════════════════════════════════════════════════════════
     #[test]
     fn boolean_volumes_match_analytic_truth() {
-        crate::arrangements::require_ffi_shim();
         let a = cube_mesh(0.0, 0.0, 0.0, 2.0);
         let b = cube_mesh(1.0, 1.0, 1.0, 2.0);
 
@@ -570,7 +568,6 @@ mod tests {
     // ════════════════════════════════════════════════════════════════
     #[test]
     fn through_cut_subtraction_is_genus_one() {
-        crate::arrangements::require_ffi_shim();
         let a = cube_mesh(0.0, 0.0, 0.0, 2.0);
         let b = boxx_mesh(0.5, 0.5, -1.0, 1.0, 1.0, 4.0);
 
@@ -594,7 +591,6 @@ mod tests {
     // ════════════════════════════════════════════════════════════════
     #[test]
     fn two_runs_are_byte_identical() {
-        crate::arrangements::require_ffi_shim();
         let a = cube_mesh(0.0, 0.0, 0.0, 2.0);
         let b = cube_mesh(1.0, 1.0, 1.0, 2.0);
 
@@ -623,7 +619,6 @@ mod tests {
     // ════════════════════════════════════════════════════════════════
     #[test]
     fn coplanar_overlap_is_loudly_deferred() {
-        crate::arrangements::require_ffi_shim();
         let a = cube_mesh(0.0, 0.0, 0.0, 2.0);
         let b = cube_mesh(1.0, 1.0, 2.0, 2.0); // bottom face overlaps A's top
         match native_labeled_arrangement(&a, &b) {
