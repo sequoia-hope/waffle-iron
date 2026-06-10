@@ -1468,9 +1468,32 @@ reimplementation from Attene's paper restores WASM (M7).
     worst-case bound alone certifies only ~52% of generic TPI-heavy
     cases (degree up to 39) — the paper's interval tier is load-bearing,
     not an optimization; plan it into every remaining M7 predicate
-    slice. Remaining for M7: orient2d projections, pointCompare/lessThan
-    family, point-in-triangle/segment wrappers, then swap
-    `arrangements/` consumers off the FFI and drop the gate.
+    slice.
+  - **PR-CR-M7b DONE (2026-06-10): full catalog slice.** predicate-gen
+    grows a shared instance emitter (per-instance D′ parity slots: only
+    ODD-multiplicity denominators flip; even ones feed undefinedness
+    checks) + two families: `orient2d_{xy,yz,zx}` (27 instances, the
+    exact Cherchi 2020 Appendix A set, canonical rank L < T < E pivoting
+    on the FIRST argument; one-implicit LEE/TEE use the appendix's
+    factored degree-5/8 form) and `less_than_on_{x,y,z}` (15 instances,
+    Appendix B POINTCOMPARE; EE = direct f64 compare). All 13 published
+    Appendix A/B filter constants matched: degrees EXACTLY, our δ 6-12%
+    above (conservative band). cherchi-rs `predicates::indirect` adds
+    the public catalog (`*_indirect` + `_filtered`/`_exact` tiers), the
+    composites built purely on the primitives (`point_in_triangle`
+    closed containment via first-non-degenerate projection;
+    `inner_segments_cross` 4-orientation proper-crossing;
+    `point_in_{inner_,}segment` collinearity gate + separating-axis
+    betweenness — symmetric, deliberately fixing the FFI's documented EE
+    order-sensitivity) and `approx_lpi` (interval-midpoint readback, the
+    `lambda3d_lpi_interval` consumer's swap target). Oracles: hit rates
+    orient2d 0.928/0.967/0.996, lessThan 1.000×3 (gate 0.90); composite
+    parity vs independent pure-RBig formulations (~1000 coplanar
+    configs); FFI differential parity incl. EE-quirk mappings; suites
+    386 default / 549 gated; wasm32 check still green. Remaining for
+    M7: **M7c — swap the `arrangements/`+`labeling/` consumers off the
+    FFI and drop the `indirect-predicates` gate** (every FFI call site
+    now has a proven native equivalent with matching call shape).
 - **M8 — Stage 0 coplanar preprocessing** hardened last (special case that
   complicates everything earlier). **Verified a genuine native need** (deviation
   N8, 2026-06-02): the patched sidecar emits multi-solid-labeled
