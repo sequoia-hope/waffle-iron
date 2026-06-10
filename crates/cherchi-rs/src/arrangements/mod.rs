@@ -44,11 +44,15 @@ pub use tree::{Node, Tree};
 /// surfaces as baffling geometric failures (`NoContainingTriangle`, exactness
 /// oracle misses) instead of pointing at the real cause. Refuse to run
 /// against the stub (P9/P10: never fail for the wrong reason).
-#[cfg(all(test, feature = "indirect-predicates"))]
+// `pub` (not `pub(crate)`) + non-`test` cfg so the crate's integration tests
+// — e.g. the PR-CR-BL3b native-vs-sidecar reference-parity suite under
+// `tests/` — can apply the same loud guard. Test-support only; doc(hidden).
+#[cfg(feature = "indirect-predicates")]
+#[doc(hidden)]
 // The assert IS on a constant — that's the point: refuse to run against the
 // stub build, with an actionable message (vs a misleading geometric failure).
 #[allow(clippy::assertions_on_constants)]
-pub(crate) fn require_ffi_shim() {
+pub fn require_ffi_shim() {
     assert!(
         indirect_predicates_sidecar_rs::AVAILABLE,
         "indirect-predicates FFI shim not linked (AVAILABLE == false): the \

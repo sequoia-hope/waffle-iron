@@ -34,3 +34,9 @@ spade = "2"                   # Constrained Delaunay triangulation (CDT) for pla
 # Reference parity tests: differential diff against the upstream C++ sidecar
 # at /home/claude/cherchi2022/InteractiveAndRobustMeshBooleans/ — see
 # docs/sidecar/cherchi2022_build_guide.md.
+#
+# Dev-dep CYCLE on purpose (Cargo allows it): cherchi-sidecar-rs depends on
+# cherchi-rs for `Mesh` + `MeshBoolean`, and cherchi-rs dev-depends back on it
+# so `tests/parity_native_vs_sidecar.rs` can diff `NativeBoolean` against the
+# wrapped C++ `mesh_booleans` reference (the M6 correctness oracle).
+cherchi-sidecar-rs = { path = "../cherchi-sidecar-rs" }
