@@ -1053,3 +1053,34 @@ When implementation is brought into line with the paper:
 1. Move the entry from "Open deviations" to "Resolved deviations".
 2. Append `**Resolved:** <date>, commit <sha>, description: <text>`.
 3. Update CLAUDE.md "Known deviations" section if you summarized there.
+
+### N19 — PR-CR-BL2 ray perturbation: one coherent offset per attempt; winner-less events skip (C++ early-break quirk + `-1` semantics)
+
+`perturbRayAndFindIntersTri` (booleans.cpp:1016) has an early `break` that,
+once any offset has produced a hit, mixes hits gathered under DIFFERENT
+perturbed rays and sorts them with the last ray. The port evaluates one
+offset fully (all candidate triangles under one coherent perturbed ray),
+sorts that offset's hits, and returns the nearest — the evident intent.
+A winner-less event (all 8 offsets graze — tangential configurations such
+as a ray running exactly along an input edge line) contributes NO parity
+crossing and is skipped, matching the C++ `if(winner_tri != -1)` call
+sites; the port's original fatal `PerturbationExhausted` error was wrong
+on valid grazing input (adversary BUG-2/BUG-3) and was removed. Note the
+C++ itself can index an empty vector here (booleans.cpp:1048, UB) when
+every perturbed hit lies behind the origin; the port returns None.
+
+### N20 — PR-CR-BL2 in/out: ray-parameter-ZERO hits are discarded (C++ keeps them and mislabels point-touch inputs)
+
+`sortIntersectedTrisAlongX/Y/Z` (booleans.cpp:1190) discards only hits
+STRICTLY before the ray origin (`lessThanOn* < 0`); a hit at parameter
+exactly zero — the origin lying ON another input's surface — survives and
+its back-face orientation classifies the patch as inside, which is wrong
+for tangential touches (a point-touching tetra pair labels the touching
+solid "inside" the other; adversary BUG-1, silent-wrong class). The port
+discards `<= 0`. Justification (principle over literal): a ray origin can
+lie on another input's surface only TANGENTIALLY — a transversal origin
+would sit on an intersection curve, making it a BL1 border vertex, which
+ray-origin selection excludes — and a tangential t=0 hit crosses nothing.
+The C++ behavior on these measure-zero configurations is a reference
+defect, not a semantic to preserve; full-corpus parity (BL3) is unaffected
+away from touch configurations.

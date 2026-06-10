@@ -18,10 +18,10 @@
 //!
 //! ## Cycle A scope (this slice)
 //!
-//! - Ray origins from EXPLICIT non-border patch vertices only. A fully
-//!   implicit patch (every non-border vertex is LPI/TPI) returns the loud
-//!   [`InsideOutError::FullyImplicitPatch`] — the C++ "generated ray"
-//!   branch is Cycle B.
+//! - Ray origins from EXPLICIT non-border patch vertices only. A patch
+//!   with no such vertex (all-implicit, or every explicit vertex on the
+//!   border) returns the loud [`InsideOutError::NoExplicitRayOrigin`] —
+//!   the C++ "generated ray" branch is Cycle B.
 //! - Candidate triangles are brute-force: ALL `in_tris` are offered to the
 //!   exact prune (the C++ octree is a pure acceleration structure feeding
 //!   a superset; Cycle C adds it with a pruned ⊆ brute oracle).
@@ -74,12 +74,10 @@ pub enum InsideOutError {
     MissingInputTris,
     /// A patch has no triangles (upstream BL1 invariant violation).
     EmptyPatch { patch: u32 },
-    /// Every usable vertex of the patch is implicit (LPI/TPI) — the C++
-    /// "generated ray" branch, deferred to Cycle B.
-    FullyImplicitPatch { patch: u32 },
-    /// All `nextafter` ray perturbations failed to produce a single clean
-    /// interior hit on a vertex/edge-hit's incident triangles.
-    PerturbationExhausted { patch: u32 },
+    /// The patch has no usable ray origin: every vertex is either implicit
+    /// (LPI/TPI) or sits on the patch border. The C++ "generated ray"
+    /// fallback covers this — deferred to Cycle B.
+    NoExplicitRayOrigin { patch: u32 },
     /// `orient3d(tri, ray.v1)` was Zero when classifying the nearest hit —
     /// the C++ asserts non-zero here.
     DegenerateOrientation { patch: u32, tri: u32 },
@@ -123,7 +121,7 @@ pub fn compute_inside_out(
         let patch_surface_label = &soup.labels[patch[0] as usize];
 
         let ray = find_ray_endpoints(soup, patch, &border, max_coords, pi)?;
-        let sorted = prune_intersections_and_sort_along_ray(soup, &ray, patch_surface_label, pi)?;
+        let sorted = prune_intersections_and_sort_along_ray(soup, &ray, patch_surface_label)?;
         inner_labels.push(analyze_sorted_intersections(soup, &ray, &sorted, pi)?);
     }
     Ok(inner_labels)
@@ -162,7 +160,7 @@ fn find_ray_endpoints(
             }
         }
     }
-    Err(InsideOutError::FullyImplicitPatch { patch: pi })
+    Err(InsideOutError::NoExplicitRayOrigin { patch: pi })
 }
 
 /// 2D classification of one input triangle against the ray (port of
@@ -353,15 +351,20 @@ fn sort_hits_along_ray(soup: &ArrangementSoup, ray: &Ray, hits: &[u32]) -> Vec<u
         order.insert(at, i);
     }
 
-    // Discard hits strictly before the ray origin along the axis
-    // (explicit-origin branch; the C++ generated-ray branch is Cycle B).
+    // Discard hits before the ray origin along the axis, AND hits at ray
+    // parameter exactly zero (deviation N20): the origin lies ON another
+    // input's surface only in tangential configurations (a transversal
+    // origin would sit on an intersection curve and be a border vertex,
+    // which origin selection excludes), and a tangential t=0 hit crosses
+    // nothing. The C++ keeps t=0 hits (`lessThanOnX(hit, v0) < 0` discard
+    // only) and silently mislabels point-touch inputs.
     let before_origin = |i: usize| {
         let s = match ray.dir {
             Axis::X => less_than_on_x(&lpis[i], &ray_v0),
             Axis::Y => less_than_on_y(&lpis[i], &ray_v0),
             Axis::Z => less_than_on_z(&lpis[i], &ray_v0),
         };
-        s == IpSign::Negative
+        s == IpSign::Negative || s == IpSign::Zero
     };
     order
         .into_iter()
@@ -378,7 +381,6 @@ fn prune_intersections_and_sort_along_ray(
     soup: &ArrangementSoup,
     ray: &Ray,
     patch_surface_label: &Label,
-    pi: u32,
 ) -> Result<Vec<u32>, InsideOutError> {
     let n = soup.in_tris.len() as u32;
     let mut visited = vec![false; n as usize];
@@ -446,10 +448,11 @@ fn prune_intersections_and_sort_along_ray(
                 for &t2 in &ring {
                     visited[t2 as usize] = true;
                 }
+                // C++ `if(winner_tri != -1)`: no clean perturbed crossing
+                // means the event is tangential/grazing — it contributes no
+                // parity crossing; skip it (adversary BUG-2/BUG-3 fix).
                 if let Some(winner) = perturb_ray_and_find_inters_tri(soup, ray, &ring) {
                     inters.push(winner);
-                } else {
-                    return Err(InsideOutError::PerturbationExhausted { patch: pi });
                 }
             }
             IntersInfo::IntInEdge(k) => {
@@ -474,10 +477,9 @@ fn prune_intersections_and_sort_along_ray(
                 for &t2 in &edge_tris {
                     visited[t2 as usize] = true;
                 }
+                // Same winner-skip semantics as the vertex case above.
                 if let Some(winner) = perturb_ray_and_find_inters_tri(soup, ray, &edge_tris) {
                     inters.push(winner);
-                } else {
-                    return Err(InsideOutError::PerturbationExhausted { patch: pi });
                 }
             }
         }
