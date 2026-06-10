@@ -817,4 +817,101 @@ mod tests {
             other => panic!("expected MissingInputTris, got {other:?}"),
         }
     }
+
+    /// Axis-aligned box with per-axis sizes (through-cut fixtures).
+    fn boxx(
+        ox: f64,
+        oy: f64,
+        oz: f64,
+        sx: f64,
+        sy: f64,
+        sz: f64,
+        label: InputId,
+    ) -> (Vec<f64>, Vec<[u32; 3]>, Vec<Label>) {
+        let p = |x: f64, y: f64, z: f64| (ox + x * sx, oy + y * sy, oz + z * sz);
+        let corners = [
+            p(0.0, 0.0, 0.0),
+            p(1.0, 0.0, 0.0),
+            p(1.0, 1.0, 0.0),
+            p(0.0, 1.0, 0.0),
+            p(0.0, 0.0, 1.0),
+            p(1.0, 0.0, 1.0),
+            p(1.0, 1.0, 1.0),
+            p(0.0, 1.0, 1.0),
+        ];
+        let mut coords = Vec::with_capacity(24);
+        for (x, y, z) in corners {
+            coords.push(x);
+            coords.push(y);
+            coords.push(z);
+        }
+        let tris = vec![
+            [0, 2, 1],
+            [0, 3, 2],
+            [4, 5, 6],
+            [4, 6, 7],
+            [0, 1, 5],
+            [0, 5, 4],
+            [2, 3, 7],
+            [2, 7, 6],
+            [1, 2, 6],
+            [1, 6, 5],
+            [3, 0, 4],
+            [3, 4, 7],
+        ];
+        let labels = vec![vec![label]; tris.len()];
+        (coords, tris, labels)
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Oracle #6 (Cycle B) — through-cut: square peg B pierces cube A
+    // straight through along z. B's middle band patch is bounded
+    // entirely by the two intersection loops (no explicit non-border
+    // vertex) → requires the C++ "generated ray" branch. Expected:
+    // exactly one B patch inside A (the band, confirmed geometrically),
+    // everything else outside.
+    // ════════════════════════════════════════════════════════════════
+    #[test]
+    fn through_cut_band_uses_generated_ray() {
+        let soup = arrange(
+            cube(0.0, 0.0, 0.0, 2.0, A),
+            boxx(0.5, 0.5, -1.0, 1.0, 1.0, 4.0, B),
+        );
+        let patches = compute_all_patches(&soup).expect("patches");
+        let inner = compute_inside_out(&soup, &patches).expect("inside_out (Cycle B)");
+
+        let mut b_inside = 0;
+        for (pi, patch) in patches.patches.iter().enumerate() {
+            let own = canonical(&soup.labels[patch[0] as usize]);
+            if own == vec![A] {
+                assert_eq!(
+                    inner[pi],
+                    Vec::<InputId>::new(),
+                    "A's shell patch {pi} must be outside B"
+                );
+            } else {
+                let geometrically_inside = patch_inside_box(&soup, patch, A);
+                let expect: Label = if geometrically_inside {
+                    vec![A]
+                } else {
+                    vec![]
+                };
+                assert_eq!(
+                    canonical(&inner[pi]),
+                    expect,
+                    "B patch {pi}: inner label vs geometric truth"
+                );
+                if geometrically_inside {
+                    b_inside += 1;
+                }
+            }
+        }
+        assert_eq!(b_inside, 1, "exactly ONE B patch (the band) lies inside A");
+        let b_patches = patches
+            .patches
+            .iter()
+            .filter(|p| canonical(&soup.labels[p[0] as usize]) == vec![B])
+            .count();
+        assert_eq!(b_patches, 3, "B splits into below / band / above");
+    }
 }
