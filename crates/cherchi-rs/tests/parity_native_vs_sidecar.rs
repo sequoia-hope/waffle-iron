@@ -82,15 +82,30 @@ const VERT_TOL: f64 = 1e-6;
 
 /// Fixture families EXCLUDED from the corpus — loud deferrals, never silent
 /// skips. Each entry is (name, reason).
-const EXCLUDED_FIXTURES: &[(&str, &str)] = &[(
-    "stacked-coplanar-cubes (any coplanar-overlap face pair)",
-    "real coplanar overlap: the native arrangement defers LOUDLY with \
-     ArrangementError::CoplanarPairDeferred (deviation N17) — Yang Stage-0 \
-     (M8) owns coplanarity per Yang 2025 §4.5.5, and the native pipeline has \
-     no counterpart to the C++ dupl_triangles restoration. The deferral \
-     itself is asserted in excluded_coplanar_fixture_defers_loudly below and \
-     in labeling::native::tests::coplanar_overlap_is_loudly_deferred.",
-)];
+const EXCLUDED_FIXTURES: &[(&str, &str)] = &[
+    (
+        "stacked-coplanar-cubes (any coplanar-overlap face pair)",
+        "real coplanar overlap: the native arrangement defers LOUDLY with \
+         ArrangementError::CoplanarPairDeferred (deviation N17) — Yang Stage-0 \
+         (M8) owns coplanarity per Yang 2025 §4.5.5, and the native pipeline \
+         has no counterpart to the C++ dupl_triangles restoration. The \
+         deferral itself is asserted in \
+         excluded_coplanar_fixture_defers_loudly below and in \
+         labeling::native::tests::coplanar_overlap_is_loudly_deferred.",
+    ),
+    (
+        "edge-exactly-in-face-plane (singleCoplanarEdge degeneracy)",
+        "same N13/N17 deferral family, found by this suite's RED run: a \
+         triangle EDGE lying exactly in the other solid's face plane (orBA \
+         sign triple with two zeros) is loudly deferred as \
+         CoplanarPairDeferred { reason: SingleCoplanarEdge }. The original \
+         rotated-45-cube placement (center x = 2.0 = A's east face plane, so \
+         the ±s∓s bottom-face diagonal corners cancel exactly to x = 2) hit \
+         this; the corpus fixture now uses center x = 2.1 to stay generic-\
+         position. When the C++ checkSingleCoplanarEdgeIntersections port \
+         lands, promote a deliberate edge-in-plane fixture into the corpus.",
+    ),
+];
 
 // ===========================================================================
 // Fixture builders (deterministic, generic position — no coplanar pairs)
@@ -285,12 +300,17 @@ fn corpus() -> Vec<(&'static str, Mesh, Mesh)> {
                 p(1.2, 1.1, 3.0),
             ),
         ),
-        // 9. 45°-rotated cube vs axis-aligned cube (z-offset so the
-        //    z-normal face planes don't coincide).
+        // 9. 45°-rotated cube vs axis-aligned cube. Generic position needs
+        //    care on TWO axes: the z-offset (1.2) keeps the z-normal face
+        //    planes apart, and the x-center must NOT equal A's face plane
+        //    x ∈ {0, 2} — at center x = 2.0 the rotated cube's ±s∓s
+        //    bottom/top-face diagonal corners cancel exactly to x = 2,
+        //    putting a B edge exactly in A's east face plane (the deferred
+        //    singleCoplanarEdge degeneracy; see EXCLUDED_FIXTURES).
         (
             "rotated-45-cube",
             cube(0.0, 0.0, 0.0, 2.0),
-            rotated_cube_45z(2.0, 1.0, 1.2, 1.0),
+            rotated_cube_45z(2.1, 1.0, 1.2, 1.0),
         ),
         // 10. Octahedron vs cube: octa centered in the cube, all 6 apexes
         //     poking out of the 6 faces.
@@ -492,7 +512,11 @@ fn compare_cell(
                 return Err(format!(
                     "{name}: edge {edge:?} has {count} incident tris \
                      (expected {} for {op:?})",
-                    if op == BoolOp::Xor { "even" } else { "exactly 2" }
+                    if op == BoolOp::Xor {
+                        "even"
+                    } else {
+                        "exactly 2"
+                    }
                 ));
             }
             if balance != 0 {
@@ -503,9 +527,8 @@ fn compare_cell(
         }
     }
     if op == BoolOp::Xor {
-        let mults = |m: &Mesh| -> BTreeSet<usize> {
-            edge_stats(m).values().map(|&(c, _)| c).collect()
-        };
+        let mults =
+            |m: &Mesh| -> BTreeSet<usize> { edge_stats(m).values().map(|&(c, _)| c).collect() };
         let (mn, ms) = (mults(&native), mults(&sidecar));
         if mn != ms {
             return Err(format!(
@@ -533,11 +556,12 @@ fn compare_cell(
     }
 
     // (4) Euler characteristic after exact weld.
-    let (cn, cs) = (euler_characteristic(&native), euler_characteristic(&sidecar));
+    let (cn, cs) = (
+        euler_characteristic(&native),
+        euler_characteristic(&sidecar),
+    );
     if cn != cs {
-        return Err(format!(
-            "Euler characteristic: native {cn} vs sidecar {cs}"
-        ));
+        return Err(format!("Euler characteristic: native {cn} vs sidecar {cs}"));
     }
 
     // (5) Vertex-set Hausdorff-0 (both directions, 1e-6 absolute).

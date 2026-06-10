@@ -1393,6 +1393,24 @@ reimplementation from Attene's paper restores WASM (M7).
     `MeshBoolean` natively, **parity-green vs the sidecar on the corpus**, then
     switch `yang-rs` to the native backend behind the trait (the sidecar stays as
     the `#[cfg(test)]` parity oracle).
+    - **PR-CR-BL3a ✅ DONE (2026-06-10).** `labeling/native.rs`:
+      `native_labeled_arrangement` (concat → AR3b soup → BL1 patches → BL2
+      in/out → frozen Stage-2 contract, exact-rational → descaled-f64 vertex
+      emission) + `NativeBoolean` (`keep_set(op)` + per-op orientation flips
+      at emission). Hand-fixture volumes exact.
+    - **PR-CR-BL3b ✅ DONE (2026-06-10) — the M6 reference-parity gate.**
+      `tests/parity_native_vs_sidecar.rs`: 12 generic-position fixtures × 4
+      ops + concat-swap invariance (60 sidecar-compared cells), all GREEN
+      under a triangulation-independent metric (exact vertex weld →
+      watertight 2-manifold / Xor even-multiplicity, signed volume + area at
+      1e-9 relative, Euler characteristic, vertex-set Hausdorff-0 at 1e-6).
+      Native↔C++ agreement is ~1 ulp on volumes/areas across the corpus.
+      Coplanar overlap stays a loud exclusion (N17 → M8); RED surfaced that
+      an edge lying EXACTLY in the other solid's face plane triggers the
+      same loud `SingleCoplanarEdge` deferral (N13 family) — promote a
+      deliberate edge-in-plane fixture when that C++ path is ported.
+      Remaining BL3 work: switch `yang-rs` to the native backend behind the
+      trait.
 - **M7 — Clean-room indirect predicates from Attene's paper → restore WASM.**
   Removes the LGPL FFI dependency and the `compile_error!` WASM block.
 - **M8 — Stage 0 coplanar preprocessing** hardened last (special case that
