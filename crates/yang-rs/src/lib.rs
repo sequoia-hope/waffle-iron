@@ -725,14 +725,16 @@ pub(crate) fn stage1_tessellate(
 
             match f.surface {
                 Surface::Plane { normal, d } if all_line => {
-                    // Route non-convex (reflex-vertex) outer loops and any face
-                    // with inner loops (holes) to the CDT path; convex,
-                    // hole-free faces keep the existing byte-for-byte fan path.
-                    // (PR-NC1: a fan is valid only for convex, hole-free
-                    // polygons; CDT handles the rest with exact coverage and no
-                    // Steiner points.)
+                    // Route non-convex (reflex-vertex) outer loops, loops with
+                    // COLLINEAR boundary runs (PR-YR27 — the fan would emit
+                    // zero-area glue triangles the next arrangement drops),
+                    // and any face with inner loops (holes) to the CDT path;
+                    // strictly-convex hole-free faces keep the existing
+                    // byte-for-byte fan path. (PR-NC1: a fan is valid only for
+                    // strictly-convex, hole-free polygons; CDT handles the
+                    // rest with exact coverage and no Steiner points.)
                     let needs_cdt = !f.inner_loops.is_empty()
-                        || planar_outer_loop_is_nonconvex(f, edges, &out_verts, normal);
+                        || planar_outer_loop_fan_unsafe(f, edges, &out_verts, normal);
 
                     if needs_cdt {
                         tessellate_planar_cdt_face(
@@ -1284,8 +1286,24 @@ fn ellipse_tangent(
 /// reflex test and the triangulation agree), then walks consecutive 2D cross
 /// products. The loop's overall orientation is the sign of its signed area; any
 /// turn whose cross product has the OPPOSITE sign is a reflex vertex ⇒
-/// non-convex. A near-zero cross (collinear vertices) is not reflex.
-fn planar_outer_loop_is_nonconvex(
+/// non-convex. A near-zero cross (collinear vertices) is not reflex — but it
+/// IS fan-unsafe, see below.
+///
+/// PR-YR27 (unmasked latent, found by the yr5c chained-subtract adversary
+/// once Finding 3 let the chain proceed): a CONVEX loop with a COLLINEAR
+/// boundary run is also routed to the CDT. A previous boolean's output face
+/// legitimately carries collinear boundary subdivisions (arrangement
+/// vertices on a straight face edge, e.g. a tunnel wall's rim subdivided by
+/// the neighbor cap's mesh); re-fed as input, the fan from vertex 0 emits a
+/// ZERO-AREA triangle whenever a collinear chain includes vertex 0's own
+/// boundary edge (`fan(v0, c, b)` over collinear `v0—c—b`). That degenerate
+/// glue triangle pairs the mesh locally, but the NEXT exact arrangement
+/// drops it (zero-area tris cannot be embedded), leaving a T-junction and a
+/// NON-watertight kept set. The CDT triangulates the same ring with every
+/// boundary sub-segment as a constraint and emits positive-area triangles
+/// only. Strictly-convex hole-free loops (every fixture box) keep the
+/// byte-for-byte fan path.
+fn planar_outer_loop_fan_unsafe(
     f: &BRepFace,
     edges: &[BRepEdge],
     out_verts: &[Point3],
@@ -1323,6 +1341,11 @@ fn planar_outer_loop_is_nonconvex(
         let cross = d1[0] * d2[1] - d1[1] * d2[0];
         // A turn opposite the loop orientation is a reflex vertex.
         if cross * orient < -eps {
+            return true;
+        }
+        // PR-YR27: a (near-)zero turn is a collinear boundary run — convex,
+        // but fan-UNSAFE (see the function docs): route to the CDT.
+        if cross.abs() <= eps {
             return true;
         }
     }
@@ -3383,10 +3406,15 @@ impl fmt::Display for YangError {
                 )
             }
             Self::FaceResolutionFailed { tri } => {
+                // PR-YR27: precise text — the old "coplanar multi-solid
+                // label" wording mislabeled the (much more common) membership
+                // failures as coplanarity issues.
                 write!(
                     f,
                     "yang-rs: geometric face resolution failed for kept triangle {tri} \
-                     (coplanar multi-solid label, or centroid off all face planes / tie)"
+                     (centroid off all face surfaces, a membership tie unresolved by \
+                     finite-extent containment, or a multi-solid label with no \
+                     matching Stage-0 pair plane)"
                 )
             }
             Self::UnsupportedOp(op) => {
@@ -3774,6 +3802,82 @@ pub(crate) fn scan_near_coplanar(a: &BRep, b: &BRep) -> CoplanarScan {
     CoplanarScan { cross, intra }
 }
 
+/// PR-YR27 (Finding 3): finite-extent STRICT containment — is `p` strictly
+/// inside planar face `fi`'s trimmed region (outer loop minus holes) of
+/// `brep`, tested EXACTLY in the face's 2D plane frame?
+///
+/// Verdicts:
+/// - `Some(true)`  — strictly interior: inside the loop arrangement
+///   (even-odd over outer + holes) and ON no loop edge,
+/// - `Some(false)` — ON a loop edge, or outside,
+/// - `None`        — undecidable by this test (curved surface, a curved
+///   loop edge — whose chord segment would misrepresent the boundary —
+///   or non-finite coordinates). The caller must NOT exclude the face.
+///
+/// Exactness: the 2D projection `(u, v) = (q·e1, q·e2)` is one LINEAR map
+/// applied in f64 and lifted exactly to rationals, so points that are
+/// 3D-collinear along a straight loop edge project to EXACTLY 2D-collinear
+/// points — the on-boundary rejection cannot be defeated by femto rounding.
+/// Loop-vertex off-plane residuals (e.g. a Stage-0 snapped pair face) lie
+/// along the face normal, which both frame axes annihilate, so they do not
+/// perturb the in-plane region shape.
+fn point_strictly_in_planar_face(brep: &BRep, fi: usize, p: [f64; 3]) -> Option<bool> {
+    use crate::coplanar_overlay::{cross_r, point_in_even_odd, ExactPoint2};
+    use dashu::rational::RBig;
+
+    let f = brep.faces().get(fi)?;
+    let Surface::Plane { normal, .. } = f.surface else {
+        return None;
+    };
+    let n = normal.as_array();
+    if (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt() < cad_primitives::MIN_FEATURE_SIZE {
+        return None;
+    }
+    let (e1, e2) = ortho_basis(normal);
+    let (e1, e2) = (e1.as_array(), e2.as_array());
+    let proj = |q: [f64; 3]| -> Option<ExactPoint2> {
+        ExactPoint2::from_f64(
+            q[0] * e1[0] + q[1] * e1[1] + q[2] * e1[2],
+            q[0] * e2[0] + q[1] * e2[1] + q[2] * e2[2],
+        )
+    };
+    let q = proj(p)?;
+
+    let mut edges2: Vec<(ExactPoint2, ExactPoint2)> = Vec::new();
+    for lp in std::iter::once(&f.outer_loop).chain(f.inner_loops.iter()) {
+        for &ei in lp {
+            let edge = brep.edges().get(ei as usize)?;
+            // A curved loop edge's chord would misrepresent the trimmed
+            // boundary — undecidable, never a silent approximation.
+            if !matches!(edge.curve, Curve::LineSegment) {
+                return None;
+            }
+            let s = brep.vertices().get(edge.start as usize)?.point.as_array();
+            let e = brep.vertices().get(edge.end as usize)?.point.as_array();
+            edges2.push((proj(s)?, proj(e)?));
+        }
+    }
+
+    // Exact ON-closed-segment rejection against every loop edge (strictness:
+    // a boundary point is NOT contained).
+    for (a, b) in &edges2 {
+        if cross_r(a, b, &q) != RBig::ZERO {
+            continue;
+        }
+        let dx = &b.x - &a.x;
+        let dy = &b.y - &a.y;
+        let t_num = (&q.x - &a.x) * &dx + (&q.y - &a.y) * &dy;
+        let len2 = &dx * &dx + &dy * &dy;
+        if t_num >= RBig::ZERO && t_num <= len2 {
+            return Some(false);
+        }
+    }
+
+    // Strictly off the boundary: exact even-odd over outer + hole loops
+    // (the no-boundary precondition of `point_in_even_odd` now holds).
+    Some(point_in_even_odd(&q, &edges2))
+}
+
 /// Boolean operation on two B-Rep solids via a `MeshBoolean` backend.
 ///
 /// **M3 functional pipeline** (replaces the PR-YR3/YR4 spatial-match +
@@ -4063,7 +4167,27 @@ pub fn boolean(
         // faces are already rejected at `BRep::new`, so this is defensive — but
         // it must compile and be LOUD (P9): a curved arm returns the carrying
         // `Err`, never `unreachable!`/panic. `fi` is the input B-Rep face index.
+        // PR-YR27 (Finding 2): a face that went through a Stage-0 pair had
+        // its loop vertices SNAPPED onto the pair's CANONICAL plane, so its
+        // kept triangles lie on the canonical plane — up to the pair's
+        // detection `band` (≫ TAU_WORK) away from the face's STORED plane.
+        // Membership for exactly those faces is therefore measured against
+        // the canonical pair plane (KEYED to the pair: every non-pair face
+        // keeps its stored surface + TAU_WORK byte-for-byte — this is the
+        // Stage-1 geometry the snap actually produced, NOT a tolerance
+        // widening).
+        let stage0_pair_plane = |fi: usize| -> Option<&stage0::PairPlane> {
+            stage0.as_ref().and_then(|s0| {
+                s0.pairs.iter().find(|p| match input {
+                    InputId::A => p.face_a == fi,
+                    InputId::B => p.face_b == fi,
+                })
+            })
+        };
         let plane_dist = |fi: usize, face: &BRepFace| -> Result<f64, YangError> {
+            if let Some(pp) = stage0_pair_plane(fi) {
+                return Ok((pp.n[0] * c[0] + pp.n[1] * c[1] + pp.n[2] * c[2] + pp.d).abs());
+            }
             // PR-YR7: delegate to the shared `signed_distance_to_surface`
             // (Plane + Cylinder + Sphere); take `.abs()` (distance to the
             // surface). Cone still rejects loudly — the free function returns a
@@ -4186,32 +4310,64 @@ pub fn boolean(
             // TAU_WORK of the surface — it lies ON it) dominates a
             // within-chord-band membership. Each face still uses its own A14.3
             // band via tol_for; we only rank the tie by tier. For all-planar
-            // inputs every hit is EXACT (planar tol == TAU_WORK), so this is
-            // byte-for-byte the old "exactly one face within TAU_WORK" rule.
-            let mut exact_hit: Option<u32> = None;
-            let mut n_exact = 0usize;
-            let mut band_hit: Option<u32> = None;
-            let mut n_band = 0usize;
+            // inputs every hit is EXACT (planar tol == TAU_WORK), so a unique
+            // hit is byte-for-byte the old "exactly one face within TAU_WORK"
+            // rule.
+            let mut exact_hits: Vec<u32> = Vec::new();
+            let mut band_hits: Vec<u32> = Vec::new();
             for (fi, f) in input_brep.faces().iter().enumerate() {
                 let d = plane_dist(fi, f)?;
                 if d < tol_for(fi, f.surface)? {
                     if d < cad_primitives::TAU_WORK {
-                        n_exact += 1;
-                        if n_exact == 1 {
-                            exact_hit = Some(fi as u32);
-                        }
+                        exact_hits.push(fi as u32);
                     } else {
-                        n_band += 1;
-                        if n_band == 1 {
-                            band_hit = Some(fi as u32);
-                        }
+                        band_hits.push(fi as u32);
                     }
                 }
             }
-            match (n_exact, exact_hit, n_band, band_hit) {
-                (1, Some(fi), _, _) => fi, // unique exact-tier hit dominates
-                (0, _, 1, Some(fi)) => fi, // no exact hit; unique band-tier hit
-                _ => return Err(YangError::FaceResolutionFailed { tri: compact_t }),
+            // PR-YR27 (Finding 3): a multi-hit tier is narrowed by FINITE-
+            // EXTENT strict containment before it is declared a tie. The
+            // infinite-plane rule alone false-positives whenever a kept
+            // triangle's centroid happens to lie bit-exactly ON another
+            // face's plane (the L-profile CDT class: cap triangle
+            // (0,0),(2,0),(1,1) → centroid x = 1 = the x=1 side plane;
+            // likewise a chained input carrying two same-plane faces). The
+            // TRUE owning face strictly contains the centroid of every
+            // positive-area kept triangle attributed to it; the false
+            // positive at best touches its trimmed region's boundary —
+            // strictness is therefore sound and load-bearing. Faces the
+            // exact 2D test cannot decide (curved surfaces / curved loop
+            // edges → `None`) are NEVER excluded, so an undecidable tie
+            // stays the loud error (P9 — containment breaks ties, it never
+            // widens membership; a unique hit is accepted without it,
+            // byte-identical to the old rule).
+            let narrow = |hits: Vec<u32>| -> Result<Option<u32>, YangError> {
+                match hits.len() {
+                    0 => Ok(None),
+                    1 => Ok(Some(hits[0])),
+                    _ => {
+                        let kept: Vec<u32> = hits
+                            .into_iter()
+                            .filter(|&fi| {
+                                point_strictly_in_planar_face(input_brep, fi as usize, c)
+                                    != Some(false)
+                            })
+                            .collect();
+                        match kept.len() {
+                            1 => Ok(Some(kept[0])),
+                            // 0 (centroid on every tied face's boundary) or
+                            // ≥2 (genuinely ambiguous / undecidable) — loud.
+                            _ => Err(YangError::FaceResolutionFailed { tri: compact_t }),
+                        }
+                    }
+                }
+            };
+            match narrow(exact_hits)? {
+                Some(fi) => fi, // exact tier dominates
+                None => match narrow(band_hits)? {
+                    Some(fi) => fi,
+                    None => return Err(YangError::FaceResolutionFailed { tri: compact_t }),
+                },
             }
         };
         attributions.push(Some(TriangleAttribution { input, face }));
@@ -4293,6 +4449,13 @@ fn compute_phase_a(
 ) -> Result<PhaseA, YangError> {
     let adjacency = triangle_adjacency(mesh);
     let patches = flood_fill_patches(mesh, attribution, &adjacency);
+    // PR-YR27 (Finding 1a): merge edge-adjacent patches lying on the SAME
+    // plane with the SAME orientation into one output face — a coplanar
+    // boolean otherwise emits e.g. A's and B's side fragments as two faces
+    // on one bit-identical plane, and the NEXT boolean in a chain
+    // exact-ties between them. Non-adjacent same-plane patches stay
+    // separate faces (their union is not a single connected face).
+    let patches = merge_same_plane_patches(patches, &adjacency, a, b);
 
     let mut infos: Vec<PatchInfo> = Vec::with_capacity(patches.len());
     for patch in &patches {
@@ -4333,6 +4496,140 @@ fn compute_phase_a(
     }
     let curves = build_intersection_curves(&incidence, mesh, a, b)?;
     Ok((infos, incidence, curves))
+}
+
+/// PR-YR27 (Finding 1a): merge edge-adjacent output patches whose inherited
+/// planes are the same plane with the same orientation (bit-identical or
+/// within `TAU_WORK` on the UNIT-normalized `(n̂, d̂)`) into ONE patch, so
+/// Stage 6 emits one face per connected same-plane region of the output
+/// solid.
+///
+/// Why: a coplanar boolean's output legitimately carries triangles from
+/// BOTH inputs' faces on one geometric plane (e.g. exactly stacked boxes:
+/// each side plane has an A fragment and a B fragment, edge-adjacent along
+/// the seam). `flood_fill_patches` groups by attribution, so those
+/// fragments emit as TWO faces on a bit-identical plane — a fragmented
+/// B-Rep whose NEXT boolean exact-ties Stage-6 membership between them
+/// (assay F0066). Merging is keyed to edge adjacency: non-adjacent
+/// same-plane patches (genuinely separate faces) are NOT merged.
+///
+/// Safety / blast radius:
+/// - Only `Surface::Plane` patches participate; the orientation test
+///   (component-wise `|n̂ᵢ−n̂ⱼ| ≤ TAU_WORK`) means an opposite-normal pair
+///   (e.g. a subtract cavity wall against an outer wall) NEVER merges.
+/// - Distinct input faces on one plane only exist when an input itself
+///   carries same-plane faces or the two inputs share a plane — exactly
+///   the coplanar classes; every other fixture has zero mergeable pairs
+///   and is byte-identical.
+/// - The merged patch's attribution is the lexicographically smallest
+///   member `(input, face)` (deterministic); the members' inherited
+///   surfaces agree within `TAU_WORK`, so the choice is geometric noise.
+/// - The seam edges become patch-INTERIOR (they vanish from the boundary
+///   cycles and therefore from the output edge set) — the merged region's
+///   single outer cycle is exactly the §4.5.5 result-face boundary.
+fn merge_same_plane_patches(
+    mut patches: Vec<Patch>,
+    adjacency: &[Vec<u32>],
+    a: &BRep,
+    b: &BRep,
+) -> Vec<Patch> {
+    if patches.len() < 2 {
+        return patches;
+    }
+
+    // Unit-normalized inherited plane per patch (`None` = curved / degenerate
+    // — never merged).
+    let planes: Vec<Option<([f64; 3], f64)>> = patches
+        .iter()
+        .map(|p| {
+            let brep = match p.attribution.input {
+                InputId::A => a,
+                InputId::B => b,
+            };
+            let f = brep.faces().get(p.attribution.face as usize)?;
+            let Surface::Plane { normal, d } = f.surface else {
+                return None;
+            };
+            let n = normal.as_array();
+            let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            if len < cad_primitives::MIN_FEATURE_SIZE {
+                return None;
+            }
+            Some(([n[0] / len, n[1] / len, n[2] / len], d / len))
+        })
+        .collect();
+    let mergeable = |i: usize, j: usize| -> bool {
+        let (Some((ni, di)), Some((nj, dj))) = (planes[i], planes[j]) else {
+            return false;
+        };
+        (di - dj).abs() <= cad_primitives::TAU_WORK
+            && (0..3).all(|k| (ni[k] - nj[k]).abs() <= cad_primitives::TAU_WORK)
+    };
+
+    // patch index per mesh triangle.
+    let mut patch_of: Vec<usize> = vec![usize::MAX; adjacency.len()];
+    for (pi, p) in patches.iter().enumerate() {
+        for &t in &p.tri_indices {
+            patch_of[t as usize] = pi;
+        }
+    }
+
+    // Union-find over patches, united on (edge-adjacent AND same-plane).
+    let mut parent: Vec<usize> = (0..patches.len()).collect();
+    fn find(parent: &mut [usize], mut x: usize) -> usize {
+        while parent[x] != x {
+            parent[x] = parent[parent[x]]; // path halving
+            x = parent[x];
+        }
+        x
+    }
+    for (pi, p) in patches.iter().enumerate() {
+        for &t in &p.tri_indices {
+            for &u in &adjacency[t as usize] {
+                let pj = patch_of[u as usize];
+                if pj == usize::MAX || pj == pi {
+                    continue;
+                }
+                if mergeable(pi, pj) {
+                    let (ri, rj) = (find(&mut parent, pi), find(&mut parent, pj));
+                    if ri != rj {
+                        parent[ri.max(rj)] = ri.min(rj);
+                    }
+                }
+            }
+        }
+    }
+
+    // Rebuild merged patches in first-member order (deterministic; a strict
+    // no-op — same patches, same order — when nothing merged).
+    let roots: Vec<usize> = (0..patches.len()).map(|i| find(&mut parent, i)).collect();
+    let mut out: Vec<Patch> = Vec::with_capacity(patches.len());
+    let mut taken = vec![false; patches.len()];
+    for i in 0..patches.len() {
+        if taken[i] {
+            continue;
+        }
+        let members: Vec<usize> = (i..patches.len())
+            .filter(|&j| roots[j] == roots[i])
+            .collect();
+        for &m in &members {
+            taken[m] = true;
+        }
+        let attribution = members
+            .iter()
+            .map(|&m| patches[m].attribution)
+            .min()
+            .expect("members is non-empty");
+        let mut tri_indices: Vec<u32> = Vec::new();
+        for &m in &members {
+            tri_indices.append(&mut patches[m].tri_indices);
+        }
+        out.push(Patch {
+            attribution,
+            tri_indices,
+        });
+    }
+    out
 }
 
 /// PR-YR15 helper: the Stage-1 curved chord bound of ONE input, choosing the

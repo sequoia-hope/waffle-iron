@@ -1588,6 +1588,40 @@ swapped every consumer to `predicates::indirect`).
     remains the open M8 remainder, and B-Rep-level shared-face output
     topology (the slice-c question: today the kept sheet attributes to input
     A's face) is deferred to a future slice.
+  - **M8 slice c ✅ (PR-YR27, 2026-06-10): Stage-6 face resolution hardened**
+    — four probe-verified findings from the independent YR26 review.
+    (1) *Finite-extent membership*: a multi-hit Stage-6 membership tier is
+    narrowed by EXACT strict point-in-face containment
+    (`point_strictly_in_planar_face`, rational 2D in the face's plane
+    frame) before being declared a tie — kills the infinite-plane false
+    positives (an L-profile cap CDT triangle whose centroid lies bit-exactly
+    on a side plane; a chained input carrying same-plane sibling faces).
+    Curved/undecidable faces are never excluded; unresolved ties stay the
+    loud `FaceResolutionFailed` (now with precise Display text — the old
+    "coplanar multi-solid label" wording was misleading). (2) *Keyed pair
+    membership*: faces that went through a Stage-0 pair are measured against
+    the CANONICAL pair plane (`PairPlane.face_a/face_b`), since the snap put
+    their mesh there — fixes near-partial overlaps with residual in
+    (TAU_WORK, band]; keyed per pair, no global tolerance change.
+    (3) *Same-plane output-face merge* (`merge_same_plane_patches`):
+    edge-adjacent patches on one plane (unit-normalized agreement within
+    TAU_WORK, same orientation) emit as ONE output face (stacked union:
+    10→6 faces), so chained booleans never see bit-identical-plane sibling
+    faces; non-adjacent same-plane patches stay separate. (4) *Unmasked
+    Stage-1 latent*: the fan path emitted a ZERO-AREA glue triangle for a
+    convex outer loop with a COLLINEAR boundary run (re-fed outputs carry
+    such subdivided edges); the next arrangement drops it → T-junction →
+    non-watertight kept set. Collinear-run loops now route to the CDT
+    (`planar_outer_loop_fan_unsafe`); the yr5c chained-subtract adversary
+    passes its REAL branch (two 2-holed faces, vol 0.92). Assay: **ERROR
+    1→0** (F0066 ERROR → honest typed UNSUPPORTED(coplanar-boolean) — its
+    residue is the intra-solid chained wall), F0008 WRONG→CORRECT
+    (SUPPORTED_CORRECT 5→6). Oracles: `tests/yr27_face_resolution.rs` (7).
+    yang-rs 358→365; cherchi-rs 563; kernel-v2 55 (+ restored kv3
+    coplanar-touching Intersect cell); rewrite tier + wasm32 + clippy/fmt
+    green. Still open in M8: §4.5.4 illegal-self-intersection detection
+    (N6) and the intra-solid near-coplanar chained-output class
+    (`CoplanarFacesUnsupported`, F0066's residue).
 
 ## 4b. Completion roadmap — Phases 1–6 (the full path to replacing legacy)
 

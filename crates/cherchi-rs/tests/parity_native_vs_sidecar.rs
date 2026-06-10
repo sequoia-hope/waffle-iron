@@ -89,11 +89,14 @@ const EXCLUDED_FIXTURES: &[(&str, &str)] = &[
         "stacked-coplanar-cubes (any coplanar-overlap face pair)",
         "real coplanar overlap: the native arrangement defers LOUDLY with \
          ArrangementError::CoplanarPairDeferred (deviation N17) — Yang Stage-0 \
-         (M8) owns coplanarity per Yang 2025 §4.5.5, and the native pipeline \
-         has no counterpart to the C++ dupl_triangles restoration. The \
-         deferral itself is asserted in \
-         excluded_coplanar_fixture_defers_loudly below and in \
-         labeling::native::tests::coplanar_overlap_is_loudly_deferred.",
+         (M8) owns coplanarity per Yang 2025 §4.5.5. (PR-YR27 comment fix: \
+         since PR-YR26 the native pipeline DOES have a dupl_triangles \
+         counterpart — soup.rs step 11 restores deduped IDENTICAL coplanar-\
+         overlap triangles, the meshes Stage 0 emits — but these RAW stacked \
+         cubes have non-identical positive-area coplanar overlaps, which \
+         still defer; only Stage-0-preprocessed meshes pass.) The deferral \
+         itself is asserted in excluded_coplanar_fixture_defers_loudly below \
+         and in labeling::native::tests::coplanar_overlap_is_loudly_deferred.",
     ),
     (
         "edge-exactly-in-face-plane (singleCoplanarEdge degeneracy)",

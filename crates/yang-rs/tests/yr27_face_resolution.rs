@@ -346,10 +346,7 @@ fn stacked_union_merges_same_plane_adjacent_output_faces() {
         6,
         "stacked union must merge the per-input same-plane adjacent side \
          fragments into one face per plane (got faces: {:?})",
-        u1.faces()
-            .iter()
-            .map(|f| f.surface)
-            .collect::<Vec<_>>()
+        u1.faces().iter().map(|f| f.surface).collect::<Vec<_>>()
     );
 }
 

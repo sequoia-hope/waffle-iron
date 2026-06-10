@@ -756,9 +756,12 @@ fn split_all(edges: &[(ExactPoint2, ExactPoint2)]) -> Vec<Sub> {
 /// standard half-open crossing rule (`a.y > p.y) != (b.y > p.y`) so rays
 /// through vertices count consistently. Division-free: the crossing-side
 /// comparison multiplies through by `(b.y − a.y)` with sign correction.
-/// Callers only pass points strictly interior to arrangement cells, which
-/// are never ON an edge — so no boundary case arises.
-fn point_in_even_odd(p: &ExactPoint2, edges: &[(ExactPoint2, ExactPoint2)]) -> bool {
+/// Overlay callers only pass points strictly interior to arrangement
+/// cells, which are never ON an edge — so no boundary case arises there.
+/// (`pub(crate)` since PR-YR27: the Stage-6 finite-extent containment
+/// tie-break reuses it AFTER its own exact on-boundary rejection, so the
+/// no-boundary precondition holds for that caller too.)
+pub(crate) fn point_in_even_odd(p: &ExactPoint2, edges: &[(ExactPoint2, ExactPoint2)]) -> bool {
     let mut inside = false;
     for (a, b) in edges {
         if (a.y > p.y) != (b.y > p.y) {
@@ -786,12 +789,13 @@ fn point_in_even_odd(p: &ExactPoint2, edges: &[(ExactPoint2, ExactPoint2)]) -> b
 /// ears partition the ring exactly (area is conserved in rational
 /// arithmetic).
 ///
-/// `pub(crate)` since PR-YR26: the Stage-0 wiring re-triangulates faces
-/// whose boundary edges were subdivided by overlay points (the §4.5.5
-/// "identical sampling points on their boundaries" propagation) — those
-/// rings carry collinear boundary runs a fan cannot handle, exactly the
-/// case this routine covers.
-pub(crate) fn ear_clip(ring: &[ExactPoint2]) -> Result<Vec<[usize; 3]>, CoplanarOverlayError> {
+/// (PR-YR27 Finding-8 hygiene: PR-YR26 made this `pub(crate)` claiming the
+/// Stage-0 wiring would use it for subdivided-boundary re-triangulation,
+/// but Stage 0 grew its own verified apex-fan instead —
+/// `stage0::triangulate_ring`, whose docs explain why an ear-clip's long
+/// diagonals are UNSAFE across the femto-crooked split chains. The
+/// visibility is reverted to private; this routine is overlay-internal.)
+fn ear_clip(ring: &[ExactPoint2]) -> Result<Vec<[usize; 3]>, CoplanarOverlayError> {
     let mut idx: Vec<usize> = (0..ring.len()).collect();
     let mut out = Vec::with_capacity(ring.len() - 2);
     while idx.len() > 3 {

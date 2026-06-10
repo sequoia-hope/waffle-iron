@@ -482,8 +482,9 @@ fn err_duplicate_coincident_vertex() {
 // guard before returning.
 //
 // REACHABILITY from yang-rs Stage-1: a HOLE-FREE degenerate face is routed to
-// the FAN path (`planar_outer_loop_is_nonconvex` returns false on a near-zero-
-// area projection — lib.rs:1138), whose `DegenerateFace` guard (lib.rs:650)
+// the FAN path (`planar_outer_loop_fan_unsafe` — renamed from
+// `planar_outer_loop_is_nonconvex` in PR-YR27 — still returns false on a
+// near-zero-area projection), whose `DegenerateFace` guard (lib.rs:650)
 // catches it — so the common case is safe. BUT a face WITH an inner loop is
 // routed to CDT unconditionally (`!inner_loops.is_empty()`, lib.rs:618); a
 // holed face with a collinear/zero-area OUTER loop would reach this primitive

@@ -84,6 +84,13 @@ pub(crate) struct PairPlane {
     pub(crate) d: f64,
     /// The pair's YR24 detection band (sub-model-resolution).
     pub(crate) band: f64,
+    /// Input A's face index of the pair (PR-YR27 Finding 2: Stage-6
+    /// membership for THIS face is measured against the canonical pair
+    /// plane — the face's mesh was snapped onto it, so its STORED plane
+    /// can be up to `band` away, far beyond `TAU_WORK`).
+    pub(crate) face_a: usize,
+    /// Input B's face index of the pair (same keyed-membership role).
+    pub(crate) face_b: usize,
     /// `true` iff face B's outward normal OPPOSES face A's (stacked
     /// configuration: the solids lie on opposite sides of the shared
     /// plane). `false` = equal normals (flush/pocket: both interiors on
@@ -195,6 +202,8 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             n: frame.n,
             d: frame.d,
             band: p.band,
+            face_a: p.face_a,
+            face_b: p.face_b,
             opposite,
         });
 
