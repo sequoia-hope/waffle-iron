@@ -89,6 +89,26 @@ pub fn compute_inside_out(
     soup: &ArrangementSoup,
     patches: &Patches,
 ) -> Result<Vec<Label>, InsideOutError> {
+    // Candidate producer: brute (every input tri) until the Cycle C octree
+    // is wired in. The per-ray candidate set only needs to be a SUPERSET of
+    // {t : tri_AABB ∩ ray_AABB ≠ ∅} — the prune applies the exact
+    // `in_ray_aabb` filter to every candidate regardless.
+    let n = soup.in_tris.len() as u32;
+    compute_inside_out_with(soup, patches, |_| (0..n).collect())
+}
+
+/// `compute_inside_out` parameterized over the per-ray candidate producer
+/// (`candidates_for(ray)` must return ids ASCENDING — visit order is part
+/// of the prune's duplicate-sort-key semantics). Production uses the
+/// octree; the `#[cfg(test)]` brute path diffs against it structurally.
+fn compute_inside_out_with<F>(
+    soup: &ArrangementSoup,
+    patches: &Patches,
+    candidates_for: F,
+) -> Result<Vec<Label>, InsideOutError>
+where
+    F: Fn(&Ray) -> Vec<u32>,
+{
     if soup.in_tris.is_empty() && !soup.tris.is_empty() {
         return Err(InsideOutError::MissingInputTris);
     }
@@ -119,10 +139,42 @@ pub fn compute_inside_out(
         let patch_surface_label = &soup.labels[patch[0] as usize];
 
         let ray = find_ray_endpoints(soup, patch, &border, max_coords, pi)?;
-        let sorted = prune_intersections_and_sort_along_ray(soup, &ray, patch_surface_label)?;
+        let candidates = candidates_for(&ray);
+        let sorted =
+            prune_intersections_and_sort_along_ray(soup, &ray, patch_surface_label, &candidates)?;
         inner_labels.push(analyze_sorted_intersections(soup, &ray, &sorted, pi)?);
     }
     Ok(inner_labels)
+}
+
+/// Test-only brute-candidate path (every input triangle offered to the
+/// exact prune) — the permanent structural diff target for the octree
+/// production path: the two must produce IDENTICAL labels on every input.
+#[cfg(test)]
+pub(crate) fn compute_inside_out_brute(
+    soup: &ArrangementSoup,
+    patches: &Patches,
+) -> Result<Vec<Label>, InsideOutError> {
+    let n = soup.in_tris.len() as u32;
+    compute_inside_out_with(soup, patches, |_| (0..n).collect())
+}
+
+/// AABB of the ray segment `v0 → v1` (degenerate — zero thickness — in the
+/// two off-axis coordinates). Shared by the prune's exact per-triangle
+/// filter and the octree candidate query so the two can never drift.
+pub(crate) fn ray_aabb(ray: &Ray) -> ([f64; 3], [f64; 3]) {
+    (
+        [
+            ray.v0.x().min(ray.v1.x()),
+            ray.v0.y().min(ray.v1.y()),
+            ray.v0.z().min(ray.v1.z()),
+        ],
+        [
+            ray.v0.x().max(ray.v1.x()),
+            ray.v0.y().max(ray.v1.y()),
+            ray.v0.z().max(ray.v1.z()),
+        ],
+    )
 }
 
 /// Input-triangle vertices are always explicit (the welded input corners
@@ -559,35 +611,39 @@ fn sort_hits_along_ray(soup: &ArrangementSoup, ray: &Ray, hits: &[u32]) -> Vec<u
     }
 }
 
-/// Port of `pruneIntersectionsAndSortAlongRay` (booleans.cpp:655) with a
-/// brute-force candidate set (every prepped input triangle; the octree is
-/// Cycle C). Vertex/edge hits resolve via ray perturbation over the hit
+/// Port of `pruneIntersectionsAndSortAlongRay` (booleans.cpp:655) over a
+/// caller-supplied candidate set (ascending ids; the octree query or the
+/// test-only brute scan — any SUPERSET of the ray-AABB-touching triangles
+/// is correct because the exact `in_ray_aabb` filter below re-checks every
+/// candidate). Vertex/edge hits resolve via ray perturbation over the hit
 /// element's same-label incident triangles.
+///
+/// Deviation (documented): the C++ restricts the vertex one-ring /
+/// edge-pair searches (`findVertRingTris` / `findEdgeTris`) to the octree
+/// candidate set `tmp_inters`; this port scans ALL input triangles for
+/// those. Both are complete — a triangle incident to a vertex (or edge) ON
+/// the ray has an AABB touching the ray AABB, so it is always in the
+/// octree's superset — and the full scan is simpler and provably so.
 fn prune_intersections_and_sort_along_ray(
     soup: &ArrangementSoup,
     ray: &Ray,
     patch_surface_label: &Label,
+    candidates: &[u32],
 ) -> Result<Vec<u32>, InsideOutError> {
     let n = soup.in_tris.len() as u32;
     let mut visited = vec![false; n as usize];
     let mut inters: Vec<u32> = Vec::new();
 
-    // Ray AABB pre-filter (the C++ `intersects_box(octree, rayAABB, ..)`
-    // candidate query, brute-force): triangles whose AABB does not touch
-    // the segment v0→v1's AABB are not candidates. This is semantically
-    // LOAD-BEARING, not just acceleration — it excludes behind-the-origin
-    // triangles, whose vertex/edge events would otherwise demand
-    // perturbation winners that the sort then (correctly) discards.
-    let ray_lo = [
-        ray.v0.x().min(ray.v1.x()),
-        ray.v0.y().min(ray.v1.y()),
-        ray.v0.z().min(ray.v1.z()),
-    ];
-    let ray_hi = [
-        ray.v0.x().max(ray.v1.x()),
-        ray.v0.y().max(ray.v1.y()),
-        ray.v0.z().max(ray.v1.z()),
-    ];
+    // Exact ray-AABB filter (the per-item check inside the C++
+    // `intersects_box(octree, rayAABB, ..)`): triangles whose AABB does
+    // not touch the segment v0→v1's AABB are not candidates. This is
+    // semantically LOAD-BEARING, not just acceleration — it excludes
+    // behind-the-origin triangles, whose vertex/edge events would
+    // otherwise demand perturbation winners that the sort then
+    // (correctly) discards. It is applied to EVERY candidate
+    // unconditionally, which is what makes the octree's parameters
+    // correctness-neutral (any superset producer yields the same result).
+    let (ray_lo, ray_hi) = ray_aabb(ray);
     let in_ray_aabb = |tv: &[Point3; 3]| -> bool {
         (0..3).all(|k| {
             let c = |p: &Point3| match k {
@@ -601,7 +657,7 @@ fn prune_intersections_and_sort_along_ray(
         })
     };
 
-    for t in 0..n {
+    for &t in candidates {
         if visited[t as usize] {
             continue;
         }
@@ -1105,5 +1161,107 @@ mod tests {
         };
         assert_eq!(count(B), 3, "B splits into below / band / above");
         assert_eq!(count(A), 3, "A splits into shell + two discs");
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Oracle #7 (Cycle C) — octree candidate equivalence. On every
+    // labeling fixture:
+    //   (a) per-patch, the octree's ray-AABB query, passed through the
+    //       SAME exact `in_ray_aabb` filter the prune applies, equals
+    //       the brute filtered set (superset + exact filter ⇒ equal);
+    //   (b) end-to-end, the octree candidate path produces IDENTICAL
+    //       `Vec<Label>` to the brute path (`compute_inside_out_brute`,
+    //       the permanent structural diff target);
+    //   (c) the production `compute_inside_out` equals both.
+    // ════════════════════════════════════════════════════════════════
+    #[test]
+    fn octree_candidates_yield_identical_labels() {
+        use crate::labeling::octree::TriOctree;
+
+        let fixtures: Vec<(&str, ArrangementSoup)> = vec![
+            (
+                "corner-overlap cubes",
+                arrange(cube(0.0, 0.0, 0.0, 2.0, A), cube(1.0, 1.0, 1.0, 2.0, B)),
+            ),
+            (
+                "enclosed cube",
+                arrange(cube(0.0, 0.0, 0.0, 2.0, A), cube(0.5, 0.5, 0.5, 1.0, B)),
+            ),
+            (
+                "disjoint cubes",
+                arrange(cube(0.0, 0.0, 0.0, 1.0, A), cube(5.0, 5.0, 5.0, 1.0, B)),
+            ),
+            (
+                "through-cut peg",
+                arrange(
+                    cube(0.0, 0.0, 0.0, 2.0, A),
+                    boxx(0.5, 0.5, -1.0, 1.0, 1.0, 4.0, B),
+                ),
+            ),
+        ];
+
+        for (name, soup) in fixtures {
+            let patches = compute_all_patches(&soup).expect("patches");
+            let octree = TriOctree::build(&soup);
+            let n = soup.in_tris.len() as u32;
+
+            // (a) per-patch filtered-candidate equality on each ACTUAL ray.
+            let border: BTreeSet<u32> = patches.border_verts.iter().copied().collect();
+            let mut max_c = [f64::NEG_INFINITY; 3];
+            for tri in &soup.in_tris {
+                for &v in tri {
+                    let p = approx_coords(&soup.verts[v as usize]);
+                    for k in 0..3 {
+                        max_c[k] = max_c[k].max(p[k]);
+                    }
+                }
+            }
+            let max_coords = [max_c[0] + 0.5, max_c[1] + 0.5, max_c[2] + 0.5];
+            for (pi, patch) in patches.patches.iter().enumerate() {
+                let ray = find_ray_endpoints(&soup, patch, &border, max_coords, pi as u32)
+                    .expect("ray endpoints");
+                let (lo, hi) = ray_aabb(&ray);
+                let exact_filter = |t: &u32| {
+                    let tv = in_tri_verts(&soup, *t);
+                    (0..3).all(|k| {
+                        let c = |p: &Point3| match k {
+                            0 => p.x(),
+                            1 => p.y(),
+                            _ => p.z(),
+                        };
+                        let tlo = c(&tv[0]).min(c(&tv[1])).min(c(&tv[2]));
+                        let thi = c(&tv[0]).max(c(&tv[1])).max(c(&tv[2]));
+                        tlo <= hi[k] && thi >= lo[k]
+                    })
+                };
+                let via_octree: Vec<u32> = octree
+                    .query_aabb(lo, hi)
+                    .into_iter()
+                    .filter(|t| exact_filter(t))
+                    .collect();
+                let via_brute: Vec<u32> = (0..n).filter(|t| exact_filter(t)).collect();
+                assert_eq!(
+                    via_octree, via_brute,
+                    "{name}: patch {pi}: filtered octree candidates != filtered brute"
+                );
+            }
+
+            // (b) + (c) end-to-end label identity.
+            let brute = compute_inside_out_brute(&soup, &patches).expect("brute path");
+            let via_octree = compute_inside_out_with(&soup, &patches, |ray| {
+                let (lo, hi) = ray_aabb(ray);
+                octree.query_aabb(lo, hi)
+            })
+            .expect("octree path");
+            assert_eq!(
+                via_octree, brute,
+                "{name}: octree candidate path changed labels vs brute"
+            );
+            let production = compute_inside_out(&soup, &patches).expect("production");
+            assert_eq!(
+                production, brute,
+                "{name}: production path changed labels vs brute"
+            );
+        }
     }
 }
