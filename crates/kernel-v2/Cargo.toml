@@ -8,4 +8,5 @@ description = "Clean-sheet CAD kernel. Half-edge B-Rep with enforced face.normal
 # trait used by wasm-bridge, feature-engine, etc.
 [dependencies]
 cad-primitives = { path = "../cad-primitives" }
-yang-rs = { path = "../yang-rs" }
+# yang-rs is added when the boolean-delegation slice lands (KV1 mandate:
+# do not add the dep until a slice consumes it).
