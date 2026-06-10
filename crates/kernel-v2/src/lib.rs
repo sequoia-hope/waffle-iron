@@ -10,13 +10,18 @@
 //!   public `Kernel`/`KernelIntrospect` traits; boolean ops delegate to
 //!   `yang-rs`
 //!
-//! ## KV1 status
+//! ## Status
 //!
-//! This slice (PR-KV1) implements the foundation: the arena types, the
-//! Euler operator set sufficient for planar prismatic solids and
-//! through-holes (Stroud 2006, ch. 4 + appendix F), and `validate_solid`.
-//! Primitive constructors, tessellation, and the trait surface follow in
-//! later slices.
+//! - **PR-KV1** (done): the arena types, the Euler operator set sufficient
+//!   for planar prismatic solids and through-holes (Stroud 2006, ch. 4 +
+//!   appendix F), and `validate_solid`.
+//! - **PR-KV2** (this slice): planar primitive constructors — [`Profile`]
+//!   (validated planar region, exact simplicity check),
+//!   [`make_face_from_profile`] (lamina), [`extrude`] (linear sweep with
+//!   through-holes; Stroud 2006 §6.2), plus the [`geom::signed_volume`]
+//!   orientation oracle.
+//! - Later slices: revolve + curved primitives, tessellation, and the
+//!   trait surface.
 //!
 //! ## Invariants enforced at construction
 //!
@@ -44,17 +49,21 @@
 #![forbid(unsafe_code)]
 
 pub mod arena;
+pub mod construct;
 pub mod error;
 pub mod euler;
 pub mod geom;
+pub mod profile;
 pub mod validate;
 
 pub use arena::{
     BrepArena, EulerCounts, Face, FaceId, HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId,
     LoopKind, Plane, Shell, ShellId, Solid, SolidId, Surface, UnitVector3, Vertex, VertexId,
 };
+pub use construct::{extrude, make_face_from_profile, ExtrudeResult, LaminaResult};
 pub use error::KernelV2Error;
 pub use euler::{
     kemr, kfmrh, mef, mev, mev_lone, mvfs, KemrResult, MefResult, MevResult, MvfsResult,
 };
+pub use profile::Profile;
 pub use validate::{validate_solid, TopologyReport};

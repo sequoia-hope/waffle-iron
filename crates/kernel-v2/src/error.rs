@@ -11,6 +11,10 @@ use crate::arena::{FaceId, HalfEdgeId, LoopId, VertexId};
 /// Error type for all kernel-v2 topology operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KernelV2Error {
+    /// The requested operation is not implemented yet (PR-KV2 RED stubs;
+    /// removed when the GREEN implementation lands).
+    NotImplemented(&'static str),
+
     /// An entity id does not refer to a live arena slot. `kind` names the
     /// entity class ("vertex", "half_edge", "loop", "face", "shell", "solid").
     InvalidId { kind: &'static str },
@@ -53,6 +57,59 @@ pub enum KernelV2Error {
     /// the genus-increasing case of Stroud 2006 §F.9. Shell-merging and
     /// object-merging interpretations are out of scope.
     KfmrhDifferentShells,
+
+    // ----- profile validation (produced by `Profile::new`) ----------------
+    //
+    // Loop indexing convention for the variants below: `loop_index == 0` is
+    // the outer loop; `loop_index == k + 1` is hole loop `k`.
+    /// A profile coordinate, the plane origin, or a basis vector contains a
+    /// non-finite component (NaN or ±∞).
+    ProfileNotFinite,
+
+    /// The profile plane's basis vectors do not span a plane: `u × v` is
+    /// (numerically exactly) zero. See `profile::BASIS_MIN_SQ_CROSS_NORM`.
+    ProfileDegenerateBasis,
+
+    /// A profile loop has fewer than 3 vertices.
+    ProfileTooFewVertices { loop_index: usize },
+
+    /// A profile loop repeats a vertex consecutively (exact coordinate
+    /// equality, including last == first — the closing edge is implicit).
+    ProfileRepeatedVertex { loop_index: usize },
+
+    /// A profile loop is not a simple polygon: two of its edges intersect,
+    /// touch, or overlap (decided EXACTLY via dashu rational arithmetic —
+    /// see the `profile` module docs for the simplicity-validation
+    /// decision). Also covers degenerate zero-area loops: a loop that
+    /// passes the simplicity check provably encloses nonzero area.
+    ProfileNotSimple { loop_index: usize },
+
+    /// Two distinct profile loops intersect or touch (exact check).
+    ProfileLoopsIntersect { loop_a: usize, loop_b: usize },
+
+    /// A hole loop does not lie strictly inside the outer loop
+    /// (exact point-in-polygon on a witness vertex; valid because loop
+    /// disjointness has already been established).
+    ProfileHoleNotInsideOuter { hole_index: usize },
+
+    /// One hole loop lies inside another (exact check); nested holes are
+    /// not a meaningful profile.
+    ProfileHolesNested {
+        outer_hole: usize,
+        inner_hole: usize,
+    },
+
+    // ----- constructor argument validation (extrude) -----------------------
+    /// `extrude` distance must be finite and strictly positive.
+    ExtrudeNonPositiveDistance,
+
+    /// `extrude` direction is zero or non-finite, so it has no direction.
+    ExtrudeDegenerateDirection,
+
+    /// `extrude` direction is (numerically) parallel to the profile plane:
+    /// `|d̂ · n̂| < construct::EXTRUDE_MIN_NORMAL_COSINE`. Sweeping within
+    /// the plane produces no volume.
+    ExtrudeDirectionInPlane,
 
     // ----- validation findings (produced by `validate_solid`) ------------
     /// A face reachable from the validated solid has no surface descriptor.

@@ -60,6 +60,40 @@ pub fn dot(a: UnitVector3, b: UnitVector3) -> f64 {
     a.x * b.x + a.y * b.y + a.z * b.z
 }
 
+/// Signed volume of a solid via the divergence theorem
+/// (`V = (1/6) ∮ x · n dA`, evaluated as a sum of signed tetrahedron
+/// determinants `det[r, pᵢ, pᵢ₊₁]` fanned from each face's outer-loop
+/// reference point over ALL of the face's loops — rings wind opposite the
+/// outer loop, so holes subtract automatically).
+///
+/// Positive for outward-oriented closed solids; this is the orientation
+/// oracle for the KV2 constructors and will be reused by KV3/KV4
+/// (tessellation sanity, boolean result checks).
+///
+/// Production code: returns `Err` on dead ids / corrupted loops; it does
+/// NOT validate closedness — call `validate_solid` for that (an open or
+/// inward-oriented surface simply yields a meaningless / negative value).
+pub fn signed_volume(
+    _arena: &crate::arena::BrepArena,
+    _solid: crate::arena::SolidId,
+) -> Result<f64, crate::error::KernelV2Error> {
+    Err(crate::error::KernelV2Error::NotImplemented(
+        "signed_volume (PR-KV2 RED)",
+    ))
+}
+
+/// Arithmetic-mean centroid of a face's outer-loop vertices. Sufficient for
+/// the outward-normal oracles (`normal · (face_centroid − solid_centroid)`)
+/// and for tessellation seeding in later slices; NOT an area centroid.
+pub fn face_centroid(
+    _arena: &crate::arena::BrepArena,
+    _face: crate::arena::FaceId,
+) -> Result<Point3, crate::error::KernelV2Error> {
+    Err(crate::error::KernelV2Error::NotImplemented(
+        "face_centroid (PR-KV2 RED)",
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
