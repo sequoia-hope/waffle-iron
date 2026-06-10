@@ -45,6 +45,9 @@ pub use tree::{Node, Tree};
 /// oracle misses) instead of pointing at the real cause. Refuse to run
 /// against the stub (P9/P10: never fail for the wrong reason).
 #[cfg(all(test, feature = "indirect-predicates"))]
+// The assert IS on a constant — that's the point: refuse to run against the
+// stub build, with an actionable message (vs a misleading geometric failure).
+#[allow(clippy::assertions_on_constants)]
 pub(crate) fn require_ffi_shim() {
     assert!(
         indirect_predicates_sidecar_rs::AVAILABLE,

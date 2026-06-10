@@ -35,10 +35,19 @@
 //! - The C++ `std::exit` on a fully implicit patch is a typed error.
 //! - Labels are `Vec<InputId>` sets, not `bitset<NBIT>`.
 
-use cad_primitives::Point3;
+use std::collections::BTreeSet;
 
+use cad_primitives::{Point2, Point3};
+use indirect_predicates_sidecar_rs::{
+    init_fpu, less_than_on_x, less_than_on_y, less_than_on_z, ExplicitPoint3D, ImplicitPoint3DLpi,
+    Sign as IpSign,
+};
+
+use crate::arrangements::fast_trimesh::VertexCoords;
 use crate::arrangements::soup::{ArrangementSoup, Label};
+use crate::labeled_arrangement::InputId;
 use crate::labeling::patches::Patches;
+use crate::predicates::{orient2d, orient3d, Sign};
 
 /// Axis an in/out ray travels along (toward +axis).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,9 +93,428 @@ pub fn compute_inside_out(
     soup: &ArrangementSoup,
     patches: &Patches,
 ) -> Result<Vec<Label>, InsideOutError> {
-    // GREEN lands in the next commit; RED stub fails every oracle loudly.
-    let _ = (soup, patches);
-    Ok(Vec::new())
+    if soup.in_tris.is_empty() && !soup.tris.is_empty() {
+        return Err(InsideOutError::MissingInputTris);
+    }
+    init_fpu();
+
+    // C++ max_coords = octree-root bbox max + 0.5 (over the input tris).
+    let mut max_c = [f64::NEG_INFINITY; 3];
+    for tri in &soup.in_tris {
+        for &v in tri {
+            let p = explicit_or_unreachable(&soup.verts[v as usize]);
+            max_c = [
+                max_c[0].max(p.x()),
+                max_c[1].max(p.y()),
+                max_c[2].max(p.z()),
+            ];
+        }
+    }
+    let max_coords = [max_c[0] + 0.5, max_c[1] + 0.5, max_c[2] + 0.5];
+
+    let border: BTreeSet<u32> = patches.border_verts.iter().copied().collect();
+
+    let mut inner_labels: Vec<Label> = Vec::with_capacity(patches.patches.len());
+    for (pi, patch) in patches.patches.iter().enumerate() {
+        let pi = pi as u32;
+        if patch.is_empty() {
+            return Err(InsideOutError::EmptyPatch { patch: pi });
+        }
+        let patch_surface_label = &soup.labels[patch[0] as usize];
+
+        let ray = find_ray_endpoints(soup, patch, &border, max_coords, pi)?;
+        let sorted = prune_intersections_and_sort_along_ray(soup, &ray, patch_surface_label, pi)?;
+        inner_labels.push(analyze_sorted_intersections(soup, &ray, &sorted, pi)?);
+    }
+    Ok(inner_labels)
+}
+
+/// Input-triangle vertices are always explicit (the welded input corners
+/// seed the global vertex array before any implicit point is interned).
+fn explicit_or_unreachable(c: &VertexCoords) -> Point3 {
+    match c {
+        VertexCoords::Explicit(p) => *p,
+        other => unreachable!("in_tris vertex is implicit: {other:?}"),
+    }
+}
+
+/// Port of `findRayEndpoints` (booleans.cpp:504), Cycle-A scope: pick an
+/// EXPLICIT, non-border vertex of the patch and shoot toward +X. The C++
+/// all-implicit "generated ray" fallback is Cycle B (loud error here).
+fn find_ray_endpoints(
+    soup: &ArrangementSoup,
+    patch: &[u32],
+    border: &BTreeSet<u32>,
+    max_coords: [f64; 3],
+    pi: u32,
+) -> Result<Ray, InsideOutError> {
+    for &t in patch {
+        for &v in &soup.tris[t as usize] {
+            if border.contains(&v) {
+                continue;
+            }
+            if let VertexCoords::Explicit(p) = &soup.verts[v as usize] {
+                return Ok(Ray {
+                    v0: *p,
+                    v1: Point3::new(max_coords[0], p.y(), p.z()),
+                    dir: Axis::X,
+                });
+            }
+        }
+    }
+    Err(InsideOutError::FullyImplicitPatch { patch: pi })
+}
+
+/// 2D classification of one input triangle against the ray (port of
+/// `fast2DCheckIntersectionOnRay`): project onto the plane orthogonal to
+/// the ray axis and run exact `orient2d` point-in-triangle on the ray line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IntersInfo {
+    Discard,
+    NoInt,
+    IntInV(u8),
+    IntInEdge(u8), // 0 = edge01, 1 = edge12, 2 = edge20
+    IntInTri,
+}
+
+fn project(p: Point3, dir: Axis) -> Point2 {
+    match dir {
+        Axis::X => Point2::new(p.y(), p.z()),
+        Axis::Y => Point2::new(p.x(), p.z()),
+        Axis::Z => Point2::new(p.x(), p.y()),
+    }
+}
+
+fn fast_2d_check_intersection_on_ray(ray: &Ray, tv: [Point3; 3]) -> IntersInfo {
+    let v = [
+        project(tv[0], ray.dir),
+        project(tv[1], ray.dir),
+        project(tv[2], ray.dir),
+    ];
+    let q = project(ray.v1, ray.dir);
+
+    let or01 = orient2d(v[0], v[1], q);
+    let or12 = orient2d(v[1], v[2], q);
+    let or20 = orient2d(v[2], v[0], q);
+    let nonneg = |s: Sign| s != Sign::Negative;
+    let nonpos = |s: Sign| s != Sign::Positive;
+
+    if (nonneg(or01) && nonneg(or12) && nonneg(or20))
+        || (nonpos(or01) && nonpos(or12) && nonpos(or20))
+    {
+        // Ray through a vertex?
+        for (k, vk) in v.iter().enumerate() {
+            if vk.x() == q.x() && vk.y() == q.y() {
+                return IntersInfo::IntInV(k as u8);
+            }
+        }
+        // Triangle coplanar with the ray?
+        let z = |s: Sign| s == Sign::Zero;
+        if (z(or01) && z(or12)) || (z(or12) && z(or20)) || (z(or20) && z(or01)) {
+            return IntersInfo::Discard;
+        }
+        // Ray through an edge?
+        if z(or01) {
+            return IntersInfo::IntInEdge(0);
+        }
+        if z(or12) {
+            return IntersInfo::IntInEdge(1);
+        }
+        if z(or20) {
+            return IntersInfo::IntInEdge(2);
+        }
+        return IntersInfo::IntInTri;
+    }
+    IntersInfo::NoInt
+}
+
+/// Port of `checkIntersectionInsideTriangle3D`: does the segment v0→v1
+/// pass strictly inside the triangle? (Exact `orient3d`, same-sign test.)
+fn check_intersection_inside_triangle_3d(ray: &Ray, tv: [Point3; 3]) -> bool {
+    let or01 = orient3d(tv[0], tv[1], ray.v0, ray.v1);
+    let or12 = orient3d(tv[1], tv[2], ray.v0, ray.v1);
+    let or20 = orient3d(tv[2], tv[0], ray.v0, ray.v1);
+    (or01 == Sign::Positive && or12 == Sign::Positive && or20 == Sign::Positive)
+        || (or01 == Sign::Negative && or12 == Sign::Negative && or20 == Sign::Negative)
+}
+
+/// Port of `perturbX/Y/ZRay`: `nextafter` the far endpoint's two
+/// off-axis coordinates through the 8 (±,±) combinations.
+fn perturb_ray(ray: &Ray, offset: u8) -> Ray {
+    // (da, db) per offset for the two off-axis coordinates, C++ order:
+    // +a, +a+b, +b, -a+b, -a, -a-b, -b, +a-b.
+    const STEPS: [(i8, i8); 8] = [
+        (1, 0),
+        (1, 1),
+        (0, 1),
+        (-1, 1),
+        (-1, 0),
+        (-1, -1),
+        (0, -1),
+        (1, -1),
+    ];
+    let (da, db) = STEPS[offset as usize];
+    let bump = |x: f64, d: i8| match d {
+        1 => f64::next_up(x),
+        -1 => f64::next_down(x),
+        _ => x,
+    };
+    let v1 = ray.v1;
+    let v1 = match ray.dir {
+        Axis::X => Point3::new(v1.x(), bump(v1.y(), da), bump(v1.z(), db)),
+        Axis::Y => Point3::new(bump(v1.x(), da), v1.y(), bump(v1.z(), db)),
+        Axis::Z => Point3::new(bump(v1.x(), da), bump(v1.y(), db), v1.z()),
+    };
+    Ray {
+        v0: ray.v0,
+        v1,
+        dir: ray.dir,
+    }
+}
+
+/// Port of `perturbRayAndFindIntersTri`: try the 8 perturbed rays in
+/// order; at the first offset where any candidate triangle is hit
+/// strictly inside, sort that offset's hits along the ray and return the
+/// nearest. Deviation N19: the C++ early-`break` interleaves hits from
+/// DIFFERENT perturbed rays across offsets and sorts them with the last
+/// ray; this port evaluates one offset fully — same intent, coherent ray.
+fn perturb_ray_and_find_inters_tri(
+    soup: &ArrangementSoup,
+    ray: &Ray,
+    tris_to_test: &[u32],
+) -> Option<u32> {
+    for offset in 0..8u8 {
+        let p_ray = perturb_ray(ray, offset);
+        let hits: Vec<u32> = tris_to_test
+            .iter()
+            .copied()
+            .filter(|&t| check_intersection_inside_triangle_3d(&p_ray, in_tri_verts(soup, t)))
+            .collect();
+        if !hits.is_empty() {
+            let sorted = sort_hits_along_ray(soup, &p_ray, &hits);
+            return sorted.first().copied();
+        }
+    }
+    None
+}
+
+fn in_tri_verts(soup: &ArrangementSoup, t: u32) -> [Point3; 3] {
+    let tri = soup.in_tris[t as usize];
+    [
+        explicit_or_unreachable(&soup.verts[tri[0] as usize]),
+        explicit_or_unreachable(&soup.verts[tri[1] as usize]),
+        explicit_or_unreachable(&soup.verts[tri[2] as usize]),
+    ]
+}
+
+/// Exact sort of hit triangles along the ray (port of
+/// `sortIntersectedTrisAlong{X,Y,Z}`): each hit becomes the LPI point
+/// ray∩plane(tri), ordered by the exact `lessThanOn{X,Y,Z}` comparator;
+/// equal-keyed hits collapse to the first inserted (C++ `btree_set`
+/// semantics); hits strictly before the ray origin are discarded.
+fn sort_hits_along_ray(soup: &ArrangementSoup, ray: &Ray, hits: &[u32]) -> Vec<u32> {
+    let e = |p: Point3| ExplicitPoint3D::new(p.x(), p.y(), p.z());
+    let ray_v0 = e(ray.v0);
+    let ray_v1 = e(ray.v1);
+
+    // Arena of the per-hit plane corners (kept alive for the LPI handles).
+    let arena: Vec<[ExplicitPoint3D; 3]> = hits
+        .iter()
+        .map(|&t| {
+            let tv = in_tri_verts(soup, t);
+            [e(tv[0]), e(tv[1]), e(tv[2])]
+        })
+        .collect();
+    let lpis: Vec<ImplicitPoint3DLpi<'_>> = arena
+        .iter()
+        .map(|tv| ImplicitPoint3DLpi::new(&ray_v0, &ray_v1, &tv[0], &tv[1], &tv[2]))
+        .collect();
+
+    let less = |a: &ImplicitPoint3DLpi<'_>, b: &ImplicitPoint3DLpi<'_>| match ray.dir {
+        Axis::X => less_than_on_x(a, b),
+        Axis::Y => less_than_on_y(a, b),
+        Axis::Z => less_than_on_z(a, b),
+    };
+
+    // Ordered insert with set semantics (drop Equal keys).
+    let mut order: Vec<usize> = Vec::with_capacity(hits.len());
+    'insert: for i in 0..hits.len() {
+        let mut at = order.len();
+        for (slot, &j) in order.iter().enumerate() {
+            match less(&lpis[i], &lpis[j]) {
+                IpSign::Negative => {
+                    at = slot;
+                    break;
+                }
+                IpSign::Zero => continue 'insert, // duplicate key — drop
+                _ => {}
+            }
+        }
+        order.insert(at, i);
+    }
+
+    // Discard hits strictly before the ray origin along the axis
+    // (explicit-origin branch; the C++ generated-ray branch is Cycle B).
+    let before_origin = |i: usize| {
+        let s = match ray.dir {
+            Axis::X => less_than_on_x(&lpis[i], &ray_v0),
+            Axis::Y => less_than_on_y(&lpis[i], &ray_v0),
+            Axis::Z => less_than_on_z(&lpis[i], &ray_v0),
+        };
+        s == IpSign::Negative
+    };
+    order
+        .into_iter()
+        .skip_while(|&i| before_origin(i))
+        .map(|i| hits[i])
+        .collect()
+}
+
+/// Port of `pruneIntersectionsAndSortAlongRay` (booleans.cpp:655) with a
+/// brute-force candidate set (every prepped input triangle; the octree is
+/// Cycle C). Vertex/edge hits resolve via ray perturbation over the hit
+/// element's same-label incident triangles.
+fn prune_intersections_and_sort_along_ray(
+    soup: &ArrangementSoup,
+    ray: &Ray,
+    patch_surface_label: &Label,
+    pi: u32,
+) -> Result<Vec<u32>, InsideOutError> {
+    let n = soup.in_tris.len() as u32;
+    let mut visited = vec![false; n as usize];
+    let mut inters: Vec<u32> = Vec::new();
+
+    // Ray AABB pre-filter (the C++ `intersects_box(octree, rayAABB, ..)`
+    // candidate query, brute-force): triangles whose AABB does not touch
+    // the segment v0→v1's AABB are not candidates. This is semantically
+    // LOAD-BEARING, not just acceleration — it excludes behind-the-origin
+    // triangles, whose vertex/edge events would otherwise demand
+    // perturbation winners that the sort then (correctly) discards.
+    let ray_lo = [
+        ray.v0.x().min(ray.v1.x()),
+        ray.v0.y().min(ray.v1.y()),
+        ray.v0.z().min(ray.v1.z()),
+    ];
+    let ray_hi = [
+        ray.v0.x().max(ray.v1.x()),
+        ray.v0.y().max(ray.v1.y()),
+        ray.v0.z().max(ray.v1.z()),
+    ];
+    let in_ray_aabb = |tv: &[Point3; 3]| -> bool {
+        (0..3).all(|k| {
+            let c = |p: &Point3| match k {
+                0 => p.x(),
+                1 => p.y(),
+                _ => p.z(),
+            };
+            let lo = c(&tv[0]).min(c(&tv[1])).min(c(&tv[2]));
+            let hi = c(&tv[0]).max(c(&tv[1])).max(c(&tv[2]));
+            lo <= ray_hi[k] && hi >= ray_lo[k]
+        })
+    };
+
+    for t in 0..n {
+        if visited[t as usize] {
+            continue;
+        }
+        if !in_ray_aabb(&in_tri_verts(soup, t)) {
+            continue;
+        }
+        visited[t as usize] = true;
+
+        let tested_label = &soup.in_labels[t as usize];
+        // Same input as the tested patch → skip (the patch's own shell).
+        if tested_label
+            .iter()
+            .any(|id| patch_surface_label.contains(id))
+        {
+            continue;
+        }
+
+        let tv = in_tri_verts(soup, t);
+        match fast_2d_check_intersection_on_ray(ray, tv) {
+            IntersInfo::Discard | IntersInfo::NoInt => {}
+            IntersInfo::IntInTri => inters.push(t),
+            IntersInfo::IntInV(k) => {
+                let v_id = soup.in_tris[t as usize][k as usize];
+                let ring: Vec<u32> = (0..n)
+                    .filter(|&t2| {
+                        soup.in_labels[t2 as usize] == *tested_label
+                            && soup.in_tris[t2 as usize].contains(&v_id)
+                    })
+                    .collect();
+                for &t2 in &ring {
+                    visited[t2 as usize] = true;
+                }
+                if let Some(winner) = perturb_ray_and_find_inters_tri(soup, ray, &ring) {
+                    inters.push(winner);
+                } else {
+                    return Err(InsideOutError::PerturbationExhausted { patch: pi });
+                }
+            }
+            IntersInfo::IntInEdge(k) => {
+                let tri = soup.in_tris[t as usize];
+                let (a, b) = match k {
+                    0 => (tri[0], tri[1]),
+                    1 => (tri[1], tri[2]),
+                    _ => (tri[2], tri[0]),
+                };
+                let edge_tris: Vec<u32> = (0..n)
+                    .filter(|&t2| {
+                        soup.in_labels[t2 as usize] == *tested_label
+                            && soup.in_tris[t2 as usize].contains(&a)
+                            && soup.in_tris[t2 as usize].contains(&b)
+                    })
+                    .collect();
+                debug_assert_eq!(
+                    edge_tris.len(),
+                    2,
+                    "edge ({a},{b}) of a closed manifold input must have 2 tris"
+                );
+                for &t2 in &edge_tris {
+                    visited[t2 as usize] = true;
+                }
+                if let Some(winner) = perturb_ray_and_find_inters_tri(soup, ray, &edge_tris) {
+                    inters.push(winner);
+                } else {
+                    return Err(InsideOutError::PerturbationExhausted { patch: pi });
+                }
+            }
+        }
+    }
+
+    Ok(sort_hits_along_ray(soup, ray, &inters))
+}
+
+/// Port of `analyzeSortedIntersections` (booleans.cpp:747): walking the
+/// hits nearest-first, the FIRST hit of each input label decides in/out —
+/// `orient3d(tri, ray.v1) == Negative` means the ray exits through a
+/// back-face, so the origin is INSIDE that input.
+fn analyze_sorted_intersections(
+    soup: &ArrangementSoup,
+    ray: &Ray,
+    sorted: &[u32],
+    pi: u32,
+) -> Result<Label, InsideOutError> {
+    let mut visited: BTreeSet<InputId> = BTreeSet::new();
+    let mut inner: BTreeSet<InputId> = BTreeSet::new();
+
+    for &t in sorted {
+        let label = &soup.in_labels[t as usize];
+        if label.iter().all(|id| visited.contains(id)) {
+            continue;
+        }
+        let tv = in_tri_verts(soup, t);
+        match orient3d(tv[0], tv[1], tv[2], ray.v1) {
+            Sign::Negative => {
+                inner.extend(label.iter().copied());
+            }
+            Sign::Positive => {}
+            Sign::Zero => return Err(InsideOutError::DegenerateOrientation { patch: pi, tri: t }),
+        }
+        visited.extend(label.iter().copied());
+    }
+    Ok(inner.into_iter().collect())
 }
 
 // =========================================================================
