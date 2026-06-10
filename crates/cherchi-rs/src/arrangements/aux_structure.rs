@@ -40,14 +40,176 @@
 //! indexed identically, matching the AR1 LPI generators and the per-triangle
 //! re-triangulator (`retriangulate.rs`).
 
+use std::collections::BTreeMap;
+
 use crate::arrangements::fast_trimesh::VertexCoords;
 use crate::arrangements::{FastTrimesh, IntersectionVertex, PairClassification, Plane};
 use crate::predicates::{point_in_triangle_3d, PointLocation};
 use cad_primitives::Point3;
+use dashu::float::FBig;
+use dashu::rational::RBig;
 use indirect_predicates_sidecar_rs::{
     init_fpu, orient2d_xy, orient2d_yz, orient2d_zx, point_in_triangle, AsGenericPoint,
     ExplicitPoint3D, ImplicitPoint3DLpi, Sign as IpSign,
 };
+
+// =========================================================================
+// Exact geometric point identity (PR-CR-AR3c, supersedes deviation N18)
+// =========================================================================
+//
+// The C++ aux structure interns every intersection point into a global
+// EXACT-GEOMETRIC sorted list (`aux_structure.cpp:230 addVertexInSortedList`,
+// comparator `genericPoint::lessThan`), so one geometric point gets ONE
+// identity regardless of which side's generators construct it. Structural
+// generator-tuple equality is NOT sufficient: two LPI points with DIFFERENT
+// generator tuples can denote the SAME exact geometric point (e.g. the
+// point where an A-edge meets a B-face ON one of A's own edges is reached
+// both as `Lpi{ A-edge × B-plane }` and `Lpi{ B-edge × A-plane }`, and which
+// tuples AR1 emits depends on the pair presentation order via the
+// `li.size() > 1` early-out). Interning here is therefore GEOMETRIC: keyed
+// by the point's exact rational coordinates (pure `dashu`, no tolerance),
+// with ONE representative `VertexCoords` per geometric point (the
+// first-encountered tuple, for determinism). This folds the former post-hoc
+// `canonicalize_points` (deviation N18) into the interner itself.
+
+/// Exact rational coordinates of a stored [`VertexCoords`]: `Explicit`
+/// directly; `Lpi` via line∩plane; `Tpi` via the three planes' Cramer solve.
+/// Returns `None` on a degenerate generator configuration (line parallel to
+/// the plane, planes not in general position) — such a point cannot be
+/// resolved geometrically and falls back to structural identity.
+pub(crate) fn exact_point_coords(c: &VertexCoords) -> Option<[RBig; 3]> {
+    let to_r = |x: f64| -> RBig {
+        // Total on finite f64; soup coordinates are finite by construction.
+        let fb: Option<FBig> = FBig::try_from(x).ok();
+        match fb.and_then(|fb| RBig::try_from(fb).ok()) {
+            Some(r) => r,
+            None => RBig::ZERO,
+        }
+    };
+    let r3 = |p: Point3| -> [RBig; 3] { [to_r(p.x()), to_r(p.y()), to_r(p.z())] };
+    let sub = |a: &[RBig; 3], b: &[RBig; 3]| -> [RBig; 3] {
+        [&a[0] - &b[0], &a[1] - &b[1], &a[2] - &b[2]]
+    };
+    let cross = |a: &[RBig; 3], b: &[RBig; 3]| -> [RBig; 3] {
+        [
+            &(&a[1] * &b[2]) - &(&a[2] * &b[1]),
+            &(&a[2] * &b[0]) - &(&a[0] * &b[2]),
+            &(&a[0] * &b[1]) - &(&a[1] * &b[0]),
+        ]
+    };
+    let dot = |a: &[RBig; 3], b: &[RBig; 3]| -> RBig {
+        &(&(&a[0] * &b[0]) + &(&a[1] * &b[1])) + &(&a[2] * &b[2])
+    };
+    match c {
+        VertexCoords::Explicit(p) => Some(r3(*p)),
+        VertexCoords::Lpi { line, plane } => {
+            let p = r3(line[0]);
+            let q = r3(line[1]);
+            let r = r3(plane[0]);
+            let s = r3(plane[1]);
+            let t = r3(plane[2]);
+            let n = cross(&sub(&s, &r), &sub(&t, &r));
+            let num = dot(&sub(&r, &p), &n);
+            let den = dot(&sub(&q, &p), &n);
+            if den == RBig::ZERO {
+                return None;
+            }
+            let u = &num / &den;
+            let qp = sub(&q, &p);
+            Some([
+                &p[0] + &(&u * &qp[0]),
+                &p[1] + &(&u * &qp[1]),
+                &p[2] + &(&u * &qp[2]),
+            ])
+        }
+        VertexCoords::Tpi { v, w, u } => {
+            let plane_eqn = |tri: &[Point3; 3]| -> ([RBig; 3], RBig) {
+                let r = r3(tri[0]);
+                let s = r3(tri[1]);
+                let t = r3(tri[2]);
+                let n = cross(&sub(&s, &r), &sub(&t, &r));
+                let d = dot(&n, &r);
+                (n, d)
+            };
+            let (n0, d0) = plane_eqn(v);
+            let (n1, d1) = plane_eqn(w);
+            let (n2, d2) = plane_eqn(u);
+            let det_rows = |r0: &[RBig; 3], r1: &[RBig; 3], r2: &[RBig; 3]| -> RBig {
+                dot(r0, &cross(r1, r2))
+            };
+            let det = det_rows(&n0, &n1, &n2);
+            if det == RBig::ZERO {
+                return None;
+            }
+            let rhs = [d0, d1, d2];
+            let sub_col = |k: usize| -> [[RBig; 3]; 3] {
+                let mut rows = [n0.clone(), n1.clone(), n2.clone()];
+                rows[0][k] = rhs[0].clone();
+                rows[1][k] = rhs[1].clone();
+                rows[2][k] = rhs[2].clone();
+                rows
+            };
+            let mx = sub_col(0);
+            let my = sub_col(1);
+            let mz = sub_col(2);
+            Some([
+                &det_rows(&mx[0], &mx[1], &mx[2]) / &det,
+                &det_rows(&my[0], &my[1], &my[2]) / &det,
+                &det_rows(&mz[0], &mz[1], &mz[2]) / &det,
+            ])
+        }
+    }
+}
+
+/// Geometric interner over the growing global typed-point set: one id per
+/// EXACT geometric point (keyed by exact rational coordinates), with the
+/// first-encountered `VertexCoords` tuple as the point's representative.
+/// Degenerate-generator points (no exact coords) fall back to structural
+/// `VertexCoords` equality.
+struct PointInterner {
+    points: Vec<TypedPoint>,
+    by_exact: BTreeMap<[RBig; 3], u32>,
+    /// Ids of points whose exact coords could not be computed (degenerate
+    /// generators) — resolved by structural equality only.
+    structural_only: Vec<u32>,
+}
+
+impl PointInterner {
+    fn new() -> Self {
+        PointInterner {
+            points: Vec::new(),
+            by_exact: BTreeMap::new(),
+            structural_only: Vec::new(),
+        }
+    }
+
+    fn intern(&mut self, coords: VertexCoords) -> u32 {
+        match exact_point_coords(&coords) {
+            Some(xc) => {
+                if let Some(&id) = self.by_exact.get(&xc) {
+                    return id;
+                }
+                self.points.push(TypedPoint { coords });
+                let id = (self.points.len() - 1) as u32;
+                self.by_exact.insert(xc, id);
+                id
+            }
+            None => {
+                if let Some(&id) = self
+                    .structural_only
+                    .iter()
+                    .find(|&&id| self.points[id as usize].coords == coords)
+                {
+                    return id;
+                }
+                self.points.push(TypedPoint { coords });
+                let id = (self.points.len() - 1) as u32;
+                self.structural_only.push(id);
+                id
+            }
+        }
+    }
+}
 
 /// A typed intersection point destined to become a re-triangulation vertex.
 ///
@@ -78,6 +240,13 @@ pub struct TriangleAuxPoints {
 /// interior or on one of its edges, with corner-coincident points dropped from
 /// their owner (they are already vertices and introduce no split).
 ///
+/// Point identity is GEOMETRIC (PR-CR-AR3c): points are interned by their
+/// EXACT rational coordinates, mirroring the C++ exact-geometric global vertex
+/// list (`aux_structure.cpp:230 addVertexInSortedList`, comparator
+/// `genericPoint::lessThan`). Coincident points reached via different
+/// generator tuples (presentation-dependent AR1 output) share ONE id whose
+/// representative `VertexCoords` is the first-encountered tuple.
+///
 /// Only `Transversal` pairs contribute; `Deferred` / `Disjoint` pairs are
 /// skipped (loud markers handled upstream in AR1).
 pub fn group_intersection_points(
@@ -86,20 +255,9 @@ pub fn group_intersection_points(
 ) -> (Vec<TypedPoint>, Vec<TriangleAuxPoints>) {
     init_fpu();
 
-    let mut points: Vec<TypedPoint> = Vec::new();
+    let mut interner = PointInterner::new();
     let mut buckets: Vec<TriangleAuxPoints> =
         vec![TriangleAuxPoints::default(); soup.num_tris() as usize];
-
-    // Intern a `VertexCoords` into the global set, returning its index. Exact
-    // structural dedup via `VertexCoords: PartialEq` (mirrors the C++
-    // `flat_hash_set` dedup of intersection vertices).
-    let intern = |points: &mut Vec<TypedPoint>, coords: VertexCoords| -> u32 {
-        if let Some(i) = points.iter().position(|tp| tp.coords == coords) {
-            return i as u32;
-        }
-        points.push(TypedPoint { coords });
-        (points.len() - 1) as u32
-    };
 
     for ((ta, tb), classification) in classified {
         let vertices = match classification {
@@ -114,21 +272,14 @@ pub fn group_intersection_points(
                     // is the pierced triangle; the owner drops the point (it is
                     // already a corner there).
                     let other = if *tri == *ta { *tb } else { *ta };
-                    place_point_in_triangle(
-                        soup,
-                        other,
-                        *point,
-                        &mut points,
-                        &mut buckets,
-                        &intern,
-                    );
+                    place_point_in_triangle(soup, other, *point, &mut interner, &mut buckets);
                 }
                 IntersectionVertex::Lpi { line, plane, .. } => {
                     let coords = VertexCoords::Lpi {
                         line: *line,
                         plane: *plane,
                     };
-                    let id = intern(&mut points, coords);
+                    let id = interner.intern(coords);
 
                     // OWNER X: the triangle whose two corners equal `line` — the
                     // LPI sits on that edge.
@@ -145,7 +296,7 @@ pub fn group_intersection_points(
         }
     }
 
-    (points, buckets)
+    (interner.points, buckets)
 }
 
 /// The [`VertexCoords`] an [`IntersectionVertex`] interns as, identical to the
@@ -177,39 +328,70 @@ pub struct ConstraintSegment {
     pub source_tri: [Point3; 3],
 }
 
+/// Loud failure surface of [`group_constraint_segments`] — never silent
+/// (P9/P10).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConstraintSegmentError {
+    /// A `Transversal` pair's intersection vertices resolved to MORE than two
+    /// distinct GEOMETRIC endpoints. Impossible for a valid non-coplanar
+    /// transversal pair (its intersection is a single segment with two
+    /// endpoints — the C++ pipeline's `final_check` asserts this); indicates
+    /// an upstream classification bug, surfaced loudly instead of dropping
+    /// the pair's constraint segment.
+    TooManyGeometricEndpoints { ta: u32, tb: u32, count: usize },
+}
+
 /// Extract one constraint segment per `Transversal` pair per base triangle.
 ///
 /// For each `PairClassification::Transversal { vertices }` of pair `(ta, tb)`,
 /// the transversal intersection segment is defined by the interned ids of its
 /// intersection vertices. A non-degenerate crossing has exactly two distinct
-/// endpoint ids → one `ConstraintSegment` is pushed to `result[ta]` (with
-/// `source_tri` = `tb`'s 3 corners) and one to `result[tb]` (with `source_tri`
-/// = `ta`'s 3 corners). If, after de-duping interned ids, there are not exactly
-/// two distinct endpoints (e.g. a single touch point), NO segment is emitted
-/// for that pair. `Deferred` / `Disjoint` pairs contribute nothing.
+/// GEOMETRIC endpoint ids → one `ConstraintSegment` is pushed to `result[ta]`
+/// (with `source_tri` = `tb`'s 3 corners) and one to `result[tb]` (with
+/// `source_tri` = `ta`'s 3 corners). Zero or one distinct endpoints (a single
+/// touch point, possibly reached via several generator tuples) is a legitimate
+/// no-segment case; MORE than two is a loud
+/// [`ConstraintSegmentError::TooManyGeometricEndpoints`].
+/// `Deferred` / `Disjoint` pairs contribute nothing.
 ///
 /// `points` MUST be the same interned set returned by
-/// [`group_intersection_points`] for `(soup, classified)` — ids are resolved by
-/// structural equality of each vertex's [`VertexCoords`] against it.
+/// [`group_intersection_points`] for `(soup, classified)` — ids are resolved
+/// GEOMETRICALLY (by exact rational coordinates, PR-CR-AR3c), matching the
+/// geometric interning, with a structural fallback for degenerate-generator
+/// points.
 ///
 /// The returned Vec is indexed by base-triangle id (length == `num_tris`).
 pub fn group_constraint_segments(
     soup: &FastTrimesh,
     classified: &[((u32, u32), PairClassification)],
     points: &[TypedPoint],
-) -> Vec<Vec<ConstraintSegment>> {
+) -> Result<Vec<Vec<ConstraintSegment>>, ConstraintSegmentError> {
     let mut result: Vec<Vec<ConstraintSegment>> = vec![Vec::new(); soup.num_tris() as usize];
 
-    // Resolve an IntersectionVertex to its interned id in `points` by structural
-    // equality of its VertexCoords (same logic `group_intersection_points` uses
-    // to intern). Returns None if the vertex was not interned (should not happen
-    // when `points` is the matching set, but we never panic in production).
+    // Exact-coordinate index over the interned set (geometric identity —
+    // same keying the interner used). First occurrence wins, matching the
+    // interner's first-encountered-representative rule.
+    let mut by_exact: BTreeMap<[RBig; 3], u32> = BTreeMap::new();
+    for (i, tp) in points.iter().enumerate() {
+        if let Some(xc) = exact_point_coords(&tp.coords) {
+            by_exact.entry(xc).or_insert(i as u32);
+        }
+    }
+
+    // Resolve an IntersectionVertex to its interned id in `points`:
+    // geometrically (exact coords) like the interner, falling back to
+    // structural VertexCoords equality for degenerate-generator points.
+    // Returns None if the vertex was not interned (should not happen when
+    // `points` is the matching set, but we never panic in production).
     let interned_id = |iv: &IntersectionVertex| -> Option<u32> {
         let coords = vertex_coords_of(iv);
-        points
-            .iter()
-            .position(|tp| tp.coords == coords)
-            .map(|i| i as u32)
+        match exact_point_coords(&coords) {
+            Some(xc) => by_exact.get(&xc).copied(),
+            None => points
+                .iter()
+                .position(|tp| tp.coords == coords)
+                .map(|i| i as u32),
+        }
     };
 
     for ((ta, tb), classification) in classified {
@@ -228,6 +410,15 @@ pub fn group_constraint_segments(
             }
         }
 
+        // > 2 distinct GEOMETRIC endpoints for one transversal pair is an
+        // upstream-classification impossibility (C++ final_check) — loud.
+        if ids.len() > 2 {
+            return Err(ConstraintSegmentError::TooManyGeometricEndpoints {
+                ta: *ta,
+                tb: *tb,
+                count: ids.len(),
+            });
+        }
         // Only a non-degenerate crossing (exactly two distinct endpoints)
         // yields a constraint segment; a single touch contributes nothing.
         if ids.len() != 2 {
@@ -254,7 +445,7 @@ pub fn group_constraint_segments(
         });
     }
 
-    result
+    Ok(result)
 }
 
 /// Place an explicit intersection `point` into base triangle `t`'s buckets,
@@ -263,9 +454,8 @@ fn place_point_in_triangle(
     soup: &FastTrimesh,
     t: u32,
     point: Point3,
-    points: &mut Vec<TypedPoint>,
+    interner: &mut PointInterner,
     buckets: &mut [TriangleAuxPoints],
-    intern: &impl Fn(&mut Vec<TypedPoint>, VertexCoords) -> u32,
 ) {
     let c0 = soup.tri_vert(t, 0);
     let c1 = soup.tri_vert(t, 1);
@@ -273,11 +463,11 @@ fn place_point_in_triangle(
     match point_in_triangle_3d(point, c0, c1, c2) {
         PointLocation::StrictlyOutside => {}
         PointLocation::StrictlyInside => {
-            let id = intern(points, VertexCoords::Explicit(point));
+            let id = interner.intern(VertexCoords::Explicit(point));
             push_unique(&mut buckets[t as usize].interior, id);
         }
         PointLocation::OnBoundary => {
-            let id = intern(points, VertexCoords::Explicit(point));
+            let id = interner.intern(VertexCoords::Explicit(point));
             if let Some(edge_i) = explicit_edge_of(soup, t, point) {
                 push_unique(&mut buckets[t as usize].edges[edge_i], id);
             }
@@ -858,8 +1048,12 @@ mod tests {
         // Interned point set (same call the extraction reuses).
         let (points, _buckets) = group_intersection_points(&soup, &classified);
 
+        // AR3c: `group_constraint_segments` returns `Result` (a pair
+        // resolving to >2 GEOMETRIC endpoints is loud, mirroring the C++
+        // final_check assert). This fixture is a clean 2-endpoint crossing.
         let segs: Vec<Vec<ConstraintSegment>> =
-            group_constraint_segments(&soup, &classified, &points);
+            group_constraint_segments(&soup, &classified, &points)
+                .expect("clean transversal pair must not over-count endpoints");
 
         // Length == num_tris (indexed by base-tri id).
         assert_eq!(
@@ -946,7 +1140,9 @@ mod tests {
         let classified = classify(&soup);
         let (points, _buckets) = group_intersection_points(&soup, &classified);
 
-        let segs = group_constraint_segments(&soup, &classified, &points);
+        // AR3c: Result-returning (see note in the test above).
+        let segs = group_constraint_segments(&soup, &classified, &points)
+            .expect("disjoint pair must not over-count endpoints");
 
         assert_eq!(segs.len(), 2, "indexed by base-tri id");
         assert!(
@@ -1126,14 +1322,15 @@ mod ar3c_tests {
             let expect = |x: f64, y: f64, z: f64| [to_r(x), to_r(y), to_r(z)];
             for e in [expect(2.0, 2.0, 0.0), expect(2.0, 5.0, 0.0)] {
                 assert!(
-                    exact.iter().any(|xc| *xc == e),
+                    exact.contains(&e),
                     "{name}: expected geometric endpoint {e:?} missing"
                 );
             }
 
             // The constraint segment must be recorded for BOTH triangles
             // (the silent `ids.len() != 2` drop is the bug under test).
-            let segs = group_constraint_segments(&soup, &classified, &points);
+            let segs = group_constraint_segments(&soup, &classified, &points)
+                .unwrap_or_else(|e| panic!("{name}: endpoint over-count must not occur: {e:?}"));
             assert_eq!(
                 segs[0].len(),
                 1,

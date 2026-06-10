@@ -985,6 +985,30 @@ global one-point-one-id invariant the per-pair construction order would otherwis
 break. Oracle: structural + EXACT (conforming soup + implicit-points-welded
 invariants; anti-over-weld adversary). **Sign-off:** candidate.
 
+**AR3c amendment (2026-06-10) — interning is now geometric at SOURCE.** The
+post-hoc `canonicalize_points` pass ran AFTER `group_constraint_segments`, which
+was too late: a pair whose intersection-segment endpoint lies ON an edge of the
+pierced triangle can be re-derived under the swapped pair presentation with
+DIFFERENT generator tuples (AR1's `li.size() > 1` early-out fires in only one
+direction), so structural interning over-counted to 3 ids for 2 geometric
+points and the `ids.len() != 2` guard SILENTLY dropped the pair's constraint
+segment from BOTH triangles — making `mesh_arrangement` input-order-DEPENDENT
+on closed intersection loops (4 of the through-cut's 16 fence edges unrealized
+under reversed/swapped presentations → BL1 flood leaks, 6 patches → 2).
+PR-CR-AR3c folded the exact-coordinate identity INTO the interner
+(`aux_structure.rs::PointInterner`, keyed by pure-`dashu` exact rational
+coordinates with the first-encountered tuple as representative, mirroring the
+C++ `aux_structure.cpp:230 addVertexInSortedList` / `genericPoint::lessThan`
+exact-geometric global vertex list), and `group_constraint_segments` resolves
+endpoints by the same geometric keying. `canonicalize_points` was removed as
+redundant. A `Transversal` pair resolving to >2 distinct GEOMETRIC endpoints is
+now a loud typed error (`ConstraintSegmentError::TooManyGeometricEndpoints` →
+`ArrangementError::TransversalEndpointOvercount`, mirroring the C++
+`final_check` assert); 0/1 endpoints remain legitimate no-segment cases.
+Oracles: `aux_structure::ar3c_tests` (minimal pair-order anchor),
+`soup::ar3c_tests` (stage-level + end-to-end presentation invariance), and the
+un-ignored `adversary_b_generated_ray_permutation_invariance` witness.
+
 ### Legacy ↔ new-crate cross-reference
 
 The legacy **D1–D14** entries scope to `crates/kernel/` and do **not** imply

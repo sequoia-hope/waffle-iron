@@ -62,7 +62,7 @@
 #![allow(clippy::manual_contains)]
 
 use crate::arrangements::aux_structure::{
-    group_constraint_segments, group_intersection_points, TypedPoint,
+    group_constraint_segments, group_intersection_points, ConstraintSegmentError, TypedPoint,
 };
 use crate::arrangements::enforce::{enforce_constraints, EnforceError};
 use crate::arrangements::fast_trimesh::VertexCoords;
@@ -123,6 +123,14 @@ pub enum ArrangementError {
     /// Point insertion located a point outside its base triangle (AR2a
     /// `RetriangulateError::NoContainingTriangle`).
     Retriangulate { base_tri: u32, point_id: u32 },
+    /// A `Transversal` pair's intersection vertices resolved to MORE than two
+    /// distinct GEOMETRIC endpoints (AR3c,
+    /// `ConstraintSegmentError::TooManyGeometricEndpoints`). Impossible for a
+    /// valid non-coplanar transversal pair — its intersection is one segment
+    /// with two endpoints (the C++ pipeline's `final_check` asserts this) —
+    /// so it indicates an upstream classification bug, surfaced loudly
+    /// instead of silently dropping the pair's constraint segment.
+    TransversalEndpointOvercount { ta: u32, tb: u32, count: usize },
     /// Constraint enforcement hit the AR3a global-state wall: a crossed
     /// constraint edge has no recorded supporting plane / TPI planes not in
     /// general position. THIS is the N16 deep-recursion / coplanar-jollyPoint
@@ -556,139 +564,26 @@ fn deferred_pair_must_defer(soup: &FastTrimesh, ta: u32, tb: u32, reason: DeferR
 }
 
 // =========================================================================
-// Exact-coordinate canonicalization of intersection points (deviation N18)
+// Geometric point identity (deviation N18 — RESOLVED at source in AR3c)
 // =========================================================================
 //
-// `group_intersection_points` interns intersection vertices by STRUCTURAL
-// `VertexCoords` equality (its own contract, fixed by its tests). But two
-// LPI/TPI points with DIFFERENT generator tuples can denote the SAME exact
-// geometric point — e.g. the box-corner where an A-edge meets a B-face is
-// reached BOTH as `Lpi{ A-edge, B-plane }` and as `Lpi{ B-edge, A-plane }`,
-// and even as the same line with its two endpoints swapped (`[p,q]` vs `[q,p]`).
-// Structural equality does not weld these, so the per-triangle submesh would
-// receive several DISTINCT vertices at one location → degenerate (zero-area)
-// sub-triangles and an unlocatable constraint walk.
-//
-// The spec §7 weld argument assumed "byte-identical generators ⇒ one id"; the
-// real invariant is GEOMETRIC identity. We therefore canonicalize the global
-// `points` set by EXACT coordinates (pure `dashu`, no tolerance) BEFORE feeding
-// the re-triangulator / enforcer: every `TypedPoint` whose exact coordinates
-// coincide is rewritten to carry the SAME representative `VertexCoords` (the
-// first-seen member of its exact-coordinate group). After this rewrite,
-// structural `VertexCoords` equality on the canonicalized set COINCIDES with
-// geometric identity, so the unchanged `split_single_triangle` (dedup the flat
-// list), `enforce_constraints` (endpoint resolution), and the global weld all
-// collapse coincident points to one id. This is NOT a hack and invents no
-// global state — it is the exact-identity the spec's weld was reaching for.
-
-/// Exact rational coordinates of a stored `VertexCoords` (production mirror of
-/// the test-module `exact_coords`): `Explicit` directly; `Lpi` via line∩plane;
-/// `Tpi` via the three planes' Cramer solve. Returns `None` on a degenerate
-/// generator configuration (parallel line/plane, planes not in general
-/// position) — such a point cannot be canonicalized and is left as-is.
-fn exact_vertex_coords(c: &VertexCoords) -> Option<[RBig; 3]> {
-    let sub = |a: &[RBig; 3], b: &[RBig; 3]| -> [RBig; 3] {
-        [&a[0] - &b[0], &a[1] - &b[1], &a[2] - &b[2]]
-    };
-    let cross = |a: &[RBig; 3], b: &[RBig; 3]| -> [RBig; 3] {
-        [
-            &(&a[1] * &b[2]) - &(&a[2] * &b[1]),
-            &(&a[2] * &b[0]) - &(&a[0] * &b[2]),
-            &(&a[0] * &b[1]) - &(&a[1] * &b[0]),
-        ]
-    };
-    let dot = |a: &[RBig; 3], b: &[RBig; 3]| -> RBig {
-        &(&(&a[0] * &b[0]) + &(&a[1] * &b[1])) + &(&a[2] * &b[2])
-    };
-    match c {
-        VertexCoords::Explicit(p) => Some(r3(*p)),
-        VertexCoords::Lpi { line, plane } => {
-            let p = r3(line[0]);
-            let q = r3(line[1]);
-            let r = r3(plane[0]);
-            let s = r3(plane[1]);
-            let t = r3(plane[2]);
-            let n = cross(&sub(&s, &r), &sub(&t, &r));
-            let num = dot(&sub(&r, &p), &n);
-            let den = dot(&sub(&q, &p), &n);
-            if den == RBig::ZERO {
-                return None;
-            }
-            let u = &num / &den;
-            let qp = sub(&q, &p);
-            Some([
-                &p[0] + &(&u * &qp[0]),
-                &p[1] + &(&u * &qp[1]),
-                &p[2] + &(&u * &qp[2]),
-            ])
-        }
-        VertexCoords::Tpi { v, w, u } => {
-            let plane_eqn = |tri: &[Point3; 3]| -> ([RBig; 3], RBig) {
-                let r = r3(tri[0]);
-                let s = r3(tri[1]);
-                let t = r3(tri[2]);
-                let n = cross(&sub(&s, &r), &sub(&t, &r));
-                let d = dot(&n, &r);
-                (n, d)
-            };
-            let (n0, d0) = plane_eqn(v);
-            let (n1, d1) = plane_eqn(w);
-            let (n2, d2) = plane_eqn(u);
-            let det_rows = |r0: &[RBig; 3], r1: &[RBig; 3], r2: &[RBig; 3]| -> RBig {
-                dot(r0, &cross(r1, r2))
-            };
-            let det = det_rows(&n0, &n1, &n2);
-            if det == RBig::ZERO {
-                return None;
-            }
-            let rhs = [d0, d1, d2];
-            let sub_col = |k: usize| -> [[RBig; 3]; 3] {
-                let mut rows = [n0.clone(), n1.clone(), n2.clone()];
-                rows[0][k] = rhs[0].clone();
-                rows[1][k] = rhs[1].clone();
-                rows[2][k] = rhs[2].clone();
-                rows
-            };
-            let mx = sub_col(0);
-            let my = sub_col(1);
-            let mz = sub_col(2);
-            Some([
-                &det_rows(&mx[0], &mx[1], &mx[2]) / &det,
-                &det_rows(&my[0], &my[1], &my[2]) / &det,
-                &det_rows(&mz[0], &mz[1], &mz[2]) / &det,
-            ])
-        }
-    }
-}
-
-/// Rewrite `points` so that every `TypedPoint` sharing an EXACT geometric
-/// location carries the SAME representative `VertexCoords` (first-seen member
-/// of its exact-coordinate group). Same length / same indices as the input
-/// (buckets / constraint-segment endpoint ids remain valid); only `.coords` is
-/// canonicalized. Points whose exact coordinates cannot be computed
-/// (degenerate generators) are left untouched.
-fn canonicalize_points(points: &[TypedPoint]) -> Vec<TypedPoint> {
-    // Group representatives: (exact coords, representative VertexCoords).
-    let mut reps: Vec<([RBig; 3], VertexCoords)> = Vec::new();
-    let mut out: Vec<TypedPoint> = Vec::with_capacity(points.len());
-
-    for tp in points {
-        match exact_vertex_coords(&tp.coords) {
-            Some(xc) => {
-                let rep = match reps.iter().find(|(x, _)| *x == xc) {
-                    Some((_, rep_coords)) => *rep_coords,
-                    None => {
-                        reps.push((xc, tp.coords));
-                        tp.coords
-                    }
-                };
-                out.push(TypedPoint { coords: rep });
-            }
-            None => out.push(tp.clone()),
-        }
-    }
-    out
-}
+// Two LPI/TPI points with DIFFERENT generator tuples can denote the SAME
+// exact geometric point (e.g. the point where an A-edge meets a B-face ON
+// one of A's own edges is reached both as `Lpi{ A-edge, B-plane }` and as
+// `Lpi{ B-edge, A-plane }`, presentation-dependently — AR1's `li.size() > 1`
+// early-out). N18 originally repaired this POST-HOC here (a
+// `canonicalize_points` rewrite after grouping), which ran too late for
+// `group_constraint_segments`: a pair over-counting to 3 structural ids had
+// already silently dropped its constraint segment from both triangles
+// (input-order-dependent fence gaps → BL1 flood leaks). PR-CR-AR3c moved
+// geometric identity INTO the interner (`aux_structure::PointInterner`,
+// keyed by exact rational coordinates, mirroring the C++
+// `aux_structure.cpp:230 addVertexInSortedList` /
+// `genericPoint::lessThan`), so the `points` set arriving here already has
+// one id — one representative `VertexCoords` — per geometric point, and the
+// downstream structural-equality consumers (`split_single_triangle` dedup,
+// `enforce_constraints` endpoint resolution, the §7 global weld) coincide
+// with geometric identity by construction.
 
 // =========================================================================
 // Orchestration (port of `meshArrangementPipeline`)
@@ -774,19 +669,21 @@ pub fn mesh_arrangement(
         }
     }
 
-    // 8. Group intersection points + constraint segments. Then canonicalize the
-    //    interned points by EXACT geometric coordinates (deviation N18) so
-    //    coincident LPI/TPI points reached via different generator tuples weld
-    //    to one identity downstream (re-triangulate / enforce / global weld).
-    //    `group_constraint_segments` is fed the SAME canonicalized set so its
-    //    endpoint ids resolve against the canonicalized submesh vertices.
-    let (raw_points, buckets) = group_intersection_points(&soup, &classified);
-    // Segment endpoint resolution matches the RAW interned generators (the same
-    // structural equality `group_intersection_points` used); the returned
-    // endpoint ids index `points` and are STABLE under canonicalization (which
-    // preserves length/indices, rewriting only `.coords`).
-    let segments_per_tri = group_constraint_segments(&soup, &classified, &raw_points);
-    let points = canonicalize_points(&raw_points);
+    // 8. Group intersection points + constraint segments. Point identity is
+    //    GEOMETRIC at the interner (AR3c, supersedes the post-hoc N18
+    //    canonicalization): `points` carries one id — one representative
+    //    `VertexCoords` — per exact geometric point, so coincident LPI/TPI
+    //    points reached via different generator tuples already share an
+    //    identity downstream (re-triangulate / enforce / global weld), and
+    //    `group_constraint_segments` resolves endpoints by the same geometric
+    //    keying. A pair resolving to >2 geometric endpoints is loud (the C++
+    //    final_check assert), never a silently dropped segment.
+    let (points, buckets) = group_intersection_points(&soup, &classified);
+    let segments_per_tri = group_constraint_segments(&soup, &classified, &points).map_err(
+        |ConstraintSegmentError::TooManyGeometricEndpoints { ta, tb, count }| {
+            ArrangementError::TransversalEndpointOvercount { ta, tb, count }
+        },
+    )?;
 
     // The global vertex list seeds with the deduped input corners (Explicit),
     // in their existing global-id order; new implicit points append on demand.
@@ -818,11 +715,11 @@ pub fn mesh_arrangement(
             .map_err(ArrangementError::Input)?;
 
         // Flat point list for this base triangle: interior ++ each edge's
-        // points, resolved from the canonicalized `points` by id (AR2a fed
-        // interior + on-edge as ONE flat slice). Dedup by (canonical) structural
-        // `VertexCoords` equality so coincident points (now welded to one
-        // representative) insert as ONE submesh vertex — otherwise the submesh
-        // would gain coincident vertices and degenerate sub-triangles.
+        // points, resolved from the geometrically-interned `points` by id
+        // (AR2a fed interior + on-edge as ONE flat slice). Dedup by structural
+        // `VertexCoords` equality — which now COINCIDES with geometric
+        // identity (one representative per geometric point, AR3c) — so
+        // coincident points insert as ONE submesh vertex.
         let mut flat: Vec<TypedPoint> = Vec::new();
         let push_unique = |flat: &mut Vec<TypedPoint>, tp: TypedPoint| {
             if !flat.iter().any(|e| e.coords == tp.coords) {
@@ -847,25 +744,17 @@ pub fn mesh_arrangement(
             }
         })?;
 
-        // Drop degenerate constraint segments whose two endpoints canonicalize
-        // to the SAME geometric point (a tangential touch that collapses to a
-        // point on this face) — they conform nothing and would resolve to a
-        // zero-length (v0==v1) walk. Matches the C++ which never emits a
-        // point-segment.
-        let live_segments: Vec<_> = segments_per_tri[t as usize]
-            .iter()
-            .filter(|s| {
-                points[s.endpoints.0 as usize].coords != points[s.endpoints.1 as usize].coords
-            })
-            .cloned()
-            .collect();
-
-        enforce_constraints(&mut subm, &live_segments, &points).map_err(|detail| {
-            ArrangementError::DeepRecursionRequired {
+        // No degenerate point-segments can arrive here: with geometric
+        // interning a tangential touch resolves to ONE endpoint id and emits
+        // no segment at all in `group_constraint_segments` (the former
+        // post-split coords filter is vacuous and was removed in AR3c —
+        // matches the C++ which never emits a point-segment).
+        enforce_constraints(&mut subm, &segments_per_tri[t as usize], &points).map_err(
+            |detail| ArrangementError::DeepRecursionRequired {
                 base_tri: t,
                 detail,
-            }
-        })?;
+            },
+        )?;
 
         // Assemble: map each submesh vertex → a global id (§7 weld), then push
         // each sub-triangle with the parent base triangle's label.
@@ -3032,7 +2921,8 @@ mod ar3c_tests {
         let pairs = detect_intersecting_pairs(&soup);
         let classified = classify_all(&soup, &pairs);
         let (points, _buckets) = group_intersection_points(&soup, &classified);
-        let segments_per_tri = group_constraint_segments(&soup, &classified, &points);
+        let segments_per_tri = group_constraint_segments(&soup, &classified, &points)
+            .expect("through-cut must not over-count endpoints");
 
         let mut out: BTreeMap<TriKey, SegSet> = BTreeMap::new();
         for (t, segs) in segments_per_tri.iter().enumerate() {

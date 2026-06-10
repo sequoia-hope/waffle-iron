@@ -21,8 +21,8 @@ pub mod tree;
 
 #[cfg(feature = "indirect-predicates")]
 pub use aux_structure::{
-    group_constraint_segments, group_intersection_points, ConstraintSegment, TriangleAuxPoints,
-    TypedPoint,
+    group_constraint_segments, group_intersection_points, ConstraintSegment,
+    ConstraintSegmentError, TriangleAuxPoints, TypedPoint,
 };
 #[cfg(feature = "indirect-predicates")]
 pub use enforce::{enforce_constraint_segments, enforce_constraints, EnforceError, SegmentSpec};

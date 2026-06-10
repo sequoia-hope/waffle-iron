@@ -1428,7 +1428,10 @@ mod tests {
         let pairs = detect_intersecting_pairs(&soup);
         let classified = classify_all(&soup, &pairs);
         let (points, buckets) = group_intersection_points(&soup, &classified);
-        let seg_lists = group_constraint_segments(&soup, &classified, &points);
+        // AR3c: Result-returning (>2 geometric endpoints is loud — C++
+        // final_check); these fixtures are clean 2-endpoint crossings.
+        let seg_lists = group_constraint_segments(&soup, &classified, &points)
+            .expect("clean transversal fixture must not over-count endpoints");
 
         // A's constraint-segment list must have exactly one segment.
         assert_eq!(
@@ -2186,7 +2189,10 @@ mod tests {
         let pairs = detect_intersecting_pairs(&soup);
         let classified = classify_all(&soup, &pairs);
         let (points, _buckets) = group_intersection_points(&soup, &classified);
-        let seg_lists = group_constraint_segments(&soup, &classified, &points);
+        // AR3c: Result-returning (>2 geometric endpoints is loud — C++
+        // final_check); these fixtures are clean 2-endpoint crossings.
+        let seg_lists = group_constraint_segments(&soup, &classified, &points)
+            .expect("clean transversal fixture must not over-count endpoints");
         assert_eq!(seg_lists[0].len(), 1, "A must have one constraint segment");
 
         // Bare base submesh: no intersection points inserted, so the segment's

@@ -1130,8 +1130,9 @@ fn adversary_b_sliver_peg_through_unit_cube() {
 // bit-identical two-run determinism check runs inside `run` for every
 // fixture above; this attack covers the *input-presentation* axis.)
 //
-// FAILING — BOTH sub-attacks (UPSTREAM BUG, confirmed by probe — NOT
-// the generated-ray branch): under the REVERSED triangle order (and
+// HISTORY (RESOLVED by PR-CR-AR3c — kept as the diagnostic record):
+// both sub-attacks FAILED from an UPSTREAM BUG (confirmed by probe —
+// NOT the generated-ray branch): under the REVERSED triangle order (and
 // equally under the swapped concat order, which fails with the same
 // 2-patch merged signature), `mesh_arrangement` (arrangements/soup.rs)
 // emits a soup with the same vert/tri counts
@@ -1154,17 +1155,19 @@ fn adversary_b_sliver_peg_through_unit_cube() {
 // produced, by BL2. The conforming-soup invariant the AR3b suite
 // checks (no interior AREA overlaps, soup.rs:1196) is blind to this:
 // a constraint segment crossing a perpendicular face's triangulation
-// overlaps no triangle interior. Fix belongs in the AR3b global-soup
-// orchestration: every intersection-curve segment must end up a
-// shared (multiplicity-4) edge of both incident surfaces, independent
-// of input triangle order.
+// overlaps no triangle interior. The fix landed in AR3c: point identity
+// is GEOMETRIC at the aux-structure interner, so every intersection-curve
+// segment ends up a shared (multiplicity-4) edge of both incident
+// surfaces, independent of input triangle order.
 // ════════════════════════════════════════════════════════════════════
+// Was `#[ignore]`d as the RED witness for PR-CR-AR3c (AR3b constraint
+// realization was input-order-DEPENDENT on closed intersection loops: 4 fence
+// segments unrealized under reversed tri order / swapped concat order → BL1
+// flood leaks). AR3c made point identity GEOMETRIC at the aux-structure
+// interner (one id per exact geometric point, matching the C++
+// `addVertexInSortedList` / `genericPoint::lessThan`), which realizes every
+// fence segment independent of presentation — un-ignored since.
 #[test]
-#[ignore = "RED witness for PR-CR-AR3c: AR3b constraint realization is input-order-DEPENDENT \
-            on closed intersection loops (4 fence segments unrealized under reversed tri order / \
-            swapped concat order -> BL1 flood leaks). Upstream arrangement bug, not BL2. \
-            Un-ignore when AR3c lands. Run: cargo test -p cherchi-rs --features indirect-predicates \
-            adversary_b_generated_ray_permutation -- --ignored"]
 fn adversary_b_generated_ray_permutation_invariance() {
     let through_cut = || {
         concat(
@@ -1182,7 +1185,6 @@ fn adversary_b_generated_ray_permutation_invariance() {
     );
 
     // (a) swap the solid concat order (the peg becomes input 0).
-    // FAILING — same upstream fence-gap merge (2 patches, all outside).
     let (s2, p2, i2) = run(concat(
         boxx(0.5, 0.5, -1.0, 1.0, 1.0, 4.0, B),
         cube(0.0, 0.0, 0.0, 2.0, A),
@@ -1194,7 +1196,6 @@ fn adversary_b_generated_ray_permutation_invariance() {
     );
 
     // (b) reverse the global triangle order (labels permuted alongside).
-    // FAILING — see the header comment (upstream fence gaps).
     let (coords, tris, labels) = through_cut();
     let rev: Solid = (
         coords,
