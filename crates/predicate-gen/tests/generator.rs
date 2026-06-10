@@ -233,3 +233,168 @@ fn checked_in_file_is_fresh() {
         path.display()
     );
 }
+
+// ---------------------------------------------------------------------
+// PR-CR-M7b: orient2d family (Cherchi 2020 Appendix A cross-checks)
+// ---------------------------------------------------------------------
+
+/// Cherchi 2020 Appendix A publishes the ORIENT2D_XY per-instance filter
+/// constants ε∆ = c·δ∆^k ("the YZ and ZX versions can be obtained by
+/// simply replacing all the subscripts" — identical constants). Our
+/// independently-derived constants must match in degree EXACTLY and land
+/// in the [1×, 2×] conservative band (ours slightly larger: `next_up`
+/// round-toward-+∞ emulation plus the runtime-scaling fold; measured
+/// surplus 6-12%, structural per the fpg.rs forensic note).
+#[test]
+fn orient2d_deltas_match_cherchi_appendix_a() {
+    // (suffix, published ε∆ coefficient, degree) — mesh_arrangement.txt
+    // lines 1009-1060 (+ line 994 for LTT's parity rule; its ε is not in
+    // our text extraction, so LTT checks degree only).
+    let published: [(&str, f64, u32); 8] = [
+        ("lee", 4.75277369543781e-14, 5),
+        ("lle", 1.699690735379461e-11, 11),
+        ("lll", 1.75634284893534e-10, 14),
+        ("llt", 2.144556754402072e-9, 17),
+        ("lte", 2.184958117212875e-10, 14),
+        ("tee", 9.061883188277186e-13, 8),
+        ("tte", 3.307187945722513e-8, 20),
+        ("ttt", 3.103174776697444e-6, 26),
+    ];
+    let table = predicate_gen::orient2d::instance_table();
+    assert_eq!(table.len(), 27, "9 patterns × 3 projections");
+    for proj in ["xy", "yz", "zx"] {
+        for (sfx, eps, deg) in published {
+            let name = format!("orient2d_{proj}_{sfx}");
+            let (_, delta, degree) = table
+                .iter()
+                .find(|(n, _, _)| *n == name)
+                .unwrap_or_else(|| panic!("missing instance {name}"));
+            assert_eq!(*degree, deg, "{name}: degree vs Appendix A");
+            assert!(
+                *delta > eps && *delta < eps * 2.0,
+                "{name}: delta {delta:e} not in [1, 2]× Cherchi's {eps:e}"
+            );
+        }
+        // LTT (published polynomial exists; ε missing from the text
+        // extraction): degree must be 20 = (3+7) + (3+7).
+        let name = format!("orient2d_{proj}_ltt");
+        let (_, delta, degree) = table
+            .iter()
+            .find(|(n, _, _)| *n == name)
+            .unwrap_or_else(|| panic!("missing instance {name}"));
+        assert_eq!(*degree, 20, "{name}: degree (2 × (dL + λT))");
+        assert!(*delta > 0.0 && *delta < 1.0);
+    }
+    // The three projections are the same polynomial over permuted
+    // subscripts — identical constants.
+    for (sfx, _, _) in published {
+        let get = |proj: &str| {
+            table
+                .iter()
+                .find(|(n, _, _)| *n == format!("orient2d_{proj}_{sfx}"))
+                .unwrap()
+                .1
+        };
+        assert_eq!(get("xy"), get("yz"), "{sfx}: xy vs yz delta");
+        assert_eq!(get("xy"), get("zx"), "{sfx}: xy vs zx delta");
+    }
+}
+
+/// 10 sorted patterns (L ≤ T ≤ E), 9 generated (EEE delegates to CR10).
+#[test]
+fn orient2d_pattern_count() {
+    use predicate_gen::orient2d::{patterns, Ty};
+    let pats = patterns();
+    assert_eq!(pats.len(), 10);
+    assert_eq!(
+        pats.iter().filter(|p| p[0] != Ty::E).count(),
+        9,
+        "9 generated instances per projection"
+    );
+}
+
+// ---------------------------------------------------------------------
+// PR-CR-M7b: less_than family (Cherchi 2020 Appendix B cross-checks)
+// ---------------------------------------------------------------------
+
+/// Cherchi 2020 Appendix B publishes the POINTCOMPARE_ON_X constants
+/// (mesh_arrangement.txt lines 1025-1056); Y and Z by subscript
+/// replacement. Same band reasoning as Appendix A above. (The appendix's
+/// last entry is misprinted `pointCompare_on_X_LL(pT1, pT2)` — its ∆ is
+/// over TPI lambdas, i.e. the TT instance.)
+#[test]
+fn less_than_deltas_match_cherchi_appendix_b() {
+    let published: [(&str, f64, u32); 5] = [
+        ("le", 1.932297637868842e-14, 4),
+        ("ll", 2.92288762637760e-13, 7),
+        ("lt", 4.321380059346694e-12, 10),
+        ("te", 3.980270973924514e-13, 7),
+        ("tt", 5.504141586953918e-11, 13),
+    ];
+    let table = predicate_gen::lessthan::instance_table();
+    assert_eq!(table.len(), 15, "5 patterns × 3 axes");
+    for axis in ["x", "y", "z"] {
+        for (sfx, eps, deg) in published {
+            let name = format!("less_than_on_{axis}_{sfx}");
+            let (_, delta, degree) = table
+                .iter()
+                .find(|(n, _, _)| *n == name)
+                .unwrap_or_else(|| panic!("missing instance {name}"));
+            assert_eq!(*degree, deg, "{name}: degree vs Appendix B");
+            assert!(
+                *delta > eps && *delta < eps * 2.0,
+                "{name}: delta {delta:e} not in [1, 2]× Cherchi's {eps:e}"
+            );
+        }
+    }
+}
+
+/// 6 sorted patterns (L ≤ T ≤ E), 5 generated (EE is a direct f64
+/// comparison — Appendix B: "without the need for a filter").
+#[test]
+fn less_than_pattern_count() {
+    use predicate_gen::lessthan::{patterns, Ty};
+    let pats = patterns();
+    assert_eq!(pats.len(), 6);
+    assert_eq!(pats.iter().filter(|p| p[0] != Ty::E).count(), 5);
+}
+
+// ---------------------------------------------------------------------
+// PR-CR-M7b: emission snapshot extension
+// ---------------------------------------------------------------------
+
+#[test]
+fn emission_snapshot_contains_catalog_functions() {
+    let f = generate_file();
+    for proj in ["xy", "yz", "zx"] {
+        for kind in ["", "_filtered_", "_exact_"] {
+            let needle = if kind.is_empty() {
+                format!("pub(super) fn dispatch_orient2d_{proj}_canonical(")
+            } else {
+                format!("pub(super) fn dispatch_orient2d_{proj}{kind}canonical(")
+            };
+            assert!(f.contains(&needle), "generated file missing `{needle}`");
+        }
+    }
+    for axis in ["x", "y", "z"] {
+        for kind in ["", "_filtered_", "_exact_"] {
+            let needle = if kind.is_empty() {
+                format!("pub(super) fn dispatch_less_than_on_{axis}_canonical(")
+            } else {
+                format!("pub(super) fn dispatch_less_than_on_{axis}{kind}canonical(")
+            };
+            assert!(f.contains(&needle), "generated file missing `{needle}`");
+        }
+    }
+    for (name, _, _) in predicate_gen::orient2d::instance_table()
+        .into_iter()
+        .chain(predicate_gen::lessthan::instance_table())
+    {
+        for tier in ["_filtered", "_interval", "_exact", "_inexact", ""] {
+            let needle = format!("pub(super) fn {name}{tier}(");
+            assert!(f.contains(&needle), "generated file missing `{needle}`");
+        }
+        let needle = format!("const DELTA_{}:", name.to_uppercase());
+        assert!(f.contains(&needle), "generated file missing `{needle}`");
+    }
+}
