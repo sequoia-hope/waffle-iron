@@ -99,13 +99,82 @@ impl Profile {
     /// the error contract. `outer` and each member of `holes` are closed
     /// polylines given WITHOUT the repeated closing vertex.
     pub fn new(
-        _origin: Point3,
-        _u: Vector3,
-        _v: Vector3,
-        _outer: Vec<Point2>,
-        _holes: Vec<Vec<Point2>>,
+        origin: Point3,
+        u: Vector3,
+        v: Vector3,
+        mut outer: Vec<Point2>,
+        mut holes: Vec<Vec<Point2>>,
     ) -> Result<Self, KernelV2Error> {
-        Err(KernelV2Error::NotImplemented("Profile::new (PR-KV2 RED)"))
+        // 1. Frame finiteness + non-degeneracy. Finiteness FIRST: it is the
+        //    precondition that makes every later f64 → RBig conversion total.
+        let frame = [
+            origin.x(),
+            origin.y(),
+            origin.z(),
+            u.x(),
+            u.y(),
+            u.z(),
+            v.x(),
+            v.y(),
+            v.z(),
+        ];
+        if frame.iter().any(|c| !c.is_finite()) {
+            return Err(KernelV2Error::ProfileNotFinite);
+        }
+        let c = cross(u, v);
+        let sq = c[0] * c[0] + c[1] * c[1] + c[2] * c[2];
+        // `sq` is finite (frame finiteness pre-checked), so a plain comparison
+        // is total here.
+        if sq < BASIS_MIN_SQ_CROSS_NORM {
+            return Err(KernelV2Error::ProfileDegenerateBasis);
+        }
+
+        // 2–5. Per-loop validation + CCW normalization (loop_index 0 = outer,
+        //      k + 1 = hole k).
+        validate_and_normalize_loop(&mut outer, 0)?;
+        for (k, hole) in holes.iter_mut().enumerate() {
+            validate_and_normalize_loop(hole, k + 1)?;
+        }
+
+        // 6. Pairwise loop disjointness (exact; touching counts).
+        let all: Vec<&[Point2]> = std::iter::once(outer.as_slice())
+            .chain(holes.iter().map(|h| h.as_slice()))
+            .collect();
+        for i in 0..all.len() {
+            for j in (i + 1)..all.len() {
+                if loops_touch(all[i], all[j]) {
+                    return Err(KernelV2Error::ProfileLoopsIntersect {
+                        loop_a: i,
+                        loop_b: j,
+                    });
+                }
+            }
+        }
+
+        // 7. Hole containment (witness vertex; sound after disjointness).
+        for (k, hole) in holes.iter().enumerate() {
+            if !exact::point_strictly_inside(hole[0], &outer) {
+                return Err(KernelV2Error::ProfileHoleNotInsideOuter { hole_index: k });
+            }
+        }
+        for i in 0..holes.len() {
+            for j in 0..holes.len() {
+                if i != j && exact::point_strictly_inside(holes[j][0], &holes[i]) {
+                    return Err(KernelV2Error::ProfileHolesNested {
+                        outer_hole: i,
+                        inner_hole: j,
+                    });
+                }
+            }
+        }
+
+        Ok(Self {
+            origin,
+            u,
+            v,
+            outer,
+            holes,
+        })
     }
 
     /// Plane origin.
@@ -163,4 +232,178 @@ pub(crate) fn cross(a: Vector3, b: Vector3) -> [f64; 3] {
         a.z() * b.x() - a.x() * b.z(),
         a.x() * b.y() - a.y() * b.x(),
     ]
+}
+
+/// Per-loop validation (steps 2–5 of the module-docs checklist), then
+/// orientation normalization to CCW (positive exact shoelace area).
+fn validate_and_normalize_loop(pts: &mut [Point2], loop_index: usize) -> Result<(), KernelV2Error> {
+    if pts.len() < 3 {
+        return Err(KernelV2Error::ProfileTooFewVertices { loop_index });
+    }
+    if pts.iter().any(|p| !p.x().is_finite() || !p.y().is_finite()) {
+        return Err(KernelV2Error::ProfileNotFinite);
+    }
+    // Consecutive duplicates, including the implicit closing edge
+    // (last == first). Exact f64 equality.
+    let n = pts.len();
+    for i in 0..n {
+        if pts[i] == pts[(i + 1) % n] {
+            return Err(KernelV2Error::ProfileRepeatedVertex { loop_index });
+        }
+    }
+    // Spikes: a vertex whose two incident edges are collinear AND double
+    // back (adjacent-segment overlap). Collinear straight-through vertices
+    // (dot ≤ 0) are redundant but legal.
+    for i in 0..n {
+        let (a, b, c) = (pts[i], pts[(i + 1) % n], pts[(i + 2) % n]);
+        if exact::doubles_back(a, b, c) {
+            return Err(KernelV2Error::ProfileNotSimple { loop_index });
+        }
+    }
+    // Non-adjacent segment pairs must be fully disjoint (crossing, touching,
+    // and collinear overlap all reject) — exact.
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let adjacent = j == i + 1 || (i == 0 && j == n - 1);
+            if adjacent {
+                continue; // handled by the spike test above
+            }
+            if exact::closed_segments_intersect(pts[i], pts[(i + 1) % n], pts[j], pts[(j + 1) % n])
+            {
+                return Err(KernelV2Error::ProfileNotSimple { loop_index });
+            }
+        }
+    }
+    // Orientation: exact shoelace sign. A simple polygon (established above)
+    // encloses nonzero area; Equal is therefore unreachable, kept as a
+    // defensive loud arm rather than a debug_assert.
+    match exact::signed_area_sign(pts) {
+        std::cmp::Ordering::Greater => Ok(()),
+        std::cmp::Ordering::Less => {
+            pts.reverse();
+            Ok(())
+        }
+        std::cmp::Ordering::Equal => Err(KernelV2Error::ProfileNotSimple { loop_index }),
+    }
+}
+
+/// Do two distinct loops intersect or touch anywhere? (Exact; segment-pair
+/// sweep — O(n·m), fine at sketch scale.)
+fn loops_touch(a: &[Point2], b: &[Point2]) -> bool {
+    let (na, nb) = (a.len(), b.len());
+    for i in 0..na {
+        for j in 0..nb {
+            if exact::closed_segments_intersect(a[i], a[(i + 1) % na], b[j], b[(j + 1) % nb]) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Exact 2D predicates over `dashu` rationals. Every finite `f64` converts
+/// losslessly to `RBig`, so these are decision procedures (see the module
+/// docs' simplicity-validation rationale). All callers guarantee finiteness
+/// before calling (checked in `Profile::new` step 1 / loop validation), so
+/// the conversions are total.
+mod exact {
+    use cad_primitives::Point2;
+    use dashu::float::FBig;
+    use dashu::rational::RBig;
+    use std::cmp::Ordering;
+
+    /// Lossless f64 → rational. Total for finite input (pre-checked).
+    fn r(x: f64) -> RBig {
+        let fb: FBig = FBig::try_from(x).expect("finite f64 → FBig is total");
+        RBig::try_from(fb).expect("FBig → RBig is total")
+    }
+
+    /// Exact orientation of `c` relative to the directed line `a → b`:
+    /// `Greater` = left, `Less` = right, `Equal` = collinear.
+    pub(super) fn orient2d(a: Point2, b: Point2, c: Point2) -> Ordering {
+        let det = (r(b.x()) - r(a.x())) * (r(c.y()) - r(a.y()))
+            - (r(b.y()) - r(a.y())) * (r(c.x()) - r(a.x()));
+        det.cmp(&RBig::ZERO)
+    }
+
+    /// Spike test at vertex `b` of the path `a → b → c`: the incident edges
+    /// are collinear AND `c` heads back toward `a` (exact dot > 0).
+    pub(super) fn doubles_back(a: Point2, b: Point2, c: Point2) -> bool {
+        if orient2d(a, b, c) != Ordering::Equal {
+            return false;
+        }
+        let dot = (r(c.x()) - r(b.x())) * (r(a.x()) - r(b.x()))
+            + (r(c.y()) - r(b.y())) * (r(a.y()) - r(b.y()));
+        dot.cmp(&RBig::ZERO) == Ordering::Greater
+    }
+
+    /// `q` is known collinear with `a`–`b`; is it within the segment's
+    /// closed bounding box? (f64 comparisons are exact — no arithmetic.)
+    fn on_collinear_segment(a: Point2, b: Point2, q: Point2) -> bool {
+        q.x() >= a.x().min(b.x())
+            && q.x() <= a.x().max(b.x())
+            && q.y() >= a.y().min(b.y())
+            && q.y() <= a.y().max(b.y())
+    }
+
+    /// Do CLOSED segments `p1p2` and `p3p4` share any point (proper
+    /// crossing, endpoint touch, or collinear overlap)? Exact.
+    pub(super) fn closed_segments_intersect(
+        p1: Point2,
+        p2: Point2,
+        p3: Point2,
+        p4: Point2,
+    ) -> bool {
+        let d1 = orient2d(p3, p4, p1);
+        let d2 = orient2d(p3, p4, p2);
+        let d3 = orient2d(p1, p2, p3);
+        let d4 = orient2d(p1, p2, p4);
+        if ((d1 == Ordering::Greater && d2 == Ordering::Less)
+            || (d1 == Ordering::Less && d2 == Ordering::Greater))
+            && ((d3 == Ordering::Greater && d4 == Ordering::Less)
+                || (d3 == Ordering::Less && d4 == Ordering::Greater))
+        {
+            return true; // proper crossing
+        }
+        (d1 == Ordering::Equal && on_collinear_segment(p3, p4, p1))
+            || (d2 == Ordering::Equal && on_collinear_segment(p3, p4, p2))
+            || (d3 == Ordering::Equal && on_collinear_segment(p1, p2, p3))
+            || (d4 == Ordering::Equal && on_collinear_segment(p1, p2, p4))
+    }
+
+    /// Exact sign of the loop's shoelace sum (`Greater` = CCW).
+    pub(super) fn signed_area_sign(pts: &[Point2]) -> Ordering {
+        let mut sum = RBig::ZERO;
+        let n = pts.len();
+        for i in 0..n {
+            let (p, q) = (pts[i], pts[(i + 1) % n]);
+            sum += r(p.x()) * r(q.y()) - r(q.x()) * r(p.y());
+        }
+        sum.cmp(&RBig::ZERO)
+    }
+
+    /// Exact crossing-parity point-in-polygon, STRICT interior. The caller
+    /// guarantees `q` does not lie on the boundary (loop disjointness is
+    /// established first), which rules out the `orient == Equal` crossing
+    /// ambiguity: a straddling edge with `q` on its supporting line would
+    /// put `q` on the segment itself.
+    pub(super) fn point_strictly_inside(q: Point2, pts: &[Point2]) -> bool {
+        let mut inside = false;
+        let n = pts.len();
+        for i in 0..n {
+            let (a, b) = (pts[i], pts[(i + 1) % n]);
+            // Half-open straddle test (exact f64 comparisons).
+            if (a.y() > q.y()) == (b.y() > q.y()) {
+                continue;
+            }
+            let upward = b.y() > a.y();
+            let o = orient2d(a, b, q);
+            // Ray +x from q crosses an upward edge iff q is strictly left
+            // of it, a downward edge iff strictly right.
+            if (upward && o == Ordering::Greater) || (!upward && o == Ordering::Less) {
+                inside = !inside;
+            }
+        }
+        inside
+    }
 }

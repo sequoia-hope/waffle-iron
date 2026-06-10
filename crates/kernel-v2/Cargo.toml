@@ -8,5 +8,10 @@ description = "Clean-sheet CAD kernel. Half-edge B-Rep with enforced face.normal
 # trait used by wasm-bridge, feature-engine, etc.
 [dependencies]
 cad-primitives = { path = "../cad-primitives" }
+# Exact rational arithmetic for Profile's simple-polygon validation
+# (pure Rust, WASM-safe; same backend as cherchi-rs' exact cascade).
+# This is an EXTERNAL crate: the "cad-primitives, yang-rs only" rule in
+# CLAUDE.md governs workspace-crate layering, not third-party deps.
+dashu = "0.4"
 # yang-rs is added when the boolean-delegation slice lands (KV1 mandate:
 # do not add the dep until a slice consumes it).

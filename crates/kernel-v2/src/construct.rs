@@ -41,10 +41,12 @@
 //! masked. As defense in depth, both constructors run `validate_solid` on
 //! the finished solid and propagate its verdict.
 
-use crate::arena::{BrepArena, FaceId, ShellId, SolidId};
+use crate::arena::{BrepArena, FaceId, HalfEdgeId, LoopId, ShellId, SolidId};
 use crate::error::KernelV2Error;
-use crate::profile::Profile;
-use cad_primitives::Vector3;
+use crate::euler::{kemr, kfmrh, mef, mev, mev_lone, mvfs};
+use crate::profile::{cross, Profile};
+use crate::validate::validate_solid;
+use cad_primitives::{Point2, Point3, Vector3};
 
 /// `|d̂ · n̂|` floor below which an extrude direction is rejected as
 /// in-plane ([`KernelV2Error::ExtrudeDirectionInPlane`]). A *sheared*
@@ -91,12 +93,27 @@ pub struct ExtrudeResult {
 /// and invariants. Holes yield one ring on each face and increment shell
 /// genus (the holed lamina is torus-like).
 pub fn make_face_from_profile(
-    _arena: &mut BrepArena,
-    _profile: &Profile,
+    arena: &mut BrepArena,
+    profile: &Profile,
 ) -> Result<LaminaResult, KernelV2Error> {
-    Err(KernelV2Error::NotImplemented(
-        "make_face_from_profile (PR-KV2 RED)",
-    ))
+    // Outer boundary, CCW as stored ⇒ front face normal +normalize(u × v).
+    let outer3: Vec<Point3> = profile.outer().iter().map(|&p| profile.embed(p)).collect();
+    let core = build_boundary_lamina(arena, &outer3)?;
+
+    // Holes: lid + kemr (ring on front) + kfmrh (ring on back) at zero
+    // height — the KV1 through-hole sequence without the sweep.
+    for hole in profile.holes() {
+        let hole3: Vec<Point3> = hole.iter().map(|&p| profile.embed(p)).collect();
+        drill_hole(arena, core.front_anchor, &hole3, None, core.back)?;
+    }
+
+    validate_solid(arena, core.solid)?;
+    Ok(LaminaResult {
+        solid: core.solid,
+        shell: core.shell,
+        front: core.front,
+        back: core.back,
+    })
 }
 
 /// Extrude a validated [`Profile`] along `normalize(direction) * distance`.
@@ -108,10 +125,214 @@ pub fn make_face_from_profile(
 /// direction), [`KernelV2Error::ExtrudeDirectionInPlane`]
 /// (`|d̂ · n̂| < EXTRUDE_MIN_NORMAL_COSINE`).
 pub fn extrude(
-    _arena: &mut BrepArena,
-    _profile: &Profile,
-    _direction: Vector3,
-    _distance: f64,
+    arena: &mut BrepArena,
+    profile: &Profile,
+    direction: Vector3,
+    distance: f64,
 ) -> Result<ExtrudeResult, KernelV2Error> {
-    Err(KernelV2Error::NotImplemented("extrude (PR-KV2 RED)"))
+    // ---- argument validation (ALL before the first mutation) -------------
+    if !distance.is_finite() || distance <= 0.0 {
+        return Err(KernelV2Error::ExtrudeNonPositiveDistance);
+    }
+    let d = [direction.x(), direction.y(), direction.z()];
+    let d_sq = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    if !d_sq.is_finite() || d_sq <= 0.0 {
+        return Err(KernelV2Error::ExtrudeDegenerateDirection);
+    }
+    let d_len = d_sq.sqrt();
+    let n = cross(profile.u(), profile.v());
+    let n_len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    let cosine = (d[0] * n[0] + d[1] * n[1] + d[2] * n[2]) / (d_len * n_len);
+    if cosine.abs() < EXTRUDE_MIN_NORMAL_COSINE {
+        return Err(KernelV2Error::ExtrudeDirectionInPlane);
+    }
+    // Sweep vector w = d̂ · distance.
+    let w = [
+        d[0] / d_len * distance,
+        d[1] / d_len * distance,
+        d[2] / d_len * distance,
+    ];
+    // When the sweep opposes the profile normal, reverse the working loop
+    // orientation: the construction below assumes the front face's normal
+    // (= Newell of the loop as built) has a positive component along `w`,
+    // which is exactly what makes the finished solid outward-oriented.
+    let reverse = cosine < 0.0;
+
+    // ---- base lamina in the profile plane --------------------------------
+    let outer3 = embed_loop(profile, profile.outer(), reverse, None);
+    let core = build_boundary_lamina(arena, &outer3)?;
+
+    // ---- erect the outer walls (Stroud §6.2 vertex-based sweep) ----------
+    // Snapshot the front loop, then one post (mev) per vertex: anchoring at
+    // the half-edge LEAVING each vertex inserts the spur at that vertex,
+    // and the pre-snapshot stays valid because mev only inserts before its
+    // anchor.
+    let front_hes = arena.loop_half_edges(core.front_loop)?;
+    let mut posts = Vec::with_capacity(front_hes.len());
+    for &h in &front_hes {
+        let p = arena.vertex(arena.half_edge(h)?.origin)?.point;
+        posts.push(mev(arena, h, translate(p, w))?);
+    }
+    // One wall (mef) per edge: rim edge between consecutive post tips. The
+    // final wall closes onto the FIRST wall's old-side rim edge because the
+    // first post's `he_in` was consumed into the first wall's loop (KV1
+    // cube steps 10–13). The front face's residual loop becomes the top.
+    let mut walls = Vec::with_capacity(posts.len());
+    let first_wall = mef(arena, posts[0].he_in, posts[1].he_in)?;
+    walls.push(first_wall.face);
+    for i in 1..posts.len() - 1 {
+        walls.push(mef(arena, posts[i].he_in, posts[i + 1].he_in)?.face);
+    }
+    walls.push(mef(arena, posts[posts.len() - 1].he_in, first_wall.he_old_side)?.face);
+
+    // ---- drill each hole through (KV1 through-hole sequence) -------------
+    // `first_wall.he_old_side` is a top-rim edge that stays in the top
+    // face's loop (mef's he_to side), so it anchors every hole bridge.
+    let neg_w = [-w[0], -w[1], -w[2]];
+    let mut hole_walls = Vec::with_capacity(profile.holes().len());
+    for hole in profile.holes() {
+        let top_pts = embed_loop(profile, hole, reverse, Some(w));
+        hole_walls.push(drill_hole(
+            arena,
+            first_wall.he_old_side,
+            &top_pts,
+            Some(neg_w),
+            core.back,
+        )?);
+    }
+
+    validate_solid(arena, core.solid)?;
+    Ok(ExtrudeResult {
+        solid: core.solid,
+        shell: core.shell,
+        base: core.back,
+        top: core.front,
+        walls,
+        hole_walls,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Internal construction helpers
+// ---------------------------------------------------------------------------
+
+fn translate(p: Point3, w: [f64; 3]) -> Point3 {
+    Point3::new(p.x() + w[0], p.y() + w[1], p.z() + w[2])
+}
+
+/// Embed a stored-CCW profile loop into 3D, optionally reversing the
+/// winding (for sweeps opposing the profile normal) and optionally
+/// offsetting by a sweep vector (for hole loops drilled from the top).
+fn embed_loop(
+    profile: &Profile,
+    loop2: &[Point2],
+    reverse: bool,
+    offset: Option<[f64; 3]>,
+) -> Vec<Point3> {
+    let embed = |&p: &Point2| {
+        let q = profile.embed(p);
+        match offset {
+            Some(w) => translate(q, w),
+            None => q,
+        }
+    };
+    if reverse {
+        loop2.iter().rev().map(embed).collect()
+    } else {
+        loop2.iter().map(embed).collect()
+    }
+}
+
+/// The boundary lamina shared by both constructors.
+struct LaminaCore {
+    solid: SolidId,
+    shell: ShellId,
+    /// Face whose normal is the Newell normal of `pts` in given order.
+    front: FaceId,
+    /// Opposite face.
+    back: FaceId,
+    /// The front face's outer loop.
+    front_loop: LoopId,
+    /// A half-edge guaranteed to remain in the front face's outer loop
+    /// (`mef`'s `he_to`, which stays in the old loop) — the lamina-path
+    /// drill anchor.
+    front_anchor: HalfEdgeId,
+}
+
+/// Build a lamina from a closed 3D polygon: `mvfs` + `mev_lone` +
+/// `(k − 2) × mev` + closing `mef` (the KV1 cube steps 1–5 generalized).
+/// The mef's new face takes the REVERSED cycle (`he_from` = last spur's
+/// inbound half-edge), so `front` (the mvfs face) winds with `pts`.
+fn build_boundary_lamina(
+    arena: &mut BrepArena,
+    pts: &[Point3],
+) -> Result<LaminaCore, KernelV2Error> {
+    let m = mvfs(arena, pts[0])?;
+    let first = mev_lone(arena, m.outer_loop, pts[1])?;
+    let mut prev_in = first.he_in;
+    for &p in &pts[2..] {
+        prev_in = mev(arena, prev_in, p)?.he_in;
+    }
+    let closing = mef(arena, prev_in, first.he_out)?;
+    Ok(LaminaCore {
+        solid: m.solid,
+        shell: m.shell,
+        front: m.face,
+        back: closing.face,
+        front_loop: m.outer_loop,
+        front_anchor: first.he_out,
+    })
+}
+
+/// Drill one hole: bridge `mev` from a receiving-face loop vertex, spur
+/// chain around the hole, lid `mef`, `kemr` on the bridge (ring on the
+/// receiving face), then either transfer the lid directly (`sweep: None` —
+/// the lamina case) or sweep the lid down (`posts + walls`) and transfer
+/// the residual membrane — `kfmrh` to `membrane_recv` either way (genus + 1).
+///
+/// `top_pts` must wind CCW with respect to the receiving face's normal
+/// (the KV1 through-hole steps 1–15). Returns the hole wall faces (empty
+/// for the lamina case), in lid-loop walk order.
+fn drill_hole(
+    arena: &mut BrepArena,
+    anchor: HalfEdgeId,
+    top_pts: &[Point3],
+    sweep: Option<[f64; 3]>,
+    membrane_recv: FaceId,
+) -> Result<Vec<FaceId>, KernelV2Error> {
+    let bridge = mev(arena, anchor, top_pts[0])?;
+    let mut spurs = Vec::with_capacity(top_pts.len() - 1);
+    let mut prev_in = bridge.he_in;
+    for &q in &top_pts[1..] {
+        let s = mev(arena, prev_in, q)?;
+        prev_in = s.he_in;
+        spurs.push(s);
+    }
+    // Lid = the forward side of the spur chain (q0 → … → q_{m−1} → q0).
+    let lid = mef(arena, spurs[0].he_out, spurs[spurs.len() - 1].he_in)?;
+    // Kill the bridge: the chain's BACK side becomes the ring of the
+    // receiving face (winding opposite its outer loop).
+    kemr(arena, bridge.he_out)?;
+
+    let mut walls = Vec::new();
+    if let Some(wv) = sweep {
+        // Sweep the lid loop down: posts + walls, same pattern as the outer
+        // erection (the lid face's residual loop becomes the membrane).
+        let lid_hes = arena.loop_half_edges(lid.new_loop)?;
+        let mut posts = Vec::with_capacity(lid_hes.len());
+        for &h in &lid_hes {
+            let p = arena.vertex(arena.half_edge(h)?.origin)?.point;
+            posts.push(mev(arena, h, translate(p, wv))?);
+        }
+        let first_wall = mef(arena, posts[0].he_in, posts[1].he_in)?;
+        walls.push(first_wall.face);
+        for i in 1..posts.len() - 1 {
+            walls.push(mef(arena, posts[i].he_in, posts[i + 1].he_in)?.face);
+        }
+        walls.push(mef(arena, posts[posts.len() - 1].he_in, first_wall.he_old_side)?.face);
+    }
+    // Open the hole: kill the lid/membrane face, its loop becomes a ring of
+    // the receiver, shell genus increments (Stroud §F.9 same-shell case).
+    kfmrh(arena, lid.face, membrane_recv)?;
+    Ok(walls)
 }

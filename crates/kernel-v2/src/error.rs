@@ -11,10 +11,6 @@ use crate::arena::{FaceId, HalfEdgeId, LoopId, VertexId};
 /// Error type for all kernel-v2 topology operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KernelV2Error {
-    /// The requested operation is not implemented yet (PR-KV2 RED stubs;
-    /// removed when the GREEN implementation lands).
-    NotImplemented(&'static str),
-
     /// An entity id does not refer to a live arena slot. `kind` names the
     /// entity class ("vertex", "half_edge", "loop", "face", "shell", "solid").
     InvalidId { kind: &'static str },

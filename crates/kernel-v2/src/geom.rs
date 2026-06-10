@@ -74,24 +74,66 @@ pub fn dot(a: UnitVector3, b: UnitVector3) -> f64 {
 /// NOT validate closedness — call `validate_solid` for that (an open or
 /// inward-oriented surface simply yields a meaningless / negative value).
 pub fn signed_volume(
-    _arena: &crate::arena::BrepArena,
-    _solid: crate::arena::SolidId,
+    arena: &crate::arena::BrepArena,
+    solid: crate::arena::SolidId,
 ) -> Result<f64, crate::error::KernelV2Error> {
-    Err(crate::error::KernelV2Error::NotImplemented(
-        "signed_volume (PR-KV2 RED)",
-    ))
+    let mut six_v = 0.0f64;
+    let solid_ref = arena.solid(solid)?;
+    for &sh in &solid_ref.shells {
+        for &f in &arena.shell(sh)?.faces {
+            let face = arena.face(f)?;
+            let outer_pts = arena.loop_points(face.outer_loop)?;
+            // Reference point in the face plane: fanning each loop from it
+            // covers the polygon-with-holes with signed multiplicity 1
+            // (lone-vertex loops contribute no points and no area).
+            let Some(&r) = outer_pts.first() else {
+                continue;
+            };
+            six_v += loop_fan_determinants(r, &outer_pts);
+            for &rid in &face.inner_loops {
+                six_v += loop_fan_determinants(r, &arena.loop_points(rid)?);
+            }
+        }
+    }
+    Ok(six_v / 6.0)
+}
+
+/// `Σᵢ det[r, pᵢ, pᵢ₊₁]` (cyclic) — six times the signed volume contribution
+/// of the triangle fan from `r` over one loop.
+fn loop_fan_determinants(r: Point3, pts: &[Point3]) -> f64 {
+    let mut sum = 0.0f64;
+    for (i, p) in pts.iter().enumerate() {
+        let q = pts[(i + 1) % pts.len()];
+        // det[r, p, q] = r · (p × q)
+        sum += r.x() * (p.y() * q.z() - p.z() * q.y())
+            + r.y() * (p.z() * q.x() - p.x() * q.z())
+            + r.z() * (p.x() * q.y() - p.y() * q.x());
+    }
+    sum
 }
 
 /// Arithmetic-mean centroid of a face's outer-loop vertices. Sufficient for
 /// the outward-normal oracles (`normal · (face_centroid − solid_centroid)`)
 /// and for tessellation seeding in later slices; NOT an area centroid.
 pub fn face_centroid(
-    _arena: &crate::arena::BrepArena,
-    _face: crate::arena::FaceId,
+    arena: &crate::arena::BrepArena,
+    face: crate::arena::FaceId,
 ) -> Result<Point3, crate::error::KernelV2Error> {
-    Err(crate::error::KernelV2Error::NotImplemented(
-        "face_centroid (PR-KV2 RED)",
-    ))
+    let outer = arena.face(face)?.outer_loop;
+    match arena.loop_(outer)?.boundary {
+        crate::arena::LoopBoundary::Lone(v) => Ok(arena.vertex(v)?.point),
+        crate::arena::LoopBoundary::Edges(_) => {
+            let pts = arena.loop_points(outer)?;
+            let n = pts.len() as f64;
+            let mut s = [0.0f64; 3];
+            for p in &pts {
+                s[0] += p.x();
+                s[1] += p.y();
+                s[2] += p.z();
+            }
+            Ok(Point3::new(s[0] / n, s[1] / n, s[2] / n))
+        }
+    }
 }
 
 #[cfg(test)]
