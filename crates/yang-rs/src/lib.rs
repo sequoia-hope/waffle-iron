@@ -82,6 +82,10 @@
 use std::error::Error;
 use std::fmt;
 
+// Stage 0 (Yang §4.5.5) coplanar-overlay geometric engine — M8 slice a
+// (PR-YR25). NOT yet wired into `boolean()`; that's M8 slice b.
+pub mod coplanar_overlay;
+
 pub use cad_primitives::{BoolOp, Point3, Vector3};
 pub use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};
 pub use cherchi_rs::{Mesh, MeshBoolean};

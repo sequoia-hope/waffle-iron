@@ -18,6 +18,11 @@ description = "Yang 2025 hybrid B-Rep / mesh boolean pipeline. Stage 0 coplanar 
 cad-primitives = { path = "../cad-primitives" }
 cherchi-rs = { path = "../cherchi-rs" }
 ssi-rs = { path = "../ssi-rs" }
+# Exact rational arithmetic for the Stage-0 coplanar overlay engine (M8a,
+# `src/coplanar_overlay.rs`). Pure Rust, WASM-clean — the same exact backend
+# cherchi-rs already uses. External-crate dep only; the crate-layering rule
+# (no kernel-v2, no legacy kernel) is untouched.
+dashu = "0.4"
 
 [dev-dependencies]
 # TEST-ONLY parity oracle (PR-CR-BL3c): the C++ subprocess sidecar is no
