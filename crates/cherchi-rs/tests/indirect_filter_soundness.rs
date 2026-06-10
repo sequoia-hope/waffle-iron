@@ -201,7 +201,65 @@ fn near_coplanar_implicit_perturbations() {
 }
 
 // ---------------------------------------------------------------------
-// 4. Undefined family: d == 0 must never produce a definite filtered sign
+// 4. Overflow window (PR-CR-M7b-fix F1): polynomial overflow must never
+//    certify a sign (orient3d shares the generated filtered-tier shape
+//    with the catalog families — see indirect_catalog_soundness.rs §5)
+// ---------------------------------------------------------------------
+
+#[test]
+fn overflow_window_magnitude_sweep_soundness() {
+    // Scales near the per-degree `β^k`-finite boundaries (the sweep
+    // above stops at 1e30): ~8e7 for the degree-39 TTTT window, ~5e10
+    // for the deep-TPI mid degrees, 1e40/1e52 mid-window, ~4e61 for the
+    // shallow LPI/explicit instances. Generic pools (no engineered
+    // cancellation) — a soundness backstop over the overflow windows.
+    let scales: [f64; 6] = [1e7, 5e10, 1e40, 1e52, 2.0f64.powi(200), 5e60];
+    for s in scales {
+        let pool = mixed_pool(4, 4, 4, s);
+        let tuples = tuple_stream(pool.len(), 150);
+        let (definite, total) = check_soundness(&pool, &tuples, &format!("overflow scale {s:e}"));
+        println!("overflow scale {s:e}: definite {definite}/{total}");
+    }
+}
+
+#[test]
+fn overflow_window_huge_lpi_family_soundness() {
+    // LPI exactly at (p, p, 0) with `λ = d·(p, p, 0)`, `d = -2·p·s²`
+    // (its `n` determinant vanishes), against explicit points at ~4e61 —
+    // the same engineered family that produces the deterministic
+    // orient2d wrong-sign reproduction in indirect_catalog_soundness.rs.
+    for (kp, ks) in [(14.0, 43.0), (18.0, 43.0), (22.0, 40.0), (18.0, 44.0)] {
+        let p = kp * 1e60;
+        let s = ks * 1e60;
+        let lpi = GenericPoint3D::lpi(
+            Point3::new(p, p, -p),
+            Point3::new(p, p, p),
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(s, -s, 0.0),
+            Point3::new(s, s, 0.0),
+        );
+        for w in [4e61, -4e61, 2e61] {
+            let b = GenericPoint3D::explicit(Point3::new(-1e61, 4.4e61, 0.0));
+            let c = GenericPoint3D::explicit(Point3::new(-1e61 + w, 4.4e61 - w, 0.0));
+            let d = GenericPoint3D::explicit(Point3::new(2e61, -3e61, 4e61));
+            let exact = orient3d_indirect_exact(&lpi, &b, &c, &d);
+            if let Some(f) = orient3d_indirect_filtered(&lpi, &b, &c, &d) {
+                assert_eq!(
+                    f, exact,
+                    "F1 OVERFLOW SOUNDNESS VIOLATION (orient3d): p={p:e} s={s:e} w={w:e}"
+                );
+            }
+            assert_eq!(
+                orient3d_indirect(&lpi, &b, &c, &d),
+                exact,
+                "orient3d dispatcher wrong on overflow case p={p:e} s={s:e} w={w:e}"
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------
+// 5. Undefined family: d == 0 must never produce a definite filtered sign
 // ---------------------------------------------------------------------
 
 #[test]

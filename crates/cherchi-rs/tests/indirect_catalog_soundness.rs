@@ -344,7 +344,313 @@ fn less_than_exact_tie_family() {
 }
 
 // ---------------------------------------------------------------------
-// 5. Composites vs independent pure-RBig formulations
+// 5. Overflow window (PR-CR-M7b-fix F1): the filtered tier must never
+//    certify a sign when the predicate polynomial overflows
+// ---------------------------------------------------------------------
+//
+// There is a window where `ε = δ(1)·β^k` is still finite but an
+// INTERMEDIATE of the polynomial evaluation overflows to ±inf with the
+// WRONG sign relative to the true value (a later term of opposite sign
+// would have brought the true sum back across zero, but `±inf + finite =
+// ±inf`). `±inf` compares `> ε` / `< -ε` and certifies a wrong sign.
+// FPG guards exactly this with an upper-bound/λmax check
+// (`refs/text/meyer_pion2008_fpg.txt` §2 "Under/Overflow Protection" and
+// the generated-example guard `if upper_bound > 3.21e60 → UNCERTAIN`);
+// our generator's equivalent is an explicit `lam.is_finite()` /
+// `d.is_finite()` requirement before certification.
+//
+// The construction below engineers that window for `orient2d_*` LEE:
+// an LPI point EXACTLY at `(p, p, 0)` (its `n` determinant vanishes, so
+// `λ = d·(p, p, 0)` with `d = -2·p·s²`), queried against explicit points
+// at ~4e61. With β ≈ 4.3e61, `β^5 ≈ 1.5e308` is finite (so ε is finite),
+// while the term `d·(p1.x·p2.y − p1.y·p2.x)` overflows past ±1.8e308.
+
+/// LPI implicit point exactly at `(p, p, 0)`: vertical-ish line
+/// `(p,p,-p) → (p,p,p)` intersected with the plane `z = 0` through
+/// `(0,0,0)`, `(s,-s,0)`, `(s,s,0)`. The `n` determinant is exactly 0,
+/// so the lambdas are exactly `d·(p, p, 0)` with `d = -2·p·s²`.
+fn huge_planar_lpi(p: f64, s: f64) -> GenericPoint3D {
+    GenericPoint3D::lpi(
+        Point3::new(p, p, -p),
+        Point3::new(p, p, p),
+        Point3::new(0.0, 0.0, 0.0),
+        Point3::new(s, -s, 0.0),
+        Point3::new(s, s, 0.0),
+    )
+}
+
+/// The empirically confirmed wrong-sign reproduction (second-opinion
+/// review, F1): pre-fix the semi-static filter certified `Negative`,
+/// the exact tier says `Positive`, and the full dispatcher returned the
+/// WRONG `Negative` as final.
+#[test]
+fn orient2d_overflow_window_pinned_wrong_sign_case() {
+    let lpi = huge_planar_lpi(18.0 * 1e60, 43.0 * 1e60);
+    let p1 = GenericPoint3D::explicit(Point3::new(-10.0 * 1e60, 44.0 * 1e60, 0.0));
+    let p2 = GenericPoint3D::explicit(Point3::new(-10.0 * 1e60 + 4e61, 44.0 * 1e60 - 4e61, 0.0));
+    let exact = orient2d_xy_indirect_exact(&lpi, &p1, &p2);
+    assert_eq!(exact, Sign::Positive, "ground truth must be Positive");
+    if let Some(s) = orient2d_xy_indirect_filtered(&lpi, &p1, &p2) {
+        assert_eq!(
+            s, exact,
+            "F1 OVERFLOW SOUNDNESS VIOLATION: filtered tier certified {s:?} \
+             but exact says {exact:?} (polynomial overflow with finite eps)"
+        );
+    }
+    assert_eq!(
+        orient2d_xy_indirect(&lpi, &p1, &p2),
+        exact,
+        "full dispatcher returned a wrong final sign on the overflow case"
+    );
+}
+
+/// Cyclic coordinate permutation: `(x, y, z) → (z, x, y)` applied `n`
+/// times. The xy-projection of the original family becomes the yz (n=1)
+/// / zx (n=2) projection of the permuted family, exercising the same
+/// overflow window in every projection's instances.
+fn cycle_point(p: Point3, n: usize) -> Point3 {
+    let mut c = [p.x(), p.y(), p.z()];
+    for _ in 0..n {
+        c = [c[2], c[0], c[1]];
+    }
+    Point3::new(c[0], c[1], c[2])
+}
+
+fn cycle_spec_lpi(g: [Point3; 5], n: usize) -> GenericPoint3D {
+    GenericPoint3D::lpi(
+        cycle_point(g[0], n),
+        cycle_point(g[1], n),
+        cycle_point(g[2], n),
+        cycle_point(g[3], n),
+        cycle_point(g[4], n),
+    )
+}
+
+/// Deterministic family across the overflow window, all three
+/// projections: filtered-if-Some must agree with exact, and the full
+/// dispatcher must equal exact.
+#[test]
+fn orient2d_overflow_window_family_soundness() {
+    let p_grid = [14.0, 16.0, 18.0, 20.0, 22.0].map(|k| k * 1e60);
+    let s_grid = [40.0, 42.0, 43.0, 44.0].map(|k| k * 1e60);
+    let q_grid: [(f64, f64); 5] = [
+        (-10.0, 44.0),
+        (-9.0, 43.0),
+        (-8.0, 42.0),
+        (0.0, 36.0),
+        (36.0, 0.0),
+    ];
+    let lpi_gen = |p: f64, s: f64| -> [Point3; 5] {
+        [
+            Point3::new(p, p, -p),
+            Point3::new(p, p, p),
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(s, -s, 0.0),
+            Point3::new(s, s, 0.0),
+        ]
+    };
+    let mut definite_wrongable = 0usize;
+    for &p in &p_grid {
+        for &s in &s_grid {
+            for &(x1, y1) in &q_grid {
+                for w in [4e61, -4e61] {
+                    for (rot, (name, (filtered, exact, full))) in ORIENT2D_FAMILY.iter().enumerate()
+                    {
+                        let a = cycle_spec_lpi(lpi_gen(p, s), rot);
+                        let b = GenericPoint3D::explicit(cycle_point(
+                            Point3::new(x1 * 1e60, y1 * 1e60, 0.0),
+                            rot,
+                        ));
+                        let c = GenericPoint3D::explicit(cycle_point(
+                            Point3::new(x1 * 1e60 + w, y1 * 1e60 - w, 0.0),
+                            rot,
+                        ));
+                        let x = exact(&a, &b, &c);
+                        if let Some(f) = filtered(&a, &b, &c) {
+                            definite_wrongable += 1;
+                            assert_eq!(
+                                f, x,
+                                "orient2d_{name}: F1 OVERFLOW SOUNDNESS VIOLATION on \
+                                 p={p:e} s={s:e} q=({x1}, {y1})e60 w={w:e}"
+                            );
+                        }
+                        assert_eq!(
+                            full(&a, &b, &c),
+                            x,
+                            "orient2d_{name}: dispatcher wrong on overflow case \
+                             p={p:e} s={s:e} q=({x1}, {y1})e60 w={w:e}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+    // Non-vacuity of the family itself: some cases must reach the
+    // definite-sign comparison (otherwise the family tests nothing).
+    assert!(
+        definite_wrongable > 0,
+        "overflow family never produced a definite filtered verdict"
+    );
+}
+
+/// The same huge-coordinate window pushed through `less_than_on_*`
+/// (LL/LE instances, degree 7/4) — soundness assert only.
+#[test]
+fn less_than_overflow_window_soundness() {
+    let grid = [14.0, 18.0, 22.0, 30.0, 40.0].map(|k| k * 1e60);
+    for &p in &grid {
+        for &s in &grid {
+            let a = huge_planar_lpi(p, s);
+            for &p2 in &grid {
+                let bs = [
+                    huge_planar_lpi(p2, 43.0 * 1e60),
+                    GenericPoint3D::explicit(Point3::new(p2, -p2, 0.0)),
+                ];
+                for b in &bs {
+                    for (name, (filtered, exact, full)) in LESS_THAN_FAMILY {
+                        let x = exact(&a, b);
+                        if let Some(f) = filtered(&a, b) {
+                            assert_eq!(
+                                f, x,
+                                "less_than_on_{name}: F1 OVERFLOW SOUNDNESS VIOLATION \
+                                 on p={p:e} s={s:e} p2={p2:e}"
+                            );
+                        }
+                        assert_eq!(
+                            full(&a, b),
+                            x,
+                            "less_than_on_{name}: dispatcher wrong on p={p:e} s={s:e} p2={p2:e}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Magnitude-sweep extension into the per-degree overflow windows (the
+/// pre-existing sweeps stop at 1e30). Scales chosen so that β sits near
+/// each instance family's `β^k`-finite boundary: ~8e7 for the degree-39
+/// TPI-heavy window, ~5e11 for degree 26, 1e40/1e52 mid-window, and
+/// ~4e61 for the degree-5 LEE window. Generic (non-engineered) pools —
+/// wrong-sign certification here needs engineered cancellation, so this
+/// sweep is a soundness backstop, not the primary RED lever.
+///
+/// NOTE on the degree-39 TPI window (β≈1e8): engineering a deterministic
+/// WRONG-SIGN case there was not achieved in bounded effort — the TPI
+/// lambdas are themselves degree-12 determinants, so steering one
+/// intermediate product past ±1.8e308 while (a) keeping ε finite
+/// (β^39 < 1.8e308 ⇒ β ≤ 8.4e7) and (b) making the TRUE degree-39 sum
+/// land on the opposite sign requires solving for cancellation between
+/// degree-39 monomials under exactly representable generators. The
+/// mechanism is identical to the LPI/explicit shapes proven above (and
+/// the generator fix is shared by every instance), so LEE/LL carry the
+/// deterministic RED; this sweep pins the TPI window corpus.
+#[test]
+fn overflow_window_magnitude_sweep_soundness() {
+    let scales: [f64; 6] = [1e7, 5e10, 1e40, 1e52, 2.0f64.powi(200), 5e60];
+    for s in scales {
+        let pool = mixed_pool(4, 4, 4, s);
+        let tuples = tuple_stream(pool.len(), 150);
+        for (name, (filtered, exact, _)) in ORIENT2D_FAMILY {
+            for &[a, b, c, _] in &tuples {
+                let (pa, pb, pc) = (&pool[a], &pool[b], &pool[c]);
+                if let Some(f) = filtered(pa, pb, pc) {
+                    assert_eq!(
+                        f,
+                        exact(pa, pb, pc),
+                        "orient2d_{name} scale {s:e}: SOUNDNESS VIOLATION on [{a}, {b}, {c}]"
+                    );
+                }
+            }
+        }
+        for (name, (filtered, exact, _)) in LESS_THAN_FAMILY {
+            for &[a, b, _, _] in &tuples {
+                let (pa, pb) = (&pool[a], &pool[b]);
+                if let Some(f) = filtered(pa, pb) {
+                    assert_eq!(
+                        f,
+                        exact(pa, pb),
+                        "less_than_on_{name} scale {s:e}: SOUNDNESS VIOLATION on [{a}, {b}]"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Denominator-overflow window: at β ≈ 5e102 the LPI `d` polynomial
+/// (degree 3) itself overflows to ±inf while ITS filter threshold
+/// `δ_d·β³` is still finite — pre-fix `d = -inf` passed
+/// `d < -eps` and set `d_reliable = true`. Downstream the predicate
+/// polynomial then evaluates over inf lambdas (the `lam` finiteness
+/// guard catches those), so this family asserts behavior rather than
+/// reproducing a wrong sign: filtered must be None-or-correct and the
+/// full dispatcher must match exact. Regression coverage for the
+/// `d.is_finite()` requirement in the emitted `d_reliable` gates.
+#[test]
+fn lpi_d_overflow_window_soundness() {
+    let grid = [4.0, 4.5, 5.0, 5.5].map(|k| k * 1e102);
+    for &p in &grid {
+        for &s in &grid {
+            let a = huge_planar_lpi(p, s);
+            let b = GenericPoint3D::explicit(Point3::new(1.0, 2.0, 3.0));
+            let c = GenericPoint3D::explicit(Point3::new(-2.0, 1.0, -1.0));
+            for (name, (filtered, exact, full)) in ORIENT2D_FAMILY {
+                let x = exact(&a, &b, &c);
+                if let Some(f) = filtered(&a, &b, &c) {
+                    assert_eq!(
+                        f, x,
+                        "orient2d_{name}: d-overflow violation p={p:e} s={s:e}"
+                    );
+                }
+                assert_eq!(full(&a, &b, &c), x, "orient2d_{name}: p={p:e} s={s:e}");
+            }
+            for (name, (filtered, exact, full)) in LESS_THAN_FAMILY {
+                let x = exact(&a, &b);
+                if let Some(f) = filtered(&a, &b) {
+                    assert_eq!(
+                        f, x,
+                        "less_than_on_{name}: d-overflow violation p={p:e} s={s:e}"
+                    );
+                }
+                assert_eq!(full(&a, &b), x, "less_than_on_{name}: p={p:e} s={s:e}");
+            }
+        }
+    }
+}
+
+/// Interval-tier probe through the overflow window: the dynamic filter
+/// is believed sound under overflow (an infinite endpoint can only
+/// arise from a true same-sign huge value; NaN products poison to the
+/// whole line, see `interval.rs`), and the exact tier is overflow-free
+/// by construction. This pins that: on the engineered overflow corpus
+/// the full cascade (semi-static → interval → exact) must equal exact
+/// EVEN when the semi-static tier abstains.
+#[test]
+fn overflow_window_interval_path_regression() {
+    let lpi = huge_planar_lpi(18.0 * 1e60, 43.0 * 1e60);
+    // Near-degenerate query: explicit points almost collinear with the
+    // LPI in the xy projection — semi-static abstains, the verdict comes
+    // from the interval or exact tier.
+    for k in 0..8u64 {
+        let x1 = (k as f64 - 4.0) * 1e60;
+        let p1 = GenericPoint3D::explicit(Point3::new(x1, x1, 0.0));
+        let p2 = GenericPoint3D::explicit(Point3::new(-x1, -x1 + 1e45, 0.0));
+        let x = orient2d_xy_indirect_exact(&lpi, &p1, &p2);
+        assert_eq!(
+            orient2d_xy_indirect(&lpi, &p1, &p2),
+            x,
+            "interval-path regression: case {k}"
+        );
+        if let Some(f) = orient2d_xy_indirect_filtered(&lpi, &p1, &p2) {
+            assert_eq!(f, x, "interval-path regression (inexact tiers): case {k}");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------
+// 6. Composites vs independent pure-RBig formulations
 // ---------------------------------------------------------------------
 
 fn rb(x: f64) -> RBig {
