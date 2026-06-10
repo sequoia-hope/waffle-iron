@@ -27,7 +27,8 @@
 //!   through the full dispatch path that must be SUPPORTED_CORRECT (the
 //!   corpus itself contains ZERO Phase-4a-boundary cases — see the smoke
 //!   section comment), plus representative corpus cases pinned to their
-//!   expected UNSUPPORTED categories.
+//!   expected categories (UNSUPPORTED boundaries, the PR-TH1 oracle-fix
+//!   movers, and the one known-WRONG case).
 //! - `full_corpus_categorized` (`#[ignore]`) — the full 190-case run; prints
 //!   the category table and writes `target/assay_kv2_report.json`. Run with:
 //!   `cargo test -p test-harness --test assay_kv2 -- --ignored --nocapture`
@@ -337,24 +338,22 @@ fn replay_case_with_timeout(case: &DiscoveredCase, timeout: Duration) -> CaseOut
 // their expected UNSUPPORTED categories so the corpus boundary itself is
 // also regression-gated.
 
-/// FINDING KV4-F3 (PR-KV4, reported — NOT patched around, per P9):
-/// kernel-v2 boolean results currently fail the render-mesh conformity
-/// oracles (`watertight_mesh`, `no_self_intersection`,
-/// `no_degenerate_triangles`) even though the B-Rep passes the full
-/// `validate_solid` invariant set and mesh signed volumes are exact.
-/// Mechanism: `kernel_v2::tessellate` drops exactly-collinear chain
-/// vertices (arrangement-split edges) per face independently, so a face
-/// can emit one long boundary edge where its neighbor emits two short
-/// ones — position-matched edge pairing then reports unpaired edges /
-/// sliver artifacts. Boolean smoke scenarios list these three oracles in
-/// `allowed_failures` and still pin everything else (including exact
-/// volume). Remove the allowances when the tessellation emits a conforming
-/// mesh.
-const KV4_F3_ALLOWED: &[&str] = &[
-    "watertight_mesh",
-    "no_self_intersection",
-    "no_degenerate_triangles",
-];
+/// FINDING KV4-F3 (PR-KV4, reported — NOT patched around, per P9),
+/// NARROWED at PR-TH1: the original finding allowed `watertight_mesh`,
+/// `no_self_intersection`, and `no_degenerate_triangles` on ALL boolean
+/// smoke scenarios because `kernel_v2::tessellate` drops exactly-collinear
+/// chain vertices per face independently (one long boundary edge vs two
+/// short ones on the neighbor). PR-TH1 made the watertight/χ oracles
+/// T-junction-aware (that conforming-under-subdivision shape is now scored
+/// clean) and normalized the penetration-depth guard, after which
+/// `union_offset_boss`, `blind_pocket_cut`, and `through_hole_cut` pass the
+/// FULL oracle set with no allowances. What remains — on the subtract and
+/// intersect scenarios only — is a REAL tessellation defect: one degenerate
+/// (zero-area) sliver triangle whose collapsed edges also break pairing
+/// (1 boundary + 1 non-manifold edge that do NOT close under subdivision).
+/// Allow exactly those two oracles there; remove when the boolean
+/// tessellation stops emitting the sliver.
+const KV4_F3_ALLOWED: &[&str] = &["watertight_mesh", "no_degenerate_triangles"];
 
 /// Assert a dispatch-path scenario is SUPPORTED_CORRECT: no engine errors,
 /// no NotSupported / auto-union-failure warnings, and the final mesh passes
@@ -475,12 +474,8 @@ fn smoke_union_offset_boss() {
         .unwrap();
     b.extrude("u", "sb", 1.5).unwrap();
     // Union volume: 1 + 0.4·0.4·1.5 − 0.4·0.4·0.75 (overlap z∈[0.25,1]).
-    assert_scenario_with_allowances(
-        "union_offset_boss",
-        &mut b,
-        Some(1.0 + 0.24 - 0.12),
-        KV4_F3_ALLOWED,
-    );
+    // Full oracle set since PR-TH1 (T-junction-aware pairing) — no allowances.
+    assert_scenario_supported_correct("union_offset_boss", &mut b, Some(1.0 + 0.24 - 0.12));
     assert_eq!(
         b.distinct_solid_count(),
         1,
@@ -539,12 +534,8 @@ fn smoke_blind_pocket_cut() {
     b.rect_sketch("sb", [0.0, 0.0, 1.5], [0.0, 0.0, 1.0], 0.3, 0.3, 0.3, 0.3)
         .unwrap();
     b.extrude_cut("pocket", "sb", 1.2).unwrap();
-    assert_scenario_with_allowances(
-        "blind_pocket_cut",
-        &mut b,
-        Some(1.0 - 0.09 * 0.7),
-        KV4_F3_ALLOWED,
-    );
+    // Full oracle set since PR-TH1 — no allowances.
+    assert_scenario_supported_correct("blind_pocket_cut", &mut b, Some(1.0 - 0.09 * 0.7));
 }
 
 #[test]
@@ -558,7 +549,8 @@ fn smoke_through_hole_cut() {
     b.rect_sketch("sb", [0.0, 0.0, 1.5], [0.0, 0.0, 1.0], 0.3, 0.3, 0.3, 0.3)
         .unwrap();
     b.extrude_cut("hole", "sb", 1.75).unwrap();
-    assert_scenario_with_allowances("through_hole_cut", &mut b, Some(1.0 - 0.09), KV4_F3_ALLOWED);
+    // Full oracle set since PR-TH1 — no allowances.
+    assert_scenario_supported_correct("through_hole_cut", &mut b, Some(1.0 - 0.09));
 }
 
 #[test]
@@ -577,9 +569,16 @@ fn smoke_two_standalone_bodies() {
     assert_eq!(mesh_a.indices.len() / 3, 12);
 }
 
-/// Representative corpus cases pinned to their expected UNSUPPORTED
-/// boundary — the corpus-side regression gate (a silent change in where
-/// the boundary falls is a finding, even when the score doesn't move).
+/// Representative corpus cases pinned to their expected category — the
+/// corpus-side regression gate (a silent change in where the boundary falls
+/// is a finding, even when the score doesn't move).
+///
+/// PR-TH1 pin refresh: the mesh oracles were fixed to measure REAL defects
+/// (T-junction-aware watertight/χ pairing, per-shell χ expectation,
+/// normalized penetration depth), which moved F0003/F0009/F0010 (T-junction
+/// false positives) and F0011–F0015 (2-shell disjoint unions, χ=4 is
+/// correct) to SUPPORTED_CORRECT. Those are pinned below so an oracle or
+/// kernel regression is loud.
 #[test]
 fn smoke_corpus_boundary_categories() {
     let dir = assay_dir();
@@ -592,21 +591,36 @@ fn smoke_corpus_boundary_categories() {
             "F0002",
             Category::Unsupported(UnsupportedReason::CoplanarBoolean),
         ),
-        (
-            "F0003",
-            Category::Unsupported(UnsupportedReason::CoplanarBoolean),
-        ),
-        // PR-YR24 (KV4-F1): oblique-box unions whose operands share ONE
-        // sketch plane with femto-scale f64 residuals — NEAR-coplanar, so
-        // the exact N17 deferral never fired and these were ERROR
-        // (NoExplicitRayOrigin). The yang-rs Stage-1 near-coplanar gate
-        // (Yang 2025 §4.5.5 / M8 boundary) now rejects them loudly and
-        // typed; pinned so a regression back to ERROR (or a silent Ok) is
-        // a finding.
-        (
-            "R0029",
-            Category::Unsupported(UnsupportedReason::CoplanarBoolean),
-        ),
+        // PR-TH1: previously pinned UNSUPPORTED(coplanar-boolean), but the
+        // case replays cleanly; its only failures were oracle false
+        // positives (one-sided collinear boundary subdivision from
+        // kernel-v2's render tessellation). With T-junction-aware pairing
+        // the mesh measures clean.
+        ("F0003", Category::SupportedCorrect),
+        ("F0008", Category::SupportedCorrect),
+        ("F0009", Category::SupportedCorrect),
+        ("F0010", Category::SupportedCorrect),
+        // PR-TH1 (KV4-F4 triage): disjoint-union outputs are single solids
+        // with TWO closed shells — χ_total = 4 = 2 per shell, and the old
+        // "penetrations" were unnormalized grazing-guard false positives.
+        // The outputs are correct; the oracle now scores them honestly.
+        ("F0011", Category::SupportedCorrect),
+        ("F0012", Category::SupportedCorrect),
+        ("F0013", Category::SupportedCorrect),
+        ("F0014", Category::SupportedCorrect),
+        ("F0015", Category::SupportedCorrect),
+        // PR-TH1: R0029 is a REAL kernel-v2/yang-rs defect, kept WRONG.
+        // (The stale pin said UNSUPPORTED(coplanar-boolean) per PR-YR24,
+        // but the near-coplanar gate does not fire for this case.) Its old
+        // 4 "penetrations" were grazing-guard false positives and are gone,
+        // but T-junction-aware pairing EXPOSED a latent seam defect raw
+        // pairing could not see: an original box edge [A,B] (2 sheets) is
+        // crossed at m by the second operand, and the chain [A,m]+[m,B] is
+        // carried by 2 more coincident sheets → 4 sheets along [A,m]/[m,B]
+        // (non-manifold), with χ = 3 = 2+2−1 (two spheres glued along an
+        // arc). Evidence: probe at PR-TH1; edge ≈ (−246.1,397.2,411.5)–
+        // (−163.8,353.1,324.2) split at (−191.5,367.9,353.5).
+        ("R0029", Category::SupportedWrong),
         (
             "F0016",
             Category::Unsupported(UnsupportedReason::CoplanarBoolean),

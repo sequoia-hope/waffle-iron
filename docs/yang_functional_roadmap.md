@@ -1719,6 +1719,29 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   tessellates through kernel-v2; assay runs categorized
   (`cargo test -p test-harness --test assay_kv2 -- --ignored --nocapture`,
   report at `target/assay_kv2_report.json`).
+  **PR-TH1 (2026-06-10) — oracle fixes + KV4-F4 triage:** the assay's mesh
+  oracles were mis-scoring correct solids. Fixed in `test-harness/src/oracle.rs`
+  (the NEW kernel's measurement instrument): (1) T-junction-aware
+  watertight/χ pairing — edges are split at position-quantized vertices lying
+  exactly on them before pairing, since kernel-v2's tessellation legitimately
+  subdivides a shared boundary on one side only (KV4-F3's false-positive
+  half); edges that do not close under subdivision still fail; (2) the
+  penetration-depth guard now normalizes plane equations (it compared
+  geometric thresholds against |n|-scaled distances, |n|≈2·area ~1e4, so
+  f32-noise grazing contacts were flagged); a pair counts as penetrating only
+  if each triangle crosses the other's plane by > the weld-tolerance depth;
+  (3) KV4-F4 RESOLVED: disjoint-union outputs are correct 2-shell solids —
+  χ now expects `euler_target + 2·(#shells−1)` with shells derived from the
+  welded mesh. **Corpus score: 14 SUPPORTED_CORRECT / 1 SUPPORTED_WRONG /
+  0 ERROR** (was 6/9/0). Movers: F0003, F0009, F0010 (T-junction FPs),
+  F0011–F0015 (KV4-F4), F0012/13/15 grazing FPs. The one remaining WRONG is
+  **R0029 — a REAL defect**: T-junction-aware pairing exposed a latent seam
+  the raw pairing could not see — 4 coincident sheets along a split box edge,
+  χ=3 (two spheres glued along an arc); the PR-YR24 near-coplanar gate does
+  not fire for it. KV4-F3 NARROWED: union/pocket/through-hole smoke scenarios
+  now pass the FULL oracle set; subtract/intersect still emit one degenerate
+  sliver triangle (real tessellation defect, allowance kept for exactly
+  `watertight_mesh` + `no_degenerate_triangles` on those two).
 - **Phase 5 — Native arrangement + WASM.** *[= M6 + M7; parallel track]* M6 native
   `cherchi-rs` Stage-2 behind the `LabeledArrangement` seam, parity-green vs the
   sidecar (retires the C++ subprocess) — **✅ COMPLETE (M6: PR-CR-BL3c; M7:

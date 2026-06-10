@@ -178,28 +178,42 @@ pub fn check_topology_counts(
 
 // ── Mesh Oracles ────────────────────────────────────────────────────────────
 
-/// Check that the mesh is watertight: every triangle edge shared by exactly 2 triangles.
-///
-/// Uses position-based edge matching (quantized to 1e-4) to handle meshes with
-/// per-face vertices (non-shared vertex indices but shared positions).
-pub fn check_watertight_mesh(mesh: &RenderMesh) -> OracleVerdict {
-    // Compute scale-adaptive quantization: the grid must be above f32 noise
-    // (~magnitude * 1.2e-7) but small enough to resolve geometry features.
-    // Use max_abs * 2e-6 (17x safety margin above f32 noise) with a small
-    // absolute floor for near-zero coordinates. No large floor — previously
-    // 1e-4 caused geometry collapse for models at scale ~1e-4.
+// ── Position-quantized mesh complex helpers (PR-TH1) ───────────────────────
+//
+// The watertight / Euler-characteristic oracles share a single quantized view
+// of the mesh so they measure the SAME complex.
+
+/// Quantized lattice key for a vertex position.
+type QKey = (i64, i64, i64);
+/// Canonically ordered quantized edge.
+type QEdge = (QKey, QKey);
+
+fn make_qedge(a: QKey, b: QKey) -> QEdge {
+    if a <= b {
+        (a, b)
+    } else {
+        (b, a)
+    }
+}
+
+/// Scale-adaptive quantization grid: the grid must be above f32 noise
+/// (~magnitude * 1.2e-7) but small enough to resolve geometry features.
+/// Uses max_abs * TAU_TESS_GRID_FACTOR with a small absolute floor for
+/// near-zero coordinates. No large floor — previously 1e-4 caused geometry
+/// collapse for models at scale ~1e-4.
+fn mesh_grid_size(mesh: &RenderMesh) -> f64 {
     let max_abs = mesh
         .vertices
         .iter()
         .map(|v| v.abs())
         .fold(0.0_f32, f32::max);
-    let grid_size = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
-    let inv_grid = 1.0 / grid_size;
+    (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN)
+}
 
-    // Quantize vertex positions to allow position-based matching
+/// Raw (unsubdivided) position-quantized edge multiset of the triangle mesh.
+fn raw_edge_counts(mesh: &RenderMesh, inv_grid: f64) -> HashMap<QEdge, usize> {
     let quantize = |v: f32| -> i64 { (v as f64 * inv_grid).round() as i64 };
-
-    let vert_key = |idx: u32| -> (i64, i64, i64) {
+    let vert_key = |idx: u32| -> QKey {
         let i = idx as usize * 3;
         (
             quantize(mesh.vertices[i]),
@@ -208,18 +222,7 @@ pub fn check_watertight_mesh(mesh: &RenderMesh) -> OracleVerdict {
         )
     };
 
-    type PosEdge = ((i64, i64, i64), (i64, i64, i64));
-
-    fn make_edge(a: (i64, i64, i64), b: (i64, i64, i64)) -> PosEdge {
-        if a <= b {
-            (a, b)
-        } else {
-            (b, a)
-        }
-    }
-
-    let mut edge_counts: HashMap<PosEdge, usize> = HashMap::new();
-
+    let mut edge_counts: HashMap<QEdge, usize> = HashMap::new();
     for tri in mesh.indices.chunks(3) {
         if tri.len() < 3 {
             continue;
@@ -227,28 +230,188 @@ pub fn check_watertight_mesh(mesh: &RenderMesh) -> OracleVerdict {
         let va = vert_key(tri[0]);
         let vb = vert_key(tri[1]);
         let vc = vert_key(tri[2]);
-
-        *edge_counts.entry(make_edge(va, vb)).or_insert(0) += 1;
-        *edge_counts.entry(make_edge(vb, vc)).or_insert(0) += 1;
-        *edge_counts.entry(make_edge(vc, va)).or_insert(0) += 1;
+        *edge_counts.entry(make_qedge(va, vb)).or_insert(0) += 1;
+        *edge_counts.entry(make_qedge(vb, vc)).or_insert(0) += 1;
+        *edge_counts.entry(make_qedge(vc, va)).or_insert(0) += 1;
     }
+    edge_counts
+}
+
+/// Maximum perpendicular distance (in lattice cells) for a quantized vertex
+/// to count as lying ON a quantized edge during T-junction subdivision.
+/// Quantization rounds each of the three involved points by up to 0.5 cell
+/// per axis, so an exactly-collinear triple in mesh space can deviate by up
+/// to ~2 cells after rounding. Vertices further off the segment do NOT split
+/// it — the oracle stays strict (a real gap stays a failure).
+const TJUNCTION_SPLIT_MAX_CELLS: i128 = 2;
+
+/// T-junction-aware subdivision of the quantized edge multiset.
+///
+/// kernel-v2's render tessellation legitimately emits faces whose shared
+/// boundary is subdivided on one side only (collinear chain vertices kept on
+/// one face, dropped on the neighbor): an edge [a,b] on one face vs
+/// [a,m] + [m,b] on the neighbor, with m exactly on [a,b]. Naive pairing
+/// counts all three as unpaired even though the surface closes. Before
+/// pairing, split every edge at the quantized mesh vertices lying exactly ON
+/// it (within [`TJUNCTION_SPLIT_MAX_CELLS`]); pairing and the Euler
+/// characteristic are then computed on the subdivided complex. Edges that do
+/// NOT close under subdivision remain failures.
+fn subdivide_t_junctions(raw: &HashMap<QEdge, usize>) -> HashMap<QEdge, usize> {
+    // Every mesh vertex is an endpoint of its own triangle's edges, so the
+    // raw edge endpoints enumerate all unique quantized vertices.
+    let verts: Vec<QKey> = {
+        let mut s: std::collections::HashSet<QKey> = std::collections::HashSet::new();
+        for &(a, b) in raw.keys() {
+            s.insert(a);
+            s.insert(b);
+        }
+        s.into_iter().collect()
+    };
+
+    let mut out: HashMap<QEdge, usize> = HashMap::new();
+    for (&(a, b), &count) in raw {
+        let ab = (
+            (b.0 - a.0) as i128,
+            (b.1 - a.1) as i128,
+            (b.2 - a.2) as i128,
+        );
+        let ab_len2 = ab.0 * ab.0 + ab.1 * ab.1 + ab.2 * ab.2;
+        if ab_len2 == 0 {
+            *out.entry((a, b)).or_insert(0) += count;
+            continue;
+        }
+        // AABB of the segment, expanded by the split tolerance.
+        let lo = (
+            a.0.min(b.0) - TJUNCTION_SPLIT_MAX_CELLS as i64,
+            a.1.min(b.1) - TJUNCTION_SPLIT_MAX_CELLS as i64,
+            a.2.min(b.2) - TJUNCTION_SPLIT_MAX_CELLS as i64,
+        );
+        let hi = (
+            a.0.max(b.0) + TJUNCTION_SPLIT_MAX_CELLS as i64,
+            a.1.max(b.1) + TJUNCTION_SPLIT_MAX_CELLS as i64,
+            a.2.max(b.2) + TJUNCTION_SPLIT_MAX_CELLS as i64,
+        );
+        // Interior on-segment vertices, keyed by projection parameter.
+        let mut on_seg: Vec<(i128, QKey)> = Vec::new();
+        for &m in &verts {
+            if m == a || m == b {
+                continue;
+            }
+            if m.0 < lo.0 || m.0 > hi.0 || m.1 < lo.1 || m.1 > hi.1 || m.2 < lo.2 || m.2 > hi.2 {
+                continue;
+            }
+            let am = (
+                (m.0 - a.0) as i128,
+                (m.1 - a.1) as i128,
+                (m.2 - a.2) as i128,
+            );
+            // Perpendicular distance² · |ab|² = |ab × am|²
+            let cx = ab.1 * am.2 - ab.2 * am.1;
+            let cy = ab.2 * am.0 - ab.0 * am.2;
+            let cz = ab.0 * am.1 - ab.1 * am.0;
+            let cross_len2 = cx * cx + cy * cy + cz * cz;
+            if cross_len2 > TJUNCTION_SPLIT_MAX_CELLS * TJUNCTION_SPLIT_MAX_CELLS * ab_len2 {
+                continue; // not on the segment's line — never splits
+            }
+            // Strictly interior projection: 0 < t < 1 (t = dot / |ab|²)
+            let t_num = am.0 * ab.0 + am.1 * ab.1 + am.2 * ab.2;
+            if t_num <= 0 || t_num >= ab_len2 {
+                continue;
+            }
+            on_seg.push((t_num, m));
+        }
+        if on_seg.is_empty() {
+            *out.entry((a, b)).or_insert(0) += count;
+            continue;
+        }
+        on_seg.sort_unstable();
+        let mut prev = a;
+        for (_, m) in on_seg {
+            *out.entry(make_qedge(prev, m)).or_insert(0) += count;
+            prev = m;
+        }
+        *out.entry(make_qedge(prev, b)).or_insert(0) += count;
+    }
+    out
+}
+
+/// Number of connected components ("shells") of the position-welded complex.
+///
+/// Union-find over quantized vertices linked by raw triangle edges. A valid
+/// disjoint-union output is a single solid with multiple closed shells; each
+/// closed genus-0 shell contributes χ=2 to the total Euler characteristic.
+fn mesh_shell_count(raw: &HashMap<QEdge, usize>) -> usize {
+    let mut index: HashMap<QKey, usize> = HashMap::new();
+    for &(a, b) in raw.keys() {
+        let n = index.len();
+        index.entry(a).or_insert(n);
+        let n = index.len();
+        index.entry(b).or_insert(n);
+    }
+    let mut parent: Vec<usize> = (0..index.len()).collect();
+    fn find(parent: &mut [usize], mut x: usize) -> usize {
+        while parent[x] != x {
+            parent[x] = parent[parent[x]];
+            x = parent[x];
+        }
+        x
+    }
+    for &(a, b) in raw.keys() {
+        let ra = find(&mut parent, index[&a]);
+        let rb = find(&mut parent, index[&b]);
+        if ra != rb {
+            parent[ra] = rb;
+        }
+    }
+    let mut roots: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    for i in 0..parent.len() {
+        let r = find(&mut parent, i);
+        roots.insert(r);
+    }
+    roots.len()
+}
+
+/// Check that the mesh is watertight: every triangle edge shared by exactly 2 triangles.
+///
+/// Uses position-based edge matching (scale-adaptive quantization) to handle
+/// meshes with per-face vertices (non-shared vertex indices but shared
+/// positions), and T-junction-aware pairing: edges are first split at
+/// quantized mesh vertices lying exactly on them (see
+/// [`subdivide_t_junctions`]), so a one-sided collinear subdivision of a
+/// shared boundary does not count as a hole. Edges that do not close under
+/// subdivision remain failures.
+pub fn check_watertight_mesh(mesh: &RenderMesh) -> OracleVerdict {
+    let max_abs = mesh
+        .vertices
+        .iter()
+        .map(|v| v.abs())
+        .fold(0.0_f32, f32::max);
+    let inv_grid = 1.0 / mesh_grid_size(mesh);
+
+    let raw_counts = raw_edge_counts(mesh, inv_grid);
+    let edge_counts = subdivide_t_junctions(&raw_counts);
 
     let non_paired: Vec<_> = edge_counts.iter().filter(|(_, &c)| c != 2).collect();
 
     // ── PR-Y38 grid-sensitivity probe (INFRA-CLASS, env-gated, additive) ──
     //
     // Re-runs edge pairing at multiple TAU_TESS_GRID_FACTOR multipliers and
-    // performs a 27-neighbor near-pair scan at the default 1× grid. Default-
-    // off path is byte-identical — all probe logic gated behind a single env
-    // check. Output: per-invocation TSV at $Y38_GRID_PROBE_DIR.
+    // performs a 27-neighbor near-pair scan at the default 1× grid (on the
+    // RAW, unsubdivided edge multiset — the probe's historical semantics).
+    // Default-off path is unchanged — all probe logic gated behind a single
+    // env check. Output: per-invocation TSV at $Y38_GRID_PROBE_DIR.
     if std::env::var("Y38_GRID_PROBE").as_deref() == Ok("1") {
-        y38_grid_sensitivity_probe(mesh, max_abs, &edge_counts, &non_paired);
+        let raw_non_paired: Vec<_> = raw_counts.iter().filter(|(_, &c)| c != 2).collect();
+        y38_grid_sensitivity_probe(mesh, max_abs, &raw_counts, &raw_non_paired);
     }
 
     if non_paired.is_empty() {
         OracleVerdict::pass(
             "watertight_mesh",
-            format!("all {} edges paired", edge_counts.len()),
+            format!(
+                "all {} edges paired (T-junction-subdivided)",
+                edge_counts.len()
+            ),
         )
     } else {
         // Count by edge multiplicity for diagnostics
@@ -1126,9 +1289,21 @@ pub fn check_volume_magnitude(mesh: &RenderMesh, scale: f64) -> OracleVerdict {
 
 /// Check the mesh Euler characteristic χ = V - E + F against an expected value.
 ///
-/// Uses position-quantized vertex/edge counting on the triangle mesh (same
-/// quantization as `check_watertight_mesh`). For a genus-g closed surface,
-/// χ = 2 - 2g. A simple solid has χ=2; a solid with one through-hole has χ=0.
+/// Uses position-quantized vertex/edge counting on the T-junction-subdivided
+/// triangle complex (same quantization and subdivision as
+/// `check_watertight_mesh` — splitting an edge at an existing vertex adds one
+/// vertex incidence and one edge, leaving χ invariant for a closed surface,
+/// so χ stays honest on conforming-under-subdivision tessellations). For a
+/// genus-g closed surface, χ = 2 - 2g. A simple solid has χ=2; a solid with
+/// one through-hole has χ=0.
+///
+/// `expected_chi` is the per-model expectation for a SINGLE shell. A valid
+/// multi-shell output (e.g. a disjoint-union solid) has
+/// χ_total = expected_chi + 2·(#shells − 1): each extra closed shell is
+/// assumed genus-0 and contributes +2. The shell count is derived from the
+/// mesh itself (connected components of the position-welded complex). A
+/// defective split of what should be one shell is still caught by the
+/// watertight and merge-completeness checks.
 ///
 /// Interior/residual faces from incomplete boolean operations shift χ away
 /// from the expected value, making this oracle effective at catching them.
@@ -1142,83 +1317,34 @@ pub fn check_mesh_euler_characteristic(mesh: &RenderMesh, expected_chi: i64) -> 
         );
     }
 
-    // Scale-adaptive quantization (matches check_watertight_mesh)
-    let max_abs = mesh
-        .vertices
-        .iter()
-        .map(|v| v.abs())
-        .fold(0.0_f32, f32::max);
-    let grid_size = (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
-    let inv_grid = 1.0 / grid_size;
+    let inv_grid = 1.0 / mesh_grid_size(mesh);
+    let raw_counts = raw_edge_counts(mesh, inv_grid);
+    let sub_counts = subdivide_t_junctions(&raw_counts);
 
-    let quantize = |v: f32| -> i64 { (v as f64 * inv_grid).round() as i64 };
-
-    let vert_key = |idx: u32| -> (i64, i64, i64) {
-        let i = idx as usize * 3;
-        (
-            quantize(mesh.vertices[i]),
-            quantize(mesh.vertices[i + 1]),
-            quantize(mesh.vertices[i + 2]),
-        )
-    };
-
-    // Collect unique vertices
-    let mut unique_verts: HashSet<(i64, i64, i64)> = HashSet::new();
-    for tri in mesh.indices.chunks(3) {
-        if tri.len() < 3 {
-            continue;
-        }
-        unique_verts.insert(vert_key(tri[0]));
-        unique_verts.insert(vert_key(tri[1]));
-        unique_verts.insert(vert_key(tri[2]));
+    // Unique vertices = endpoints of the subdivided edges (splits only insert
+    // existing mesh vertices, so this equals the welded vertex set).
+    let mut unique_verts: HashSet<QKey> = HashSet::new();
+    for &(a, b) in sub_counts.keys() {
+        unique_verts.insert(a);
+        unique_verts.insert(b);
     }
 
-    // Collect unique edges (sorted pairs)
-    type PosEdge = ((i64, i64, i64), (i64, i64, i64));
-    fn make_edge(a: (i64, i64, i64), b: (i64, i64, i64)) -> PosEdge {
-        if a <= b {
-            (a, b)
-        } else {
-            (b, a)
-        }
-    }
-
-    let mut unique_edges: HashSet<PosEdge> = HashSet::new();
-    for tri in mesh.indices.chunks(3) {
-        if tri.len() < 3 {
-            continue;
-        }
-        let va = vert_key(tri[0]);
-        let vb = vert_key(tri[1]);
-        let vc = vert_key(tri[2]);
-        unique_edges.insert(make_edge(va, vb));
-        unique_edges.insert(make_edge(vb, vc));
-        unique_edges.insert(make_edge(vc, va));
-    }
+    let shells = mesh_shell_count(&raw_counts).max(1) as i64;
+    let expected_total = expected_chi + 2 * (shells - 1);
 
     let v = unique_verts.len() as i64;
-    let e = unique_edges.len() as i64;
+    let e = sub_counts.len() as i64;
     let f = (mesh.indices.len() / 3) as i64;
     let chi = v - e + f;
 
-    if chi == expected_chi {
-        OracleVerdict::pass_val(
-            "mesh_euler_characteristic",
-            format!(
-                "V({}) - E({}) + F({}) = {} (expected {})",
-                v, e, f, chi, expected_chi
-            ),
-            chi as f64,
-        )
+    let detail = format!(
+        "V({}) - E({}) + F({}) = {} (expected {} for {} shell(s))",
+        v, e, f, chi, expected_total, shells
+    );
+    if chi == expected_total {
+        OracleVerdict::pass_val("mesh_euler_characteristic", detail, chi as f64)
     } else {
-        OracleVerdict::fail_val(
-            "mesh_euler_characteristic",
-            format!(
-                "V({}) - E({}) + F({}) = {} (expected {})",
-                v, e, f, chi, expected_chi
-            ),
-            chi as f64,
-        )
+        OracleVerdict::fail_val("mesh_euler_characteristic", detail, chi as f64)
     }
 }
 
@@ -1390,6 +1516,17 @@ pub fn check_no_self_intersection(mesh: &RenderMesh) -> OracleVerdict {
 /// Returns true if the two triangles geometrically penetrate each other
 /// beyond `depth_threshold`. Coplanar triangles are treated as non-intersecting.
 ///
+/// Threshold semantics (PR-TH1): `depth_threshold` is a GEOMETRIC penetration
+/// depth in mesh units. Both plane equations are normalized before signed
+/// distances are compared, so the guard does not scale with triangle area —
+/// previously the unnormalized normal (|n| = 2·area, ~1e3–1e4 for large
+/// faces) shrank the effective grazing guard below f32 noise and flagged
+/// zero-depth grazing contacts as penetrations. A pair only counts as
+/// penetrating when EACH triangle extends beyond `depth_threshold` on BOTH
+/// sides of the other's supporting plane (contact confined within the
+/// threshold band is grazing, not penetration). Real penetrations exceed the
+/// weld tolerance and still fail.
+///
 /// Reference: Möller, "A Fast Triangle-Triangle Intersection Test", JGT 2(2), 1997.
 fn triangles_intersect(a: &[[f64; 3]; 3], b: &[[f64; 3]; 3], depth_threshold: f64) -> bool {
     // Compute plane of triangle A: normal = (a1-a0) × (a2-a0)
@@ -1402,34 +1539,50 @@ fn triangles_intersect(a: &[[f64; 3]; 3], b: &[[f64; 3]; 3], depth_threshold: f6
     };
     let sub = |p: [f64; 3], q: [f64; 3]| -> [f64; 3] { [p[0] - q[0], p[1] - q[1], p[2] - q[2]] };
     let dot = |u: [f64; 3], v: [f64; 3]| -> f64 { u[0] * v[0] + u[1] * v[1] + u[2] * v[2] };
+    let normalize = |n: [f64; 3]| -> Option<[f64; 3]> {
+        let len = dot(n, n).sqrt();
+        if len < TAU_NORMALIZE_SQ {
+            None // degenerate triangle — no meaningful plane
+        } else {
+            Some([n[0] / len, n[1] / len, n[2] / len])
+        }
+    };
 
-    let na = cross(sub(a[1], a[0]), sub(a[2], a[0]));
+    let na = match normalize(cross(sub(a[1], a[0]), sub(a[2], a[0]))) {
+        Some(n) => n,
+        None => return false,
+    };
     let da = dot(na, a[0]);
 
-    // Signed distances of B's vertices from A's plane
+    // Signed GEOMETRIC distances of B's vertices from A's plane
     let db: [f64; 3] = [dot(na, b[0]) - da, dot(na, b[1]) - da, dot(na, b[2]) - da];
 
-    // All B on one side of A's plane?
-    if (db[0] > depth_threshold && db[1] > depth_threshold && db[2] > depth_threshold)
-        || (db[0] < -depth_threshold && db[1] < -depth_threshold && db[2] < -depth_threshold)
-    {
+    // B must extend beyond the threshold band on BOTH sides of A's plane;
+    // otherwise its incursion past the plane is at most `depth_threshold`
+    // deep — a grazing contact, not a penetration. (This subsumes the
+    // classic all-on-one-side separation early-out.)
+    let db_min = db[0].min(db[1]).min(db[2]);
+    let db_max = db[0].max(db[1]).max(db[2]);
+    if db_min > -depth_threshold || db_max < depth_threshold {
         return false;
     }
 
-    let nb = cross(sub(b[1], b[0]), sub(b[2], b[0]));
+    let nb = match normalize(cross(sub(b[1], b[0]), sub(b[2], b[0]))) {
+        Some(n) => n,
+        None => return false,
+    };
     let d_b_plane = dot(nb, b[0]);
 
-    // Signed distances of A's vertices from B's plane
+    // Signed GEOMETRIC distances of A's vertices from B's plane
     let d_a: [f64; 3] = [
         dot(nb, a[0]) - d_b_plane,
         dot(nb, a[1]) - d_b_plane,
         dot(nb, a[2]) - d_b_plane,
     ];
 
-    // All A on one side of B's plane?
-    if (d_a[0] > depth_threshold && d_a[1] > depth_threshold && d_a[2] > depth_threshold)
-        || (d_a[0] < -depth_threshold && d_a[1] < -depth_threshold && d_a[2] < -depth_threshold)
-    {
+    let da_min = d_a[0].min(d_a[1]).min(d_a[2]);
+    let da_max = d_a[0].max(d_a[1]).max(d_a[2]);
+    if da_min > -depth_threshold || da_max < depth_threshold {
         return false;
     }
 
@@ -2109,6 +2262,7 @@ mod tests {
             verdict.detail
         );
     }
+
     // ── PR-TH1: T-junction-aware watertight/χ + normalized penetration ──────
 
     /// Push one triangle with per-triangle vertices and dummy unit normals.
