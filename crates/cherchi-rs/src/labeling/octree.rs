@@ -50,9 +50,7 @@ use cad_primitives::Point3;
 
 /// Construction parameters (deterministic; correctness-neutral per the
 /// module-level design invariant).
-#[allow(dead_code)] // RED stub: used by `build` from GREEN on.
 const MAX_DEPTH: u32 = 8;
-#[allow(dead_code)] // RED stub: used by `build` from GREEN on.
 const LEAF_SPLIT_THRESHOLD: usize = 16;
 
 /// Inclusive axis-aligned bounding box.
@@ -65,14 +63,12 @@ struct Aabb {
 impl Aabb {
     /// Inclusive overlap on all three axes (same semantics as the prune's
     /// exact `in_ray_aabb` filter).
-    #[allow(dead_code)] // RED stub: used by build/query from GREEN on.
     fn intersects(&self, other: &Aabb) -> bool {
         (0..3).all(|k| self.lo[k] <= other.hi[k] && self.hi[k] >= other.lo[k])
     }
 }
 
 #[derive(Debug)]
-#[allow(dead_code)] // RED stub: read by `query_aabb` from GREEN on.
 struct OctreeNode {
     bbox: Aabb,
     /// `Some` for inner nodes (eight children in fixed octant order:
@@ -85,7 +81,6 @@ struct OctreeNode {
 /// Octree over the AABBs of the soup's prepped input triangles
 /// (`soup.in_tris`, explicit soup-scaled coordinates).
 #[derive(Debug)]
-#[allow(dead_code)] // RED stub: read by `query_aabb` from GREEN on.
 pub struct TriOctree {
     /// `nodes[0]` is the root when non-empty.
     nodes: Vec<OctreeNode>,
@@ -95,28 +90,138 @@ pub struct TriOctree {
 
 impl TriOctree {
     /// Build the octree over `soup.in_tris`. Empty `in_tris` yields an
-    /// empty octree whose queries return nothing.
-    pub fn build(_soup: &ArrangementSoup) -> TriOctree {
-        // RED stub (PR-CR-BL2 Cycle C): real construction lands in GREEN.
-        TriOctree {
-            nodes: Vec::new(),
-            items: Vec::new(),
+    /// empty octree whose queries return nothing. Deterministic: fixed
+    /// `MAX_DEPTH` / `LEAF_SPLIT_THRESHOLD`, children created in fixed
+    /// octant order, item ids stored ascending.
+    pub fn build(soup: &ArrangementSoup) -> TriOctree {
+        let items: Vec<Aabb> = (0..soup.in_tris.len() as u32)
+            .map(|t| tri_aabb(soup, t))
+            .collect();
+        if items.is_empty() {
+            return TriOctree {
+                nodes: Vec::new(),
+                items,
+            };
+        }
+
+        // Root box = global AABB of all items.
+        let mut root_box = items[0];
+        for it in &items[1..] {
+            for k in 0..3 {
+                root_box.lo[k] = root_box.lo[k].min(it.lo[k]);
+                root_box.hi[k] = root_box.hi[k].max(it.hi[k]);
+            }
+        }
+
+        let mut tree = TriOctree {
+            nodes: vec![OctreeNode {
+                bbox: root_box,
+                children: None,
+                item_ids: (0..items.len() as u32).collect(), // ascending
+            }],
+            items,
+        };
+        tree.split(0, 0);
+        tree
+    }
+
+    /// Recursively split node `node_idx` (depth `depth`) into eight
+    /// octants. A node stays a leaf when it is small enough, deep enough,
+    /// or splitting makes no progress (every child would inherit every
+    /// item — coincident AABBs; deviation documented in the module docs).
+    fn split(&mut self, node_idx: usize, depth: u32) {
+        let n_items = self.nodes[node_idx].item_ids.len();
+        if depth >= MAX_DEPTH || n_items <= LEAF_SPLIT_THRESHOLD {
+            return;
+        }
+        let bbox = self.nodes[node_idx].bbox;
+        let mid = [
+            (bbox.lo[0] + bbox.hi[0]) / 2.0,
+            (bbox.lo[1] + bbox.hi[1]) / 2.0,
+            (bbox.lo[2] + bbox.hi[2]) / 2.0,
+        ];
+
+        // Fixed octant order: bit 0 = +x half, bit 1 = +y half, bit 2 = +z.
+        let mut child_boxes = [bbox; 8];
+        let mut child_items: [Vec<u32>; 8] = Default::default();
+        for (oct, cb) in child_boxes.iter_mut().enumerate() {
+            for (k, &m) in mid.iter().enumerate() {
+                if oct >> k & 1 == 0 {
+                    cb.hi[k] = m;
+                } else {
+                    cb.lo[k] = m;
+                }
+            }
+        }
+        for &id in &self.nodes[node_idx].item_ids {
+            let item = &self.items[id as usize];
+            for (oct, cb) in child_boxes.iter().enumerate() {
+                if cb.intersects(item) {
+                    child_items[oct].push(id); // ascending (source order)
+                }
+            }
+        }
+        // No-progress guard: all items land in all eight children.
+        if child_items.iter().all(|c| c.len() == n_items) {
+            return;
+        }
+
+        let mut children = [0u32; 8];
+        for (oct, ids) in child_items.into_iter().enumerate() {
+            children[oct] = self.nodes.len() as u32;
+            self.nodes.push(OctreeNode {
+                bbox: child_boxes[oct],
+                children: None,
+                item_ids: ids,
+            });
+        }
+        self.nodes[node_idx].children = Some(children);
+        self.nodes[node_idx].item_ids = Vec::new();
+        for &c in &children {
+            self.split(c as usize, depth + 1);
         }
     }
 
     /// Port of `intersects_box` (booleans.cpp:580): stack walk collecting
     /// every stored item whose AABB intersects the query box (inclusive).
     /// Returns ids SORTED ascending and deduped (determinism, and the
-    /// prune's candidate-visit-order contract).
-    pub fn query_aabb(&self, _lo: [f64; 3], _hi: [f64; 3]) -> Vec<u32> {
-        // RED stub (PR-CR-BL2 Cycle C): real walk lands in GREEN.
-        Vec::new()
+    /// prune's candidate-visit-order contract; an item straddling octant
+    /// planes is stored in several leaves, hence the dedup — matching the
+    /// C++ `flat_hash_set` accumulator).
+    pub fn query_aabb(&self, lo: [f64; 3], hi: [f64; 3]) -> Vec<u32> {
+        let q = Aabb { lo, hi };
+        let mut out: Vec<u32> = Vec::new();
+        if self.nodes.is_empty() || !self.nodes[0].bbox.intersects(&q) {
+            return out;
+        }
+        let mut stack: Vec<u32> = vec![0];
+        while let Some(ni) = stack.pop() {
+            let node = &self.nodes[ni as usize];
+            match &node.children {
+                Some(children) => {
+                    for &c in children {
+                        if self.nodes[c as usize].bbox.intersects(&q) {
+                            stack.push(c);
+                        }
+                    }
+                }
+                None => {
+                    for &id in &node.item_ids {
+                        if self.items[id as usize].intersects(&q) {
+                            out.push(id);
+                        }
+                    }
+                }
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
     }
 }
 
 /// AABB of one prepped input triangle (explicit verts only — `in_tris`
 /// vertices are always explicit; see `inside_out.rs`).
-#[allow(dead_code)] // RED stub: used by `build` from GREEN on.
 fn tri_aabb(soup: &ArrangementSoup, t: u32) -> Aabb {
     let tri = soup.in_tris[t as usize];
     let p = |v: u32| -> Point3 {

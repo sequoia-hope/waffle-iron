@@ -22,11 +22,21 @@
 //!   with no such vertex (all-implicit, or every explicit vertex on the
 //!   border) returns the loud [`InsideOutError::NoExplicitRayOrigin`] —
 //!   the C++ "generated ray" branch is Cycle B.
-//! - Candidate triangles are brute-force: ALL `in_tris` are offered to the
-//!   exact prune (the C++ octree is a pure acceleration structure feeding
-//!   a superset; Cycle C adds it with a pruned ⊆ brute oracle).
 //! - Vertex/edge ray-hits are resolved by `nextafter` ray perturbation
 //!   over the hit element's incident input triangles, as in the C++.
+//!
+//! ## Cycle C — octree candidate producer
+//!
+//! Candidate triangles come from a [`TriOctree`] built once over the
+//! `in_tris` AABBs and queried per-ray with the ray's (degenerate) AABB —
+//! the C++ `cinolib::Octree` + `intersects_box` walk (booleans.cpp:580).
+//! DESIGN INVARIANT: the octree is a pure SUPERSET producer. The exact
+//! per-triangle `in_ray_aabb` filter inside the prune is the semantically
+//! load-bearing check (it excludes behind-the-origin triangles — see the
+//! comment at the filter) and is applied to EVERY candidate
+//! unconditionally, so the octree's internal parameters cannot affect
+//! labeling correctness. The brute scan survives as the test-only
+//! [`compute_inside_out_brute`] structural diff target.
 //!
 //! Port deviations (documented in `docs/yang_deviations.md`):
 //! - Serial per-patch loop (crate rule #5; C++ is TBB-parallel).
@@ -47,6 +57,7 @@ use crate::arrangements::fast_trimesh::VertexCoords;
 use crate::arrangements::gp_dispatch::{backing, gp, with_gp, Backing, Gp};
 use crate::arrangements::soup::{ArrangementSoup, Label};
 use crate::labeled_arrangement::InputId;
+use crate::labeling::octree::TriOctree;
 use crate::labeling::patches::Patches;
 use crate::predicates::{
     max_component_in_triangle_normal, orient2d, orient3d, points_are_collinear_3d, Axis, Sign,
@@ -89,12 +100,19 @@ pub fn compute_inside_out(
     soup: &ArrangementSoup,
     patches: &Patches,
 ) -> Result<Vec<Label>, InsideOutError> {
-    // Candidate producer: brute (every input tri) until the Cycle C octree
-    // is wired in. The per-ray candidate set only needs to be a SUPERSET of
-    // {t : tri_AABB ∩ ray_AABB ≠ ∅} — the prune applies the exact
-    // `in_ray_aabb` filter to every candidate regardless.
-    let n = soup.in_tris.len() as u32;
-    compute_inside_out_with(soup, patches, |_| (0..n).collect())
+    // Candidate producer (Cycle C): one octree over the prepped input
+    // triangles, queried per-ray with the ray's (degenerate) AABB — the
+    // C++ `cinolib::Octree` + `intersects_box` walk. The candidate set
+    // only needs to be a SUPERSET of {t : tri_AABB ∩ ray_AABB ≠ ∅} — the
+    // prune applies the exact `in_ray_aabb` filter to every candidate
+    // regardless, so octree parameters cannot affect correctness (see
+    // `octree.rs` module docs; the brute path survives as the test-only
+    // `compute_inside_out_brute` diff target).
+    let octree = TriOctree::build(soup);
+    compute_inside_out_with(soup, patches, |ray| {
+        let (lo, hi) = ray_aabb(ray);
+        octree.query_aabb(lo, hi)
+    })
 }
 
 /// `compute_inside_out` parameterized over the per-ray candidate producer
