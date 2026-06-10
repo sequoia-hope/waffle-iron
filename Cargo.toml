@@ -12,7 +12,7 @@ members = [
     # Clean-sheet kernel rewrite — see root CLAUDE.md §"Kernel Rewrite In Progress".
     # New work on boolean / Yang / B-Rep goes in these crates, NOT in `crates/kernel/`.
     # Dependency layering (compiler-enforced via Cargo.toml deps):
-    #   indirect-predicates-sidecar-rs (FFI; LGPL; non-WASM) ← cherchi-rs (PR-CR-IP7+)
+    #   indirect-predicates-sidecar-rs (FFI; LGPL; non-WASM) — DEV-DEP oracle of cherchi-rs only (M7c)
     #   cad-primitives ← cherchi-rs ← cherchi-sidecar-rs (subprocess; non-WASM)
     #                                ← yang-rs ← kernel-v2
     #                  ← ssi-rs    ←

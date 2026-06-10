@@ -58,4 +58,4 @@ test oracle from cherchi-rs's test suite.
 - The generated code's BEHAVIOR is tested in cherchi-rs:
   `tests/indirect_filter_soundness.rs` (filter soundness + hit rate) and
   `tests/indirect_ffi_parity.rs` (differential parity vs the FFI
-  reference, gated on `indirect-predicates`).
+  reference, dev-dep gated (M7c: the feature is gone; the FFI is a dev-dependency oracle)).

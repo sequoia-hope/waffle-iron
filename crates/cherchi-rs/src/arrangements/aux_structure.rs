@@ -971,7 +971,7 @@ mod tests {
     // (in ta's list source_tri = tb's corners; in tb's list = ta's).
     //
     // FEATURE-GATED: this whole module is `#[cfg(feature =
-    // "indirect-predicates")]`, so run with `--features indirect-predicates`.
+    // "indirect-predicates")]`, so run with plain `cargo test -p cherchi-rs` (M7c: no feature needed).
     // These tests MUST fail to RESOLVE against the missing symbols (RED by
     // compile error). No production code is authored here.
     //
