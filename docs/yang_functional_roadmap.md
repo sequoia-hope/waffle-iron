@@ -19,15 +19,20 @@ working boolean** plus deep foundations:
   randomized box-boolean fuzz (900 cases, aligned + rotated) is **100% correct,
   0 silent-wrong**. Real per-triangle labels flow from the patched sidecar.
 - `cherchi-sidecar-rs` (M2/M3): patched C++ `mesh_booleans` emitting a
-  `LabeledArrangement` (per-triangle labels + TBB-pinned determinism) — the
-  interim Stage-2 producer the boolean runs on. **Native-only (no WASM).**
+  `LabeledArrangement` (per-triangle labels + TBB-pinned determinism) — was the
+  interim Stage-2 producer; **demoted to a test-only parity oracle as of
+  PR-CR-BL3c** (yang-rs production backend = native `cherchi-rs`). **Native-only
+  (no WASM).**
 - `ssi-rs`: plane∩plane, plane∩sphere, sphere∩sphere, plane∩cylinder, and
   plane∩cone (bounded) — 5 analytical solver families, on-surface-exact,
   adversary-hardened. **Wired into yang Stage 3 as of PR-YR9** (plane∩cylinder
   drives exact `cylinder ∪ box` intersection edges); the other pairs await their
   consuming geometry.
-- `cherchi-rs`: pure-Rust predicates + `FastTrimesh`/`Tree` + arrangement **Stage
-  1 only**. The native arrangement *algorithm* (Stage 2) is **not written** (M6).
+- `cherchi-rs`: pure-Rust predicates + `FastTrimesh`/`Tree` + the **full native
+  Stage 2** — arrangement (AR1–AR3b) + boolean labeling (BL1–BL3) +
+  `NativeBoolean`, parity-green vs the C++ sidecar (M6 ✅ COMPLETE,
+  PR-CR-BL3c 2026-06-10). Uses the IP FFI predicates ⇒ non-WASM until M7;
+  the subprocess sidecar is now a test-only parity oracle.
 - `indirect-predicates-sidecar-rs`: FFI to Attene's LGPL predicates, IP1–IP6;
   intentionally non-WASM. Clean-room replacement is M7.
 - `kernel-v2`: **empty scaffold** — does NOT implement the `Kernel` trait. There
@@ -113,6 +118,12 @@ classifies patches in/out per input. The work is to **emit** it, not compute it.
 `cherchi-sidecar-rs` owns this producer and the C++ patch.
 
 ### 3b. Native — `cherchi-rs` Stage 2, same interface
+
+**Status: ✅ COMPLETE (M6, 2026-06-10).** Landed as PR-CR-AR1→AR3b (arrangement)
++ PR-CR-BL1→BL3 (labeling/boolean): `NativeBoolean` is parity-green vs the C++
+sidecar on the BL3b corpus and is yang-rs's production backend (BL3c); the
+sidecar remains as the test-only parity oracle. Remaining native-track work is
+M7 (clean-room predicates → WASM) and M8 (coplanar Stage 0).
 
 Built incrementally, **diffed against the sidecar** on the corpus. The IP-FFI
 predicates (`indirect-predicates-sidecar-rs`) are consumed **demand-driven** by
@@ -1170,7 +1181,10 @@ reimplementation from Attene's paper restores WASM (M7).
     parametric `SsiCurve` variant + general-position solvers, and **MUST be planned
     with a human before implementation.**
 - **M6 — Native `cherchi-rs` Stage 2** behind the same interface, parity-green
-  vs the sidecar on the corpus. **The biggest milestone — a faithful port of the
+  vs the sidecar on the corpus. ✅ **COMPLETE (2026-06-10, PR-CR-BL3c)** — all
+  three BL3 slices landed; the sidecar is now a test-only parity oracle and
+  yang-rs's default build runs the native backend (`native-boolean` feature,
+  ON by default; WASM restoration = M7). **The biggest milestone — a faithful port of the
   MIT Cherchi C++ (`/home/claude/cherchi2022/InteractiveAndRobustMeshBooleans/`)
   to native Rust, removing the `cherchi-sidecar-rs` subprocess.** Reference parity
   vs the C++ sidecar is the LOAD-BEARING oracle (every PR diffs native vs sidecar
@@ -1409,8 +1423,27 @@ reimplementation from Attene's paper restores WASM (M7).
       an edge lying EXACTLY in the other solid's face plane triggers the
       same loud `SingleCoplanarEdge` deferral (N13 family) — promote a
       deliberate edge-in-plane fixture when that C++ path is ported.
-      Remaining BL3 work: switch `yang-rs` to the native backend behind the
-      trait.
+      ~~Remaining BL3 work: switch `yang-rs` to the native backend behind the
+      trait.~~ → BL3c below.
+    - **PR-CR-BL3c ✅ DONE (2026-06-10) — yang-rs on the native backend; M6
+      CLOSED.** yang-rs gains a default-ON `native-boolean` feature (enables
+      `cherchi-rs/indirect-predicates`; non-WASM until M7 — yang-rs was
+      already de-facto non-WASM via the subprocess sidecar) and
+      `yang_rs::native_backend() -> Option<NativeBoolean>` (None on the FFI
+      stub build, P9 skip-loud). The whole yang-rs suite (334 tests) runs on
+      the native backend unchanged — zero invariant re-anchors; the sidecar
+      survives only as (a) the yang-level dual-backend parity suite
+      (`tests/backend_parity.rs`), (b) the inputcheck Stage-1 oracle, and
+      (c) the reference-mesh oracle inside the two #[ignore]d deep-fuzz
+      harnesses. Coplanar M8 inventory: EMPTY — no yang-rs test ever passed
+      coplanar input through the sidecar (yang's Stage-6 F2 gate already
+      rejected it); on native the loud error simply fires earlier
+      (`CoplanarPairDeferred` at the arrangement). Banked finding: with
+      bit-exact mesh-level parity and identical yang-level vertex sets / χ /
+      surfaces, curved-case output VOLUME is triangulation-dependent after
+      Stage-4 relocation (~2e-4 on cylinder∪box) — yang-level parity uses
+      the chord band d_ε × A_lateral for curved volume, 1e-9 relative for
+      planar.
 - **M7 — Clean-room indirect predicates from Attene's paper → restore WASM.**
   Removes the LGPL FFI dependency and the `compile_error!` WASM block.
 - **M8 — Stage 0 coplanar preprocessing** hardened last (special case that
@@ -1500,7 +1533,8 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   (categorized supported/correct/unsupported). **Risk:** moderate. **Size:** large.
 - **Phase 5 — Native arrangement + WASM.** *[= M6 + M7; parallel track]* M6 native
   `cherchi-rs` Stage-2 behind the `LabeledArrangement` seam, parity-green vs the
-  sidecar (retires the C++ subprocess); M7 clean-room indirect predicates from
+  sidecar (retires the C++ subprocess) — **✅ M6 half COMPLETE (PR-CR-BL3c,
+  2026-06-10; subprocess demoted to test oracle)**; remaining: M7 clean-room indirect predicates from
   Attene's paper (drops LGPL FFI) + restore the WASM build (`compile_error!`
   removed). **Exit:** pure-Rust boolean compiling to WASM, browser-parity with
   native. **Risk:** moderate–high (subtle predicates; IP-sidecar is the oracle).
