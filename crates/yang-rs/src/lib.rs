@@ -85,6 +85,34 @@ use std::fmt;
 pub use cad_primitives::{BoolOp, Point3, Vector3};
 pub use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};
 pub use cherchi_rs::{Mesh, MeshBoolean};
+#[cfg(feature = "native-boolean")]
+pub use cherchi_rs::{NativeBoolean, NativeBooleanError};
+
+/// Construct the PRODUCTION boolean backend: the native, in-process
+/// cherchi-rs pipeline ([`NativeBoolean`]) — `mesh_arrangement` → labeling →
+/// `keep_set(op)`. Reference parity vs the upstream C++ `mesh_booleans`
+/// binary is the M6 gate (cherchi-rs `tests/parity_native_vs_sidecar.rs`);
+/// the C++ subprocess sidecar (`cherchi-sidecar-rs`) is demoted to a
+/// test-only parity oracle (PR-CR-BL3c).
+///
+/// Returns `None` when the build linked the no-op indirect-predicates FFI
+/// stub (the Indirect_Predicates C++ source was missing at build time —
+/// `scripts/build_sidecars.sh`, roadmap M0). In that build every predicate
+/// returns garbage, so handing out a backend would produce silently-wrong
+/// geometry (P9: fail loud / skip loud, never wrong-quietly). Tests use
+/// `let Some(nb) = yang_rs::native_backend() else { /* skip */ }` exactly
+/// like the old `SidecarBoolean::from_env()` self-skip.
+///
+/// Non-WASM until roadmap M7 (clean-room predicates); see the
+/// `native-boolean` feature docs in Cargo.toml.
+#[cfg(feature = "native-boolean")]
+pub fn native_backend() -> Option<NativeBoolean> {
+    if cherchi_rs::ffi_shim_available() {
+        Some(NativeBoolean)
+    } else {
+        None
+    }
+}
 
 // =========================================================================
 // Surface / Curve enums

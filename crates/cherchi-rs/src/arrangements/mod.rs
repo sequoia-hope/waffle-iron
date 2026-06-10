@@ -54,11 +54,21 @@ pub use tree::{Node, Tree};
 #[allow(clippy::assertions_on_constants)]
 pub fn require_ffi_shim() {
     assert!(
-        indirect_predicates_sidecar_rs::AVAILABLE,
+        ffi_shim_available(),
         "indirect-predicates FFI shim not linked (AVAILABLE == false): the \
          Indirect_Predicates C++ source was missing at build time, so the \
          no-op stub was compiled and every predicate returns garbage. Run \
          scripts/build_sidecars.sh (roadmap M0) or set \
          INDIRECT_PREDICATES_SRC, then rebuild."
     );
+}
+
+/// Non-panicking probe for the same condition as [`require_ffi_shim`]:
+/// `true` iff the real Indirect_Predicates C++ shim was linked at build time
+/// (vs the no-op stub whose predicates return garbage). Lets downstream
+/// crates (yang-rs `native_backend()`) SELF-SKIP in stub-build environments
+/// instead of failing with misleading geometric errors (P9).
+#[cfg(feature = "indirect-predicates")]
+pub fn ffi_shim_available() -> bool {
+    indirect_predicates_sidecar_rs::AVAILABLE
 }

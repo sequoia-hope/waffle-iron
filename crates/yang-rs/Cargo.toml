@@ -7,16 +7,36 @@ description = "Yang 2025 hybrid B-Rep / mesh boolean pipeline. Stage 0 coplanar 
 # Strict layering: yang-rs sits above cherchi-rs and ssi-rs, below kernel-v2.
 # Does NOT depend on kernel-v2 (uses its own B-Rep input/output types) and
 # does NOT depend on the old kernel crate at all.
+
+[features]
+# ON by default (PR-CR-BL3c): yang-rs's production backend is the NATIVE
+# cherchi-rs boolean (`cherchi_rs::NativeBoolean`), which requires
+# cherchi-rs's `indirect-predicates` FFI feature. This makes the default
+# yang-rs build non-WASM — an honest reflection of reality: yang-rs has been
+# de-facto non-WASM since M3, because its previous production backend was the
+# C++ *subprocess* sidecar (`cherchi-sidecar-rs`), which never ran on wasm32
+# either. WASM restoration is roadmap M7 (clean-room indirect predicates from
+# Attene's paper — docs/yang_functional_roadmap.md §4 M7); once those are
+# pure Rust this feature's FFI cost disappears and the default goes
+# WASM-clean. Until then, `--no-default-features` gives a WASM-compatible
+# build whose callers must supply their own `MeshBoolean` backend.
+default = ["native-boolean"]
+native-boolean = ["cherchi-rs/indirect-predicates"]
+
 [dependencies]
 cad-primitives = { path = "../cad-primitives" }
 cherchi-rs = { path = "../cherchi-rs" }
 ssi-rs = { path = "../ssi-rs" }
 
 [dev-dependencies]
-# Sidecar backend used by tests/end_to_end.rs for real-subprocess
-# integration testing. Not a regular dep because production yang-rs
-# consumers pick their own backend via the MeshBoolean trait; the
-# sidecar is just today's testing default.
+# TEST-ONLY parity oracle (PR-CR-BL3c): the C++ subprocess sidecar is no
+# longer the production backend (that's `cherchi_rs::NativeBoolean`, via the
+# `native-boolean` feature above). It stays as a dev-dependency for
+# (a) the dual-backend parity module in tests/end_to_end.rs (native vs C++
+# reference on representative end-to-end booleans), (b) the
+# `mesh_booleans_inputcheck` Stage-1 validity oracle, and (c) the M8-deferred
+# coplanar-overlap cases the native pipeline loudly defers
+# (CoplanarPairDeferred) — those stay pinned to the sidecar until M8.
 cherchi-sidecar-rs = { path = "../cherchi-sidecar-rs" }
 # ssi-rs is a regular (non-dev) dependency of yang-rs, but integration test
 # crates can only reach a crate's *own* dependencies through the crate's
