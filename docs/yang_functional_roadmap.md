@@ -1533,6 +1533,26 @@ swapped every consumer to `predicates::indirect`).
   detection/removal** (deviation N6) — absent in the new crates; currently benign
   for analytic inputs (sidecar mesh validly trimmed + `check_watertight_2manifold`
   gate), to be added as a post-trim detector here.
+  - **M8 slice a ✅ (PR-YR25, 2026-06-10): the EXACT 2D overlay engine**
+    (`yang_rs::coplanar_overlay`, standalone — NOT yet wired into
+    `boolean()`). Two polygons-with-holes in one shared-plane frame → ONE
+    conforming classified triangulation (AOnly/BOnly/Overlap) via exact
+    rational (dashu `RBig`) edge arrangement (proper crossings, T-junctions,
+    collinear partial overlaps; shared A/B edges dedup to one constraint) +
+    exact vertical (trapezoidal) decomposition + exact ear-clip per cell;
+    parity classification at cell centroids. Coverage post-conditions are
+    exact and loud: `area(XOnly)+area(Overlap) == area(X)` in rationals,
+    every input edge tiled gap-free by triangle edges, no zero-exact-area
+    triangle; f64 rounding happens LAST and a rounding-collapsed sliver is a
+    typed `RoundingCollapse` error, never silence. Derived queries: exact
+    per-class areas + interface/region-boundary polylines (the future
+    intersection curves). `cherchi_rs::cdt_polygon_with_holes` was evaluated
+    and rejected (loops-only contract, no interior constraints, f64-only).
+    10 oracle tests in `tests/yr25_coplanar_overlay.rs` (yang-rs 336→346).
+  - **M8 slice b (next): wire into `boolean()`** — coplanar face-pair
+    detection (YR24 gate reuse), 3D→2D shared-frame projection, identical
+    region meshes for both operands, overlap boundaries → intersection
+    curves; retire the `CoplanarFacesUnsupported` wall case by case.
 
 ## 4b. Completion roadmap — Phases 1–6 (the full path to replacing legacy)
 
