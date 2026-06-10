@@ -1599,7 +1599,13 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   flush/stacked faces + multi-plane cross-booleans work without conformal-edge
   explosions. **Risk:** moderate–high. **Size:** medium–large.
 - **Phase 4 — The `kernel-v2` driver (Kernel trait).** *[NEW — the integration
-  unlock; not in M0–M8]* implement `Kernel`/`KernelIntrospect` over yang-rs
+  unlock; not in M0–M8]* **Phase 4a IN PROGRESS (2026-06-10):** PR-KV1 DONE —
+  half-edge arena + Euler operators (mvfs/mev/mef/kemr/kfmrh, Stroud-cited,
+  atomic, Newell-derived normals, Euler–Poincaré bookkeeping incl. genus;
+  cube/prism/through-hole construction oracles; 20 tests; wasm32-clean).
+  Next: KV2 planar constructors → KV3 boolean-via-yang-rs + tessellation +
+  introspection → KV4 legacy-trait adapter in test-harness for the
+  categorized assay replay. implement `Kernel`/`KernelIntrospect` over yang-rs
   (`make_faces_from_profiles`, `extrude_face`, `revolve_face`, `boolean_*(_multi)`,
   `tessellate → RenderMesh`, `extract_edges`, introspection). **Strategic slice
   (Phase 4a):** a **planar-only driver can land early** — right after the current
