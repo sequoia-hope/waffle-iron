@@ -487,5 +487,242 @@ pub fn orient3d_indirect_exact(
     }
 }
 
+// =========================================================================
+// PR-CR-M7b public surface — orient2d projections, per-axis comparators,
+// composite predicates, LPI approximation (STUBS — RED phase)
+// =========================================================================
+//
+// Clean-room formulations (papers only):
+//
+// - `orient2d_{xy,yz,zx}_indirect` — Attene 2025 §4.3 (indirect orient2d
+//   rewriting) + §4.5 (orient2d3d drop-coordinate projections); Cherchi
+//   2020 Appendix A gives the per-instance ORIENT2D_XY polynomials and
+//   published filter constants (YZ/ZX by subscript replacement).
+// - `less_than_on_{x,y,z}_indirect` — Cherchi 2020 Appendix B
+//   (POINTCOMPARE_ON_X): sign(a.c − b.c) = sign(λ_ac·d_b − λ_bc·d_a)
+//   resolved with the d-sign parity rule (Attene §5.1).
+// - Composites (`point_in_triangle_indirect`, `inner_segments_cross_…`,
+//   `point_in_{inner_,}segment_…`) are pure compositions of the two
+//   primitive families — no new polynomials (see their doc comments for
+//   the geometric arguments).
+// - `approx_lpi` — interval-midpoint readback of the LPI lambdas (the
+//   native equivalent of the FFI `lambda3d_lpi_interval` consumer use in
+//   `arrangements/intersection_points.rs::lpi_approx`).
+
+/// Indirect 2D orientation of `(a, b, c)` projected on the XY plane
+/// (drop z): the sign of `det[Γ(b) − Γ(a); Γ(c) − Γ(a)]` with
+/// `Γ(p) = (p_x, p_y)`. Positive = CCW (c strictly left of a→b in the
+/// projection), Zero = collinear, Undefined iff any implicit argument's
+/// `d == 0`. Same convention as [`crate::predicates::orient2d`] (and the
+/// FFI reference — pinned by the parity calibration anchor).
+pub fn orient2d_xy_indirect(_a: &GenericPoint3D, _b: &GenericPoint3D, _c: &GenericPoint3D) -> Sign {
+    Sign::Undefined // STUB (M7b RED)
+}
+
+/// Filtered (inexact) tiers only for [`orient2d_xy_indirect`].
+pub fn orient2d_xy_indirect_filtered(
+    _a: &GenericPoint3D,
+    _b: &GenericPoint3D,
+    _c: &GenericPoint3D,
+) -> Option<Sign> {
+    None // STUB (M7b RED)
+}
+
+/// Exact tier only for [`orient2d_xy_indirect`] (soundness ground truth).
+pub fn orient2d_xy_indirect_exact(
+    _a: &GenericPoint3D,
+    _b: &GenericPoint3D,
+    _c: &GenericPoint3D,
+) -> Sign {
+    Sign::Undefined // STUB (M7b RED)
+}
+
+/// As [`orient2d_xy_indirect`] but projected on YZ (drop x;
+/// `Γ(p) = (p_y, p_z)`).
+pub fn orient2d_yz_indirect(_a: &GenericPoint3D, _b: &GenericPoint3D, _c: &GenericPoint3D) -> Sign {
+    Sign::Undefined // STUB (M7b RED)
+}
+
+/// Filtered (inexact) tiers only for [`orient2d_yz_indirect`].
+pub fn orient2d_yz_indirect_filtered(
+    _a: &GenericPoint3D,
+    _b: &GenericPoint3D,
+    _c: &GenericPoint3D,
+) -> Option<Sign> {
+    None // STUB (M7b RED)
+}
+
+/// Exact tier only for [`orient2d_yz_indirect`].
+pub fn orient2d_yz_indirect_exact(
+    _a: &GenericPoint3D,
+    _b: &GenericPoint3D,
+    _c: &GenericPoint3D,
+) -> Sign {
+    Sign::Undefined // STUB (M7b RED)
+}
+
+/// As [`orient2d_xy_indirect`] but projected on ZX (drop y;
+/// `Γ(p) = (p_z, p_x)`).
+pub fn orient2d_zx_indirect(_a: &GenericPoint3D, _b: &GenericPoint3D, _c: &GenericPoint3D) -> Sign {
+    Sign::Undefined // STUB (M7b RED)
+}
+
+/// Filtered (inexact) tiers only for [`orient2d_zx_indirect`].
+pub fn orient2d_zx_indirect_filtered(
+    _a: &GenericPoint3D,
+    _b: &GenericPoint3D,
+    _c: &GenericPoint3D,
+) -> Option<Sign> {
+    None // STUB (M7b RED)
+}
+
+/// Exact tier only for [`orient2d_zx_indirect`].
+pub fn orient2d_zx_indirect_exact(
+    _a: &GenericPoint3D,
+    _b: &GenericPoint3D,
+    _c: &GenericPoint3D,
+) -> Sign {
+    Sign::Undefined // STUB (M7b RED)
+}
+
+/// Indirect per-axis comparator: the sign of `a.x − b.x` over generic
+/// points (`Negative` ⟺ `a.x < b.x`, `Zero` ⟺ equal, `Undefined` iff an
+/// implicit argument's `d == 0`). Cherchi 2020 Appendix B
+/// (POINTCOMPARE_ON_X): `sign(λ_ax·d_b − λ_bx·d_a)·sign(d_a)·sign(d_b)`.
+pub fn less_than_on_x_indirect(_a: &GenericPoint3D, _b: &GenericPoint3D) -> Sign {
+    Sign::Undefined // STUB (M7b RED)
+}
+
+/// Filtered (inexact) tiers only for [`less_than_on_x_indirect`].
+pub fn less_than_on_x_indirect_filtered(_a: &GenericPoint3D, _b: &GenericPoint3D) -> Option<Sign> {
+    None // STUB (M7b RED)
+}
+
+/// Exact tier only for [`less_than_on_x_indirect`].
+pub fn less_than_on_x_indirect_exact(_a: &GenericPoint3D, _b: &GenericPoint3D) -> Sign {
+    Sign::Undefined // STUB (M7b RED)
+}
+
+/// As [`less_than_on_x_indirect`] for the y coordinate.
+pub fn less_than_on_y_indirect(_a: &GenericPoint3D, _b: &GenericPoint3D) -> Sign {
+    Sign::Undefined // STUB (M7b RED)
+}
+
+/// Filtered (inexact) tiers only for [`less_than_on_y_indirect`].
+pub fn less_than_on_y_indirect_filtered(_a: &GenericPoint3D, _b: &GenericPoint3D) -> Option<Sign> {
+    None // STUB (M7b RED)
+}
+
+/// Exact tier only for [`less_than_on_y_indirect`].
+pub fn less_than_on_y_indirect_exact(_a: &GenericPoint3D, _b: &GenericPoint3D) -> Sign {
+    Sign::Undefined // STUB (M7b RED)
+}
+
+/// As [`less_than_on_x_indirect`] for the z coordinate.
+pub fn less_than_on_z_indirect(_a: &GenericPoint3D, _b: &GenericPoint3D) -> Sign {
+    Sign::Undefined // STUB (M7b RED)
+}
+
+/// Filtered (inexact) tiers only for [`less_than_on_z_indirect`].
+pub fn less_than_on_z_indirect_filtered(_a: &GenericPoint3D, _b: &GenericPoint3D) -> Option<Sign> {
+    None // STUB (M7b RED)
+}
+
+/// Exact tier only for [`less_than_on_z_indirect`].
+pub fn less_than_on_z_indirect_exact(_a: &GenericPoint3D, _b: &GenericPoint3D) -> Sign {
+    Sign::Undefined // STUB (M7b RED)
+}
+
+/// Closed (boundary-inclusive) point-in-triangle test for `p` against
+/// triangle `(a, b, c)`, all generic points, with `p` coplanar with the
+/// triangle (the consumer contract — `retriangulate.rs` /
+/// `aux_structure.rs` only query points lying on the triangle's plane).
+///
+/// Composite over the orient2d projections (no new polynomial): pick the
+/// first axis-aligned projection where `orient2d(a, b, c) ≠ 0` (Attene
+/// §4.5: such a projection exists iff the triangle is non-degenerate,
+/// and for coplanar `p` the containment verdict is projection-
+/// independent because all four orientation signs scale by the same
+/// nonzero projection factor); `p` is inside iff each edge orientation
+/// `orient2d(a,b,p)`, `orient2d(b,c,p)`, `orient2d(c,a,p)` is Zero
+/// (boundary) or matches the triangle's own orientation sign. Returns
+/// `false` for degenerate triangles and undefined implicit points.
+pub fn point_in_triangle_indirect(
+    _p: &GenericPoint3D,
+    _a: &GenericPoint3D,
+    _b: &GenericPoint3D,
+    _c: &GenericPoint3D,
+) -> bool {
+    false // STUB (M7b RED)
+}
+
+/// True iff the open segments `(a, b)` and `(p, q)` (coplanar — the
+/// consumer contract in `enforce.rs`: all four are vertices of one
+/// submesh plane) cross at a single point strictly interior to BOTH.
+///
+/// Composite (classical proper-crossing test, four orientations): in the
+/// first projection where any of the four orientation signs is nonzero
+/// (a collapsed projection of the common plane projects all four points
+/// onto a line, making every sign Zero — so a projection with a nonzero
+/// sign never lies, and for coplanar inputs the verdict is projection-
+/// independent), the segments properly cross iff `p` and `q` lie
+/// strictly on opposite sides of line `(a, b)` AND `a` and `b` lie
+/// strictly on opposite sides of line `(p, q)`. Touching configurations
+/// (any sign Zero) and fully collinear overlaps return `false`.
+pub fn inner_segments_cross_indirect(
+    _a: &GenericPoint3D,
+    _b: &GenericPoint3D,
+    _p: &GenericPoint3D,
+    _q: &GenericPoint3D,
+) -> bool {
+    false // STUB (M7b RED)
+}
+
+/// True iff `p` lies on the OPEN segment `(v1, v2)`: collinear with and
+/// strictly between the endpoints (endpoints excluded). Symmetric in
+/// `v1 ↔ v2` by construction (unlike the FFI reference, whose
+/// explicit-explicit comparator branch is order-sensitive — the
+/// documented sidecar EE limitation; consumers OR both orders to recover
+/// exactly these semantics).
+///
+/// Composite: `p` is collinear with `(v1, v2)` iff all three projected
+/// orientations `orient2d_{xy,yz,zx}(p, v1, v2)` are Zero (the three
+/// components of the cross product `(v1 − p) × (v2 − p)`); strict
+/// betweenness is then tested on the first axis where
+/// `less_than(v1, v2) ≠ 0` (on a line, betweenness along any axis with
+/// nonzero direction component is equivalent to betweenness on the
+/// line): `sign(p − v1) == sign(v2 − p) ≠ 0`.
+pub fn point_in_inner_segment_indirect(
+    _p: &GenericPoint3D,
+    _v1: &GenericPoint3D,
+    _v2: &GenericPoint3D,
+) -> bool {
+    false // STUB (M7b RED)
+}
+
+/// True iff `p` lies on the CLOSED segment `[v1, v2]` (endpoints
+/// included). Same collinearity gate and separating axis as
+/// [`point_in_inner_segment_indirect`] with inclusive betweenness; a
+/// degenerate segment (`v1 == v2`) contains exactly the point `p == v1`.
+pub fn point_in_segment_indirect(
+    _p: &GenericPoint3D,
+    _v1: &GenericPoint3D,
+    _v2: &GenericPoint3D,
+) -> bool {
+    false // STUB (M7b RED)
+}
+
+/// Approximate explicit coordinates of the LPI point of line `(p, q)`
+/// and plane `(r, s, t)`, read back as interval-lambda midpoints
+/// (`λ_mid / d_mid`). `None` when the interval midpoint of `d` is zero
+/// (degenerate / parallel configuration — caller picks its own
+/// fallback). Native equivalent of the FFI `lambda3d_lpi_interval`
+/// consumer use in `arrangements/intersection_points.rs::lpi_approx`
+/// (M7c swap target). Bookkeeping-quality output: NOT exact, never used
+/// in predicates.
+pub fn approx_lpi(_p: Point3, _q: Point3, _r: Point3, _s: Point3, _t: Point3) -> Option<Point3> {
+    None // STUB (M7b RED)
+}
+
 #[cfg(test)]
 mod tests;
