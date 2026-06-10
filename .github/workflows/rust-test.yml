@@ -1,0 +1,93 @@
+name: Rust tests (new kernel crates)
+
+# Runs the FULL new-kernel test pyramid in CI — including the reference-parity
+# oracles, which are the project's load-bearing correctness gate (roadmap §6,
+# cherchi-rs CLAUDE.md hard-rule #2). To make that possible the job builds the
+# two C++ sidecars (Cherchi 2022 mesh_booleans binaries + the Indirect_Predicates
+# source the FFI dev-oracle links) via scripts/build_sidecars.sh, with the build
+# cached so steady-state runs skip the ~5-10 min cmake step.
+#
+# Crate coverage:
+#   - cad-primitives, ssi-rs, predicate-gen        — pure Rust
+#   - cherchi-rs                                   — incl. the 60-cell
+#     native-vs-sidecar boolean parity corpus + the FFI predicate parity suites
+#   - yang-rs                                      — incl. backend_parity +
+#     the inputcheck Stage-1 oracles (sidecar binaries)
+#   - kernel-v2                                    — Phase 4a driver
+#   - cherchi-sidecar-rs, indirect-predicates-sidecar-rs (dev oracles)
+#   - test-harness --test assay_kv2                — the categorized-assay
+#     smoke gate (the always-on subset; the 190-case run stays manual)
+#   - wasm32 `cargo check` for cherchi-rs / yang-rs / kernel-v2 (the M7
+#     standing invariant)
+#
+# The legacy crates (kernel, modeling-ops, …) are intentionally excluded —
+# policy-quarantined, unmaintained, being deleted (root CLAUDE.md).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CHERCHI2022_ROOT: /home/runner/cherchi2022
+  CHERCHI2022_BIN: /home/runner/cherchi2022/InteractiveAndRobustMeshBooleans/build/mesh_booleans
+  CHERCHI2022_INPUTCHECK_BIN: /home/runner/cherchi2022/InteractiveAndRobustMeshBooleans/build/mesh_booleans_inputcheck
+  INDIRECT_PREDICATES_SRC: /home/runner/cherchi2022/InteractiveAndRobustMeshBooleans/arrangements/external/Indirect_Predicates
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain deps (libclang for bindgen, cmake for sidecars)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-dev cmake
+          rustup target add wasm32-unknown-unknown
+
+      - name: Cache C++ sidecars
+        id: sidecar-cache
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/cherchi2022
+          key: cherchi2022-sidecars-${{ runner.os }}-${{ hashFiles('scripts/build_sidecars.sh', 'patches/cherchi2022_labeled_arrangement.patch') }}
+
+      - name: Build C++ sidecars (cached no-op when present)
+        run: ./scripts/build_sidecars.sh
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: cargo-test-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-test-${{ runner.os }}-
+
+      - name: Test new kernel crates (full suites incl. parity oracles)
+        run: >-
+          cargo test
+          -p cad-primitives
+          -p cherchi-rs
+          -p ssi-rs
+          -p yang-rs
+          -p kernel-v2
+          -p cherchi-sidecar-rs
+          -p indirect-predicates-sidecar-rs
+          -p predicate-gen
+
+      - name: Categorized-assay smoke gate
+        run: cargo test -p test-harness --test assay_kv2
+
+      - name: wasm32 check (M7 standing invariant)
+        run: |
+          cargo check -p cherchi-rs --target wasm32-unknown-unknown
+          cargo check -p yang-rs --target wasm32-unknown-unknown
+          cargo check -p kernel-v2 --target wasm32-unknown-unknown
