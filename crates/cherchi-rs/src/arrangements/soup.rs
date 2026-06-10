@@ -99,6 +99,13 @@ pub struct ArrangementSoup {
     /// Count of jolly points appended at the tail of `verts` (always 5). The
     /// real arrangement vertices are `verts[..verts.len() - jolly_count]`.
     pub jolly_count: u32,
+    /// The PREPPED ORIGINAL input triangles over the same welded vertex
+    /// array (post vertex-merge, post degenerate/duplicate removal) — the
+    /// C++ `arr_in_tris`. BL2 ray-casting tests in/out against these closed
+    /// input shells, not against the cut output triangles.
+    pub in_tris: Vec<[u32; 3]>,
+    /// Per-`in_tris` labels (OR-merged on duplicate removal) — `arr_in_labels`.
+    pub in_labels: Vec<Label>,
 }
 
 /// Loud failure surface — never silent (P9/P10). Wraps the deferred walls.
@@ -890,6 +897,8 @@ pub fn mesh_arrangement(
         tris: out_tris,
         labels: out_labels,
         jolly_count: 5,
+        in_tris: kept_tris,
+        in_labels: kept_labels,
     })
 }
 

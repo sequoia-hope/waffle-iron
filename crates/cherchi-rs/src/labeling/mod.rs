@@ -7,6 +7,8 @@
 
 #[cfg(test)]
 mod adversary_tests;
+pub mod inside_out;
 pub mod patches;
 
+pub use inside_out::{compute_inside_out, InsideOutError, Ray};
 pub use patches::{compute_all_patches, PatchError, Patches};
