@@ -39,31 +39,29 @@ use std::collections::BTreeSet;
 
 use cad_primitives::{Point2, Point3};
 use indirect_predicates_sidecar_rs::{
-    init_fpu, less_than_on_x, less_than_on_y, less_than_on_z, ExplicitPoint3D, ImplicitPoint3DLpi,
-    Sign as IpSign,
+    init_fpu, less_than_on_x, less_than_on_y, less_than_on_z, orient3d as ip_orient3d,
+    AsGenericPoint, ExplicitPoint3D, ImplicitPoint3DLpi, Sign as IpSign,
 };
 
 use crate::arrangements::fast_trimesh::VertexCoords;
+use crate::arrangements::gp_dispatch::{backing, gp, with_gp, Backing, Gp};
 use crate::arrangements::soup::{ArrangementSoup, Label};
 use crate::labeled_arrangement::InputId;
 use crate::labeling::patches::Patches;
-use crate::predicates::{orient2d, orient3d, Sign};
+use crate::predicates::{
+    max_component_in_triangle_normal, orient2d, orient3d, points_are_collinear_3d, Axis, Sign,
+};
 
-/// Axis an in/out ray travels along (toward +axis).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Axis {
-    X,
-    Y,
-    Z,
-}
-
-/// An axis-aligned in/out ray: `v0` = origin (a patch vertex), `v1` = the
-/// far endpoint past the global bbox (`max_coords + 0.5` in the C++).
+/// An axis-aligned in/out ray: `v0` = origin, `v1` = the far endpoint past
+/// the global bbox (`max_coords + 0.5` in the C++). `seed_tri` is set by
+/// the generated-ray branch (C++ `ray.tv`): the arrangement triangle whose
+/// plane anchors the sort's discard test when the origin is synthetic.
 #[derive(Debug, Clone)]
 pub struct Ray {
     pub v0: Point3,
     pub v1: Point3,
     pub dir: Axis,
+    pub seed_tri: Option<[u32; 3]>,
 }
 
 /// Loud failure surface — never silent (P9/P10).
@@ -136,9 +134,15 @@ fn explicit_or_unreachable(c: &VertexCoords) -> Point3 {
     }
 }
 
-/// Port of `findRayEndpoints` (booleans.cpp:504), Cycle-A scope: pick an
-/// EXPLICIT, non-border vertex of the patch and shoot toward +X. The C++
-/// all-implicit "generated ray" fallback is Cycle B (loud error here).
+/// Port of `findRayEndpoints` (booleans.cpp:504): prefer an EXPLICIT,
+/// non-border vertex of the patch (+X ray; all explicit operations are
+/// faster). Otherwise the GENERATED-ray branch (cpp:525): for some patch
+/// triangle, build a synthetic origin at the approximate centroid offset
+/// −0.1 along the triangle's dominant-normal axis, then validate with
+/// EXACT predicates that the segment v0→v1 straddles the implicit
+/// triangle's plane and passes strictly inside it; the triangle becomes
+/// `seed_tri` for the sort's discard test. If no triangle qualifies the
+/// C++ exits ("requires rationals"); here a loud typed error.
 fn find_ray_endpoints(
     soup: &ArrangementSoup,
     patch: &[u32],
@@ -156,11 +160,156 @@ fn find_ray_endpoints(
                     v0: *p,
                     v1: Point3::new(max_coords[0], p.y(), p.z()),
                     dir: Axis::X,
+                    seed_tri: None,
                 });
             }
         }
     }
+
+    // ----- generated-ray branch (booleans.cpp:525) -----
+    for &t in patch {
+        let tri = soup.tris[t as usize];
+        let (Some(a), Some(b), Some(c)) = (
+            approx_point(&soup.verts[tri[0] as usize]),
+            approx_point(&soup.verts[tri[1] as usize]),
+            approx_point(&soup.verts[tri[2] as usize]),
+        ) else {
+            continue;
+        };
+        // C++ `!misaligned(...)` gate on the approximate coordinates.
+        if points_are_collinear_3d(a, b, c) {
+            continue;
+        }
+        let dir = max_component_in_triangle_normal(a, b, c);
+        let cen = [
+            (a.x() + b.x() + c.x()) / 3.0,
+            (a.y() + b.y() + c.y()) / 3.0,
+            (a.z() + c.z() + b.z()) / 3.0,
+        ];
+        let k = match dir {
+            Axis::X => 0,
+            Axis::Y => 1,
+            Axis::Z => 2,
+        };
+        let mut v0c = cen;
+        v0c[k] -= 0.1;
+        let mut v1c = v0c;
+        v1c[k] = max_coords[k];
+        let v0 = Point3::new(v0c[0], v0c[1], v0c[2]);
+        let v1 = Point3::new(v1c[0], v1c[1], v1c[2]);
+
+        // EXACT validation against the (possibly implicit) triangle.
+        let backs: [Backing; 3] = [
+            backing(&soup.verts[tri[0] as usize]),
+            backing(&soup.verts[tri[1] as usize]),
+            backing(&soup.verts[tri[2] as usize]),
+        ];
+        let gps = [
+            gp(&soup.verts[tri[0] as usize], &backs[0]),
+            gp(&soup.verts[tri[1] as usize], &backs[1]),
+            gp(&soup.verts[tri[2] as usize], &backs[2]),
+        ];
+        let v0e = ExplicitPoint3D::new(v0.x(), v0.y(), v0.z());
+        let v1e = ExplicitPoint3D::new(v1.x(), v1.y(), v1.z());
+        let orf = orient3d_gp3(&gps, &v0e);
+        let ors = orient3d_gp3(&gps, &v1e);
+        let straddles = (orf == IpSign::Negative && ors == IpSign::Positive)
+            || (orf == IpSign::Positive && ors == IpSign::Negative);
+        if !straddles {
+            continue;
+        }
+        // checkIntersectionInsideTriangle3DImplPoints: the segment's line
+        // passes strictly inside the implicit triangle.
+        let same = |x: IpSign, y: IpSign, z: IpSign| {
+            (x == IpSign::Positive && y == IpSign::Positive && z == IpSign::Positive)
+                || (x == IpSign::Negative && y == IpSign::Negative && z == IpSign::Negative)
+        };
+        let o01 = orient3d_gp2_e2(&gps[0], &gps[1], &v0e, &v1e);
+        let o12 = orient3d_gp2_e2(&gps[1], &gps[2], &v0e, &v1e);
+        let o20 = orient3d_gp2_e2(&gps[2], &gps[0], &v0e, &v1e);
+        if !same(o01, o12, o20) {
+            continue;
+        }
+        return Ok(Ray {
+            v0,
+            v1,
+            dir,
+            seed_tri: Some(tri),
+        });
+    }
     Err(InsideOutError::NoExplicitRayOrigin { patch: pi })
+}
+
+/// Approximate f64 coordinates of any arrangement vertex (the C++
+/// `getApproxXYZCoordinates`): exact for explicit points; f64 line-plane /
+/// three-plane evaluation for LPI / TPI. `None` when the f64 denominator
+/// vanishes (degenerate under approximation — the caller skips, as the
+/// C++ `misaligned` gate does).
+fn approx_point(c: &VertexCoords) -> Option<Point3> {
+    let sub = |u: Point3, v: Point3| [u.x() - v.x(), u.y() - v.y(), u.z() - v.z()];
+    let cross = |u: [f64; 3], v: [f64; 3]| {
+        [
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
+        ]
+    };
+    let dot = |u: [f64; 3], v: [f64; 3]| u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+    let plane_of = |t: &[Point3; 3]| {
+        let n = cross(sub(t[1], t[0]), sub(t[2], t[0]));
+        let d = dot(n, [t[0].x(), t[0].y(), t[0].z()]);
+        (n, d)
+    };
+    match c {
+        VertexCoords::Explicit(p) => Some(*p),
+        VertexCoords::Lpi { line, plane } => {
+            let (n, d) = plane_of(plane);
+            let p = line[0];
+            let q = line[1];
+            let dir = sub(q, p);
+            let den = dot(n, dir);
+            if den == 0.0 || !den.is_finite() {
+                return None;
+            }
+            let t = (d - dot(n, [p.x(), p.y(), p.z()])) / den;
+            Some(Point3::new(
+                p.x() + t * dir[0],
+                p.y() + t * dir[1],
+                p.z() + t * dir[2],
+            ))
+        }
+        VertexCoords::Tpi { v, w, u } => {
+            // Cramer's rule on the three plane equations n_i · x = d_i.
+            let (n0, d0) = plane_of(v);
+            let (n1, d1) = plane_of(w);
+            let (n2, d2) = plane_of(u);
+            let col = |i: usize| [n0[i], n1[i], n2[i]];
+            let det3 = |c0: [f64; 3], c1: [f64; 3], c2: [f64; 3]| {
+                c0[0] * (c1[1] * c2[2] - c1[2] * c2[1]) - c1[0] * (c0[1] * c2[2] - c0[2] * c2[1])
+                    + c2[0] * (c0[1] * c1[2] - c0[2] * c1[1])
+            };
+            let d = [d0, d1, d2];
+            let den = det3(col(0), col(1), col(2));
+            if den == 0.0 || !den.is_finite() {
+                return None;
+            }
+            let px = det3(d, col(1), col(2)) / den;
+            let py = det3(col(0), d, col(2)) / den;
+            let pz = det3(col(0), col(1), d) / den;
+            Some(Point3::new(px, py, pz))
+        }
+    }
+}
+
+/// `orient3D(a, b, c, q)` with three `Gp` handles and one extra point.
+fn orient3d_gp3(gps: &[Gp; 3], q: &impl AsGenericPoint) -> IpSign {
+    let [a, b, c] = gps;
+    with_gp!(ip_orient3d(a, b, c, q); a, b, c)
+}
+
+/// `orient3D(a, b, p, q)` with two `Gp` handles and two explicit points.
+fn orient3d_gp2_e2(a: &Gp, b: &Gp, p: &ExplicitPoint3D, q: &ExplicitPoint3D) -> IpSign {
+    with_gp!(ip_orient3d(a, b, p, q); a, b)
 }
 
 /// 2D classification of one input triangle against the ray (port of
@@ -267,6 +416,7 @@ fn perturb_ray(ray: &Ray, offset: u8) -> Ray {
         v0: ray.v0,
         v1,
         dir: ray.dir,
+        seed_tri: ray.seed_tri,
     }
 }
 
@@ -351,26 +501,62 @@ fn sort_hits_along_ray(soup: &ArrangementSoup, ray: &Ray, hits: &[u32]) -> Vec<u
         order.insert(at, i);
     }
 
-    // Discard hits before the ray origin along the axis, AND hits at ray
-    // parameter exactly zero (deviation N20): the origin lies ON another
-    // input's surface only in tangential configurations (a transversal
-    // origin would sit on an intersection curve and be a border vertex,
-    // which origin selection excludes), and a tangential t=0 hit crosses
-    // nothing. The C++ keeps t=0 hits (`lessThanOnX(hit, v0) < 0` discard
-    // only) and silently mislabels point-touch inputs.
-    let before_origin = |i: usize| {
-        let s = match ray.dir {
-            Axis::X => less_than_on_x(&lpis[i], &ray_v0),
-            Axis::Y => less_than_on_y(&lpis[i], &ray_v0),
-            Axis::Z => less_than_on_z(&lpis[i], &ray_v0),
+    // Discard hits "behind" the ray start.
+    //
+    // Generated ray (`seed_tri` set): the C++ discards hits on the
+    // OPPOSITE side of the seed triangle's plane from `v1` (the origin is
+    // synthetic, slightly behind the patch plane, so the plane itself is
+    // the start line).
+    //
+    // Explicit ray: discard hits before the origin along the axis, AND
+    // hits at ray parameter exactly zero (deviation N20): the origin lies
+    // ON another input's surface only in tangential configurations (a
+    // transversal origin would sit on an intersection curve and be a
+    // border vertex, which origin selection excludes), and a tangential
+    // t=0 hit crosses nothing. The C++ keeps t=0 hits (`lessThanOnX(hit,
+    // v0) < 0` discard only) and silently mislabels point-touch inputs.
+    if let Some(seed) = &ray.seed_tri {
+        let backs: [Backing; 3] = [
+            backing(&soup.verts[seed[0] as usize]),
+            backing(&soup.verts[seed[1] as usize]),
+            backing(&soup.verts[seed[2] as usize]),
+        ];
+        let gps = [
+            gp(&soup.verts[seed[0] as usize], &backs[0]),
+            gp(&soup.verts[seed[1] as usize], &backs[1]),
+            gp(&soup.verts[seed[2] as usize], &backs[2]),
+        ];
+        let s1 = orient3d_gp3(&gps, &ray_v1);
+        debug_assert_ne!(
+            s1,
+            IpSign::Zero,
+            "generated ray's v1 was straddle-checked against the seed plane"
+        );
+        let behind_seed_plane = |i: usize| {
+            let sh = orient3d_gp3(&gps, &lpis[i]);
+            (s1 == IpSign::Positive && sh == IpSign::Negative)
+                || (s1 == IpSign::Negative && sh == IpSign::Positive)
         };
-        s == IpSign::Negative || s == IpSign::Zero
-    };
-    order
-        .into_iter()
-        .skip_while(|&i| before_origin(i))
-        .map(|i| hits[i])
-        .collect()
+        order
+            .into_iter()
+            .skip_while(|&i| behind_seed_plane(i))
+            .map(|i| hits[i])
+            .collect()
+    } else {
+        let before_origin = |i: usize| {
+            let s = match ray.dir {
+                Axis::X => less_than_on_x(&lpis[i], &ray_v0),
+                Axis::Y => less_than_on_y(&lpis[i], &ray_v0),
+                Axis::Z => less_than_on_z(&lpis[i], &ray_v0),
+            };
+            s == IpSign::Negative || s == IpSign::Zero
+        };
+        order
+            .into_iter()
+            .skip_while(|&i| before_origin(i))
+            .map(|i| hits[i])
+            .collect()
+    }
 }
 
 /// Port of `pruneIntersectionsAndSortAlongRay` (booleans.cpp:655) with a
@@ -880,38 +1066,44 @@ mod tests {
         let patches = compute_all_patches(&soup).expect("patches");
         let inner = compute_inside_out(&soup, &patches).expect("inside_out (Cycle B)");
 
+        // Symmetric geometric truth: B's middle band is inside A, and the
+        // two square disc regions of A's top/bottom faces (where the peg
+        // passes through) are inside B. (The RED draft wrongly asserted
+        // ALL A patches outside B — the discs are genuinely inside.)
+        let mut a_inside = 0;
         let mut b_inside = 0;
         for (pi, patch) in patches.patches.iter().enumerate() {
             let own = canonical(&soup.labels[patch[0] as usize]);
-            if own == vec![A] {
-                assert_eq!(
-                    inner[pi],
-                    Vec::<InputId>::new(),
-                    "A's shell patch {pi} must be outside B"
-                );
+            let other = if own == vec![A] { B } else { A };
+            let geometrically_inside = patch_inside_box(&soup, patch, other);
+            let expect: Label = if geometrically_inside {
+                vec![other]
             } else {
-                let geometrically_inside = patch_inside_box(&soup, patch, A);
-                let expect: Label = if geometrically_inside {
-                    vec![A]
+                vec![]
+            };
+            assert_eq!(
+                canonical(&inner[pi]),
+                expect,
+                "patch {pi} (own {own:?}): inner label vs geometric truth"
+            );
+            if geometrically_inside {
+                if own == vec![A] {
+                    a_inside += 1;
                 } else {
-                    vec![]
-                };
-                assert_eq!(
-                    canonical(&inner[pi]),
-                    expect,
-                    "B patch {pi}: inner label vs geometric truth"
-                );
-                if geometrically_inside {
                     b_inside += 1;
                 }
             }
         }
         assert_eq!(b_inside, 1, "exactly ONE B patch (the band) lies inside A");
-        let b_patches = patches
-            .patches
-            .iter()
-            .filter(|p| canonical(&soup.labels[p[0] as usize]) == vec![B])
-            .count();
-        assert_eq!(b_patches, 3, "B splits into below / band / above");
+        assert_eq!(a_inside, 2, "A's two through-hole discs lie inside B");
+        let count = |l: InputId| {
+            patches
+                .patches
+                .iter()
+                .filter(|p| canonical(&soup.labels[p[0] as usize]) == vec![l])
+                .count()
+        };
+        assert_eq!(count(B), 3, "B splits into below / band / above");
+        assert_eq!(count(A), 3, "A splits into shell + two discs");
     }
 }
