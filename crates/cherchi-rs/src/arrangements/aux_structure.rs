@@ -955,3 +955,203 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod ar3c_tests {
+    //! RED oracles for PR-CR-AR3c — point identity must be GEOMETRIC, not
+    //! structural (mirrors the C++ `aux_structure.cpp:230
+    //! addVertexInSortedList`, whose comparator is `genericPoint::lessThan` —
+    //! EXACT geometric order — so one geometric point gets ONE identity
+    //! regardless of which side's generators construct it).
+    //!
+    //! The anchor: `classify_pair` is presentation-dependent in how many
+    //! STRUCTURAL vertices it emits for a pair whose intersection-segment
+    //! endpoint lies ON an edge of the pierced triangle. With the pair
+    //! presented (cube-tri, peg-tri), the B-vs-A side finds both endpoints
+    //! (2 LPIs) and the `li.size() > 1` early-out skips the A side → 2
+    //! vertices. Presented (peg-tri, cube-tri), the first side finds only ONE
+    //! endpoint (the cube-diagonal LPI at the shared point), so the second
+    //! side ALSO runs and re-derives the same geometric point with DIFFERENT
+    //! generators (peg-edge × cube-plane) plus the second endpoint → 3
+    //! structural vertices for 2 geometric points. Structural interning then
+    //! over-counts to 3 ids, and `group_constraint_segments`'
+    //! `ids.len() != 2` guard SILENTLY drops the pair's constraint segment
+    //! from BOTH triangles (the BL1 fence-gap → flood-leak witness).
+    //!
+    //! Oracle (geometric identity): grouping must yield exactly TWO distinct
+    //! GEOMETRIC endpoints for this pair under BOTH presentations, and a
+    //! constraint segment must be recorded for BOTH triangles under BOTH
+    //! presentations. Exactness via pure-`dashu` rational line∩plane (no
+    //! FFI, no tolerance).
+
+    use crate::arrangements::fast_trimesh::VertexCoords;
+    use crate::arrangements::{
+        classify_pair, group_constraint_segments, group_intersection_points, FastTrimesh,
+        PairClassification, Plane,
+    };
+    use cad_primitives::Point3;
+    use dashu::float::FBig;
+    use dashu::rational::RBig;
+
+    // ── pure-dashu exact coords of a stored VertexCoords (test-local copy,
+    //    same style as the retriangulate/enforce/soup test modules) ──
+
+    fn to_r(x: f64) -> RBig {
+        let fb: FBig = FBig::try_from(x).expect("finite f64 → FBig is total");
+        RBig::try_from(fb).expect("FBig → RBig is total")
+    }
+    fn sub3(a: &[RBig; 3], b: &[RBig; 3]) -> [RBig; 3] {
+        [&a[0] - &b[0], &a[1] - &b[1], &a[2] - &b[2]]
+    }
+    fn cross3(a: &[RBig; 3], b: &[RBig; 3]) -> [RBig; 3] {
+        [
+            &(&a[1] * &b[2]) - &(&a[2] * &b[1]),
+            &(&a[2] * &b[0]) - &(&a[0] * &b[2]),
+            &(&a[0] * &b[1]) - &(&a[1] * &b[0]),
+        ]
+    }
+    fn dot3(a: &[RBig; 3], b: &[RBig; 3]) -> RBig {
+        &(&(&a[0] * &b[0]) + &(&a[1] * &b[1])) + &(&a[2] * &b[2])
+    }
+
+    /// Exact coordinates of `Explicit` / `Lpi` (the anchor produces no Tpi).
+    fn exact_coords(c: &VertexCoords) -> [RBig; 3] {
+        let to_r3 = |p: &Point3| [to_r(p.x()), to_r(p.y()), to_r(p.z())];
+        match c {
+            VertexCoords::Explicit(p) => to_r3(p),
+            VertexCoords::Lpi { line, plane } => {
+                let p = to_r3(&line[0]);
+                let q = to_r3(&line[1]);
+                let r = to_r3(&plane[0]);
+                let s = to_r3(&plane[1]);
+                let t = to_r3(&plane[2]);
+                let n = cross3(&sub3(&s, &r), &sub3(&t, &r));
+                let num = dot3(&sub3(&r, &p), &n);
+                let den = dot3(&sub3(&q, &p), &n);
+                assert!(
+                    den != RBig::ZERO,
+                    "LPI line parallel to plane — bad fixture"
+                );
+                let u = &num / &den;
+                let qp = sub3(&q, &p);
+                [
+                    &p[0] + &(&u * &qp[0]),
+                    &p[1] + &(&u * &qp[1]),
+                    &p[2] + &(&u * &qp[2]),
+                ]
+            }
+            VertexCoords::Tpi { .. } => panic!("anchor fixture must not produce Tpi"),
+        }
+    }
+
+    /// The anchor pair, in already-scaled (multiplier-applied) coordinates
+    /// from the through-cut fixture: a cube bottom-face triangle whose
+    /// DIAGONAL edge passes through the intersection-segment endpoint
+    /// (2,2,0), and a peg wall triangle (plane x=2) one of whose edges
+    /// pierces the cube face at the SAME point (2,2,0).
+    ///
+    /// Hand derivation (z=0 ∧ x=2):
+    ///   peg ∩ {z=0}: edge (2,2,-4)-(2,2,12) at (2,2,0); edge
+    ///     (2,2,12)-(2,6,-4) at (2,5,0)            → segment (2,2,0)-(2,5,0)
+    ///   cube-tri ∩ {x=2}: diagonal (8,8,0)-(0,0,0) at (2,2,0); edge
+    ///     (0,8,0)-(8,8,0) at (2,8,0)              → segment (2,2,0)-(2,8,0)
+    ///   ⇒ the pair's intersection segment is (2,2,0)-(2,5,0); the endpoint
+    ///     (2,2,0) is reachable BOTH as Lpi{peg-edge × cube-plane} and as
+    ///     Lpi{cube-diagonal × peg-plane}.
+    fn cube_tri() -> [Point3; 3] {
+        [
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.0, 8.0, 0.0),
+            Point3::new(8.0, 8.0, 0.0),
+        ]
+    }
+    fn peg_tri() -> [Point3; 3] {
+        [
+            Point3::new(2.0, 2.0, -4.0),
+            Point3::new(2.0, 2.0, 12.0),
+            Point3::new(2.0, 6.0, -4.0),
+        ]
+    }
+
+    /// Anchor repro: under BOTH pair presentations, grouping/interning must
+    /// resolve the pair to exactly 2 distinct GEOMETRIC endpoints — (2,2,0)
+    /// and (2,5,0) — and record one constraint segment on BOTH triangles.
+    ///
+    /// Pre-AR3c this FAILS for the (peg, cube) presentation: 3 structural
+    /// ids are interned for the 2 geometric points and the segment is
+    /// silently dropped from both triangles.
+    #[test]
+    fn anchor_pair_order_invariant_geometric_endpoints() {
+        crate::arrangements::require_ffi_shim();
+
+        for (name, first, second) in [
+            ("cube-first", cube_tri(), peg_tri()),
+            ("peg-first", peg_tri(), cube_tri()),
+        ] {
+            let verts = vec![
+                first[0], first[1], first[2], second[0], second[1], second[2],
+            ];
+            let tris = vec![[0u32, 1, 2], [3u32, 4, 5]];
+            let soup = FastTrimesh::from_soup(&verts, &tris, Plane::XY).unwrap();
+
+            let c = classify_pair(&soup, 0, 1);
+            assert!(
+                matches!(c, PairClassification::Transversal { .. }),
+                "{name}: anchor pair must classify Transversal, got {c:?}"
+            );
+            let classified = vec![((0u32, 1u32), c)];
+
+            let (points, _buckets) = group_intersection_points(&soup, &classified);
+
+            // GEOMETRIC identity: the interned set must contain exactly 2
+            // distinct exact-coordinate groups (one id per geometric point).
+            let mut exact: Vec<[RBig; 3]> =
+                points.iter().map(|tp| exact_coords(&tp.coords)).collect();
+            exact.sort();
+            exact.dedup();
+            assert_eq!(
+                exact.len(),
+                2,
+                "{name}: the pair has exactly 2 geometric intersection points"
+            );
+            assert_eq!(
+                points.len(),
+                2,
+                "{name}: one interned id per GEOMETRIC point (got {} ids for 2 \
+                 geometric points — structural over-count)",
+                points.len()
+            );
+
+            // Both expected endpoints present (exact).
+            let expect = |x: f64, y: f64, z: f64| [to_r(x), to_r(y), to_r(z)];
+            for e in [expect(2.0, 2.0, 0.0), expect(2.0, 5.0, 0.0)] {
+                assert!(
+                    exact.iter().any(|xc| *xc == e),
+                    "{name}: expected geometric endpoint {e:?} missing"
+                );
+            }
+
+            // The constraint segment must be recorded for BOTH triangles
+            // (the silent `ids.len() != 2` drop is the bug under test).
+            let segs = group_constraint_segments(&soup, &classified, &points);
+            assert_eq!(
+                segs[0].len(),
+                1,
+                "{name}: triangle 0 must record the pair's constraint segment"
+            );
+            assert_eq!(
+                segs[1].len(),
+                1,
+                "{name}: triangle 1 must record the pair's constraint segment"
+            );
+            let s = &segs[0][0];
+            assert_ne!(s.endpoints.0, s.endpoints.1, "{name}: real segment");
+            let e0 = exact_coords(&points[s.endpoints.0 as usize].coords);
+            let e1 = exact_coords(&points[s.endpoints.1 as usize].coords);
+            assert_ne!(
+                e0, e1,
+                "{name}: segment endpoints must be geometrically distinct"
+            );
+        }
+    }
+}

@@ -2824,3 +2824,348 @@ mod adversary_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod ar3c_tests {
+    //! RED oracles for PR-CR-AR3c — `mesh_arrangement` must be input-order-
+    //! INDEPENDENT on closed intersection loops.
+    //!
+    //! Mechanism under test (see `aux_structure::ar3c_tests` for the minimal
+    //! 2-triangle anchor): `group_intersection_points` interns intersection
+    //! vertices by STRUCTURAL generator-tuple equality, while the C++
+    //! reference (`aux_structure.cpp:230 addVertexInSortedList`, comparator
+    //! `genericPoint::lessThan`) interns by EXACT GEOMETRY. When a pair's
+    //! intersection-segment endpoint lies ON an edge of the pierced triangle,
+    //! the swapped pair presentation re-derives that endpoint with different
+    //! generators → 3 structural ids for 2 geometric points →
+    //! `group_constraint_segments`' `ids.len() != 2` guard SILENTLY drops the
+    //! pair's constraint segment from BOTH triangles → 4 of the through-cut's
+    //! 16 intersection-loop fence edges go unrealized → BL1 flood-fill leaks
+    //! and 6 patches collapse to 2 (the `#[ignore]`d
+    //! `adversary_b_generated_ray_permutation_invariance` witness).
+    //!
+    //! Which presentation trips it depends only on the (lower-id, higher-id)
+    //! pair order from `detect_intersecting_pairs`, which flips with the
+    //! concat / triangle order — hence the presentation-invariance oracles.
+
+    use std::collections::BTreeMap;
+
+    use crate::arrangements::fast_trimesh::VertexCoords;
+    use crate::arrangements::soup::{
+        merge_duplicated_vertices, mesh_arrangement, remove_degenerate_and_duplicated_triangles,
+        ArrangementSoup, Label,
+    };
+    use crate::arrangements::{
+        classify_all, detect_intersecting_pairs, group_constraint_segments,
+        group_intersection_points, FastTrimesh, Plane,
+    };
+    use crate::labeled_arrangement::InputId;
+    use crate::labeling::compute_all_patches;
+    use crate::processing::multiplier::{compute_multiplier, multiply_coordinates};
+    use cad_primitives::Point3;
+    use dashu::float::FBig;
+    use dashu::rational::RBig;
+
+    const A: InputId = InputId(0);
+    const B: InputId = InputId(1);
+
+    type Solid = (Vec<f64>, Vec<[u32; 3]>, Vec<Label>);
+
+    // ── fixtures (local copies, mirroring labeling/inside_out fixtures) ──
+
+    /// Axis-aligned box [o, o+s] (per-axis extents), 12 tris, outward winding.
+    fn boxx(ox: f64, oy: f64, oz: f64, sx: f64, sy: f64, sz: f64, label: InputId) -> Solid {
+        let p = |x: f64, y: f64, z: f64| (ox + x * sx, oy + y * sy, oz + z * sz);
+        let corners = [
+            p(0.0, 0.0, 0.0),
+            p(1.0, 0.0, 0.0),
+            p(1.0, 1.0, 0.0),
+            p(0.0, 1.0, 0.0),
+            p(0.0, 0.0, 1.0),
+            p(1.0, 0.0, 1.0),
+            p(1.0, 1.0, 1.0),
+            p(0.0, 1.0, 1.0),
+        ];
+        let mut coords = Vec::with_capacity(24);
+        for (x, y, z) in corners {
+            coords.push(x);
+            coords.push(y);
+            coords.push(z);
+        }
+        let tris = vec![
+            [0, 2, 1],
+            [0, 3, 2], // bottom (z=0)
+            [4, 5, 6],
+            [4, 6, 7], // top (z=1)
+            [0, 1, 5],
+            [0, 5, 4], // front (y=0)
+            [2, 3, 7],
+            [2, 7, 6], // back (y=1)
+            [1, 2, 6],
+            [1, 6, 5], // right (x=1)
+            [3, 0, 4],
+            [3, 4, 7], // left (x=0)
+        ];
+        let labels = vec![vec![label]; tris.len()];
+        (coords, tris, labels)
+    }
+
+    fn cube_solid(ox: f64, oy: f64, oz: f64, s: f64, label: InputId) -> Solid {
+        boxx(ox, oy, oz, s, s, s, label)
+    }
+
+    fn concat(s0: Solid, s1: Solid) -> Solid {
+        let (mut coords, mut tris, mut labels) = s0;
+        let off = (coords.len() / 3) as u32;
+        coords.extend_from_slice(&s1.0);
+        for t in s1.1 {
+            tris.push([t[0] + off, t[1] + off, t[2] + off]);
+        }
+        labels.extend(s1.2);
+        (coords, tris, labels)
+    }
+
+    /// The BL1/BL2 through-cut: a square peg through the unit-2 cube. Its two
+    /// closed intersection loops (z=0 and z=2 cube faces × peg walls) have
+    /// curve endpoints ON cube-face edges — the structural-identity trap.
+    fn through_cut() -> Solid {
+        concat(
+            cube_solid(0.0, 0.0, 0.0, 2.0, A),
+            boxx(0.5, 0.5, -1.0, 1.0, 1.0, 4.0, B),
+        )
+    }
+
+    /// The three input presentations of the SAME geometry.
+    fn presentations() -> [(&'static str, Solid); 3] {
+        let fwd = through_cut();
+        let (coords, tris, labels) = through_cut();
+        let rev: Solid = (
+            coords,
+            tris.into_iter().rev().collect(),
+            labels.into_iter().rev().collect(),
+        );
+        let swapped = concat(
+            boxx(0.5, 0.5, -1.0, 1.0, 1.0, 4.0, B),
+            cube_solid(0.0, 0.0, 0.0, 2.0, A),
+        );
+        [
+            ("forward", fwd),
+            ("reversed-tris", rev),
+            ("swapped-concat", swapped),
+        ]
+    }
+
+    // ── pure-dashu exact coords (test-local copy, same style as `tests`) ──
+
+    fn to_r(x: f64) -> RBig {
+        let fb: FBig = FBig::try_from(x).expect("finite f64 → FBig is total");
+        RBig::try_from(fb).expect("FBig → RBig is total")
+    }
+    fn sub3(a: &[RBig; 3], b: &[RBig; 3]) -> [RBig; 3] {
+        [&a[0] - &b[0], &a[1] - &b[1], &a[2] - &b[2]]
+    }
+    fn cross3(a: &[RBig; 3], b: &[RBig; 3]) -> [RBig; 3] {
+        [
+            &(&a[1] * &b[2]) - &(&a[2] * &b[1]),
+            &(&a[2] * &b[0]) - &(&a[0] * &b[2]),
+            &(&a[0] * &b[1]) - &(&a[1] * &b[0]),
+        ]
+    }
+    fn dot3(a: &[RBig; 3], b: &[RBig; 3]) -> RBig {
+        &(&(&a[0] * &b[0]) + &(&a[1] * &b[1])) + &(&a[2] * &b[2])
+    }
+
+    /// Exact coordinates of `Explicit` / `Lpi` (the through-cut produces no
+    /// Tpi: all constraint segments are single transversal crossings).
+    fn exact_coords(c: &VertexCoords) -> [RBig; 3] {
+        let to_r3 = |p: &Point3| [to_r(p.x()), to_r(p.y()), to_r(p.z())];
+        match c {
+            VertexCoords::Explicit(p) => to_r3(p),
+            VertexCoords::Lpi { line, plane } => {
+                let p = to_r3(&line[0]);
+                let q = to_r3(&line[1]);
+                let r = to_r3(&plane[0]);
+                let s = to_r3(&plane[1]);
+                let t = to_r3(&plane[2]);
+                let n = cross3(&sub3(&s, &r), &sub3(&t, &r));
+                let num = dot3(&sub3(&r, &p), &n);
+                let den = dot3(&sub3(&q, &p), &n);
+                assert!(
+                    den != RBig::ZERO,
+                    "LPI line parallel to plane — bad fixture"
+                );
+                let u = &num / &den;
+                let qp = sub3(&q, &p);
+                [
+                    &p[0] + &(&u * &qp[0]),
+                    &p[1] + &(&u * &qp[1]),
+                    &p[2] + &(&u * &qp[2]),
+                ]
+            }
+            VertexCoords::Tpi { .. } => panic!("through-cut fixture must not produce Tpi"),
+        }
+    }
+
+    // ── stage-level fingerprint: per-geometric-triangle constraint segments ──
+
+    /// Sorted exact corner triple — a presentation-independent key for one
+    /// base triangle's GEOMETRY (prep renumbers ids across presentations).
+    type TriKey = Vec<[RBig; 3]>;
+    /// Sorted list of segments, each the sorted pair of endpoint exact coords.
+    type SegSet = Vec<Vec<[RBig; 3]>>;
+
+    /// Run the `mesh_arrangement` pipeline PREFIX (multiplier → prep → CR13 →
+    /// AR1 → grouping) and fingerprint `segments_per_tri` by base-triangle
+    /// geometry: which constraint segments (as exact endpoint-coordinate
+    /// pairs) does each GEOMETRIC base triangle receive?
+    fn segments_fingerprint(solid: &Solid) -> BTreeMap<TriKey, SegSet> {
+        crate::arrangements::require_ffi_shim();
+        let (coords, tris, labels) = solid;
+
+        let m = compute_multiplier(coords);
+        let mut sc = coords.clone();
+        multiply_coordinates(&mut sc, m);
+        let (verts, remapped) = merge_duplicated_vertices(&sc, tris);
+        let (kept_tris, _kept_labels) =
+            remove_degenerate_and_duplicated_triangles(&verts, &remapped, labels);
+        let soup = FastTrimesh::from_soup(&verts, &kept_tris, Plane::XY).unwrap();
+        let pairs = detect_intersecting_pairs(&soup);
+        let classified = classify_all(&soup, &pairs);
+        let (points, _buckets) = group_intersection_points(&soup, &classified);
+        let segments_per_tri = group_constraint_segments(&soup, &classified, &points);
+
+        let mut out: BTreeMap<TriKey, SegSet> = BTreeMap::new();
+        for (t, segs) in segments_per_tri.iter().enumerate() {
+            let mut key: TriKey = (0..3)
+                .map(|k| {
+                    let p = soup.tri_vert(t as u32, k);
+                    [to_r(p.x()), to_r(p.y()), to_r(p.z())]
+                })
+                .collect();
+            key.sort();
+            let mut set: SegSet = segs
+                .iter()
+                .map(|s| {
+                    let mut pair = vec![
+                        exact_coords(&points[s.endpoints.0 as usize].coords),
+                        exact_coords(&points[s.endpoints.1 as usize].coords),
+                    ];
+                    pair.sort();
+                    pair
+                })
+                .collect();
+            set.sort();
+            let prev = out.insert(key, set);
+            assert!(
+                prev.is_none(),
+                "duplicate geometric base triangle in prepped soup"
+            );
+        }
+        out
+    }
+
+    /// Stage-level presentation invariance: the multiset of constraint
+    /// segments per GEOMETRIC base triangle is identical for the forward,
+    /// reversed-triangle-order, and swapped-concat presentations.
+    ///
+    /// Pre-AR3c this FAILS: under the flipped pair order, 8 cube-face×peg-wall
+    /// pairs (curve endpoints ON cube-face edges) over-count to 3 structural
+    /// ids and their segments are silently dropped from both sides.
+    #[test]
+    fn through_cut_segments_per_tri_presentation_invariant() {
+        let [(n0, s0), (n1, s1), (n2, s2)] = presentations();
+        let f0 = segments_fingerprint(&s0);
+        let f1 = segments_fingerprint(&s1);
+        let f2 = segments_fingerprint(&s2);
+
+        // Same geometric triangles in all presentations (prep is order-stable
+        // on this fixture: no duplicates/degenerates).
+        let keys = |f: &BTreeMap<TriKey, SegSet>| f.keys().cloned().collect::<Vec<_>>();
+        assert_eq!(
+            keys(&f0),
+            keys(&f1),
+            "{n0} vs {n1}: same geometric triangles"
+        );
+        assert_eq!(
+            keys(&f0),
+            keys(&f2),
+            "{n0} vs {n2}: same geometric triangles"
+        );
+
+        for (key, set0) in &f0 {
+            assert_eq!(
+                set0, &f1[key],
+                "{n1}: constraint-segment set differs from {n0} on base triangle {key:?}"
+            );
+            assert_eq!(
+                set0, &f2[key],
+                "{n2}: constraint-segment set differs from {n0} on base triangle {key:?}"
+            );
+        }
+    }
+
+    // ── end-to-end: fence-edge count + per-label patch counts ──
+
+    /// Count of non-manifold (>2-incident) undirected edges in the output
+    /// soup — the BL1 patch fences. The through-cut's two closed rectangular
+    /// intersection loops are realized as 4+4 axis-aligned unit segments per
+    /// loop = 16 fence edges (each shared by 4 triangles: 2 cube-face + 2
+    /// peg-wall sub-triangles).
+    fn non_manifold_edge_count(soup: &ArrangementSoup) -> usize {
+        let mut e2n: BTreeMap<(u32, u32), u32> = BTreeMap::new();
+        for tri in &soup.tris {
+            for k in 0..3 {
+                let (u, v) = (tri[k], tri[(k + 1) % 3]);
+                *e2n.entry((u.min(v), u.max(v))).or_insert(0) += 1;
+            }
+        }
+        e2n.values().filter(|&&n| n > 2).count()
+    }
+
+    /// Patch count per (canonicalized) surface label.
+    fn per_label_patch_counts(soup: &ArrangementSoup) -> BTreeMap<Label, usize> {
+        let patches = compute_all_patches(soup).expect("patches");
+        let mut counts: BTreeMap<Label, usize> = BTreeMap::new();
+        for patch in &patches.patches {
+            let mut label = soup.labels[patch[0] as usize].clone();
+            label.sort_unstable();
+            *counts.entry(label).or_insert(0) += 1;
+        }
+        counts
+    }
+
+    /// End-to-end presentation invariance: all three presentations of the
+    /// through-cut must yield 16 non-manifold fence edges and the same
+    /// per-label patch counts (A: shell + 2 discs = 3; B: below/band/above
+    /// = 3).
+    ///
+    /// Pre-AR3c the reversed / swapped presentations drop 4 fence segments
+    /// (12 non-manifold edges) and the BL1 flood leaks: 1 patch per label.
+    #[test]
+    fn through_cut_end_to_end_presentation_invariant() {
+        crate::arrangements::require_ffi_shim();
+        for (name, (coords, tris, labels)) in presentations() {
+            let soup = mesh_arrangement(&coords, &tris, &labels)
+                .unwrap_or_else(|e| panic!("{name}: through-cut must not error: {e:?}"));
+
+            assert_eq!(
+                non_manifold_edge_count(&soup),
+                16,
+                "{name}: the two closed intersection loops must be realized as \
+                 16 non-manifold fence edges"
+            );
+
+            let counts = per_label_patch_counts(&soup);
+            assert_eq!(
+                counts.get(&vec![A]).copied(),
+                Some(3),
+                "{name}: solid A must split into 3 patches (shell + 2 discs), got {counts:?}"
+            );
+            assert_eq!(
+                counts.get(&vec![B]).copied(),
+                Some(3),
+                "{name}: solid B must split into 3 patches (below/band/above), got {counts:?}"
+            );
+        }
+    }
+}
