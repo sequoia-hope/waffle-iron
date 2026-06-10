@@ -8,12 +8,15 @@ consumers*, which is why reference parity never engaged. From now on, add a
 predicate wrapper only when the `cherchi-rs` Stage-2 arrangement code that calls
 it lands in the same slice. See `docs/yang_functional_roadmap.md` §3b.
 
-**End state (roadmap M7).** This FFI crate is the *development-phase* bridge. It
-deliberately breaks WASM (LGPL C++ FFI). The accepted plan is: FFI now →
-complete functional Yang → **clean-room reimplement the indirect predicates in
-pure Rust from Attene's published paper** (not his LGPL source — so the workspace
-owns the license) → drop this crate's role and restore the WASM build. Per the
-user: no users, personal experiment, WASM-break during development is fine.
+**End state REACHED (roadmap M7, PR-CR-M7c 2026-06-10).** This FFI crate was
+the *development-phase* bridge. The clean-room pure-Rust predicates
+(`cherchi-rs/src/predicates/indirect/`, generated from Attene's published
+paper — not his LGPL source) replaced it in EVERY production call path, and
+the WASM build is restored. This crate is now a **dev-dependency of cherchi-rs
+only**, serving strictly as the black-box differential oracle for the
+clean-room predicates (`tests/indirect_*_parity.rs`). It stays native-only
+(`compile_error!` on wasm32) — that is fine for a dev-dep. Do NOT add new
+production consumers of this crate.
 
 ## What this crate does
 
@@ -33,7 +36,7 @@ user: no users, personal experiment, WASM-break during development is fine.
 
 1. **Workspace deps**: NONE for v1. This is the lowest layer; below `cad-primitives`. (PR-CR-IP2+ may add a dep on `cad-primitives` for `Point3` interop; document then.)
 2. **Build-deps**: `cc` + `bindgen` only.
-3. **NOT WASM-compatible**. `compile_error!` at `src/lib.rs` top-level when `target_arch == "wasm32"`. The user accepts a broken WASM build during the Yang validation phase; PR-CR-IP10 banked to restore via cfg-gating in consumers.
+3. **NOT WASM-compatible**. `compile_error!` at `src/lib.rs` top-level when `target_arch == "wasm32"` — KEEP it. Since M7c this crate is a dev-dependency only, so the workspace WASM build is unaffected (test targets are not built for `cargo check --target wasm32-unknown-unknown`).
 4. **LGPL-2.1 boundary**: this crate's source is MIT (workspace default). The C++ library it dynamically links is LGPL-2.1. Document in `LICENSE-THIRD-PARTY.md` at crate root. Distributors who statically embed must comply with LGPL obligations — that's their concern, not ours.
 5. **`unsafe` contained in `mod ffi`** + one-line `pub fn` wrappers. No `unsafe` in `tests/` or doc examples.
 6. **No `panic!` in production paths.** `link_probe()` returns sentinel values, never panics.

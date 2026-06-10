@@ -31,10 +31,13 @@ working boolean** plus deep foundations:
 - `cherchi-rs`: pure-Rust predicates + `FastTrimesh`/`Tree` + the **full native
   Stage 2** — arrangement (AR1–AR3b) + boolean labeling (BL1–BL3) +
   `NativeBoolean`, parity-green vs the C++ sidecar (M6 ✅ COMPLETE,
-  PR-CR-BL3c 2026-06-10). Uses the IP FFI predicates ⇒ non-WASM until M7;
-  the subprocess sidecar is now a test-only parity oracle.
-- `indirect-predicates-sidecar-rs`: FFI to Attene's LGPL predicates, IP1–IP6;
-  intentionally non-WASM. Clean-room replacement is M7.
+  PR-CR-BL3c 2026-06-10). **Pure Rust / WASM-clean since M7c (PR-CR-M7c,
+  2026-06-10):** every production predicate is the clean-room
+  `predicates::indirect` module; the subprocess sidecar and the IP FFI are
+  both test-only parity oracles now.
+- `indirect-predicates-sidecar-rs`: FFI to Attene's LGPL predicates;
+  intentionally non-WASM. **Dev-only since M7c** — a black-box differential
+  oracle for the clean-room predicates, no production consumer.
 - `kernel-v2`: **empty scaffold** — does NOT implement the `Kernel` trait. There
   is **no path from a `.waffle`/feature tree to a yang-rs BRep** yet.
 
@@ -122,14 +125,16 @@ classifies patches in/out per input. The work is to **emit** it, not compute it.
 **Status: ✅ COMPLETE (M6, 2026-06-10).** Landed as PR-CR-AR1→AR3b (arrangement)
 + PR-CR-BL1→BL3 (labeling/boolean): `NativeBoolean` is parity-green vs the C++
 sidecar on the BL3b corpus and is yang-rs's production backend (BL3c); the
-sidecar remains as the test-only parity oracle. Remaining native-track work is
-M7 (clean-room predicates → WASM) and M8 (coplanar Stage 0).
+sidecar remains as the test-only parity oracle. M7 (clean-room predicates →
+WASM) is ✅ COMPLETE (PR-CR-M7a/b/c, 2026-06-10); remaining native-track work
+is M8 (coplanar Stage 0).
 
 Built incrementally, **diffed against the sidecar** on the corpus. The IP-FFI
 predicates (`indirect-predicates-sidecar-rs`) are consumed **demand-driven** by
 this code — we stop porting predicates ahead of a caller. Per user directive,
-the native path uses the FFI predicates *first*, then a clean-room
-reimplementation from Attene's paper restores WASM (M7).
+the native path used the FFI predicates *first*; the clean-room
+reimplementation from Attene's paper then restored WASM (M7 ✅, PR-CR-M7c
+swapped every consumer to `predicates::indirect`).
 
 ## 4. Critical path & milestones (ORDERED)
 
@@ -1183,15 +1188,15 @@ reimplementation from Attene's paper restores WASM (M7).
 - **M6 — Native `cherchi-rs` Stage 2** behind the same interface, parity-green
   vs the sidecar on the corpus. ✅ **COMPLETE (2026-06-10, PR-CR-BL3c)** — all
   three BL3 slices landed; the sidecar is now a test-only parity oracle and
-  yang-rs's default build runs the native backend (`native-boolean` feature,
-  ON by default; WASM restoration = M7). **The biggest milestone — a faithful port of the
+  yang-rs's default build runs the native backend (unconditional since M7c —
+  the former `native-boolean` feature is removed; WASM restored at M7). **The biggest milestone — a faithful port of the
   MIT Cherchi C++ (`/home/claude/cherchi2022/InteractiveAndRobustMeshBooleans/`)
   to native Rust, removing the `cherchi-sidecar-rs` subprocess.** Reference parity
   vs the C++ sidecar is the LOAD-BEARING oracle (every PR diffs native vs sidecar
   on a corpus subset; CLAUDE.md hard-rule #2). MIT attribution header on every
-  ported file. Still uses the `indirect-predicates-sidecar-rs` FFI for LPI/TPI
-  until M7 (so M6 lands native-but-not-yet-WASM; M7 clean-rooms the predicates →
-  restores WASM). **Foundations already in `cherchi-rs`:** predicates (CR1–10),
+  ported file. Used the `indirect-predicates-sidecar-rs` FFI for LPI/TPI
+  until M7 (M6 landed native-but-not-yet-WASM; M7 clean-roomed the predicates →
+  restored WASM at M7c). **Foundations already in `cherchi-rs`:** predicates (CR1–10),
   FastTrimesh+Tree (CR11–12c), Stage-1 pair detection (CR13), the CDT (NC1), the
   `MeshBoolean` trait + `LabeledArrangement` contract, and the IP FFI
   (`lambda3d_lpi/tpi`, `orient3d`). **Decomposition (PR-CR-AR* arrangement /
@@ -1426,9 +1431,9 @@ reimplementation from Attene's paper restores WASM (M7).
       ~~Remaining BL3 work: switch `yang-rs` to the native backend behind the
       trait.~~ → BL3c below.
     - **PR-CR-BL3c ✅ DONE (2026-06-10) — yang-rs on the native backend; M6
-      CLOSED.** yang-rs gains a default-ON `native-boolean` feature (enables
-      `cherchi-rs/indirect-predicates`; non-WASM until M7 — yang-rs was
-      already de-facto non-WASM via the subprocess sidecar) and
+      CLOSED.** yang-rs gained a default-ON `native-boolean` feature (enabled
+      `cherchi-rs/indirect-predicates`; both features REMOVED at M7c — the
+      backend is unconditional and WASM-clean now) and
       `yang_rs::native_backend() -> Option<NativeBoolean>` (None on the FFI
       stub build, P9 skip-loud). The whole yang-rs suite (334 tests) runs on
       the native backend unchanged — zero invariant re-anchors; the sidecar
@@ -1445,7 +1450,9 @@ reimplementation from Attene's paper restores WASM (M7).
       the chord band d_ε × A_lateral for curved volume, 1e-9 relative for
       planar.
 - **M7 — Clean-room indirect predicates from Attene's paper → restore WASM.**
-  Removes the LGPL FFI dependency and the `compile_error!` WASM block.
+  ✅ **COMPLETE (2026-06-10, PR-CR-M7a/M7b/M7c).** The LGPL FFI is demoted to a
+  dev-only differential oracle; cherchi-rs / yang-rs / kernel-v2 all compile
+  for wasm32-unknown-unknown with no feature flags.
   - **PR-CR-M7a DONE (2026-06-10): pattern-setter slice.** New
     `crates/predicate-gen` (dev tool, zero deps): SSA polynomial IR + FPG
     (Meyer-Pion 2008) forward error analysis → Attene App. A semi-static
@@ -1490,10 +1497,31 @@ reimplementation from Attene's paper restores WASM (M7).
     orient2d 0.928/0.967/0.996, lessThan 1.000×3 (gate 0.90); composite
     parity vs independent pure-RBig formulations (~1000 coplanar
     configs); FFI differential parity incl. EE-quirk mappings; suites
-    386 default / 549 gated; wasm32 check still green. Remaining for
-    M7: **M7c — swap the `arrangements/`+`labeling/` consumers off the
-    FFI and drop the `indirect-predicates` gate** (every FFI call site
-    now has a proven native equivalent with matching call shape).
+    386 default / 549 gated; wasm32 check still green.
+  - **PR-CR-M7c DONE (2026-06-10): consumer swap → M7 COMPLETE.** Every
+    `arrangements/` + `labeling/` production call site swapped from the
+    FFI to `predicates::indirect`: gp_dispatch's `Backing`/`Gp<'a>`/
+    `with_gp!` 3^N handle machinery collapsed to a one-match
+    `VertexCoords → GenericPoint3D` conversion (owned, lifetime-free,
+    internal lambda caching preserves the per-vertex reuse pattern —
+    inside_out's ray-sort arena is a `Vec<GenericPoint3D>`); enforce's
+    fwd||rev EE-quirk workaround collapsed to ONE symmetric native
+    `point_in_inner_segment_indirect` call; the two orient3d production
+    sites (inside_out straddle / behind-seed-plane tests) are
+    sign-RELATIVE, so the native↔FFI sign mirror needs no flip
+    (annotated per-site); `lpi_approx` keeps its midpoint fallback on
+    the native `approx_lpi`'s degenerate `None`. `init_fpu` removed from
+    production (native predicates need no FPU mode). The
+    `indirect-predicates` feature is REMOVED (modules always compiled);
+    the FFI crate is a dev-dependency oracle only
+    (`tests/indirect_*_parity.rs` keep `require_ffi_shim`, now in
+    `tests/indirect_common`); yang-rs's `native-boolean` feature removed
+    (`native_backend()` unconditional); test.sh's duplicate feature run
+    dropped. Gates: cherchi-rs 557 (incl. the 60-cell
+    native-vs-sidecar parity corpus — end-to-end proof the swap changed
+    nothing), yang-rs 334 (incl. backend_parity), kernel-v2, rewrite
+    tier, and `cargo check --target wasm32-unknown-unknown` green for
+    cherchi-rs + yang-rs + kernel-v2.
 - **M8 — Stage 0 coplanar preprocessing** hardened last (special case that
   complicates everything earlier). **Verified a genuine native need** (deviation
   N8, 2026-06-02): the patched sidecar emits multi-solid-labeled
@@ -1581,12 +1609,13 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   (categorized supported/correct/unsupported). **Risk:** moderate. **Size:** large.
 - **Phase 5 — Native arrangement + WASM.** *[= M6 + M7; parallel track]* M6 native
   `cherchi-rs` Stage-2 behind the `LabeledArrangement` seam, parity-green vs the
-  sidecar (retires the C++ subprocess) — **✅ M6 half COMPLETE (PR-CR-BL3c,
-  2026-06-10; subprocess demoted to test oracle)**; remaining: M7 clean-room indirect predicates from
-  Attene's paper (drops LGPL FFI) + restore the WASM build (`compile_error!`
-  removed). **Exit:** pure-Rust boolean compiling to WASM, browser-parity with
-  native. **Risk:** moderate–high (subtle predicates; IP-sidecar is the oracle).
-  **Size:** large. **Runs in parallel** with Phases 2–4.
+  sidecar (retires the C++ subprocess) — **✅ COMPLETE (M6: PR-CR-BL3c; M7:
+  PR-CR-M7a/b/c, 2026-06-10)**: clean-room indirect predicates from Attene's
+  paper replaced the LGPL FFI in every production path and the WASM build is
+  restored (`cargo check --target wasm32-unknown-unknown` green for
+  cherchi-rs / yang-rs / kernel-v2, no feature flags). Browser-side
+  validation happens with the Phase-6 wasm-bridge migration.
+  **Exit (met):** pure-Rust boolean compiling to WASM.
 - **Phase 6 — Migration + assay.** *[the finish line]* swap wasm-bridge +
   feature-engine to kernel-v2; run the real assay; iterate to parity-or-better;
   **delete `crates/kernel/`**; rebuild the WASM bundle. **Exit:** legacy gone,
@@ -1605,9 +1634,10 @@ multi-month, not a few sessions.
   cannot mask inputs that violate Cherchi's axioms.
 - **Substitutes retained, not deleted** (S3): M4.
 - **`cherchi-rs` layering amended** (S5): its `CLAUDE.md` Hard-rule #7 (dashu
-  only) is amended to permit a *temporary, feature-gated, non-WASM* dependency
-  on `indirect-predicates-sidecar-rs`. Without this the constitution blocks the
-  plan. The clean-room (M7) restores the pure-Rust/WASM end state.
+  only) was amended to permit a *temporary, feature-gated, non-WASM* dependency
+  on `indirect-predicates-sidecar-rs`. **Amendment retired at M7c** — the
+  clean-room predicates restored the pure-Rust/WASM end state; the FFI is a
+  dev-dependency oracle only.
 - **Dockerfile stays thin** (build caution): do **not** add a `RUN make` layer —
   it costs ~22 min and ~8 GB per image rebuild. Install only build prerequisites
   (cmake/clang are already present) and run `scripts/build_sidecars.sh` at
@@ -1641,4 +1671,5 @@ This re-charting touched:
 
 The interim path takes Stage-2 labels from the C++ sidecar rather than from a
 native arrangement, as the paper assumes. This is a tracked deviation — see
-`docs/yang_deviations.md`. It is resolved at M6 (native Stage 2) / M7 (WASM).
+`docs/yang_deviations.md`. It is resolved: M6 (native Stage 2) and M7 (WASM)
+are both complete.

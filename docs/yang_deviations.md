@@ -883,17 +883,22 @@ sub-piece has the same supporting plane), so the original-transversal X-crossing
 crossing's plane from the first crossing's recorded sub-edge planes — is handled
 with directly-available planes, no global structure.
 
-**Deviation 2 (EE-bool asymmetry repair, faithful):** `point_inside_segment`
-queries `genericPoint::pointInInnerSegment` in **both** endpoint orders and ORs
-them. Justification: the sidecar's `lessThanOnX/Y/Z` explicit-explicit branch
-(`implicit_point.hpp:73/83/93`) returns a C++ `bool` (0/1, never −1), so
-`pointInInnerSegment(p,v1,v2)` silently returns `false` for a *descending*
-explicit segment — an endpoint-order asymmetry. The OR restores the symmetric
-"strictly inside" semantics and is a no-op for implicit endpoints (the real
-Cherchi path, where `lessThanOn` is sign-aware). NOT a tolerance widening or
-fixture special-case. `innerSegmentsCross` (the `segmentsIntersectInside` path)
-does **not** share the asymmetry — it routes through the signed Shewchuk
-`orient2d_EEE` determinant — so it is ported verbatim (adversary-verified).
+**Deviation 2 (EE-bool asymmetry repair, faithful) — RESOLVED at PR-CR-M7c:**
+`point_inside_segment` used to query the FFI `pointInInnerSegment` in **both**
+endpoint orders and OR them, because the sidecar's `lessThanOnX/Y/Z`
+explicit-explicit branch (`implicit_point.hpp:73/83/93`) returns a C++ `bool`
+(0/1, never −1), making the single call endpoint-order-sensitive for explicit
+segments. The clean-room native `point_in_inner_segment_indirect`
+(`predicates::indirect`, PR-CR-M7b) is symmetric in `v1 ↔ v2` by construction
+— every comparator arm, including explicit-explicit, is a true signed
+−1/0/+1 — so the M7c consumer swap collapsed the fwd||rev pair to ONE call
+with identical semantics (the FFI EE bool-quirk has no production call path
+anymore; it remains documented in the dev-only sidecar smoke tests and is
+mapped explicitly in `tests/indirect_catalog_ffi_parity.rs`). Relatedly, the
+native orient3d uses the Shewchuk sign convention — the MIRROR of the FFI's —
+which is an internal convention, not a deviation: both M7c production uses
+(inside_out straddle / behind-seed-plane tests) are sign-relative and
+annotated per-site.
 
 **STOP walls deferred to AR3b (P9/P10):** `computeTriangleOfSegment`'s global
 `seg2tris` sourcing and the coplanar `jollyPoint` fallback. A sub-segment that
