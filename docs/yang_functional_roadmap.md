@@ -1345,11 +1345,19 @@ reimplementation from Attene's paper restores WASM (M7).
       the peg). ADVERSARY (9 more tests): X/Y-axis cuts, two pegs, peg
       through two stacked cubes, behind/forward seed-plane third solids,
       45° diamond peg, 0.01 sliver peg — no Cycle-B bugs.
-    - **Cycle C** — the `foctree` octree as the candidate-set producer
-      (oracle: pruned ⊆ brute AND identical final labels). NOTE: Cycle A
-      established the rayAABB filter is semantically LOAD-BEARING (not
-      mere acceleration); the brute-force port carries an explicit
-      ray-AABB pre-filter the octree must reproduce exactly.
+    - **Cycle C (DONE, 2026-06-10)** — octree candidate producer:
+      `labeling/octree.rs` `TriOctree` (build over `in_tris` AABBs;
+      `query_aabb` = the booleans.cpp:580 `intersects_box` stack walk;
+      deterministic params, sorted output). NOTE: the C++ pipeline uses
+      `cinolib::Octree` — upstream `code/foctree.h` is NOT used by
+      booleans.cpp and was not ported. Design invariant: the octree is a
+      pure SUPERSET producer; the exact per-tri `in_ray_aabb` filter (the
+      load-bearing behind-origin exclusion from Cycle A) applies to every
+      candidate unconditionally, so octree parameters cannot affect
+      labels. Oracles: superset vs brute (incl. degenerate zero-thickness
+      ray AABBs), end-to-end label equivalence vs the permanent
+      `#[cfg(test)]` brute path, determinism. Ring/edge searches stay
+      full-scan (documented deviation; both complete). **BL2 COMPLETE.**
   - **PR-CR-AR3c — input-order-invariant constraint realization (DONE,
     2026-06-10).** Fixed at the diagnosed anchor: AR1/aux point identity
     was STRUCTURAL (generator-tuple) where the C++ interns by EXACT
