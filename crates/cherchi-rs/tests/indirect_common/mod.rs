@@ -46,12 +46,14 @@ pub fn tpi_generators(seed: u64) -> ([Point3; 3], [Point3; 3], [Point3; 3]) {
 }
 
 /// Scale a point's coordinates by `s` (exact when `s` is a power of two).
+#[allow(dead_code)] // used by indirect_filter_soundness, not every consumer
 pub fn scale_point(p: Point3, s: f64) -> Point3 {
     Point3::new(p.x() * s, p.y() * s, p.z() * s)
 }
 
 /// A mixed pool of generic `GenericPoint3D`s: `n_e` explicit, `n_l` LPI,
 /// `n_t` TPI, all coordinates scaled by `s`.
+#[allow(dead_code)] // used by indirect_filter_soundness, not every consumer
 pub fn mixed_pool(n_e: usize, n_l: usize, n_t: usize, s: f64) -> Vec<GenericPoint3D> {
     let mut pool = Vec::new();
     for i in 0..n_e {
@@ -72,7 +74,13 @@ pub fn mixed_pool(n_e: usize, n_l: usize, n_t: usize, s: f64) -> Vec<GenericPoin
     }
     for i in 0..n_t {
         let (v, w, u) = tpi_generators(i as u64);
-        let sc = |t: [Point3; 3]| [scale_point(t[0], s), scale_point(t[1], s), scale_point(t[2], s)];
+        let sc = |t: [Point3; 3]| {
+            [
+                scale_point(t[0], s),
+                scale_point(t[1], s),
+                scale_point(t[2], s),
+            ]
+        };
         pool.push(GenericPoint3D::tpi(sc(v), sc(w), sc(u)));
     }
     pool

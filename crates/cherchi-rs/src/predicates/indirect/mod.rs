@@ -15,11 +15,17 @@
 //!   the sign of `D′` is resolved by counting negative `d`s (sign-parity
 //!   rule, Attene §5.1, `attene-predicates.txt:281-286`). No division is
 //!   ever performed.
-//! - Evaluation is tiered: a **semi-statically filtered f64** tier
-//!   (Attene §5.1 + Appendix A: `ε = δ(1)·β^k`) falls back to an **exact
-//!   rational** tier (`dashu::rational::RBig`; Attene §5.3 — we use
-//!   rationals instead of floating-point expansions, which is exact a
-//!   fortiori and WASM-clean).
+//! - Evaluation cascades through the paper's three computation models
+//!   (Attene §5: "the predicate is evaluated with the fastest model
+//!   which guarantees exactness"):
+//!   1. **semi-statically filtered f64** (Attene §5.1 + Appendix A:
+//!      `ε = δ(1)·β^k`),
+//!   2. **interval arithmetic** (Attene §5.2; see [`interval`] — needed
+//!      because the worst-case `δ(1)·β^k` bound almost never certifies
+//!      the deep TPI-heavy instances, degree up to 39),
+//!   3. **exact rational** (`dashu::rational::RBig`; Attene §5.3 — we
+//!      use rationals instead of floating-point expansions, which is
+//!      exact a fortiori and WASM-clean).
 //!
 //! ## CLEAN-ROOM PROVENANCE
 //!
@@ -45,15 +51,12 @@
 //!
 //! - [`GenericPoint3D`] is an owned, generator-based enum — no lifetimes,
 //!   no handle/pointer architecture.
-//! - Per Attene §5.4 (caching), the f64 lambda values, the cached filter
-//!   factor `β`, and the d-sign filter verdict are computed lazily once
-//!   per point (`OnceLock`). Exact lambdas are recomputed on demand: the
-//!   paper measured that caching the exact tier is not advantageous
-//!   (Attene §5.4, Table 3 discussion).
-//! - We have **two** tiers, not three: the paper's middle interval tier
-//!   is an optimization, not a correctness requirement (§5: "evaluated
-//!   with the fastest model which guarantees exactness"). Our exact tier
-//!   is total.
+//! - Per Attene §5.4 (caching), the f64 lambda values (+ the cached
+//!   filter factor `β` and the d-sign filter verdict) and the interval
+//!   lambdas are computed lazily once per point (`OnceLock`) — the paper
+//!   found exactly this caching combination optimal (Table 3, "Interval"
+//!   column). Exact lambdas are recomputed on demand: caching the exact
+//!   tier is not advantageous (§5.4).
 //!
 //! ## Sign convention
 //!
@@ -73,7 +76,14 @@ use std::sync::OnceLock;
 use cad_primitives::Point3;
 use dashu::rational::RBig;
 
+// rustfmt must not touch the generated module: predicate-gen's
+// `checked_in_file_is_fresh` test diffs it byte-for-byte against a fresh
+// generation.
+#[rustfmt::skip]
 mod generated;
+mod interval;
+
+pub(crate) use interval::Iv;
 
 // =========================================================================
 // Sign
@@ -154,6 +164,15 @@ pub(crate) struct LambdaF64 {
     pub d_reliable: bool,
 }
 
+/// Interval lambda cache for one implicit point (dynamic-filter tier,
+/// Attene §5.2 + §5.4: "For dynamic filters, this amounts to store the
+/// λ's and d using intervals").
+#[derive(Clone, Debug)]
+pub(crate) struct LambdaIv {
+    pub l: [Iv; 3],
+    pub d: Iv,
+}
+
 /// Exact rational lambda for one implicit point. Recomputed on demand
 /// (not cached — Attene §5.4 found exact-tier caching not advantageous).
 #[derive(Clone, Debug)]
@@ -185,6 +204,7 @@ pub struct LpiPoint {
     pub s: Point3,
     pub t: Point3,
     cache: OnceLock<LambdaF64>,
+    iv_cache: OnceLock<LambdaIv>,
 }
 
 /// Three-plane intersection point (Cherchi 2020 §4.2.2): the common
@@ -196,6 +216,7 @@ pub struct TpiPoint {
     pub w: [Point3; 3],
     pub u: [Point3; 3],
     cache: OnceLock<LambdaF64>,
+    iv_cache: OnceLock<LambdaIv>,
 }
 
 /// A 3D point that is either explicit (plain coordinates, assumed exact)
@@ -236,6 +257,7 @@ impl GenericPoint3D {
             s,
             t,
             cache: OnceLock::new(),
+            iv_cache: OnceLock::new(),
         })
     }
 
@@ -247,6 +269,7 @@ impl GenericPoint3D {
             w,
             u,
             cache: OnceLock::new(),
+            iv_cache: OnceLock::new(),
         })
     }
 
@@ -281,6 +304,22 @@ impl GenericPoint3D {
             GenericPoint3D::Tpi(t) => t
                 .cache
                 .get_or_init(|| generated::tpi_lambda_f64(&t.v, &t.w, &t.u)),
+        }
+    }
+
+    /// Cached interval lambda (dynamic-filter tier, Attene §5.2/§5.4).
+    /// Panics on `Explicit`.
+    pub(crate) fn lambda_iv(&self) -> &LambdaIv {
+        match self {
+            GenericPoint3D::Explicit(_) => {
+                unreachable!("lambda_iv on an explicit point (dispatch bug)")
+            }
+            GenericPoint3D::Lpi(l) => l
+                .iv_cache
+                .get_or_init(|| generated::lpi_lambda_iv(&l.p, &l.q, &l.r, &l.s, &l.t)),
+            GenericPoint3D::Tpi(t) => t
+                .iv_cache
+                .get_or_init(|| generated::tpi_lambda_iv(&t.v, &t.w, &t.u)),
         }
     }
 
@@ -356,9 +395,7 @@ pub(crate) mod support {
 /// Attene §6: "many of these instances can be reduced to each other by
 /// transposing their input parameters and possibly inverting the
 /// resulting sign".
-fn canonicalize<'a>(
-    args: [&'a GenericPoint3D; 4],
-) -> ([&'a GenericPoint3D; 4], bool) {
+fn canonicalize(args: [&GenericPoint3D; 4]) -> ([&GenericPoint3D; 4], bool) {
     let mut idx = [0usize, 1, 2, 3];
     // Stable insertion sort on rank; count swaps for permutation parity.
     let mut odd = false;
@@ -370,7 +407,10 @@ fn canonicalize<'a>(
             j -= 1;
         }
     }
-    ([args[idx[0]], args[idx[1]], args[idx[2]], args[idx[3]]], odd)
+    (
+        [args[idx[0]], args[idx[1]], args[idx[2]], args[idx[3]]],
+        odd,
+    )
 }
 
 // =========================================================================
@@ -384,8 +424,9 @@ fn canonicalize<'a>(
 /// Returns [`Sign::Undefined`] iff any implicit argument's denominator
 /// is exactly zero (the point does not exist).
 ///
-/// Evaluation: semi-statically filtered f64 (Attene §5.1, App. A), then
-/// exact rationals (§5.3). The result is always exact.
+/// Evaluation cascade: semi-statically filtered f64 (Attene §5.1,
+/// App. A) → interval arithmetic (§5.2) → exact rationals (§5.3). The
+/// result is always exact.
 pub fn orient3d_indirect(
     a: &GenericPoint3D,
     b: &GenericPoint3D,
@@ -413,9 +454,10 @@ pub fn orient3d_indirect(
     }
 }
 
-/// Filtered tier only: `Some(sign)` iff the semi-static f64 filter
-/// certifies the sign without exact arithmetic; `None` when the filter
-/// is uncertain. Exposed (in addition to [`orient3d_indirect`]) so the
+/// Filtered (inexact) tiers only: `Some(sign)` iff the semi-static f64
+/// filter (Attene §5.1) or the interval dynamic filter (§5.2) certifies
+/// the sign without exact arithmetic; `None` when both are uncertain.
+/// Exposed (in addition to [`orient3d_indirect`]) so the
 /// filter-soundness oracle can compare the tiers independently.
 pub fn orient3d_indirect_filtered(
     a: &GenericPoint3D,

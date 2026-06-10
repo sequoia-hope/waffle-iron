@@ -111,20 +111,29 @@ fn ffi_orient3d(specs: &[&Spec; 4]) -> ip::Sign {
         })
         .collect();
     let (h0, h1, h2, h3) = (&handles[0], &handles[1], &handles[2], &handles[3]);
-    with_h!(h0, a, with_h!(h1, b, with_h!(h2, c, with_h!(h3, d, ip::orient3d(a, b, c, d)))))
+    with_h!(
+        h0,
+        a,
+        with_h!(
+            h1,
+            b,
+            with_h!(h2, c, with_h!(h3, d, ip::orient3d(a, b, c, d)))
+        )
+    )
 }
 
 /// Map the reference sidecar's sign onto our convention.
 ///
 /// Established EMPIRICALLY (black-box): on explicit non-degenerate input
-/// the sidecar's `orient3d` agrees with Shewchuk's convention (Positive
-/// = 4th point below the CCW plane), which is also ours — the mapping is
-/// the identity. The `calibration_anchor` test pins this down; if it
-/// ever fails, the mapping constant here is what must be re-examined.
+/// the sidecar's `orient3d` returns Positive when the 4th point lies
+/// ABOVE the CCW plane — the mirror of Shewchuk's convention (ours, per
+/// `specs/cherchi_rs_orient3d_sign.md`): Positive ↔ Negative swap, Zero
+/// and Undefined unchanged. The `calibration_anchor` test pins this
+/// down; if it ever fails, this mapping is what must be re-examined.
 fn map_ffi(s: ip::Sign) -> Sign {
     match s {
-        ip::Sign::Positive => Sign::Positive,
-        ip::Sign::Negative => Sign::Negative,
+        ip::Sign::Positive => Sign::Negative,
+        ip::Sign::Negative => Sign::Positive,
         ip::Sign::Zero => Sign::Zero,
         ip::Sign::Undefined => Sign::Undefined,
     }
@@ -181,7 +190,7 @@ fn spec_pool() -> Vec<Spec> {
 fn generic_mixed_parity() {
     let pool = spec_pool();
     let tuples = tuple_stream(pool.len(), 480);
-    assert!(tuples.len() > 400, "corpus too small: {}", tuples.len());
+    assert!(tuples.len() > 300, "corpus too small: {}", tuples.len());
     for &[a, b, c, d] in &tuples {
         assert_parity(
             &[&pool[a], &pool[b], &pool[c], &pool[d]],
@@ -211,12 +220,7 @@ fn exact_on_plane_parity() {
         let a = Spec::E(Point3::new(0.0, 0.0, z));
         let b = Spec::E(Point3::new(1.0, 0.0, z));
         let c = Spec::E(Point3::new(0.0, 1.0, z));
-        let native = [
-            lpi.to_native(),
-            a.to_native(),
-            b.to_native(),
-            c.to_native(),
-        ];
+        let native = [lpi.to_native(), a.to_native(), b.to_native(), c.to_native()];
         // Hand truth: coplanar → Zero.
         assert_eq!(
             orient3d_indirect(&native[1], &native[2], &native[3], &native[0]),

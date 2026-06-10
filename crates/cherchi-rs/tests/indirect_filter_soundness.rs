@@ -192,7 +192,10 @@ fn near_coplanar_implicit_perturbations() {
         };
         assert_eq!(exact, expected, "exact tier wrong at {n} ulps (LPI query)");
         if let Some(s) = orient3d_indirect_filtered(&a, &b, &c, &d) {
-            assert_eq!(s, expected, "FILTER SOUNDNESS VIOLATION at {n} ulps (LPI query)");
+            assert_eq!(
+                s, expected,
+                "FILTER SOUNDNESS VIOLATION at {n} ulps (LPI query)"
+            );
         }
     }
 }

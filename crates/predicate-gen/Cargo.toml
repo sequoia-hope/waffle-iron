@@ -1,0 +1,19 @@
+[package]
+name = "predicate-gen"
+version = "0.1.0"
+edition = "2021"
+description = """
+Code generator for cherchi-rs's clean-room indirect predicates (M7).
+Implements Meyer-Pion 2008 (FPG) forward error analysis to derive the
+semi-static filter constants delta(1) of Attene 2025 Appendix A, and
+emits the filtered-f64 + exact-RBig predicate instances as Rust source
+(crates/cherchi-rs/src/predicates/indirect/generated.rs).
+
+Dev tooling only: NOT part of the kernel crate layering, never shipped,
+no workspace dependencies.
+"""
+
+# No dependencies on purpose: pure-std dev tool. The generated CODE
+# depends on cherchi-rs internals, but the generator itself only
+# manipulates strings and f64 error bounds.
+[dependencies]

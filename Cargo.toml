@@ -23,6 +23,11 @@ members = [
     "crates/ssi-rs",
     "crates/yang-rs",
     "crates/kernel-v2",
+
+    # Dev tooling, OUTSIDE the kernel layering (no workspace deps, never
+    # shipped): generates cherchi-rs's clean-room indirect-predicate
+    # instances (M7) into src/predicates/indirect/generated.rs.
+    "crates/predicate-gen",
 ]
 exclude = ["archive"]
 resolver = "2"

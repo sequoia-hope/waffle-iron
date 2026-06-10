@@ -275,7 +275,11 @@ mod ar3c_cross_check {
                 // Dyadic-fraction coordinates.
                 [p3(0.25, 0.0, 0.0), p3(0.25, 1.0, 0.0), p3(0.25, 0.0, 1.0)],
                 [p3(0.0, 0.5, 0.0), p3(1.0, 0.5, 0.0), p3(0.0, 0.5, 1.0)],
-                [p3(0.0, 0.0, 0.125), p3(1.0, 0.0, 0.125), p3(0.0, 1.0, 0.125)],
+                [
+                    p3(0.0, 0.0, 0.125),
+                    p3(1.0, 0.0, 0.125),
+                    p3(0.0, 1.0, 0.125),
+                ],
             ),
         ];
         for (idx, (v, w, u)) in configs.iter().enumerate() {
@@ -288,10 +292,10 @@ mod ar3c_cross_check {
                 u: *u,
             })
             .expect("config {idx}: AR3c solve must succeed");
-            for axis in 0..3 {
+            for (axis, coord) in coords.iter().enumerate() {
                 let ours = &lam.l[axis] / &lam.d;
                 assert_eq!(
-                    ours, coords[axis],
+                    &ours, coord,
                     "config {idx}: TPI λ{axis}/d disagrees with AR3c Cramer solve"
                 );
             }
@@ -308,10 +312,10 @@ mod ar3c_cross_check {
         assert!(!lam.is_undefined());
         let coords = exact_point_coords(&VertexCoords::Lpi { line, plane })
             .expect("AR3c LPI solve must succeed");
-        for axis in 0..3 {
+        for (axis, coord) in coords.iter().enumerate() {
             let ours = &lam.l[axis] / &lam.d;
             assert_eq!(
-                ours, coords[axis],
+                &ours, coord,
                 "LPI λ{axis}/d disagrees with AR3c Cramer solve"
             );
         }
