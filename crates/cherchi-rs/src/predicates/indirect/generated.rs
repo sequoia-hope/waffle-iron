@@ -105,7 +105,7 @@ pub(super) fn lpi_lambda_f64(p: &Point3, q: &Point3, r: &Point3, s: &Point3, t: 
     beta = beta.max(i14.abs());
     let d = t13;
     let eps = DELTA_LPI_D * beta.powi(DEGREE_LPI_D) + support::SUBNORMAL_GUARD;
-    let d_reliable = eps.is_finite() && (d > eps || d < -eps);
+    let d_reliable = eps.is_finite() && d.is_finite() && (d > eps || d < -eps);
     LambdaF64 {
         l: [t30, t33, t36],
         d,
@@ -400,7 +400,7 @@ pub(super) fn tpi_lambda_f64(v: &[Point3; 3], w: &[Point3; 3], u: &[Point3; 3]) 
     beta = beta.max(i26.abs());
     let d = t55;
     let eps = DELTA_TPI_D * beta.powi(DEGREE_TPI_D) + support::SUBNORMAL_GUARD;
-    let d_reliable = eps.is_finite() && (d > eps || d < -eps);
+    let d_reliable = eps.is_finite() && d.is_finite() && (d > eps || d < -eps);
     LambdaF64 {
         l: [t69, t83, t97],
         d,
@@ -763,6 +763,9 @@ pub(super) fn orient3d_tttt_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lambda
         return None;
     }
     let lam = t40;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -1078,6 +1081,9 @@ pub(super) fn orient3d_tttl_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lambda
         return None;
     }
     let lam = t40;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -1382,6 +1388,9 @@ pub(super) fn orient3d_ttte_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lambda
         return None;
     }
     let lam = t31;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -1662,6 +1671,9 @@ pub(super) fn orient3d_ttll_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lambda
         return None;
     }
     let lam = t40;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -1966,6 +1978,9 @@ pub(super) fn orient3d_ttle_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lambda
         return None;
     }
     let lam = t31;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -2227,6 +2242,9 @@ pub(super) fn orient3d_ttee_filtered(l0: &LambdaF64, l1: &LambdaF64, p2: &Point3
         return None;
     }
     let lam = t25;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -2478,6 +2496,9 @@ pub(super) fn orient3d_tlll_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lambda
         return None;
     }
     let lam = t40;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -2782,6 +2803,9 @@ pub(super) fn orient3d_tlle_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lambda
         return None;
     }
     let lam = t31;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -3043,6 +3067,9 @@ pub(super) fn orient3d_tlee_filtered(l0: &LambdaF64, l1: &LambdaF64, p2: &Point3
         return None;
     }
     let lam = t25;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -3267,6 +3294,9 @@ pub(super) fn orient3d_teee_filtered(l0: &LambdaF64, p1: &Point3, p2: &Point3, p
         return None;
     }
     let lam = t19;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -3489,6 +3519,9 @@ pub(super) fn orient3d_llll_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lambda
         return None;
     }
     let lam = t40;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -3793,6 +3826,9 @@ pub(super) fn orient3d_llle_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lambda
         return None;
     }
     let lam = t31;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -4054,6 +4090,9 @@ pub(super) fn orient3d_llee_filtered(l0: &LambdaF64, l1: &LambdaF64, p2: &Point3
         return None;
     }
     let lam = t25;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -4278,6 +4317,9 @@ pub(super) fn orient3d_leee_filtered(l0: &LambdaF64, p1: &Point3, p2: &Point3, p
         return None;
     }
     let lam = t19;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -4721,6 +4763,9 @@ pub(super) fn orient2d_xy_lll_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lamb
         return None;
     }
     let lam = t14;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -4909,6 +4954,9 @@ pub(super) fn orient2d_xy_llt_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lamb
         return None;
     }
     let lam = t14;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -5092,6 +5140,9 @@ pub(super) fn orient2d_xy_lle_filtered(l0: &LambdaF64, l1: &LambdaF64, p2: &Poin
         return None;
     }
     let lam = t12;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -5259,6 +5310,9 @@ pub(super) fn orient2d_xy_ltt_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lamb
         return None;
     }
     let lam = t14;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -5442,6 +5496,9 @@ pub(super) fn orient2d_xy_lte_filtered(l0: &LambdaF64, l1: &LambdaF64, p2: &Poin
         return None;
     }
     let lam = t12;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -5600,6 +5657,9 @@ pub(super) fn orient2d_xy_lee_filtered(l0: &LambdaF64, p1: &Point3, p2: &Point3)
         return None;
     }
     let lam = t7;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -5753,6 +5813,9 @@ pub(super) fn orient2d_xy_ttt_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lamb
         return None;
     }
     let lam = t14;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -5936,6 +5999,9 @@ pub(super) fn orient2d_xy_tte_filtered(l0: &LambdaF64, l1: &LambdaF64, p2: &Poin
         return None;
     }
     let lam = t12;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -6094,6 +6160,9 @@ pub(super) fn orient2d_xy_tee_filtered(l0: &LambdaF64, p1: &Point3, p2: &Point3)
         return None;
     }
     let lam = t7;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -6247,6 +6316,9 @@ pub(super) fn orient2d_yz_lll_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lamb
         return None;
     }
     let lam = t14;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -6435,6 +6507,9 @@ pub(super) fn orient2d_yz_llt_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lamb
         return None;
     }
     let lam = t14;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -6618,6 +6693,9 @@ pub(super) fn orient2d_yz_lle_filtered(l0: &LambdaF64, l1: &LambdaF64, p2: &Poin
         return None;
     }
     let lam = t12;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -6785,6 +6863,9 @@ pub(super) fn orient2d_yz_ltt_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lamb
         return None;
     }
     let lam = t14;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -6968,6 +7049,9 @@ pub(super) fn orient2d_yz_lte_filtered(l0: &LambdaF64, l1: &LambdaF64, p2: &Poin
         return None;
     }
     let lam = t12;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -7126,6 +7210,9 @@ pub(super) fn orient2d_yz_lee_filtered(l0: &LambdaF64, p1: &Point3, p2: &Point3)
         return None;
     }
     let lam = t7;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -7279,6 +7366,9 @@ pub(super) fn orient2d_yz_ttt_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lamb
         return None;
     }
     let lam = t14;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -7462,6 +7552,9 @@ pub(super) fn orient2d_yz_tte_filtered(l0: &LambdaF64, l1: &LambdaF64, p2: &Poin
         return None;
     }
     let lam = t12;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -7620,6 +7713,9 @@ pub(super) fn orient2d_yz_tee_filtered(l0: &LambdaF64, p1: &Point3, p2: &Point3)
         return None;
     }
     let lam = t7;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -7773,6 +7869,9 @@ pub(super) fn orient2d_zx_lll_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lamb
         return None;
     }
     let lam = t14;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -7961,6 +8060,9 @@ pub(super) fn orient2d_zx_llt_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lamb
         return None;
     }
     let lam = t14;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -8144,6 +8246,9 @@ pub(super) fn orient2d_zx_lle_filtered(l0: &LambdaF64, l1: &LambdaF64, p2: &Poin
         return None;
     }
     let lam = t12;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -8311,6 +8416,9 @@ pub(super) fn orient2d_zx_ltt_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lamb
         return None;
     }
     let lam = t14;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -8494,6 +8602,9 @@ pub(super) fn orient2d_zx_lte_filtered(l0: &LambdaF64, l1: &LambdaF64, p2: &Poin
         return None;
     }
     let lam = t12;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -8652,6 +8763,9 @@ pub(super) fn orient2d_zx_lee_filtered(l0: &LambdaF64, p1: &Point3, p2: &Point3)
         return None;
     }
     let lam = t7;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -8805,6 +8919,9 @@ pub(super) fn orient2d_zx_ttt_filtered(l0: &LambdaF64, l1: &LambdaF64, l2: &Lamb
         return None;
     }
     let lam = t14;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -8988,6 +9105,9 @@ pub(super) fn orient2d_zx_tte_filtered(l0: &LambdaF64, l1: &LambdaF64, p2: &Poin
         return None;
     }
     let lam = t12;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -9146,6 +9266,9 @@ pub(super) fn orient2d_zx_tee_filtered(l0: &LambdaF64, p1: &Point3, p2: &Point3)
         return None;
     }
     let lam = t7;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -9752,6 +9875,9 @@ pub(super) fn less_than_on_x_ll_filtered(l0: &LambdaF64, l1: &LambdaF64) -> Opti
         return None;
     }
     let lam = t2;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -9877,6 +10003,9 @@ pub(super) fn less_than_on_x_lt_filtered(l0: &LambdaF64, l1: &LambdaF64) -> Opti
         return None;
     }
     let lam = t2;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -9997,6 +10126,9 @@ pub(super) fn less_than_on_x_le_filtered(l0: &LambdaF64, p1: &Point3) -> Option<
         return None;
     }
     let lam = t1;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -10103,6 +10235,9 @@ pub(super) fn less_than_on_x_tt_filtered(l0: &LambdaF64, l1: &LambdaF64) -> Opti
         return None;
     }
     let lam = t2;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -10223,6 +10358,9 @@ pub(super) fn less_than_on_x_te_filtered(l0: &LambdaF64, p1: &Point3) -> Option<
         return None;
     }
     let lam = t1;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -10329,6 +10467,9 @@ pub(super) fn less_than_on_y_ll_filtered(l0: &LambdaF64, l1: &LambdaF64) -> Opti
         return None;
     }
     let lam = t2;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -10454,6 +10595,9 @@ pub(super) fn less_than_on_y_lt_filtered(l0: &LambdaF64, l1: &LambdaF64) -> Opti
         return None;
     }
     let lam = t2;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -10574,6 +10718,9 @@ pub(super) fn less_than_on_y_le_filtered(l0: &LambdaF64, p1: &Point3) -> Option<
         return None;
     }
     let lam = t1;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -10680,6 +10827,9 @@ pub(super) fn less_than_on_y_tt_filtered(l0: &LambdaF64, l1: &LambdaF64) -> Opti
         return None;
     }
     let lam = t2;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -10800,6 +10950,9 @@ pub(super) fn less_than_on_y_te_filtered(l0: &LambdaF64, p1: &Point3) -> Option<
         return None;
     }
     let lam = t1;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -10906,6 +11059,9 @@ pub(super) fn less_than_on_z_ll_filtered(l0: &LambdaF64, l1: &LambdaF64) -> Opti
         return None;
     }
     let lam = t2;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -11031,6 +11187,9 @@ pub(super) fn less_than_on_z_lt_filtered(l0: &LambdaF64, l1: &LambdaF64) -> Opti
         return None;
     }
     let lam = t2;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -11151,6 +11310,9 @@ pub(super) fn less_than_on_z_le_filtered(l0: &LambdaF64, p1: &Point3) -> Option<
         return None;
     }
     let lam = t1;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -11257,6 +11419,9 @@ pub(super) fn less_than_on_z_tt_filtered(l0: &LambdaF64, l1: &LambdaF64) -> Opti
         return None;
     }
     let lam = t2;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {
@@ -11377,6 +11542,9 @@ pub(super) fn less_than_on_z_te_filtered(l0: &LambdaF64, p1: &Point3) -> Option<
         return None;
     }
     let lam = t1;
+    if !lam.is_finite() {
+        return None;
+    }
     let mut s = if lam > eps {
         Sign::Positive
     } else if lam < -eps {

@@ -59,6 +59,15 @@ impl Spec {
     fn is_explicit(&self) -> bool {
         matches!(self, Spec::E(_))
     }
+
+    /// One-letter type tag for instance-pattern coverage accounting.
+    fn tag(&self) -> char {
+        match self {
+            Spec::E(_) => 'E',
+            Spec::L(_) => 'L',
+            Spec::T(_) => 'T',
+        }
+    }
 }
 
 enum Handle<'a> {
@@ -218,19 +227,59 @@ fn spec_pool() -> Vec<Spec> {
     pool
 }
 
+/// Index triples guaranteeing every one of the 3³ = 27 type patterns
+/// (pool layout: indices 0..6 are E, 6..12 are L, 12..18 are T).
+fn pattern_covering_triples() -> Vec<[usize; 3]> {
+    let mut out = Vec::new();
+    for &a in &[0usize, 6, 12] {
+        for &b in &[1usize, 7, 13] {
+            for &c in &[2usize, 8, 14] {
+                out.push([a, b, c]);
+            }
+        }
+    }
+    out
+}
+
 #[test]
 fn orient2d_generic_mixed_parity() {
+    // PR-CR-M7b-fix F2: every tuple is checked under ALL THREE
+    // projections (the old `k % 3` selection correlated with the tuple
+    // stream's stride and left (pattern, projection) holes — e.g.
+    // orient2d_zx never saw EEE/LLL/TTT). Coverage of the full
+    // instance-pattern × projection cross product is asserted
+    // programmatically below.
     let pool = spec_pool();
-    let tuples = tuple_stream(pool.len(), 480);
-    assert!(tuples.len() > 300, "corpus too small: {}", tuples.len());
-    for (k, &[a, b, c, _]) in tuples.iter().enumerate() {
-        let proj = k % 3;
-        assert_orient2d_parity(
-            proj,
-            &[&pool[a], &pool[b], &pool[c]],
-            &format!("generic [{a}, {b}, {c}]"),
-        );
+    let mut triples: Vec<[usize; 3]> = tuple_stream(pool.len(), 480)
+        .iter()
+        .map(|&[a, b, c, _]| [a, b, c])
+        .collect();
+    assert!(triples.len() > 300, "corpus too small: {}", triples.len());
+    triples.extend(pattern_covering_triples());
+    let mut covered = std::collections::BTreeSet::new();
+    for &[a, b, c] in &triples {
+        let specs = [&pool[a], &pool[b], &pool[c]];
+        for proj in 0..3 {
+            assert_orient2d_parity(proj, &specs, &format!("generic [{a}, {b}, {c}]"));
+            covered.insert(([specs[0].tag(), specs[1].tag(), specs[2].tag()], proj));
+        }
     }
+    // Full (pattern, projection) cross product: 27 × 3.
+    let mut expected = std::collections::BTreeSet::new();
+    for &t0 in &['E', 'L', 'T'] {
+        for &t1 in &['E', 'L', 'T'] {
+            for &t2 in &['E', 'L', 'T'] {
+                for proj in 0..3 {
+                    expected.insert(([t0, t1, t2], proj));
+                }
+            }
+        }
+    }
+    assert_eq!(
+        covered, expected,
+        "orient2d parity corpus must exercise every instance pattern \
+         under every projection"
+    );
 }
 
 /// Exact-degenerate family: implicit point exactly collinear (in the
@@ -363,12 +412,42 @@ fn less_than_calibration_anchor() {
 
 #[test]
 fn less_than_generic_mixed_parity() {
+    // PR-CR-M7b-fix F2: every pair is checked on ALL THREE axes (the
+    // old `k % 3` selection correlated with the stream stride — e.g.
+    // less_than on z never saw homogeneous EE/LL/TT pairs). Full
+    // (pattern, axis) coverage is asserted programmatically.
     let pool = spec_pool();
-    let tuples = tuple_stream(pool.len(), 480);
-    for (k, &[a, b, _, _]) in tuples.iter().enumerate() {
-        let axis = k % 3;
-        assert_less_than_parity(axis, &[&pool[a], &pool[b]], &format!("generic [{a}, {b}]"));
+    let mut pairs: Vec<[usize; 2]> = tuple_stream(pool.len(), 480)
+        .iter()
+        .map(|&[a, b, _, _]| [a, b])
+        .collect();
+    // Pairs guaranteeing every one of the 3² = 9 type patterns.
+    for &a in &[0usize, 6, 12] {
+        for &b in &[1usize, 7, 13] {
+            pairs.push([a, b]);
+        }
     }
+    let mut covered = std::collections::BTreeSet::new();
+    for &[a, b] in &pairs {
+        let specs = [&pool[a], &pool[b]];
+        for axis in 0..3 {
+            assert_less_than_parity(axis, &specs, &format!("generic [{a}, {b}]"));
+            covered.insert(([specs[0].tag(), specs[1].tag()], axis));
+        }
+    }
+    let mut expected = std::collections::BTreeSet::new();
+    for &t0 in &['E', 'L', 'T'] {
+        for &t1 in &['E', 'L', 'T'] {
+            for axis in 0..3 {
+                expected.insert(([t0, t1], axis));
+            }
+        }
+    }
+    assert_eq!(
+        covered, expected,
+        "less_than parity corpus must exercise every instance pattern \
+         on every axis"
+    );
 }
 
 /// Exact ties via different generators: same geometric coordinate from

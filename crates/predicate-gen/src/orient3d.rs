@@ -406,6 +406,7 @@ pub fn instance(pattern: [Ty; 4], lpi: &LambdaSpec, tpi: &LambdaSpec) -> Instanc
         "    let eps = DELTA_{up_sfx} * beta.powi(DEGREE_{up_sfx}) + support::SUBNORMAL_GUARD;\n\
          \x20   if !eps.is_finite() {{\n        return None;\n    }}\n\
          \x20   let lam = {};\n\
+         \x20   if !lam.is_finite() {{\n        return None;\n    }}\n\
          \x20   let mut s = if lam > eps {{\n\
          \x20       Sign::Positive\n\
          \x20   }} else if lam < -eps {{\n\
@@ -561,7 +562,7 @@ fn emit_lambda_fns(kind: &str, params: &str, spec: &LambdaSpec, doc: &str) -> St
     code.push_str(&format!(
         "    let d = {};\n\
          \x20   let eps = DELTA_{up_kind}_D * beta.powi(DEGREE_{up_kind}_D) + support::SUBNORMAL_GUARD;\n\
-         \x20   let d_reliable = eps.is_finite() && (d > eps || d < -eps);\n\
+         \x20   let d_reliable = eps.is_finite() && d.is_finite() && (d > eps || d < -eps);\n\
          \x20   LambdaF64 {{\n\
          \x20       l: [{}, {}, {}],\n\
          \x20       d,\n\

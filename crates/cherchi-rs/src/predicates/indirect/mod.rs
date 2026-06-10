@@ -377,16 +377,36 @@ pub(crate) mod support {
     /// Protection", `meyer_pion2008_fpg.txt:265-299`). Instead of FPG's
     /// per-predicate `λmin` bound we add a constant `1e-300`:
     ///
-    /// - any underflow-induced absolute error in the polynomial
-    ///   evaluation is at most (#ops)·2⁻¹⁰⁷⁴ < 2⁻¹⁰²⁴ ≪ 1e-300, and
+    /// - an intermediate underflow injects an absolute error of at most
+    ///   `2⁻¹⁰⁷⁵` at the operation where it occurs, AMPLIFIED by the
+    ///   magnitude bounds of every subsequent multiplication. For
+    ///   `β ≥ 1` the amplified contribution is bounded by
+    ///   `(#ops)·2⁻¹⁰⁷⁵·Λ′(1)·β^k ≪ δ(1)·β^k`: the generated `δ(1)`
+    ///   collects at least one `2⁻⁵³` rounding term against the same
+    ///   `Λ′` magnitude bound, so it dominates by a factor ~`2¹⁰²²`.
+    ///   For `β < 1` every factor bound is at most its `β = 1` value,
+    ///   so the amplified contribution is bounded by
+    ///   `(#ops)·2⁻¹⁰⁷⁵ × (product of the β = 1 factor bounds)
+    ///   = (#ops)·2⁻¹⁰⁷⁵·Λ′(1) ≪ 1e-300`, absorbed by the guard.
     /// - if `β^k` itself underflows (computed value < 2.3e-308), then
     ///   since every generated `δ(1) < 1` the true threshold is
     ///   < 2.3e-307 ≪ 1e-300, so the inflated `ε` stays an upper bound.
     ///
     /// Inflating `ε` only ever turns definite answers into `Uncertain` —
-    /// never an incorrect sign. Overflow needs no guard: `ε = +inf`
-    /// fails `is_finite()` and NaN polynomial values compare `false`
-    /// against both `> ε` and `< -ε`, also yielding `Uncertain`.
+    /// never an incorrect sign.
+    ///
+    /// OVERFLOW is handled by explicit finiteness guards in the emitted
+    /// code (PR-CR-M7b-fix F1), NOT by this constant: `ε = +inf` fails
+    /// its `is_finite()` check; an overflowed polynomial value fails the
+    /// emitted `lam.is_finite()` check (`lam = ±inf` CAN carry the wrong
+    /// sign — a later term of the opposite sign that would have brought
+    /// the true sum back across zero is absorbed by `±inf + finite =
+    /// ±inf`); an overflowed denominator fails the `d.is_finite()`
+    /// requirement inside the emitted `d_reliable` gates. Together these
+    /// are the moral equivalent of FPG's λmax upper-bound test
+    /// (`meyer_pion2008_fpg.txt:265-285`). NaN polynomial values fail
+    /// `is_finite()` too (previously they fell through the sign
+    /// comparisons; now they exit one step earlier).
     pub const SUBNORMAL_GUARD: f64 = 1e-300;
 }
 

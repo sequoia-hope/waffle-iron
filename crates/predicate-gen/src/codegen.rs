@@ -211,6 +211,7 @@ pub fn emit_instance(e: &InstanceEmit) -> (String, f64, u32) {
         "    let eps = DELTA_{up} * beta.powi(DEGREE_{up}) + support::SUBNORMAL_GUARD;\n\
          \x20   if !eps.is_finite() {{\n        return None;\n    }}\n\
          \x20   let lam = {};\n\
+         \x20   if !lam.is_finite() {{\n        return None;\n    }}\n\
          \x20   let mut s = if lam > eps {{\n\
          \x20       Sign::Positive\n\
          \x20   }} else if lam < -eps {{\n\
