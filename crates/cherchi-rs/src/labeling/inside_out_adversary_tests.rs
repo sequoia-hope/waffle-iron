@@ -14,7 +14,7 @@
 //! - point-touching solids (ray origin exactly ON the other surface —
 //!   the hit-at-parameter-zero corner of the sort's origin filter);
 //! - the BL1 through-cut fixture, whose cap-disc patches may have no
-//!   explicit non-border vertex (Cycle-B `FullyImplicitPatch` territory:
+//!   explicit non-border vertex (Cycle-B `NoExplicitRayOrigin` territory:
 //!   a loud error is in-scope, a silently WRONG label is a bug);
 //! - non-representable decimal offsets (0.3 / 0.7 / 0.9) so LPI sort keys
 //!   exercise the exact comparators off the float grid.
@@ -516,7 +516,7 @@ fn adversary_mixed_containment_and_overlap() {
 // Attack 4b — same mix but with C piercing A's FACE instead of a corner:
 // A's disc patch under C is bounded entirely by intersection loops (no
 // original A vertex on it), so Cycle A may loudly refuse with
-// `FullyImplicitPatch` (the C++ generated-ray fallback is Cycle B) —
+// `NoExplicitRayOrigin` (the C++ generated-ray fallback is Cycle B) —
 // acceptable; a silently wrong label is a bug.
 // ════════════════════════════════════════════════════════════════════
 #[test]
@@ -541,14 +541,14 @@ fn adversary_mixed_overlap_face_pierce_loud_or_correct() {
         // Cycle-B scope limit, loud and typed — acceptable, documented.
         // NOTE the variant name is broader than its trigger: it also fires
         // for an all-EXPLICIT patch whose every vertex is on the border.
-        Err(InsideOutError::FullyImplicitPatch { patch }) => {
+        Err(InsideOutError::NoExplicitRayOrigin { patch }) => {
             eprintln!(
-                "face-pierce characterization: loud FullyImplicitPatch {{ patch: {patch} }} \
+                "face-pierce characterization: loud NoExplicitRayOrigin {{ patch: {patch} }} \
                  (Cycle-B scope)"
             );
         }
         Err(other) => {
-            panic!("face-pierce mix: expected Ok(correct) or FullyImplicitPatch, got {other:?}")
+            panic!("face-pierce mix: expected Ok(correct) or NoExplicitRayOrigin, got {other:?}")
         }
     }
 }
@@ -635,7 +635,7 @@ fn adversary_point_touching_solids_are_outside() {
 // pierces long box A completely. A's two cap-disc patches (on its y=0
 // and y=1 faces) are bounded entirely by intersection loops, so they
 // may have NO explicit non-border vertex → the loud Cycle-A
-// `FullyImplicitPatch` error is acceptable (Cycle-B scope) — but a
+// `NoExplicitRayOrigin` error is acceptable (Cycle-B scope) — but a
 // silently WRONG label is a bug. Characterize: either the loud error,
 // or Ok with every patch matching box-containment truth.
 // ════════════════════════════════════════════════════════════════════
@@ -673,14 +673,14 @@ fn adversary_through_cut_caps_loud_or_correct() {
             eprintln!("through-cut characterization: Ok branch (all labels correct)");
         }
         // Cycle-B scope limit, loud and typed — acceptable, documented.
-        Err(InsideOutError::FullyImplicitPatch { patch }) => {
+        Err(InsideOutError::NoExplicitRayOrigin { patch }) => {
             eprintln!(
-                "through-cut characterization: loud FullyImplicitPatch {{ patch: {patch} }} \
+                "through-cut characterization: loud NoExplicitRayOrigin {{ patch: {patch} }} \
                  (Cycle-B scope)"
             );
         }
         Err(other) => {
-            panic!("through-cut: expected Ok(correct) or FullyImplicitPatch, got {other:?}")
+            panic!("through-cut: expected Ok(correct) or NoExplicitRayOrigin, got {other:?}")
         }
     }
 }
