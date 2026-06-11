@@ -853,6 +853,120 @@ mod tests {
         ));
     }
 
+    // ── PR-KV5b RED: circle profiles through the legacy trait ──────────────
+
+    /// Stage a circle profile (legacy `CircleProfile` semantics: center in
+    /// sketch-plane (u, v) coordinates, radius in meters).
+    fn stage_circle(
+        adapter: &mut KernelV2Adapter,
+        origin: [f64; 3],
+        center: (f64, f64),
+        radius: f64,
+    ) -> KernelId {
+        let profile = ClosedProfile {
+            entity_ids: vec![7],
+            is_outer: true,
+            vertex_ids: vec![],
+            circle: Some(kernel::types::CircleProfile {
+                center_u: center.0,
+                center_v: center.1,
+                radius,
+            }),
+            spline_segments: vec![],
+            arc_segments: vec![],
+        };
+        let ids = adapter
+            .make_faces_from_profiles(
+                &[profile],
+                origin,
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0],
+                &HashMap::new(),
+            )
+            .expect("circle profile stages (PR-KV5b)");
+        assert_eq!(ids.len(), 1);
+        ids[0]
+    }
+
+    fn render_mesh_volume(mesh: &RenderMesh) -> f64 {
+        let mut vol = 0.0f64;
+        let p = |i: u32| {
+            let i = i as usize * 3;
+            [
+                mesh.vertices[i] as f64,
+                mesh.vertices[i + 1] as f64,
+                mesh.vertices[i + 2] as f64,
+            ]
+        };
+        for t in mesh.indices.chunks(3) {
+            let (a, b, c) = (p(t[0]), p(t[1]), p(t[2]));
+            vol += (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
+                + a[2] * (b[0] * c[1] - b[1] * c[0]))
+                / 6.0;
+        }
+        vol
+    }
+
+    /// PR-KV5b: legacy CircleProfile → kernel-v2 cylinder, end to end
+    /// through the legacy trait: stage, extrude, introspect, tessellate,
+    /// extract edges. The canonical cylinder topology is 3 faces / 3 edges /
+    /// 2 vertices; the tessellated volume matches πr²h within kernel-v2's
+    /// render sagitta band (N = 71 at the canonical tolerance →
+    /// relative deficit 1 − (N/2π)·sin(2π/N) ≈ 6.5e-4).
+    #[test]
+    fn circle_profile_extrudes_to_cylinder_through_legacy_trait() {
+        let mut adapter = KernelV2Adapter::new();
+        let face = stage_circle(&mut adapter, [0.0, 0.0, 0.0], (0.5, 0.5), 0.25);
+        let handle = adapter
+            .extrude_face(face, [0.0, 0.0, 1.0], 2.0)
+            .expect("circle extrude succeeds (PR-KV5b)");
+
+        assert_eq!(adapter.list_faces(&handle).len(), 3, "two caps + lateral");
+        assert_eq!(adapter.list_edges(&handle).len(), 3, "two rims + seam");
+        assert_eq!(adapter.list_vertices(&handle).len(), 2, "seam vertices");
+
+        let mesh = adapter.tessellate(&handle, 0.001).expect("tessellates");
+        assert!(!mesh.indices.is_empty());
+        let vol = render_mesh_volume(&mesh);
+        let exact = std::f64::consts::PI * 0.25 * 0.25 * 2.0;
+        assert!(
+            (vol - exact).abs() <= 2e-3 * exact,
+            "cylinder volume {vol} vs analytic {exact}"
+        );
+
+        let edges = adapter.extract_edges(&handle, 0.001).expect("edges");
+        assert_eq!(edges.edge_ranges.len(), 3, "two rim polylines + one seam");
+    }
+
+    /// PR-KV5b: cylinder ∪ box through the legacy boolean trait (the
+    /// yang-proven yr8 configuration). Volume = box + the cylinder part
+    /// outside it, within the documented yang Stage-1 rim faceting band
+    /// (see kernel-v2 tests/kv5b_curved_boolean.rs module docs).
+    #[test]
+    fn boolean_union_cylinder_box_through_legacy_trait() {
+        let mut adapter = KernelV2Adapter::new();
+        let cyl_face = stage_circle(&mut adapter, [0.0, 0.0, -0.5], (0.5, 0.5), 0.25);
+        let cyl = adapter
+            .extrude_face(cyl_face, [0.0, 0.0, 1.0], 2.0)
+            .expect("cylinder extrude");
+        let box_face = stage_unit_square(&mut adapter);
+        let bx = adapter
+            .extrude_face(box_face, [0.0, 0.0, 1.0], 1.0)
+            .expect("box extrude");
+
+        let out = adapter
+            .boolean_union(&cyl, &bx)
+            .expect("cylinder ∪ box succeeds (PR-KV5b)");
+        let mesh = adapter.tessellate(&out, 0.001).expect("tessellates");
+        let vol = render_mesh_volume(&mesh);
+        let cyl_term = std::f64::consts::PI * 0.25 * 0.25 * 1.0;
+        let exact = 1.0 + cyl_term;
+        assert!(
+            (vol - exact).abs() <= 0.12 * cyl_term,
+            "union volume {vol} vs analytic {exact}"
+        );
+    }
+
     #[test]
     fn boolean_subtract_offset_boxes() {
         // Tool overlaps blank's corner region but NO coplanar face pairs:
