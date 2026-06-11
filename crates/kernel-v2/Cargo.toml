@@ -8,6 +8,7 @@ description = "Clean-sheet CAD kernel. Half-edge B-Rep with enforced face.normal
 # trait used by wasm-bridge, feature-engine, etc.
 [dependencies]
 cad-primitives = { path = "../cad-primitives" }
+waffle-types = { path = "../waffle-types" }
 # Exact rational arithmetic for Profile's simple-polygon validation
 # (pure Rust, WASM-safe; same backend as cherchi-rs' exact cascade).
 # This is an EXTERNAL crate: the "cad-primitives, yang-rs only" rule in

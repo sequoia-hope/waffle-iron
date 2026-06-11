@@ -62,6 +62,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod adapter;
 pub mod arena;
 pub mod boolean;
 pub mod construct;
@@ -73,6 +74,8 @@ pub mod introspect;
 pub mod profile;
 pub mod tessellate;
 pub mod validate;
+
+pub use adapter::KernelV2Adapter;
 
 pub use arena::{
     BrepArena, Curve, EulerCounts, Face, FaceId, HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId,

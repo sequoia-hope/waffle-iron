@@ -75,19 +75,17 @@ pub fn extract_profiles(
                 end_id,
                 construction,
                 ..
-            } => {
-                if !construction {
-                    edges.push(DirectedEdge {
-                        from: *start_id,
-                        to: *end_id,
-                        entity_id: *id,
-                    });
-                    edges.push(DirectedEdge {
-                        from: *end_id,
-                        to: *start_id,
-                        entity_id: *id,
-                    });
-                }
+            } if !construction => {
+                edges.push(DirectedEdge {
+                    from: *start_id,
+                    to: *end_id,
+                    entity_id: *id,
+                });
+                edges.push(DirectedEdge {
+                    from: *end_id,
+                    to: *start_id,
+                    entity_id: *id,
+                });
             }
             _ => {}
         }
