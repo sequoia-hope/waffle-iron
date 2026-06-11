@@ -1,7 +1,6 @@
 [workspace]
 members = [
     "crates/waffle-types",
-    "crates/kernel",
     "crates/sketch-solver",
     "crates/modeling-ops",
     "crates/feature-engine",
@@ -9,8 +8,8 @@ members = [
     "crates/file-format",
     "crates/test-harness",
 
-    # Clean-sheet kernel rewrite — see root CLAUDE.md §"Kernel Rewrite In Progress".
-    # New work on boolean / Yang / B-Rep goes in these crates, NOT in `crates/kernel/`.
+    # Kernel stack (legacy `crates/kernel/` deleted at the Phase 6 migration,
+    # 2026-06-11; kernel-v2 is THE kernel, behind the waffle-types traits).
     # Dependency layering (compiler-enforced via Cargo.toml deps):
     #   indirect-predicates-sidecar-rs (FFI; LGPL; non-WASM) — DEV-DEP oracle of cherchi-rs only (M7c)
     #   cad-primitives ← cherchi-rs ← cherchi-sidecar-rs (subprocess; non-WASM)

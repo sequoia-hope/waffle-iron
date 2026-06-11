@@ -24,7 +24,6 @@ NC='\033[0m' # No Color
 # Rust Fast Tier — full crates (run all tests)
 # ---------------------------------------------------------------------------
 RUST_FAST_FULL_CRATES=(
-  waffle-types
   sketch-solver
   feature-engine
   modeling-ops
@@ -56,16 +55,6 @@ RUST_REWRITE_CRATES=(
 # dev-dependency parity oracle inside cherchi-rs's own test suite.
 
 # ---------------------------------------------------------------------------
-# Rust Fast Tier — kernel filtered modules
-# ---------------------------------------------------------------------------
-KERNEL_FAST_FILTERS=(
-  mock_kernel
-  "types::"
-  "primitives::"
-  "tessellation::"
-)
-
-# ---------------------------------------------------------------------------
 # Rust Fast Tier — test-harness filtered binaries
 # ---------------------------------------------------------------------------
 TEST_HARNESS_FAST_BINS=(
@@ -81,8 +70,6 @@ TEST_HARNESS_FAST_BINS=(
 # Rust Full Tier — all crates (run individually)
 # ---------------------------------------------------------------------------
 RUST_FULL_CRATES=(
-  waffle-types
-  kernel
   sketch-solver
   feature-engine
   modeling-ops
@@ -275,10 +262,9 @@ run_rust_fast() {
   # wasm-bridge with --no-default-features
   run_cargo_test "$WASM_BRIDGE_CRATE" --no-default-features
 
-  # kernel filtered
-  for filter in "${KERNEL_FAST_FILTERS[@]}"; do
-    run_cargo_test_filter kernel "$filter"
-  done
+  # waffle-types with the MockKernel feature (the contract + test double
+  # moved here from the deleted legacy crates/kernel at the Phase 6 migration)
+  run_cargo_test waffle-types --features mock-kernel
 
   # test-harness fast binaries
   for binary in "${TEST_HARNESS_FAST_BINS[@]}"; do
@@ -300,6 +286,9 @@ run_rust_full() {
   header "Rust Full Tier"
   local tier_start
   tier_start=$(timer_start)
+
+  # waffle-types with the MockKernel feature (kernel contract + test double)
+  run_cargo_test waffle-types --features mock-kernel
 
   # All crates except wasm-bridge (run with default features)
   for crate in "${RUST_FULL_CRATES[@]}"; do
@@ -474,7 +463,6 @@ print_help() {
   echo ""
   echo -e "${BOLD}Rust Fast Tier:${NC}"
   echo "  Full crates: ${RUST_FAST_FULL_CRATES[*]} $WASM_BRIDGE_CRATE"
-  echo "  kernel filters: ${KERNEL_FAST_FILTERS[*]}"
   echo "  test-harness filters: ${TEST_HARNESS_FAST_BINS[*]}"
   echo ""
   echo -e "${BOLD}Rust Full Tier:${NC}"
