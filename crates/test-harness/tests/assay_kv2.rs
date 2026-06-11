@@ -1,6 +1,6 @@
 //! PR-KV4 — categorized assay replay through `KernelV2Adapter` (kernel-v2).
 //!
-//! Replays the 190-case assay corpus (`app/tests/cases/assay`) through the
+//! Replays the 191-case assay corpus (`app/tests/cases/assay`) through the
 //! real feature-engine dispatch path with kernel-v2 behind the legacy
 //! `Kernel` trait, and categorizes EVERY case:
 //!
@@ -29,7 +29,7 @@
 //!   section comment), plus representative corpus cases pinned to their
 //!   expected categories (UNSUPPORTED boundaries, the PR-TH1 oracle-fix
 //!   movers, and the one known-WRONG case).
-//! - `full_corpus_categorized` (`#[ignore]`) — the full 190-case run; prints
+//! - `full_corpus_categorized` (`#[ignore]`) — the full 191-case run; prints
 //!   the category table and writes `target/assay_kv2_report.json`. Run with:
 //!   `cargo test -p test-harness --test assay_kv2 -- --ignored --nocapture`
 
@@ -720,6 +720,12 @@ fn smoke_corpus_boundary_categories() {
         // R0067: yang Stage-5 in/out classification NoExplicitRayOrigin on
         // a curved patch — fails INSIDE yang, typed and loud.
         ("R0067", Category::Error),
+        // F0091: TRUE face-to-face union — 1u cube extruded ON the 2u cube's
+        // top face (bottom face strictly inside the top face). The coplanar
+        // NotSupported gate does not fire for strict containment and the
+        // union is correct end-to-end (see smoke_union_face_to_face_stack
+        // for the exact-volume version of this scenario).
+        ("F0091", Category::SupportedCorrect),
         // revolve cases → revolve not in Phase 4a
         ("F0073", Category::Unsupported(UnsupportedReason::Revolve)),
         ("R0008", Category::Unsupported(UnsupportedReason::Revolve)),
@@ -744,11 +750,11 @@ fn smoke_corpus_boundary_categories() {
 // ── Full corpus run (manual / driver) ──────────────────────────────────────
 
 #[test]
-#[ignore] // full 190-case corpus; run with --ignored --nocapture
+#[ignore] // full 191-case corpus; run with --ignored --nocapture
 fn full_corpus_categorized() {
     let dir = assay_dir();
     let cases = discover_cases(&dir);
-    assert_eq!(cases.len(), 190, "expected the 190-case assay corpus");
+    assert_eq!(cases.len(), 191, "expected the 191-case assay corpus");
 
     let mut outcomes = Vec::with_capacity(cases.len());
     for (i, case) in cases.iter().enumerate() {

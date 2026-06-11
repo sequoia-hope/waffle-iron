@@ -1,6 +1,6 @@
 {
   "master_seed": 42,
-  "count": 190,
+  "count": 191,
   "generator_version": 4,
   "cases": [
     {
@@ -707,630 +707,637 @@
       "id": "F0001",
       "filename": "F0001.waffle",
       "meta_filename": "F0001.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — Identical squares",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Identical squares",
       "featured": true
     },
     {
       "id": "F0002",
       "filename": "F0002.waffle",
       "meta_filename": "F0002.meta.json",
-      "description": "2 ops, scale=1.00e-2, extrude(rectangle,boss)+extrude(rectangle,boss) — Small cross-shaped",
+      "description": "2 ops, scale=1.00e-2, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Small cross-shaped",
       "featured": true
     },
     {
       "id": "F0003",
       "filename": "F0003.waffle",
       "meta_filename": "F0003.meta.json",
-      "description": "2 ops, scale=1.00e2, extrude(rectangle,boss)+extrude(rectangle,boss) — Large, swapped aspect",
+      "description": "2 ops, scale=1.00e2, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Large, swapped aspect",
       "featured": true
     },
     {
       "id": "F0004",
       "filename": "F0004.waffle",
       "meta_filename": "F0004.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — Thin cross",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Thin cross",
       "featured": true
     },
     {
       "id": "F0005",
       "filename": "F0005.waffle",
       "meta_filename": "F0005.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — Same rect, different depths",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Same rect, different depths",
       "featured": true
     },
     {
       "id": "F0006",
       "filename": "F0006.waffle",
       "meta_filename": "F0006.meta.json",
-      "description": "2 ops, scale=1.00e-3, extrude(rectangle,boss)+extrude(rectangle,boss) — Micro scale",
+      "description": "2 ops, scale=1.00e-3, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Micro scale",
       "featured": true
     },
     {
       "id": "F0007",
       "filename": "F0007.waffle",
       "meta_filename": "F0007.meta.json",
-      "description": "2 ops, scale=1.00e1, extrude(rectangle,boss)+extrude(rectangle,boss) — Concentric squares",
+      "description": "2 ops, scale=1.00e1, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Concentric squares",
       "featured": true
     },
     {
       "id": "F0008",
       "filename": "F0008.waffle",
       "meta_filename": "F0008.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — Nested squares, deep",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Nested squares, deep",
       "featured": true
     },
     {
       "id": "F0009",
       "filename": "F0009.waffle",
       "meta_filename": "F0009.meta.json",
-      "description": "2 ops, scale=1.00e-1, extrude(rectangle,boss)+extrude(rectangle,boss) — Medium-small, swapped",
+      "description": "2 ops, scale=1.00e-1, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Medium-small, swapped",
       "featured": true
     },
     {
       "id": "F0010",
       "filename": "F0010.waffle",
       "meta_filename": "F0010.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — Shallow vs very deep",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Shallow vs very deep",
       "featured": true
     },
     {
       "id": "F0011",
       "filename": "F0011.waffle",
       "meta_filename": "F0011.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — Oblique planes (seed 7001)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Oblique planes (seed 7001)",
       "featured": true
     },
     {
       "id": "F0012",
       "filename": "F0012.waffle",
       "meta_filename": "F0012.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — Oblique planes (seed 7002)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Oblique planes (seed 7002)",
       "featured": true
     },
     {
       "id": "F0013",
       "filename": "F0013.waffle",
       "meta_filename": "F0013.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — Oblique planes (seed 7003)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Oblique planes (seed 7003)",
       "featured": true
     },
     {
       "id": "F0014",
       "filename": "F0014.waffle",
       "meta_filename": "F0014.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — Oblique planes (seed 7004)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Oblique planes (seed 7004)",
       "featured": true
     },
     {
       "id": "F0015",
       "filename": "F0015.waffle",
       "meta_filename": "F0015.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — Oblique planes (seed 7005)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Oblique planes (seed 7005)",
       "featured": true
     },
     {
       "id": "F0016",
       "filename": "F0016.waffle",
       "meta_filename": "F0016.meta.json",
-      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) — Intersecting oblique (seed 8001)",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Intersecting oblique (seed 8001)",
       "featured": true
     },
     {
       "id": "F0017",
       "filename": "F0017.waffle",
       "meta_filename": "F0017.meta.json",
-      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) — Intersecting oblique (seed 8002)",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Intersecting oblique (seed 8002)",
       "featured": true
     },
     {
       "id": "F0018",
       "filename": "F0018.waffle",
       "meta_filename": "F0018.meta.json",
-      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) — Intersecting oblique (seed 8003)",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Intersecting oblique (seed 8003)",
       "featured": true
     },
     {
       "id": "F0019",
       "filename": "F0019.waffle",
       "meta_filename": "F0019.meta.json",
-      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) — Intersecting oblique (seed 8004)",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Intersecting oblique (seed 8004)",
       "featured": true
     },
     {
       "id": "F0020",
       "filename": "F0020.waffle",
       "meta_filename": "F0020.meta.json",
-      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) — Intersecting oblique (seed 8005)",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Intersecting oblique (seed 8005)",
       "featured": true
     },
     {
       "id": "F0021",
       "filename": "F0021.waffle",
       "meta_filename": "F0021.meta.json",
-      "description": "4 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) — Intersecting oblique (seed 8006)",
+      "description": "4 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Intersecting oblique (seed 8006)",
       "featured": true
     },
     {
       "id": "F0022",
       "filename": "F0022.waffle",
       "meta_filename": "F0022.meta.json",
-      "description": "4 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) — Intersecting oblique (seed 8007)",
+      "description": "4 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Intersecting oblique (seed 8007)",
       "featured": true
     },
     {
       "id": "F0023",
       "filename": "F0023.waffle",
       "meta_filename": "F0023.meta.json",
-      "description": "4 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) — Intersecting oblique (seed 8008)",
+      "description": "4 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Intersecting oblique (seed 8008)",
       "featured": true
     },
     {
       "id": "F0024",
       "filename": "F0024.waffle",
       "meta_filename": "F0024.meta.json",
-      "description": "4 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) — Intersecting oblique (seed 8009)",
+      "description": "4 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Intersecting oblique (seed 8009)",
       "featured": true
     },
     {
       "id": "F0025",
       "filename": "F0025.waffle",
       "meta_filename": "F0025.meta.json",
-      "description": "4 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) — Intersecting oblique (seed 8010)",
+      "description": "4 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Intersecting oblique (seed 8010)",
       "featured": true
     },
     {
       "id": "F0026",
       "filename": "F0026.waffle",
       "meta_filename": "F0026.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) — Circle boss (seed 9001)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) \u2014 Circle boss (seed 9001)",
       "featured": true
     },
     {
       "id": "F0027",
       "filename": "F0027.waffle",
       "meta_filename": "F0027.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) — Circle boss (seed 9002)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) \u2014 Circle boss (seed 9002)",
       "featured": true
     },
     {
       "id": "F0028",
       "filename": "F0028.waffle",
       "meta_filename": "F0028.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) — Circle boss (seed 9003)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) \u2014 Circle boss (seed 9003)",
       "featured": true
     },
     {
       "id": "F0029",
       "filename": "F0029.waffle",
       "meta_filename": "F0029.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) — Circle boss (seed 9004)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) \u2014 Circle boss (seed 9004)",
       "featured": true
     },
     {
       "id": "F0030",
       "filename": "F0030.waffle",
       "meta_filename": "F0030.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) — Circle boss (seed 9005)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) \u2014 Circle boss (seed 9005)",
       "featured": true
     },
     {
       "id": "F0031",
       "filename": "F0031.waffle",
       "meta_filename": "F0031.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,cut) — Box-minus-cyl (seed 9006)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,cut) \u2014 Box-minus-cyl (seed 9006)",
       "featured": true
     },
     {
       "id": "F0032",
       "filename": "F0032.waffle",
       "meta_filename": "F0032.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,cut) — Box-minus-cyl (seed 9007)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,cut) \u2014 Box-minus-cyl (seed 9007)",
       "featured": true
     },
     {
       "id": "F0033",
       "filename": "F0033.waffle",
       "meta_filename": "F0033.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,cut) — Box-minus-cyl (seed 9008)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,cut) \u2014 Box-minus-cyl (seed 9008)",
       "featured": true
     },
     {
       "id": "F0034",
       "filename": "F0034.waffle",
       "meta_filename": "F0034.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,cut) — Box-minus-cyl (seed 9009)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,cut) \u2014 Box-minus-cyl (seed 9009)",
       "featured": true
     },
     {
       "id": "F0035",
       "filename": "F0035.waffle",
       "meta_filename": "F0035.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,cut) — Box-minus-cyl (seed 9010)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,cut) \u2014 Box-minus-cyl (seed 9010)",
       "featured": true
     },
     {
       "id": "F0036",
       "filename": "F0036.waffle",
       "meta_filename": "F0036.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(rectangle,cut) — Cyl-minus-box (seed 9011)",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(rectangle,cut) \u2014 Cyl-minus-box (seed 9011)",
       "featured": true
     },
     {
       "id": "F0037",
       "filename": "F0037.waffle",
       "meta_filename": "F0037.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(rectangle,cut) — Cyl-minus-box (seed 9012)",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(rectangle,cut) \u2014 Cyl-minus-box (seed 9012)",
       "featured": true
     },
     {
       "id": "F0038",
       "filename": "F0038.waffle",
       "meta_filename": "F0038.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(rectangle,cut) — Cyl-minus-box (seed 9013)",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(rectangle,cut) \u2014 Cyl-minus-box (seed 9013)",
       "featured": true
     },
     {
       "id": "F0039",
       "filename": "F0039.waffle",
       "meta_filename": "F0039.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(rectangle,cut) — Cyl-minus-box (seed 9014)",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(rectangle,cut) \u2014 Cyl-minus-box (seed 9014)",
       "featured": true
     },
     {
       "id": "F0040",
       "filename": "F0040.waffle",
       "meta_filename": "F0040.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(rectangle,cut) — Cyl-minus-box (seed 9015)",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(rectangle,cut) \u2014 Cyl-minus-box (seed 9015)",
       "featured": true
     },
     {
       "id": "F0041",
       "filename": "F0041.waffle",
       "meta_filename": "F0041.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) — Cyl-cyl parallel (seed 9016)",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) \u2014 Cyl-cyl parallel (seed 9016)",
       "featured": true
     },
     {
       "id": "F0042",
       "filename": "F0042.waffle",
       "meta_filename": "F0042.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut) — Cyl-cyl parallel (seed 9017)",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut) \u2014 Cyl-cyl parallel (seed 9017)",
       "featured": true
     },
     {
       "id": "F0043",
       "filename": "F0043.waffle",
       "meta_filename": "F0043.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) — Cyl-cyl parallel (seed 9018)",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) \u2014 Cyl-cyl parallel (seed 9018)",
       "featured": true
     },
     {
       "id": "F0044",
       "filename": "F0044.waffle",
       "meta_filename": "F0044.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut) — Cyl-cyl parallel (seed 9019)",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut) \u2014 Cyl-cyl parallel (seed 9019)",
       "featured": true
     },
     {
       "id": "F0045",
       "filename": "F0045.waffle",
       "meta_filename": "F0045.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) — Cyl-cyl parallel (seed 9020)",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) \u2014 Cyl-cyl parallel (seed 9020)",
       "featured": true
     },
     {
       "id": "F0046",
       "filename": "F0046.waffle",
       "meta_filename": "F0046.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) — Mixed cross-plane (seed 9021)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) \u2014 Mixed cross-plane (seed 9021)",
       "featured": true
     },
     {
       "id": "F0047",
       "filename": "F0047.waffle",
       "meta_filename": "F0047.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) — Mixed cross-plane (seed 9022)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) \u2014 Mixed cross-plane (seed 9022)",
       "featured": true
     },
     {
       "id": "F0048",
       "filename": "F0048.waffle",
       "meta_filename": "F0048.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) — Mixed cross-plane (seed 9023)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) \u2014 Mixed cross-plane (seed 9023)",
       "featured": true
     },
     {
       "id": "F0049",
       "filename": "F0049.waffle",
       "meta_filename": "F0049.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) — Mixed cross-plane (seed 9024)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) \u2014 Mixed cross-plane (seed 9024)",
       "featured": true
     },
     {
       "id": "F0050",
       "filename": "F0050.waffle",
       "meta_filename": "F0050.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) — Mixed cross-plane (seed 9025)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,boss) \u2014 Mixed cross-plane (seed 9025)",
       "featured": true
     },
     {
       "id": "F0051",
       "filename": "F0051.waffle",
       "meta_filename": "F0051.meta.json",
-      "description": "2 ops, scale=1.00e-4, extrude(rectangle,boss)+extrude(rectangle,boss) — Scale extreme",
+      "description": "2 ops, scale=1.00e-4, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Scale extreme",
       "featured": true
     },
     {
       "id": "F0052",
       "filename": "F0052.waffle",
       "meta_filename": "F0052.meta.json",
-      "description": "2 ops, scale=1.00e-4, extrude(circle,boss)+extrude(circle,boss) — Scale extreme",
+      "description": "2 ops, scale=1.00e-4, extrude(circle,boss)+extrude(circle,boss) \u2014 Scale extreme",
       "featured": true
     },
     {
       "id": "F0053",
       "filename": "F0053.waffle",
       "meta_filename": "F0053.meta.json",
-      "description": "2 ops, scale=1.00e4, extrude(rectangle,boss)+extrude(rectangle,boss) — Scale extreme",
+      "description": "2 ops, scale=1.00e4, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Scale extreme",
       "featured": true
     },
     {
       "id": "F0054",
       "filename": "F0054.waffle",
       "meta_filename": "F0054.meta.json",
-      "description": "2 ops, scale=1.00e4, extrude(circle,boss)+extrude(rectangle,cut) — Scale extreme",
+      "description": "2 ops, scale=1.00e4, extrude(circle,boss)+extrude(rectangle,cut) \u2014 Scale extreme",
       "featured": true
     },
     {
       "id": "F0055",
       "filename": "F0055.waffle",
       "meta_filename": "F0055.meta.json",
-      "description": "2 ops, scale=1.00e4, extrude(rectangle,boss)+extrude(circle,cut) — Scale extreme",
+      "description": "2 ops, scale=1.00e4, extrude(rectangle,boss)+extrude(circle,cut) \u2014 Scale extreme",
       "featured": true
     },
     {
       "id": "F0056",
       "filename": "F0056.waffle",
       "meta_filename": "F0056.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) — Cyl-cyl angled 90° (F56)",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) \u2014 Cyl-cyl angled 90\u00b0 (F56)",
       "featured": true
     },
     {
       "id": "F0057",
       "filename": "F0057.waffle",
       "meta_filename": "F0057.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) — Cyl-cyl angled 90° (F57)",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) \u2014 Cyl-cyl angled 90\u00b0 (F57)",
       "featured": true
     },
     {
       "id": "F0058",
       "filename": "F0058.waffle",
       "meta_filename": "F0058.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut) — Cyl-cyl angled 90° (F58)",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut) \u2014 Cyl-cyl angled 90\u00b0 (F58)",
       "featured": true
     },
     {
       "id": "F0059",
       "filename": "F0059.waffle",
       "meta_filename": "F0059.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) — Cyl-cyl angled 90° (F59)",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) \u2014 Cyl-cyl angled 90\u00b0 (F59)",
       "featured": true
     },
     {
       "id": "F0060",
       "filename": "F0060.waffle",
       "meta_filename": "F0060.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut) — Cyl-cyl angled 90° (F60)",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut) \u2014 Cyl-cyl angled 90\u00b0 (F60)",
       "featured": true
     },
     {
       "id": "F0061",
       "filename": "F0061.waffle",
       "meta_filename": "F0061.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(gear,boss)+extrude(circle,cut) — Gear with through hole",
+      "description": "2 ops, scale=1.00e0, extrude(gear,boss)+extrude(circle,cut) \u2014 Gear with through hole",
       "featured": true
     },
     {
       "id": "F0062",
       "filename": "F0062.waffle",
       "meta_filename": "F0062.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,cut) — Box with through hole (centroid bug repro)",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(circle,cut) \u2014 Box with through hole (centroid bug repro)",
       "featured": true
     },
     {
       "id": "F0063",
       "filename": "F0063.waffle",
       "meta_filename": "F0063.meta.json",
-      "description": "5 ops, scale=1.00e0, 5 chained extrudes (stacked Z) — seed 10001",
+      "description": "5 ops, scale=1.00e0, 5 chained extrudes (stacked Z) \u2014 seed 10001",
       "featured": true
     },
     {
       "id": "F0064",
       "filename": "F0064.waffle",
       "meta_filename": "F0064.meta.json",
-      "description": "5 ops, scale=1.00e0, 5 chained extrudes (stacked Z) — seed 10002",
+      "description": "5 ops, scale=1.00e0, 5 chained extrudes (stacked Z) \u2014 seed 10002",
       "featured": true
     },
     {
       "id": "F0065",
       "filename": "F0065.waffle",
       "meta_filename": "F0065.meta.json",
-      "description": "8 ops, scale=1.00e0, 8 chained extrudes (stacked Z) — seed 10003",
+      "description": "8 ops, scale=1.00e0, 8 chained extrudes (stacked Z) \u2014 seed 10003",
       "featured": true
     },
     {
       "id": "F0066",
       "filename": "F0066.waffle",
       "meta_filename": "F0066.meta.json",
-      "description": "8 ops, scale=1.00e0, 8 chained extrudes (stacked Z) — seed 10004",
+      "description": "8 ops, scale=1.00e0, 8 chained extrudes (stacked Z) \u2014 seed 10004",
       "featured": true
     },
     {
       "id": "F0067",
       "filename": "F0067.waffle",
       "meta_filename": "F0067.meta.json",
-      "description": "10 ops, scale=1.00e0, 10 chained extrudes (stacked Z) — seed 10005",
+      "description": "10 ops, scale=1.00e0, 10 chained extrudes (stacked Z) \u2014 seed 10005",
       "featured": true
     },
     {
       "id": "F0068",
       "filename": "F0068.waffle",
       "meta_filename": "F0068.meta.json",
-      "description": "12 ops, scale=1.00e0, 12 chained extrudes (stacked Z) — seed 10006",
+      "description": "12 ops, scale=1.00e0, 12 chained extrudes (stacked Z) \u2014 seed 10006",
       "featured": true
     },
     {
       "id": "F0069",
       "filename": "F0069.waffle",
       "meta_filename": "F0069.meta.json",
-      "description": "15 ops, scale=1.00e0, 15 chained extrudes (stacked Z) — seed 10007",
+      "description": "15 ops, scale=1.00e0, 15 chained extrudes (stacked Z) \u2014 seed 10007",
       "featured": true
     },
     {
       "id": "F0070",
       "filename": "F0070.waffle",
       "meta_filename": "F0070.meta.json",
-      "description": "15 ops, scale=1.00e0, 15 chained extrudes (stacked Z) — seed 10008",
+      "description": "15 ops, scale=1.00e0, 15 chained extrudes (stacked Z) \u2014 seed 10008",
       "featured": true
     },
     {
       "id": "F0071",
       "filename": "F0071.waffle",
       "meta_filename": "F0071.meta.json",
-      "description": "20 ops, scale=1.00e0, 20 chained extrudes (stacked Z) — seed 10009",
+      "description": "20 ops, scale=1.00e0, 20 chained extrudes (stacked Z) \u2014 seed 10009",
       "featured": true
     },
     {
       "id": "F0072",
       "filename": "F0072.waffle",
       "meta_filename": "F0072.meta.json",
-      "description": "20 ops, scale=1.00e0, 20 chained extrudes (stacked Z) — seed 10010",
+      "description": "20 ops, scale=1.00e0, 20 chained extrudes (stacked Z) \u2014 seed 10010",
       "featured": true
     },
     {
       "id": "F0073",
       "filename": "F0073.waffle",
       "meta_filename": "F0073.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+revolve(rectangle,axis-through-center) — self-intersection error",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+revolve(rectangle,axis-through-center) \u2014 self-intersection error",
       "featured": true
     },
     {
       "id": "F0074",
       "filename": "F0074.waffle",
       "meta_filename": "F0074.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+revolve(rectangle,axis-near-vertex) — self-intersection error",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+revolve(rectangle,axis-near-vertex) \u2014 self-intersection error",
       "featured": true
     },
     {
       "id": "F0075",
       "filename": "F0075.waffle",
       "meta_filename": "F0075.meta.json",
-      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+revolve(rectangle,offset-axis) — valid revolve",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+revolve(rectangle,offset-axis) \u2014 valid revolve",
       "featured": true
     },
     {
       "id": "F0076",
       "filename": "F0076.waffle",
       "meta_filename": "F0076.meta.json",
-      "description": "5 ops, off-axis chained extrudes (0-5° tilt/step) — seed 20001",
+      "description": "5 ops, off-axis chained extrudes (0-5\u00b0 tilt/step) \u2014 seed 20001",
       "featured": true
     },
     {
       "id": "F0077",
       "filename": "F0077.waffle",
       "meta_filename": "F0077.meta.json",
-      "description": "5 ops, off-axis chained extrudes (0-5° tilt/step) — seed 20002",
+      "description": "5 ops, off-axis chained extrudes (0-5\u00b0 tilt/step) \u2014 seed 20002",
       "featured": true
     },
     {
       "id": "F0078",
       "filename": "F0078.waffle",
       "meta_filename": "F0078.meta.json",
-      "description": "8 ops, off-axis chained extrudes (0-5° tilt/step) — seed 20003",
+      "description": "8 ops, off-axis chained extrudes (0-5\u00b0 tilt/step) \u2014 seed 20003",
       "featured": true
     },
     {
       "id": "F0079",
       "filename": "F0079.waffle",
       "meta_filename": "F0079.meta.json",
-      "description": "8 ops, off-axis chained extrudes (0-5° tilt/step) — seed 20004",
+      "description": "8 ops, off-axis chained extrudes (0-5\u00b0 tilt/step) \u2014 seed 20004",
       "featured": true
     },
     {
       "id": "F0080",
       "filename": "F0080.waffle",
       "meta_filename": "F0080.meta.json",
-      "description": "10 ops, off-axis chained extrudes (0-5° tilt/step) — seed 20005",
+      "description": "10 ops, off-axis chained extrudes (0-5\u00b0 tilt/step) \u2014 seed 20005",
       "featured": true
     },
     {
       "id": "F0081",
       "filename": "F0081.waffle",
       "meta_filename": "F0081.meta.json",
-      "description": "12 ops, off-axis chained extrudes (0-5° tilt/step) — seed 20006",
+      "description": "12 ops, off-axis chained extrudes (0-5\u00b0 tilt/step) \u2014 seed 20006",
       "featured": true
     },
     {
       "id": "F0082",
       "filename": "F0082.waffle",
       "meta_filename": "F0082.meta.json",
-      "description": "15 ops, off-axis chained extrudes (0-5° tilt/step) — seed 20007",
+      "description": "15 ops, off-axis chained extrudes (0-5\u00b0 tilt/step) \u2014 seed 20007",
       "featured": true
     },
     {
       "id": "F0083",
       "filename": "F0083.waffle",
       "meta_filename": "F0083.meta.json",
-      "description": "15 ops, off-axis chained extrudes (0-5° tilt/step) — seed 20008",
+      "description": "15 ops, off-axis chained extrudes (0-5\u00b0 tilt/step) \u2014 seed 20008",
       "featured": true
     },
     {
       "id": "F0084",
       "filename": "F0084.waffle",
       "meta_filename": "F0084.meta.json",
-      "description": "20 ops, off-axis chained extrudes (0-5° tilt/step) — seed 20009",
+      "description": "20 ops, off-axis chained extrudes (0-5\u00b0 tilt/step) \u2014 seed 20009",
       "featured": true
     },
     {
       "id": "F0085",
       "filename": "F0085.waffle",
       "meta_filename": "F0085.meta.json",
-      "description": "20 ops, off-axis chained extrudes (0-5° tilt/step) — seed 20010",
+      "description": "20 ops, off-axis chained extrudes (0-5\u00b0 tilt/step) \u2014 seed 20010",
       "featured": true
     },
     {
       "id": "F0086",
       "filename": "F0086.waffle",
       "meta_filename": "F0086.meta.json",
-      "description": "6 ops, swiss cheese disc (R=1.45, 3 through + 2 blind holes) — seed 30001",
+      "description": "6 ops, swiss cheese disc (R=1.45, 3 through + 2 blind holes) \u2014 seed 30001",
       "featured": true
     },
     {
       "id": "F0087",
       "filename": "F0087.waffle",
       "meta_filename": "F0087.meta.json",
-      "description": "11 ops, swiss cheese disc (R=1.98, 5 through + 5 blind holes) — seed 30002",
+      "description": "11 ops, swiss cheese disc (R=1.98, 5 through + 5 blind holes) \u2014 seed 30002",
       "featured": true
     },
     {
       "id": "F0088",
       "filename": "F0088.waffle",
       "meta_filename": "F0088.meta.json",
-      "description": "16 ops, swiss cheese disc (R=1.28, 8 through + 7 blind holes) — seed 30003",
+      "description": "16 ops, swiss cheese disc (R=1.28, 8 through + 7 blind holes) \u2014 seed 30003",
       "featured": true
     },
     {
       "id": "F0089",
       "filename": "F0089.waffle",
       "meta_filename": "F0089.meta.json",
-      "description": "21 ops, swiss cheese disc (R=1.70, 10 through + 10 blind holes) — seed 30004",
+      "description": "21 ops, swiss cheese disc (R=1.70, 10 through + 10 blind holes) \u2014 seed 30004",
       "featured": true
     },
     {
       "id": "F0090",
       "filename": "F0090.waffle",
       "meta_filename": "F0090.meta.json",
-      "description": "31 ops, swiss cheese disc (R=1.95, 15 through + 15 blind holes) — seed 30005",
+      "description": "31 ops, swiss cheese disc (R=1.95, 15 through + 15 blind holes) \u2014 seed 30005",
+      "featured": true
+    },
+    {
+      "id": "F0091",
+      "filename": "F0091.waffle",
+      "meta_filename": "F0091.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) \u2014 Face-to-face stacked union: 1u cube on 2u cube top face (3u tall, volume 9)",
       "featured": true
     }
   ]

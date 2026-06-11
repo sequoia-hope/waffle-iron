@@ -1016,6 +1016,9 @@ pub fn generate_featured_cases(output_dir: &std::path::Path) -> Vec<ManifestEntr
     // Append swiss cheese disc cases (F0086-F0090)
     entries.extend(generate_swiss_cheese_disc_cases(output_dir));
 
+    // Append face-to-face stacked union case (F0091)
+    entries.extend(generate_face_to_face_union_cases(output_dir));
+
     entries
 }
 
@@ -3001,6 +3004,95 @@ fn generate_swiss_cheese_disc_cases(output_dir: &std::path::Path) -> Vec<Manifes
     }
 
     entries
+}
+
+// ── Face-to-Face Stacked Union (F0091) ─────────────────────────────────────
+
+/// Generate the face-to-face stacked union case (F0091).
+///
+/// A 1-unit cube extruded directly ON the top face of a 2-unit cube: big
+/// cube (−1..1)² × z∈[0,2], small cube (−0.5..0.5)² sketched at z=2 and
+/// extruded to z∈[2,3]. The small cube's bottom face lies strictly INSIDE
+/// the big cube's top face — a TRUE coplanar face-to-face contact where
+/// neither operand swallows the other (unlike the coincident-coplanar
+/// F0002-family or the offset-boss interpenetrating unions). The union must
+/// be ONE 3-unit-tall body of volume 2³ + 1³ = 9.
+fn generate_face_to_face_union_cases(output_dir: &std::path::Path) -> Vec<ManifestEntry> {
+    let origin = [0.0, 0.0, 0.0];
+    let normal = [0.0, 0.0, 1.0];
+    let case_id = "F0091";
+
+    let mut features = Vec::new();
+    let (_, base_feats) = build_sketch_extrude(
+        "Sketch 1",
+        "Extrude 1",
+        origin,
+        normal,
+        rect_profile(-1.0, -1.0, 2.0, 2.0),
+        2.0,
+        false,
+        false,
+    );
+    features.extend(base_feats);
+    let (_, boss_feats) = build_sketch_extrude(
+        "Sketch 2",
+        "Extrude 2",
+        [0.0, 0.0, 2.0],
+        normal,
+        rect_profile(-0.5, -0.5, 1.0, 1.0),
+        1.0,
+        false,
+        false,
+    );
+    features.extend(boss_feats);
+
+    let description = "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) \
+         — Face-to-face stacked union: 1u cube on 2u cube top face (3u tall, volume 9)"
+        .to_string();
+
+    let meta = AssayMeta {
+        id: case_id.to_string(),
+        description: description.clone(),
+        master_seed: 0,
+        test_seed: 0,
+        scale: 1.0,
+        log_scale: 0.0,
+        plane_origin: origin,
+        plane_normal: normal,
+        operations: vec![
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "rectangle".to_string(),
+                profile_size: 2.0,
+                depth_or_angle: 2.0,
+                is_cut: false,
+                plane_origin: None,
+                plane_normal: None,
+            },
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "rectangle".to_string(),
+                profile_size: 1.0,
+                depth_or_angle: 1.0,
+                is_cut: false,
+                plane_origin: Some([0.0, 0.0, 2.0]),
+                plane_normal: Some(normal),
+            },
+        ],
+        oracles: OracleExpectations {
+            euler_target: 2,
+            expect_watertight: true,
+            // bbox is 2×2×3 → diagonal √17 ≈ 4.123
+            max_bbox_extent: 6.0,
+            expect_positive_volume: true,
+            volume_monotonicity: vec!["increase".to_string(), "increase".to_string()],
+            expect_rebuild_error: false,
+        },
+        generator_version: GENERATOR_VERSION,
+        featured: true,
+    };
+
+    vec![write_featured_case(output_dir, case_id, features, meta)]
 }
 
 // ── Revolve Self-Intersection Cases (F0073-F0075) ─────────────────────────

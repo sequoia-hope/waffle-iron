@@ -1,8 +1,8 @@
 {
-  "errored": 17,
-  "failed": 2,
+  "errored": 18,
+  "failed": 1,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 27,
+  "passed": 28,
   "results": [
     {
       "category": "UNSUPPORTED(curved-profile)",
@@ -851,10 +851,10 @@
       "status": "error"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "watertight_mesh: 177 unpaired edges out of 12372 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,4), (2,4), (2,5), (2,5), (2,5), ...; mesh_euler_characteristic: V(4231) - E(12372) + F(8138) = -3 (expected 2 for 1 shell(s))",
+      "category": "ERROR",
+      "detail": "1 engine error(s): b2170b0b-0c14-44f4-8723-44d951dc8d42: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(8) }",
       "id": "F0042",
-      "status": "fail"
+      "status": "error"
     },
     {
       "category": "ERROR",
@@ -1143,7 +1143,13 @@
       "detail": "30 NotSupported boundary(ies); first: fbc71d84-18dc-45af-9813-b32ddadd59c1: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "F0090",
       "status": "unsupported"
+    },
+    {
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
+      "id": "F0091",
+      "status": "pass"
     }
   ],
-  "total": 190
+  "total": 191
 }
