@@ -12,79 +12,56 @@ When rules conflict, the following precedence applies (highest first):
 4. This file — Session workflow and coding conventions
 5. Sub-project `CLAUDE.md` files — Project-specific instructions
 
-## Kernel Rewrite In Progress
+## Kernel: kernel-v2 (migration COMPLETE 2026-06-11)
 
-**The current `crates/kernel/` is being replaced.** Yang / Cherchi / boolean code in the old kernel grew tangled with legacy S-H clipping, polygon-clipping fallback, and tolerance-escalation masking. Rather than continue patching it, we are clean-sheet rewriting the kernel as a layered set of new crates.
+**The legacy `crates/kernel/` is DELETED.** The app, feature-engine, and all
+tests run on `kernel-v2` through the `Kernel`/`KernelIntrospect` traits in
+`waffle_types::kernel` (implemented by `kernel_v2::KernelV2Adapter`). The WASM
+bundle is built from this stack on **stable Rust** with standard `wasm-pack`.
 
-### New crate layout
+### Crate layout
 
 ```
-crates/cad-primitives/   — shared types & constants (Point3, Vector3, BoolOp, …)
-crates/cherchi-rs/       — Cherchi 2020+2022 mesh boolean (pure Rust port)
+crates/waffle-types/     — public types + the kernel contract (traits, shared
+                           types, units; MockKernel behind the `mock-kernel` feature)
+crates/cad-primitives/   — shared geometry types & constants (Point3, Vector3, BoolOp, …)
+crates/cherchi-rs/       — Cherchi 2020+2022 mesh boolean (pure Rust, clean-room predicates)
 crates/ssi-rs/           — analytical SSI solvers (Patrikalakis Ch.5)
 crates/yang-rs/          — Yang 2025 pipeline (deps cherchi-rs + ssi-rs)
-crates/kernel-v2/        — clean B-Rep + tessellation + Kernel trait (deps yang-rs)
+crates/kernel-v2/        — clean B-Rep + tessellation + Kernel trait adapter (deps yang-rs)
 ```
 
-Dependency layering is compiler-enforced via each crate's `Cargo.toml`. A crate higher in the stack may not be imported by one lower down.
+Dependency layering is compiler-enforced via each crate's `Cargo.toml`. A crate
+higher in the stack may not be imported by one lower down.
 
 ### Agent routing rules
 
-When asked to work on boolean / Yang / SSI / B-Rep code:
+| Task | Crate to work in |
+|---|---|
+| Mesh boolean (Cherchi port) | `crates/cherchi-rs/` |
+| Analytical SSI solver | `crates/ssi-rs/` |
+| Yang pipeline stage | `crates/yang-rs/` |
+| B-Rep / Euler ops / primitives / tessellation / trait adapter | `crates/kernel-v2/` |
+| Shared primitive type (Point3 etc.) | `crates/cad-primitives/` |
+| Kernel trait / shared kernel types / MockKernel | `crates/waffle-types/` (`src/kernel/`) |
 
-| Task | Crate to work in | DO NOT touch |
-|---|---|---|
-| Mesh boolean (Cherchi port) | `crates/cherchi-rs/` | legacy port deleted 2026-06-09 |
-| Analytical SSI solver | `crates/ssi-rs/` | `crates/kernel/src/ssi/` |
-| Yang pipeline stage | `crates/yang-rs/` | legacy port deleted 2026-06-09 |
-| B-Rep / Euler ops / primitives / tessellation | `crates/kernel-v2/` | `crates/kernel/src/` (except Kernel trait signature reference) |
-| Shared primitive type (Point3 etc.) | `crates/cad-primitives/` | n/a |
-| Public Kernel trait refinement | `crates/kernel-v2/` + `crates/waffle-types/` | `crates/kernel/` |
+### Known capability boundaries (NotSupported, loud)
 
-When asked to "fix a Yang bug" or "make Y62-style probe" on the existing code: **do not**. The existing Yang code is being deleted. Any new work goes into the new crates.
+kernel-v2 returns typed `KernelError::NotSupported` (or typed yang errors) for
+operations it does not implement yet. These surface as error toasts in the app
+and as `#[ignore]`-tagged tests / `test.skip` GUI quarantines in the suites.
+They are ROADMAP ITEMS, not bugs:
 
-**Maintenance policy (decided 2026-06-09): only the Yang rewrite is maintained. Everything legacy is being actively removed, incrementally.** Concretely:
+- **Revolve** — KV6 milestone (38 corpus cases + 4 quarantined GUI specs)
+- **Coplanar boolean inputs** (flush/stacked faces) — Yang Stage 0, roadmap M8
+- **cyl×cyl lateral∩lateral and other degree-4 SSI** — roadmap M5
+- **Gear / arc-segment profiles** (non-convex CDT) — Phase 2 tail
+- **STEP export** — trait-default NotSupported
+- **Fillet / chamfer / shell** — deferred indefinitely (see below)
 
-- **No legacy patches.** The former "urgent legacy patch" exception is revoked. Do not fix bugs in `crates/kernel/`, its boolean/SSI/Yang-integration code, or the legacy WASM bundle — not even small ones. A legacy bug report is a non-event; the answer is the rewrite.
-- **Legacy test failures are expected and are NOT work items.** The legacy kernel's failing tests (11 lib tests after the 2026-06-09 deletion pass, the red legacy portions of `test.sh fast`: file-format STEP export, modeling-ops `truck_*`, wasm-bridge boolean) stay red until their code is deleted. Do not fix, do not widen tolerances, do not delete individual tests to get green.
-- **The app's WASM bundle is frozen** at its last build (May 2026). No rebuilds for legacy kernel changes (there should be none). The next bundle rebuild is the Phase 5 migration to `kernel-v2`.
-- **Deletion is incremental, tied to rewrite milestones.** When a rewrite milestone makes a legacy area redundant, delete that legacy area in the same PR or the immediately following one (kernel-v2 trait implementation → delete `crates/kernel/` wholesale per Phase 5). Do not delete ahead of the milestone that replaces the capability the app actually uses. *First pass done 2026-06-09:* the legacy Yang/Cherchi port (`crates/kernel/src/boolean/{yang_integration,cherchi,mesh_arrangement,exact_mesh,indirect_predicates,intersection_opt,ssi_refinement,topology_extract,coplanar_preprocess,pipeline_oracles,oracles}`), the `kernel::diagnostics` oracle surface, the PR-VIZ Yang debug pane (wasm-bridge + app UI), and the Yang assay tests (`yang_fast`, spotlights, comparison, ~26 test-harness files) are deleted. The S-H clipping path, legacy B-Rep/tessellation, and legacy SSI remain until Phase 5 because the app runs on them.
-
-### What stays unchanged
-
-- `crates/waffle-types/` — public types crate
-- `crates/sketch-solver/`, `crates/modeling-ops/`, `crates/feature-engine/`, `crates/file-format/`, `crates/test-harness/` — these are consumers / siblings of the kernel and do not need to change until the Phase 5 migration
-- `crates/wasm-bridge/` — will be updated in Phase 5 migration PR to depend on `kernel-v2` instead of `kernel`
-- The `Kernel` and `KernelIntrospect` trait shape lives in `waffle-types`; `kernel-v2` implements it. The trait can be refined (drop dead methods, tighten signatures), but consumers are updated in the migration PR, not piecemeal.
-- All of `app/`, `governance/`, `agents/`, `refs/` — unchanged
-
-### Phase tracker
-
-- **Phase 0** (this PR): Boundary establishment — skeleton crates created, dependency layering locked, root CLAUDE.md updated
-- **Phase 1**: `cherchi-rs` port — indirect predicates, mesh arrangement, boolean labeling. Reference parity via C++ sidecar.
-- **Phase 2**: `yang-rs` pipeline — Stage 1 bijective tessellation → Stage 6 B-Rep reassembly, layered on top of cherchi-rs
-- **Phase 3**: `ssi-rs` analytical solvers — 15 quadric pairs
-- **Phase 4**: `kernel-v2` — clean B-Rep + Euler ops + tessellation + Kernel trait
-- **Phase 5**: Migration — switch `wasm-bridge` and `feature-engine` to `kernel-v2`, delete `crates/kernel/`, remove this section from CLAUDE.md
-
-> **These phases are crate *layers*, not a strict work order.** The actual
-> work order toward a functional boolean is the milestone sequence M0–M8 in
-> `docs/yang_functional_roadmap.md`, which interleaves the layers (e.g. the
-> interim C++ sidecar producing real Stage-2 labels lets `yang-rs` Stage 5/6
-> become real *before* the native `cherchi-rs` arrangement exists). Phase 1's
-> "indirect predicates" are now built **demand-driven** by the native
-> arrangement, not ported speculatively ahead of a consumer.
-
-### Why this rewrite
-
-- The Y62 / Y63 cycles found the Yang code was patching around legacy assumptions (face stored_normal didn't track polygon walk; legacy boolean output preserved wrong normals after subtract; `tessellate_planar_face_bounded` was force-aligning to mask upstream defects)
-- yang_fast was 12/157 at decision time (test deleted 2026-06-09 with the legacy port), mostly Yang inheriting broken inputs from legacy assembly, not Yang itself being wrong
-- Reference parity against Cherchi C++ was deferred until PR-Y29 instead of being load-bearing from day one (per `feedback_external_coherence.md`)
-- The "tests pass" metric (1250/34 in current kernel) measures how legacy + Yang patches handle the corpus, NOT how Yang handles it — false project status signal
-
-The rewrite path is more honest and architecturally clean. Test counts will drop during transition (kernel-v2 has zero tests at scaffold time) and recover as each phase completes. Per-cycle work happens inside ONE crate at a time, isolated from the others by both crate boundaries and CLAUDE.md scope rules.
-
----
+When one of these milestones lands, un-quarantine its tests in the same PR
+(grep for the milestone tag, e.g. `KV6` or `M8`, in `#[ignore =` and
+`test.skip` annotations).
 
 ## DEFERRED INDEFINITELY: Fillet, Chamfer, Shell
 
@@ -103,28 +80,19 @@ Track known divergences between the implementation and Yang 2025 / Cherchi 2022 
 When asked "what should I work on?", choose from these areas **in order**.
 Do NOT skip to lower-priority items because they are easier.
 
-1. **Hybrid boolean pipeline (Yang 2025) — in the NEW crates.** This is the #1
-   priority. **The plan of record is `docs/yang_functional_roadmap.md`** — read
-   it first; it defines the `LabeledArrangement` interface and milestones M0–M8.
-   Do NOT fix legacy code. Build Yang as described in the paper.
-
-   The next concrete work is M0 (operationalize the parity oracle — build the
-   C++ sidecars via `scripts/build_sidecars.sh`) and M1 (make `yang-rs` Stage 1
-   emit Cherchi-`inputcheck`-clean meshes — the real gate, since Cherchi hangs
-   on malformed input).
-
-   > The legacy oracle guidance that used to sit here (spotlight oracles, the
-   > stage-invariant registry, the Y48–Y57 canary family, `yang_fast 12/157`)
-   > concerned the **legacy** `crates/kernel/` port, which was DELETED on
-   > 2026-06-09. It does not apply to the new crates.
-   > In the new world the correctness oracle is **reference parity against the
-   > Cherchi C++ sidecar** (roadmap §6: GREEN ::= matches the sidecar on a
-   > corpus subset), not the legacy stage-invariant registry.
+1. **Hybrid boolean pipeline (Yang 2025).** This is the #1 priority. **The
+   plan of record is `docs/yang_functional_roadmap.md`** — read it first; it
+   defines the `LabeledArrangement` interface and milestones M0–M8 (M0, M1,
+   M2, M6, M7 and the Phase-6 migration are COMPLETE; the kernel is live in
+   the app). The remaining capability gaps, in priority order, are the
+   NotSupported boundaries listed above: **KV6 revolve**, **M8 coplanar
+   Stage 0**, **M5 degree-4 SSI (cyl×cyl)**, and the non-convex CDT profile
+   tail. The correctness oracle is **reference parity against the Cherchi
+   C++ sidecar** (roadmap §6) plus the categorized kernel-v2 assay
+   (`cargo test -p test-harness --test assay_kv2 -- --ignored --nocapture`).
 
    **The paper IS the spec.** Read `refs/yang2025_hybrid_boolean.pdf` before
-   each session. Implement what the paper describes — do NOT adapt it to fit
-   legacy code. Legacy code (old conformal repair, tolerance escalation,
-   S-H clipping) is being REPLACED, not accommodated.
+   each session. Implement what the paper describes.
 
    **Reading the papers efficiently.** Run `./scripts/extract-papers.sh` once
    per session (idempotent; ~2s when up-to-date) to produce text views of
@@ -137,23 +105,11 @@ Do NOT skip to lower-priority items because they are easier.
 
    **Current architecture and next steps live in
    `docs/yang_functional_roadmap.md`** — the single source of truth for the
-   NEW-crate Yang effort. Read it before working on the pipeline.
-
-   > The Stage 0–6 "working" list that used to sit here described the *legacy*
-   > `crates/kernel/` port (`mesh_arrangement.rs`, `flood_fill_patches`,
-   > `label_cells`), NOT the new crates. It was stale and misleading and has
-   > been removed. Honest new-crate status (≈29 PRs of foundations, **zero
-   > working booleans end to end**, the `LabeledArrangement` interface, and the
-   > M0–M8 milestones) is in the roadmap.
-
-   The condensed plan: the path to a *functional* Yang is decoupled from a
-   complete native arrangement via a producer-agnostic `LabeledArrangement`
-   interface. An interim **patched C++ sidecar** supplies real Stage-2 labels
-   now (so `yang-rs` Stage 5/6 become real and produce a first mesh-approximate
-   boolean); the native `cherchi-rs` arrangement is built later behind the same
-   interface with the sidecar as its parity oracle. The real gate to a first
-   boolean is **Stage-1 mesh validity** (Cherchi hangs forever on non-manifold /
-   non-watertight input), not the labels — see roadmap M1.
+   Yang effort. Read it before working on the pipeline. The native
+   `cherchi-rs` arrangement + boolean is COMPLETE (M6/M7: pure Rust,
+   clean-room predicates, WASM-clean) and is yang-rs's production backend;
+   the C++ sidecars remain as dev-only parity oracles
+   (`scripts/build_sidecars.sh`).
 
    **Key references:**
    - Cherchi 2020 C++ reference (arrangement): `github.com/gcherchi/FastAndRobustMeshArrangements`
@@ -214,20 +170,22 @@ Do NOT skip to lower-priority items because they are easier.
 
 Run the appropriate test tier for your workflow:
 
-- `./scripts/test.sh rewrite` — **The gating tier for maintained code.** All seven
-  new kernel crates + the FFI-feature cherchi-rs suite (~70s). Must be green
-  before every commit touching the rewrite.
-- `./scripts/test.sh fast` — Rewrite tier + legacy MockKernel/pure-logic tests
-- `./scripts/test.sh full` — Rewrite tier + all legacy Rust tests (~5min)
+- `./scripts/test.sh rewrite` — Kernel-stack inner loop: the seven kernel
+  crates + the FFI-feature cherchi-rs suite (~70s).
+- `./scripts/test.sh fast` — Rewrite tier + consumer crates (waffle-types with
+  `mock-kernel`, feature-engine, modeling-ops, file-format, wasm-bridge) +
+  test-harness fast binaries (~80s).
+- `./scripts/test.sh full` — Everything: fast + the complete test-harness
+  suite (~2min). **All tiers are green** since the Phase 6 migration; a red
+  test is a regression, not legacy noise.
 - `./scripts/test.sh gui-fast` — Quick GUI smoke tests (~2min)
 - `./scripts/test.sh gui-full` — All ~55 GUI spec files (~5min)
 - `./scripts/test.sh all-fast` — Rust fast + GUI fast combined
 - `./scripts/test.sh all` — Full Rust + full GUI (pre-merge)
 
-**Legacy portions of `fast`/`full` are red and stay red** (see Maintenance
-policy above) — known failures in file-format, modeling-ops `truck_*`, kernel
-tessellation, and wasm-bridge boolean are unmaintained code awaiting deletion,
-not work items. Gate on `rewrite` being green.
+Capability-pending tests are `#[ignore]`-tagged (Rust) or `test.skip`
+quarantined (GUI) with milestone reasons (KV6 / M8 / M5) — un-quarantine them
+when their milestone lands. Anything else red is a real regression.
 
 See `docs/TESTING.md` for tier definitions and how to add tests.
 
@@ -241,7 +199,7 @@ See `docs/TESTING.md` for tier definitions and how to add tests.
 ## Test Philosophy
 
 - **Every public function gets a test.**
-- **Mock dependencies.** Use MockKernel, not WaffleKernel, for unit tests.
+- **Mock dependencies.** Use `waffle_types::kernel::MockKernel` (feature `mock-kernel`) for unit tests; kernel-v2 for real-geometry tests.
 - **Tests must be deterministic.** No random values, no system time, no filesystem side effects.
 - **Tests are permanent.** Never delete a passing test. Fix it if it's wrong.
 - **Property-based tests** where applicable: Euler's formula (V-E+F=2), watertightness, manifoldness.
@@ -284,13 +242,11 @@ See `docs/TESTING.md` for tier definitions and how to add tests.
 - **SSI solvers** (A15.1): Quadric SSI solvers remain essential — they provide
   the geometry refinement in stage 4 of the hybrid pipeline. Continue implementing
   missing solvers (see A15.4 matrix).
-- **DEPRECATED — do not improve, do not delete yet**: The S-H clipping + tolerance
-  escalation pipeline (`classify_face`, `stitch.rs` progressive pairing, tessellation
-  repair loops, `fill_boundary_holes`, `close_near_boundary_chains`). These mask
-  classification errors with up to 5000× tolerance widening and synthetic fill
-  triangles. The self-intersection oracle confirms 0/10 R-series produce correct
-  meshes. **Removal requires the Yang pipeline to be operational first** — see the
-  migration plan in `specs/yang_hybrid_migration.md`.
+- **The legacy S-H clipping + tolerance-escalation pipeline was DELETED with
+  `crates/kernel/` at the Phase 6 migration (2026-06-11).** Its failure mode
+  (masking classification errors with tolerance widening and synthetic fill
+  triangles) is the cautionary tale behind P9/P10 — never reintroduce that
+  pattern in the new stack.
 - See governance/ARCHITECTURAL_INVARIANTS.md A15 for the full invariant.
 
 ## GUI Test Rules
@@ -314,29 +270,26 @@ See `docs/TESTING.md` for tier definitions and how to add tests.
 
 ## WASM Rebuild Workflow
 
-> **Frozen during the rewrite (policy 2026-06-09).** The shipped bundle in
-> `app/static/pkg/` is pinned at its last legacy build; legacy kernel changes
-> no longer trigger rebuilds (there should be no legacy kernel changes). This
-> workflow next applies at the Phase 5 migration, when `wasm-bridge` switches
-> to `kernel-v2` (which targets stable Rust — at that point standard
-> `wasm-pack` replaces the nightly two-step below).
+Standard stable-Rust `wasm-pack` since the Phase 6 migration (the nightly +
+`-Zbuild-std` two-step died with the legacy kernel's panic=unwind machinery).
 
 After any Rust crate changes that affect the WASM bridge:
 
-1. Build with nightly + build-std (required for panic=unwind on WASM):
+1. Build:
    ```
-   cargo +nightly build -p wasm-bridge --target wasm32-unknown-unknown --release --no-default-features -Zbuild-std
+   wasm-pack build crates/wasm-bridge --release --target web --no-default-features
    ```
-2. Generate JS bindings:
-   ```
-   wasm-bindgen target/wasm32-unknown-unknown/release/wasm_bridge.wasm --out-dir crates/wasm-bridge/pkg --target web --no-typescript
-   ```
-3. Copy to app: `cp crates/wasm-bridge/pkg/wasm_bridge{_bg.wasm,.js} app/static/pkg/`
-4. Verify dev server still works: `npm run dev` (port 8083)
+2. Copy to app: `cp crates/wasm-bridge/pkg/wasm_bridge{_bg.wasm,.js} app/static/pkg/`
+3. Verify dev server still works: `npm run dev`
 
-**Note**: `wasm-pack` cannot be used because it doesn't support `-Zbuild-std`. The two-step
-`cargo build` + `wasm-bindgen` process is required to enable `panic=unwind` on wasm32-unknown-unknown.
-See `.cargo/config.toml` for WASM target rustflags.
+Notes:
+- `--no-default-features` disables `native-solver` (libslvs can't compile to
+  wasm32; the app uses the separate Emscripten slvs bundle in
+  `app/static/pkg/slvs/`).
+- wasm-bindgen CLI version must match the crate version in Cargo.lock
+  (wasm-pack downloads the right one automatically).
+- The wasm32 rustflags in `.cargo/config.toml` keep an enlarged 4MB stack for
+  the exact-arithmetic recursion depth. Do not reintroduce `panic=unwind`.
 
 Include the updated WASM bundle in the same commit as the Rust changes so the app stays in sync.
 

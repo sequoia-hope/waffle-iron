@@ -1,16 +1,15 @@
 # Waffle Iron — System Architecture
 
-> **⚠ Kernel sections below are STALE — the legacy kernel is unmaintained and
-> being removed (policy 2026-06-09).** Everything this document says about
-> `crates/kernel/` (its boolean pipeline, test counts, SSI solver counts,
-> assay targets) describes the **legacy** kernel, which receives no further
-> fixes and is deleted incrementally as the clean-sheet rewrite lands. The
-> actual current architecture for kernel work is the layered rewrite stack —
-> `cad-primitives` → `cherchi-rs` / `ssi-rs` (+ the two non-WASM C++ sidecar
-> crates) → `yang-rs` → `kernel-v2` — documented in root `CLAUDE.md`
-> §"Kernel Rewrite In Progress" and `docs/yang_functional_roadmap.md` (the
-> plan of record). Only the Yang rewrite is maintained. The non-kernel layers
-> below (engine, bridge, presentation) remain accurate.
+> **⚠ Kernel sections below describe the DELETED legacy kernel.** The Phase 6
+> migration (2026-06-11) removed `crates/kernel/` entirely; the app runs on
+> the layered kernel stack — `cad-primitives` → `cherchi-rs` / `ssi-rs` (+ the
+> two non-WASM C++ sidecar crates, dev-only oracles) → `yang-rs` →
+> `kernel-v2` — behind the `Kernel`/`KernelIntrospect` traits in
+> `waffle_types::kernel` (implemented by `kernel_v2::KernelV2Adapter`). See
+> root `CLAUDE.md` §"Kernel: kernel-v2" and `docs/yang_functional_roadmap.md`
+> (the plan of record). Historical references to `crates/kernel/`, its test
+> counts and assay targets below are retained as history; the non-kernel
+> layers (engine, bridge, presentation) remain accurate.
 
 ## Vision
 

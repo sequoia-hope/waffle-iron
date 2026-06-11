@@ -1783,10 +1783,22 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   cherchi-rs / yang-rs / kernel-v2, no feature flags). Browser-side
   validation happens with the Phase-6 wasm-bridge migration.
   **Exit (met):** pure-Rust boolean compiling to WASM.
-- **Phase 6 — Migration + assay.** *[the finish line]* swap wasm-bridge +
-  feature-engine to kernel-v2; run the real assay; iterate to parity-or-better;
-  **delete `crates/kernel/`**; rebuild the WASM bundle. **Exit:** legacy gone,
-  assay ≥ legacy on the supported corpus, GUI on kernel-v2.
+- **Phase 6 — Migration + assay.** **✅ COMPLETE (2026-06-11, user-directed
+  early cutover).** The user overrode the parity-or-better exit gate ("the
+  legacy kernel is useless and its scores are irrelevant" — its boolean output
+  was geometrically wrong, e.g. F0038 rendered without cylinder walls). Landed
+  as six commits: known-red legacy test purge → kernel contract
+  (traits/types/units/MockKernel) moved to `waffle_types::kernel` →
+  `KernelV2Adapter` moved into kernel-v2 as the production trait impl → all
+  consumers swapped (wasm-bridge, file-format `export_step` over
+  `dyn KernelBundle`, test-harness `ModelBuilder::kernel()` deleted) →
+  **`crates/kernel/` deleted (64k lines)** → WASM bundle rebuilt on STABLE
+  wasm-pack (3.0MB, was 4.9MB; catch_unwind/panic=unwind machinery deleted).
+  `test.sh fast`/`full` fully green for the first time since the rewrite
+  began; boolean GUI specs 60/60 on kernel-v2; F0038 renders correctly in
+  the app. Capability-pending tests carry `#[ignore]`/`test.skip` milestone
+  tags (KV6 revolve, M8 coplanar, M5 degree-4, CDT profile tail) —
+  un-quarantine when each milestone lands.
 
 **Where the risk lives:** almost all of it is Phase 2 (curved Stage 3/4). Phase 1
 is a steady low-risk grind; Phases 4/6 are large but mechanical once geometry
