@@ -5,7 +5,6 @@
 
 use std::collections::HashMap;
 
-use ::kernel::WaffleKernel;
 use feature_engine::types::*;
 use modeling_ops::types::OpResult;
 use modeling_ops::KernelBundle;
@@ -39,17 +38,6 @@ impl ModelBuilder {
         Self {
             state: EngineState::new(),
             kernel: Box::new(MockKernel::new()),
-            named_features: HashMap::new(),
-            history: Vec::new(),
-            auto_check: false,
-        }
-    }
-
-    /// Create a new ModelBuilder with WaffleKernel (real geometry).
-    pub fn kernel() -> Self {
-        Self {
-            state: EngineState::new(),
-            kernel: Box::new(WaffleKernel::new()),
             named_features: HashMap::new(),
             history: Vec::new(),
             auto_check: false,

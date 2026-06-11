@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-kernel = { path = "../kernel" }
 kernel-v2 = { path = "../kernel-v2" }
 cad-primitives = { path = "../cad-primitives" }
 feature-engine = { path = "../feature-engine" }

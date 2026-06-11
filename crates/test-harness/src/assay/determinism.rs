@@ -46,7 +46,7 @@ fn build_body(
 
 /// Execute a BooleanScenario and return topology counts of the result.
 fn run_scenario(scenario: &BooleanScenario) -> Result<(usize, usize, usize), String> {
-    let mut builder = ModelBuilder::kernel();
+    let mut builder = ModelBuilder::kernel_v2();
 
     build_body(&mut builder, &scenario.body_a, "sk_a", "body_a")?;
     build_body(&mut builder, &scenario.body_b, "sk_b", "body_b")?;

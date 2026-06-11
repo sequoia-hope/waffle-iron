@@ -3663,8 +3663,9 @@ mod tests {
             );
         }
         // Total: F0001-F0010 (10) + F0011-F0015 (5) + F0016-F0025 (10) + F0026-F0062 (37)
-        //      + F0063-F0072 (10) + F0073-F0075 (3) + F0076-F0085 (10) + F0086-F0090 (5) = 90
-        assert_eq!(entries.len(), 90, "expected 90 featured cases");
+        //      + F0063-F0072 (10) + F0073-F0075 (3) + F0076-F0085 (10) + F0086-F0090 (5)
+        //      + F0091 (1) = 91
+        assert_eq!(entries.len(), 91, "expected 91 featured cases");
     }
 
     #[test]

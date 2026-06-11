@@ -39,7 +39,7 @@ fn count_visible_bodies(m: &ModelBuilder) -> usize {
 /// and verify body count, feature count, and role assignments match.
 #[test]
 fn rs1_rebuild_preserves_body_and_feature_counts() {
-    let mut m = ModelBuilder::kernel();
+    let mut m = ModelBuilder::kernel_v2();
 
     // Sketch + extrude base box
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -71,7 +71,7 @@ fn rs1_rebuild_preserves_body_and_feature_counts() {
 
     // Save and load (triggers full rebuild)
     let json = m.save().unwrap();
-    let mut m2 = ModelBuilder::kernel();
+    let mut m2 = ModelBuilder::kernel_v2();
     m2.load(&json).unwrap();
 
     let bodies_after = count_visible_bodies(&m2);
@@ -124,7 +124,7 @@ fn rs1_rebuild_preserves_body_and_feature_counts() {
 /// the same body count, feature count, and bounding box dimensions.
 #[test]
 fn rs2_sequential_rebuilds_identical() {
-    let mut m = ModelBuilder::kernel();
+    let mut m = ModelBuilder::kernel_v2();
     m.rect_sketch("sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     m.extrude("box", "sk", 10.0).unwrap();
@@ -133,13 +133,13 @@ fn rs2_sequential_rebuilds_identical() {
     let json = m.save().unwrap();
 
     // First rebuild
-    let mut m1 = ModelBuilder::kernel();
+    let mut m1 = ModelBuilder::kernel_v2();
     m1.load(&json).unwrap();
     let bodies1 = count_visible_bodies(&m1);
     let features1 = m1.feature_count();
 
     // Second rebuild
-    let mut m2 = ModelBuilder::kernel();
+    let mut m2 = ModelBuilder::kernel_v2();
     m2.load(&json).unwrap();
     let bodies2 = count_visible_bodies(&m2);
     let features2 = m2.feature_count();
@@ -251,7 +251,7 @@ fn rs4_suppress_unsuppress_preserves_roles() {
 /// deterministic across rebuilds.
 #[test]
 fn rs5_multi_feature_chain_rebuild_determinism() {
-    let mut m = ModelBuilder::kernel();
+    let mut m = ModelBuilder::kernel_v2();
 
     // Base box
     m.rect_sketch("sk1", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
@@ -277,7 +277,7 @@ fn rs5_multi_feature_chain_rebuild_determinism() {
     // Rebuild three times and verify consistency
     let mut counts = Vec::new();
     for _ in 0..3 {
-        let mut m_r = ModelBuilder::kernel();
+        let mut m_r = ModelBuilder::kernel_v2();
         m_r.load(&json).unwrap();
         counts.push((count_visible_bodies(&m_r), m_r.feature_count()));
     }

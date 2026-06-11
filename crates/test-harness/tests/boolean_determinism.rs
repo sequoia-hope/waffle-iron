@@ -15,7 +15,7 @@ fn boolean_union_deterministic_10x() {
     let mut volumes = Vec::new();
 
     for _ in 0..10 {
-        let mut m = ModelBuilder::kernel();
+        let mut m = ModelBuilder::kernel_v2();
         m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
             .unwrap();
         m.extrude("cube", "base_sk", 10.0).unwrap();
@@ -56,7 +56,7 @@ fn boolean_subtract_deterministic_10x() {
     let mut volumes = Vec::new();
 
     for _ in 0..10 {
-        let mut m = ModelBuilder::kernel();
+        let mut m = ModelBuilder::kernel_v2();
         m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
             .unwrap();
         m.extrude("cube", "base_sk", 10.0).unwrap();
@@ -97,7 +97,7 @@ fn chained_boolean_deterministic_10x() {
     let mut volumes = Vec::new();
 
     for _ in 0..10 {
-        let mut m = ModelBuilder::kernel();
+        let mut m = ModelBuilder::kernel_v2();
         m.rect_sketch("base_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
             .unwrap();
         m.extrude("cube", "base_sk", 10.0).unwrap();

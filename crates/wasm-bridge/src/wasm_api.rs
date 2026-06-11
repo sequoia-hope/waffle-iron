@@ -18,22 +18,23 @@ thread_local! {
 }
 
 /// Holds the engine state and kernel for the WASM module.
+///
+/// Since the Phase 6 migration (2026-06-11) the kernel is kernel-v2 behind
+/// its legacy-trait adapter. The whole stack is Result-based — no panic
+/// machinery is needed (the legacy catch_unwind wrappers existed to survive
+/// panics deep in the old kernel's internals).
 struct WasmEngine {
     state: EngineState,
-    kernel: ::kernel::WaffleKernel,
+    kernel: kernel_v2::KernelV2Adapter,
 }
 
 /// Initialize the WASM engine. Must be called once before any other function.
-///
-/// Sets up panic hooks for better error messages and creates the engine state.
 #[wasm_bindgen]
 pub fn init() {
-    console_error_panic_hook::set_once();
-
     ENGINE_STATE.with(|cell| {
         *cell.borrow_mut() = Some(WasmEngine {
             state: EngineState::new(),
-            kernel: ::kernel::WaffleKernel::new(),
+            kernel: kernel_v2::KernelV2Adapter::new(),
         });
     });
 }
@@ -45,71 +46,48 @@ pub fn init() {
 /// Returns a JSON-serialized `EngineToUi` response.
 #[wasm_bindgen]
 pub fn process_message(json_input: &str) -> String {
-    // Wrap the entire dispatch + tessellation in catch_unwind so that
-    // panics deep in truck internals produce an error response instead of
-    // killing the WASM module with an `unreachable` trap.
-    // Requires `panic = "unwind"` in [profile.release] (see workspace Cargo.toml).
-    let response = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        ENGINE_STATE.with(|cell| {
-            let mut engine = cell.borrow_mut();
-            let engine = engine
-                .as_mut()
-                .expect("Engine not initialized. Call init() first.");
+    let response = ENGINE_STATE.with(|cell| {
+        let mut engine = cell.borrow_mut();
+        let engine = engine
+            .as_mut()
+            .expect("Engine not initialized. Call init() first.");
 
-            let msg: UiToEngine = match serde_json::from_str(json_input) {
-                Ok(msg) => msg,
-                Err(e) => {
-                    return EngineToUi::Error {
-                        message: format!("Failed to parse message: {}", e),
-                        feature_id: None,
-                    };
-                }
-            };
-
-            let msg_type = format!("{:?}", std::mem::discriminant(&msg));
-            let t0 = js_sys::Date::now();
-            let response = dispatch::dispatch(&mut engine.state, msg, &mut engine.kernel);
-            let dispatch_ms = js_sys::Date::now() - t0;
-
-            // After dispatch, tessellate any solids that don't have mesh data yet
-            if matches!(response, EngineToUi::ModelUpdated { .. }) {
-                let t1 = js_sys::Date::now();
-                tessellate_missing_meshes(&mut engine.state, &mut engine.kernel);
-                let tess_ms = js_sys::Date::now() - t1;
-                if dispatch_ms + tess_ms > 100.0 {
-                    web_sys::console::log_1(
-                        &format!(
-                            "[wasm] {} dispatch={:.1}s tess={:.1}s total={:.1}s",
-                            msg_type,
-                            dispatch_ms / 1000.0,
-                            tess_ms / 1000.0,
-                            (dispatch_ms + tess_ms) / 1000.0,
-                        )
-                        .into(),
-                    );
-                }
+        let msg: UiToEngine = match serde_json::from_str(json_input) {
+            Ok(msg) => msg,
+            Err(e) => {
+                return EngineToUi::Error {
+                    message: format!("Failed to parse message: {}", e),
+                    feature_id: None,
+                };
             }
+        };
 
-            response
-        })
-    }));
+        let msg_type = format!("{:?}", std::mem::discriminant(&msg));
+        let t0 = js_sys::Date::now();
+        let response = dispatch::dispatch(&mut engine.state, msg, &mut engine.kernel);
+        let dispatch_ms = js_sys::Date::now() - t0;
 
-    let response = match response {
-        Ok(r) => r,
-        Err(panic_info) => {
-            let msg = if let Some(s) = panic_info.downcast_ref::<&str>() {
-                s.to_string()
-            } else if let Some(s) = panic_info.downcast_ref::<String>() {
-                s.clone()
-            } else {
-                "unknown internal error".to_string()
-            };
-            EngineToUi::Error {
-                message: format!("Internal error: {}", msg),
-                feature_id: None,
+        // After dispatch, tessellate any solids that don't have mesh data yet
+        if matches!(response, EngineToUi::ModelUpdated { .. }) {
+            let t1 = js_sys::Date::now();
+            tessellate_missing_meshes(&mut engine.state, &mut engine.kernel);
+            let tess_ms = js_sys::Date::now() - t1;
+            if dispatch_ms + tess_ms > 100.0 {
+                web_sys::console::log_1(
+                    &format!(
+                        "[wasm] {} dispatch={:.1}s tess={:.1}s total={:.1}s",
+                        msg_type,
+                        dispatch_ms / 1000.0,
+                        tess_ms / 1000.0,
+                        (dispatch_ms + tess_ms) / 1000.0,
+                    )
+                    .into(),
+                );
             }
         }
-    };
+
+        response
+    });
 
     serde_json::to_string(&response).unwrap_or_else(|e| {
         format!(
@@ -122,21 +100,16 @@ pub fn process_message(json_input: &str) -> String {
 /// Get the current feature tree as JSON.
 ///
 /// Useful for the UI to query state without sending a full command.
-/// Wrapped in catch_unwind to prevent panics from crashing the WASM module
-/// if engine state is corrupted after a failed boolean cascade.
 #[wasm_bindgen]
 pub fn get_feature_tree() -> String {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        ENGINE_STATE.with(|cell| {
-            let engine = cell.borrow();
-            let engine = match engine.as_ref() {
-                Some(e) => e,
-                None => return r#"{"features":[],"active_index":null}"#.to_string(),
-            };
-            serde_json::to_string(&engine.state.engine.tree).unwrap_or_default()
-        })
-    }))
-    .unwrap_or_else(|_| r#"{"features":[],"active_index":null}"#.to_string())
+    ENGINE_STATE.with(|cell| {
+        let engine = cell.borrow();
+        let engine = match engine.as_ref() {
+            Some(e) => e,
+            None => return r#"{"features":[],"active_index":null}"#.to_string(),
+        };
+        serde_json::to_string(&engine.state.engine.tree).unwrap_or_default()
+    })
 }
 
 /// Get mesh data for a specific feature by index.
@@ -145,38 +118,34 @@ pub fn get_feature_tree() -> String {
 /// For high-performance rendering, the web worker should use the
 /// `get_mesh_vertices`, `get_mesh_normals`, and `get_mesh_indices`
 /// functions instead, which return typed arrays directly.
-/// Wrapped in catch_unwind to prevent panics from crashing the WASM module.
 #[wasm_bindgen]
 pub fn get_mesh_json(feature_index: usize) -> String {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        ENGINE_STATE.with(|cell| {
-            let engine = cell.borrow();
-            let engine = match engine.as_ref() {
-                Some(e) => e,
-                None => return r#"{"error":"Engine not initialized"}"#.to_string(),
-            };
+    ENGINE_STATE.with(|cell| {
+        let engine = cell.borrow();
+        let engine = match engine.as_ref() {
+            Some(e) => e,
+            None => return r#"{"error":"Engine not initialized"}"#.to_string(),
+        };
 
-            let results = &engine.state.engine.feature_results;
-            let features = &engine.state.engine.tree.features;
+        let results = &engine.state.engine.feature_results;
+        let features = &engine.state.engine.tree.features;
 
-            if feature_index >= features.len() {
-                return r#"{"error":"Feature index out of range"}"#.to_string();
-            }
+        if feature_index >= features.len() {
+            return r#"{"error":"Feature index out of range"}"#.to_string();
+        }
 
-            let feature_id = features[feature_index].id;
-            if let Some(result) = results.get(&feature_id) {
-                // Return the first output's mesh
-                for (_key, body) in &result.outputs {
-                    if let Some(ref mesh) = body.mesh {
-                        return serde_json::to_string(mesh).unwrap_or_default();
-                    }
+        let feature_id = features[feature_index].id;
+        if let Some(result) = results.get(&feature_id) {
+            // Return the first output's mesh
+            for (_key, body) in &result.outputs {
+                if let Some(ref mesh) = body.mesh {
+                    return serde_json::to_string(mesh).unwrap_or_default();
                 }
             }
+        }
 
-            r#"{"error":"No mesh for this feature"}"#.to_string()
-        })
-    }))
-    .unwrap_or_else(|_| r#"{"error":"Internal error"}"#.to_string())
+        r#"{"error":"No mesh for this feature"}"#.to_string()
+    })
 }
 
 /// Get mesh vertex positions as a Float32Array view into WASM memory.

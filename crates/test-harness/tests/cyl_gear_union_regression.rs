@@ -19,7 +19,7 @@ use test_harness::workflow::ModelBuilder;
 /// silently dropped and the result is just the L-shape.
 #[test]
 fn cg1_concave_polygon_circle_union_preserves_cylinder() {
-    let mut m = ModelBuilder::kernel();
+    let mut m = ModelBuilder::kernel_v2();
 
     // Step 1: Small circle in the concave notch of the L-shape, extrude up 10.
     // UV center (-5, 12) is in the notch region x∈[-20,5), y∈(5,20].
@@ -75,7 +75,7 @@ fn cg1_concave_polygon_circle_union_preserves_cylinder() {
 /// A rectangle fully encloses a small cylinder at its center.
 #[test]
 fn cg2_convex_polygon_enclosed_cylinder_union_works() {
-    let mut m = ModelBuilder::kernel();
+    let mut m = ModelBuilder::kernel_v2();
 
     // Small cylinder at origin
     m.true_circle_sketch("cyl_sk", [0., 0., 0.], [0., 0., 1.], 0., 0., 2.0)

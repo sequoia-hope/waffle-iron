@@ -56,7 +56,8 @@ pub fn discover_cases(dir: &Path) -> Vec<DiscoveredCase> {
 
 /// Run the randomized assay on all discovered cases in `dir`.
 ///
-/// When `use_kernel` is true, uses `WaffleKernel` (real geometry);
+/// When `use_kernel` is true, uses kernel-v2 via its legacy-trait adapter
+/// (real geometry);
 /// when false, uses `MockKernel` (fast, deterministic).
 pub fn run_randomized_assay(dir: &Path, use_kernel: bool) -> AssayReport {
     let cases = discover_cases(dir);
@@ -282,7 +283,7 @@ fn replay_and_validate(case: &DiscoveredCase, use_kernel: bool) -> AssayResult {
 
     // 3. Create builder (mock or kernel)
     let mut builder = if use_kernel {
-        ModelBuilder::kernel()
+        ModelBuilder::kernel_v2()
     } else {
         ModelBuilder::mock()
     };
@@ -570,7 +571,7 @@ fn check_volume_monotonicity(
         };
 
         let mut builder = if use_kernel {
-            ModelBuilder::kernel()
+            ModelBuilder::kernel_v2()
         } else {
             ModelBuilder::mock()
         };
@@ -921,7 +922,7 @@ pub fn catalog_summary(report: &AssayReport, catalog: &[CatalogEntry]) -> String
 
     writeln!(
         out,
-        "ASSAY v3 FAILURE CATALOG — WaffleKernel ({})",
+        "ASSAY v3 FAILURE CATALOG — kernel-v2 ({})",
         today_utc()
     )
     .unwrap();
@@ -985,7 +986,7 @@ pub fn catalog_summary(report: &AssayReport, catalog: &[CatalogEntry]) -> String
 pub fn generate_catalog_markdown(report: &AssayReport, catalog: &[CatalogEntry]) -> String {
     let mut out = String::new();
 
-    writeln!(out, "# ASSAY v3 Failure Catalog — WaffleKernel").unwrap();
+    writeln!(out, "# ASSAY v3 Failure Catalog — kernel-v2").unwrap();
     writeln!(out).unwrap();
     writeln!(out, "Generated: {}", today_utc()).unwrap();
     writeln!(
@@ -1171,7 +1172,7 @@ mod tests {
     fn discover_cases_from_corpus() {
         let (_dir, corpus_path) = generate_test_corpus(5);
         let cases = discover_cases(&corpus_path);
-        assert_eq!(cases.len(), 95); // 5 random + 90 featured
+        assert_eq!(cases.len(), 96); // 5 random + 91 featured
         assert_eq!(cases[0].id, "R0001");
         assert!(cases[0].waffle_path.exists());
         assert!(cases[0].meta_path.exists());
@@ -1486,8 +1487,8 @@ mod tests {
     fn run_mock_smoke() {
         let (_dir, corpus_path) = generate_test_corpus(3);
         let report = run_randomized_assay(&corpus_path, false);
-        // 3 random + 90 featured = 93 total
-        assert_eq!(report.total, 93);
+        // 3 random + 91 featured = 94 total
+        assert_eq!(report.total, 94);
         // Mock kernel produces deterministic results — all should complete (pass or fail, not error)
         assert_eq!(
             report.errored,

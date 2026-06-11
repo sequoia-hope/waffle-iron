@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 feature-engine = { path = "../feature-engine" }
-kernel = { path = "../kernel" }
+modeling-ops = { path = "../modeling-ops" }
 waffle-types = { path = "../waffle-types" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -14,4 +14,4 @@ chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1"
 
 [dev-dependencies]
-modeling-ops = { path = "../modeling-ops" }
+waffle-types = { path = "../waffle-types", features = ["mock-kernel"] }

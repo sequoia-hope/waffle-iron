@@ -130,7 +130,7 @@ fn spotlight_r0100_revolve_revolve() {
         truncated_doc["features"]["features"] = serde_json::Value::Array(truncated);
         let truncated_json = serde_json::to_string(&truncated_doc).unwrap();
 
-        let mut builder = test_harness::workflow::ModelBuilder::kernel();
+        let mut builder = test_harness::workflow::ModelBuilder::kernel_v2();
         match builder.load(&truncated_json) {
             Ok(_) => {}
             Err(e) => {
@@ -208,7 +208,7 @@ fn spotlight_r0100_revolve_revolve() {
 
     // Also run the full model through all oracles
     println!("\n  Full model oracle check:");
-    let mut builder = test_harness::workflow::ModelBuilder::kernel();
+    let mut builder = test_harness::workflow::ModelBuilder::kernel_v2();
     if let Err(e) = builder.load(&waffle_json) {
         println!("  Full load failed: {}", e);
         return;
@@ -519,7 +519,7 @@ fn spotlight_r0098_self_intersection() {
                 .find(|c| c.id == "R0098")
                 .expect("R0098 in corpus");
             let waffle_json = std::fs::read_to_string(&case.waffle_path).expect("read waffle");
-            let mut builder = test_harness::workflow::ModelBuilder::kernel();
+            let mut builder = test_harness::workflow::ModelBuilder::kernel_v2();
             if let Err(e) = builder.load(&waffle_json) {
                 println!("  Load failed: {}", e);
                 return;

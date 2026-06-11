@@ -11,7 +11,7 @@ use test_harness::ModelBuilder;
 
 /// Build a boolean scenario using ModelBuilder and return (builder, mesh_a, mesh_b, mesh_result).
 fn execute_scenario(scenario: &BooleanScenario) -> Result<ModelBuilder, String> {
-    let mut builder = ModelBuilder::kernel();
+    let mut builder = ModelBuilder::kernel_v2();
 
     // Build body A
     match &scenario.body_a.profile {
@@ -161,7 +161,7 @@ proptest! {
 /// Union volume = 10*10*10 + 10*10*10 - 5*10*10 = 1500.
 #[test]
 fn deterministic_box_box_union_volume() {
-    let mut b = ModelBuilder::kernel();
+    let mut b = ModelBuilder::kernel_v2();
     b.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     b.extrude_no_merge("body_a", "sk_a", 10.).unwrap();
@@ -182,7 +182,7 @@ fn deterministic_box_box_union_volume() {
 /// Subtract volume = 10*10*10 - 5*10*10 = 500.
 #[test]
 fn deterministic_box_box_subtract_volume() {
-    let mut b = ModelBuilder::kernel();
+    let mut b = ModelBuilder::kernel_v2();
     b.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
         .unwrap();
     b.extrude_no_merge("body_a", "sk_a", 10.).unwrap();
