@@ -2484,6 +2484,76 @@ mod tests {
     }
 
     #[test]
+    fn euler_characteristic_meta_two_body_target_not_double_counted() {
+        // KV5b-F2 (F0031–F0040 regression): the featured cavity cases'
+        // metas encode euler_target = 4 — the generator KNOWS the result is
+        // two genus-0 shells (outer + cavity) and prices in the TOTAL χ.
+        // The TH1 per-shell adjustment must not add the second shell AGAIN
+        // (4 + 2·(2−1) = 6): a 2-shell χ=4 mesh against euler_target=4 is
+        // CORRECT.
+        let mut mesh = empty_mesh();
+        push_plain_cube(&mut mesh, [0.0, 0.0, 0.0]);
+        push_plain_cube(&mut mesh, [3.0, 0.0, 0.0]);
+        finish_single_range(&mut mesh);
+        let verdict = check_mesh_euler_characteristic(&mesh, 4);
+        assert!(
+            verdict.passed,
+            "meta-encoded 2-body target must not be double-counted: {}",
+            verdict.detail
+        );
+        assert_eq!(verdict.value, Some(4.0));
+    }
+
+    #[test]
+    fn euler_characteristic_meta_two_body_target_missing_shell_fails() {
+        // Strictness: euler_target = 4 promises TWO shells. A single χ=2
+        // shell (e.g. the cavity cut silently failed) must NOT pass — the
+        // meta-encoded shell count is a floor, not a hint.
+        let mesh = make_unit_cube_mesh();
+        let verdict = check_mesh_euler_characteristic(&mesh, 4);
+        assert!(
+            !verdict.passed,
+            "single shell against a 2-body euler_target must fail: {}",
+            verdict.detail
+        );
+    }
+
+    #[test]
+    fn euler_characteristic_meta_two_body_extra_shell_adds_two() {
+        // An UNPREDICTED extra shell beyond the meta's encoded count still
+        // gets the TH1 +2 allowance: 3 clean shells against euler_target=4
+        // (meta count 2) → expected total 6.
+        let mut mesh = empty_mesh();
+        push_plain_cube(&mut mesh, [0.0, 0.0, 0.0]);
+        push_plain_cube(&mut mesh, [3.0, 0.0, 0.0]);
+        push_plain_cube(&mut mesh, [6.0, 0.0, 0.0]);
+        finish_single_range(&mut mesh);
+        let verdict = check_mesh_euler_characteristic(&mesh, 4);
+        assert!(
+            verdict.passed,
+            "extra unpredicted shell contributes +2: {}",
+            verdict.detail
+        );
+        assert_eq!(verdict.value, Some(6.0));
+    }
+
+    #[test]
+    fn euler_characteristic_meta_two_body_with_defect_fails() {
+        // A 2-shell mesh against euler_target=4 whose χ is NOT 4 still fails.
+        let mut mesh = empty_mesh();
+        push_plain_cube(&mut mesh, [0.0, 0.0, 0.0]);
+        push_plain_cube(&mut mesh, [3.0, 0.0, 0.0]);
+        mesh.indices.truncate(mesh.indices.len() - 3); // hole in shell 2
+        finish_single_range(&mut mesh);
+        let verdict = check_mesh_euler_characteristic(&mesh, 4);
+        assert!(
+            !verdict.passed,
+            "defective 2-shell mesh must fail against euler_target=4: {}",
+            verdict.detail
+        );
+    }
+
+    #[test]
     fn euler_characteristic_two_shell_mesh_with_defect_still_fails() {
         // Strictness: a 2-shell mesh whose χ is NOT 2 per shell still fails.
         let mut mesh = empty_mesh();

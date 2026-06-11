@@ -653,16 +653,23 @@ fn smoke_corpus_boundary_categories() {
             "F0086",
             Category::Unsupported(UnsupportedReason::CoplanarBoolean),
         ),
-        // PR-KV5b movers, pinned at their measured boundaries:
-        // F0031 (and the F0032–F0040 family): the curved boolean SUCCEEDS
-        // and the mesh is internally consistent (2 closed genus-0 shells,
-        // χ = 4), but the euler oracle expects 6: the case meta's
-        // euler_target = 4 already encodes the generator's 2-body
-        // expectation, and the PR-TH1 per-shell adjustment
-        // (+2·(shells−1)) adds the second shell AGAIN. A test-harness
-        // oracle/meta convention conflict (KV5b-F2), surfaced here and
-        // deferred to its own slice — NOT a kernel-v2 defect.
-        ("F0031", Category::SupportedWrong),
+        // PR-TH2 (KV5b-F2 resolved): the enclosed-cavity families
+        // F0031–F0035 (box-minus-cyl) and F0036–F0040 (cyl-minus-box)
+        // succeed end-to-end: 2 closed genus-0 shells (outer + cavity),
+        // χ = 4 — exactly what their metas' euler_target = 4 encodes.
+        // The PR-TH1 per-shell adjustment used to add the second shell
+        // AGAIN (expected 6); the oracle now decodes the meta's shell
+        // count from euler_target and only credits shells BEYOND it.
+        ("F0031", Category::SupportedCorrect),
+        ("F0032", Category::SupportedCorrect),
+        ("F0033", Category::SupportedCorrect),
+        ("F0034", Category::SupportedCorrect),
+        ("F0035", Category::SupportedCorrect),
+        ("F0036", Category::SupportedCorrect),
+        ("F0037", Category::SupportedCorrect),
+        ("F0038", Category::SupportedCorrect),
+        ("F0039", Category::SupportedCorrect),
+        ("F0040", Category::SupportedCorrect),
         // R0006 / F0044: cylinder-boolean cases passing the FULL oracle
         // set end-to-end — the first fully-correct curved corpus cases.
         ("R0006", Category::SupportedCorrect),
