@@ -144,14 +144,14 @@ impl WaffleKernel {
     /// Access a stored solid by handle ID (for internal crate tests).
     #[cfg(test)]
     pub(crate) fn get_solid(&self, handle: &KernelSolidHandle) -> Option<&WaffleSolid> {
-        self.solids.get(&handle.id())
+        self.solids.get(&handle.raw())
     }
 
     /// Crate-internal accessor for a stored solid. PR9 instrumentation;
     /// used by `crate::diagnostics::yang_oracle_run`. Not part of the
     /// stable kernel API.
     pub(crate) fn solid_by_handle(&self, handle: &KernelSolidHandle) -> Option<&WaffleSolid> {
-        self.solids.get(&handle.id())
+        self.solids.get(&handle.raw())
     }
 
     /// Diagnostic view of a stored solid's B-Rep arena and face_map.
@@ -167,7 +167,7 @@ impl WaffleKernel {
         handle: &KernelSolidHandle,
     ) -> Option<(&TopoArena, &BTreeMap<u64, FaceIdx>)> {
         self.solids
-            .get(&handle.id())
+            .get(&handle.raw())
             .map(|ws| (&ws.arena, &ws.face_map))
     }
 
@@ -179,7 +179,7 @@ impl WaffleKernel {
         &self,
         handle: &KernelSolidHandle,
     ) -> Option<&BTreeMap<EdgeIdx, CurveGeom>> {
-        self.solids.get(&handle.id()).map(|ws| &ws.edge_geometry)
+        self.solids.get(&handle.raw()).map(|ws| &ws.edge_geometry)
     }
 
     fn alloc_id(&mut self) -> u64 {
@@ -416,7 +416,7 @@ impl WaffleKernel {
             },
         );
 
-        Ok(KernelSolidHandle(handle_id))
+        Ok(KernelSolidHandle::from_raw(handle_id))
     }
 
     /// Create a right circular cone primitive.
@@ -673,7 +673,7 @@ impl WaffleKernel {
             },
         );
 
-        Ok(KernelSolidHandle(handle_id))
+        Ok(KernelSolidHandle::from_raw(handle_id))
     }
 
     /// Create a torus primitive with quad-grid B-Rep decomposition.
@@ -969,7 +969,7 @@ impl WaffleKernel {
             },
         );
 
-        Ok(KernelSolidHandle(handle_id))
+        Ok(KernelSolidHandle::from_raw(handle_id))
     }
 
     /// Check if all faces in a solid have planar geometry.
@@ -1036,15 +1036,15 @@ impl WaffleKernel {
     ) -> Result<KernelSolidHandle, KernelError> {
         let solid_a = self
             .solids
-            .get(&a.id())
+            .get(&a.raw())
             .ok_or(KernelError::EntityNotFound {
-                id: KernelId(a.id()),
+                id: KernelId(a.raw()),
             })?;
         let solid_b = self
             .solids
-            .get(&b.id())
+            .get(&b.raw())
             .ok_or(KernelError::EntityNotFound {
-                id: KernelId(b.id()),
+                id: KernelId(b.raw()),
             })?;
 
         let mut next_id = self.next_id;
@@ -1366,7 +1366,7 @@ impl WaffleKernel {
             },
         );
 
-        Ok(KernelSolidHandle(handle_id))
+        Ok(KernelSolidHandle::from_raw(handle_id))
     }
 
     /// Revolve a polygon profile around an axis to create a solid with analytic surfaces.
@@ -1792,7 +1792,7 @@ impl WaffleKernel {
             },
         );
 
-        Ok(KernelSolidHandle(handle_id))
+        Ok(KernelSolidHandle::from_raw(handle_id))
     }
 
     /// Build a true cylinder B-Rep: 2 vertices, 3 edges, 3 faces.
@@ -1994,7 +1994,7 @@ impl WaffleKernel {
             },
         );
 
-        Ok(KernelSolidHandle(handle_id))
+        Ok(KernelSolidHandle::from_raw(handle_id))
     }
 }
 
@@ -2464,7 +2464,7 @@ impl Kernel for WaffleKernel {
             },
         );
 
-        Ok(KernelSolidHandle(handle_id))
+        Ok(KernelSolidHandle::from_raw(handle_id))
     }
 
     fn tessellate(
@@ -2474,9 +2474,9 @@ impl Kernel for WaffleKernel {
     ) -> Result<RenderMesh, KernelError> {
         let ws = self
             .solids
-            .get(&solid.id())
+            .get(&solid.raw())
             .ok_or(KernelError::EntityNotFound {
-                id: KernelId(solid.id()),
+                id: KernelId(solid.raw()),
             })?;
 
         // Return pre-computed render mesh from Yang pipeline if available.
@@ -2508,9 +2508,9 @@ impl Kernel for WaffleKernel {
     ) -> Result<EdgeRenderData, KernelError> {
         let ws = self
             .solids
-            .get(&solid.id())
+            .get(&solid.raw())
             .ok_or(KernelError::EntityNotFound {
-                id: KernelId(solid.id()),
+                id: KernelId(solid.raw()),
             })?;
 
         tessellation::extract_edges(
@@ -2629,21 +2629,21 @@ impl Kernel for WaffleKernel {
 impl KernelIntrospect for WaffleKernel {
     fn list_faces(&self, solid: &KernelSolidHandle) -> Vec<KernelId> {
         self.solids
-            .get(&solid.id())
+            .get(&solid.raw())
             .map(|ws| ws.face_map.keys().map(|&k| KernelId(k)).collect())
             .unwrap_or_default()
     }
 
     fn list_edges(&self, solid: &KernelSolidHandle) -> Vec<KernelId> {
         self.solids
-            .get(&solid.id())
+            .get(&solid.raw())
             .map(|ws| ws.edge_map.keys().map(|&k| KernelId(k)).collect())
             .unwrap_or_default()
     }
 
     fn list_vertices(&self, solid: &KernelSolidHandle) -> Vec<KernelId> {
         self.solids
-            .get(&solid.id())
+            .get(&solid.raw())
             .map(|ws| ws.vertex_map.keys().map(|&k| KernelId(k)).collect())
             .unwrap_or_default()
     }
@@ -2731,7 +2731,7 @@ impl KernelIntrospect for WaffleKernel {
         solid: &KernelSolidHandle,
         kind: TopoKind,
     ) -> Vec<(KernelId, TopoSignature)> {
-        let ws = match self.solids.get(&solid.id()) {
+        let ws = match self.solids.get(&solid.raw()) {
             Some(ws) => ws,
             None => return vec![],
         };

@@ -7,7 +7,7 @@ use crate::assay::catalog::{AssayRecipe, BoolOp, Profile};
 use crate::assay::scoring::ExecutionResult;
 
 use crate::workflow::ModelBuilder;
-use kernel::types::RenderMesh;
+use waffle_types::kernel::RenderMesh;
 
 /// Execute a recipe against a ModelBuilder and return measured results.
 pub fn execute_recipe(

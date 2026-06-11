@@ -547,7 +547,7 @@ fn e4_each_edge_has_2_distinct_faces() {
 #[test]
 fn e5_introspect_empty_for_invalid_handle() {
     let k = WaffleKernel::new();
-    let handle = KernelSolidHandle(99999);
+    let handle = KernelSolidHandle::from_raw(99999);
     assert!(k.list_faces(&handle).is_empty());
     assert!(k.list_edges(&handle).is_empty());
     assert!(k.list_vertices(&handle).is_empty());
@@ -1246,7 +1246,7 @@ fn i5_intersect_bbox() {
 #[test]
 fn j1_invalid_handle_errors() {
     let (mut k, a, _b) = make_overlapping_boxes();
-    let bad = KernelSolidHandle(99999);
+    let bad = KernelSolidHandle::from_raw(99999);
     let err_b = k.boolean_union(&a, &bad).unwrap_err();
     assert!(
         matches!(err_b, KernelError::EntityNotFound { .. }),
@@ -5692,7 +5692,7 @@ fn t2_conical_face_geometry_consistency() {
     let (k, solid) = make_revolve_triangle(2.0, 0.0, 4.0, 3.0, 2.0, 3.0, 180.0);
 
     // Access kernel internals to check cone geometry
-    let ws = k.solids.get(&solid.0).expect("solid should exist");
+    let ws = k.solids.get(&solid.raw()).expect("solid should exist");
     let mut found_cone = false;
     for geom in ws.face_geometry.values() {
         if let SurfaceGeom::Conical(cone) = geom {
@@ -5787,7 +5787,7 @@ fn v1_subtract_surface_geom_normal_agrees() {
     let (mut k, a, b) = make_overlapping_boxes();
     let result = k.boolean_subtract(&a, &b).expect("subtract should succeed");
 
-    let ws = k.solids.get(&result.0).expect("solid should exist");
+    let ws = k.solids.get(&result.raw()).expect("solid should exist");
     let mut checked = 0;
     for (&face_idx, geom) in &ws.face_geometry {
         if let SurfaceGeom::Planar(_) = geom {
@@ -6320,7 +6320,7 @@ fn z3_euler_formula_after_boolean() {
     // After a box-box union, V - E + F = 2 for genus-0 solid.
     let (mut k, a, b) = make_overlapping_boxes();
     let u = k.boolean_union(&a, &b).expect("union");
-    let solid = k.solids.get(&u.id()).expect("solid exists");
+    let solid = k.solids.get(&u.raw()).expect("solid exists");
     let arena = &solid.arena;
 
     let v = arena.vertices.len();
@@ -7045,7 +7045,7 @@ fn i2_polygon_boolean_produces_circular_edges() {
     .expect("subtract");
 
     // Count edge types in the result
-    let solid = k.solids.get(&result.id()).expect("solid");
+    let solid = k.solids.get(&result.raw()).expect("solid");
     let mut circular_count = 0;
     let mut linear_count = 0;
     for geom in solid.edge_geometry.values() {
@@ -10627,7 +10627,7 @@ fn wt4_watertight_three_box_chained_union() {
 /// intersection boundary. If no arcs exist, the bounded path is already
 /// used, making the test meaningless.
 fn assert_has_arc_edges(k: &WaffleKernel, solid: &KernelSolidHandle) {
-    let ws = k.solids.get(&solid.id()).expect("solid must exist");
+    let ws = k.solids.get(&solid.raw()).expect("solid must exist");
     let arc_count = ws
         .edge_geometry
         .values()
@@ -12636,7 +12636,7 @@ fn chained_subtract_two_disjoint_cuts_volume() {
 
 /// Helper: count faces with SurfaceGeom::Spherical in a solid.
 fn count_spherical_faces(k: &WaffleKernel, solid: &KernelSolidHandle) -> usize {
-    let ws = k.solids.get(&solid.id()).expect("solid must exist");
+    let ws = k.solids.get(&solid.raw()).expect("solid must exist");
     ws.face_geometry
         .values()
         .filter(|g| matches!(g, SurfaceGeom::Spherical(_)))
@@ -12645,7 +12645,7 @@ fn count_spherical_faces(k: &WaffleKernel, solid: &KernelSolidHandle) -> usize {
 
 /// Helper: count faces with SurfaceGeom::Planar in a solid.
 fn count_planar_faces(k: &WaffleKernel, solid: &KernelSolidHandle) -> usize {
-    let ws = k.solids.get(&solid.id()).expect("solid must exist");
+    let ws = k.solids.get(&solid.raw()).expect("solid must exist");
     ws.face_geometry
         .values()
         .filter(|g| matches!(g, SurfaceGeom::Planar(_)))
@@ -12656,7 +12656,7 @@ fn count_planar_faces(k: &WaffleKernel, solid: &KernelSolidHandle) -> usize {
 /// When the SSI dispatch path is used, the result should have proper
 /// analytical B-Rep geometry, not polygon approximation.
 fn assert_not_polygon_soup(k: &WaffleKernel, solid: &KernelSolidHandle) {
-    let ws = k.solids.get(&solid.id()).expect("solid must exist");
+    let ws = k.solids.get(&solid.raw()).expect("solid must exist");
     assert!(
         !ws.is_polygon_soup,
         "SSI dispatch result must NOT be polygon soup (is_polygon_soup should be false)"
@@ -13389,7 +13389,7 @@ fn arc_segment_extrude_produces_cylindrical_faces() {
         .expect("extrude_face");
 
     // Check that the solid has cylindrical faces
-    let ws = k.solids.get(&solid.id()).expect("solid exists");
+    let ws = k.solids.get(&solid.raw()).expect("solid exists");
     let mut n_cylindrical = 0;
     let mut n_planar = 0;
     for geom in ws.face_geometry.values() {
@@ -13987,7 +13987,7 @@ fn test_stacked_box_tessellation_watertight() {
     // SSI. Marking the result as polygon_soup forces the fan tessellation
     // path which relies on fragile post-hoc welding heuristics instead of
     // the bounded path that is watertight by construction.
-    let ws = k.solids.get(&union.id())
+    let ws = k.solids.get(&union.raw())
         .expect("union solid must exist in kernel");
     assert!(
         !ws.is_polygon_soup,
@@ -14044,7 +14044,7 @@ fn test_overlapping_box_union_not_polygon_soup() {
     let (mut k, a, b) = make_overlapping_boxes();
     let result = k.boolean_union(&a, &b).expect("union should succeed");
 
-    let ws = k.solids.get(&result.id())
+    let ws = k.solids.get(&result.raw())
         .expect("union solid must exist in kernel");
     assert!(
         !ws.is_polygon_soup,
@@ -14075,7 +14075,7 @@ fn test_f0001_diagnostic_path() {
     {
         let face_ids_a = k.list_faces(&box_a);
         assert_eq!(face_ids_a.len(), 6, "Box A must have 6 faces");
-        let ws_a = k.solids.get(&box_a.id()).expect("box_a solid");
+        let ws_a = k.solids.get(&box_a.raw()).expect("box_a solid");
         assert_eq!(ws_a.face_geometry.len(), ws_a.face_map.len(),
             "Box A face_geometry and face_map must have equal entries");
         assert!(WaffleKernel::all_faces_planar(ws_a),
@@ -14098,8 +14098,8 @@ fn test_f0001_diagnostic_path() {
 
     // ── Validate both solids are planar primitives (planar-planar dispatch) ──
     {
-        let ws_a = k.solids.get(&box_a.id()).expect("box_a solid");
-        let ws_b = k.solids.get(&box_b.id()).expect("box_b solid");
+        let ws_a = k.solids.get(&box_a.raw()).expect("box_a solid");
+        let ws_b = k.solids.get(&box_b.raw()).expect("box_b solid");
         assert!(WaffleKernel::all_faces_planar(ws_a), "Box A must be all-planar");
         assert!(WaffleKernel::all_faces_planar(ws_b), "Box B must be all-planar");
         assert!(ws_a.cylinder_params.is_none(), "Box A must not have cylinder params");

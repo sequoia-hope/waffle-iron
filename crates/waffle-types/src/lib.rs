@@ -1,6 +1,7 @@
 pub mod bspline;
 pub mod gear;
 pub mod geom_ref;
+pub mod kernel;
 pub mod profiles;
 pub mod roles;
 pub mod sketch;

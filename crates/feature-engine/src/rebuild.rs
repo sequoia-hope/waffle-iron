@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use kernel::units::TAU_WORK;
 use modeling_ops::{
     execute_boolean, execute_chamfer, execute_extrude, execute_fillet, execute_revolve,
     execute_shell, BooleanKind, OpResult,
 };
 use uuid::Uuid;
+use waffle_types::kernel::units::TAU_WORK;
 
 use crate::resolve::resolve_with_fallback;
 use crate::types::{
@@ -661,8 +661,8 @@ fn resolve_depth(
 /// Project all vertices of a solid onto a direction vector relative to an origin.
 /// Returns the maximum signed projection distance.
 fn compute_solid_extent(
-    introspect: &dyn kernel::KernelIntrospect,
-    solid: &kernel::KernelSolidHandle,
+    introspect: &dyn waffle_types::kernel::KernelIntrospect,
+    solid: &waffle_types::kernel::KernelSolidHandle,
     origin: [f64; 3],
     direction: [f64; 3],
 ) -> f64 {
@@ -750,7 +750,7 @@ fn resolve_reference_position(
 fn find_latest_solid_handle(
     feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
-) -> Result<kernel::KernelSolidHandle, EngineError> {
+) -> Result<waffle_types::kernel::KernelSolidHandle, EngineError> {
     // Get the target feature from the first edge/face reference
     let first_ref = match &feature.operation {
         Operation::Fillet { params } => params.edges.first(),
@@ -805,7 +805,7 @@ fn find_most_recent_solid(
     current_feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
     tree: &FeatureTree,
-) -> Option<kernel::KernelSolidHandle> {
+) -> Option<waffle_types::kernel::KernelSolidHandle> {
     let active = tree.active_features();
     // Walk backwards through features BEFORE the current one
     let current_idx = active
@@ -895,7 +895,7 @@ fn find_sketch_result(
 fn find_solid_handle(
     geom_ref: &waffle_types::GeomRef,
     feature_results: &HashMap<Uuid, OpResult>,
-) -> Result<kernel::KernelSolidHandle, EngineError> {
+) -> Result<waffle_types::kernel::KernelSolidHandle, EngineError> {
     let (feature_id, output_key) = match &geom_ref.anchor {
         waffle_types::Anchor::FeatureOutput {
             feature_id,
@@ -1366,7 +1366,12 @@ mod tests {
             active_index: None,
         };
         let results = HashMap::new();
-        let result = execute_feature(&feature, &mut kernel::MockKernel::new(), &results, &tree);
+        let result = execute_feature(
+            &feature,
+            &mut waffle_types::kernel::MockKernel::new(),
+            &results,
+            &tree,
+        );
         assert!(result.is_ok(), "PointNormal datum plane should succeed");
         assert!(
             result.unwrap().outputs.is_empty(),
@@ -1389,7 +1394,12 @@ mod tests {
         let results = HashMap::new();
 
         // Verify execution succeeds
-        let result = execute_feature(&feature, &mut kernel::MockKernel::new(), &results, &tree);
+        let result = execute_feature(
+            &feature,
+            &mut waffle_types::kernel::MockKernel::new(),
+            &results,
+            &tree,
+        );
         assert!(result.is_ok(), "Offset from built-in should succeed");
 
         // Verify resolution
@@ -1415,7 +1425,12 @@ mod tests {
             active_index: None,
         };
         let results = HashMap::new();
-        let result = execute_feature(&feature, &mut kernel::MockKernel::new(), &results, &tree);
+        let result = execute_feature(
+            &feature,
+            &mut waffle_types::kernel::MockKernel::new(),
+            &results,
+            &tree,
+        );
         assert!(result.is_err(), "Zero normal should fail");
         let err = result.unwrap_err().to_string();
         assert!(
@@ -1440,7 +1455,12 @@ mod tests {
             active_index: None,
         };
         let results = HashMap::new();
-        let result = execute_feature(&feature, &mut kernel::MockKernel::new(), &results, &tree);
+        let result = execute_feature(
+            &feature,
+            &mut waffle_types::kernel::MockKernel::new(),
+            &results,
+            &tree,
+        );
         assert!(result.is_err(), "Missing base plane should fail");
         let err = result.unwrap_err().to_string();
         assert!(
@@ -1547,7 +1567,7 @@ mod tests {
 
         let (tree, extrude_id) = make_sketch_extrude_tree(sketch);
 
-        let mut kb = kernel::MockKernel::new();
+        let mut kb = waffle_types::kernel::MockKernel::new();
         let existing = HashMap::new();
         let state = rebuild(&tree, &mut kb, 0, &existing);
 
@@ -1630,7 +1650,7 @@ mod tests {
 
         let (tree, extrude_id) = make_sketch_extrude_tree(sketch);
 
-        let mut kb = kernel::MockKernel::new();
+        let mut kb = waffle_types::kernel::MockKernel::new();
         let existing = HashMap::new();
         let state = rebuild(&tree, &mut kb, 0, &existing);
 
@@ -1671,7 +1691,7 @@ mod tests {
 
         let (tree, extrude_id) = make_sketch_extrude_tree(sketch);
 
-        let mut kb = kernel::MockKernel::new();
+        let mut kb = waffle_types::kernel::MockKernel::new();
         let existing = HashMap::new();
         let state = rebuild(&tree, &mut kb, 0, &existing);
 
@@ -1724,7 +1744,7 @@ mod tests {
         let mut results = HashMap::new();
         let r1 = execute_feature(
             &first_plane,
-            &mut kernel::MockKernel::new(),
+            &mut waffle_types::kernel::MockKernel::new(),
             &results,
             &tree,
         )

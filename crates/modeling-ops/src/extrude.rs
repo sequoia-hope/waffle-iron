@@ -1,5 +1,5 @@
-use kernel::units::TAU_WORK;
-use kernel::{KernelId, KernelSolidHandle};
+use waffle_types::kernel::units::TAU_WORK;
+use waffle_types::kernel::{KernelId, KernelSolidHandle};
 use waffle_types::{OutputKey, Role, TopoKind};
 
 use crate::diff::{self, TopoSnapshot};
@@ -123,7 +123,7 @@ pub fn execute_symmetric_extrude(
 /// Assign roles for symmetric extrude.
 /// Both end caps get EndCapPositive/EndCapNegative (same as regular extrude).
 fn assign_symmetric_extrude_roles(
-    introspect: &dyn kernel::KernelIntrospect,
+    introspect: &dyn waffle_types::kernel::KernelIntrospect,
     solid: &KernelSolidHandle,
     direction: &[f64; 3],
 ) -> Vec<(KernelId, Role)> {
@@ -133,7 +133,7 @@ fn assign_symmetric_extrude_roles(
 
 /// Assign semantic roles to faces of an extruded solid.
 fn assign_extrude_roles(
-    introspect: &dyn kernel::KernelIntrospect,
+    introspect: &dyn waffle_types::kernel::KernelIntrospect,
     solid: &KernelSolidHandle,
     direction: &[f64; 3],
 ) -> Vec<(KernelId, Role)> {

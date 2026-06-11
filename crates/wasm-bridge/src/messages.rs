@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use feature_engine::types::{FeatureTree, Operation};
-use kernel::{EdgeRenderData, RenderMesh};
+use waffle_types::kernel::{EdgeRenderData, RenderMesh};
 use waffle_types::{
     ClosedProfile, GearParams, GeomRef, SketchConstraint, SketchEntity, SolvedSketch,
 };

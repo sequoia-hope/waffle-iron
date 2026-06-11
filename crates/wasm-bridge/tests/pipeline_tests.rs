@@ -8,8 +8,8 @@
 use std::collections::HashMap;
 
 use feature_engine::types::*;
-use kernel::{Kernel, MockKernel};
 use uuid::Uuid;
+use waffle_types::kernel::{Kernel, MockKernel};
 use waffle_types::*;
 use wasm_bridge::messages::*;
 use wasm_bridge::*;
@@ -182,7 +182,10 @@ fn add_extrude_no_merge(
 }
 
 /// Get the solid handle for a feature from the engine's feature_results.
-fn get_solid_handle(state: &EngineState, feature_id: Uuid) -> kernel::KernelSolidHandle {
+fn get_solid_handle(
+    state: &EngineState,
+    feature_id: Uuid,
+) -> waffle_types::kernel::KernelSolidHandle {
     let result = state
         .engine
         .get_result(feature_id)
@@ -200,7 +203,7 @@ fn tessellate_feature(
     state: &EngineState,
     kernel: &mut MockKernel,
     feature_id: Uuid,
-) -> kernel::RenderMesh {
+) -> waffle_types::kernel::RenderMesh {
     let handle = get_solid_handle(state, feature_id);
     kernel
         .tessellate(&handle, 0.1)
@@ -223,7 +226,7 @@ fn assert_has_solid(state: &EngineState, feature_id: Uuid) {
 }
 
 /// Compute the axis-aligned bounding box of a mesh. Returns (min, max).
-fn mesh_bounding_box(mesh: &kernel::RenderMesh) -> ([f32; 3], [f32; 3]) {
+fn mesh_bounding_box(mesh: &waffle_types::kernel::RenderMesh) -> ([f32; 3], [f32; 3]) {
     assert!(
         mesh.vertices.len() >= 3,
         "Mesh must have at least one vertex"
@@ -1173,7 +1176,7 @@ fn all_face_range_ids_in_role_assignments() {
 
 #[test]
 fn role_assignments_match_introspect_ids() {
-    use kernel::KernelIntrospect;
+    use waffle_types::kernel::KernelIntrospect;
 
     let mut state = EngineState::new();
     let mut kernel = MockKernel::new();

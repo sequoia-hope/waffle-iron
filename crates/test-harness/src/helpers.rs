@@ -2,8 +2,8 @@
 
 use std::collections::HashMap;
 
-use kernel::types::RenderMesh;
 use uuid::Uuid;
+use waffle_types::kernel::RenderMesh;
 use waffle_types::Role;
 use waffle_types::*;
 

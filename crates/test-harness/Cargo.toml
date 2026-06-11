@@ -10,7 +10,7 @@ cad-primitives = { path = "../cad-primitives" }
 feature-engine = { path = "../feature-engine" }
 modeling-ops = { path = "../modeling-ops" }
 wasm-bridge = { path = "../wasm-bridge" }
-waffle-types = { path = "../waffle-types" }
+waffle-types = { path = "../waffle-types", features = ["mock-kernel"] }
 file-format = { path = "../file-format" }
 uuid = { version = "1", features = ["v4"] }
 serde = { version = "1", features = ["derive"] }

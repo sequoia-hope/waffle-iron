@@ -37,3 +37,6 @@ web-sys = { version = "0.3", features = ["console"] }
 console_error_panic_hook = "0.1"
 uuid = { version = "1", features = ["v4", "serde", "js"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }
+
+[dev-dependencies]
+waffle-types = { path = "../waffle-types", features = ["mock-kernel"] }

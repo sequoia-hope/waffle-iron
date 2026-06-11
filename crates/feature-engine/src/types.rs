@@ -215,7 +215,7 @@ pub enum EngineError {
     ResolutionFailed { reason: String },
 
     #[error("kernel error: {0}")]
-    KernelError(#[from] kernel::KernelError),
+    KernelError(#[from] waffle_types::kernel::KernelError),
 
     #[error("operation error: {0}")]
     OpError(#[from] modeling_ops::OpError),

@@ -8,8 +8,8 @@ use wasm_bindgen::prelude::*;
 use crate::dispatch;
 use crate::engine_state::EngineState;
 use crate::messages::{EngineToUi, UiToEngine};
-use kernel::{EdgeRenderData, RenderMesh};
 use modeling_ops::KernelBundle;
+use waffle_types::kernel::{EdgeRenderData, RenderMesh};
 use waffle_types::{Anchor, GeomRef, ResolvePolicy, Selector, TopoKind, TopoSignature};
 
 // Global engine state — single-threaded in the web worker.
@@ -20,7 +20,7 @@ thread_local! {
 /// Holds the engine state and kernel for the WASM module.
 struct WasmEngine {
     state: EngineState,
-    kernel: kernel::WaffleKernel,
+    kernel: ::kernel::WaffleKernel,
 }
 
 /// Initialize the WASM engine. Must be called once before any other function.
@@ -33,7 +33,7 @@ pub fn init() {
     ENGINE_STATE.with(|cell| {
         *cell.borrow_mut() = Some(WasmEngine {
             state: EngineState::new(),
-            kernel: kernel::WaffleKernel::new(),
+            kernel: ::kernel::WaffleKernel::new(),
         });
     });
 }

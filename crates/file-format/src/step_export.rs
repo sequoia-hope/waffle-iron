@@ -1,5 +1,6 @@
+use ::kernel::WaffleKernel;
 use feature_engine::types::FeatureTree;
-use kernel::{Kernel, WaffleKernel};
+use waffle_types::kernel::Kernel;
 use waffle_types::OutputKey;
 
 use crate::errors::ExportError;

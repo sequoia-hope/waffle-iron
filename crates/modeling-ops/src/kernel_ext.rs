@@ -1,4 +1,4 @@
-use kernel::{Kernel, KernelIntrospect};
+use waffle_types::kernel::{Kernel, KernelIntrospect};
 
 /// Combined trait for operations that need both mutable Kernel access
 /// and read-only KernelIntrospect access on the same object.

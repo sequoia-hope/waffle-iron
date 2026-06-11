@@ -3,9 +3,9 @@
 //! Tests exercise gear_profile() through extrude and boolean pipelines.
 //! Some tests may fail initially — the goal is to have red tests in place.
 
-use kernel::types::RenderMesh;
 use test_harness::helpers::{gear_profile, mesh_volume};
 use test_harness::ModelBuilder;
+use waffle_types::kernel::RenderMesh;
 use waffle_types::SketchEntity;
 
 /// Build a gear body from gear_profile and extrude it.

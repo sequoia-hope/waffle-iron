@@ -1,9 +1,9 @@
 //! Tests for verification oracles.
 
-use kernel::types::{FaceRange, RenderMesh};
-use kernel::KernelId;
 use test_harness::oracle::*;
 use test_harness::ModelBuilder;
+use waffle_types::kernel::KernelId;
+use waffle_types::kernel::{FaceRange, RenderMesh};
 
 /// Build a MockKernel box and get its solid handle + mesh for testing.
 fn build_mock_box() -> (ModelBuilder, String) {

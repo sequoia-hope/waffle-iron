@@ -5,12 +5,13 @@
 
 use std::collections::HashMap;
 
+use ::kernel::WaffleKernel;
 use feature_engine::types::*;
-use kernel::types::{KernelSolidHandle, RenderMesh};
-use kernel::{MockKernel, WaffleKernel};
 use modeling_ops::types::OpResult;
 use modeling_ops::KernelBundle;
 use uuid::Uuid;
+use waffle_types::kernel::MockKernel;
+use waffle_types::kernel::{KernelSolidHandle, RenderMesh};
 use waffle_types::Role;
 use waffle_types::*;
 use wasm_bridge::messages::*;
@@ -1144,7 +1145,7 @@ impl ModelBuilder {
     pub fn face_signatures(
         &self,
         name: &str,
-    ) -> Result<Vec<(kernel::KernelId, TopoSignature)>, HarnessError> {
+    ) -> Result<Vec<(waffle_types::kernel::KernelId, TopoSignature)>, HarnessError> {
         let handle = self.solid_handle(name)?;
         let introspect = self.kernel.as_introspect();
         Ok(introspect.compute_all_signatures(&handle, TopoKind::Face))

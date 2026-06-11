@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use kernel::units::TAU_WORK;
-use kernel::{KernelId, KernelIntrospect, KernelSolidHandle};
+use waffle_types::kernel::units::TAU_WORK;
+use waffle_types::kernel::{KernelId, KernelIntrospect, KernelSolidHandle};
 use waffle_types::{TopoKind, TopoSignature};
 
 use crate::types::EntityRecord;

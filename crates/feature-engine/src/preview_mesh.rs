@@ -1,6 +1,6 @@
-use kernel::units::TAU_WORK;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use waffle_types::kernel::units::TAU_WORK;
 
 /// A lightweight triangle mesh for preview/thumbnail rendering.
 #[derive(Debug, Clone, Serialize, Deserialize)]

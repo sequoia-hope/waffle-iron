@@ -1,4 +1,4 @@
-use kernel::RenderMesh;
+use waffle_types::kernel::RenderMesh;
 
 /// Convert a `RenderMesh` to binary STL format.
 ///

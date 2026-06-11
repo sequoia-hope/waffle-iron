@@ -5,12 +5,12 @@
 
 use std::collections::HashMap;
 
-use kernel::types::RenderMesh;
-use kernel::units::{
+use modeling_ops::types::OpResult;
+use waffle_types::kernel::units::{
     TAU_COINCIDENT, TAU_NORMALIZE_SQ, TAU_TESS_GRID_FACTOR, TAU_TESS_GRID_MIN, TAU_WELD_MAX,
 };
-use kernel::{KernelIntrospect, KernelSolidHandle};
-use modeling_ops::types::OpResult;
+use waffle_types::kernel::RenderMesh;
+use waffle_types::kernel::{KernelIntrospect, KernelSolidHandle};
 use waffle_types::Role;
 
 /// The result of a single oracle check.
@@ -1703,8 +1703,8 @@ pub fn run_topology_checks(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kernel::types::{FaceRange, RenderMesh};
-    use kernel::KernelId;
+    use waffle_types::kernel::KernelId;
+    use waffle_types::kernel::{FaceRange, RenderMesh};
 
     /// Build a unit cube mesh (8 corners, 12 triangles, per-face vertices).
     /// All vertices lie exactly on the AABB faces [0,0,0]→[1,1,1].

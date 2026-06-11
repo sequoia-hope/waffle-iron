@@ -1,6 +1,6 @@
 use feature_engine::types::*;
-use kernel::MockKernel;
 use uuid::Uuid;
+use waffle_types::kernel::MockKernel;
 use waffle_types::*;
 use wasm_bridge::messages::*;
 use wasm_bridge::*;

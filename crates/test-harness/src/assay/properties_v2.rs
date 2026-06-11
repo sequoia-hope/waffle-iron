@@ -10,7 +10,7 @@ use i_overlay::float::single::SingleFloatOverlay;
 use crate::helpers::mesh_volume;
 use crate::oracle;
 use crate::workflow::ModelBuilder;
-use kernel::types::RenderMesh;
+use waffle_types::kernel::RenderMesh;
 
 use super::properties::PropertyResult;
 use super::regions::{signed_area, ClosedRegion};

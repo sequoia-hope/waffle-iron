@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-kernel = { path = "../kernel" }
 waffle-types = { path = "../waffle-types" }
 uuid = { version = "1", features = ["v4", "serde"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "1"
+
+[dev-dependencies]
+waffle-types = { path = "../waffle-types", features = ["mock-kernel"] }

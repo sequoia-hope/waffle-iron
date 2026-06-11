@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use kernel::MockKernel;
-use kernel::{Kernel, KernelId, KernelIntrospect};
 use modeling_ops::boolean::{execute_boolean, BooleanKind};
 use modeling_ops::chamfer::execute_chamfer;
 use modeling_ops::diff::{self, signature_similarity};
@@ -10,6 +8,8 @@ use modeling_ops::fillet::execute_fillet;
 use modeling_ops::revolve::execute_revolve;
 use modeling_ops::shell::execute_shell;
 use modeling_ops::types::OpError;
+use waffle_types::kernel::MockKernel;
+use waffle_types::kernel::{Kernel, KernelId, KernelIntrospect};
 use waffle_types::{ClosedProfile, OutputKey, Role, TopoKind, TopoSignature};
 
 /// Helper: create a face from a rectangular profile.

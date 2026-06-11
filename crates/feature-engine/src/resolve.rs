@@ -1,6 +1,6 @@
-use kernel::KernelId;
 use modeling_ops::OpResult;
 use uuid::Uuid;
+use waffle_types::kernel::KernelId;
 use waffle_types::{
     Filter, GeomRef, ResolvePolicy, Role, Selector, TieBreak, TopoKind, TopoQuery, TopoSignature,
 };
@@ -402,8 +402,8 @@ fn resolve_by_signature(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kernel::KernelId;
     use modeling_ops::{Diagnostics, EntityRecord, OpResult, Provenance};
+    use waffle_types::kernel::KernelId;
     use waffle_types::{Filter, TieBreak, TopoKind, TopoQuery, TopoSignature};
 
     fn make_face(

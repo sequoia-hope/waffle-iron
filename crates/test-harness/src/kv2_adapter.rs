@@ -1,4 +1,4 @@
-//! `KernelV2Adapter` — legacy `kernel::Kernel` + `kernel::KernelIntrospect`
+//! `KernelV2Adapter` — legacy `waffle_types::kernel::Kernel` + `waffle_types::kernel::KernelIntrospect`
 //! over a kernel-v2 arena (PR-KV4, Phase 4a EXIT).
 //!
 //! ## Purpose
@@ -52,12 +52,12 @@
 use std::collections::{BTreeSet, HashMap};
 
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
-use kernel::types::{
+use kernel_v2::{BrepArena, FaceId, HalfEdgeId, KernelV2Error, SolidId, Surface, VertexId};
+use waffle_types::kernel::{
     ClosedProfile, EdgeRange, EdgeRenderData, FaceRange, KernelError, KernelId, KernelSolidHandle,
     RenderMesh, TopoKind, TopoSignature,
 };
-use kernel::{Kernel, KernelIntrospect};
-use kernel_v2::{BrepArena, FaceId, HalfEdgeId, KernelV2Error, SolidId, Surface, VertexId};
+use waffle_types::kernel::{Kernel, KernelIntrospect};
 
 // ── KernelId tag encoding ──────────────────────────────────────────────────
 
@@ -841,7 +841,7 @@ mod tests {
             arc_segments: vec![],
         };
         let mut spline = base.clone();
-        spline.spline_segments = vec![kernel::types::SplineSegment {
+        spline.spline_segments = vec![waffle_types::kernel::SplineSegment {
             start_point_index: 0,
             end_point_index: 1,
             control_points: vec![(0.0, 0.0), (1.0, 0.5), (2.0, 0.0)],
@@ -916,7 +916,7 @@ mod tests {
             entity_ids: vec![7],
             is_outer: true,
             vertex_ids: vec![],
-            circle: Some(kernel::types::CircleProfile {
+            circle: Some(waffle_types::kernel::CircleProfile {
                 center_u: center.0,
                 center_v: center.1,
                 radius,
