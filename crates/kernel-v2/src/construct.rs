@@ -1,7 +1,11 @@
-//! Planar primitive constructors over the Euler-operator arena (PR-KV2).
+//! Primitive constructors over the B-Rep arena (PR-KV2 planar; PR-KV5a
+//! adds circle profiles → right circular cylinders).
 //!
-//! Two constructors, both pure Euler-operator sequences (no raw arena
-//! mutation), both validated loudly:
+//! Two public constructors. On polygon profiles both are pure
+//! Euler-operator sequences (no raw arena mutation); on circle profiles
+//! both dispatch to direct assemblers ([`extrude_circle`],
+//! [`circle_lamina`] — justification on `extrude_circle`). All paths are
+//! validated loudly:
 //!
 //! - [`make_face_from_profile`] — a **lamina**: two opposite-normal faces
 //!   sharing the profile's boundary edges (Stroud 2006 §3.4 / fig. 3.9's
@@ -41,7 +45,10 @@
 //! masked. As defense in depth, both constructors run `validate_solid` on
 //! the finished solid and propagate its verdict.
 
-use crate::arena::{BrepArena, FaceId, HalfEdgeId, LoopId, ShellId, SolidId};
+use crate::arena::{
+    BrepArena, Curve, Face, FaceId, HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId, LoopKind,
+    Plane, Shell, ShellId, Solid, SolidId, Surface, UnitVector3, Vertex, VertexId,
+};
 use crate::error::KernelV2Error;
 use crate::euler::{kemr, kfmrh, mef, mev, mev_lone, mvfs};
 use crate::profile::{cross, Profile, ProfileRegion};
@@ -108,12 +115,11 @@ pub fn make_face_from_profile(
     arena: &mut BrepArena,
     profile: &Profile,
 ) -> Result<LaminaResult, KernelV2Error> {
-    let ProfileRegion::Polygon { outer, holes } = profile.region() else {
-        // A circular lamina (zero-height disk sheet) has no consumer; the
-        // circle vocabulary exists for `extrude` → cylinder (PR-KV5a).
-        return Err(KernelV2Error::NotImplemented(
-            "make_face_from_profile on a circle profile (no consumer; use extrude)",
-        ));
+    let (outer, holes) = match profile.region() {
+        ProfileRegion::Circle { center, radius } => {
+            return circle_lamina(arena, profile, *center, *radius);
+        }
+        ProfileRegion::Polygon { outer, holes } => (outer, holes),
     };
     // Outer boundary, CCW as stored ⇒ front face normal +normalize(u × v).
     let outer3: Vec<Point3> = outer.iter().map(|&p| profile.embed(p)).collect();
@@ -242,8 +248,37 @@ pub fn extrude(
 
 /// Extrude a circle profile into a right circular cylinder (PR-KV5a).
 ///
-/// Direct arena assembler (see module docs, "The cylinder assembler") —
-/// stubbed in the RED commit.
+/// ## Why a direct assembler, not an Euler-operator sequence
+///
+/// The Euler operators create `LineSegment` half-edges and derive face
+/// planes from Newell normals of polygonal walks; a closed circle edge (a
+/// self-loop half-edge pair) and a `Cylinder` surface are outside that
+/// operator vocabulary — no sequence from Stroud's operator table lands on
+/// this topology without first inventing curved operator variants that
+/// would have exactly one caller. Per the KV3 `from_yang_brep` precedent,
+/// the safety obligation is discharged by full `validate_solid` at exit
+/// (the assembled arena is checked against every invariant — twin pairing,
+/// curve-twin consistency, vertex fans, curved orientation rules,
+/// Euler–Poincaré), not by the mutation path.
+///
+/// ## Topology (arena module docs, "Closed curved edges")
+///
+/// Stroud 2006 §3.1.4 single-fake-edge representation / yang-rs M5 fixture
+/// topology: 2 seam vertices, 3 edges (two vertex-anchored closed rim
+/// circles + one straight seam ruling), 3 faces. V−E+F−R = 2 = 2(S−G).
+///
+/// ## Geometry and orientation
+///
+/// The sweep axis is `a = ±n̂` (the profile plane's unit normal, signed by
+/// the direction's normal component): the oblique gate has already
+/// established `|d̂ × n̂| ≤ CIRCLE_EXTRUDE_MAX_AXIS_SINE`, and a right
+/// cylinder is BY DEFINITION swept along its base normal — snapping to
+/// `±n̂` keeps the rims exactly in the cap planes instead of carrying a
+/// sub-1e-9 elliptic perturbation. Outward orientation: base cap normal
+/// `−a`, top cap `+a`, lateral radially outward; the rim circle half-edges'
+/// directional normals follow the conventions on [`crate::arena::Curve`]
+/// (cap rim CCW around the cap's outward normal; each lateral rim's
+/// traversal axis points toward the opposite rim).
 #[allow(clippy::too_many_arguments)]
 fn extrude_circle(
     arena: &mut BrepArena,
@@ -255,8 +290,251 @@ fn extrude_circle(
     cosine: f64,
     distance: f64,
 ) -> Result<ExtrudeResult, KernelV2Error> {
-    let _ = (arena, profile, center, radius, d, d_len, cosine, distance);
-    Err(KernelV2Error::NotImplemented("PR-KV5a extrude_circle"))
+    // ---- oblique gate (still pre-mutation) --------------------------------
+    let n_unit = profile.unit_normal();
+    let dn = [d[0] / d_len, d[1] / d_len, d[2] / d_len];
+    let cx = [
+        dn[1] * n_unit.z - dn[2] * n_unit.y,
+        dn[2] * n_unit.x - dn[0] * n_unit.z,
+        dn[0] * n_unit.y - dn[1] * n_unit.x,
+    ];
+    let sine = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
+    if sine > CIRCLE_EXTRUDE_MAX_AXIS_SINE {
+        return Err(KernelV2Error::ExtrudeObliqueCircleUnsupported);
+    }
+
+    // ---- geometry ---------------------------------------------------------
+    // Axis: the profile normal, signed by the sweep sense.
+    let a = if cosine >= 0.0 { n_unit } else { neg(n_unit) };
+    let neg_a = neg(a);
+    let w = [a.x * distance, a.y * distance, a.z * distance];
+    let c0 = profile.embed(center);
+    let c1 = translate(c0, w);
+    // Seam anchors: radially along the (unit, in-plane) `u` basis vector.
+    let v0 = radial_point(c0, profile.u(), radius);
+    let v1 = radial_point(c1, profile.u(), radius);
+
+    // ---- direct assembly --------------------------------------------------
+    let vid0 = VertexId(arena.vertices.len() as u32);
+    let vid1 = VertexId(vid0.0 + 1);
+    arena.vertices.push(Some(Vertex { point: v0 }));
+    arena.vertices.push(Some(Vertex { point: v1 }));
+
+    let hb = arena.half_edges.len() as u32;
+    let (cap_b, lat_b, seam_up, lat_t, cap_t, seam_dn) = (
+        HalfEdgeId(hb),
+        HalfEdgeId(hb + 1),
+        HalfEdgeId(hb + 2),
+        HalfEdgeId(hb + 3),
+        HalfEdgeId(hb + 4),
+        HalfEdgeId(hb + 5),
+    );
+    let lb = arena.loops.len() as u32;
+    let (loop_base, loop_top, loop_lat) = (LoopId(lb), LoopId(lb + 1), LoopId(lb + 2));
+    let fb = arena.faces.len() as u32;
+    let (f_base, f_top, f_lat) = (FaceId(fb), FaceId(fb + 1), FaceId(fb + 2));
+    let shell = ShellId(arena.shells.len() as u32);
+    let solid = SolidId(arena.solids.len() as u32);
+
+    let rim = |center: Point3, normal: UnitVector3| Curve::Circle {
+        center,
+        normal,
+        radius,
+    };
+    // Base cap boundary: one closed circle half-edge, CCW around the cap's
+    // outward normal −a.
+    arena.half_edges.push(Some(HalfEdge {
+        twin: lat_b,
+        next: cap_b,
+        prev: cap_b,
+        origin: vid0,
+        loop_id: loop_base,
+        curve: rim(c0, neg_a),
+    }));
+    // Lateral loop: bottom rim (CCW around +a — toward the top rim), seam
+    // up, top rim (CCW around −a — toward the bottom rim), seam down.
+    arena.half_edges.push(Some(HalfEdge {
+        twin: cap_b,
+        next: seam_up,
+        prev: seam_dn,
+        origin: vid0,
+        loop_id: loop_lat,
+        curve: rim(c0, a),
+    }));
+    arena.half_edges.push(Some(HalfEdge {
+        twin: seam_dn,
+        next: lat_t,
+        prev: lat_b,
+        origin: vid0,
+        loop_id: loop_lat,
+        curve: Curve::LineSegment,
+    }));
+    arena.half_edges.push(Some(HalfEdge {
+        twin: cap_t,
+        next: seam_dn,
+        prev: seam_up,
+        origin: vid1,
+        loop_id: loop_lat,
+        curve: rim(c1, neg_a),
+    }));
+    // Top cap boundary: CCW around the cap's outward normal +a.
+    arena.half_edges.push(Some(HalfEdge {
+        twin: lat_t,
+        next: cap_t,
+        prev: cap_t,
+        origin: vid1,
+        loop_id: loop_top,
+        curve: rim(c1, a),
+    }));
+    arena.half_edges.push(Some(HalfEdge {
+        twin: seam_up,
+        next: lat_b,
+        prev: lat_t,
+        origin: vid1,
+        loop_id: loop_lat,
+        curve: Curve::LineSegment,
+    }));
+
+    for (face, boundary) in [(f_base, cap_b), (f_top, cap_t), (f_lat, lat_b)] {
+        arena.loops.push(Some(Loop {
+            face,
+            boundary: LoopBoundary::Edges(boundary),
+            kind: LoopKind::Outer,
+        }));
+    }
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Plane(Plane {
+            point: c0,
+            normal: neg_a,
+        })),
+        outer_loop: loop_base,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Plane(Plane {
+            point: c1,
+            normal: a,
+        })),
+        outer_loop: loop_top,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Cylinder {
+            axis_point: c0,
+            axis_dir: a,
+            radius,
+        }),
+        outer_loop: loop_lat,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    arena.shells.push(Some(Shell {
+        solid,
+        faces: vec![f_base, f_top, f_lat],
+        genus: 0,
+    }));
+    arena.solids.push(Some(Solid {
+        shells: vec![shell],
+    }));
+
+    // ---- full production validation (defense in depth) --------------------
+    validate_solid(arena, solid)?;
+    Ok(ExtrudeResult {
+        solid,
+        shell,
+        base: f_base,
+        top: f_top,
+        walls: vec![f_lat],
+        hole_walls: Vec::new(),
+    })
+}
+
+/// Build the circular lamina (the zero-height analog of the polygon
+/// lamina): one seam vertex, one closed circle edge, two opposite-normal
+/// disk faces sharing it. `V − E + F − R = 1 − 1 + 2 = 2 = 2(S − G)`.
+/// Same direct-assembly + `validate_solid` justification as
+/// [`extrude_circle`].
+fn circle_lamina(
+    arena: &mut BrepArena,
+    profile: &Profile,
+    center: Point2,
+    radius: f64,
+) -> Result<LaminaResult, KernelV2Error> {
+    let n = profile.unit_normal();
+    let c0 = profile.embed(center);
+    let v0 = radial_point(c0, profile.u(), radius);
+
+    let vid = VertexId(arena.vertices.len() as u32);
+    arena.vertices.push(Some(Vertex { point: v0 }));
+    let hb = arena.half_edges.len() as u32;
+    let (he_front, he_back) = (HalfEdgeId(hb), HalfEdgeId(hb + 1));
+    let lb = arena.loops.len() as u32;
+    let fb = arena.faces.len() as u32;
+    let (f_front, f_back) = (FaceId(fb), FaceId(fb + 1));
+    let shell = ShellId(arena.shells.len() as u32);
+    let solid = SolidId(arena.solids.len() as u32);
+
+    // Front face winds CCW around +n, back around −n; each disk's single
+    // circle half-edge carries the face's outward normal.
+    for (k, (he, twin, normal)) in [(he_front, he_back, n), (he_back, he_front, neg(n))]
+        .into_iter()
+        .enumerate()
+    {
+        arena.half_edges.push(Some(HalfEdge {
+            twin,
+            next: he,
+            prev: he,
+            origin: vid,
+            loop_id: LoopId(lb + k as u32),
+            curve: Curve::Circle {
+                center: c0,
+                normal,
+                radius,
+            },
+        }));
+        arena.loops.push(Some(Loop {
+            face: FaceId(fb + k as u32),
+            boundary: LoopBoundary::Edges(he),
+            kind: LoopKind::Outer,
+        }));
+        arena.faces.push(Some(Face {
+            surface: Some(Surface::Plane(Plane { point: c0, normal })),
+            outer_loop: LoopId(lb + k as u32),
+            inner_loops: Vec::new(),
+            shell,
+        }));
+    }
+    arena.shells.push(Some(Shell {
+        solid,
+        faces: vec![f_front, f_back],
+        genus: 0,
+    }));
+    arena.solids.push(Some(Solid {
+        shells: vec![shell],
+    }));
+
+    validate_solid(arena, solid)?;
+    Ok(LaminaResult {
+        solid,
+        shell,
+        front: f_front,
+        back: f_back,
+    })
+}
+
+fn neg(n: UnitVector3) -> UnitVector3 {
+    UnitVector3 {
+        x: -n.x,
+        y: -n.y,
+        z: -n.z,
+    }
+}
+
+/// `c + r·u` — a point at radial offset `r` along the unit vector `u`.
+fn radial_point(c: Point3, u: Vector3, r: f64) -> Point3 {
+    Point3::new(c.x() + r * u.x(), c.y() + r * u.y(), c.z() + r * u.z())
 }
 
 // ---------------------------------------------------------------------------

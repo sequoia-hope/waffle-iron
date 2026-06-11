@@ -25,8 +25,17 @@
 //!   mapping), render tessellation ([`tessellate`] — exact-rational ear
 //!   clipping with hole bridging), and introspection basics
 //!   ([`introspect`] — edge extraction, surface area, face plane).
-//! - Later slices: revolve + curved primitives, curved tessellation, and
-//!   the trait surface.
+//! - **PR-KV5a** (this slice): the curved-geometry core — circle profiles
+//!   ([`ProfileRegion::Circle`]) extruded to right-circular-cylinder solids
+//!   (vertex-anchored closed circle edges + [`Surface::Cylinder`] laterals;
+//!   see [`arena`] for the Euler accounting), curved-aware
+//!   [`validate_solid`], cap/lateral render tessellation under an explicit
+//!   sagitta chord bound ([`RENDER_CHORD_TOLERANCE_REL`]), analytic
+//!   volume/area (exact rational π-coefficients), and circle-polyline edge
+//!   extraction. Curved boolean conversion is PR-KV5b
+//!   (`UnsupportedCurvedBoolean` until then).
+//! - Later slices: KV5b curved boolean conversion, revolve + further curved
+//!   primitives (sphere, cone, torus), and the trait surface.
 //!
 //! ## Invariants enforced at construction
 //!

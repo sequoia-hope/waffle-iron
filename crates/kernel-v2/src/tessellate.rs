@@ -2,8 +2,16 @@
 //!
 //! ## Single canonical path (crate hard rule 5)
 //!
-//! ONE implementation per surface type — Phase 4a has one surface type
-//! (planar), so there is exactly one tessellation routine: exact-rational
+//! ONE implementation per surface type:
+//!
+//! - planar faces with polygonal loops — exact-rational ear clipping
+//!   (this module's original KV3 routine, unchanged);
+//! - planar disk caps bounded by one full-circle edge (PR-KV5a) —
+//!   rim sampling at the chord-bound `N` + a convex fan;
+//! - cylinder laterals (PR-KV5a) — `N` quad-pairs between the two rims
+//!   with exact analytic radial normals at the corners.
+//!
+//! The planar routine is exact-rational
 //! ear clipping of the face's outer loop with hole loops bridged in. No
 //! `reverse_outer` masking, no `bulk_flip`, no force-aligning: the polygon
 //! walk direction IS the source of truth, and the emitted triangle winding
@@ -80,7 +88,7 @@
 
 use std::cmp::Ordering;
 
-use crate::arena::{BrepArena, FaceId, SolidId, Surface, UnitVector3};
+use crate::arena::{BrepArena, Curve, FaceId, SolidId, Surface, UnitVector3};
 use crate::error::KernelV2Error;
 use crate::exact2d;
 use cad_primitives::{Point2, Point3};
@@ -190,15 +198,248 @@ pub fn tessellate_with_chord_tolerance(
     solid: SolidId,
     rel_chord_tolerance: f64,
 ) -> Result<RenderMesh, KernelV2Error> {
-    let _ = rel_chord_tolerance;
+    let n_seg = circle_segment_count(rel_chord_tolerance);
     let mut mesh = RenderMesh::default();
     let solid_ref = arena.solid(solid)?;
     for &sh in &solid_ref.shells {
         for &f in &arena.shell(sh)?.faces {
-            tessellate_planar_face(arena, f, &mut mesh)?;
+            let face = arena.face(f)?;
+            match face.surface {
+                Some(Surface::Cylinder { .. }) => {
+                    tessellate_cylinder_lateral(arena, f, n_seg, &mut mesh)?
+                }
+                Some(Surface::Plane(_)) => {
+                    if face_has_circle_edge(arena, f)? {
+                        tessellate_circular_cap(arena, f, n_seg, &mut mesh)?
+                    } else {
+                        tessellate_planar_face(arena, f, &mut mesh)?
+                    }
+                }
+                None => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
+            }
         }
     }
     Ok(mesh)
+}
+
+/// Does any loop of the face carry a `Curve::Circle` half-edge?
+fn face_has_circle_edge(arena: &BrepArena, fid: FaceId) -> Result<bool, KernelV2Error> {
+    let face = arena.face(fid)?;
+    let mut loops = vec![face.outer_loop];
+    loops.extend(face.inner_loops.iter().copied());
+    for lid in loops {
+        for h in arena.loop_half_edges(lid)? {
+            if matches!(arena.half_edge(h)?.curve, Curve::Circle { .. }) {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+/// In-plane orthonormal frame for sampling a circle: `e1` along the seam
+/// anchor's radial direction (so sample 0 sits at the anchor), `e2 = ν × e1`
+/// — sampling `center + r(cosθ·e1 + sinθ·e2)` then runs CCW around `ν`.
+/// `None` when the anchor does not span a radial direction (degenerate /
+/// corrupt geometry — callers fail loudly).
+pub(crate) fn circle_frame(
+    center: Point3,
+    nu: UnitVector3,
+    anchor: Point3,
+) -> Option<([f64; 3], [f64; 3])> {
+    let d = [
+        anchor.x() - center.x(),
+        anchor.y() - center.y(),
+        anchor.z() - center.z(),
+    ];
+    let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    if !(len.is_finite() && len > 0.0) {
+        return None;
+    }
+    let e1 = [d[0] / len, d[1] / len, d[2] / len];
+    let c = [
+        nu.y * e1[2] - nu.z * e1[1],
+        nu.z * e1[0] - nu.x * e1[2],
+        nu.x * e1[1] - nu.y * e1[0],
+    ];
+    let clen = (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt();
+    if !(clen.is_finite() && clen > 0.5) {
+        return None; // anchor (anti)parallel to the axis — not a radial dir
+    }
+    Some((e1, [c[0] / clen, c[1] / clen, c[2] / clen]))
+}
+
+/// The single canonical planar-disk-cap routine (PR-KV5a): a planar face
+/// whose outer loop is ONE full-circle half-edge, no rings. Rim sampled at
+/// the chord-bound `N` (uniform angles from the seam anchor, CCW around the
+/// circle's directional normal == the face normal), fanned from sample 0 —
+/// the fan of a convex polygon needs no ear search, and its winding follows
+/// the boundary walk (hard rule 5: no post-hoc flips). Flat-shaded with the
+/// face normal.
+fn tessellate_circular_cap(
+    arena: &BrepArena,
+    fid: FaceId,
+    n_seg: u32,
+    out: &mut RenderMesh,
+) -> Result<(), KernelV2Error> {
+    let face = arena.face(fid)?;
+    let Some(Surface::Plane(plane)) = face.surface else {
+        return Err(KernelV2Error::FaceWithoutSurface { face: fid });
+    };
+    if !face.inner_loops.is_empty() {
+        return Err(KernelV2Error::TessellationFailed {
+            face: fid,
+            reason: "circle-bounded planar face with rings is outside the KV5a vocabulary",
+        });
+    }
+    let hes = arena.loop_half_edges(face.outer_loop)?;
+    let [h] = hes[..] else {
+        return Err(KernelV2Error::TessellationFailed {
+            face: fid,
+            reason: "circle-bounded planar loop must be a single circle half-edge (KV5a)",
+        });
+    };
+    let he = arena.half_edge(h)?;
+    let Curve::Circle {
+        center,
+        normal,
+        radius,
+    } = he.curve
+    else {
+        return Err(KernelV2Error::TessellationFailed {
+            face: fid,
+            reason: "circle-bounded planar loop must be a single circle half-edge (KV5a)",
+        });
+    };
+    let anchor = arena.vertex(he.origin)?.point;
+    let Some((e1, e2)) = circle_frame(center, normal, anchor) else {
+        return Err(KernelV2Error::TessellationFailed {
+            face: fid,
+            reason: "degenerate circle frame (anchor does not span a radial direction)",
+        });
+    };
+
+    let range_start = out.indices.len() as u32;
+    let base = out.num_vertices() as u32;
+    let n = n_seg as usize;
+    for k in 0..n {
+        let theta = 2.0 * std::f64::consts::PI * (k as f64) / (n as f64);
+        let (s, c) = theta.sin_cos();
+        out.positions.extend_from_slice(&[
+            center.x() + radius * (c * e1[0] + s * e2[0]),
+            center.y() + radius * (c * e1[1] + s * e2[1]),
+            center.z() + radius * (c * e1[2] + s * e2[2]),
+        ]);
+        out.normals
+            .extend_from_slice(&[plane.normal.x, plane.normal.y, plane.normal.z]);
+    }
+    for k in 1..(n as u32) - 1 {
+        out.indices
+            .extend_from_slice(&[base, base + k, base + k + 1]);
+    }
+    out.face_ranges.push(FaceRange {
+        face: fid,
+        start: range_start,
+        count: out.indices.len() as u32 - range_start,
+    });
+    Ok(())
+}
+
+/// The single canonical cylinder-lateral routine (PR-KV5a): the full tube
+/// between two full-circle rims, as `N` quad-pairs. The angular frame comes
+/// from the BOTTOM rim (the one whose directional normal points toward the
+/// other — the validated outward-orientation rule), so the quad winding
+/// follows the boundary walk; per-vertex normals are the exact analytic
+/// outward radial directions at the sampled corners (smooth shading — the
+/// surface, not the facets, defines the normal field).
+fn tessellate_cylinder_lateral(
+    arena: &BrepArena,
+    fid: FaceId,
+    n_seg: u32,
+    out: &mut RenderMesh,
+) -> Result<(), KernelV2Error> {
+    let face = arena.face(fid)?;
+    let hes = arena.loop_half_edges(face.outer_loop)?;
+    let mut rims = Vec::new();
+    for &h in &hes {
+        let he = arena.half_edge(h)?;
+        if let Curve::Circle {
+            center,
+            normal,
+            radius,
+        } = he.curve
+        {
+            rims.push((center, normal, radius, arena.vertex(he.origin)?.point));
+        }
+    }
+    let [rim_a, rim_b] = rims[..] else {
+        return Err(KernelV2Error::TessellationFailed {
+            face: fid,
+            reason: "cylinder lateral must be bounded by exactly two full-circle rims (KV5a)",
+        });
+    };
+    // Bottom rim: traversal axis points toward the opposite rim.
+    let toward = |from: &(Point3, UnitVector3, f64, Point3),
+                  to: &(Point3, UnitVector3, f64, Point3)| {
+        (to.0.x() - from.0.x()) * from.1.x
+            + (to.0.y() - from.0.y()) * from.1.y
+            + (to.0.z() - from.0.z()) * from.1.z
+    };
+    let (bot, top) = if toward(&rim_a, &rim_b) > 0.0 {
+        (rim_a, rim_b)
+    } else if toward(&rim_b, &rim_a) > 0.0 {
+        (rim_b, rim_a)
+    } else {
+        return Err(KernelV2Error::TessellationFailed {
+            face: fid,
+            reason: "cylinder rims have no outward-oriented bottom (corrupt orientation)",
+        });
+    };
+    let (cb, nub, radius, anchor) = bot;
+    let ct = top.0;
+    let Some((e1, e2)) = circle_frame(cb, nub, anchor) else {
+        return Err(KernelV2Error::TessellationFailed {
+            face: fid,
+            reason: "degenerate circle frame (anchor does not span a radial direction)",
+        });
+    };
+
+    let range_start = out.indices.len() as u32;
+    let base = out.num_vertices() as u32;
+    let n = n_seg;
+    // Bottom row [base .. base+n), top row [base+n .. base+2n), shared
+    // angle table (columns aligned along rulings).
+    for row_center in [cb, ct] {
+        for k in 0..n {
+            let theta = 2.0 * std::f64::consts::PI * (k as f64) / (n as f64);
+            let (s, c) = theta.sin_cos();
+            let radial = [
+                c * e1[0] + s * e2[0],
+                c * e1[1] + s * e2[1],
+                c * e1[2] + s * e2[2],
+            ];
+            out.positions.extend_from_slice(&[
+                row_center.x() + radius * radial[0],
+                row_center.y() + radius * radial[1],
+                row_center.z() + radius * radial[2],
+            ]);
+            out.normals.extend_from_slice(&radial);
+        }
+    }
+    for k in 0..n {
+        let k1 = (k + 1) % n;
+        let (bk, bk1, tk, tk1) = (base + k, base + k1, base + n + k, base + n + k1);
+        // CCW-around-axis bottom row + axis toward the top row ⇒ these wind
+        // with outward normals (∝ tangent × axis = radial).
+        out.indices.extend_from_slice(&[bk, bk1, tk1]);
+        out.indices.extend_from_slice(&[bk, tk1, tk]);
+    }
+    out.face_ranges.push(FaceRange {
+        face: fid,
+        start: range_start,
+        count: out.indices.len() as u32 - range_start,
+    });
+    Ok(())
 }
 
 /// One node of the working polygon: projected 2D point + the index of its

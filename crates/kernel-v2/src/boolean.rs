@@ -89,12 +89,21 @@ pub fn to_yang_brep(arena: &BrepArena, solid: SolidId) -> Result<yang_rs::BRep, 
     for &sh in &solid_ref.shells {
         for &f in &arena.shell(sh)?.faces {
             let face = arena.face(f)?;
-            let Some(Surface::Plane(plane)) = face.surface else {
-                return Err(KernelV2Error::FaceWithoutSurface { face: f });
+            let plane = match face.surface {
+                Some(Surface::Plane(plane)) => plane,
+                // Curved input: the kernel-v2 ↔ yang-rs curved conversion is
+                // PR-KV5b. Loud and typed — NEVER mistranslated as planar.
+                Some(_) => return Err(KernelV2Error::UnsupportedCurvedBoolean { face: f }),
+                None => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
             };
 
             let mut convert_loop = |lid: LoopId| -> Result<Vec<u32>, KernelV2Error> {
                 let hes = arena.loop_half_edges(lid)?;
+                for &h in &hes {
+                    if !matches!(arena.half_edge(h)?.curve, Curve::LineSegment) {
+                        return Err(KernelV2Error::UnsupportedCurvedBoolean { face: f });
+                    }
+                }
                 if hes.is_empty() {
                     // A lone-vertex loop has no boundary to give yang-rs.
                     return Err(KernelV2Error::NonManifoldTopology(

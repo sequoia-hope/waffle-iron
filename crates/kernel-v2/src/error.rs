@@ -235,10 +235,6 @@ pub enum KernelV2Error {
     /// `introspect::face_plane` was asked for the plane of a face whose
     /// surface is not planar.
     FaceNotPlanar { face: FaceId },
-
-    /// Temporary RED-phase stub marker (PR-KV5a): the typed surface exists
-    /// but the implementation lands in the GREEN commit. Removed at GREEN.
-    NotImplemented(&'static str),
 }
 
 impl core::fmt::Display for KernelV2Error {

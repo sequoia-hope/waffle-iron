@@ -36,9 +36,9 @@ use std::f64::consts::PI;
 use cad_primitives::{Point2, Point3, Vector3};
 use kernel_v2::{
     circle_segment_count, extract_edges, extract_edges_with_chord_tolerance, extrude, geom,
-    surface_area, tessellate, tessellate_with_chord_tolerance, to_yang_brep, validate_solid,
-    BrepArena, Curve, ExtrudeResult, FaceId, KernelV2Error, Profile, RenderMesh, Surface,
-    RENDER_CHORD_TOLERANCE_REL,
+    make_face_from_profile, surface_area, tessellate, tessellate_with_chord_tolerance,
+    to_yang_brep, validate_solid, BrepArena, Curve, ExtrudeResult, FaceId, KernelV2Error, Profile,
+    RenderMesh, Surface, RENDER_CHORD_TOLERANCE_REL,
 };
 
 // =========================================================================
@@ -552,7 +552,32 @@ fn extract_edges_emits_circle_polylines_at_tessellation_n() {
 }
 
 // =========================================================================
-// 7. Determinism
+// 7. Circle lamina (the zero-height analog — implemented at GREEN so
+//    make_face_from_profile stays total over the new Profile variant)
+// =========================================================================
+
+#[test]
+fn circle_lamina_validates_zero_volume_double_disk_area() {
+    let mut arena = BrepArena::new();
+    let profile = exact_profile();
+    let lam = make_face_from_profile(&mut arena, &profile).expect("circle lamina");
+    // One seam vertex, one closed circle edge, two disk faces:
+    // V − E + F − R = 1 − 1 + 2 = 2.
+    let report = validate_solid(&arena, lam.solid).expect("lamina validates");
+    assert_eq!(
+        (report.vertices, report.edges, report.faces, report.rings),
+        (1, 1, 2, 0)
+    );
+    assert_eq!(report.euler_lhs, 2);
+    assert_eq!(report.euler_rhs, 2);
+    // Zero enclosed volume (the disk terms cancel exactly in rational
+    // arithmetic); area = two disks = 2πr² = 4.5π bitwise.
+    assert_eq!(geom::signed_volume(&arena, lam.solid).expect("volume"), 0.0);
+    assert_eq!(surface_area(&arena, lam.solid).expect("area"), 4.5 * PI);
+}
+
+// =========================================================================
+// 8. Determinism
 // =========================================================================
 
 #[test]

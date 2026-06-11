@@ -230,8 +230,51 @@ impl Profile {
         center: Point2,
         radius: f64,
     ) -> Result<Self, KernelV2Error> {
-        let _ = (origin, u, v, center, radius);
-        Err(KernelV2Error::NotImplemented("PR-KV5a Profile::circle"))
+        // 1. Finiteness FIRST (precondition for every later comparison).
+        let frame = [
+            origin.x(),
+            origin.y(),
+            origin.z(),
+            u.x(),
+            u.y(),
+            u.z(),
+            v.x(),
+            v.y(),
+            v.z(),
+        ];
+        if frame.iter().any(|c| !c.is_finite())
+            || !center.x().is_finite()
+            || !center.y().is_finite()
+        {
+            return Err(KernelV2Error::ProfileNotFinite);
+        }
+        // 2. Plane-spanning basis (same gate as the polygon form).
+        let c = cross(u, v);
+        let sq = c[0] * c[0] + c[1] * c[1] + c[2] * c[2];
+        if sq < BASIS_MIN_SQ_CROSS_NORM {
+            return Err(KernelV2Error::ProfileDegenerateBasis);
+        }
+        // 3. Orthonormal frame: the embedding must be an isometry for the
+        //    plane-coordinate circle to embed as a true circle (see
+        //    CIRCLE_FRAME_ORTHONORMALITY_TOLERANCE).
+        let tol = CIRCLE_FRAME_ORTHONORMALITY_TOLERANCE;
+        let u_sq = u.x() * u.x() + u.y() * u.y() + u.z() * u.z();
+        let v_sq = v.x() * v.x() + v.y() * v.y() + v.z() * v.z();
+        let uv = u.x() * v.x() + u.y() * v.y() + u.z() * v.z();
+        if (u_sq.sqrt() - 1.0).abs() > tol || (v_sq.sqrt() - 1.0).abs() > tol || uv.abs() > tol {
+            return Err(KernelV2Error::ProfileCircleFrameNotOrthonormal);
+        }
+        // 4. Positive finite radius. (Simplicity is trivial: any r > 0
+        //    circle is a simple closed curve.)
+        if !radius.is_finite() || radius <= 0.0 {
+            return Err(KernelV2Error::ProfileCircleNonPositiveRadius);
+        }
+        Ok(Self {
+            origin,
+            u,
+            v,
+            region: ProfileRegion::Circle { center, radius },
+        })
     }
 
     /// Plane origin.

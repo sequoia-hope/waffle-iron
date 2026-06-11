@@ -61,41 +61,128 @@ pub fn dot(a: UnitVector3, b: UnitVector3) -> f64 {
 }
 
 /// Signed volume of a solid via the divergence theorem
-/// (`V = (1/6) ∮ x · n dA`, evaluated as a sum of signed tetrahedron
-/// determinants `det[r, pᵢ, pᵢ₊₁]` fanned from each face's outer-loop
-/// reference point over ALL of the face's loops — rings wind opposite the
-/// outer loop, so holes subtract automatically).
+/// (`V = (1/3) ∮ x · n dA`), evaluated **analytically per surface type** —
+/// the value is a property of the B-Rep geometry, independent of any
+/// tessellation:
+///
+/// - **Planar faces with polygonal loops**: a sum of signed tetrahedron
+///   determinants `det[r, pᵢ, pᵢ₊₁] / 6` fanned from an in-plane reference
+///   point over ALL of the face's loops — rings wind opposite the outer
+///   loop, so holes subtract automatically. (Bit-identical to the KV2
+///   implementation for all-planar solids.)
+/// - **Planar disks bounded by a full-circle edge** (PR-KV5a): the exact
+///   flux through a disk with boundary traversed CCW around the circle's
+///   directional normal `ν` is `(1/3)(c · ν) π r²` — reference-free, and
+///   ring disks subtract automatically because their `ν` opposes the face
+///   normal.
+/// - **Cylinder laterals**: `x · n = c₀ · r̂ + ρ` on the surface and
+///   `∮ r̂ dθ = 0`, so the exact flux is `(1/3) · 2π ρ² ℓ` with
+///   `ℓ = (c_other − c_this) · ν` taken from the bottom rim (positive for
+///   outward laterals).
+///
+/// The π-terms are accumulated as an **exact `dashu` rational coefficient**
+/// (every `f64` converts losslessly), so algebraic cancellations — e.g. the
+/// cap terms `(c₁·a − c₀·a) r²/3` combining with the lateral `2r²ℓ/3` into
+/// exactly `r²ℓ` — happen exactly, and the result rounds ONCE:
+/// `volume = six_v/6 + to_f64(coeff) · π`. For an axis-aligned cylinder
+/// whose `r²h` is exactly representable this yields **bitwise** `π·r²·h`.
 ///
 /// Positive for outward-oriented closed solids; this is the orientation
-/// oracle for the KV2 constructors and will be reused by KV3/KV4
-/// (tessellation sanity, boolean result checks).
+/// oracle for the constructors and the tessellation/boolean checks.
 ///
-/// Production code: returns `Err` on dead ids / corrupted loops; it does
-/// NOT validate closedness — call `validate_solid` for that (an open or
-/// inward-oriented surface simply yields a meaningless / negative value).
+/// Production code: returns `Err` on dead ids / corrupted loops, and
+/// `Err(CurvedGeometryMismatch)` on curved configurations outside the
+/// validated vocabulary (mixed circle/segment loops, ≠ 2 cylinder rims). It
+/// does NOT validate closedness — call `validate_solid` for that (an open
+/// or inward-oriented surface simply yields a meaningless / negative
+/// value).
 pub fn signed_volume(
     arena: &crate::arena::BrepArena,
     solid: crate::arena::SolidId,
 ) -> Result<f64, crate::error::KernelV2Error> {
-    let mut six_v = 0.0f64;
+    use crate::arena::{Curve, Surface};
+    use crate::exact2d::r as rq;
+    use dashu::rational::RBig;
+
+    let mut six_v = 0.0f64; // polygonal-loop fan determinants
+    let mut three_pi = RBig::ZERO; // exact coefficient of π/3
     let solid_ref = arena.solid(solid)?;
     for &sh in &solid_ref.shells {
         for &f in &arena.shell(sh)?.faces {
             let face = arena.face(f)?;
-            let outer_pts = arena.loop_points(face.outer_loop)?;
-            // Reference point in the face plane: fanning each loop from it
-            // covers the polygon-with-holes with signed multiplicity 1
-            // (lone-vertex loops contribute no points and no area).
-            let Some(&r) = outer_pts.first() else {
+
+            // Gather each loop's circle half-edges (with curve data).
+            let mut loops = vec![face.outer_loop];
+            loops.extend(face.inner_loops.iter().copied());
+            let mut loop_data = Vec::with_capacity(loops.len());
+            for &lid in &loops {
+                let hes = arena.loop_half_edges(lid)?;
+                let mut circles = Vec::new();
+                for &h in &hes {
+                    if let Curve::Circle {
+                        center,
+                        normal,
+                        radius,
+                    } = arena.half_edge(h)?.curve
+                    {
+                        circles.push((center, normal, radius));
+                    }
+                }
+                loop_data.push((lid, hes.len(), circles));
+            }
+
+            if let Some(Surface::Cylinder { .. }) = face.surface {
+                // Lateral: exactly two full-circle rims (validated shape).
+                let rims: Vec<_> = loop_data
+                    .iter()
+                    .flat_map(|(_, _, c)| c.iter().copied())
+                    .collect();
+                if rims.len() != 2 {
+                    return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
+                        face: f,
+                        reason: "signed_volume: cylinder face without exactly two rims",
+                    });
+                }
+                let (c0, nu, rad) = rims[0];
+                let (c1, _, _) = rims[1];
+                let ell = (rq(c1.x()) - rq(c0.x())) * rq(nu.x)
+                    + (rq(c1.y()) - rq(c0.y())) * rq(nu.y)
+                    + (rq(c1.z()) - rq(c0.z())) * rq(nu.z);
+                three_pi += RBig::from(2) * rq(rad) * rq(rad) * ell;
                 continue;
+            }
+
+            // Planar(-ish) face: per-loop dispatch. Reference point for
+            // polygonal fans: the outer loop's first vertex if polygonal,
+            // else the outer circle's center (both lie in the face plane).
+            let ref_pt = if loop_data[0].2.is_empty() {
+                arena.loop_points(face.outer_loop)?.first().copied()
+            } else {
+                Some(loop_data[0].2[0].0)
             };
-            six_v += loop_fan_determinants(r, &outer_pts);
-            for &rid in &face.inner_loops {
-                six_v += loop_fan_determinants(r, &arena.loop_points(rid)?);
+            for (lid, he_count, circles) in &loop_data {
+                if circles.is_empty() {
+                    let pts = arena.loop_points(*lid)?;
+                    if let Some(rp) = ref_pt {
+                        six_v += loop_fan_determinants(rp, &pts);
+                    }
+                } else if *he_count == 1 {
+                    let (c, nu, rad) = circles[0];
+                    three_pi +=
+                        (rq(c.x()) * rq(nu.x) + rq(c.y()) * rq(nu.y) + rq(c.z()) * rq(nu.z))
+                            * rq(rad)
+                            * rq(rad);
+                } else {
+                    return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
+                        face: f,
+                        reason: "signed_volume: loop mixes circle and segment edges",
+                    });
+                }
             }
         }
     }
-    Ok(six_v / 6.0)
+    let pi_coeff = (three_pi / RBig::from(3)).to_f64().value();
+    Ok(six_v / 6.0 + pi_coeff * std::f64::consts::PI)
 }
 
 /// `Σᵢ det[r, pᵢ, pᵢ₊₁]` (cyclic) — six times the signed volume contribution
