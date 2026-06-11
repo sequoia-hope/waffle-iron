@@ -246,6 +246,42 @@ pub fn extrude(
     })
 }
 
+/// Entities produced by [`revolve`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RevolveResult {
+    /// The new solid.
+    pub solid: SolidId,
+    /// Its single shell.
+    pub shell: ShellId,
+    /// The profile face at sweep angle 0. For a partial revolve its outward
+    /// normal opposes the sweep velocity; for the 360° branch it is the
+    /// annular cap at the axial minimum (outward normal `−â`).
+    pub start_cap: FaceId,
+    /// The profile face at the sweep angle (partial) / the annular cap at
+    /// the axial maximum (360°, outward normal `+â`).
+    pub end_cap: FaceId,
+    /// Lateral faces, one per profile edge, in loop walk order: cylinder
+    /// patches for axis-parallel edges, planar annular sectors for
+    /// axis-perpendicular edges (partial); the outer + inner full cylinders
+    /// (360°).
+    pub walls: Vec<FaceId>,
+}
+
+/// Revolve a validated polygon [`Profile`] about an in-plane axis by
+/// `angle_rad ∈ (0, 2π]` radians (PR-KV6a). See `tests/kv6a_revolve.rs`
+/// for the pinned contract: geometry, topology census, Pappus volume,
+/// rejection semantics.
+pub fn revolve(
+    arena: &mut BrepArena,
+    profile: &Profile,
+    axis_origin: Point3,
+    axis_direction: Vector3,
+    angle_rad: f64,
+) -> Result<RevolveResult, KernelV2Error> {
+    let _ = (arena, profile, axis_origin, axis_direction, angle_rad);
+    Err(KernelV2Error::NotImplemented("PR-KV6a revolve"))
+}
+
 /// Extrude a circle profile into a right circular cylinder (PR-KV5a).
 ///
 /// ## Why a direct assembler, not an Euler-operator sequence

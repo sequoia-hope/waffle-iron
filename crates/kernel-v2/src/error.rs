@@ -129,6 +129,43 @@ pub enum KernelV2Error {
     /// so right cylinders are corpus-complete.)
     ExtrudeObliqueCircleUnsupported,
 
+    // ----- constructor argument validation (revolve, PR-KV6a) -------------
+    /// `revolve` angle must be finite and in `(0, 2π]` radians (2π = the
+    /// full-revolution branch; anything larger would self-overlap).
+    RevolveInvalidAngle,
+
+    /// The revolve axis must lie IN the profile plane: a degenerate / zero
+    /// direction, a direction with a component along the plane normal, or
+    /// an axis origin off the plane (beyond
+    /// `construct::REVOLVE_AXIS_IN_PLANE_TOLERANCE`).
+    RevolveAxisNotInPlane,
+
+    /// The profile touches or crosses the revolve axis, so sweeping it
+    /// self-intersects (crossing) or pinches to a non-manifold seam
+    /// (touching). This is INVALID INPUT, not a capability gap: the adapter
+    /// maps it to a plain rebuild error (the F0073/F0074 assay cases pin
+    /// `expect_rebuild_error`), never `NotSupported`.
+    RevolveAxisIntersectsProfile,
+
+    /// A profile edge is neither parallel nor perpendicular to the revolve
+    /// axis (beyond `construct::REVOLVE_EDGE_ALIGNMENT_TOLERANCE`).
+    /// Sweeping an oblique edge produces a CONE — out of the KV6a surface
+    /// vocabulary (roadmap KV6c).
+    RevolveObliqueEdgeUnsupported,
+
+    /// Revolving a circle profile produces a TORUS — out of the KV6a
+    /// surface vocabulary (roadmap KV6d).
+    RevolveCircleProfileUnsupported,
+
+    /// Revolving a holed polygon needs nested lateral shells per hole —
+    /// deferred beyond KV6a (the assay corpus has no holed revolve
+    /// profiles).
+    RevolveProfileHolesUnsupported,
+
+    /// Slice under construction: the named entry point is specified (RED
+    /// oracles pin its contract) but not implemented yet.
+    NotImplemented(&'static str),
+
     // ----- boolean delegation (PR-KV3, `boolean::boolean_op`) -------------
     /// The boolean inputs contain a coplanar face pair (touching or
     /// overlapping on a shared plane). The cherchi-rs arrangement defers

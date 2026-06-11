@@ -82,7 +82,9 @@ pub use arena::{
     LoopKind, Plane, Shell, ShellId, Solid, SolidId, Surface, UnitVector3, Vertex, VertexId,
 };
 pub use boolean::{boolean_op, from_yang_brep, to_yang_brep};
-pub use construct::{extrude, make_face_from_profile, ExtrudeResult, LaminaResult};
+pub use construct::{
+    extrude, make_face_from_profile, revolve, ExtrudeResult, LaminaResult, RevolveResult,
+};
 pub use error::KernelV2Error;
 pub use euler::{
     kemr, kfmrh, mef, mev, mev_lone, mvfs, KemrResult, MefResult, MevResult, MvfsResult,
