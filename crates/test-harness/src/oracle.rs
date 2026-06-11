@@ -1297,13 +1297,20 @@ pub fn check_volume_magnitude(mesh: &RenderMesh, scale: f64) -> OracleVerdict {
 /// genus-g closed surface, χ = 2 - 2g. A simple solid has χ=2; a solid with
 /// one through-hole has χ=0.
 ///
-/// `expected_chi` is the per-model expectation for a SINGLE shell. A valid
-/// multi-shell output (e.g. a disjoint-union solid) has
-/// χ_total = expected_chi + 2·(#shells − 1): each extra closed shell is
-/// assumed genus-0 and contributes +2. The shell count is derived from the
-/// mesh itself (connected components of the position-welded complex). A
-/// defective split of what should be one shell is still caught by the
-/// watertight and merge-completeness checks.
+/// `expected_chi` is the assay meta's `euler_target`: the expected TOTAL χ
+/// for the shell count the generator predicted (KV5b-F2). The generator
+/// encodes `euler_target = 2·B − 2·g` — `compute_euler_target` emits 2 (one
+/// genus-0 body) or 0 (one body with a through-hole), and the featured
+/// cavity cases (F0031–F0040) hard-code 4 (two genus-0 shells: outer +
+/// cavity). The oracle decodes that predicted shell count as
+/// `B_meta = max(1, expected_chi div 2)` and credits +2 only for each
+/// measured shell BEYOND it (a disjoint-union output the generator could
+/// not predict): χ_total = expected_chi + 2·max(0, #shells − B_meta).
+/// Fewer shells than the meta promises (e.g. a silently-failed cavity cut)
+/// is NOT forgiven — `expected_chi` stays the floor. The shell count is
+/// derived from the mesh itself (connected components of the
+/// position-welded complex). A defective split of what should be one shell
+/// is still caught by the watertight and merge-completeness checks.
 ///
 /// Interior/residual faces from incomplete boolean operations shift χ away
 /// from the expected value, making this oracle effective at catching them.
@@ -1330,7 +1337,10 @@ pub fn check_mesh_euler_characteristic(mesh: &RenderMesh, expected_chi: i64) -> 
     }
 
     let shells = mesh_shell_count(&raw_counts).max(1) as i64;
-    let expected_total = expected_chi + 2 * (shells - 1);
+    // Shell count already encoded in the meta's euler_target (KV5b-F2):
+    // euler_target = 2·B − 2·g with g ≥ 0, so B_meta = max(1, ⌊χ/2⌋).
+    let meta_shells = expected_chi.div_euclid(2).max(1);
+    let expected_total = expected_chi + 2 * (shells - meta_shells).max(0);
 
     let v = unique_verts.len() as i64;
     let e = sub_counts.len() as i64;

@@ -1,8 +1,8 @@
 {
-  "errored": 18,
-  "failed": 11,
+  "errored": 17,
+  "failed": 2,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 17,
+  "passed": 27,
   "results": [
     {
       "category": "UNSUPPORTED(curved-profile)",
@@ -785,64 +785,64 @@
       "status": "unsupported"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "mesh_euler_characteristic: V(2504) - E(7318) + F(4818) = 4 (expected 6 for 2 shell(s))",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0031",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "mesh_euler_characteristic: V(6584) - E(19586) + F(13006) = 4 (expected 6 for 2 shell(s))",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0032",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "mesh_euler_characteristic: V(3140) - E(9240) + F(6104) = 4 (expected 6 for 2 shell(s))",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0033",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "mesh_euler_characteristic: V(2504) - E(7318) + F(4818) = 4 (expected 6 for 2 shell(s))",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0034",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "mesh_euler_characteristic: V(3432) - E(10116) + F(6688) = 4 (expected 6 for 2 shell(s))",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0035",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "mesh_euler_characteristic: V(1536) - E(4414) + F(2882) = 4 (expected 6 for 2 shell(s))",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0036",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "mesh_euler_characteristic: V(736) - E(2014) + F(1282) = 4 (expected 6 for 2 shell(s))",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0037",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "mesh_euler_characteristic: V(2504) - E(7318) + F(4818) = 4 (expected 6 for 2 shell(s))",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0038",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "mesh_euler_characteristic: V(2504) - E(7318) + F(4818) = 4 (expected 6 for 2 shell(s))",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0039",
-      "status": "fail"
+      "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "mesh_euler_characteristic: V(792) - E(2168) + F(1380) = 4 (expected 6 for 2 shell(s))",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0040",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "ERROR",
@@ -851,10 +851,10 @@
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): b2170b0b-0c14-44f4-8723-44d951dc8d42: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(8) }",
+      "category": "SUPPORTED_WRONG",
+      "detail": "watertight_mesh: 177 unpaired edges out of 12372 total; no_self_intersection: 10 inter-face triangle penetrations, face pairs: (2,4), (2,4), (2,5), (2,5), (2,5), ...; mesh_euler_characteristic: V(4231) - E(12372) + F(8138) = -3 (expected 2 for 1 shell(s))",
       "id": "F0042",
-      "status": "error"
+      "status": "fail"
     },
     {
       "category": "ERROR",
