@@ -484,6 +484,43 @@ fn smoke_union_offset_boss() {
 }
 
 #[test]
+fn smoke_union_face_to_face_stack() {
+    // TRUE face-to-face union: 2-unit cube (0..2)² × z∈[0,2], 1-unit cube
+    // (0.5..1.5)² sketched ON its top plane z=2, extruded 1 → z∈[2,3].
+    // The small cube's bottom face lies strictly INSIDE the big cube's top
+    // face — a coplanar face pair where neither operand swallows the other.
+    // The union must be ONE 3-unit-tall body of volume 2³ + 1³ = 9.
+    //
+    // FINDING (this test's first run): kernel-v2 + yang-rs handle this
+    // face-INSIDE-face coplanar contact correctly TODAY — the near-coplanar
+    // NotSupported gate does not fire, and the result passes the FULL
+    // oracle set with exact volume. The M8 coplanar wall (F0002/F0016/…)
+    // is about coincident/overlapping face pairs, not strict containment.
+    // This test pins that capability so a regression (or a gate widening
+    // that swallows it) is loud.
+    let mut b = ModelBuilder::kernel_v2();
+    b.rect_sketch("sa", [0.0; 3], [0.0, 0.0, 1.0], 0.0, 0.0, 2.0, 2.0)
+        .unwrap();
+    b.extrude("a", "sa", 2.0).unwrap();
+    b.rect_sketch("sb", [0.0, 0.0, 2.0], [0.0, 0.0, 1.0], 0.5, 0.5, 1.0, 1.0)
+        .unwrap();
+    b.extrude("boss", "sb", 1.0).unwrap();
+    assert_scenario_supported_correct("union_face_to_face_stack", &mut b, Some(9.0));
+    assert_eq!(
+        b.distinct_solid_count(),
+        1,
+        "face-to-face union must merge into one body"
+    );
+    let mesh = b.tessellate_last_with_tol(0.001).unwrap();
+    let (bb_min, bb_max) = mesh_bounding_box(&mesh);
+    assert!(
+        (f64::from(bb_max[2] - bb_min[2]) - 3.0).abs() < 1e-6,
+        "body must be 3 units tall, got {}",
+        bb_max[2] - bb_min[2]
+    );
+}
+
+#[test]
 fn smoke_subtract_offset_boxes() {
     // Blank (0..1)³ minus tool (0.4..1.4)² × z∈[-0.3,0.6] — offset on all
     // axes, no coplanar pairs. Volume 1 − 0.6³ = 0.784.
