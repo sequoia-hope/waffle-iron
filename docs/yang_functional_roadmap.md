@@ -1742,6 +1742,38 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   now pass the FULL oracle set; subtract/intersect still emit one degenerate
   sliver triangle (real tessellation defect, allowance kept for exactly
   `watertight_mesh` + `no_degenerate_triangles` on those two).
+  **PR-KV5a (2026-06-11) — circle profiles → cylinder solids:** kernel-v2
+  curved core (vertex-anchored closed `Curve::Circle` edges, `Surface::Cylinder`,
+  V2/E3/F3 topology deliberately matching the yang-rs M5 fixture), curved-aware
+  `validate_solid`, cap/lateral tessellation under the sagitta band, analytic
+  volume/area.
+  **PR-KV5b (2026-06-11) — cylinder booleans wired through yang-rs:** the
+  curved boolean boundary is REAL. Survey-driven (yang's native cylinder×box
+  outputs carry `Plane`+`Cylinder` surfaces and `LineSegment` + Circle-ARC
+  edges — never full circles; original rims come back faceted at Stage-1
+  resolution): `to_yang_brep` emits canonical cylinder solids as the shared-edge
+  M5 fixture shape; `from_yang_brep` reassembles partial cylinder patches
+  (`Curve::Arc` vocabulary, cavity sense on `Surface::Cylinder::reversed`,
+  unrolled-winding orientation validation — the developable Newell analog);
+  cylinder-patch render tessellation (unrolled cut + exact ear-clip +
+  Delaunay-flip quality pass + Euclidean-LEPP chord-bound refinement); adapter
+  maps legacy `CircleProfile`. End-to-end GREEN: cylinder∪box, blind pocket,
+  through-hole (genus 1), intersect, canonical round-trip (bitwise analytic
+  volume). Typed walls: Ellipse/Parabola/Hyperbola outputs named
+  (`UnsupportedBooleanOutputCurve`), cyl×cyl surfaces yang's Stage-3 SSI text,
+  partial-patch results cannot re-enter yang Stage 1 (`UnsupportedCurvedBoolean`).
+  **Corpus: 17 SUPPORTED_CORRECT / 11 WRONG / 18 ERROR / 144 UNSUPPORTED
+  (70 curved-profile, 38 revolve, 36 coplanar)** — first fully-correct curved
+  cases R0006, R0083, F0044. **Findings:** KV5b-F1 yang emits one ULP-LENGTH
+  edge per intersection circle (two verts 1 ulp apart; I6 weld is bit-exact
+  only — Stage-4 relocation dedup needed upstream; collapses to zero-area
+  slivers in f32 render meshes); KV5b-F2 euler oracle double-counts shells when
+  the case meta's `euler_target` already encodes a multi-body expectation
+  (F0031–F0040: correct 2-shell χ=4 scored against 4+2); KV5b-F3 yang walls hit
+  by the corpus: Stage-3 `AmbiguousCurve` (cyl×cyl: F0041/43/45/58),
+  `NoExplicitRayOrigin` (R0067/R0086), Stage-4 `LocalRefinementRequired`
+  (F0056/57), non-2-manifold reassembly (R0092, F0052), an output edge used ≠2
+  times (F0059), and one debug-tier `VertexOffSurface` import-band trip (F0042).
 - **Phase 5 — Native arrangement + WASM.** *[= M6 + M7; parallel track]* M6 native
   `cherchi-rs` Stage-2 behind the `LabeledArrangement` seam, parity-green vs the
   sidecar (retires the C++ subprocess) — **✅ COMPLETE (M6: PR-CR-BL3c; M7:

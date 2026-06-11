@@ -147,10 +147,24 @@ pub enum KernelV2Error {
     /// kernel-v2 has no empty solid; callers treat this as "no body".
     EmptyBooleanResult,
 
-    /// A yang-rs output face carries a non-planar surface. Phase 4a
-    /// reassembles planar output only; curved reassembly arrives with the
-    /// curved-primitive constructors. Carries the yang output face index.
+    /// A yang-rs output face carries a surface outside the KV5b reassembly
+    /// vocabulary (`Plane` and `Cylinder` are supported; `Sphere`/`Cone`
+    /// arrive with their kernel-v2 constructors). Carries the yang output
+    /// face index.
     UnsupportedBooleanOutputSurface { face: usize },
+
+    /// A yang-rs output edge carries a curve outside the KV5b reassembly
+    /// vocabulary. Supported: `LineSegment` and `Circle` arcs
+    /// (`start != end`, minor sweep). Named loudly here:
+    /// `Ellipse`/`Parabola`/`Hyperbola` (oblique conic sections — no
+    /// kernel-v2 curve type yet), full (`start == end`) circles in an
+    /// output (never observed; outputs are mesh-cycle based), and
+    /// near-half-circle arcs whose minor/major side is ambiguous. Never a
+    /// silent chord approximation (P9).
+    UnsupportedBooleanOutputCurve {
+        /// The unsupported curve, named (e.g. "Ellipse").
+        curve: &'static str,
+    },
 
     /// The yang-rs output B-Rep could not be reassembled into a kernel-v2
     /// solid: a structural defect (open or discontinuous loop, an
@@ -160,10 +174,15 @@ pub enum KernelV2Error {
     /// silently (P9). The payload names the violated condition.
     InvalidBooleanOutput(&'static str),
 
-    /// A boolean input solid contains curved geometry (a non-planar face
-    /// surface or a non-segment edge curve). The kernel-v2 ↔ yang-rs curved
-    /// conversion is PR-KV5b; until it lands, curved boolean inputs are
-    /// rejected loudly here rather than mistranslated as planar.
+    /// A boolean input solid contains curved geometry that cannot re-enter
+    /// the yang-rs pipeline. Since PR-KV5b, CANONICAL cylinder solids
+    /// (full-circle rims + full laterals, the KV5a constructor shape)
+    /// convert and run; what remains walled is the PARTIAL-patch vocabulary
+    /// a previous curved boolean produced (arc edges, partial cylinder
+    /// faces) — yang-rs Stage 1 has no partial-patch tessellation
+    /// (`BRep::new` rejects laterals without exactly 2 full circle rims),
+    /// so chained curved booleans are rejected loudly at conversion rather
+    /// than mistranslated.
     UnsupportedCurvedBoolean { face: FaceId },
 
     // ----- render tessellation (PR-KV3, `tessellate`) ----------------------

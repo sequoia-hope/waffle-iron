@@ -63,6 +63,18 @@ pub fn extract_edges_with_chord_tolerance(
                 let end = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
                 out.push(vec![start, end]);
             }
+            Curve::Arc { .. } => {
+                // PR-KV5b: an arc edge (boolean-output intersection circle
+                // piece) extracts as its chord-bound sample polyline —
+                // endpoints + the SAME interior samples render tessellation
+                // uses, so extracted edges lie exactly on the rendered seams.
+                let start = arena.vertex(he.origin)?.point;
+                let end = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+                let mut pl = vec![start];
+                pl.extend(crate::tessellate::arc_interior_samples(arena, h, n_seg)?);
+                pl.push(end);
+                out.push(pl);
+            }
             Curve::Circle {
                 center,
                 normal,
@@ -130,18 +142,34 @@ pub fn surface_area(arena: &BrepArena, solid: SolidId) -> Result<f64, KernelV2Er
                 let hes = arena.loop_half_edges(lid)?;
                 let mut circles = Vec::new();
                 for &h in &hes {
-                    if let Curve::Circle {
-                        center,
-                        normal,
-                        radius,
-                    } = arena.half_edge(h)?.curve
-                    {
-                        circles.push((center, normal, radius));
+                    match arena.half_edge(h)?.curve {
+                        Curve::Circle {
+                            center,
+                            normal,
+                            radius,
+                        } => circles.push((center, normal, radius)),
+                        // PR-KV5b partial patches: no analytic closed form —
+                        // loud, never a silent polygonal sum over arc chords.
+                        Curve::Arc { .. } => {
+                            return Err(KernelV2Error::CurvedGeometryMismatch {
+                                face: f,
+                                reason: "surface_area: analytic area not implemented for \
+                                         arc-bounded faces (KV5b partial patches)",
+                            });
+                        }
+                        Curve::LineSegment => {}
                     }
                 }
                 loop_data.push((lid, hes.len(), circles));
             }
 
+            if let Some(Surface::Cylinder { reversed: true, .. }) = face.surface {
+                return Err(KernelV2Error::CurvedGeometryMismatch {
+                    face: f,
+                    reason: "surface_area: cavity-sense (reversed) cylinder faces are \
+                             KV5b partial patches with no analytic closed form",
+                });
+            }
             if let Some(Surface::Cylinder { .. }) = face.surface {
                 let rims: Vec<_> = loop_data
                     .iter()

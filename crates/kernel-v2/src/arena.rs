@@ -165,11 +165,16 @@ pub enum Surface {
     /// Planar surface.
     Plane(Plane),
     /// Infinite right-circular cylinder: axis through `axis_point` along unit
-    /// `axis_dir`, of `radius`. Outward side = radially **away from the
-    /// axis** (a solid cylinder) — same convention and field shape as
-    /// `yang_rs::Surface::Cylinder`, so the KV5b boolean conversion is a
-    /// field-for-field copy. Cavity senses (inward laterals) are out of the
-    /// KV5a vocabulary; `validate_solid` enforces the outward orientation.
+    /// `axis_dir`, of `radius`. With `reversed == false` the outward side is
+    /// radially **away from the axis** (a solid cylinder) — same convention
+    /// and field shape as `yang_rs::Surface::Cylinder`, so the KV5b boolean
+    /// conversion is a field-for-field copy. `reversed == true` (PR-KV5b)
+    /// is the cavity sense: the face's outward normal is radially **toward
+    /// the axis** (the wall of a drilled pocket / through-hole) — the
+    /// kernel-v2 home for yang-rs's `BRepFace::reversed` flag, which yang
+    /// sets exactly on curved Subtract-subtrahend walls. Constructors
+    /// always build `reversed: false`; only `from_yang_brep` produces
+    /// `true`. `validate_solid`'s orientation rules flip accordingly.
     Cylinder {
         /// A point on the axis (the base-rim center as constructed).
         axis_point: Point3,
@@ -177,6 +182,9 @@ pub enum Surface {
         axis_dir: UnitVector3,
         /// Cylinder radius (meters, > 0).
         radius: f64,
+        /// Cavity sense: `false` = outward away from the axis (solid),
+        /// `true` = outward toward the axis (cavity wall).
+        reversed: bool,
     },
 }
 
@@ -198,9 +206,16 @@ pub enum Surface {
 ///   single anchor (seam) vertex, so `origin(next(h)) == origin(h)`. A loop
 ///   consisting of one circle half-edge alone (`next(h) == h`) is legal —
 ///   that is a cap boundary.
-/// - **Full circles only** in KV5a. Arcs are a future variant (the enum is
-///   `#[non_exhaustive]`); the assay corpus' 137 curved cases are all full
-///   circles extruded to cylinders.
+/// - **Arcs (PR-KV5b)**: [`Curve::Arc`] is a circular arc between two
+///   DISTINCT vertices, traversed counterclockwise around its directional
+///   `normal` from the half-edge's origin to its destination (both on the
+///   circle). The sweep angle is implied by the endpoints and is unique in
+///   `(0, 2π)` for a fixed normal; the twin carries the negated normal
+///   (same point set, opposite traversal). Arcs enter the arena ONLY from
+///   `from_yang_brep` (yang-rs boolean outputs tag exact intersection
+///   circles on per-mesh-edge arcs), which constructs minor arcs
+///   (sweep < π) exclusively — a near-half-circle arc is rejected there as
+///   ambiguous rather than guessed.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub enum Curve {
@@ -210,6 +225,17 @@ pub enum Curve {
     /// around unit `normal`, anchored at the half-edge's origin vertex
     /// (which lies on the circle).
     Circle {
+        /// Circle center.
+        center: Point3,
+        /// Unit axis around which this half-edge traverses CCW.
+        normal: UnitVector3,
+        /// Circle radius (meters, > 0).
+        radius: f64,
+    },
+    /// Circular arc of the circle (`center`, `radius`), traversed
+    /// counterclockwise around unit `normal` from the half-edge's origin to
+    /// its destination (distinct vertices, both on the circle). PR-KV5b.
+    Arc {
         /// Circle center.
         center: Point3,
         /// Unit axis around which this half-edge traverses CCW.

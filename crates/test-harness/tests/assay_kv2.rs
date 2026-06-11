@@ -641,15 +641,41 @@ fn smoke_corpus_boundary_categories() {
             "F0025",
             Category::Unsupported(UnsupportedReason::CoplanarBoolean),
         ),
-        // circle profiles → curved geometry not in Phase 4a
+        // PR-KV5b: circle profiles now extrude to cylinder solids, so these
+        // cases march PAST the old curved-profile wall to their next
+        // boundary — the auto-union of coaxial stacked cylinders is a
+        // coplanar pair (cap-on-cap), the M8 Stage-0 residue.
         (
             "F0030",
-            Category::Unsupported(UnsupportedReason::CurvedProfile),
+            Category::Unsupported(UnsupportedReason::CoplanarBoolean),
         ),
         (
             "F0086",
-            Category::Unsupported(UnsupportedReason::CurvedProfile),
+            Category::Unsupported(UnsupportedReason::CoplanarBoolean),
         ),
+        // PR-KV5b movers, pinned at their measured boundaries:
+        // F0031 (and the F0032–F0040 family): the curved boolean SUCCEEDS
+        // and the mesh is internally consistent (2 closed genus-0 shells,
+        // χ = 4), but the euler oracle expects 6: the case meta's
+        // euler_target = 4 already encodes the generator's 2-body
+        // expectation, and the PR-TH1 per-shell adjustment
+        // (+2·(shells−1)) adds the second shell AGAIN. A test-harness
+        // oracle/meta convention conflict (KV5b-F2), surfaced here and
+        // deferred to its own slice — NOT a kernel-v2 defect.
+        ("F0031", Category::SupportedWrong),
+        // R0006 / F0044: cylinder-boolean cases passing the FULL oracle
+        // set end-to-end — the first fully-correct curved corpus cases.
+        ("R0006", Category::SupportedCorrect),
+        ("F0044", Category::SupportedCorrect),
+        // F0046: oblique box plane × cylinder section is an ELLIPSE —
+        // kernel-v2's named-curve reassembly wall (UnsupportedBooleanOutputCurve).
+        ("F0046", Category::Error),
+        // F0041: cylinder×cylinder lateral∩lateral is degree-4 — yang's
+        // Stage-3 SSI wall (AmbiguousCurve), surfaced loudly.
+        ("F0041", Category::Error),
+        // R0067: yang Stage-5 in/out classification NoExplicitRayOrigin on
+        // a curved patch — fails INSIDE yang, typed and loud.
+        ("R0067", Category::Error),
         // revolve cases → revolve not in Phase 4a
         ("F0073", Category::Unsupported(UnsupportedReason::Revolve)),
         ("R0008", Category::Unsupported(UnsupportedReason::Revolve)),

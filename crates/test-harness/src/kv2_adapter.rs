@@ -16,10 +16,10 @@
 //!
 //! | Legacy trait method | Status | Mapping |
 //! |---|---|---|
-//! | `make_faces_from_profiles` | SUPPORTED (polygon profiles) | `ClosedProfile` polygon → `kernel_v2::Profile` (staged); circle / arc-segment / spline profiles → `NotSupported` (curved geometry not in kernel-v2 Phase 4a) |
-//! | `extrude_face` | SUPPORTED | staged profile → `kernel_v2::extrude` (sweep vector = `direction · depth`, exactly the legacy semantics) |
+//! | `make_faces_from_profiles` | SUPPORTED (polygon + circle profiles, PR-KV5b) | `ClosedProfile` polygon → `kernel_v2::Profile::new`; `CircleProfile` → `kernel_v2::Profile::circle` (staged); arc-segment / spline profiles → `NotSupported` |
+//! | `extrude_face` | SUPPORTED | staged profile → `kernel_v2::extrude` (sweep vector = `direction · depth`, exactly the legacy semantics); circle profiles → cylinder solids (PR-KV5a) |
 //! | `revolve_face` | NOT SUPPORTED | revolve is a later kernel-v2 slice |
-//! | `boolean_union` / `_subtract` / `_intersect` | SUPPORTED (non-coplanar) | `kernel_v2::boolean_op` (yang-rs native pipeline); coplanar input face pairs → `NotSupported` (Yang Stage 0 / roadmap M8) |
+//! | `boolean_union` / `_subtract` / `_intersect` | SUPPORTED (non-coplanar; cylinder×box class PR-KV5b) | `kernel_v2::boolean_op` (yang-rs native pipeline); coplanar input face pairs → `NotSupported` (Yang Stage 0 / roadmap M8); curved partial-patch RESULT operands → `NotSupported` (no yang Stage-1 re-entry); cylinder×cylinder / oblique-ellipse sections → `BooleanFailed` carrying the typed wall text |
 //! | `boolean_*_multi` | default impl | delegates to the single-body methods |
 //! | `fillet_edges` / `chamfer_edges` / `shell` | NOT SUPPORTED | deferred indefinitely (root CLAUDE.md) |
 //! | `tessellate` | SUPPORTED | `kernel_v2::validate_solid` + `kernel_v2::tessellate` (exact-rational, planar) → legacy `RenderMesh`; the tolerance argument is ignored (planar tessellation is exact) |
@@ -306,6 +306,16 @@ impl KernelV2Adapter {
             Err(KernelV2Error::UnsupportedCoplanar) => Err(Self::not_supported(&format!(
                 "{op_name}: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)"
             ))),
+            // PR-KV5b: a curved RESULT solid (partial cylinder patches from
+            // a previous boolean) cannot re-enter yang-rs Stage 1 — a
+            // declared boundary, not a bug (see kernel-v2 boolean.rs docs).
+            Err(KernelV2Error::UnsupportedCurvedBoolean { face }) => {
+                Err(Self::not_supported(&format!(
+                    "{op_name}: curved partial-patch operand face {face:?} (a previous curved \
+                     boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch \
+                     tessellation yet)"
+                )))
+            }
             Err(e) => Err(KernelError::BooleanFailed {
                 reason: format!("kernel-v2 {op_name} failed: {e}"),
             }),
@@ -507,10 +517,25 @@ impl Kernel for KernelV2Adapter {
 
         let mut out = Vec::with_capacity(profiles.len());
         for profile in profiles {
-            if profile.circle.is_some() {
-                return Err(Self::not_supported(
-                    "make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
-                ));
+            // PR-KV5b: circle profiles map to kernel-v2's validated circle
+            // profile (legacy semantics: center in sketch-plane (u, v)
+            // coordinates, radius in meters, same plane frame as polygons).
+            if let Some(circle) = &profile.circle {
+                let kv2_profile = kernel_v2::Profile::circle(
+                    Point3::new(plane_origin[0], plane_origin[1], plane_origin[2]),
+                    Vector3::new(x[0], x[1], x[2]),
+                    Vector3::new(y[0], y[1], y[2]),
+                    Point2::new(circle.center_u, circle.center_v),
+                    circle.radius,
+                )
+                .map_err(|e| KernelError::Other {
+                    message: format!("kernel-v2 circle profile rejected: {e}"),
+                })?;
+                let idx = self.next_staged;
+                self.next_staged += 1;
+                self.staged.insert(idx, kv2_profile);
+                out.push(KernelId(TAG_PROFILE | idx));
+                continue;
             }
             if !profile.spline_segments.is_empty() {
                 return Err(Self::not_supported(
@@ -801,24 +826,48 @@ mod tests {
         }
     }
 
+    /// PR-KV5b flipped the circle-profile wall (circles now stage — see the
+    /// KV5b tests below); spline- and arc-SEGMENT profiles remain loudly
+    /// unsupported.
     #[test]
-    fn circle_profile_is_loudly_unsupported() {
+    fn spline_and_arc_segment_profiles_are_loudly_unsupported() {
         let mut adapter = KernelV2Adapter::new();
-        let profile = ClosedProfile {
+        let base = ClosedProfile {
             entity_ids: vec![],
             is_outer: true,
             vertex_ids: vec![],
-            circle: Some(kernel::types::CircleProfile {
-                center_u: 0.0,
-                center_v: 0.0,
-                radius: 1.0,
-            }),
+            circle: None,
             spline_segments: vec![],
             arc_segments: vec![],
         };
+        let mut spline = base.clone();
+        spline.spline_segments = vec![kernel::types::SplineSegment {
+            start_point_index: 0,
+            end_point_index: 1,
+            control_points: vec![(0.0, 0.0), (1.0, 0.5), (2.0, 0.0)],
+        }];
         let err = adapter
             .make_faces_from_profiles(
-                &[profile],
+                &[spline],
+                [0.0; 3],
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0],
+                &HashMap::new(),
+            )
+            .unwrap_err();
+        assert!(matches!(err, KernelError::NotSupported { .. }), "{err:?}");
+
+        let mut arc = base.clone();
+        arc.arc_segments = vec![waffle_types::ArcSegment {
+            start_vertex_index: 0,
+            end_vertex_index: 1,
+            center_u: 0.0,
+            center_v: 0.0,
+            radius: 1.0,
+        }];
+        let err = adapter
+            .make_faces_from_profiles(
+                &[arc],
                 [0.0; 3],
                 [0.0, 0.0, 1.0],
                 [1.0, 0.0, 0.0],

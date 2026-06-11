@@ -198,6 +198,7 @@ fn cylinder_extrude_validates_with_curved_euler_accounting() {
         axis_point,
         axis_dir,
         radius,
+        reversed,
     }) = lateral.surface
     else {
         panic!("lateral must be a cylinder, got {:?}", lateral.surface);
@@ -209,6 +210,7 @@ fn cylinder_extrude_validates_with_curved_euler_accounting() {
         (0.0, 0.0, 0.0),
         "axis through the base-rim center"
     );
+    assert!(!reversed, "constructors always build outward laterals");
 
     // Cap boundary representation: each cap's outer loop is a SINGLE
     // closed circle half-edge (next(h) == h) whose directional normal
@@ -482,16 +484,21 @@ fn invalid_circle_profiles_rejected_typed() {
     assert_eq!(err, KernelV2Error::ProfileNotFinite);
 }
 
+/// PR-KV5b FLIPPED the wall this test used to pin: a canonical KV5a
+/// cylinder solid now converts to yang-rs's BRep (the M5 fixture shape —
+/// shared full-circle rim edges + a shared seam edge) instead of being the
+/// typed `UnsupportedCurvedBoolean` rejection. The wall that REMAINS —
+/// partial-patch curved results re-entering yang Stage 1 — is pinned in
+/// tests/kv5b_curved_boolean.rs (`curved_result_reentry_is_typed_wall`).
 #[test]
-fn curved_boolean_input_rejected_typed_until_kv5b() {
+fn curved_boolean_input_converts_since_kv5b() {
     let mut arena = BrepArena::new();
     let result = exact_cylinder(&mut arena);
-    let err = to_yang_brep(&arena, result.solid)
-        .expect_err("curved boolean conversion is PR-KV5b; must be loud, not mistranslated");
-    assert!(
-        matches!(err, KernelV2Error::UnsupportedCurvedBoolean { .. }),
-        "typed curved-boolean rejection, got {err:?}"
-    );
+    let ybrep = to_yang_brep(&arena, result.solid)
+        .expect("canonical cylinder converts to the yang M5 fixture shape (KV5b)");
+    assert_eq!(ybrep.vertices().len(), 2, "two seam vertices");
+    assert_eq!(ybrep.edges().len(), 3, "two shared rims + one shared seam");
+    assert_eq!(ybrep.faces().len(), 3, "two caps + lateral");
 }
 
 // =========================================================================

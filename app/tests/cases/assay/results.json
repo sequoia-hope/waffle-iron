@@ -1,12 +1,12 @@
 {
-  "errored": 0,
-  "failed": 1,
+  "errored": 18,
+  "failed": 11,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 14,
+  "passed": 17,
   "results": [
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: ea56a34e-0e5a-4ec1-8dcc-930158ff9799: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: ea56a34e-0e5a-4ec1-8dcc-930158ff9799: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0001",
       "status": "unsupported"
     },
@@ -30,19 +30,19 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: 0bead6cf-0a4e-4261-8c9b-60755ae1c4df: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "2 NotSupported boundary(ies); first: 0bead6cf-0a4e-4261-8c9b-60755ae1c4df: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0005",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 35bcb1f0-84e4-4f15-ac2e-80ed9a83fdc8: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0006",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: dfbba61c-e180-47a4-adc1-c912f74e886b: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "2 NotSupported boundary(ies); first: 282b97fd-7f4e-454a-82a0-f81dcc1f1ebe: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0007",
       "status": "unsupported"
     },
@@ -54,13 +54,13 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 94d41391-6c53-4847-86f8-39d68986864f: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: e8f47324-eb20-44c1-ba99-9cba7531cd12: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(11) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "R0009",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 8af80969-7603-4fb4-a9e5-ce97b72e2896: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: 7af44ce1-ae17-4795-bf12-d7fb6717e824: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0010",
       "status": "unsupported"
     },
@@ -78,7 +78,7 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 175ae351-0e7e-4964-b34e-39ed10d01765: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: 79c540a2-0359-41b6-941e-9a1a3f9f2b54: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0013",
       "status": "unsupported"
     },
@@ -90,13 +90,13 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "3 NotSupported boundary(ies); first: 7bc60e38-545e-4c66-8968-9709b9887ade: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "2 NotSupported boundary(ies); first: 7bc60e38-545e-4c66-8968-9709b9887ade: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0015",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: 807ef981-2925-42b8-bd76-2447169a035c: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "2 NotSupported boundary(ies); first: 807ef981-2925-42b8-bd76-2447169a035c: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0016",
       "status": "unsupported"
     },
@@ -114,49 +114,49 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 938a666d-349a-47bb-866a-b5e1a9adde1c: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: 5091f85d-64c4-491b-bb6a-ad2a85adb80c: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0019",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "3 NotSupported boundary(ies); first: 2d767b57-d3b2-4dc7-8df1-908e4e8675f2: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: 2d767b57-d3b2-4dc7-8df1-908e4e8675f2: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0020",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 054f58d6-65a0-4d08-8acd-44e044335ecb: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "R0021",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: bcdab152-ae1a-4b54-be69-5243aea7c098: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: bcdab152-ae1a-4b54-be69-5243aea7c098: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0022",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: dab78e80-e724-4e6d-bcd8-173a5da98bdb: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "2 NotSupported boundary(ies); first: f68e125b-a408-428b-b7b3-348dbd7aa467: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0023",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: c9d36e68-39b5-48aa-beaa-06e2ed8a6a6f: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: c9d36e68-39b5-48aa-beaa-06e2ed8a6a6f: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0024",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: 6eeaf061-7a5e-41ef-9c58-a70321b2bef1: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "2 NotSupported boundary(ies); first: 6eeaf061-7a5e-41ef-9c58-a70321b2bef1: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0025",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 4ebfd380-3fde-4d9c-8b4b-d5445af6b1d8: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "2 NotSupported boundary(ies); first: 4535a437-f68b-4815-9607-353e601c97c8: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0026",
       "status": "unsupported"
     },
@@ -167,8 +167,8 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 862d85cd-fc35-45c0-bd80-3d3aca13fcc8: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: 862d85cd-fc35-45c0-bd80-3d3aca13fcc8: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0028",
       "status": "unsupported"
     },
@@ -180,7 +180,7 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: f6617424-9f53-4192-a776-c1bc70719ab2: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(17) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "R0030",
       "status": "unsupported"
     },
@@ -191,8 +191,8 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: 9aa7e2ee-a9e0-4adc-a381-74087f2ac11f: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "2 NotSupported boundary(ies); first: 9aa7e2ee-a9e0-4adc-a381-74087f2ac11f: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0032",
       "status": "unsupported"
     },
@@ -204,25 +204,25 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: e93c858a-12b4-441d-b3c0-350e7ef2a4da: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: 58071b1c-c774-4650-8400-0cab5902a09d: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0034",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "3 NotSupported boundary(ies); first: f1fbf2e5-b10c-4000-9c67-ff5bb7aa15a6: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "2 NotSupported boundary(ies); first: f1fbf2e5-b10c-4000-9c67-ff5bb7aa15a6: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0035",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: 63a63905-9999-4922-96f1-5ddfbab1efee: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "2 NotSupported boundary(ies); first: 63a63905-9999-4922-96f1-5ddfbab1efee: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0036",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: 0837ce72-519f-4ed5-9301-a31f6ab7b3e0: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "2 NotSupported boundary(ies); first: 0837ce72-519f-4ed5-9301-a31f6ab7b3e0: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0037",
       "status": "unsupported"
     },
@@ -239,44 +239,44 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: ad941094-9f0e-46db-aa05-ba2ff4928bd6: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: 448491a8-03f9-4b94-bd10-90c9d99614c6: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0040",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 003527de-b6d0-4a81-8e66-059133de62e8: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): e507f696-a1f4-4c34-b7fb-2f836f29eb02: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: UnsupportedBooleanOutputCurve { curve: \"Ellipse\" }",
       "id": "R0041",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 06e5e00c-0867-42e4-8d4e-d13170ab752b: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: 113cbcc9-dfed-4b59-b16c-b7a0c597b84e: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0042",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: bb771f1f-33fd-4429-aef2-0eb5e785a020: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: bb771f1f-33fd-4429-aef2-0eb5e785a020: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0043",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "3 NotSupported boundary(ies); first: 91266e3c-6b2f-42be-8669-5edf21a91618: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "2 NotSupported boundary(ies); first: 91266e3c-6b2f-42be-8669-5edf21a91618: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0044",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 80a58f19-3649-4be1-a0d9-d1e2c5ce5723: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "2 NotSupported boundary(ies); first: 80a58f19-3649-4be1-a0d9-d1e2c5ce5723: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0045",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 36939748-04d9-450b-9cac-4f51903b0f66: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "2 NotSupported boundary(ies); first: 3071deb9-4fab-4209-b01c-9bc4bd7aae35: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0046",
       "status": "unsupported"
     },
@@ -305,8 +305,8 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: 383cdc4a-90d9-49f2-8da6-c1481430ed6b: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "2 NotSupported boundary(ies); first: bc380f5a-df85-4599-9edd-f37bc9a64c68: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0051",
       "status": "unsupported"
     },
@@ -336,13 +336,13 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 3e3b3abd-3120-43af-a684-c2271860c502: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: 3e3b3abd-3120-43af-a684-c2271860c502: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0056",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 845ce807-854e-4e70-8660-c24d8552f35a: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: 845ce807-854e-4e70-8660-c24d8552f35a: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0057",
       "status": "unsupported"
     },
@@ -353,32 +353,32 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 74629bff-066b-4807-ba59-3c866a76372c: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "2 NotSupported boundary(ies); first: 8e2df09c-5e39-463c-978a-c11682bc2337: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0059",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: 028391ad-4654-4f7b-8992-9b566a1f4e21: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: 028391ad-4654-4f7b-8992-9b566a1f4e21: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0060",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: fc68955d-ab39-45e4-8dc2-705ab2f49d73: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: c032f2e8-9766-4502-9430-29829c8e2a31: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0061",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 92dbb5ec-a3ec-4312-acc1-cf9abe48a3e2: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: 92dbb5ec-a3ec-4312-acc1-cf9abe48a3e2: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0062",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 785d49a0-d926-4235-91a6-69d1290b2f65: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "2 NotSupported boundary(ies); first: 8eeba1df-ba26-434b-b13f-a2d9f219b438: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0063",
       "status": "unsupported"
     },
@@ -390,25 +390,25 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: 45bafd8c-24f2-4d99-8905-1a28e438a9db: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "detail": "2 NotSupported boundary(ies); first: 627c5994-1f16-449b-afdb-81ec05227e09: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0065",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: d506ba2c-a99b-4595-89ad-8b2c0b68a1d0: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: f17f7b84-aab0-4c29-8610-d6d23ff10483: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0066",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: cdc207a1-390f-4204-8df0-03df5c17286c: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: mesh boolean backend failed: native boolean: in/out classification failed: NoExplicitRayOrigin { patch: 1 }\"). Body created as standalone.",
       "id": "R0067",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: e36d39c4-9ef8-48a2-aba3-9c873c5fddc5: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: e36d39c4-9ef8-48a2-aba3-9c873c5fddc5: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0068",
       "status": "unsupported"
     },
@@ -420,7 +420,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "3 NotSupported boundary(ies); first: 0af735bc-c968-4f0a-81f6-4fee788a7ac4: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "2 NotSupported boundary(ies); first: 0af735bc-c968-4f0a-81f6-4fee788a7ac4: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0070",
       "status": "unsupported"
     },
@@ -431,8 +431,8 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 053c901c-af92-46c9-aded-04d14e9a6017: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "R0072",
       "status": "unsupported"
     },
@@ -444,13 +444,13 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: ae911092-12e7-4a23-9ffa-f923b5a8dfcc: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "2 NotSupported boundary(ies); first: ae911092-12e7-4a23-9ffa-f923b5a8dfcc: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0074",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: ce51b1bb-dd66-44be-8621-7e97e1f640c5: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "2 NotSupported boundary(ies); first: ce51b1bb-dd66-44be-8621-7e97e1f640c5: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0075",
       "status": "unsupported"
     },
@@ -461,20 +461,20 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: a69855b9-6abf-4870-a38b-e1fbc3869311: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: a69855b9-6abf-4870-a38b-e1fbc3869311: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0077",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 15f16cc9-bee8-49fa-80fb-1516f33eccc8: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: 15f16cc9-bee8-49fa-80fb-1516f33eccc8: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0078",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: c5b38315-2592-48a3-b0d9-887b5b06849a: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: 39b1c7c4-f107-4b35-8f35-aaa29d059d99: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(6) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "R0079",
       "status": "unsupported"
     },
@@ -492,19 +492,19 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: f6cdd1cf-4e29-4fd2-b3ce-ff80abc086f6: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: ea5d00ce-b1f4-4d3a-81b4-b10c34c0afb9: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0082",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 0aacdcfc-599c-4493-a601-c626161cc9ae: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0083",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: fdbc254d-045c-4d86-98dc-bebdf5190911: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: fdbc254d-045c-4d86-98dc-bebdf5190911: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0084",
       "status": "unsupported"
     },
@@ -515,46 +515,46 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 98458872-ab4f-40f3-a32b-00b16cd1c0b1: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: mesh boolean backend failed: native boolean: in/out classification failed: NoExplicitRayOrigin { patch: 2 }\"). Body created as standalone.",
       "id": "R0086",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 03f4813e-94d5-4944-b1a7-466abc00a0ac: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "2 NotSupported boundary(ies); first: 03f4813e-94d5-4944-b1a7-466abc00a0ac: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0087",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 882cdf70-494e-4f0a-9001-3f19faa70552: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "detail": "2 NotSupported boundary(ies); first: d1d97c73-794c-42de-90bf-3a044a05ac9d: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0088",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 7d2fd568-ae12-4c82-a12e-8622630d709f: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "R0089",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: 3da99ca9-3ca7-4e76-af27-4d4a609e397d: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: 1bcd1eed-00e6-43e8-8ecf-d82507e1c23f: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0090",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: c7b1979a-9521-4f37-b8df-73ba68c35609: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: c7b1979a-9521-4f37-b8df-73ba68c35609: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0091",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 7018a340-ed88-41fc-8730-5647da6cd313: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): f0b5d322-fb7e-45e5-ac87-fd95fc973c13: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
       "id": "R0092",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
@@ -570,13 +570,13 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: 8956b813-b171-4376-adc6-427bf7b98635: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "detail": "2 NotSupported boundary(ies); first: 2bc1b3fa-aa25-4363-b3c2-a2f517452344: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0095",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 3dd4af97-3355-4b7e-814c-5599d9aa3eac: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "2 NotSupported boundary(ies); first: 3dd4af97-3355-4b7e-814c-5599d9aa3eac: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0096",
       "status": "unsupported"
     },
@@ -593,8 +593,8 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: 07d14cde-1e07-42ae-a015-287f9f136682: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: 03c04280-8758-4d9b-8f37-b93314b3c217: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
       "id": "R0099",
       "status": "unsupported"
     },
@@ -755,154 +755,154 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: f36f602e-9f1e-458f-bbe5-29adfa104c12: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0026",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 29765841-eb52-42c2-83e1-2dc4968e1010: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0027",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: cdfd46ad-5617-406e-a31c-ea9fd66c446b: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0028",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: e5c285cc-0699-4eda-a389-7f0fb742232f: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0029",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: e7680cc3-f98a-4287-be6b-ff5ec07675d5: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0030",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 5daf4d73-b254-49ed-ad7a-ae5073b4972a: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "SUPPORTED_WRONG",
+      "detail": "mesh_euler_characteristic: V(2504) - E(7318) + F(4818) = 4 (expected 6 for 2 shell(s))",
       "id": "F0031",
-      "status": "unsupported"
+      "status": "fail"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 05e05299-a959-4db5-8224-f2645fc680fe: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "SUPPORTED_WRONG",
+      "detail": "mesh_euler_characteristic: V(6584) - E(19586) + F(13006) = 4 (expected 6 for 2 shell(s))",
       "id": "F0032",
-      "status": "unsupported"
+      "status": "fail"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 95722390-a5b6-468f-94ca-fb696aa1d4d5: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "SUPPORTED_WRONG",
+      "detail": "mesh_euler_characteristic: V(3140) - E(9240) + F(6104) = 4 (expected 6 for 2 shell(s))",
       "id": "F0033",
-      "status": "unsupported"
+      "status": "fail"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: c8f2ad20-fada-4dc2-8b06-d7696232fb00: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "SUPPORTED_WRONG",
+      "detail": "mesh_euler_characteristic: V(2504) - E(7318) + F(4818) = 4 (expected 6 for 2 shell(s))",
       "id": "F0034",
-      "status": "unsupported"
+      "status": "fail"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 5cf46d49-f2e5-4bc7-8c9d-43ea0dbe4f85: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "SUPPORTED_WRONG",
+      "detail": "mesh_euler_characteristic: V(3432) - E(10116) + F(6688) = 4 (expected 6 for 2 shell(s))",
       "id": "F0035",
-      "status": "unsupported"
+      "status": "fail"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 188687bc-1883-4028-9757-33f3eb305911: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "SUPPORTED_WRONG",
+      "detail": "mesh_euler_characteristic: V(1536) - E(4414) + F(2882) = 4 (expected 6 for 2 shell(s))",
       "id": "F0036",
-      "status": "unsupported"
+      "status": "fail"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: a24e4101-f3cd-4464-92fe-9bca1cf70424: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "SUPPORTED_WRONG",
+      "detail": "mesh_euler_characteristic: V(736) - E(2014) + F(1282) = 4 (expected 6 for 2 shell(s))",
       "id": "F0037",
-      "status": "unsupported"
+      "status": "fail"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 1d1369ca-fd72-4472-8a80-49abe00fa5d4: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "SUPPORTED_WRONG",
+      "detail": "mesh_euler_characteristic: V(2504) - E(7318) + F(4818) = 4 (expected 6 for 2 shell(s))",
       "id": "F0038",
-      "status": "unsupported"
+      "status": "fail"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 9d284dee-29b1-40c9-806d-c3600e0fdb59: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "SUPPORTED_WRONG",
+      "detail": "mesh_euler_characteristic: V(2504) - E(7318) + F(4818) = 4 (expected 6 for 2 shell(s))",
       "id": "F0039",
-      "status": "unsupported"
+      "status": "fail"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 010ec7a1-977d-4b5a-8dfa-fb9b57bd02e0: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "SUPPORTED_WRONG",
+      "detail": "mesh_euler_characteristic: V(792) - E(2168) + F(1380) = 4 (expected 6 for 2 shell(s))",
       "id": "F0040",
-      "status": "unsupported"
+      "status": "fail"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 7f373dcf-a01d-4d96-9ac4-d5c35dc72d2c: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (22, 58): AmbiguousCurve { candidates: 2, matched: 0 }\"). Body created as standalone.",
       "id": "F0041",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: da5ad3c5-8f39-49de-92b4-1036197c2f97: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): b2170b0b-0c14-44f4-8723-44d951dc8d42: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(8) }",
       "id": "F0042",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 68f960a0-c14b-4d0b-b169-0fa0030f1738: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (15, 53): AmbiguousCurve { candidates: 2, matched: 0 }\"). Body created as standalone.",
       "id": "F0043",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: e1844675-80f6-47bd-b5c9-c7738453d9c7: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0044",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 74c74ea3-3199-48d8-ace5-75b7395d6b15: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (20, 70): AmbiguousCurve { candidates: 2, matched: 0 }\"). Body created as standalone.",
       "id": "F0045",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: ce7bed0b-5383-4e20-920a-79c0f9877aea: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: UnsupportedBooleanOutputCurve { curve: \"Ellipse\" }. Body created as standalone.",
       "id": "F0046",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 14302ad0-68bb-4b83-bac1-0de0c1bc7313: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: UnsupportedBooleanOutputCurve { curve: \"Ellipse\" }. Body created as standalone.",
       "id": "F0047",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 358c3caa-ebc6-410f-a935-d169c9b174f2: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: UnsupportedBooleanOutputCurve { curve: \"Ellipse\" }. Body created as standalone.",
       "id": "F0048",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 2d800786-6c91-4e6c-bfc6-0573f319e93e: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: UnsupportedBooleanOutputCurve { curve: \"Ellipse\" }. Body created as standalone.",
       "id": "F0049",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 122b4bf4-1359-404e-99f1-97a6d056cbe7: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: UnsupportedBooleanOutputCurve { curve: \"Ellipse\" }. Body created as standalone.",
       "id": "F0050",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -911,10 +911,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 5cf512d7-9053-48ef-a327-1a58f46c04ed: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"). Body created as standalone.",
       "id": "F0052",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -923,56 +923,56 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 56f446b7-6af9-493a-a88e-cf4f0626cb61: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: 3798e4f2-5768-44b9-ab32-6431c73c9d7d: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "F0054",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: f08ea688-e714-45fe-ad30-6b90f2f52e9f: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: f08ea688-e714-45fe-ad30-6b90f2f52e9f: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "F0055",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 86c43f2e-6f93-420f-a59d-bf48d4a0c42d: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 26 is invalid: LocalRefinementRequired\"). Body created as standalone.",
       "id": "F0056",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 515e5605-aad6-48ef-a490-7217ff702be1: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 26 is invalid: LocalRefinementRequired\"). Body created as standalone.",
       "id": "F0057",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 7a0bee91-a638-4adb-9837-c80f7204cd2a: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): 559e354e-a36a-4c6a-b998-fe93a4590c52: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (24, 27): AmbiguousCurve { candidates: 2, matched: 0 }\")",
       "id": "F0058",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 87de355c-68a1-4a37-ae03-841d56c879c1: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\"). Body created as standalone.",
       "id": "F0059",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 82144e62-e71f-46c9-a8d8-c0526a24afe5: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: 764a62d5-ed3f-407f-845d-c1577ef9cc13: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "F0060",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 21a0ece4-3733-446e-8c61-0a20a8938a1f: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: 21a0ece4-3733-446e-8c61-0a20a8938a1f: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0061",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 0dd82986-b702-4394-962a-a02b5fe7b901: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: 0dd82986-b702-4394-962a-a02b5fe7b901: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "F0062",
       "status": "unsupported"
     },
@@ -984,7 +984,7 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 14558bf7-a2e0-4c05-ab0c-2ff5ea49d696: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "3 NotSupported boundary(ies); first: 14558bf7-a2e0-4c05-ab0c-2ff5ea49d696: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0064",
       "status": "unsupported"
     },
@@ -1008,7 +1008,7 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "6 NotSupported boundary(ies); first: 673d459f-ed39-4605-a0b7-41974de56673: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "detail": "6 NotSupported boundary(ies); first: 5aaf6e43-c9f3-4ce5-81e5-3bdc469efa86: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0068",
       "status": "unsupported"
     },
@@ -1020,13 +1020,13 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "6 NotSupported boundary(ies); first: 120627e9-5349-44c0-b52e-1cbc4c63213b: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "7 NotSupported boundary(ies); first: 120627e9-5349-44c0-b52e-1cbc4c63213b: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0070",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "6 NotSupported boundary(ies); first: 18d2aacb-67fe-4502-b39b-824930181694: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "7 NotSupported boundary(ies); first: 18d2aacb-67fe-4502-b39b-824930181694: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0071",
       "status": "unsupported"
     },
@@ -1056,7 +1056,7 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 539e006b-d570-4606-8166-b7ae508946b1: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 5: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(35) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "F0076",
       "status": "unsupported"
     },
@@ -1086,61 +1086,61 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: 79c39a11-e603-4c41-bdc5-b1041ed35c1b: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "detail": "3 NotSupported boundary(ies); first: fb72f68a-4bb9-4d76-a7d6-9b2c886404ec: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0081",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "7 NotSupported boundary(ies); first: 591d1da1-d15f-49fd-a604-0e09bca0fbd7: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "4 NotSupported boundary(ies); first: 591d1da1-d15f-49fd-a604-0e09bca0fbd7: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0082",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "7 NotSupported boundary(ies); first: 4bccbcac-8a32-43b4-b800-0dbb0ca832c8: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "detail": "6 NotSupported boundary(ies); first: c099b9d1-be64-4612-b09a-88666ddfaf2d: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0083",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "14 NotSupported boundary(ies); first: 392709a8-fbfc-415c-be66-88be883b5e20: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "13 NotSupported boundary(ies); first: 392709a8-fbfc-415c-be66-88be883b5e20: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0084",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "15 NotSupported boundary(ies); first: 610a1c24-ad45-42e3-bc09-3827ae4bb49f: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "detail": "11 NotSupported boundary(ies); first: 74155034-33e4-4333-af1f-8fd6442d2af6: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "F0085",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "6 NotSupported boundary(ies); first: 6caeba5e-0cff-4ef3-b921-04f15b0272c3: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "5 NotSupported boundary(ies); first: eeadb4da-e68d-4f96-bcc7-e1687f1059a2: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "F0086",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "11 NotSupported boundary(ies); first: 18af2d5f-c522-4708-8325-dc72744cc447: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "10 NotSupported boundary(ies); first: 9a4cf100-ac4f-42a0-adb3-f9a4cee558ec: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "F0087",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "16 NotSupported boundary(ies); first: 53ce64bc-e60d-4036-81e4-b829b3ea7152: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "15 NotSupported boundary(ies); first: d1869bd1-f4f0-4f55-b802-93ee0dedc815: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "F0088",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "21 NotSupported boundary(ies); first: 36a8d3a8-07d9-4961-acd0-a9913f42ffc6: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "20 NotSupported boundary(ies); first: c0b431e9-9ee1-408d-ab60-a213303a1b81: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "F0089",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "31 NotSupported boundary(ies); first: 817b2b85-15a7-4930-a8c3-03e95bbfe562: kernel error: operation not supported: make_faces_from_profiles: circle profile (curved geometry not yet in kernel-v2)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "30 NotSupported boundary(ies); first: fbc71d84-18dc-45af-9813-b32ddadd59c1: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "F0090",
       "status": "unsupported"
     }

@@ -36,9 +36,39 @@ pub(crate) fn midpoint(a: Point2, b: Point2) -> RPoint2 {
     )
 }
 
-/// Exact orientation of `c` relative to the directed line `a → b`:
+/// Shewchuk's static forward-error bound for the 2D orientation
+/// determinant (`ccwerrboundA = (3 + 16ε)·ε`, ε = 2⁻⁵³): when the f64
+/// determinant's magnitude exceeds this fraction of the term-magnitude
+/// sum, its SIGN is provably the exact sign. (Shewchuk 1997, "Adaptive
+/// Precision Floating-Point Arithmetic", §4.2 — the same filtered→exact
+/// cascade structure as cherchi-rs's predicates.)
+const ORIENT2D_ERRBOUND_A: f64 = (3.0 + 16.0 * f64::EPSILON) * f64::EPSILON;
+
+/// Orientation of `c` relative to the directed line `a → b`:
 /// `Greater` = left, `Less` = right, `Equal` = collinear.
+///
+/// EXACT decision procedure with a filtered fast path (PR-KV5b): the f64
+/// determinant decides when it clears Shewchuk's static error bound —
+/// provably the same sign the rational evaluation would produce — and
+/// everything inside the bound falls through to the lossless `RBig`
+/// evaluation. Same decisions as the original all-rational form,
+/// byte-for-byte; the filter exists because the KV5b cylinder-patch
+/// ear-clipping runs O(n³) orientation tests on ~10²-node rings, which the
+/// all-rational form made pathologically slow in debug builds.
 pub(crate) fn orient2d(a: Point2, b: Point2, c: Point2) -> Ordering {
+    let detleft = (b.x() - a.x()) * (c.y() - a.y());
+    let detright = (b.y() - a.y()) * (c.x() - a.x());
+    let det = detleft - detright;
+    let detsum = detleft.abs() + detright.abs();
+    if det.is_finite() && detsum.is_finite() {
+        let bound = ORIENT2D_ERRBOUND_A * detsum;
+        if det > bound {
+            return Ordering::Greater;
+        }
+        if det < -bound {
+            return Ordering::Less;
+        }
+    }
     let det = (r(b.x()) - r(a.x())) * (r(c.y()) - r(a.y()))
         - (r(b.y()) - r(a.y())) * (r(c.x()) - r(a.x()));
     det.cmp(&RBig::ZERO)

@@ -425,6 +425,7 @@ fn extrude_circle(
             axis_point: c0,
             axis_dir: a,
             radius,
+            reversed: false,
         }),
         outer_loop: loop_lat,
         inner_loops: Vec::new(),

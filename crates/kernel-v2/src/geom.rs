@@ -60,6 +60,67 @@ pub fn dot(a: UnitVector3, b: UnitVector3) -> f64 {
     a.x * b.x + a.y * b.y + a.z * b.z
 }
 
+/// Wrap an angle to the principal interval `(−π, π]`.
+pub(crate) fn wrap_to_pi(mut x: f64) -> f64 {
+    use std::f64::consts::PI;
+    while x > PI {
+        x -= 2.0 * PI;
+    }
+    while x <= -PI {
+        x += 2.0 * PI;
+    }
+    x
+}
+
+/// CCW sweep angle in `(0, 2π]` around unit `normal` from `start` to `end`
+/// (both on the circle about `center`; `start == end` geometrically yields
+/// `2π`). `None` when either endpoint has no radial component (degenerate
+/// input). Shared by the KV5b boolean conversion (arc sense derivation),
+/// the curved validation (unrolled winding), and arc tessellation.
+pub(crate) fn ccw_sweep(
+    center: Point3,
+    normal: [f64; 3],
+    start: Point3,
+    end: Point3,
+) -> Option<f64> {
+    let ds = [
+        start.x() - center.x(),
+        start.y() - center.y(),
+        start.z() - center.z(),
+    ];
+    let t = ds[0] * normal[0] + ds[1] * normal[1] + ds[2] * normal[2];
+    let e1_raw = [
+        ds[0] - t * normal[0],
+        ds[1] - t * normal[1],
+        ds[2] - t * normal[2],
+    ];
+    let l1 = (e1_raw[0] * e1_raw[0] + e1_raw[1] * e1_raw[1] + e1_raw[2] * e1_raw[2]).sqrt();
+    if !(l1.is_finite() && l1 > 0.0) {
+        return None;
+    }
+    let e1 = [e1_raw[0] / l1, e1_raw[1] / l1, e1_raw[2] / l1];
+    let e2 = [
+        normal[1] * e1[2] - normal[2] * e1[1],
+        normal[2] * e1[0] - normal[0] * e1[2],
+        normal[0] * e1[1] - normal[1] * e1[0],
+    ];
+    let de = [
+        end.x() - center.x(),
+        end.y() - center.y(),
+        end.z() - center.z(),
+    ];
+    let x = de[0] * e1[0] + de[1] * e1[1] + de[2] * e1[2];
+    let y = de[0] * e2[0] + de[1] * e2[1] + de[2] * e2[2];
+    if !(x.is_finite() && y.is_finite()) || (x == 0.0 && y == 0.0) {
+        return None;
+    }
+    let mut theta = y.atan2(x);
+    if theta <= 0.0 {
+        theta += 2.0 * std::f64::consts::PI;
+    }
+    Some(theta)
+}
+
 /// Signed volume of a solid via the divergence theorem
 /// (`V = (1/3) ∮ x · n dA`), evaluated **analytically per surface type** —
 /// the value is a property of the B-Rep geometry, independent of any
@@ -119,18 +180,35 @@ pub fn signed_volume(
                 let hes = arena.loop_half_edges(lid)?;
                 let mut circles = Vec::new();
                 for &h in &hes {
-                    if let Curve::Circle {
-                        center,
-                        normal,
-                        radius,
-                    } = arena.half_edge(h)?.curve
-                    {
-                        circles.push((center, normal, radius));
+                    match arena.half_edge(h)?.curve {
+                        Curve::Circle {
+                            center,
+                            normal,
+                            radius,
+                        } => circles.push((center, normal, radius)),
+                        // PR-KV5b partial patches: no analytic closed form
+                        // is implemented for arc-bounded loops — loud,
+                        // never a silent polygonal fan over arc chords.
+                        Curve::Arc { .. } => {
+                            return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
+                                face: f,
+                                reason: "signed_volume: analytic volume not implemented for \
+                                     arc-bounded faces (KV5b partial patches)",
+                            });
+                        }
+                        Curve::LineSegment => {}
                     }
                 }
                 loop_data.push((lid, hes.len(), circles));
             }
 
+            if let Some(Surface::Cylinder { reversed: true, .. }) = face.surface {
+                return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
+                    face: f,
+                    reason: "signed_volume: cavity-sense (reversed) cylinder faces are \
+                             KV5b partial patches with no analytic closed form",
+                });
+            }
             if let Some(Surface::Cylinder { .. }) = face.surface {
                 // Lateral: exactly two full-circle rims (validated shape).
                 let rims: Vec<_> = loop_data

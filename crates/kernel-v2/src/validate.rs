@@ -182,8 +182,13 @@ pub fn validate_solid(arena: &BrepArena, solid: SolidId) -> Result<TopologyRepor
         if !curves_twin_consistent(he.curve, twin.curve) {
             return Err(KernelV2Error::CurveTwinMismatch { half_edge: h });
         }
-        if matches!(he.curve, Curve::Circle { .. }) && arena.half_edge(he.next)?.origin != he.origin
-        {
+        // A full circle closes on its own anchor; an arc never does
+        // (distinct endpoints — else it would BE a full circle).
+        let closes = arena.half_edge(he.next)?.origin == he.origin;
+        if matches!(he.curve, Curve::Circle { .. }) && !closes {
+            return Err(KernelV2Error::CurveTwinMismatch { half_edge: h });
+        }
+        if matches!(he.curve, Curve::Arc { .. }) && closes {
             return Err(KernelV2Error::CurveTwinMismatch { half_edge: h });
         }
     }
@@ -230,7 +235,8 @@ pub fn validate_solid(arena: &BrepArena, solid: SolidId) -> Result<TopologyRepor
                 axis_point,
                 axis_dir,
                 radius,
-            }) => validate_cylinder_face(arena, f, face, axis_point, axis_dir, radius)?,
+                reversed,
+            }) => validate_cylinder_face(arena, f, face, axis_point, axis_dir, radius, reversed)?,
             None => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
         }
     }
@@ -256,10 +262,11 @@ pub fn validate_solid(arena: &BrepArena, solid: SolidId) -> Result<TopologyRepor
     })
 }
 
-/// Twin curve agreement (PR-KV5a): both `LineSegment`, or both `Circle`
-/// with identical center/radius and exactly negated normals (the assembler
-/// constructs the negation, so exact f64 comparison is the honest check —
-/// `-0.0 == 0.0` makes signed zeros immaterial).
+/// Twin curve agreement (PR-KV5a circles, PR-KV5b arcs): both
+/// `LineSegment`, or both `Circle`/both `Arc` with identical center/radius
+/// and exactly negated normals (the assemblers construct the negation, so
+/// exact f64 comparison is the honest check — `-0.0 == 0.0` makes signed
+/// zeros immaterial).
 fn curves_twin_consistent(a: Curve, b: Curve) -> bool {
     match (a, b) {
         (Curve::LineSegment, Curve::LineSegment) => true,
@@ -274,12 +281,25 @@ fn curves_twin_consistent(a: Curve, b: Curve) -> bool {
                 normal: n2,
                 radius: r2,
             },
+        )
+        | (
+            Curve::Arc {
+                center: c1,
+                normal: n1,
+                radius: r1,
+            },
+            Curve::Arc {
+                center: c2,
+                normal: n2,
+                radius: r2,
+            },
         ) => c1 == c2 && r1 == r2 && n2.x == -n1.x && n2.y == -n1.y && n2.z == -n1.z,
         _ => false,
     }
 }
 
-/// The circle half-edges of a loop, with their curve data, in walk order.
+/// The full-circle half-edges of a loop, with their curve data, in walk
+/// order.
 fn loop_circles(
     arena: &BrepArena,
     hes: &[HalfEdgeId],
@@ -298,23 +318,78 @@ fn loop_circles(
     Ok(out)
 }
 
+/// The arc half-edges of a loop, with their curve data, in walk order.
+fn loop_arcs(
+    arena: &BrepArena,
+    hes: &[HalfEdgeId],
+) -> Result<Vec<(Point3, crate::arena::UnitVector3, f64)>, KernelV2Error> {
+    let mut out = Vec::new();
+    for &h in hes {
+        if let Curve::Arc {
+            center,
+            normal,
+            radius,
+        } = arena.half_edge(h)?.curve
+        {
+            out.push((center, normal, radius));
+        }
+    }
+    Ok(out)
+}
+
+/// Debug-band for IMPORTED curved geometry (PR-KV5b): yang-rs boolean
+/// outputs are computed in f64 closed form (Stage-1 trig sampling, Stage-4
+/// relocation), so an absolute 1e-12 band (the KV5a construction tripwire)
+/// is dishonest at large coordinates. The allowance scales with the
+/// geometry magnitude: `1e-9 · (1 + max(r, ‖p‖∞))` — still far below any
+/// feature scale (MIN_FEATURE_SIZE relative), purely a rounding allowance.
+fn import_band(radius: f64, p: Point3) -> f64 {
+    let m = p.x().abs().max(p.y().abs()).max(p.z().abs());
+    1e-9 * (1.0 + radius.max(m))
+}
+
 /// Invariants 4+5 for a planar face: surface agreement with the boundary
-/// walk. Polygonal loops use the Newell normal (hard rule 2) exactly as in
-/// KV1; circle-bounded loops (PR-KV5a) use the directional
-/// [`Curve::Circle`] normal as the orientation source — a cap's single
-/// circle half-edge must traverse CCW around the face normal, and a circle
-/// ring CCW around its negation (the ring-winding analog).
+/// walk.
+///
+/// - Polygonal loops use the Newell normal (hard rule 2) exactly as in KV1.
+/// - Loops bounded by a single closed circle half-edge (PR-KV5a) use the
+///   directional [`Curve::Circle`] normal as the orientation source — a
+///   cap's circle must traverse CCW around the face normal, a circle ring
+///   CCW around its negation (the ring-winding analog).
+/// - Loops mixing [`Curve::Arc`] and segment edges (PR-KV5b, yang boolean
+///   outputs — e.g. an annulus hole rim of exact intersection arcs) use
+///   the VERTEX-cycle Newell normal: arcs in the KV5b vocabulary are minor
+///   (sweep < π), so the chord polyline of the walk winds identically to
+///   the true boundary and the polygonal rule applies unchanged. Each arc
+///   additionally must lie in the face plane (its circle axis parallel to
+///   the face normal — sign-free, since a loop legitimately walks arcs
+///   both ways around their centers).
 fn validate_planar_face(
     arena: &BrepArena,
     f: FaceId,
     face: &crate::arena::Face,
     plane: crate::arena::Plane,
 ) -> Result<(), KernelV2Error> {
+    // Arc-in-plane production rule, shared by all loops of this face.
+    let arcs_in_plane = |hes: &[HalfEdgeId]| -> Result<(), KernelV2Error> {
+        for &(_, nu, _) in &loop_arcs(arena, hes)? {
+            if geom::dot(nu, plane.normal).abs() < 1.0 - NORMAL_AGREEMENT_TOLERANCE {
+                return Err(KernelV2Error::CurvedGeometryMismatch {
+                    face: f,
+                    reason: "planar-face arc's circle axis is not parallel to the face normal",
+                });
+            }
+        }
+        Ok(())
+    };
+
     // ---- outer loop orientation -------------------------------------------
     let outer_hes = arena.loop_half_edges(face.outer_loop)?;
     let outer_circles = loop_circles(arena, &outer_hes)?;
     if outer_circles.is_empty() {
-        // Stored normal ≡ Newell(outer loop) — hard rule 2.
+        // Stored normal ≡ Newell(outer loop) — hard rule 2 (arcs walk as
+        // their chords; see the doc comment for why that is sound).
+        arcs_in_plane(&outer_hes)?;
         let pts = arena.loop_points(face.outer_loop)?;
         let Some(newell) = geom::newell_unit(&pts) else {
             return Err(KernelV2Error::NewellMismatch { face: f });
@@ -323,12 +398,11 @@ fn validate_planar_face(
             return Err(KernelV2Error::NewellMismatch { face: f });
         }
     } else {
-        // Full-circle boundary: exactly ONE closed circle half-edge (mixed
-        // circle/segment planar loops are arc territory — future variant).
+        // Full-circle boundary: exactly ONE closed circle half-edge.
         if outer_hes.len() != 1 {
             return Err(KernelV2Error::CurvedGeometryMismatch {
                 face: f,
-                reason: "planar loop mixes circle and segment edges (outside the KV5a vocabulary)",
+                reason: "planar loop mixes a full circle with other edges",
             });
         }
         let (_, nu, _) = outer_circles[0];
@@ -345,6 +419,7 @@ fn validate_planar_face(
         let hes = arena.loop_half_edges(rid)?;
         let circles = loop_circles(arena, &hes)?;
         if circles.is_empty() {
+            arcs_in_plane(&hes)?;
             let ring_pts = arena.loop_points(rid)?;
             if ring_pts.is_empty() {
                 continue; // lone-vertex ring has no winding
@@ -358,8 +433,7 @@ fn validate_planar_face(
             if hes.len() != 1 {
                 return Err(KernelV2Error::CurvedGeometryMismatch {
                     face: f,
-                    reason:
-                        "planar ring mixes circle and segment edges (outside the KV5a vocabulary)",
+                    reason: "planar ring mixes a full circle with other edges",
                 });
             }
             let (_, nu, _) = circles[0];
@@ -384,23 +458,43 @@ fn validate_planar_face(
                     return Err(KernelV2Error::NonPlanarFace { face: f });
                 }
             }
-            // Circle centers on the plane; anchors on their circles.
+            // Circle/arc centers on the plane; endpoints on their circles.
+            // Full circles keep the exact-construction band; arcs (imported
+            // yang output, PR-KV5b) use the import band.
             let hes = arena.loop_half_edges(lid)?;
             for &h in &hes {
                 let he = arena.half_edge(h)?;
-                if let Curve::Circle { center, radius, .. } = he.curve {
-                    let d = (center.x() - plane.point.x()) * plane.normal.x
-                        + (center.y() - plane.point.y()) * plane.normal.y
-                        + (center.z() - plane.point.z()) * plane.normal.z;
-                    if d.abs() > PLANARITY_DEBUG_TOLERANCE {
-                        return Err(KernelV2Error::NonPlanarFace { face: f });
-                    }
-                    let p = arena.vertex(he.origin)?.point;
+                let (center, radius, is_arc) = match he.curve {
+                    Curve::Circle { center, radius, .. } => (center, radius, false),
+                    Curve::Arc { center, radius, .. } => (center, radius, true),
+                    Curve::LineSegment => continue,
+                };
+                let plane_band = if is_arc {
+                    import_band(radius, center)
+                } else {
+                    PLANARITY_DEBUG_TOLERANCE
+                };
+                let d = (center.x() - plane.point.x()) * plane.normal.x
+                    + (center.y() - plane.point.y()) * plane.normal.y
+                    + (center.z() - plane.point.z()) * plane.normal.z;
+                if d.abs() > plane_band {
+                    return Err(KernelV2Error::NonPlanarFace { face: f });
+                }
+                let mut endpoints = vec![arena.vertex(he.origin)?.point];
+                if is_arc {
+                    endpoints.push(arena.vertex(arena.half_edge(he.next)?.origin)?.point);
+                }
+                for p in endpoints {
+                    let band = if is_arc {
+                        import_band(radius, p)
+                    } else {
+                        CURVED_SURFACE_DEBUG_TOLERANCE
+                    };
                     let dr = ((p.x() - center.x()).powi(2)
                         + (p.y() - center.y()).powi(2)
                         + (p.z() - center.z()).powi(2))
                     .sqrt();
-                    if (dr - radius).abs() > CURVED_SURFACE_DEBUG_TOLERANCE {
+                    if (dr - radius).abs() > band {
                         return Err(KernelV2Error::VertexOffSurface { face: f });
                     }
                 }
@@ -410,14 +504,16 @@ fn validate_planar_face(
     Ok(())
 }
 
-/// Invariants 4+5 for a cylinder lateral face (PR-KV5a). Production tier —
-/// the curved Newell analog (orientation/consistency, decided from stored
-/// data, no geometric tolerance band beyond unit-vector rounding):
+/// Invariants 4+5 for a cylinder lateral face. Two vocabularies:
 ///
-/// - finite positive radius; unit axis;
+/// **Canonical full lateral (PR-KV5a)** — any loop carries a full-circle
+/// half-edge. Production tier (the curved Newell analog, decided from
+/// stored data, no geometric tolerance beyond unit-vector rounding):
+///
+/// - finite positive radius; unit axis; outward sense (`reversed` is the
+///   KV5b cavity vocabulary and never canonical);
 /// - no inner loops, and exactly TWO full-circle rim half-edges in the
-///   outer loop (the Stroud single-fake-edge lateral; arcs/partial laterals
-///   are a future vocabulary);
+///   outer loop (the Stroud single-fake-edge lateral);
 /// - each rim's radius equals the surface radius and its normal is along
 ///   the axis;
 /// - each rim's traversal axis points TOWARD the opposite rim — this is
@@ -425,8 +521,23 @@ fn validate_planar_face(
 ///   surface orientation (walking a rim with the face on your left, viewed
 ///   from outside, runs CCW around the axis pointing into the lateral).
 ///
-/// Debug tier ([`CURVED_SURFACE_DEBUG_TOLERANCE`]): loop vertices on the
-/// surface, rim centers on the axis, seam segments parallel to the axis.
+/// **Partial patch (PR-KV5b, yang boolean outputs)** — loops of
+/// [`Curve::Arc`] and segment edges. Production tier (see
+/// [`validate_cylinder_patch`]): per-arc surface agreement (radius, axis
+/// parallelism) plus the UNROLLED-WINDING orientation analysis — the
+/// developable-surface generalization of the Newell rule: in the unrolled
+/// `(θ·r, h)` frame (mirrored for `reversed`), the boundary loops must
+/// wind material-CCW: either exactly one non-wrapping loop is CCW with all
+/// others CW (a bounded patch with windows), or exactly two loops wrap the
+/// axis (±1) with the `+1` wrap at the lower axial height and every
+/// non-wrapping loop CW (a barrel segment with windows).
+///
+/// Debug tier: loop vertices on the surface, rim/arc centers on the axis —
+/// at [`CURVED_SURFACE_DEBUG_TOLERANCE`] for exact-constructed canonical
+/// solids, at the scale-relative [`import_band`] for imported patches;
+/// canonical seam segments parallel to the axis (partial patches carry
+/// genuine chord segments, which are NOT rulings, so no seam rule there).
+#[allow(clippy::too_many_arguments)]
 fn validate_cylinder_face(
     arena: &BrepArena,
     f: FaceId,
@@ -434,6 +545,7 @@ fn validate_cylinder_face(
     axis_point: Point3,
     axis_dir: crate::arena::UnitVector3,
     radius: f64,
+    reversed: bool,
 ) -> Result<(), KernelV2Error> {
     let mismatch = |reason: &'static str| KernelV2Error::CurvedGeometryMismatch { face: f, reason };
     if !radius.is_finite() || radius <= 0.0 {
@@ -443,12 +555,36 @@ fn validate_cylinder_face(
     if (alen - 1.0).abs() > NORMAL_AGREEMENT_TOLERANCE {
         return Err(mismatch("cylinder axis_dir must be unit-length"));
     }
+
+    // Vocabulary dispatch: any full-circle edge anywhere → canonical.
+    let mut all_loops = vec![face.outer_loop];
+    all_loops.extend(face.inner_loops.iter().copied());
+    let mut has_full = false;
+    for &lid in &all_loops {
+        if !loop_circles(arena, &arena.loop_half_edges(lid)?)?.is_empty() {
+            has_full = true;
+        }
+    }
+    if !has_full {
+        return validate_cylinder_patch(arena, f, face, axis_point, axis_dir, radius, reversed);
+    }
+
+    if reversed {
+        return Err(mismatch(
+            "a canonical full lateral is never a cavity wall (reversed)",
+        ));
+    }
     if !face.inner_loops.is_empty() {
         return Err(mismatch(
             "cylinder face with inner loops is outside the KV5a vocabulary",
         ));
     }
     let hes = arena.loop_half_edges(face.outer_loop)?;
+    if !loop_arcs(arena, &hes)?.is_empty() {
+        return Err(mismatch(
+            "cylinder face mixes full-circle rims with arc edges",
+        ));
+    }
     let rims = loop_circles(arena, &hes)?;
     if rims.len() != 2 {
         return Err(mismatch(
@@ -523,6 +659,256 @@ fn validate_cylinder_face(
     Ok(())
 }
 
+/// Per-loop unrolled measurements over a cylinder patch (PR-KV5b): net
+/// axis wrap, mean axial height, and (for non-wrapping loops) twice the
+/// signed shoelace area in the unrolled `(θ, h)` frame.
+struct LoopMeasure {
+    loop_id: LoopId,
+    wrap: i64,
+    mean_h: f64,
+    area2: f64,
+}
+
+/// Invariants 4+5 for a PARTIAL cylinder patch (PR-KV5b): boundary loops
+/// of [`Curve::Arc`] and [`Curve::LineSegment`] edges, as assembled from
+/// yang-rs boolean outputs. See [`validate_cylinder_face`]'s doc comment
+/// for the rule set; this is the unrolled-winding orientation analysis —
+/// the developable generalization of the Newell invariant.
+///
+/// Soundness of the per-edge angular steps: arcs carry their exact signed
+/// sweep (their circle axis is parallel to the cylinder axis — checked);
+/// segment chords take the principal-value step, sound while no single
+/// chord subtends ≥ π around the axis (yang facet chords subtend one
+/// Stage-1 facet, ≤ 2π/8). A violated assumption breaks the integrality
+/// of the loop's net winding, which IS checked, loudly.
+#[allow(clippy::too_many_arguments)]
+fn validate_cylinder_patch(
+    arena: &BrepArena,
+    f: FaceId,
+    face: &crate::arena::Face,
+    axis_point: Point3,
+    axis_dir: crate::arena::UnitVector3,
+    radius: f64,
+    reversed: bool,
+) -> Result<(), KernelV2Error> {
+    use std::f64::consts::PI;
+    let mismatch = |reason: &'static str| KernelV2Error::CurvedGeometryMismatch { face: f, reason };
+    let a = [axis_dir.x, axis_dir.y, axis_dir.z];
+    let ap = [axis_point.x(), axis_point.y(), axis_point.z()];
+    // The mirror sense: a cavity wall (reversed) is validated in the
+    // mirrored frame u = −θ, where its boundary winds material-CCW again.
+    let sense = if reversed { -1.0 } else { 1.0 };
+
+    let mut all_loops = vec![face.outer_loop];
+    all_loops.extend(face.inner_loops.iter().copied());
+
+    // Shared angular frame: e1 from the first outer-loop vertex's radial
+    // direction (each loop only needs internal consistency, but one shared
+    // frame keeps the analysis deterministic and debuggable).
+    let radial_theta_h = |p: Point3, e1: [f64; 3], e2: [f64; 3]| -> Option<(f64, f64)> {
+        let d = [p.x() - ap[0], p.y() - ap[1], p.z() - ap[2]];
+        let h = d[0] * a[0] + d[1] * a[1] + d[2] * a[2];
+        let r = [d[0] - h * a[0], d[1] - h * a[1], d[2] - h * a[2]];
+        let rl = (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
+        if !(rl.is_finite() && rl > 0.0) {
+            return None;
+        }
+        let x = r[0] * e1[0] + r[1] * e1[1] + r[2] * e1[2];
+        let y = r[0] * e2[0] + r[1] * e2[1] + r[2] * e2[2];
+        Some((y.atan2(x), h))
+    };
+    let first_hes = arena.loop_half_edges(face.outer_loop)?;
+    if first_hes.is_empty() {
+        return Err(mismatch("cylinder patch with an empty boundary loop"));
+    }
+    let p0 = arena.vertex(arena.half_edge(first_hes[0])?.origin)?.point;
+    let d0 = [p0.x() - ap[0], p0.y() - ap[1], p0.z() - ap[2]];
+    let h0 = d0[0] * a[0] + d0[1] * a[1] + d0[2] * a[2];
+    let r0 = [d0[0] - h0 * a[0], d0[1] - h0 * a[1], d0[2] - h0 * a[2]];
+    let r0l = (r0[0] * r0[0] + r0[1] * r0[1] + r0[2] * r0[2]).sqrt();
+    if !(r0l.is_finite() && r0l > 0.0) {
+        return Err(mismatch("cylinder patch anchor vertex lies on the axis"));
+    }
+    let e1 = [r0[0] / r0l, r0[1] / r0l, r0[2] / r0l];
+    let e2 = [
+        a[1] * e1[2] - a[2] * e1[1],
+        a[2] * e1[0] - a[0] * e1[2],
+        a[0] * e1[1] - a[1] * e1[0],
+    ];
+
+    let mut measures: Vec<LoopMeasure> = Vec::with_capacity(all_loops.len());
+    for &lid in &all_loops {
+        let hes = arena.loop_half_edges(lid)?;
+        if hes.len() < 3 {
+            return Err(mismatch("cylinder patch loop with fewer than 3 edges"));
+        }
+        let mut us: Vec<f64> = Vec::with_capacity(hes.len());
+        let mut hs: Vec<f64> = Vec::with_capacity(hes.len());
+        let mut u_cur = f64::NAN; // set from the first vertex below
+        let mut total = 0.0f64;
+        for (i, &h) in hes.iter().enumerate() {
+            let he = arena.half_edge(h)?;
+            let p = arena.vertex(he.origin)?.point;
+            let q = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+            let Some((theta_p, hp)) = radial_theta_h(p, e1, e2) else {
+                return Err(mismatch("cylinder patch vertex lies on the axis"));
+            };
+            if i == 0 {
+                u_cur = theta_p;
+            }
+            us.push(u_cur);
+            hs.push(hp);
+
+            let delta = match he.curve {
+                Curve::LineSegment => {
+                    let Some((theta_q, _)) = radial_theta_h(q, e1, e2) else {
+                        return Err(mismatch("cylinder patch vertex lies on the axis"));
+                    };
+                    geom::wrap_to_pi(theta_q - theta_p)
+                }
+                Curve::Arc {
+                    center,
+                    normal,
+                    radius: r_arc,
+                } => {
+                    // Production-tier per-arc surface agreement.
+                    if (r_arc - radius).abs() > 1e-9 * radius {
+                        return Err(mismatch("patch arc radius disagrees with the surface"));
+                    }
+                    let nd = geom::dot(normal, axis_dir);
+                    if nd.abs() < 1.0 - NORMAL_AGREEMENT_TOLERANCE {
+                        return Err(mismatch(
+                            "patch arc's circle axis is not parallel to the cylinder axis",
+                        ));
+                    }
+                    #[cfg(debug_assertions)]
+                    {
+                        // Arc center on the axis (import band — see fn docs).
+                        let dc = [center.x() - ap[0], center.y() - ap[1], center.z() - ap[2]];
+                        let hc = dc[0] * a[0] + dc[1] * a[1] + dc[2] * a[2];
+                        let rc = [dc[0] - hc * a[0], dc[1] - hc * a[1], dc[2] - hc * a[2]];
+                        let off = (rc[0] * rc[0] + rc[1] * rc[1] + rc[2] * rc[2]).sqrt();
+                        if off > import_band(radius, center) {
+                            return Err(KernelV2Error::VertexOffSurface { face: f });
+                        }
+                    }
+                    let n_arr = [normal.x, normal.y, normal.z];
+                    let Some(sweep) = geom::ccw_sweep(center, n_arr, p, q) else {
+                        return Err(mismatch("patch arc endpoint has no radial direction"));
+                    };
+                    if nd > 0.0 {
+                        sweep
+                    } else {
+                        -sweep
+                    }
+                }
+                Curve::Circle { .. } => {
+                    // Unreachable: the dispatcher sends full-circle faces to
+                    // the canonical path. Loud, defensively.
+                    return Err(mismatch("full-circle edge inside a partial cylinder patch"));
+                }
+            };
+            u_cur += delta;
+            total += delta;
+        }
+        let wraps_f = total / (2.0 * PI);
+        let wraps = wraps_f.round();
+        if (wraps_f - wraps).abs() > 1e-3 {
+            return Err(mismatch(
+                "cylinder patch loop's net axis winding is not integral",
+            ));
+        }
+        let wraps = wraps as i64;
+        if wraps.abs() > 1 {
+            return Err(mismatch(
+                "cylinder patch loop wraps the axis more than once",
+            ));
+        }
+        let m = us.len();
+        let mut area2 = 0.0f64;
+        for i in 0..m {
+            let j = (i + 1) % m;
+            area2 += us[i] * hs[j] - us[j] * hs[i];
+        }
+        measures.push(LoopMeasure {
+            loop_id: lid,
+            wrap: if sense < 0.0 { -wraps } else { wraps },
+            mean_h: hs.iter().sum::<f64>() / m as f64,
+            area2: sense * area2,
+        });
+    }
+
+    // ---- face-level orientation rules (material-CCW in the unrolled frame)
+    let wrapping: Vec<&LoopMeasure> = measures.iter().filter(|mm| mm.wrap != 0).collect();
+    match wrapping.len() {
+        0 => {
+            // Bounded patch: exactly one CCW (material) loop, others CW
+            // (windows).
+            let mut positive = 0usize;
+            for mm in &measures {
+                if mm.area2 == 0.0 {
+                    return Err(mismatch("cylinder patch loop has zero unrolled area"));
+                }
+                if mm.area2 > 0.0 {
+                    positive += 1;
+                }
+            }
+            if positive != 1 {
+                return Err(mismatch(
+                    "bounded cylinder patch must have exactly one material-CCW loop",
+                ));
+            }
+        }
+        2 => {
+            // Barrel segment: a +1 and a −1 wrap, the +1 at the lower axial
+            // height (the generalization of the KV5a rim rule "traversal
+            // axis points toward the opposite rim"); windows wind CW.
+            let (w0, w1) = (wrapping[0], wrapping[1]);
+            if w0.wrap + w1.wrap != 0 {
+                return Err(mismatch(
+                    "cylinder patch wrapping loops do not wind oppositely",
+                ));
+            }
+            let (plus, minus) = if w0.wrap > 0 { (w0, w1) } else { (w1, w0) };
+            if plus.mean_h >= minus.mean_h {
+                return Err(mismatch(
+                    "cylinder patch wrapping loops are oriented away from the material",
+                ));
+            }
+            for mm in &measures {
+                if mm.wrap == 0 && mm.area2 >= 0.0 {
+                    return Err(KernelV2Error::RingWindingMismatch {
+                        face: f,
+                        ring: mm.loop_id,
+                    });
+                }
+            }
+        }
+        _ => {
+            return Err(mismatch(
+                "cylinder patch must have exactly 0 or 2 axis-wrapping loops",
+            ));
+        }
+    }
+
+    // ---- debug-tier geometric tripwire: loop vertices on the surface ------
+    #[cfg(debug_assertions)]
+    {
+        for &lid in &all_loops {
+            for p in arena.loop_points(lid)? {
+                let d = [p.x() - ap[0], p.y() - ap[1], p.z() - ap[2]];
+                let h = d[0] * a[0] + d[1] * a[1] + d[2] * a[2];
+                let r = [d[0] - h * a[0], d[1] - h * a[1], d[2] - h * a[2]];
+                let rl = (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
+                if (rl - radius).abs() > import_band(radius, p) {
+                    return Err(KernelV2Error::VertexOffSurface { face: f });
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Whole-arena invariant re-verification used by the Euler operators'
 /// exit `debug_assert!`s. Checks structural integrity (twin pairing, loop
 /// closure, back-pointers), the Newell invariant in its *construction* form
@@ -569,32 +955,30 @@ pub(crate) fn debug_check_arena(arena: &BrepArena) -> Result<(), KernelV2Error> 
             }
         }
     }
-    // Face back-pointers + Newell construction invariant. Circle-bearing
-    // faces (caps, cylinder laterals — PR-KV5a) have no polygonal walk to
-    // take a Newell normal of; they are created fully-formed by the direct
-    // assemblers, which run the complete curved checks via `validate_solid`
-    // immediately, so the construction-form check here only requires the
-    // surface to be present.
+    // Face back-pointers + Newell construction invariant. Curved-bearing
+    // faces (caps, cylinder laterals — PR-KV5a; arc-bounded patches —
+    // PR-KV5b) have no purely-polygonal walk to take a Newell normal of;
+    // they are created fully-formed by the direct assemblers, which run the
+    // complete curved checks via `validate_solid` immediately, so the
+    // construction-form check here only requires the surface to be present.
+    // (A cylinder face whose loops are ALL chord segments is likewise a
+    // KV5b assembler product — yang facets an original rim — and is
+    // validated there.)
     for (i, slot) in arena.faces.iter().enumerate() {
         let Some(face) = slot else { continue };
         let f = FaceId(i as u32);
         let outer_hes = arena.loop_half_edges(face.outer_loop)?;
-        let mut has_circle = false;
+        let mut has_curved = false;
         for &h in &outer_hes {
-            if matches!(arena.half_edge(h)?.curve, Curve::Circle { .. }) {
-                has_circle = true;
+            if !matches!(arena.half_edge(h)?.curve, Curve::LineSegment) {
+                has_curved = true;
             }
         }
         let pts = arena.loop_points(face.outer_loop)?;
-        match (&face.surface, has_circle) {
+        match (&face.surface, has_curved) {
             (Some(_), true) => {}
             (None, true) => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
-            (Some(Surface::Cylinder { .. }), false) => {
-                return Err(KernelV2Error::CurvedGeometryMismatch {
-                    face: f,
-                    reason: "cylinder face without circle rim edges",
-                })
-            }
+            (Some(Surface::Cylinder { .. }), false) => {}
             (Some(Surface::Plane(plane)), false) => match geom::newell_unit(&pts) {
                 Some(newell) => {
                     if geom::dot(plane.normal, newell) < 1.0 - NORMAL_AGREEMENT_TOLERANCE {

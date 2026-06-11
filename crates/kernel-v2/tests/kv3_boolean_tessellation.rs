@@ -537,22 +537,23 @@ fn boolean_xor_fails_loud() {
     assert!(msg.contains("Xor"), "carries the yang error text: {msg}");
 }
 
-/// A yang output face with a curved surface is rejected typed+loud
-/// (Phase 4a reassembles planar output only). Curved output is not
-/// constructible through `boolean_op` in 4a (curved INPUT can't be built
-/// from kernel-v2 planar solids), so the mapper is unit-tested directly
-/// on a hand-built minimal cylinder `yang_rs::BRep`.
+/// PR-KV5b FLIPPED the Phase-4a wall this test used to pin: a canonical
+/// cylinder `yang_rs::BRep` (the M5 fixture shape) now reassembles into a
+/// validated kernel-v2 cylinder solid instead of being rejected as an
+/// unsupported output surface. (The remaining surface walls — Sphere/Cone
+/// — keep `UnsupportedBooleanOutputSurface`; the named CURVE walls are
+/// pinned end-to-end in tests/kv5b_curved_boolean.rs.)
 #[test]
-fn from_yang_rejects_curved_output_surface() {
+fn from_yang_accepts_canonical_cylinder_output_since_kv5b() {
     let cyl = yang_cylinder_brep([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0, 2.0);
     let mut arena = BrepArena::new();
-    let err = from_yang_brep(&mut arena, &cyl).unwrap_err();
+    let solid = from_yang_brep(&mut arena, &cyl).expect("canonical cylinder reassembles (KV5b)");
+    let report = validate_solid(&arena, solid).expect("validates");
     assert_eq!(
-        err,
-        KernelV2Error::UnsupportedBooleanOutputSurface { face: 0 },
-        "lateral cylinder face is face 0"
+        (report.vertices, report.edges, report.faces, report.genus),
+        (2, 3, 3, 0),
+        "canonical cylinder topology V2/E3/F3/G0"
     );
-    assert_eq!(arena, BrepArena::new(), "arena untouched on rejection");
 }
 
 /// An empty yang BRep (no faces) is the typed empty-result error.
