@@ -668,6 +668,10 @@
 						<button class="overflow-item"
 							data-testid="toolbar-btn-debug-shader"
 							onclick={() => { showDebugMenu = false; handleToggleShaderDebug(); }}>Toggle Shader Debug</button>
+						<div class="build-info" data-testid="build-info"
+							title="Bundle build provenance (vite define __BUILD_INFO__)">
+							Build {__BUILD_INFO__.date} ({__BUILD_INFO__.commit})
+						</div>
 					</div>
 				{/if}
 			</div>
@@ -1062,5 +1066,13 @@
 			font-size: 10px;
 			min-height: 28px;
 		}
+	}
+	.build-info {
+		padding: 6px 12px;
+		font-size: 11px;
+		color: #8a8f98;
+		border-top: 1px solid rgba(255, 255, 255, 0.08);
+		margin-top: 4px;
+		user-select: text;
 	}
 </style>
