@@ -166,16 +166,19 @@ pub fn signed_volume(
     use dashu::rational::RBig;
 
     let mut six_v = 0.0f64; // polygonal-loop fan determinants
+    let mut flux_f64 = 0.0f64; // arc-loop closed forms (PR-KV6a, plain f64)
     let mut three_pi = RBig::ZERO; // exact coefficient of π/3
     let solid_ref = arena.solid(solid)?;
     for &sh in &solid_ref.shells {
         for &f in &arena.shell(sh)?.faces {
             let face = arena.face(f)?;
 
-            // Gather each loop's circle half-edges (with curve data).
+            // Gather each loop's circle half-edges (with curve data) and
+            // whether any loop carries arcs.
             let mut loops = vec![face.outer_loop];
             loops.extend(face.inner_loops.iter().copied());
             let mut loop_data = Vec::with_capacity(loops.len());
+            let mut has_arcs = false;
             for &lid in &loops {
                 let hes = arena.loop_half_edges(lid)?;
                 let mut circles = Vec::new();
@@ -186,29 +189,45 @@ pub fn signed_volume(
                             normal,
                             radius,
                         } => circles.push((center, normal, radius)),
-                        // PR-KV5b partial patches: no analytic closed form
-                        // is implemented for arc-bounded loops — loud,
-                        // never a silent polygonal fan over arc chords.
-                        Curve::Arc { .. } => {
-                            return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
-                                face: f,
-                                reason: "signed_volume: analytic volume not implemented for \
-                                     arc-bounded faces (KV5b partial patches)",
-                            });
-                        }
+                        Curve::Arc { .. } => has_arcs = true,
                         Curve::LineSegment => {}
                     }
                 }
                 loop_data.push((lid, hes.len(), circles));
             }
 
-            if let Some(Surface::Cylinder { reversed: true, .. }) = face.surface {
-                return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
-                    face: f,
-                    reason: "signed_volume: cavity-sense (reversed) cylinder faces are \
-                             KV5b partial patches with no analytic closed form",
-                });
+            // PR-KV6a closed forms for arc-bearing faces (the revolve
+            // vocabulary). Anything arc-bearing OUTSIDE that vocabulary
+            // (e.g. boolean-output patches whose segments are chords, not
+            // rulings) stays a loud typed rejection — never a silent
+            // chord-fan approximation.
+            if has_arcs {
+                match face.surface {
+                    Some(Surface::Plane(plane)) => {
+                        flux_f64 += planar_arc_face_flux(arena, f, face, plane)?;
+                    }
+                    Some(Surface::Cylinder {
+                        axis_point,
+                        axis_dir,
+                        radius,
+                        ..
+                    }) => {
+                        // The traversal direction + rim normals already
+                        // encode the material sense; no explicit `reversed`
+                        // factor (see the derivation on the helper).
+                        flux_f64 +=
+                            cylinder_arc_patch_flux(arena, f, face, axis_point, axis_dir, radius)?;
+                    }
+                    _ => {
+                        return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
+                            face: f,
+                            reason: "signed_volume: arc-bounded face without a typed surface",
+                        });
+                    }
+                }
+                continue;
             }
+
             if let Some(Surface::Cylinder { .. }) = face.surface {
                 // Lateral: exactly two full-circle rims (validated shape).
                 let rims: Vec<_> = loop_data
@@ -260,7 +279,200 @@ pub fn signed_volume(
         }
     }
     let pi_coeff = (three_pi / RBig::from(3)).to_f64().value();
-    Ok(six_v / 6.0 + pi_coeff * std::f64::consts::PI)
+    Ok(six_v / 6.0 + flux_f64 + pi_coeff * std::f64::consts::PI)
+}
+
+/// Divergence-theorem flux `(1/3)∮ x·n dA` through a PLANAR face whose
+/// loops mix [`Curve::Arc`] and [`Curve::LineSegment`] edges (PR-KV6a —
+/// revolve annular sectors; also sound for KV5b boolean outputs).
+///
+/// On the plane `x·n̂ = d` is constant, so the flux is `(d/3)·A` with `A`
+/// the signed area of all loops as traversed: the chord-polygon shoelace
+/// (projected on n̂) plus, per arc, the circular-segment correction
+/// `½r²(Δθ − sin Δθ)` signed by the arc's traversal sense relative to the
+/// face normal. Plain f64 closed form (`sin` is transcendental — no
+/// rational trick applies); exact areas at ~1e-15 relative.
+fn planar_arc_face_flux(
+    arena: &crate::arena::BrepArena,
+    f: crate::arena::FaceId,
+    face: &crate::arena::Face,
+    plane: crate::arena::Plane,
+) -> Result<f64, crate::error::KernelV2Error> {
+    let n = [plane.normal.x, plane.normal.y, plane.normal.z];
+    let d = plane.point.x() * n[0] + plane.point.y() * n[1] + plane.point.z() * n[2];
+    let area2 = planar_face_signed_area2(arena, f, face, n)?;
+    Ok(d * area2 / 6.0) // (d/3) · (area2/2)
+}
+
+/// Twice the signed area of a planar face's loops (outer + rings) as
+/// traversed, projected on the face normal: chord shoelace plus, per
+/// [`Curve::Arc`], the circular-segment correction `½r²(Δθ − sin Δθ)`
+/// signed by the arc's traversal sense. Exact closed form for arc-free
+/// AND arc-bearing loops (PR-KV6a); shared by `signed_volume` and the
+/// adapter's face signatures.
+pub(crate) fn planar_face_signed_area2(
+    arena: &crate::arena::BrepArena,
+    f: crate::arena::FaceId,
+    face: &crate::arena::Face,
+    n: [f64; 3],
+) -> Result<f64, crate::error::KernelV2Error> {
+    use crate::arena::Curve;
+    let mut loops = vec![face.outer_loop];
+    loops.extend(face.inner_loops.iter().copied());
+    let mut area2 = 0.0f64; // twice the signed area
+    for lid in loops {
+        let hes = arena.loop_half_edges(lid)?;
+        for &h in &hes {
+            let he = arena.half_edge(h)?;
+            let p0 = arena.vertex(he.origin)?.point;
+            let p1 = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+            // Chord shoelace term (projected on n̂): n̂ · (p0 × p1).
+            area2 += n[0] * (p0.y() * p1.z() - p0.z() * p1.y())
+                + n[1] * (p0.z() * p1.x() - p0.x() * p1.z())
+                + n[2] * (p0.x() * p1.y() - p0.y() * p1.x());
+            match he.curve {
+                Curve::LineSegment => {}
+                Curve::Arc {
+                    center,
+                    normal,
+                    radius,
+                } => {
+                    let nu = [normal.x, normal.y, normal.z];
+                    let Some(sweep) = ccw_sweep(center, nu, p0, p1) else {
+                        return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
+                            face: f,
+                            reason: "signed_volume: degenerate arc endpoints",
+                        });
+                    };
+                    // Segment area sign: + when the arc's CCW axis agrees
+                    // with the face normal (it bulges material-outward),
+                    // − against.
+                    let sign = if nu[0] * n[0] + nu[1] * n[1] + nu[2] * n[2] >= 0.0 {
+                        1.0
+                    } else {
+                        -1.0
+                    };
+                    area2 += sign * radius * radius * (sweep - sweep.sin());
+                }
+                Curve::Circle { .. } => {
+                    return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
+                        face: f,
+                        reason: "signed_volume: loop mixes full circles with arcs",
+                    });
+                }
+            }
+        }
+    }
+    Ok(area2)
+}
+
+/// Divergence-theorem flux through a CYLINDER patch whose loops consist of
+/// on-surface sweep arcs (circle axis ∥ cylinder axis) and axis-parallel
+/// ruling segments — the revolve lateral shape (PR-KV6a).
+///
+/// Derivation: on the surface `x = a₀ + h·â + ρ·r̂(θ)` and the outward
+/// normal is `σ·r̂(θ)` (σ = −1 for cavity walls), so
+/// `x·n = σ(a₀·r̂ + ρ)` and `flux = (σρ/3) ∬ (ρ + a₀·r̂) dθ dh` over the
+/// unrolled region. Green's theorem turns the region integral into the
+/// loop integral `∮ −g(θ)·h dθ` (`g = ρ + a₀·r̂`), to which rulings
+/// contribute nothing and each arc at height `h` contributes
+/// `−h·(ρ·Δθ + a₀·(t̂_start − t̂_end))` with `t̂ = â × r̂` and `Δθ` signed
+/// by the arc's traversal sense about `+â`. The boundary's material-CCW
+/// orientation (mirrored for cavity walls) cancels σ, so the flux is
+/// `(ρ/3)·Σ_arcs` for BOTH senses. Segments that are not rulings (boolean
+/// chord facets) are rejected loudly.
+fn cylinder_arc_patch_flux(
+    arena: &crate::arena::BrepArena,
+    f: crate::arena::FaceId,
+    face: &crate::arena::Face,
+    axis_point: Point3,
+    axis_dir: crate::arena::UnitVector3,
+    radius: f64,
+) -> Result<f64, crate::error::KernelV2Error> {
+    use crate::arena::Curve;
+    let a = [axis_dir.x, axis_dir.y, axis_dir.z];
+    let a0 = [axis_point.x(), axis_point.y(), axis_point.z()];
+    let mismatch = |reason: &'static str| crate::error::KernelV2Error::CurvedGeometryMismatch {
+        face: f,
+        reason,
+    };
+
+    let mut loops = vec![face.outer_loop];
+    loops.extend(face.inner_loops.iter().copied());
+    let mut sum = 0.0f64;
+    for lid in loops {
+        let hes = arena.loop_half_edges(lid)?;
+        for &h in &hes {
+            let he = arena.half_edge(h)?;
+            let p0 = arena.vertex(he.origin)?.point;
+            let p1 = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+            match he.curve {
+                Curve::LineSegment => {
+                    // Must be a ruling (no angular extent), or the Green's
+                    // bookkeeping above would silently miss its dθ.
+                    let dvec = [p1.x() - p0.x(), p1.y() - p0.y(), p1.z() - p0.z()];
+                    let cx = [
+                        dvec[1] * a[2] - dvec[2] * a[1],
+                        dvec[2] * a[0] - dvec[0] * a[2],
+                        dvec[0] * a[1] - dvec[1] * a[0],
+                    ];
+                    let len = (dvec[0] * dvec[0] + dvec[1] * dvec[1] + dvec[2] * dvec[2]).sqrt();
+                    let off = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
+                    if off > 1e-9 * (1.0 + len) {
+                        return Err(mismatch(
+                            "signed_volume: cylinder-patch segment is not a ruling \
+                             (boolean chord facets have no closed form)",
+                        ));
+                    }
+                }
+                Curve::Arc {
+                    center,
+                    normal,
+                    radius: r_arc,
+                } => {
+                    let nu = [normal.x, normal.y, normal.z];
+                    let along = nu[0] * a[0] + nu[1] * a[1] + nu[2] * a[2];
+                    if along.abs() < 1.0 - 1e-9 {
+                        return Err(mismatch(
+                            "signed_volume: cylinder-patch arc axis not along the cylinder axis",
+                        ));
+                    }
+                    let Some(sweep) = ccw_sweep(center, nu, p0, p1) else {
+                        return Err(mismatch("signed_volume: degenerate arc endpoints"));
+                    };
+                    // Signed Δθ about +â.
+                    let dtheta = if along >= 0.0 { sweep } else { -sweep };
+                    let h = (center.x() - a0[0]) * a[0]
+                        + (center.y() - a0[1]) * a[1]
+                        + (center.z() - a0[2]) * a[2];
+                    // t̂ = â × r̂ at each endpoint.
+                    let t_hat = |p: Point3| {
+                        let r = [
+                            (p.x() - center.x()) / r_arc,
+                            (p.y() - center.y()) / r_arc,
+                            (p.z() - center.z()) / r_arc,
+                        ];
+                        [
+                            a[1] * r[2] - a[2] * r[1],
+                            a[2] * r[0] - a[0] * r[2],
+                            a[0] * r[1] - a[1] * r[0],
+                        ]
+                    };
+                    let ts = t_hat(p0);
+                    let te = t_hat(p1);
+                    let a0_dot =
+                        a0[0] * (ts[0] - te[0]) + a0[1] * (ts[1] - te[1]) + a0[2] * (ts[2] - te[2]);
+                    sum += -h * (radius * dtheta + a0_dot);
+                }
+                Curve::Circle { .. } => {
+                    return Err(mismatch(
+                        "signed_volume: cylinder patch mixes full circles with arcs",
+                    ));
+                }
+            }
+        }
+    }
+    Ok(radius * sum / 3.0)
 }
 
 /// `Σᵢ det[r, pᵢ, pᵢ₊₁]` (cyclic) — six times the signed volume contribution

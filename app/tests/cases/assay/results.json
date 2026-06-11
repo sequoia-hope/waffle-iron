@@ -2,7 +2,7 @@
   "errored": 18,
   "failed": 1,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 28,
+  "passed": 30,
   "results": [
     {
       "category": "UNSUPPORTED(curved-profile)",
@@ -11,8 +11,8 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: 37d2ae84-7b7c-49f1-a69b-4bd920519a27: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: ea99c4e1-2d44-4776-a1f1-cfc64fd037e8: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0002",
       "status": "unsupported"
     },
@@ -24,7 +24,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "3 NotSupported boundary(ies); first: 63633bdd-9ad7-4f2e-b1e0-d195797e95aa: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "2 NotSupported boundary(ies); first: 19381549-8ecb-4a22-ba80-cdec94b6b9ae: operation error: kernel error: operation not supported: revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
       "id": "R0004",
       "status": "unsupported"
     },
@@ -48,7 +48,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 7881d881-9651-4c6a-9e89-5cce683ff777: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: 7881d881-9651-4c6a-9e89-5cce683ff777: operation error: kernel error: operation not supported: revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
       "id": "R0008",
       "status": "unsupported"
     },
@@ -65,8 +65,8 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: f05a854a-526f-4346-85b1-343432f1b097: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 36235b92-b483-44d7-88d3-73c7b706160a: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0011",
       "status": "unsupported"
     },
@@ -90,7 +90,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: 7bc60e38-545e-4c66-8968-9709b9887ade: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "2 NotSupported boundary(ies); first: 12ecaa20-8e47-432c-be94-f8ceffe07444: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0015",
       "status": "unsupported"
     },
@@ -102,7 +102,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 4dd5e51a-775e-4d8e-a0ab-5d090c0b0f76: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: 4dd5e51a-775e-4d8e-a0ab-5d090c0b0f76: operation error: kernel error: operation not supported: revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
       "id": "R0017",
       "status": "unsupported"
     },
@@ -120,7 +120,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 2d767b57-d3b2-4dc7-8df1-908e4e8675f2: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: 2d767b57-d3b2-4dc7-8df1-908e4e8675f2: operation error: kernel error: operation not supported: revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
       "id": "R0020",
       "status": "unsupported"
     },
@@ -156,7 +156,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: 4535a437-f68b-4815-9607-353e601c97c8: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "2 NotSupported boundary(ies); first: 4535a437-f68b-4815-9607-353e601c97c8: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0026",
       "status": "unsupported"
     },
@@ -168,7 +168,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 862d85cd-fc35-45c0-bd80-3d3aca13fcc8: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: 862d85cd-fc35-45c0-bd80-3d3aca13fcc8: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0028",
       "status": "unsupported"
     },
@@ -192,13 +192,13 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: 9aa7e2ee-a9e0-4adc-a381-74087f2ac11f: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "2 NotSupported boundary(ies); first: 9aa7e2ee-a9e0-4adc-a381-74087f2ac11f: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0032",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: fcdf2168-9a67-4081-9676-f7b0db34fdd1: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: a48bab7b-1098-4734-8ec1-e8e917e220a2: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0033",
       "status": "unsupported"
     },
@@ -209,8 +209,8 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: f1fbf2e5-b10c-4000-9c67-ff5bb7aa15a6: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 11cd1c66-a808-4aa5-b673-bf556336bd0e: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0035",
       "status": "unsupported"
     },
@@ -227,8 +227,8 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "3 NotSupported boundary(ies); first: 274dfa2f-b750-4e66-ba42-450a98753f04: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: b184cc49-01cb-4d27-8984-d4c87b1362cd: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(2) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "R0038",
       "status": "unsupported"
     },
@@ -240,7 +240,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 448491a8-03f9-4b94-bd10-90c9d99614c6: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: Revolve 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(8) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "R0040",
       "status": "unsupported"
     },
@@ -263,14 +263,14 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: 91266e3c-6b2f-42be-8669-5edf21a91618: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 04a3119b-145f-4cb2-b5ae-690ed262ae1b: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0044",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: 80a58f19-3649-4be1-a0d9-d1e2c5ce5723: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: 80a58f19-3649-4be1-a0d9-d1e2c5ce5723: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0045",
       "status": "unsupported"
     },
@@ -294,19 +294,19 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: 2d84f5bd-82b5-4840-86d9-66d597f4ce1e: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "2 NotSupported boundary(ies); first: 2d84f5bd-82b5-4840-86d9-66d597f4ce1e: operation error: kernel error: operation not supported: revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
       "id": "R0049",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "3 NotSupported boundary(ies); first: 983f37b6-403f-4bf9-8e68-f4bfdc3db088: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "2 NotSupported boundary(ies); first: 7dd12f24-2b78-4a8a-a386-70c24e43a7f8: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0050",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: bc380f5a-df85-4599-9edd-f37bc9a64c68: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "2 NotSupported boundary(ies); first: bc380f5a-df85-4599-9edd-f37bc9a64c68: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0051",
       "status": "unsupported"
     },
@@ -317,8 +317,8 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: 089a182a-0218-46c2-9db2-226c66b2321d: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: b94897b4-7f89-4a4a-8508-85959d97b454: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0053",
       "status": "unsupported"
     },
@@ -330,7 +330,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: 94b5ac1d-556c-4884-b3d2-a65ad527e119: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "2 NotSupported boundary(ies); first: 94b5ac1d-556c-4884-b3d2-a65ad527e119: operation error: kernel error: operation not supported: revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
       "id": "R0055",
       "status": "unsupported"
     },
@@ -342,7 +342,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 845ce807-854e-4e70-8660-c24d8552f35a: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: 845ce807-854e-4e70-8660-c24d8552f35a: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0057",
       "status": "unsupported"
     },
@@ -354,13 +354,13 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: 8e2df09c-5e39-463c-978a-c11682bc2337: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "2 NotSupported boundary(ies); first: 8e2df09c-5e39-463c-978a-c11682bc2337: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0059",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 028391ad-4654-4f7b-8992-9b566a1f4e21: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 028391ad-4654-4f7b-8992-9b566a1f4e21: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(8) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "R0060",
       "status": "unsupported"
     },
@@ -372,7 +372,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 92dbb5ec-a3ec-4312-acc1-cf9abe48a3e2: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: 92dbb5ec-a3ec-4312-acc1-cf9abe48a3e2: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0062",
       "status": "unsupported"
     },
@@ -408,19 +408,19 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: e36d39c4-9ef8-48a2-aba3-9c873c5fddc5: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: e36d39c4-9ef8-48a2-aba3-9c873c5fddc5: operation error: kernel error: operation not supported: revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
       "id": "R0068",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 262d96b2-2140-48a4-8e40-e2ab9b6daba3: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: 262d96b2-2140-48a4-8e40-e2ab9b6daba3: operation error: kernel error: operation not supported: revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
       "id": "R0069",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: 0af735bc-c968-4f0a-81f6-4fee788a7ac4: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: fa84b5e5-66a1-4e8b-b1d4-e3991e3ea322: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0070",
       "status": "unsupported"
     },
@@ -462,7 +462,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: a69855b9-6abf-4870-a38b-e1fbc3869311: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: a69855b9-6abf-4870-a38b-e1fbc3869311: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0077",
       "status": "unsupported"
     },
@@ -503,8 +503,8 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: fdbc254d-045c-4d86-98dc-bebdf5190911: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(2) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "R0084",
       "status": "unsupported"
     },
@@ -522,7 +522,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: 03f4813e-94d5-4944-b1a7-466abc00a0ac: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "2 NotSupported boundary(ies); first: 03f4813e-94d5-4944-b1a7-466abc00a0ac: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0087",
       "status": "unsupported"
     },
@@ -546,7 +546,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: c7b1979a-9521-4f37-b8df-73ba68c35609: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: c7b1979a-9521-4f37-b8df-73ba68c35609: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0091",
       "status": "unsupported"
     },
@@ -576,7 +576,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: 3dd4af97-3355-4b7e-814c-5599d9aa3eac: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "2 NotSupported boundary(ies); first: 3dd4af97-3355-4b7e-814c-5599d9aa3eac: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0096",
       "status": "unsupported"
     },
@@ -594,13 +594,13 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 03c04280-8758-4d9b-8f37-b93314b3c217: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: 03c04280-8758-4d9b-8f37-b93314b3c217: operation error: kernel error: operation not supported: revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
       "id": "R0099",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: 1a53051b-69ce-4fc9-9d72-d1ca6f7cc147: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "2 NotSupported boundary(ies); first: 1a53051b-69ce-4fc9-9d72-d1ca6f7cc147: operation error: kernel error: operation not supported: revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
       "id": "R0100",
       "status": "unsupported"
     },
@@ -1037,20 +1037,20 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 2e612f7b-d14f-41ee-b3c3-3cb8a015fa72: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "expected rebuild error: 2e612f7b-d14f-41ee-b3c3-3cb8a015fa72: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile",
       "id": "F0073",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: c4465b32-ce18-44a2-a2a8-458402c2948f: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "expected rebuild error: c4465b32-ce18-44a2-a2a8-458402c2948f: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisNotInPlane",
       "id": "F0074",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 4765faf7-5628-4565-9cb7-68eb2c82bd85: operation error: kernel error: operation not supported: revolve_face (kernel-v2: revolve not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: Revolve Offset: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(8) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "F0075",
       "status": "unsupported"
     },

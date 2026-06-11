@@ -726,8 +726,20 @@ fn smoke_corpus_boundary_categories() {
         // union is correct end-to-end (see smoke_union_face_to_face_stack
         // for the exact-volume version of this scenario).
         ("F0091", Category::SupportedCorrect),
-        // revolve cases → revolve not in Phase 4a
-        ("F0073", Category::Unsupported(UnsupportedReason::Revolve)),
+        // PR-KV6a: revolve is implemented for axis-aligned polygon profiles
+        // (partial + full 360°). The self-intersection canaries now exercise
+        // the REAL validation: F0073/F0074 place the axis through the
+        // profile, and the typed RevolveAxisIntersectsProfile maps to the
+        // plain rebuild error their metas expect.
+        ("F0073", Category::SupportedCorrect),
+        ("F0074", Category::SupportedCorrect),
+        // F0075 is a VALID offset-rectangle revolve — the solid builds; the
+        // case then hits the KV6b wall (auto-union over an arc-bearing
+        // operand → UnsupportedCurvedBoolean; the warning text leads with
+        // the feature name "Revolve Offset", so the reason classifier reads
+        // it as the revolve label).
+        ("F0075", Category::Unsupported(UnsupportedReason::Revolve)),
+        // R0008 stays walled (circle-profile revolve → torus, KV6d).
         ("R0008", Category::Unsupported(UnsupportedReason::Revolve)),
     ];
     for (id, expect) in expected {

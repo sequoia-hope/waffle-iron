@@ -373,10 +373,7 @@ fn tessellate_circular_cap(
         return Err(KernelV2Error::FaceWithoutSurface { face: fid });
     };
     if !face.inner_loops.is_empty() {
-        return Err(KernelV2Error::TessellationFailed {
-            face: fid,
-            reason: "circle-bounded planar face with rings is outside the KV5a vocabulary",
-        });
+        return tessellate_annular_cap(arena, fid, n_seg, out);
     }
     let hes = arena.loop_half_edges(face.outer_loop)?;
     let [h] = hes[..] else {
@@ -431,6 +428,105 @@ fn tessellate_circular_cap(
     Ok(())
 }
 
+/// Annular planar cap (PR-KV6a, the full-turn revolve washer): outer loop
+/// ONE full-circle half-edge, exactly one ring that is also one full-circle
+/// half-edge, both concentric in the face plane. Sampled at the shared
+/// chord-bound `N` on a single angle table anchored at the OUTER circle's
+/// seam vertex (the ring is sampled at the same table re-anchored at its
+/// own seam), then stitched as one quad strip — the planar analog of the
+/// cylinder lateral, flat-shaded with the face normal.
+fn tessellate_annular_cap(
+    arena: &BrepArena,
+    fid: FaceId,
+    n_seg: u32,
+    out: &mut RenderMesh,
+) -> Result<(), KernelV2Error> {
+    let face = arena.face(fid)?;
+    let Some(Surface::Plane(plane)) = face.surface else {
+        return Err(KernelV2Error::FaceWithoutSurface { face: fid });
+    };
+    let [ring_lid] = face.inner_loops[..] else {
+        return Err(KernelV2Error::TessellationFailed {
+            face: fid,
+            reason: "annular cap with more than one ring is outside the KV6a vocabulary",
+        });
+    };
+    let circle_of = |lid| -> Result<(Point3, UnitVector3, f64, Point3), KernelV2Error> {
+        let hes = arena.loop_half_edges(lid)?;
+        let [h] = hes[..] else {
+            return Err(KernelV2Error::TessellationFailed {
+                face: fid,
+                reason: "annular cap loop must be a single circle half-edge",
+            });
+        };
+        let he = arena.half_edge(h)?;
+        let Curve::Circle {
+            center,
+            normal,
+            radius,
+        } = he.curve
+        else {
+            return Err(KernelV2Error::TessellationFailed {
+                face: fid,
+                reason: "annular cap loop must be a single circle half-edge",
+            });
+        };
+        Ok((center, normal, radius, arena.vertex(he.origin)?.point))
+    };
+    let (c_o, nu_o, r_o, anchor_o) = circle_of(face.outer_loop)?;
+    let (c_r, _nu_r, r_r, anchor_r) = circle_of(ring_lid)?;
+
+    // One shared frame (the outer circle's, CCW around the face normal ==
+    // the outer circle's traversal normal); the ring row uses the same
+    // angle table from ITS anchor's frame so its boundary samples match the
+    // adjacent lateral's rim samples (both anchored at the same seam
+    // vertex with the mirrored axis — agreement within trig rounding).
+    let Some((e1_o, e2_o)) = circle_frame(c_o, nu_o, anchor_o) else {
+        return Err(KernelV2Error::TessellationFailed {
+            face: fid,
+            reason: "degenerate circle frame (anchor does not span a radial direction)",
+        });
+    };
+    // Ring sampled CCW around the SAME face normal (its half-edge traverses
+    // the other way, but the strip below wants aligned columns).
+    let Some((e1_r, e2_r)) = circle_frame(c_r, nu_o, anchor_r) else {
+        return Err(KernelV2Error::TessellationFailed {
+            face: fid,
+            reason: "degenerate ring circle frame",
+        });
+    };
+
+    let range_start = out.indices.len() as u32;
+    let base = out.num_vertices() as u32;
+    let n = n_seg;
+    for (center, radius, e1, e2) in [(c_o, r_o, e1_o, e2_o), (c_r, r_r, e1_r, e2_r)] {
+        for k in 0..n {
+            let theta = 2.0 * std::f64::consts::PI * (k as f64) / (n as f64);
+            let (sn, cs) = theta.sin_cos();
+            out.positions.extend_from_slice(&[
+                center.x() + radius * (cs * e1[0] + sn * e2[0]),
+                center.y() + radius * (cs * e1[1] + sn * e2[1]),
+                center.z() + radius * (cs * e1[2] + sn * e2[2]),
+            ]);
+            out.normals
+                .extend_from_slice(&[plane.normal.x, plane.normal.y, plane.normal.z]);
+        }
+    }
+    for k in 0..n {
+        let k1 = (k + 1) % n;
+        let (ok, ok1, ik, ik1) = (base + k, base + k1, base + n + k, base + n + k1);
+        // Outer row CCW around the face normal ⇒ this winding faces +normal.
+        out.indices.extend_from_slice(&[ok, ok1, ik1]);
+        out.indices.extend_from_slice(&[ok, ik1, ik]);
+    }
+    out.face_ranges.push(FaceRange {
+        face: fid,
+        start: range_start,
+        count: out.indices.len() as u32 - range_start,
+    });
+    Ok(())
+}
+
 /// The single canonical cylinder-lateral routine (PR-KV5a): the full tube
 /// between two full-circle rims, as `N` quad-pairs. The angular frame comes
 /// from the BOTTOM rim (the one whose directional normal points toward the
@@ -471,15 +567,28 @@ fn tessellate_cylinder_lateral(
             + (to.0.y() - from.0.y()) * from.1.y
             + (to.0.z() - from.0.z()) * from.1.z
     };
-    let (bot, top) = if toward(&rim_a, &rim_b) > 0.0 {
-        (rim_a, rim_b)
-    } else if toward(&rim_b, &rim_a) > 0.0 {
-        (rim_b, rim_a)
-    } else {
-        return Err(KernelV2Error::TessellationFailed {
-            face: fid,
-            reason: "cylinder rims have no outward-oriented bottom (corrupt orientation)",
-        });
+    // Material sense: outward laterals have rims pointing TOWARD each
+    // other's centers; cavity walls (reversed, PR-KV6a washers) point AWAY.
+    let reversed = matches!(face.surface, Some(Surface::Cylinder { reversed: true, .. }));
+    let (bot, top) = match (
+        reversed,
+        toward(&rim_a, &rim_b) > 0.0,
+        toward(&rim_b, &rim_a) > 0.0,
+    ) {
+        // Outward: BOTH rims traverse toward each other (the KV5a shape);
+        // the walk-order first is the frame rim.
+        (false, true, _) => (rim_a, rim_b),
+        (false, false, true) => (rim_b, rim_a),
+        // Reversed: both rims point away; the frame rim is the walk-order
+        // first (deterministic), and the SAME quad index pattern then winds
+        // inward (tangent CCW around an away-pointing axis × toward-top).
+        (true, false, false) => (rim_a, rim_b),
+        _ => {
+            return Err(KernelV2Error::TessellationFailed {
+                face: fid,
+                reason: "cylinder rim orientations disagree with the material sense",
+            });
+        }
     };
     let (cb, nub, radius, anchor) = bot;
     let ct = top.0;
@@ -509,14 +618,21 @@ fn tessellate_cylinder_lateral(
                 row_center.y() + radius * radial[1],
                 row_center.z() + radius * radial[2],
             ]);
-            out.normals.extend_from_slice(&radial);
+            if reversed {
+                out.normals
+                    .extend_from_slice(&[-radial[0], -radial[1], -radial[2]]);
+            } else {
+                out.normals.extend_from_slice(&radial);
+            }
         }
     }
     for k in 0..n {
         let k1 = (k + 1) % n;
         let (bk, bk1, tk, tk1) = (base + k, base + k1, base + n + k, base + n + k1);
         // CCW-around-axis bottom row + axis toward the top row ⇒ these wind
-        // with outward normals (∝ tangent × axis = radial).
+        // with outward normals (∝ tangent × axis = radial). For a reversed
+        // wall the frame axis points AWAY from the top, so the same pattern
+        // winds inward — exactly the cavity sense.
         out.indices.extend_from_slice(&[bk, bk1, tk1]);
         out.indices.extend_from_slice(&[bk, tk1, tk]);
     }

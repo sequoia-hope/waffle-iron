@@ -337,6 +337,53 @@ fn loop_arcs(
     Ok(out)
 }
 
+/// Winding polyline of a loop for Newell-orientation checks: the loop's
+/// vertex cycle with each [`Curve::Arc`]'s sweep MIDPOINT sample inserted
+/// after its origin.
+///
+/// The raw vertex chord polygon winds identically to the true boundary
+/// only for minor arcs (sweep < π) — the original KV5b assumption. Revolve
+/// (PR-KV6a) produces sweep arcs anywhere in (0, 2π): a >180° annular
+/// sector's chord quad has zero or NEGATIVE shoelace area, so the chord
+/// Newell would wrongly reject a correctly wound face. One midpoint per
+/// arc makes the polyline's winding match the true boundary for ANY sweep
+/// < 2π; mis-wound loops still fail (the oracle's domain widens, its
+/// strictness does not change).
+fn winding_points(arena: &BrepArena, hes: &[HalfEdgeId]) -> Result<Vec<Point3>, KernelV2Error> {
+    let mut pts = Vec::with_capacity(hes.len() * 2);
+    for &h in hes {
+        let he = arena.half_edge(h)?;
+        let p0 = arena.vertex(he.origin)?.point;
+        pts.push(p0);
+        if let Curve::Arc { center, normal, .. } = he.curve {
+            let p1 = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+            let nu = [normal.x, normal.y, normal.z];
+            if let Some(sweep) = geom::ccw_sweep(center, nu, p0, p1) {
+                pts.push(rotate_about(center, nu, p0, sweep / 2.0));
+            }
+        }
+    }
+    Ok(pts)
+}
+
+/// Rodrigues rotation of `p` about the axis (`center`, unit `axis`) by
+/// `theta` (right-handed).
+fn rotate_about(center: Point3, axis: [f64; 3], p: Point3, theta: f64) -> Point3 {
+    let v = [p.x() - center.x(), p.y() - center.y(), p.z() - center.z()];
+    let (c, s) = (theta.cos(), theta.sin());
+    let dot = axis[0] * v[0] + axis[1] * v[1] + axis[2] * v[2];
+    let cx = [
+        axis[1] * v[2] - axis[2] * v[1],
+        axis[2] * v[0] - axis[0] * v[2],
+        axis[0] * v[1] - axis[1] * v[0],
+    ];
+    Point3::new(
+        center.x() + v[0] * c + cx[0] * s + axis[0] * dot * (1.0 - c),
+        center.y() + v[1] * c + cx[1] * s + axis[1] * dot * (1.0 - c),
+        center.z() + v[2] * c + cx[2] * s + axis[2] * dot * (1.0 - c),
+    )
+}
+
 /// Debug-band for IMPORTED curved geometry (PR-KV5b): yang-rs boolean
 /// outputs are computed in f64 closed form (Stage-1 trig sampling, Stage-4
 /// relocation), so an absolute 1e-12 band (the KV5a construction tripwire)
@@ -356,14 +403,13 @@ fn import_band(radius: f64, p: Point3) -> f64 {
 ///   directional [`Curve::Circle`] normal as the orientation source — a
 ///   cap's circle must traverse CCW around the face normal, a circle ring
 ///   CCW around its negation (the ring-winding analog).
-/// - Loops mixing [`Curve::Arc`] and segment edges (PR-KV5b, yang boolean
-///   outputs — e.g. an annulus hole rim of exact intersection arcs) use
-///   the VERTEX-cycle Newell normal: arcs in the KV5b vocabulary are minor
-///   (sweep < π), so the chord polyline of the walk winds identically to
-///   the true boundary and the polygonal rule applies unchanged. Each arc
-///   additionally must lie in the face plane (its circle axis parallel to
-///   the face normal — sign-free, since a loop legitimately walks arcs
-///   both ways around their centers).
+/// - Loops mixing [`Curve::Arc`] and segment edges (PR-KV5b yang boolean
+///   outputs; PR-KV6a revolve sectors with sweeps anywhere in (0, 2π))
+///   use the midpoint-augmented winding polyline ([`winding_points`]) for
+///   the Newell normal, which winds identically to the true boundary for
+///   any sweep < 2π. Each arc additionally must lie in the face plane
+///   (its circle axis parallel to the face normal — sign-free, since a
+///   loop legitimately walks arcs both ways around their centers).
 fn validate_planar_face(
     arena: &BrepArena,
     f: FaceId,
@@ -387,10 +433,11 @@ fn validate_planar_face(
     let outer_hes = arena.loop_half_edges(face.outer_loop)?;
     let outer_circles = loop_circles(arena, &outer_hes)?;
     if outer_circles.is_empty() {
-        // Stored normal ≡ Newell(outer loop) — hard rule 2 (arcs walk as
-        // their chords; see the doc comment for why that is sound).
+        // Stored normal ≡ Newell(outer loop) — hard rule 2. Arc-bearing
+        // loops use the midpoint-augmented winding polyline (see
+        // `winding_points`) so ANY sweep < 2π winds correctly.
         arcs_in_plane(&outer_hes)?;
-        let pts = arena.loop_points(face.outer_loop)?;
+        let pts = winding_points(arena, &outer_hes)?;
         let Some(newell) = geom::newell_unit(&pts) else {
             return Err(KernelV2Error::NewellMismatch { face: f });
         };
@@ -420,7 +467,7 @@ fn validate_planar_face(
         let circles = loop_circles(arena, &hes)?;
         if circles.is_empty() {
             arcs_in_plane(&hes)?;
-            let ring_pts = arena.loop_points(rid)?;
+            let ring_pts = winding_points(arena, &hes)?;
             if ring_pts.is_empty() {
                 continue; // lone-vertex ring has no winding
             }
@@ -569,11 +616,6 @@ fn validate_cylinder_face(
         return validate_cylinder_patch(arena, f, face, axis_point, axis_dir, radius, reversed);
     }
 
-    if reversed {
-        return Err(mismatch(
-            "a canonical full lateral is never a cavity wall (reversed)",
-        ));
-    }
     if !face.inner_loops.is_empty() {
         return Err(mismatch(
             "cylinder face with inner loops is outside the KV5a vocabulary",
@@ -603,9 +645,14 @@ fn validate_cylinder_face(
         let other = rims[1 - i].0;
         let toward =
             (other.x() - c.x()) * nu.x + (other.y() - c.y()) * nu.y + (other.z() - c.z()) * nu.z;
-        if toward <= 0.0 {
+        // Outward lateral: each rim's traversal axis points TOWARD the
+        // opposite rim. Cavity wall (reversed, PR-KV6a — the washer's
+        // inner bore): the mirrored material sense, AWAY from it. (The twin
+        // structure forces this: each rim twin lives in an adjacent face
+        // whose own winding rules fix the sign.)
+        if (!reversed && toward <= 0.0) || (reversed && toward >= 0.0) {
             return Err(mismatch(
-                "rim traversal axis must point toward the opposite rim (outward orientation)",
+                "rim traversal axis disagrees with the lateral's material sense",
             ));
         }
     }

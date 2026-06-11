@@ -114,16 +114,20 @@ fn mesh_signed_volume(mesh: &RenderMesh) -> f64 {
 }
 
 /// Watertightness by POSITION-keyed directed-edge pairing (faces emit
-/// duplicated vertices; cross-face agreement is bitwise per the KV5b
-/// twin-symmetric arc sampling, so exact bit keys are the honest check).
+/// duplicated vertices). Shared ARCS agree bitwise (the KV5b twin-symmetric
+/// sampling), but full-circle rim junctions are sampled CCW around OPPOSITE
+/// axes by their two faces, so they agree only within trig rounding
+/// (~1e-16) — keys are therefore quantized at 1e-9 absolute, far below any
+/// feature scale and far above the rounding band.
 fn assert_watertight(mesh: &RenderMesh, what: &str) {
     use std::collections::HashMap;
+    let q = |x: f64| (x / 1e-9).round() as i64;
     let key = |i: u32| {
         let k = (i as usize) * 3;
         (
-            mesh.positions[k].to_bits(),
-            mesh.positions[k + 1].to_bits(),
-            mesh.positions[k + 2].to_bits(),
+            q(mesh.positions[k]),
+            q(mesh.positions[k + 1]),
+            q(mesh.positions[k + 2]),
         )
     };
     let mut count: HashMap<_, i64> = HashMap::new();

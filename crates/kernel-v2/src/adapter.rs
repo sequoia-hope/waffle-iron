@@ -20,7 +20,7 @@
 //! |---|---|---|
 //! | `make_faces_from_profiles` | SUPPORTED (polygon + circle profiles, PR-KV5b) | `ClosedProfile` polygon → `kernel_v2::Profile::new`; `CircleProfile` → `kernel_v2::Profile::circle` (staged); arc-segment / spline profiles → `NotSupported` |
 //! | `extrude_face` | SUPPORTED | staged profile → `kernel_v2::extrude` (sweep vector = `direction · depth`, exactly the legacy semantics); circle profiles → cylinder solids (PR-KV5a) |
-//! | `revolve_face` | NOT SUPPORTED | revolve is a later kernel-v2 slice |
+//! | `revolve_face` | SUPPORTED (PR-KV6a) | staged polygon profile → `kernel_v2::revolve` (degrees → radians; world-space in-plane axis). Typed walls: oblique edges (cones, KV6c), circle profiles (torus, KV6d), holed profiles → `NotSupported`; axis touching/crossing the profile and out-of-range angles → `KernelError::Other` (INVALID INPUT — the F0073/F0074 expected-rebuild-error path, never the NotSupported marker) |
 //! | `boolean_union` / `_subtract` / `_intersect` | SUPPORTED (non-coplanar; cylinder×box class PR-KV5b) | `kernel_v2::boolean_op` (yang-rs native pipeline); coplanar input face pairs → `NotSupported` (Yang Stage 0 / roadmap M8); curved partial-patch RESULT operands → `NotSupported` (no yang Stage-1 re-entry); cylinder×cylinder / oblique-ellipse sections → `BooleanFailed` carrying the typed wall text |
 //! | `boolean_*_multi` | default impl | delegates to the single-body methods |
 //! | `fillet_edges` / `chamfer_edges` / `shell` | NOT SUPPORTED | deferred indefinitely (root CLAUDE.md) |
@@ -248,7 +248,10 @@ impl KernelV2Adapter {
         // opposite, so holes subtract automatically).
         let mut loops = vec![face.outer_loop];
         loops.extend(face.inner_loops.iter().copied());
-        let mut twice_area = 0.0f64;
+        // Exact signed area incl. arc-segment corrections (PR-KV6a — the
+        // chord Newell under-counts and SIGN-FLIPS >180° annular sectors).
+        let twice_area =
+            crate::geom::planar_face_signed_area2(&self.arena, fid, face, n).unwrap_or(0.0);
         let mut bbox = [
             f64::INFINITY,
             f64::INFINITY,
@@ -263,8 +266,6 @@ impl KernelV2Adapter {
             let Ok(pts) = self.arena.loop_points(*lid) else {
                 continue;
             };
-            let nw = crate::geom::newell(&pts);
-            twice_area += nw[0] * n[0] + nw[1] * n[1] + nw[2] * n[2];
             for p in &pts {
                 let p = p.as_array();
                 for k in 0..3 {
@@ -372,14 +373,46 @@ impl Kernel for KernelV2Adapter {
 
     fn revolve_face(
         &mut self,
-        _face: KernelId,
-        _axis_origin: [f64; 3],
-        _axis_direction: [f64; 3],
-        _angle: f64,
+        face: KernelId,
+        axis_origin: [f64; 3],
+        axis_direction: [f64; 3],
+        angle: f64,
     ) -> Result<KernelSolidHandle, KernelError> {
-        Err(Self::not_supported(
-            "revolve_face (kernel-v2: revolve not yet implemented)",
-        ))
+        let (tag, idx) = decode(face);
+        if tag != TAG_PROFILE {
+            return Err(KernelError::EntityNotFound { id: face });
+        }
+        let profile = self
+            .staged
+            .remove(&(idx as u64))
+            .ok_or(KernelError::EntityNotFound { id: face })?;
+        // Legacy trait convention: angle in DEGREES (modeling-ops passes
+        // RevolveParams.angle through unchanged).
+        let result = crate::revolve(
+            &mut self.arena,
+            &profile,
+            Point3::new(axis_origin[0], axis_origin[1], axis_origin[2]),
+            Vector3::new(axis_direction[0], axis_direction[1], axis_direction[2]),
+            angle.to_radians(),
+        )
+        .map_err(|e| match e {
+            // Capability walls: typed NotSupported (assay UNSUPPORTED).
+            KernelV2Error::RevolveObliqueEdgeUnsupported => Self::not_supported(
+                "revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
+            ),
+            KernelV2Error::RevolveCircleProfileUnsupported => Self::not_supported(
+                "revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
+            ),
+            KernelV2Error::RevolveProfileHolesUnsupported => Self::not_supported(
+                "revolve_face: holed profile revolve not implemented (kernel-v2)",
+            ),
+            // Invalid input: plain errors — the message must NOT carry the
+            // NotSupported marker (F0073/F0074 pin expect_rebuild_error).
+            other => KernelError::Other {
+                message: format!("kernel-v2 revolve failed: {other}"),
+            },
+        })?;
+        Ok(self.alloc_handle(result.solid))
     }
 
     fn boolean_union(
@@ -880,12 +913,17 @@ mod tests {
 
     #[test]
     fn revolve_fillet_chamfer_shell_are_loudly_unsupported() {
+        // Revolve is SUPPORTED since PR-KV6a; what stays loud here is its
+        // input validation (an axis along the plane NORMAL is invalid input
+        // → plain error, not a capability wall)…
         let mut adapter = KernelV2Adapter::new();
         let face = stage_unit_square(&mut adapter);
         let err = adapter
             .revolve_face(face, [0.0; 3], [0.0, 0.0, 1.0], 360.0)
             .unwrap_err();
-        assert!(matches!(err, KernelError::NotSupported { .. }));
+        assert!(matches!(err, KernelError::Other { .. }), "{err:?}");
+
+        // …and the indefinitely-deferred operations.
 
         let face2 = stage_unit_square(&mut adapter);
         let handle = adapter.extrude_face(face2, [0.0, 0.0, 1.0], 1.0).unwrap();
