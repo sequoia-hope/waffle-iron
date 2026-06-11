@@ -10,6 +10,12 @@ import { clickSketch, clickFinishSketch, clickRectangle, clickRevolve, clickExtr
 import { drawRectangle } from './helpers/canvas.js';
 import { waitForEntityCount, getFeatureCount, waitForFeatureCount, hasMeshWithGeometry, waitForMeshWithGeometry, getMeshes } from './helpers/state.js';
 
+// QUARANTINED at the Phase 6 migration (2026-06-11): the app now runs on
+// kernel-v2, where revolve is NotSupported until the KV6 revolve milestone.
+// The UI stays and the capability returns — do NOT delete these specs.
+test.describe.configure({ mode: 'serial' });
+test.skip(true, 'kernel-v2: revolve NotSupported until KV6 — quarantined, do not delete');
+
 test.describe('revolve workflow variations', () => {
 
     test('revolve 90 degrees creates a mesh', async ({ waffle }) => {

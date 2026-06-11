@@ -1,14 +1,4 @@
-/**
- * PR-VIZ-3a: clear the captures map (free memory). Spec §5.
- */
-export function clear_yang_debug_captures() {
-    __wbg_termination_guard();
-    try {
-        wasm.clear_yang_debug_captures();
-    } catch(e) {
-        __wbg_handle_catch(e);
-    }
-}
+/* @ts-self-types="./wasm_bridge.d.ts" */
 
 /**
  * Get edge range data for a specific feature by index.
@@ -24,23 +14,12 @@ export function get_edge_data(feature_index) {
     let deferred1_0;
     let deferred1_1;
     try {
-        let ret;
-        __wbg_termination_guard();
-        try {
-            ret = wasm.get_edge_data(feature_index);;
-        } catch(e) {
-            __wbg_handle_catch(e);
-        }
+        const ret = wasm.get_edge_data(feature_index);
         deferred1_0 = ret[0];
         deferred1_1 = ret[1];
         return getStringFromWasm0(ret[0], ret[1]);
     } finally {
-        __wbg_termination_guard();
-        try {
-            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
-        } catch(e) {
-            __wbg_handle_catch(e);
-        }
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
     }
 }
 
@@ -54,13 +33,7 @@ export function get_edge_data(feature_index) {
  * @returns {Float32Array}
  */
 export function get_edge_vertices(feature_index) {
-    let ret;
-    __wbg_termination_guard();
-    try {
-        ret = wasm.get_edge_vertices(feature_index);;
-    } catch(e) {
-        __wbg_handle_catch(e);
-    }
+    const ret = wasm.get_edge_vertices(feature_index);
     return ret;
 }
 
@@ -80,23 +53,12 @@ export function get_face_data(feature_index) {
     let deferred1_0;
     let deferred1_1;
     try {
-        let ret;
-        __wbg_termination_guard();
-        try {
-            ret = wasm.get_face_data(feature_index);;
-        } catch(e) {
-            __wbg_handle_catch(e);
-        }
+        const ret = wasm.get_face_data(feature_index);
         deferred1_0 = ret[0];
         deferred1_1 = ret[1];
         return getStringFromWasm0(ret[0], ret[1]);
     } finally {
-        __wbg_termination_guard();
-        try {
-            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
-        } catch(e) {
-            __wbg_handle_catch(e);
-        }
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
     }
 }
 
@@ -104,31 +66,18 @@ export function get_face_data(feature_index) {
  * Get the current feature tree as JSON.
  *
  * Useful for the UI to query state without sending a full command.
- * Wrapped in catch_unwind to prevent panics from crashing the WASM module
- * if engine state is corrupted after a failed boolean cascade.
  * @returns {string}
  */
 export function get_feature_tree() {
     let deferred1_0;
     let deferred1_1;
     try {
-        let ret;
-        __wbg_termination_guard();
-        try {
-            ret = wasm.get_feature_tree();;
-        } catch(e) {
-            __wbg_handle_catch(e);
-        }
+        const ret = wasm.get_feature_tree();
         deferred1_0 = ret[0];
         deferred1_1 = ret[1];
         return getStringFromWasm0(ret[0], ret[1]);
     } finally {
-        __wbg_termination_guard();
-        try {
-            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
-        } catch(e) {
-            __wbg_handle_catch(e);
-        }
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
     }
 }
 
@@ -137,13 +86,7 @@ export function get_feature_tree() {
  * @returns {number}
  */
 export function get_mesh_count() {
-    let ret;
-    __wbg_termination_guard();
-    try {
-        ret = wasm.get_mesh_count();;
-    } catch(e) {
-        __wbg_handle_catch(e);
-    }
+    const ret = wasm.get_mesh_count();
     return ret >>> 0;
 }
 
@@ -155,13 +98,7 @@ export function get_mesh_count() {
  * @returns {Uint32Array}
  */
 export function get_mesh_indices(feature_index) {
-    let ret;
-    __wbg_termination_guard();
-    try {
-        ret = wasm.get_mesh_indices(feature_index);;
-    } catch(e) {
-        __wbg_handle_catch(e);
-    }
+    const ret = wasm.get_mesh_indices(feature_index);
     return ret;
 }
 
@@ -172,7 +109,6 @@ export function get_mesh_indices(feature_index) {
  * For high-performance rendering, the web worker should use the
  * `get_mesh_vertices`, `get_mesh_normals`, and `get_mesh_indices`
  * functions instead, which return typed arrays directly.
- * Wrapped in catch_unwind to prevent panics from crashing the WASM module.
  * @param {number} feature_index
  * @returns {string}
  */
@@ -180,23 +116,12 @@ export function get_mesh_json(feature_index) {
     let deferred1_0;
     let deferred1_1;
     try {
-        let ret;
-        __wbg_termination_guard();
-        try {
-            ret = wasm.get_mesh_json(feature_index);;
-        } catch(e) {
-            __wbg_handle_catch(e);
-        }
+        const ret = wasm.get_mesh_json(feature_index);
         deferred1_0 = ret[0];
         deferred1_1 = ret[1];
         return getStringFromWasm0(ret[0], ret[1]);
     } finally {
-        __wbg_termination_guard();
-        try {
-            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
-        } catch(e) {
-            __wbg_handle_catch(e);
-        }
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
     }
 }
 
@@ -208,13 +133,7 @@ export function get_mesh_json(feature_index) {
  * @returns {Float32Array}
  */
 export function get_mesh_normals(feature_index) {
-    let ret;
-    __wbg_termination_guard();
-    try {
-        ret = wasm.get_mesh_normals(feature_index);;
-    } catch(e) {
-        __wbg_handle_catch(e);
-    }
+    const ret = wasm.get_mesh_normals(feature_index);
     return ret;
 }
 
@@ -230,13 +149,7 @@ export function get_mesh_normals(feature_index) {
  * @returns {Float32Array}
  */
 export function get_mesh_vertices(feature_index) {
-    let ret;
-    __wbg_termination_guard();
-    try {
-        ret = wasm.get_mesh_vertices(feature_index);;
-    } catch(e) {
-        __wbg_handle_catch(e);
-    }
+    const ret = wasm.get_mesh_vertices(feature_index);
     return ret;
 }
 
@@ -250,60 +163,15 @@ export function get_mesh_vertices(feature_index) {
  * @returns {Uint32Array}
  */
 export function get_renderable_feature_indices() {
-    let ret;
-    __wbg_termination_guard();
-    try {
-        ret = wasm.get_renderable_feature_indices();;
-    } catch(e) {
-        __wbg_handle_catch(e);
-    }
+    const ret = wasm.get_renderable_feature_indices();
     return ret;
 }
 
 /**
- * PR-VIZ-3a: get captured stages for a feature_id as JSON. Returns
- * `"null"` when absent. Spec §5.
- * @param {string} feature_id
- * @returns {string}
- */
-export function get_yang_stages_json(feature_id) {
-    let deferred2_0;
-    let deferred2_1;
-    try {
-        const ptr0 = passStringToWasm0(feature_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        let ret;
-        __wbg_termination_guard();
-        try {
-            ret = wasm.get_yang_stages_json(ptr0, len0);;
-        } catch(e) {
-            __wbg_handle_catch(e);
-        }
-        deferred2_0 = ret[0];
-        deferred2_1 = ret[1];
-        return getStringFromWasm0(ret[0], ret[1]);
-    } finally {
-        __wbg_termination_guard();
-        try {
-            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
-        } catch(e) {
-            __wbg_handle_catch(e);
-        }
-    }
-}
-
-/**
  * Initialize the WASM engine. Must be called once before any other function.
- *
- * Sets up panic hooks for better error messages and creates the engine state.
  */
 export function init() {
-    __wbg_termination_guard();
-    try {
-        wasm.init();
-    } catch(e) {
-        __wbg_handle_catch(e);
-    }
+    wasm.init();
 }
 
 /**
@@ -321,71 +189,24 @@ export function process_message(json_input) {
     try {
         const ptr0 = passStringToWasm0(json_input, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len0 = WASM_VECTOR_LEN;
-        let ret;
-        __wbg_termination_guard();
-        try {
-            ret = wasm.process_message(ptr0, len0);;
-        } catch(e) {
-            __wbg_handle_catch(e);
-        }
+        const ret = wasm.process_message(ptr0, len0);
         deferred2_0 = ret[0];
         deferred2_1 = ret[1];
         return getStringFromWasm0(ret[0], ret[1]);
     } finally {
-        __wbg_termination_guard();
-        try {
-            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
-        } catch(e) {
-            __wbg_handle_catch(e);
-        }
-    }
-}
-
-/**
- * PR-VIZ-3a: arm or disarm in-memory Yang stage capture. Spec §5.
- * @param {boolean} enabled
- */
-export function set_yang_debug_capture(enabled) {
-    __wbg_termination_guard();
-    try {
-        wasm.set_yang_debug_capture(enabled);
-    } catch(e) {
-        __wbg_handle_catch(e);
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
     }
 }
 
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
-        __wbg___wbindgen_panic_error_1bf6d8b40c6eefa1: function(arg0) {
-            const ret = new PanicError(arg0);
-            return ret;
-        },
-        __wbg___wbindgen_rethrow_5d3a9250cec92549: function(arg0) {
-            throw new WebAssembly.Exception(__wbindgen_wrapped_jstag, [arg0]);
-        },
         __wbg___wbindgen_throw_6ddd609b62940d55: function(arg0, arg1) {
-            throw new WebAssembly.Exception(__wbindgen_wrapped_jstag, [new Error(getStringFromWasm0(arg0, arg1))]);
+            throw new Error(getStringFromWasm0(arg0, arg1));
         },
-        __wbg_error_a6fa202b58aa1cd3: function(arg0, arg1) {
-            let deferred0_0;
-            let deferred0_1;
-            try {
-                deferred0_0 = arg0;
-                deferred0_1 = arg1;
-                console.error(getStringFromWasm0(arg0, arg1));
-            } finally {
-                __wbg_termination_guard();
-                try {
-                    wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
-                } catch(e) {
-                    __wbg_handle_catch(e);
-                }
-            }
-        },
-        __wbg_getRandomValues_ef8a9e8b447216e2: function(arg0, arg1) {
+        __wbg_getRandomValues_ef8a9e8b447216e2: function() { return handleError(function (arg0, arg1) {
             globalThis.crypto.getRandomValues(getArrayU8FromWasm0(arg0, arg1));
-        },
+        }, arguments); },
         __wbg_getTime_1dad7b5386ddd2d9: function(arg0) {
             const ret = arg0.getTime();
             return ret;
@@ -399,10 +220,6 @@ function __wbg_get_imports() {
         },
         __wbg_new_0_1dcafdf5e786e876: function() {
             const ret = new Date();
-            return ret;
-        },
-        __wbg_new_227d7c05414eb861: function() {
-            const ret = new Error();
             return ret;
         },
         __wbg_new_with_length_3437fa6f550bd3d8: function(arg0) {
@@ -419,13 +236,6 @@ function __wbg_get_imports() {
         },
         __wbg_set_1be21701d704e71d: function(arg0, arg1, arg2) {
             arg0.set(getArrayU32FromWasm0(arg1, arg2));
-        },
-        __wbg_stack_3b0d974bbf31e44f: function(arg0, arg1) {
-            const ret = arg1.stack;
-            const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-            const len1 = WASM_VECTOR_LEN;
-            getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
-            getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
             // Cast intrinsic for `Ref(Slice(F32)) -> NamedExternref("Float32Array")`.
@@ -451,8 +261,6 @@ function __wbg_get_imports() {
             table.set(offset + 2, true);
             table.set(offset + 3, false);
         },
-        __wbindgen_jstag: WebAssembly.JSTag,
-        __wbindgen_wrapped_jstag: __wbindgen_wrapped_jstag,
     };
     return {
         __proto__: null,
@@ -460,26 +268,10 @@ function __wbg_get_imports() {
     };
 }
 
-const __wbindgen_wrapped_jstag = new WebAssembly.Tag({ parameters: ['externref'] });
-
-
-let __wbg_terminated_addr;
-
-
-function __wbg_termination_guard() {
-    __wbg_terminated_addr ??= wasm.__instance_terminated.value / 4;
-    if (getInt32ArrayMemory0()[__wbg_terminated_addr]) {
-        throw new Error('Module terminated');
-    }
-}
-
-
-function __wbg_handle_catch(e) {
-    if (e instanceof WebAssembly.Exception && e.is(__wbindgen_wrapped_jstag)) {
-        throw e.getArg(__wbindgen_wrapped_jstag, 0);
-    }
-    getInt32ArrayMemory0()[__wbg_terminated_addr] = 1;
-    throw e;
+function addToExternrefTable0(obj) {
+    const idx = wasm.__externref_table_alloc();
+    wasm.__wbindgen_externrefs.set(idx, obj);
+    return idx;
 }
 
 function getArrayF32FromWasm0(ptr, len) {
@@ -497,28 +289,12 @@ function getArrayU8FromWasm0(ptr, len) {
     return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
 }
 
-let cachedDataViewMemory0 = null;
-function getDataViewMemory0() {
-    if (cachedDataViewMemory0 === null || cachedDataViewMemory0.buffer.detached === true || (cachedDataViewMemory0.buffer.detached === undefined && cachedDataViewMemory0.buffer !== wasm.memory.buffer)) {
-        cachedDataViewMemory0 = new DataView(wasm.memory.buffer);
-    }
-    return cachedDataViewMemory0;
-}
-
 let cachedFloat32ArrayMemory0 = null;
 function getFloat32ArrayMemory0() {
     if (cachedFloat32ArrayMemory0 === null || cachedFloat32ArrayMemory0.byteLength === 0) {
         cachedFloat32ArrayMemory0 = new Float32Array(wasm.memory.buffer);
     }
     return cachedFloat32ArrayMemory0;
-}
-
-let cachedInt32ArrayMemory0 = null;
-function getInt32ArrayMemory0() {
-    if (cachedInt32ArrayMemory0 === null || cachedInt32ArrayMemory0.byteLength === 0) {
-        cachedInt32ArrayMemory0 = new Int32Array(wasm.memory.buffer);
-    }
-    return cachedInt32ArrayMemory0;
 }
 
 function getStringFromWasm0(ptr, len) {
@@ -542,10 +318,14 @@ function getUint8ArrayMemory0() {
     return cachedUint8ArrayMemory0;
 }
 
-class PanicError extends Error {}
-Object.defineProperty(PanicError.prototype, 'name', {
-    value: PanicError.name,
-});
+function handleError(f, args) {
+    try {
+        return f.apply(this, args);
+    } catch (e) {
+        const idx = addToExternrefTable0(e);
+        wasm.__wbindgen_exn_store(idx);
+    }
+}
 
 function passStringToWasm0(arg, malloc, realloc) {
     if (realloc === undefined) {
@@ -617,9 +397,7 @@ let wasmModule, wasm;
 function __wbg_finalize_init(instance, module) {
     wasm = instance.exports;
     wasmModule = module;
-    cachedDataViewMemory0 = null;
     cachedFloat32ArrayMemory0 = null;
-    cachedInt32ArrayMemory0 = null;
     cachedUint32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     wasm.__wbindgen_start();

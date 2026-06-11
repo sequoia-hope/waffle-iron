@@ -123,6 +123,10 @@ test.describe('extrude input validation', () => {
 });
 
 test.describe('revolve input validation', () => {
+	// QUARANTINED at the Phase 6 migration (2026-06-11): revolve is
+	// NotSupported on kernel-v2 until the KV6 milestone. Do not delete.
+	test.skip(true, 'kernel-v2: revolve NotSupported until KV6 — quarantined');
+
 	test('angle=0 does not create feature', async ({ waffle }) => {
 		await createFinishedSketch(waffle);
 

@@ -318,7 +318,10 @@ run_gui_fast() {
     spec_args+=("tests/gui/$spec")
   done
 
-  (cd "$APP_DIR" && PW_WORKERS="$TEST_THREADS" mem_guard npx playwright test "${spec_args[@]}") || rc=$?
+  # No mem_guard here: Chromium's V8 sandbox reserves ~1TB of VIRTUAL address
+  # space per process, so any prlimit --as cap kills the browser at launch
+  # (every test then times out at the fixture). mem_guard is for cargo only.
+  (cd "$APP_DIR" && PW_WORKERS="$TEST_THREADS" npx playwright test "${spec_args[@]}") || rc=$?
 
   local elapsed
   elapsed=$(timer_elapsed "$tier_start")
@@ -339,7 +342,8 @@ run_gui_full() {
   local tier_start rc=0
   tier_start=$(timer_start)
 
-  (cd "$APP_DIR" && PW_WORKERS="$TEST_THREADS" mem_guard npx playwright test tests/gui/) || rc=$?
+  # No mem_guard — see run_gui_fast (V8 sandbox vs prlimit --as).
+  (cd "$APP_DIR" && PW_WORKERS="$TEST_THREADS" npx playwright test tests/gui/) || rc=$?
 
   local elapsed
   elapsed=$(timer_elapsed "$tier_start")

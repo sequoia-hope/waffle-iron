@@ -23,12 +23,6 @@ uuid = { version = "1", features = ["v4", "serde"] }
 thiserror = "1"
 base64 = "0.22"
 
-# Disable wasm-opt post-processing. wasm-opt can convert Rust panic
-# unwind paths into raw WASM `unreachable` instructions, which bypasses
-# catch_unwind and kills the module. We need catch_unwind to work so
-# that truck panics are caught and converted to recoverable errors.
-[package.metadata.wasm-pack.profile.release]
-wasm-opt = false
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
