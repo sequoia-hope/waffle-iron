@@ -6,15 +6,10 @@
  * revolve.spec.js (dialog lifecycle) and revolve-e2e.spec.js (mesh details).
  */
 import { test, expect } from './helpers/waffle-test.js';
+import { pickOffsetRevolveAxis } from './helpers/revolve.js';
 import { clickSketch, clickFinishSketch, clickRectangle, clickRevolve, clickExtrude } from './helpers/toolbar.js';
 import { drawRectangle } from './helpers/canvas.js';
 import { waitForEntityCount, getFeatureCount, waitForFeatureCount, hasMeshWithGeometry, waitForMeshWithGeometry, getMeshes } from './helpers/state.js';
-
-// QUARANTINED at the Phase 6 migration (2026-06-11): the app now runs on
-// kernel-v2, where revolve is NotSupported until the KV6 revolve milestone.
-// The UI stays and the capability returns — do NOT delete these specs.
-test.describe.configure({ mode: 'serial' });
-test.skip(true, 'kernel-v2: revolve NotSupported until KV6 — quarantined, do not delete');
 
 test.describe('revolve workflow variations', () => {
 
@@ -30,6 +25,7 @@ test.describe('revolve workflow variations', () => {
 
         // Open revolve dialog
         await clickRevolve(page);
+        await pickOffsetRevolveAxis(page);
 
         // Set angle to 90
         const angleInput = page.locator('#revolve-angle');
@@ -58,6 +54,7 @@ test.describe('revolve workflow variations', () => {
         await clickFinishSketch(page);
 
         await clickRevolve(page);
+        await pickOffsetRevolveAxis(page);
 
         const angleInput = page.locator('#revolve-angle');
         await angleInput.fill('180');
@@ -144,6 +141,7 @@ test.describe('revolve workflow variations', () => {
         await clickFinishSketch(page);
 
         await clickRevolve(page);
+        await pickOffsetRevolveAxis(page);
         const angleInput = page.locator('#revolve-angle');
         await angleInput.fill('360');
         const revolveApply = page.locator('[data-testid="revolve-apply"]');

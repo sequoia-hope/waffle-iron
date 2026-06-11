@@ -6,6 +6,7 @@
  * wait, verify feature count did NOT increase and canvas is still visible.
  */
 import { test, expect } from './helpers/waffle-test.js';
+import { pickOffsetRevolveAxis } from './helpers/revolve.js';
 import {
 	clickSketch,
 	clickRectangle,
@@ -123,14 +124,11 @@ test.describe('extrude input validation', () => {
 });
 
 test.describe('revolve input validation', () => {
-	// QUARANTINED at the Phase 6 migration (2026-06-11): revolve is
-	// NotSupported on kernel-v2 until the KV6 milestone. Do not delete.
-	test.skip(true, 'kernel-v2: revolve NotSupported until KV6 — quarantined');
-
 	test('angle=0 does not create feature', async ({ waffle }) => {
 		await createFinishedSketch(waffle);
 
 		await clickRevolve(waffle.page);
+		await pickOffsetRevolveAxis(waffle.page);
 		const angleInput = waffle.page.locator('#revolve-angle');
 		await angleInput.fill('0');
 		await waffle.page.locator('[data-testid="revolve-apply"]').click();
@@ -148,6 +146,7 @@ test.describe('revolve input validation', () => {
 		await createFinishedSketch(waffle);
 
 		await clickRevolve(waffle.page);
+		await pickOffsetRevolveAxis(waffle.page);
 		const angleInput = waffle.page.locator('#revolve-angle');
 		await angleInput.fill('-90');
 		await waffle.page.locator('[data-testid="revolve-apply"]').click();
@@ -165,6 +164,7 @@ test.describe('revolve input validation', () => {
 		await createFinishedSketch(waffle);
 
 		await clickRevolve(waffle.page);
+		await pickOffsetRevolveAxis(waffle.page);
 		const angleInput = waffle.page.locator('#revolve-angle');
 		await angleInput.fill('720');
 		await waffle.page.locator('[data-testid="revolve-apply"]').click();
@@ -182,6 +182,7 @@ test.describe('revolve input validation', () => {
 		await createFinishedSketch(waffle);
 
 		await clickRevolve(waffle.page);
+		await pickOffsetRevolveAxis(waffle.page);
 		const angleInput = waffle.page.locator('#revolve-angle');
 		await angleInput.fill('');
 		await waffle.page.locator('[data-testid="revolve-apply"]').click();

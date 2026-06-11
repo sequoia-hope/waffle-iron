@@ -1797,8 +1797,32 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   `test.sh fast`/`full` fully green for the first time since the rewrite
   began; boolean GUI specs 60/60 on kernel-v2; F0038 renders correctly in
   the app. Capability-pending tests carry `#[ignore]`/`test.skip` milestone
-  tags (KV6 revolve, M8 coplanar, M5 degree-4, CDT profile tail) —
-  un-quarantine when each milestone lands.
+  tags (M8 coplanar, M5 degree-4, CDT profile tail) — un-quarantine when
+  each milestone lands.
+
+- **KV6a — revolve (kernel-v2). ✅ COMPLETE (2026-06-11, PR-KV6a).**
+  Partial angles (0,2π) AND full 360° for polygon profiles with
+  axis-parallel/perpendicular edges, axis in-plane, profile strictly one
+  side. Partial output = the KV5b partial-patch vocabulary (sweep arcs,
+  reversed inner-bore cylinder patches, arc-bounded annular sectors); 360°
+  = the genus-1 washer (annular ring caps + canonical cylinders, incl. the
+  first REVERSED canonical lateral — validate/tessellate/signed_volume
+  vocabulary extended with mirrored rim rules, arc-loop closed forms
+  (Green's theorem over the unrolled boundary; Pappus at 1e-12, washer
+  bitwise 9π), and annular-cap strips). Adapter maps degrees→radians;
+  axis-through-profile is INVALID INPUT (KernelError::Other — the
+  F0073/F0074 expected-rebuild-error path), capability walls stay
+  NotSupported. Corpus 28→30 SUPPORTED_CORRECT, UNSUPPORTED(revolve)
+  38→26 (rect-revolves now stop at the KV6b boolean wall, label shifts to
+  curved-profile). GUI: all 4 revolve spec files + the revolve
+  input-validation block un-quarantined and GREEN (46 tests) after fixing
+  their March-2026 staleness (the UX overhaul made axis-picking mandatory;
+  specs now set the axis via the `__waffle.setRevolveAxis` test API with
+  the engine's plane basis). Walls for later: KV6b (yang Stage-1 ingestion
+  of partial patches + holed caps — unwalls boss/cut revolve corpus bulk),
+  KV6c cones (oblique edges), KV6d torus (circle profiles), on-axis
+  profiles (solid-of-revolution without bore — common CAD flow, currently
+  rejected as touching).
 
 **Where the risk lives:** almost all of it is Phase 2 (curved Stage 3/4). Phase 1
 is a steady low-risk grind; Phases 4/6 are large but mechanical once geometry

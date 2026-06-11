@@ -5,6 +5,7 @@
  * This file tests the actual revolve-to-mesh pipeline at various angles.
  */
 import { test, expect } from './helpers/waffle-test.js';
+import { pickOffsetRevolveAxis } from './helpers/revolve.js';
 import {
 	clickSketch,
 	clickRectangle,
@@ -42,6 +43,7 @@ async function createFinishedSketch(waffle) {
  */
 async function applyRevolve(waffle, angle = '360') {
 	await clickRevolve(waffle.page);
+	await pickOffsetRevolveAxis(waffle.page);
 	const angleInput = waffle.page.locator('#revolve-angle');
 	await angleInput.fill(angle);
 	await waffle.page.locator('[data-testid="revolve-apply"]').click();
@@ -49,12 +51,6 @@ async function applyRevolve(waffle, angle = '360') {
 		await waffle.dumpState(`revolve-e2e-apply-${angle}-failed`);
 	}
 }
-
-// QUARANTINED at the Phase 6 migration (2026-06-11): the app now runs on
-// kernel-v2, where revolve is NotSupported until the KV6 revolve milestone.
-// The UI stays and the capability returns — do NOT delete these specs.
-test.describe.configure({ mode: 'serial' });
-test.skip(true, 'kernel-v2: revolve NotSupported until KV6 — quarantined, do not delete');
 
 test.describe('revolve end-to-end', () => {
 	test('revolve 360 creates solid with mesh geometry', async ({ waffle }) => {

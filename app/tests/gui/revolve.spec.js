@@ -5,6 +5,7 @@
  * Mirrors the extrude.spec.js structure.
  */
 import { test, expect } from './helpers/waffle-test.js';
+import { pickOffsetRevolveAxis } from './helpers/revolve.js';
 import {
 	clickSketch,
 	clickRectangle,
@@ -36,12 +37,6 @@ async function createFinishedSketch(waffle) {
 		await waffle.dumpState('revolve-sketch-failed');
 	}
 }
-
-// QUARANTINED at the Phase 6 migration (2026-06-11): the app now runs on
-// kernel-v2, where revolve is NotSupported until the KV6 revolve milestone.
-// The UI stays and the capability returns — do NOT delete these specs.
-test.describe.configure({ mode: 'serial' });
-test.skip(true, 'kernel-v2: revolve NotSupported until KV6 — quarantined, do not delete');
 
 test.describe('revolve dialog lifecycle', () => {
 	test('clicking Revolve after sketch opens dialog', async ({ waffle }) => {
@@ -99,6 +94,7 @@ test.describe('revolve dialog lifecycle', () => {
 	test('revolve dialog Apply creates Revolve feature', async ({ waffle }) => {
 		await createFinishedSketch(waffle);
 		await clickRevolve(waffle.page);
+		await pickOffsetRevolveAxis(waffle.page);
 
 		const dialog = waffle.page.locator('[data-testid="revolve-dialog"]');
 		await expect(dialog).toBeVisible();
@@ -123,6 +119,7 @@ test.describe('revolve dialog lifecycle', () => {
 	test('revolve dialog Enter key applies', async ({ waffle }) => {
 		await createFinishedSketch(waffle);
 		await clickRevolve(waffle.page);
+		await pickOffsetRevolveAxis(waffle.page);
 
 		const dialog = waffle.page.locator('[data-testid="revolve-dialog"]');
 		await expect(dialog).toBeVisible();
@@ -168,18 +165,21 @@ test.describe('revolve dialog angle validation', () => {
 	});
 
 	test('Apply disabled when no axis is selected', async ({ waffle }) => {
-		// Use __waffle API to open revolve without a sketch that has lines
-		// (if no axis entities exist, none can be selected → apply disabled)
+		// Since the March 2026 revolve UX overhaul the axis is an explicit
+		// viewport pick — the dialog opens with NO axis and Apply disabled.
+		// (The old auto-select-first-line behavior this test once asserted
+		// is gone.)
 		await createFinishedSketch(waffle);
 		await clickRevolve(waffle.page);
 
 		const dialog = waffle.page.locator('[data-testid="revolve-dialog"]');
 		await expect(dialog).toBeVisible();
 
-		// Deselect current axis by checking if we can verify the button state
-		// Since auto-select picks the first line, the apply button should be enabled
 		const applyBtn = waffle.page.locator('[data-testid="revolve-apply"]');
-		// With a rectangle sketch, there's always an auto-selected axis
+		await expect(applyBtn).toBeDisabled();
+
+		// Setting an axis (test API = a viewport pick) enables it.
+		await pickOffsetRevolveAxis(waffle.page);
 		await expect(applyBtn).toBeEnabled();
 	});
 });
@@ -188,6 +188,7 @@ test.describe('revolve dialog state after apply', () => {
 	test('dialog closes after successful apply', async ({ waffle }) => {
 		await createFinishedSketch(waffle);
 		await clickRevolve(waffle.page);
+		await pickOffsetRevolveAxis(waffle.page);
 
 		const dialog = waffle.page.locator('[data-testid="revolve-dialog"]');
 		await expect(dialog).toBeVisible();
@@ -208,6 +209,7 @@ test.describe('revolve dialog state after apply', () => {
 	test('feature tree updates with Revolve after apply', async ({ waffle }) => {
 		await createFinishedSketch(waffle);
 		await clickRevolve(waffle.page);
+		await pickOffsetRevolveAxis(waffle.page);
 
 		await waffle.page.locator('#revolve-angle').fill('180');
 		await waffle.page.locator('[data-testid="revolve-apply"]').click();

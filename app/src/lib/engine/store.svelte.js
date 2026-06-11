@@ -520,6 +520,9 @@ export async function initEngine() {
 			applyExtrude: (depth, profileIndex, cut, opts) => applyExtrude(depth, profileIndex, cut, opts),
 			showExtrudeDialog: () => showExtrudeDialog(),
 			saveProject: () => saveProject(),
+			// Test SETUP only (the pick-mode interaction has its own specs):
+			// sets the revolve dialog's axis as a viewport pick would.
+			setRevolveAxis: (origin, direction, label) => setRevolveAxis(origin, direction, label),
 			loadProject: (jsonData) => loadProject(jsonData),
 			exportStl: () => exportStl(),
 			exportStep: () => exportStep(),
