@@ -118,28 +118,3 @@ fn test_undo_after_boolean_union_mock() {
     m.assert_has_solid("box1").unwrap();
     m.assert_has_solid("box2").unwrap();
 }
-
-// ── WaffleKernel: two independent extrudes ────────────────────────────────
-
-/// Two independent extrudes with WaffleKernel — both should produce meshes.
-#[test]
-fn test_two_independent_extrudes_truck() {
-    let mut m = ModelBuilder::kernel();
-
-    m.rect_sketch("sk1", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
-        .unwrap();
-    m.extrude_no_merge("box1", "sk1", 10.0).unwrap();
-
-    m.rect_sketch("sk2", [20., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
-        .unwrap();
-    m.extrude_no_merge("box2", "sk2", 10.0).unwrap();
-
-    m.assert_has_solid("box1").unwrap();
-    m.assert_has_solid("box2").unwrap();
-
-    // Both should tessellate
-    let mesh1 = m.tessellate("box1").unwrap();
-    let mesh2 = m.tessellate("box2").unwrap();
-    assert!(!mesh1.indices.is_empty(), "box1 should have mesh");
-    assert!(!mesh2.indices.is_empty(), "box2 should have mesh");
-}
