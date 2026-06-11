@@ -35,6 +35,34 @@
 //!   operators' preconditions and checked by `validate_solid` (single radial
 //!   fan per vertex, exactly two half-edges per edge).
 //!
+//! ## Closed curved edges and Euler–Poincaré accounting (PR-KV5a)
+//!
+//! Circular edges are **vertex-anchored closed edges**: a full-circle edge
+//! starts and ends at one seam ("fake-edge") vertex on the circle, so it is
+//! an ordinary half-edge pair whose two ends meet at the same vertex. This
+//! is Stroud 2006's single-fake-edge cylinder representation (§3.1.4: "If a
+//! face can extend through 360 degrees, but must have a single fake edge,
+//! then a ray extended through the face is guaranteed to cut at least one
+//! edge"; fig. 6.58 top/middle shows the three-face cylinder whose "two
+//! planar end faces are bounded by single circular edges"), and it is
+//! exactly the topology yang-rs's M5 curved fixtures use (vertex-anchored
+//! `Curve::Circle` edges with `start == end`; the lateral seam edge appears
+//! twice in the lateral face's loop), which makes the KV5b boolean
+//! conversion mechanical.
+//!
+//! Concretely, a cylinder solid is `V=2, E=3, F=3, R=0, S=1, G=0`:
+//! two seam vertices (one per rim), three edges (two closed rim circles +
+//! one straight seam ruling), three faces (two caps whose outer loops are a
+//! SINGLE circle half-edge with `next(h) == h`, plus the lateral whose loop
+//! walks rim → seam up → rim → seam down, traversing the seam edge once in
+//! each direction). `V − E + F − R = 2 − 3 + 3 − 0 = 2 = 2(S − G)` — the
+//! standard formula holds with NO special cases: closed edges consume no
+//! extra vertices and a one-half-edge loop is still one loop. `euler_counts`
+//! is unchanged; what IS curved-aware is the per-face orientation validation
+//! (`validate_solid`): the Newell-normal invariant applies only to faces
+//! whose loops are polygonal walks; circle-bounded faces validate via the
+//! directional `Curve::Circle::normal` convention instead (see [`Curve`]).
+//!
 //! ## Storage and determinism
 //!
 //! Plain index arenas: `Vec<Option<T>>` slots. Killed entities become `None`
@@ -128,14 +156,67 @@ pub struct Plane {
 
 /// Surface descriptor carried by a face.
 ///
-/// KV1 implements `Plane` only. The enum is `#[non_exhaustive]` so Phase-2
-/// curved surfaces (cylinder, sphere, cone, torus) extend it without breaking
-/// downstream matches.
+/// KV1 implements `Plane`; PR-KV5a adds `Cylinder`. The enum is
+/// `#[non_exhaustive]` so further curved surfaces (sphere, cone, torus)
+/// extend it without breaking downstream matches.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub enum Surface {
     /// Planar surface.
     Plane(Plane),
+    /// Infinite right-circular cylinder: axis through `axis_point` along unit
+    /// `axis_dir`, of `radius`. Outward side = radially **away from the
+    /// axis** (a solid cylinder) — same convention and field shape as
+    /// `yang_rs::Surface::Cylinder`, so the KV5b boolean conversion is a
+    /// field-for-field copy. Cavity senses (inward laterals) are out of the
+    /// KV5a vocabulary; `validate_solid` enforces the outward orientation.
+    Cylinder {
+        /// A point on the axis (the base-rim center as constructed).
+        axis_point: Point3,
+        /// Unit axis direction.
+        axis_dir: UnitVector3,
+        /// Cylinder radius (meters, > 0).
+        radius: f64,
+    },
+}
+
+/// Curve descriptor carried by a half-edge, AS TRAVERSED by that half-edge.
+///
+/// KV1–KV4 had straight edges only (the curve was implicit); PR-KV5a makes
+/// it explicit so circular rim edges can exist. Conventions:
+///
+/// - **Twins describe the same undirected edge in opposite directions**:
+///   both `LineSegment`, or both `Circle` with identical `center`/`radius`
+///   and exactly negated `normal` (checked by `validate_solid` —
+///   [`crate::error::KernelV2Error::CurveTwinMismatch`]).
+/// - **`Circle.normal` is directional**: it is the axis around which THIS
+///   half-edge runs counterclockwise. This is the curved analog of the
+///   polygon walk being the orientation source of truth: a planar cap's
+///   boundary circle half-edge must have `normal ≡ face plane normal`
+///   exactly as a straight outer loop's Newell normal must.
+/// - **A `Circle` half-edge is a closed curve**: it starts and ends at its
+///   single anchor (seam) vertex, so `origin(next(h)) == origin(h)`. A loop
+///   consisting of one circle half-edge alone (`next(h) == h`) is legal —
+///   that is a cap boundary.
+/// - **Full circles only** in KV5a. Arcs are a future variant (the enum is
+///   `#[non_exhaustive]`); the assay corpus' 137 curved cases are all full
+///   circles extruded to cylinders.
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub enum Curve {
+    /// Straight segment from the half-edge's origin to its destination.
+    LineSegment,
+    /// Full circle of `radius` about `center`, traversed counterclockwise
+    /// around unit `normal`, anchored at the half-edge's origin vertex
+    /// (which lies on the circle).
+    Circle {
+        /// Circle center.
+        center: Point3,
+        /// Unit axis around which this half-edge traverses CCW.
+        normal: UnitVector3,
+        /// Circle radius (meters, > 0).
+        radius: f64,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -152,7 +233,11 @@ pub struct Vertex {
 }
 
 /// A directed half-edge. See module docs for the invariants.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// (`Eq` was dropped when [`Curve`] — which carries `f64` geometry — moved
+/// onto the half-edge in PR-KV5a; `PartialEq` remains for the determinism
+/// oracle's whole-arena comparisons.)
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HalfEdge {
     /// The oppositely-directed partner sharing the same undirected edge.
     pub twin: HalfEdgeId,
@@ -165,6 +250,11 @@ pub struct HalfEdge {
     pub origin: VertexId,
     /// Loop this half-edge belongs to.
     pub loop_id: LoopId,
+    /// The edge's curve, as traversed by this half-edge (see [`Curve`]).
+    /// Every Euler operator creates `LineSegment` half-edges; `Circle`
+    /// half-edges are created only by the curved direct assemblers
+    /// (`construct::extrude` on a circle profile).
+    pub curve: Curve,
 }
 
 /// What bounds a loop: either a single isolated vertex (the state created by

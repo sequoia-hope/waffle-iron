@@ -53,8 +53,8 @@
 use std::collections::BTreeMap;
 
 use crate::arena::{
-    BrepArena, Face, FaceId, HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId, LoopKind, Plane,
-    Shell, ShellId, Solid, SolidId, Surface, Vertex, VertexId,
+    BrepArena, Curve, Face, FaceId, HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId, LoopKind,
+    Plane, Shell, ShellId, Solid, SolidId, Surface, Vertex, VertexId,
 };
 use crate::error::KernelV2Error;
 use crate::geom;
@@ -462,6 +462,7 @@ pub fn from_yang_brep(
                 prev: HalfEdgeId(he_base + ((k + m - 1) % m) as u32),
                 origin,
                 loop_id,
+                curve: Curve::LineSegment,
             }));
         }
         arena.loops.push(Some(Loop {

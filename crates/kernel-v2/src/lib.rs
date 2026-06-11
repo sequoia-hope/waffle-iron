@@ -66,7 +66,7 @@ pub mod tessellate;
 pub mod validate;
 
 pub use arena::{
-    BrepArena, EulerCounts, Face, FaceId, HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId,
+    BrepArena, Curve, EulerCounts, Face, FaceId, HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId,
     LoopKind, Plane, Shell, ShellId, Solid, SolidId, Surface, UnitVector3, Vertex, VertexId,
 };
 pub use boolean::{boolean_op, from_yang_brep, to_yang_brep};
@@ -75,7 +75,10 @@ pub use error::KernelV2Error;
 pub use euler::{
     kemr, kfmrh, mef, mev, mev_lone, mvfs, KemrResult, MefResult, MevResult, MvfsResult,
 };
-pub use introspect::{extract_edges, face_plane, surface_area};
-pub use profile::Profile;
-pub use tessellate::{tessellate, FaceRange, RenderMesh};
+pub use introspect::{extract_edges, extract_edges_with_chord_tolerance, face_plane, surface_area};
+pub use profile::{Profile, ProfileRegion};
+pub use tessellate::{
+    circle_segment_count, tessellate, tessellate_with_chord_tolerance, FaceRange, RenderMesh,
+    MIN_CIRCLE_SEGMENTS, RENDER_CHORD_TOLERANCE_REL,
+};
 pub use validate::{validate_solid, TopologyReport};

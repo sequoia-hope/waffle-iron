@@ -77,21 +77,56 @@ use cad_primitives::{Point2, Point3, Vector3};
 /// so a simple 2D polygon stays simple).
 pub const BASIS_MIN_SQ_CROSS_NORM: f64 = 1e-60;
 
-/// A validated planar profile: plane frame + outer polygon + hole polygons.
+/// `|·|` tolerance on `|u| − 1`, `|v| − 1`, and `u · v` for a circle
+/// profile's frame ([`Profile::circle`]). A circle in plane coordinates
+/// embeds to a true 3D circle of the same radius **only** under an isometric
+/// (orthonormal) frame; a skewed/scaled frame yields an ellipse — out of the
+/// KV5a vocabulary, so it is rejected with
+/// [`KernelV2Error::ProfileCircleFrameNotOrthonormal`] rather than silently
+/// reshaped. The tolerance absorbs only unit-vector normalization rounding
+/// (sketch planes supply normalized bases); it is far below any geometric
+/// feature scale.
+pub const CIRCLE_FRAME_ORTHONORMALITY_TOLERANCE: f64 = 1e-9;
+
+/// The region a profile encloses, in `(u, v)` plane coordinates.
 ///
-/// Construction via [`Profile::new`] is the only way to obtain one, so a
-/// `Profile` value **is** the evidence that all validation in the module
-/// docs has passed. Loops are stored CCW in `(u, v)` coordinates.
+/// PR-KV2 had polygons-with-holes only; PR-KV5a adds the full-circle disk
+/// (the assay corpus' 137 curved cases are all full circles → extruded
+/// cylinders). Arcs / partial profiles are a future variant — the
+/// representation is deliberately an enum so they extend it without
+/// reshaping `Profile`.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum ProfileRegion {
+    /// Polygon with holes; loops stored CCW (see module docs).
+    Polygon {
+        /// Outer polygon, CCW in `(u, v)` coordinates.
+        outer: Vec<Point2>,
+        /// Hole polygons, each CCW in `(u, v)` coordinates, each strictly
+        /// inside `outer`, pairwise disjoint and non-nested.
+        holes: Vec<Vec<Point2>>,
+    },
+    /// Full-circle disk of `radius` about `center` (plane coordinates).
+    /// Simplicity is trivial: any `radius > 0` circle is simple.
+    Circle {
+        /// Center in `(u, v)` plane coordinates.
+        center: Point2,
+        /// Radius (meters, > 0).
+        radius: f64,
+    },
+}
+
+/// A validated planar profile: plane frame + region.
+///
+/// Construction via [`Profile::new`] (polygon) or [`Profile::circle`] is the
+/// only way to obtain one, so a `Profile` value **is** the evidence that all
+/// validation in the module docs has passed.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Profile {
     origin: Point3,
     u: Vector3,
     v: Vector3,
-    /// Outer polygon, CCW in `(u, v)` coordinates.
-    outer: Vec<Point2>,
-    /// Hole polygons, each CCW in `(u, v)` coordinates, each strictly
-    /// inside `outer`, pairwise disjoint and non-nested.
-    holes: Vec<Vec<Point2>>,
+    region: ProfileRegion,
 }
 
 impl Profile {
@@ -172,9 +207,31 @@ impl Profile {
             origin,
             u,
             v,
-            outer,
-            holes,
+            region: ProfileRegion::Polygon { outer, holes },
         })
+    }
+
+    /// Validate and build a full-circle profile (PR-KV5a): a disk of
+    /// `radius` about `center` in `(u, v)` plane coordinates.
+    ///
+    /// Checks (all loud, all typed):
+    /// 1. all coordinates / frame components finite (`ProfileNotFinite`);
+    /// 2. `u × v` nonzero (`ProfileDegenerateBasis`);
+    /// 3. the frame is orthonormal within
+    ///    [`CIRCLE_FRAME_ORTHONORMALITY_TOLERANCE`]
+    ///    (`ProfileCircleFrameNotOrthonormal` — see the constant's docs for
+    ///    why a non-isometric frame is rejected rather than reshaped);
+    /// 4. `radius` finite and strictly positive
+    ///    (`ProfileCircleNonPositiveRadius`).
+    pub fn circle(
+        origin: Point3,
+        u: Vector3,
+        v: Vector3,
+        center: Point2,
+        radius: f64,
+    ) -> Result<Self, KernelV2Error> {
+        let _ = (origin, u, v, center, radius);
+        Err(KernelV2Error::NotImplemented("PR-KV5a Profile::circle"))
     }
 
     /// Plane origin.
@@ -192,14 +249,9 @@ impl Profile {
         self.v
     }
 
-    /// Outer polygon, CCW in `(u, v)` coordinates.
-    pub fn outer(&self) -> &[Point2] {
-        &self.outer
-    }
-
-    /// Hole polygons, each CCW in `(u, v)` coordinates.
-    pub fn holes(&self) -> &[Vec<Point2>] {
-        &self.holes
+    /// The validated region (polygon-with-holes or full-circle disk).
+    pub fn region(&self) -> &ProfileRegion {
+        &self.region
     }
 
     /// Embed a plane-coordinate point into 3D: `origin + x·u + y·v`.

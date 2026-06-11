@@ -41,8 +41,8 @@
 //!   affected solid (`V − E + F − R = 2(S − G)`, Stroud §4 rule 4).
 
 use crate::arena::{
-    BrepArena, Face, FaceId, HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId, LoopKind, Plane,
-    Shell, ShellId, Solid, SolidId, Surface, Vertex, VertexId,
+    BrepArena, Curve, Face, FaceId, HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId, LoopKind,
+    Plane, Shell, ShellId, Solid, SolidId, Surface, Vertex, VertexId,
 };
 use crate::error::KernelV2Error;
 use crate::geom;
@@ -235,6 +235,7 @@ pub fn mev_lone(
         prev: he_in,
         origin: base,
         loop_id,
+        curve: Curve::LineSegment,
     }));
     arena.half_edges.push(Some(HalfEdge {
         twin: he_out,
@@ -242,6 +243,7 @@ pub fn mev_lone(
         prev: he_out,
         origin: vertex,
         loop_id,
+        curve: Curve::LineSegment,
     }));
     arena.loop_mut(loop_id)?.boundary = LoopBoundary::Edges(he_out);
 
@@ -291,6 +293,7 @@ pub fn mev(
         prev: a,
         origin: anchor_he.origin,
         loop_id,
+        curve: Curve::LineSegment,
     }));
     arena.half_edges.push(Some(HalfEdge {
         twin: he_out,
@@ -298,6 +301,7 @@ pub fn mev(
         prev: he_out,
         origin: vertex,
         loop_id,
+        curve: Curve::LineSegment,
     }));
     arena.half_edge_mut(a)?.next = he_out;
     arena.half_edge_mut(anchor)?.prev = he_in;
@@ -381,6 +385,7 @@ pub fn mef(
         prev: a,
         origin: hf.origin,
         loop_id: old_loop,
+        curve: Curve::LineSegment,
     }));
     arena.half_edges.push(Some(HalfEdge {
         twin: he_old_side,
@@ -388,6 +393,7 @@ pub fn mef(
         prev: b,
         origin: ht.origin,
         loop_id: new_loop,
+        curve: Curve::LineSegment,
     }));
     arena.half_edge_mut(a)?.next = he_old_side;
     arena.half_edge_mut(he_to)?.prev = he_old_side;

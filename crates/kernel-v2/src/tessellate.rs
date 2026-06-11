@@ -123,14 +123,74 @@ pub struct FaceRange {
     pub count: u32,
 }
 
-/// Tessellate every face of `solid` into a [`RenderMesh`].
+// ---------------------------------------------------------------------------
+// Chord-error bound for circular geometry (PR-KV5a)
+// ---------------------------------------------------------------------------
+
+/// Canonical relative chord tolerance for render tessellation of circular
+/// geometry: the inscribed-polygon **sagitta band** `d_ε = 1e-3 · r`.
+///
+/// A full circle of radius `r` approximated by an inscribed regular `N`-gon
+/// deviates from the true circle by at most the sagitta
+/// `s(N) = r · (1 − cos(π/N))` (the mid-chord depth — the exact maximum
+/// radial error, not an estimate). Requiring `s(N) ≤ rel · r` gives
+/// `N = ⌈π / arccos(1 − rel)⌉` ([`circle_segment_count`]).
+///
+/// The band is **relative to the radius** (the same style of justification
+/// as yang-rs's chord bounds, which scale with geometry size): an absolute
+/// band in meters would over-tessellate large parts and corrupt small ones,
+/// while `d_ε ∝ r` is scale-free — and per the chord-band propagation
+/// lesson, any consumer converting this band into a derived metric must
+/// carry the documented `d_ε(r) = rel · r` rather than re-deriving its own.
+/// `N` is a deterministic pure function of the tolerance (no adaptive,
+/// view-dependent, or time-dependent refinement — crate hard rule 5).
+/// At `rel = 1e-3`, `N = 71`.
+pub const RENDER_CHORD_TOLERANCE_REL: f64 = 1e-3;
+
+/// Floor on the circle segment count: even an absurdly loose tolerance
+/// keeps a recognizable (and strictly convex-in-projection) rim.
+pub const MIN_CIRCLE_SEGMENTS: u32 = 8;
+
+/// Number of inscribed-polygon segments for a full circle at relative chord
+/// tolerance `rel` (see [`RENDER_CHORD_TOLERANCE_REL`] for the bound):
+/// `N = max(8, ⌈π / arccos(1 − min(rel, 2))⌉)`. Deterministic in `rel`;
+/// because the band is radius-relative, `N` is the same for every radius
+/// (the absolute band `d_ε = rel · r` scales instead).
+pub fn circle_segment_count(rel_chord_tolerance: f64) -> u32 {
+    let rel = if rel_chord_tolerance.is_finite() && rel_chord_tolerance > 0.0 {
+        rel_chord_tolerance.min(2.0)
+    } else {
+        // Non-finite / non-positive tolerance: fall back to the canonical
+        // band rather than guessing tighter.
+        RENDER_CHORD_TOLERANCE_REL
+    };
+    let n = (std::f64::consts::PI / (1.0 - rel).acos()).ceil();
+    (n as u32).max(MIN_CIRCLE_SEGMENTS)
+}
+
+/// Tessellate every face of `solid` into a [`RenderMesh`] at the canonical
+/// chord tolerance ([`RENDER_CHORD_TOLERANCE_REL`]).
 ///
 /// Deterministic: faces in shell walk order, loop points in walk order,
-/// exact-arithmetic ear selection with fixed scan order. Errors are loud:
-/// a face that cannot be tessellated returns
-/// [`KernelV2Error::TessellationFailed`] (never a silent skip, never an
-/// f64 guess).
+/// exact-arithmetic ear selection with fixed scan order, circle sampling at
+/// a tolerance-determined fixed `N`. Errors are loud: a face that cannot be
+/// tessellated returns [`KernelV2Error::TessellationFailed`] (never a
+/// silent skip, never an f64 guess).
 pub fn tessellate(arena: &BrepArena, solid: SolidId) -> Result<RenderMesh, KernelV2Error> {
+    tessellate_with_chord_tolerance(arena, solid, RENDER_CHORD_TOLERANCE_REL)
+}
+
+/// [`tessellate`] with an explicit relative chord tolerance (the parameter
+/// only affects circular geometry; planar straight-edge faces are exact at
+/// any tolerance). Exposed so callers — and the convergence oracles — can
+/// tighten the band; both entry points share the single canonical per-face
+/// routines (crate hard rule 5).
+pub fn tessellate_with_chord_tolerance(
+    arena: &BrepArena,
+    solid: SolidId,
+    rel_chord_tolerance: f64,
+) -> Result<RenderMesh, KernelV2Error> {
+    let _ = rel_chord_tolerance;
     let mut mesh = RenderMesh::default();
     let solid_ref = arena.solid(solid)?;
     for &sh in &solid_ref.shells {

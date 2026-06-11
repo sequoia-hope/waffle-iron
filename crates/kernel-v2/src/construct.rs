@@ -44,7 +44,7 @@
 use crate::arena::{BrepArena, FaceId, HalfEdgeId, LoopId, ShellId, SolidId};
 use crate::error::KernelV2Error;
 use crate::euler::{kemr, kfmrh, mef, mev, mev_lone, mvfs};
-use crate::profile::{cross, Profile};
+use crate::profile::{cross, Profile, ProfileRegion};
 use crate::validate::validate_solid;
 use cad_primitives::{Point2, Point3, Vector3};
 
@@ -54,6 +54,18 @@ use cad_primitives::{Point2, Point3, Vector3};
 /// planar parallelograms — but a direction this close to the plane spans
 /// (numerically) no volume.
 pub const EXTRUDE_MIN_NORMAL_COSINE: f64 = 1e-9;
+
+/// `|d̂ × n̂|` ceiling above which a **circle** profile's extrude direction
+/// is rejected as oblique
+/// ([`KernelV2Error::ExtrudeObliqueCircleUnsupported`]). Sweeping a circle
+/// obliquely produces an *elliptic* cylinder — out of the KV5a surface
+/// vocabulary, so only right cylinders (`direction ∥ ±n̂`) are built. The
+/// tolerance absorbs only unit-vector rounding (same bar as
+/// `profile::CIRCLE_FRAME_ORTHONORMALITY_TOLERANCE`); the assay corpus
+/// extrudes exclusively along the sketch-plane normal (`direction: null` in
+/// all 339 extrudes of the 53 circle-bearing cases), so no corpus case is
+/// excluded.
+pub const CIRCLE_EXTRUDE_MAX_AXIS_SINE: f64 = 1e-9;
 
 /// Entities produced by [`make_face_from_profile`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,13 +108,20 @@ pub fn make_face_from_profile(
     arena: &mut BrepArena,
     profile: &Profile,
 ) -> Result<LaminaResult, KernelV2Error> {
+    let ProfileRegion::Polygon { outer, holes } = profile.region() else {
+        // A circular lamina (zero-height disk sheet) has no consumer; the
+        // circle vocabulary exists for `extrude` → cylinder (PR-KV5a).
+        return Err(KernelV2Error::NotImplemented(
+            "make_face_from_profile on a circle profile (no consumer; use extrude)",
+        ));
+    };
     // Outer boundary, CCW as stored ⇒ front face normal +normalize(u × v).
-    let outer3: Vec<Point3> = profile.outer().iter().map(|&p| profile.embed(p)).collect();
+    let outer3: Vec<Point3> = outer.iter().map(|&p| profile.embed(p)).collect();
     let core = build_boundary_lamina(arena, &outer3)?;
 
     // Holes: lid + kemr (ring on front) + kfmrh (ring on back) at zero
     // height — the KV1 through-hole sequence without the sweep.
-    for hole in profile.holes() {
+    for hole in holes {
         let hole3: Vec<Point3> = hole.iter().map(|&p| profile.embed(p)).collect();
         drill_hole(arena, core.front_anchor, &hole3, None, core.back)?;
     }
@@ -146,6 +165,15 @@ pub fn extrude(
     if cosine.abs() < EXTRUDE_MIN_NORMAL_COSINE {
         return Err(KernelV2Error::ExtrudeDirectionInPlane);
     }
+
+    // ---- circle profile → right circular cylinder (PR-KV5a) --------------
+    let (outer, holes) = match profile.region() {
+        ProfileRegion::Circle { center, radius } => {
+            return extrude_circle(arena, profile, *center, *radius, d, d_len, cosine, distance);
+        }
+        ProfileRegion::Polygon { outer, holes } => (outer, holes),
+    };
+
     // Sweep vector w = d̂ · distance.
     let w = [
         d[0] / d_len * distance,
@@ -159,7 +187,7 @@ pub fn extrude(
     let reverse = cosine < 0.0;
 
     // ---- base lamina in the profile plane --------------------------------
-    let outer3 = embed_loop(profile, profile.outer(), reverse, None);
+    let outer3 = embed_loop(profile, outer, reverse, None);
     let core = build_boundary_lamina(arena, &outer3)?;
 
     // ---- erect the outer walls (Stroud §6.2 vertex-based sweep) ----------
@@ -189,8 +217,8 @@ pub fn extrude(
     // `first_wall.he_old_side` is a top-rim edge that stays in the top
     // face's loop (mef's he_to side), so it anchors every hole bridge.
     let neg_w = [-w[0], -w[1], -w[2]];
-    let mut hole_walls = Vec::with_capacity(profile.holes().len());
-    for hole in profile.holes() {
+    let mut hole_walls = Vec::with_capacity(holes.len());
+    for hole in holes {
         let top_pts = embed_loop(profile, hole, reverse, Some(w));
         hole_walls.push(drill_hole(
             arena,
@@ -210,6 +238,25 @@ pub fn extrude(
         walls,
         hole_walls,
     })
+}
+
+/// Extrude a circle profile into a right circular cylinder (PR-KV5a).
+///
+/// Direct arena assembler (see module docs, "The cylinder assembler") —
+/// stubbed in the RED commit.
+#[allow(clippy::too_many_arguments)]
+fn extrude_circle(
+    arena: &mut BrepArena,
+    profile: &Profile,
+    center: Point2,
+    radius: f64,
+    d: [f64; 3],
+    d_len: f64,
+    cosine: f64,
+    distance: f64,
+) -> Result<ExtrudeResult, KernelV2Error> {
+    let _ = (arena, profile, center, radius, d, d_len, cosine, distance);
+    Err(KernelV2Error::NotImplemented("PR-KV5a extrude_circle"))
 }
 
 // ---------------------------------------------------------------------------

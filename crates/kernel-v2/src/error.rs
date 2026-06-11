@@ -95,6 +95,19 @@ pub enum KernelV2Error {
         inner_hole: usize,
     },
 
+    // ----- circle profile validation (produced by `Profile::circle`) ------
+    /// A circle profile's radius must be finite and strictly positive.
+    ProfileCircleNonPositiveRadius,
+
+    /// A circle profile's plane frame `(u, v)` must be orthonormal
+    /// (`|u| = |v| = 1`, `u · v = 0` within
+    /// `profile::CIRCLE_FRAME_ORTHONORMALITY_TOLERANCE`): the embedding
+    /// `origin + x·u + y·v` maps the plane-coordinate circle to a true 3D
+    /// circle of the same radius **only** for an isometric frame — a skewed
+    /// or scaled frame would silently turn the circle into an ellipse
+    /// (elliptic cylinders are out of the KV5a vocabulary).
+    ProfileCircleFrameNotOrthonormal,
+
     // ----- constructor argument validation (extrude) -----------------------
     /// `extrude` distance must be finite and strictly positive.
     ExtrudeNonPositiveDistance,
@@ -106,6 +119,15 @@ pub enum KernelV2Error {
     /// `|d̂ · n̂| < construct::EXTRUDE_MIN_NORMAL_COSINE`. Sweeping within
     /// the plane produces no volume.
     ExtrudeDirectionInPlane,
+
+    /// `extrude` of a circle profile along a direction oblique to the
+    /// profile-plane normal (`|d̂ × n̂| > construct::CIRCLE_EXTRUDE_MAX_AXIS_SINE`)
+    /// would produce an **elliptic** cylinder, which is out of the KV5a
+    /// surface vocabulary — typed and loud, never approximated. (Corpus
+    /// check 2026-06-11: all 339 extrudes across the 53 circle-bearing assay
+    /// cases carry `direction: null` — i.e. along the sketch-plane normal —
+    /// so right cylinders are corpus-complete.)
+    ExtrudeObliqueCircleUnsupported,
 
     // ----- boolean delegation (PR-KV3, `boolean::boolean_op`) -------------
     /// The boolean inputs contain a coplanar face pair (touching or
@@ -137,6 +159,12 @@ pub enum KernelV2Error {
     /// This is a REAL pipeline finding — surfaced loudly, never repaired
     /// silently (P9). The payload names the violated condition.
     InvalidBooleanOutput(&'static str),
+
+    /// A boolean input solid contains curved geometry (a non-planar face
+    /// surface or a non-segment edge curve). The kernel-v2 ↔ yang-rs curved
+    /// conversion is PR-KV5b; until it lands, curved boolean inputs are
+    /// rejected loudly here rather than mistranslated as planar.
+    UnsupportedCurvedBoolean { face: FaceId },
 
     // ----- render tessellation (PR-KV3, `tessellate`) ----------------------
     /// Planar-face tessellation failed: the exact ear-clipping pass could
@@ -180,6 +208,37 @@ pub enum KernelV2Error {
     /// `validate::PLANARITY_DEBUG_TOLERANCE` for why this is not a production
     /// correctness gate.
     NonPlanarFace { face: FaceId },
+
+    /// A half-edge's curve disagrees with its twin's: twins must describe
+    /// the same undirected edge in opposite directions (both `LineSegment`,
+    /// or both `Circle` with identical center/radius and exactly negated
+    /// normals), and a `Circle` half-edge must close on its own origin
+    /// vertex (`origin(next(h)) == origin(h)`).
+    CurveTwinMismatch { half_edge: HalfEdgeId },
+
+    /// A face's curved orientation/consistency invariants failed — the
+    /// curved analog of [`KernelV2Error::NewellMismatch`]. Production-tier:
+    /// e.g. a planar cap's circle half-edge normal does not equal the face
+    /// normal (outer) / its negation (ring); a cylinder face is not bounded
+    /// by exactly two full-circle rims; a rim circle's normal is not along
+    /// the cylinder axis, its radius disagrees with the surface, or its
+    /// traversal axis does not point toward the opposite rim (outward
+    /// orientation). The payload names the violated condition.
+    CurvedGeometryMismatch { face: FaceId, reason: &'static str },
+
+    /// Debug-tier finding only: a loop vertex of a curved face is further
+    /// from the analytic surface than the documented debug tolerance —
+    /// the curved analog of [`KernelV2Error::NonPlanarFace`]. See
+    /// `validate::CURVED_SURFACE_DEBUG_TOLERANCE`.
+    VertexOffSurface { face: FaceId },
+
+    /// `introspect::face_plane` was asked for the plane of a face whose
+    /// surface is not planar.
+    FaceNotPlanar { face: FaceId },
+
+    /// Temporary RED-phase stub marker (PR-KV5a): the typed surface exists
+    /// but the implementation lands in the GREEN commit. Removed at GREEN.
+    NotImplemented(&'static str),
 }
 
 impl core::fmt::Display for KernelV2Error {

@@ -19,12 +19,32 @@ use crate::error::KernelV2Error;
 use crate::geom;
 use cad_primitives::Point3;
 
-/// Every undirected edge of `solid` as a straight segment `[start, end]`
-/// (planar faces ⇒ all edge curves are line segments). Each edge is
-/// reported ONCE (half-edge pairs deduplicated), in deterministic
-/// half-edge id order; the endpoint order is the lower-id half-edge's
-/// direction.
-pub fn extract_edges(arena: &BrepArena, solid: SolidId) -> Result<Vec<[Point3; 2]>, KernelV2Error> {
+/// Every undirected edge of `solid` as a polyline, at the canonical render
+/// chord tolerance ([`crate::tessellate::RENDER_CHORD_TOLERANCE_REL`]).
+///
+/// - A straight edge is a 2-point polyline `[start, end]`.
+/// - A full-circle edge (PR-KV5a) is an `N + 1`-point closed polyline
+///   (`last == first`, making closure explicit), sampled at the SAME `N`
+///   as render tessellation
+///   ([`crate::tessellate::circle_segment_count`]) so extracted edges lie
+///   exactly on the rendered rim.
+///
+/// Each edge is reported ONCE (half-edge pairs deduplicated), in
+/// deterministic half-edge id order; the traversal order is the lower-id
+/// half-edge's direction.
+pub fn extract_edges(arena: &BrepArena, solid: SolidId) -> Result<Vec<Vec<Point3>>, KernelV2Error> {
+    extract_edges_with_chord_tolerance(arena, solid, crate::tessellate::RENDER_CHORD_TOLERANCE_REL)
+}
+
+/// [`extract_edges`] with an explicit relative chord tolerance (see
+/// [`crate::tessellate::tessellate_with_chord_tolerance`] for the bound's
+/// definition and rationale).
+pub fn extract_edges_with_chord_tolerance(
+    arena: &BrepArena,
+    solid: SolidId,
+    rel_chord_tolerance: f64,
+) -> Result<Vec<Vec<Point3>>, KernelV2Error> {
+    let _ = rel_chord_tolerance;
     let he_set = solid_half_edges(arena, solid)?;
     let mut out = Vec::with_capacity(he_set.len() / 2);
     for &h in &he_set {
@@ -34,7 +54,7 @@ pub fn extract_edges(arena: &BrepArena, solid: SolidId) -> Result<Vec<[Point3; 2
         }
         let start = arena.vertex(he.origin)?.point;
         let end = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
-        out.push([start, end]);
+        out.push(vec![start, end]);
     }
     Ok(out)
 }
@@ -74,6 +94,7 @@ pub fn face_plane(arena: &BrepArena, face: FaceId) -> Result<Plane, KernelV2Erro
 fn plane_of(face: &Face, id: FaceId) -> Result<Plane, KernelV2Error> {
     match face.surface {
         Some(Surface::Plane(plane)) => Ok(plane),
+        Some(_) => Err(KernelV2Error::FaceNotPlanar { face: id }),
         None => Err(KernelV2Error::FaceWithoutSurface { face: id }),
     }
 }
