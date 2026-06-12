@@ -1800,6 +1800,30 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   tags (M8 coplanar, M5 degree-4, CDT profile tail) — un-quarantine when
   each milestone lands.
 
+- **KV6b — booleans over revolve solids. ✅ COMPLETE (2026-06-12, PR-KV6b-1/2).**
+  yang Stage-1 ingests the revolve vocabulary: the NEW directional input-arc
+  convention (Circle edge with start≠end = CCW sweep around curve.normal,
+  unique in (0,2π) — π and major arcs unambiguous; outputs unchanged at
+  SSI sub-arc granularity), per-edge sample CHAINS (shared, watertight),
+  generalized planar CDT over spliced chains (annular sectors, holed circle
+  caps), partial-cylinder quad strips, reversed input walls (+ Stage-6
+  reversed XOR propagation). kernel-v2 to_yang_brep converts all revolve
+  face classes; the operand wall narrowed to boolean-OUTPUT re-entry.
+  End-to-end: revolve×box union/subtract incl. exactly-π and 350°
+  operands, washer cuts with cavity-sense preservation, R0084 = first
+  corpus revolve boolean SUPPORTED_CORRECT (31 total). FINDINGS for later
+  milestones: **KV6b-F1** R0060 union output carries 2 non-manifold edges
+  (yang triage); **KV6b-F2** most corpus 'rectangle' revolves are OBLIQUE
+  to their axis (the assay generator's axis basis ≠ the engine's staging
+  basis) → they sweep CONES and wall at KV6c — corpus revolve movement is
+  gated by KV6c (12 cases) + KV6d torus (14 cases); **KV6b-F3** crossing
+  booleans where a box face is PARALLEL to the revolve axis hit the
+  plane×cylinder SSI LINE case (ssi-rs pair #2 'partial') — Stage-4
+  relocates intersection points off-surface, caught loudly by the output
+  Newell check / AmbiguousCurve. Fixing pair #2's parallel-line branch is
+  the highest-leverage M5 slice (it gates ALL side-crossing revolve
+  booleans in the app, where extrude caps always parallel the axis).
+
 - **KV6a — revolve (kernel-v2). ✅ COMPLETE (2026-06-11, PR-KV6a).**
   Partial angles (0,2π) AND full 360° for polygon profiles with
   axis-parallel/perpendicular edges, axis in-plane, profile strictly one
