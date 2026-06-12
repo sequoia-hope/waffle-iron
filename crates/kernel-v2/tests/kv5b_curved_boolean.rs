@@ -321,12 +321,15 @@ fn oblique_section_ellipse_is_loudly_unsupported_by_name() {
     );
 }
 
-/// cylinder × cylinder lateral∩lateral is a degree-4 space curve; yang-rs
-/// fails it INSIDE Stage 3 (`SsiRefinementFailed` / AmbiguousCurve).
-/// kernel-v2 must surface that yang error loudly — and must NOT be the one
-/// rejecting (the inputs themselves convert fine).
+/// PR-KV9 flip (was the Stage-3 SSI wall pin): PARALLEL cylinder×cylinder
+/// is the analytic special case ssi-rs solves exactly (cross-section
+/// circle∩circle → two ruling lines), and Stage-3/4 now carry the
+/// propagated membership bands + relocation for cyl×cyl line incidence.
+/// The union works end-to-end with CRESCENT (lune) caps — exact lens
+/// volume oracle. (The IRREDUCIBLE quartic — skew / unequal non-parallel
+/// axes — stays loudly walled; pinned in kv9_cyl_cyl_special.)
 #[test]
-fn cylinder_cylinder_surfaces_yang_ssi_wall() {
+fn cylinder_cylinder_parallel_union_succeeds() {
     let mut arena = BrepArena::new();
     let c1 = cylinder(&mut arena, -0.5, 2.0);
     // Second cylinder: offset axis, overlapping laterals.
@@ -341,18 +344,24 @@ fn cylinder_cylinder_surfaces_yang_ssi_wall() {
     let c2 =
         extrude(&mut arena, &profile, Vector3::new(0.0, 0.0, 1.0), 2.5).expect("second cylinder");
 
-    let err = boolean_op(&mut arena, c1.solid, c2.solid, BoolOp::Union)
-        .expect_err("cylinder×cylinder hits yang's Stage-3 SSI wall");
-    match &err {
-        KernelV2Error::BooleanFailed(text) => assert!(
-            text.contains("Ssi") || text.contains("SSI") || text.contains("AmbiguousCurve"),
-            "must carry yang's Stage-3 SSI failure text, got {text}"
-        ),
-        other => panic!(
-            "cylinder×cylinder must fail INSIDE yang (BooleanFailed carrying the \
-             Stage-3 text), not at the kernel-v2 conversion: {other:?}"
-        ),
-    }
+    let out = boolean_op(&mut arena, c1.solid, c2.solid, BoolOp::Union)
+        .unwrap_or_else(|e| panic!("parallel cylinder∪cylinder: {e:?}"));
+    validate_solid(&arena, out).expect("validates");
+    let mesh = tessellate(&arena, out).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    // Exact: π·r1²·2.0 + π·r2²·2.5 − lens(r1, r2, d)·overlap_height where
+    // the z-overlap is [−0.5, 1.5] (height 2.0) and d = 0.1.
+    let (r1, r2, d) = (0.25_f64, 0.3_f64, 0.1_f64);
+    let a1 = ((d * d + r1 * r1 - r2 * r2) / (2.0 * d * r1)).clamp(-1.0, 1.0);
+    let a2 = ((d * d + r2 * r2 - r1 * r1) / (2.0 * d * r2)).clamp(-1.0, 1.0);
+    let (t1, t2) = (a1.acos(), a2.acos());
+    let lens = r1 * r1 * (t1 - t1.sin() * t1.cos()) + r2 * r2 * (t2 - t2.sin() * t2.cos());
+    let expect = std::f64::consts::PI * (r1 * r1 * 2.0 + r2 * r2 * 2.5) - lens * 2.0;
+    // Chord under-fill band on the two laterals (not geometric tolerance).
+    assert!(
+        vol <= expect * 1.001 && vol >= 0.92 * expect,
+        "volume {vol} vs exact {expect}"
+    );
 }
 
 /// PR-KV7 flip (was the typed `UnsupportedCurvedBoolean` re-entry wall):

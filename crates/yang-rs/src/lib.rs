@@ -2627,10 +2627,12 @@ fn circle_residual_split(pt: Point3, center: Point3, normal: Vector3, radius: f6
 struct LineReloc {
     point: Point3,
     dir: Vector3,
-    /// PR-F3b: the propagated band factor `r/√(r² − d²)` from
-    /// [`line_band_amplification`] (1.0 if unavailable) — the residual gate
-    /// compares the line-distance metric against `band_amp · d_ε`.
-    band_amp: f64,
+    /// PR-F3b/PR-KV9: the ABSOLUTE residual budget for the line-distance
+    /// metric — the owner chord band(s) propagated through the
+    /// [`line_band_amplification`] metric conversion. Cylinder×plane:
+    /// `amp · d_ε(cylinder owner)`; cylinder×cylinder: `amp · (d_ε(A) +
+    /// d_ε(B))` (both meshes' chords contribute to the crossing).
+    band_budget: f64,
 }
 
 /// Per-vertex circle assignment `(center, normal, radius, source_sphere_radius)`
@@ -2651,6 +2653,59 @@ type CircleAssign = (Point3, Vector3, f64, Option<f64>);
 /// near-tangent planes (`d → r`, where the factor diverges — such a pair
 /// fails loud upstream rather than matching everything).
 fn line_band_amplification(surf0: Surface, surf1: Surface) -> Option<f64> {
+    // PR-KV9: PARALLEL cylinder × cylinder ruling lines (ssi cyl∥cyl secant/
+    // tangent). The same gradient-geometry derivation applies with BOTH
+    // constraint gradients radial: at a crossing point X of the two
+    // cross-section circles (radii r1, r2, inter-axis distance d), the angle
+    // α between the radial directions r̂ᵢ = (X − cᵢ)/rᵢ follows the law of
+    // cosines in the triangle (c1, c2, X):
+    //   cos α = (r1² + r2² − d²) / (2·r1·r2)
+    // (symmetric for both crossing lines), and the membership band is
+    // 1/sin α — the general 1/‖ĝ1 × ĝ2‖ form the cylinder×plane case is a
+    // special case of (there ĝ2 = the plane normal and 1/sin α reduces to
+    // r/√(r² − d²)). Near-tangent (sin α → 0) returns None: no finite
+    // propagated band, the pair fails loud upstream.
+    if let (
+        Surface::Cylinder {
+            axis_point: p1,
+            axis_dir: d1,
+            radius: r1,
+        },
+        Surface::Cylinder {
+            axis_point: p2,
+            axis_dir: d2,
+            radius: r2,
+        },
+    ) = (surf0, surf1)
+    {
+        let u1 = normalize3(d1.as_array());
+        let u2 = normalize3(d2.as_array());
+        let cx = [
+            u1[1] * u2[2] - u1[2] * u2[1],
+            u1[2] * u2[0] - u1[0] * u2[2],
+            u1[0] * u2[1] - u1[1] * u2[0],
+        ];
+        let cross_norm = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
+        if cross_norm > cad_primitives::TAU_MODEL || r1 <= 0.0 || r2 <= 0.0 {
+            return None; // non-parallel axes: no ruling lines from this pair
+        }
+        let q1a = p1.as_array();
+        let q2a = p2.as_array();
+        let rel = [q2a[0] - q1a[0], q2a[1] - q1a[1], q2a[2] - q1a[2]];
+        let along = rel[0] * u1[0] + rel[1] * u1[1] + rel[2] * u1[2];
+        let perp = [
+            rel[0] - along * u1[0],
+            rel[1] - along * u1[1],
+            rel[2] - along * u1[2],
+        ];
+        let d = (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt();
+        let cos_a = ((r1 * r1 + r2 * r2 - d * d) / (2.0 * r1 * r2)).clamp(-1.0, 1.0);
+        let sin_a = (1.0 - cos_a * cos_a).max(0.0).sqrt();
+        if sin_a <= cad_primitives::MIN_FEATURE_SIZE {
+            return None; // tangent-grade crossing: band diverges
+        }
+        return Some(1.0 / sin_a);
+    }
     let (cyl, pl) = match (surf0, surf1) {
         (c @ Surface::Cylinder { .. }, p @ Surface::Plane { .. }) => (c, p),
         (p @ Surface::Plane { .. }, c @ Surface::Cylinder { .. }) => (c, p),
@@ -3581,7 +3636,20 @@ fn build_intersection_curves(
         // (spec §2). Cylinder / cone / plane arms keep `None` (byte-identical to
         // the pre-YR19 flat-band membership test).
         let (tol, source_radius): (f64, Option<f64>) = if matches!(surf0, Surface::Cylinder { .. })
+            && matches!(surf1, Surface::Cylinder { .. })
         {
+            // PR-KV9: cylinder × cylinder edge — the arrangement vertex sits
+            // on the crossing of BOTH meshes' facet chords, off the exact
+            // curve by up to the SUM of the two inputs' own Stage-1 chord
+            // bounds (each endpoint is within its owner's band of its
+            // surface; the crossing inherits both). The sum is the derived
+            // combined bound, not widening.
+            (
+                chord_tol_for_curved_owner(input0, a, b, 0, (s, e))?
+                    + chord_tol_for_curved_owner(input1, a, b, 0, (s, e))?,
+                None,
+            )
+        } else if matches!(surf0, Surface::Cylinder { .. }) {
             (chord_tol_for_curved_owner(input0, a, b, 0, (s, e))?, None)
         } else if matches!(surf1, Surface::Cylinder { .. }) {
             (chord_tol_for_curved_owner(input1, a, b, 0, (s, e))?, None)
@@ -5644,32 +5712,45 @@ fn stage4_relocate_and_correct(
                 let Some(entries) = inc0.get(&key) else {
                     continue;
                 };
-                let mut cyl: Option<(InputId, Surface)> = None;
+                let mut cyls: Vec<(InputId, Surface)> = Vec::new();
                 let mut plane_surf: Option<Surface> = None;
                 let mut other_curved = false;
                 for &(input, surf) in entries {
                     match surf {
-                        Surface::Cylinder { .. } => cyl = Some((input, surf)),
+                        Surface::Cylinder { .. } => cyls.push((input, surf)),
                         Surface::Plane { .. } => plane_surf = Some(surf),
                         _ => other_curved = true,
                     }
                 }
-                let (Some((cyl_input, cyl_surf)), Some(pl_surf)) = (cyl, plane_surf) else {
-                    if other_curved || cyl.is_some() {
+                // Two convertible pairs: cylinder × ⊥plane (F3) and PARALLEL
+                // cylinder × cylinder (PR-KV9, ssi cyl∥cyl ruling lines).
+                // Other curved-bearing line edges stay a loud STOP.
+                let (surf_a, surf_b, tol) = match (cyls.as_slice(), plane_surf) {
+                    ([(ci, cs)], Some(pl)) if !other_curved => {
+                        (*cs, pl, chord_tol_for_curved_owner(*ci, a, b, 0, (s, e))?)
+                    }
+                    ([(i1, c1), (i2, c2)], None) if !other_curved => {
+                        // Both meshes' facet chords contribute to the crossing
+                        // vertex — the combined band is the SUM of the two
+                        // owners' Stage-1 bounds (derived, not widening).
+                        let t = chord_tol_for_curved_owner(*i1, a, b, 0, (s, e))?
+                            + chord_tol_for_curved_owner(*i2, a, b, 0, (s, e))?;
+                        (*c1, *c2, t)
+                    }
+                    ([], _) if !other_curved => continue, // plane∩plane — exact
+                    _ => {
                         return Err(YangError::Stage4RegionInvalid {
                             vertex: s,
                             reason: Stage4InvalidReason::LocalRefinementRequired,
                         });
                     }
-                    continue; // plane∩plane — exact, no relocation needed.
                 };
-                let tol = chord_tol_for_curved_owner(cyl_input, a, b, 0, (s, e))?;
                 let to_ssi_err = |reason| YangError::SsiRefinementFailed {
                     edge: (s, e),
                     reason,
                 };
-                let q0 = surface_to_quadric(cyl_surf).map_err(to_ssi_err)?;
-                let q1 = surface_to_quadric(pl_surf).map_err(to_ssi_err)?;
+                let q0 = surface_to_quadric(surf_a).map_err(to_ssi_err)?;
+                let q1 = surface_to_quadric(surf_b).map_err(to_ssi_err)?;
                 let returned =
                     ssi_rs::intersect(&q0, &q1).map_err(|err| YangError::SsiRefinementFailed {
                         edge: (s, e),
@@ -5679,7 +5760,7 @@ fn stage4_relocate_and_correct(
                 let p_e = mesh.verts[e as usize];
                 // PR-F3b: the SAME propagated band as Stage-3 matching (the
                 // metric is shared, so every gate carries the factor).
-                let band_amp = line_band_amplification(cyl_surf, pl_surf).unwrap_or(1.0);
+                let band_amp = line_band_amplification(surf_a, surf_b).unwrap_or(1.0);
                 let line_tol = band_amp * tol;
                 let mut matched: Option<LineReloc> = None;
                 let mut matched_n = 0usize;
@@ -5692,7 +5773,7 @@ fn stage4_relocate_and_correct(
                             matched = Some(LineReloc {
                                 point,
                                 dir,
-                                band_amp,
+                                band_budget: line_tol,
                             });
                         }
                     }
@@ -6054,10 +6135,12 @@ fn stage4_relocate_and_correct(
     for (&v, lr) in &vert_line {
         let p = mesh.verts[v as usize];
         let rho = line_perp_distance(p, lr.point, lr.dir);
-        // PR-F3b: the residual is the line-distance metric, so the gate is the
-        // propagated band `band_amp · d_ε` (the radial Stage-1 contract
-        // converted into this metric), not the raw radial band.
-        if rho > lr.band_amp * d_eps {
+        // PR-F3b/PR-KV9: the residual is the line-distance metric, so the
+        // gate is the ABSOLUTE propagated budget computed at collection (the
+        // owner chord band(s) converted into this metric) — not the raw
+        // radial band, and not the global d_ε (whose owner mix is wrong for
+        // cylinder×cylinder lines).
+        if rho > lr.band_budget {
             return Err(YangError::Stage4RegionInvalid {
                 vertex: v,
                 reason: Stage4InvalidReason::OffCurveBeyondChordBand,
@@ -6117,9 +6200,9 @@ fn stage4_relocate_and_correct(
             p.as_array()[2] - j.as_array()[2],
         ];
         let rho = (pj[0] * pj[0] + pj[1] * pj[1] + pj[2] * pj[2]).sqrt();
-        // PR-F3b: line-band component carries the propagated factor; the
+        // PR-F3b: line-band component carries the propagated budget; the
         // along-line crossing component stays at the raw d_ε.
-        if rho > (lr.band_amp + 1.0) * d_eps {
+        if rho > lr.band_budget + d_eps {
             return Err(YangError::Stage4RegionInvalid {
                 vertex: v,
                 reason: Stage4InvalidReason::OffCurveBeyondChordBand,

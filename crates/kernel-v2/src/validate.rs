@@ -359,29 +359,11 @@ fn winding_points(arena: &BrepArena, hes: &[HalfEdgeId]) -> Result<Vec<Point3>, 
             let p1 = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
             let nu = [normal.x, normal.y, normal.z];
             if let Some(sweep) = geom::ccw_sweep(center, nu, p0, p1) {
-                pts.push(rotate_about(center, nu, p0, sweep / 2.0));
+                pts.push(geom::rotate_about_axis(center, nu, p0, sweep / 2.0));
             }
         }
     }
     Ok(pts)
-}
-
-/// Rodrigues rotation of `p` about the axis (`center`, unit `axis`) by
-/// `theta` (right-handed).
-fn rotate_about(center: Point3, axis: [f64; 3], p: Point3, theta: f64) -> Point3 {
-    let v = [p.x() - center.x(), p.y() - center.y(), p.z() - center.z()];
-    let (c, s) = (theta.cos(), theta.sin());
-    let dot = axis[0] * v[0] + axis[1] * v[1] + axis[2] * v[2];
-    let cx = [
-        axis[1] * v[2] - axis[2] * v[1],
-        axis[2] * v[0] - axis[0] * v[2],
-        axis[0] * v[1] - axis[1] * v[0],
-    ];
-    Point3::new(
-        center.x() + v[0] * c + cx[0] * s + axis[0] * dot * (1.0 - c),
-        center.y() + v[1] * c + cx[1] * s + axis[1] * dot * (1.0 - c),
-        center.z() + v[2] * c + cx[2] * s + axis[2] * dot * (1.0 - c),
-    )
 }
 
 /// Debug-band for IMPORTED curved geometry (PR-KV5b): yang-rs boolean

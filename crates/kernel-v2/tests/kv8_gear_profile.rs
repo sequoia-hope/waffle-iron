@@ -66,7 +66,8 @@ fn mesh_signed_volume(mesh: &waffle_types::kernel::RenderMesh) -> f64 {
     let mut six_v = 0.0;
     for t in mesh.indices.chunks_exact(3) {
         let (a, b, c) = (p(t[0]), p(t[1]), p(t[2]));
-        six_v += a[0] * (b[1] * c[2] - b[2] * c[1]) + a[1] * (b[2] * c[0] - b[0] * c[2])
+        six_v += a[0] * (b[1] * c[2] - b[2] * c[1])
+            + a[1] * (b[2] * c[0] - b[0] * c[2])
             + a[2] * (b[0] * c[1] - b[1] * c[0]);
     }
     six_v / 6.0
@@ -101,9 +102,12 @@ fn gear_profile_extrudes_with_exact_polygon_volume() {
     let vol = mesh_signed_volume(&mesh);
     let expect = area * depth;
     // The polygon is the authored profile; its extrusion volume is exact
-    // (ear-clip caps are an exact partition; walls are exact planes).
+    // (ear-clip caps are an exact partition; walls are exact planes). The
+    // band absorbs ONLY the RenderMesh's f32 vertex quantization (the
+    // kernel geometry is f64-exact; the render channel rounds coordinates
+    // to f32, ~1e-7 relative per vertex).
     assert!(
-        (vol - expect).abs() <= 1e-9 * expect.max(1.0),
+        (vol - expect).abs() <= 1e-6 * expect.max(1.0),
         "gear prism volume {vol} vs exact {expect}"
     );
 }
@@ -169,8 +173,9 @@ fn gear_boss_union_on_slab() {
     let slab_v = (2.0 * half) * (2.0 * half) * 4.0;
     let overlap = area * 2.0; // gear prism inside slab: z ∈ [2, 4]
     let expect = slab_v + area * 7.0 - overlap;
+    // 1e-6 relative: f32 render-mesh quantization only (see prism test).
     assert!(
-        (vol - expect).abs() <= 1e-9 * expect,
+        (vol - expect).abs() <= 1e-6 * expect,
         "union volume {vol} vs exact {expect}"
     );
 }
@@ -228,8 +233,9 @@ fn gear_pocket_cut_into_slab() {
     let mesh = k.tessellate(&out, 0.001).expect("tessellate cut");
     let vol = mesh_signed_volume(&mesh);
     let expect = (2.0 * half) * (2.0 * half) * 4.0 - area * 1.0;
+    // 1e-6 relative: f32 render-mesh quantization only (see prism test).
     assert!(
-        (vol - expect).abs() <= 1e-9 * expect,
+        (vol - expect).abs() <= 1e-6 * expect,
         "pocket volume {vol} vs exact {expect}"
     );
 }

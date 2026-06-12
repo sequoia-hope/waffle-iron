@@ -578,14 +578,31 @@ impl Kernel for KernelV2Adapter {
                 out.push(KernelId(TAG_PROFILE | idx));
                 continue;
             }
-            if !profile.spline_segments.is_empty() {
-                return Err(Self::not_supported(
-                    "make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
-                ));
-            }
+            // Arc-segment profiles stay WALLED: their `vertex_ids` carry arc
+            // SAMPLE points where an exact cylindrical wall is representable
+            // (post-KV5b) — polygonizing them would silently discard
+            // achievable exactness. Exact arc-profile support is its own
+            // milestone.
             if !profile.arc_segments.is_empty() {
                 return Err(Self::not_supported(
                     "make_faces_from_profiles: arc-segment profile (curved geometry not yet in kernel-v2)",
+                ));
+            }
+            // PR-KV8: spline-ANNOTATED profiles (gears) are accepted via
+            // their authored polygon. A gear `ClosedProfile`'s `vertex_ids`
+            // is the complete boundary polygon (involute flank samples +
+            // arc-endpoint chords from `generate_gear_profile` — the same
+            // canonical polygon the sketch solver and viewport use); the
+            // `SplineSegment` entries are fitted-control-point annotations
+            // over it for a NURBS-capable kernel. Consuming `vertex_ids`
+            // exactly introduces NO new sampling or approximation: the
+            // solid IS the extrusion of the authored polygon (exact
+            // simple-polygon validation, exact ear-clip caps, exact
+            // shoelace area). Without `vertex_ids` the annotation cannot be
+            // honored — stay walled loudly.
+            if !profile.spline_segments.is_empty() && profile.vertex_ids.is_empty() {
+                return Err(Self::not_supported(
+                    "make_faces_from_profiles: spline-segment profile without an authored                      vertex_ids polygon",
                 ));
             }
 

@@ -845,11 +845,34 @@ pub fn from_yang_brep(
             }
             continue;
         }
-        let pts: Vec<Point3> = spec
-            .cycle
-            .iter()
-            .map(|&v| yverts[v as usize].point)
-            .collect();
+        // PR-KV9: ARC-MIDPOINT-AUGMENTED loop points (the same mechanism as
+        // `validate::winding_points`, KV6a). A chord-only polygon mis-signs
+        // the Newell normal when concave arcs dominate the loop — e.g. the
+        // CRESCENT cap of a parallel cylinder×cylinder boolean, whose only
+        // interior vertex can sit on the concave arc. Each arc contributes
+        // its midpoint, which restores the bulge's signed area.
+        let m = spec.cycle.len();
+        let mut pts: Vec<Point3> = Vec::with_capacity(2 * m);
+        for k in 0..m {
+            let p0 = yverts[spec.cycle[k] as usize].point;
+            pts.push(p0);
+            if let EdgeKind::Arc {
+                center,
+                forward_normal,
+                radius: _,
+            } = spec.edges[k]
+            {
+                let p1 = yverts[spec.cycle[(k + 1) % m] as usize].point;
+                if let Some(sweep) = geom::ccw_sweep(center, forward_normal, p0, p1) {
+                    pts.push(geom::rotate_about_axis(
+                        center,
+                        forward_normal,
+                        p0,
+                        sweep / 2.0,
+                    ));
+                }
+            }
+        }
         match spec.kind {
             LoopKind::Outer => {
                 let Some(nu) = geom::newell_unit(&pts) else {

@@ -587,6 +587,70 @@ fn try_recover(brep: &yang_rs::BRep) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, 
         chain_pieces.push(pieces);
     }
 
+    // PR-KV9: minimum-loop-arity repair. Fusion can collapse a LENS face
+    // (two arcs between the same two vertices — parallel cylinder×cylinder
+    // caps) to a 2-edge loop, which the assembler's vertex-pair edge keying
+    // cannot represent (two distinct edges would share one undirected key).
+    // Split chains at retained interior vertices until every loop emits ≥3
+    // edges with no duplicated endpoint pair — the SAME exact curve, one
+    // more vertex, applied at CHAIN level so all faces sharing the chain
+    // stay consistent.
+    {
+        // Per-loop chain runs (each open chain appears as one run).
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for lw in &loop_walks {
+                let mut run_chains: Vec<usize> = Vec::new();
+                for &(_, from, to) in &lw.steps {
+                    let key = (from.min(to), from.max(to));
+                    if let Some(&c) = chain_of.get(&key) {
+                        if run_chains.last() != Some(&c) {
+                            run_chains.push(c);
+                        }
+                    }
+                }
+                run_chains.dedup();
+                if run_chains.is_empty() {
+                    continue;
+                }
+                let total: usize = run_chains.iter().map(|&c| chain_pieces[c].len()).sum();
+                if total >= 3 || run_chains.iter().any(|&c| chains[c].closed) {
+                    continue;
+                }
+                // Split the chain with the most retained interior vertices.
+                let Some(&pick) = run_chains.iter().max_by_key(|&&c| chains[c].verts.len()) else {
+                    continue;
+                };
+                let chain = &chains[pick];
+                if chain.verts.len() < 3 {
+                    // No interior vertex anywhere to split at — a 2-mesh-edge
+                    // lens; bail conservatively (original lists keep the mesh
+                    // granularity, which has ≥3 edges per loop by
+                    // construction).
+                    return None;
+                }
+                // Re-split the FIRST oversized piece at the chain vertex
+                // nearest its middle (deterministic).
+                let pieces = &mut chain_pieces[pick];
+                let Some(big_idx) = (0..pieces.len()).find(|&i| {
+                    let (ps, pe) = pieces[i];
+                    let si = chain.verts.iter().position(|&v| v == ps);
+                    let ei = chain.verts.iter().position(|&v| v == pe);
+                    matches!((si, ei), (Some(a), Some(b)) if b > a + 1)
+                }) else {
+                    return None; // every piece is a single mesh edge already
+                };
+                let (ps, pe) = pieces[big_idx];
+                let a = chain.verts.iter().position(|&v| v == ps).unwrap();
+                let b = chain.verts.iter().position(|&v| v == pe).unwrap();
+                let mid = chain.verts[(a + b) / 2];
+                pieces.splice(big_idx..=big_idx, [(ps, mid), (mid, pe)]);
+                changed = true;
+            }
+        }
+    }
+
     let chain_curve_for_edge = |chain: &Chain| -> Curve {
         match chain.curve {
             EffCurve::Seg => Curve::LineSegment,
