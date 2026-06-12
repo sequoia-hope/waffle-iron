@@ -57,13 +57,24 @@ use crate::error::KernelV2Error;
 use crate::geom;
 use cad_primitives::Point3;
 
-/// Debug-tier planarity tripwire: maximum |signed distance| (meters) of a
-/// loop vertex from its face plane. Strict — far below `TAU_MODEL` (1e-7 m)
-/// and chosen so that exactly-constructed prismatic solids (residual 0.0)
-/// pass with nine orders of magnitude to spare while genuinely non-planar
-/// loops (feature size ≥ `MIN_FEATURE_SIZE` = 1e-6 m) fail loudly.
-/// See the module docs for why this is not a production gate.
+/// Debug-tier planarity tripwire: maximum |signed distance| of a loop
+/// vertex from its face plane, as a RELATIVE band — multiplied by
+/// `(1 + max|coordinate|)` at the check site ([`planarity_band`]).
+/// f64 guarantees ~2e-16 RELATIVE precision, so an exactly-constructed
+/// vertex at world coordinate ~70 legitimately carries ~1e-13 of mapping
+/// rounding (PR-KV8 gear profiles on oblique planes, hundreds of mapped
+/// vertices) — an absolute band would mis-flag scale, not geometry. The
+/// relative form stays strict: far below `TAU_MODEL` (1e-7 relative at
+/// metre scale) while genuinely non-planar loops (feature size ≥
+/// `MIN_FEATURE_SIZE`) fail loudly. See the module docs for why this is
+/// not a production gate.
 pub const PLANARITY_DEBUG_TOLERANCE: f64 = 1e-12;
+
+/// Scale-relative planarity band at point `p` (see
+/// [`PLANARITY_DEBUG_TOLERANCE`]).
+fn planarity_band(p: Point3) -> f64 {
+    PLANARITY_DEBUG_TOLERANCE * (1.0 + p.x().abs().max(p.y().abs()).max(p.z().abs()))
+}
 
 /// Tolerance on `1 − dot(stored_normal, newell_unit)` for invariant 5.
 /// Both vectors are unit-length f64; agreement is by construction, so this
@@ -537,7 +548,7 @@ fn validate_planar_face(
                 let d = (p.x() - plane.point.x()) * plane.normal.x
                     + (p.y() - plane.point.y()) * plane.normal.y
                     + (p.z() - plane.point.z()) * plane.normal.z;
-                if d.abs() > PLANARITY_DEBUG_TOLERANCE {
+                if d.abs() > planarity_band(p) {
                     return Err(KernelV2Error::NonPlanarFace { face: f });
                 }
             }
@@ -596,7 +607,7 @@ fn validate_planar_face(
                 let plane_band = if is_arc {
                     import_band(radius, center)
                 } else {
-                    PLANARITY_DEBUG_TOLERANCE
+                    planarity_band(center)
                 };
                 let d = (center.x() - plane.point.x()) * plane.normal.x
                     + (center.y() - plane.point.y()) * plane.normal.y

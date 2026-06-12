@@ -280,6 +280,44 @@ fn arc_segment_profile_stays_typed_wall() {
     );
 }
 
+/// R0012-class regression: gear extrude on an OBLIQUE plane at world scale
+/// ~70 (coordinates ~100). The planarity tripwire must be SCALE-RELATIVE:
+/// f64 guarantees relative precision, so exactly-constructed mapped
+/// vertices at this scale carry ~1e-13 of rounding — geometry, not error.
+#[test]
+fn gear_extrude_oblique_plane_at_scale() {
+    let g = generate_gear_profile(&gear_params());
+    let n: [f64; 3] = [
+        -0.24020216902653416,
+        -0.38111176393228574,
+        -0.8927803433025224,
+    ];
+    let r = [0.0, 0.0, 1.0]; // engine ref-Z rule (|n_z| < 0.99)
+    let cx = [
+        r[1] * n[2] - r[2] * n[1],
+        r[2] * n[0] - r[0] * n[2],
+        r[0] * n[1] - r[1] * n[0],
+    ];
+    let l = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
+    let x = [cx[0] / l, cx[1] / l, cx[2] / l];
+    let origin = [65.05307079902309, -42.5182833048961, -63.38652863797739];
+    let mut k = KernelV2Adapter::new();
+    let faces = k
+        .make_faces_from_profiles(&[g.profiles[0].clone()], origin, n, x, &g.positions)
+        .unwrap_or_else(|e| panic!("oblique gear staging: {e:?}"));
+    let solid = k
+        .extrude_face(faces[0], n, 48.75141123924903)
+        .unwrap_or_else(|e| panic!("oblique gear extrude: {e:?}"));
+    let mesh = k.tessellate(&solid, 0.001).expect("tessellate");
+    let vol = mesh_signed_volume(&mesh);
+    let area = polygon_area(&g.profiles[0].vertex_ids, &g.positions);
+    let expect = area * 48.75141123924903;
+    assert!(
+        (vol.abs() - expect).abs() <= 1e-6 * expect,
+        "oblique gear prism volume {vol} vs exact {expect}"
+    );
+}
+
 /// Determinism: identical gear builds produce bit-identical meshes.
 #[test]
 fn gear_extrude_deterministic() {
