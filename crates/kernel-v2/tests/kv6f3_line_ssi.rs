@@ -213,6 +213,64 @@ fn revolve_union_crossing_box_succeeds() {
     assert!(mesh_signed_volume(&mesh) > 0.0);
 }
 
+/// The EXACT app-viewport geometry (sketch px → meters) that still failed
+/// after the relocation fix: a 270° revolve (r1 ≈ 3.34 mm, r2 ≈ 10.02 mm
+/// about a y-axis) unioned with a 4 cm-deep symmetric box extrude that
+/// punches THROUGH both cylinder walls. Stage-3 candidate matching rejected
+/// both C3a lines: the mesh point's RADIAL chord deficit (≤ d_ε by Stage-1
+/// contract) amplifies to `ρ·r/√(r² − d²)` when measured as perpendicular
+/// distance to the line (the in-plane metric of the cutting plane) — the
+/// same propagated-band phenomenon as the PR-YR19 sphere section circle.
+/// The Line membership band must carry that factor in EVERY site sharing
+/// the metric (Stage-3 matching, Stage-4 re-matching, relocation gates).
+#[test]
+fn app_geometry_revolve_union_through_box() {
+    let mut arena = BrepArena::new();
+    let profile = Profile::new(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(0.0007425742574257416, -0.0044554455445544525),
+            Point2::new(0.007425742574257424, -0.0044554455445544525),
+            Point2::new(0.007425742574257424, 0.004455445544554456),
+            Point2::new(0.0007425742574257416, 0.004455445544554456),
+        ],
+        vec![],
+    )
+    .unwrap();
+    let r = revolve(
+        &mut arena,
+        &profile,
+        Point3::new(-0.0025990099009900996, 0.0, 0.0),
+        Vector3::new(0.0, -1.0, 0.0),
+        270.0_f64.to_radians(),
+    )
+    .unwrap();
+    let depth = 0.04;
+    let bprofile = Profile::new(
+        Point3::new(0.0, 0.0, -depth / 2.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(0.001116618493890001, -0.0007444123292600023),
+            Point2::new(0.002977649317040006, -0.0007444123292600023),
+            Point2::new(0.002977649317040006, 0.0011166184938900018),
+            Point2::new(0.001116618493890001, 0.0011166184938900018),
+        ],
+        vec![],
+    )
+    .unwrap();
+    let b = extrude(&mut arena, &bprofile, Vector3::new(0.0, 0.0, 1.0), depth)
+        .unwrap_or_else(|e| panic!("extrude: {e:?}"))
+        .solid;
+    let out = boolean_op(&mut arena, r.solid, b, BoolOp::Union)
+        .unwrap_or_else(|e| panic!("app-geometry revolve ∪ through-box: {e:?}"));
+    validate_solid(&arena, out).expect("validates");
+    let mesh = tessellate(&arena, out).expect("tessellate");
+    assert!(mesh_signed_volume(&mesh) > 0.0);
+}
+
 #[test]
 fn sideways_boolean_deterministic() {
     let build = || {
