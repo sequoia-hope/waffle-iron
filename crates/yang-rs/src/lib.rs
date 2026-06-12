@@ -2735,6 +2735,82 @@ fn line_band_amplification(surf0: Surface, surf1: Surface) -> Option<f64> {
     Some(radius / half_sep_sq.sqrt())
 }
 
+/// PR-KV9: per-point membership amplification for a curve on TWO cylinders
+/// — `1/‖ĝ₁×ĝ₂‖` with `ĝᵢ` the unit radial gradients of the two cylinders
+/// at `x`. The constraint-band intersection at angle α has diameter
+/// `(ρ₁+ρ₂)/sin α`; near surface tangency (the Steinmetz ellipse crossing
+/// points, where both radials align) the band legitimately diverges —
+/// `None` there, and the caller falls back to the tangent-direction
+/// discriminator.
+fn cyl_cyl_point_amplification(
+    x: Point3,
+    c1: (Point3, Vector3),
+    c2: (Point3, Vector3),
+) -> Option<f64> {
+    let grad = |(ap, ad): (Point3, Vector3)| -> Option<[f64; 3]> {
+        let a = normalize3(ad.as_array());
+        let p = ap.as_array();
+        let w = [x.x() - p[0], x.y() - p[1], x.z() - p[2]];
+        let h = w[0] * a[0] + w[1] * a[1] + w[2] * a[2];
+        let r = [w[0] - h * a[0], w[1] - h * a[1], w[2] - h * a[2]];
+        let rl = (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
+        if rl < cad_primitives::MIN_FEATURE_SIZE {
+            return None;
+        }
+        Some([r[0] / rl, r[1] / rl, r[2] / rl])
+    };
+    let g1 = grad(c1)?;
+    let g2 = grad(c2)?;
+    let cx = [
+        g1[1] * g2[2] - g1[2] * g2[1],
+        g1[2] * g2[0] - g1[0] * g2[2],
+        g1[0] * g2[1] - g1[1] * g2[0],
+    ];
+    let sin_a = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
+    if sin_a < 1e-3 {
+        return None; // tangency-grade: no finite band
+    }
+    Some(1.0 / sin_a)
+}
+
+/// PR-KV9: unit tangent of an ssi candidate curve at (the projection of)
+/// `x` — the tangent-direction discriminator for multi-matched candidates.
+/// `None` for curve types without a closed-form tangent here.
+fn curve_tangent_at(curve: &ssi_rs::SsiCurve, x: Point3) -> Option<[f64; 3]> {
+    match curve {
+        ssi_rs::SsiCurve::Line { dir, .. } => Some(normalize3(dir.as_array())),
+        ssi_rs::SsiCurve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            major_radius,
+            minor_radius,
+        } => {
+            let n = normalize3(normal.as_array());
+            let m = normalize3(major_axis.as_array());
+            let w = [
+                n[1] * m[2] - n[2] * m[1],
+                n[2] * m[0] - n[0] * m[2],
+                n[0] * m[1] - n[1] * m[0],
+            ];
+            let c = center.as_array();
+            let dxv = [x.x() - c[0], x.y() - c[1], x.z() - c[2]];
+            let u = (dxv[0] * m[0] + dxv[1] * m[1] + dxv[2] * m[2]) / major_radius;
+            let v = (dxv[0] * w[0] + dxv[1] * w[1] + dxv[2] * w[2]) / minor_radius;
+            let t = v.atan2(u);
+            // dP/dt = −a·sin t·m̂ + b·cos t·ŵ
+            let (st, ct) = t.sin_cos();
+            let tan = [
+                -major_radius * st * m[0] + minor_radius * ct * w[0],
+                -major_radius * st * m[1] + minor_radius * ct * w[1],
+                -major_radius * st * m[2] + minor_radius * ct * w[2],
+            ];
+            Some(normalize3(tan))
+        }
+        _ => None,
+    }
+}
+
 /// Perpendicular distance of `p` to the line `(point, dir)` (`dir` need not be
 /// unit). PR-F3 line membership / residual metric.
 fn line_perp_distance(p: Point3, point: Point3, dir: Vector3) -> f64 {
@@ -2768,6 +2844,13 @@ struct EllipseReloc {
     major_axis: Vector3,
     major_radius: f64,
     minor_radius: f64,
+    /// PR-KV9: `Some((other_axis_point, other_axis_dir, combined_band))`
+    /// for a cylinder×CYLINDER section — the residual gate then uses the
+    /// per-point gradient amplification against the combined band instead
+    /// of the global `d_ε` (the metric conversion diverges at surface
+    /// tangency, where the Stage-3 surface-membership gate remains the
+    /// backstop). `None` keeps the cylinder×plane path byte-identical.
+    second_cyl: Option<(Point3, Vector3, f64)>,
 }
 
 /// PR-YR11 (spec §2): relocate `p` onto the exact ellipse via the CYLINDER
@@ -3732,18 +3815,81 @@ fn build_intersection_curves(
         // sphere section circle's `(R/r_c)` scaling. Conic candidates keep
         // the unscaled `tol` byte-for-byte.
         let line_amp = line_band_amplification(surf0, surf1);
+        // PR-KV9: cylinder×cylinder pairs carry the per-point gradient
+        // amplification (membership measured against the band intersection
+        // of BOTH surfaces; diverges at surface tangency — the Steinmetz
+        // crossing points — where the tangent-direction discriminator below
+        // takes over).
+        let cyl_pair: Option<((Point3, Vector3), (Point3, Vector3))> = match (surf0, surf1) {
+            (
+                Surface::Cylinder {
+                    axis_point: p1,
+                    axis_dir: d1,
+                    ..
+                },
+                Surface::Cylinder {
+                    axis_point: p2,
+                    axis_dir: d2,
+                    ..
+                },
+            ) => Some(((p1, d1), (p2, d2))),
+            _ => None,
+        };
+        let point_tol = |x: Point3, curve: &ssi_rs::SsiCurve| -> f64 {
+            match curve {
+                ssi_rs::SsiCurve::Line { .. } => line_amp.map_or(tol, |a| a * tol),
+                ssi_rs::SsiCurve::Ellipse { .. } => match cyl_pair {
+                    Some((c1, c2)) => {
+                        cyl_cyl_point_amplification(x, c1, c2).map_or(f64::INFINITY, |a| a * tol)
+                    }
+                    None => tol,
+                },
+                _ => tol,
+            }
+        };
         let mut matched_idx: Option<usize> = None;
         let mut matched = 0usize;
         for (i, curve) in returned.iter().enumerate() {
-            let cand_tol = match curve {
-                ssi_rs::SsiCurve::Line { .. } => line_amp.map_or(tol, |a| a * tol),
-                _ => tol,
-            };
-            if curve_contains_point(curve, p_s, cand_tol, source_radius)
-                && curve_contains_point(curve, p_e, cand_tol, source_radius)
+            if curve_contains_point(curve, p_s, point_tol(p_s, curve), source_radius)
+                && curve_contains_point(curve, p_e, point_tol(p_e, curve), source_radius)
             {
                 matched += 1;
                 matched_idx = Some(i);
+            }
+        }
+
+        // PR-KV9: tangent-direction discrimination for multi-matches. Two
+        // curves through one region (the Steinmetz ellipses near their
+        // crossing) CROSS transversally, so the mesh edge's direction
+        // aligns with exactly one curve's tangent. Selected only with a
+        // clear margin; otherwise the loud ambiguity stands (P9 — a
+        // tie-break, never a band widening).
+        if matched > 1 {
+            let edge_dir = {
+                let d = [p_e.x() - p_s.x(), p_e.y() - p_s.y(), p_e.z() - p_s.z()];
+                normalize3(d)
+            };
+            let mid = Point3::new(
+                (p_s.x() + p_e.x()) / 2.0,
+                (p_s.y() + p_e.y()) / 2.0,
+                (p_s.z() + p_e.z()) / 2.0,
+            );
+            let mut scored: Vec<(f64, usize)> = Vec::new();
+            for (i, curve) in returned.iter().enumerate() {
+                if !(curve_contains_point(curve, p_s, point_tol(p_s, curve), source_radius)
+                    && curve_contains_point(curve, p_e, point_tol(p_e, curve), source_radius))
+                {
+                    continue;
+                }
+                if let Some(t) = curve_tangent_at(curve, mid) {
+                    let c = (t[0] * edge_dir[0] + t[1] * edge_dir[1] + t[2] * edge_dir[2]).abs();
+                    scored.push((c, i));
+                }
+            }
+            scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+            if scored.len() >= 2 && scored[0].0 > scored[1].0 + 0.1 {
+                matched = 1;
+                matched_idx = Some(scored[0].1);
             }
         }
 
@@ -5433,6 +5579,12 @@ fn stage4_relocate_and_correct(
     // off the cylinder) by up to the sagitta — they need relocation exactly
     // like the conic arms. Plane∩plane segments are exact and stay skipped.
     let mut vert_line: BTreeMap<u32, LineReloc> = BTreeMap::new();
+    // PR-KV9: a vertex shared by TWO DIFFERENT ellipse edges (the crossing
+    // points of the Steinmetz cyl×cyl pair) must land on BOTH curves — the
+    // exact junction is `(plane₁ ∩ plane₂) line ∩ cylinder`. Detected at
+    // insert time (a silent overwrite would relocate one ellipse's endpoint
+    // onto the other, collapsing the seam).
+    let mut vert_ell_junction: BTreeMap<u32, (EllipseReloc, EllipseReloc)> = BTreeMap::new();
     let mut endpoints: Vec<u32> = Vec::new();
     for (&(s, e), curve) in &curves0 {
         match *curve {
@@ -5606,6 +5758,10 @@ fn stage4_relocate_and_correct(
                 let key = if s < e { (s, e) } else { (e, s) };
                 let entries = inc0.get(&key);
                 let mut cyl: Option<(Point3, Vector3, f64)> = None;
+                // PR-KV9: ALL cylinder entries with their owning inputs —
+                // a cylinder×cylinder ellipse needs both for the per-point
+                // gradient band + the combined chord budget.
+                let mut cyls: Vec<(InputId, Point3, Vector3, f64)> = Vec::new();
                 let mut plane: Option<(Vector3, f64)> = None;
                 // PR-YR21: additionally scan for a `Surface::Cone` owner (the
                 // cone+plane oblique section). Carry the owning `InputId` so the
@@ -5618,7 +5774,10 @@ fn stage4_relocate_and_correct(
                                 axis_point,
                                 axis_dir,
                                 radius,
-                            } => cyl = Some((axis_point, axis_dir, radius)),
+                            } => {
+                                cyl = Some((axis_point, axis_dir, radius));
+                                cyls.push((input, axis_point, axis_dir, radius));
+                            }
                             Surface::Plane { normal: pn, d: pd } => plane = Some((pn, pd)),
                             Surface::Cone {
                                 apex,
@@ -5643,6 +5802,7 @@ fn stage4_relocate_and_correct(
                             major_axis,
                             major_radius,
                             minor_radius,
+                            second_cyl: None,
                         };
                         for v in [s, e] {
                             vert_ellipse.insert(v, er);
@@ -5688,8 +5848,65 @@ fn stage4_relocate_and_correct(
                             endpoints.push(v);
                         }
                     }
-                    // Neither cylinder+plane nor cone+plane: out of scope (e.g.
-                    // sphere, or coplanar multi-solid). Loud STOP (P9/P10).
+                    // PR-KV9: cylinder × CYLINDER ellipse (the equal-radius
+                    // intersecting-axes Steinmetz section, ssi cyl∩cyl). The
+                    // ellipse lies in a KNOWN plane — its own stored frame —
+                    // and it equals `cylinder ∩ that-plane` for EITHER owner
+                    // (the curve is on both), so the existing cylinder+plane
+                    // relocation closed form applies verbatim with the plane
+                    // derived from the stored curve: n̂ from the ellipse
+                    // normal, d = −n̂·center. `cyl` here holds the LAST
+                    // cylinder scanned; with two cylinder entries either is
+                    // exact, and the incidence order is deterministic.
+                    (Some(_), None, None) if cyls.len() == 2 => {
+                        // Deterministic owner order: sort by InputId (A first).
+                        let mut cs = cyls.clone();
+                        cs.sort_by_key(|&(i, ..)| matches!(i, InputId::B));
+                        let (i1, axis_point, axis_dir, radius) = cs[0];
+                        let (i2, ap2, ad2, _) = cs[1];
+                        let budget = chord_tol_for_curved_owner(i1, a, b, 0, (s, e))?
+                            + chord_tol_for_curved_owner(i2, a, b, 0, (s, e))?;
+                        let nn = normalize3(normal.as_array());
+                        let plane_n = Vector3::new(nn[0], nn[1], nn[2]);
+                        let c = center.as_array();
+                        let plane_d = -(nn[0] * c[0] + nn[1] * c[1] + nn[2] * c[2]);
+                        let er = EllipseReloc {
+                            axis_point,
+                            axis_dir,
+                            radius,
+                            plane_n,
+                            plane_d,
+                            center,
+                            normal,
+                            major_axis,
+                            major_radius,
+                            minor_radius,
+                            second_cyl: Some((ap2, ad2, budget)),
+                        };
+                        for v in [s, e] {
+                            if let Some(prev) = vert_ellipse.get(&v).copied() {
+                                let same = prev.plane_d == er.plane_d
+                                    && prev.plane_n.as_array() == er.plane_n.as_array()
+                                    && prev.center.as_array() == er.center.as_array();
+                                if !same {
+                                    vert_ellipse.remove(&v);
+                                    vert_ell_junction.insert(v, (prev, er));
+                                    endpoints.push(v);
+                                    continue;
+                                }
+                            } else if let Some((j0, _)) = vert_ell_junction.get(&v) {
+                                let same = j0.plane_d == er.plane_d
+                                    && j0.plane_n.as_array() == er.plane_n.as_array();
+                                let _ = same; // already a junction; nothing to add
+                                endpoints.push(v);
+                                continue;
+                            }
+                            vert_ellipse.insert(v, er);
+                            endpoints.push(v);
+                        }
+                    }
+                    // Anything else (sphere, coplanar multi-solid): out of
+                    // scope. Loud STOP (P9/P10).
                     _ => {
                         return Err(YangError::Stage4RegionInvalid {
                             vertex: s,
@@ -5958,7 +6175,19 @@ fn stage4_relocate_and_correct(
     for (&v, er) in &vert_ellipse {
         let p = mesh.verts[v as usize];
         let rho = ellipse_residual(p, er);
-        if rho > d_eps {
+        // PR-KV9: cylinder×cylinder sections gate against the per-point
+        // gradient band (combined budget × 1/sin α); at tangency grade the
+        // metric is unbounded and the Stage-3 surface-membership gate is
+        // the backstop. The cylinder×plane path keeps the global d_ε
+        // byte-for-byte.
+        let gate = match er.second_cyl {
+            Some((ap2, ad2, budget)) => {
+                cyl_cyl_point_amplification(p, (er.axis_point, er.axis_dir), (ap2, ad2))
+                    .map_or(f64::INFINITY, |amp| amp * budget)
+            }
+            None => d_eps,
+        };
+        if rho > gate {
             return Err(YangError::Stage4RegionInvalid {
                 vertex: v,
                 reason: Stage4InvalidReason::OffCurveBeyondChordBand,
@@ -5966,6 +6195,109 @@ fn stage4_relocate_and_correct(
         }
         let (proj, t) = project_onto_ellipse_via_cylinder(p, er)
             .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+        if rho > cad_primitives::TAU_WORK {
+            mesh.verts[v as usize] = proj;
+            moved.insert(v);
+        }
+        relocations.push((v, t));
+        processed.insert(v);
+    }
+
+    // PR-KV9: ellipse×ellipse JUNCTION relocation. The exact junction lies
+    // on `(plane₁ ∩ plane₂) ∩ cylinder` (the crossing point of the two
+    // Steinmetz sections — on the cylinder and in BOTH cutting planes,
+    // hence on both ellipses). The plane–plane line is exact; intersecting
+    // it with the relocation cylinder is a quadratic with ≤ 2 roots; the
+    // root nearest the current vertex is the junction (the two crossing
+    // points are 2r apart — far outside any chord band, so nearest-pick is
+    // deterministic and unambiguous). Gate at 2·d_ε (each constituent
+    // membership is within its own propagated band; the junction inherits
+    // both, mirroring the line+circle junction's derivation).
+    for (&v, &(e_a, e_b)) in &vert_ell_junction {
+        let p = mesh.verts[v as usize];
+        let n1 = normalize3(e_a.plane_n.as_array());
+        let n2 = normalize3(e_b.plane_n.as_array());
+        let dir = [
+            n1[1] * n2[2] - n1[2] * n2[1],
+            n1[2] * n2[0] - n1[0] * n2[2],
+            n1[0] * n2[1] - n1[1] * n2[0],
+        ];
+        let dl = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
+        if dl < cad_primitives::MIN_FEATURE_SIZE {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: v,
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+            });
+        }
+        let d = [dir[0] / dl, dir[1] / dl, dir[2] / dl];
+        // A point on both planes: solve n1·x = −d1, n2·x = −d2 in the span
+        // of {n1, n2} (x = α·n1 + β·n2; Gram system with g = n1·n2).
+        let g = n1[0] * n2[0] + n1[1] * n2[1] + n1[2] * n2[2];
+        let det = 1.0 - g * g;
+        if det.abs() < cad_primitives::MIN_FEATURE_SIZE {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: v,
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+            });
+        }
+        let (r1, r2) = (-e_a.plane_d, -e_b.plane_d);
+        let alpha = (r1 - g * r2) / det;
+        let beta = (r2 - g * r1) / det;
+        let p0 = [
+            alpha * n1[0] + beta * n2[0],
+            alpha * n1[1] + beta * n2[1],
+            alpha * n1[2] + beta * n2[2],
+        ];
+        // Intersect the line p0 + t·d with the relocation cylinder of e_a.
+        let ax = normalize3(e_a.axis_dir.as_array());
+        let ap = e_a.axis_point.as_array();
+        let rel = [p0[0] - ap[0], p0[1] - ap[1], p0[2] - ap[2]];
+        let perp = |w: [f64; 3]| -> [f64; 3] {
+            let h = w[0] * ax[0] + w[1] * ax[1] + w[2] * ax[2];
+            [w[0] - h * ax[0], w[1] - h * ax[1], w[2] - h * ax[2]]
+        };
+        let rp = perp(rel);
+        let dp = perp(d);
+        let aa = dp[0] * dp[0] + dp[1] * dp[1] + dp[2] * dp[2];
+        let bb = 2.0 * (rp[0] * dp[0] + rp[1] * dp[1] + rp[2] * dp[2]);
+        let cc = rp[0] * rp[0] + rp[1] * rp[1] + rp[2] * rp[2] - e_a.radius * e_a.radius;
+        let disc = bb * bb - 4.0 * aa * cc;
+        if !(aa > cad_primitives::MIN_FEATURE_SIZE && disc >= 0.0) {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: v,
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+            });
+        }
+        let sq = disc.sqrt();
+        let pa = p.as_array();
+        let mut best: Option<([f64; 3], f64)> = None;
+        for t in [(-bb - sq) / (2.0 * aa), (-bb + sq) / (2.0 * aa)] {
+            let x = [p0[0] + t * d[0], p0[1] + t * d[1], p0[2] + t * d[2]];
+            let dd =
+                ((x[0] - pa[0]).powi(2) + (x[1] - pa[1]).powi(2) + (x[2] - pa[2]).powi(2)).sqrt();
+            if best.map(|(_, b)| dd < b).unwrap_or(true) {
+                best = Some((x, dd));
+            }
+        }
+        let (j, rho) = best.expect("two real roots checked");
+        if rho > 2.0 * d_eps {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: v,
+                reason: Stage4InvalidReason::OffCurveBeyondChordBand,
+            });
+        }
+        let proj = Point3::new(j[0], j[1], j[2]);
+        // Param on e_a's ellipse for the source retag (output edges of BOTH
+        // ellipses touch this vertex; the position is exact on both, so the
+        // retag curve choice is positional-exact either way).
+        let t = ellipse_param(
+            proj,
+            e_a.center,
+            e_a.normal,
+            e_a.major_axis,
+            e_a.major_radius,
+            e_a.minor_radius,
+        );
         if rho > cad_primitives::TAU_WORK {
             mesh.verts[v as usize] = proj;
             moved.insert(v);
@@ -6231,6 +6563,34 @@ fn stage4_relocate_and_correct(
     // (3) §4.5.3 reversed-intersection correction sweep.
     let mut collapsed_any = false;
     let mut attr_vec = std::mem::take(&mut attribution.attributions);
+    // PR-KV9: junction vertices that landed on the SAME exact point are
+    // duplicates of one geometric junction (near a tangency-grade curve
+    // crossing the two chord polylines can intersect several times, giving
+    // several arrangement vertices for ONE junction). Collapse the extras
+    // onto the lowest index — the standard edge-collapse, which drops the
+    // degenerate slivers between them and keeps the half-edge pairing
+    // watertight.
+    {
+        let mut by_pos: std::collections::BTreeMap<[u64; 3], Vec<u32>> =
+            std::collections::BTreeMap::new();
+        for &v in vert_ell_junction.keys() {
+            let p = mesh.verts[v as usize];
+            by_pos
+                .entry([p.x().to_bits(), p.y().to_bits(), p.z().to_bits()])
+                .or_default()
+                .push(v);
+        }
+        for (_, group) in by_pos {
+            if group.len() < 2 {
+                continue;
+            }
+            let survivor = *group.iter().min().expect("non-empty");
+            for &victim in group.iter().filter(|&&v| v != survivor) {
+                collapse_vertex(mesh, &mut attr_vec, victim, survivor);
+                collapsed_any = true;
+            }
+        }
+    }
     let sweep_result = sweep_reversed_intersections(mesh, &mut attr_vec, a, b, d_eps);
     attribution.attributions = attr_vec;
     let any_collapse = sweep_result?;

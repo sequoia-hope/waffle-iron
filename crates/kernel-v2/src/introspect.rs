@@ -75,6 +75,18 @@ pub fn extract_edges_with_chord_tolerance(
                 pl.push(end);
                 out.push(pl);
             }
+            Curve::EllipseArc { .. } => {
+                // PR-KV9: same contract as Arc — the render-identical
+                // sample polyline.
+                let start = arena.vertex(he.origin)?.point;
+                let end = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+                let mut pl = vec![start];
+                pl.extend(crate::tessellate::ellipse_interior_samples(
+                    arena, h, n_seg,
+                )?);
+                pl.push(end);
+                out.push(pl);
+            }
             Curve::Circle {
                 center,
                 normal,
@@ -150,7 +162,7 @@ pub fn surface_area(arena: &BrepArena, solid: SolidId) -> Result<f64, KernelV2Er
                         } => circles.push((center, normal, radius)),
                         // PR-KV5b partial patches: no analytic closed form —
                         // loud, never a silent polygonal sum over arc chords.
-                        Curve::Arc { .. } => {
+                        Curve::Arc { .. } | Curve::EllipseArc { .. } => {
                             return Err(KernelV2Error::CurvedGeometryMismatch {
                                 face: f,
                                 reason: "surface_area: analytic area not implemented for \

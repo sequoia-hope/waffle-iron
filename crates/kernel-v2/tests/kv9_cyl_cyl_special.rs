@@ -29,6 +29,7 @@
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
 use kernel_v2::{boolean_op, extrude, tessellate, validate_solid, BrepArena, Profile, RenderMesh};
 
+#[allow(clippy::too_many_arguments)]
 fn cyl(
     a: &mut BrepArena,
     origin: [f64; 3],
@@ -167,7 +168,10 @@ fn parallel_cyl_union_exact_volume() {
 /// the Steinmetz configuration; UNION. Exact: V = V1 + V2 − 16r³/3
 /// (the bicylinder common volume), with both axes crossing mid-solid.
 #[test]
-#[ignore = "KV9-ellipse: needs kernel-v2 EllipseArc vocabulary + yang Stage-4 cyl×cyl ellipse arm"]
+#[ignore = "KV9-F1: tangency-junction crack — the two Steinmetz ellipses meet where the \
+            cylinders are TANGENT; the arrangement's patch cycles disagree across the \
+            junction (an output edge used once). Stage-3/4 plumbing for cyl×cyl ellipses \
+            is in place; the emit-topology seam at tangency grade needs its own cycle"]
 fn steinmetz_union_exact_volume() {
     let mut a = BrepArena::new();
     let r = 0.3;
@@ -209,7 +213,10 @@ fn steinmetz_union_exact_volume() {
 /// F0058-class: equal-radius perpendicular SUBTRACT — body minus the
 /// crossing rod removes exactly the bicylinder volume.
 #[test]
-#[ignore = "KV9-ellipse: needs kernel-v2 EllipseArc vocabulary + yang Stage-4 cyl×cyl ellipse arm"]
+#[ignore = "KV9-F1: tangency-junction crack — the two Steinmetz ellipses meet where the \
+            cylinders are TANGENT; the arrangement's patch cycles disagree across the \
+            junction (an output edge used once). Stage-3/4 plumbing for cyl×cyl ellipses \
+            is in place; the emit-topology seam at tangency grade needs its own cycle"]
 fn steinmetz_subtract_exact_volume() {
     let mut a = BrepArena::new();
     let r = 0.2;

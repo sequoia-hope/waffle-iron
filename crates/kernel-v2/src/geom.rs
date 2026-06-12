@@ -189,7 +189,7 @@ pub fn signed_volume(
                             normal,
                             radius,
                         } => circles.push((center, normal, radius)),
-                        Curve::Arc { .. } => has_arcs = true,
+                        Curve::Arc { .. } | Curve::EllipseArc { .. } => has_arcs = true,
                         Curve::LineSegment => {}
                     }
                 }
@@ -354,6 +354,42 @@ pub(crate) fn planar_face_signed_area2(
                     };
                     area2 += sign * radius * radius * (sweep - sweep.sin());
                 }
+                Curve::EllipseArc {
+                    center,
+                    normal,
+                    major_axis,
+                    major_radius,
+                    minor_radius,
+                } => {
+                    // PR-KV9: elliptical-segment correction. With the
+                    // parametric sweep Δt (CCW around the stored traversal
+                    // normal), sector = (ab/2)·Δt and the inscribed triangle
+                    // is (ab/2)·sin Δt (cross of the two parametric radius
+                    // vectors), so the chord-to-arc correction to TWICE the
+                    // area is `ab·(Δt − sin Δt)` — the exact ellipse analog
+                    // of the circular `r²(Δθ − sin Δθ)`.
+                    let nu = [normal.x, normal.y, normal.z];
+                    let Some(sweep) = ellipse_ccw_sweep(
+                        center,
+                        nu,
+                        [major_axis.x, major_axis.y, major_axis.z],
+                        major_radius,
+                        minor_radius,
+                        p0,
+                        p1,
+                    ) else {
+                        return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
+                            face: f,
+                            reason: "signed_volume: degenerate ellipse-arc endpoints",
+                        });
+                    };
+                    let sign = if nu[0] * n[0] + nu[1] * n[1] + nu[2] * n[2] >= 0.0 {
+                        1.0
+                    } else {
+                        -1.0
+                    };
+                    area2 += sign * major_radius * minor_radius * (sweep - sweep.sin());
+                }
                 Curve::Circle { .. } => {
                     return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
                         face: f,
@@ -364,6 +400,75 @@ pub(crate) fn planar_face_signed_area2(
         }
     }
     Ok(area2)
+}
+
+/// Parametric CCW sweep of an ellipse arc from `p0` to `p1` around the
+/// directional `normal`, in the frame `P(t) = c + a·cos t·m̂ + b·sin t·(n̂×m̂)`
+/// — unique in `(0, 2π)`. `None` when an endpoint projects degenerately.
+pub(crate) fn ellipse_ccw_sweep(
+    center: Point3,
+    normal: [f64; 3],
+    major_axis: [f64; 3],
+    major_radius: f64,
+    minor_radius: f64,
+    p0: Point3,
+    p1: Point3,
+) -> Option<f64> {
+    let t0 = ellipse_param(center, normal, major_axis, major_radius, minor_radius, p0)?;
+    let t1 = ellipse_param(center, normal, major_axis, major_radius, minor_radius, p1)?;
+    let tau = 2.0 * std::f64::consts::PI;
+    Some((t1 - t0).rem_euclid(tau))
+}
+
+/// Ellipse parameter of an (on-ellipse) point in the directional frame:
+/// `t = atan2(v/b, u/a)` with `u = (p−c)·m̂`, `v = (p−c)·(n̂×m̂)`.
+pub(crate) fn ellipse_param(
+    center: Point3,
+    normal: [f64; 3],
+    major_axis: [f64; 3],
+    major_radius: f64,
+    minor_radius: f64,
+    p: Point3,
+) -> Option<f64> {
+    if !(major_radius > 0.0 && minor_radius > 0.0) {
+        return None;
+    }
+    let m = major_axis;
+    let w = [
+        normal[1] * m[2] - normal[2] * m[1],
+        normal[2] * m[0] - normal[0] * m[2],
+        normal[0] * m[1] - normal[1] * m[0],
+    ];
+    let d = [p.x() - center.x(), p.y() - center.y(), p.z() - center.z()];
+    let u = (d[0] * m[0] + d[1] * m[1] + d[2] * m[2]) / major_radius;
+    let v = (d[0] * w[0] + d[1] * w[1] + d[2] * w[2]) / minor_radius;
+    if u.hypot(v) < 0.5 {
+        return None; // not near the ellipse — degenerate projection
+    }
+    Some(v.atan2(u))
+}
+
+/// Point of the directional ellipse frame at parameter `t`.
+pub(crate) fn ellipse_point_at(
+    center: Point3,
+    normal: [f64; 3],
+    major_axis: [f64; 3],
+    major_radius: f64,
+    minor_radius: f64,
+    t: f64,
+) -> Point3 {
+    let m = major_axis;
+    let w = [
+        normal[1] * m[2] - normal[2] * m[1],
+        normal[2] * m[0] - normal[0] * m[2],
+        normal[0] * m[1] - normal[1] * m[0],
+    ];
+    let (s, c) = t.sin_cos();
+    Point3::new(
+        center.x() + major_radius * c * m[0] + minor_radius * s * w[0],
+        center.y() + major_radius * c * m[1] + minor_radius * s * w[1],
+        center.z() + major_radius * c * m[2] + minor_radius * s * w[2],
+    )
 }
 
 /// Divergence-theorem flux through a CYLINDER patch whose loops consist of
@@ -464,6 +569,109 @@ fn cylinder_arc_patch_flux(
                         a0[0] * (ts[0] - te[0]) + a0[1] * (ts[1] - te[1]) + a0[2] * (ts[2] - te[2]);
                     sum += -h * (radius * dtheta + a0_dot);
                 }
+                Curve::EllipseArc {
+                    center,
+                    normal,
+                    major_axis,
+                    major_radius,
+                    minor_radius,
+                } => {
+                    // PR-KV9: an oblique-plane section arc ON this cylinder.
+                    // For a cylinder section the axis-⊥ projection of the
+                    // ellipse is the radius-r circle itself, so the ellipse
+                    // parameter t IS the azimuth (up to frame handedness):
+                    // with ê1 = unit(m̂ − (m̂·â)â), ê2 = â × ê1 and
+                    // ŵ = n̂×m̂ (the stored frame's minor direction),
+                    //   r̂(t) = cos t·ê1 + s_w·sin t·ê2,  s_w = sign(ŵ·ê2),
+                    //   h(t) = h_c + k·cos t,             k = a·(m̂·â),
+                    //   g(t) = ρ + p·cos t + q·s_w·sin t, p = a₀·ê1, q = a₀·ê2.
+                    // The Green's-theorem loop term −∮ g·h dθ (dθ = s_w·dt)
+                    // expands into elementary integrals; the antiderivative
+                    //   F(t) = ρh_c·t + (ρk + p·h_c)·sin t − q·s_w·h_c·cos t
+                    //          + p·k·(t/2 + sin 2t/4) − q·s_w·k·cos 2t/4
+                    // gives the contribution −s_w·(F(t₁) − F(t₀)). The
+                    // circle-arc branch above is the k = 0 special case
+                    // (verified to agree term-for-term).
+                    let mr = [major_axis.x, major_axis.y, major_axis.z];
+                    let nu = [normal.x, normal.y, normal.z];
+                    // Section-of-THIS-cylinder preconditions (loud).
+                    if (minor_radius - radius).abs() > 1e-9 * (1.0 + radius) {
+                        return Err(mismatch(
+                            "signed_volume: ellipse-arc minor radius is not the cylinder radius",
+                        ));
+                    }
+                    let c_rel = [center.x() - a0[0], center.y() - a0[1], center.z() - a0[2]];
+                    let h_c = c_rel[0] * a[0] + c_rel[1] * a[1] + c_rel[2] * a[2];
+                    let c_perp = [
+                        c_rel[0] - h_c * a[0],
+                        c_rel[1] - h_c * a[1],
+                        c_rel[2] - h_c * a[2],
+                    ];
+                    if (c_perp[0] * c_perp[0] + c_perp[1] * c_perp[1] + c_perp[2] * c_perp[2])
+                        .sqrt()
+                        > 1e-9 * (1.0 + radius)
+                    {
+                        return Err(mismatch(
+                            "signed_volume: ellipse-arc center is off the cylinder axis",
+                        ));
+                    }
+                    let m_dot_a = mr[0] * a[0] + mr[1] * a[1] + mr[2] * a[2];
+                    let e1_raw = [
+                        mr[0] - m_dot_a * a[0],
+                        mr[1] - m_dot_a * a[1],
+                        mr[2] - m_dot_a * a[2],
+                    ];
+                    let e1_len =
+                        (e1_raw[0] * e1_raw[0] + e1_raw[1] * e1_raw[1] + e1_raw[2] * e1_raw[2])
+                            .sqrt();
+                    if e1_len < 1e-12 {
+                        return Err(mismatch(
+                            "signed_volume: ellipse-arc major axis parallel to the cylinder axis",
+                        ));
+                    }
+                    let e1 = [e1_raw[0] / e1_len, e1_raw[1] / e1_len, e1_raw[2] / e1_len];
+                    let e2 = [
+                        a[1] * e1[2] - a[2] * e1[1],
+                        a[2] * e1[0] - a[0] * e1[2],
+                        a[0] * e1[1] - a[1] * e1[0],
+                    ];
+                    let w = [
+                        nu[1] * mr[2] - nu[2] * mr[1],
+                        nu[2] * mr[0] - nu[0] * mr[2],
+                        nu[0] * mr[1] - nu[1] * mr[0],
+                    ];
+                    let w_dot_a = w[0] * a[0] + w[1] * a[1] + w[2] * a[2];
+                    if w_dot_a.abs() > 1e-9 {
+                        return Err(mismatch(
+                            "signed_volume: ellipse-arc minor axis not perpendicular to the                              cylinder axis",
+                        ));
+                    }
+                    let s_w = if w[0] * e2[0] + w[1] * e2[1] + w[2] * e2[2] >= 0.0 {
+                        1.0
+                    } else {
+                        -1.0
+                    };
+                    let Some(t0) = ellipse_param(center, nu, mr, major_radius, minor_radius, p0)
+                    else {
+                        return Err(mismatch("signed_volume: degenerate ellipse-arc endpoint"));
+                    };
+                    let Some(sweep) =
+                        ellipse_ccw_sweep(center, nu, mr, major_radius, minor_radius, p0, p1)
+                    else {
+                        return Err(mismatch("signed_volume: degenerate ellipse-arc endpoints"));
+                    };
+                    let t1 = t0 + sweep;
+                    let k = major_radius * m_dot_a;
+                    let p_c = a0[0] * e1[0] + a0[1] * e1[1] + a0[2] * e1[2];
+                    let q_c = a0[0] * e2[0] + a0[1] * e2[1] + a0[2] * e2[2];
+                    let fterm = |t: f64| -> f64 {
+                        radius * h_c * t + (radius * k + p_c * h_c) * t.sin()
+                            - q_c * s_w * h_c * t.cos()
+                            + p_c * k * (t / 2.0 + (2.0 * t).sin() / 4.0)
+                            - q_c * s_w * k * (2.0 * t).cos() / 4.0
+                    };
+                    sum += -s_w * (fterm(t1) - fterm(t0));
+                }
                 Curve::Circle { .. } => {
                     return Err(mismatch(
                         "signed_volume: cylinder patch mixes full circles with arcs",
@@ -513,6 +721,24 @@ pub fn face_centroid(
     }
 }
 
+/// Rodrigues rotation of `p` about the axis (`center`, unit `axis`) by
+/// `theta` (right-handed).
+pub(crate) fn rotate_about_axis(center: Point3, axis: [f64; 3], p: Point3, theta: f64) -> Point3 {
+    let v = [p.x() - center.x(), p.y() - center.y(), p.z() - center.z()];
+    let (c, s) = (theta.cos(), theta.sin());
+    let dot = axis[0] * v[0] + axis[1] * v[1] + axis[2] * v[2];
+    let cx = [
+        axis[1] * v[2] - axis[2] * v[1],
+        axis[2] * v[0] - axis[0] * v[2],
+        axis[0] * v[1] - axis[1] * v[0],
+    ];
+    Point3::new(
+        center.x() + v[0] * c + cx[0] * s + axis[0] * dot * (1.0 - c),
+        center.y() + v[1] * c + cx[1] * s + axis[1] * dot * (1.0 - c),
+        center.z() + v[2] * c + cx[2] * s + axis[2] * dot * (1.0 - c),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -537,22 +763,4 @@ mod tests {
         assert_eq!(newell(&pts), [0.0, 0.0, 0.0]);
         assert!(newell_unit(&pts).is_none());
     }
-}
-
-/// Rodrigues rotation of `p` about the axis (`center`, unit `axis`) by
-/// `theta` (right-handed).
-pub(crate) fn rotate_about_axis(center: Point3, axis: [f64; 3], p: Point3, theta: f64) -> Point3 {
-    let v = [p.x() - center.x(), p.y() - center.y(), p.z() - center.z()];
-    let (c, s) = (theta.cos(), theta.sin());
-    let dot = axis[0] * v[0] + axis[1] * v[1] + axis[2] * v[2];
-    let cx = [
-        axis[1] * v[2] - axis[2] * v[1],
-        axis[2] * v[0] - axis[0] * v[2],
-        axis[0] * v[1] - axis[1] * v[0],
-    ];
-    Point3::new(
-        center.x() + v[0] * c + cx[0] * s + axis[0] * dot * (1.0 - c),
-        center.y() + v[1] * c + cx[1] * s + axis[1] * dot * (1.0 - c),
-        center.z() + v[2] * c + cx[2] * s + axis[2] * dot * (1.0 - c),
-    )
 }

@@ -243,6 +243,33 @@ pub enum Curve {
         /// Circle radius (meters, > 0).
         radius: f64,
     },
+    /// Elliptical arc (PR-KV9): the exact `oblique plane ∩ cylinder`
+    /// section curve. Parameterized
+    /// `P(t) = center + major_radius·cos t·m̂ + minor_radius·sin t·(n̂ × m̂)`
+    /// and traversed counterclockwise around the directional `normal` from
+    /// the half-edge's origin to its destination (both exactly on the
+    /// ellipse). `start == end` (a closed loop of one such half-edge) is
+    /// the full ellipse — the oblique cap analog of `Circle`. The twin
+    /// carries the negated `normal` and the SAME `major_axis` (the frame's
+    /// minor direction `n̂ × m̂` flips with `n̂`, so the point set is
+    /// identical, traversed oppositely). Enters the arena ONLY from
+    /// `from_yang_brep` (yang tags exact intersection ellipses on
+    /// per-mesh-edge arcs), which constructs minor arcs (parametric sweep
+    /// < π) and full ellipses exclusively — a near-half-ellipse arc is
+    /// rejected there as ambiguous rather than guessed.
+    EllipseArc {
+        /// Ellipse center.
+        center: Point3,
+        /// Unit axis (the ellipse plane normal) around which this
+        /// half-edge traverses CCW.
+        normal: UnitVector3,
+        /// Unit direction of the major axis (in the ellipse plane).
+        major_axis: UnitVector3,
+        /// Semi-major radius (meters, > 0).
+        major_radius: f64,
+        /// Semi-minor radius (meters, > 0, ≤ `major_radius`).
+        minor_radius: f64,
+    },
 }
 
 // ---------------------------------------------------------------------------

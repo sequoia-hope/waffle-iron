@@ -130,6 +130,11 @@ fn norm3(a: [f64; 3]) -> f64 {
     dot3(a, a).sqrt()
 }
 
+fn normalize3_arr(a: [f64; 3]) -> [f64; 3] {
+    let n = norm3(a);
+    [a[0] / n, a[1] / n, a[2] / n]
+}
+
 fn neg_unit(n: UnitVector3) -> UnitVector3 {
     UnitVector3 {
         x: -n.x,
@@ -206,7 +211,20 @@ pub fn to_yang_brep(arena: &BrepArena, solid: SolidId) -> Result<yang_rs::BRep, 
                         let mut indices = Vec::with_capacity(hes.len());
                         for &h in &hes {
                             let he = arena.half_edge(h)?;
+                            // PR-KV9: ellipse-arc boundaries (oblique
+                            // sections) have no yang Stage-1 INPUT
+                            // tessellation yet — boolean outputs carrying
+                            // them are terminal for chaining (typed wall).
                             match he.curve {
+                                // PR-KV9: ellipse-arc boundaries (oblique
+                                // sections) have no yang Stage-1 INPUT
+                                // tessellation yet — boolean outputs carrying
+                                // them are terminal for chaining (typed wall).
+                                Curve::EllipseArc { .. } => {
+                                    return Err(KernelV2Error::UnsupportedCurvedBoolean {
+                                        face: f,
+                                    });
+                                }
                                 Curve::LineSegment => {
                                     let start =
                                         map_vertex(he.origin, &mut vid_map, &mut yverts, arena)?;
@@ -368,6 +386,13 @@ pub fn to_yang_brep(arena: &BrepArena, solid: SolidId) -> Result<yang_rs::BRep, 
                             None => {
                                 let idx = yedges.len() as u32;
                                 match he.curve {
+                                    // PR-KV9: no yang INPUT vocabulary for
+                                    // ellipse arcs — typed re-entry wall.
+                                    Curve::EllipseArc { .. } => {
+                                        return Err(KernelV2Error::UnsupportedCurvedBoolean {
+                                            face: f,
+                                        });
+                                    }
                                     Curve::Arc {
                                         center,
                                         radius,
@@ -488,6 +513,17 @@ enum EdgeKind {
         center: Point3,
         forward_normal: [f64; 3],
         radius: f64,
+    },
+    /// Minor ELLIPSE arc (PR-KV9, `start != end`): the exact oblique
+    /// `plane ∩ cylinder` section piece. `forward_normal` is the
+    /// directional plane normal for THIS directed use (parametric sweep
+    /// < π in its frame).
+    EllipseArc {
+        center: Point3,
+        forward_normal: [f64; 3],
+        major_axis: [f64; 3],
+        major_radius: f64,
+        minor_radius: f64,
     },
 }
 
@@ -720,6 +756,37 @@ pub fn from_yang_brep(
             // Curve agreement between the two uses.
             match (k0, k1) {
                 (EdgeKind::Seg, EdgeKind::Seg) => {}
+                (
+                    EdgeKind::EllipseArc {
+                        center: c0,
+                        forward_normal: n0,
+                        major_axis: m0,
+                        major_radius: a0,
+                        minor_radius: b0,
+                    },
+                    EdgeKind::EllipseArc {
+                        center: c1,
+                        forward_normal: n1,
+                        major_axis: m1,
+                        major_radius: a1,
+                        minor_radius: b1,
+                    },
+                ) => {
+                    // PR-KV9: same frame, exactly negated traversal normals
+                    // (each use's normal is derived from its own walk).
+                    if c0 != c1
+                        || a0 != a1
+                        || b0 != b1
+                        || m0 != m1
+                        || n0[0] != -n1[0]
+                        || n0[1] != -n1[1]
+                        || n0[2] != -n1[2]
+                    {
+                        return Err(KernelV2Error::InvalidBooleanOutput(
+                            "twin output edges carry inconsistent ellipse-arc curves",
+                        ));
+                    }
+                }
                 (
                     EdgeKind::Arc {
                         center: c0,
@@ -1051,6 +1118,27 @@ pub fn from_yang_brep(
                     },
                     radius,
                 },
+                EdgeKind::EllipseArc {
+                    center,
+                    forward_normal,
+                    major_axis,
+                    major_radius,
+                    minor_radius,
+                } => Curve::EllipseArc {
+                    center,
+                    normal: UnitVector3 {
+                        x: forward_normal[0],
+                        y: forward_normal[1],
+                        z: forward_normal[2],
+                    },
+                    major_axis: UnitVector3 {
+                        x: major_axis[0],
+                        y: major_axis[1],
+                        z: major_axis[2],
+                    },
+                    major_radius,
+                    minor_radius,
+                },
                 EdgeKind::Full { center, radius, .. } => {
                     let nu = full_normals[&(si, k)];
                     Curve::Circle {
@@ -1164,8 +1252,76 @@ fn classify_edge(
                 radius,
             })
         }
-        yang_rs::Curve::Ellipse { .. } => {
-            Err(KernelV2Error::UnsupportedBooleanOutputCurve { curve: "Ellipse" })
+        yang_rs::Curve::Ellipse {
+            center,
+            normal,
+            major_axis,
+            major_radius,
+            minor_radius,
+        } => {
+            // PR-KV9: the exact oblique-section piece. Same minor-side
+            // derivation as circles, in the PARAMETRIC frame: each
+            // arrangement mesh edge subtends ≈ one Stage-1 facet, far below
+            // π; a near-half sweep is rejected loudly rather than guessed.
+            let n = normalize3_arr(normal.as_array());
+            let m = normalize3_arr(major_axis.as_array());
+            if !(major_radius.is_finite()
+                && minor_radius.is_finite()
+                && major_radius > 0.0
+                && minor_radius > 0.0)
+            {
+                return Err(KernelV2Error::InvalidBooleanOutput(
+                    "output ellipse edge with non-positive radii",
+                ));
+            }
+            if e.start == e.end {
+                return Err(KernelV2Error::UnsupportedBooleanOutputCurve {
+                    curve: "full Ellipse (no producer constructs closed ellipse edges)",
+                });
+            }
+            let ps = yverts[from as usize].point;
+            let pe = yverts[to as usize].point;
+            // Endpoints on the ellipse (import band, in-plane residual
+            // scaled by the minor radius, out-of-plane direct).
+            for p in [ps, pe] {
+                let d = sub(p, center);
+                let out_of_plane = dot3(d, n);
+                let w = [
+                    n[1] * m[2] - n[2] * m[1],
+                    n[2] * m[0] - n[0] * m[2],
+                    n[0] * m[1] - n[1] * m[0],
+                ];
+                let u = dot3(d, m) / major_radius;
+                let v = dot3(d, w) / minor_radius;
+                let band =
+                    1e-9 * (1.0 + major_radius.max(p.x().abs().max(p.y().abs().max(p.z().abs()))));
+                if out_of_plane.abs() > band || (u.hypot(v) - 1.0).abs() * minor_radius > band {
+                    return Err(KernelV2Error::InvalidBooleanOutput(
+                        "output ellipse-arc endpoint does not lie on its ellipse",
+                    ));
+                }
+            }
+            let Some(sweep) =
+                crate::geom::ellipse_ccw_sweep(center, n, m, major_radius, minor_radius, ps, pe)
+            else {
+                return Err(KernelV2Error::InvalidBooleanOutput(
+                    "output ellipse-arc endpoint has no parametric direction",
+                ));
+            };
+            let pi = std::f64::consts::PI;
+            if (sweep - pi).abs() <= ARC_MINOR_AMBIGUITY_BAND {
+                return Err(KernelV2Error::UnsupportedBooleanOutputCurve {
+                    curve: "near-half-ellipse arc (minor side ambiguous)",
+                });
+            }
+            let forward_normal = if sweep < pi { n } else { [-n[0], -n[1], -n[2]] };
+            Ok(EdgeKind::EllipseArc {
+                center,
+                forward_normal,
+                major_axis: m,
+                major_radius,
+                minor_radius,
+            })
         }
         yang_rs::Curve::Parabola { .. } => {
             Err(KernelV2Error::UnsupportedBooleanOutputCurve { curve: "Parabola" })

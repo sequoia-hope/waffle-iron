@@ -44,7 +44,7 @@
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
 use kernel_v2::{
     boolean_op, extrude, from_yang_brep, tessellate, to_yang_brep, validate_solid, BrepArena,
-    ExtrudeResult, KernelV2Error, Profile, RenderMesh, Surface,
+    ExtrudeResult, Profile, RenderMesh, Surface,
 };
 
 // ── fixtures ───────────────────────────────────────────────────────────────
@@ -279,12 +279,15 @@ fn boolean_intersect_cylinder_box_volume() {
 
 // ── 6. typed walls ─────────────────────────────────────────────────────────
 
-/// Oblique plane × cylinder sections are ELLIPSES — yang-rs emits
-/// `Curve::Ellipse` output edges (PR-YR11), which is outside kernel-v2's
-/// KV5b reassembly vocabulary. The wall must be typed and must NAME the
-/// curve — never a silent chord approximation.
+/// PR-KV9 flip (was the named Ellipse output-curve wall): oblique plane ×
+/// cylinder sections are ELLIPSES; yang emits exact `Curve::Ellipse` arcs
+/// (PR-YR11 relocation) and kernel-v2 now carries the `EllipseArc`
+/// vocabulary end-to-end (classification, twin rules, validation,
+/// tessellation, closed-form volume terms). The cut plane passes through
+/// the cylinder's centroid, so by point symmetry the result is EXACTLY
+/// half the cylinder.
 #[test]
-fn oblique_section_ellipse_is_loudly_unsupported_by_name() {
+fn oblique_section_ellipse_subtract_succeeds() {
     let mut arena = BrepArena::new();
     let cyl = cylinder(&mut arena, 0.0, 1.0);
     // Oblique slab: unit normal (1, 2, 2)/3, base plane passing through the
@@ -312,12 +315,17 @@ fn oblique_section_ellipse_is_loudly_unsupported_by_name() {
     .expect("oblique rect profile");
     let slab = extrude(&mut arena, &profile, n, 1.0).expect("oblique slab");
 
-    let err = boolean_op(&mut arena, cyl.solid, slab.solid, BoolOp::Subtract)
-        .expect_err("oblique ellipse section must be a typed loud wall");
-    let text = format!("{err:?}");
+    let out = boolean_op(&mut arena, cyl.solid, slab.solid, BoolOp::Subtract)
+        .unwrap_or_else(|e| panic!("oblique ellipse-section subtract: {e:?}"));
+    validate_solid(&arena, out).expect("validates");
+    let vol = mesh_volume(&tessellate(&arena, out).expect("tessellate"));
+    // The slab's near face passes through the cylinder centroid and its far
+    // face clears the cylinder entirely; the cylinder is point-symmetric
+    // about its centroid, so the kept region is EXACTLY half:
+    let expect = std::f64::consts::PI * 0.25 * 0.25 * 1.0 / 2.0;
     assert!(
-        text.contains("Ellipse"),
-        "the wall must NAME the unsupported curve (Ellipse), got {text}"
+        vol <= expect * 1.005 && vol >= 0.93 * expect,
+        "half-cylinder volume {vol} vs exact {expect}"
     );
 }
 

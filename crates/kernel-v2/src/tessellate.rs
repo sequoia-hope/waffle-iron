@@ -291,6 +291,70 @@ pub(crate) fn arc_interior_samples(
     Ok(samples)
 }
 
+/// Interior sample points of an ELLIPSE-arc half-edge (PR-KV9), endpoints
+/// excluded, in the half-edge's walk direction. Twin-canonical exactly like
+/// [`arc_interior_samples`]: computed on the lower-id half-edge of the twin
+/// pair and reversed for the other side, so both incident faces emit
+/// identical positions. The parametric step is the SAME angular step the
+/// circle sampling uses (`2π/n_seg`): for a cylinder-section ellipse the
+/// parameter equals the cylinder azimuth, so per-chord surface deviation
+/// matches the lateral's own chord bound (shared contract, no new
+/// tolerance).
+pub(crate) fn ellipse_interior_samples(
+    arena: &BrepArena,
+    h: crate::arena::HalfEdgeId,
+    n_seg: u32,
+) -> Result<Vec<Point3>, KernelV2Error> {
+    let he = arena.half_edge(h)?;
+    if !matches!(he.curve, Curve::EllipseArc { .. }) {
+        return Ok(Vec::new());
+    }
+    let canon = h.min(he.twin);
+    let che = arena.half_edge(canon)?;
+    let Curve::EllipseArc {
+        center,
+        normal,
+        major_axis,
+        major_radius,
+        minor_radius,
+    } = che.curve
+    else {
+        return Err(KernelV2Error::CurveTwinMismatch { half_edge: canon });
+    };
+    let fid = arena.loop_(che.loop_id)?.face;
+    let start = arena.vertex(che.origin)?.point;
+    let end = arena.vertex(arena.half_edge(che.next)?.origin)?.point;
+    let nu = [normal.x, normal.y, normal.z];
+    let mr = [major_axis.x, major_axis.y, major_axis.z];
+    let (Some(t0), Some(sweep)) = (
+        crate::geom::ellipse_param(center, nu, mr, major_radius, minor_radius, start),
+        crate::geom::ellipse_ccw_sweep(center, nu, mr, major_radius, minor_radius, start, end),
+    ) else {
+        return Err(KernelV2Error::TessellationFailed {
+            face: fid,
+            reason: "degenerate ellipse arc (endpoint projects to the center)",
+        });
+    };
+    let step = 2.0 * std::f64::consts::PI / f64::from(n_seg);
+    let k = (sweep / step).ceil().max(1.0) as u32;
+    let mut samples = Vec::with_capacity(k as usize - 1);
+    for j in 1..k {
+        let t = t0 + sweep * f64::from(j) / f64::from(k);
+        samples.push(crate::geom::ellipse_point_at(
+            center,
+            nu,
+            mr,
+            major_radius,
+            minor_radius,
+            t,
+        ));
+    }
+    if h != canon {
+        samples.reverse();
+    }
+    Ok(samples)
+}
+
 /// A loop's boundary polyline for planar tessellation: origin vertices in
 /// walk order, with arc edges (PR-KV5b) expanded to their chord-bound
 /// samples. Pure-segment loops come back exactly as `loop_points` (the
@@ -334,6 +398,8 @@ fn sampled_loop_points(
                     center.z() + radius * (cs * e1[2] + sn * e2[2]),
                 ));
             }
+        } else if matches!(he.curve, Curve::EllipseArc { .. }) {
+            pts.extend(ellipse_interior_samples(arena, h, n_seg)?);
         } else {
             pts.extend(arc_interior_samples(arena, h, n_seg)?);
         }
@@ -941,6 +1007,74 @@ fn tessellate_cylinder_patch(
                     }
                     u_cur += sense * dir * sweep * radius;
                     total_theta += dir * sweep;
+                }
+                Curve::EllipseArc {
+                    center,
+                    normal,
+                    major_axis,
+                    major_radius,
+                    minor_radius,
+                } => {
+                    // PR-KV9: oblique-section arc on this cylinder. The
+                    // azimuth advance equals the SIGNED parametric sweep
+                    // (the axis-⊥ projection of a cylinder-section ellipse
+                    // is the radius-r circle: Δθ = s_w·Δt, s_w the frame
+                    // handedness sign — see geom::cylinder_arc_patch_flux).
+                    let nu = [normal.x, normal.y, normal.z];
+                    let mr = [major_axis.x, major_axis.y, major_axis.z];
+                    let m_dot_a = mr[0] * a[0] + mr[1] * a[1] + mr[2] * a[2];
+                    let e1r = [
+                        mr[0] - m_dot_a * a[0],
+                        mr[1] - m_dot_a * a[1],
+                        mr[2] - m_dot_a * a[2],
+                    ];
+                    let e1l = (e1r[0] * e1r[0] + e1r[1] * e1r[1] + e1r[2] * e1r[2]).sqrt();
+                    if e1l < 1e-12 {
+                        return Err(fail(
+                            "patch ellipse-arc major axis parallel to the cylinder axis",
+                        ));
+                    }
+                    let e2v = [
+                        (a[1] * e1r[2] - a[2] * e1r[1]) / e1l,
+                        (a[2] * e1r[0] - a[0] * e1r[2]) / e1l,
+                        (a[0] * e1r[1] - a[1] * e1r[0]) / e1l,
+                    ];
+                    let w = [
+                        nu[1] * mr[2] - nu[2] * mr[1],
+                        nu[2] * mr[0] - nu[0] * mr[2],
+                        nu[0] * mr[1] - nu[1] * mr[0],
+                    ];
+                    let s_w = if w[0] * e2v[0] + w[1] * e2v[1] + w[2] * e2v[2] >= 0.0 {
+                        1.0
+                    } else {
+                        -1.0
+                    };
+                    let Some(sweep) = crate::geom::ellipse_ccw_sweep(
+                        center,
+                        nu,
+                        mr,
+                        major_radius,
+                        minor_radius,
+                        p,
+                        q,
+                    ) else {
+                        return Err(fail("degenerate patch ellipse arc"));
+                    };
+                    let samples = ellipse_interior_samples(arena, h, n_seg)?;
+                    let k = samples.len() + 1;
+                    entries.push((origin_node, PatchEdgeKind::ArcSample));
+                    for (j, sp) in samples.iter().enumerate() {
+                        let frac = (j + 1) as f64 / k as f64;
+                        let su = u_cur + sense * s_w * sweep * frac * radius;
+                        let (_, sh) = theta_h(*sp, e1, e2)?;
+                        entries.push((nodes.len(), PatchEdgeKind::ArcSample));
+                        nodes.push(PatchNode {
+                            p2: Point2::new(su, sh),
+                            pos: [sp.x(), sp.y(), sp.z()],
+                        });
+                    }
+                    u_cur += sense * s_w * sweep * radius;
+                    total_theta += s_w * sweep;
                 }
                 Curve::Circle { .. } => {
                     return Err(fail("full-circle edge inside a partial cylinder patch"))

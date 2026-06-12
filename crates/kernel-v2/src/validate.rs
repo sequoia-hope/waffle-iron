@@ -188,7 +188,7 @@ pub fn validate_solid(arena: &BrepArena, solid: SolidId) -> Result<TopologyRepor
         if matches!(he.curve, Curve::Circle { .. }) && !closes {
             return Err(KernelV2Error::CurveTwinMismatch { half_edge: h });
         }
-        if matches!(he.curve, Curve::Arc { .. }) && closes {
+        if matches!(he.curve, Curve::Arc { .. } | Curve::EllipseArc { .. }) && closes {
             return Err(KernelV2Error::CurveTwinMismatch { half_edge: h });
         }
     }
@@ -294,6 +294,33 @@ fn curves_twin_consistent(a: Curve, b: Curve) -> bool {
                 radius: r2,
             },
         ) => c1 == c2 && r1 == r2 && n2.x == -n1.x && n2.y == -n1.y && n2.z == -n1.z,
+        (
+            Curve::EllipseArc {
+                center: c1,
+                normal: n1,
+                major_axis: m1,
+                major_radius: a1,
+                minor_radius: b1,
+            },
+            Curve::EllipseArc {
+                center: c2,
+                normal: n2,
+                major_axis: m2,
+                major_radius: a2,
+                minor_radius: b2,
+            },
+        ) => {
+            // PR-KV9: twins keep the SAME major_axis and negate the normal
+            // (the frame's minor direction n̂×m̂ flips with n̂, so the point
+            // set is identical, traversed oppositely).
+            c1 == c2
+                && a1 == a2
+                && b1 == b2
+                && m1 == m2
+                && n2.x == -n1.x
+                && n2.y == -n1.y
+                && n2.z == -n1.z
+        }
         _ => false,
     }
 }
@@ -360,6 +387,33 @@ fn winding_points(arena: &BrepArena, hes: &[HalfEdgeId]) -> Result<Vec<Point3>, 
             let nu = [normal.x, normal.y, normal.z];
             if let Some(sweep) = geom::ccw_sweep(center, nu, p0, p1) {
                 pts.push(geom::rotate_about_axis(center, nu, p0, sweep / 2.0));
+            }
+        }
+        if let Curve::EllipseArc {
+            center,
+            normal,
+            major_axis,
+            major_radius,
+            minor_radius,
+        } = he.curve
+        {
+            // PR-KV9: midpoint at half the PARAMETRIC sweep (the bulge point
+            // the chord polygon misses), same role as the arc midpoint.
+            let p1 = arena.vertex(arena.half_edge(he.next)?.origin)?.point;
+            let nu = [normal.x, normal.y, normal.z];
+            let mr = [major_axis.x, major_axis.y, major_axis.z];
+            if let (Some(t0), Some(sweep)) = (
+                geom::ellipse_param(center, nu, mr, major_radius, minor_radius, p0),
+                geom::ellipse_ccw_sweep(center, nu, mr, major_radius, minor_radius, p0, p1),
+            ) {
+                pts.push(geom::ellipse_point_at(
+                    center,
+                    nu,
+                    mr,
+                    major_radius,
+                    minor_radius,
+                    t0 + sweep / 2.0,
+                ));
             }
         }
     }
@@ -493,10 +547,51 @@ fn validate_planar_face(
             let hes = arena.loop_half_edges(lid)?;
             for &h in &hes {
                 let he = arena.half_edge(h)?;
+                // PR-KV9: ellipse arcs check center-on-plane + endpoints on
+                // the ellipse (frame residual scaled by the minor radius,
+                // the conservative in-plane length conversion) at the import
+                // band, then continue — the circle logic below is
+                // radius-based and does not apply.
+                if let Curve::EllipseArc {
+                    center,
+                    normal,
+                    major_axis,
+                    major_radius,
+                    minor_radius,
+                } = he.curve
+                {
+                    let band = import_band(major_radius, center);
+                    let d = (center.x() - plane.point.x()) * plane.normal.x
+                        + (center.y() - plane.point.y()) * plane.normal.y
+                        + (center.z() - plane.point.z()) * plane.normal.z;
+                    if d.abs() > band {
+                        return Err(KernelV2Error::NonPlanarFace { face: f });
+                    }
+                    let nu = [normal.x, normal.y, normal.z];
+                    let mr = [major_axis.x, major_axis.y, major_axis.z];
+                    for p in [
+                        arena.vertex(he.origin)?.point,
+                        arena.vertex(arena.half_edge(he.next)?.origin)?.point,
+                    ] {
+                        let w = [
+                            nu[1] * mr[2] - nu[2] * mr[1],
+                            nu[2] * mr[0] - nu[0] * mr[2],
+                            nu[0] * mr[1] - nu[1] * mr[0],
+                        ];
+                        let dv = [p.x() - center.x(), p.y() - center.y(), p.z() - center.z()];
+                        let u = (dv[0] * mr[0] + dv[1] * mr[1] + dv[2] * mr[2]) / major_radius;
+                        let v = (dv[0] * w[0] + dv[1] * w[1] + dv[2] * w[2]) / minor_radius;
+                        if (u.hypot(v) - 1.0).abs() * minor_radius > import_band(major_radius, p) {
+                            return Err(KernelV2Error::VertexOffSurface { face: f });
+                        }
+                    }
+                    continue;
+                }
                 let (center, radius, is_arc) = match he.curve {
                     Curve::Circle { center, radius, .. } => (center, radius, false),
                     Curve::Arc { center, radius, .. } => (center, radius, true),
-                    Curve::LineSegment => continue,
+                    // EllipseArc handled (and continued) above.
+                    Curve::LineSegment | Curve::EllipseArc { .. } => continue,
                 };
                 let plane_band = if is_arc {
                     import_band(radius, center)
@@ -830,6 +925,61 @@ fn validate_cylinder_patch(
                     } else {
                         -sweep
                     }
+                }
+                Curve::EllipseArc {
+                    center,
+                    normal,
+                    major_axis,
+                    major_radius,
+                    minor_radius,
+                } => {
+                    // PR-KV9: oblique-section arc on this cylinder. The
+                    // azimuth advance equals the SIGNED parametric sweep:
+                    // the axis-⊥ projection of a cylinder-section ellipse is
+                    // the radius-r circle itself (minor radius = r, minor
+                    // direction ⊥ axis), so Δazimuth = s_w·Δt with
+                    // s_w = sign((n̂×m̂)·(â×ê1)) the frame handedness.
+                    if (minor_radius - radius).abs() > 1e-9 * (1.0 + radius) {
+                        return Err(mismatch(
+                            "patch ellipse-arc minor radius disagrees with the surface",
+                        ));
+                    }
+                    let nu = [normal.x, normal.y, normal.z];
+                    let mr = [major_axis.x, major_axis.y, major_axis.z];
+                    let m_dot_a = mr[0] * a[0] + mr[1] * a[1] + mr[2] * a[2];
+                    let e1r = [
+                        mr[0] - m_dot_a * a[0],
+                        mr[1] - m_dot_a * a[1],
+                        mr[2] - m_dot_a * a[2],
+                    ];
+                    let e1l = (e1r[0] * e1r[0] + e1r[1] * e1r[1] + e1r[2] * e1r[2]).sqrt();
+                    if e1l < 1e-12 {
+                        return Err(mismatch(
+                            "patch ellipse-arc major axis parallel to the cylinder axis",
+                        ));
+                    }
+                    let e1v = [e1r[0] / e1l, e1r[1] / e1l, e1r[2] / e1l];
+                    let e2v = [
+                        a[1] * e1v[2] - a[2] * e1v[1],
+                        a[2] * e1v[0] - a[0] * e1v[2],
+                        a[0] * e1v[1] - a[1] * e1v[0],
+                    ];
+                    let w = [
+                        nu[1] * mr[2] - nu[2] * mr[1],
+                        nu[2] * mr[0] - nu[0] * mr[2],
+                        nu[0] * mr[1] - nu[1] * mr[0],
+                    ];
+                    let s_w = if w[0] * e2v[0] + w[1] * e2v[1] + w[2] * e2v[2] >= 0.0 {
+                        1.0
+                    } else {
+                        -1.0
+                    };
+                    let Some(sweep) =
+                        geom::ellipse_ccw_sweep(center, nu, mr, major_radius, minor_radius, p, q)
+                    else {
+                        return Err(mismatch("patch ellipse-arc endpoint degenerate"));
+                    };
+                    s_w * sweep
                 }
                 Curve::Circle { .. } => {
                     // Unreachable: the dispatcher sends full-circle faces to
