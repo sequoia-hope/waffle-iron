@@ -714,6 +714,15 @@ pub fn check_no_degenerate_triangles(mesh: &RenderMesh) -> OracleVerdict {
     let verts = &mesh.vertices;
     let mut degenerate = 0usize;
     let total = mesh.indices.len() / 3;
+    // PR-KV8c: "degenerate" means flat AT THE RENDER CHANNEL'S RESOLUTION —
+    // the triangle's height below a few f32 ulps of the mesh's coordinate
+    // scale (such a triangle is unrepresentable/zero in the channel). An
+    // absolute area floor misreads SCALE: a thin-but-real triangle from
+    // densely-sampled authored geometry (gear flanks at mm model scale)
+    // legitimately has a tiny absolute area while standing dozens of ulps
+    // tall. The absolute 1e-12 floor is kept for zero-scale safety.
+    let max_abs = verts.iter().map(|v| v.abs()).fold(0.0_f32, f32::max) as f64;
+    let height_floor = 4.0 * max_abs * (f32::EPSILON as f64);
 
     for tri in mesh.indices.chunks(3) {
         if tri.len() < 3 {
@@ -738,8 +747,16 @@ pub fn check_no_degenerate_triangles(mesh: &RenderMesh) -> OracleVerdict {
         let cy = az * bx - ax * bz;
         let cz = ax * by - ay * bx;
         let area = (cx * cx + cy * cy + cz * cz).sqrt() / 2.0;
+        let max_side2 = (ax * ax + ay * ay + az * az)
+            .max(bx * bx + by * by + bz * bz)
+            .max((bx - ax) * (bx - ax) + (by - ay) * (by - ay) + (bz - az) * (bz - az));
+        let height = if max_side2 > 0.0 {
+            2.0 * area / max_side2.sqrt()
+        } else {
+            0.0
+        };
 
-        if area < 1e-12 {
+        if (area as f64) < 1e-12 && (height as f64) < height_floor {
             degenerate += 1;
         }
     }
