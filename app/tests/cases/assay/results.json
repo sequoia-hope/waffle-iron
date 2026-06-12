@@ -1,8 +1,8 @@
 {
-  "errored": 47,
-  "failed": 4,
+  "errored": 38,
+  "failed": 5,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 36,
+  "passed": 38,
   "results": [
     {
       "category": "SUPPORTED_WRONG",
@@ -36,7 +36,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): cc73cf37-0338-4409-bdad-6e7ccd4c9a49: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: UnsupportedBooleanOutputCurve { curve: \"Ellipse\" }",
+      "detail": "1 engine error(s): cc73cf37-0338-4409-bdad-6e7ccd4c9a49: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: InvalidBooleanOutput(\"output face plane normal disagrees with its outer-loop Newell normal\")",
       "id": "R0006",
       "status": "error"
     },
@@ -66,27 +66,27 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 36235b92-b483-44d7-88d3-73c7b706160a: operation error: kernel error: kernel error: kernel-v2 extrude failed: NonPlanarFace { face: FaceId(6) }",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: geometric face resolution failed for kept triangle 57 (centroid off all face surfaces, a membership tie unresolved by finite-extent containment, or a multi-solid label with no matching Stage-0 pair plane)\"). Body created as standalone.",
       "id": "R0011",
       "status": "error"
     },
     {
       "category": "ERROR",
-      "detail": "2 engine error(s): 8e18ae8f-62ac-40eb-9a58-16dada6dc409: operation error: kernel error: kernel error: kernel-v2 extrude failed: NonPlanarFace { face: FaceId(4) }; efc36393-87a3-4385-80aa-b1155847f9e9: operation error: kernel error: kernel error: kernel-v2 extrude failed: NonPlanarFace { face: FaceId(314) }",
+      "detail": "timeout after 90s",
       "id": "R0012",
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 79c540a2-0359-41b6-941e-9a1a3f9f2b54: operation error: kernel error: kernel error: kernel-v2 extrude failed: NonPlanarFace { face: FaceId(31) }",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "R0013",
-      "status": "error"
+      "status": "unsupported"
     },
     {
-      "category": "ERROR",
-      "detail": "2 engine error(s): 37e8c6dc-9e75-4ad4-a5b4-10e5d74ef4be: operation error: kernel error: kernel error: kernel-v2 extrude failed: NonPlanarFace { face: FaceId(4) }; df14aa73-8dab-4477-8b79-27b0197bb172: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "2 NotSupported boundary(ies); first: df14aa73-8dab-4477-8b79-27b0197bb172: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0014",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(revolve)",
@@ -143,14 +143,14 @@
       "status": "unsupported"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): c9d36e68-39b5-48aa-beaa-06e2ed8a6a6f: operation error: kernel error: kernel error: kernel-v2 extrude failed: NonPlanarFace { face: FaceId(308) }",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "R0024",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: aa386512-2ca8-4946-88e7-831532802329: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
+      "detail": "2 NotSupported boundary(ies); first: aa386512-2ca8-4946-88e7-831532802329: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0025",
       "status": "unsupported"
     },
@@ -246,15 +246,15 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): e507f696-a1f4-4c34-b7fb-2f836f29eb02: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: UnsupportedBooleanOutputCurve { curve: \"Ellipse\" }",
+      "detail": "1 engine error(s): e507f696-a1f4-4c34-b7fb-2f836f29eb02: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: InvalidBooleanOutput(\"output ellipse-arc endpoint does not lie on its ellipse\")",
       "id": "R0041",
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 113cbcc9-dfed-4b59-b16c-b7a0c597b84e: operation error: kernel error: kernel error: kernel-v2 extrude failed: NonPlanarFace { face: FaceId(7) }",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0042",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(multi-shell)",
@@ -383,10 +383,10 @@
       "status": "unsupported"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 32db5a1b-c481-4dce-97b7-ae7e035ee239: operation error: kernel error: kernel error: kernel-v2 extrude failed: NonPlanarFace { face: FaceId(4) }",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "R0064",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(revolve)",
@@ -438,7 +438,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 8aaa6514-6746-4699-ad62-108753a6ab7c: operation error: kernel error: kernel error: kernel-v2 extrude failed: NonPlanarFace { face: FaceId(10) }",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: geometric face resolution failed for kept triangle 516 (centroid off all face surfaces, a membership tie unresolved by finite-extent containment, or a multi-solid label with no matching Stage-0 pair plane)\"). Body created as standalone.",
       "id": "R0073",
       "status": "error"
     },
@@ -492,7 +492,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): ea5d00ce-b1f4-4d3a-81b4-b10c34c0afb9: operation error: kernel error: kernel error: kernel-v2 extrude failed: NonPlanarFace { face: FaceId(14) }",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: geometric face resolution failed for kept triangle 1075 (centroid off all face surfaces, a membership tie unresolved by finite-extent containment, or a multi-solid label with no matching Stage-0 pair plane)\"). Body created as standalone.",
       "id": "R0082",
       "status": "error"
     },
@@ -528,7 +528,7 @@
     },
     {
       "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: f2076600-1597-4345-98d9-a609f15f25cf: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
+      "detail": "2 NotSupported boundary(ies); first: d1d97c73-794c-42de-90bf-3a044a05ac9d: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0088",
       "status": "unsupported"
     },
@@ -540,7 +540,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 1bcd1eed-00e6-43e8-8ecf-d82507e1c23f: operation error: kernel error: kernel error: kernel-v2 extrude failed: NonPlanarFace { face: FaceId(7) }",
+      "detail": "2 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: geometric face resolution failed for kept triangle 662 (centroid off all face surfaces, a membership tie unresolved by finite-extent containment, or a multi-solid label with no matching Stage-0 pair plane)\"). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: geometric face resolution failed for kept triangle 618 (centroid off all face surfaces, a membership tie unresolved by finite-extent containment, or a multi-solid label with no matching Stage-0 pair plane)\"). Body created as standalone.",
       "id": "R0090",
       "status": "error"
     },
@@ -570,7 +570,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "2 engine error(s): 2bc1b3fa-aa25-4363-b3c2-a2f517452344: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: UnsupportedBooleanOutputCurve { curve: \"Ellipse\" }; ac392209-5719-4ea0-9e48-3d2680bc2542: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 109 is invalid: DegenerateTriangle\")",
+      "detail": "2 engine error(s): 2bc1b3fa-aa25-4363-b3c2-a2f517452344: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: InvalidBooleanOutput(\"output ellipse-arc endpoint does not lie on its ellipse\"); ac392209-5719-4ea0-9e48-3d2680bc2542: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 109 is invalid: DegenerateTriangle\")",
       "id": "R0095",
       "status": "error"
     },
@@ -587,10 +587,10 @@
       "status": "fail"
     },
     {
-      "category": "ERROR",
-      "detail": "2 engine error(s): a6903cba-1b96-4050-b4b8-f2082a081a14: operation error: kernel error: kernel error: kernel-v2 extrude failed: NonPlanarFace { face: FaceId(2) }; 4d35d0fd-b9d6-4ddc-bbf0-0f92289992ae: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: 4d35d0fd-b9d6-4ddc-bbf0-0f92289992ae: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0098",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(revolve)",
@@ -846,21 +846,21 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (22, 58): AmbiguousCurve { candidates: 2, matched: 0 }\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"output loop with fewer than 3 edges and no full-circle edge\"). Body created as standalone.",
       "id": "F0041",
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): b2170b0b-0c14-44f4-8723-44d951dc8d42: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 31 is invalid: LocalRefinementRequired\")",
+      "category": "SUPPORTED_WRONG",
+      "detail": "watertight_mesh: 199 unpaired edges out of 21305 total (71 boundary, 128 non-manifold); consistent_normals: 221 of 14133 triangles have reversed normals",
       "id": "F0042",
-      "status": "error"
+      "status": "fail"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (15, 53): AmbiguousCurve { candidates: 2, matched: 0 }\"). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0043",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -870,37 +870,37 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (20, 70): AmbiguousCurve { candidates: 2, matched: 0 }\"). Body created as standalone.",
+      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(9), reason: \"inverted final triangle\" }",
       "id": "F0045",
       "status": "error"
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: UnsupportedBooleanOutputCurve { curve: \"Ellipse\" }. Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"output ellipse-arc endpoint does not lie on its ellipse\"). Body created as standalone.",
       "id": "F0046",
       "status": "error"
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: UnsupportedBooleanOutputCurve { curve: \"Ellipse\" }. Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"output ellipse-arc endpoint does not lie on its ellipse\"). Body created as standalone.",
       "id": "F0047",
       "status": "error"
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: UnsupportedBooleanOutputCurve { curve: \"Ellipse\" }. Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"output ellipse-arc endpoint does not lie on its ellipse\"). Body created as standalone.",
       "id": "F0048",
       "status": "error"
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: UnsupportedBooleanOutputCurve { curve: \"Ellipse\" }. Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"output ellipse-arc endpoint does not lie on its ellipse\"). Body created as standalone.",
       "id": "F0049",
       "status": "error"
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: UnsupportedBooleanOutputCurve { curve: \"Ellipse\" }. Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"output ellipse-arc endpoint does not lie on its ellipse\"). Body created as standalone.",
       "id": "F0050",
       "status": "error"
     },
@@ -936,19 +936,19 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 26 is invalid: LocalRefinementRequired\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (34, 69): AmbiguousCurve { candidates: 2, matched: 2 }\"). Body created as standalone.",
       "id": "F0056",
       "status": "error"
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 26 is invalid: LocalRefinementRequired\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (45, 90): AmbiguousCurve { candidates: 2, matched: 2 }\"). Body created as standalone.",
       "id": "F0057",
       "status": "error"
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 559e354e-a36a-4c6a-b998-fe93a4590c52: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (24, 27): AmbiguousCurve { candidates: 2, matched: 0 }\")",
+      "detail": "1 engine error(s): 559e354e-a36a-4c6a-b998-fe93a4590c52: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 30 is invalid: OffCurveBeyondChordBand\")",
       "id": "F0058",
       "status": "error"
     },
@@ -1007,10 +1007,10 @@
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "timeout after 90s",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "6 NotSupported boundary(ies); first: Extrude 4: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0068",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "ERROR",
@@ -1056,7 +1056,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "2 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: UnsupportedBooleanOutputCurve { curve: \"Ellipse\" }. Body created as standalone.; Extrude 5: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.",
+      "detail": "2 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"output ellipse-arc endpoint does not lie on its ellipse\"). Body created as standalone.; Extrude 5: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.",
       "id": "F0076",
       "status": "error"
     },
@@ -1085,8 +1085,8 @@
       "status": "error"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 10: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(11) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "F0081",
       "status": "unsupported"
     },
@@ -1097,8 +1097,8 @@
       "status": "error"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "6 NotSupported boundary(ies); first: Extrude 4: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "7 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(17) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "F0083",
       "status": "unsupported"
     },

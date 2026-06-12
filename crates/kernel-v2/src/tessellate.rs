@@ -1639,6 +1639,42 @@ fn tessellate_cylinder_patch(
             .extend_from_slice(&[sense * r[0] / rl, sense * r[1] / rl, sense * r[2] / rl]);
     }
     for t in &wtris {
+        // PR-KV9 fold tripwire (KV7-F1 class): a folded unrolled
+        // triangulation emits triangles whose 3D winding faces INTO the
+        // surface. Each emitted triangle's normal must agree with the
+        // sense-adjusted outward radial at its centroid — a clear-margin
+        // check (unit dot < −0.1 is a fold, not sliver noise; slivers with
+        // sub-resolution area are skipped). Loud failure beats silently
+        // shipping inverted geometry (P9).
+        let pnt = |w: usize| nodes[wnodes[w].node].pos;
+        let (pa, pb, pc) = (pnt(t[0]), pnt(t[1]), pnt(t[2]));
+        let u = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
+        let v = [pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]];
+        let n3 = [
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
+        ];
+        let nl = (n3[0] * n3[0] + n3[1] * n3[1] + n3[2] * n3[2]).sqrt();
+        if nl > 1e-12 * (1.0 + radius * radius) {
+            let cen = [
+                (pa[0] + pb[0] + pc[0]) / 3.0,
+                (pa[1] + pb[1] + pc[1]) / 3.0,
+                (pa[2] + pb[2] + pc[2]) / 3.0,
+            ];
+            let dch = [cen[0] - ap[0], cen[1] - ap[1], cen[2] - ap[2]];
+            let hh = dch[0] * a[0] + dch[1] * a[1] + dch[2] * a[2];
+            let rr = [dch[0] - hh * a[0], dch[1] - hh * a[1], dch[2] - hh * a[2]];
+            let rrl = (rr[0] * rr[0] + rr[1] * rr[1] + rr[2] * rr[2]).sqrt();
+            if rrl > 0.0 {
+                let dot = (n3[0] * rr[0] + n3[1] * rr[1] + n3[2] * rr[2]) / (nl * rrl);
+                if sense * dot < -0.1 {
+                    return Err(fail(
+                        "patch triangulation folded (inverted triangle) — KV9-F2: the                          unrolled ear-clip/refinement produced inward-facing geometry;                          loud instead of silently-wrong render output",
+                    ));
+                }
+            }
+        }
         out.indices.extend_from_slice(&[
             base + t[0] as u32,
             base + t[1] as u32,

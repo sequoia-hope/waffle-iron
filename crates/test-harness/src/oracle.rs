@@ -210,6 +210,32 @@ fn mesh_grid_size(mesh: &RenderMesh) -> f64 {
     (max_abs as f64 * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN)
 }
 
+/// EXACT (f32-bitwise) edge multiset of the triangle mesh. When every key
+/// appears exactly twice, the mesh is PROVABLY closed — no quantization
+/// reasoning involved. Used as the primary watertight/χ path (PR-KV8c):
+/// the grid weld exists to absorb cross-face trig-rounding seams, but at
+/// high vertex density (gear meshes) it can ALIAS distinct exact edges
+/// into one key, mis-reporting a perfectly-paired mesh as non-manifold.
+fn exact_edge_counts(mesh: &RenderMesh) -> HashMap<((u32, u32, u32), (u32, u32, u32)), usize> {
+    let key = |idx: u32| -> (u32, u32, u32) {
+        let i = idx as usize * 3;
+        (
+            mesh.vertices[i].to_bits(),
+            mesh.vertices[i + 1].to_bits(),
+            mesh.vertices[i + 2].to_bits(),
+        )
+    };
+    let mut counts: HashMap<((u32, u32, u32), (u32, u32, u32)), usize> = HashMap::new();
+    for tri in mesh.indices.chunks_exact(3) {
+        for (a, b) in [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])] {
+            let (ka, kb) = (key(a), key(b));
+            let e = if ka <= kb { (ka, kb) } else { (kb, ka) };
+            *counts.entry(e).or_insert(0) += 1;
+        }
+    }
+    counts
+}
+
 /// Raw (unsubdivided) position-quantized edge multiset of the triangle mesh.
 fn raw_edge_counts(mesh: &RenderMesh, inv_grid: f64) -> HashMap<QEdge, usize> {
     let quantize = |v: f32| -> i64 { (v as f64 * inv_grid).round() as i64 };
@@ -387,6 +413,16 @@ pub fn check_watertight_mesh(mesh: &RenderMesh) -> OracleVerdict {
         .map(|v| v.abs())
         .fold(0.0_f32, f32::max);
     let inv_grid = 1.0 / mesh_grid_size(mesh);
+
+    // PR-KV8c: exact-pairing fast path — bitwise closure is the strongest
+    // possible watertight evidence and immune to grid aliasing.
+    let exact = exact_edge_counts(mesh);
+    if !exact.is_empty() && exact.values().all(|&c| c == 2) {
+        return OracleVerdict::pass(
+            "watertight_mesh",
+            format!("all {} edges paired (exact f32 bits)", exact.len()),
+        );
+    }
 
     let raw_counts = raw_edge_counts(mesh, inv_grid);
     let edge_counts = subdivide_t_junctions(&raw_counts);
@@ -1325,6 +1361,58 @@ pub fn check_mesh_euler_characteristic(mesh: &RenderMesh, expected_chi: i64) -> 
     }
 
     let inv_grid = 1.0 / mesh_grid_size(mesh);
+    // PR-KV8c: when the mesh is EXACTLY paired (bitwise), count V/E/shells
+    // from the exact keys — the grid weld can alias distinct exact edges at
+    // high vertex density, corrupting V−E+F.
+    let exact = exact_edge_counts(mesh);
+    let exactly_paired = !exact.is_empty() && exact.values().all(|&c| c == 2);
+    if exactly_paired {
+        let mut unique_verts: HashSet<(u32, u32, u32)> = HashSet::new();
+        for &(a, b) in exact.keys() {
+            unique_verts.insert(a);
+            unique_verts.insert(b);
+        }
+        // Shell count via union-find over exact vertex keys.
+        let idx: HashMap<(u32, u32, u32), usize> = unique_verts
+            .iter()
+            .enumerate()
+            .map(|(i, &k)| (k, i))
+            .collect();
+        let mut parent: Vec<usize> = (0..idx.len()).collect();
+        fn find(p: &mut [usize], mut x: usize) -> usize {
+            while p[x] != x {
+                p[x] = p[p[x]];
+                x = p[x];
+            }
+            x
+        }
+        for &(a, b) in exact.keys() {
+            let (ra, rb) = (find(&mut parent, idx[&a]), find(&mut parent, idx[&b]));
+            if ra != rb {
+                parent[ra.max(rb)] = ra.min(rb);
+            }
+        }
+        let mut roots: HashSet<usize> = HashSet::new();
+        for i in 0..idx.len() {
+            roots.insert(find(&mut parent, i));
+        }
+        let shells = roots.len().max(1) as i64;
+        let meta_shells = expected_chi.div_euclid(2).max(1);
+        let expected_total = expected_chi + 2 * (shells - meta_shells).max(0);
+        let v = unique_verts.len() as i64;
+        let e = exact.len() as i64;
+        let f = (mesh.indices.len() / 3) as i64;
+        let chi = v - e + f;
+        let detail = format!(
+            "V({}) - E({}) + F({}) = {} (expected {} for {} shell(s), exact bits)",
+            v, e, f, chi, expected_total, shells
+        );
+        return if chi == expected_total {
+            OracleVerdict::pass_val("mesh_euler_characteristic", detail, chi as f64)
+        } else {
+            OracleVerdict::fail_val("mesh_euler_characteristic", detail, chi as f64)
+        };
+    }
     let raw_counts = raw_edge_counts(mesh, inv_grid);
     let sub_counts = subdivide_t_junctions(&raw_counts);
 
