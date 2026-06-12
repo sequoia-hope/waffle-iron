@@ -1848,6 +1848,51 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   cylinder), line+ellipse/cone-conic junctions, near-tangent planes — all
   loud STOPs.
 
+- **KV8/KV9 — gear profiles, cyl×cyl special cases, EllipseArc vocabulary.
+  ✅ COMPLETE (2026-06-12, PR-KV8/KV8b/KV8c/KV9/KV9b).** Corpus
+  34 → 42-class SUPPORTED_CORRECT (audit-driven autonomous session).
+  - **KV8 gear profiles** (was 73 walled cases): `make_faces_from_profiles`
+    consumes the authored `vertex_ids` polygon of spline-annotated profiles
+    (the gear's canonical sampled boundary from `generate_gear_profile`;
+    the SplineSegment entries are fitted-control-point annotations) — no
+    new sampling introduced; exact shoelace-volume oracles. Non-convex
+    booleans flow through yang NC1 CDT. Arc-segment profiles stay walled
+    (their samples shadow representable exact cylinder walls).
+  - **KV8b**: planarity tripwire made SCALE-RELATIVE
+    (`1e-12·(1+max|coord|)` — the absolute form mis-flagged legitimate f64
+    mapping rounding at world scale ~70).
+  - **KV8c**: assay oracles gain the EXACT-PAIRING fast path (bitwise edge
+    closure is provably watertight; the quantization grid ALIASED distinct
+    exact edges at gear density into false non-manifolds) and the
+    resolution-relative degenerate-triangle rule (flat at the f32
+    channel's resolution, height < 4 ulps of scale).
+  - **KV9 parallel cyl×cyl** (F0041/42/43/45 class): ssi-rs's parallel
+    branch (2 ruling lines) plumbed through Stage 3/4 — law-of-cosines
+    gradient band `1/sin α`, combined owner chord budgets, Stage-4 line
+    arm accepts (Cylinder, Cylinder); from_yang pass-1d Newell is
+    arc-midpoint-augmented (crescent caps); KV7 recovery gains the
+    minimum-loop-arity repair (lens caps).
+  - **KV9b EllipseArc vocabulary** (was the 8-case named Ellipse wall):
+    the oblique plane × cylinder section end-to-end — arena curve,
+    classification (parametric minor side), twin rules, validation,
+    twin-canonical sampling, patch unrolling (parameter = azimuth for
+    cylinder sections), exact closed forms (elliptical segment
+    `ab(Δt−sinΔt)`; sinusoid Green's flux verified against the circle
+    special case). Oblique sections re-enter nothing (typed wall stays).
+    Stage-3/4 cyl×cyl ELLIPSE plumbing (per-point gradient bands,
+    tangent-direction discrimination, ellipse×ellipse junction relocation
+    to (plane∩plane)∩cylinder with duplicate collapse).
+  - **FINDINGS**: **KV9-F1** Steinmetz tangency-junction patch cycles
+    disagree (equal-radius perpendicular pair quarantined; Stage-3/4 hold).
+    **KV9-F2** (with KV7-F1, one class): `tessellate_cylinder_patch` folds
+    on ring-holed partial laterals (F0042) and mid-arc loop rotations —
+    now caught LOUDLY by the fold tripwire at patch emit (winding vs
+    outward radial); the unrolled ear-clip/refinement needs a dedicated
+    robustness cycle. ~15 gear cases ERROR on the 90s replay timeout
+    (heavy exact arrangements — performance, not correctness).
+  - Remaining top blockers by size: M8 coplanar (~54), KV6c/d revolve
+    (~51), patch-fold robustness (KV7-F1/KV9-F2), KV6d torus.
+
 - **KV7 — boolean output curve recovery ("output curve tagging").
   ✅ COMPLETE (2026-06-12, PR-KV7).** Curved booleans are CHAINABLE: the
   former `UnsupportedCurvedBoolean` re-entry wall is gone. kernel-v2

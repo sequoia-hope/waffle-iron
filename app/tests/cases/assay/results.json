@@ -1,8 +1,8 @@
 {
   "errored": 40,
-  "failed": 1,
+  "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 41,
+  "passed": 42,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -335,10 +335,10 @@
       "status": "unsupported"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "no_degenerate_triangles: 1 of 2460 triangles are degenerate",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0056",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(revolve)",
