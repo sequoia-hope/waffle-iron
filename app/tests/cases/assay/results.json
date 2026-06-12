@@ -1,8 +1,8 @@
 {
-  "errored": 18,
+  "errored": 19,
   "failed": 2,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 31,
+  "passed": 30,
   "results": [
     {
       "category": "UNSUPPORTED(curved-profile)",
@@ -35,10 +35,10 @@
       "status": "unsupported"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "ERROR",
+      "detail": "1 engine error(s): cc73cf37-0338-4409-bdad-6e7ccd4c9a49: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: UnsupportedBooleanOutputCurve { curve: \"Ellipse\" }",
       "id": "R0006",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(coplanar-boolean)",
@@ -53,10 +53,10 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: e8f47324-eb20-44c1-ba99-9cba7531cd12: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(11) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "category": "ERROR",
+      "detail": "2 engine error(s): 7360827f-2c9f-41d7-891d-cd81b80a2f82: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 0 is invalid: DegenerateTriangle\"); c9dae053-dcad-4af4-a79d-7c7fdf03a94b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 33 is invalid: DegenerateTriangle\")",
       "id": "R0009",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
@@ -402,7 +402,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: mesh boolean backend failed: native boolean: in/out classification failed: NoExplicitRayOrigin { patch: 1 }\"). Body created as standalone.",
+      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(13), reason: \"inverted final triangle\" }",
       "id": "R0067",
       "status": "error"
     },
@@ -546,7 +546,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: c7b1979a-9521-4f37-b8df-73ba68c35609: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
+      "detail": "1 NotSupported boundary(ies); first: fb8ec45c-df52-4e96-a998-be0f13ac2446: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0091",
       "status": "unsupported"
     },
@@ -600,7 +600,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: 1a53051b-69ce-4fc9-9d72-d1ca6f7cc147: operation error: kernel error: operation not supported: revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
+      "detail": "2 NotSupported boundary(ies); first: 2b3ff4ed-060a-4b1c-8529-908354de8285: operation error: kernel error: operation not supported: revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
       "id": "R0100",
       "status": "unsupported"
     },
@@ -911,10 +911,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"). Body created as standalone.",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0052",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "SUPPORTED_CORRECT",

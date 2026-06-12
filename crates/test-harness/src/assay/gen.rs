@@ -613,6 +613,12 @@ pub fn generate_case(master_seed: u64, index: usize) -> GeneratedCase {
         });
     }
 
+    // PR-ASSAY-NOOP (2026-06-12): repair no-op operations so every op
+    // CHANGES the result volume (a union swallowed by an existing body or a
+    // cut through pure free space tests nothing). Deterministic, consumes
+    // NO randomness — unaffected cases stay byte-identical.
+    fix_noop_operations(&mut features, &mut op_metas);
+
     let tree = FeatureTree {
         features,
         active_index: None,
@@ -675,6 +681,515 @@ pub fn generate_case(master_seed: u64, index: usize) -> GeneratedCase {
 }
 
 // ── Featured Case Generation ──────────────────────────────────────────────
+
+// ═══════════════════════════════════════════════════════════════════════════
+// No-op operation repair (PR-ASSAY-NOOP, 2026-06-12)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Two no-op classes the random placement produces:
+//
+// 1. **Swallowed boss** — a later extrude fully inside the union of prior
+//    bosses (single-plane cases stack concentric profiles from one plane, so
+//    a smaller/shorter second profile vanishes into the first). Fix: flip
+//    the extrude to the other side of its sketch plane
+//    (`direction = Some(−n̂)`); if the flipped tool is STILL contained,
+//    re-anchor its plane origin onto the prior-body AABB boundary so the
+//    tool half-protrudes.
+// 2. **Free-space cut** — a cut whose (auto-aimed) tool prism misses every
+//    prior boss (multi-plane cases scatter origins over [−scale, scale]³).
+//    Flipping cannot fix a lateral miss (the engine already aims the sweep
+//    at the body's midpoint side), so the fix re-anchors the cut's plane
+//    origin so the tool is centered on the prior-body AABB center —
+//    guaranteed intersection.
+//
+// Detection is CONSERVATIVE in the safe direction: an op is only repaired
+// when its no-op-ness is certain for the decidable shape classes —
+// boss containment tests the tool's oriented-bbox CORNERS (overestimate)
+// against an exact (rect/circle) or inscribed (gear root-circle) prior
+// body, and skips when any prior cut or revolve makes the local geometry
+// undecidable; cut disjointness uses world-AABB separation (overestimates
+// both). Revolve ops are never repaired and make subsequent decisions
+// undecidable (skip).
+
+/// The engine's sketch-plane basis (`tangent_x_from_normal` in
+/// feature-engine rebuild.rs + `v = n × u`) — the fix-up must model tool
+/// placement with the SAME frame the replay uses.
+fn engine_plane_basis(n: [f64; 3]) -> ([f64; 3], [f64; 3]) {
+    let ref_vec = if n[2].abs() < 0.99 {
+        [0.0, 0.0, 1.0]
+    } else {
+        [1.0, 0.0, 0.0]
+    };
+    let cx = [
+        ref_vec[1] * n[2] - ref_vec[2] * n[1],
+        ref_vec[2] * n[0] - ref_vec[0] * n[2],
+        ref_vec[0] * n[1] - ref_vec[1] * n[0],
+    ];
+    let len = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
+    let u = if len > 1e-12 {
+        [cx[0] / len, cx[1] / len, cx[2] / len]
+    } else {
+        [1.0, 0.0, 0.0]
+    };
+    let v = [
+        n[1] * u[2] - n[2] * u[1],
+        n[2] * u[0] - n[0] * u[2],
+        n[0] * u[1] - n[1] * u[0],
+    ];
+    (u, v)
+}
+
+/// In-plane footprint of a sketch profile, centered on the plane origin
+/// (the random generator always centers profiles).
+#[derive(Clone, Copy, Debug)]
+enum Footprint {
+    /// Half-extents of an axis-aligned (in-plane) rectangle.
+    Rect { hw: f64, hh: f64 },
+    /// Full circle of `r`.
+    Circle { r: f64 },
+    /// Gear: outer bounding radius + inscribed (root) radius.
+    Gear { r_out: f64, r_in: f64 },
+}
+
+impl Footprint {
+    /// Conservative OUTER half-extents (bounding box of the footprint).
+    fn outer_half_extents(self) -> (f64, f64) {
+        match self {
+            Footprint::Rect { hw, hh } => (hw, hh),
+            Footprint::Circle { r } => (r, r),
+            Footprint::Gear { r_out, .. } => (r_out, r_out),
+        }
+    }
+
+    /// Is the in-plane point (x, y) inside the footprint's INSCRIBED region
+    /// (exact for Rect/Circle; root circle for Gear)?
+    fn inscribed_contains(self, x: f64, y: f64) -> bool {
+        match self {
+            Footprint::Rect { hw, hh } => x.abs() <= hw && y.abs() <= hh,
+            Footprint::Circle { r } => x * x + y * y <= r * r,
+            Footprint::Gear { r_in, .. } => x * x + y * y <= r_in * r_in,
+        }
+    }
+}
+
+/// World AABB (`(lo, hi)`).
+type Aabb = ([f64; 3], [f64; 3]);
+
+/// A revolve boss's conservative full-turn AABB + an interior anchor point.
+type RevolveBound = (Aabb, [f64; 3]);
+
+/// One placed extrude in world space, modelled with the engine's frame.
+#[derive(Clone, Debug)]
+struct PlacedExtrude {
+    origin: [f64; 3],
+    u: [f64; 3],
+    v: [f64; 3],
+    n: [f64; 3],
+    fp: Footprint,
+    /// Axial span relative to the plane along `n` (resolved direction).
+    span: (f64, f64),
+}
+
+impl PlacedExtrude {
+    fn world(&self, x: f64, y: f64, h: f64) -> [f64; 3] {
+        [
+            self.origin[0] + x * self.u[0] + y * self.v[0] + h * self.n[0],
+            self.origin[1] + x * self.u[1] + y * self.v[1] + h * self.n[1],
+            self.origin[2] + x * self.u[2] + y * self.v[2] + h * self.n[2],
+        ]
+    }
+
+    /// World AABB of the tool's oriented bounding box.
+    fn world_aabb(&self) -> Aabb {
+        let (hw, hh) = self.fp.outer_half_extents();
+        let mut lo = [f64::INFINITY; 3];
+        let mut hi = [f64::NEG_INFINITY; 3];
+        for &sx in &[-hw, hw] {
+            for &sy in &[-hh, hh] {
+                for &sh in &[self.span.0, self.span.1] {
+                    let p = self.world(sx, sy, sh);
+                    for k in 0..3 {
+                        lo[k] = lo[k].min(p[k]);
+                        hi[k] = hi[k].max(p[k]);
+                    }
+                }
+            }
+        }
+        (lo, hi)
+    }
+
+    /// Is the WORLD point strictly inside this body's inscribed solid?
+    fn contains_point(&self, p: [f64; 3]) -> bool {
+        let d = [
+            p[0] - self.origin[0],
+            p[1] - self.origin[1],
+            p[2] - self.origin[2],
+        ];
+        let x = d[0] * self.u[0] + d[1] * self.u[1] + d[2] * self.u[2];
+        let y = d[0] * self.v[0] + d[1] * self.v[1] + d[2] * self.v[2];
+        let h = d[0] * self.n[0] + d[1] * self.n[1] + d[2] * self.n[2];
+        h >= self.span.0 && h <= self.span.1 && self.fp.inscribed_contains(x, y)
+    }
+}
+
+fn aabb_overlap(a: &Aabb, b: &Aabb) -> bool {
+    (0..3).all(|k| a.0[k] <= b.1[k] && b.0[k] <= a.1[k])
+}
+
+fn aabb_union(a: &Aabb, b: &Aabb) -> Aabb {
+    (
+        [a.0[0].min(b.0[0]), a.0[1].min(b.0[1]), a.0[2].min(b.0[2])],
+        [a.1[0].max(b.1[0]), a.1[1].max(b.1[1]), a.1[2].max(b.1[2])],
+    )
+}
+
+/// Extract the centered footprint from an op's sketch feature.
+fn footprint_of(sketch: &Sketch, profile_type: &str) -> Option<Footprint> {
+    match profile_type {
+        "rectangle" => {
+            let (mut hw, mut hh) = (0.0f64, 0.0f64);
+            for &(_, (x, y)) in &collect_positions(sketch) {
+                hw = hw.max(x.abs());
+                hh = hh.max(y.abs());
+            }
+            (hw > 0.0 && hh > 0.0).then_some(Footprint::Rect { hw, hh })
+        }
+        "circle" => sketch
+            .solved_profiles
+            .first()
+            .and_then(|p| p.circle.as_ref())
+            .map(|c| Footprint::Circle { r: c.radius }),
+        "gear" => {
+            let (mut r_out, mut r_in) = (0.0f64, f64::INFINITY);
+            for &(_, (x, y)) in &collect_positions(sketch) {
+                let r = (x * x + y * y).sqrt();
+                r_out = r_out.max(r);
+                r_in = r_in.min(r);
+            }
+            (r_out > 0.0 && r_in.is_finite()).then_some(Footprint::Gear { r_out, r_in })
+        }
+        _ => None,
+    }
+}
+
+fn collect_positions(sketch: &Sketch) -> Vec<(u32, (f64, f64))> {
+    sketch
+        .solved_positions
+        .iter()
+        .map(|(&id, &p)| (id, p))
+        .collect()
+}
+
+/// Repair no-op operations in a generated random case (see the section
+/// comment). Mutates extrude `direction` flags and (for re-anchored ops)
+/// the sketch feature's `plane_origin` + the matching `OpMeta.plane_origin`.
+#[allow(clippy::needless_range_loop)] // i indexes BOTH features (2i, 2i+1) and op_metas
+fn fix_noop_operations(features: &mut [Feature], op_metas: &mut [OpMeta]) {
+    let op_count = op_metas.len();
+    // Feature layout in the random path: [sketch_0, op_0, sketch_1, op_1, …].
+    debug_assert_eq!(features.len(), 2 * op_count);
+
+    // Model pass state: placed bosses (decidable shapes), whether anything
+    // undecidable (revolve, gear-as-tool fallback, prior cut for the
+    // containment test) has been placed.
+    let mut bosses: Vec<PlacedExtrude> = Vec::new();
+    let mut cuts: Vec<PlacedExtrude> = Vec::new();
+    // Revolve bosses, as a conservative full-turn AABB OVERESTIMATE plus an
+    // interior anchor (the profile centroid at θ=0): enough for the
+    // cut-disjointness test (disjoint from an overestimate is certain) and
+    // for re-anchoring a free-space cut onto material; never used for
+    // containment (that needs underestimates).
+    let mut revolve_aabbs: Vec<RevolveBound> = Vec::new();
+    let mut undecidable_body = false;
+
+    for i in 0..op_count {
+        let sketch_idx = 2 * i;
+        let op_idx = 2 * i + 1;
+
+        // Only extrudes are modelled / repaired; revolve BOSSES contribute a
+        // conservative AABB, revolve cuts make later decisions undecidable.
+        let is_extrude = matches!(features[op_idx].operation, Operation::Extrude { .. });
+        if !is_extrude {
+            if let (Operation::Revolve { params }, Operation::Sketch { sketch }) =
+                (&features[op_idx].operation, &features[sketch_idx].operation)
+            {
+                if !params.cut {
+                    if let Some(rb) = revolve_full_turn_aabb(sketch, params) {
+                        revolve_aabbs.push(rb);
+                        continue;
+                    }
+                }
+            }
+            undecidable_body = true;
+            continue;
+        }
+        let (origin, n, fp) = {
+            let Operation::Sketch { sketch } = &features[sketch_idx].operation else {
+                undecidable_body = true;
+                continue;
+            };
+            let nl = sketch.plane_normal;
+            let len = (nl[0] * nl[0] + nl[1] * nl[1] + nl[2] * nl[2]).sqrt();
+            let n = [nl[0] / len, nl[1] / len, nl[2] / len];
+            let fp = footprint_of(sketch, &op_metas[i].profile_type);
+            (sketch.plane_origin, n, fp)
+        };
+        let Some(fp) = fp else {
+            undecidable_body = true;
+            continue;
+        };
+        let (u, v) = engine_plane_basis(n);
+        let (depth, is_cut, flipped) = match &features[op_idx].operation {
+            Operation::Extrude { params } => (params.depth, params.cut, params.direction.is_some()),
+            _ => unreachable!(),
+        };
+
+        let body_aabb = bosses
+            .iter()
+            .map(PlacedExtrude::world_aabb)
+            .reduce(|a, b| aabb_union(&a, &b));
+
+        let make = |origin: [f64; 3], span: (f64, f64)| PlacedExtrude {
+            origin,
+            u,
+            v,
+            n,
+            fp,
+            span,
+        };
+
+        if !is_cut {
+            // Boss span: +n̂ by default, −n̂ when an explicit flipped
+            // direction is set.
+            let span = if flipped { (-depth, 0.0) } else { (0.0, depth) };
+            let mut tool = make(origin, span);
+            // Swallowed-boss test: certain only when no prior cut or
+            // undecidable body could have carved the containing region.
+            let contained = |tool: &PlacedExtrude| -> bool {
+                if undecidable_body || !cuts.is_empty() || bosses.is_empty() {
+                    return false;
+                }
+                let (hw, hh) = tool.fp.outer_half_extents();
+                let mut corners = Vec::with_capacity(8);
+                for &sx in &[-hw, hw] {
+                    for &sy in &[-hh, hh] {
+                        for &sh in &[tool.span.0, tool.span.1] {
+                            corners.push(tool.world(sx, sy, sh));
+                        }
+                    }
+                }
+                bosses
+                    .iter()
+                    .any(|b| corners.iter().all(|&c| b.contains_point(c)))
+            };
+            // Class 3 (the inverse swallow): the new boss fully CONTAINS
+            // every prior boss — the final volume would equal this single
+            // extrude's. Same certainty rules as class 1.
+            let swallows_body = |tool: &PlacedExtrude| -> bool {
+                if undecidable_body || !cuts.is_empty() || bosses.is_empty() {
+                    return false;
+                }
+                bosses.iter().all(|b| {
+                    let (hw, hh) = b.fp.outer_half_extents();
+                    let mut corners = Vec::with_capacity(8);
+                    for &sx in &[-hw, hw] {
+                        for &sy in &[-hh, hh] {
+                            for &sh in &[b.span.0, b.span.1] {
+                                corners.push(b.world(sx, sy, sh));
+                            }
+                        }
+                    }
+                    corners.iter().all(|&c| tool.contains_point(c))
+                })
+            };
+            if i > 0 && (contained(&tool) || swallows_body(&tool)) {
+                // Fix 1: flip to the other side of the sketch plane.
+                let flipped_tool = make(origin, (-depth, 0.0));
+                if !contained(&flipped_tool) && !swallows_body(&flipped_tool) {
+                    set_extrude_direction(&mut features[op_idx], [-n[0], -n[1], -n[2]]);
+                    tool = flipped_tool;
+                } else if let Some(bb) = body_aabb {
+                    // Fix 2: re-anchor so the tool's axial midpoint sits on
+                    // the body AABB's max corner along n̂ — half in, half out.
+                    let target = project_to_aabb_boundary(&bb, n);
+                    let new_origin = [
+                        target[0] - n[0] * (depth * 0.5),
+                        target[1] - n[1] * (depth * 0.5),
+                        target[2] - n[2] * (depth * 0.5),
+                    ];
+                    set_sketch_origin(&mut features[sketch_idx], new_origin);
+                    if op_metas[i].plane_origin.is_some() {
+                        op_metas[i].plane_origin = Some(new_origin);
+                    }
+                    tool = make(new_origin, (0.0, depth));
+                }
+            }
+            bosses.push(tool);
+        } else {
+            // Cut span: the engine auto-aims the sweep at the body's
+            // midpoint side of the sketch plane.
+            let resolve_span = |origin: [f64; 3]| -> (f64, f64) {
+                if let Some(bb) = &body_aabb {
+                    let mid = [
+                        (bb.0[0] + bb.1[0]) * 0.5,
+                        (bb.0[1] + bb.1[1]) * 0.5,
+                        (bb.0[2] + bb.1[2]) * 0.5,
+                    ];
+                    let side = (mid[0] - origin[0]) * n[0]
+                        + (mid[1] - origin[1]) * n[1]
+                        + (mid[2] - origin[2]) * n[2];
+                    if side < 0.0 {
+                        (-depth, 0.0)
+                    } else {
+                        (0.0, depth)
+                    }
+                } else {
+                    (-depth, 0.0)
+                }
+            };
+            let mut tool = make(origin, resolve_span(origin));
+            let disjoint = |tool: &PlacedExtrude| -> bool {
+                if undecidable_body || (bosses.is_empty() && revolve_aabbs.is_empty()) {
+                    return false;
+                }
+                let ta = tool.world_aabb();
+                bosses.iter().all(|b| !aabb_overlap(&ta, &b.world_aabb()))
+                    && revolve_aabbs.iter().all(|(rb, _)| !aabb_overlap(&ta, rb))
+            };
+            if disjoint(&tool) {
+                // Re-anchor: center the tool on a point KNOWN to be on/in
+                // material — the first boss's solid center, else the first
+                // revolve's profile centroid.
+                let target = bosses
+                    .first()
+                    .map(|b| b.world(0.0, 0.0, (b.span.0 + b.span.1) * 0.5))
+                    .or_else(|| revolve_aabbs.first().map(|(_, p)| *p));
+                if let Some(mid) = target {
+                    let new_origin = [
+                        mid[0] + n[0] * (depth * 0.5),
+                        mid[1] + n[1] * (depth * 0.5),
+                        mid[2] + n[2] * (depth * 0.5),
+                    ];
+                    set_sketch_origin(&mut features[sketch_idx], new_origin);
+                    if op_metas[i].plane_origin.is_some() {
+                        op_metas[i].plane_origin = Some(new_origin);
+                    }
+                    tool = make(new_origin, resolve_span(new_origin));
+                }
+            }
+            cuts.push(tool);
+        }
+    }
+}
+
+/// Conservative full-turn AABB of a revolve boss (overestimates partial
+/// sweeps) + an interior anchor point (the profile centroid at θ = 0).
+fn revolve_full_turn_aabb(sketch: &Sketch, params: &RevolveParams) -> Option<RevolveBound> {
+    let nl = sketch.plane_normal;
+    let len = (nl[0] * nl[0] + nl[1] * nl[1] + nl[2] * nl[2]).sqrt();
+    if len <= 1e-12 || !len.is_finite() {
+        return None;
+    }
+    let n = [nl[0] / len, nl[1] / len, nl[2] / len];
+    let (u, v) = engine_plane_basis(n);
+    let positions = collect_positions(sketch);
+    if positions.is_empty() {
+        return None;
+    }
+    let a0 = params.axis_origin;
+    let ad = params.axis_direction;
+    let al = (ad[0] * ad[0] + ad[1] * ad[1] + ad[2] * ad[2]).sqrt();
+    if al <= 1e-12 || !al.is_finite() {
+        return None;
+    }
+    let a = [ad[0] / al, ad[1] / al, ad[2] / al];
+
+    // Per-vertex world position; axial coordinate t and radial distance r
+    // from the axis. The full revolution sweeps an annular slab: along the
+    // axis [t_min, t_max], radially up to r_max in every perpendicular
+    // direction — its AABB is computable per world axis.
+    let mut t_min = f64::INFINITY;
+    let mut t_max = f64::NEG_INFINITY;
+    let mut r_max = 0.0f64;
+    let mut centroid2 = [0.0f64; 2];
+    for &(_, (x, y)) in &positions {
+        centroid2[0] += x;
+        centroid2[1] += y;
+        let w = [
+            sketch.plane_origin[0] + x * u[0] + y * v[0],
+            sketch.plane_origin[1] + x * u[1] + y * v[1],
+            sketch.plane_origin[2] + x * u[2] + y * v[2],
+        ];
+        let d = [w[0] - a0[0], w[1] - a0[1], w[2] - a0[2]];
+        let t = d[0] * a[0] + d[1] * a[1] + d[2] * a[2];
+        let rad = [d[0] - t * a[0], d[1] - t * a[1], d[2] - t * a[2]];
+        t_min = t_min.min(t);
+        t_max = t_max.max(t);
+        r_max = r_max.max((rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]).sqrt());
+    }
+    if !t_min.is_finite() {
+        return None;
+    }
+    let k = positions.len() as f64;
+    centroid2[0] /= k;
+    centroid2[1] /= k;
+    let interior = [
+        sketch.plane_origin[0] + centroid2[0] * u[0] + centroid2[1] * v[0],
+        sketch.plane_origin[1] + centroid2[0] * u[1] + centroid2[1] * v[1],
+        sketch.plane_origin[2] + centroid2[0] * u[2] + centroid2[1] * v[2],
+    ];
+    // AABB of the slab: per world axis k, extent = |a_k|·t-extent +
+    // sqrt(1 − a_k²)·r_max.
+    let mut lo = [0.0f64; 3];
+    let mut hi = [0.0f64; 3];
+    for kx in 0..3 {
+        let perp = (1.0f64 - a[kx] * a[kx]).max(0.0).sqrt();
+        let c0 = a0[kx] + a[kx] * t_min - perp * r_max;
+        let c1 = a0[kx] + a[kx] * t_max + perp * r_max;
+        lo[kx] = c0.min(c1) - 0.0;
+        hi[kx] = c0.max(c1) + 0.0;
+    }
+    Some(((lo, hi), interior))
+}
+
+/// The point on the AABB boundary where the +n̂ ray from the box center
+/// exits (the re-anchor target for half-protruding bosses).
+fn project_to_aabb_boundary(bb: &Aabb, n: [f64; 3]) -> [f64; 3] {
+    let mid = [
+        (bb.0[0] + bb.1[0]) * 0.5,
+        (bb.0[1] + bb.1[1]) * 0.5,
+        (bb.0[2] + bb.1[2]) * 0.5,
+    ];
+    let half = [
+        (bb.1[0] - bb.0[0]) * 0.5,
+        (bb.1[1] - bb.0[1]) * 0.5,
+        (bb.1[2] - bb.0[2]) * 0.5,
+    ];
+    // Smallest t with |mid + t·n − mid|_k hitting a face: t = min over axes
+    // of half_k / |n_k|.
+    let mut t = f64::INFINITY;
+    for k in 0..3 {
+        if n[k].abs() > 1e-12 {
+            t = t.min(half[k] / n[k].abs());
+        }
+    }
+    if !t.is_finite() {
+        t = 0.0;
+    }
+    [mid[0] + n[0] * t, mid[1] + n[1] * t, mid[2] + n[2] * t]
+}
+
+fn set_extrude_direction(op: &mut Feature, dir: [f64; 3]) {
+    if let Operation::Extrude { params } = &mut op.operation {
+        params.direction = Some(dir);
+    }
+}
+
+fn set_sketch_origin(sketch_feature: &mut Feature, origin: [f64; 3]) {
+    if let Operation::Sketch { sketch } = &mut sketch_feature.operation {
+        sketch.plane_origin = origin;
+    }
+}
 
 /// Specification for a single featured test case.
 struct FeaturedSpec {
@@ -903,6 +1418,30 @@ pub fn generate_featured_cases(output_dir: &std::path::Path) -> Vec<ManifestEntr
             suppressed: false,
             references: vec![],
         });
+
+        // PR-ASSAY-NOOP: same repair as the random corpus (several specs
+        // stack a smaller second boss fully inside the first).
+        let mut spec_metas = vec![
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "rectangle".to_string(),
+                profile_size: spec.w1,
+                depth_or_angle: spec.d1,
+                is_cut: false,
+                plane_origin: None,
+                plane_normal: None,
+            },
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "rectangle".to_string(),
+                profile_size: spec.w2,
+                depth_or_angle: spec.d2,
+                is_cut: false,
+                plane_origin: None,
+                plane_normal: None,
+            },
+        ];
+        fix_noop_operations(&mut features, &mut spec_metas);
 
         let tree = FeatureTree {
             features,
@@ -1389,9 +1928,24 @@ fn generate_intersecting_oblique_cases(output_dir: &std::path::Path) -> Vec<Mani
 fn write_featured_case(
     output_dir: &std::path::Path,
     case_id: &str,
-    features: Vec<Feature>,
-    meta: AssayMeta,
+    mut features: Vec<Feature>,
+    mut meta: AssayMeta,
 ) -> ManifestEntry {
+    // PR-ASSAY-NOOP: the curated cases get the same no-op repair as the
+    // random corpus (several early featured specs stacked a smaller boss
+    // fully inside the first — testing nothing). Applies only when the
+    // feature layout is the standard [sketch, op]× pairing the repair
+    // models; deliberate touching/coplanar configurations are unaffected
+    // (they are not containments).
+    let standard_layout = features.len() == 2 * meta.operations.len()
+        && features.chunks(2).all(|w| {
+            matches!(w[0].operation, Operation::Sketch { .. })
+                && !matches!(w[1].operation, Operation::Sketch { .. })
+        });
+    if standard_layout {
+        fix_noop_operations(&mut features, &mut meta.operations);
+    }
+
     let tree = FeatureTree {
         features,
         active_index: None,

@@ -707,9 +707,12 @@ fn smoke_corpus_boundary_categories() {
         ("F0038", Category::SupportedCorrect),
         ("F0039", Category::SupportedCorrect),
         ("F0040", Category::SupportedCorrect),
-        // R0006 / F0044: cylinder-boolean cases passing the FULL oracle
-        // set end-to-end — the first fully-correct curved corpus cases.
-        ("R0006", Category::SupportedCorrect),
+        // F0044: cylinder-boolean case passing the FULL oracle set
+        // end-to-end. (R0006 was its companion until PR-ASSAY-NOOP: its
+        // second op used to be a free-space cut — a no-op the corpus repair
+        // re-anchored onto the body. The REAL cut now sections the cylinder
+        // obliquely → an Ellipse output curve, the named kernel-v2 wall.)
+        ("R0006", Category::Error),
         ("F0044", Category::SupportedCorrect),
         // F0046: oblique box plane × cylinder section is an ELLIPSE —
         // kernel-v2's named-curve reassembly wall (UnsupportedBooleanOutputCurve).
