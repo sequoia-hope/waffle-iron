@@ -183,96 +183,90 @@ pub fn to_yang_brep(arena: &BrepArena, solid: SolidId) -> Result<yang_rs::BRep, 
             let face = arena.face(f)?;
             match face.surface {
                 Some(Surface::Plane(plane)) => {
-                    // Classify: a cap (single full-circle outer loop, no
-                    // rings) vs an all-segment planar face. Anything else
-                    // curved (arcs, mixed loops, circle rings) is the
-                    // re-entry wall.
-                    let outer_hes = arena.loop_half_edges(face.outer_loop)?;
-                    let outer_has_curved = outer_hes.iter().try_fold(false, |acc, &h| {
-                        Ok::<bool, KernelV2Error>(
-                            acc || !matches!(arena.half_edge(h)?.curve, Curve::LineSegment),
-                        )
-                    })?;
-                    if outer_has_curved {
-                        // Cap form: exactly one closed full-circle half-edge.
-                        let [h] = outer_hes[..] else {
-                            return Err(KernelV2Error::UnsupportedCurvedBoolean { face: f });
-                        };
-                        let he = arena.half_edge(h)?;
-                        let Curve::Circle {
-                            center,
-                            radius,
-                            normal: rim_normal,
-                        } = he.curve
-                        else {
-                            return Err(KernelV2Error::UnsupportedCurvedBoolean { face: f });
-                        };
-                        if !face.inner_loops.is_empty() {
-                            return Err(KernelV2Error::UnsupportedCurvedBoolean { face: f });
-                        }
-                        let anchor = map_vertex(he.origin, &mut vid_map, &mut yverts, arena)?;
-                        let key = h.min(he.twin);
-                        let edge_idx = *shared_edges.entry(key).or_insert_with(|| {
-                            let idx = yedges.len() as u32;
-                            // Cap convention: the shared rim edge carries the
-                            // cap's outward normal (== this half-edge's
-                            // directional normal — the validated KV5a cap rule).
-                            yedges.push(yang_rs::BRepEdge {
-                                start: anchor,
-                                end: anchor,
-                                curve: yang_rs::Curve::Circle {
-                                    center,
-                                    normal: Vector3::new(rim_normal.x, rim_normal.y, rim_normal.z),
-                                    radius,
-                                },
-                            });
-                            idx
-                        });
-                        let p0 = arena.vertex(he.origin)?.point;
-                        let n = plane.normal;
-                        let d = -(n.x * p0.x() + n.y * p0.y() + n.z * p0.z());
-                        yfaces.push(yang_rs::BRepFace {
-                            surface: yang_rs::Surface::Plane {
-                                normal: Vector3::new(n.x, n.y, n.z),
-                                d,
-                            },
-                            outer_loop: vec![edge_idx],
-                            inner_loops: Vec::new(),
-                            reversed: false,
-                        });
-                        continue;
-                    }
-
-                    // All-segment planar face: the PR-KV3 per-loop path.
+                    // Generic per-loop conversion (PR-KV6b-2). Edge classes:
+                    // - LineSegment  → one directed yang edge per half-edge
+                    //   (the m1 per-loop-copy convention; vertices dedup 1:1)
+                    // - Curve::Arc   → one SHARED yang edge per twin pair,
+                    //   carrying the FIRST-ENCOUNTERED half-edge's endpoints
+                    //   + directional normal (the yang input-arc convention:
+                    //   the point set is the CCW sweep around the stored
+                    //   normal from start to end — twin traversal denotes
+                    //   the same set, so either side is correct; sharing
+                    //   keeps the Stage-1 sample chains watertight)
+                    // - closed Circle → one SHARED yang edge per twin pair
+                    //   (full rims of holed annular caps / disk caps),
+                    //   carrying this half-edge's directional normal
                     let mut convert_loop = |lid: LoopId| -> Result<Vec<u32>, KernelV2Error> {
                         let hes = arena.loop_half_edges(lid)?;
-                        for &h in &hes {
-                            if !matches!(arena.half_edge(h)?.curve, Curve::LineSegment) {
-                                return Err(KernelV2Error::UnsupportedCurvedBoolean { face: f });
-                            }
-                        }
                         if hes.is_empty() {
-                            // A lone-vertex loop has no boundary to give yang-rs.
                             return Err(KernelV2Error::NonManifoldTopology(
                                 "to_yang_brep: lone-vertex loop has no edge boundary",
                             ));
                         }
-                        let mut vids = Vec::with_capacity(hes.len());
+                        let mut indices = Vec::with_capacity(hes.len());
                         for &h in &hes {
-                            let v = arena.half_edge(h)?.origin;
-                            vids.push(map_vertex(v, &mut vid_map, &mut yverts, arena)?);
+                            let he = arena.half_edge(h)?;
+                            match he.curve {
+                                Curve::LineSegment => {
+                                    let start =
+                                        map_vertex(he.origin, &mut vid_map, &mut yverts, arena)?;
+                                    let dest = arena.half_edge(he.next)?.origin;
+                                    let end = map_vertex(dest, &mut vid_map, &mut yverts, arena)?;
+                                    let idx = yedges.len() as u32;
+                                    yedges.push(yang_rs::BRepEdge {
+                                        start,
+                                        end,
+                                        curve: yang_rs::Curve::LineSegment,
+                                    });
+                                    indices.push(idx);
+                                }
+                                Curve::Circle {
+                                    center,
+                                    normal,
+                                    radius,
+                                }
+                                | Curve::Arc {
+                                    center,
+                                    normal,
+                                    radius,
+                                } => {
+                                    let key = h.min(he.twin);
+                                    let idx = match shared_edges.get(&key) {
+                                        Some(&idx) => idx,
+                                        None => {
+                                            let idx = yedges.len() as u32;
+                                            let start = map_vertex(
+                                                he.origin,
+                                                &mut vid_map,
+                                                &mut yverts,
+                                                arena,
+                                            )?;
+                                            let end = if matches!(he.curve, Curve::Circle { .. }) {
+                                                start
+                                            } else {
+                                                let dest = arena.half_edge(he.next)?.origin;
+                                                map_vertex(dest, &mut vid_map, &mut yverts, arena)?
+                                            };
+                                            yedges.push(yang_rs::BRepEdge {
+                                                start,
+                                                end,
+                                                curve: yang_rs::Curve::Circle {
+                                                    center,
+                                                    normal: Vector3::new(
+                                                        normal.x, normal.y, normal.z,
+                                                    ),
+                                                    radius,
+                                                },
+                                            });
+                                            shared_edges.insert(key, idx);
+                                            idx
+                                        }
+                                    };
+                                    indices.push(idx);
+                                }
+                            }
                         }
-                        // One directed edge per half-edge, in walk order.
-                        let base = yedges.len() as u32;
-                        let m = vids.len();
-                        for k in 0..m {
-                            yedges.push(yang_rs::BRepEdge {
-                                start: vids[k],
-                                end: vids[(k + 1) % m],
-                                curve: yang_rs::Curve::LineSegment,
-                            });
-                        }
-                        Ok((base..base + m as u32).collect())
+                        Ok(indices)
                     };
 
                     let outer = convert_loop(face.outer_loop)?;
@@ -281,16 +275,20 @@ pub fn to_yang_brep(arena: &BrepArena, solid: SolidId) -> Result<yang_rs::BRep, 
                         inners.push(convert_loop(rid)?);
                     }
 
-                    // First outer-loop vertex anchors d so the plane passes
-                    // exactly through the loop geometry (not through the
-                    // possibly-stale `plane.point` cache).
+                    // Anchor d at a loop point so the plane passes exactly
+                    // through the boundary geometry (an arc/circle loop's
+                    // anchor vertex works the same as a polygon vertex).
                     let first_he = arena.loop_half_edges(face.outer_loop)?[0];
                     let p0 = arena.vertex(arena.half_edge(first_he)?.origin)?.point;
                     let n = plane.normal;
-                    let d = -(n.x * p0.x() + n.y * p0.y() + n.z * p0.z());
+                    // `+ 0.0` normalizes −0.0 → +0.0 so exactly-coplanar
+                    // sibling faces (a 180° revolve's snapped caps) emit
+                    // BIT-IDENTICAL planes — yang's intra-coplanar gate
+                    // excludes the bit-identical class as benign.
+                    let d = -(n.x * p0.x() + n.y * p0.y() + n.z * p0.z()) + 0.0;
                     yfaces.push(yang_rs::BRepFace {
                         surface: yang_rs::Surface::Plane {
-                            normal: Vector3::new(n.x, n.y, n.z),
+                            normal: Vector3::new(n.x + 0.0, n.y + 0.0, n.z + 0.0),
                             d,
                         },
                         outer_loop: outer,
@@ -304,11 +302,17 @@ pub fn to_yang_brep(arena: &BrepArena, solid: SolidId) -> Result<yang_rs::BRep, 
                     radius,
                     reversed,
                 }) => {
-                    // Canonical lateral only: [rim, seam, rim, seam] with two
-                    // full-circle rims, no rings, outward sense. Anything else
-                    // (partial patches from a previous boolean, cavity
-                    // laterals) cannot re-enter yang Stage 1.
-                    if reversed || !face.inner_loops.is_empty() {
+                    // Two convertible shapes (PR-KV6b-2):
+                    // - CANONICAL tube: [rim, seam, rim, seam], two closed
+                    //   Circle rims, the segs a seam twin PAIR;
+                    // - PARTIAL revolve wall: [seg, arc, seg, arc], two
+                    //   sweep Arcs + two distinct ruling segments.
+                    // `reversed` passes through as yang BRepFace.reversed
+                    // (KV6b-1 Stage-1 orients cavity walls inward).
+                    // Anything else — boolean-OUTPUT patches whose curved
+                    // boundaries are chord polylines, holed laterals —
+                    // cannot re-enter yang Stage 1 (the remaining wall).
+                    if !face.inner_loops.is_empty() {
                         return Err(KernelV2Error::UnsupportedCurvedBoolean { face: f });
                     }
                     let mut hes = arena.loop_half_edges(face.outer_loop)?;
@@ -318,21 +322,40 @@ pub fn to_yang_brep(arena: &BrepArena, solid: SolidId) -> Result<yang_rs::BRep, 
                     if matches!(arena.half_edge(hes[0])?.curve, Curve::LineSegment) {
                         hes.rotate_left(1);
                     }
-                    let is_circle = |h: HalfEdgeId| -> Result<bool, KernelV2Error> {
-                        Ok(matches!(arena.half_edge(h)?.curve, Curve::Circle { .. }))
+                    let curve_of = |h: HalfEdgeId| -> Result<Curve, KernelV2Error> {
+                        Ok(arena.half_edge(h)?.curve)
                     };
-                    let is_seg = |h: HalfEdgeId| -> Result<bool, KernelV2Error> {
-                        Ok(matches!(arena.half_edge(h)?.curve, Curve::LineSegment))
-                    };
-                    if !(is_circle(hes[0])?
-                        && is_seg(hes[1])?
-                        && is_circle(hes[2])?
-                        && is_seg(hes[3])?)
-                    {
+                    let pattern = (
+                        curve_of(hes[0])?,
+                        curve_of(hes[1])?,
+                        curve_of(hes[2])?,
+                        curve_of(hes[3])?,
+                    );
+                    let canonical = matches!(
+                        pattern,
+                        (
+                            Curve::Circle { .. },
+                            Curve::LineSegment,
+                            Curve::Circle { .. },
+                            Curve::LineSegment
+                        )
+                    );
+                    let partial = matches!(
+                        pattern,
+                        (
+                            Curve::Arc { .. },
+                            Curve::LineSegment,
+                            Curve::Arc { .. },
+                            Curve::LineSegment
+                        )
+                    );
+                    if !(canonical || partial) {
                         return Err(KernelV2Error::UnsupportedCurvedBoolean { face: f });
                     }
-                    // The two segments must be the seam twin pair.
-                    if arena.half_edge(hes[1])?.twin != hes[3] {
+                    // Canonical: the two segments must be the seam twin pair.
+                    // Partial: they are two DISTINCT rulings (each twins with
+                    // a cap edge instead).
+                    if canonical && arena.half_edge(hes[1])?.twin != hes[3] {
                         return Err(KernelV2Error::UnsupportedCurvedBoolean { face: f });
                     }
 
@@ -345,6 +368,34 @@ pub fn to_yang_brep(arena: &BrepArena, solid: SolidId) -> Result<yang_rs::BRep, 
                             None => {
                                 let idx = yedges.len() as u32;
                                 match he.curve {
+                                    Curve::Arc {
+                                        center,
+                                        radius,
+                                        normal,
+                                    } => {
+                                        // Shared directional arc: endpoints +
+                                        // normal from THIS half-edge (the
+                                        // yang input-arc convention; the twin
+                                        // denotes the same point set).
+                                        let start = map_vertex(
+                                            he.origin,
+                                            &mut vid_map,
+                                            &mut yverts,
+                                            arena,
+                                        )?;
+                                        let dest = arena.half_edge(he.next)?.origin;
+                                        let end =
+                                            map_vertex(dest, &mut vid_map, &mut yverts, arena)?;
+                                        yedges.push(yang_rs::BRepEdge {
+                                            start,
+                                            end,
+                                            curve: yang_rs::Curve::Circle {
+                                                center,
+                                                normal: Vector3::new(normal.x, normal.y, normal.z),
+                                                radius,
+                                            },
+                                        });
+                                    }
                                     Curve::Circle {
                                         center,
                                         radius,
@@ -388,11 +439,6 @@ pub fn to_yang_brep(arena: &BrepArena, solid: SolidId) -> Result<yang_rs::BRep, 
                                             curve: yang_rs::Curve::LineSegment,
                                         });
                                     }
-                                    _ => {
-                                        return Err(KernelV2Error::UnsupportedCurvedBoolean {
-                                            face: f,
-                                        })
-                                    }
                                 }
                                 shared_edges.insert(key, idx);
                                 idx
@@ -409,7 +455,7 @@ pub fn to_yang_brep(arena: &BrepArena, solid: SolidId) -> Result<yang_rs::BRep, 
                         },
                         outer_loop: loop_indices,
                         inner_loops: Vec::new(),
-                        reversed: false,
+                        reversed,
                     });
                 }
                 None => return Err(KernelV2Error::FaceWithoutSurface { face: f }),

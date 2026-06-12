@@ -4146,17 +4146,15 @@ pub(crate) fn scan_near_coplanar(a: &BRep, b: &BRep) -> CoplanarScan {
                     continue;
                 }
                 if let Some(band) = near_coplanar_band(pi, pj) {
-                    // PR-KV6b-1: the femto-seam hazard (F0018/F0025) needs
-                    // the two fragments to be ADJACENT — a split plane's
-                    // pieces share the rounded seam the other solid can cut
-                    // through. DISJOINT same-plane faces (a 180° revolve's
-                    // two caps, whose trig-computed normals differ by ~1 ulp
-                    // and so miss the bit-identical exclusion) have no seam;
-                    // cut lines in separated regions cannot interact.
-                    let fragments_adjacent = aabbs_overlap(&pi.lo, &pi.hi, &pj.lo, &pj.hi, band);
-                    if fragments_adjacent
-                        && (aabbs_overlap(&pi.lo, &pi.hi, &olo, &ohi, band)
-                            || aabbs_overlap(&pj.lo, &pj.hi, &olo, &ohi, band))
+                    // (A PR-KV6b attempt narrowed this to ADJACENT fragments;
+                    // it regressed F0017–F0025 from the typed M8 deferral
+                    // into NoExplicitRayOrigin failures — the conservative
+                    // rule stands. The benign exactly-coplanar class — a
+                    // 180° revolve's two caps — is excluded by the
+                    // bit-identical rule above instead: producers SNAP their
+                    // trig so exact-π caps carry bitwise-equal planes.)
+                    if aabbs_overlap(&pi.lo, &pi.hi, &olo, &ohi, band)
+                        || aabbs_overlap(&pj.lo, &pj.hi, &olo, &ohi, band)
                     {
                         intra = Some((input, i, j));
                         break 'intra;

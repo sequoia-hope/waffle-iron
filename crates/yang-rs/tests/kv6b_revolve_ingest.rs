@@ -55,9 +55,25 @@ fn v3(x: f64, y: f64, z: f64) -> Vector3 {
     Vector3::new(x, y, z)
 }
 
-/// Rotate (y, z) by α about the +x axis (right-handed).
+/// Snap trig to exact 0/±1 within 1e-12 (the producer contract: exact-π
+/// revolve caps must carry BIT-IDENTICAL planes so the intra-coplanar
+/// gate's benign exclusion applies — kernel-v2's revolve does the same).
+fn snap(x: f64) -> f64 {
+    if x.abs() < 1e-12 {
+        0.0
+    } else if (x - 1.0).abs() < 1e-12 {
+        1.0
+    } else if (x + 1.0).abs() < 1e-12 {
+        -1.0
+    } else {
+        x
+    }
+}
+
+/// Rotate (y, z) by α about the +x axis (right-handed), trig snapped.
 fn rot(yv: f64, zv: f64, a: f64) -> (f64, f64) {
-    (yv * a.cos() - zv * a.sin(), yv * a.sin() + zv * a.cos())
+    let (c, s) = (snap(a.cos()), snap(a.sin()));
+    (yv * c - zv * s, yv * s + zv * c)
 }
 
 fn pappus(angle: f64) -> f64 {
@@ -119,9 +135,11 @@ fn partial_revolve_brep(angle: f64) -> Result<BRep, yang_rs::YangError> {
     }
     let (a0, a1, a2, a3) = (8u32, 9u32, 10u32, 11u32);
 
-    let (cos_a, sin_a) = (angle.cos(), angle.sin());
-    let end_normal = v3(0.0, -sin_a, cos_a); // R_x(α)·ẑ
-    let end_d = -(end_normal.y() * verts[4].point.y() + end_normal.z() * verts[4].point.z());
+    let (cos_a, sin_a) = (snap(angle.cos()), snap(angle.sin()));
+    // `+ 0.0` normalizes −0.0 → +0.0: bit-identical planes are what the
+    // intra-coplanar gate's benign exclusion compares.
+    let end_normal = v3(0.0, -sin_a + 0.0, cos_a + 0.0); // R_x(α)·ẑ
+    let end_d = -(end_normal.y() * verts[4].point.y() + end_normal.z() * verts[4].point.z()) + 0.0;
 
     let faces = vec![
         // start cap (z = 0 plane, outward −ẑ: material sweeps toward +z)

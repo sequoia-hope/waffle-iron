@@ -605,29 +605,23 @@ fn revolve_construction_and_tessellation_deterministic() {
 }
 
 // =========================================================================
-// 6. KV6b wall: no booleans over revolve outputs yet
+// 6. KV6b: revolve operands CONVERT (the wall narrowed to OUTPUT re-entry —
+//    see kv6b_revolve_boolean.rs for the end-to-end boolean suite)
 // =========================================================================
 
 #[test]
 fn revolve_output_boolean_reentry_is_typed_wall() {
-    // Partial: arc-bearing operand.
+    // PR-KV6b-2 flipped the operand-level wall: revolve solids (partial AND
+    // washer) now convert into yang BReps. What remains walled is boolean
+    // OUTPUT re-entry (chord-polyline curved boundaries), pinned in
+    // kv6b_revolve_boolean.rs::revolve_boolean_output_reentry_stays_typed_wall.
     let mut arena = BrepArena::new();
     let r = revolve_rect(&mut arena, PI / 2.0);
-    let err = to_yang_brep(&arena, r.solid).expect_err("partial revolve operand walled (KV6b)");
-    assert!(
-        matches!(err, KernelV2Error::UnsupportedCurvedBoolean { .. }),
-        "typed wall, got {err:?}"
-    );
+    to_yang_brep(&arena, r.solid).expect("partial revolve operand converts since KV6b");
 
-    // Full 360°: annular caps (holed faces) are equally outside yang
-    // Stage-1's current ingestion vocabulary.
     let mut arena2 = BrepArena::new();
     let r2 = revolve_rect(&mut arena2, 2.0 * PI);
-    let err2 = to_yang_brep(&arena2, r2.solid).expect_err("washer operand walled (KV6b)");
-    assert!(
-        matches!(err2, KernelV2Error::UnsupportedCurvedBoolean { .. }),
-        "typed wall, got {err2:?}"
-    );
+    to_yang_brep(&arena2, r2.solid).expect("washer operand converts since KV6b");
 }
 
 // =========================================================================
@@ -760,8 +754,9 @@ mod adapter {
             .expect_err(">360° angle");
         assert!(matches!(err, KernelError::Other { .. }), "got {err:?}");
 
-        // Boolean over a revolve operand: NotSupported (KV6b), marker text
-        // mentions the curved-operand wall.
+        // PR-KV6b-2: booleans over revolve operands now RUN (see
+        // kv6b_revolve_boolean.rs::adapter for the end-to-end positive
+        // suite). The disjoint union here exercises the adapter path.
         let mut k2 = KernelV2Adapter::new();
         let face2 = staged_face(&mut k2);
         let rev = k2
@@ -778,12 +773,9 @@ mod adapter {
             )
             .expect("stage box profile");
         let bx = k2.extrude_face(f3[0], [0.0, 0.0, 1.0], 1.0).expect("box");
-        let err = k2
+        let out = k2
             .boolean_union(&rev, &bx)
-            .expect_err("revolve boolean walled until KV6b");
-        assert!(
-            matches!(err, KernelError::NotSupported { .. }),
-            "typed NotSupported wall, got {err:?}"
-        );
+            .expect("disjoint revolve ∪ box runs since KV6b");
+        assert!(!k2.list_faces(&out).is_empty());
     }
 }

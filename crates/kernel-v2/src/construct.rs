@@ -524,12 +524,32 @@ fn validate_revolve_geometry(
     })
 }
 
+/// Snap a trig value to exactly 0 / ±1 when within 1e-12 of it. At the
+/// quadrant angles (90°, 180°, 270°, 360°) `sin`/`cos` carry ~1e-16
+/// residue; snapping makes a 180° revolve's two caps carry BIT-IDENTICAL
+/// planes — which yang's intra-solid near-coplanar gate excludes as the
+/// benign "one plane, several faces" class. Without the snap the caps
+/// differ by 1 ulp and the gate (correctly conservative for the femto-seam
+/// hazard class) would defer every boolean near them.
+fn snap_trig(x: f64) -> f64 {
+    if x.abs() < 1e-12 {
+        0.0
+    } else if (x - 1.0).abs() < 1e-12 {
+        1.0
+    } else if (x + 1.0).abs() < 1e-12 {
+        -1.0
+    } else {
+        x
+    }
+}
+
 impl RevolveFrame {
     /// Rotate a profile point by `theta` about the axis: the point's
     /// in-plane decomposition is `a0 + t·â + s·ŵ`, which maps to
-    /// `a0 + t·â + s·(cos θ·ŵ + sin θ·m̂)`.
+    /// `a0 + t·â + s·(cos θ·ŵ + sin θ·m̂)`. Trig snapped at the quadrant
+    /// angles (see [`snap_trig`]).
     fn rotate(&self, i: usize, theta: f64) -> Point3 {
-        let (c, sn) = (theta.cos(), theta.sin());
+        let (c, sn) = (snap_trig(theta.cos()), snap_trig(theta.sin()));
         let radial = self.s[i];
         Point3::new(
             self.a0.x() + self.t[i] * self.a.x + radial * (c * self.w.x + sn * self.m.x),
@@ -695,7 +715,7 @@ fn build_partial_revolve(
         inner_loops: Vec::new(),
         shell,
     }));
-    let (ca, sa) = (angle.cos(), angle.sin());
+    let (ca, sa) = (snap_trig(angle.cos()), snap_trig(angle.sin()));
     arena.faces.push(Some(Face {
         surface: Some(Surface::Plane(Plane {
             point: fr.rotate(0, angle),

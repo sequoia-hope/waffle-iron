@@ -1,8 +1,8 @@
 {
   "errored": 18,
-  "failed": 1,
+  "failed": 2,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 30,
+  "passed": 31,
   "results": [
     {
       "category": "UNSUPPORTED(curved-profile)",
@@ -210,7 +210,7 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 11cd1c66-a808-4aa5-b673-bf556336bd0e: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: 11cd1c66-a808-4aa5-b673-bf556336bd0e: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0035",
       "status": "unsupported"
     },
@@ -227,8 +227,8 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: b184cc49-01cb-4d27-8984-d4c87b1362cd: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(2) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "2 NotSupported boundary(ies); first: b184cc49-01cb-4d27-8984-d4c87b1362cd: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0038",
       "status": "unsupported"
     },
@@ -264,7 +264,7 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 04a3119b-145f-4cb2-b5ae-690ed262ae1b: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: 04a3119b-145f-4cb2-b5ae-690ed262ae1b: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0044",
       "status": "unsupported"
     },
@@ -306,7 +306,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: bc380f5a-df85-4599-9edd-f37bc9a64c68: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
+      "detail": "1 NotSupported boundary(ies); first: bc380f5a-df85-4599-9edd-f37bc9a64c68: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0051",
       "status": "unsupported"
     },
@@ -318,7 +318,7 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: b94897b4-7f89-4a4a-8508-85959d97b454: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
+      "detail": "1 NotSupported boundary(ies); first: b94897b4-7f89-4a4a-8508-85959d97b454: kernel error: operation not supported: make_faces_from_profiles: spline-segment profile (curved geometry not yet in kernel-v2)",
       "id": "R0053",
       "status": "unsupported"
     },
@@ -359,10 +359,10 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 028391ad-4654-4f7b-8992-9b566a1f4e21: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(8) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "category": "SUPPORTED_WRONG",
+      "detail": "watertight_mesh: 2 unpaired edges out of 2067 total (0 boundary, 2 non-manifold); mesh_euler_characteristic: V(752) - E(2067) + F(1318) = 3 (expected 2 for 1 shell(s))",
       "id": "R0060",
-      "status": "unsupported"
+      "status": "fail"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
@@ -474,7 +474,7 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 39b1c7c4-f107-4b35-8f35-aaa29d059d99: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(6) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "detail": "1 NotSupported boundary(ies); first: 39b1c7c4-f107-4b35-8f35-aaa29d059d99: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(8) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "R0079",
       "status": "unsupported"
     },
@@ -503,10 +503,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(2) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0084",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
@@ -1050,7 +1050,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: Revolve Offset: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(8) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "detail": "1 NotSupported boundary(ies); first: Revolve Offset: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0075",
       "status": "unsupported"
     },
