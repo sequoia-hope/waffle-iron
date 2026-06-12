@@ -286,8 +286,14 @@ fn washer_brep() -> Result<BRep, yang_rs::YangError> {
     BRep::new(verts, edges, faces)
 }
 
-/// Axis-aligned box B-Rep (the m1 unit-cube fixture generalized to a size).
+/// Axis-aligned box B-Rep (the m1 unit-cube convention: per-face DIRECTED
+/// edge copies, all loop edges forward).
 fn box_brep(origin: [f64; 3], size: [f64; 3]) -> BRep {
+    let (verts, edges, faces) = box_parts(origin, size);
+    BRep::new(verts, edges, faces).expect("box brep")
+}
+
+fn box_parts(origin: [f64; 3], size: [f64; 3]) -> (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFace>) {
     let [x, y, z] = origin;
     let [sx, sy, sz] = size;
     let pts = [
@@ -304,43 +310,45 @@ fn box_brep(origin: [f64; 3], size: [f64; 3]) -> BRep {
         .iter()
         .map(|&[a, b, c]| BRepVertex { point: p(a, b, c) })
         .collect();
-    let e = |a: u32, b: u32| BRepEdge {
-        start: a,
-        end: b,
-        curve: Curve::LineSegment,
-    };
-    let edges = vec![
-        e(0, 1),
-        e(1, 2),
-        e(2, 3),
-        e(3, 0), // bottom
-        e(4, 5),
-        e(5, 6),
-        e(6, 7),
-        e(7, 4), // top
-        e(0, 4),
-        e(1, 5),
-        e(2, 6),
-        e(3, 7), // posts
+    let face_verts: [[u32; 4]; 6] = [
+        [0, 1, 2, 3], // bottom (−z)
+        [4, 7, 6, 5], // top (+z)
+        [0, 4, 5, 1], // front (−y)
+        [1, 5, 6, 2], // right (+x)
+        [2, 6, 7, 3], // back (+y)
+        [3, 7, 4, 0], // left (−x)
     ];
-    let face = |nx: f64, ny: f64, nz: f64, d: f64, loop_: Vec<u32>| BRepFace {
-        surface: Surface::Plane {
-            normal: v3(nx, ny, nz),
-            d,
-        },
-        outer_loop: loop_,
-        inner_loops: vec![],
-        reversed: false,
-    };
-    let faces = vec![
-        face(0.0, 0.0, -1.0, z, vec![0, 1, 2, 3]),
-        face(0.0, 0.0, 1.0, -(z + sz), vec![4, 5, 6, 7]),
-        face(0.0, -1.0, 0.0, y, vec![0, 9, 4, 8]),
-        face(1.0, 0.0, 0.0, -(x + sx), vec![1, 10, 5, 9]),
-        face(0.0, 1.0, 0.0, -(y + sy), vec![2, 11, 6, 10]),
-        face(-1.0, 0.0, 0.0, x, vec![3, 8, 7, 11]),
+    let normals = [
+        v3(0.0, 0.0, -1.0),
+        v3(0.0, 0.0, 1.0),
+        v3(0.0, -1.0, 0.0),
+        v3(1.0, 0.0, 0.0),
+        v3(0.0, 1.0, 0.0),
+        v3(-1.0, 0.0, 0.0),
     ];
-    BRep::new(verts, edges, faces).expect("box brep")
+    let mut edges = Vec::new();
+    let mut faces = Vec::new();
+    for (i, vs) in face_verts.iter().enumerate() {
+        let base = edges.len() as u32;
+        for k in 0..4 {
+            edges.push(BRepEdge {
+                start: vs[k],
+                end: vs[(k + 1) % 4],
+                curve: Curve::LineSegment,
+            });
+        }
+        // Plane d via a vertex on the face: n·x + d = 0.
+        let n = normals[i];
+        let pv = pts[vs[0] as usize];
+        let d = -(n.x() * pv[0] + n.y() * pv[1] + n.z() * pv[2]);
+        faces.push(BRepFace {
+            surface: Surface::Plane { normal: n, d },
+            outer_loop: vec![base, base + 1, base + 2, base + 3],
+            inner_loops: vec![],
+            reversed: false,
+        });
+    }
+    (verts, edges, faces)
 }
 
 // =========================================================================
@@ -402,9 +410,14 @@ fn partial_revolve_tessellates_watertight_with_pappus_volume() {
 
         let vol = mesh_signed_volume(mesh);
         assert!(vol > 0.0, "outward orientation at {angle}");
+        // Band calibration: inscribed chords under-estimate by ≈ 1 − sin δ/δ
+        // per chord angle δ = 2π/N; at the spec's d_ε = 1e-2·AABB-diag the
+        // honest deficit for these proportions is ~3.3% — 5% bounds it
+        // without admitting a winding/orientation defect (which would show
+        // as a SIGN flip or a ≫10% loss).
         let expect = pappus(angle);
         assert!(
-            (vol - expect).abs() <= 0.03 * expect,
+            vol <= expect * 1.001 && vol >= 0.95 * expect,
             "volume {vol} vs Pappus {expect} at {angle}"
         );
     }
@@ -419,8 +432,9 @@ fn washer_tessellates_watertight_genus_one() {
     let vol = mesh_signed_volume(mesh);
     let expect = pappus(2.0 * PI);
     assert!(vol > 0.0);
+    // Same inscribed-chord band as the partial oracle (see there).
     assert!(
-        (vol - expect).abs() <= 0.03 * expect,
+        vol <= expect * 1.001 && vol >= 0.95 * expect,
         "washer volume {vol} vs {expect}"
     );
 }
@@ -602,55 +616,5 @@ fn reversed_planar_face_is_loud() {
 
 /// The box fixture's raw parts (for adversarial mutation before BRep::new).
 fn box_brep_parts() -> (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFace>) {
-    let pts = [
-        [0.0, 0.0, 0.0],
-        [1.0, 0.0, 0.0],
-        [1.0, 1.0, 0.0],
-        [0.0, 1.0, 0.0],
-        [0.0, 0.0, 1.0],
-        [1.0, 0.0, 1.0],
-        [1.0, 1.0, 1.0],
-        [0.0, 1.0, 1.0],
-    ];
-    let verts: Vec<BRepVertex> = pts
-        .iter()
-        .map(|&[a, b, c]| BRepVertex { point: p(a, b, c) })
-        .collect();
-    let e = |a: u32, b: u32| BRepEdge {
-        start: a,
-        end: b,
-        curve: Curve::LineSegment,
-    };
-    let edges = vec![
-        e(0, 1),
-        e(1, 2),
-        e(2, 3),
-        e(3, 0),
-        e(4, 5),
-        e(5, 6),
-        e(6, 7),
-        e(7, 4),
-        e(0, 4),
-        e(1, 5),
-        e(2, 6),
-        e(3, 7),
-    ];
-    let face = |nx: f64, ny: f64, nz: f64, d: f64, loop_: Vec<u32>| BRepFace {
-        surface: Surface::Plane {
-            normal: v3(nx, ny, nz),
-            d,
-        },
-        outer_loop: loop_,
-        inner_loops: vec![],
-        reversed: false,
-    };
-    let faces = vec![
-        face(0.0, 0.0, -1.0, 0.0, vec![0, 1, 2, 3]),
-        face(0.0, 0.0, 1.0, -1.0, vec![4, 5, 6, 7]),
-        face(0.0, -1.0, 0.0, 0.0, vec![0, 9, 4, 8]),
-        face(1.0, 0.0, 0.0, -1.0, vec![1, 10, 5, 9]),
-        face(0.0, 1.0, 0.0, -1.0, vec![2, 11, 6, 10]),
-        face(-1.0, 0.0, 0.0, 0.0, vec![3, 8, 7, 11]),
-    ];
-    (verts, edges, faces)
+    box_parts([0.0, 0.0, 0.0], [1.0, 1.0, 1.0])
 }

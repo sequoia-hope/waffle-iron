@@ -474,12 +474,18 @@ impl BRep {
         // relaxation): a face bounded by a closed curve (a disk cap bounded by
         // one `Curve::Circle`) has a 1-edge loop and is legal.
         for (f_idx, f) in faces.iter().enumerate() {
-            for &e_idx in &f.outer_loop {
+            for &e_idx in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
                 if (e_idx as usize) >= n_edges {
                     return Err(YangError::MalformedTopology(format!(
                         "face {f_idx}: edge index {e_idx} out of range (edges.len() = {n_edges})"
                     )));
                 }
+            }
+            if f.reversed && matches!(f.surface, Surface::Plane { .. }) {
+                return Err(YangError::MalformedTopology(format!(
+                    "face {f_idx}: a planar face must carry its sense in the plane \
+                     normal, not `reversed` (PR-KV6b-1)"
+                )));
             }
             let all_line = f
                 .outer_loop
@@ -585,7 +591,7 @@ pub(crate) fn stage1_tessellate(
                     .copied()
             })
             .collect();
-        let circle_edges: Vec<(usize, Point3, Vector3, f64)> = edges
+        let circle_edges: Vec<(usize, Point3, Vector3, f64, u32, u32)> = edges
             .iter()
             .enumerate()
             .filter_map(|(i, e)| match e.curve {
@@ -593,7 +599,9 @@ pub(crate) fn stage1_tessellate(
                     center,
                     normal,
                     radius,
-                } if !sphere_seam_edges.contains(&(i as u32)) => Some((i, center, normal, radius)),
+                } if !sphere_seam_edges.contains(&(i as u32)) => {
+                    Some((i, center, normal, radius, e.start, e.end))
+                }
                 _ => None,
             })
             .collect();
@@ -649,7 +657,7 @@ pub(crate) fn stage1_tessellate(
             // Smallest N >= 3 with max_radius·(1 − cos(π/N)) ≤ d_eps.
             let max_r = circle_edges
                 .iter()
-                .map(|&(_, _, _, r)| r)
+                .map(|&(_, _, _, r, _, _)| r)
                 .fold(0.0f64, f64::max);
             let mut n_seg = 3usize;
             // d_eps > 0 for any non-degenerate cylinder; if it is somehow zero
@@ -660,13 +668,86 @@ pub(crate) fn stage1_tessellate(
                 }
             }
 
-            // Build the shared ring for each circle edge.
-            for &(e_idx, center, normal, radius) in &circle_edges {
+            // Build the shared sample CHAIN for each circle edge (PR-KV6b-1):
+            // a full circle (`start == end`) gets the closed seam-anchored
+            // ring exactly as before; an ARC (`start != end` — the new input
+            // convention: the CCW sweep around `curve.normal` from `start`
+            // to `end`, unique in (0, 2π)) gets an OPEN chain
+            // `[start, Steiner…, end]` sampled at the same per-chord angle
+            // bound, so the global `d_eps` holds for arcs too. Chains are
+            // shared between the two faces incident to the edge — the
+            // watertightness mechanism, unchanged.
+            for &(e_idx, center, normal, radius, e_start, e_end) in &circle_edges {
                 let (e1, e2) = ortho_basis(normal);
                 let c = center.as_array();
                 let e1a = e1.as_array();
                 let e2a = e2.as_array();
-                let seam_vertex = edges[e_idx].start;
+                let seam_vertex = e_start;
+
+                // Angle of a vertex in this circle's frame + on-circle
+                // validation (the arc convention makes endpoints
+                // load-bearing, so off-circle endpoints are loud).
+                let angle_of = |v: u32| -> Result<f64, YangError> {
+                    let sp = match verts.get(v as usize) {
+                        Some(vv) => vv.point.as_array(),
+                        None => {
+                            return Err(YangError::MalformedTopology(format!(
+                                "circle edge {e_idx}: vertex {v} out of range"
+                            )))
+                        }
+                    };
+                    let w = [sp[0] - c[0], sp[1] - c[1], sp[2] - c[2]];
+                    let nu = normalize3(normal.as_array());
+                    let along = w[0] * nu[0] + w[1] * nu[1] + w[2] * nu[2];
+                    let wx = w[0] * e1a[0] + w[1] * e1a[1] + w[2] * e1a[2];
+                    let wy = w[0] * e2a[0] + w[1] * e2a[1] + w[2] * e2a[2];
+                    let r = (wx * wx + wy * wy).sqrt();
+                    let band = 1e-9 * (1.0 + radius);
+                    if (r - radius).abs() > band || along.abs() > band {
+                        return Err(YangError::MalformedTopology(format!(
+                            "circle edge {e_idx}: endpoint vertex {v} is not on the circle                              (radial {r} vs radius {radius}, axial offset {along})"
+                        )));
+                    }
+                    Ok(wy.atan2(wx))
+                };
+
+                if e_start != e_end {
+                    // ---- ARC chain (PR-KV6b-1) ----
+                    let phi0 = angle_of(e_start)?;
+                    let phi1 = angle_of(e_end)?;
+                    let sweep = (phi1 - phi0).rem_euclid(2.0 * std::f64::consts::PI);
+                    if sweep <= 0.0 || !sweep.is_finite() {
+                        return Err(YangError::MalformedTopology(format!(
+                            "circle edge {e_idx}: degenerate arc sweep {sweep}"
+                        )));
+                    }
+                    // Same per-chord angle as the full-circle ring; floor 2
+                    // segments so a π arc never degenerates to one diameter
+                    // chord.
+                    let m = ((sweep * n_seg as f64) / (2.0 * std::f64::consts::PI)).ceil() as usize;
+                    let m = m.max(2);
+                    let mut chain: Vec<u32> = Vec::with_capacity(m + 1);
+                    chain.push(e_start);
+                    for k in 1..m {
+                        let theta = phi0 + sweep * (k as f64) / (m as f64);
+                        let (st, ct) = theta.sin_cos();
+                        let pt = [
+                            c[0] + radius * (ct * e1a[0] + st * e2a[0]),
+                            c[1] + radius * (ct * e1a[1] + st * e2a[1]),
+                            c[2] + radius * (ct * e1a[2] + st * e2a[2]),
+                        ];
+                        let vi = out_verts.len() as u32;
+                        out_verts.push(Point3::new(pt[0], pt[1], pt[2]));
+                        sources.push(TessellationSource::BRepEdge {
+                            edge: e_idx as u32,
+                            t: theta,
+                        });
+                        chain.push(vi);
+                    }
+                    chain.push(e_end);
+                    rim_rings.insert(e_idx as u32, chain);
+                    continue;
+                }
                 // The seam B-Rep vertex is NOT required to lie at angle 0 of
                 // this circle's `ortho_basis` frame — the fixture chooses its
                 // own angle-0 convention. Recover the seam's ACTUAL angle `phi0`
@@ -676,20 +757,7 @@ pub(crate) fn stage1_tessellate(
                 // uniform) and — crucially for the lateral — the two rims, whose
                 // seams sit at the same geometric azimuth, stay azimuth-aligned
                 // under the `(N−k)` opposite-rim mapping (spec §6).
-                let phi0 = {
-                    let sp = match verts.get(seam_vertex as usize) {
-                        Some(v) => v.point.as_array(),
-                        None => {
-                            return Err(YangError::MalformedTopology(format!(
-                                "circle edge {e_idx}: seam vertex {seam_vertex} out of range"
-                            )))
-                        }
-                    };
-                    let w = [sp[0] - c[0], sp[1] - c[1], sp[2] - c[2]];
-                    let wx = w[0] * e1a[0] + w[1] * e1a[1] + w[2] * e1a[2];
-                    let wy = w[0] * e2a[0] + w[1] * e2a[1] + w[2] * e2a[2];
-                    wy.atan2(wx)
-                };
+                let phi0 = angle_of(seam_vertex)?;
                 let mut ring: Vec<u32> = Vec::with_capacity(n_seg);
                 // ring[0] = the seam B-Rep vertex (keep its BRepVertex source) —
                 // no duplicate at the seam.
@@ -781,20 +849,46 @@ pub(crate) fn stage1_tessellate(
                     }
                 }
                 Surface::Plane { normal, .. } => {
-                    // ===== Curved-bounded planar cap (disk fan). =====
-                    // A planar face whose loop contains a non-LineSegment edge
-                    // is a cap bounded by a `Curve::Circle`. Fan from a new
-                    // center Steiner vertex over the cached rim ring.
-                    tessellate_cap_face(
-                        f_idx,
-                        f,
-                        edges,
-                        &rim_rings,
-                        normal,
-                        &mut out_verts,
-                        &mut sources,
-                        &mut out_tris,
-                    )?;
+                    // ===== Curved-bounded planar faces. =====
+                    // The full-circle DISK (single closed Circle outer loop,
+                    // no rings) keeps the byte-for-byte cap fan. Everything
+                    // else — annular-sector walls ([seg, arc, seg, arc]),
+                    // holed circle caps (full-circle outer + full-circle
+                    // ring), arbitrary mixed loops — goes through the
+                    // generalized CDT over the spliced sample chains
+                    // (PR-KV6b-1).
+                    let is_disk = f.inner_loops.is_empty()
+                        && f.outer_loop.len() == 1
+                        && matches!(
+                            &edges[f.outer_loop[0] as usize],
+                            BRepEdge {
+                                start,
+                                end,
+                                curve: Curve::Circle { .. },
+                            } if start == end
+                        );
+                    if is_disk {
+                        tessellate_cap_face(
+                            f_idx,
+                            f,
+                            edges,
+                            &rim_rings,
+                            normal,
+                            &mut out_verts,
+                            &mut sources,
+                            &mut out_tris,
+                        )?;
+                    } else {
+                        tessellate_planar_curved_cdt_face(
+                            f_idx,
+                            f,
+                            edges,
+                            &rim_rings,
+                            normal,
+                            &out_verts,
+                            &mut out_tris,
+                        )?;
+                    }
                 }
                 Surface::Cylinder {
                     axis_point,
@@ -1391,6 +1485,169 @@ fn project_loop_2d(
 /// Pushes **no** new vertices — the output indexes only into existing
 /// `out_verts`, so the `TessellationMap` 1:1-on-boundary bijection is preserved
 /// (no Steiner points, no boundary subdivision).
+/// PR-KV6b-1: expand a B-Rep edge-index loop into its mesh-vertex polyline,
+/// splicing each `Curve::Circle` edge's cached sample chain (arc chains are
+/// open `[start … end]`, full circles closed seam rings). Edge traversal
+/// direction is derived from loop continuity; the returned polyline lists
+/// each boundary vertex ONCE (no closing duplicate).
+fn loop_polyline(
+    f_idx: usize,
+    loop_edges: &[u32],
+    edges: &[BRepEdge],
+    chains: &std::collections::BTreeMap<u32, Vec<u32>>,
+) -> Result<Vec<u32>, YangError> {
+    let malformed = |msg: String| YangError::MalformedTopology(format!("face {f_idx}: {msg}"));
+
+    // Single full-circle loop: the chain IS the (closed) polyline.
+    if loop_edges.len() == 1 {
+        let e = &edges[loop_edges[0] as usize];
+        if matches!(e.curve, Curve::Circle { .. }) && e.start == e.end {
+            return chains
+                .get(&loop_edges[0])
+                .cloned()
+                .ok_or_else(|| malformed(format!("chain for edge {} not built", loop_edges[0])));
+        }
+    }
+
+    // Expansion of one directed edge: the vertex sequence from its
+    // traversal origin up to (EXCLUDING) its destination.
+    let expand = |e_idx: u32, forward: bool| -> Result<Vec<u32>, YangError> {
+        let e = &edges[e_idx as usize];
+        match e.curve {
+            Curve::LineSegment => Ok(vec![if forward { e.start } else { e.end }]),
+            Curve::Circle { .. } => {
+                let chain = chains
+                    .get(&e_idx)
+                    .ok_or_else(|| malformed(format!("chain for edge {e_idx} not built")))?;
+                if e.start == e.end {
+                    return Err(malformed(format!(
+                        "full-circle edge {e_idx} inside a multi-edge loop"
+                    )));
+                }
+                let mut seq: Vec<u32> = if forward {
+                    chain[..chain.len() - 1].to_vec()
+                } else {
+                    chain[1..].iter().rev().copied().collect()
+                };
+                if seq.is_empty() {
+                    seq.push(if forward { e.start } else { e.end });
+                }
+                Ok(seq)
+            }
+            _ => Err(malformed(format!(
+                "loop edge {e_idx} carries an unsupported curve for Stage-1 ingestion"
+            ))),
+        }
+    };
+
+    // Walk with continuity, trying the first edge forward then backward.
+    'attempt: for first_forward in [true, false] {
+        let e0 = &edges[loop_edges[0] as usize];
+        let mut cur = if first_forward { e0.start } else { e0.end };
+        let mut poly: Vec<u32> = Vec::new();
+        for &e_idx in loop_edges {
+            let e = &edges[e_idx as usize];
+            let forward = if e.start == cur {
+                true
+            } else if e.end == cur {
+                false
+            } else {
+                continue 'attempt;
+            };
+            poly.extend(expand(e_idx, forward)?);
+            cur = if forward { e.end } else { e.start };
+        }
+        // Closure: the walk must return to its origin.
+        if cur == poly[0] {
+            return Ok(poly);
+        }
+    }
+    Err(malformed("loop is not edge-continuous".to_string()))
+}
+
+/// PR-KV6b-1: CDT tessellation of a planar face whose loops mix straight and
+/// `Curve::Circle` edges (annular sectors, holed circle caps, …). The
+/// boundary polylines splice the SHARED per-edge sample chains
+/// ([`loop_polyline`]), so faces meeting along an arc emit identical sample
+/// vertices — the watertightness mechanism. Triangulation + orientation are
+/// exactly the all-segment CDT path's (no Steiner points, no boundary
+/// subdivision).
+#[allow(clippy::too_many_arguments)]
+fn tessellate_planar_curved_cdt_face(
+    f_idx: usize,
+    f: &BRepFace,
+    edges: &[BRepEdge],
+    chains: &std::collections::BTreeMap<u32, Vec<u32>>,
+    normal: Vector3,
+    out_verts: &[Point3],
+    out_tris: &mut Vec<[u32; 3]>,
+) -> Result<(), YangError> {
+    if f.reversed {
+        return Err(YangError::MalformedTopology(format!(
+            "face {f_idx}: a planar face must carry its sense in the plane normal,              not `reversed`"
+        )));
+    }
+    let (e1, e2) = ortho_basis(normal);
+    let e1a = e1.as_array();
+    let e2a = e2.as_array();
+    let project = |g: u32| -> cad_primitives::Point2 {
+        let p = out_verts[g as usize].as_array();
+        cad_primitives::Point2::new(
+            p[0] * e1a[0] + p[1] * e1a[1] + p[2] * e1a[2],
+            p[0] * e2a[0] + p[1] * e2a[1] + p[2] * e2a[2],
+        )
+    };
+
+    let mut local_verts: Vec<cad_primitives::Point2> = Vec::new();
+    let mut global_of_local: Vec<u32> = Vec::new();
+    let mut local_of_global: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+    let mut intern = |g: u32,
+                      local_verts: &mut Vec<cad_primitives::Point2>,
+                      global_of_local: &mut Vec<u32>|
+     -> u32 {
+        if let Some(&l) = local_of_global.get(&g) {
+            return l;
+        }
+        let l = local_verts.len() as u32;
+        local_verts.push(project(g));
+        global_of_local.push(g);
+        local_of_global.insert(g, l);
+        l
+    };
+
+    let outer_poly = loop_polyline(f_idx, &f.outer_loop, edges, chains)?;
+    let outer_local: Vec<u32> = outer_poly
+        .iter()
+        .map(|&g| intern(g, &mut local_verts, &mut global_of_local))
+        .collect();
+    let mut holes_local: Vec<Vec<u32>> = Vec::new();
+    for inner in &f.inner_loops {
+        let poly = loop_polyline(f_idx, inner, edges, chains)?;
+        holes_local.push(
+            poly.iter()
+                .map(|&g| intern(g, &mut local_verts, &mut global_of_local))
+                .collect(),
+        );
+    }
+
+    let local_tris = cherchi_rs::cdt_polygon_with_holes(&local_verts, &outer_local, &holes_local)
+        .map_err(|e| {
+        YangError::MalformedTopology(format!("face {f_idx}: CDT triangulation failed: {e}"))
+    })?;
+
+    let nu = normalize3(normal.as_array());
+    for t in &local_tris {
+        let mut tri = [
+            global_of_local[t[0] as usize],
+            global_of_local[t[1] as usize],
+            global_of_local[t[2] as usize],
+        ];
+        orient_tri(out_verts, &mut tri, nu);
+        out_tris.push(tri);
+    }
+    Ok(())
+}
+
 fn tessellate_planar_cdt_face(
     f_idx: usize,
     f: &BRepFace,
@@ -1592,24 +1849,29 @@ fn tessellate_lateral_face(
     _radius: f64,
     out_tris: &mut Vec<[u32; 3]>,
 ) -> Result<(), YangError> {
-    // The lateral must have exactly 2 Circle boundary edges (its two rims). A
-    // cylinder face on a triangle (no Circle rims) is MalformedTopology (loud).
-    let circle_edges: Vec<u32> = f
+    // Dispatch on the boundary vocabulary:
+    // - 2 FULL-circle rims (+ seam rulings)         → the canonical tube
+    // - 2 ARCS + ruling segments (PR-KV6b-1)        → the partial patch strip
+    // Anything else is MalformedTopology (loud).
+    let full_rims: Vec<u32> = f
         .outer_loop
         .iter()
         .copied()
-        .filter(|&e| matches!(edges[e as usize].curve, Curve::Circle { .. }))
+        .filter(|&e| {
+            let ed = &edges[e as usize];
+            matches!(ed.curve, Curve::Circle { .. }) && ed.start == ed.end
+        })
         .collect();
-    if circle_edges.len() != 2 {
-        return Err(YangError::MalformedTopology(format!(
-            "face {f_idx}: cylinder lateral must have exactly 2 Circle rim edges, found {} \
-             (a cylinder surface on a non-circular boundary is malformed topology)",
-            circle_edges.len()
-        )));
-    }
+    let arcs: Vec<u32> = f
+        .outer_loop
+        .iter()
+        .copied()
+        .filter(|&e| {
+            let ed = &edges[e as usize];
+            matches!(ed.curve, Curve::Circle { .. }) && ed.start != ed.end
+        })
+        .collect();
 
-    // Identify which rim is the +axis ("top") and which is −axis ("bottom") by
-    // the sign of (rim_center − axis_point) · axis_dir.
     let au = normalize3(axis_dir.as_array());
     let ap = axis_point.as_array();
     let rim_param = |e: u32| -> f64 {
@@ -1620,41 +1882,136 @@ fn tessellate_lateral_face(
             0.0
         }
     };
-    let (mut bottom_e, mut top_e) = (circle_edges[0], circle_edges[1]);
-    if rim_param(bottom_e) > rim_param(top_e) {
-        std::mem::swap(&mut bottom_e, &mut top_e);
-    }
-
-    let bottom_ring = rim_rings.get(&bottom_e).ok_or_else(|| {
-        YangError::MalformedTopology(format!(
-            "face {f_idx}: bottom rim ring {bottom_e} not built"
-        ))
-    })?;
-    let top_ring = rim_rings.get(&top_e).ok_or_else(|| {
-        YangError::MalformedTopology(format!("face {f_idx}: top rim ring {top_e} not built"))
-    })?;
-    let nseg = top_ring.len();
-    if nseg < 3 || bottom_ring.len() != nseg {
-        return Err(YangError::MalformedTopology(format!(
-            "face {f_idx}: cylinder rims have mismatched / too-few samples"
-        )));
-    }
-
-    // Connect by geometric azimuth: top_ring[k] ↔ bottom_ring[(N−k) mod N].
-    for k in 0..nseg {
-        let kn = (k + 1) % nseg;
-        let t0 = top_ring[k];
-        let t1 = top_ring[kn];
-        let b0 = bottom_ring[(nseg - k) % nseg];
-        let b1 = bottom_ring[(nseg - kn) % nseg];
-        // Quad (b0, b1, t1, t0) split into 2 tris; orient each radially outward.
-        for mut tri in [[b0, b1, t1], [b0, t1, t0]] {
-            let n = radial_outward_normal(out_verts, &tri, ap, au);
-            orient_tri(out_verts, &mut tri, n);
-            out_tris.push(tri);
+    // The stored normal's sense along the axis determines each chain's
+    // angular direction (its frame's e2 = normal × e1 mirrors with the
+    // normal). Two chains co-rotate when their normal signs agree.
+    let rim_sense = |e: u32| -> f64 {
+        if let Curve::Circle { normal, .. } = edges[e as usize].curve {
+            let n = normalize3(normal.as_array());
+            (n[0] * au[0] + n[1] * au[1] + n[2] * au[2]).signum()
+        } else {
+            1.0
         }
+    };
+    // Orientation target: outward radial for a solid lateral, inward for a
+    // cavity wall (`reversed` — PR-KV6b-1, the washer's inner tube and the
+    // partial revolve's inner-bore wall).
+    let orient_target = |verts: &[Point3], tri: &[u32; 3]| -> [f64; 3] {
+        let n = radial_outward_normal(verts, tri, ap, au);
+        if f.reversed {
+            [-n[0], -n[1], -n[2]]
+        } else {
+            n
+        }
+    };
+
+    if full_rims.len() == 2 && arcs.is_empty() {
+        // ===== Canonical tube (KV5a/M5 shape) =====
+        let (mut bottom_e, mut top_e) = (full_rims[0], full_rims[1]);
+        if rim_param(bottom_e) > rim_param(top_e) {
+            std::mem::swap(&mut bottom_e, &mut top_e);
+        }
+        let bottom_ring = rim_rings.get(&bottom_e).ok_or_else(|| {
+            YangError::MalformedTopology(format!(
+                "face {f_idx}: bottom rim ring {bottom_e} not built"
+            ))
+        })?;
+        let top_ring = rim_rings.get(&top_e).ok_or_else(|| {
+            YangError::MalformedTopology(format!("face {f_idx}: top rim ring {top_e} not built"))
+        })?;
+        let nseg = top_ring.len();
+        if nseg < 3 || bottom_ring.len() != nseg {
+            return Err(YangError::MalformedTopology(format!(
+                "face {f_idx}: cylinder rims have mismatched / too-few samples"
+            )));
+        }
+
+        // Connect by geometric azimuth. The classic shape stores bottom
+        // normal = −axis, top = +axis (counter-rotating frames) ⇒ bottom
+        // index (N−k). A washer INNER tube stores the mirrored senses ⇒
+        // the rings co-rotate and align index-for-index. Generalize via the
+        // product of the stored-normal senses (PR-KV6b-1).
+        let co_rotating = rim_sense(bottom_e) * rim_sense(top_e) > 0.0;
+        let b_index = |k: usize| -> usize {
+            if co_rotating {
+                k
+            } else {
+                (nseg - k) % nseg
+            }
+        };
+        for k in 0..nseg {
+            let kn = (k + 1) % nseg;
+            let t0 = top_ring[k];
+            let t1 = top_ring[kn];
+            let b0 = bottom_ring[b_index(k)];
+            let b1 = bottom_ring[b_index(kn)];
+            for mut tri in [[b0, b1, t1], [b0, t1, t0]] {
+                let n = orient_target(out_verts, &tri);
+                orient_tri(out_verts, &mut tri, n);
+                out_tris.push(tri);
+            }
+        }
+        return Ok(());
     }
-    Ok(())
+
+    if arcs.len() == 2
+        && full_rims.is_empty()
+        && f.outer_loop.iter().all(|&e| {
+            matches!(
+                edges[e as usize].curve,
+                Curve::Circle { .. } | Curve::LineSegment
+            )
+        })
+    {
+        // ===== Partial patch (PR-KV6b-1): 2 sweep arcs + ruling segments =====
+        let (mut bottom_e, mut top_e) = (arcs[0], arcs[1]);
+        if rim_param(bottom_e) > rim_param(top_e) {
+            std::mem::swap(&mut bottom_e, &mut top_e);
+        }
+        let bottom = rim_rings.get(&bottom_e).ok_or_else(|| {
+            YangError::MalformedTopology(format!("face {f_idx}: arc chain {bottom_e} not built"))
+        })?;
+        let top = rim_rings.get(&top_e).ok_or_else(|| {
+            YangError::MalformedTopology(format!("face {f_idx}: arc chain {top_e} not built"))
+        })?;
+        if bottom.len() != top.len() || bottom.len() < 2 {
+            return Err(YangError::MalformedTopology(format!(
+                "face {f_idx}: partial-cylinder arc chains have mismatched sample counts                  ({} vs {})",
+                bottom.len(),
+                top.len()
+            )));
+        }
+        // Chains are open polylines [start … end]; with agreeing stored
+        // senses they are azimuth-aligned index-for-index, with mirrored
+        // senses index k pairs with (M−k).
+        let m = bottom.len() - 1;
+        let co_rotating = rim_sense(bottom_e) * rim_sense(top_e) > 0.0;
+        let b_index = |k: usize| -> usize {
+            if co_rotating {
+                k
+            } else {
+                m - k
+            }
+        };
+        for k in 0..m {
+            let t0 = top[k];
+            let t1 = top[k + 1];
+            let b0 = bottom[b_index(k)];
+            let b1 = bottom[b_index(k + 1)];
+            for mut tri in [[b0, b1, t1], [b0, t1, t0]] {
+                let n = orient_target(out_verts, &tri);
+                orient_tri(out_verts, &mut tri, n);
+                out_tris.push(tri);
+            }
+        }
+        return Ok(());
+    }
+
+    Err(YangError::MalformedTopology(format!(
+        "face {f_idx}: cylinder lateral must be bounded by exactly 2 full-circle rims          (canonical tube) or 2 arcs + ruling segments (partial patch); found {} full          rims and {} arcs",
+        full_rims.len(),
+        arcs.len()
+    )))
 }
 
 /// PR-YR12 (P2b): tessellate a closed solid-sphere face (one `Surface::Sphere`
@@ -3789,8 +4146,17 @@ pub(crate) fn scan_near_coplanar(a: &BRep, b: &BRep) -> CoplanarScan {
                     continue;
                 }
                 if let Some(band) = near_coplanar_band(pi, pj) {
-                    if aabbs_overlap(&pi.lo, &pi.hi, &olo, &ohi, band)
-                        || aabbs_overlap(&pj.lo, &pj.hi, &olo, &ohi, band)
+                    // PR-KV6b-1: the femto-seam hazard (F0018/F0025) needs
+                    // the two fragments to be ADJACENT — a split plane's
+                    // pieces share the rounded seam the other solid can cut
+                    // through. DISJOINT same-plane faces (a 180° revolve's
+                    // two caps, whose trig-computed normals differ by ~1 ulp
+                    // and so miss the bit-identical exclusion) have no seam;
+                    // cut lines in separated regions cannot interact.
+                    let fragments_adjacent = aabbs_overlap(&pi.lo, &pi.hi, &pj.lo, &pj.hi, band);
+                    if fragments_adjacent
+                        && (aabbs_overlap(&pi.lo, &pi.hi, &olo, &ohi, band)
+                            || aabbs_overlap(&pj.lo, &pj.hi, &olo, &ohi, band))
                     {
                         intra = Some((input, i, j));
                         break 'intra;
@@ -4425,6 +4791,10 @@ struct PatchInfo {
     input: InputId,
     inherited: Surface,
     face_idx: usize,
+    /// The INPUT face's cavity sense (PR-KV6b-1): a kept patch of an
+    /// already-reversed input wall (e.g. a washer's inner tube) must keep
+    /// its sense in the output — composed by XOR with the Subtract-B flip.
+    input_reversed: bool,
 }
 
 /// PR-YR10: the Phase-A structures `reconstruct_topology` derives before the
@@ -4473,11 +4843,13 @@ fn compute_phase_a(
             )));
         }
         let inherited = input_brep.faces()[face_idx].surface;
+        let input_reversed = input_brep.faces()[face_idx].reversed;
         infos.push(PatchInfo {
             cycles,
             input,
             inherited,
             face_idx,
+            input_reversed,
         });
     }
 
@@ -5984,7 +6356,11 @@ fn emit_topology(
                 surface: inherited,
                 outer_loop,
                 inner_loops,
-                reversed: op == BoolOp::Subtract && info.input == InputId::B,
+                // PR-KV6b-1: compose the input face's own cavity sense with
+                // the Subtract-B flip (XOR). A no-op for every pre-KV6b
+                // fixture (inputs always carried `reversed == false`).
+                reversed: info.input_reversed
+                    ^ (op == BoolOp::Subtract && info.input == InputId::B),
             });
             continue;
         }
