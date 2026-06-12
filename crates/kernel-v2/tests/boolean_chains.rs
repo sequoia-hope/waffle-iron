@@ -7,17 +7,13 @@
 //!
 //! - PLANAR chains of arbitrary depth work (union/subtract mixes, 4 deep),
 //!   with exact volume oracles (axis-aligned boxes → inclusion–exclusion).
-//! - Re-entering a boolean OUTPUT that carries a CURVED face is a TYPED
-//!   wall (`UnsupportedCurvedBoolean`): output cylinder patch boundaries
-//!   are untagged chord polylines, so `to_yang_brep` rejects them loudly
-//!   (the KV5b `curved_result_reentry` wall) — even when the second op
-//!   would only touch planar regions. Flip those two pins when output
-//!   curve tagging lands.
+//! - PR-KV7: re-entering a boolean OUTPUT that carries a CURVED face now
+//!   WORKS — output curve recovery (`recover.rs`) restores B-Rep
+//!   granularity, so the chain continues through curved intermediates
+//!   (the former `UnsupportedCurvedBoolean` re-entry wall).
 
 use cad_primitives::{BoolOp, Point2, Point3, Vector3};
-use kernel_v2::{
-    boolean_op, extrude, tessellate, validate_solid, BrepArena, KernelV2Error, Profile, RenderMesh,
-};
+use kernel_v2::{boolean_op, extrude, tessellate, validate_solid, BrepArena, Profile, RenderMesh};
 
 fn boxx(a: &mut BrepArena, x: (f64, f64), y: (f64, f64), z: (f64, f64)) -> kernel_v2::SolidId {
     let p = Profile::new(
@@ -165,35 +161,47 @@ fn planar_four_boolean_chain() {
     );
 }
 
-/// TYPED WALL pin: a second boolean on an output that carries a cylinder
-/// face fails `UnsupportedCurvedBoolean` even when the second operand only
-/// touches planar regions. Flip when boolean-output curve tagging lands.
+/// PR-KV7 flip (was a typed `UnsupportedCurvedBoolean` wall): a second
+/// boolean on an output carrying a cylinder face, touching only planar
+/// regions, now succeeds via output curve recovery.
 #[test]
-fn curved_output_reentry_planar_contact_typed_wall() {
+fn curved_output_reentry_planar_contact() {
     let mut a = BrepArena::new();
     let b1 = boxx(&mut a, (0.0, 4.0), (0.0, 4.0), (0.0, 1.0));
     let c1 = cyl(&mut a, 2.0, 2.0, 0.8, (0.5, 2.0));
     let u1 = boolean_op(&mut a, b1, c1, BoolOp::Union).expect("boss union");
     let p = boxx(&mut a, (0.5, 1.2), (0.5, 1.2), (0.3, 1.5));
-    match boolean_op(&mut a, u1, p, BoolOp::Subtract) {
-        Err(KernelV2Error::UnsupportedCurvedBoolean { .. }) => {}
-        other => panic!("expected UnsupportedCurvedBoolean wall, got {other:?}"),
-    }
+    let out = boolean_op(&mut a, u1, p, BoolOp::Subtract)
+        .unwrap_or_else(|e| panic!("planar pocket after boss union: {e:?}"));
+    validate_solid(&a, out).expect("validates");
+    // slab 16 + boss-above-slab π·0.8² − pocket∩slab 0.7·0.7·0.7
+    let boss_v = std::f64::consts::PI * 0.8 * 0.8;
+    let expect = 16.0 + boss_v - 0.7 * 0.7 * 0.7;
+    let vol = mesh_signed_volume(&tessellate(&a, out).expect("tessellate"));
+    assert!(
+        vol <= expect + 1e-9 && vol >= expect - 0.05 * boss_v,
+        "vol {vol} vs {expect}"
+    );
 }
 
-/// TYPED WALL pin: same re-entry wall when the second op cuts THROUGH the
-/// curved boss itself.
+/// PR-KV7 flip: the second op cutting THROUGH the recovered boss itself —
+/// the cut plane is parallel to the boss axis, so this also exercises the
+/// F3 ruling-line SSI case on a RECOVERED body.
 #[test]
-fn curved_output_reentry_through_boss_typed_wall() {
+fn curved_output_reentry_through_boss() {
     let mut a = BrepArena::new();
     let b1 = boxx(&mut a, (0.0, 4.0), (0.0, 4.0), (0.0, 1.0));
     let c1 = cyl(&mut a, 2.0, 2.0, 0.8, (0.5, 2.0));
     let u1 = boolean_op(&mut a, b1, c1, BoolOp::Union).expect("boss union");
     let p = boxx(&mut a, (1.7, 2.3), (-1.0, 5.0), (1.3, 1.8));
-    match boolean_op(&mut a, u1, p, BoolOp::Subtract) {
-        Err(KernelV2Error::UnsupportedCurvedBoolean { .. }) => {}
-        other => panic!("expected UnsupportedCurvedBoolean wall, got {other:?}"),
-    }
+    let out = boolean_op(&mut a, u1, p, BoolOp::Subtract)
+        .unwrap_or_else(|e| panic!("cut through recovered boss: {e:?}"));
+    validate_solid(&a, out).expect("validates");
+    let vol = mesh_signed_volume(&tessellate(&a, out).expect("tessellate"));
+    assert!(
+        vol > 16.0 && vol < 16.0 + std::f64::consts::PI * 0.64,
+        "vol {vol}"
+    );
 }
 
 /// Chains must stay deterministic (bit-identical arenas + meshes).

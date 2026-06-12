@@ -786,9 +786,15 @@ pub(crate) fn stage1_tessellate(
         let mut face_tri_ranges: Vec<std::ops::Range<usize>> = Vec::with_capacity(faces.len());
         for (f_idx, f) in faces.iter().enumerate() {
             let range_start = out_tris.len();
+            // PR-KV7: ALL loops (outer + rings) must be segments for the
+            // pure-planar paths — a seg-bounded face with a CIRCLE ring (a
+            // box top with a recovered round hole re-entering the pipeline)
+            // must route to the generalized curved CDT below, or the
+            // seg-only CDT silently covers the hole.
             let all_line = f
                 .outer_loop
                 .iter()
+                .chain(f.inner_loops.iter().flatten())
                 .all(|&e_idx| matches!(edges[e_idx as usize].curve, Curve::LineSegment));
 
             match f.surface {
@@ -4274,6 +4280,47 @@ pub(crate) fn scan_near_coplanar(a: &BRep, b: &BRep) -> CoplanarScan {
 /// Loop-vertex off-plane residuals (e.g. a Stage-0 snapped pair face) lie
 /// along the face normal, which both frame axes annihilate, so they do not
 /// perturb the in-plane region shape.
+/// PR-KV7: finite-extent strict containment for a CYLINDER face, along the
+/// AXIS only. A chainable boolean output can carry several faces of the SAME
+/// infinite cylinder (the two stubs of a drill-through), so the YR27
+/// infinite-surface membership ties between them; the axial span breaks the
+/// tie exactly like the planar 2D test: the TRUE owning face's loop vertices
+/// (rims / arc endpoints / ruling ends — all exactly on the surface) bound an
+/// axial interval that strictly contains the centroid of every positive-area
+/// triangle attributed to it, while a different same-cylinder face at best
+/// touches the boundary. Azimuthal extent is NOT tested: a false candidate
+/// that ties axially merely keeps the tie loud (P9-safe), never mis-excludes
+/// the owner. `None` for non-cylinder faces / degenerate axes.
+fn point_strictly_in_cylinder_face_axially(brep: &BRep, fi: usize, p: [f64; 3]) -> Option<bool> {
+    let f = brep.faces().get(fi)?;
+    let Surface::Cylinder {
+        axis_point,
+        axis_dir,
+        ..
+    } = f.surface
+    else {
+        return None;
+    };
+    let a = normalize3(axis_dir.as_array());
+    let ap = axis_point.as_array();
+    let t_of = |q: [f64; 3]| (q[0] - ap[0]) * a[0] + (q[1] - ap[1]) * a[1] + (q[2] - ap[2]) * a[2];
+    let mut t_min = f64::INFINITY;
+    let mut t_max = f64::NEG_INFINITY;
+    for e_idx in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+        let e = brep.edges().get(*e_idx as usize)?;
+        for v in [e.start, e.end] {
+            let t = t_of(brep.vertices().get(v as usize)?.point.as_array());
+            t_min = t_min.min(t);
+            t_max = t_max.max(t);
+        }
+    }
+    if !(t_min.is_finite() && t_max.is_finite() && t_min < t_max) {
+        return None;
+    }
+    let t = t_of(p);
+    Some(t_min < t && t < t_max)
+}
+
 fn point_strictly_in_planar_face(brep: &BRep, fi: usize, p: [f64; 3]) -> Option<bool> {
     use crate::coplanar_overlay::{cross_r, point_in_even_odd, ExactPoint2};
     use dashu::rational::RBig;
@@ -4804,6 +4851,11 @@ pub fn boolean(
                             .filter(|&fi| {
                                 point_strictly_in_planar_face(input_brep, fi as usize, c)
                                     != Some(false)
+                                    && point_strictly_in_cylinder_face_axially(
+                                        input_brep,
+                                        fi as usize,
+                                        c,
+                                    ) != Some(false)
                             })
                             .collect();
                         match kept.len() {
@@ -5129,7 +5181,21 @@ fn input_curved_chord_bound(brep: &BRep) -> Option<f64> {
 /// NEITHER input has a curved surface, which cannot happen when a conic
 /// intersection edge exists (a conic edge implies a curved input).
 fn stage4_chord_band(a: &BRep, b: &BRep) -> Option<f64> {
-    input_curved_chord_bound(a).or_else(|| input_curved_chord_bound(b))
+    // PR-KV7: the MAX of the two inputs' Stage-1 bounds, not A-with-B-
+    // fallback. An arrangement vertex on an A×B intersection curve sits on
+    // the curved OWNER's facet chord, off the exact curve by up to that
+    // owner's OWN sagitta — and with chainable boolean outputs the owner
+    // can be EITHER input (a recovered body re-entering as A can have a
+    // much tighter rim AABB than the fresh operand B whose curves are
+    // being relocated). `max` admits exactly up to the looser owner's
+    // honest Stage-1 bound for this model pair — a derived bound, not
+    // tolerance widening. (Per-curve owner resolution, as Stage-3's
+    // `chord_tol_for_curved_owner` does for selection, is the M5-era
+    // refinement; `max` is its conservative envelope.)
+    match (input_curved_chord_bound(a), input_curved_chord_bound(b)) {
+        (Some(x), Some(y)) => Some(x.max(y)),
+        (x, y) => x.or(y),
+    }
 }
 
 /// PR-YR10 helper: edge-collapse `victim` onto `survivor` in `mesh` + the

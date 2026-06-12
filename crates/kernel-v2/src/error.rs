@@ -222,6 +222,16 @@ pub enum KernelV2Error {
     /// than mistranslated.
     UnsupportedCurvedBoolean { face: FaceId },
 
+    /// PR-KV7: a boolean operand solid has MULTIPLE shells (an internal
+    /// void from a fully-contained subtraction, or disjoint bodies from a
+    /// non-overlapping union). yang-rs's BRep input is a flat face list
+    /// with no shell structure, and its Stage-6 reassembly cannot rebuild
+    /// void topology (the same limitation that defers XOR), so multi-shell
+    /// operands are rejected loudly at conversion rather than mislabeled.
+    /// Pre-KV7 these were shadowed by the curved chord-polyline re-entry
+    /// wall; output curve recovery removed that wall, exposing this one.
+    UnsupportedMultiShellBoolean { shells: usize },
+
     // ----- render tessellation (PR-KV3, `tessellate`) ----------------------
     /// Planar-face tessellation failed: the exact ear-clipping pass could
     /// not find a valid hole bridge or a clippable ear. Unreachable for the

@@ -355,25 +355,32 @@ fn cylinder_cylinder_surfaces_yang_ssi_wall() {
     }
 }
 
-/// A boolean RESULT containing partial cylinder patches cannot re-enter
-/// yang-rs (its Stage 1 has no partial-patch tessellation — verified by the
-/// survey: `BRep::new` rejects "cylinder lateral must have exactly 2 Circle
-/// rim edges"). The re-entry wall must be the typed
-/// `UnsupportedCurvedBoolean`, raised at conversion, naming the face.
+/// PR-KV7 flip (was the typed `UnsupportedCurvedBoolean` re-entry wall):
+/// output curve recovery restores B-Rep granularity, so a boolean result
+/// carrying cylinder faces re-enters yang Stage 1. This geometry leaves TWO
+/// faces on the SAME infinite cylinder (the drill-through stubs above and
+/// below the box), exercising the PR-KV7 axial-span tie-break in Stage-6
+/// face resolution.
 #[test]
-fn curved_result_reentry_is_typed_wall() {
+fn curved_result_reentry_succeeds() {
     let mut arena = BrepArena::new();
     let cyl = cylinder(&mut arena, -0.5, 2.0);
     let bx = boxx(&mut arena, 0.0, 0.0, 0.0, 1.0);
     let out =
         boolean_op(&mut arena, cyl.solid, bx.solid, BoolOp::Union).expect("first union succeeds");
 
-    let bx2 = boxx(&mut arena, 3.0, 3.0, 0.0, 1.0); // disjoint — irrelevant, the wall is on conversion
-    let err = boolean_op(&mut arena, out, bx2.solid, BoolOp::Union)
-        .expect_err("partial-curved result cannot re-enter yang Stage 1");
+    let bx2 = boxx(&mut arena, 3.0, 3.0, 0.0, 1.0); // disjoint second operand
+    let out2 = boolean_op(&mut arena, out, bx2.solid, BoolOp::Union)
+        .unwrap_or_else(|e| panic!("recovered curved result re-enters yang Stage 1: {e:?}"));
+    validate_solid(&arena, out2).expect("chained result validates");
+    // box 1 + stub volume π·0.25²·(0.5 + 0.5) + disjoint box 1, with the
+    // chord under-fill band on the stubs only.
+    let stub_v = std::f64::consts::PI * 0.25 * 0.25 * 1.0;
+    let expect = 2.0 + stub_v;
+    let vol = mesh_volume(&tessellate(&arena, out2).expect("tessellate"));
     assert!(
-        matches!(err, KernelV2Error::UnsupportedCurvedBoolean { .. }),
-        "typed re-entry wall, got {err:?}"
+        vol <= expect + 1e-9 && vol >= expect - 0.06 * stub_v,
+        "vol {vol} vs {expect}"
     );
 }
 

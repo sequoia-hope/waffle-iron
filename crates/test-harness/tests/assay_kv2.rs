@@ -52,6 +52,7 @@ enum UnsupportedReason {
     CurvedProfile,
     CoplanarBoolean,
     FilletChamferShell,
+    MultiShell,
     Other,
 }
 
@@ -62,6 +63,7 @@ impl UnsupportedReason {
             Self::CurvedProfile => "curved-profile",
             Self::CoplanarBoolean => "coplanar-boolean",
             Self::FilletChamferShell => "fillet-chamfer-shell",
+            Self::MultiShell => "multi-shell",
             Self::Other => "other",
         }
     }
@@ -113,6 +115,11 @@ fn unsupported_reason(msg: &str) -> UnsupportedReason {
         UnsupportedReason::CurvedProfile
     } else if m.contains("coplanar") {
         UnsupportedReason::CoplanarBoolean
+    } else if m.contains("multi-shell") {
+        // PR-KV7: the multi-shell operand wall (internal voids / disjoint
+        // bodies cannot re-enter yang). Checked BEFORE the fillet/chamfer/
+        // shell bucket so "multi-shell" does not pattern-match "shell".
+        UnsupportedReason::MultiShell
     } else if m.contains("fillet") || m.contains("chamfer") || m.contains("shell") {
         UnsupportedReason::FilletChamferShell
     } else {
@@ -646,18 +653,13 @@ fn smoke_corpus_boundary_categories() {
         ("F0013", Category::SupportedCorrect),
         ("F0014", Category::SupportedCorrect),
         ("F0015", Category::SupportedCorrect),
-        // PR-TH1: R0029 is a REAL kernel-v2/yang-rs defect, kept WRONG.
-        // (The stale pin said UNSUPPORTED(coplanar-boolean) per PR-YR24,
-        // but the near-coplanar gate does not fire for this case.) Its old
-        // 4 "penetrations" were grazing-guard false positives and are gone,
-        // but T-junction-aware pairing EXPOSED a latent seam defect raw
-        // pairing could not see: an original box edge [A,B] (2 sheets) is
-        // crossed at m by the second operand, and the chain [A,m]+[m,B] is
-        // carried by 2 more coincident sheets → 4 sheets along [A,m]/[m,B]
-        // (non-manifold), with χ = 3 = 2+2−1 (two spheres glued along an
-        // arc). Evidence: probe at PR-TH1; edge ≈ (−246.1,397.2,411.5)–
-        // (−163.8,353.1,324.2) split at (−191.5,367.9,353.5).
-        ("R0029", Category::SupportedWrong),
+        // PR-KV7 flip (was SupportedWrong since PR-TH1): the defect was a
+        // T-junction seam — an original box edge [A,B] crossed at m, with
+        // the chain [A,m]+[m,B] carried by coincident sheets (4 sheets
+        // along the split, χ = 3). Output curve recovery's collinear-chain
+        // fusion removes exactly that T-vertex class, and the case now
+        // passes all mesh checks end-to-end (the KV6b-F1 class fix).
+        ("R0029", Category::SupportedCorrect),
         (
             "F0016",
             Category::Unsupported(UnsupportedReason::CoplanarBoolean),
@@ -803,6 +805,7 @@ fn full_corpus_categorized() {
         UnsupportedReason::CurvedProfile,
         UnsupportedReason::CoplanarBoolean,
         UnsupportedReason::FilletChamferShell,
+        UnsupportedReason::MultiShell,
         UnsupportedReason::Other,
     ] {
         writeln!(

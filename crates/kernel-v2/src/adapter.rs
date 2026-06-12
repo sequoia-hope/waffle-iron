@@ -319,6 +319,13 @@ impl KernelV2Adapter {
                      tessellation yet)"
                 )))
             }
+            // PR-KV7: multi-shell operands (internal voids / disjoint
+            // bodies) cannot re-enter yang-rs — a declared boundary.
+            Err(KernelV2Error::UnsupportedMultiShellBoolean { shells }) => {
+                Err(Self::not_supported(&format!(
+                    "{op_name}: multi-shell operand ({shells} shells — an internal void or                      disjoint bodies cannot re-enter yang-rs reassembly yet)"
+                )))
+            }
             Err(e) => Err(KernelError::BooleanFailed {
                 reason: format!("kernel-v2 {op_name} failed: {e}"),
             }),

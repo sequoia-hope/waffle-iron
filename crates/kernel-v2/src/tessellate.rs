@@ -215,7 +215,7 @@ pub fn tessellate_with_chord_tolerance(
                     }
                 }
                 Some(Surface::Plane(_)) => {
-                    if face_has_circle_edge(arena, f)? {
+                    if planar_face_is_canonical_cap(arena, f)? {
                         tessellate_circular_cap(arena, f, n_seg, &mut mesh)?
                     } else {
                         tessellate_planar_face(arena, f, n_seg, &mut mesh)?
@@ -302,10 +302,68 @@ fn sampled_loop_points(
 ) -> Result<Vec<Point3>, KernelV2Error> {
     let mut pts = Vec::new();
     for h in arena.loop_half_edges(lid)? {
-        pts.push(arena.vertex(arena.half_edge(h)?.origin)?.point);
-        pts.extend(arc_interior_samples(arena, h, n_seg)?);
+        let he = arena.half_edge(h)?;
+        let origin = arena.vertex(he.origin)?.point;
+        pts.push(origin);
+        if let Curve::Circle {
+            center,
+            normal,
+            radius,
+        } = he.curve
+        {
+            // PR-KV7: a full-circle edge inside a GENERAL planar loop (a
+            // recovered round hole in a seg-bounded face, or a multi-ring
+            // cap outside the KV6a disk/annulus vocabulary). Same sampling
+            // convention as `tessellate_annular_cap`: uniform angles from
+            // the anchor's frame, CCW around this half-edge's traversal
+            // normal — so the samples agree with the adjacent lateral's rim
+            // row within trig rounding (the existing cross-face contract).
+            let fid = arena.loop_(he.loop_id)?.face;
+            let Some((e1, e2)) = circle_frame(center, normal, origin) else {
+                return Err(KernelV2Error::TessellationFailed {
+                    face: fid,
+                    reason: "degenerate circle frame (anchor does not span a radial direction)",
+                });
+            };
+            for k in 1..n_seg {
+                let theta = 2.0 * std::f64::consts::PI * f64::from(k) / f64::from(n_seg);
+                let (sn, cs) = theta.sin_cos();
+                pts.push(Point3::new(
+                    center.x() + radius * (cs * e1[0] + sn * e2[0]),
+                    center.y() + radius * (cs * e1[1] + sn * e2[1]),
+                    center.z() + radius * (cs * e1[2] + sn * e2[2]),
+                ));
+            }
+        } else {
+            pts.extend(arc_interior_samples(arena, h, n_seg)?);
+        }
     }
     Ok(pts)
+}
+
+/// Is this planar face in the canonical KV5a/KV6a cap vocabulary — outer
+/// loop ONE full-circle half-edge and at most one ring that is also one
+/// full-circle half-edge? Those keep the byte-for-byte disk/annulus paths;
+/// everything else (seg-bounded faces with round holes, multi-ring caps)
+/// goes through the general planar path with circle expansion (PR-KV7).
+fn planar_face_is_canonical_cap(arena: &BrepArena, fid: FaceId) -> Result<bool, KernelV2Error> {
+    let face = arena.face(fid)?;
+    let single_circle = |lid| -> Result<bool, KernelV2Error> {
+        let hes = arena.loop_half_edges(lid)?;
+        Ok(match hes[..] {
+            [h] => matches!(arena.half_edge(h)?.curve, Curve::Circle { .. }),
+            _ => false,
+        })
+    };
+    if face.inner_loops.len() > 1 || !single_circle(face.outer_loop)? {
+        return Ok(false);
+    }
+    for &lid in &face.inner_loops {
+        if !single_circle(lid)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// Does any loop of the face carry a `Curve::Circle` half-edge?
@@ -590,23 +648,37 @@ fn tessellate_cylinder_lateral(
             });
         }
     };
-    let (cb, nub, radius, anchor) = bot;
+    let (cb, _nub, _radius, _anchor) = bot;
     let ct = top.0;
-    let Some((e1, e2)) = circle_frame(cb, nub, anchor) else {
-        return Err(KernelV2Error::TessellationFailed {
-            face: fid,
-            reason: "degenerate circle frame (anchor does not span a radial direction)",
-        });
-    };
 
-    let range_start = out.indices.len() as u32;
-    let base = out.num_vertices() as u32;
-    let n = n_seg;
-    // Bottom row [base .. base+n), top row [base+n .. base+2n), shared
-    // angle table (columns aligned along rulings).
-    for row_center in [cb, ct] {
-        for k in 0..n {
-            let theta = 2.0 * std::f64::consts::PI * (k as f64) / (n as f64);
+    // PR-KV7: each row is sampled with BITWISE the frame its adjacent cap
+    // uses — `circle_frame(center, NEG(rim half-edge normal), rim anchor)`.
+    // The cap's full-circle half-edge carries the exact negation of the
+    // lateral's (a validated twin invariant) and the same anchor vertex, so
+    // the cap row and the lateral row are bit-identical position sequences:
+    // cross-face watertightness by construction, independent of whether the
+    // two rims' anchors sit on exactly the same ruling (recovered boolean
+    // outputs guarantee anchor alignment only within the recovery band;
+    // the pre-KV7 single-frame scheme cracked there at f32 granularity).
+    // The two rows' cap frames always advance OPPOSITELY around the
+    // bottom→top axis, so one row is index-reversed to align the strip.
+    let sample_row = |row: &(Point3, UnitVector3, f64, Point3),
+                      out: &mut RenderMesh|
+     -> Result<[f64; 3], KernelV2Error> {
+        let (c0, nu, r, anc) = *row;
+        let cap_nu = UnitVector3 {
+            x: -nu.x,
+            y: -nu.y,
+            z: -nu.z,
+        };
+        let Some((e1, e2)) = circle_frame(c0, cap_nu, anc) else {
+            return Err(KernelV2Error::TessellationFailed {
+                face: fid,
+                reason: "degenerate circle frame (anchor does not span a radial direction)",
+            });
+        };
+        for k in 0..n_seg {
+            let theta = 2.0 * std::f64::consts::PI * (k as f64) / (n_seg as f64);
             let (s, c) = theta.sin_cos();
             let radial = [
                 c * e1[0] + s * e2[0],
@@ -614,9 +686,9 @@ fn tessellate_cylinder_lateral(
                 c * e1[2] + s * e2[2],
             ];
             out.positions.extend_from_slice(&[
-                row_center.x() + radius * radial[0],
-                row_center.y() + radius * radial[1],
-                row_center.z() + radius * radial[2],
+                c0.x() + r * radial[0],
+                c0.y() + r * radial[1],
+                c0.z() + r * radial[2],
             ]);
             if reversed {
                 out.normals
@@ -625,16 +697,47 @@ fn tessellate_cylinder_lateral(
                 out.normals.extend_from_slice(&radial);
             }
         }
-    }
+        // The row's advance direction: CCW around cap_nu.
+        Ok([cap_nu.x, cap_nu.y, cap_nu.z])
+    };
+
+    let range_start = out.indices.len() as u32;
+    let base = out.num_vertices() as u32;
+    let n = n_seg;
+    let d_bot = sample_row(&bot, out)?; // rows: bottom [base..base+n)
+    let d_top = sample_row(&top, out)?; // top [base+n..base+2n)
+
+    // Align both rows to advance CCW around the bottom→top axis: re-index
+    // the row whose cap frame advances the other way (k → (n−k) mod n; the
+    // positions are untouched, only the strip indexing).
+    let axis_up = [ct.x() - cb.x(), ct.y() - cb.y(), ct.z() - cb.z()];
+    let along = |d: &[f64; 3]| d[0] * axis_up[0] + d[1] * axis_up[1] + d[2] * axis_up[2];
+    let idx_b = |k: u32| -> u32 {
+        if along(&d_bot) >= 0.0 {
+            base + (k % n)
+        } else {
+            base + ((n - (k % n)) % n)
+        }
+    };
+    let idx_t = |k: u32| -> u32 {
+        if along(&d_top) >= 0.0 {
+            base + n + (k % n)
+        } else {
+            base + n + ((n - (k % n)) % n)
+        }
+    };
     for k in 0..n {
-        let k1 = (k + 1) % n;
-        let (bk, bk1, tk, tk1) = (base + k, base + k1, base + n + k, base + n + k1);
-        // CCW-around-axis bottom row + axis toward the top row ⇒ these wind
-        // with outward normals (∝ tangent × axis = radial). For a reversed
-        // wall the frame axis points AWAY from the top, so the same pattern
-        // winds inward — exactly the cavity sense.
-        out.indices.extend_from_slice(&[bk, bk1, tk1]);
-        out.indices.extend_from_slice(&[bk, tk1, tk]);
+        let (bk, bk1, tk, tk1) = (idx_b(k), idx_b(k + 1), idx_t(k), idx_t(k + 1));
+        if reversed {
+            // Cavity sense: wind inward.
+            out.indices.extend_from_slice(&[bk, tk1, bk1]);
+            out.indices.extend_from_slice(&[bk, tk, tk1]);
+        } else {
+            // CCW-around-axis bottom row + axis toward the top row ⇒ these
+            // wind with outward normals (∝ tangent × axis = radial).
+            out.indices.extend_from_slice(&[bk, bk1, tk1]);
+            out.indices.extend_from_slice(&[bk, tk1, tk]);
+        }
     }
     out.face_ranges.push(FaceRange {
         face: fid,

@@ -96,8 +96,9 @@ fn boss_union_then_planar_pocket() {
         .unwrap_or_else(|e| panic!("planar pocket after boss: {e:?}"));
     validate_solid(&a, out).expect("validates");
     let vol = volume_of(&a, out);
-    // slab 16 + boss π·0.8²·1.5 − pocket overlap 0.8·0.8·0.5 = 16 + 0.96π − 0.32
-    let boss_v = std::f64::consts::PI * 0.8 * 0.8 * 1.5;
+    // slab 16 + boss-above-slab π·0.8²·(2−1) − pocket overlap 0.8·0.8·0.5
+    // (the boss's z ∈ [0.5, 1] portion is inside the slab).
+    let boss_v = std::f64::consts::PI * 0.8 * 0.8 * 1.0;
     let expect = 16.0 + boss_v - 0.32;
     // Cylinder chord under-fill band on the boss only.
     assert!(
@@ -144,7 +145,8 @@ fn boss_union_then_concentric_hole() {
         .unwrap_or_else(|e| panic!("concentric hole through boss: {e:?}"));
     validate_solid(&a, out).expect("validates");
     let vol = volume_of(&a, out);
-    let boss_v = std::f64::consts::PI * 0.8 * 0.8 * 1.5;
+    // Boss contributes only its above-slab portion z ∈ [1, 2].
+    let boss_v = std::f64::consts::PI * 0.8 * 0.8 * 1.0;
     let hole_v = std::f64::consts::PI * 0.4 * 0.4 * 2.0; // through slab (1) + boss (1)
     let expect = 16.0 + boss_v - hole_v;
     assert!(

@@ -439,7 +439,10 @@ fn through_cut_subtract_genus_1() {
     let report = validate_solid(&arena, out).expect("through-cut validates");
     assert_eq!((report.rings, report.genus), (2, 1), "annulus top+bottom");
     assert_eq!((report.euler_lhs, report.euler_rhs), (0, 0), "χ = 0 torus");
-    assert_counts(&arena, out, (24, 32, 10, 2, 1, 1));
+    // PR-KV7: output curve recovery fuses the collinear T-vertex splits the
+    // arrangement leaves on the box edges (8 verts + 8 edges fewer than the
+    // raw mesh-granular output; faces/rings/genus/volume identical).
+    assert_counts(&arena, out, (16, 24, 10, 2, 1, 1));
     assert_eq!(
         signed_volume(&arena, out).expect("vol"),
         60.0,

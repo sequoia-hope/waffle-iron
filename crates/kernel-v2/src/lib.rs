@@ -72,6 +72,7 @@ pub(crate) mod exact2d;
 pub mod geom;
 pub mod introspect;
 pub mod profile;
+pub(crate) mod recover;
 pub mod tessellate;
 pub mod validate;
 

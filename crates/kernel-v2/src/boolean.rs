@@ -533,9 +533,16 @@ pub fn from_yang_brep(
     arena: &mut BrepArena,
     brep: &yang_rs::BRep,
 ) -> Result<SolidId, KernelV2Error> {
-    let yverts = brep.vertices();
-    let yedges = brep.edges();
-    let yfaces = brep.faces();
+    // PR-KV7: recover B-Rep granularity (output curve tagging) before
+    // classification — chord runs on recovered exact circles become arcs /
+    // full rims, canonical-pairable cylinder faces become the 4-edge
+    // [rim, seam, rim, seam] form. Conservative: bails to the original
+    // lists on any structural anomaly, so pass-1 below stays the single
+    // validation authority.
+    let (rverts, redges, rfaces) = crate::recover::recover_output_curves(brep);
+    let yverts: &[yang_rs::BRepVertex] = &rverts;
+    let yedges: &[yang_rs::BRepEdge] = &redges;
+    let yfaces: &[yang_rs::BRepFace] = &rfaces;
 
     // ---- pass 1 (NO arena mutation): validate the yang structure ---------
     if yfaces.is_empty() {
@@ -1207,6 +1214,14 @@ pub fn boolean_op(
     b: SolidId,
     op: BoolOp,
 ) -> Result<SolidId, KernelV2Error> {
+    // PR-KV7: yang's input has no shell structure and its reassembly cannot
+    // rebuild voids — wall multi-shell operands loudly (typed).
+    for s in [a, b] {
+        let shells = arena.solid(s)?.shells.len();
+        if shells > 1 {
+            return Err(KernelV2Error::UnsupportedMultiShellBoolean { shells });
+        }
+    }
     let ya = to_yang_brep(arena, a)?;
     let yb = to_yang_brep(arena, b)?;
     let Some(backend) = yang_rs::native_backend() else {

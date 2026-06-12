@@ -280,15 +280,21 @@ fn revolve_boolean_output_reentry_stays_typed_wall() {
     let b = box_solid(&mut arena, (1.0, 1.8), (1.2, 1.7), (0.2, 0.7));
     let out = boolean_op(&mut arena, r.solid, b, BoolOp::Subtract)
         .unwrap_or_else(|e| panic!("first boolean: {e:?}"));
-    // The output's curved boundaries are untagged chord polylines — a
-    // SECOND boolean over it stays the loud typed wall (same class as
-    // kv5b's curved_result_reentry_is_typed_wall).
+    // PR-KV7: the pocket box is fully interior, so the first output is a
+    // TWO-SHELL solid (wedge + internal void). Output curve recovery
+    // removed the chord-polyline wall that used to shadow this, exposing
+    // the real boundary: yang's flat-face-list input has no shell
+    // structure and its reassembly cannot rebuild voids — the typed
+    // multi-shell wall.
     let b2 = box_solid(&mut arena, (10.0, 11.0), (10.0, 11.0), (10.0, 11.0));
     let err =
         boolean_op(&mut arena, out, b2, BoolOp::Union).expect_err("output re-entry stays walled");
     assert!(
-        matches!(err, KernelV2Error::UnsupportedCurvedBoolean { .. }),
-        "typed wall, got {err:?}"
+        matches!(
+            err,
+            KernelV2Error::UnsupportedMultiShellBoolean { shells: 2 }
+        ),
+        "typed multi-shell wall, got {err:?}"
     );
 }
 
