@@ -55,13 +55,14 @@
 		return r.status;
 	}
 
-	// PR-ASSAY-VOID: a passing case whose pass MEANS "the engine errored as
-	// the meta expects" (revolve self-intersection canaries etc.). The error
-	// toast the case load produces is the EXPECTED outcome — badge it so
-	// PASS + error toast reads as intended, not contradictory.
+	// Expected-error canaries (revolve self-intersection etc.): the engine
+	// error IS the expected outcome, but PASS is reserved for fully
+	// supported WORKING geometry — these report status "error" with the
+	// expectation as context, badged distinctly.
 	function isExpectedError(id) {
 		const r = state.results?.[id];
-		return !!(r?.status === 'pass' && r.detail && r.detail.startsWith('expected rebuild error'));
+		return !!(r?.category === 'EXPECTED_ERROR'
+			|| (r?.detail && r.detail.startsWith('expected rebuild error')));
 	}
 
 	// Count results
@@ -124,7 +125,7 @@
 							{/if}
 							{#if status}
 								<span class="ab-status-badge" class:pass={status === 'pass'} class:fail={status === 'fail'} class:error={status === 'error'}>
-									{status === 'pass' ? (isExpectedError(c.id) ? 'PASS (EXPECTED ERR)' : 'PASS') : status === 'fail' ? 'FAIL' : 'ERR'}
+									{status === 'pass' ? 'PASS' : status === 'fail' ? 'FAIL' : isExpectedError(c.id) ? 'ERR (EXPECTED)' : 'ERR'}
 								</span>
 							{/if}
 							<span class="ab-case-id">{c.id}</span>
@@ -144,8 +145,9 @@
 				{#if activeMeta.oracles}
 					{#if activeMeta.oracles.expect_rebuild_error}
 						<div class="ab-oracle-row ab-expected-error">
-							Expects rebuild error: YES — the engine error this case raises IS the
-							expected outcome (PASS means the error fired)
+							Expects rebuild error: YES — the engine error this case raises is the
+							expected outcome (the canary fired); it still reports as an error,
+							not a pass
 						</div>
 					{/if}
 					<div class="ab-oracle-row">Euler: {activeMeta.oracles.euler_target}</div>

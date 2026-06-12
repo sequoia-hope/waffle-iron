@@ -2,7 +2,7 @@
   "errored": 21,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 36,
+  "passed": 34,
   "results": [
     {
       "category": "UNSUPPORTED(curved-profile)",
@@ -1037,16 +1037,16 @@
       "status": "unsupported"
     },
     {
-      "category": "SUPPORTED_CORRECT",
+      "category": "EXPECTED_ERROR",
       "detail": "expected rebuild error: 2e612f7b-d14f-41ee-b3c3-3cb8a015fa72: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile",
       "id": "F0073",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "SUPPORTED_CORRECT",
+      "category": "EXPECTED_ERROR",
       "detail": "expected rebuild error: c4465b32-ce18-44a2-a2a8-458402c2948f: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisNotInPlane",
       "id": "F0074",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(revolve)",

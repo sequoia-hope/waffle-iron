@@ -74,6 +74,11 @@ enum Category {
     SupportedCorrect,
     SupportedWrong,
     Unsupported(UnsupportedReason),
+    /// The meta EXPECTS a rebuild error and the engine raised one (the
+    /// self-intersection canaries F0073/F0074). The canary fired correctly
+    /// — but PASS is reserved for fully-supported WORKING geometry, so this
+    /// reports as an error status with the expectation as context.
+    ExpectedError,
     Error,
 }
 
@@ -83,6 +88,7 @@ impl Category {
             Self::SupportedCorrect => "SUPPORTED_CORRECT".to_string(),
             Self::SupportedWrong => "SUPPORTED_WRONG".to_string(),
             Self::Unsupported(r) => format!("UNSUPPORTED({})", r.label()),
+            Self::ExpectedError => "EXPECTED_ERROR".to_string(),
             Self::Error => "ERROR".to_string(),
         }
     }
@@ -192,7 +198,7 @@ fn replay_case(case: &DiscoveredCase) -> CaseOutcome {
     if meta.oracles.expect_rebuild_error && !engine_errors.is_empty() {
         return CaseOutcome {
             id: case.id.clone(),
-            category: Category::SupportedCorrect,
+            category: Category::ExpectedError,
             detail: format!("expected rebuild error: {}", engine_errors.join("; ")),
         };
     }
@@ -736,8 +742,8 @@ fn smoke_corpus_boundary_categories() {
         // the REAL validation: F0073/F0074 place the axis through the
         // profile, and the typed RevolveAxisIntersectsProfile maps to the
         // plain rebuild error their metas expect.
-        ("F0073", Category::SupportedCorrect),
-        ("F0074", Category::SupportedCorrect),
+        ("F0073", Category::ExpectedError),
+        ("F0074", Category::ExpectedError),
         // F0075 is a VALID offset-rectangle revolve — the solid builds; the
         // case then hits the KV6b wall (auto-union over an arc-bearing
         // operand → UnsupportedCurvedBoolean; the warning text leads with
@@ -818,6 +824,12 @@ fn full_corpus_categorized() {
     }
     writeln!(
         table,
+        "  EXPECTED_ERROR       {:>4}",
+        count(&|c| *c == Category::ExpectedError)
+    )
+    .unwrap();
+    writeln!(
+        table,
         "  ERROR                {:>4}",
         count(&|c| *c == Category::Error)
     )
@@ -855,6 +867,7 @@ fn full_corpus_categorized() {
             "fillet_chamfer_shell": count(&|c| *c == Category::Unsupported(UnsupportedReason::FilletChamferShell)),
             "other": count(&|c| *c == Category::Unsupported(UnsupportedReason::Other)),
         },
+        "expected_error": count(&|c| *c == Category::ExpectedError),
         "error": count(&|c| *c == Category::Error),
         "cases": outcomes.iter().map(|o| serde_json::json!({
             "id": o.id,
@@ -883,7 +896,10 @@ fn full_corpus_categorized() {
         match c {
             Category::SupportedCorrect => "pass",
             Category::SupportedWrong => "fail",
-            Category::Error => "error",
+            // An EXPECTED error is still an error in the browser — PASS is
+            // reserved for fully-supported working geometry; the canary
+            // context rides in `category` + `detail`.
+            Category::ExpectedError | Category::Error => "error",
             Category::Unsupported(_) => "unsupported",
         }
     };
