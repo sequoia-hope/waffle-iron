@@ -1820,9 +1820,33 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   booleans where a box face is PARALLEL to the revolve axis hit the
   plane×cylinder SSI LINE case (ssi-rs pair #2 'partial') — Stage-4
   relocates intersection points off-surface, caught loudly by the output
-  Newell check / AmbiguousCurve. Fixing pair #2's parallel-line branch is
-  the highest-leverage M5 slice (it gates ALL side-crossing revolve
-  booleans in the app, where extrude caps always parallel the axis).
+  Newell check / AmbiguousCurve.
+
+- **KV6b-F3 — plane∥axis × cylinder line case. ✅ RESOLVED (2026-06-12,
+  PR-F3 + PR-F3b).** ssi-rs pair #2's C3a/C3b line branches were already
+  correct; the defects were ALL in yang Stage 4: (1) `LineSegment`
+  intersection edges got NO relocation (chord points stayed off the exact
+  line and off the cylinder → `VertexOffSurface`), and Stage 4 wasn't even
+  entered when lines were the only intersection curves; (2) a TRIPLE point
+  shared by a line edge and a circle edge relocated onto the circle alone,
+  off the cutting plane (the Newell failure); (3) the Line membership band
+  lacked the propagated factor `r/√(r²−d²)` — the radial Stage-1 chord
+  contract measured in the cutting plane's in-plane metric (the line analog
+  of PR-YR19's sphere `(R/r_c)` scaling) → `AmbiguousCurve{2,0}` on the
+  app's through-box geometry. Fixes: line relocation arm (exact line
+  recomputed from cylinder+plane incidence via ssi-rs, same selection rule
+  as Stage 3), line∩circle-plane junction relocation, and
+  `line_band_amplification` carried in every gate sharing the metric
+  (Stage-3 matching, Stage-4 re-matching, both relocation gates) with
+  surface-normal backstops unscaled. NOT revolve-specific — plain sideways
+  cylinder×box overlaps were broken too. Oracles:
+  `kernel-v2/tests/kv6f3_line_ssi.rs` (exact segment-slab volumes, on-line
+  vertex pins, the KV6b probe, the exact app geometry). App: revolve(270°)
+  + through-box auto-union produces ONE merged body. Corpus 30/2/19
+  unchanged (no corpus case exercises the geometry). Walls that remain:
+  two DIFFERENT lines through one vertex (box corner ruling piercing a
+  cylinder), line+ellipse/cone-conic junctions, near-tangent planes — all
+  loud STOPs.
 
 - **KV6a — revolve (kernel-v2). ✅ COMPLETE (2026-06-11, PR-KV6a).**
   Partial angles (0,2π) AND full 360° for polygon profiles with
