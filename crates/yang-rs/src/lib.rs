@@ -2621,11 +2621,58 @@ fn circle_residual_split(pt: Point3, center: Point3, normal: Vector3, radius: f6
 struct LineReloc {
     point: Point3,
     dir: Vector3,
+    /// PR-F3b: the propagated band factor `r/√(r² − d²)` from
+    /// [`line_band_amplification`] (1.0 if unavailable) — the residual gate
+    /// compares the line-distance metric against `band_amp · d_ε`.
+    band_amp: f64,
 }
 
 /// Per-vertex circle assignment `(center, normal, radius, source_sphere_radius)`
 /// — the `vert_circle` value tuple, shared by the PR-F3 line+circle junction map.
 type CircleAssign = (Point3, Vector3, f64, Option<f64>);
+
+/// PR-F3b: band amplification for a ruling-LINE membership / residual test on
+/// a `cylinder × plane` pair. A mesh point on a Stage-1 facet chord is off the
+/// cylinder RADIALLY by `ρ ≤ d_ε` (the Stage-1 contract), but its
+/// perpendicular distance to the C3a intersection line — measured IN the
+/// cutting plane — is `ρ·r/√(r² − d²)` where `d` is the axis-to-plane
+/// distance: the radial deficit divides by the cosine between the radial
+/// direction at the line and the in-plane direction. This is the line analog
+/// of the PR-YR19 sphere section-circle `(R/r_c)` propagation (see
+/// `chord_band_propagates_into_section_metric`): a DERIVED metric conversion,
+/// not tolerance widening. Surface-normal backstops (the on-both-surfaces
+/// gate) stay UNSCALED. Returns `None` for non-cylinder/plane pairs and for
+/// near-tangent planes (`d → r`, where the factor diverges — such a pair
+/// fails loud upstream rather than matching everything).
+fn line_band_amplification(surf0: Surface, surf1: Surface) -> Option<f64> {
+    let (cyl, pl) = match (surf0, surf1) {
+        (c @ Surface::Cylinder { .. }, p @ Surface::Plane { .. }) => (c, p),
+        (p @ Surface::Plane { .. }, c @ Surface::Cylinder { .. }) => (c, p),
+        _ => return None,
+    };
+    let (
+        Surface::Cylinder {
+            axis_point, radius, ..
+        },
+        Surface::Plane { normal, d },
+    ) = (cyl, pl)
+    else {
+        return None;
+    };
+    let n = normal.as_array();
+    let nn = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    // NaN-safe: a non-finite `nn` fails the `>=` and returns None.
+    if nn < cad_primitives::MIN_FEATURE_SIZE || !nn.is_finite() || radius <= 0.0 {
+        return None;
+    }
+    let p = axis_point.as_array();
+    let dist = ((n[0] * p[0] + n[1] * p[1] + n[2] * p[2] + d) / nn).abs();
+    let half_sep_sq = radius * radius - dist * dist;
+    if half_sep_sq <= (cad_primitives::MIN_FEATURE_SIZE * radius).powi(2) {
+        return None; // near-tangent: no finite propagated band.
+    }
+    Some(radius / half_sep_sq.sqrt())
+}
 
 /// Perpendicular distance of `p` to the line `(point, dir)` (`dir` need not be
 /// unit). PR-F3 line membership / residual metric.
@@ -3605,11 +3652,21 @@ fn build_intersection_curves(
                 reason: SsiRefinementError::IntersectFailed(err),
             })?;
 
+        // PR-F3b: a `Line` candidate's membership band carries the propagated
+        // factor `r/√(r² − d²)` (the radial chord deficit measured in the
+        // cutting plane's in-plane metric) — same derivation as the PR-YR19
+        // sphere section circle's `(R/r_c)` scaling. Conic candidates keep
+        // the unscaled `tol` byte-for-byte.
+        let line_amp = line_band_amplification(surf0, surf1);
         let mut matched_idx: Option<usize> = None;
         let mut matched = 0usize;
         for (i, curve) in returned.iter().enumerate() {
-            if curve_contains_point(curve, p_s, tol, source_radius)
-                && curve_contains_point(curve, p_e, tol, source_radius)
+            let cand_tol = match curve {
+                ssi_rs::SsiCurve::Line { .. } => line_amp.map_or(tol, |a| a * tol),
+                _ => tol,
+            };
+            if curve_contains_point(curve, p_s, cand_tol, source_radius)
+                && curve_contains_point(curve, p_e, cand_tol, source_radius)
             {
                 matched += 1;
                 matched_idx = Some(i);
@@ -5554,15 +5611,23 @@ fn stage4_relocate_and_correct(
                     })?;
                 let p_s = mesh.verts[s as usize];
                 let p_e = mesh.verts[e as usize];
+                // PR-F3b: the SAME propagated band as Stage-3 matching (the
+                // metric is shared, so every gate carries the factor).
+                let band_amp = line_band_amplification(cyl_surf, pl_surf).unwrap_or(1.0);
+                let line_tol = band_amp * tol;
                 let mut matched: Option<LineReloc> = None;
                 let mut matched_n = 0usize;
                 for c in &returned {
                     if let ssi_rs::SsiCurve::Line { point, dir } = *c {
-                        if line_perp_distance(p_s, point, dir) <= tol
-                            && line_perp_distance(p_e, point, dir) <= tol
+                        if line_perp_distance(p_s, point, dir) <= line_tol
+                            && line_perp_distance(p_e, point, dir) <= line_tol
                         {
                             matched_n += 1;
-                            matched = Some(LineReloc { point, dir });
+                            matched = Some(LineReloc {
+                                point,
+                                dir,
+                                band_amp,
+                            });
                         }
                     }
                 }
@@ -5923,7 +5988,10 @@ fn stage4_relocate_and_correct(
     for (&v, lr) in &vert_line {
         let p = mesh.verts[v as usize];
         let rho = line_perp_distance(p, lr.point, lr.dir);
-        if rho > d_eps {
+        // PR-F3b: the residual is the line-distance metric, so the gate is the
+        // propagated band `band_amp · d_ε` (the radial Stage-1 contract
+        // converted into this metric), not the raw radial band.
+        if rho > lr.band_amp * d_eps {
             return Err(YangError::Stage4RegionInvalid {
                 vertex: v,
                 reason: Stage4InvalidReason::OffCurveBeyondChordBand,
@@ -5983,7 +6051,9 @@ fn stage4_relocate_and_correct(
             p.as_array()[2] - j.as_array()[2],
         ];
         let rho = (pj[0] * pj[0] + pj[1] * pj[1] + pj[2] * pj[2]).sqrt();
-        if rho > 2.0 * d_eps {
+        // PR-F3b: line-band component carries the propagated factor; the
+        // along-line crossing component stays at the raw d_ε.
+        if rho > (lr.band_amp + 1.0) * d_eps {
             return Err(YangError::Stage4RegionInvalid {
                 vertex: v,
                 reason: Stage4InvalidReason::OffCurveBeyondChordBand,
