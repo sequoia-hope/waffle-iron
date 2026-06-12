@@ -83,7 +83,8 @@ fn mesh_signed_volume(mesh: &RenderMesh) -> f64 {
     let mut six_v = 0.0;
     for t in mesh.indices.chunks_exact(3) {
         let (a, b, c) = (p(t[0]), p(t[1]), p(t[2]));
-        six_v += a[0] * (b[1] * c[2] - b[2] * c[1]) + a[1] * (b[2] * c[0] - b[0] * c[2])
+        six_v += a[0] * (b[1] * c[2] - b[2] * c[1])
+            + a[1] * (b[2] * c[0] - b[0] * c[2])
             + a[2] * (b[0] * c[1] - b[1] * c[0]);
     }
     six_v / 6.0
@@ -147,7 +148,7 @@ fn line_edge_points_relocated_onto_cylinder_and_plane() {
     let mut arena = BrepArena::new();
     let c = cylinder(&mut arena);
     let b = box_solid(&mut arena, BX, BY, BZ);
-    let out = boolean_op(&mut arena, c, b, BoolOp::Subtract)
+    let _out = boolean_op(&mut arena, c, b, BoolOp::Subtract)
         .unwrap_or_else(|e| panic!("cylinder − box: {e:?}"));
     // The cut face at x = 0.6 inside the cylinder: every boundary vertex of
     // the cut region that lies on the lateral wall must satisfy BOTH

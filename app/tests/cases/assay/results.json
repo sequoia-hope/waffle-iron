@@ -852,7 +852,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): b2170b0b-0c14-44f4-8723-44d951dc8d42: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(8) }",
+      "detail": "1 engine error(s): b2170b0b-0c14-44f4-8723-44d951dc8d42: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 31 is invalid: LocalRefinementRequired\")",
       "id": "F0042",
       "status": "error"
     },

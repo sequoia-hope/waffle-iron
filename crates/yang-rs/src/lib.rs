@@ -2611,6 +2611,38 @@ fn circle_residual_split(pt: Point3, center: Point3, normal: Vector3, radius: f6
     (axial, (radial - radius).abs())
 }
 
+/// PR-F3 (KV6b-F3): the exact ruling LINE for one plane∥axis × cylinder
+/// intersection edge (`ssi` plane_cylinder C3a/C3b), carried per-vertex like
+/// `vert_circle`. The stored `Curve::LineSegment` carries no analytic data, so
+/// Stage 4 recomputes the line from the edge's incidence (cylinder + plane)
+/// and re-selects the unique candidate through both endpoints — the SAME
+/// matching rule Stage 3 used, so selection here cannot disagree with it.
+#[derive(Clone, Copy)]
+struct LineReloc {
+    point: Point3,
+    dir: Vector3,
+}
+
+/// Per-vertex circle assignment `(center, normal, radius, source_sphere_radius)`
+/// — the `vert_circle` value tuple, shared by the PR-F3 line+circle junction map.
+type CircleAssign = (Point3, Vector3, f64, Option<f64>);
+
+/// Perpendicular distance of `p` to the line `(point, dir)` (`dir` need not be
+/// unit). PR-F3 line membership / residual metric.
+fn line_perp_distance(p: Point3, point: Point3, dir: Vector3) -> f64 {
+    let d = normalize3(dir.as_array());
+    let pt = point.as_array();
+    let x = p.as_array();
+    let w = [x[0] - pt[0], x[1] - pt[1], x[2] - pt[2]];
+    let along = w[0] * d[0] + w[1] * d[1] + w[2] * d[2];
+    let perp = [
+        w[0] - along * d[0],
+        w[1] - along * d[1],
+        w[2] - along * d[2],
+    ];
+    (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt()
+}
+
 /// PR-YR11 (spec §1): the true cylinder + cutting plane for one oblique ellipse
 /// edge, carried per-vertex (analogous to `vert_circle`'s `(center, normal,
 /// radius)`). The cylinder fields are `Surface::Cylinder`; the plane fields are
@@ -5203,6 +5235,13 @@ fn stage4_relocate_and_correct(
     // axis-parallel (HYPE) section. Kept separate from the other conic maps so
     // the ellipse/cylinder/parabola paths stay byte-identical.
     let mut vert_cone_hyperbola: BTreeMap<u32, ConeHyperbolaReloc> = BTreeMap::new();
+    // PR-F3: per-vertex ruling-LINE relocation data for a plane∥axis ×
+    // cylinder intersection edge (ssi C3a/C3b). A `Curve::LineSegment`
+    // intersection edge whose incidence carries a CYLINDER is such a line; its
+    // arrangement points sit on Stage-1 facet chords, off the exact line (and
+    // off the cylinder) by up to the sagitta — they need relocation exactly
+    // like the conic arms. Plane∩plane segments are exact and stay skipped.
+    let mut vert_line: BTreeMap<u32, LineReloc> = BTreeMap::new();
     let mut endpoints: Vec<u32> = Vec::new();
     for (&(s, e), curve) in &curves0 {
         match *curve {
@@ -5468,7 +5507,126 @@ fn stage4_relocate_and_correct(
                     }
                 }
             }
-            Curve::LineSegment => {}
+            Curve::LineSegment => {
+                // PR-F3: a LineSegment intersection edge between a PLANE and a
+                // CYLINDER is a ruling LINE of the cylinder (ssi plane_cylinder
+                // C3a/C3b). Recompute the exact line from the incidence and
+                // re-select the unique candidate through both endpoints (the
+                // SAME rule Stage 3's `build_intersection_curves` used).
+                // Plane∩plane segments are exact → skip. Any OTHER curved
+                // surface on a LineSegment edge is out of scope → loud STOP
+                // (P9; cone generator lines arrive with their own closed form
+                // when a fixture demands them).
+                let key = if s < e { (s, e) } else { (e, s) };
+                let Some(entries) = inc0.get(&key) else {
+                    continue;
+                };
+                let mut cyl: Option<(InputId, Surface)> = None;
+                let mut plane_surf: Option<Surface> = None;
+                let mut other_curved = false;
+                for &(input, surf) in entries {
+                    match surf {
+                        Surface::Cylinder { .. } => cyl = Some((input, surf)),
+                        Surface::Plane { .. } => plane_surf = Some(surf),
+                        _ => other_curved = true,
+                    }
+                }
+                let (Some((cyl_input, cyl_surf)), Some(pl_surf)) = (cyl, plane_surf) else {
+                    if other_curved || cyl.is_some() {
+                        return Err(YangError::Stage4RegionInvalid {
+                            vertex: s,
+                            reason: Stage4InvalidReason::LocalRefinementRequired,
+                        });
+                    }
+                    continue; // plane∩plane — exact, no relocation needed.
+                };
+                let tol = chord_tol_for_curved_owner(cyl_input, a, b, 0, (s, e))?;
+                let to_ssi_err = |reason| YangError::SsiRefinementFailed {
+                    edge: (s, e),
+                    reason,
+                };
+                let q0 = surface_to_quadric(cyl_surf).map_err(to_ssi_err)?;
+                let q1 = surface_to_quadric(pl_surf).map_err(to_ssi_err)?;
+                let returned =
+                    ssi_rs::intersect(&q0, &q1).map_err(|err| YangError::SsiRefinementFailed {
+                        edge: (s, e),
+                        reason: SsiRefinementError::IntersectFailed(err),
+                    })?;
+                let p_s = mesh.verts[s as usize];
+                let p_e = mesh.verts[e as usize];
+                let mut matched: Option<LineReloc> = None;
+                let mut matched_n = 0usize;
+                for c in &returned {
+                    if let ssi_rs::SsiCurve::Line { point, dir } = *c {
+                        if line_perp_distance(p_s, point, dir) <= tol
+                            && line_perp_distance(p_e, point, dir) <= tol
+                        {
+                            matched_n += 1;
+                            matched = Some(LineReloc { point, dir });
+                        }
+                    }
+                }
+                let Some(lr) = (if matched_n == 1 { matched } else { None }) else {
+                    return Err(YangError::SsiRefinementFailed {
+                        edge: (s, e),
+                        reason: SsiRefinementError::AmbiguousCurve {
+                            candidates: returned.len(),
+                            matched: matched_n,
+                        },
+                    });
+                };
+                for v in [s, e] {
+                    // A vertex on TWO DIFFERENT lines (e.g. a box corner ruling
+                    // piercing the cylinder) would need a line∩line junction —
+                    // out of scope, loud STOP rather than silently overwriting
+                    // (the same defect class F3 fixes for line+circle).
+                    if let Some(prev) = vert_line.get(&v) {
+                        let same = line_perp_distance(prev.point, lr.point, lr.dir)
+                            <= cad_primitives::TAU_MODEL
+                            && {
+                                let d1 = normalize3(prev.dir.as_array());
+                                let d2 = normalize3(lr.dir.as_array());
+                                let cx = [
+                                    d1[1] * d2[2] - d1[2] * d2[1],
+                                    d1[2] * d2[0] - d1[0] * d2[2],
+                                    d1[0] * d2[1] - d1[1] * d2[0],
+                                ];
+                                (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt()
+                                    <= cad_primitives::TAU_MODEL
+                            };
+                        if !same {
+                            return Err(YangError::Stage4RegionInvalid {
+                                vertex: v,
+                                reason: Stage4InvalidReason::LocalRefinementRequired,
+                            });
+                        }
+                    }
+                    vert_line.insert(v, lr);
+                    endpoints.push(v);
+                }
+            }
+        }
+    }
+
+    // PR-F3: a vertex shared by a LINE edge and a CIRCLE edge is a TRIPLE
+    // point — it must end up on BOTH curves. Relocating onto either alone
+    // leaves it off the other (the KV6b-F3 probe defect: radius exactly r,
+    // axial coordinate off by the sagitta → output-face plane vs Newell
+    // disagreement). The exact junction is `line ∩ plane-of-circle`: the line
+    // lies ON the cylinder and the circle IS `cylinder ∩ circle-plane`, so the
+    // line's piercing of the circle plane lies exactly on the circle. Pull
+    // such vertices OUT of both single-curve maps into a junction map.
+    let mut vert_junction: BTreeMap<u32, (LineReloc, CircleAssign)> = BTreeMap::new();
+    {
+        let shared: Vec<u32> = vert_line
+            .keys()
+            .filter(|v| vert_circle.contains_key(v))
+            .copied()
+            .collect();
+        for v in shared {
+            let lr = vert_line.remove(&v).expect("key from vert_line");
+            let circ = vert_circle.remove(&v).expect("checked contains_key");
+            vert_junction.insert(v, (lr, circ));
         }
     }
 
@@ -5476,8 +5634,11 @@ fn stage4_relocate_and_correct(
     // through one vertex) is a genuine ambiguity — relocating it twice would be
     // wrong, so loud STOP rather than silently picking one (spec §4 no-skip
     // audit / P10).
+    // PR-F3: the line+circle junction is HANDLED (vert_junction above); a line
+    // meeting any OTHER conic is still a loud STOP, folded into each audit.
     for v in vert_ellipse.keys() {
-        if vert_circle.contains_key(v) {
+        if vert_circle.contains_key(v) || vert_line.contains_key(v) || vert_junction.contains_key(v)
+        {
             return Err(YangError::Stage4RegionInvalid {
                 vertex: *v,
                 reason: Stage4InvalidReason::LocalRefinementRequired,
@@ -5488,7 +5649,11 @@ fn stage4_relocate_and_correct(
     // (cylinder-ellipse or circle) is a genuine ambiguity — loud STOP (spec
     // §3.2 / P10), the same no-skip audit extended to the cone map.
     for v in vert_cone_ellipse.keys() {
-        if vert_circle.contains_key(v) || vert_ellipse.contains_key(v) {
+        if vert_circle.contains_key(v)
+            || vert_ellipse.contains_key(v)
+            || vert_line.contains_key(v)
+            || vert_junction.contains_key(v)
+        {
             return Err(YangError::Stage4RegionInvalid {
                 vertex: *v,
                 reason: Stage4InvalidReason::LocalRefinementRequired,
@@ -5503,6 +5668,8 @@ fn stage4_relocate_and_correct(
             || vert_ellipse.contains_key(v)
             || vert_cone_ellipse.contains_key(v)
             || vert_cone_hyperbola.contains_key(v)
+            || vert_line.contains_key(v)
+            || vert_junction.contains_key(v)
         {
             return Err(YangError::Stage4RegionInvalid {
                 vertex: *v,
@@ -5519,6 +5686,8 @@ fn stage4_relocate_and_correct(
             || vert_ellipse.contains_key(v)
             || vert_cone_ellipse.contains_key(v)
             || vert_parabola.contains_key(v)
+            || vert_line.contains_key(v)
+            || vert_junction.contains_key(v)
         {
             return Err(YangError::Stage4RegionInvalid {
                 vertex: *v,
@@ -5735,6 +5904,93 @@ fn stage4_relocate_and_correct(
         let v_coord =
             (pr[0] - ctr[0]) * conj[0] + (pr[1] - ctr[1]) * conj[1] + (pr[2] - ctr[2]) * conj[2];
         let t = (v_coord / chr.semi_conjugate).asinh();
+        if rho > cad_primitives::TAU_WORK {
+            mesh.verts[v as usize] = proj;
+            moved.insert(v);
+        }
+        relocations.push((v, t));
+        processed.insert(v);
+    }
+
+    // PR-F3: ruling-line relocation loop. The residual is the perpendicular
+    // distance to the exact line (the sagitta of the Stage-1 facet chord the
+    // arrangement point sits on), gated at the same global `d_eps` band as the
+    // circle loop. The relocated position is the foot of the perpendicular —
+    // exactly on the line, hence exactly on BOTH the cutting plane and the
+    // cylinder. `t` is the along-line parameter; no conic OUTPUT edge claims a
+    // line vertex in `emit_topology`, so its source stays `BRepVertex` and
+    // `eval_source` returns the relocated mesh position directly.
+    for (&v, lr) in &vert_line {
+        let p = mesh.verts[v as usize];
+        let rho = line_perp_distance(p, lr.point, lr.dir);
+        if rho > d_eps {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: v,
+                reason: Stage4InvalidReason::OffCurveBeyondChordBand,
+            });
+        }
+        let d = normalize3(lr.dir.as_array());
+        let pt = lr.point.as_array();
+        let x = p.as_array();
+        let w = [x[0] - pt[0], x[1] - pt[1], x[2] - pt[2]];
+        let along = w[0] * d[0] + w[1] * d[1] + w[2] * d[2];
+        let proj = Point3::new(
+            pt[0] + along * d[0],
+            pt[1] + along * d[1],
+            pt[2] + along * d[2],
+        );
+        if rho > cad_primitives::TAU_WORK {
+            mesh.verts[v as usize] = proj;
+            moved.insert(v);
+        }
+        relocations.push((v, along));
+        processed.insert(v);
+    }
+
+    // PR-F3: line+circle JUNCTION relocation loop. The exact junction is
+    // `line ∩ plane-of-circle` (which lies exactly on the circle, since the
+    // line is on the cylinder and the circle is cylinder ∩ circle-plane). The
+    // residual gate is `2·d_eps`: the vertex is off the line radially by ≤ one
+    // sagitta AND off the circle plane along the line by ≤ another
+    // sagitta-order term (it sits on the crossing of the cutting plane with a
+    // rim-chord facet edge), so the combined displacement to the junction is
+    // bounded by 2·d_eps — a derived bound, not tolerance widening. The final
+    // position is `project_onto_circle(j)` so the vertex's `BRepEdge { edge, t }`
+    // source round-trips bitwise through the unchanged `eval_source` Circle arm.
+    for (&v, &(lr, (center, normal, radius, _src_r))) in &vert_junction {
+        let p = mesh.verts[v as usize];
+        let n = normalize3(normal.as_array());
+        let d = normalize3(lr.dir.as_array());
+        let denom = n[0] * d[0] + n[1] * d[1] + n[2] * d[2];
+        if denom.abs() < cad_primitives::TAU_MODEL {
+            // Line parallel to the circle plane: no transversal junction.
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: v,
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+            });
+        }
+        let pt = lr.point.as_array();
+        let c = center.as_array();
+        let s_par = (n[0] * (c[0] - pt[0]) + n[1] * (c[1] - pt[1]) + n[2] * (c[2] - pt[2])) / denom;
+        let j = Point3::new(
+            pt[0] + s_par * d[0],
+            pt[1] + s_par * d[1],
+            pt[2] + s_par * d[2],
+        );
+        let pj = [
+            p.as_array()[0] - j.as_array()[0],
+            p.as_array()[1] - j.as_array()[1],
+            p.as_array()[2] - j.as_array()[2],
+        ];
+        let rho = (pj[0] * pj[0] + pj[1] * pj[1] + pj[2] * pj[2]).sqrt();
+        if rho > 2.0 * d_eps {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: v,
+                reason: Stage4InvalidReason::OffCurveBeyondChordBand,
+            });
+        }
+        let (proj, t) = project_onto_circle(j, center, normal, radius)
+            .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
         if rho > cad_primitives::TAU_WORK {
             mesh.verts[v as usize] = proj;
             moved.insert(v);
@@ -6186,8 +6442,7 @@ fn reconstruct_topology_stage4(
 ) -> Result<ReconstructedTopology, YangError> {
     // (4) Phase A: per-patch ordered loops + inherited surface (`infos`), and the
     // exact per-edge intersection `Curve` map.
-    let (mut infos, _incidence, mut intersection_curves) =
-        compute_phase_a(mesh, attribution, a, b)?;
+    let (mut infos, incidence, mut intersection_curves) = compute_phase_a(mesh, attribution, a, b)?;
 
     // (4a) Stage 4 (seam A1): relocate onto the exact analytical curves
     // (Yang §4.4.1) + §4.5.3 reversal correction. Entered on ANY analytic conic
@@ -6198,14 +6453,24 @@ fn reconstruct_topology_stage4(
     // PR-YR22: include `Parabola` so a parabola-only fixture enters Stage 4 and
     // its cone-parabola seam is relocated onto the exact section.
     // PR-YR23: include `Hyperbola` likewise so a hyperbola edge enters Stage 4.
-    let has_conic = intersection_curves.values().any(|c| {
+    // PR-F3: ALSO enter Stage 4 when a `LineSegment` intersection edge has a
+    // CURVED surface in its incidence — that is a plane∥axis × cylinder ruling
+    // line (ssi C3a/C3b) whose arrangement points sit on Stage-1 facet chords
+    // and need relocation onto the exact line. A plane∩plane segment is exact
+    // and does NOT trigger Stage 4 (planar byte-identity preserved).
+    let has_conic = intersection_curves.iter().any(|(key, c)| {
         matches!(
             c,
             Curve::Circle { .. }
                 | Curve::Ellipse { .. }
                 | Curve::Parabola { .. }
                 | Curve::Hyperbola { .. }
-        )
+        ) || (matches!(c, Curve::LineSegment)
+            && incidence.get(key).is_some_and(|entries| {
+                entries
+                    .iter()
+                    .any(|&(_, s)| !matches!(s, Surface::Plane { .. }))
+            }))
     });
     // (vertex, circle-frame angle t) for every relocated / retagged intersection
     // vertex. Mapped to `BRepEdge { edge, t }` sources in `emit_topology` once
