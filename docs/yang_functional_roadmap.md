@@ -1848,6 +1848,39 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   cylinder), line+ellipse/cone-conic junctions, near-tangent planes — all
   loud STOPs.
 
+- **KV7 — boolean output curve recovery ("output curve tagging").
+  ✅ COMPLETE (2026-06-12, PR-KV7).** Curved booleans are CHAINABLE: the
+  former `UnsupportedCurvedBoolean` re-entry wall is gone. kernel-v2
+  `recover.rs` rewrites yang outputs to B-Rep granularity before
+  `from_yang_brep` pass 1, on the Yang-paper principle that output
+  surfaces are exact (boundary = surface∩surface): chord runs between a
+  cylinder face and a ⊥ plane retag onto the computed exact circle;
+  valence-2 co-curve vertices fuse (T-vertex seg runs → single segs,
+  circle chords → sub-π arcs / closed rims); 2-closed-rim cylinder faces
+  with an azimuth-aligned anchor pair re-emit as the canonical
+  `[rim, seam, rim, seam]` lateral (constructor vocabulary — `to_yang`
+  unchanged). Supporting fixes: Stage-1 `all_line` inspects inner loops
+  (seg-bounded faces with circle rings route to curved CDT);
+  `stage4_chord_band = max(A,B)`; Stage-6 cylinder-face AXIAL tie-break
+  (two faces of one infinite cylinder — drill stubs); general planar
+  tessellation accepts full-circle edges; `tessellate_cylinder_lateral`
+  rows sampled bitwise-in-the-cap-frame (watertight by construction).
+  NEW typed wall `UnsupportedMultiShellBoolean` (voids / disjoint shells
+  cannot re-enter yang reassembly — previously shadowed by the curved
+  wall). Corpus 30→33 SUPPORTED_CORRECT, 2→0 SUPPORTED_WRONG (R0029 +
+  R0060 — the KV6b-F1 non-manifold T-junction class — FIXED by the
+  collinear fusion; F0066 flips CORRECT). Chains proven by
+  `kernel-v2/tests/kv7_output_curve_tagging.rs` + `boolean_chains.rs`
+  (boss→pocket, hole→hole, boss→concentric-hole tube, 3-deep, exact
+  volumes). FINDINGS: **KV7-F1** `tessellate_cylinder_patch` folds its
+  unrolled triangulation when a partial-lateral loop starts mid-arc, at
+  specific chord densities (reproduced on R0084's oblique revolve at rel
+  tol 1e-3; recovery canonicalizes loop rotation to start at a seg,
+  which avoids it — the patch path bug itself is unfixed). **KV7-F2**
+  re-entry of bodies with internal voids is the next chain wall (yang
+  BRep input has no shell structure; reassembly cannot rebuild voids —
+  the XOR-class limitation).
+
 - **KV6a — revolve (kernel-v2). ✅ COMPLETE (2026-06-11, PR-KV6a).**
   Partial angles (0,2π) AND full 360° for polygon profiles with
   axis-parallel/perpendicular edges, axis in-plane, profile strictly one
