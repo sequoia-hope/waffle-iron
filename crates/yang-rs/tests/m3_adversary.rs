@@ -429,15 +429,19 @@ fn a4_bit_exact_coincident_verts_trip_weld_guard() {
 }
 
 #[test]
-fn a4_near_coincident_within_tau_work_bypasses_guard() {
-    // I6 STRICTNESS ASSESSMENT (report-only, asserting the CURRENT behavior).
+fn a4_near_coincident_within_tau_work_trips_guard_planar() {
+    // I6 STRICTNESS ASSESSMENT (asserting the CURRENT behavior).
     //
-    // The guard is BIT-EXACT (`f64::to_bits`). Two verts within TAU_WORK
-    // (1e-12) but not bit-identical do NOT trip it. This test documents that
-    // gap: the same arrangement that would be caught if welded bit-exact is
-    // accepted when the duplicate is perturbed by 1e-13. Whether that is a
-    // latent risk depends on whether the producer (sidecar) can ever emit
-    // near-but-not-bit-coincident distinct verts.
+    // PR-KV10 closed the gap this test used to document: for ALL-PLANAR
+    // input pairs (these cube fixtures) the weld is NEAR-aware within the
+    // scale-relative `TAU_WORK·(1+|coord|)` band, because the exact
+    // arrangement of chained oblique planar inputs legitimately mints
+    // femto-distinct copies of one junction point (the F0016-class corpus
+    // residue). A duplicate perturbed by 1e-13 therefore WELDS like the
+    // bit-exact one, and the two coincident triangles trip the same
+    // NonManifoldInput guard as `a4_bit_exact_coincident_verts_trip_weld_guard`.
+    // (Curved pipelines keep the bit-exact weld — Stage-4 owns junction
+    // duplicate collapse there.)
     let a = cube([0.0, 0.0, 0.0]);
     let b = cube([0.5, 0.5, 0.5]);
     let verts = vec![
@@ -455,15 +459,10 @@ fn a4_near_coincident_within_tau_work_bypasses_guard() {
         num_inputs: 2,
     };
     let backend = WeldMockBackend { arrangement: la };
-    let res = boolean(&a, &b, BoolOp::Union, &backend);
-    // The weld guard does NOT fire (verts are not bit-identical). Document:
-    // the call proceeds past the guard. It may still fail later (face
-    // resolution / topology), but NOT with NonManifoldInput from the guard.
-    assert!(
-        !matches!(res, Err(YangError::NonManifoldInput)),
-        "near-coincident (1e-13, < TAU_WORK) tripped the bit-exact guard — \
-         behavior changed; update the I6 strictness assessment"
-    );
+    match boolean(&a, &b, BoolOp::Union, &backend) {
+        Err(YangError::NonManifoldInput) => {}
+        other => panic!("expected NonManifoldInput from the near-aware weld guard, got {other:?}"),
+    }
 }
 
 // =========================================================================

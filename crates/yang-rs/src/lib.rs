@@ -4664,10 +4664,102 @@ pub fn boolean(
     // (it can emit two distinct indices at bit-identical coordinates — a
     // non-manifold touching point — used by shared triangles). yang's
     // index-based adjacency requires coincident points to share one index, so
-    // weld each vertex to the ORIGINAL index of its first bit-identical
+    // weld each vertex to the ORIGINAL index of its first coincident
     // occurrence. (Mapping to the original index — not a renumbered counter —
     // keeps `la.mesh.verts[welded]` valid: coordinates are unchanged.)
-    let weld: Vec<u32> = {
+    //
+    // PR-KV10 (M8 residue): for ALL-PLANAR input pairs the weld is
+    // NEAR-aware, not just bit-exact. The old "the producer never emits
+    // TAU_WORK-near-but-bit-distinct coincident verts" assumption is FALSE
+    // for chained planar inputs: an oblique solid's f64 vertices make
+    // adjacent same-face tessellation triangles span femto-different EXACT
+    // planes, so the exact arrangement legitimately mints distinct
+    // intersection points ~1e-16·scale apart where several intersection
+    // segments junction (one geometric point, several generating tri
+    // pairs). Left distinct, the copies chain into sliver fans in the
+    // output B-Rep and poison the NEXT boolean's attribution (the
+    // F0016-class corpus residue's second layer — found behind the
+    // intra-coplanar wall). Welding them within the scale-relative rounding
+    // band `TAU_WORK·(1+|coord|)` is the same reconciliation principle as
+    // the §4.5.5 Stage-0 snap; genuinely distinct model features are
+    // ≥ MIN_FEATURE_SIZE apart — six orders beyond the band. Clusters weld
+    // to their LOWEST member index (deterministic; survivor keeps its own
+    // coordinates). Bucketed by a quantized grid with 27-neighborhood
+    // probing + an EXACT per-pair band check — quantization alone aliases
+    // (the KV8c lesson), so it only ever NOMINATES candidates, never
+    // decides.
+    //
+    // CURVED inputs keep the bit-exact weld: the cyl×cyl pipeline expects
+    // near-coincident-but-structurally-distinct vertices at ruling-line /
+    // tangency junctions (one copy per incident surface's chord ring) and
+    // reconciles them ITSELF in Stage-4 relocation with curve knowledge
+    // (the KV9 junction duplicate collapse); welding them at step (2)
+    // collapses lens-tip seam edges into degenerate (<3-edge) output loops
+    // — found by kv9_cyl_cyl_special RED on the first attempt.
+    let all_planar = a
+        .faces()
+        .iter()
+        .chain(b.faces().iter())
+        .all(|f| matches!(f.surface, Surface::Plane { .. }));
+    let weld: Vec<u32> = if all_planar {
+        use std::collections::HashMap;
+        let verts = &la.mesh.verts;
+        // Union-find over vertex indices (path-halving; union by min index
+        // happens at the final resolution pass).
+        let mut parent: Vec<u32> = (0..verts.len() as u32).collect();
+        fn find(parent: &mut [u32], mut x: u32) -> u32 {
+            while parent[x as usize] != x {
+                parent[x as usize] = parent[parent[x as usize] as usize];
+                x = parent[x as usize];
+            }
+            x
+        }
+        // Grid cell size: one band at the mesh's coordinate scale.
+        let scale = verts
+            .iter()
+            .flat_map(|v| v.as_array())
+            .fold(0.0f64, |m, c| m.max(c.abs()));
+        let band = cad_primitives::TAU_WORK * (1.0 + scale);
+        let cell = |c: f64| -> i64 { (c / band).floor() as i64 };
+        let mut grid: HashMap<[i64; 3], Vec<u32>> = HashMap::with_capacity(verts.len());
+        for (i, v) in verts.iter().enumerate() {
+            let p = v.as_array();
+            let key = [cell(p[0]), cell(p[1]), cell(p[2])];
+            // Probe the 27-neighborhood for near-coincident occupants; the
+            // EXACT pairwise band test decides. Union with EVERY in-band
+            // occupant (a vertex can bridge two so-far-separate clusters).
+            for dx in -1..=1i64 {
+                for dy in -1..=1i64 {
+                    for dz in -1..=1i64 {
+                        let Some(occ) = grid.get(&[key[0] + dx, key[1] + dy, key[2] + dz]) else {
+                            continue;
+                        };
+                        for &j in occ {
+                            let q = verts[j as usize].as_array();
+                            let pair_band = cad_primitives::TAU_WORK
+                                * (1.0
+                                    + p.iter().chain(q.iter()).fold(0.0f64, |m, c| m.max(c.abs())));
+                            if (0..3).all(|k| (p[k] - q[k]).abs() <= pair_band) {
+                                let (ri, rj) = (find(&mut parent, i as u32), find(&mut parent, j));
+                                if ri != rj {
+                                    // Root at the smaller index so the final
+                                    // representative is the cluster minimum.
+                                    parent[ri.max(rj) as usize] = ri.min(rj);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            grid.entry(key).or_default().push(i as u32);
+        }
+        (0..verts.len() as u32)
+            .map(|i| find(&mut parent, i))
+            .collect()
+    } else {
+        // Bit-exact weld (the pre-KV10 path, byte-identical for curved
+        // pipelines): weld each vertex to the ORIGINAL index of its first
+        // bit-identical occurrence.
         use std::collections::HashMap;
         let mut first: HashMap<[u64; 3], u32> = HashMap::with_capacity(la.mesh.verts.len());
         la.mesh
@@ -4680,10 +4772,6 @@ pub fn boolean(
             })
             .collect()
     };
-    // A bit-exact weld is all the exact arrangement needs: the producer never
-    // emits TAU_WORK-near-but-bit-distinct coincident verts (they would survive
-    // as distinct indices and fragment adjacency). A defensive O(n²) near-check
-    // is therefore redundant for this producer and is omitted.
 
     // (3) Stage 4: which arrangement tris survive `op`.
     let kept = la.keep_set(op);

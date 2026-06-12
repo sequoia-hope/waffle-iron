@@ -488,9 +488,60 @@ pub fn to_yang_brep(arena: &BrepArena, solid: SolidId) -> Result<yang_rs::BRep, 
         }
     }
 
+    canonicalize_sibling_planes(&mut yfaces);
+
     yang_rs::BRep::new(yverts, yedges, yfaces).map_err(|e| {
         KernelV2Error::BooleanFailed(format!("yang-rs rejected the converted input B-Rep: {e}"))
     })
+}
+
+/// PR-KV10 (M8 slice d): collapse rounding-noise plane bits across
+/// same-plane sibling faces.
+///
+/// A boolean output legitimately carries several faces that are disjoint
+/// fragments of ONE plane (a side plane split in two by a crossing union).
+/// The arena stores each fragment's plane in point-normal form with a
+/// per-fragment Newell normal, and `d` above is derived from each face's
+/// own first loop vertex — so on oblique geometry the fragments' emitted
+/// `(normal, d)` differ at the ~1e-16 rounding level. yang's intra-solid
+/// near-coplanar gate treats BIT-identical planes as benign (one plane
+/// split into several faces) and walls anything else, so without this pass
+/// a fragment-carrying output cannot enter ANY further boolean (the
+/// F0016-class corpus residue).
+///
+/// Rule: planar faces whose unit normals agree component-wise within
+/// `TAU_WORK` and whose offsets agree within the scale-relative
+/// `TAU_WORK·(1+|d|)` band adopt the FIRST such face's exact bits
+/// (deterministic; greedy in face order — the band is ~4 orders below the
+/// near-coplanar DETECTION band and ~6 below `MIN_FEATURE_SIZE`, so only
+/// rounding noise collapses and cluster drift is impossible). Opposite-
+/// orientation coplanar faces never match (component-wise test) — sense is
+/// preserved. Vertex coordinates are untouched: the residual between a
+/// loop vertex and the adopted plane stays in the same scale-relative
+/// rounding class the stored plane already had.
+fn canonicalize_sibling_planes(yfaces: &mut [yang_rs::BRepFace]) {
+    // Representatives: (normal, d) of the first face seen in each cluster.
+    let mut reps: Vec<([f64; 3], f64)> = Vec::new();
+    for f in yfaces.iter_mut() {
+        let yang_rs::Surface::Plane { normal, d } = &mut f.surface else {
+            continue;
+        };
+        let n = normal.as_array();
+        if !(n.iter().all(|c| c.is_finite()) && d.is_finite()) {
+            continue;
+        }
+        let eps_n = cad_primitives::TAU_WORK;
+        match reps.iter().find(|(rn, rd)| {
+            (0..3).all(|k| (n[k] - rn[k]).abs() <= eps_n)
+                && (*d - rd).abs() <= cad_primitives::TAU_WORK * (1.0 + rd.abs())
+        }) {
+            Some(&(rn, rd)) => {
+                *normal = Vector3::new(rn[0], rn[1], rn[2]);
+                *d = rd;
+            }
+            None => reps.push((n, *d)),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

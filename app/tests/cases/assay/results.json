@@ -1,8 +1,8 @@
 {
-  "errored": 40,
+  "errored": 47,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 42,
+  "passed": 46,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -695,64 +695,64 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: mesh boolean backend failed: native boolean: in/out classification failed: NoExplicitRayOrigin { patch: 8 }\"). Body created as standalone.",
       "id": "F0016",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0017",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: mesh boolean backend failed: native boolean: in/out classification failed: NoExplicitRayOrigin { patch: 2 }\"). Body created as standalone.",
       "id": "F0018",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: mesh boolean backend failed: native boolean: in/out classification failed: NoExplicitRayOrigin { patch: 4 }\"). Body created as standalone.",
       "id": "F0019",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0020",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: mesh boolean backend failed: native boolean: in/out classification failed: NoExplicitRayOrigin { patch: 3 }\"). Body created as standalone.",
       "id": "F0021",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: mesh boolean backend failed: native boolean: in/out classification failed: NoExplicitRayOrigin { patch: 7 }\"). Body created as standalone.",
       "id": "F0022",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0023",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0024",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: mesh boolean backend failed: native boolean: in/out classification failed: NoExplicitRayOrigin { patch: 2 }\"). Body created as standalone.",
       "id": "F0025",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(coplanar-boolean)",
@@ -1062,13 +1062,13 @@
     },
     {
       "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "4 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "detail": "2 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0077",
       "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "7 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "detail": "4 NotSupported boundary(ies); first: Extrude 4: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0078",
       "status": "unsupported"
     },
@@ -1086,7 +1086,7 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(11) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(11) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "F0081",
       "status": "unsupported"
     },
@@ -1098,15 +1098,15 @@
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "7 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(17) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "detail": "2 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(17) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "F0083",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "15 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "timeout after 90s",
       "id": "F0084",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "ERROR",

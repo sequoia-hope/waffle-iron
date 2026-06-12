@@ -1622,6 +1622,57 @@ swapped every consumer to `predicates::indirect`).
     green. Still open in M8: §4.5.4 illegal-self-intersection detection
     (N6) and the intra-solid near-coplanar chained-output class
     (`CoplanarFacesUnsupported`, F0066's residue).
+  - **M8 slice d ✅ (PR-KV10, 2026-06-12): the intra-solid chained-output
+    class RESOLVED for planar chains** — two stacked rounding-identity
+    fixes, found by a probe-instrumented survey of ALL 54 coplanar-walled
+    corpus cases (per-case residue distribution: 20 intra-solid /
+    19 curved-face-in-pair / 8 arrangement-deferred / 4 build-mesh /
+    3 overlay-RoundingCollapse).
+    (1) *Sibling plane-bit canonicalization* (`to_yang_brep`): disjoint
+    fragments of ONE plane (a box side split in two by a crossing union)
+    emitted femto-distinct `(normal, d)` bits — per-fragment Newell
+    normals + per-face first-vertex `d` derivation — and
+    `scan_near_coplanar`'s benign intra exclusion is BIT-identity, so a
+    fragment-carrying output could not enter ANY further boolean even
+    when the incoming solid shared no plane (F0016-class, the dominant
+    sub-class). Planar faces whose unit normals agree within `TAU_WORK`
+    and offsets within `TAU_WORK·(1+|d|)` now adopt the first face's
+    exact bits (greedy, deterministic; legitimate parallel planes are
+    ≥ MIN_FEATURE_SIZE apart — six orders beyond the band).
+    (2) *Near-aware I6 weld for ALL-PLANAR input pairs* (`boolean()`):
+    behind the wall sat a second latent — chained oblique inputs make
+    adjacent same-face tessellation triangles span femto-different EXACT
+    planes, so the arrangement legitimately mints distinct copies of one
+    junction point (~1e-16·scale apart, one per generating tri pair);
+    left distinct they chain into sliver fans in the output B-Rep and
+    break the NEXT boolean's patch boundaries (`NonManifoldOutput`
+    dead-end / duplicate-CDT-vertex). The weld now clusters vertices
+    within the scale-relative band (grid-bucketed, exact per-pair check —
+    quantization only nominates, the KV8c lesson) and welds to the lowest
+    member index. CURVED inputs keep the bit-exact weld: Stage-4 owns
+    junction duplicate collapse there, and the near-weld collapsed
+    cyl×cyl lens-tip seam edges (caught RED by kv9_cyl_cyl_special on the
+    first attempt — the planar-only scope is load-bearing).
+    Oracles: `kernel-v2/tests/kv10_plane_canonicalization.rs` (2: the
+    bit-identity invariant + an oblique F0016-class chain with exact
+    volume); m3 a4 adversary updated (the near-coincident gap it
+    documented is now CLOSED for planar inputs — the perturbed duplicate
+    trips the same NonManifoldInput guard as the bit-exact one).
+    Corpus: SUPPORTED_CORRECT 42→46 (F0017/F0020/F0023/F0024),
+    UNSUPPORTED(coplanar) 54→43, SUPPORTED_WRONG 0→0; ERROR 40→47 — six
+    of the seven new ERRORs are ONE named pre-existing bug whose corpus
+    footprint the wall had been masking: **KV4-F1 `NoExplicitRayOrigin`**
+    (cherchi ray-cast: no explicit non-border patch vertex and no
+    generated-ray triangle passes the exact straddle test — the point
+    where the C++ reference exits "requires rationals"); the seventh is a
+    gear-replay timeout (performance class). KV4-F1 is now the top
+    M8-adjacent lever (~6 cases) and needs its own cycle (likely a
+    rational-ray or implicit-origin extension of `find_ray_endpoints`).
+    Still open in M8: §4.5.4 (N6), curved faces in a pair (19 cases,
+    needs an arc-capable overlay), faces in >1 pair (n-ary overlay),
+    arrangement-deferred exact-coplanar tri pairs (8 cases),
+    build-mesh/overlay robustness (7 cases). Stage-0's survey probes are
+    kept env-gated (`YANG_COPLANAR_PROBE=1`) for future residue sizing.
 
 ## 4b. Completion roadmap — Phases 1–6 (the full path to replacing legacy)
 
@@ -1890,8 +1941,10 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
     outward radial); the unrolled ear-clip/refinement needs a dedicated
     robustness cycle. ~15 gear cases ERROR on the 90s replay timeout
     (heavy exact arrangements — performance, not correctness).
-  - Remaining top blockers by size: M8 coplanar (~54), KV6c/d revolve
-    (~51), patch-fold robustness (KV7-F1/KV9-F2), KV6d torus.
+  - Remaining top blockers by size (post-PR-KV10): M8 coplanar (~43, of
+    which 19 are the curved-face-in-pair sub-class), KV6c/d revolve
+    (~51), KV4-F1 `NoExplicitRayOrigin` (~6, unmasked by PR-KV10),
+    patch-fold robustness (KV7-F1/KV9-F2), KV6d torus.
 
 - **KV7 — boolean output curve recovery ("output curve tagging").
   ✅ COMPLETE (2026-06-12, PR-KV7).** Curved booleans are CHAINABLE: the

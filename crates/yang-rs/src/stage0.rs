@@ -105,6 +105,17 @@ pub(crate) struct Stage0 {
     pub(crate) pairs: Vec<PairPlane>,
 }
 
+/// Diagnostic probe for M8 residue-distribution surveys: tags which
+/// unsupported-residue sub-class fired (`intra-solid` / `multi-pair` /
+/// `face-unsupported` / `polygon2d-*` / `overlay-failed` / `build-mesh-*`).
+/// Env-gated (`YANG_COPLANAR_PROBE=1`), zero-cost when unset; used by the
+/// corpus-survey workflow to size the remaining M8 sub-classes.
+fn probe(tag: &str, detail: &str) {
+    if std::env::var_os("YANG_COPLANAR_PROBE").is_some() {
+        eprintln!("[stage0-probe] {tag} | {detail}");
+    }
+}
+
 /// Run §4.5.5 Stage-0 coplanar preprocessing. `Ok(None)` = no near-coplanar
 /// cross pairs (the caller uses the B-Reps' own Stage-1 meshes, byte-for-
 /// byte the pre-YR26 path). `Ok(Some(_))` = handled. `Err` = unsupported
@@ -115,6 +126,15 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
     // Intra-solid near pairs stay the loud unsupported residue (see module
     // docs — the chained-output class has no A×B overlay resolution).
     if let Some((input, i, j)) = scan.intra {
+        let brep = if input == InputId::A { a } else { b };
+        probe(
+            "intra-solid",
+            &format!(
+                "input={input:?} faces=({i},{j}) si={:?} sj={:?}",
+                brep.faces()[i].surface,
+                brep.faces()[j].surface
+            ),
+        );
         return Err(YangError::CoplanarFacesUnsupported {
             input_a: input,
             face_a: i,
@@ -143,10 +163,27 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // A face in MORE than one pair would need an n-ary overlay —
         // unsupported residue.
         if count_a[p.face_a] > 1 || count_b[p.face_b] > 1 {
+            probe(
+                "multi-pair",
+                &format!(
+                    "pair=({},{}) count_a={} count_b={} total_pairs={}",
+                    p.face_a,
+                    p.face_b,
+                    count_a[p.face_a],
+                    count_b[p.face_b],
+                    scan.cross.len()
+                ),
+            );
             return Err(pair_err(p.face_a, p.face_b));
         }
         for (brep, fi) in [(a, p.face_a), (b, p.face_b)] {
             if !overlay_face_supported(brep, fi) {
+                let f = &brep.faces()[fi];
+                let planar = matches!(f.surface, Surface::Plane { .. });
+                probe(
+                    "face-unsupported",
+                    &format!("pair=({},{}) face={fi} planar={planar}", p.face_a, p.face_b),
+                );
                 return Err(pair_err(p.face_a, p.face_b));
             }
         }
@@ -157,7 +194,13 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
     let mut vb: Vec<Point3> = b.vertices().iter().map(|v| v.point).collect();
     let mut frames: Vec<Frame> = Vec::with_capacity(scan.cross.len());
     for p in &scan.cross {
-        let frame = canonical_frame(a, p.face_a).ok_or_else(|| pair_err(p.face_a, p.face_b))?;
+        let frame = canonical_frame(a, p.face_a).ok_or_else(|| {
+            probe(
+                "frame-degenerate",
+                &format!("pair=({},{})", p.face_a, p.face_b),
+            );
+            pair_err(p.face_a, p.face_b)
+        })?;
         for vi in face_loop_verts(a, p.face_a) {
             va[vi as usize] = frame.snap(va[vi as usize]);
         }
@@ -208,13 +251,22 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         });
 
         // Shared-frame 2D polygons (and per-corner (u,v) keys).
-        let (poly_a, corners_a) =
-            face_polygon_2d(a, p.face_a, &va, frame).ok_or_else(|| pair_err(p.face_a, p.face_b))?;
-        let (poly_b, corners_b) =
-            face_polygon_2d(b, p.face_b, &vb, frame).ok_or_else(|| pair_err(p.face_a, p.face_b))?;
+        let (poly_a, corners_a) = face_polygon_2d(a, p.face_a, &va, frame).ok_or_else(|| {
+            probe("polygon2d-a", &format!("pair=({},{})", p.face_a, p.face_b));
+            pair_err(p.face_a, p.face_b)
+        })?;
+        let (poly_b, corners_b) = face_polygon_2d(b, p.face_b, &vb, frame).ok_or_else(|| {
+            probe("polygon2d-b", &format!("pair=({},{})", p.face_a, p.face_b));
+            pair_err(p.face_a, p.face_b)
+        })?;
 
-        let overlay =
-            coplanar_overlay(&poly_a, &poly_b).map_err(|_| pair_err(p.face_a, p.face_b))?;
+        let overlay = coplanar_overlay(&poly_a, &poly_b).map_err(|e| {
+            probe(
+                "overlay-failed",
+                &format!("pair=({},{}) err={e:?}", p.face_a, p.face_b),
+            );
+            pair_err(p.face_a, p.face_b)
+        })?;
 
         if overlay.area_exact(RegionClass::Overlap) == RBig::ZERO {
             // No positive-area overlap (an in-plane touch): the snap has
@@ -301,11 +353,17 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
     let report_pair = (scan.cross[0].face_a, scan.cross[0].face_b);
     let mesh_a = build_stage0_mesh(a, &va, &overrides_a, &splits_a).map_err(|e| match e {
         BuildErr::Yang(y) => y,
-        BuildErr::Unsupported => pair_err(report_pair.0, report_pair.1),
+        BuildErr::Unsupported => {
+            probe("build-mesh-a", &format!("pair={report_pair:?}"));
+            pair_err(report_pair.0, report_pair.1)
+        }
     })?;
     let mesh_b = build_stage0_mesh(b, &vb, &overrides_b, &splits_b).map_err(|e| match e {
         BuildErr::Yang(y) => y,
-        BuildErr::Unsupported => pair_err(report_pair.0, report_pair.1),
+        BuildErr::Unsupported => {
+            probe("build-mesh-b", &format!("pair={report_pair:?}"));
+            pair_err(report_pair.0, report_pair.1)
+        }
     })?;
 
     Ok(Some(Stage0 {
