@@ -1113,3 +1113,38 @@ ray-origin selection excludes — and a tangential t=0 hit crosses nothing.
 The C++ behavior on these measure-zero configurations is a reference
 defect, not a semantic to preserve; full-corpus parity (BL3) is unaffected
 away from touch configurations.
+
+### N21 — PR-KV4-F1 in/out: rational-ray fallback where the C++ exits ("requires exact rationals")
+
+`findRayEndpoints` (booleans.cpp:504) has two f64 origin strategies: an
+explicit non-border patch vertex, else a generated ray from a patch
+triangle's approximated centroid validated by exact straddle/strictly-
+inside predicates. When both fail the C++ prints "WARNING: the arrangement
+contains a fully implicit patch that requires exact rationals for
+evaluation. This version of the code does not support rationals…" and
+`std::exit(EXIT_FAILURE)` (booleans.cpp:578).
+
+The port implements the missing branch (`rational_ray_inner_label`,
+`labeling/inside_out.rs`): the patch origin is the EXACT rational centroid
+of a patch triangle (explicit coords are exact f64→RBig; implicit coords
+from the exact lambda tier) — strictly interior by positive exact area, so
+the border restriction does not apply — and the axis-ray crossing
+parameter, strictly-inside test, hit ordering, and nearest-hit orientation
+rule (`inner ⇔ n_k > 0`, the exact-domain reduction of the f64 path's
+`orient3d(tv, v1) == Negative`) are evaluated in pure rational arithmetic
+over ALL `in_tris` (no octree — the fallback fires only on pathological
+patches). Exact grazes retry the next axis (X→Y→Z); exhaustion is the loud
+typed `RationalRayDegenerate`. Set semantics mirror the f64 sort: equal
+exact parameters collapse to the first in ascending triangle order, and
+`t ≤ 0` hits are discarded (N20 included).
+
+Trigger class: sub-f64-resolution NEEDLE patches — an input edge piercing
+a triangle femto-close to its corner mints an intersection point below one
+ulp from an existing vertex (chained oblique planar inputs, the F0016
+corpus family). Every explicit vertex of such a patch is a border vertex
+and its f64-approximated triangle is too thin for any f64 segment to pass
+strictly inside, so the C++ would exit on real Waffle corpus geometry.
+Parity note: no differential target exists for this branch (the reference
+terminates); correctness is carried by the needle-fixture oracles
+(`inside_out.rs` Oracle #6), the orientation-convention pin test, and the
+F0016-family corpus flips (5 cases → SUPPORTED_CORRECT).

@@ -86,7 +86,18 @@ pub enum InsideOutError {
     /// The patch has no usable ray origin: every vertex is either implicit
     /// (LPI/TPI) or sits on the patch border. The C++ "generated ray"
     /// fallback covers this — deferred to Cycle B.
+    ///
+    /// Since PR-KV4-F1 this is no longer terminal for the pipeline: when
+    /// both f64 origin strategies fail, [`rational_ray_inner_label`]
+    /// classifies the patch in exact rational arithmetic (the branch the
+    /// C++ names "requires exact rationals" and exits on,
+    /// booleans.cpp:578). The variant survives for the diagnostic paths.
     NoExplicitRayOrigin { patch: u32 },
+    /// The rational-ray fallback could not classify the patch: every
+    /// patch triangle has an undefined exact point (degenerate implicit
+    /// construction), or all three axis rays graze input geometry exactly
+    /// (codimension-2; not reachable from a generic arrangement).
+    RationalRayDegenerate { patch: u32 },
     /// `orient3d(tri, ray.v1)` was Zero when classifying the nearest hit —
     /// the C++ asserts non-zero here.
     DegenerateOrientation { patch: u32, tri: u32 },
@@ -155,11 +166,30 @@ where
         }
         let patch_surface_label = &soup.labels[patch[0] as usize];
 
-        let ray = find_ray_endpoints(soup, patch, &border, max_coords, pi)?;
-        let candidates = candidates_for(&ray);
-        let sorted =
-            prune_intersections_and_sort_along_ray(soup, &ray, patch_surface_label, &candidates)?;
-        inner_labels.push(analyze_sorted_intersections(soup, &ray, &sorted, pi)?);
+        match find_ray_endpoints(soup, patch, &border, max_coords, pi) {
+            Ok(ray) => {
+                let candidates = candidates_for(&ray);
+                let sorted = prune_intersections_and_sort_along_ray(
+                    soup,
+                    &ray,
+                    patch_surface_label,
+                    &candidates,
+                )?;
+                inner_labels.push(analyze_sorted_intersections(soup, &ray, &sorted, pi)?);
+            }
+            // KV4-F1: both f64 origin strategies failed (a fully-implicit
+            // or sub-f64-resolution needle patch) — classify in exact
+            // rational arithmetic, the branch the C++ exits on.
+            Err(InsideOutError::NoExplicitRayOrigin { .. }) => {
+                inner_labels.push(rational_ray_inner_label(
+                    soup,
+                    patch,
+                    patch_surface_label,
+                    pi,
+                )?);
+            }
+            Err(e) => return Err(e),
+        }
     }
     Ok(inner_labels)
 }
@@ -309,7 +339,229 @@ fn find_ray_endpoints(
             seed_tri: Some(tri),
         });
     }
+    if std::env::var_os("KV4F1_PROBE").is_some() {
+        eprintln!(
+            "[kv4f1-probe] patch {pi}: {} tris, no f64 ray origin (rational fallback engages). \
+             Vertex census:",
+            patch.len()
+        );
+        let mut seen: BTreeSet<u32> = BTreeSet::new();
+        for &t in patch {
+            for &v in &soup.tris[t as usize] {
+                if seen.insert(v) {
+                    let kind = match &soup.verts[v as usize] {
+                        VertexCoords::Explicit(p) => format!("Explicit {p:?}"),
+                        other => format!("{other:?}"),
+                    };
+                    eprintln!("[kv4f1-probe]   v{v} border={} {kind}", border.contains(&v));
+                }
+            }
+        }
+        for &t in patch {
+            let tri = soup.tris[t as usize];
+            let pts = (
+                approx_point(&soup.verts[tri[0] as usize]),
+                approx_point(&soup.verts[tri[1] as usize]),
+                approx_point(&soup.verts[tri[2] as usize]),
+            );
+            let why = match pts {
+                (Some(a), Some(b), Some(c)) => {
+                    if points_are_collinear_3d(a, b, c) {
+                        "approx-collinear".to_string()
+                    } else {
+                        "straddle/inside validation failed".to_string()
+                    }
+                }
+                _ => "approx denominator vanished".to_string(),
+            };
+            eprintln!("[kv4f1-probe]   tri {t} {tri:?}: {why}");
+        }
+    }
     Err(InsideOutError::NoExplicitRayOrigin { patch: pi })
+}
+
+/// KV4-F1: classify one patch's inner label in EXACT rational arithmetic —
+/// the branch the C++ acknowledges and exits on (booleans.cpp:578:
+/// "a fully implicit patch that requires exact rationals for evaluation.
+/// This version of the code does not support rationals"; deviation N21 in
+/// `docs/yang_deviations.md`).
+///
+/// Reached only when BOTH f64 origin strategies of [`find_ray_endpoints`]
+/// fail. The canonical trigger is a sub-f64-resolution NEEDLE patch: an
+/// input edge pierces a triangle femto-close to its corner (f64-crooked
+/// chained inputs make the exact arrangement mint an intersection point
+/// ~1e-17 from an existing vertex — the F0016 corpus class), so every
+/// explicit vertex is on the patch border and the approximated triangle is
+/// too thin for any f64 segment to pass strictly inside it.
+///
+/// Method — the same nearest-hit walk as the f64 path, in rationals:
+/// 1. Origin: the exact centroid of a patch triangle (explicit coords are
+///    exact f64→rational; implicit coords come from the exact lambda
+///    tier). An arrangement triangle has strictly positive exact area, so
+///    its centroid is strictly interior — never a border vertex, which is
+///    what made the f64 explicit-origin rule fail.
+/// 2. Axis ray +e_k (k = X then Y then Z on graze-retry): for every input
+///    triangle of OTHER labels, the plane crossing parameter `t`, the
+///    strictly-inside test, and the hit ordering are computed in RBig.
+///    Exact grazes (hit on a vertex/edge, origin on a candidate's plane)
+///    retry the next axis instead of perturbing — with a rational origin a
+///    graze on all three axes is codimension-2 and gets the loud
+///    [`InsideOutError::RationalRayDegenerate`].
+/// 3. Nearest hit per label decides: with the hit ON the triangle plane
+///    and the far end beyond it along +e_k, the f64 rule
+///    `orient3d(tv, ray.v1) == Negative → inner` reduces exactly to
+///    `n_k > 0` for `n = (b−a)×(c−a)` (pinned by the
+///    `rational_orientation_convention_matches_f64_path` oracle).
+///
+/// Candidate scan: ALL `in_tris` (no octree) — the fallback fires only on
+/// pathological patches (corpus: a handful per model), and the exact walk
+/// is the semantic authority anyway; a brute scan is provably a superset.
+///
+/// Set semantics mirror `sort_hits_along_ray`: hits with an exactly equal
+/// ray parameter collapse to the first in ascending triangle order, and
+/// `t ≤ 0` hits are discarded (deviation N20's t=0 exclusion included).
+fn rational_ray_inner_label(
+    soup: &ArrangementSoup,
+    patch: &[u32],
+    patch_surface_label: &Label,
+    pi: u32,
+) -> Result<Label, InsideOutError> {
+    use dashu::float::FBig;
+    use dashu::rational::RBig;
+
+    // f64 → exact rational (total for finite f64).
+    fn rbe(x: f64) -> RBig {
+        let fb: FBig = FBig::try_from(x).expect("finite f64 → FBig is total");
+        RBig::try_from(fb).expect("FBig → RBig is total")
+    }
+    type R3 = [RBig; 3];
+    fn sub(a: &R3, b: &R3) -> R3 {
+        [&a[0] - &b[0], &a[1] - &b[1], &a[2] - &b[2]]
+    }
+    fn cross(a: &R3, b: &R3) -> R3 {
+        [
+            &a[1] * &b[2] - &a[2] * &b[1],
+            &a[2] * &b[0] - &a[0] * &b[2],
+            &a[0] * &b[1] - &a[1] * &b[0],
+        ]
+    }
+    fn dot(a: &R3, b: &R3) -> RBig {
+        &a[0] * &b[0] + &a[1] * &b[1] + &a[2] * &b[2]
+    }
+    let exact_coords = |v: u32| -> Option<R3> {
+        match &soup.verts[v as usize] {
+            VertexCoords::Explicit(p) => Some([rbe(p.x()), rbe(p.y()), rbe(p.z())]),
+            implicit => {
+                let le = to_generic(implicit).lambda_exact();
+                if le.is_undefined() {
+                    return None;
+                }
+                Some([&le.l[0] / &le.d, &le.l[1] / &le.d, &le.l[2] / &le.d])
+            }
+        }
+    };
+
+    // (1) Exact centroid of the first patch triangle whose exact points
+    // are all defined.
+    let three = RBig::from(3);
+    let origin: Option<R3> = patch.iter().find_map(|&t| {
+        let tri = soup.tris[t as usize];
+        let (a, b, c) = (
+            exact_coords(tri[0])?,
+            exact_coords(tri[1])?,
+            exact_coords(tri[2])?,
+        );
+        Some([
+            (&a[0] + &b[0] + &c[0]) / &three,
+            (&a[1] + &b[1] + &c[1]) / &three,
+            (&a[2] + &b[2] + &c[2]) / &three,
+        ])
+    });
+    let Some(o) = origin else {
+        return Err(InsideOutError::RationalRayDegenerate { patch: pi });
+    };
+
+    'axis: for k in 0..3usize {
+        // (t, ascending in_tris index, inner-verdict if nearest).
+        let mut hits: Vec<(RBig, u32, bool)> = Vec::new();
+        for (ti, tri) in soup.in_tris.iter().enumerate() {
+            let label = &soup.in_labels[ti];
+            // Same input as the tested patch → skip (its own shell), as in
+            // the f64 prune.
+            if label.iter().any(|id| patch_surface_label.contains(id)) {
+                continue;
+            }
+            let a = [
+                rbe(explicit_or_unreachable(&soup.verts[tri[0] as usize]).x()),
+                rbe(explicit_or_unreachable(&soup.verts[tri[0] as usize]).y()),
+                rbe(explicit_or_unreachable(&soup.verts[tri[0] as usize]).z()),
+            ];
+            let b = [
+                rbe(explicit_or_unreachable(&soup.verts[tri[1] as usize]).x()),
+                rbe(explicit_or_unreachable(&soup.verts[tri[1] as usize]).y()),
+                rbe(explicit_or_unreachable(&soup.verts[tri[1] as usize]).z()),
+            ];
+            let c = [
+                rbe(explicit_or_unreachable(&soup.verts[tri[2] as usize]).x()),
+                rbe(explicit_or_unreachable(&soup.verts[tri[2] as usize]).y()),
+                rbe(explicit_or_unreachable(&soup.verts[tri[2] as usize]).z()),
+            ];
+            let n = cross(&sub(&b, &a), &sub(&c, &a));
+            let rhs = dot(&n, &sub(&a, &o));
+            if n[k] == RBig::ZERO {
+                // Ray parallel to the triangle's plane. On-plane overlap
+                // contributes no transversal crossing (the f64 path's
+                // `Discard` for ray-coplanar triangles); off-plane never
+                // hits. Either way: skip.
+                continue;
+            }
+            let t = &rhs / &n[k];
+            if t <= RBig::ZERO {
+                // Behind the origin, or t == 0 (origin exactly on the
+                // candidate's plane — only a tangential touch can produce
+                // this, and a t=0 touch crosses nothing; deviation N20).
+                continue;
+            }
+            // Hit point h = o + t·e_k.
+            let mut h = o.clone();
+            h[k] = &h[k] + &t;
+            // Strictly-inside via n-aligned edge orientations.
+            let s1 = dot(&cross(&sub(&b, &a), &sub(&h, &a)), &n);
+            let s2 = dot(&cross(&sub(&c, &b), &sub(&h, &b)), &n);
+            let s3 = dot(&cross(&sub(&a, &c), &sub(&h, &c)), &n);
+            let pos = |s: &RBig| *s > RBig::ZERO;
+            let neg = |s: &RBig| *s < RBig::ZERO;
+            if pos(&s1) && pos(&s2) && pos(&s3) {
+                hits.push((t, ti as u32, n[k] > RBig::ZERO));
+            } else if !neg(&s1) && !neg(&s2) && !neg(&s3) {
+                // On the closed boundary but not strictly inside: an exact
+                // vertex/edge graze — retry the next axis (the rational
+                // analog of the f64 path's perturbation machinery).
+                continue 'axis;
+            }
+        }
+
+        // Exact sort along the ray; equal-parameter hits collapse to the
+        // first in ascending triangle order (`btree_set` semantics).
+        hits.sort_by(|x, y| x.0.cmp(&y.0).then(x.1.cmp(&y.1)));
+        hits.dedup_by(|next, kept| next.0 == kept.0);
+
+        // Nearest hit per label decides (the analyze walk).
+        let mut visited: BTreeSet<InputId> = BTreeSet::new();
+        let mut inner: BTreeSet<InputId> = BTreeSet::new();
+        for (_, ti, nk_pos) in &hits {
+            let label = &soup.in_labels[*ti as usize];
+            if label.iter().all(|id| visited.contains(id)) {
+                continue;
+            }
+            if *nk_pos {
+                inner.extend(label.iter().copied());
+            }
+            visited.extend(label.iter().copied());
+        }
+        return Ok(inner.into_iter().collect());
+    }
+    Err(InsideOutError::RationalRayDegenerate { patch: pi })
 }
 
 /// Approximate f64 coordinates of any arrangement vertex (the C++
@@ -1291,5 +1543,127 @@ mod tests {
                 "{name}: production path changed labels vs brute"
             );
         }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Oracle #6 — KV4-F1: the rational-ray fallback for fully-degenerate
+    // patches (the C++ "requires exact rationals" exit, booleans.cpp:578).
+    //
+    // A patch whose only triangle is a sub-ulp NEEDLE — an LPI vertex
+    // whose exact point lies BELOW one f64 ulp above an explicit vertex —
+    // defeats both f64 origin strategies: every explicit vertex is on the
+    // patch border, and the generated-ray branch sees the approximated
+    // triangle as exactly collinear (`misaligned` fails) or cannot pass
+    // an f64 line strictly inside the femto-thin exact triangle. The
+    // F0016 corpus family produces exactly this shape (a tessellation
+    // edge piercing a triangle femto-close to its corner).
+    // ════════════════════════════════════════════════════════════════
+
+    /// Hand-built soup: input B = a closed unit cube at `origin` (the
+    /// only `in_tris` shell); the output `tris` carry ONE needle triangle
+    /// attributed to input A — explicit `e0 = base + (0.3, 0.3, 0.3)`,
+    /// `e1 = base + (0.7, 0.3, 0.3)`, and an LPI vertex whose EXACT point
+    /// sits `≈1.7e-17` above `e0` (below one ulp of 0.3, so its f64
+    /// approximation rounds to exactly `e0`'s coordinates). All three
+    /// needle vertices are border-marked (as in the corpus case).
+    fn needle_soup(base: f64) -> (ArrangementSoup, Patches) {
+        let (coords, cube_tris, cube_labels) = cube(0.0, 0.0, 0.0, 1.0, B);
+        let mut verts: Vec<VertexCoords> = coords
+            .chunks_exact(3)
+            .map(|c| VertexCoords::Explicit(Point3::new(c[0], c[1], c[2])))
+            .collect();
+        let e0 = verts.len() as u32;
+        verts.push(VertexCoords::Explicit(Point3::new(base + 0.3, 0.125, 0.3)));
+        let e1 = verts.len() as u32;
+        verts.push(VertexCoords::Explicit(Point3::new(base + 0.7, 0.125, 0.3)));
+        let lpi = verts.len() as u32;
+        // Plane through z = 0.3 with a one-ulp tilt and a short lever: its
+        // intersection with the vertical line x = base+0.3, y = 0.125 is
+        // exactly z = 0.3 + ulp(0.3)·(0.8·0.025/0.64) ≈ 0.3 + 1.7e-18 —
+        // 30× below the f64 rounding step, so every f64 evaluation of the
+        // point collapses onto e0's plane.
+        verts.push(VertexCoords::Lpi {
+            line: [
+                Point3::new(base + 0.3, 0.125, 0.1),
+                Point3::new(base + 0.3, 0.125, 0.9),
+            ],
+            plane: [
+                Point3::new(base + 0.1, 0.1, 0.3),
+                Point3::new(base + 0.9, 0.1, 0.3),
+                Point3::new(base + 0.1, 0.9, f64::next_up(0.3)),
+            ],
+        });
+        let soup = ArrangementSoup {
+            verts,
+            tris: vec![[e0, e1, lpi]],
+            labels: vec![vec![A]],
+            jolly_count: 0,
+            in_tris: cube_tris,
+            in_labels: cube_labels,
+            multiplier: 1.0,
+        };
+        let patches = Patches {
+            patches: vec![vec![0]],
+            tri_to_patch: vec![0],
+            border_verts: vec![e0, e1, lpi],
+        };
+        (soup, patches)
+    }
+
+    /// The needle's exact LPI point is sub-ulp above the explicit vertex,
+    /// so the PRODUCTION f64 approximation (the generated-ray branch's
+    /// input) lands within rounding noise of e0 — the needle is below f64
+    /// resolution, which is what defeats every f64 origin strategy.
+    #[test]
+    fn needle_fixture_lpi_collapses_in_f64() {
+        let (soup, _) = needle_soup(0.0);
+        let a = approx_point(&soup.verts[10]).expect("approx defined");
+        assert_eq!((a.x(), a.y()), (0.3, 0.125));
+        assert!(
+            (a.z() - 0.3).abs() <= 4.0 * (f64::next_up(0.3) - 0.3),
+            "LPI f64 approximation must be within rounding noise of e0's plane, got z={}",
+            a.z()
+        );
+    }
+
+    #[test]
+    fn needle_patch_inside_cube_classifies_via_rational_ray() {
+        let (soup, patches) = needle_soup(0.0);
+        let inner = compute_inside_out(&soup, &patches)
+            .expect("rational-ray fallback must classify the needle patch");
+        assert_eq!(inner, vec![vec![B]], "needle inside the cube → inner {{B}}");
+    }
+
+    #[test]
+    fn needle_patch_outside_cube_classifies_via_rational_ray() {
+        let (soup, patches) = needle_soup(2.0);
+        let inner = compute_inside_out(&soup, &patches)
+            .expect("rational-ray fallback must classify the needle patch");
+        assert_eq!(inner, vec![vec![]], "needle outside the cube → inner {{}}");
+    }
+
+    /// Axis-graze retry: a B-shell vertex placed EXACTLY at the needle
+    /// centroid's (y, z)… is impossible in f64 (the exact centroid has a
+    /// sub-ulp z), so instead pin the convention link: the rational rule
+    /// "inner ⇔ n_k > 0 at the nearest hit" must agree with the f64 path's
+    /// `orient3d(tv, ray.v1) == Negative → inner` on a concrete triangle.
+    #[test]
+    fn rational_orientation_convention_matches_f64_path() {
+        // +x face of the unit cube, outward normal +x (winding [1,6,5] of
+        // the cube fixture): corners (1,0,0), (1,1,1), (1,0,1).
+        let tv = [
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(1.0, 1.0, 1.0),
+            Point3::new(1.0, 0.0, 1.0),
+        ];
+        // Ray along +X from inside the cube; far endpoint beyond the face.
+        let v1 = Point3::new(1.5, 0.3, 0.4);
+        // f64 path rule: Negative → inner.
+        assert_eq!(orient3d(tv[0], tv[1], tv[2], v1), Sign::Negative);
+        // n = (b−a)×(c−a); its X component must be POSITIVE — the rational
+        // rule's "inner" side.
+        let n_x = (tv[1].y() - tv[0].y()) * (tv[2].z() - tv[0].z())
+            - (tv[1].z() - tv[0].z()) * (tv[2].y() - tv[0].y());
+        assert!(n_x > 0.0, "outward +x face must have n_x > 0");
     }
 }

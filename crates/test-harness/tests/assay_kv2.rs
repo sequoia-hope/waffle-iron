@@ -668,19 +668,19 @@ fn smoke_corpus_boundary_categories() {
         ("R0029", Category::SupportedCorrect),
         // PR-KV10: the F0016-family (3 same-plane oblique bosses) used to
         // stop at the intra-coplanar wall because chained outputs carried
-        // femto-distinct same-plane sibling plane bits. With sibling planes
-        // canonicalized (to_yang) and junction vertices near-welded
-        // (planar I6 weld), the chains run their REAL course: F0017/F0020/
-        // F0023/F0024 are correct end-to-end; the rest reach the named
-        // KV4-F1 cherchi ray-cast gap (`NoExplicitRayOrigin` — the point
-        // where the C++ reference exits "requires rationals"), a REAL bug
-        // surfaced loudly, no longer masked behind the coplanar wall.
+        // femto-distinct same-plane sibling plane bits (canonicalized in
+        // to_yang) over near-duplicate junction vertices (planar I6
+        // near-weld). PR-KV4-F1 then implemented the cherchi rational-ray
+        // fallback (the C++ "requires rationals" exit) for the
+        // sub-f64-resolution needle patches these chains produce — the
+        // family is now correct end-to-end. (F0022 progresses to a
+        // non-manifold reassembly wall — a separate finding.)
         ("F0017", Category::SupportedCorrect),
-        ("F0016", Category::Error),
-        ("F0018", Category::Error),
-        ("F0019", Category::Error),
-        ("F0021", Category::Error),
-        ("F0025", Category::Error),
+        ("F0016", Category::SupportedCorrect),
+        ("F0018", Category::SupportedCorrect),
+        ("F0019", Category::SupportedCorrect),
+        ("F0021", Category::SupportedCorrect),
+        ("F0025", Category::SupportedCorrect),
         // PR-KV5b: circle profiles now extrude to cylinder solids, so these
         // cases march PAST the old curved-profile wall to their next
         // boundary — the auto-union of coaxial stacked cylinders is a

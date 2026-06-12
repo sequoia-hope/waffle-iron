@@ -1673,6 +1673,35 @@ swapped every consumer to `predicates::indirect`).
     arrangement-deferred exact-coplanar tri pairs (8 cases),
     build-mesh/overlay robustness (7 cases). Stage-0's survey probes are
     kept env-gated (`YANG_COPLANAR_PROBE=1`) for future residue sizing.
+  - **KV4-F1 ✅ RESOLVED (PR-KV4-F1, 2026-06-12): the rational-ray
+    fallback** — `rational_ray_inner_label` in cherchi-rs
+    `labeling/inside_out.rs` implements the branch the C++ reference
+    acknowledges and exits on ("a fully implicit patch that requires
+    exact rationals for evaluation… does not support rationals",
+    booleans.cpp:578 → deviation N21). Trigger class diagnosed on F0016:
+    a sub-f64-resolution NEEDLE patch — an input edge piercing a triangle
+    femto-close to its corner mints an LPI ~1e-17 from an existing vertex
+    (the same f64-crooked-input root as PR-KV10, one layer down), so
+    every explicit patch vertex is a border vertex and the approximated
+    triangle defeats the f64 generated ray. The fallback classifies in
+    pure RBig: exact centroid of a patch triangle as origin (strictly
+    interior by positive exact area — the border restriction dissolves),
+    exact axis-ray crossing/strictly-inside/sort over ALL `in_tris`, the
+    nearest-hit rule reduced to `inner ⇔ n_k > 0` (pinned against the
+    f64 `orient3d` convention by a dedicated oracle), exact grazes retry
+    X→Y→Z then the loud typed `RationalRayDegenerate`. Set semantics
+    mirror the f64 sort (equal-key collapse + the N20 `t ≤ 0` discard).
+    Oracles: needle-fixture trio in `inside_out.rs` (sub-ulp LPI whose
+    f64 approximation collapses onto the explicit vertex; inside → {B},
+    outside → {}), convention pin, full cherchi suite + sidecar parity
+    untouched (the fallback fires only where the reference terminates).
+    Corpus: **SUPPORTED_CORRECT 46→52** (F0016/F0018/F0019/F0021/F0025 +
+    R0086), ERROR 47→41, WRONG 0→0. Residue findings: **KV4-F1b** F0022
+    classifies fine through the fallback but its third union fails yang
+    reassembly (`NonManifoldOutput` — patch-boundary layer, distinct
+    cycle); **KV4-F1c** R0067's boolean now SUCCEEDS (was the curved-
+    patch NoExplicitRayOrigin) but the result fails kernel-v2 render
+    tessellation — moved one layer, still ERROR.
 
 ## 4b. Completion roadmap — Phases 1–6 (the full path to replacing legacy)
 
@@ -1941,10 +1970,12 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
     outward radial); the unrolled ear-clip/refinement needs a dedicated
     robustness cycle. ~15 gear cases ERROR on the 90s replay timeout
     (heavy exact arrangements — performance, not correctness).
-  - Remaining top blockers by size (post-PR-KV10): M8 coplanar (~43, of
-    which 19 are the curved-face-in-pair sub-class), KV6c/d revolve
-    (~51), KV4-F1 `NoExplicitRayOrigin` (~6, unmasked by PR-KV10),
-    patch-fold robustness (KV7-F1/KV9-F2), KV6d torus.
+  - Remaining top blockers by size (post-PR-KV4-F1, corpus 52 CORRECT):
+    M8 coplanar (~43, of which 19 are the curved-face-in-pair sub-class),
+    KV6c/d revolve (~51), patch-fold robustness (KV7-F1/KV9-F2), KV6d
+    torus. KV4-F1 RESOLVED (rational-ray fallback, deviation N21);
+    residue findings KV4-F1b (F0022 yang reassembly) and KV4-F1c (R0067
+    result fails render tessellation).
 
 - **KV7 — boolean output curve recovery ("output curve tagging").
   ✅ COMPLETE (2026-06-12, PR-KV7).** Curved booleans are CHAINABLE: the
