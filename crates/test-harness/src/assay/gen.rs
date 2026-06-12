@@ -1056,6 +1056,63 @@ fn fix_noop_operations(features: &mut [Feature], op_metas: &mut [OpMeta]) {
                 bosses.iter().all(|b| !aabb_overlap(&ta, &b.world_aabb()))
                     && revolve_aabbs.iter().all(|(rb, _)| !aabb_overlap(&ta, rb))
             };
+            // Class 4 (PR-ASSAY-VOID): INTERIOR cut — the tool is fully
+            // enclosed by one boss, so the subtraction carves an internal
+            // void: a valid 2-shell body, but visually indistinguishable
+            // from a failed cut in the assay browser. Certain only when no
+            // prior cut could have carved a path from the tool to the
+            // surface (and no undecidable body). Deliberate void coverage
+            // lives in the FEATURED internal-void cases instead.
+            let enclosing_boss = |tool: &PlacedExtrude| -> Option<usize> {
+                if undecidable_body || !cuts.is_empty() || bosses.is_empty() {
+                    return None;
+                }
+                let (hw, hh) = tool.fp.outer_half_extents();
+                let mut corners = Vec::with_capacity(8);
+                for &sx in &[-hw, hw] {
+                    for &sy in &[-hh, hh] {
+                        for &sh in &[tool.span.0, tool.span.1] {
+                            corners.push(tool.world(sx, sy, sh));
+                        }
+                    }
+                }
+                bosses
+                    .iter()
+                    .position(|b| corners.iter().all(|&c| b.contains_point(c)))
+            };
+            if let Some(bi) = enclosing_boss(&tool) {
+                // Repair: slide the sketch plane along n̂ to just past the
+                // enclosing boss's support, so the engine's auto-aimed cut
+                // breaches the surface — a VISIBLE pocket (or through hole).
+                // The plane sits depth/4 beyond the support; the remaining
+                // 3·depth/4 digs in. Lateral position is unchanged (the
+                // tool was enclosed, so its footprint stays over material).
+                let b = &bosses[bi];
+                let (bhw, bhh) = b.fp.outer_half_extents();
+                let mut s_max = f64::NEG_INFINITY;
+                for &sx in &[-bhw, bhw] {
+                    for &sy in &[-bhh, bhh] {
+                        for &sh in &[b.span.0, b.span.1] {
+                            let c = b.world(sx, sy, sh);
+                            let d = (c[0] - origin[0]) * n[0]
+                                + (c[1] - origin[1]) * n[1]
+                                + (c[2] - origin[2]) * n[2];
+                            s_max = s_max.max(d);
+                        }
+                    }
+                }
+                let shift = s_max + depth * 0.25;
+                let new_origin = [
+                    origin[0] + n[0] * shift,
+                    origin[1] + n[1] * shift,
+                    origin[2] + n[2] * shift,
+                ];
+                set_sketch_origin(&mut features[sketch_idx], new_origin);
+                if op_metas[i].plane_origin.is_some() {
+                    op_metas[i].plane_origin = Some(new_origin);
+                }
+                tool = make(new_origin, resolve_span(new_origin));
+            }
             if disjoint(&tool) {
                 // Re-anchor: center the tool on a point KNOWN to be on/in
                 // material — the first boss's solid center, else the first
@@ -1558,6 +1615,9 @@ pub fn generate_featured_cases(output_dir: &std::path::Path) -> Vec<ManifestEntr
     // Append face-to-face stacked union case (F0091)
     entries.extend(generate_face_to_face_union_cases(output_dir));
 
+    // Append deliberate internal-void cases (F0092-F0093)
+    entries.extend(generate_internal_void_cases(output_dir));
+
     entries
 }
 
@@ -1942,7 +2002,11 @@ fn write_featured_case(
             matches!(w[0].operation, Operation::Sketch { .. })
                 && !matches!(w[1].operation, Operation::Sketch { .. })
         });
-    if standard_layout {
+    // PR-ASSAY-VOID: deliberate internal-void cases are EXEMPT from the
+    // repair — the enclosed cavity is their point (the repair would
+    // re-anchor the cut to breach a face, destroying the coverage).
+    let deliberate_void = meta.description.contains("internal-void");
+    if standard_layout && !deliberate_void {
         fix_noop_operations(&mut features, &mut meta.operations);
     }
 
@@ -2215,7 +2279,12 @@ fn generate_box_minus_cyl_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
                 },
             ],
             oracles: OracleExpectations {
-                euler_target: 4,
+                // PR-ASSAY-VOID: the interior-cut repair re-anchors this
+                // family's enclosed cut to breach the top face — a VISIBLE
+                // pocket, single shell, χ = 2 (was 4 when the cut stayed
+                // fully interior and carved a hidden cavity). Deliberate
+                // cavity coverage lives in F0092/F0093 instead.
+                euler_target: 2,
                 expect_watertight: true,
                 max_bbox_extent: 3.0,
                 expect_positive_volume: true,
@@ -2319,7 +2388,12 @@ fn generate_cyl_minus_box_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
                 },
             ],
             oracles: OracleExpectations {
-                euler_target: 4,
+                // PR-ASSAY-VOID: the interior-cut repair re-anchors this
+                // family's enclosed cut to breach the top face — a VISIBLE
+                // pocket, single shell, χ = 2 (was 4 when the cut stayed
+                // fully interior and carved a hidden cavity). Deliberate
+                // cavity coverage lives in F0092/F0093 instead.
+                euler_target: 2,
                 expect_watertight: true,
                 max_bbox_extent: 3.0,
                 expect_positive_volume: true,
@@ -3649,6 +3723,119 @@ fn generate_face_to_face_union_cases(output_dir: &std::path::Path) -> Vec<Manife
     vec![write_featured_case(output_dir, case_id, features, meta)]
 }
 
+/// PR-ASSAY-VOID: DELIBERATE internal-void cases (F0092 cylinder cavity,
+/// F0093 box cavity). The random generator's interior-cut repair re-anchors
+/// accidental enclosed cuts to breach a face (they look like failed cuts in
+/// the assay browser); enclosed-cavity coverage lives HERE instead, named
+/// explicitly. Each is a 2×2×1 box minus a tool fully inside it: result is
+/// a TWO-SHELL body (outer + cavity), per-shell χ = 2 → euler_target 4.
+/// Invisible from outside BY DESIGN — verify via volume + shell topology.
+fn generate_internal_void_cases(output_dir: &std::path::Path) -> Vec<ManifestEntry> {
+    let origin = [0.0, 0.0, 0.0];
+    let normal = [0.0, 0.0, 1.0];
+    let mut entries = Vec::new();
+
+    struct VoidSpec {
+        id: &'static str,
+        tool_desc: &'static str,
+        profile_type: &'static str,
+        profile: ProfileData,
+        profile_size: f64,
+    }
+    let specs = [
+        VoidSpec {
+            id: "F0092",
+            tool_desc: "cylindrical cavity r=0.4",
+            profile_type: "circle",
+            profile: true_circle_profile(0.0, 0.0, 0.4),
+            profile_size: 0.4,
+        },
+        VoidSpec {
+            id: "F0093",
+            tool_desc: "rectangular cavity 0.6×0.6",
+            profile_type: "rectangle",
+            profile: rect_profile(-0.3, -0.3, 0.6, 0.6),
+            profile_size: 0.6,
+        },
+    ];
+    for spec in specs {
+        let mut features = Vec::new();
+        let (_, base_feats) = build_sketch_extrude(
+            "Sketch 1",
+            "Extrude 1",
+            origin,
+            normal,
+            rect_profile(-1.0, -1.0, 2.0, 2.0),
+            1.0,
+            false,
+            false,
+        );
+        features.extend(base_feats);
+        // Cut sketch INSIDE the box (z = 0.3), depth 0.4 → the engine
+        // auto-aims toward the body midpoint side; either resolution keeps
+        // the tool's span inside z ∈ [0, 1]: an enclosed cavity.
+        let (_, cut_feats) = build_sketch_extrude(
+            "Sketch 2",
+            "Extrude 2",
+            [0.0, 0.0, 0.3],
+            normal,
+            spec.profile,
+            0.4,
+            true,
+            false,
+        );
+        features.extend(cut_feats);
+
+        let description = format!(
+            "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude({},cut) —              internal-void (deliberate): {} fully enclosed in a 2×2×1 box;              expect 2 shells (outer + cavity), invisible from outside",
+            spec.profile_type, spec.tool_desc
+        );
+        let meta = AssayMeta {
+            id: spec.id.to_string(),
+            description: description.clone(),
+            master_seed: 0,
+            test_seed: 0,
+            scale: 1.0,
+            log_scale: 0.0,
+            plane_origin: origin,
+            plane_normal: normal,
+            operations: vec![
+                OpMeta {
+                    kind: "extrude".to_string(),
+                    profile_type: "rectangle".to_string(),
+                    profile_size: 2.0,
+                    depth_or_angle: 1.0,
+                    is_cut: false,
+                    plane_origin: None,
+                    plane_normal: None,
+                },
+                OpMeta {
+                    kind: "extrude".to_string(),
+                    profile_type: spec.profile_type.to_string(),
+                    profile_size: spec.profile_size,
+                    depth_or_angle: 0.4,
+                    is_cut: true,
+                    plane_origin: Some([0.0, 0.0, 0.3]),
+                    plane_normal: Some(normal),
+                },
+            ],
+            oracles: OracleExpectations {
+                // Two closed genus-0 shells: χ_total = 4.
+                euler_target: 4,
+                expect_watertight: true,
+                max_bbox_extent: 4.0,
+                expect_positive_volume: true,
+                volume_monotonicity: vec!["increase".to_string(), "decrease".to_string()],
+                expect_rebuild_error: false,
+            },
+            generator_version: GENERATOR_VERSION,
+            featured: true,
+        };
+        entries.push(write_featured_case(output_dir, spec.id, features, meta));
+    }
+    entries
+}
+
 // ── Revolve Self-Intersection Cases (F0073-F0075) ─────────────────────────
 
 /// Generate 3 revolve self-intersection test cases:
@@ -4218,8 +4405,8 @@ mod tests {
         }
         // Total: F0001-F0010 (10) + F0011-F0015 (5) + F0016-F0025 (10) + F0026-F0062 (37)
         //      + F0063-F0072 (10) + F0073-F0075 (3) + F0076-F0085 (10) + F0086-F0090 (5)
-        //      + F0091 (1) = 91
-        assert_eq!(entries.len(), 91, "expected 91 featured cases");
+        //      + F0091 (1) + F0092-F0093 internal-void (2) = 93
+        assert_eq!(entries.len(), 93, "expected 93 featured cases");
     }
 
     #[test]

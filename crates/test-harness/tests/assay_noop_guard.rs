@@ -46,6 +46,11 @@ struct Tool {
     n: [f64; 3],
     hw: f64,
     hh: f64,
+    /// `Some(r)` when the profile is a true circle — containment must use
+    /// the inscribed disc, not the bounding rect (a rect test OVERestimates
+    /// a cylindrical boss and would flag enclosures the generator correctly
+    /// rejects).
+    circ: Option<f64>,
     span: (f64, f64),
 }
 impl Tool {
@@ -77,7 +82,11 @@ impl Tool {
         let x = d[0] * self.u[0] + d[1] * self.u[1] + d[2] * self.u[2];
         let y = d[0] * self.v[0] + d[1] * self.v[1] + d[2] * self.v[2];
         let h = d[0] * self.n[0] + d[1] * self.n[1] + d[2] * self.n[2];
-        x.abs() <= self.hw && y.abs() <= self.hh && h >= self.span.0 && h <= self.span.1
+        let in_plane = match self.circ {
+            Some(r) => x * x + y * y <= r * r,
+            None => x.abs() <= self.hw && y.abs() <= self.hh,
+        };
+        in_plane && h >= self.span.0 && h <= self.span.1
     }
 }
 
@@ -89,20 +98,37 @@ fn scan() {
         .parent()
         .unwrap()
         .join("app/tests/cases/assay");
-    let mut counts = (0, 0, 0, 0); // swallowed_boss, swallowing_boss, freespace_cut, cases_affected
+    // swallowed_boss, swallowing_boss, freespace_cut, interior_cut, cases_affected
+    let mut counts = (0, 0, 0, 0, 0);
     for entry in fs::read_dir(&dir).unwrap() {
         let path = entry.unwrap().path();
         if path.extension().map(|e| e != "waffle").unwrap_or(true) {
             continue;
         }
         let id = path.file_stem().unwrap().to_str().unwrap().to_string();
+        // PR-ASSAY-VOID: deliberate featured internal-void cases are exempt
+        // from the interior-cut check (the enclosed cavity is their point).
+        let meta_path = path.with_extension("meta.json");
+        let deliberate_void = fs::read_to_string(&meta_path)
+            .ok()
+            .and_then(|m| serde_json::from_str::<serde_json::Value>(&m).ok())
+            .and_then(|m| {
+                m["description"]
+                    .as_str()
+                    .map(|d| d.contains("internal-void"))
+            })
+            .unwrap_or(false);
         let json: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
         let feats = &json["tabs"][0]["kind"]["features"]["features"];
         let mut bosses: Vec<Tool> = Vec::new();
+        let mut cut_seen = false;
         let mut flags: Vec<String> = Vec::new();
         let mut has_revolve = false;
-        let mut sketch: Option<([f64; 3], [f64; 3], f64, f64)> = None; // origin, n, hw, hh
+        // origin, plane normal, half-extents, circle radius (Some for a
+        // true-circle profile — containment must use the inscribed disc).
+        type SketchFrame = ([f64; 3], [f64; 3], f64, f64, Option<f64>);
+        let mut sketch: Option<SketchFrame> = None;
         let mut op_i = 0;
         for f in feats.as_array().unwrap() {
             let op = &f["operation"];
@@ -131,12 +157,14 @@ fn scan() {
                             hh = hh.max(a[1].as_f64().unwrap().abs());
                         }
                     }
+                    let mut circ = None;
                     if let Some(profiles) = s["solved_profiles"].as_array() {
                         for p in profiles {
                             if let Some(c) = p["circle"].as_object() {
                                 let r = c["radius"].as_f64().unwrap();
                                 hw = hw.max(r);
                                 hh = hh.max(r);
+                                circ = Some(r);
                             }
                         }
                     }
@@ -145,11 +173,12 @@ fn scan() {
                         [n[0] / nl, n[1] / nl, n[2] / nl],
                         hw,
                         hh,
+                        circ,
                     ));
                 }
                 "Extrude" => {
                     op_i += 1;
-                    let Some((o, n, hw, hh)) = sketch else {
+                    let Some((o, n, hw, hh, circ)) = sketch else {
                         continue;
                     };
                     if hw <= 0.0 || hh <= 0.0 {
@@ -180,6 +209,7 @@ fn scan() {
                         n,
                         hw,
                         hh,
+                        circ,
                         span,
                     };
                     if !cut {
@@ -232,7 +262,49 @@ fn scan() {
                             if dj(&t1) && dj(&t2) {
                                 flags.push(format!("op{op_i}:freespace_cut"));
                             }
+                            // PR-ASSAY-VOID: interior cut — the ENGINE-aimed
+                            // tool (sweep toward the body AABB midpoint side
+                            // of the sketch plane, the rebuild.rs rule) is
+                            // fully enclosed by one boss → enclosed cavity,
+                            // visually a "failed cut". Certain only with no
+                            // prior cut; deliberate featured void cases are
+                            // exempt.
+                            if !cut_seen && !deliberate_void {
+                                let mut blo = [f64::INFINITY; 3];
+                                let mut bhi = [f64::NEG_INFINITY; 3];
+                                for b in &bosses {
+                                    let bb = b.aabb();
+                                    for k in 0..3 {
+                                        blo[k] = blo[k].min(bb.0[k]);
+                                        bhi[k] = bhi[k].max(bb.1[k]);
+                                    }
+                                }
+                                let mid = [
+                                    (blo[0] + bhi[0]) * 0.5,
+                                    (blo[1] + bhi[1]) * 0.5,
+                                    (blo[2] + bhi[2]) * 0.5,
+                                ];
+                                let side = (mid[0] - o[0]) * n[0]
+                                    + (mid[1] - o[1]) * n[1]
+                                    + (mid[2] - o[2]) * n[2];
+                                let aimed = if side < 0.0 { &t1 } else { &t2 };
+                                let mut corners = vec![];
+                                for &sx in &[-hw, hw] {
+                                    for &sy in &[-hh, hh] {
+                                        for &sh in &[aimed.span.0, aimed.span.1] {
+                                            corners.push(aimed.w(sx, sy, sh));
+                                        }
+                                    }
+                                }
+                                if bosses
+                                    .iter()
+                                    .any(|b| corners.iter().all(|&c| b.contains(c)))
+                                {
+                                    flags.push(format!("op{op_i}:interior_cut"));
+                                }
+                            }
                         }
+                        cut_seen = true;
                     }
                 }
                 "Revolve" => {
@@ -251,7 +323,7 @@ fn scan() {
             .collect();
         if !real.is_empty() {
             eprintln!("{id}: {real:?}");
-            counts.3 += 1;
+            counts.4 += 1;
             for f in &real {
                 if f.contains("swallowed_boss") {
                     counts.0 += 1;
@@ -262,16 +334,19 @@ fn scan() {
                 if f.contains("freespace_cut") {
                     counts.2 += 1;
                 }
+                if f.contains("interior_cut") {
+                    counts.3 += 1;
+                }
             }
         }
     }
     eprintln!(
-        "TOTAL swallowed_boss={} swallows_body={} freespace_cut={} cases={}",
-        counts.0, counts.1, counts.2, counts.3
+        "TOTAL swallowed_boss={} swallows_body={} freespace_cut={} interior_cut={} cases={}",
+        counts.0, counts.1, counts.2, counts.3, counts.4
     );
     assert_eq!(
-        (counts.0, counts.1, counts.2),
-        (0, 0, 0),
-        "corpus contains no-op operations — regenerate with the repaired generator"
+        (counts.0, counts.1, counts.2, counts.3),
+        (0, 0, 0, 0),
+        "corpus contains no-op / invisible operations — regenerate with the repaired generator"
     );
 }

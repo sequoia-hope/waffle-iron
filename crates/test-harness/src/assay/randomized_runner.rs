@@ -1172,7 +1172,7 @@ mod tests {
     fn discover_cases_from_corpus() {
         let (_dir, corpus_path) = generate_test_corpus(5);
         let cases = discover_cases(&corpus_path);
-        assert_eq!(cases.len(), 96); // 5 random + 91 featured
+        assert_eq!(cases.len(), 98); // 5 random + 93 featured
         assert_eq!(cases[0].id, "R0001");
         assert!(cases[0].waffle_path.exists());
         assert!(cases[0].meta_path.exists());
@@ -1488,7 +1488,7 @@ mod tests {
         let (_dir, corpus_path) = generate_test_corpus(3);
         let report = run_randomized_assay(&corpus_path, false);
         // 3 random + 91 featured = 94 total
-        assert_eq!(report.total, 94);
+        assert_eq!(report.total, 96);
         // Mock kernel produces deterministic results — all should complete (pass or fail, not error)
         assert_eq!(
             report.errored,

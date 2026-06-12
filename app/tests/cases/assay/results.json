@@ -2,7 +2,7 @@
   "errored": 21,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 33,
+  "passed": 36,
   "results": [
     {
       "category": "UNSUPPORTED(curved-profile)",
@@ -923,14 +923,14 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: 3798e4f2-5768-44b9-ab32-6431c73c9d7d: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0054",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: f08ea688-e714-45fe-ad30-6b90f2f52e9f: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
+      "detail": "1 NotSupported boundary(ies); first: 72e0cb5e-226d-4e06-8cc8-092008690ae6: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "F0055",
       "status": "unsupported"
     },
@@ -1149,7 +1149,19 @@
       "detail": "all checks passed",
       "id": "F0091",
       "status": "pass"
+    },
+    {
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
+      "id": "F0092",
+      "status": "pass"
+    },
+    {
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
+      "id": "F0093",
+      "status": "pass"
     }
   ],
-  "total": 191
+  "total": 193
 }

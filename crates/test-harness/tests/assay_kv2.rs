@@ -1,6 +1,6 @@
 //! PR-KV4 — categorized assay replay through `KernelV2Adapter` (kernel-v2).
 //!
-//! Replays the 191-case assay corpus (`app/tests/cases/assay`) through the
+//! Replays the 193-case assay corpus (`app/tests/cases/assay`) through the
 //! real feature-engine dispatch path with kernel-v2 behind the legacy
 //! `Kernel` trait, and categorizes EVERY case:
 //!
@@ -29,7 +29,7 @@
 //!   section comment), plus representative corpus cases pinned to their
 //!   expected categories (UNSUPPORTED boundaries, the PR-TH1 oracle-fix
 //!   movers, and the one known-WRONG case).
-//! - `full_corpus_categorized` (`#[ignore]`) — the full 191-case run; prints
+//! - `full_corpus_categorized` (`#[ignore]`) — the full 193-case run; prints
 //!   the category table and writes `target/assay_kv2_report.json`. Run with:
 //!   `cargo test -p test-harness --test assay_kv2 -- --ignored --nocapture`
 
@@ -767,11 +767,11 @@ fn smoke_corpus_boundary_categories() {
 // ── Full corpus run (manual / driver) ──────────────────────────────────────
 
 #[test]
-#[ignore] // full 191-case corpus; run with --ignored --nocapture
+#[ignore] // full 193-case corpus; run with --ignored --nocapture
 fn full_corpus_categorized() {
     let dir = assay_dir();
     let cases = discover_cases(&dir);
-    assert_eq!(cases.len(), 191, "expected the 191-case assay corpus");
+    assert_eq!(cases.len(), 193, "expected the 193-case assay corpus");
 
     let mut outcomes = Vec::with_capacity(cases.len());
     for (i, case) in cases.iter().enumerate() {

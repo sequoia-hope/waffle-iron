@@ -55,6 +55,15 @@
 		return r.status;
 	}
 
+	// PR-ASSAY-VOID: a passing case whose pass MEANS "the engine errored as
+	// the meta expects" (revolve self-intersection canaries etc.). The error
+	// toast the case load produces is the EXPECTED outcome — badge it so
+	// PASS + error toast reads as intended, not contradictory.
+	function isExpectedError(id) {
+		const r = state.results?.[id];
+		return !!(r?.status === 'pass' && r.detail && r.detail.startsWith('expected rebuild error'));
+	}
+
 	// Count results
 	let passCount = $derived(Object.values(state.results || {}).filter(r => r.status === 'pass').length);
 	let totalResults = $derived(Object.keys(state.results || {}).length);
@@ -115,7 +124,7 @@
 							{/if}
 							{#if status}
 								<span class="ab-status-badge" class:pass={status === 'pass'} class:fail={status === 'fail'} class:error={status === 'error'}>
-									{status === 'pass' ? 'PASS' : status === 'fail' ? 'FAIL' : 'ERR'}
+									{status === 'pass' ? (isExpectedError(c.id) ? 'PASS (EXPECTED ERR)' : 'PASS') : status === 'fail' ? 'FAIL' : 'ERR'}
 								</span>
 							{/if}
 							<span class="ab-case-id">{c.id}</span>
@@ -133,6 +142,12 @@
 			<div class="ab-oracle-overlay" data-testid="assay-oracle-overlay">
 				<h3 class="ab-oracle-title">Oracle Expectations</h3>
 				{#if activeMeta.oracles}
+					{#if activeMeta.oracles.expect_rebuild_error}
+						<div class="ab-oracle-row ab-expected-error">
+							Expects rebuild error: YES — the engine error this case raises IS the
+							expected outcome (PASS means the error fired)
+						</div>
+					{/if}
 					<div class="ab-oracle-row">Euler: {activeMeta.oracles.euler_target}</div>
 					<div class="ab-oracle-row">Watertight: {activeMeta.oracles.expect_watertight ? 'Yes' : 'No'}</div>
 					<div class="ab-oracle-row">Volume: {activeMeta.oracles.expect_positive_volume ? 'Positive' : 'Any'}</div>
@@ -154,6 +169,11 @@
 {/if}
 
 <style>
+	.ab-expected-error {
+		color: #e0b34d;
+		font-weight: 600;
+	}
+
 	.assay-browser {
 		position: absolute;
 		top: 0;
