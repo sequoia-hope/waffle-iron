@@ -41,6 +41,17 @@ async function createSketchAndExtrude(waffle) {
 	await waitForFeatureCount(waffle.page, 2, 10000);
 }
 
+/**
+ * Helper: start an inline rename on a feature row via its context menu.
+ * Double-clicking an Extrude/Revolve opens the edit dialog (not rename).
+ */
+async function startRenameViaContextMenu(page, item) {
+	await item.click({ button: 'right' });
+	const renameBtn = page.locator('.context-menu [data-testid="ft-ctx-rename"]');
+	await expect(renameBtn).toBeVisible();
+	await renameBtn.click();
+}
+
 test.describe('feature tree rename edge cases', () => {
 	test('rename with empty string reverts to old name', async ({ waffle }) => {
 		await createSketchAndExtrude(waffle);
@@ -50,9 +61,8 @@ test.describe('feature tree rename edge cases', () => {
 		const originalLabel = await treeItem.locator('.tree-label').textContent();
 		expect(originalLabel.length).toBeGreaterThan(0);
 
-		// Double-click to start rename
-		await treeItem.dblclick();
-		await waffle.page.waitForTimeout(200);
+		// Right-click → Rename to start the inline rename
+		await startRenameViaContextMenu(waffle.page, treeItem);
 
 		const renameInput = waffle.page.locator('.rename-input');
 		await expect(renameInput).toBeVisible();
@@ -75,9 +85,8 @@ test.describe('feature tree rename edge cases', () => {
 		const treeItem = waffle.page.locator('[data-testid="feature-item-1"]');
 		const originalLabel = await treeItem.locator('.tree-label').textContent();
 
-		// Double-click to start rename
-		await treeItem.dblclick();
-		await waffle.page.waitForTimeout(200);
+		// Right-click → Rename to start the inline rename
+		await startRenameViaContextMenu(waffle.page, treeItem);
 
 		const renameInput = waffle.page.locator('.rename-input');
 		await expect(renameInput).toBeVisible();

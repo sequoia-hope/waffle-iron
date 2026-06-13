@@ -41,6 +41,18 @@ async function createSketchFeature(waffle) {
 }
 
 /**
+ * Helper: start an inline rename on a feature row via its context menu.
+ * Double-clicking an Extrude/Revolve opens the edit dialog (not rename), so
+ * the rename entry point for non-sketch features is right-click → Rename.
+ */
+async function startRenameViaContextMenu(page, item) {
+	await item.click({ button: 'right' });
+	const renameBtn = page.locator('.context-menu [data-testid="ft-ctx-rename"]');
+	await expect(renameBtn).toBeVisible();
+	await renameBtn.click();
+}
+
+/**
  * Helper: create sketch + extrude.
  */
 async function createSketchAndExtrude(waffle) {
@@ -200,13 +212,13 @@ test.describe('feature tree context menu', () => {
 });
 
 test.describe('feature tree rename', () => {
-	test('double-clicking non-sketch feature shows rename input', async ({ waffle }) => {
-		// Double-click on sketch enters edit mode, so test rename on extrude
+	test('context-menu Rename on non-sketch feature shows rename input', async ({ waffle }) => {
+		// Double-click on a sketch enters edit mode and on an extrude opens the
+		// edit dialog, so rename is reached via the context menu.
 		await createSketchAndExtrude(waffle);
 
 		const extrudeItem = waffle.page.locator(FEATURE_ITEM).nth(1);
-		await extrudeItem.dblclick();
-		await waffle.page.waitForTimeout(200);
+		await startRenameViaContextMenu(waffle.page, extrudeItem);
 
 		// Rename input should appear
 		const renameInput = waffle.page.locator('.rename-input');
@@ -217,8 +229,7 @@ test.describe('feature tree rename', () => {
 		await createSketchAndExtrude(waffle);
 
 		const extrudeItem = waffle.page.locator(FEATURE_ITEM).nth(1);
-		await extrudeItem.dblclick();
-		await waffle.page.waitForTimeout(200);
+		await startRenameViaContextMenu(waffle.page, extrudeItem);
 
 		const renameInput = waffle.page.locator('.rename-input');
 		await renameInput.fill('My Cool Extrude');
@@ -236,8 +247,7 @@ test.describe('feature tree rename', () => {
 		const extrudeItem = waffle.page.locator(FEATURE_ITEM).nth(1);
 		const labelBefore = await extrudeItem.locator('.tree-label').textContent();
 
-		await extrudeItem.dblclick();
-		await waffle.page.waitForTimeout(200);
+		await startRenameViaContextMenu(waffle.page, extrudeItem);
 
 		const renameInput = waffle.page.locator('.rename-input');
 		await renameInput.fill('Some Other Name');
