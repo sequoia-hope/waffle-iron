@@ -1,14 +1,14 @@
 {
-  "errored": 12,
+  "errored": 31,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 53,
+  "passed": 58,
   "results": [
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0001",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(revolve)",
@@ -23,8 +23,8 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: 19381549-8ecb-4a22-ba80-cdec94b6b9ae: operation error: kernel error: operation not supported: revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
       "id": "R0004",
       "status": "unsupported"
     },
@@ -41,8 +41,8 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "2 NotSupported boundary(ies); first: 282b97fd-7f4e-454a-82a0-f81dcc1f1ebe: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0007",
       "status": "unsupported"
     },
@@ -65,16 +65,16 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: geometric face resolution failed for kept triangle 57 (centroid off all face surfaces, a membership tie unresolved by finite-extent containment, or a multi-solid label with no matching Stage-0 pair plane)\"). Body created as standalone.",
       "id": "R0011",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "ERROR",
+      "detail": "timeout after 90s",
       "id": "R0012",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(coplanar-boolean)",
@@ -83,8 +83,8 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "2 NotSupported boundary(ies); first: df14aa73-8dab-4477-8b79-27b0197bb172: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0014",
       "status": "unsupported"
     },
@@ -95,8 +95,8 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: 9019b316-6a4a-4ae9-9240-e61a4e650e51: operation error: kernel error: operation not supported: revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
       "id": "R0016",
       "status": "unsupported"
     },
@@ -107,8 +107,8 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: 0923a449-46a1-4f47-b75a-b4bb5fe62800: operation error: kernel error: operation not supported: revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
       "id": "R0018",
       "status": "unsupported"
     },
@@ -131,8 +131,8 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: ed7970ff-e031-4fce-b2d6-19bf876b1764: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0022",
       "status": "unsupported"
     },
@@ -143,8 +143,8 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "R0024",
       "status": "unsupported"
     },
@@ -161,8 +161,8 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: ee06ff04-16c2-4c2f-9202-1443c15f41ab: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0027",
       "status": "unsupported"
     },
@@ -179,10 +179,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "UNSUPPORTED(multi-shell)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: multi-shell operand (2 shells — an internal void or                      disjoint bodies cannot re-enter yang-rs reassembly yet). Body created as standalone.",
       "id": "R0030",
-      "status": "pass"
+      "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(coplanar-boolean)",
@@ -215,14 +215,14 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "ERROR",
+      "detail": "timeout after 90s",
       "id": "R0036",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: f6b85cd1-3786-4649-90f6-d3d8517ab7cb: operation error: kernel error: operation not supported: revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
       "id": "R0037",
       "status": "unsupported"
     },
@@ -239,10 +239,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: Revolve 3: Auto-union failed: kernel error: operation not supported: boolean_union: multi-shell operand (2 shells — an internal void or                      disjoint bodies cannot re-enter yang-rs reassembly yet). Body created as standalone.",
       "id": "R0040",
-      "status": "pass"
+      "status": "unsupported"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -251,14 +251,14 @@
       "status": "pass"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0042",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(multi-shell)",
+      "detail": "1 NotSupported boundary(ies); first: c99882c0-c80c-4106-85a5-33fdf0817ccb: operation error: kernel error: operation not supported: boolean_subtract: multi-shell operand (2 shells — an internal void or                      disjoint bodies cannot re-enter yang-rs reassembly yet)",
       "id": "R0043",
       "status": "unsupported"
     },
@@ -287,14 +287,14 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0048",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: 2d84f5bd-82b5-4840-86d9-66d597f4ce1e: operation error: kernel error: operation not supported: revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
       "id": "R0049",
       "status": "unsupported"
     },
@@ -311,8 +311,8 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: d9355958-8380-4a33-882a-8feaf57e78a7: operation error: kernel error: operation not supported: revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
       "id": "R0052",
       "status": "unsupported"
     },
@@ -335,10 +335,10 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0056",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(revolve)",
@@ -347,10 +347,10 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "ERROR",
+      "detail": "timeout after 90s",
       "id": "R0058",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(revolve)",
@@ -365,8 +365,8 @@
       "status": "pass"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: c032f2e8-9766-4502-9430-29829c8e2a31: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0061",
       "status": "unsupported"
     },
@@ -377,8 +377,8 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "2 NotSupported boundary(ies); first: 8eeba1df-ba26-434b-b13f-a2d9f219b438: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0063",
       "status": "unsupported"
     },
@@ -395,10 +395,10 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0066",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "ERROR",
@@ -425,8 +425,8 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: 2c659565-295a-4d6d-9582-dc2859b55e11: operation error: kernel error: operation not supported: revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
       "id": "R0071",
       "status": "unsupported"
     },
@@ -437,26 +437,26 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: geometric face resolution failed for kept triangle 516 (centroid off all face surfaces, a membership tie unresolved by finite-extent containment, or a multi-solid label with no matching Stage-0 pair plane)\"). Body created as standalone.",
       "id": "R0073",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: 30b856ee-d1c1-4739-ab1e-74222b0242ec: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0074",
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "ERROR",
+      "detail": "timeout after 90s",
       "id": "R0075",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "2 NotSupported boundary(ies); first: bc2f620d-b753-47c0-9f31-c66e10b01613: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0076",
       "status": "unsupported"
     },
@@ -485,16 +485,16 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "2 NotSupported boundary(ies); first: 72ce3e9a-5ff4-43d6-8777-d96db7d1dd4d: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0081",
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: geometric face resolution failed for kept triangle 1075 (centroid off all face surfaces, a membership tie unresolved by finite-extent containment, or a multi-solid label with no matching Stage-0 pair plane)\"). Body created as standalone.",
       "id": "R0082",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -509,8 +509,8 @@
       "status": "pass"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "2 NotSupported boundary(ies); first: 2c4932c3-f4cc-4c92-9d20-105f8aa32088: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0085",
       "status": "unsupported"
     },
@@ -521,14 +521,14 @@
       "status": "pass"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: 03f4813e-94d5-4944-b1a7-466abc00a0ac: operation error: kernel error: operation not supported: revolve_face: circle profile sweeps a TORUS                  (kernel-v2 roadmap KV6d)",
       "id": "R0087",
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "2 NotSupported boundary(ies); first: d1d97c73-794c-42de-90bf-3a044a05ac9d: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0088",
       "status": "unsupported"
     },
@@ -539,10 +539,10 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "ERROR",
+      "detail": "2 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: geometric face resolution failed for kept triangle 662 (centroid off all face surfaces, a membership tie unresolved by finite-extent containment, or a multi-solid label with no matching Stage-0 pair plane)\"). Body created as standalone.; Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: geometric face resolution failed for kept triangle 618 (centroid off all face surfaces, a membership tie unresolved by finite-extent containment, or a multi-solid label with no matching Stage-0 pair plane)\"). Body created as standalone.",
       "id": "R0090",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(revolve)",
@@ -563,14 +563,14 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "2 NotSupported boundary(ies); first: 05e21dc2-42d2-4fcb-8100-a72a1f6f5b73: operation error: kernel error: operation not supported: revolve_face: oblique profile edge sweeps a CONE                  (kernel-v2 roadmap KV6c)",
       "id": "R0094",
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: ac392209-5719-4ea0-9e48-3d2680bc2542: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(287) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "R0095",
       "status": "unsupported"
     },
@@ -581,14 +581,14 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0097",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: 4d35d0fd-b9d6-4ddc-bbf0-0f92289992ae: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0098",
       "status": "unsupported"
     },
@@ -899,10 +899,10 @@
       "status": "pass"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0050",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -977,22 +977,22 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "2 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0063",
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "2 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0064",
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "ERROR",
+      "detail": "timeout after 90s",
       "id": "F0065",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1001,40 +1001,40 @@
       "status": "pass"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "ERROR",
+      "detail": "timeout after 90s",
       "id": "F0067",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "6 NotSupported boundary(ies); first: Extrude 4: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0068",
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "ERROR",
+      "detail": "timeout after 90s",
       "id": "F0069",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "ERROR",
+      "detail": "timeout after 90s",
       "id": "F0070",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "ERROR",
+      "detail": "timeout after 90s",
       "id": "F0071",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "ERROR",
+      "detail": "timeout after 90s",
       "id": "F0072",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "EXPECTED_ERROR",
@@ -1061,58 +1061,58 @@
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "2 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0077",
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "4 NotSupported boundary(ies); first: Extrude 4: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0078",
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "ERROR",
+      "detail": "timeout after 90s",
       "id": "F0079",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "ERROR",
+      "detail": "timeout after 90s",
       "id": "F0080",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(11) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "F0081",
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "ERROR",
+      "detail": "timeout after 90s",
       "id": "F0082",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(17) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "F0083",
       "status": "unsupported"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "ERROR",
+      "detail": "timeout after 90s",
       "id": "F0084",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "SKIPPED_SLOW",
-      "detail": "on slow-list; skipped (ASSAY_FAST)",
+      "category": "ERROR",
+      "detail": "timeout after 90s",
       "id": "F0085",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(coplanar-boolean)",

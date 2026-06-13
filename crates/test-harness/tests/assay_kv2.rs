@@ -1044,13 +1044,23 @@ fn full_corpus_categorized() {
             "detail": o.detail,
         })).collect::<Vec<_>>(),
     });
-    let ui_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("app/tests/cases/assay/results.json");
-    fs::write(&ui_path, serde_json::to_string_pretty(&ui_results).unwrap())
-        .unwrap_or_else(|e| panic!("cannot write {ui_path:?}: {e}"));
-    eprintln!("UI results.json written to {ui_path:?} (new-kernel categorized score)");
+    // Only a FULL run (not FAST) writes the committed UI results.json — a FAST
+    // run intentionally skips the slow-list, so its score is partial and must
+    // not overwrite the canonical baseline the assay browser reads.
+    if fast {
+        eprintln!(
+            "FAST run — UI results.json NOT overwritten (partial: {} skipped)",
+            count(&|c| *c == Category::SkippedSlow)
+        );
+    } else {
+        let ui_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("app/tests/cases/assay/results.json");
+        fs::write(&ui_path, serde_json::to_string_pretty(&ui_results).unwrap())
+            .unwrap_or_else(|e| panic!("cannot write {ui_path:?}: {e}"));
+        eprintln!("UI results.json written to {ui_path:?} (new-kernel categorized score)");
+    }
 }
