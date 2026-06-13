@@ -60,12 +60,26 @@ GUI `arc-profile-extrude.spec.js` (closed arc profile → extrude → body).
 ### Phase C — Gearbox assembly + per-body export *(app/UX)*
 Homes: `projects/04-3d-viewport/PLAN.md`, `projects/08-ui-chrome/PLAN.md`.
 - **C1** — place sun/planets/ring/carrier as separate bodies (multi-body ✅).
-- **C2** — ring (internal) gear: verify the internal-teeth profile (non-convex
-  *hole*) survives KV12's polygon path — the most likely edge case.
-- **C3** — **right-click a body in the Bodies list → Export STL** (per-body,
-  named). Verify the STL path emits every body of a multi-body model and that
-  gear meshes are watertight for slicing. STEP added to the same menu when the
-  STEP milestone lands.
+- **C2 — ring (internal) gear.** Two sub-findings (2026-06-13):
+  - *Non-convex tooth profile:* ✅ extrudes — gear caps are non-convex simple
+    polygons and already work (generate_gear_profile gear-extrude tests + KV12).
+  - *The hole (annulus):* ⚠️ **FINDING — single-sketch holed extrude is NOT
+    assembled by the adapter.** `make_faces_from_profiles` builds each
+    `ClosedProfile` as a hole-less `Profile::new(.., Vec::new())` and ignores
+    `is_outer`. kernel-v2 `extrude` DOES support holes (kv3 `make_holed_prism`),
+    but the app path never feeds outer+inner loops as one holed profile — so a
+    plate-with-bore / ring-gear drawn as one sketch with two loops does not
+    extrude as an annulus. **Achievable path for now:** build the ring by
+    **extrude-cut** (disk minus the gear-tooth tool) — KV12 extrudes the tool,
+    the cut is a boolean. **Follow-up (`KV14` — adapter hole assembly):** group
+    `is_outer=false` loops into their containing outer and build
+    `Profile::new(outer, holes)`, with the `profile_index` contract preserved.
+    Not yet scheduled; decide priority vs. the extrude-cut workaround.
+- **C3 — right-click a body in the Bodies list → Export STL** ✅ DONE
+  (2026-06-13). Per-body export by persistent body id; whole-model `ExportStl`
+  now merges all renderable bodies (was last-body-only). GUI
+  `body-export.spec.js`. STEP added to the same menu when the STEP milestone
+  lands.
 - **Done when: the gearbox prints. ← prototype-release gate.**
 
 ### Phase D — Face → feature **Tier 1** *(app/UX; cheap parallel win)*
