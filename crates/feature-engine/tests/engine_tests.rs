@@ -222,6 +222,75 @@ fn engine_add_sketch_and_extrude() {
 }
 
 #[test]
+fn body_name_override_set_and_clear() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+    let sid = engine
+        .add_feature("Sketch 1".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let eid = engine
+        .add_feature("Extrude 1".to_string(), make_extrude_op(sid), &mut kernel)
+        .unwrap();
+
+    let body_id = FeatureTree::body_id(eid, &OutputKey::Main);
+    assert_eq!(engine.tree.body_name_override(&body_id), None);
+
+    // Set an override — independent of the feature's name.
+    engine.rename_body(body_id.clone(), "Housing".to_string());
+    assert_eq!(engine.tree.body_name_override(&body_id), Some("Housing"));
+    // Renaming the body does NOT touch the feature name (decoupled).
+    assert_eq!(engine.tree.find_feature(eid).unwrap().name, "Extrude 1");
+
+    // Empty name clears the override (reverts to the derived name).
+    engine.rename_body(body_id.clone(), "  ".to_string());
+    assert_eq!(engine.tree.body_name_override(&body_id), None);
+}
+
+#[test]
+fn body_name_rename_is_undoable() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+    let sid = engine
+        .add_feature("Sketch 1".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let eid = engine
+        .add_feature("Extrude 1".to_string(), make_extrude_op(sid), &mut kernel)
+        .unwrap();
+    let body_id = FeatureTree::body_id(eid, &OutputKey::Main);
+
+    engine.rename_body(body_id.clone(), "Housing".to_string());
+    assert_eq!(engine.tree.body_name_override(&body_id), Some("Housing"));
+
+    engine.undo(&mut kernel).unwrap();
+    assert_eq!(engine.tree.body_name_override(&body_id), None);
+
+    engine.redo(&mut kernel).unwrap();
+    assert_eq!(engine.tree.body_name_override(&body_id), Some("Housing"));
+}
+
+#[test]
+fn body_names_gc_on_delete_and_restore_on_undo() {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+    let sid = engine
+        .add_feature("Sketch 1".to_string(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let eid = engine
+        .add_feature("Extrude 1".to_string(), make_extrude_op(sid), &mut kernel)
+        .unwrap();
+    let body_id = FeatureTree::body_id(eid, &OutputKey::Main);
+    engine.rename_body(body_id.clone(), "Housing".to_string());
+
+    // Deleting the producing feature GCs its body name.
+    engine.remove_feature(eid, &mut kernel).unwrap();
+    assert_eq!(engine.tree.body_name_override(&body_id), None);
+
+    // Undoing the delete restores the name.
+    engine.undo(&mut kernel).unwrap();
+    assert_eq!(engine.tree.body_name_override(&body_id), Some("Housing"));
+}
+
+#[test]
 fn engine_edit_feature_triggers_rebuild() {
     let mut engine = Engine::new();
     let mut kernel = MockKernel::new();

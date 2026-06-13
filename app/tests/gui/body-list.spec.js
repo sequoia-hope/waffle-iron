@@ -67,9 +67,13 @@ test.describe('bodies list', () => {
 		expectNoAnyCrash(crashes);
 	});
 
-	test('double-click renames the body and its producing feature', async ({ waffle }) => {
+	test('double-click renames the body independently of its feature', async ({ waffle }) => {
 		const crashes = collectCrashErrors(waffle.page);
 		await createBody(waffle);
+
+		// Capture the producing feature's name before renaming the body.
+		const before = await getFeatureTree(waffle.page);
+		const featureNames = before.features.map((f) => f.name);
 
 		const body = waffle.page.locator('[data-testid="body-item-0"]');
 		await body.dblclick();
@@ -81,10 +85,12 @@ test.describe('bodies list', () => {
 
 		await expect(waffle.page.locator('[data-testid="body-item-0"]')).toContainText('Main Body');
 
-		// The body name is the producing feature's name, so the feature renamed too.
-		const tree = await getFeatureTree(waffle.page);
-		const names = tree.features.map((f) => f.name);
-		expect(names).toContain('Main Body');
+		// Step 2: body names are independent — the feature name is UNCHANGED.
+		// (Persistence across save/load is covered by the file-format Rust test
+		// `body_names_survive_round_trip`.)
+		const after = await getFeatureTree(waffle.page);
+		expect(after.features.map((f) => f.name)).toEqual(featureNames);
+		expect(featureNames).not.toContain('Main Body');
 		expectNoAnyCrash(crashes);
 	});
 });

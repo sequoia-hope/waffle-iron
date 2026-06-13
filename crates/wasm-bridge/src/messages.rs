@@ -114,6 +114,13 @@ pub enum UiToEngine {
         feature_id: Uuid,
         new_name: String,
     },
+    /// Rename a body (set its display-name override), independent of features.
+    /// `body_id` is the persistent body identity (`FeatureTree::body_id`).
+    /// An empty `new_name` clears the override (reverts to the derived name).
+    RenameBody {
+        body_id: String,
+        new_name: String,
+    },
     /// Set the rollback index.
     SetRollbackIndex {
         index: Option<usize>,

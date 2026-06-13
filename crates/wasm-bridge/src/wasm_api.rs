@@ -584,8 +584,13 @@ pub fn get_body_count() -> usize {
 }
 
 /// Metadata for every renderable body as a JSON array, in body-index order.
-/// Each entry: `{ featureIndex, featureId, outputIndex, outputKey }`. The
-/// `(featureId, outputKey)` pair is the body's persistent identity.
+/// Each entry: `{ featureIndex, featureId, outputIndex, outputKey, bodyId, name }`.
+///
+/// `bodyId` (`"{featureId}/{outputKey.tag()}"`) is the body's persistent
+/// identity — the key for selection and for the name-override registry. `name`
+/// is the resolved display name: the user override if set, else the producing
+/// feature's name (suffixed with an ordinal when one feature owns several
+/// bodies). Naming is resolved here so the engine stays authoritative.
 #[wasm_bindgen]
 pub fn get_body_metadata() -> String {
     ENGINE_STATE.with(|cell| {
@@ -594,7 +599,18 @@ pub fn get_body_metadata() -> String {
             Some(e) => e,
             None => return "[]".to_string(),
         };
+        let tree = &engine.state.engine.tree;
         let bodies = collect_renderable_bodies(engine);
+
+        // How many rendered bodies each feature owns, for ordinal disambiguation.
+        let mut totals: std::collections::HashMap<uuid::Uuid, usize> =
+            std::collections::HashMap::new();
+        for addr in &bodies {
+            *totals.entry(addr.feature_id).or_insert(0) += 1;
+        }
+
+        let mut seen: std::collections::HashMap<uuid::Uuid, usize> =
+            std::collections::HashMap::new();
         let mut entries = Vec::new();
         for addr in &bodies {
             let output_key = engine
@@ -604,11 +620,44 @@ pub fn get_body_metadata() -> String {
                 .get(&addr.feature_id)
                 .and_then(|r| r.outputs.get(addr.output_index))
                 .map(|(k, _)| k.clone());
+
+            let body_id = output_key
+                .as_ref()
+                .map(|k| feature_engine::types::FeatureTree::body_id(addr.feature_id, k));
+
+            // Ordinal among this feature's rendered bodies (1-based).
+            let ordinal = {
+                let n = seen.entry(addr.feature_id).or_insert(0);
+                *n += 1;
+                *n
+            };
+            let total = totals.get(&addr.feature_id).copied().unwrap_or(1);
+
+            let name = body_id
+                .as_deref()
+                .and_then(|id| tree.body_name_override(id))
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| {
+                    let base = tree
+                        .features
+                        .iter()
+                        .find(|f| f.id == addr.feature_id)
+                        .map(|f| f.name.clone())
+                        .unwrap_or_else(|| "Body".to_string());
+                    if total > 1 {
+                        format!("{base} ({ordinal})")
+                    } else {
+                        base
+                    }
+                });
+
             entries.push(serde_json::json!({
                 "featureIndex": addr.feature_index,
                 "featureId": addr.feature_id,
                 "outputIndex": addr.output_index,
                 "outputKey": output_key,
+                "bodyId": body_id,
+                "name": name,
             }));
         }
         serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string())

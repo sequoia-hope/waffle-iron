@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-use crate::types::{Feature, Operation};
+use crate::types::{BodyNames, Feature, Operation};
 
 /// A reversible command recorded by the engine.
 #[derive(Debug, Clone)]
@@ -12,6 +12,9 @@ pub enum Command {
     RemoveFeature {
         feature: Box<Feature>,
         position: usize,
+        /// Body-name overrides owned by the removed feature, captured so undo
+        /// can restore them.
+        removed_body_names: BodyNames,
     },
     EditFeature {
         feature_id: Uuid,
@@ -32,6 +35,12 @@ pub enum Command {
         feature_id: Uuid,
         old_name: String,
         new_name: String,
+    },
+    RenameBody {
+        body_id: String,
+        /// Previous override (`None` ⇒ the body had no override / used a derived name).
+        old_name: Option<String>,
+        new_name: Option<String>,
     },
 }
 

@@ -1364,6 +1364,7 @@ mod tests {
         let tree = FeatureTree {
             features: vec![feature.clone()],
             active_index: None,
+            ..Default::default()
         };
         let results = HashMap::new();
         let result = execute_feature(
@@ -1390,6 +1391,7 @@ mod tests {
         let tree = FeatureTree {
             features: vec![feature.clone()],
             active_index: None,
+            ..Default::default()
         };
         let results = HashMap::new();
 
@@ -1423,6 +1425,7 @@ mod tests {
         let tree = FeatureTree {
             features: vec![feature.clone()],
             active_index: None,
+            ..Default::default()
         };
         let results = HashMap::new();
         let result = execute_feature(
@@ -1453,6 +1456,7 @@ mod tests {
         let tree = FeatureTree {
             features: vec![feature.clone()],
             active_index: None,
+            ..Default::default()
         };
         let results = HashMap::new();
         let result = execute_feature(
@@ -1535,6 +1539,7 @@ mod tests {
                 },
             ],
             active_index: None,
+            ..Default::default()
         };
         (tree, extrude_id)
     }
@@ -1738,6 +1743,7 @@ mod tests {
         let tree = FeatureTree {
             features: vec![first_plane.clone(), second_plane.clone()],
             active_index: None,
+            ..Default::default()
         };
 
         // Build results for first plane

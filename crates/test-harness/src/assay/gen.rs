@@ -622,6 +622,7 @@ pub fn generate_case(master_seed: u64, index: usize) -> GeneratedCase {
     let tree = FeatureTree {
         features,
         active_index: None,
+        ..Default::default()
     };
 
     let metadata = ProjectMetadata::new(format!("Assay R{:04}", index + 1));
@@ -1503,6 +1504,7 @@ pub fn generate_featured_cases(output_dir: &std::path::Path) -> Vec<ManifestEntr
         let tree = FeatureTree {
             features,
             active_index: None,
+            ..Default::default()
         };
 
         let metadata = ProjectMetadata::new(format!("Assay {}", spec.id));
@@ -1734,6 +1736,7 @@ fn generate_oblique_plane_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
         let tree = FeatureTree {
             features,
             active_index: None,
+            ..Default::default()
         };
 
         let metadata = ProjectMetadata::new(format!("Assay {}", case_id));
@@ -1919,6 +1922,7 @@ fn generate_intersecting_oblique_cases(output_dir: &std::path::Path) -> Vec<Mani
         let tree = FeatureTree {
             features,
             active_index: None,
+            ..Default::default()
         };
 
         let metadata = ProjectMetadata::new(format!("Assay {}", case_id));
@@ -2013,6 +2017,7 @@ fn write_featured_case(
     let tree = FeatureTree {
         features,
         active_index: None,
+        ..Default::default()
     };
     let metadata = ProjectMetadata::new(format!("Assay {}", case_id));
     let waffle_json = save_project(&tree, &metadata);

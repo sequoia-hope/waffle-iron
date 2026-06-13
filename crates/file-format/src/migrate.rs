@@ -255,6 +255,7 @@ mod tests {
                 references: vec![],
             }],
             active_index: None,
+            ..Default::default()
         };
 
         let migrated = migrate(tree, 1, 2).unwrap();
@@ -362,6 +363,7 @@ mod tests {
                 references: vec![],
             }],
             active_index: None,
+            ..Default::default()
         };
 
         let migrated = migrate(tree, 1, 2).unwrap();
@@ -403,6 +405,7 @@ mod tests {
                 references: vec![],
             }],
             active_index: None,
+            ..Default::default()
         };
 
         let migrated = migrate(tree, 1, 2).unwrap();
@@ -447,6 +450,7 @@ mod tests {
                 references: vec![],
             }],
             active_index: None,
+            ..Default::default()
         };
 
         let migrated = migrate(tree, 1, 2).unwrap();
@@ -465,6 +469,7 @@ mod tests {
         let tree = FeatureTree {
             features: vec![],
             active_index: None,
+            ..Default::default()
         };
         let result = migrate(tree, 2, 2).unwrap();
         assert!(result.features.is_empty());
@@ -475,6 +480,7 @@ mod tests {
         let tree = FeatureTree {
             features: vec![],
             active_index: None,
+            ..Default::default()
         };
         let result = migrate(tree, 3, 4);
         assert!(result.is_err());

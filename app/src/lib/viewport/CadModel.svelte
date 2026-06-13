@@ -16,8 +16,8 @@
 		setSelectOtherState,
 		getProfilePickMode,
 		isProjectToolActive,
-		getSelectedBodyKey,
-		getHoveredBodyKey
+		getSelectedBodyId,
+		getHoveredBodyId
 	} from '$lib/engine/store.svelte.js';
 	import { SIDE_FACE_GROUP_THRESHOLD } from '$lib/config.js';
 
@@ -229,7 +229,7 @@
 			geometry: buildGeometry(m),
 			faceRanges: m.faceRanges || [],
 			featureId: m.featureId,
-			bodyKey: m.bodyKey
+			bodyId: m.bodyId
 		}));
 	});
 
@@ -256,12 +256,12 @@
 		const hRef = getHoveredRef();
 		const sRefs = getSelectedRefs();
 		const inSketch = getSketchMode()?.active ?? false;
-		const selectedBody = getSelectedBodyKey();
-		const hoveredBody = getHoveredBodyKey();
+		const selectedBody = getSelectedBodyId();
+		const hoveredBody = getHoveredBodyId();
 		return engineMeshes.map((m) => {
-			if (!inSketch && m.bodyKey) {
-				if (m.bodyKey === selectedBody) return makeBodyMaterial(BODY_SELECTED_COLOR);
-				if (m.bodyKey === hoveredBody) return makeBodyMaterial(BODY_HOVER_COLOR);
+			if (!inSketch && m.bodyId) {
+				if (m.bodyId === selectedBody) return makeBodyMaterial(BODY_SELECTED_COLOR);
+				if (m.bodyId === hoveredBody) return makeBodyMaterial(BODY_HOVER_COLOR);
 			}
 			return buildMaterials(m.faceRanges, hRef, sRefs, inSketch);
 		});
@@ -449,7 +449,7 @@
 </script>
 
 {#if !showTestBox}
-	{#each engineMeshes as mesh, i (mesh.bodyKey)}
+	{#each engineMeshes as mesh, i (mesh.bodyId)}
 		{#if inSketchMode && !isProjectToolActive()}
 			<T.Mesh
 				geometry={mesh.geometry}

@@ -68,8 +68,13 @@ export function get_body_indices(body_index) {
 
 /**
  * Metadata for every renderable body as a JSON array, in body-index order.
- * Each entry: `{ featureIndex, featureId, outputIndex, outputKey }`. The
- * `(featureId, outputKey)` pair is the body's persistent identity.
+ * Each entry: `{ featureIndex, featureId, outputIndex, outputKey, bodyId, name }`.
+ *
+ * `bodyId` (`"{featureId}/{outputKey.tag()}"`) is the body's persistent
+ * identity — the key for selection and for the name-override registry. `name`
+ * is the resolved display name: the user override if set, else the producing
+ * feature's name (suffixed with an ordinal when one feature owns several
+ * bodies). Naming is resolved here so the engine stays authoritative.
  * @returns {string}
  */
 export function get_body_metadata() {

@@ -46,6 +46,20 @@ pub enum OutputKey {
     Datum { name: String },
 }
 
+impl OutputKey {
+    /// Stable string tag for this output key, used to build a persistent body
+    /// identity (`"{feature_id}/{tag}"`). Must round-trip stably across
+    /// rebuilds for body names to stick to the right output.
+    pub fn tag(&self) -> String {
+        match self {
+            OutputKey::Main => "Main".to_string(),
+            OutputKey::Body { index } => format!("Body:{index}"),
+            OutputKey::Profile { index } => format!("Profile:{index}"),
+            OutputKey::Datum { name } => format!("Datum:{name}"),
+        }
+    }
+}
+
 /// How to find a specific entity within a feature's output.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]

@@ -159,16 +159,6 @@ function handleSolveSketch(msg) {
 }
 
 /**
- * Stable per-session identity for a body: its producing feature plus which
- * output of that feature it is. Mirrors the kernel's (feature_id, OutputKey)
- * body identity closely enough for selection/highlighting within a session.
- * @param {{ featureId?: string, outputIndex?: number }} meta
- */
-function bodyKeyOf(meta) {
-	return `${meta.featureId ?? '?'}:${meta.outputIndex ?? 0}`;
-}
-
-/**
  * Collect mesh data per body (per mesh-bearing output) as Transferable typed
  * arrays. Each body is one entry; multi-body features contribute one entry per
  * output. Uses the engine's per-body accessors, which already exclude features
@@ -221,7 +211,10 @@ function collectBodies() {
 		const meta = metadata[b] || {};
 		meshes.push({
 			bodyIndex: b,
-			bodyKey: bodyKeyOf(meta),
+			// Persistent body identity "{featureId}/{outputKey.tag()}" + resolved
+			// display name, both from the engine (authoritative).
+			bodyId: meta.bodyId ?? `${meta.featureId}/Main`,
+			name: meta.name ?? null,
 			featureIndex: meta.featureIndex,
 			featureId: meta.featureId,
 			outputKey: meta.outputKey ?? null,
@@ -320,7 +313,8 @@ function collectMeshes() {
 
 		meshes.push({
 			bodyIndex: meshes.length,
-			bodyKey: `${features[i].id}:0`,
+			bodyId: `${features[i].id}/Main`,
+			name: null,
 			featureIndex: i,
 			featureId: features[i].id,
 			outputKey: null,

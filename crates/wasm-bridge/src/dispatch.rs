@@ -133,6 +133,11 @@ fn handle_message(
             Ok(model_updated_response(state))
         }
 
+        UiToEngine::RenameBody { body_id, new_name } => {
+            state.engine.rename_body(body_id, new_name);
+            Ok(model_updated_response(state))
+        }
+
         UiToEngine::SetRollbackIndex { index } => {
             state.engine.set_rollback(index, kb);
             Ok(model_updated_response(state))

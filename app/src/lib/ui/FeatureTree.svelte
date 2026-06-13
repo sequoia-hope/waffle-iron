@@ -29,9 +29,10 @@
 		getFeatureErrors,
 		showEditFeatureDialog,
 		getBodies,
-		getSelectedBodyKey,
+		getSelectedBodyId,
 		selectBody,
-		setHoveredBodyKey
+		setHoveredBodyId,
+		renameBody
 	} from '$lib/engine/store.svelte.js';
 	import { BUILTIN_PLANES, makePlaneRef } from '$lib/engine/planes.js';
 	import { longPressContextMenu } from './longPressContextMenu.js';
@@ -40,7 +41,7 @@
 	let selectedId = $derived(getSelectedFeatureId());
 	let featureErrors = $derived(getFeatureErrors());
 	let bodies = $derived(getBodies());
-	let selectedBodyKey = $derived(getSelectedBodyKey());
+	let selectedBodyId = $derived(getSelectedBodyId());
 
 	/** @type {{ x: number, y: number, featureId: string, featureName: string, suppressed: boolean, isSketch: boolean, operationType: string | null } | null} */
 	let contextMenu = $state(null);
@@ -70,36 +71,38 @@
 	// Bodies section state
 	let bodiesExpanded = $state(true);
 
-	/** Inline-rename state for the Bodies list (separate from feature renaming,
-	 * since a body shares its producing feature's id). Keyed by bodyKey so only
-	 * the edited row shows an input even when one feature owns several bodies. */
-	/** @type {{ bodyKey: string, featureId: string, value: string } | null} */
+	/** Inline-rename state for the Bodies list. Keyed by bodyId so only the
+	 * edited row shows an input even when one feature owns several bodies. Body
+	 * rename is independent of feature rename (sends RenameBody). */
+	/** @type {{ bodyId: string, value: string } | null} */
 	let bodyRenaming = $state(null);
 
-	function handleBodyClick(bodyKey) {
-		selectBody(selectedBodyKey === bodyKey ? null : bodyKey);
+	function handleBodyClick(bodyId) {
+		selectBody(selectedBodyId === bodyId ? null : bodyId);
 	}
 
 	function handleBodyDblClick(body) {
-		bodyRenaming = { bodyKey: body.bodyKey, featureId: body.featureId, value: body.name };
+		bodyRenaming = { bodyId: body.bodyId, value: body.name };
+	}
+
+	function commitBodyRename() {
+		if (!bodyRenaming) return;
+		// Empty/whitespace clears the override (engine reverts to derived name).
+		renameBody(bodyRenaming.bodyId, bodyRenaming.value.trim());
+		bodyRenaming = null;
 	}
 
 	function handleBodyRename(e) {
 		if (!bodyRenaming) return;
 		if (e.key === 'Enter') {
-			const trimmed = bodyRenaming.value.trim();
-			if (trimmed) renameFeature(bodyRenaming.featureId, trimmed);
-			bodyRenaming = null;
+			commitBodyRename();
 		} else if (e.key === 'Escape') {
 			bodyRenaming = null;
 		}
 	}
 
 	function handleBodyRenameBlur() {
-		if (!bodyRenaming) return;
-		const trimmed = bodyRenaming.value.trim();
-		if (trimmed) renameFeature(bodyRenaming.featureId, trimmed);
-		bodyRenaming = null;
+		commitBodyRename();
 	}
 
 	// Build plane refs once
@@ -473,20 +476,20 @@
 					<span class="origin-label">Bodies ({bodies.length})</span>
 				</button>
 				{#if bodiesExpanded}
-					{#each bodies as body, i (body.bodyKey)}
+					{#each bodies as body, i (body.bodyId)}
 						<div
 							class="body-item"
-							class:selected={selectedBodyKey === body.bodyKey}
+							class:selected={selectedBodyId === body.bodyId}
 							data-testid="body-item-{i}"
-							onclick={() => handleBodyClick(body.bodyKey)}
+							onclick={() => handleBodyClick(body.bodyId)}
 							ondblclick={() => handleBodyDblClick(body)}
-							onmouseenter={() => setHoveredBodyKey(body.bodyKey)}
-							onmouseleave={() => setHoveredBodyKey(null)}
+							onmouseenter={() => setHoveredBodyId(body.bodyId)}
+							onmouseleave={() => setHoveredBodyId(null)}
 							role="treeitem"
 							tabindex="0"
 						>
 							<span class="tree-icon">{'▣'}</span>
-							{#if bodyRenaming && bodyRenaming.bodyKey === body.bodyKey}
+							{#if bodyRenaming && bodyRenaming.bodyId === body.bodyId}
 								<input
 									class="rename-input body-rename-input"
 									bind:value={bodyRenaming.value}

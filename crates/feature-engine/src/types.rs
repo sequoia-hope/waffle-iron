@@ -1,6 +1,14 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use waffle_types::{GeomRef, Sketch};
+use waffle_types::{GeomRef, OutputKey, Sketch};
+
+/// User-assigned body display names, keyed by a body's persistent identity
+/// (`"{feature_id}/{output_key.tag()}"`). Absent ⇒ the body uses a derived
+/// name (its producing feature's name). Stored on the tree so it persists with
+/// the document; `#[serde(default)]` keeps older files (no field) loading.
+pub type BodyNames = HashMap<String, String>;
 
 /// The ordered list of modeling features.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -10,6 +18,9 @@ pub struct FeatureTree {
     /// Features after this index are suppressed during rebuild.
     /// None means all features are active.
     pub active_index: Option<usize>,
+    /// User-assigned body names, independent of feature names.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub body_names: BodyNames,
 }
 
 impl FeatureTree {
@@ -17,7 +28,55 @@ impl FeatureTree {
         Self {
             features: Vec::new(),
             active_index: None,
+            body_names: HashMap::new(),
         }
+    }
+
+    /// Persistent identity string for a body: its producing feature plus which
+    /// output of that feature it is. This is the key into `body_names`.
+    pub fn body_id(feature_id: Uuid, output_key: &OutputKey) -> String {
+        format!("{}/{}", feature_id, output_key.tag())
+    }
+
+    /// Set (or clear, with `None`) a body's display-name override. Returns the
+    /// previous override, if any. No rebuild needed — names don't affect geometry.
+    pub fn set_body_name(&mut self, body_id: &str, name: Option<String>) -> Option<String> {
+        match name {
+            Some(n) => self.body_names.insert(body_id.to_string(), n),
+            None => self.body_names.remove(body_id),
+        }
+    }
+
+    /// Look up a body's display-name override, if the user has set one.
+    pub fn body_name_override(&self, body_id: &str) -> Option<&str> {
+        self.body_names.get(body_id).map(String::as_str)
+    }
+
+    /// Remove and return all body-name overrides owned by `feature_id`. Called
+    /// on feature delete so the names are GC'd from the live tree but captured
+    /// for undo (NOT triggered by a transient empty rebuild — a feature that
+    /// errors then recovers keeps its body names).
+    pub fn take_body_names(&mut self, feature_id: Uuid) -> BodyNames {
+        // Keys are "{feature_id}/{tag}"; UUIDs contain no '/'.
+        let prefix = format!("{feature_id}/");
+        let keys: Vec<String> = self
+            .body_names
+            .keys()
+            .filter(|k| k.starts_with(&prefix))
+            .cloned()
+            .collect();
+        let mut taken = BodyNames::new();
+        for k in keys {
+            if let Some(v) = self.body_names.remove(&k) {
+                taken.insert(k, v);
+            }
+        }
+        taken
+    }
+
+    /// Re-merge body-name overrides (used to undo a feature delete).
+    pub fn restore_body_names(&mut self, names: BodyNames) {
+        self.body_names.extend(names);
     }
 
     /// Return active features (up to active_index).

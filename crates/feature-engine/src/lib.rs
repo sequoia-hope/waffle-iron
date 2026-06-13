@@ -74,9 +74,13 @@ impl Engine {
         let feature = Box::new(self.tree.find_feature(id).unwrap().clone());
         self.tree.remove_feature(id)?;
         self.feature_results.remove(&id);
+        // GC body-name overrides owned by the deleted feature (feature-delete
+        // only — never on a transient empty rebuild), capturing them for undo.
+        let removed_body_names = self.tree.take_body_names(id);
         self.undo_stack.push(Command::RemoveFeature {
             feature,
             position: pos,
+            removed_body_names,
         });
         self.rebuild(kb, pos.min(self.tree.features.len().saturating_sub(1)));
         Ok(())
@@ -166,6 +170,24 @@ impl Engine {
         Ok(())
     }
 
+    /// Set (or clear, with an empty name) a body's display-name override. The
+    /// body is identified by its persistent id (`FeatureTree::body_id`).
+    /// Independent of feature names. No rebuild needed.
+    pub fn rename_body(&mut self, body_id: String, new_name: String) {
+        let trimmed = new_name.trim();
+        let new = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+        let old_name = self.tree.set_body_name(&body_id, new.clone());
+        self.undo_stack.push(Command::RenameBody {
+            body_id,
+            old_name,
+            new_name: new,
+        });
+    }
+
     /// Set rollback index and rebuild. Not undoable.
     pub fn set_rollback(&mut self, index: Option<usize>, kb: &mut dyn KernelBundle) {
         self.tree.set_rollback(index);
@@ -205,8 +227,14 @@ impl Engine {
                 self.feature_results.remove(&feature.id);
                 pos.min(self.tree.features.len().saturating_sub(1))
             }
-            Command::RemoveFeature { feature, position } => {
+            Command::RemoveFeature {
+                feature,
+                position,
+                removed_body_names,
+            } => {
                 self.tree.features.insert(*position, (**feature).clone());
+                // Restore the deleted feature's body-name overrides.
+                self.tree.restore_body_names(removed_body_names.clone());
                 // Adjust active_index if needed
                 if let Some(ref mut idx) = self.tree.active_index {
                     if *position <= *idx {
@@ -252,6 +280,12 @@ impl Engine {
                 let _ = self.tree.rename_feature(*feature_id, old_name.clone());
                 0 // No rebuild needed for rename
             }
+            Command::RenameBody {
+                body_id, old_name, ..
+            } => {
+                self.tree.set_body_name(body_id, old_name.clone());
+                0 // No rebuild needed for rename
+            }
         }
     }
 
@@ -271,6 +305,8 @@ impl Engine {
                 let pos = self.tree.feature_index(feature.id).unwrap_or(0);
                 let _ = self.tree.remove_feature(feature.id);
                 self.feature_results.remove(&feature.id);
+                // Re-GC the feature's body names (already captured in the command).
+                let _ = self.tree.take_body_names(feature.id);
                 pos.min(self.tree.features.len().saturating_sub(1))
             }
             Command::EditFeature {
@@ -308,6 +344,12 @@ impl Engine {
                 ..
             } => {
                 let _ = self.tree.rename_feature(*feature_id, new_name.clone());
+                0 // No rebuild needed for rename
+            }
+            Command::RenameBody {
+                body_id, new_name, ..
+            } => {
+                self.tree.set_body_name(body_id, new_name.clone());
                 0 // No rebuild needed for rename
             }
         }

@@ -434,6 +434,39 @@ fn load_round_trip_simple_tree() {
 }
 
 #[test]
+fn body_names_survive_round_trip() {
+    let mut tree = make_simple_tree();
+    let eid = tree.features[1].id;
+    let body_id = FeatureTree::body_id(eid, &waffle_types::OutputKey::Main);
+    tree.set_body_name(&body_id, Some("Housing".to_string()));
+
+    let json = save_project(&tree, &ProjectMetadata::new("Named Bodies"));
+    let (loaded_tree, _) = load_project(&json).unwrap();
+
+    assert_eq!(loaded_tree.body_name_override(&body_id), Some("Housing"));
+}
+
+#[test]
+fn load_old_file_without_body_names() {
+    // A document saved before body_names existed has no such field; serde
+    // default must fill an empty registry rather than failing to load.
+    let tree = make_simple_tree();
+    let json = save_project(&tree, &ProjectMetadata::new("Legacy"));
+
+    // Strip any body_names key to emulate a pre-2a file (none is written when
+    // empty anyway, but be explicit about the contract).
+    let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    if let Some(features) = value["tabs"][0]["kind"]["features"].as_object_mut() {
+        features.remove("body_names");
+    }
+    let stripped = serde_json::to_string(&value).unwrap();
+
+    let (loaded_tree, _) = load_project(&stripped).unwrap();
+    assert!(loaded_tree.body_names.is_empty());
+    assert_eq!(loaded_tree.features.len(), 2);
+}
+
+#[test]
 fn load_preserves_feature_ids() {
     let tree = make_simple_tree();
     let original_ids: Vec<Uuid> = tree.features.iter().map(|f| f.id).collect();

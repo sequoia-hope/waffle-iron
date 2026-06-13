@@ -34,7 +34,7 @@ function generateUUID() {
 /** @type {{ features: Array<any>, active_index: number | null }} */
 let featureTree = $state({ features: [], active_index: null });
 
-/** @type {Array<{ featureId: string, vertices: Float32Array, normals: Float32Array, indices: Uint32Array, triangleCount: number, faceRanges?: Array<{geom_ref: any, start_index: number, end_index: number}> }>} */
+/** @type {Array<{ featureId: string, bodyId?: string, name?: string|null, outputKey?: any, outputIndex?: number, vertices: Float32Array, normals: Float32Array, indices: Uint32Array, triangleCount: number, faceRanges?: Array<{geom_ref: any, start_index: number, end_index: number}> }>} */
 let meshes = $state([]);
 
 let engineReady = $state(false);
@@ -57,13 +57,13 @@ let hoveredRef = $state(null);
 /** @type {Array<any>} */
 let selectedRefs = $state([]);
 
-/** Body key (`featureId:outputIndex`) currently selected via the Bodies list. */
+/** Body id (`featureId/outputKeyTag`) currently selected via the Bodies list. */
 /** @type {string | null} */
-let selectedBodyKey = $state(null);
+let selectedBodyId = $state(null);
 
-/** Body key currently hovered in the Bodies list. */
+/** Body id currently hovered in the Bodies list. */
 /** @type {string | null} */
-let hoveredBodyKey = $state(null);
+let hoveredBodyId = $state(null);
 
 /** @type {{ active: boolean, origin: [number, number, number], normal: [number, number, number] }} */
 let sketchMode = $state({ active: false, origin: [0, 0, 0], normal: [0, 0, 1] });
@@ -831,25 +831,22 @@ export function getMeshes() {
 /**
  * List the solid bodies in the current model. A body is one mesh-bearing output
  * of a feature, so a multi-body feature (e.g. a boolean split) contributes more
- * than one entry. Each body carries a stable `bodyKey` and its producing
- * feature's id/output key. The name is the producing feature's name, suffixed
- * with an ordinal when one feature owns several bodies.
- * Returns `[{ bodyKey, featureId, outputKey, name }]` in render order.
+ * than one entry. Each body carries its persistent `bodyId`, producing feature
+ * id, output key, and resolved display name (the engine resolves the name: a
+ * user override if set, else the derived feature name + ordinal).
+ * Returns `[{ bodyId, featureId, outputKey, name }]` in render order.
  */
 export function getBodies() {
-	// Count bodies per feature so multi-body features can be disambiguated.
-	const counts = new Map();
-	for (const m of meshes) counts.set(m.featureId, (counts.get(m.featureId) ?? 0) + 1);
-
-	const seen = new Map();
 	return meshes.map((m) => {
-		const feature = featureTree.features.find((f) => f.id === m.featureId);
-		const baseName = feature?.name ?? 'Body';
-		const ordinal = (seen.get(m.featureId) ?? 0) + 1;
-		seen.set(m.featureId, ordinal);
-		const name = counts.get(m.featureId) > 1 ? `${baseName} (${ordinal})` : baseName;
+		// Engine-resolved name (preferred); fall back to the feature name for the
+		// legacy per-feature worker path, which doesn't resolve names.
+		let name = m.name;
+		if (!name) {
+			const feature = featureTree.features.find((f) => f.id === m.featureId);
+			name = feature?.name ?? 'Body';
+		}
 		return {
-			bodyKey: m.bodyKey,
+			bodyId: m.bodyId,
 			featureId: m.featureId,
 			outputKey: m.outputKey ?? null,
 			name
@@ -857,35 +854,47 @@ export function getBodies() {
 	});
 }
 
-/** Body key selected in the Bodies list, or null. */
-export function getSelectedBodyKey() {
-	return selectedBodyKey;
+/** Body id selected in the Bodies list, or null. */
+export function getSelectedBodyId() {
+	return selectedBodyId;
 }
 
-/** Body key hovered in the Bodies list, or null. */
-export function getHoveredBodyKey() {
-	return hoveredBodyKey;
+/** Body id hovered in the Bodies list, or null. */
+export function getHoveredBodyId() {
+	return hoveredBodyId;
 }
 
 /**
- * Select a whole body for highlighting (by its `bodyKey`). Pass null to clear.
+ * Select a whole body for highlighting (by its `bodyId`). Pass null to clear.
  * Selecting a body clears any face/edge-level selection so the whole-body
  * highlight reads cleanly.
- * @param {string | null} bodyKey
+ * @param {string | null} bodyId
  */
-export function selectBody(bodyKey) {
-	selectedBodyKey = bodyKey;
-	if (bodyKey) {
+export function selectBody(bodyId) {
+	selectedBodyId = bodyId;
+	if (bodyId) {
 		selectedRefs = [];
 	}
 }
 
 /**
- * Set the hovered body (by `bodyKey`), or null to clear.
- * @param {string | null} bodyKey
+ * Set the hovered body (by `bodyId`), or null to clear.
+ * @param {string | null} bodyId
  */
-export function setHoveredBodyKey(bodyKey) {
-	hoveredBodyKey = bodyKey;
+export function setHoveredBodyId(bodyId) {
+	hoveredBodyId = bodyId;
+}
+
+/**
+ * Rename a body — sets a display-name override independent of the producing
+ * feature's name. An empty name clears the override (reverts to derived).
+ * @param {string} bodyId
+ * @param {string} newName
+ */
+export async function renameBody(bodyId, newName) {
+	if (!bridge || !engineReady) return;
+	log('action', 'Rename body', { bodyId, newName });
+	await bridge.send({ type: 'RenameBody', body_id: bodyId, new_name: newName });
 }
 
 export function isEngineReady() {
@@ -953,7 +962,7 @@ export function selectRef(ref, additive = false) {
 	}
 
 	// Any explicit face/edge selection supersedes a whole-body highlight.
-	selectedBodyKey = null;
+	selectedBodyId = null;
 
 	if (!ref) {
 		selectedRefs = [];
@@ -1000,7 +1009,7 @@ export function selectRef(ref, additive = false) {
  */
 export function clearSelection() {
 	selectedRefs = [];
-	selectedBodyKey = null;
+	selectedBodyId = null;
 }
 
 /**
