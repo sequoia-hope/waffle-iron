@@ -32,7 +32,8 @@
 		getSelectedBodyId,
 		selectBody,
 		setHoveredBodyId,
-		renameBody
+		renameBody,
+		exportBodyStl
 	} from '$lib/engine/store.svelte.js';
 	import { BUILTIN_PLANES, makePlaneRef } from '$lib/engine/planes.js';
 	import { longPressContextMenu } from './longPressContextMenu.js';
@@ -77,8 +78,26 @@
 	/** @type {{ bodyId: string, value: string } | null} */
 	let bodyRenaming = $state(null);
 
+	/** @type {{ x: number, y: number, bodyId: string, name: string } | null} */
+	let bodyContextMenu = $state(null);
+
 	function handleBodyClick(bodyId) {
 		selectBody(selectedBodyId === bodyId ? null : bodyId);
+	}
+
+	function handleBodyContextMenu(e, body) {
+		e.preventDefault();
+		contextMenu = null;
+		originContextMenu = null;
+		const pos = clampMenuPosition(e.clientX, e.clientY);
+		bodyContextMenu = { x: pos.x, y: pos.y, bodyId: body.bodyId, name: body.name };
+	}
+
+	function handleBodyExport() {
+		if (bodyContextMenu) {
+			exportBodyStl(bodyContextMenu.bodyId, bodyContextMenu.name);
+			bodyContextMenu = null;
+		}
 	}
 
 	function handleBodyDblClick(body) {
@@ -158,6 +177,7 @@
 	function closeContextMenu() {
 		contextMenu = null;
 		originContextMenu = null;
+		bodyContextMenu = null;
 	}
 
 	function handleRename(e) {
@@ -483,6 +503,7 @@
 							data-testid="body-item-{i}"
 							onclick={() => handleBodyClick(body.bodyId)}
 							ondblclick={() => handleBodyDblClick(body)}
+							oncontextmenu={(e) => handleBodyContextMenu(e, body)}
 							onmouseenter={() => setHoveredBodyId(body.bodyId)}
 							onmouseleave={() => setHoveredBodyId(null)}
 							role="treeitem"
@@ -573,6 +594,19 @@
 				<button class="ctx-item" data-testid="ft-ctx-show-all-axes" onclick={handleShowAllAxes}>Show All Axes</button>
 			{/if}
 		{/if}
+	</div>
+{/if}
+
+<!-- Body Context Menu -->
+{#if bodyContextMenu}
+	<div
+		class="context-menu"
+		style="left: {bodyContextMenu.x}px; top: {bodyContextMenu.y}px"
+		onclick={(e) => e.stopPropagation()}
+	>
+		<button class="ctx-item" data-testid="body-ctx-export-stl" onclick={handleBodyExport}>
+			Export STL
+		</button>
 	</div>
 {/if}
 

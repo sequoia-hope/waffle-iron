@@ -533,6 +533,7 @@ export async function initEngine() {
 			setRevolveAxis: (origin, direction, label) => setRevolveAxis(origin, direction, label),
 			loadProject: (jsonData) => loadProject(jsonData),
 			exportStl: () => exportStl(),
+			exportBodyStl: (bodyId, name) => exportBodyStl(bodyId, name),
 			exportStep: () => exportStep(),
 			getCameraState: () => getCameraState(),
 			getCameraProjection: () => getCameraProjection(),
@@ -4430,31 +4431,56 @@ export async function saveProject() {
  * decodes and triggers download as 'model.stl'.
  * @returns {Promise<boolean>} True if export succeeded
  */
+/**
+ * Decode base64 STL data and trigger a browser download as `${filename}.stl`.
+ * @param {string} stlBase64
+ * @param {string} filename - without extension
+ */
+function triggerStlDownload(stlBase64, filename) {
+	if (typeof document === 'undefined') return;
+	const binary = atob(stlBase64);
+	const bytes = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i++) {
+		bytes[i] = binary.charCodeAt(i);
+	}
+	const blob = new Blob([bytes], { type: 'application/octet-stream' });
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = `${filename}.stl`;
+	document.body.appendChild(a);
+	a.click();
+	document.body.removeChild(a);
+	URL.revokeObjectURL(url);
+}
+
 export async function exportStl() {
 	if (!bridge || !engineReady) return false;
 	log('action', 'Export STL');
 	const response = await bridge.send({ type: 'ExportStl' });
 	if (response.type !== 'StlExportReady' || !response.stl_data) return false;
 	showToast('success', 'STL exported');
+	triggerStlDownload(response.stl_data, projectName);
+	return true;
+}
 
-	// Decode base64 to binary
-	if (typeof document !== 'undefined') {
-		const binary = atob(response.stl_data);
-		const bytes = new Uint8Array(binary.length);
-		for (let i = 0; i < binary.length; i++) {
-			bytes[i] = binary.charCodeAt(i);
-		}
-		const blob = new Blob([bytes], { type: 'application/octet-stream' });
-		const url = URL.createObjectURL(blob);
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = `${projectName}.stl`;
-		document.body.appendChild(a);
-		a.click();
-		document.body.removeChild(a);
-		URL.revokeObjectURL(url);
+/**
+ * Export a single body to STL (browser download as `${name}.stl`).
+ * @param {string} bodyId - persistent body id (featureId/outputKeyTag)
+ * @param {string} name - display name for the file
+ * @returns {Promise<boolean>} True if export succeeded
+ */
+export async function exportBodyStl(bodyId, name) {
+	if (!bridge || !engineReady) return false;
+	log('action', 'Export body STL', { bodyId, name });
+	const response = await bridge.send({ type: 'ExportBodyStl', body_id: bodyId });
+	if (response.type !== 'StlExportReady' || !response.stl_data) {
+		showToast('error', 'Body has no mesh to export');
+		return false;
 	}
-
+	const safe = (name || 'body').replace(/[^\w.-]+/g, '_');
+	showToast('success', `Exported ${safe}.stl`);
+	triggerStlDownload(response.stl_data, safe);
 	return true;
 }
 

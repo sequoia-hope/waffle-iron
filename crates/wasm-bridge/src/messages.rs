@@ -147,6 +147,11 @@ pub enum UiToEngine {
     },
     ExportStep,
     ExportStl,
+    /// Export a single body to STL. `body_id` is the persistent body identity
+    /// (`FeatureTree::body_id` = `"{feature_id}/{output_key.tag()}"`).
+    ExportBodyStl {
+        body_id: String,
+    },
 
     // -- Tab / document management --
     /// Switch to a different tab, saving current features and loading new ones.

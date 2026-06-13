@@ -243,8 +243,21 @@ fn handle_message(
         }
 
         UiToEngine::ExportStl => {
-            let mesh = find_last_mesh(state);
-            match mesh {
+            // Whole model: merge all renderable bodies (a multi-body model would
+            // otherwise lose every body but the last).
+            match all_renderable_meshes_merged(state) {
+                Some(mesh) => {
+                    let bytes = crate::stl_export::render_mesh_to_stl(&mesh);
+                    let stl_data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                    Ok(EngineToUi::StlExportReady { stl_data })
+                }
+                None => Err(BridgeError::NoMeshData),
+            }
+        }
+
+        UiToEngine::ExportBodyStl { body_id } => {
+            // Single body, identified by its persistent (feature_id, OutputKey).
+            match find_body_mesh(state, &body_id) {
                 Some(mesh) => {
                     let bytes = crate::stl_export::render_mesh_to_stl(&mesh);
                     let stl_data = base64::engine::general_purpose::STANDARD.encode(&bytes);
@@ -254,6 +267,63 @@ fn handle_message(
             }
         }
     }
+}
+
+/// Find a single body's cached mesh by its persistent id
+/// (`FeatureTree::body_id`). Meshes are tessellated for every output during
+/// rebuild (`tessellate_missing_meshes`), so the cached mesh is present.
+fn find_body_mesh(state: &EngineState, body_id: &str) -> Option<RenderMesh> {
+    let tree = &state.engine.tree;
+    for feature in &tree.features {
+        if let Some(result) = state.engine.feature_results.get(&feature.id) {
+            for (key, body) in &result.outputs {
+                if feature_engine::types::FeatureTree::body_id(feature.id, key) == body_id {
+                    return body.mesh.clone();
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Merge every renderable body's mesh (all mesh-bearing outputs of non-consumed
+/// active features) into one mesh for a whole-model STL export.
+fn all_renderable_meshes_merged(state: &EngineState) -> Option<RenderMesh> {
+    let tree = &state.engine.tree;
+    let limit = tree.active_index.unwrap_or(tree.features.len());
+    let consumed = &state.engine.consumed_features;
+    let mut out: Option<RenderMesh> = None;
+    for feature in &tree.features[..limit] {
+        if feature.suppressed || consumed.contains(&feature.id) {
+            continue;
+        }
+        if let Some(result) = state.engine.feature_results.get(&feature.id) {
+            for (_key, body) in &result.outputs {
+                if let Some(mesh) = &body.mesh {
+                    merge_render_mesh(out.get_or_insert_with(empty_render_mesh), mesh);
+                }
+            }
+        }
+    }
+    out
+}
+
+fn empty_render_mesh() -> RenderMesh {
+    RenderMesh {
+        vertices: Vec::new(),
+        normals: Vec::new(),
+        indices: Vec::new(),
+        face_ranges: Vec::new(),
+    }
+}
+
+/// Append `src` onto `dst`, offsetting indices (STL has no per-body structure,
+/// so face ranges are not needed for the merged export).
+fn merge_render_mesh(dst: &mut RenderMesh, src: &RenderMesh) {
+    let vbase = (dst.vertices.len() / 3) as u32;
+    dst.vertices.extend_from_slice(&src.vertices);
+    dst.normals.extend_from_slice(&src.normals);
+    dst.indices.extend(src.indices.iter().map(|i| i + vbase));
 }
 
 /// Build a ModelUpdated response from the current engine state.
