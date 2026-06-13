@@ -110,7 +110,7 @@ proptest! {
     fn subtract_volume_bounded(scenario in boolean_scenario_subtract_rect()) {
         if let Ok(mut builder) = execute_scenario(&scenario) {
             let mesh_a = builder.tessellate("body_a").unwrap();
-            let mesh_r = builder.tessellate("result").unwrap();
+            let mesh_r = builder.tessellate_combined("result").unwrap();
             let vol_a = mesh_volume(&mesh_a);
             let vol_r = mesh_volume(&mesh_r);
             let tol = vol_a * 0.05;
@@ -128,7 +128,7 @@ proptest! {
         if let Ok(mut builder) = execute_scenario(&scenario) {
             let mesh_a = builder.tessellate("body_a").unwrap();
             let mesh_b = builder.tessellate("body_b").unwrap();
-            let mesh_r = builder.tessellate("result").unwrap();
+            let mesh_r = builder.tessellate_combined("result").unwrap();
             let vol_a = mesh_volume(&mesh_a);
             let vol_b = mesh_volume(&mesh_b);
             let vol_r = mesh_volume(&mesh_r);
@@ -148,7 +148,7 @@ proptest! {
         if let Ok(mut builder) = execute_scenario(&scenario) {
             let mesh_a = builder.tessellate("body_a").unwrap();
             let mesh_b = builder.tessellate("body_b").unwrap();
-            let mesh_r = builder.tessellate("result").unwrap();
+            let mesh_r = builder.tessellate_combined("result").unwrap();
             let result = check_bbox_containment(&mesh_a, &mesh_b, &mesh_r, BoolOp::Union);
             prop_assert!(result.passed, "BBox containment failed: {}", result.detail);
         }

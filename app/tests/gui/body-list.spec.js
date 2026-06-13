@@ -40,7 +40,35 @@ async function createBody(waffle) {
 	await waitForFeatureCount(waffle.page, 2, 10000);
 }
 
+/** Sketch a rectangle (screen coords) and extrude it (merge default). */
+async function sketchAndExtrudeRect(waffle, x1, y1, x2, y2, expectFeatures) {
+	await clickSketch(waffle.page);
+	await clickRectangle(waffle.page);
+	await drawRectangle(waffle.page, x1, y1, x2, y2);
+	await waitForEntityCount(waffle.page, 8, 5000);
+	await clickFinishSketch(waffle.page);
+	await clickExtrude(waffle.page);
+	await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');
+	await waffle.page.locator('[data-testid="extrude-apply"]').click();
+	await waitForFeatureCount(waffle.page, expectFeatures, 10000);
+}
+
 test.describe('bodies list', () => {
+	test('a single extrude that yields two disjoint bodies lists two', async ({ waffle }) => {
+		const crashes = collectCrashErrors(waffle.page);
+		// Two far-apart rectangles; the second extrude (merge) auto-unions with
+		// the disjoint first, producing one solid with two disjoint lumps that
+		// kernel-v2 splits into two bodies (the F0015-class fix).
+		await sketchAndExtrudeRect(waffle, -160, -60, -60, 60, 2);
+		await sketchAndExtrudeRect(waffle, 60, -60, 160, 60, 4);
+
+		await expect(waffle.page.locator('[data-testid="bodies-toggle"]')).toContainText(
+			'Bodies (2)'
+		);
+		await expect(waffle.page.locator(BODY_ITEM)).toHaveCount(2);
+		expectNoAnyCrash(crashes);
+	});
+
 	test('Bodies section lists one body after an extrude', async ({ waffle }) => {
 		const crashes = collectCrashErrors(waffle.page);
 		await createBody(waffle);

@@ -281,7 +281,9 @@ pub fn run_all_boolean_properties(
             return results;
         }
     };
-    let mesh_r = match builder.tessellate(result_name) {
+    // The result may be multiple disjoint bodies (e.g. a disjoint union); merge
+    // them so volume/bbox properties see the aggregate geometry.
+    let mesh_r = match builder.tessellate_combined(result_name) {
         Ok(m) => m,
         Err(e) => {
             results.push(PropertyResult::fail(

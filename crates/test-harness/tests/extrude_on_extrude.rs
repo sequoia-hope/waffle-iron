@@ -127,12 +127,14 @@ fn rect_boss_on_side_face_auto_union() {
     m.extrude("side_boss", "side_sk", 5.0).unwrap();
     m.assert_has_solid("side_boss").unwrap();
 
-    let boss_mesh = m.tessellate("side_boss").unwrap();
+    // The "side face" sketch mapping places this boss disjoint from the cube,
+    // so the result is two bodies — aggregate them for the volume/extent check.
+    let boss_mesh = m.tessellate_combined("side_boss").unwrap();
     let boss_vol = mesh_volume(&boss_mesh);
 
     assert!(
         boss_vol > cube_vol,
-        "Side boss merged volume ({:.0}) should exceed cube ({:.0})",
+        "Side boss combined volume ({:.0}) should exceed cube ({:.0})",
         boss_vol,
         cube_vol
     );

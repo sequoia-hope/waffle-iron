@@ -231,7 +231,8 @@
 			.map((m) => ({
 				geometry: buildEdgeGeometry(m.edges),
 				ranges: m.edges.ranges || [],
-				featureId: m.featureId
+				featureId: m.featureId,
+				bodyId: m.bodyId
 			}))
 			.filter((e) => e.geometry !== null);
 	});
@@ -257,7 +258,7 @@
 	});
 </script>
 
-{#each edgeGeometries as edge, i (edge.featureId)}
+{#each edgeGeometries as edge, i (edge.bodyId)}
 	<T.LineSegments
 		geometry={edge.geometry}
 		material={edgeMaterials[i]?.length > 1 ? edgeMaterials[i] : edgeMaterials[i]?.[0]}

@@ -302,10 +302,42 @@ impl KernelV2Adapter {
         op: BoolOp,
         op_name: &str,
     ) -> Result<KernelSolidHandle, KernelError> {
+        let solid = self.run_boolean_solid(a, b, op, op_name)?;
+        Ok(self.alloc_handle(solid))
+    }
+
+    /// Like `run_boolean`, but splits a disjoint result into one handle per
+    /// body (lump). A single body returns a one-element vec.
+    fn run_boolean_multi(
+        &mut self,
+        a: &KernelSolidHandle,
+        b: &KernelSolidHandle,
+        op: BoolOp,
+        op_name: &str,
+    ) -> Result<Vec<KernelSolidHandle>, KernelError> {
+        let solid = self.run_boolean_solid(a, b, op, op_name)?;
+        let bodies = crate::split_solid_into_bodies(&mut self.arena, solid).map_err(|e| {
+            KernelError::BooleanFailed {
+                reason: format!("kernel-v2 {op_name} body split failed: {e}"),
+            }
+        })?;
+        Ok(bodies
+            .into_iter()
+            .map(|sid| self.alloc_handle(sid))
+            .collect())
+    }
+
+    fn run_boolean_solid(
+        &mut self,
+        a: &KernelSolidHandle,
+        b: &KernelSolidHandle,
+        op: BoolOp,
+        op_name: &str,
+    ) -> Result<SolidId, KernelError> {
         let sa = self.solid_of(a)?;
         let sb = self.solid_of(b)?;
         match crate::boolean_op(&mut self.arena, sa, sb, op) {
-            Ok(result) => Ok(self.alloc_handle(result)),
+            Ok(result) => Ok(result),
             Err(KernelV2Error::UnsupportedCoplanar) => Err(Self::not_supported(&format!(
                 "{op_name}: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)"
             ))),
@@ -444,6 +476,33 @@ impl Kernel for KernelV2Adapter {
         b: &KernelSolidHandle,
     ) -> Result<KernelSolidHandle, KernelError> {
         self.run_boolean(a, b, BoolOp::Intersect, "boolean_intersect")
+    }
+
+    // Multi-body variants: a boolean can yield spatially-disjoint lumps (e.g.
+    // a union of far-apart bodies). Split them so each renders/selects as its
+    // own body instead of collapsing into one.
+    fn boolean_union_multi(
+        &mut self,
+        a: &KernelSolidHandle,
+        b: &KernelSolidHandle,
+    ) -> Result<Vec<KernelSolidHandle>, KernelError> {
+        self.run_boolean_multi(a, b, BoolOp::Union, "boolean_union")
+    }
+
+    fn boolean_subtract_multi(
+        &mut self,
+        a: &KernelSolidHandle,
+        b: &KernelSolidHandle,
+    ) -> Result<Vec<KernelSolidHandle>, KernelError> {
+        self.run_boolean_multi(a, b, BoolOp::Subtract, "boolean_subtract")
+    }
+
+    fn boolean_intersect_multi(
+        &mut self,
+        a: &KernelSolidHandle,
+        b: &KernelSolidHandle,
+    ) -> Result<Vec<KernelSolidHandle>, KernelError> {
+        self.run_boolean_multi(a, b, BoolOp::Intersect, "boolean_intersect")
     }
 
     fn fillet_edges(

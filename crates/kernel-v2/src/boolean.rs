@@ -1539,6 +1539,106 @@ pub fn boolean_op(
     from_yang_brep(arena, &out)
 }
 
+/// Decompose a solid into separate body solids by grouping its shells into
+/// spatially-disjoint clusters. Two shells whose axis-aligned bounding boxes
+/// overlap go in the same cluster — so a void shell (its AABB nested inside the
+/// lump's) stays with its lump, while genuinely disjoint lumps (e.g. a union of
+/// far-apart bosses) separate. Returns the original `solid` first (rewritten to
+/// hold the first cluster's shells), then one fresh solid per additional
+/// cluster.
+///
+/// Returns `vec![solid]` unchanged when there is ≤1 shell or every shell
+/// clusters together (one body, possibly with internal voids). AABB-overlap
+/// clustering is deliberately conservative: it never over-splits (two truly
+/// disjoint lumps with overlapping boxes stay one body) — under-splitting is a
+/// benign display artifact, over-splitting would invent bodies.
+pub fn split_solid_into_bodies(
+    arena: &mut BrepArena,
+    solid: SolidId,
+) -> Result<Vec<SolidId>, KernelV2Error> {
+    let shells: Vec<ShellId> = arena.solid(solid)?.shells.clone();
+    if shells.len() <= 1 {
+        return Ok(vec![solid]);
+    }
+
+    // Per-shell AABB over its faces' loop vertices.
+    let mut boxes: Vec<([f64; 3], [f64; 3])> = Vec::with_capacity(shells.len());
+    for &sh in &shells {
+        let mut lo = [f64::INFINITY; 3];
+        let mut hi = [f64::NEG_INFINITY; 3];
+        let faces = arena.shell(sh)?.faces.clone();
+        for f in faces {
+            let face = arena.face(f)?;
+            let mut loops = vec![face.outer_loop];
+            loops.extend(face.inner_loops.iter().copied());
+            for lid in loops {
+                for h in arena.loop_half_edges(lid)? {
+                    let v = arena.half_edge(h)?.origin;
+                    let p = arena.vertex(v)?.point.as_array();
+                    for k in 0..3 {
+                        lo[k] = lo[k].min(p[k]);
+                        hi[k] = hi[k].max(p[k]);
+                    }
+                }
+            }
+        }
+        boxes.push((lo, hi));
+    }
+
+    // Union-find: cluster shells whose AABBs overlap (closed intervals, so
+    // touching boxes also cluster — conservative).
+    let n = shells.len();
+    let mut parent: Vec<usize> = (0..n).collect();
+    fn find(parent: &mut [usize], mut i: usize) -> usize {
+        while parent[i] != i {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+        }
+        i
+    }
+    let overlap = |a: &([f64; 3], [f64; 3]), b: &([f64; 3], [f64; 3])| {
+        (0..3).all(|k| a.1[k] >= b.0[k] && b.1[k] >= a.0[k])
+    };
+    for i in 0..n {
+        for j in (i + 1)..n {
+            if overlap(&boxes[i], &boxes[j]) {
+                let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+                if ri != rj {
+                    parent[ri] = rj;
+                }
+            }
+        }
+    }
+
+    // Group shells by cluster root (BTreeMap → deterministic order).
+    let mut groups: BTreeMap<usize, Vec<ShellId>> = BTreeMap::new();
+    for (i, &sh) in shells.iter().enumerate() {
+        let r = find(&mut parent, i);
+        groups.entry(r).or_default().push(sh);
+    }
+    if groups.len() <= 1 {
+        return Ok(vec![solid]);
+    }
+
+    // First cluster stays in the original solid; the rest get fresh solids.
+    let mut result = Vec::with_capacity(groups.len());
+    let mut clusters = groups.into_values();
+    let first = clusters.next().expect("groups.len() > 1");
+    arena.solid_mut(solid)?.shells = first;
+    result.push(solid);
+    for cluster in clusters {
+        let new_id = SolidId(arena.solids.len() as u32);
+        arena.solids.push(Some(Solid {
+            shells: cluster.clone(),
+        }));
+        for sh in cluster {
+            arena.shell_mut(sh)?.solid = new_id;
+        }
+        result.push(new_id);
+    }
+    Ok(result)
+}
+
 /// Map a yang-rs pipeline error to the kernel-v2 typed error contract.
 ///
 /// The structurally-recognized cases are the M8 boundary:

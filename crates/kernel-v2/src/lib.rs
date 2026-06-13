@@ -82,7 +82,7 @@ pub use arena::{
     BrepArena, Curve, EulerCounts, Face, FaceId, HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId,
     LoopKind, Plane, Shell, ShellId, Solid, SolidId, Surface, UnitVector3, Vertex, VertexId,
 };
-pub use boolean::{boolean_op, from_yang_brep, to_yang_brep};
+pub use boolean::{boolean_op, from_yang_brep, split_solid_into_bodies, to_yang_brep};
 pub use construct::{
     extrude, make_face_from_profile, revolve, ExtrudeResult, LaminaResult, RevolveResult,
 };

@@ -20,6 +20,32 @@ use crate::helpers::*;
 use crate::oracle;
 use crate::stl;
 
+/// Concatenate several body meshes into one (offsetting indices and face
+/// ranges). The signed volume of the merged mesh equals the sum of the parts,
+/// and its bbox is their union — so oracles see the aggregate geometry of a
+/// multi-body result.
+fn merge_meshes(parts: Vec<RenderMesh>) -> RenderMesh {
+    let mut out = RenderMesh {
+        vertices: Vec::new(),
+        normals: Vec::new(),
+        indices: Vec::new(),
+        face_ranges: Vec::new(),
+    };
+    for m in parts {
+        let vbase = (out.vertices.len() / 3) as u32;
+        let ibase = out.indices.len() as u32;
+        out.vertices.extend_from_slice(&m.vertices);
+        out.normals.extend_from_slice(&m.normals);
+        out.indices.extend(m.indices.iter().map(|i| i + vbase));
+        for mut r in m.face_ranges {
+            r.start_index += ibase;
+            r.end_index += ibase;
+            out.face_ranges.push(r);
+        }
+    }
+    out
+}
+
 /// A fluent builder for constructing and verifying CAD models in tests.
 ///
 /// Wraps `EngineState` + `KernelBundle` and provides named-feature access,
@@ -1119,6 +1145,14 @@ impl ModelBuilder {
         Ok(meshes)
     }
 
+    /// Tessellate a feature and merge ALL its bodies into one `RenderMesh`
+    /// (concatenating vertices/normals/indices, offsetting indices and face
+    /// ranges). For multi-body results (e.g. a disjoint union), this gives the
+    /// aggregate geometry — volume sums and the bbox is the union of bodies.
+    pub fn tessellate_combined(&mut self, name: &str) -> Result<RenderMesh, HarnessError> {
+        Ok(merge_meshes(self.tessellate_all(name)?))
+    }
+
     /// Get topology counts (V, E, F) for a named feature's solid.
     pub fn topology_counts(&self, name: &str) -> Result<(usize, usize, usize), HarnessError> {
         let handle = self.solid_handle(name)?;
@@ -1304,23 +1338,36 @@ impl ModelBuilder {
     pub fn tessellate_last_with_tol(&mut self, tol: f64) -> Result<RenderMesh, HarnessError> {
         let tree = &self.state.engine.tree;
         let limit = tree.active_index.unwrap_or(tree.features.len());
+        // Find the last active solid-bearing feature, then tessellate ALL its
+        // output bodies and merge them — a feature can carry several disjoint
+        // bodies (e.g. a disjoint union), and the aggregate is the geometry the
+        // oracle must judge.
+        let mut handles: Vec<_> = Vec::new();
         for feature in tree.features[..limit].iter().rev() {
             if feature.suppressed {
                 continue;
             }
             if let Some(result) = self.state.engine.get_result(feature.id) {
                 if !result.outputs.is_empty() {
-                    let handle = result.outputs[0].1.handle.clone();
-                    return self
-                        .kernel
-                        .tessellate(&handle, tol)
-                        .map_err(|e| HarnessError::Engine(e.to_string()));
+                    handles = result.outputs.iter().map(|(_, b)| b.handle.clone()).collect();
+                    break;
                 }
             }
         }
-        Err(HarnessError::NoSolid {
-            name: "no active features with solids".into(),
-        })
+        if handles.is_empty() {
+            return Err(HarnessError::NoSolid {
+                name: "no active features with solids".into(),
+            });
+        }
+        let mut parts = Vec::with_capacity(handles.len());
+        for handle in handles {
+            parts.push(
+                self.kernel
+                    .tessellate(&handle, tol)
+                    .map_err(|e| HarnessError::Engine(e.to_string()))?,
+            );
+        }
+        Ok(merge_meshes(parts))
     }
 
     /// Export a named feature's solid as binary STL.
