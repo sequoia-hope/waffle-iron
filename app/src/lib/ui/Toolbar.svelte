@@ -634,6 +634,9 @@
 			<button class="toolbar-btn" disabled={!ready} title="Open (Ctrl+O)"
 				data-testid="toolbar-btn-open"
 				onclick={() => loadProject()}>Open</button>
+			<button class="toolbar-btn" disabled={!ready} title="Download a .waffle file (Save persists to the browser)"
+				data-testid="toolbar-btn-export-waffle-main"
+				onclick={async () => { await saveProject(); }}>Export .waffle</button>
 			<button class="toolbar-btn" disabled={!ready || exportingStl} title="Export STL"
 				data-testid="toolbar-btn-export-stl"
 				onclick={async () => { exportingStl = true; try { await exportStl(); } finally { exportingStl = false; } }}>
