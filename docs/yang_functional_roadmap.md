@@ -1755,17 +1755,21 @@ swapped every consumer to `predicates::indirect`).
     (R0009), 2 patch folds (F0042/F0045, KV9-F2), singles F0041/F0057/
     F0058/F0059/R0067.
 
-- **KV12 — arc-segment profile extrude (gears).** 🔜 **PLANNED.** `make_faces_from_profiles`
-  walls `ClosedProfile`s carrying `arc_segments` (`adapter.rs:645`) — the gear
-  case. A gear profile already carries a complete sampled `vertex_ids` polygon;
-  `arc_segments` are annotations indexing into it (`ArcSegment.start_index/
-  end_index`), exactly like the `spline_segments` form PR-KV8 already extrudes.
-  - **Tier 1 (chord-approx, the unblock):** when `arc_segments` is present AND a
-    valid `vertex_ids` polygon exists, route through the existing polygon path
-    (treat arcs like splines). The chords are the samples the solver/viewport
-    already use — no new approximation; documented/loud, not silent. Bores = an
-    inner loop of the profile (single extrude, no boolean). Sufficient for 3D
-    printing (slicers tessellate). Small, localized adapter change.
+- **KV12 — arc-segment profile extrude (gears).** A gear/arc profile already
+  carries a complete sampled `vertex_ids` polygon (the app samples each arc into
+  16 chord points); `arc_segments` are annotations indexing into it
+  (`ArcSegment.start/end_vertex_index`), exactly like the `spline_segments` form
+  PR-KV8 already extrudes.
+  - **Tier 1 (chord-approx, the unblock) — ✅ DONE (2026-06-13).** The
+    `arc_segments` wall in `make_faces_from_profiles` (`adapter.rs`) now mirrors
+    the spline wall: an arc-segment profile is rejected ONLY when it has no
+    `vertex_ids` polygon; with a polygon it routes through the existing polygon
+    path (the chords are the samples the solver/viewport already use — no new
+    approximation, documented/loud not silent). Bores = an inner loop of the
+    profile (single extrude, no boolean). Sufficient for 3D printing. Tests:
+    `kernel-v2/tests/kv8_gear_profile.rs` (with-polygon extrudes / no-polygon
+    walled / E2E arc prism volume), GUI `app/tests/gui/arc-profile-extrude.spec.js`
+    (closed D-shape line+arc → extrude → body). WASM rebuilt.
   - **Tier 2 (exact):** new `ProfileRegion::ArcPolygon` variant + an extrude
     assembler that emits arc-bearing planar caps + per-edge walls (planar for
     segments, **cylinder patch** for arcs — an arc swept along the normal is a

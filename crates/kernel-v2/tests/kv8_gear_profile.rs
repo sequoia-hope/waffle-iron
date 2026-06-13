@@ -240,20 +240,11 @@ fn gear_pocket_cut_into_slab() {
     );
 }
 
-/// Arc-segment profiles stay WALLED (their vertex_ids carry arc samples
-/// where exact cylindrical walls are representable — polygonizing them
-/// would discard achievable exactness).
-#[test]
-fn arc_segment_profile_stays_typed_wall() {
-    let mut positions = HashMap::new();
-    positions.insert(1, (0.0, 0.0));
-    positions.insert(2, (1.0, 0.0));
-    positions.insert(3, (1.0, 1.0));
-    positions.insert(4, (0.0, 1.0));
-    let profile = waffle_types::ClosedProfile {
+fn arc_square_profile(vertex_ids: Vec<u32>) -> waffle_types::ClosedProfile {
+    waffle_types::ClosedProfile {
         entity_ids: vec![1, 2, 3, 4],
         is_outer: true,
-        vertex_ids: vec![1, 2, 3, 4],
+        vertex_ids,
         circle: None,
         spline_segments: vec![],
         arc_segments: vec![waffle_types::ArcSegment {
@@ -263,7 +254,44 @@ fn arc_segment_profile_stays_typed_wall() {
             center_v: -0.5,
             radius: 0.7,
         }],
-    };
+    }
+}
+
+fn unit_square_positions() -> HashMap<u32, (f64, f64)> {
+    let mut positions = HashMap::new();
+    positions.insert(1, (0.0, 0.0));
+    positions.insert(2, (1.0, 0.0));
+    positions.insert(3, (1.0, 1.0));
+    positions.insert(4, (0.0, 1.0));
+    positions
+}
+
+/// KV12 Tier 1: an arc-segment profile WITH a sampled `vertex_ids` polygon is
+/// accepted — extruded via that authored chord polygon (the app pre-samples
+/// each arc; `arc_segments` is annotation for a future exact cylinder wall).
+#[test]
+fn arc_segment_profile_with_vertex_ids_extrudes() {
+    let profile = arc_square_profile(vec![1, 2, 3, 4]);
+    let positions = unit_square_positions();
+    let mut k = KernelV2Adapter::new();
+    let ids = k
+        .make_faces_from_profiles(
+            &[profile],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            &positions,
+        )
+        .expect("arc-segment profile with vertex_ids extrudes via the polygon (KV12 Tier 1)");
+    assert_eq!(ids.len(), 1, "one staged profile");
+}
+
+/// Without a `vertex_ids` polygon there is nothing to extrude — the arc-segment
+/// profile stays a loud typed wall (Tier 2 exact arc walls are a future milestone).
+#[test]
+fn arc_segment_profile_without_vertex_ids_stays_walled() {
+    let profile = arc_square_profile(vec![]);
+    let positions = unit_square_positions();
     let mut k = KernelV2Adapter::new();
     let err = k
         .make_faces_from_profiles(
@@ -273,10 +301,64 @@ fn arc_segment_profile_stays_typed_wall() {
             [1.0, 0.0, 0.0],
             &positions,
         )
-        .expect_err("arc-segment profile stays walled");
+        .expect_err("arc-segment profile without vertex_ids stays walled");
     assert!(
         format!("{err}").contains("not supported"),
         "typed NotSupported, got {err}"
+    );
+}
+
+/// KV12 Tier 1 end-to-end: an arc-segment profile extrudes to a clean prism
+/// whose volume is the authored chord polygon's area × depth (the `arc_segments`
+/// annotation is carried but the sampled polygon is what's swept).
+#[test]
+fn arc_segment_profile_extrudes_to_prism() {
+    // Octagon — a stand-in for a chord-sampled rounded/arc profile — with an
+    // arc_segments annotation spanning one corner.
+    let n = 8usize;
+    let radius = 2.0;
+    let mut positions = HashMap::new();
+    let mut vertex_ids = Vec::new();
+    for i in 0..n {
+        let a = std::f64::consts::TAU * (i as f64) / (n as f64);
+        let id = (i + 1) as u32;
+        positions.insert(id, (radius * a.cos(), radius * a.sin()));
+        vertex_ids.push(id);
+    }
+    let profile = waffle_types::ClosedProfile {
+        entity_ids: vertex_ids.clone(),
+        is_outer: true,
+        vertex_ids: vertex_ids.clone(),
+        circle: None,
+        spline_segments: vec![],
+        arc_segments: vec![waffle_types::ArcSegment {
+            start_vertex_index: 0,
+            end_vertex_index: 2,
+            center_u: 0.0,
+            center_v: 0.0,
+            radius,
+        }],
+    };
+    let depth = 3.0;
+    let mut k = KernelV2Adapter::new();
+    let faces = k
+        .make_faces_from_profiles(
+            &[profile.clone()],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            &positions,
+        )
+        .expect("arc-segment profile stages via its polygon (KV12 Tier 1)");
+    let solid = k
+        .extrude_face(faces[0], [0.0, 0.0, 1.0], depth)
+        .expect("arc-segment prism extrudes");
+    let mesh = k.tessellate(&solid, 0.001).expect("tessellate");
+    let vol = mesh_signed_volume(&mesh);
+    let expect = polygon_area(&profile.vertex_ids, &positions) * depth;
+    assert!(
+        (vol.abs() - expect).abs() <= 1e-6 * expect,
+        "arc-segment prism volume {vol} vs exact {expect}"
     );
 }
 

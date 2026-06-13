@@ -49,13 +49,13 @@ babysitting. Home: `projects/13-dev-infrastructure/PLAN.md`.
   case can wedge the run. (Context: the container's PID 1 is `ttyd`, not a
   reaping init — orphaned heavy cases zombie; the per-case cap sidesteps that.)
 
-### Phase B — Gear extrude **Tier 1** *(kernel — `KV12`)*
-Route arc-annotated profiles through their authored `vertex_ids` polygon
+### Phase B — Gear extrude **Tier 1** *(kernel — `KV12`)* ✅ DONE (2026-06-13)
+Routed arc-annotated profiles through their authored `vertex_ids` polygon
 (treat `arc_segments` like `spline_segments`, PR-KV8). Chord-approx via the
 samples the solver/viewport already use — no new approximation; printable.
-Bore = inner loop of the profile (single extrude, no boolean). **Detail: see
-`yang_functional_roadmap.md` KV12.**
-- **Done when:** a `GearDialog` gear extrudes, is watertight, and exports.
+Bore = inner loop of the profile (single extrude, no boolean). Detail: see
+`yang_functional_roadmap.md` KV12. Validated: kernel unit + E2E prism tests +
+GUI `arc-profile-extrude.spec.js` (closed arc profile → extrude → body).
 
 ### Phase C — Gearbox assembly + per-body export *(app/UX)*
 Homes: `projects/04-3d-viewport/PLAN.md`, `projects/08-ui-chrome/PLAN.md`.

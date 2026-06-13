@@ -637,14 +637,22 @@ impl Kernel for KernelV2Adapter {
                 out.push(KernelId(TAG_PROFILE | idx));
                 continue;
             }
-            // Arc-segment profiles stay WALLED: their `vertex_ids` carry arc
-            // SAMPLE points where an exact cylindrical wall is representable
-            // (post-KV5b) — polygonizing them would silently discard
-            // achievable exactness. Exact arc-profile support is its own
-            // milestone.
-            if !profile.arc_segments.is_empty() {
+            // KV12 Tier 1 — arc-segment profile extrude (gears). An arc-segment
+            // profile carries a fully sampled `vertex_ids` polygon (the app
+            // samples each arc into 16 chord points — the SAME points the
+            // sketch solver and viewport use) plus `arc_segments` annotations
+            // that index into it (for a future cylinder-walled extrude). Accept
+            // it via that authored polygon, exactly like the spline-annotated
+            // gears below (PR-KV8): extruding the chord polygon introduces NO
+            // new sampling or approximation — the samples already exist. Without
+            // a `vertex_ids` polygon there is nothing to extrude, so stay walled
+            // loudly. (Tier 2 — exact arc → cylindrical side walls + arc-bearing
+            // caps — is its own milestone; see KV12 in
+            // docs/yang_functional_roadmap.md.)
+            if !profile.arc_segments.is_empty() && profile.vertex_ids.is_empty() {
                 return Err(Self::not_supported(
-                    "make_faces_from_profiles: arc-segment profile (curved geometry not yet in kernel-v2)",
+                    "make_faces_from_profiles: arc-segment profile without an authored \
+                     vertex_ids polygon",
                 ));
             }
             // PR-KV8: spline-ANNOTATED profiles (gears) are accepted via
