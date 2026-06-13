@@ -159,15 +159,106 @@ function handleSolveSketch(msg) {
 }
 
 /**
+ * Stable per-session identity for a body: its producing feature plus which
+ * output of that feature it is. Mirrors the kernel's (feature_id, OutputKey)
+ * body identity closely enough for selection/highlighting within a session.
+ * @param {{ featureId?: string, outputIndex?: number }} meta
+ */
+function bodyKeyOf(meta) {
+	return `${meta.featureId ?? '?'}:${meta.outputIndex ?? 0}`;
+}
+
+/**
+ * Collect mesh data per body (per mesh-bearing output) as Transferable typed
+ * arrays. Each body is one entry; multi-body features contribute one entry per
+ * output. Uses the engine's per-body accessors, which already exclude features
+ * consumed by a successful boolean.
+ */
+function collectBodies() {
+	const meshes = [];
+	const transferables = [];
+
+	const count = wasmModule.get_body_count();
+	let metadata = [];
+	try {
+		metadata = JSON.parse(wasmModule.get_body_metadata());
+	} catch (e) {
+		console.warn('Body metadata unavailable', e);
+	}
+
+	for (let b = 0; b < count; b++) {
+		const vertView = wasmModule.get_body_vertices(b);
+		if (vertView.length === 0) continue;
+		const normView = wasmModule.get_body_normals(b);
+		const idxView = wasmModule.get_body_indices(b);
+
+		const vertices = new Float32Array(vertView);
+		const normals = new Float32Array(normView);
+		const indices = new Uint32Array(idxView);
+
+		let faceRanges = [];
+		try {
+			faceRanges = JSON.parse(wasmModule.get_body_face_data(b));
+		} catch (e) {
+			console.warn('Face data unavailable for body', b, e);
+		}
+
+		let edges = null;
+		try {
+			if (wasmModule.get_body_edge_vertices && wasmModule.get_body_edge_data) {
+				const edgeVertView = wasmModule.get_body_edge_vertices(b);
+				if (edgeVertView.length > 0) {
+					const edgeVertices = new Float32Array(edgeVertView);
+					const edgeRanges = JSON.parse(wasmModule.get_body_edge_data(b));
+					edges = { vertices: edgeVertices, ranges: edgeRanges };
+					transferables.push(edgeVertices.buffer);
+				}
+			}
+		} catch (e) {
+			console.warn('Edge data unavailable for body', b, e);
+		}
+
+		const meta = metadata[b] || {};
+		meshes.push({
+			bodyIndex: b,
+			bodyKey: bodyKeyOf(meta),
+			featureIndex: meta.featureIndex,
+			featureId: meta.featureId,
+			outputKey: meta.outputKey ?? null,
+			outputIndex: meta.outputIndex ?? 0,
+			vertices,
+			normals,
+			indices,
+			triangleCount: indices.length / 3,
+			faceRanges,
+			edges
+		});
+
+		transferables.push(vertices.buffer, normals.buffer, indices.buffer);
+	}
+
+	return { meshes, transferables };
+}
+
+/**
  * Collect mesh data for features as Transferable typed arrays.
  *
  * Uses the engine's `get_renderable_feature_indices()` to determine which
  * features should render. Features consumed by a successful boolean union
  * are excluded (their geometry is merged into the consuming feature).
  * When union fails, both features render (multi-body fallback).
+ *
+ * Legacy fallback for bundles without the per-body accessors.
  */
 function collectMeshes() {
 	if (!wasmModule) return { meshes: [], transferables: [] };
+
+	// Preferred path: per-body accessors. A feature can emit multiple bodies
+	// (e.g. a boolean split); these address each mesh-bearing output separately
+	// so every body renders. Older bundles without these fall through below.
+	if (wasmModule.get_body_count && wasmModule.get_body_metadata) {
+		return collectBodies();
+	}
 
 	const meshes = [];
 	const transferables = [];
@@ -228,8 +319,12 @@ function collectMeshes() {
 		}
 
 		meshes.push({
+			bodyIndex: meshes.length,
+			bodyKey: `${features[i].id}:0`,
 			featureIndex: i,
 			featureId: features[i].id,
+			outputKey: null,
+			outputIndex: 0,
 			vertices,
 			normals,
 			indices,

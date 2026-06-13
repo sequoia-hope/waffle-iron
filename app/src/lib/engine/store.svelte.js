@@ -57,13 +57,13 @@ let hoveredRef = $state(null);
 /** @type {Array<any>} */
 let selectedRefs = $state([]);
 
-/** Feature id of the body currently selected via the Bodies list (whole-body highlight). */
+/** Body key (`featureId:outputIndex`) currently selected via the Bodies list. */
 /** @type {string | null} */
-let selectedBodyId = $state(null);
+let selectedBodyKey = $state(null);
 
-/** Feature id of the body currently hovered in the Bodies list. */
+/** Body key currently hovered in the Bodies list. */
 /** @type {string | null} */
-let hoveredBodyId = $state(null);
+let hoveredBodyKey = $state(null);
 
 /** @type {{ active: boolean, origin: [number, number, number], normal: [number, number, number] }} */
 let sketchMode = $state({ active: false, origin: [0, 0, 0], normal: [0, 0, 1] });
@@ -829,49 +829,63 @@ export function getMeshes() {
 }
 
 /**
- * List the solid bodies in the current model. Each renderable feature produces
- * one body mesh (keyed by `featureId`); the body's name is the producing
- * feature's name. Returns `[{ featureId, name }]` in render order.
+ * List the solid bodies in the current model. A body is one mesh-bearing output
+ * of a feature, so a multi-body feature (e.g. a boolean split) contributes more
+ * than one entry. Each body carries a stable `bodyKey` and its producing
+ * feature's id/output key. The name is the producing feature's name, suffixed
+ * with an ordinal when one feature owns several bodies.
+ * Returns `[{ bodyKey, featureId, outputKey, name }]` in render order.
  */
 export function getBodies() {
+	// Count bodies per feature so multi-body features can be disambiguated.
+	const counts = new Map();
+	for (const m of meshes) counts.set(m.featureId, (counts.get(m.featureId) ?? 0) + 1);
+
+	const seen = new Map();
 	return meshes.map((m) => {
 		const feature = featureTree.features.find((f) => f.id === m.featureId);
+		const baseName = feature?.name ?? 'Body';
+		const ordinal = (seen.get(m.featureId) ?? 0) + 1;
+		seen.set(m.featureId, ordinal);
+		const name = counts.get(m.featureId) > 1 ? `${baseName} (${ordinal})` : baseName;
 		return {
+			bodyKey: m.bodyKey,
 			featureId: m.featureId,
-			name: feature?.name ?? 'Body'
+			outputKey: m.outputKey ?? null,
+			name
 		};
 	});
 }
 
-/** Feature id of the body selected in the Bodies list, or null. */
-export function getSelectedBodyId() {
-	return selectedBodyId;
+/** Body key selected in the Bodies list, or null. */
+export function getSelectedBodyKey() {
+	return selectedBodyKey;
 }
 
-/** Feature id of the body hovered in the Bodies list, or null. */
-export function getHoveredBodyId() {
-	return hoveredBodyId;
+/** Body key hovered in the Bodies list, or null. */
+export function getHoveredBodyKey() {
+	return hoveredBodyKey;
 }
 
 /**
- * Select a whole body for highlighting (by its producing feature id). Pass null
- * to clear. Selecting a body clears any face/edge-level selection so the
- * whole-body highlight reads cleanly.
- * @param {string | null} featureId
+ * Select a whole body for highlighting (by its `bodyKey`). Pass null to clear.
+ * Selecting a body clears any face/edge-level selection so the whole-body
+ * highlight reads cleanly.
+ * @param {string | null} bodyKey
  */
-export function selectBody(featureId) {
-	selectedBodyId = featureId;
-	if (featureId) {
+export function selectBody(bodyKey) {
+	selectedBodyKey = bodyKey;
+	if (bodyKey) {
 		selectedRefs = [];
 	}
 }
 
 /**
- * Set the hovered body (by producing feature id), or null to clear.
- * @param {string | null} featureId
+ * Set the hovered body (by `bodyKey`), or null to clear.
+ * @param {string | null} bodyKey
  */
-export function setHoveredBodyId(featureId) {
-	hoveredBodyId = featureId;
+export function setHoveredBodyKey(bodyKey) {
+	hoveredBodyKey = bodyKey;
 }
 
 export function isEngineReady() {
@@ -939,7 +953,7 @@ export function selectRef(ref, additive = false) {
 	}
 
 	// Any explicit face/edge selection supersedes a whole-body highlight.
-	selectedBodyId = null;
+	selectedBodyKey = null;
 
 	if (!ref) {
 		selectedRefs = [];
@@ -986,7 +1000,7 @@ export function selectRef(ref, additive = false) {
  */
 export function clearSelection() {
 	selectedRefs = [];
-	selectedBodyId = null;
+	selectedBodyKey = null;
 }
 
 /**

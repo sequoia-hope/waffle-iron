@@ -9,8 +9,10 @@ use crate::dispatch;
 use crate::engine_state::EngineState;
 use crate::messages::{EngineToUi, UiToEngine};
 use modeling_ops::KernelBundle;
-use waffle_types::kernel::{EdgeRenderData, RenderMesh};
-use waffle_types::{Anchor, GeomRef, ResolvePolicy, Selector, TopoKind, TopoSignature};
+use waffle_types::kernel::{EdgeRenderData, KernelId, RenderMesh};
+use waffle_types::{
+    Anchor, GeomRef, OutputKey, ResolvePolicy, Role, Selector, TopoKind, TopoSignature,
+};
 
 // Global engine state — single-threaded in the web worker.
 thread_local! {
@@ -288,59 +290,73 @@ pub fn get_face_data(feature_index: usize) -> String {
         };
         let output_key = found_key.unwrap();
 
-        // Build a lookup from KernelId → Role from provenance
-        let role_map: std::collections::HashMap<_, _> =
-            result.provenance.role_assignments.iter().cloned().collect();
-
-        // Build face data entries
-        let mut entries = Vec::new();
-        for (face_idx, range) in mesh.face_ranges.iter().enumerate() {
-            let geom_ref = if let Some(role) = role_map.get(&range.face_id) {
-                // Role-based selector — stable across rebuilds
-                GeomRef {
-                    kind: TopoKind::Face,
-                    anchor: Anchor::FeatureOutput {
-                        feature_id,
-                        output_key: output_key.clone(),
-                    },
-                    selector: Selector::Role {
-                        role: role.clone(),
-                        index: 0,
-                    },
-                    policy: ResolvePolicy::BestEffort,
-                }
-            } else {
-                // Signature-based fallback using face index
-                GeomRef {
-                    kind: TopoKind::Face,
-                    anchor: Anchor::FeatureOutput {
-                        feature_id,
-                        output_key: output_key.clone(),
-                    },
-                    selector: Selector::Signature {
-                        signature: TopoSignature {
-                            surface_type: None,
-                            area: None,
-                            centroid: None,
-                            normal: None,
-                            bbox: None,
-                            adjacency_hash: Some(face_idx as u64),
-                            length: None,
-                        },
-                    },
-                    policy: ResolvePolicy::BestEffort,
-                }
-            };
-
-            entries.push(serde_json::json!({
-                "geom_ref": geom_ref,
-                "start_index": range.start_index,
-                "end_index": range.end_index,
-            }));
-        }
-
+        let entries = build_face_entries(
+            feature_id,
+            &output_key,
+            mesh,
+            &result.provenance.role_assignments,
+        );
         serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string())
     })
+}
+
+/// Build face-range JSON entries (each with a persistent GeomRef anchored to the
+/// given feature output). Shared by the per-feature and per-body face accessors.
+fn build_face_entries(
+    feature_id: uuid::Uuid,
+    output_key: &OutputKey,
+    mesh: &RenderMesh,
+    role_assignments: &[(KernelId, Role)],
+) -> Vec<serde_json::Value> {
+    // Lookup from KernelId → Role from provenance.
+    let role_map: std::collections::HashMap<_, _> = role_assignments.iter().cloned().collect();
+
+    let mut entries = Vec::new();
+    for (face_idx, range) in mesh.face_ranges.iter().enumerate() {
+        let geom_ref = if let Some(role) = role_map.get(&range.face_id) {
+            // Role-based selector — stable across rebuilds
+            GeomRef {
+                kind: TopoKind::Face,
+                anchor: Anchor::FeatureOutput {
+                    feature_id,
+                    output_key: output_key.clone(),
+                },
+                selector: Selector::Role {
+                    role: role.clone(),
+                    index: 0,
+                },
+                policy: ResolvePolicy::BestEffort,
+            }
+        } else {
+            // Signature-based fallback using face index
+            GeomRef {
+                kind: TopoKind::Face,
+                anchor: Anchor::FeatureOutput {
+                    feature_id,
+                    output_key: output_key.clone(),
+                },
+                selector: Selector::Signature {
+                    signature: TopoSignature {
+                        surface_type: None,
+                        area: None,
+                        centroid: None,
+                        normal: None,
+                        bbox: None,
+                        adjacency_hash: Some(face_idx as u64),
+                        length: None,
+                    },
+                },
+                policy: ResolvePolicy::BestEffort,
+            }
+        };
+
+        entries.push(serde_json::json!({
+            "geom_ref": geom_ref,
+            "start_index": range.start_index,
+            "end_index": range.end_index,
+        }));
+    }
+    entries
 }
 
 /// Get edge vertex positions as a Float32Array view into WASM memory.
@@ -400,40 +416,49 @@ pub fn get_edge_data(feature_index: usize) -> String {
         };
         let output_key = found_key.unwrap();
 
-        // Build edge data entries with GeomRef
-        let mut entries = Vec::new();
-        for (edge_idx, range) in edges.edge_ranges.iter().enumerate() {
-            // Use Signature-based selector with edge index as adjacency_hash
-            let geom_ref = GeomRef {
-                kind: TopoKind::Edge,
-                anchor: Anchor::FeatureOutput {
-                    feature_id,
-                    output_key: output_key.clone(),
-                },
-                selector: Selector::Signature {
-                    signature: TopoSignature {
-                        surface_type: None,
-                        area: None,
-                        centroid: None,
-                        normal: None,
-                        bbox: None,
-                        adjacency_hash: Some(edge_idx as u64),
-                        length: None,
-                    },
-                },
-                policy: ResolvePolicy::BestEffort,
-            };
-
-            // EdgeOverlay.svelte expects start_index/end_index (vertex counts)
-            entries.push(serde_json::json!({
-                "geom_ref": geom_ref,
-                "start_index": range.start_vertex,
-                "end_index": range.end_vertex,
-            }));
-        }
-
+        let entries = build_edge_entries(feature_id, &output_key, edges);
         serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string())
     })
+}
+
+/// Build edge-range JSON entries (each with a persistent GeomRef anchored to the
+/// given feature output). Shared by the per-feature and per-body edge accessors.
+fn build_edge_entries(
+    feature_id: uuid::Uuid,
+    output_key: &OutputKey,
+    edges: &EdgeRenderData,
+) -> Vec<serde_json::Value> {
+    let mut entries = Vec::new();
+    for (edge_idx, range) in edges.edge_ranges.iter().enumerate() {
+        // Use Signature-based selector with edge index as adjacency_hash
+        let geom_ref = GeomRef {
+            kind: TopoKind::Edge,
+            anchor: Anchor::FeatureOutput {
+                feature_id,
+                output_key: output_key.clone(),
+            },
+            selector: Selector::Signature {
+                signature: TopoSignature {
+                    surface_type: None,
+                    area: None,
+                    centroid: None,
+                    normal: None,
+                    bbox: None,
+                    adjacency_hash: Some(edge_idx as u64),
+                    length: None,
+                },
+            },
+            policy: ResolvePolicy::BestEffort,
+        };
+
+        // EdgeOverlay.svelte expects start_index/end_index (vertex counts)
+        entries.push(serde_json::json!({
+            "geom_ref": geom_ref,
+            "start_index": range.start_vertex,
+            "end_index": range.end_vertex,
+        }));
+    }
+    entries
 }
 
 /// Helper: access the mesh for a feature and apply a function to it.
@@ -471,6 +496,229 @@ fn with_edges<T>(feature_index: usize, f: impl FnOnce(&EdgeRenderData) -> T) -> 
             }
         }
         None
+    })
+}
+
+// ── Per-body (per-output) accessors ────────────────────────────────────────
+//
+// A feature's `OpResult` can carry multiple bodies (`outputs: Vec<(OutputKey,
+// BodyOutput)>`) — e.g. a boolean split. The per-feature accessors above
+// collapse a feature to its first mesh-bearing output; these address each
+// renderable body individually so multi-body features render every body.
+//
+// A "body" here is one mesh-bearing output of a non-consumed feature. The flat
+// body index is the position in `collect_renderable_bodies`, which is stable
+// for a given engine state and shared by every per-body accessor.
+
+/// Address of one renderable body: which feature and which of its outputs.
+struct BodyAddr {
+    feature_index: usize,
+    feature_id: uuid::Uuid,
+    output_index: usize,
+}
+
+/// Flat, ordered list of renderable bodies: every mesh-bearing output of every
+/// feature that is not consumed by a later boolean. Order is feature order, then
+/// output order within a feature.
+fn collect_renderable_bodies(engine: &WasmEngine) -> Vec<BodyAddr> {
+    let consumed = &engine.state.engine.consumed_features;
+    let mut bodies = Vec::new();
+    for (fi, feature) in engine.state.engine.tree.features.iter().enumerate() {
+        if consumed.contains(&feature.id) {
+            continue;
+        }
+        if let Some(result) = engine.state.engine.feature_results.get(&feature.id) {
+            for (oi, (_key, body)) in result.outputs.iter().enumerate() {
+                if body.mesh.is_some() {
+                    bodies.push(BodyAddr {
+                        feature_index: fi,
+                        feature_id: feature.id,
+                        output_index: oi,
+                    });
+                }
+            }
+        }
+    }
+    bodies
+}
+
+/// Access a body's mesh by flat body index.
+fn with_body_mesh<T>(body_index: usize, f: impl FnOnce(&RenderMesh) -> T) -> Option<T> {
+    ENGINE_STATE.with(|cell| {
+        let engine = cell.borrow();
+        let engine = engine.as_ref()?;
+        let addr = collect_renderable_bodies(engine)
+            .into_iter()
+            .nth(body_index)?;
+        let result = engine.state.engine.feature_results.get(&addr.feature_id)?;
+        let (_key, body) = result.outputs.get(addr.output_index)?;
+        body.mesh.as_ref().map(f)
+    })
+}
+
+/// Access a body's edge data by flat body index.
+fn with_body_edges<T>(body_index: usize, f: impl FnOnce(&EdgeRenderData) -> T) -> Option<T> {
+    ENGINE_STATE.with(|cell| {
+        let engine = cell.borrow();
+        let engine = engine.as_ref()?;
+        let addr = collect_renderable_bodies(engine)
+            .into_iter()
+            .nth(body_index)?;
+        let result = engine.state.engine.feature_results.get(&addr.feature_id)?;
+        let (_key, body) = result.outputs.get(addr.output_index)?;
+        body.edges.as_ref().map(f)
+    })
+}
+
+/// Number of renderable bodies (mesh-bearing outputs across non-consumed
+/// features). This is the count the worker iterates for rendering.
+#[wasm_bindgen]
+pub fn get_body_count() -> usize {
+    ENGINE_STATE.with(|cell| {
+        let engine = cell.borrow();
+        match engine.as_ref() {
+            Some(e) => collect_renderable_bodies(e).len(),
+            None => 0,
+        }
+    })
+}
+
+/// Metadata for every renderable body as a JSON array, in body-index order.
+/// Each entry: `{ featureIndex, featureId, outputIndex, outputKey }`. The
+/// `(featureId, outputKey)` pair is the body's persistent identity.
+#[wasm_bindgen]
+pub fn get_body_metadata() -> String {
+    ENGINE_STATE.with(|cell| {
+        let engine = cell.borrow();
+        let engine = match engine.as_ref() {
+            Some(e) => e,
+            None => return "[]".to_string(),
+        };
+        let bodies = collect_renderable_bodies(engine);
+        let mut entries = Vec::new();
+        for addr in &bodies {
+            let output_key = engine
+                .state
+                .engine
+                .feature_results
+                .get(&addr.feature_id)
+                .and_then(|r| r.outputs.get(addr.output_index))
+                .map(|(k, _)| k.clone());
+            entries.push(serde_json::json!({
+                "featureIndex": addr.feature_index,
+                "featureId": addr.feature_id,
+                "outputIndex": addr.output_index,
+                "outputKey": output_key,
+            }));
+        }
+        serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string())
+    })
+}
+
+/// Body mesh vertex positions as a Float32Array view (by flat body index).
+#[wasm_bindgen]
+pub fn get_body_vertices(body_index: usize) -> js_sys::Float32Array {
+    with_body_mesh(body_index, |mesh| unsafe {
+        js_sys::Float32Array::view(&mesh.vertices)
+    })
+    .unwrap_or_else(|| js_sys::Float32Array::new_with_length(0))
+}
+
+/// Body mesh vertex normals as a Float32Array view (by flat body index).
+#[wasm_bindgen]
+pub fn get_body_normals(body_index: usize) -> js_sys::Float32Array {
+    with_body_mesh(body_index, |mesh| unsafe {
+        js_sys::Float32Array::view(&mesh.normals)
+    })
+    .unwrap_or_else(|| js_sys::Float32Array::new_with_length(0))
+}
+
+/// Body mesh triangle indices as a Uint32Array view (by flat body index).
+#[wasm_bindgen]
+pub fn get_body_indices(body_index: usize) -> js_sys::Uint32Array {
+    with_body_mesh(body_index, |mesh| unsafe {
+        js_sys::Uint32Array::view(&mesh.indices)
+    })
+    .unwrap_or_else(|| js_sys::Uint32Array::new_with_length(0))
+}
+
+/// Body face-range data (GeomRef-enriched) as JSON, by flat body index.
+#[wasm_bindgen]
+pub fn get_body_face_data(body_index: usize) -> String {
+    ENGINE_STATE.with(|cell| {
+        let engine = cell.borrow();
+        let engine = match engine.as_ref() {
+            Some(e) => e,
+            None => return "[]".to_string(),
+        };
+        let addr = match collect_renderable_bodies(engine)
+            .into_iter()
+            .nth(body_index)
+        {
+            Some(a) => a,
+            None => return "[]".to_string(),
+        };
+        let result = match engine.state.engine.feature_results.get(&addr.feature_id) {
+            Some(r) => r,
+            None => return "[]".to_string(),
+        };
+        let (key, body) = match result.outputs.get(addr.output_index) {
+            Some(o) => o,
+            None => return "[]".to_string(),
+        };
+        let mesh = match body.mesh.as_ref() {
+            Some(m) => m,
+            None => return "[]".to_string(),
+        };
+        let entries = build_face_entries(
+            addr.feature_id,
+            key,
+            mesh,
+            &result.provenance.role_assignments,
+        );
+        serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string())
+    })
+}
+
+/// Body edge vertex positions as a Float32Array view (by flat body index).
+#[wasm_bindgen]
+pub fn get_body_edge_vertices(body_index: usize) -> js_sys::Float32Array {
+    with_body_edges(body_index, |edges| unsafe {
+        js_sys::Float32Array::view(&edges.vertices)
+    })
+    .unwrap_or_else(|| js_sys::Float32Array::new_with_length(0))
+}
+
+/// Body edge-range data (GeomRef-enriched) as JSON, by flat body index.
+#[wasm_bindgen]
+pub fn get_body_edge_data(body_index: usize) -> String {
+    ENGINE_STATE.with(|cell| {
+        let engine = cell.borrow();
+        let engine = match engine.as_ref() {
+            Some(e) => e,
+            None => return "[]".to_string(),
+        };
+        let addr = match collect_renderable_bodies(engine)
+            .into_iter()
+            .nth(body_index)
+        {
+            Some(a) => a,
+            None => return "[]".to_string(),
+        };
+        let result = match engine.state.engine.feature_results.get(&addr.feature_id) {
+            Some(r) => r,
+            None => return "[]".to_string(),
+        };
+        let (key, body) = match result.outputs.get(addr.output_index) {
+            Some(o) => o,
+            None => return "[]".to_string(),
+        };
+        let edges = match body.edges.as_ref() {
+            Some(e) => e,
+            None => return "[]".to_string(),
+        };
+        let entries = build_edge_entries(addr.feature_id, key, edges);
+        serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string())
     })
 }
 

@@ -1,6 +1,111 @@
 /* @ts-self-types="./wasm_bridge.d.ts" */
 
 /**
+ * Number of renderable bodies (mesh-bearing outputs across non-consumed
+ * features). This is the count the worker iterates for rendering.
+ * @returns {number}
+ */
+export function get_body_count() {
+    const ret = wasm.get_body_count();
+    return ret >>> 0;
+}
+
+/**
+ * Body edge-range data (GeomRef-enriched) as JSON, by flat body index.
+ * @param {number} body_index
+ * @returns {string}
+ */
+export function get_body_edge_data(body_index) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.get_body_edge_data(body_index);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
+ * Body edge vertex positions as a Float32Array view (by flat body index).
+ * @param {number} body_index
+ * @returns {Float32Array}
+ */
+export function get_body_edge_vertices(body_index) {
+    const ret = wasm.get_body_edge_vertices(body_index);
+    return ret;
+}
+
+/**
+ * Body face-range data (GeomRef-enriched) as JSON, by flat body index.
+ * @param {number} body_index
+ * @returns {string}
+ */
+export function get_body_face_data(body_index) {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.get_body_face_data(body_index);
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
+ * Body mesh triangle indices as a Uint32Array view (by flat body index).
+ * @param {number} body_index
+ * @returns {Uint32Array}
+ */
+export function get_body_indices(body_index) {
+    const ret = wasm.get_body_indices(body_index);
+    return ret;
+}
+
+/**
+ * Metadata for every renderable body as a JSON array, in body-index order.
+ * Each entry: `{ featureIndex, featureId, outputIndex, outputKey }`. The
+ * `(featureId, outputKey)` pair is the body's persistent identity.
+ * @returns {string}
+ */
+export function get_body_metadata() {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.get_body_metadata();
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+/**
+ * Body mesh vertex normals as a Float32Array view (by flat body index).
+ * @param {number} body_index
+ * @returns {Float32Array}
+ */
+export function get_body_normals(body_index) {
+    const ret = wasm.get_body_normals(body_index);
+    return ret;
+}
+
+/**
+ * Body mesh vertex positions as a Float32Array view (by flat body index).
+ * @param {number} body_index
+ * @returns {Float32Array}
+ */
+export function get_body_vertices(body_index) {
+    const ret = wasm.get_body_vertices(body_index);
+    return ret;
+}
+
+/**
  * Get edge range data for a specific feature by index.
  *
  * Returns a JSON array of edge ranges enriched with GeomRef data.

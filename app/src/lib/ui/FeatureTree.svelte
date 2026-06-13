@@ -29,9 +29,9 @@
 		getFeatureErrors,
 		showEditFeatureDialog,
 		getBodies,
-		getSelectedBodyId,
+		getSelectedBodyKey,
 		selectBody,
-		setHoveredBodyId
+		setHoveredBodyKey
 	} from '$lib/engine/store.svelte.js';
 	import { BUILTIN_PLANES, makePlaneRef } from '$lib/engine/planes.js';
 	import { longPressContextMenu } from './longPressContextMenu.js';
@@ -40,7 +40,7 @@
 	let selectedId = $derived(getSelectedFeatureId());
 	let featureErrors = $derived(getFeatureErrors());
 	let bodies = $derived(getBodies());
-	let selectedBodyId = $derived(getSelectedBodyId());
+	let selectedBodyKey = $derived(getSelectedBodyKey());
 
 	/** @type {{ x: number, y: number, featureId: string, featureName: string, suppressed: boolean, isSketch: boolean, operationType: string | null } | null} */
 	let contextMenu = $state(null);
@@ -71,16 +71,17 @@
 	let bodiesExpanded = $state(true);
 
 	/** Inline-rename state for the Bodies list (separate from feature renaming,
-	 * since a body shares its producing feature's id). */
-	/** @type {{ featureId: string, value: string } | null} */
+	 * since a body shares its producing feature's id). Keyed by bodyKey so only
+	 * the edited row shows an input even when one feature owns several bodies. */
+	/** @type {{ bodyKey: string, featureId: string, value: string } | null} */
 	let bodyRenaming = $state(null);
 
-	function handleBodyClick(featureId) {
-		selectBody(selectedBodyId === featureId ? null : featureId);
+	function handleBodyClick(bodyKey) {
+		selectBody(selectedBodyKey === bodyKey ? null : bodyKey);
 	}
 
 	function handleBodyDblClick(body) {
-		bodyRenaming = { featureId: body.featureId, value: body.name };
+		bodyRenaming = { bodyKey: body.bodyKey, featureId: body.featureId, value: body.name };
 	}
 
 	function handleBodyRename(e) {
@@ -472,20 +473,20 @@
 					<span class="origin-label">Bodies ({bodies.length})</span>
 				</button>
 				{#if bodiesExpanded}
-					{#each bodies as body, i (body.featureId)}
+					{#each bodies as body, i (body.bodyKey)}
 						<div
 							class="body-item"
-							class:selected={selectedBodyId === body.featureId}
+							class:selected={selectedBodyKey === body.bodyKey}
 							data-testid="body-item-{i}"
-							onclick={() => handleBodyClick(body.featureId)}
+							onclick={() => handleBodyClick(body.bodyKey)}
 							ondblclick={() => handleBodyDblClick(body)}
-							onmouseenter={() => setHoveredBodyId(body.featureId)}
-							onmouseleave={() => setHoveredBodyId(null)}
+							onmouseenter={() => setHoveredBodyKey(body.bodyKey)}
+							onmouseleave={() => setHoveredBodyKey(null)}
 							role="treeitem"
 							tabindex="0"
 						>
 							<span class="tree-icon">{'▣'}</span>
-							{#if bodyRenaming && bodyRenaming.featureId === body.featureId}
+							{#if bodyRenaming && bodyRenaming.bodyKey === body.bodyKey}
 								<input
 									class="rename-input body-rename-input"
 									bind:value={bodyRenaming.value}
