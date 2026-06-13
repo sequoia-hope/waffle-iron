@@ -5673,6 +5673,50 @@ fn stage4_relocate_and_correct(
     // insert time (a silent overwrite would relocate one ellipse's endpoint
     // onto the other, collapsing the seam).
     let mut vert_ell_junction: BTreeMap<u32, (EllipseReloc, EllipseReloc)> = BTreeMap::new();
+    // PR-KV11: per-vertex plane∩plane intersection-LINE incidences. The pp
+    // segments themselves are exact (skipped), but their ENDPOINT on a
+    // chordized curved lateral is a TRIPLE point (e.g. capA∩faceB line ×
+    // lateral ellipse): the arrangement vertex lies exactly ON the line but
+    // only chord-close to the cylinder, so relocating it onto the conic
+    // alone slides it OFF the line (off the cap plane — the F0046 Newell
+    // disagreement). Collected here; resolved into `vert_ell_junction`
+    // after the scan (the junction is `(plane ∩ plane) ∩ cylinder`, the
+    // same closed form as the ellipse×ellipse box-edge junction).
+    let mut vert_pp_planes: BTreeMap<u32, Vec<(Vector3, f64, Vector3, f64)>> = BTreeMap::new();
+    // PR-KV11: junction-aware insertion, shared by BOTH ellipse arms
+    // (cylinder+plane AND cylinder×cylinder). A vertex already assigned a
+    // DIFFERENT ellipse (the box-edge crossing of two cylinder∩plane
+    // sections, or the Steinmetz cyl×cyl crossing) is demoted to the
+    // junction map; a silent overwrite would relocate it onto only the
+    // last-scanned ellipse, leaving it off the first by the Stage-1 chord
+    // error (the F0046-class "endpoint does not lie on its ellipse").
+    fn insert_ellipse_or_junction(
+        v: u32,
+        er: EllipseReloc,
+        vert_ellipse: &mut BTreeMap<u32, EllipseReloc>,
+        vert_ell_junction: &mut BTreeMap<u32, (EllipseReloc, EllipseReloc)>,
+        endpoints: &mut Vec<u32>,
+    ) {
+        if let Some(prev) = vert_ellipse.get(&v).copied() {
+            let same = prev.plane_d == er.plane_d
+                && prev.plane_n.as_array() == er.plane_n.as_array()
+                && prev.center.as_array() == er.center.as_array();
+            if !same {
+                vert_ellipse.remove(&v);
+                vert_ell_junction.insert(v, (prev, er));
+                endpoints.push(v);
+                return;
+            }
+        } else if vert_ell_junction.contains_key(&v) {
+            // Already a junction of two ellipses; a third co-incident
+            // section adds no relocation freedom (the junction point is
+            // fully determined by line ∩ cylinder).
+            endpoints.push(v);
+            return;
+        }
+        vert_ellipse.insert(v, er);
+        endpoints.push(v);
+    }
     let mut endpoints: Vec<u32> = Vec::new();
     for (&(s, e), curve) in &curves0 {
         match *curve {
@@ -5893,8 +5937,13 @@ fn stage4_relocate_and_correct(
                             second_cyl: None,
                         };
                         for v in [s, e] {
-                            vert_ellipse.insert(v, er);
-                            endpoints.push(v);
+                            insert_ellipse_or_junction(
+                                v,
+                                er,
+                                &mut vert_ellipse,
+                                &mut vert_ell_junction,
+                                &mut endpoints,
+                            );
                         }
                     }
                     // PR-YR21 cone + plane (no cylinder): the new cone-ellipse
@@ -5972,25 +6021,13 @@ fn stage4_relocate_and_correct(
                             second_cyl: Some((ap2, ad2, budget)),
                         };
                         for v in [s, e] {
-                            if let Some(prev) = vert_ellipse.get(&v).copied() {
-                                let same = prev.plane_d == er.plane_d
-                                    && prev.plane_n.as_array() == er.plane_n.as_array()
-                                    && prev.center.as_array() == er.center.as_array();
-                                if !same {
-                                    vert_ellipse.remove(&v);
-                                    vert_ell_junction.insert(v, (prev, er));
-                                    endpoints.push(v);
-                                    continue;
-                                }
-                            } else if let Some((j0, _)) = vert_ell_junction.get(&v) {
-                                let same = j0.plane_d == er.plane_d
-                                    && j0.plane_n.as_array() == er.plane_n.as_array();
-                                let _ = same; // already a junction; nothing to add
-                                endpoints.push(v);
-                                continue;
-                            }
-                            vert_ellipse.insert(v, er);
-                            endpoints.push(v);
+                            insert_ellipse_or_junction(
+                                v,
+                                er,
+                                &mut vert_ellipse,
+                                &mut vert_ell_junction,
+                                &mut endpoints,
+                            );
                         }
                     }
                     // Anything else (sphere, coplanar multi-solid): out of
@@ -6019,11 +6056,15 @@ fn stage4_relocate_and_correct(
                 };
                 let mut cyls: Vec<(InputId, Surface)> = Vec::new();
                 let mut plane_surf: Option<Surface> = None;
+                let mut pp: Vec<(Vector3, f64)> = Vec::new();
                 let mut other_curved = false;
                 for &(input, surf) in entries {
                     match surf {
                         Surface::Cylinder { .. } => cyls.push((input, surf)),
-                        Surface::Plane { .. } => plane_surf = Some(surf),
+                        Surface::Plane { normal, d } => {
+                            plane_surf = Some(surf);
+                            pp.push((normal, d));
+                        }
                         _ => other_curved = true,
                     }
                 }
@@ -6042,7 +6083,18 @@ fn stage4_relocate_and_correct(
                             + chord_tol_for_curved_owner(*i2, a, b, 0, (s, e))?;
                         (*c1, *c2, t)
                     }
-                    ([], _) if !other_curved => continue, // plane∩plane — exact
+                    ([], _) if !other_curved => {
+                        // plane∩plane — the segment is exact, but record the
+                        // line's planes per endpoint for the PR-KV11 triple-
+                        // point pass below.
+                        if pp.len() == 2 {
+                            let entry = (pp[0].0, pp[0].1, pp[1].0, pp[1].1);
+                            for v in [s, e] {
+                                vert_pp_planes.entry(v).or_default().push(entry);
+                            }
+                        }
+                        continue;
+                    }
                     _ => {
                         return Err(YangError::Stage4RegionInvalid {
                             vertex: s,
@@ -6120,6 +6172,67 @@ fn stage4_relocate_and_correct(
                     }
                     vert_line.insert(v, lr);
                     endpoints.push(v);
+                }
+            }
+        }
+    }
+
+    // PR-KV11: resolve ellipse × (plane∩plane line) TRIPLE points. An ellipse
+    // endpoint that also terminates an exact pp-segment (the cap∩face trace
+    // crossing the lateral) must land on `(plane ∩ plane) ∩ cylinder`, not on
+    // the ellipse alone — reuse the ellipse-junction closed form with a
+    // synthetic second member carrying the line's OTHER plane (the one that
+    // is not the ellipse's own cutting plane; bit identity — both come from
+    // the same incidence `Surface::Plane` values).
+    {
+        let shared: Vec<u32> = vert_ellipse
+            .keys()
+            .filter(|v| vert_pp_planes.contains_key(v))
+            .copied()
+            .collect();
+        for v in shared {
+            let e_a = vert_ellipse[&v];
+            let mut others: Vec<(Vector3, f64)> = Vec::new();
+            for &(n1, d1, n2, d2) in &vert_pp_planes[&v] {
+                let m1 = n1.as_array() == e_a.plane_n.as_array() && d1 == e_a.plane_d;
+                let m2 = n2.as_array() == e_a.plane_n.as_array() && d2 == e_a.plane_d;
+                let other = if m1 {
+                    Some((n2, d2))
+                } else if m2 {
+                    Some((n1, d1))
+                } else {
+                    None
+                };
+                if let Some(o) = other {
+                    if !others
+                        .iter()
+                        .any(|&(n, d)| n.as_array() == o.0.as_array() && d == o.1)
+                    {
+                        others.push(o);
+                    }
+                }
+            }
+            match others.len() {
+                // A pp-line through an ellipse endpoint whose pair does not
+                // include the ellipse's own plane, or more than one distinct
+                // crossing line: relocating onto any single curve leaves the
+                // vertex off the others — loud STOP, never a silent pick
+                // (P9/P10).
+                0 | 2.. => {
+                    return Err(YangError::Stage4RegionInvalid {
+                        vertex: v,
+                        reason: Stage4InvalidReason::LocalRefinementRequired,
+                    });
+                }
+                1 => {
+                    let (on, od) = others[0];
+                    let e_b = EllipseReloc {
+                        plane_n: on,
+                        plane_d: od,
+                        ..e_a
+                    };
+                    vert_ellipse.remove(&v);
+                    vert_ell_junction.insert(v, (e_a, e_b));
                 }
             }
         }
@@ -6276,6 +6389,11 @@ fn stage4_relocate_and_correct(
             None => d_eps,
         };
         if rho > gate {
+            if std::env::var("KV11_PROBE").is_ok() {
+                eprintln!(
+                    "KV11_PROBE ellipse band reject: v={v} rho={rho:.3e} gate={gate:.3e} p={p:?}"
+                );
+            }
             return Err(YangError::Stage4RegionInvalid {
                 vertex: v,
                 reason: Stage4InvalidReason::OffCurveBeyondChordBand,
@@ -6368,7 +6486,32 @@ fn stage4_relocate_and_correct(
             }
         }
         let (j, rho) = best.expect("two real roots checked");
-        if rho > 2.0 * d_eps {
+        // PR-KV11: the vertex moves ALONG the junction line to reach the
+        // cylinder, so its radial chord residual (≤ the combined band) is
+        // amplified by `1/|d̂·r̂|` — the directional derivative of the
+        // radial distance along the line at the junction (the same derived
+        // metric propagation as the KV9 cyl×cyl `1/sin α` gradient band; a
+        // grazing line ⇒ unbounded metric, backstopped by the Stage-3
+        // surface-membership gates, mirroring the cyl×cyl arm).
+        let rel_j = [j[0] - ap[0], j[1] - ap[1], j[2] - ap[2]];
+        let rp_j = perp(rel_j);
+        let rp_j_len = (rp_j[0] * rp_j[0] + rp_j[1] * rp_j[1] + rp_j[2] * rp_j[2]).sqrt();
+        let grad = if rp_j_len > 0.0 {
+            ((d[0] * rp_j[0] + d[1] * rp_j[1] + d[2] * rp_j[2]) / rp_j_len).abs()
+        } else {
+            0.0
+        };
+        let gate = if grad > 0.0 {
+            2.0 * d_eps / grad
+        } else {
+            f64::INFINITY
+        };
+        if rho > gate {
+            if std::env::var("KV11_PROBE").is_ok() {
+                eprintln!(
+                    "KV11_PROBE junction band reject: v={v} rho={rho:.3e} gate={gate:.3e} p={p:?} j={j:?}"
+                );
+            }
             return Err(YangError::Stage4RegionInvalid {
                 vertex: v,
                 reason: Stage4InvalidReason::OffCurveBeyondChordBand,
@@ -6825,6 +6968,23 @@ fn is_reversed(
     lo: f64,
     hi: f64,
 ) -> bool {
+    // PR-KV11: the §4.5.3 test is defined for points progressing along ONE
+    // intersection curve C ("p_r is a point on the intersection curve C
+    // between the two surfaces S_A and S_B", refs/text/yang2025_hybrid_
+    // boolean.txt:709-745). A vertex where the loop TRANSITIONS between two
+    // different conics (the ellipse×ellipse box-edge junction) is a genuine
+    // corner — the discrete tangent legitimately kinks there and the angle
+    // test against either single curve's tangent false-positives, collapsing
+    // the junction loop vertex by vertex (the kv11 vanishing-bulge failure).
+    {
+        let key_n = if p_r < p_n { (p_r, p_n) } else { (p_n, p_r) };
+        let key_b = if p_b < p_r { (p_b, p_r) } else { (p_r, p_b) };
+        if let (Some(cn), Some(cb)) = (curves.get(&key_n), curves.get(&key_b)) {
+            if cn != cb {
+                return false;
+            }
+        }
+    }
     let pb = mesh.verts[p_b as usize].as_array();
     let pr = mesh.verts[p_r as usize].as_array();
     let pn = mesh.verts[p_n as usize].as_array();

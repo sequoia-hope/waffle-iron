@@ -1681,6 +1681,40 @@ fn tessellate_cylinder_patch(
             base + t[2] as u32,
         ]);
     }
+    // PR-KV11 fold tripwire extension (KV7-F1/KV9-F2 class): a folded
+    // unrolled triangulation can keep its 3D winding within the −0.1 radial
+    // margin yet stack jittered sliver layers over one boundary strip — the
+    // render edges then triple up after seam quantization and the closed
+    // mesh goes non-manifold (the F0046 class). In the unrolled 2D domain a
+    // valid triangulation is a planar subdivision: every non-sliver work
+    // triangle has the SAME orientation sign. Mixed signs ⇒ a fold. Loud
+    // failure beats silently-wrong render output (P9). Sub-resolution
+    // slivers are excluded with the scale-relative band (KV8b pattern).
+    {
+        let mut max_c = 0.0_f64;
+        for wn in &wnodes {
+            max_c = max_c.max(wn.p2.x().abs()).max(wn.p2.y().abs());
+        }
+        let area_eps = 1e-12 * (1.0 + max_c) * (1.0 + max_c);
+        let (mut pos_n, mut neg_n) = (0usize, 0usize);
+        for t in &wtris {
+            let (a2, b2, c2) = (wnodes[t[0]].p2, wnodes[t[1]].p2, wnodes[t[2]].p2);
+            let area2 =
+                (b2.x() - a2.x()) * (c2.y() - a2.y()) - (b2.y() - a2.y()) * (c2.x() - a2.x());
+            if area2 > area_eps {
+                pos_n += 1;
+            } else if area2 < -area_eps {
+                neg_n += 1;
+            }
+        }
+        if pos_n > 0 && neg_n > 0 {
+            return Err(fail(
+                "patch triangulation folded (mixed 2D orientation) — KV7-F1/KV9-F2: \
+                 the unrolled ear-clip/refinement self-overlapped; loud instead of \
+                 silently-wrong render output",
+            ));
+        }
+    }
     out.face_ranges.push(FaceRange {
         face: fid,
         start: range_start,

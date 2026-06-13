@@ -236,6 +236,116 @@ fn exact_edge_counts(mesh: &RenderMesh) -> HashMap<((u32, u32, u32), (u32, u32, 
     counts
 }
 
+/// PR-KV11: HYBRID exact/quantized pairing complex.
+///
+/// The pure-quantized weld cannot represent geometry thinner than the grid:
+/// a junction-pinched cylinder patch legitimately triangulates a thin wedge
+/// whose interior edges hug its boundary arcs within the grid cell, and the
+/// weld then ALIASES those (exactly-paired, provably closed) interior edges
+/// onto the boundary chords — false non-manifold verdicts and a corrupted
+/// Euler count (the same failure class the PR-KV8c exact fast path fixed
+/// for gear-density meshes, here on meshes that are only PARTIALLY exact-
+/// paired because cross-face seams still need the weld).
+///
+/// Hybrid rule: an edge whose exact (f32-bitwise) key pairs exactly twice is
+/// PROVABLY closed — drop it from the quantized residue. Only the residue
+/// (cross-face seam chords, real boundary defects) is quantized, T-junction-
+/// subdivided and paired. Vertices weld by grid cell ONLY where they bound a
+/// residue edge; all other vertices keep exact identity.
+struct HybridComplex {
+    /// Number of exactly-paired (closed) undirected edges.
+    closed_edges: usize,
+    /// Quantized, T-subdivided residue edge multiset.
+    residue_sub: HashMap<QEdge, usize>,
+    /// Welded vertex count (exact-only vertices + quantized residue cells).
+    vertex_count: usize,
+    /// Connected components of the welded complex.
+    shells: usize,
+}
+
+fn hybrid_edge_complex(mesh: &RenderMesh, inv_grid: f64) -> HybridComplex {
+    use std::collections::HashSet;
+    type XKey = (u32, u32, u32);
+    let exact = exact_edge_counts(mesh);
+    let qof = |k: XKey| -> QKey {
+        let q = |bits: u32| (f32::from_bits(bits) as f64 * inv_grid).round() as i64;
+        (q(k.0), q(k.1), q(k.2))
+    };
+
+    let mut residue: HashMap<QEdge, usize> = HashMap::new();
+    let mut residue_verts: HashSet<XKey> = HashSet::new();
+    let mut closed_edges = 0usize;
+    for (&(a, b), &c) in &exact {
+        if c == 2 {
+            closed_edges += 1;
+            continue;
+        }
+        *residue.entry(make_qedge(qof(a), qof(b))).or_insert(0) += c;
+        residue_verts.insert(a);
+        residue_verts.insert(b);
+    }
+    let residue_sub = subdivide_t_junctions(&residue);
+
+    // Welded vertex set: exact keys not on any residue edge keep exact
+    // identity; residue endpoints weld by grid cell.
+    let mut all_verts: HashSet<XKey> = HashSet::new();
+    for &(a, b) in exact.keys() {
+        all_verts.insert(a);
+        all_verts.insert(b);
+    }
+    let mut id_of: HashMap<(bool, XKey), usize> = HashMap::new();
+    let mut quant_id: HashMap<QKey, usize> = HashMap::new();
+    let mut next = 0usize;
+    for &v in &all_verts {
+        if residue_verts.contains(&v) {
+            let n = next;
+            let e = quant_id.entry(qof(v)).or_insert(n);
+            if *e == next {
+                next += 1;
+            }
+            id_of.insert((true, v), *e);
+        } else {
+            id_of.insert((false, v), next);
+            next += 1;
+        }
+    }
+    let vertex_count = next;
+
+    // Shells: union-find over welded vertex ids, linked by ALL edges.
+    let mut parent: Vec<usize> = (0..next).collect();
+    fn find(p: &mut [usize], mut x: usize) -> usize {
+        while p[x] != x {
+            p[x] = p[p[x]];
+            x = p[x];
+        }
+        x
+    }
+    let vid = |v: XKey, id_of: &HashMap<(bool, XKey), usize>, res: &HashSet<XKey>| -> usize {
+        id_of[&(res.contains(&v), v)]
+    };
+    for &(a, b) in exact.keys() {
+        let (ra, rb) = (
+            vid(a, &id_of, &residue_verts),
+            vid(b, &id_of, &residue_verts),
+        );
+        let (ra, rb) = (find(&mut parent, ra), find(&mut parent, rb));
+        if ra != rb {
+            parent[ra.max(rb)] = ra.min(rb);
+        }
+    }
+    let mut roots: HashSet<usize> = HashSet::new();
+    for i in 0..next {
+        roots.insert(find(&mut parent, i));
+    }
+
+    HybridComplex {
+        closed_edges,
+        residue_sub,
+        vertex_count,
+        shells: roots.len().max(1),
+    }
+}
+
 /// Raw (unsubdivided) position-quantized edge multiset of the triangle mesh.
 fn raw_edge_counts(mesh: &RenderMesh, inv_grid: f64) -> HashMap<QEdge, usize> {
     let quantize = |v: f32| -> i64 { (v as f64 * inv_grid).round() as i64 };
@@ -361,50 +471,13 @@ fn subdivide_t_junctions(raw: &HashMap<QEdge, usize>) -> HashMap<QEdge, usize> {
     out
 }
 
-/// Number of connected components ("shells") of the position-welded complex.
-///
-/// Union-find over quantized vertices linked by raw triangle edges. A valid
-/// disjoint-union output is a single solid with multiple closed shells; each
-/// closed genus-0 shell contributes χ=2 to the total Euler characteristic.
-fn mesh_shell_count(raw: &HashMap<QEdge, usize>) -> usize {
-    let mut index: HashMap<QKey, usize> = HashMap::new();
-    for &(a, b) in raw.keys() {
-        let n = index.len();
-        index.entry(a).or_insert(n);
-        let n = index.len();
-        index.entry(b).or_insert(n);
-    }
-    let mut parent: Vec<usize> = (0..index.len()).collect();
-    fn find(parent: &mut [usize], mut x: usize) -> usize {
-        while parent[x] != x {
-            parent[x] = parent[parent[x]];
-            x = parent[x];
-        }
-        x
-    }
-    for &(a, b) in raw.keys() {
-        let ra = find(&mut parent, index[&a]);
-        let rb = find(&mut parent, index[&b]);
-        if ra != rb {
-            parent[ra] = rb;
-        }
-    }
-    let mut roots: std::collections::HashSet<usize> = std::collections::HashSet::new();
-    for i in 0..parent.len() {
-        let r = find(&mut parent, i);
-        roots.insert(r);
-    }
-    roots.len()
-}
-
 /// Check that the mesh is watertight: every triangle edge shared by exactly 2 triangles.
 ///
-/// Uses position-based edge matching (scale-adaptive quantization) to handle
-/// meshes with per-face vertices (non-shared vertex indices but shared
-/// positions), and T-junction-aware pairing: edges are first split at
-/// quantized mesh vertices lying exactly on them (see
-/// [`subdivide_t_junctions`]), so a one-sided collinear subdivision of a
-/// shared boundary does not count as a hole. Edges that do not close under
+/// PR-KV11: HYBRID pairing — exactly-paired (f32-bitwise) edges are provably
+/// closed and excluded up front; only the residue is position-quantized
+/// (scale-adaptive grid, for per-face vertices with shared positions) and
+/// T-junction-subdivided (see [`subdivide_t_junctions`] /
+/// [`hybrid_edge_complex`]). Residue edges that do not close under
 /// subdivision remain failures.
 pub fn check_watertight_mesh(mesh: &RenderMesh) -> OracleVerdict {
     let max_abs = mesh
@@ -424,8 +497,10 @@ pub fn check_watertight_mesh(mesh: &RenderMesh) -> OracleVerdict {
         );
     }
 
-    let raw_counts = raw_edge_counts(mesh, inv_grid);
-    let edge_counts = subdivide_t_junctions(&raw_counts);
+    // PR-KV11: hybrid pairing — exactly-paired edges are provably closed;
+    // only the residue is quantized (see [`hybrid_edge_complex`]).
+    let hybrid = hybrid_edge_complex(mesh, inv_grid);
+    let edge_counts = &hybrid.residue_sub;
 
     let non_paired: Vec<_> = edge_counts.iter().filter(|(_, &c)| c != 2).collect();
 
@@ -437,6 +512,7 @@ pub fn check_watertight_mesh(mesh: &RenderMesh) -> OracleVerdict {
     // Default-off path is unchanged — all probe logic gated behind a single
     // env check. Output: per-invocation TSV at $Y38_GRID_PROBE_DIR.
     if std::env::var("Y38_GRID_PROBE").as_deref() == Ok("1") {
+        let raw_counts = raw_edge_counts(mesh, inv_grid);
         let raw_non_paired: Vec<_> = raw_counts.iter().filter(|(_, &c)| c != 2).collect();
         y38_grid_sensitivity_probe(mesh, max_abs, &raw_counts, &raw_non_paired);
     }
@@ -445,7 +521,9 @@ pub fn check_watertight_mesh(mesh: &RenderMesh) -> OracleVerdict {
         OracleVerdict::pass(
             "watertight_mesh",
             format!(
-                "all {} edges paired (T-junction-subdivided)",
+                "all residue edges paired ({} exact-closed, {} residue, \
+                 T-junction-subdivided)",
+                hybrid.closed_edges,
                 edge_counts.len()
             ),
         )
@@ -1430,25 +1508,19 @@ pub fn check_mesh_euler_characteristic(mesh: &RenderMesh, expected_chi: i64) -> 
             OracleVerdict::fail_val("mesh_euler_characteristic", detail, chi as f64)
         };
     }
-    let raw_counts = raw_edge_counts(mesh, inv_grid);
-    let sub_counts = subdivide_t_junctions(&raw_counts);
+    // PR-KV11: hybrid complex — exactly-paired edges keep exact identity
+    // (provably closed, never aliased by the weld); only residue edges and
+    // their endpoints are quantized (see [`hybrid_edge_complex`]).
+    let hybrid = hybrid_edge_complex(mesh, inv_grid);
 
-    // Unique vertices = endpoints of the subdivided edges (splits only insert
-    // existing mesh vertices, so this equals the welded vertex set).
-    let mut unique_verts: HashSet<QKey> = HashSet::new();
-    for &(a, b) in sub_counts.keys() {
-        unique_verts.insert(a);
-        unique_verts.insert(b);
-    }
-
-    let shells = mesh_shell_count(&raw_counts).max(1) as i64;
+    let shells = hybrid.shells as i64;
     // Shell count already encoded in the meta's euler_target (KV5b-F2):
     // euler_target = 2·B − 2·g with g ≥ 0, so B_meta = max(1, ⌊χ/2⌋).
     let meta_shells = expected_chi.div_euclid(2).max(1);
     let expected_total = expected_chi + 2 * (shells - meta_shells).max(0);
 
-    let v = unique_verts.len() as i64;
-    let e = sub_counts.len() as i64;
+    let v = hybrid.vertex_count as i64;
+    let e = (hybrid.closed_edges + hybrid.residue_sub.len()) as i64;
     let f = (mesh.indices.len() / 3) as i64;
     let chi = v - e + f;
 
@@ -1577,7 +1649,16 @@ pub fn check_no_self_intersection(mesh: &RenderMesh) -> OracleVerdict {
                         vert_quant(tri_b[2]),
                     ];
                     let shared = qa.iter().filter(|v| qb.contains(v)).count();
-                    if shared >= 2 {
+                    // PR-KV11: skip VERTEX-adjacent pairs too (was: edge-
+                    // adjacent only). At a curve-junction vertex shared by
+                    // two curved faces, each face's chords legitimately dip
+                    // below the other's by up to the chord sagitta (the
+                    // tessellation tolerance band, ~1e-2·scale — orders past
+                    // the weld-band depth threshold), pivoting exactly on
+                    // the shared vertex. A REAL penetration has interior
+                    // contact away from shared vertices and still fails via
+                    // non-adjacent pairs.
+                    if shared >= 1 {
                         continue;
                     }
 
@@ -1587,6 +1668,12 @@ pub fn check_no_self_intersection(mesh: &RenderMesh) -> OracleVerdict {
                         [vert_pos(tri_b[0]), vert_pos(tri_b[1]), vert_pos(tri_b[2])];
 
                     if triangles_intersect(&pa, &pb, depth_threshold) {
+                        if std::env::var("KV11_SI_PROBE").is_ok() {
+                            eprintln!(
+                                "KV11_SI violation faces=({i},{j}) thr={depth_threshold:.3e} \
+                                 a={pa:?} b={pb:?}"
+                            );
+                        }
                         violations += 1;
                         if violation_pairs.len() < MAX_VIOLATIONS {
                             violation_pairs.push((i, j));

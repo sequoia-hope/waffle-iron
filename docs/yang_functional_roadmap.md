@@ -1702,6 +1702,58 @@ swapped every consumer to `predicates::indirect`).
     cycle); **KV4-F1c** R0067's boolean now SUCCEEDS (was the curved-
     patch NoExplicitRayOrigin) but the result fails kernel-v2 render
     tessellation — moved one layer, still ERROR.
+  - **PR-KV11 ✅ (2026-06-13): the ellipse-arc junction class** — the
+    largest coherent ERROR class ("output ellipse-arc endpoint does not
+    lie on its ellipse", 8 cases: F0046–F0050, R0041, R0095, F0076 —
+    cylinder × oblique box). FIVE stacked fixes, each one layer deeper:
+    (1) *Stage-4 ellipse junction detection generalized to the
+    cylinder+plane arm* (`insert_ellipse_or_junction`, shared with the
+    PR-KV9 cyl×cyl arm): a vertex ending TWO different cylinder∩plane
+    ellipses (the box-EDGE crossing) was silently overwritten in
+    `vert_ellipse` and relocated onto only the last-scanned ellipse,
+    staying off the first by the Stage-1 chord error (~1e-4 ≫ the 1e-9
+    import band).
+    (2) *§4.5.3 reversal test scoped to ONE curve* (paper
+    `refs/text/yang2025_hybrid_boolean.txt:709-745`: p_b/p_r/p_n progress
+    along the intersection curve C): at a junction where the loop
+    TRANSITIONS between conics the discrete tangent legitimately kinks;
+    the angle test false-positived and the sweep collapsed the junction
+    loop vertex-by-vertex (the kv11 fixture's vanishing back-bulge —
+    watertight but missing material).
+    (3) *Ellipse × (plane∩plane line) TRIPLE points* (`vert_pp_planes`):
+    a pp-segment (capB∩faceA trace) is exact, but its endpoint on the
+    chordized lateral is the rim triple point — relocation onto the
+    ellipse alone slid it off the cap plane (the "plane normal disagrees
+    with Newell" rejects). Resolved into the ellipse-junction closed form
+    `(plane ∩ plane) ∩ cylinder` with a synthetic second member; the
+    junction gate carries the derived `1/|d̂·r̂|` along-line amplification
+    (the KV9 gradient-band pattern — flat 2·d_ε under-gates).
+    (4) *EllipseArc midpoint augmentation in from_yang pass-1d Newell*
+    (the KV9 crescent fix existed in `validate::winding_points` but NOT
+    in boolean.rs — the fix-all-gates-sharing-a-metric trap).
+    (5) *Hybrid exact/quantized mesh oracles* (test-harness): the pure
+    position-weld ALIASED junction-pinch thin-wedge tessellation (sliver
+    fans hugging boundary arcs within the grid cell) into false
+    non-manifold/Euler verdicts — the KV8c gear lesson on PARTIALLY
+    exact-paired meshes. Exactly-paired (f32-bitwise) edges are provably
+    closed and excluded; only the cross-face residue is quantized +
+    T-subdivided; vertices weld by cell only where they bound residue
+    edges. Self-intersection skip widened to vertex-adjacent pairs
+    (chord sagitta at a shared junction vertex is tolerance-band
+    geometry, ~1e-3 ≫ the weld threshold; real penetrations still fail
+    via non-adjacent pairs). Plus a mixed-2D-orientation fold tripwire at
+    patch emit.
+    Oracles: `yang-rs/tests/kv11_ellipse_edge_junction.rs` (box ∪
+    edge-piercing oblique cylinder: endpoints on BOTH ellipses, junctions
+    ON the edge, back-bulge present; RED→GREEN through fixes 1–2).
+    Corpus: **SUPPORTED_CORRECT 52→58** (F0046–F0050 + R0041),
+    **ERROR 41→31**, WRONG 0→0; R0006/R0095/F0076 now stop at the KV7
+    curved partial-patch re-entry wall (typed, honest). Remaining ERROR
+    classes by size: 14 gear timeouts (perf), 5 geometric face
+    resolution (R0011/R0073/R0082/R0090), 5 NonManifoldOutput reassembly
+    (R0079/R0092/F0022/F0056 + F0076 residue), 2 Stage-4 DegenerateTriangle
+    (R0009), 2 patch folds (F0042/F0045, KV9-F2), singles F0041/F0057/
+    F0058/F0059/R0067.
 
 ## 4b. Completion roadmap — Phases 1–6 (the full path to replacing legacy)
 
@@ -1970,12 +2022,13 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
     outward radial); the unrolled ear-clip/refinement needs a dedicated
     robustness cycle. ~15 gear cases ERROR on the 90s replay timeout
     (heavy exact arrangements — performance, not correctness).
-  - Remaining top blockers by size (post-PR-KV4-F1, corpus 52 CORRECT):
-    M8 coplanar (~43, of which 19 are the curved-face-in-pair sub-class),
-    KV6c/d revolve (~51), patch-fold robustness (KV7-F1/KV9-F2), KV6d
-    torus. KV4-F1 RESOLVED (rational-ray fallback, deviation N21);
-    residue findings KV4-F1b (F0022 yang reassembly) and KV4-F1c (R0067
-    result fails render tessellation).
+  - Remaining top blockers by size (post-PR-KV11, corpus 58 CORRECT):
+    KV6c/d revolve (~51), M8 coplanar (~44, of which 19 are the
+    curved-face-in-pair sub-class), gear-replay timeouts (14, perf),
+    geometric face resolution (5), NonManifoldOutput reassembly (5,
+    incl. KV4-F1b F0022), patch-fold robustness (KV7-F1/KV9-F2, 2),
+    KV4-F1c R0067 render tessellation. KV4-F1 RESOLVED (rational-ray
+    fallback, deviation N21); ellipse-junction class RESOLVED (PR-KV11).
 
 - **KV7 — boolean output curve recovery ("output curve tagging").
   ✅ COMPLETE (2026-06-12, PR-KV7).** Curved booleans are CHAINABLE: the

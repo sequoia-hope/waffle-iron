@@ -711,15 +711,19 @@ fn smoke_corpus_boundary_categories() {
         ("F0039", Category::SupportedCorrect),
         ("F0040", Category::SupportedCorrect),
         // F0044: cylinder-boolean case passing the FULL oracle set
-        // end-to-end. (R0006 was its companion until PR-ASSAY-NOOP: its
-        // second op used to be a free-space cut — a no-op the corpus repair
-        // re-anchored onto the body. The REAL cut now sections the cylinder
-        // obliquely → an Ellipse output curve, the named kernel-v2 wall.)
-        ("R0006", Category::Error),
+        // end-to-end. (R0006 was its companion until PR-ASSAY-NOOP.)
+        // PR-KV11: R0006's oblique section now resolves (ellipse junction
+        // relocation); its NEXT op hits the KV7 curved partial-patch
+        // re-entry wall — typed NotSupported, no longer ERROR.
+        (
+            "R0006",
+            Category::Unsupported(UnsupportedReason::CurvedProfile),
+        ),
         ("F0044", Category::SupportedCorrect),
-        // F0046: oblique box plane × cylinder section is an ELLIPSE —
-        // kernel-v2's named-curve reassembly wall (UnsupportedBooleanOutputCurve).
-        ("F0046", Category::Error),
+        // F0046: oblique box plane × cylinder sections (ELLIPSE arcs meeting
+        // at junctions). PR-KV11: junction relocation + the hybrid
+        // exact/quantized mesh oracles take it end-to-end.
+        ("F0046", Category::SupportedCorrect),
         // F0041: cylinder×cylinder lateral∩lateral is degree-4 — yang's
         // Stage-3 SSI wall (AmbiguousCurve), surfaced loudly.
         ("F0041", Category::Error),

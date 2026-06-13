@@ -548,6 +548,15 @@ fn canonicalize_sibling_planes(yfaces: &mut [yang_rs::BRepFace]) {
 // from_yang_brep
 // ---------------------------------------------------------------------------
 
+fn edge_kind_tag(e: &EdgeKind) -> &'static str {
+    match e {
+        EdgeKind::Seg => "Seg",
+        EdgeKind::Full { .. } => "Full",
+        EdgeKind::Arc { .. } => "Arc",
+        EdgeKind::EllipseArc { .. } => "EllipseArc",
+    }
+}
+
 /// The curve vocabulary of one directed yang loop edge, KV5b-classified.
 #[derive(Clone, Copy, PartialEq)]
 enum EdgeKind {
@@ -990,6 +999,49 @@ pub fn from_yang_brep(
                     ));
                 }
             }
+            // PR-KV11: the EllipseArc analog (same role as validate.rs
+            // `winding_points`) — a planar face whose boundary is dominated
+            // by a concave ELLIPSE arc (the box-face bite of an oblique
+            // cylinder) mis-signs the chord-only Newell normal exactly like
+            // the KV9 crescent did for circle arcs.
+            if let EdgeKind::EllipseArc {
+                center,
+                forward_normal,
+                major_axis,
+                major_radius,
+                minor_radius,
+            } = spec.edges[k]
+            {
+                let p1 = yverts[spec.cycle[(k + 1) % m] as usize].point;
+                if let (Some(t0), Some(sweep)) = (
+                    geom::ellipse_param(
+                        center,
+                        forward_normal,
+                        major_axis,
+                        major_radius,
+                        minor_radius,
+                        p0,
+                    ),
+                    geom::ellipse_ccw_sweep(
+                        center,
+                        forward_normal,
+                        major_axis,
+                        major_radius,
+                        minor_radius,
+                        p0,
+                        p1,
+                    ),
+                ) {
+                    pts.push(geom::ellipse_point_at(
+                        center,
+                        forward_normal,
+                        major_axis,
+                        major_radius,
+                        minor_radius,
+                        t0 + sweep / 2.0,
+                    ));
+                }
+            }
         }
         match spec.kind {
             LoopKind::Outer => {
@@ -1000,6 +1052,19 @@ pub fn from_yang_brep(
                 };
                 let dotn = nu.x * normal[0] + nu.y * normal[1] + nu.z * normal[2];
                 if dotn < 1.0 - YANG_NORMAL_AGREEMENT_TOLERANCE {
+                    if std::env::var("KV11_PROBE").is_ok() {
+                        eprintln!(
+                            "KV11_PROBE newell reject: face={} dotn={dotn:.6} plane_n={normal:?} \
+                             newell=({:.6},{:.6},{:.6}) cycle_len={} kinds={:?} pts={:?}",
+                            spec.face,
+                            nu.x,
+                            nu.y,
+                            nu.z,
+                            spec.cycle.len(),
+                            spec.edges.iter().map(edge_kind_tag).collect::<Vec<_>>(),
+                            pts
+                        );
+                    }
                     return Err(KernelV2Error::InvalidBooleanOutput(
                         "output face plane normal disagrees with its outer-loop Newell normal",
                     ));
@@ -1347,6 +1412,15 @@ fn classify_edge(
                 let band =
                     1e-9 * (1.0 + major_radius.max(p.x().abs().max(p.y().abs().max(p.z().abs()))));
                 if out_of_plane.abs() > band || (u.hypot(v) - 1.0).abs() * minor_radius > band {
+                    if std::env::var("KV_ELLIPSE_PROBE").is_ok() {
+                        eprintln!(
+                            "KV_ELLIPSE_PROBE reject: p={p:?} center={center:?} n={n:?} m={m:?} \
+                             a={major_radius:.17e} b={minor_radius:.17e} \
+                             out_of_plane={out_of_plane:.3e} in_plane_resid={:.3e} band={band:.3e} \
+                             u={u:.17} v={v:.17}",
+                            (u.hypot(v) - 1.0).abs() * minor_radius,
+                        );
+                    }
                     return Err(KernelV2Error::InvalidBooleanOutput(
                         "output ellipse-arc endpoint does not lie on its ellipse",
                     ));
