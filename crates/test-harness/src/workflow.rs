@@ -1349,7 +1349,11 @@ impl ModelBuilder {
             }
             if let Some(result) = self.state.engine.get_result(feature.id) {
                 if !result.outputs.is_empty() {
-                    handles = result.outputs.iter().map(|(_, b)| b.handle.clone()).collect();
+                    handles = result
+                        .outputs
+                        .iter()
+                        .map(|(_, b)| b.handle.clone())
+                        .collect();
                     break;
                 }
             }
