@@ -27,7 +27,11 @@
 		hideAllAxes,
 		enterSketchEditMode,
 		getFeatureErrors,
-		showEditFeatureDialog
+		showEditFeatureDialog,
+		getBodies,
+		getSelectedBodyId,
+		selectBody,
+		setHoveredBodyId
 	} from '$lib/engine/store.svelte.js';
 	import { BUILTIN_PLANES, makePlaneRef } from '$lib/engine/planes.js';
 	import { longPressContextMenu } from './longPressContextMenu.js';
@@ -35,6 +39,8 @@
 	let tree = $derived(getFeatureTree());
 	let selectedId = $derived(getSelectedFeatureId());
 	let featureErrors = $derived(getFeatureErrors());
+	let bodies = $derived(getBodies());
+	let selectedBodyId = $derived(getSelectedBodyId());
 
 	/** @type {{ x: number, y: number, featureId: string, featureName: string, suppressed: boolean, isSketch: boolean, operationType: string | null } | null} */
 	let contextMenu = $state(null);
@@ -60,6 +66,40 @@
 
 	// Origin section state
 	let originExpanded = $state(true);
+
+	// Bodies section state
+	let bodiesExpanded = $state(true);
+
+	/** Inline-rename state for the Bodies list (separate from feature renaming,
+	 * since a body shares its producing feature's id). */
+	/** @type {{ featureId: string, value: string } | null} */
+	let bodyRenaming = $state(null);
+
+	function handleBodyClick(featureId) {
+		selectBody(selectedBodyId === featureId ? null : featureId);
+	}
+
+	function handleBodyDblClick(body) {
+		bodyRenaming = { featureId: body.featureId, value: body.name };
+	}
+
+	function handleBodyRename(e) {
+		if (!bodyRenaming) return;
+		if (e.key === 'Enter') {
+			const trimmed = bodyRenaming.value.trim();
+			if (trimmed) renameFeature(bodyRenaming.featureId, trimmed);
+			bodyRenaming = null;
+		} else if (e.key === 'Escape') {
+			bodyRenaming = null;
+		}
+	}
+
+	function handleBodyRenameBlur() {
+		if (!bodyRenaming) return;
+		const trimmed = bodyRenaming.value.trim();
+		if (trimmed) renameFeature(bodyRenaming.featureId, trimmed);
+		bodyRenaming = null;
+	}
 
 	// Build plane refs once
 	const planeRefs = BUILTIN_PLANES.map((p) => makePlaneRef(p.id));
@@ -419,6 +459,47 @@
 				</div>
 			{/each}
 		{/if}
+
+		<!-- Bodies section -->
+		{#if bodies.length > 0}
+			<div class="bodies-section">
+				<button
+					class="origin-header"
+					onclick={() => bodiesExpanded = !bodiesExpanded}
+					data-testid="bodies-toggle"
+				>
+					<span class="expand-icon">{bodiesExpanded ? '▾' : '▸'}</span>
+					<span class="origin-label">Bodies ({bodies.length})</span>
+				</button>
+				{#if bodiesExpanded}
+					{#each bodies as body, i (body.featureId)}
+						<div
+							class="body-item"
+							class:selected={selectedBodyId === body.featureId}
+							data-testid="body-item-{i}"
+							onclick={() => handleBodyClick(body.featureId)}
+							ondblclick={() => handleBodyDblClick(body)}
+							onmouseenter={() => setHoveredBodyId(body.featureId)}
+							onmouseleave={() => setHoveredBodyId(null)}
+							role="treeitem"
+							tabindex="0"
+						>
+							<span class="tree-icon">{'▣'}</span>
+							{#if bodyRenaming && bodyRenaming.featureId === body.featureId}
+								<input
+									class="rename-input body-rename-input"
+									bind:value={bodyRenaming.value}
+									onkeydown={handleBodyRename}
+									onblur={handleBodyRenameBlur}
+								/>
+							{:else}
+								<span class="tree-label">{body.name}</span>
+							{/if}
+						</div>
+					{/each}
+				{/if}
+			</div>
+		{/if}
 	</div>
 
 	{#if tree.features.length > 0}
@@ -558,6 +639,31 @@
 
 	.origin-icon {
 		color: var(--text-muted, #666);
+	}
+
+	.bodies-section {
+		border-top: 1px solid var(--border-color, #444);
+		margin-top: 2px;
+		padding-top: 2px;
+	}
+
+	.body-item {
+		display: flex;
+		align-items: center;
+		padding: 3px 12px;
+		gap: 6px;
+		cursor: pointer;
+		user-select: none;
+	}
+
+	.body-item:hover {
+		background: var(--bg-hover);
+	}
+
+	.body-item.selected {
+		background: rgba(0, 120, 212, 0.2);
+		border-left: 2px solid var(--accent);
+		padding-left: 10px;
 	}
 
 	.empty-state {

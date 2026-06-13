@@ -57,6 +57,14 @@ let hoveredRef = $state(null);
 /** @type {Array<any>} */
 let selectedRefs = $state([]);
 
+/** Feature id of the body currently selected via the Bodies list (whole-body highlight). */
+/** @type {string | null} */
+let selectedBodyId = $state(null);
+
+/** Feature id of the body currently hovered in the Bodies list. */
+/** @type {string | null} */
+let hoveredBodyId = $state(null);
+
 /** @type {{ active: boolean, origin: [number, number, number], normal: [number, number, number] }} */
 let sketchMode = $state({ active: false, origin: [0, 0, 0], normal: [0, 0, 1] });
 
@@ -820,6 +828,52 @@ export function getMeshes() {
 	return meshes;
 }
 
+/**
+ * List the solid bodies in the current model. Each renderable feature produces
+ * one body mesh (keyed by `featureId`); the body's name is the producing
+ * feature's name. Returns `[{ featureId, name }]` in render order.
+ */
+export function getBodies() {
+	return meshes.map((m) => {
+		const feature = featureTree.features.find((f) => f.id === m.featureId);
+		return {
+			featureId: m.featureId,
+			name: feature?.name ?? 'Body'
+		};
+	});
+}
+
+/** Feature id of the body selected in the Bodies list, or null. */
+export function getSelectedBodyId() {
+	return selectedBodyId;
+}
+
+/** Feature id of the body hovered in the Bodies list, or null. */
+export function getHoveredBodyId() {
+	return hoveredBodyId;
+}
+
+/**
+ * Select a whole body for highlighting (by its producing feature id). Pass null
+ * to clear. Selecting a body clears any face/edge-level selection so the
+ * whole-body highlight reads cleanly.
+ * @param {string | null} featureId
+ */
+export function selectBody(featureId) {
+	selectedBodyId = featureId;
+	if (featureId) {
+		selectedRefs = [];
+	}
+}
+
+/**
+ * Set the hovered body (by producing feature id), or null to clear.
+ * @param {string | null} featureId
+ */
+export function setHoveredBodyId(featureId) {
+	hoveredBodyId = featureId;
+}
+
 export function isEngineReady() {
 	return engineReady;
 }
@@ -884,6 +938,9 @@ export function selectRef(ref, additive = false) {
 		return;
 	}
 
+	// Any explicit face/edge selection supersedes a whole-body highlight.
+	selectedBodyId = null;
+
 	if (!ref) {
 		selectedRefs = [];
 		return;
@@ -929,6 +986,7 @@ export function selectRef(ref, additive = false) {
  */
 export function clearSelection() {
 	selectedRefs = [];
+	selectedBodyId = null;
 }
 
 /**

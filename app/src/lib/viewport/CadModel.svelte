@@ -15,7 +15,9 @@
 		getSelectOtherState,
 		setSelectOtherState,
 		getProfilePickMode,
-		isProjectToolActive
+		isProjectToolActive,
+		getSelectedBodyId,
+		getHoveredBodyId
 	} from '$lib/engine/store.svelte.js';
 	import { SIDE_FACE_GROUP_THRESHOLD } from '$lib/config.js';
 
@@ -23,6 +25,8 @@
 	const HOVER_COLOR = new THREE.Color(0xaabbdd);
 	const SELECTED_COLOR = new THREE.Color(0x44aaff);
 	const PICK_HOVER_COLOR = new THREE.Color(0x55cc88);
+	const BODY_SELECTED_COLOR = new THREE.Color(0x44aaff);
+	const BODY_HOVER_COLOR = new THREE.Color(0x6fc0ff);
 
 	/**
 	 * Check if a GeomRef is a SideFace role.
@@ -228,12 +232,38 @@
 		}));
 	});
 
-	// Build material arrays reactively based on hover/selection/sketch-mode
+	/**
+	 * Build a single material that highlights an entire body. Returned as a
+	 * one-element array so the template binds it as a single Material (three.js
+	 * then applies it across all geometry groups, ignoring face ranges).
+	 */
+	function makeBodyMaterial(color) {
+		return [
+			new THREE.MeshStandardMaterial({
+				color,
+				metalness: 0.3,
+				roughness: 0.6,
+				side: THREE.DoubleSide
+			})
+		];
+	}
+
+	// Build material arrays reactively based on hover/selection/sketch-mode.
+	// A whole-body selection/hover (from the Bodies list) overrides per-face
+	// materials for the matching mesh, but never while in sketch mode.
 	let meshMaterials = $derived.by(() => {
 		const hRef = getHoveredRef();
 		const sRefs = getSelectedRefs();
 		const inSketch = getSketchMode()?.active ?? false;
-		return engineMeshes.map((m) => buildMaterials(m.faceRanges, hRef, sRefs, inSketch));
+		const selectedBody = getSelectedBodyId();
+		const hoveredBody = getHoveredBodyId();
+		return engineMeshes.map((m) => {
+			if (!inSketch && m.featureId) {
+				if (m.featureId === selectedBody) return makeBodyMaterial(BODY_SELECTED_COLOR);
+				if (m.featureId === hoveredBody) return makeBodyMaterial(BODY_HOVER_COLOR);
+			}
+			return buildMaterials(m.faceRanges, hRef, sRefs, inSketch);
+		});
 	});
 
 	let showTestBox = $derived(engineMeshes.length === 0);
