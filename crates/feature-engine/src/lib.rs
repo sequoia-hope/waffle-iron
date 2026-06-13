@@ -10,8 +10,9 @@ use uuid::Uuid;
 
 use modeling_ops::{KernelBundle, OpResult};
 
-use crate::types::{EngineError, FeatureTree, Operation};
+use crate::types::{EngineError, Feature, FeatureTree, Operation};
 use crate::undo::{Command, UndoStack};
+use waffle_types::{Anchor, OutputKey};
 
 /// The parametric modeling engine.
 ///
@@ -28,6 +29,10 @@ pub struct Engine {
     pub errors: Vec<(Uuid, String)>,
     /// Feature IDs consumed by a later boolean (should not be rendered).
     pub consumed_features: std::collections::HashSet<Uuid>,
+    /// Transient (NOT persisted) inherited body names, keyed by body id. When a
+    /// boolean/merge consumes a target body that has a custom name, the result
+    /// body inherits it. Recomputed on every rebuild and rename.
+    inherited_body_names: HashMap<String, String>,
     /// Undo/redo history.
     undo_stack: UndoStack,
 }
@@ -41,6 +46,7 @@ impl Engine {
             warnings: Vec::new(),
             errors: Vec::new(),
             consumed_features: std::collections::HashSet::new(),
+            inherited_body_names: HashMap::new(),
             undo_stack: UndoStack::new(),
         }
     }
@@ -186,6 +192,92 @@ impl Engine {
             old_name,
             new_name: new,
         });
+        self.recompute_body_name_inheritance();
+    }
+
+    /// Resolved name override for a body: the explicit user override if set,
+    /// else a name inherited from a consumed target body. `None` ⇒ the caller
+    /// should derive a name from the producing feature. This is the single
+    /// resolution point consulted by the render layer.
+    pub fn display_body_name_override(&self, body_id: &str) -> Option<&str> {
+        self.tree
+            .body_name_override(body_id)
+            .or_else(|| self.inherited_body_names.get(body_id).map(String::as_str))
+    }
+
+    /// The target body a feature consumes (for name inheritance), as
+    /// `(target_feature_id, target_body_id)`: `BooleanCombine`'s first operand
+    /// (`body_a`), or the most-recent prior solid for a merge/cut
+    /// extrude/revolve. `None` if the feature consumes nothing.
+    fn consume_target_body_id(&self, feature: &Feature) -> Option<(Uuid, String)> {
+        match &feature.operation {
+            Operation::BooleanCombine { params } => {
+                if let Anchor::FeatureOutput {
+                    feature_id,
+                    output_key,
+                } = &params.body_a.anchor
+                {
+                    Some((*feature_id, FeatureTree::body_id(*feature_id, output_key)))
+                } else {
+                    None
+                }
+            }
+            Operation::Extrude { params } if params.merge || params.cut => {
+                rebuild::find_consumed_feature_ids(feature, &self.feature_results, &self.tree)
+                    .first()
+                    .map(|fid| (*fid, FeatureTree::body_id(*fid, &OutputKey::Main)))
+            }
+            Operation::Revolve { params } if params.merge || params.cut => {
+                rebuild::find_consumed_feature_ids(feature, &self.feature_results, &self.tree)
+                    .first()
+                    .map(|fid| (*fid, FeatureTree::body_id(*fid, &OutputKey::Main)))
+            }
+            _ => None,
+        }
+    }
+
+    /// Recompute the transient body-name inheritance map. When a feature's Main
+    /// result consumes a target body that carries a CUSTOM name (an explicit
+    /// override, or itself inherited from one), the result inherits it — unless
+    /// the result has its own explicit override. Derived (uncustomized) target
+    /// names do NOT propagate. Built in feature order so inheritance chains
+    /// (A→C→E); a feature only ever consumes earlier features.
+    fn recompute_body_name_inheritance(&mut self) {
+        let mut inherited: HashMap<String, String> = HashMap::new();
+        // Resolved custom name per body id, accumulated in feature order.
+        let mut custom: HashMap<String, String> = HashMap::new();
+
+        for feature in &self.tree.features {
+            let Some(result) = self.feature_results.get(&feature.id) else {
+                continue;
+            };
+            for (key, _body) in &result.outputs {
+                let body_id = FeatureTree::body_id(feature.id, key);
+                let explicit = self.tree.body_names.get(&body_id).cloned();
+                let inherited_name = if *key == OutputKey::Main {
+                    self.consume_target_body_id(feature)
+                        // Only inherit when the target was actually consumed —
+                        // a failed union leaves both bodies separate (no theft).
+                        .filter(|(tfid, _)| self.consumed_features.contains(tfid))
+                        .and_then(|(_, tid)| custom.get(&tid).cloned())
+                } else {
+                    None
+                };
+
+                // The body's resolved custom name (if any) propagates downstream.
+                if let Some(name) = explicit.clone().or_else(|| inherited_name.clone()) {
+                    custom.insert(body_id.clone(), name);
+                }
+                // Record an inheritance only where the user set no explicit name.
+                if explicit.is_none() {
+                    if let Some(name) = inherited_name {
+                        inherited.insert(body_id, name);
+                    }
+                }
+            }
+        }
+
+        self.inherited_body_names = inherited;
     }
 
     /// Set rollback index and rebuild. Not undoable.
@@ -374,6 +466,7 @@ impl Engine {
         self.warnings = state.warnings;
         self.errors = state.errors;
         self.consumed_features = state.consumed_features;
+        self.recompute_body_name_inheritance();
     }
 
     /// Full rebuild from scratch (clears all results first).

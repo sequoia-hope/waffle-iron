@@ -635,7 +635,7 @@ pub fn get_body_metadata() -> String {
 
             let name = body_id
                 .as_deref()
-                .and_then(|id| tree.body_name_override(id))
+                .and_then(|id| engine.state.engine.display_body_name_override(id))
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| {
                     let base = tree

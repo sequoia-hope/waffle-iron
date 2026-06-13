@@ -771,7 +771,7 @@ fn find_latest_solid_handle(
 /// Returns IDs of features whose bodies are consumed by this operation.
 /// For extrude with merge/cut, this is the single merge target.
 /// For BooleanCombine, both body_a and body_b are consumed.
-fn find_consumed_feature_ids(
+pub(crate) fn find_consumed_feature_ids(
     feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
     tree: &FeatureTree,

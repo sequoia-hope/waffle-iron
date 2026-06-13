@@ -4250,3 +4250,86 @@ fn through_all_with_suppressed_target_still_works() {
         engine.errors
     );
 }
+
+// ── 2b: body-name inheritance through a consuming boolean ────────────────
+
+/// Build sketch→extrude (x2) then a BooleanCombine union (body_a = e1, the
+/// target). Returns (engine, e1, e2, bool_id). Both operands are consumed.
+fn engine_with_union() -> (Engine, Uuid, Uuid, Uuid) {
+    let mut engine = Engine::new();
+    let mut kernel = MockKernel::new();
+    let s1 = engine
+        .add_feature("Sketch 1".into(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let e1 = engine
+        .add_feature("Extrude 1".into(), make_extrude_op(s1), &mut kernel)
+        .unwrap();
+    let s2 = engine
+        .add_feature("Sketch 2".into(), make_sketch_op(), &mut kernel)
+        .unwrap();
+    let e2 = engine
+        .add_feature("Extrude 2".into(), make_extrude_op(s2), &mut kernel)
+        .unwrap();
+    let bool_id = engine
+        .add_feature(
+            "Boolean Union".into(),
+            make_boolean_union(e1, e2),
+            &mut kernel,
+        )
+        .unwrap();
+    assert!(
+        engine.consumed_features.contains(&e1),
+        "union consumes body_a"
+    );
+    (engine, e1, e2, bool_id)
+}
+
+#[test]
+fn body_name_inherited_from_consumed_target() {
+    let (mut engine, e1, _e2, bool_id) = engine_with_union();
+    let e1_body = FeatureTree::body_id(e1, &OutputKey::Main);
+    let result_body = FeatureTree::body_id(bool_id, &OutputKey::Main);
+
+    // Name the target operand; the union result inherits it.
+    engine.rename_body(e1_body, "Housing".to_string());
+    assert_eq!(
+        engine.display_body_name_override(&result_body),
+        Some("Housing")
+    );
+    // Inherited, not an explicit override on the result.
+    assert_eq!(engine.tree.body_name_override(&result_body), None);
+}
+
+#[test]
+fn only_target_operand_name_is_inherited() {
+    // A name on body_b (the tool, not the target) must NOT propagate.
+    let (mut engine, _e1, e2, bool_id) = engine_with_union();
+    let e2_body = FeatureTree::body_id(e2, &OutputKey::Main);
+    let result_body = FeatureTree::body_id(bool_id, &OutputKey::Main);
+
+    engine.rename_body(e2_body, "Tool".to_string());
+    assert_eq!(engine.display_body_name_override(&result_body), None);
+}
+
+#[test]
+fn explicit_override_beats_inherited_name() {
+    let (mut engine, e1, _e2, bool_id) = engine_with_union();
+    let e1_body = FeatureTree::body_id(e1, &OutputKey::Main);
+    let result_body = FeatureTree::body_id(bool_id, &OutputKey::Main);
+
+    engine.rename_body(e1_body, "Housing".to_string());
+    engine.rename_body(result_body.clone(), "Result".to_string());
+    assert_eq!(
+        engine.display_body_name_override(&result_body),
+        Some("Result")
+    );
+}
+
+#[test]
+fn derived_target_name_does_not_propagate() {
+    // No custom name on the target ⇒ the result has no inherited name (it falls
+    // back to its own derived feature name at the render layer).
+    let (engine, _e1, _e2, bool_id) = engine_with_union();
+    let result_body = FeatureTree::body_id(bool_id, &OutputKey::Main);
+    assert_eq!(engine.display_body_name_override(&result_body), None);
+}
