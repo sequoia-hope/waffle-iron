@@ -1,5 +1,10 @@
 # Sub-project 13: Agent-Driven Development Infrastructure
 
+> **Status:** the milestones below are an accurate **as-built** snapshot (all
+> closed). **Active forward work** (assay per-test 30s timeout + `TIMEOUT`
+> category + `--fast` baseline) is tracked in
+> `docs/prototype_release_roadmap.md` (Phase A).
+
 ## Milestones
 
 ### M1: Crate Skeleton + Helpers + STL Export ✅

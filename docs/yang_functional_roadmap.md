@@ -1755,6 +1755,58 @@ swapped every consumer to `predicates::indirect`).
     (R0009), 2 patch folds (F0042/F0045, KV9-F2), singles F0041/F0057/
     F0058/F0059/R0067.
 
+- **KV12 — arc-segment profile extrude (gears).** 🔜 **PLANNED.** `make_faces_from_profiles`
+  walls `ClosedProfile`s carrying `arc_segments` (`adapter.rs:645`) — the gear
+  case. A gear profile already carries a complete sampled `vertex_ids` polygon;
+  `arc_segments` are annotations indexing into it (`ArcSegment.start_index/
+  end_index`), exactly like the `spline_segments` form PR-KV8 already extrudes.
+  - **Tier 1 (chord-approx, the unblock):** when `arc_segments` is present AND a
+    valid `vertex_ids` polygon exists, route through the existing polygon path
+    (treat arcs like splines). The chords are the samples the solver/viewport
+    already use — no new approximation; documented/loud, not silent. Bores = an
+    inner loop of the profile (single extrude, no boolean). Sufficient for 3D
+    printing (slicers tessellate). Small, localized adapter change.
+  - **Tier 2 (exact):** new `ProfileRegion::ArcPolygon` variant + an extrude
+    assembler that emits arc-bearing planar caps + per-edge walls (planar for
+    segments, **cylinder patch** for arcs — an arc swept along the normal is a
+    cylinder lateral). Surface vocab (cylinder faces, planar-arc caps,
+    `signed_volume` for arc faces), and the template assembler (the revolve
+    partial-angle branch, `construct.rs:571–684`) already exist. Bulk of the cost
+    is **exact arc-loop simplicity validation** (arc–segment / arc–arc
+    intersection predicates) — the only piece without scaffolding (P9: exact, not
+    sampled). Downstream: extruded-arc solids as boolean operands hit the KV7
+    curved partial-patch re-entry wall — a separate gap.
+  - **Sequencing:** Tier 1 is the gearbox unblock (prototype-release Phase B);
+    Tier 2 is a quality follow-up (Phase E). Scoped to extrude-only — booleans on
+    the result are out of scope. **Comes before KV6 revolve** (independent).
+    Driven by `docs/prototype_release_roadmap.md`.
+
+- **KV13 — provenance / topological naming (face → creating feature).** 🔜 **PLANNED.**
+  "Click any face → the feature that *introduced* it, through chained
+  booleans/extrudes," + the inverse (feature → its faces), surviving rebuilds.
+  The persistent-naming problem (`docs/PERSISTENT-NAMING.md`). Capstone of the
+  prototype-release arc (Phase F); week-scale, multi-subagent.
+  - **Substrate (exists):** yang-rs `TriangleAttribution` `(InputId, input_face_idx)`
+    per output triangle; modeling-ops `Provenance` (`created`/`deleted`/`modified`
+    with `Rewrite{before,after,reason}` + `role_assignments`); GeomRef `Role`/
+    `Signature` selectors.
+  - **Work:** (F1) `FaceOrigin { created_by, derived_from }` keyed on persistent
+    identity, not churning `KernelId`. (F2) boolean origin attribution via
+    `TriangleAttribution` → operand `feature_id`; new cut-faces → the boolean
+    feature; inherited faces chain back (loud on `None`-attribution, P9).
+    (F3) lineage propagation across rebuild (feature-engine, re-derived per
+    rebuild like body-name inheritance). (F4) **persistent identity hardening**
+    (the long pole — survive upstream-sketch edits; pragmatic role+signature
+    scope, short of full Parasolid-grade naming, boundary documented).
+    (F5) `get_face_data` emits resolved `created_by_feature`. (F6) UI: face →
+    feature highlight + inverse. (F7) verification matrix incl. edit-and-reresolve
+    + adversarial no-mislabel.
+  - **Note:** a coarse **Tier 1** (click face → the body's *producing* feature
+    via the GeomRef anchor already on the wire) is a separate cheap app-only win
+    (prototype-release Phase D), exact for single-feature bodies; KV13 is the
+    full through-boolean lineage. Strictly after the gearbox.
+    Driven by `docs/prototype_release_roadmap.md`.
+
 ## 4b. Completion roadmap — Phases 1–6 (the full path to replacing legacy)
 
 The M0–M8 list above is the *milestone* sequence for the boolean. This section is
@@ -2132,6 +2184,9 @@ This re-charting touched:
 | `crates/indirect-predicates-sidecar-rs/CLAUDE.md` | predicates demand-driven; clean-room/WASM end-state |
 | `docs/yang_deviations.md` | appended interim labels-from-sidecar deviation |
 | `Dockerfile` + `scripts/build_sidecars.sh` | operationalize parity (thin image + build script) |
+| `docs/prototype_release_roadmap.md` | **NEW** — epic doc for the planetary-gearbox / prototype-release arc; sequences kernel (KV12/KV13) + app/UX + tooling phases toward the 3D-print acceptance test |
+| §4 KV12 / KV13 (this file) | added planned stubs — arc-segment profile extrude (gears) and provenance/topological naming — driven by the prototype-release roadmap |
+| `projects/{04-3d-viewport,08-ui-chrome,13-dev-infrastructure}/PLAN.md` | pointer line → active forward work tracked in `prototype_release_roadmap.md` (those PLANs are accurate as-built snapshots, all milestones closed) |
 
 ## 8. Deviations from Yang 2025
 

@@ -38,6 +38,7 @@ Located in `/governance/`, not `docs/`:
 
 | File | Description |
 |------|-------------|
+| `prototype_release_roadmap.md` | Cross-cutting epic: path to the planetary-gearbox / prototype-release demo (sequences kernel KV12/KV13 + app/UX + tooling) |
 | `SELECTION-ENHANCEMENT-PLAN.md` | Interactive viewport picking and face region selection |
 | `SKETCH-SYSTEM-PLAN.md` | Sketch system development roadmap (also listed under Architecture) |
 | `PROMPTING.md` | Recommendations for backlog management and agent workflow |

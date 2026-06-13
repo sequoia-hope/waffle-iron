@@ -1,5 +1,9 @@
 # 04 — 3D Viewport: Plan
 
+> **Status:** the milestones below are an accurate **as-built** snapshot (all
+> closed). **Active forward work** (per-body STL export, face→feature highlight)
+> is tracked in `docs/prototype_release_roadmap.md` (Phases C, D).
+
 ## Milestones
 
 ### M1: Basic Setup

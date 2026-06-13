@@ -1,5 +1,9 @@
 # 08 — UI Chrome: Plan
 
+> **Status:** the milestones below are an accurate **as-built** snapshot (all
+> closed). **Active forward work** (Bodies list, right-click body → export STL)
+> is tracked in `docs/prototype_release_roadmap.md` (Phase C).
+
 ## Milestones
 
 ### M1: Application Shell Layout ✅
