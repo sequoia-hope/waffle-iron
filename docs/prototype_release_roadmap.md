@@ -63,18 +63,14 @@ Homes: `projects/04-3d-viewport/PLAN.md`, `projects/08-ui-chrome/PLAN.md`.
 - **C2 — ring (internal) gear.** Two sub-findings (2026-06-13):
   - *Non-convex tooth profile:* ✅ extrudes — gear caps are non-convex simple
     polygons and already work (generate_gear_profile gear-extrude tests + KV12).
-  - *The hole (annulus):* ⚠️ **FINDING — single-sketch holed extrude is NOT
-    assembled by the adapter.** `make_faces_from_profiles` builds each
-    `ClosedProfile` as a hole-less `Profile::new(.., Vec::new())` and ignores
-    `is_outer`. kernel-v2 `extrude` DOES support holes (kv3 `make_holed_prism`),
-    but the app path never feeds outer+inner loops as one holed profile — so a
-    plate-with-bore / ring-gear drawn as one sketch with two loops does not
-    extrude as an annulus. **Achievable path for now:** build the ring by
-    **extrude-cut** (disk minus the gear-tooth tool) — KV12 extrudes the tool,
-    the cut is a boolean. **Follow-up (`KV14` — adapter hole assembly):** group
-    `is_outer=false` loops into their containing outer and build
-    `Profile::new(outer, holes)`, with the `profile_index` contract preserved.
-    Not yet scheduled; decide priority vs. the extrude-cut workaround.
+  - *The hole (annulus):* ✅ **DONE — `KV14` adapter hole assembly (2026-06-13).**
+    `make_faces_from_profiles` now groups inner (`is_outer=false`) loops into the
+    strictly-larger containing outer and builds one holed `Profile::new(outer,
+    holes)` — so a ring gear / plate-with-bore drawn as ONE sketch extrudes as an
+    annulus. Robust against the region-detector's redundant same-loop pairing
+    (area filter + centroid witness); `profile_index` contract preserved; circle
+    rims with holes polygonized. Tests: kernel annulus-volume + GUI nested-rect
+    `holed-extrude.spec.js`. Detail: `yang_functional_roadmap.md` KV14.
 - **C3 — right-click a body in the Bodies list → Export STL** ✅ DONE
   (2026-06-13). Per-body export by persistent body id; whole-model `ExportStl`
   now merges all renderable bodies (was last-body-only). GUI

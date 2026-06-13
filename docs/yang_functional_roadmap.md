@@ -1811,6 +1811,26 @@ swapped every consumer to `predicates::indirect`).
     full through-boolean lineage. Strictly after the gearbox.
     Driven by `docs/prototype_release_roadmap.md`.
 
+- **KV14 — adapter hole assembly (single-sketch holed extrude / ring gears).**
+  ✅ **DONE (2026-06-13).** `make_faces_from_profiles` previously built every
+  `ClosedProfile` as a hole-less `Profile` (passed empty holes, ignored
+  `is_outer`), so a plate-with-bore / ring gear drawn as one sketch did not
+  extrude as an annulus (kernel-v2 `extrude` always supported holes — the gap
+  was adapter-side). Now a three-pass assembler: (1) classify each profile
+  (circle / polygon, `is_outer`); (2) group each inner (`is_outer=false`) loop
+  into the **strictly-larger** containing outer (centroid witness + area filter
+  — rejects the app region-detector's redundant same-loop pairing, where a loop
+  is emitted as both outer and hole); (3) stage one `Profile::new(outer, holes)`
+  per outer, output aligned 1:1 with input profiles (the `profile_index`
+  contract). A circle rim that carries holes is polygonized (64-gon) since a
+  holed circle needs a polygon outer; plain circles stay exact. `Profile::new`
+  remains the exact gate (containment/disjointness/nesting + CCW-normalize), so
+  the f64 grouping can't produce a wrong solid. Tests: `kv8_gear_profile.rs`
+  holed-square→annulus (volume == (outer−hole)×depth, output len == input len);
+  GUI `holed-extrude.spec.js` (two nested rects → annulus, inner-wall face
+  count). kernel-v2 (17 bins) + test-harness (29) + GUI (46) green; WASM
+  rebuilt. Resolves prototype-release C2.
+
 ## 4b. Completion roadmap — Phases 1–6 (the full path to replacing legacy)
 
 The M0–M8 list above is the *milestone* sequence for the boolean. This section is

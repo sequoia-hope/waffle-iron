@@ -10,15 +10,17 @@
 //! traits (moved here from test-harness, where it was built at PR-KV4). It
 //! maps trait calls onto kernel-v2 operations, and returns
 //! `KernelError::NotSupported` LOUDLY for anything kernel-v2 does not yet
-//! `KernelError::NotSupported` LOUDLY for anything kernel-v2 does not yet
-//! implement. The adapter MAPS; it never repairs, approximates, or stubs a
-//! result (no polygonized circles, no fake revolve).
+//! implement. The adapter MAPS; it never repairs or stubs a result (no fake
+//! revolve). The two deliberate, documented exceptions are sampled-polygon
+//! gear extrudes (KV12 — arc/spline profiles carry their own chord samples)
+//! and polygonizing a circle RIM only when it carries holes (KV14 — a holed
+//! circle needs a polygon outer); plain circles stay exact.
 //!
 //! ## Per-method coverage table
 //!
 //! | Legacy trait method | Status | Mapping |
 //! |---|---|---|
-//! | `make_faces_from_profiles` | SUPPORTED (polygon + circle profiles, PR-KV5b) | `ClosedProfile` polygon → `kernel_v2::Profile::new`; `CircleProfile` → `kernel_v2::Profile::circle` (staged); arc-segment / spline profiles → `NotSupported` |
+//! | `make_faces_from_profiles` | SUPPORTED (polygon + circle + arc/spline-via-polygon + holed regions) | `ClosedProfile` polygon → `kernel_v2::Profile::new`; `CircleProfile` → `Profile::circle` (staged); arc/spline-annotated profiles extrude via their `vertex_ids` chord polygon (KV12); inner (`is_outer=false`) loops are grouped into the strictly-larger outer that contains them → one holed `Profile` (KV14); arc/spline WITHOUT a `vertex_ids` polygon → `NotSupported` |
 //! | `extrude_face` | SUPPORTED | staged profile → `kernel_v2::extrude` (sweep vector = `direction · depth`, exactly the legacy semantics); circle profiles → cylinder solids (PR-KV5a) |
 //! | `revolve_face` | SUPPORTED (PR-KV6a) | staged polygon profile → `kernel_v2::revolve` (degrees → radians; world-space in-plane axis). Typed walls: oblique edges (cones, KV6c), circle profiles (torus, KV6d), holed profiles → `NotSupported`; axis touching/crossing the profile and out-of-range angles → `KernelError::Other` (INVALID INPUT — the F0073/F0074 expected-rebuild-error path, never the NotSupported marker) |
 //! | `boolean_union` / `_subtract` / `_intersect` | SUPPORTED (non-coplanar; cylinder×box class PR-KV5b) | `kernel_v2::boolean_op` (yang-rs native pipeline); coplanar input face pairs → `NotSupported` (Yang Stage 0 / roadmap M8); curved partial-patch RESULT operands → `NotSupported` (no yang Stage-1 re-entry); cylinder×cylinder / oblique-ellipse sections → `BooleanFailed` carrying the typed wall text |
@@ -615,66 +617,53 @@ impl Kernel for KernelV2Adapter {
             n[0] * x[1] - n[1] * x[0],
         ];
 
-        let mut out = Vec::with_capacity(profiles.len());
+        // Build the plane frame once (shared by every staged profile).
+        let origin = Point3::new(plane_origin[0], plane_origin[1], plane_origin[2]);
+        let ux = Vector3::new(x[0], x[1], x[2]);
+        let vy = Vector3::new(y[0], y[1], y[2]);
+
+        // A profile's planar shape, classified before staging so KV14 can group
+        // inner loops into the outer that contains them.
+        enum Shape {
+            Circle { center: Point2, radius: f64 },
+            Polygon { pts: Vec<Point2>, is_outer: bool },
+        }
+
+        // ── pass 1: classify each profile (capability walls fire here) ──────
+        let mut shapes: Vec<Shape> = Vec::with_capacity(profiles.len());
         for profile in profiles {
-            // PR-KV5b: circle profiles map to kernel-v2's validated circle
-            // profile (legacy semantics: center in sketch-plane (u, v)
-            // coordinates, radius in meters, same plane frame as polygons).
+            // PR-KV5b: circle profiles (legacy semantics: center in (u, v),
+            // radius in meters).
             if let Some(circle) = &profile.circle {
-                let kv2_profile = crate::Profile::circle(
-                    Point3::new(plane_origin[0], plane_origin[1], plane_origin[2]),
-                    Vector3::new(x[0], x[1], x[2]),
-                    Vector3::new(y[0], y[1], y[2]),
-                    Point2::new(circle.center_u, circle.center_v),
-                    circle.radius,
-                )
-                .map_err(|e| KernelError::Other {
-                    message: format!("kernel-v2 circle profile rejected: {e}"),
-                })?;
-                let idx = self.next_staged;
-                self.next_staged += 1;
-                self.staged.insert(idx, kv2_profile);
-                out.push(KernelId(TAG_PROFILE | idx));
+                shapes.push(Shape::Circle {
+                    center: Point2::new(circle.center_u, circle.center_v),
+                    radius: circle.radius,
+                });
                 continue;
             }
-            // KV12 Tier 1 — arc-segment profile extrude (gears). An arc-segment
-            // profile carries a fully sampled `vertex_ids` polygon (the app
-            // samples each arc into 16 chord points — the SAME points the
-            // sketch solver and viewport use) plus `arc_segments` annotations
-            // that index into it (for a future cylinder-walled extrude). Accept
-            // it via that authored polygon, exactly like the spline-annotated
-            // gears below (PR-KV8): extruding the chord polygon introduces NO
-            // new sampling or approximation — the samples already exist. Without
-            // a `vertex_ids` polygon there is nothing to extrude, so stay walled
-            // loudly. (Tier 2 — exact arc → cylindrical side walls + arc-bearing
-            // caps — is its own milestone; see KV12 in
-            // docs/yang_functional_roadmap.md.)
+            // KV12 Tier 1 — an arc-segment profile carries a fully sampled
+            // `vertex_ids` polygon (16 chord points per arc — the same points
+            // the solver/viewport use); accept it via that polygon, exactly
+            // like the spline-annotated gears. Without a polygon there is
+            // nothing to extrude — stay walled. (Tier 2, exact arc → cylinder
+            // walls, is its own milestone; see KV12.)
             if !profile.arc_segments.is_empty() && profile.vertex_ids.is_empty() {
                 return Err(Self::not_supported(
                     "make_faces_from_profiles: arc-segment profile without an authored \
                      vertex_ids polygon",
                 ));
             }
-            // PR-KV8: spline-ANNOTATED profiles (gears) are accepted via
-            // their authored polygon. A gear `ClosedProfile`'s `vertex_ids`
-            // is the complete boundary polygon (involute flank samples +
-            // arc-endpoint chords from `generate_gear_profile` — the same
-            // canonical polygon the sketch solver and viewport use); the
-            // `SplineSegment` entries are fitted-control-point annotations
-            // over it for a NURBS-capable kernel. Consuming `vertex_ids`
-            // exactly introduces NO new sampling or approximation: the
-            // solid IS the extrusion of the authored polygon (exact
-            // simple-polygon validation, exact ear-clip caps, exact
-            // shoelace area). Without `vertex_ids` the annotation cannot be
-            // honored — stay walled loudly.
+            // PR-KV8: spline-annotated profiles (gears) extrude via their
+            // authored `vertex_ids` polygon; without one, stay walled.
             if !profile.spline_segments.is_empty() && profile.vertex_ids.is_empty() {
                 return Err(Self::not_supported(
-                    "make_faces_from_profiles: spline-segment profile without an authored                      vertex_ids polygon",
+                    "make_faces_from_profiles: spline-segment profile without an authored \
+                     vertex_ids polygon",
                 ));
             }
 
-            // Vertex key selection mirrors the legacy kernel: prefer
-            // vertex_ids, fall back to entity_ids, then sorted position keys.
+            // Vertex key selection: prefer vertex_ids, fall back to entity_ids,
+            // then sorted position keys.
             let keys: Vec<u32> = if !profile.vertex_ids.is_empty()
                 && profile
                     .vertex_ids
@@ -704,22 +693,120 @@ impl Kernel for KernelV2Adapter {
             let pts2: Vec<Point2> = keys
                 .iter()
                 .map(|k| {
-                    let (u, v) = positions[k];
-                    Point2::new(u, v)
+                    let (pu, pv) = positions[k];
+                    Point2::new(pu, pv)
                 })
                 .collect();
+            shapes.push(Shape::Polygon {
+                pts: pts2,
+                is_outer: profile.is_outer,
+            });
+        }
 
-            let kv2_profile = crate::Profile::new(
-                Point3::new(plane_origin[0], plane_origin[1], plane_origin[2]),
-                Vector3::new(x[0], x[1], x[2]),
-                Vector3::new(y[0], y[1], y[2]),
-                pts2,
-                Vec::new(),
-            )
-            .map_err(|e| KernelError::Other {
-                message: format!("kernel-v2 profile rejected: {e}"),
-            })?;
+        // ── pass 2 (KV14): assign each inner loop to its containing outer ───
+        // A single sketch's holed region arrives as an `is_outer` outer plus
+        // `is_outer=false` inner loops. Attach each inner to the SMALLEST outer
+        // whose interior contains it (witness vertex). Grouping is an f64
+        // heuristic — `Profile::new` validates containment/disjointness/nesting
+        // exactly and CCW-normalizes every loop, so a mis-assignment fails loud.
+        let shape_is_outer = |s: &Shape| match s {
+            Shape::Circle { .. } => true,
+            Shape::Polygon { is_outer, .. } => *is_outer,
+        };
+        let shape_area = |s: &Shape| -> f64 {
+            match s {
+                Shape::Circle { radius, .. } => std::f64::consts::PI * radius * radius,
+                Shape::Polygon { pts, .. } => polygon_area_abs(pts),
+            }
+        };
+        let outer_contains = |s: &Shape, p: Point2| -> bool {
+            match s {
+                Shape::Circle { center, radius } => {
+                    let dx = p.x() - center.x();
+                    let dy = p.y() - center.y();
+                    dx * dx + dy * dy < radius * radius
+                }
+                Shape::Polygon { pts, is_outer } => *is_outer && point_in_polygon_2d(p, pts),
+            }
+        };
+        let mut holes_for: std::collections::HashMap<usize, Vec<Vec<Point2>>> =
+            std::collections::HashMap::new();
+        for i in 0..shapes.len() {
+            if let Shape::Polygon {
+                pts,
+                is_outer: false,
+            } = &shapes[i]
+            {
+                // Witness = centroid (robustly interior, unlike a vertex which
+                // can sit on a coincident outer's boundary).
+                let n = pts.len() as f64;
+                let cx = pts.iter().map(|p| p.x()).sum::<f64>() / n;
+                let cy = pts.iter().map(|p| p.y()).sum::<f64>() / n;
+                let witness = Point2::new(cx, cy);
+                let hole_area = polygon_area_abs(pts);
+                // Candidate outers must STRICTLY enclose the hole — a real hole
+                // has strictly smaller area. This rejects the app's redundant
+                // same-loop pairing (a loop emitted as both outer and hole),
+                // which would otherwise build a degenerate hole == outer.
+                let container = (0..shapes.len())
+                    .filter(|&j| {
+                        j != i
+                            && shape_is_outer(&shapes[j])
+                            && shape_area(&shapes[j]) > hole_area * (1.0 + 1e-9)
+                            && outer_contains(&shapes[j], witness)
+                    })
+                    .min_by(|&a, &b| {
+                        shape_area(&shapes[a])
+                            .partial_cmp(&shape_area(&shapes[b]))
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    });
+                if let Some(j) = container {
+                    holes_for.entry(j).or_default().push(pts.clone());
+                }
+            }
+        }
 
+        // ── pass 3: stage one profile per input index (profile_index contract)
+        // An outer's index → its holed face; an inner's index → that inner as a
+        // standalone face (so selecting just the hole region still extrudes).
+        let mut out = Vec::with_capacity(shapes.len());
+        for (i, s) in shapes.iter().enumerate() {
+            let kv2_profile = match s {
+                Shape::Circle { center, radius } => {
+                    if let Some(holes) = holes_for.get(&i) {
+                        // A circle rim with holes needs a polygon outer to carry
+                        // them (a true holed circle): polygonize the rim.
+                        crate::Profile::new(
+                            origin,
+                            ux,
+                            vy,
+                            polygonize_circle(*center, *radius),
+                            holes.clone(),
+                        )
+                        .map_err(|e| KernelError::Other {
+                            message: format!("kernel-v2 holed circle profile rejected: {e}"),
+                        })?
+                    } else {
+                        crate::Profile::circle(origin, ux, vy, *center, *radius).map_err(|e| {
+                            KernelError::Other {
+                                message: format!("kernel-v2 circle profile rejected: {e}"),
+                            }
+                        })?
+                    }
+                }
+                Shape::Polygon { pts, is_outer } => {
+                    let holes = if *is_outer {
+                        holes_for.get(&i).cloned().unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    };
+                    crate::Profile::new(origin, ux, vy, pts.clone(), holes).map_err(|e| {
+                        KernelError::Other {
+                            message: format!("kernel-v2 profile rejected: {e}"),
+                        }
+                    })?
+                }
+            };
             let idx = self.next_staged;
             self.next_staged += 1;
             self.staged.insert(idx, kv2_profile);
@@ -727,6 +814,53 @@ impl Kernel for KernelV2Adapter {
         }
         Ok(out)
     }
+}
+
+// ── KV14 hole-assembly helpers (f64 heuristics; Profile::new is the exact gate) ─
+
+/// Even-odd point-in-polygon test. Used only to assign an inner loop to its
+/// containing outer; `Profile::new` re-checks containment exactly.
+fn point_in_polygon_2d(p: Point2, poly: &[Point2]) -> bool {
+    let n = poly.len();
+    if n < 3 {
+        return false;
+    }
+    let (px, py) = (p.x(), p.y());
+    let mut inside = false;
+    let mut j = n - 1;
+    for i in 0..n {
+        let (xi, yi) = (poly[i].x(), poly[i].y());
+        let (xj, yj) = (poly[j].x(), poly[j].y());
+        if ((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+/// Absolute shoelace area — picks the SMALLEST containing outer for a hole.
+fn polygon_area_abs(poly: &[Point2]) -> f64 {
+    let n = poly.len();
+    let mut a = 0.0;
+    let mut j = n - 1;
+    for i in 0..n {
+        a += (poly[j].x() + poly[i].x()) * (poly[j].y() - poly[i].y());
+        j = i;
+    }
+    (a * 0.5).abs()
+}
+
+/// Polygonize a circle rim into an N-gon — only when a circle outer carries
+/// holes (a true holed circle needs a polygon outer). N is print-grade.
+fn polygonize_circle(center: Point2, radius: f64) -> Vec<Point2> {
+    const N: usize = 64;
+    (0..N)
+        .map(|i| {
+            let a = std::f64::consts::TAU * (i as f64) / (N as f64);
+            Point2::new(center.x() + radius * a.cos(), center.y() + radius * a.sin())
+        })
+        .collect()
 }
 
 impl KernelIntrospect for KernelV2Adapter {

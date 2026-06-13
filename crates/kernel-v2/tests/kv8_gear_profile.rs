@@ -308,6 +308,67 @@ fn arc_segment_profile_without_vertex_ids_stays_walled() {
     );
 }
 
+/// KV14: a holed region drawn as ONE sketch — an outer `ClosedProfile` plus an
+/// inner (`is_outer=false`) hole — extrudes as an annulus (the adapter now
+/// assembles holes). Volume == (outer − hole) area × depth, and the output is
+/// aligned 1:1 with the input profiles (profile_index contract).
+#[test]
+fn holed_sketch_extrudes_as_annulus() {
+    let mut positions = HashMap::new();
+    // Outer square [-5,5]² (ids 1-4, CCW).
+    positions.insert(1, (-5.0, -5.0));
+    positions.insert(2, (5.0, -5.0));
+    positions.insert(3, (5.0, 5.0));
+    positions.insert(4, (-5.0, 5.0));
+    // Inner square hole [-2,2]² (ids 5-8).
+    positions.insert(5, (-2.0, -2.0));
+    positions.insert(6, (2.0, -2.0));
+    positions.insert(7, (2.0, 2.0));
+    positions.insert(8, (-2.0, 2.0));
+
+    let outer = waffle_types::ClosedProfile {
+        entity_ids: vec![1, 2, 3, 4],
+        is_outer: true,
+        vertex_ids: vec![1, 2, 3, 4],
+        circle: None,
+        spline_segments: vec![],
+        arc_segments: vec![],
+    };
+    let hole = waffle_types::ClosedProfile {
+        entity_ids: vec![5, 6, 7, 8],
+        is_outer: false,
+        vertex_ids: vec![5, 6, 7, 8],
+        circle: None,
+        spline_segments: vec![],
+        arc_segments: vec![],
+    };
+
+    let depth = 3.0;
+    let mut k = KernelV2Adapter::new();
+    let faces = k
+        .make_faces_from_profiles(
+            &[outer, hole],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            &positions,
+        )
+        .expect("holed sketch stages (KV14)");
+    assert_eq!(faces.len(), 2, "output aligned 1:1 with input profiles");
+
+    // The OUTER profile (index 0) carries the hole → annulus.
+    let solid = k
+        .extrude_face(faces[0], [0.0, 0.0, 1.0], depth)
+        .expect("annulus extrudes");
+    let mesh = k.tessellate(&solid, 0.001).expect("tessellate");
+    let vol = mesh_signed_volume(&mesh);
+    let expect = (10.0 * 10.0 - 4.0 * 4.0) * depth; // (outer − hole) × depth
+    assert!(
+        (vol.abs() - expect).abs() <= 1e-6 * expect,
+        "annulus volume {vol} vs exact {expect}"
+    );
+}
+
 /// KV12 Tier 1 end-to-end: an arc-segment profile extrudes to a clean prism
 /// whose volume is the authored chord polygon's area × depth (the `arc_segments`
 /// annotation is carried but the sampled polygon is what's swept).
