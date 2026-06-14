@@ -368,3 +368,176 @@ fn boolean_journal_is_deterministic() {
         .iter()
         .any(|&(_, _, k)| k == EvoKind::Same));
 }
+
+// =========================================================================
+// F3 — face lineage resolution (Pid level; feature-id binding is F5)
+// =========================================================================
+
+use kernel_v2::{descendants, face_lineage};
+
+#[test]
+fn union_face_lineage_resolves_to_an_operand_root() {
+    // Every union output face descends ONE step (the union) from an operand
+    // box face — and that operand face is a ROOT (a constructor face, no
+    // incoming edge). I.e. the union-body face resolves to the original
+    // extrude, NOT the boolean — proven here at the Pid level.
+    let mut arena = BrepArena::new();
+    let a = extrude(
+        &mut arena,
+        &shifted_square(0.0, 0.0, 2.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        2.0,
+    )
+    .expect("A");
+    let b = extrude(
+        &mut arena,
+        &shifted_square(1.0, 1.0, 2.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        2.0,
+    )
+    .expect("B");
+    let operands: HashSet<Pid> = all_faces(&a)
+        .iter()
+        .chain(all_faces(&b).iter())
+        .map(|&f| arena.face_pid(f).unwrap())
+        .collect();
+
+    let out = boolean_op(&mut arena, a.solid, b.solid, BoolOp::Union).expect("union");
+    for p in solid_face_pids(&arena, out) {
+        let lin = face_lineage(&arena.journal, p);
+        assert_eq!(
+            lin.through,
+            vec![OpTag::Boolean(BoolOp::Union)],
+            "one union step"
+        );
+        assert!(
+            operands.contains(&lin.root),
+            "root {:?} is an original box face",
+            lin.root
+        );
+        assert!(
+            !operands.contains(&p),
+            "the output face's OWN pid is fresh, not an operand's"
+        );
+    }
+}
+
+#[test]
+fn chained_subtract_resolves_through_both_booleans() {
+    // extrude→union→subtract. Each final face's root is a CONSTRUCTOR face
+    // (∈ A∪B∪C); the most recent op is always the subtract; faces that came
+    // from an original box (A/B) chain through BOTH booleans, tool (C) cut
+    // walls through only the subtract.
+    let mut arena = BrepArena::new();
+    let a = extrude(
+        &mut arena,
+        &shifted_square(0.0, 0.0, 3.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        3.0,
+    )
+    .expect("A");
+    let b = extrude(
+        &mut arena,
+        &shifted_square(2.0, 2.0, 3.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        3.0,
+    )
+    .expect("B");
+    let c = extrude(
+        &mut arena,
+        &shifted_square(4.0, 4.0, 2.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        4.0,
+    )
+    .expect("C tool");
+    let ab: HashSet<Pid> = all_faces(&a)
+        .iter()
+        .chain(all_faces(&b).iter())
+        .map(|&f| arena.face_pid(f).unwrap())
+        .collect();
+    let c_pids: HashSet<Pid> = all_faces(&c)
+        .iter()
+        .map(|&f| arena.face_pid(f).unwrap())
+        .collect();
+
+    let u = boolean_op(&mut arena, a.solid, b.solid, BoolOp::Union).expect("union");
+    let s = boolean_op(&mut arena, u, c.solid, BoolOp::Subtract).expect("subtract");
+
+    let (mut saw_two_deep, mut saw_one_deep) = (false, false);
+    for p in solid_face_pids(&arena, s) {
+        let lin = face_lineage(&arena.journal, p);
+        assert_eq!(
+            lin.through.first(),
+            Some(&OpTag::Boolean(BoolOp::Subtract)),
+            "most recent op is the subtract"
+        );
+        assert!(
+            ab.contains(&lin.root) || c_pids.contains(&lin.root),
+            "root {:?} is a constructor face",
+            lin.root
+        );
+        if ab.contains(&lin.root) {
+            assert_eq!(
+                lin.through,
+                vec![
+                    OpTag::Boolean(BoolOp::Subtract),
+                    OpTag::Boolean(BoolOp::Union)
+                ],
+                "an original-box face chains through union THEN subtract"
+            );
+            saw_two_deep = true;
+        }
+        if c_pids.contains(&lin.root) {
+            assert_eq!(
+                lin.through,
+                vec![OpTag::Boolean(BoolOp::Subtract)],
+                "tool wall: one step"
+            );
+            saw_one_deep = true;
+        }
+    }
+    assert!(
+        saw_two_deep,
+        "some original-box face survives both booleans"
+    );
+    assert!(saw_one_deep, "some tool cut wall is present");
+}
+
+#[test]
+fn inverse_descendants_finds_surviving_faces() {
+    // The inverse: a given origin face's geometry can be traced FORWARD to the
+    // current faces it produced.
+    let mut arena = BrepArena::new();
+    let a = extrude(
+        &mut arena,
+        &shifted_square(0.0, 0.0, 2.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        2.0,
+    )
+    .expect("A");
+    let b = extrude(
+        &mut arena,
+        &shifted_square(1.0, 1.0, 2.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        2.0,
+    )
+    .expect("B");
+    let a_pids: Vec<Pid> = all_faces(&a)
+        .iter()
+        .map(|&f| arena.face_pid(f).unwrap())
+        .collect();
+
+    let out = boolean_op(&mut arena, a.solid, b.solid, BoolOp::Union).expect("union");
+    let current: HashSet<Pid> = solid_face_pids(&arena, out).into_iter().collect();
+
+    // At least one of A's faces produced a live face in the union result.
+    let any_survives = a_pids.iter().any(|&root| {
+        descendants(&arena.journal, root)
+            .iter()
+            .any(|d| current.contains(d))
+    });
+    assert!(
+        any_survives,
+        "some original-A face survives into the union body"
+    );
+}

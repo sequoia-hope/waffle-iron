@@ -1,6 +1,6 @@
 # KV13 Spec — provenance / topological naming (Parasolid-grade)
 
-Status: IN PROGRESS (spec 2026-06-14; **F1+F2 DONE 2026-06-14**). Prototype-release **Phase F** (the capstone,
+Status: IN PROGRESS (spec 2026-06-14; **F1+F2+F3 DONE 2026-06-14**). Prototype-release **Phase F** (the capstone,
 strictly after the gearbox print). Scope: `crates/kernel-v2/` (persistent tags +
 operation journal — the bulk), `crates/waffle-types/` (`FaceOrigin`, a
 PID-based `Selector`), `crates/feature-engine/` (rebuild-time lineage),
@@ -146,12 +146,26 @@ sub-divided. Ship F1–F3/F5/F6 first; F4 hardens.
     operand; the journal is deterministic. yang-rs + kernel-v2 suites green.
     No app-visible change (metadata only) → no WASM rebuild.
 
-- **F3 — `FaceOrigin` for the current model.** Walk the journal lineage from a
-  face's Pid back to its `generated` origin → `created_by` feature +
-  `derived_from` chain. **Tests:** a face on a unioned body resolves to the
-  original extrude (NOT the boolean); a boolean cut face resolves to the
-  boolean; a 3-deep chain (extrude→union→subtract) resolves correctly; the
-  inverse (feature → its current faces) enumerates.
+- **F3 — face lineage resolution. ✅ DONE (2026-06-14).** `journal::face_lineage`
+  walks the `modified` edges from a face's `Pid` back to its **root** — the pid
+  with no incoming edge, where the geometry was introduced (a constructor face,
+  not a boolean-derived one) — returning `FaceLineage { root, through }`
+  (`through` = the ops traversed, newest-first). `journal::descendants` is the
+  inverse (every current face descending from a root). Both pure over the
+  journal slice; newest-first search resolves a queried output pid through the
+  most recent op first; bounded by journal length (corruption guard).
+  **Re-scope (vs the spec):** F3 is the **kernel Pid-lineage** layer. The
+  feature-id binding — `FaceOrigin { created_by: FeatureId, derived_from }`
+  mapping a root `Pid` → its creating feature, and `get_face_data` emitting it —
+  needs the feature tree the kernel does not have, so it moves into **F5**
+  (feature-engine + trait/wasm). The "resolves to the original extrude, NOT the
+  boolean" property is proven HERE at the Pid level (root == the operand's
+  constructor face pid). **Tests** (`tests/kv13_provenance.rs`): a union-body
+  face's lineage root is an original box face with `through == [Union]` (its own
+  pid is fresh, not the operand's); a 3-deep extrude→union→subtract chain
+  resolves — original-box faces chain `[Subtract, Union]`, tool cut walls
+  `[Subtract]`, every root is a constructor face; the inverse finds surviving
+  faces. kernel-v2 suite green; kernel-only, no app change / WASM rebuild.
 
 - **F4 — persistent identity across rebuild (THE long pole, Parasolid-grade).**
   Make Pids + the journal survive a feature-tree rebuild so downstream GeomRefs

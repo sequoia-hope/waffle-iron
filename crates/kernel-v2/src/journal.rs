@@ -51,3 +51,77 @@ pub struct Evolution {
     /// Input faces consumed by the operation (no output descends from them).
     pub deleted: Vec<Pid>,
 }
+
+/// The lineage of a face's persistent id (KV13 F3): the **root** pid — where
+/// the geometry was introduced (a face with no incoming `modified` edge, i.e.
+/// produced directly by a constructor, not derived through a boolean) — and
+/// the ops the geometry passed through on its way to the queried pid,
+/// **newest-first**.
+///
+/// `created_by` (the FEATURE that introduced the root) is resolved at the
+/// feature-engine layer (F5), which maps a root `Pid` → its creating feature;
+/// the kernel knows only the `Pid` lineage, not the feature tree.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FaceLineage {
+    /// The pid where this geometry was introduced (no incoming edge).
+    pub root: Pid,
+    /// Ops traversed from the queried pid back to `root`, newest-first.
+    pub through: Vec<OpTag>,
+}
+
+/// Walk the journal's `modified` edges from `pid` back to its root. Each output
+/// pid has at most one incoming edge under F2 (a merge — multiple inputs to one
+/// output — is F4c; this takes the first found and stops, documented). The
+/// search is newest-first, so a queried output pid resolves through the most
+/// recent operation first. Bounded by the journal length (the journal is a DAG
+/// — edges go older-pid → newer-pid — but the budget guards against corruption).
+pub fn face_lineage(journal: &[Evolution], pid: Pid) -> FaceLineage {
+    let mut cur = pid;
+    let mut through: Vec<OpTag> = Vec::new();
+    let mut budget = journal.len() + 1;
+    loop {
+        let mut found: Option<(Pid, OpTag)> = None;
+        'search: for ev in journal.iter().rev() {
+            for &(inp, outp, _) in &ev.modified {
+                if outp == cur {
+                    found = Some((inp, ev.op));
+                    break 'search;
+                }
+            }
+        }
+        match found {
+            Some((inp, op)) => {
+                through.push(op);
+                cur = inp;
+            }
+            None => break,
+        }
+        budget -= 1;
+        if budget == 0 {
+            break; // corruption guard; a well-formed journal terminates above
+        }
+    }
+    FaceLineage { root: cur, through }
+}
+
+/// Inverse lineage (KV13 F3): every pid that descends from `root` via the
+/// journal's `modified` edges (transitively). The caller intersects with the
+/// current solid's live face pids to get "the faces a given origin produced."
+pub fn descendants(journal: &[Evolution], root: Pid) -> Vec<Pid> {
+    use std::collections::BTreeSet;
+    let mut seen: BTreeSet<Pid> = BTreeSet::new();
+    seen.insert(root);
+    let mut frontier = vec![root];
+    let mut out = Vec::new();
+    while let Some(p) = frontier.pop() {
+        for ev in journal {
+            for &(inp, outp, _) in &ev.modified {
+                if inp == p && seen.insert(outp) {
+                    out.push(outp);
+                    frontier.push(outp);
+                }
+            }
+        }
+    }
+    out
+}

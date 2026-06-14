@@ -92,7 +92,7 @@ pub use euler::{
     kemr, kfmrh, mef, mev, mev_lone, mvfs, KemrResult, MefResult, MevResult, MvfsResult,
 };
 pub use introspect::{extract_edges, extract_edges_with_chord_tolerance, face_plane, surface_area};
-pub use journal::{EvoKind, Evolution, OpTag};
+pub use journal::{descendants, face_lineage, EvoKind, Evolution, FaceLineage, OpTag};
 pub use profile::{Profile, ProfileEdge, ProfileRegion};
 pub use tessellate::{
     circle_segment_count, tessellate, tessellate_with_chord_tolerance, FaceRange, RenderMesh,
