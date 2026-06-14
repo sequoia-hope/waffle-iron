@@ -88,11 +88,42 @@ pub const BASIS_MIN_SQ_CROSS_NORM: f64 = 1e-60;
 /// feature scale.
 pub const CIRCLE_FRAME_ORTHONORMALITY_TOLERANCE: f64 = 1e-9;
 
+/// One boundary edge of an [`ProfileRegion::ArcPolygon`] loop, in `(u, v)`
+/// plane coordinates. Edges chain head-to-tail (`edge[i].b == edge[i+1].a`,
+/// the last closing onto the first). PR-KV12 Tier 2.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ProfileEdge {
+    /// Straight segment from `a` to `b`.
+    Line {
+        /// Start point (plane coordinates).
+        a: Point2,
+        /// End point (plane coordinates).
+        b: Point2,
+    },
+    /// Circular arc from `a` to `b` about `center` of `radius`. The kernel
+    /// assembler derives the traversal sense from the geometry (the unique
+    /// MINOR arc, sweep `∈ (0, π)`); `ccw` records the intended sense for the
+    /// exact validator (E3) and is advisory at the E1/E2 assembler.
+    Arc {
+        /// Start point (on the circle).
+        a: Point2,
+        /// End point (on the circle).
+        b: Point2,
+        /// Circle center (plane coordinates).
+        center: Point2,
+        /// Circle radius (> 0).
+        radius: f64,
+        /// Intended CCW sense (around `+u × v`) of `a → b`.
+        ccw: bool,
+    },
+}
+
 /// The region a profile encloses, in `(u, v)` plane coordinates.
 ///
 /// PR-KV2 had polygons-with-holes only; PR-KV5a adds the full-circle disk
 /// (the assay corpus' 137 curved cases are all full circles → extruded
-/// cylinders). Arcs / partial profiles are a future variant — the
+/// cylinders); PR-KV12 Tier 2 adds [`ProfileRegion::ArcPolygon`] (a loop of
+/// mixed line + circular-arc edges → exact cylinder side patches). The
 /// representation is deliberately an enum so they extend it without
 /// reshaping `Profile`.
 #[derive(Debug, Clone, PartialEq)]
@@ -113,6 +144,17 @@ pub enum ProfileRegion {
         center: Point2,
         /// Radius (meters, > 0).
         radius: f64,
+    },
+    /// A closed loop of mixed [`ProfileEdge::Line`] / [`ProfileEdge::Arc`]
+    /// edges, with zero or more hole loops (PR-KV12 Tier 2). Extrudes to a
+    /// B-Rep with exact cylinder side patches for arc edges. Construction via
+    /// [`Profile::arc_polygon`]; exact self-intersection validation is
+    /// PR-KV12 increment E3.
+    ArcPolygon {
+        /// Outer boundary loop, edges chained head-to-tail.
+        outer: Vec<ProfileEdge>,
+        /// Hole loops (each chained head-to-tail).
+        holes: Vec<Vec<ProfileEdge>>,
     },
 }
 
@@ -277,6 +319,63 @@ impl Profile {
         })
     }
 
+    /// Validate and build a mixed line/arc profile (PR-KV12 Tier 2): a
+    /// closed loop of [`ProfileEdge`]s plus zero or more hole loops.
+    ///
+    /// E1 validation (loud, typed) — frame finiteness / non-degeneracy as for
+    /// [`Profile::new`], plus per loop:
+    /// 1. ≥ 2 edges (`ProfileTooFewVertices` with the loop index);
+    /// 2. head-to-tail chain closure (`ProfileArcEdgeInvalid`);
+    /// 3. every endpoint finite; each arc's `radius` finite/positive, its
+    ///    endpoints on the circle within the import band, and its sweep a
+    ///    MINOR arc `∈ (0, π)` (`ProfileArcEdgeInvalid`).
+    ///
+    /// Exact self-intersection / hole-containment validation (the analog of
+    /// `Profile::new` steps 5–7, extended to arc edges) is PR-KV12 increment
+    /// E3 — a value built here is NOT yet evidence of simplicity, only of
+    /// well-formed edges. The E1/E2 assembler is exercised on profiles that
+    /// are simple by construction (direct kernel tests).
+    pub fn arc_polygon(
+        origin: Point3,
+        u: Vector3,
+        v: Vector3,
+        outer: Vec<ProfileEdge>,
+        holes: Vec<Vec<ProfileEdge>>,
+    ) -> Result<Self, KernelV2Error> {
+        // Frame finiteness + non-degeneracy (same gate as `new` / `circle`).
+        let frame = [
+            origin.x(),
+            origin.y(),
+            origin.z(),
+            u.x(),
+            u.y(),
+            u.z(),
+            v.x(),
+            v.y(),
+            v.z(),
+        ];
+        if frame.iter().any(|c| !c.is_finite()) {
+            return Err(KernelV2Error::ProfileNotFinite);
+        }
+        let c = cross(u, v);
+        let sq = c[0] * c[0] + c[1] * c[1] + c[2] * c[2];
+        if sq < BASIS_MIN_SQ_CROSS_NORM {
+            return Err(KernelV2Error::ProfileDegenerateBasis);
+        }
+
+        validate_arc_loop(&outer, 0)?;
+        for (k, hole) in holes.iter().enumerate() {
+            validate_arc_loop(hole, k + 1)?;
+        }
+
+        Ok(Self {
+            origin,
+            u,
+            v,
+            region: ProfileRegion::ArcPolygon { outer, holes },
+        })
+    }
+
     /// Plane origin.
     pub fn origin(&self) -> Point3 {
         self.origin
@@ -380,6 +479,81 @@ fn validate_and_normalize_loop(pts: &mut [Point2], loop_index: usize) -> Result<
         }
         std::cmp::Ordering::Equal => Err(KernelV2Error::ProfileNotSimple { loop_index }),
     }
+}
+
+impl ProfileEdge {
+    /// The edge's start point (plane coordinates).
+    pub fn start(&self) -> Point2 {
+        match self {
+            ProfileEdge::Line { a, .. } | ProfileEdge::Arc { a, .. } => *a,
+        }
+    }
+
+    /// The edge's end point (plane coordinates).
+    pub fn end(&self) -> Point2 {
+        match self {
+            ProfileEdge::Line { b, .. } | ProfileEdge::Arc { b, .. } => *b,
+        }
+    }
+}
+
+/// Well-formedness of one [`ProfileEdge`] loop (PR-KV12 Tier 2, increment
+/// E1): chain closure + per-arc validity. NOT the exact simplicity check
+/// (E3). `loop_index` matches the `Profile::new` convention (0 = outer,
+/// k + 1 = hole k).
+fn validate_arc_loop(edges: &[ProfileEdge], loop_index: usize) -> Result<(), KernelV2Error> {
+    if edges.len() < 2 {
+        return Err(KernelV2Error::ProfileTooFewVertices { loop_index });
+    }
+    let n = edges.len();
+    for i in 0..n {
+        // Head-to-tail chain closure (exact: the caller shares vertices).
+        if edges[i].end() != edges[(i + 1) % n].start() {
+            return Err(KernelV2Error::ProfileArcEdgeInvalid);
+        }
+        let (a, b) = (edges[i].start(), edges[i].end());
+        if !a.x().is_finite() || !a.y().is_finite() || !b.x().is_finite() || !b.y().is_finite() {
+            return Err(KernelV2Error::ProfileArcEdgeInvalid);
+        }
+        if a == b {
+            return Err(KernelV2Error::ProfileArcEdgeInvalid);
+        }
+        if let ProfileEdge::Arc {
+            a,
+            b,
+            center,
+            radius,
+            ..
+        } = edges[i]
+        {
+            if !radius.is_finite() || radius <= 0.0 {
+                return Err(KernelV2Error::ProfileArcEdgeInvalid);
+            }
+            // Endpoints on the circle (import band, scale-relative).
+            let band = 1e-9 * radius.max(1.0);
+            for p in [a, b] {
+                let dr = ((p.x() - center.x()).powi(2) + (p.y() - center.y()).powi(2)).sqrt();
+                if (dr - radius).abs() > band {
+                    return Err(KernelV2Error::ProfileArcEdgeInvalid);
+                }
+            }
+            // Minor arc: sweep angle ∈ (0, π). `atan2(|cross|, dot)` lands in
+            // [0, π]; reject the degenerate (≈0) and the half-or-greater
+            // (≥ π) ends with a small margin.
+            let (da, db) = (
+                [a.x() - center.x(), a.y() - center.y()],
+                [b.x() - center.x(), b.y() - center.y()],
+            );
+            let cross2 = (da[0] * db[1] - da[1] * db[0]).abs();
+            let dot = da[0] * db[0] + da[1] * db[1];
+            let sweep = cross2.atan2(dot);
+            const MARGIN: f64 = 1e-9;
+            if !(MARGIN..=std::f64::consts::PI - MARGIN).contains(&sweep) {
+                return Err(KernelV2Error::ProfileArcEdgeInvalid);
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Do two distinct loops intersect or touch anywhere? (Exact; segment-pair

@@ -330,7 +330,10 @@ fn internal_gear_offsets_and_ring_extrude() {
 
     let g = generate_gear_profile(&params);
     let p = &g.profiles[0];
-    assert!(!p.is_outer, "internal gear profile is a hole (is_outer=false)");
+    assert!(
+        !p.is_outer,
+        "internal gear profile is a hole (is_outer=false)"
+    );
     assert!(p.spline_segments.is_empty() && p.arc_segments.is_empty());
 
     // Offsets: vertex radii span [tip_r, body_r].
@@ -344,8 +347,14 @@ fn internal_gear_offsets_and_ring_extrude() {
         .collect();
     let rmin = radii.iter().cloned().fold(f64::INFINITY, f64::min);
     let rmax = radii.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    assert!((rmin - tip_r).abs() < 1e-6, "inner tip radius {rmin} vs {tip_r}");
-    assert!((rmax - body_r).abs() < 1e-6, "outer body radius {rmax} vs {body_r}");
+    assert!(
+        (rmin - tip_r).abs() < 1e-6,
+        "inner tip radius {rmin} vs {tip_r}"
+    );
+    assert!(
+        (rmax - body_r).abs() < 1e-6,
+        "outer body radius {rmax} vs {body_r}"
+    );
     // Standard report fields mirror the offsets.
     assert!((g.addendum_radius - tip_r).abs() < 1e-9);
     assert!((g.dedendum_radius - body_r).abs() < 1e-9);

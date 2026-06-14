@@ -1,6 +1,6 @@
 # KV12 Tier 2 Spec — exact arc-segment profile extrude (cylinder side patches)
 
-Status: PLANNED (spec). Prototype-release Phase E.
+Status: IN PROGRESS. Prototype-release Phase E. **E1 DONE (2026-06-14).**
 Scope: `crates/kernel-v2/src/{profile,construct,geom,validate}.rs`,
 `crates/kernel-v2/src/adapter.rs` (wiring), `crates/cad-primitives` /
 `kernel-v2/exact2d.rs` (new arc predicates). NO yang-rs / boolean change.
@@ -107,12 +107,20 @@ value IS the evidence of simplicity.
 
 ## 6. Increments (each gates the next; RED→GREEN)
 
-- **E1 — single-arc assembler + caps.** `extrude` handles `ArcPolygon` for a
-  one-arc-one-or-more-lines single loop (the D-shape: diameter line + semicircle
-  arc). Direct kernel test: `validate_solid` green, watertight, **volume =
-  planar cap area × depth EXACT** (cap area via `geom::signed_volume` of the
-  arc-bearing planar face), 1 cylinder patch present (`Surface::Cylinder` with
-  exact radius). NOT wired to `make_faces` yet.
+- **E1 — single-arc assembler + caps. ✅ DONE (2026-06-14).** `extrude` handles
+  `ArcPolygon` for a one-arc-one-or-more-lines single loop. Representation
+  (`ProfileEdge` Line/Arc + `ProfileRegion::ArcPolygon` + `Profile::arc_polygon`
+  E1-level validation) in `profile.rs`; the direct assembler
+  `extrude_arc_profile` in `construct.rs` mirrors `build_partial_revolve`'s
+  half-edge/twin wiring with LINEAR seams (`af`/`ab` → `Curve::LineSegment`),
+  per-edge `Line`/`Arc` cap+wall curves, and `Surface::Plane`/`Cylinder` walls;
+  arc traversal sense (`±a` normal, cylinder `reversed`) derived from
+  `sign(((A−C)×(B−C))·a)`. Test fixture is a **quarter-disk sector** (90° MINOR
+  arc — the arena forbids the ambiguous semicircle the original spec named).
+  `tests/kv12_tier2_arc_extrude.rs`: census V=6/E=9/F=5/χ=2, exact
+  `signed_volume = πR²H/4` (≤1e-9 rel), watertight mesh, 1 cylinder patch,
+  4 typed rejections (non-minor arc, broken chain, holes→E4, oblique sweep).
+  NOT wired to `make_faces` yet (no app/WASM path).
 - **E2 — general k-edge single loop.** Multiple arcs + lines (a gear flank built
   from arcs). Generalize the seam/twin loop to k edges. Test on a rounded
   polygon and a real arc-built gear tooth.

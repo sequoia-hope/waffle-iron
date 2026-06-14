@@ -129,6 +129,31 @@ pub enum KernelV2Error {
     /// so right cylinders are corpus-complete.)
     ExtrudeObliqueCircleUnsupported,
 
+    /// `extrude` of an `ArcPolygon` profile (KV12 Tier 2) along a direction
+    /// oblique to the profile-plane normal: an arc swept obliquely is an
+    /// elliptic-section cylinder, out of the Tier-2 v1 vocabulary (mirror of
+    /// [`KernelV2Error::ExtrudeObliqueCircleUnsupported`]). Perpendicular
+    /// sweep only.
+    ExtrudeObliqueArcUnsupported,
+
+    /// An `ArcPolygon` profile edge is malformed: an arc whose endpoints are
+    /// not at `radius` from its center (beyond the import band), a
+    /// non-positive / non-finite radius, a degenerate (≈0 or ≥π) sweep, or a
+    /// broken edge chain (`edge[i].b != edge[i+1].a`). KV12 Tier 2 supports
+    /// MINOR arcs only (sweep `∈ (0, π)`); a half-or-greater arc must be
+    /// split. Loud and typed — never approximated.
+    ProfileArcEdgeInvalid,
+
+    /// `extrude` of an `ArcPolygon` profile that carries hole loops, which
+    /// the KV12 Tier-2 increment E1/E2 assembler does not yet wire (holed
+    /// arc caps land in increment E4). Loud and typed.
+    ExtrudeArcHolesUnsupported,
+
+    /// An operation other than `extrude` (a zero-height lamina, or `revolve`)
+    /// was handed a `ProfileRegion::ArcPolygon` profile, which only the KV12
+    /// Tier-2 extrude path consumes. Loud and typed.
+    ArcPolygonProfileUnsupported,
+
     // ----- constructor argument validation (revolve, PR-KV6a) -------------
     /// `revolve` angle must be finite and in `(0, 2π]` radians (2π = the
     /// full-revolution branch; anything larger would self-overlap).
