@@ -52,6 +52,43 @@ fn union_face_resolves_to_original_extrude_not_the_boolean() {
     );
 }
 
+/// The set of persistent face ids of a feature's output solid.
+fn face_pid_set(m: &ModelBuilder, name: &str) -> std::collections::BTreeSet<u64> {
+    let handle = m.solid_handle(name).expect("handle");
+    let introspect = m.kernel_ref().as_introspect();
+    introspect
+        .list_faces(&handle)
+        .into_iter()
+        .filter_map(|f| introspect.face_provenance(f).map(|p| p.pid))
+        .collect()
+}
+
+#[test]
+fn upstream_pids_stable_under_downstream_change() {
+    // F4a target: a downstream change leaves an upstream feature's face Pids
+    // unchanged (so a stored Pid reference to an upstream face stays valid).
+    // This already holds — the arena is deterministic and incremental rebuild
+    // does not re-execute the upstream feature — so F4a needs no new
+    // stable-seeding machinery for this case.
+    let mut m = ModelBuilder::kernel_v2();
+    m.rect_sketch("sk_a", [0., 0., 0.], [0., 0., 1.], 0., 0., 10., 10.)
+        .unwrap();
+    m.extrude("a", "sk_a", 10.0).unwrap();
+    let before = face_pid_set(&m, "a");
+    assert!(!before.is_empty());
+
+    // Downstream: a far-away separate box (no overlap → no consumption of a).
+    m.rect_sketch("sk_b", [0., 0., 0.], [0., 0., 1.], 100., 100., 110., 110.)
+        .unwrap();
+    m.extrude("b", "sk_b", 10.0).unwrap();
+
+    assert_eq!(
+        before,
+        face_pid_set(&m, "a"),
+        "a downstream feature must not perturb upstream face Pids"
+    );
+}
+
 /// Collect the set of `created_by` features over a feature's output-solid faces.
 fn created_by_set(m: &mut ModelBuilder, name: &str) -> std::collections::HashSet<uuid::Uuid> {
     let handle = m.solid_handle(name).expect("solid handle");
