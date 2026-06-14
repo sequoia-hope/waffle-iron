@@ -121,13 +121,24 @@ the print critical path.**
 - **Phase E COMPLETE.** Arc/rounded profiles and gears (with or without bores)
   extrude with exact cylinder walls.
 
-### Phase F — Provenance / topological naming *(kernel + app — `KV13`; capstone)*
-"Click any face → the feature that *created* it, through chained
+### Phase F — Provenance / topological naming *(kernel + app — `KV13`; capstone)* — SPEC WRITTEN (2026-06-14: `specs/kv13_provenance_naming.md`; increments F1–F7)
+"Click any face → the feature that *introduced* it, through chained
 booleans/extrudes," plus the inverse (feature → its faces), surviving rebuilds.
 The persistent-naming investment (`docs/PERSISTENT-NAMING.md`). Substrate exists
-(yang `TriangleAttribution`, modeling-ops `Provenance`). Week-scale,
-multi-subagent. **Detail: see `yang_functional_roadmap.md` KV13.** Strictly after
-the gearbox; important for the prototype-release announcement, not for the print.
+(yang `TriangleAttribution`, modeling-ops `Provenance`, GeomRef Role/Signature).
+**Scope decision (2026-06-14): full Parasolid-grade** — persistent entity tags
+(`Pid`) + an operation journal *integrated into the kernel* (not the
+role+signature heuristic alone), surviving arbitrary upstream edits.
+Week-scale, multi-subagent. **Detail: `specs/kv13_provenance_naming.md`**
+(architecture + F1–F7); roadmap stub in `yang_functional_roadmap.md` KV13.
+Increments: F1 kernel `Pid` tags → F2 operation journal + boolean attribution
+(consume yang `TriangleAttribution`) → F3 `FaceOrigin` for the current model →
+**F4 persistent identity across rebuild (the long pole; F4a–F4d)** → F5
+`get_face_data` emits `created_by_feature` → F6 UI face→feature (through
+booleans) + inverse → F7 verification matrix + adversarial no-mislabel.
+F1–F3/F5/F6 deliver current-model lineage (gearbox-grade); F4 hardens it for
+arbitrary edits. Strictly after the gearbox; for the prototype-release
+announcement, not the print.
 
 ## Sequencing summary
 
