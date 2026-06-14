@@ -1,6 +1,6 @@
 # KV13 Spec — provenance / topological naming (Parasolid-grade)
 
-Status: IN PROGRESS (spec 2026-06-14; **F1+F2+F3+F5+F6 DONE; F4 GOAL met via recompute; F4 deep design committed (`specs/kv13_f4_design.md`) but implementation GATED behind a redemption gate — consumer-less, deferred; F7 partial**). Prototype-release **Phase F** (the capstone,
+Status: **Phase F COMPLETE (2026-06-14)** for the shipped scope — F1+F2+F3+F5+F6 done; F7 verification matrix done; F4 GOAL met via recompute (proven), deep stable-Pid machinery designed (`specs/kv13_f4_design.md`) + GATED behind a redemption gate (consumer-less → deferred until fillet/chamfer un-defers). Prototype-release **Phase F** (the capstone,
 strictly after the gearbox print). Scope: `crates/kernel-v2/` (persistent tags +
 operation journal — the bulk), `crates/waffle-types/` (`FaceOrigin`, a
 PID-based `Selector`), `crates/feature-engine/` (rebuild-time lineage),
@@ -270,11 +270,26 @@ sub-divided. Ship F1–F3/F5/F6 first; F4 hardens.
   is it, and its introduced faces are present in the merged body (the green
   set); canary/face-to-feature/holed specs green (no rendering regression).
 
-- **F7 — verification matrix.** The five PERSISTENT-NAMING.md scenarios
-  (stability, role→signature fallback, feature-insertion, graceful break,
-  over-constrained) as automated tests, **plus an adversarial no-mislabel pass**
-  (a wrong feature highlight is worse than "unknown" — assert the system says
-  "unknown/ambiguous" rather than confidently wrong).
+- **F7 — verification matrix. ✅ DONE (2026-06-14).** Automated against the
+  SHIPPED face→feature capability (the PERSISTENT-NAMING.md scenarios are
+  fillet/chamfer-centric and those ops are deferred, so the matrix is adapted to
+  what KV13 actually built). `test-harness/face_provenance.rs`:
+  - **Stability (parameter edit):** `created_by_survives_an_upstream_edit` — edit
+    an extrude's depth, the union still attributes to both originals.
+  - **Stability (downstream change):** `upstream_pids_stable_under_downstream_change`.
+  - **No-mislabel + completeness (adversarial):**
+    `union_of_three_attributes_to_exactly_the_three_contributors` — a 3-way
+    chained union attributes every face to EXACTLY {a, b, c}; no boolean, no
+    sketch, no unrelated feature, none missing. A confidently-wrong attribution
+    would fail the exact-set assertion. (Boxes staggered in Z to dodge the
+    orthogonal M8 coplanar-boolean gap.)
+  - **Graceful break:** `deleting_a_contributor_rebuilds_without_crash_or_mislabel`
+    — delete a union operand; the rebuild completes (no panic) and no surviving
+    face is attributed to the deleted feature or any non-live id.
+  - **Inverse (feature→faces):** GUI `feature-to-faces.spec.js` (F6c).
+  The fillet-specific role→signature-fallback / over-constrained-edge scenarios
+  remain for whenever fillet/chamfer is un-deferred (they need an edge-reference
+  consumer that does not exist).
 
 ## 3. Invariants / discipline
 

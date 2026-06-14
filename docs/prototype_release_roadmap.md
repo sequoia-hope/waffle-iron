@@ -121,7 +121,7 @@ the print critical path.**
 - **Phase E COMPLETE.** Arc/rounded profiles and gears (with or without bores)
   extrude with exact cylinder walls.
 
-### Phase F — Provenance / topological naming *(kernel + app — `KV13`; capstone)* — SPEC WRITTEN (2026-06-14: `specs/kv13_provenance_naming.md`; increments F1–F7)
+### Phase F — Provenance / topological naming *(kernel + app — `KV13`; capstone)* — ✅ COMPLETE (2026-06-14, shipped scope): F1–F3 kernel substrate (Pid + journal + lineage), F5 contract, F6a–c bidirectional face↔feature UI, F7 verification matrix. F4 deep stable-Pid machinery designed (`specs/kv13_f4_design.md`) + deferred (goal met via recompute; consumer-less). Detail: `specs/kv13_provenance_naming.md`.
 "Click any face → the feature that *introduced* it, through chained
 booleans/extrudes," plus the inverse (feature → its faces), surviving rebuilds.
 The persistent-naming investment (`docs/PERSISTENT-NAMING.md`). Substrate exists
