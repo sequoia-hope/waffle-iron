@@ -32,6 +32,24 @@ impl KernelSolidHandle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KernelId(pub u64);
 
+/// Persistent-identity provenance of a face (KV13 F5). Unlike [`KernelId`]
+/// (which churns every rebuild), the persistent id and its **lineage root**
+/// are stable identities the kernel tracks through chained booleans:
+/// `root_pid` is the id where this face's geometry was INTRODUCED (a
+/// constructor face, not a boolean-derived one). A consumer that knows which
+/// feature created each root pid (feature-engine, F6) maps `root_pid` → the
+/// "created_by" feature; `pid` identifies the face itself for the inverse
+/// (feature → its faces). `None` from the trait method means the kernel does
+/// not track provenance for that entity (e.g. `MockKernel`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct FaceProvenance {
+    /// The face's own persistent id.
+    pub pid: u64,
+    /// The persistent id where this face's geometry was introduced (the
+    /// lineage root, through chained booleans).
+    pub root_pid: u64,
+}
+
 /// Structured error types for boolean operation failures.
 /// Distinguishes failure stages (intersection, classification, stitching, topology validation)
 /// so that callers can diagnose and potentially retry with adjusted parameters.

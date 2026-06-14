@@ -1,6 +1,6 @@
 # KV13 Spec — provenance / topological naming (Parasolid-grade)
 
-Status: IN PROGRESS (spec 2026-06-14; **F1+F2+F3 DONE 2026-06-14**). Prototype-release **Phase F** (the capstone,
+Status: IN PROGRESS (spec 2026-06-14; **F1+F2+F3 + F5 (contract) DONE 2026-06-14**). Prototype-release **Phase F** (the capstone,
 strictly after the gearbox print). Scope: `crates/kernel-v2/` (persistent tags +
 operation journal — the bulk), `crates/waffle-types/` (`FaceOrigin`, a
 PID-based `Selector`), `crates/feature-engine/` (rebuild-time lineage),
@@ -191,15 +191,30 @@ sub-divided. Ship F1–F3/F5/F6 first; F4 hardens.
     user choice — `BestEffort` + notify, per PERSISTENT-NAMING.md §"What May
     Break". State it; don't pretend.
 
-- **F5 — `get_face_data` emits `created_by_feature`.** Thread `FaceOrigin`
-  through the `Kernel`/`KernelIntrospect` trait + `KernelV2Adapter` + wasm-bridge
-  so the app gets a resolved feature id (+ lineage) per face. **Tests:** trait
-  + wasm-bridge round-trip.
+- **F5 — face-provenance contract. ✅ DONE (2026-06-14) [trait/adapter half].**
+  Added `waffle_types::kernel::FaceProvenance { pid, root_pid }` and a defaulted
+  `KernelIntrospect::face_provenance(&self, face) -> Option<FaceProvenance>`
+  (default `None`, so `MockKernel`/other impls need no change). `KernelV2Adapter`
+  implements it: decode the face id → `arena.face_pid` → `journal::face_lineage`
+  root. **Test:** a plain-extrude face is its own lineage root (`pid ==
+  root_pid`); a union output face has a FRESH pid whose `root_pid` traces to an
+  original box face — the through-boolean "original feature" resolution, at the
+  Pid level, exposed across the trait boundary. **Deferred to F6 (the UI unit):**
+  the feature-engine `root_pid → feature_id` resolver (per-feature created-Pid
+  capture during rebuild), the wasm-bridge plumbing, and the Svelte
+  `created_by feature` display — they form one coherent user-facing change with
+  the F6 highlight/inverse UI, so they land together. (Decision 2026-06-14:
+  scope F5 to the load-bearing, unit-testable contract; avoid a rushed 5-crate
+  change.) Kernel/trait only — no app change, no WASM rebuild.
 
-- **F6 — UI: face → feature (through booleans) + inverse.** Supersede Phase D
-  Tier 1: clicking a face highlights the feature that *introduced* it (lineage,
-  not last-feature); selecting a feature highlights *its* faces. **GUI tests:**
-  union-then-click-original-face → original extrude highlighted; feature→faces.
+- **F6 — feature-id resolver + UI: face → feature (through booleans) + inverse.**
+  Now also absorbs the deferred F5 half: a feature-engine `root_pid → feature_id`
+  resolver (capture each feature's created-face Pids via the new
+  `KernelIntrospect::face_provenance` during rebuild) + wasm-bridge plumbing +
+  the Svelte display. Supersede Phase D Tier 1: clicking a face highlights the
+  feature that *introduced* it (lineage, not last-feature); selecting a feature
+  highlights *its* faces. **GUI tests:** union-then-click-original-face →
+  original extrude highlighted; feature→faces.
 
 - **F7 — verification matrix.** The five PERSISTENT-NAMING.md scenarios
   (stability, role→signature fallback, feature-insertion, graceful break,

@@ -164,4 +164,14 @@ pub trait KernelIntrospect {
         solid: &KernelSolidHandle,
         kind: TopoKind,
     ) -> Vec<(KernelId, TopoSignature)>;
+
+    /// Persistent-identity provenance of a face (KV13 F5): its persistent id
+    /// and its **lineage root** (the id where the geometry was introduced,
+    /// through chained booleans). Used by feature-engine (F6) to resolve the
+    /// face's *creating* feature — the original extrude/revolve, not the last
+    /// boolean. The default returns `None` (a kernel that does not track
+    /// persistent identity, e.g. `MockKernel`); `face` should be a face id.
+    fn face_provenance(&self, _face: KernelId) -> Option<FaceProvenance> {
+        None
+    }
 }

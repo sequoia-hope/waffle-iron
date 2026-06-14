@@ -1264,6 +1264,21 @@ impl KernelIntrospect for KernelV2Adapter {
             _ => Vec::new(),
         }
     }
+
+    /// KV13 F5: a face's persistent id + its lineage root (walked back through
+    /// the boolean journal). `None` for a non-face id or an untagged face.
+    fn face_provenance(&self, face: KernelId) -> Option<waffle_types::kernel::FaceProvenance> {
+        let (tag, idx) = decode(face);
+        if tag != TAG_FACE {
+            return None;
+        }
+        let pid = self.arena.face_pid(FaceId(idx))?;
+        let root = crate::journal::face_lineage(&self.arena.journal, pid).root;
+        Some(waffle_types::kernel::FaceProvenance {
+            pid: pid.0,
+            root_pid: root.0,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -1683,6 +1698,85 @@ mod tests {
             (vol - exact).abs() <= 0.12 * cyl_term,
             "union volume {vol} vs analytic {exact}"
         );
+    }
+
+    /// Stage a `side × side` square at `(dx, dy)` (the unit-square stager,
+    /// parameterized) — for building two overlapping boxes.
+    fn stage_square(adapter: &mut KernelV2Adapter, dx: f64, dy: f64, side: f64) -> KernelId {
+        let profile = ClosedProfile {
+            entity_ids: vec![0, 1, 2, 3],
+            is_outer: true,
+            vertex_ids: vec![0, 1, 2, 3],
+            circle: None,
+            spline_segments: vec![],
+            arc_segments: vec![],
+        };
+        let positions: HashMap<u32, (f64, f64)> = [
+            (0, (dx, dy)),
+            (1, (dx + side, dy)),
+            (2, (dx + side, dy + side)),
+            (3, (dx, dy + side)),
+        ]
+        .into_iter()
+        .collect();
+        adapter
+            .make_faces_from_profiles(
+                &[profile],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0],
+                &positions,
+            )
+            .expect("square stages")[0]
+    }
+
+    #[test]
+    fn face_provenance_exposes_lineage_through_trait() {
+        // KV13 F5: the KernelIntrospect contract surfaces a face's persistent
+        // id + lineage root, walked through the boolean journal.
+        let mut adapter = KernelV2Adapter::new();
+        // A plain extrude: every face is its own lineage root.
+        let a_face = stage_square(&mut adapter, 0.0, 0.0, 2.0);
+        let a = adapter
+            .extrude_face(a_face, [0.0, 0.0, 1.0], 2.0)
+            .expect("box A");
+        let mut operand_pids = std::collections::HashSet::new();
+        for f in adapter.list_faces(&a) {
+            let p = adapter.face_provenance(f).expect("box face has provenance");
+            assert_eq!(
+                p.pid, p.root_pid,
+                "a constructor face is its own lineage root"
+            );
+            operand_pids.insert(p.pid);
+        }
+        let b_face = stage_square(&mut adapter, 1.0, 1.0, 2.0);
+        let b = adapter
+            .extrude_face(b_face, [0.0, 0.0, 1.0], 2.0)
+            .expect("box B");
+        for f in adapter.list_faces(&b) {
+            operand_pids.insert(adapter.face_provenance(f).expect("prov").pid);
+        }
+
+        let out = adapter.boolean_union(&a, &b).expect("union");
+        for f in adapter.list_faces(&out) {
+            let p = adapter
+                .face_provenance(f)
+                .expect("union face has provenance");
+            // The output face's OWN pid is fresh (not an operand's)...
+            assert!(
+                !operand_pids.contains(&p.pid),
+                "output pid {} is fresh",
+                p.pid
+            );
+            // ...but its lineage ROOT is one of the original boxes' faces —
+            // resolving (at the Pid level) to the original extrude, not the
+            // boolean.
+            assert!(
+                operand_pids.contains(&p.root_pid),
+                "root_pid {} traces to an original box face",
+                p.root_pid
+            );
+        }
     }
 
     #[test]
