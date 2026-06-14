@@ -27,6 +27,7 @@
 		hideAllAxes,
 		enterSketchEditMode,
 		getFeatureErrors,
+		getSelectedRefFeatureId,
 		showEditFeatureDialog,
 		getBodies,
 		getSelectedBodyId,
@@ -40,6 +41,8 @@
 
 	let tree = $derived(getFeatureTree());
 	let selectedId = $derived(getSelectedFeatureId());
+	// Face→feature (Tier 1): the feature whose geometry is currently picked.
+	let faceFeatureId = $derived(getSelectedRefFeatureId());
 	let featureErrors = $derived(getFeatureErrors());
 	let bodies = $derived(getBodies());
 	let selectedBodyId = $derived(getSelectedBodyId());
@@ -430,6 +433,7 @@
 					class="tree-item"
 					class:selected={selectedId === feature.id}
 					class:sketch-selected={selectedId === feature.id && isSketch}
+					class:face-source={faceFeatureId === feature.id}
 					class:suppressed={feature.suppressed}
 					class:after-rollback={isAfterRollback}
 					class:dragging={isDragging}
@@ -457,6 +461,9 @@
 						/>
 					{:else}
 						<span class="tree-label">{feature.name}</span>
+					{/if}
+					{#if faceFeatureId === feature.id}
+						<span class="face-source-badge" title="The selected face was created by this feature">◀ face</span>
 					{/if}
 					{#if feature.suppressed}
 						<span class="suppress-indicator" title="Suppressed">S</span>
@@ -735,6 +742,24 @@
 	.tree-item.selected.sketch-selected {
 		background: rgba(255, 136, 0, 0.15);
 		border-left-color: #ff8800;
+	}
+
+	/* Face→feature: the feature that created the currently-picked face. */
+	.tree-item.face-source {
+		background: rgba(68, 204, 136, 0.16);
+		border-left: 2px solid #44cc88;
+		padding-left: 10px;
+	}
+
+	.face-source-badge {
+		margin-left: auto;
+		font-size: 9px;
+		color: #2e9e6a;
+		background: rgba(68, 204, 136, 0.18);
+		padding: 0 4px;
+		border-radius: 3px;
+		flex-shrink: 0;
+		white-space: nowrap;
 	}
 
 	.tree-item.origin-item.selected {

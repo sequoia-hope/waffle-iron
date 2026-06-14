@@ -78,13 +78,13 @@ Homes: `projects/04-3d-viewport/PLAN.md`, `projects/08-ui-chrome/PLAN.md`.
   lands.
 - **Done when: the gearbox prints. ← prototype-release gate.**
 
-### Phase D — Face → feature **Tier 1** *(app/UX; cheap parallel win)*
-Home: `projects/04-3d-viewport/PLAN.md`.
-Click a face → highlight its producing feature in the tree. The clicked
-`GeomRef` already carries `anchor.feature_id`; this is store + tree-highlight
-wiring, no kernel work. Exact for single-feature bodies (every gear). Ceiling:
-boolean-result bodies report the last feature (the boolean), not the original —
-that's Phase F.
+### Phase D — Face → feature **Tier 1** *(app/UX; cheap parallel win)* ✅ DONE (2026-06-14)
+Click a face → its producing feature is highlighted in the tree (green accent +
+"◀ face" badge). Read straight off the selected `GeomRef`'s `FeatureOutput`
+anchor (`getSelectedRefFeatureId`) — store + tree-highlight, no kernel work.
+Exact for single-feature bodies (every gear). Ceiling: boolean-result bodies
+report the last feature (the boolean), not the original — that's Phase F (KV13).
+GUI `face-to-feature.spec.js`.
 
 ### Phase E — Gear extrude **Tier 2** *(kernel — `KV12` exact path; quality)*
 Exact arc → cylinder side patches + arc-bearing planar caps (reuse the revolve

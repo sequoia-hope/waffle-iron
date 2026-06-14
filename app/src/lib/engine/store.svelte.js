@@ -931,6 +931,23 @@ export function getSelectedRefs() {
 }
 
 /**
+ * Face→feature (Tier 1): the producing feature id of the currently selected
+ * face/edge — the feature that owns the body this geometry belongs to. Read
+ * straight off the selected GeomRef's `FeatureOutput` anchor (already on the
+ * wire). Null when nothing is selected, or the selection is a datum.
+ * @returns {string | null}
+ */
+export function getSelectedRefFeatureId() {
+	for (const ref of selectedRefs) {
+		const anchor = ref?.anchor;
+		if (anchor?.type === 'FeatureOutput' && anchor.feature_id) {
+			return anchor.feature_id;
+		}
+	}
+	return null;
+}
+
+/**
  * Set the hovered geometry reference.
  * @param {any | null} ref
  */
