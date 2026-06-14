@@ -1,6 +1,6 @@
 # KV13 Spec — provenance / topological naming (Parasolid-grade)
 
-Status: IN PROGRESS (spec 2026-06-14; **F1+F2+F3+F5+F6 DONE; F4 GOAL met via recompute — edit-survival proven; deep F4a–d deferred as optional enhancement; F7 partial**). Prototype-release **Phase F** (the capstone,
+Status: IN PROGRESS (spec 2026-06-14; **F1+F2+F3+F5+F6 DONE; F4 GOAL met via recompute; F4 deep design committed (`specs/kv13_f4_design.md`) but implementation GATED behind a redemption gate — consumer-less, deferred; F7 partial**). Prototype-release **Phase F** (the capstone,
 strictly after the gearbox print). Scope: `crates/kernel-v2/` (persistent tags +
 operation journal — the bulk), `crates/waffle-types/` (`FaceOrigin`, a
 PID-based `Selector`), `crates/feature-engine/` (rebuild-time lineage),
