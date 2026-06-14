@@ -1,6 +1,6 @@
 # KV12 Tier 2 Spec — exact arc-segment profile extrude (cylinder side patches)
 
-Status: IN PROGRESS. Prototype-release Phase E. **E1 DONE (2026-06-14).**
+Status: IN PROGRESS. Prototype-release Phase E. **E1 + E2 DONE (2026-06-14).**
 Scope: `crates/kernel-v2/src/{profile,construct,geom,validate}.rs`,
 `crates/kernel-v2/src/adapter.rs` (wiring), `crates/cad-primitives` /
 `kernel-v2/exact2d.rs` (new arc predicates). NO yang-rs / boolean change.
@@ -121,9 +121,18 @@ value IS the evidence of simplicity.
   `signed_volume = πR²H/4` (≤1e-9 rel), watertight mesh, 1 cylinder patch,
   4 typed rejections (non-minor arc, broken chain, holes→E4, oblique sweep).
   NOT wired to `make_faces` yet (no app/WASM path).
-- **E2 — general k-edge single loop.** Multiple arcs + lines (a gear flank built
-  from arcs). Generalize the seam/twin loop to k edges. Test on a rounded
-  polygon and a real arc-built gear tooth.
+- **E2 — general k-edge single loop. ✅ DONE (2026-06-14).** The E1 assembler
+  was ALREADY k-general (it loops over all k edges, dispatching Line/Arc per
+  edge) — so E2 added no kernel code, only richer fixtures proving the path:
+  a rounded rectangle (4 lines + 4 convex arcs), a vesica lens (two
+  CONSECUTIVE arcs at the minimal k=2 loop — exercises the modular seam wiring
+  at its smallest), and a square with a CONCAVE arc bite (a cavity-sense
+  `reversed` cylinder among line walls). Each: census V=2k/E=3k/F=k+2/χ=2,
+  exact `signed_volume = area·H`, watertight mesh, surface census incl. the
+  reversed-cylinder count. A literal involute gear tooth is NOT used: involutes
+  are not circular arcs, so it would be an approximation adding no new
+  code-path coverage beyond the convex/concave/consecutive cases above. All
+  pass first run. `tests/kv12_tier2_arc_extrude.rs`.
 - **E3 — exact simplicity validation** (§5). RED self-intersecting arc loops →
   `ProfileNotSimple`; GREEN valid ones. Adversarial: a near-touching arc pair.
 - **E4 — wiring + holes.** Adapter reconstructs `ArcPolygon` from `arc_segments`

@@ -1,4 +1,4 @@
-//! PR-KV12 Tier 2, increment E1 — exact mixed line/arc extrude.
+//! PR-KV12 Tier 2, increments E1 + E2 — exact mixed line/arc extrude.
 //!
 //! `extrude` of a `ProfileRegion::ArcPolygon` (a closed loop of line + minor
 //! circular-arc edges) produces an EXACT B-Rep: planar caps bounded by the
@@ -6,13 +6,20 @@
 //! patch per arc edge (an arc swept perpendicular to its plane IS a cylinder
 //! lateral). Replaces the KV12 Tier-1 chord-polygon approximation.
 //!
-//! E1 fixture: a **quarter-disk sector** (apex at the origin, two radial
+//! **E1** fixture: a **quarter-disk sector** (apex at the origin, two radial
 //! line edges, one 90° arc — a minor arc < π, the arena's arc requirement).
 //! Extruded depth `H` → a wedge whose exact volume is the planar sector area
 //! `πR²/4` times `H`, carrying exactly one cylinder patch.
 //!
+//! **E2** generalizes to k mixed edges (the E1 assembler is already k-general;
+//! these fixtures prove it): a rounded rectangle (4 lines + 4 convex arcs),
+//! a vesica lens (two CONSECUTIVE arcs at the minimal k=2 loop), and a square
+//! with a CONCAVE arc bite (a cavity-sense `reversed` cylinder among line
+//! walls). Each: census V=2k/E=3k/F=k+2/χ=2, exact `signed_volume = area·H`,
+//! watertight mesh.
+//!
 //! Oracle groups:
-//! 1. Topology + validation census (V=6, E=9, F=5, χ=2; 4 planes + 1 cyl)
+//! 1. Topology + validation census (V=2k, E=3k, F=k+2, χ=2)
 //! 2. Exact analytic volume via `geom::signed_volume` (tessellation-free)
 //! 3. Tessellation: watertight, positive volume in the chord band
 //! 4. Rejections: malformed arc edges, holes, oblique sweep — typed, loud
@@ -319,4 +326,221 @@ fn rejects_oblique_sweep() {
         matches!(err, KernelV2Error::ExtrudeObliqueArcUnsupported),
         "{err:?}"
     );
+}
+
+// =========================================================================
+// E2 — general k-edge single loop: multiple arcs + lines
+// =========================================================================
+//
+// The E1 assembler is already k-general; these fixtures exercise the
+// multi-edge path: several convex arcs (rounded rectangle), two CONSECUTIVE
+// arcs at the minimal k=2 loop (a vesica lens), and a CONCAVE arc producing a
+// cavity-sense (`reversed`) cylinder embedded among line walls.
+
+/// (planes, cylinders, reversed-cylinders) over a result's faces, and a full
+/// topology + exact-volume + watertight assertion. `expected_area` is the
+/// exact planar region area; the extruded volume is `area · H`.
+fn assert_arc_extrude(
+    profile: &Profile,
+    edges: usize,
+    expected_census: (usize, usize, usize),
+    expected_area: f64,
+    what: &str,
+) {
+    let mut arena = BrepArena::new();
+    let r = extrude(&mut arena, profile, Vector3::new(0.0, 0.0, 1.0), H)
+        .unwrap_or_else(|e| panic!("{what} extrude: {e:?}"));
+
+    let report =
+        validate_solid(&arena, r.solid).unwrap_or_else(|e| panic!("{what} validates: {e:?}"));
+    // k edges ⇒ V=2k, E=3k, F=k+2, χ=2 (genus 0).
+    assert_eq!(report.vertices, 2 * edges, "{what}: V");
+    assert_eq!(report.edges, 3 * edges, "{what}: E");
+    assert_eq!(report.faces, edges + 2, "{what}: F");
+    assert_eq!(report.genus, 0, "{what}: genus");
+    assert_eq!(report.euler_lhs, 2, "{what}: χ");
+    assert_eq!(report.euler_rhs, 2, "{what}: χ rhs");
+
+    let (mut planes, mut cyls, mut rev) = (0usize, 0usize, 0usize);
+    for f in std::iter::once(r.base)
+        .chain(std::iter::once(r.top))
+        .chain(r.walls.iter().copied())
+    {
+        match arena.face(f).expect("face").surface {
+            Some(Surface::Plane(_)) => planes += 1,
+            Some(Surface::Cylinder { reversed, .. }) => {
+                cyls += 1;
+                if reversed {
+                    rev += 1;
+                }
+            }
+            other => panic!("{what}: untyped surface {other:?}"),
+        }
+    }
+    assert_eq!((planes, cyls, rev), expected_census, "{what}: census");
+
+    let expected_vol = expected_area * H;
+    let vol = geom::signed_volume(&arena, r.solid).expect("analytic volume");
+    assert!(
+        (vol - expected_vol).abs() <= 1e-9 * expected_vol.abs(),
+        "{what}: signed_volume {vol} vs analytic {expected_vol}"
+    );
+
+    let mesh = tessellate(&arena, r.solid).expect("tessellate");
+    assert_watertight(&mesh, what);
+    assert!(
+        mesh_signed_volume(&mesh) > 0.0,
+        "{what}: positive mesh volume"
+    );
+}
+
+/// Axis-aligned rectangle of half-extents `(a, b)` with quarter-circle
+/// rounded corners of radius `r`, CCW around +ẑ. 8 edges (4 lines + 4 convex
+/// arcs). Area = `4ab − r²(4 − π)`.
+fn rounded_rect(a: f64, b: f64, r: f64) -> Profile {
+    let p = |x, y| Point2::new(x, y);
+    let edges = vec![
+        ProfileEdge::Line {
+            a: p(-a + r, -b),
+            b: p(a - r, -b),
+        },
+        ProfileEdge::Arc {
+            a: p(a - r, -b),
+            b: p(a, -b + r),
+            center: p(a - r, -b + r),
+            radius: r,
+            ccw: true,
+        },
+        ProfileEdge::Line {
+            a: p(a, -b + r),
+            b: p(a, b - r),
+        },
+        ProfileEdge::Arc {
+            a: p(a, b - r),
+            b: p(a - r, b),
+            center: p(a - r, b - r),
+            radius: r,
+            ccw: true,
+        },
+        ProfileEdge::Line {
+            a: p(a - r, b),
+            b: p(-a + r, b),
+        },
+        ProfileEdge::Arc {
+            a: p(-a + r, b),
+            b: p(-a, b - r),
+            center: p(-a + r, b - r),
+            radius: r,
+            ccw: true,
+        },
+        ProfileEdge::Line {
+            a: p(-a, b - r),
+            b: p(-a, -b + r),
+        },
+        ProfileEdge::Arc {
+            a: p(-a, -b + r),
+            b: p(-a + r, -b),
+            center: p(-a + r, -b + r),
+            radius: r,
+            ccw: true,
+        },
+    ];
+    Profile::arc_polygon(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        edges,
+        vec![],
+    )
+    .expect("valid rounded rectangle")
+}
+
+#[test]
+fn rounded_rectangle_multiple_convex_arcs() {
+    let (a, b, r) = (3.0, 2.0, 0.5);
+    let area = 4.0 * a * b - r * r * (4.0 - PI);
+    // 8 edges → 8 walls (4 line planes + 4 convex cylinders) + 2 caps.
+    assert_arc_extrude(&rounded_rect(a, b, r), 8, (6, 4, 0), area, "rounded rect");
+}
+
+#[test]
+fn vesica_lens_consecutive_arcs_k2() {
+    // Two arcs, no line edges (k = 2). Endpoints (∓1, 0); each arc bulges
+    // away from the lens → both convex. With chord 2 and centers (0, ∓1)
+    // the radius is √2, sweep π/2, lens area = π − 2.
+    let r2 = 2.0_f64.sqrt();
+    let a = Point2::new(-1.0, 0.0);
+    let b = Point2::new(1.0, 0.0);
+    let profile = Profile::arc_polygon(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            // Lower arc A → B (CCW around +ẑ dips below), center above.
+            ProfileEdge::Arc {
+                a,
+                b,
+                center: Point2::new(0.0, 1.0),
+                radius: r2,
+                ccw: true,
+            },
+            // Upper arc B → A, center below.
+            ProfileEdge::Arc {
+                a: b,
+                b: a,
+                center: Point2::new(0.0, -1.0),
+                radius: r2,
+                ccw: true,
+            },
+        ],
+        vec![],
+    )
+    .expect("valid vesica lens");
+    // k=2 → 2 walls (both convex cylinders) + 2 caps.
+    assert_arc_extrude(&profile, 2, (2, 2, 0), PI - 2.0, "vesica lens");
+}
+
+#[test]
+fn concave_arc_makes_reversed_cylinder() {
+    // A unit-ish square [0,4]² whose TOP edge is a concave arc dipping into
+    // the interior: center (2,7) ABOVE the chord, so the minor arc bulges
+    // DOWN (a bite). The arc is CW around +ẑ for the boundary traversal
+    // (4,4)→(0,4) ⇒ a cavity-sense (`reversed`) cylinder wall.
+    let c = Point2::new(2.0, 7.0);
+    let r = (4.0_f64 + 9.0).sqrt(); // |(4,4) − (2,7)| = √13
+    let p = |x, y| Point2::new(x, y);
+    let profile = Profile::arc_polygon(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            ProfileEdge::Line {
+                a: p(0.0, 0.0),
+                b: p(4.0, 0.0),
+            },
+            ProfileEdge::Line {
+                a: p(4.0, 0.0),
+                b: p(4.0, 4.0),
+            },
+            ProfileEdge::Arc {
+                a: p(4.0, 4.0),
+                b: p(0.0, 4.0),
+                center: c,
+                radius: r,
+                ccw: false,
+            },
+            ProfileEdge::Line {
+                a: p(0.0, 4.0),
+                b: p(0.0, 0.0),
+            },
+        ],
+        vec![],
+    )
+    .expect("valid concave-bite square");
+    // Region = square 16 minus the circular segment bitten out.
+    let theta = 2.0 * (2.0 / r).asin();
+    let segment = r * r / 2.0 * (theta - theta.sin());
+    let area = 16.0 - segment;
+    // 4 edges → 3 line planes + 1 reversed cylinder + 2 caps.
+    assert_arc_extrude(&profile, 4, (5, 1, 1), area, "concave bite");
 }

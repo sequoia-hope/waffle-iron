@@ -97,8 +97,13 @@ the print critical path.**
   cylinder/plane walls). Quarter-disk sector test: exact `signed_volume = πR²H/4`,
   watertight, 1 cylinder patch, typed rejections. `tests/kv12_tier2_arc_extrude.rs`.
   Kernel-only — not yet wired to the adapter / WASM (E4).
-- **E2–E4** open: general k-edge loops, exact arc-loop simplicity validation,
-  adapter wiring (`arc_segments` → `ArcPolygon`) + arc-bearing holes + GUI E2E.
+- **E2 ✅ DONE (2026-06-14).** Proved the (already k-general) assembler on
+  rounded rectangle (multiple convex arcs), vesica lens (consecutive arcs,
+  k=2), and a concave-arc bite (`reversed` cylinder). No kernel change; fixtures
+  only. `tests/kv12_tier2_arc_extrude.rs`.
+- **E3–E4** open: exact arc-loop simplicity validation (the genuine unknown:
+  arc–segment / arc–arc predicates), then adapter wiring (`arc_segments` →
+  `ArcPolygon`) + arc-bearing holes + GUI E2E.
 
 ### Phase F — Provenance / topological naming *(kernel + app — `KV13`; capstone)*
 "Click any face → the feature that *created* it, through chained
