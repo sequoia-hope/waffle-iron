@@ -15,8 +15,11 @@
 
 use std::collections::HashSet;
 
-use cad_primitives::{Point2, Point3, Vector3};
-use kernel_v2::{boolean_op, extrude, BrepArena, ExtrudeResult, FaceId, Pid, Profile, ProfileEdge};
+use cad_primitives::{BoolOp, Point2, Point3, Vector3};
+use kernel_v2::{
+    boolean_op, extrude, BrepArena, EvoKind, ExtrudeResult, FaceId, OpTag, Pid, Profile,
+    ProfileEdge, SolidId,
+};
 
 fn unit_square() -> Profile {
     Profile::new(
@@ -178,4 +181,190 @@ fn boolean_output_faces_carry_pids() {
     }
     assert!(!faces.is_empty(), "union produced faces");
     assert_pids_present_unique(&arena, &faces, "union");
+}
+
+// =========================================================================
+// F2 — operation journal + boolean attribution
+// =========================================================================
+
+/// Persistent face ids of a solid (from the arena), as a set.
+fn solid_face_pids(arena: &BrepArena, solid: SolidId) -> Vec<Pid> {
+    let mut pids = Vec::new();
+    for &sh in &arena.solid(solid).expect("solid").shells {
+        for &f in &arena.shell(sh).expect("shell").faces {
+            pids.push(arena.face_pid(f).expect("output face has a Pid"));
+        }
+    }
+    pids
+}
+
+fn shifted_square(dx: f64, dy: f64, side: f64) -> Profile {
+    Profile::new(
+        Point3::new(dx, dy, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(side, 0.0),
+            Point2::new(side, side),
+            Point2::new(0.0, side),
+        ],
+        vec![],
+    )
+    .expect("shifted square")
+}
+
+#[test]
+fn union_journal_lineage_is_total_and_from_both_operands() {
+    let mut arena = BrepArena::new();
+    let a = extrude(
+        &mut arena,
+        &shifted_square(0.0, 0.0, 2.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        2.0,
+    )
+    .expect("box A");
+    let b = extrude(
+        &mut arena,
+        &shifted_square(1.0, 1.0, 2.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        2.0,
+    )
+    .expect("box B");
+    let a_pids: Vec<Pid> = all_faces(&a)
+        .iter()
+        .map(|&f| arena.face_pid(f).unwrap())
+        .collect();
+    let b_pids: Vec<Pid> = all_faces(&b)
+        .iter()
+        .map(|&f| arena.face_pid(f).unwrap())
+        .collect();
+
+    let out = boolean_op(&mut arena, a.solid, b.solid, BoolOp::Union).expect("union");
+
+    // Exactly one boolean evolution was recorded.
+    assert_eq!(arena.journal.len(), 1, "one boolean ⇒ one journal entry");
+    let ev = &arena.journal[0];
+    assert_eq!(ev.op, OpTag::Boolean(BoolOp::Union));
+
+    // Every output face's Pid is accounted for — the OUTPUT of a `modified`
+    // edge, or `generated`. No orphaned output face (lineage is total).
+    let out_pids = solid_face_pids(&arena, out);
+    let modified_outputs: std::collections::HashSet<Pid> =
+        ev.modified.iter().map(|&(_, o, _)| o).collect();
+    let generated: std::collections::HashSet<Pid> = ev.generated.iter().copied().collect();
+    for p in &out_pids {
+        assert!(
+            modified_outputs.contains(p) || generated.contains(p),
+            "output face Pid {p:?} has no lineage edge"
+        );
+    }
+
+    // Every `modified` edge's INPUT is an operand face Pid (no invented source).
+    let operand: std::collections::HashSet<Pid> =
+        a_pids.iter().chain(b_pids.iter()).copied().collect();
+    for &(input, _, _) in &ev.modified {
+        assert!(
+            operand.contains(&input),
+            "modified-edge input {input:?} is not an operand face"
+        );
+    }
+
+    // The union draws faces from BOTH operands (cross-operand attribution works).
+    let from_a = ev.modified.iter().any(|&(i, _, _)| a_pids.contains(&i));
+    let from_b = ev.modified.iter().any(|&(i, _, _)| b_pids.contains(&i));
+    assert!(
+        from_a && from_b,
+        "union output should inherit from BOTH boxes"
+    );
+}
+
+#[test]
+fn subtract_journal_attributes_to_operands() {
+    // Corner-cut: a big box minus a smaller box overlapping one corner. All
+    // planar, so the result is reliable; the cut walls descend from the tool
+    // (operand B) — the cross-operand attribution F2 establishes.
+    let mut arena = BrepArena::new();
+    let big = extrude(
+        &mut arena,
+        &shifted_square(0.0, 0.0, 4.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        4.0,
+    )
+    .expect("big box");
+    let tool = extrude(
+        &mut arena,
+        &shifted_square(3.0, 3.0, 2.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        5.0,
+    )
+    .expect("tool box");
+    let b_pids: Vec<Pid> = all_faces(&tool)
+        .iter()
+        .map(|&f| arena.face_pid(f).unwrap())
+        .collect();
+
+    let out = boolean_op(&mut arena, big.solid, tool.solid, BoolOp::Subtract).expect("subtract");
+    assert_eq!(arena.journal.len(), 1);
+    let ev = &arena.journal[0];
+    assert_eq!(ev.op, OpTag::Boolean(BoolOp::Subtract));
+
+    // At least one output face (a cut wall) descends from the tool operand.
+    let from_tool = ev.modified.iter().any(|&(i, _, _)| b_pids.contains(&i));
+    assert!(
+        from_tool,
+        "a cut wall must descend from the tool operand (B)"
+    );
+
+    // Lineage total: every output face has an edge.
+    let out_pids = solid_face_pids(&arena, out);
+    let outs: std::collections::HashSet<Pid> = ev
+        .modified
+        .iter()
+        .map(|&(_, o, _)| o)
+        .chain(ev.generated.iter().copied())
+        .collect();
+    for p in &out_pids {
+        assert!(outs.contains(p), "output face Pid {p:?} unaccounted");
+    }
+}
+
+#[test]
+fn boolean_journal_is_deterministic() {
+    // Same union twice ⇒ identical arenas, including the journal (the journal
+    // is part of BrepArena's derived PartialEq, so non-deterministic lineage
+    // would fail this).
+    let build = || {
+        let mut arena = BrepArena::new();
+        let a = extrude(
+            &mut arena,
+            &shifted_square(0.0, 0.0, 2.0),
+            Vector3::new(0.0, 0.0, 1.0),
+            2.0,
+        )
+        .expect("A");
+        let b = extrude(
+            &mut arena,
+            &shifted_square(1.0, 1.0, 2.0),
+            Vector3::new(0.0, 0.0, 1.0),
+            2.0,
+        )
+        .expect("B");
+        let _ = boolean_op(&mut arena, a.solid, b.solid, BoolOp::Union).expect("union");
+        arena
+    };
+    let a1 = build();
+    let a2 = build();
+    assert_eq!(
+        a1.journal, a2.journal,
+        "boolean journal must be deterministic"
+    );
+    assert!(!a1.journal.is_empty());
+    assert!(matches!(a1.journal[0].op, OpTag::Boolean(BoolOp::Union)));
+    // The lineage records at least the Same kind (Split appears only when an
+    // operand face fragments into multiple output faces).
+    assert!(a1.journal[0]
+        .modified
+        .iter()
+        .any(|&(_, _, k)| k == EvoKind::Same));
 }

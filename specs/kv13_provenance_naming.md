@@ -1,6 +1,6 @@
 # KV13 Spec — provenance / topological naming (Parasolid-grade)
 
-Status: IN PROGRESS (spec 2026-06-14; **F1 DONE 2026-06-14**). Prototype-release **Phase F** (the capstone,
+Status: IN PROGRESS (spec 2026-06-14; **F1+F2 DONE 2026-06-14**). Prototype-release **Phase F** (the capstone,
 strictly after the gearbox print). Scope: `crates/kernel-v2/` (persistent tags +
 operation journal — the bulk), `crates/waffle-types/` (`FaceOrigin`, a
 PID-based `Selector`), `crates/feature-engine/` (rebuild-time lineage),
@@ -120,17 +120,31 @@ sub-divided. Ship F1–F3/F5/F6 first; F4 hardens.
   all carry unique Pids; two identical extrudes ⇒ bit-identical arenas (incl.
   Pids); same box ⇒ same `(FaceId, Pid)` map. Full kernel-v2 suite green.
 
-- **F2 — operation journal + boolean attribution.** Add the `Journal` and
-  `Evolution` types; each operation appends a record. **Boolean is the crux:**
-  consume the discarded `TriangleAttributionMap` — for each output BRep face,
-  the majority `(InputId, input_face_idx)` over its triangles ⇒ MODIFY (inherit
-  the operand face's Pid, `EvoKind::Same`/`Trimmed`) or, when the face is new
-  (no consistent operand attribution / a cut face along the intersection),
-  GENERATED with a fresh Pid tagged to the boolean. **Loud on `None`
-  attribution** (P9 — never silently guess; a face that yang can't attribute is
-  a typed error, not a wrong label). **Tests:** box∪box and box−cyl journals —
-  inherited faces carry operand Pids, cut faces are `generated` by the boolean;
-  attribution is total (no silent `None`).
+- **F2 — operation journal + boolean attribution. ✅ DONE (2026-06-14).**
+  - **yang-rs** now surfaces per-output-FACE attribution: the reassembly already
+    computes each patch's `(input, face_idx)` (`PatchInfo`); `emit_topology`
+    records it in lockstep with the faces it pushes, threaded out as a 5th
+    `ReconstructedTopology` element into a new `BRep::face_attribution()`
+    accessor (parallel to `faces()`; empty for `new`/`from_mesh`).
+  - **kernel-v2**: `journal.rs` adds `Evolution { op, generated, modified:
+    [(in_pid, out_pid, EvoKind)], deleted }`, `OpTag::Boolean(BoolOp)`,
+    `EvoKind{Same,Trimmed,Split,Merge}`; an append-only `BrepArena::journal`.
+    `to_yang_brep_indexed` / `from_yang_brep_indexed` expose the
+    yang-face-index ↔ kernel-`FaceId` maps (operand side and output side);
+    `boolean_op` joins them with `face_attribution` to record, per output face,
+    a `modified` edge from its operand face's Pid to its output Pid (first from
+    a given operand = `Same`, later = `Split`). Operand faces with no output =
+    `deleted`. **Design note (deviation, documented):** rather than "cut faces
+    are `generated` by the boolean", every output face descends from the operand
+    SURFACE it lies on (what the exact attribution actually says) — a pocket
+    wall traces to the tool operand, a union face to its original box. Output
+    faces keep their own fresh Pids (no shared Pids); lineage lives in the
+    journal edges, the cleaner Parasolid model. `generated` is normally empty
+    (yang attributes every patch); a missing-Pid edge is dropped, never a false
+    lineage (P9). **Tests** (`tests/kv13_provenance.rs`): union lineage is total
+    and draws from BOTH operands; subtract cut walls descend from the tool
+    operand; the journal is deterministic. yang-rs + kernel-v2 suites green.
+    No app-visible change (metadata only) → no WASM rebuild.
 
 - **F3 — `FaceOrigin` for the current model.** Walk the journal lineage from a
   face's Pid back to its `generated` origin → `created_by` feature +

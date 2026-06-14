@@ -423,6 +423,10 @@ pub struct BRep {
     mesh: Mesh,
     tessellation: TessellationMap,
     triangle_attribution: TriangleAttributionMap,
+    /// PR-KV13 F2: per-output-FACE attribution, parallel to `faces` — the
+    /// `(input, face)` each output face descends from. Populated by
+    /// `boolean()`; empty for `new`/`from_mesh` (no boolean lineage).
+    face_attribution: Vec<TriangleAttribution>,
 }
 
 impl BRep {
@@ -515,6 +519,7 @@ impl BRep {
             mesh,
             tessellation,
             triangle_attribution: TriangleAttributionMap::empty(),
+            face_attribution: Vec::new(),
         })
     }
 
@@ -531,6 +536,7 @@ impl BRep {
             },
             mesh,
             triangle_attribution: TriangleAttributionMap::empty(),
+            face_attribution: Vec::new(),
         }
     }
 }
@@ -989,6 +995,16 @@ impl BRep {
     /// return an empty map.
     pub fn triangle_attribution(&self) -> &TriangleAttributionMap {
         &self.triangle_attribution
+    }
+
+    /// Per-output-FACE attribution (PR-KV13 F2), parallel to [`Self::faces`]:
+    /// `face_attribution()[i]` is the `(input, face)` that output face `i`
+    /// descends from (the majority over its patch's triangles, recorded during
+    /// reassembly). Empty for `new`/`from_mesh`; for a `boolean()` output it has
+    /// one entry per face. The kernel maps each `(input, face)` to the operand's
+    /// persistent face id to chain provenance.
+    pub fn face_attribution(&self) -> &[TriangleAttribution] {
+        &self.face_attribution
     }
 
     pub fn num_verts(&self) -> usize {
@@ -5187,7 +5203,7 @@ pub fn boolean(
     // the attribution in lockstep — so both are passed by `&mut` and the
     // tessellation sources come back from `reconstruct_topology`.
     let mut kept_submesh = kept_submesh;
-    let (vertices, edges, faces, sources) =
+    let (vertices, edges, faces, sources, face_attribution) =
         reconstruct_topology_stage4(&mut kept_submesh, &mut triangle_attribution, a, b, op)?;
 
     let tessellation = TessellationMap { sources };
@@ -5199,6 +5215,7 @@ pub fn boolean(
         mesh: kept_submesh,
         tessellation,
         triangle_attribution,
+        face_attribution,
     })
 }
 
@@ -5217,6 +5234,10 @@ type ReconstructedTopology = (
     Vec<BRepEdge>,
     Vec<BRepFace>,
     Vec<TessellationSource>,
+    // PR-KV13 F2: per-output-face attribution, parallel to `faces` — the
+    // `(input, face)` the patch descends from (the kernel maps it to the
+    // operand's persistent face id for boolean provenance).
+    Vec<TriangleAttribution>,
 );
 
 /// PR-YR5/9 `(vertices, edges, faces)` triple — the pre-PR-YR10 reconstruction
@@ -7249,7 +7270,7 @@ fn reconstruct_topology(
     // so Stage 4 would be a strict no-op anyway). The Stage-4-aware entry point
     // is `reconstruct_topology_stage4`, called by `boolean()`.
     let (infos, _incidence, intersection_curves) = compute_phase_a(mesh, attribution, a, b)?;
-    let (vertices, edges, faces, _sources) =
+    let (vertices, edges, faces, _sources, _face_attr) =
         emit_topology(mesh, &infos, &intersection_curves, &[], BoolOp::Union)?;
     Ok((vertices, edges, faces))
 }
@@ -7350,10 +7371,16 @@ fn emit_topology(
 
     let mut edges: Vec<BRepEdge> = Vec::new();
     let mut faces: Vec<BRepFace> = Vec::new();
+    // PR-KV13 F2: per-output-face attribution, pushed in lockstep with `faces`.
+    let mut face_attribution: Vec<TriangleAttribution> = Vec::new();
     for info in infos {
         let cycles = &info.cycles;
         let inherited = info.inherited;
         let face_idx = info.face_idx;
+        let info_attr = TriangleAttribution {
+            input: info.input,
+            face: info.face_idx as u32,
+        };
 
         // PR-YR8 (P2c) Blocker 2, spec §4: curved-surface branch BEFORE the
         // planar normal/Newell/flip machinery. A `Cylinder` patch is a barrel
@@ -7442,6 +7469,7 @@ fn emit_topology(
                 }
             }
 
+            face_attribution.push(info_attr);
             faces.push(BRepFace {
                 surface: inherited,
                 outer_loop,
@@ -7567,6 +7595,7 @@ fn emit_topology(
             inner_loops.push(push_loop(&mut edges, inner));
         }
 
+        face_attribution.push(info_attr);
         faces.push(BRepFace {
             surface,
             outer_loop,
@@ -7602,7 +7631,7 @@ fn emit_topology(
         }
     }
 
-    Ok((vertices, edges, faces, sources))
+    Ok((vertices, edges, faces, sources, face_attribution))
 }
 
 /// PR-YR5 internal: grouped patch of same-attribution triangles.

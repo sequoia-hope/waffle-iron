@@ -158,10 +158,23 @@ fn neg_unit(n: UnitVector3) -> UnitVector3 {
 ///   `reversed` cylinder surfaces) cannot re-enter yang Stage 1 and are
 ///   the typed [`KernelV2Error::UnsupportedCurvedBoolean`].
 pub fn to_yang_brep(arena: &BrepArena, solid: SolidId) -> Result<yang_rs::BRep, KernelV2Error> {
+    Ok(to_yang_brep_indexed(arena, solid)?.0)
+}
+
+/// [`to_yang_brep`] plus the **yang-face-index → kernel `FaceId`** mapping
+/// (one entry per yang `BRepFace`, in push order). KV13 F2 uses it to map
+/// `boolean()`'s per-output-face attribution `(InputId, face_idx)` back to the
+/// operand's persistent face id for provenance.
+pub fn to_yang_brep_indexed(
+    arena: &BrepArena,
+    solid: SolidId,
+) -> Result<(yang_rs::BRep, Vec<FaceId>), KernelV2Error> {
     let mut vid_map: BTreeMap<VertexId, u32> = BTreeMap::new();
     let mut yverts: Vec<yang_rs::BRepVertex> = Vec::new();
     let mut yedges: Vec<yang_rs::BRepEdge> = Vec::new();
     let mut yfaces: Vec<yang_rs::BRepFace> = Vec::new();
+    // KV13 F2: kernel FaceId per pushed yang face (parallel to `yfaces`).
+    let mut face_ids: Vec<FaceId> = Vec::new();
     // Shared curved edges (rims, seams), keyed by the lower half-edge id of
     // the twin pair.
     let mut shared_edges: BTreeMap<HalfEdgeId, u32> = BTreeMap::new();
@@ -304,6 +317,7 @@ pub fn to_yang_brep(arena: &BrepArena, solid: SolidId) -> Result<yang_rs::BRep, 
                     // BIT-IDENTICAL planes — yang's intra-coplanar gate
                     // excludes the bit-identical class as benign.
                     let d = -(n.x * p0.x() + n.y * p0.y() + n.z * p0.z()) + 0.0;
+                    face_ids.push(f);
                     yfaces.push(yang_rs::BRepFace {
                         surface: yang_rs::Surface::Plane {
                             normal: Vector3::new(n.x + 0.0, n.y + 0.0, n.z + 0.0),
@@ -472,6 +486,7 @@ pub fn to_yang_brep(arena: &BrepArena, solid: SolidId) -> Result<yang_rs::BRep, 
                         loop_indices.push(idx);
                     }
 
+                    face_ids.push(f);
                     yfaces.push(yang_rs::BRepFace {
                         surface: yang_rs::Surface::Cylinder {
                             axis_point,
@@ -490,9 +505,10 @@ pub fn to_yang_brep(arena: &BrepArena, solid: SolidId) -> Result<yang_rs::BRep, 
 
     canonicalize_sibling_planes(&mut yfaces);
 
-    yang_rs::BRep::new(yverts, yedges, yfaces).map_err(|e| {
+    let brep = yang_rs::BRep::new(yverts, yedges, yfaces).map_err(|e| {
         KernelV2Error::BooleanFailed(format!("yang-rs rejected the converted input B-Rep: {e}"))
-    })
+    })?;
+    Ok((brep, face_ids))
 }
 
 /// PR-KV10 (M8 slice d): collapse rounding-noise plane bits across
@@ -629,6 +645,17 @@ pub fn from_yang_brep(
     arena: &mut BrepArena,
     brep: &yang_rs::BRep,
 ) -> Result<SolidId, KernelV2Error> {
+    Ok(from_yang_brep_indexed(arena, brep)?.0)
+}
+
+/// [`from_yang_brep`] plus the **yang-output-face-index → kernel `FaceId`**
+/// mapping (`None` where a yang face produced no kernel face). KV13 F2 uses it
+/// to attach the boolean's per-output-face attribution to the output faces'
+/// persistent ids.
+pub fn from_yang_brep_indexed(
+    arena: &mut BrepArena,
+    brep: &yang_rs::BRep,
+) -> Result<(SolidId, Vec<Option<FaceId>>), KernelV2Error> {
     // PR-KV7: recover B-Rep granularity (output curve tagging) before
     // classification — chord runs on recovered exact circles become arcs /
     // full rims, canonical-pairable cylinder faces become the 4-edge
@@ -1289,9 +1316,10 @@ pub fn from_yang_brep(
 
     // ---- pass 3: full production validation (defense in depth) -----------
     // Validate, then stamp persistent ids on the boolean's output faces
-    // (KV13 F1 — presence only; per-face lineage attribution is F2).
+    // (KV13 F1). Per-face lineage attribution (F2) is recorded by `boolean_op`,
+    // which has the operand→Pid maps; here we return the output face mapping.
     finalize_solid(arena, solid_id)?;
-    Ok(solid_id)
+    Ok((solid_id, face_ids))
 }
 
 /// Classify one yang output edge into the KV5b vocabulary, applying the
@@ -1528,8 +1556,8 @@ pub fn boolean_op(
             return Err(KernelV2Error::UnsupportedMultiShellBoolean { shells });
         }
     }
-    let ya = to_yang_brep(arena, a)?;
-    let yb = to_yang_brep(arena, b)?;
+    let (ya, a_faces) = to_yang_brep_indexed(arena, a)?;
+    let (yb, b_faces) = to_yang_brep_indexed(arena, b)?;
     let Some(backend) = yang_rs::native_backend() else {
         // Unreachable since cherchi-rs M7c (the backend is always available),
         // kept as a loud arm rather than an unwrap (P9, no-panic rule).
@@ -1538,7 +1566,79 @@ pub fn boolean_op(
         ));
     };
     let out = yang_rs::boolean(&ya, &yb, op, &backend).map_err(map_yang_error)?;
-    from_yang_brep(arena, &out)
+    let (out_solid, out_face_ids) = from_yang_brep_indexed(arena, &out)?;
+    // KV13 F2: record the boolean's per-face lineage in the journal.
+    record_boolean_evolution(arena, op, &out, &out_face_ids, &a_faces, &b_faces);
+    Ok(out_solid)
+}
+
+/// KV13 F2: append the boolean's [`Evolution`] to the arena journal. Each
+/// output face descends (via yang's per-face attribution) from an operand
+/// face → a `modified` edge `(operand_pid → output_pid)`; the first output
+/// face from a given operand face is `Same`, additional ones are `Split`.
+/// Operand faces that produced no output are `deleted`. An output face with no
+/// resolvable operand lineage is `generated` (defensive — yang attributes
+/// every patch, so this is normally empty). Infallible: a missing Pid simply
+/// drops that edge (no false lineage).
+fn record_boolean_evolution(
+    arena: &mut BrepArena,
+    op: BoolOp,
+    out: &yang_rs::BRep,
+    out_face_ids: &[Option<FaceId>],
+    a_faces: &[FaceId],
+    b_faces: &[FaceId],
+) {
+    use crate::arena::Pid;
+    use crate::journal::{EvoKind, Evolution, OpTag};
+    use std::collections::BTreeSet;
+
+    let attr = out.face_attribution();
+    let mut generated: Vec<Pid> = Vec::new();
+    let mut modified: Vec<(Pid, Pid, EvoKind)> = Vec::new();
+    let mut claimed: BTreeSet<Pid> = BTreeSet::new();
+    let mut sourced: BTreeSet<Pid> = BTreeSet::new();
+    for (yidx, out_fid) in out_face_ids.iter().enumerate() {
+        let Some(out_fid) = out_fid else { continue };
+        let Some(out_pid) = arena.face_pid(*out_fid) else {
+            continue;
+        };
+        let operand_pid = attr
+            .get(yidx)
+            .and_then(|a| {
+                let faces = match a.input {
+                    yang_rs::InputId::A => a_faces,
+                    yang_rs::InputId::B => b_faces,
+                };
+                faces.get(a.face as usize).copied()
+            })
+            .and_then(|fid| arena.face_pid(fid));
+        match operand_pid {
+            Some(opid) => {
+                sourced.insert(opid);
+                let kind = if claimed.insert(opid) {
+                    EvoKind::Same
+                } else {
+                    EvoKind::Split
+                };
+                modified.push((opid, out_pid, kind));
+            }
+            None => generated.push(out_pid),
+        }
+    }
+    let mut deleted: Vec<Pid> = a_faces
+        .iter()
+        .chain(b_faces.iter())
+        .filter_map(|&fid| arena.face_pid(fid))
+        .filter(|pid| !sourced.contains(pid))
+        .collect();
+    deleted.sort_unstable();
+    deleted.dedup();
+    arena.journal.push(Evolution {
+        op: OpTag::Boolean(op),
+        generated,
+        modified,
+        deleted,
+    });
 }
 
 /// Decompose a solid into separate body solids by grouping its shells into

@@ -419,6 +419,10 @@ pub struct BrepArena {
     /// `BTreeMap` (not `HashMap`) so its `Debug` iteration order is
     /// deterministic — the determinism oracle compares arena debug strings.
     pub face_pids: BTreeMap<FaceId, Pid>,
+    /// Operation journal (KV13 F2): per-operation evolution of face `Pid`s.
+    /// Append-only; deterministic given operation order. `FaceOrigin` (F3)
+    /// walks its `modified` edges back to a `generated` origin.
+    pub journal: Vec<crate::journal::Evolution>,
 }
 
 macro_rules! checked_getters {
