@@ -387,6 +387,27 @@ impl Profile {
             }
         }
 
+        // Containment (E4b): every hole strictly inside the outer, and no hole
+        // nested in another — exact arc-aware ray-cast (sound after
+        // disjointness). An indeterminate witness (all rays degenerate) is
+        // treated as "not confirmed inside" and rejected loudly, never
+        // silently accepted.
+        for (k, hole) in holes.iter().enumerate() {
+            if loop_strictly_inside(hole, &outer) != Some(true) {
+                return Err(KernelV2Error::ProfileHoleNotInsideOuter { hole_index: k });
+            }
+        }
+        for i in 0..holes.len() {
+            for j in 0..holes.len() {
+                if i != j && loop_strictly_inside(&holes[j], &holes[i]) == Some(true) {
+                    return Err(KernelV2Error::ProfileHolesNested {
+                        outer_hole: i,
+                        inner_hole: j,
+                    });
+                }
+            }
+        }
+
         Ok(Self {
             origin,
             u,
@@ -704,6 +725,66 @@ fn arc_loops_touch(a: &[ProfileEdge], b: &[ProfileEdge]) -> bool {
         }
     }
     false
+}
+
+/// Is point `w` strictly inside the line/arc region bounded by `loop_edges`?
+/// Exact +x-ray crossing parity (PR-KV12 E4b). `None` signals a ray
+/// degeneracy (a boundary vertex on the ray, or an arc tangent to it) — the
+/// caller retries with another witness. Caller guarantees `w` is not on the
+/// boundary (loop disjointness is established first).
+fn point_in_arc_region(w: Point2, loop_edges: &[ProfileEdge]) -> Option<bool> {
+    // Far endpoint strictly beyond all geometry in +x → provably outside.
+    let mut max_x = w.x();
+    for e in loop_edges {
+        max_x = max_x.max(e.start().x()).max(e.end().x());
+        if let ProfileEdge::Arc { center, radius, .. } = e {
+            max_x = max_x.max(center.x() + radius);
+        }
+    }
+    let far = Point2::new(max_x + 1.0, w.y());
+
+    // Degeneracy: a boundary vertex lying on the ray (same y, to the right).
+    for e in loop_edges {
+        let v = e.start();
+        if v.y() == w.y() && v.x() >= w.x() {
+            return None;
+        }
+    }
+
+    let mut count = 0usize;
+    for e in loop_edges {
+        match *e {
+            ProfileEdge::Line { a, b } => {
+                if exact::segments_properly_cross(w, far, a, b) {
+                    count += 1;
+                }
+            }
+            ProfileEdge::Arc {
+                a,
+                b,
+                center,
+                radius,
+                ..
+            } => match exact::arc_segment_interior_crossings(a, b, center, radius, w, far) {
+                Some(c) => count += c,
+                None => return None,
+            },
+        }
+    }
+    Some(count % 2 == 1)
+}
+
+/// Is the `inner` loop strictly inside the `region` loop? Tries each `inner`
+/// vertex as a ray-cast witness until one is non-degenerate (all `inner`
+/// points share the same status once disjointness holds). `None` if every
+/// witness is degenerate — the caller treats that as "cannot confirm".
+fn loop_strictly_inside(inner: &[ProfileEdge], region: &[ProfileEdge]) -> Option<bool> {
+    for e in inner {
+        if let Some(inside) = point_in_arc_region(e.start(), region) {
+            return Some(inside);
+        }
+    }
+    None
 }
 
 /// Do two distinct loops intersect or touch anywhere? (Exact; segment-pair

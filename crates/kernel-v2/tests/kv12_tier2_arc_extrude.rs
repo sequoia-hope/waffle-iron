@@ -1,4 +1,8 @@
-//! PR-KV12 Tier 2, increments E1 + E2 — exact mixed line/arc extrude.
+//! PR-KV12 Tier 2 (E1–E4b) — exact mixed line/arc extrude.
+//!
+//! E3 adds exact arc-loop simplicity rejection (self-intersection ⇒
+//! `ProfileNotSimple`); E4b adds holed arc extrude (annular caps + hole walls,
+//! genus = hole count) with exact arc-aware hole containment.
 //!
 //! `extrude` of a `ProfileRegion::ArcPolygon` (a closed loop of line + minor
 //! circular-arc edges) produces an EXACT B-Rep: planar caps bounded by the
@@ -260,59 +264,192 @@ fn rejects_broken_chain() {
     );
 }
 
+// =========================================================================
+// E4b — holed arc extrude (annular caps + hole walls, genus = hole count)
+// =========================================================================
+
 #[test]
-fn rejects_holes_in_e1() {
-    // A valid square hole loop, but E1 does not wire holed arc caps yet.
-    let mut arena = BrepArena::new();
+fn holed_arc_extrude_annulus_volume_and_genus() {
+    // Rounded-rectangle OUTER (4 convex arcs → cylinder walls) with a square
+    // HOLE → an annular solid: 2 annular caps, outer line+cylinder walls, 4
+    // hole walls; genus 1; volume = (rounded_rect − hole) × H.
+    let (oa, ob, orad) = (4.0, 3.0, 0.5);
+    let outer_area = 4.0 * oa * ob - orad * orad * (4.0 - PI);
+    let p = |x, y| Point2::new(x, y);
+    let hole = vec![
+        ProfileEdge::Line {
+            a: p(-1.0, -1.0),
+            b: p(1.0, -1.0),
+        },
+        ProfileEdge::Line {
+            a: p(1.0, -1.0),
+            b: p(1.0, 1.0),
+        },
+        ProfileEdge::Line {
+            a: p(1.0, 1.0),
+            b: p(-1.0, 1.0),
+        },
+        ProfileEdge::Line {
+            a: p(-1.0, 1.0),
+            b: p(-1.0, -1.0),
+        },
+    ];
+    let hole_area = 4.0; // 2×2 square
+
+    // Reuse the rounded_rect edge builder, then attach the hole.
+    let outer_profile = rounded_rect(oa, ob, orad);
+    let outer_edges = match outer_profile.region() {
+        kernel_v2::ProfileRegion::ArcPolygon { outer, .. } => outer.clone(),
+        _ => panic!("rounded_rect is an ArcPolygon"),
+    };
     let profile = Profile::arc_polygon(
         Point3::new(0.0, 0.0, 0.0),
         Vector3::new(1.0, 0.0, 0.0),
         Vector3::new(0.0, 1.0, 0.0),
-        vec![
-            ProfileEdge::Line {
-                a: Point2::new(0.0, 0.0),
-                b: Point2::new(10.0, 0.0),
-            },
-            ProfileEdge::Line {
-                a: Point2::new(10.0, 0.0),
-                b: Point2::new(10.0, 10.0),
-            },
-            ProfileEdge::Line {
-                a: Point2::new(10.0, 10.0),
-                b: Point2::new(0.0, 10.0),
-            },
-            ProfileEdge::Line {
-                a: Point2::new(0.0, 10.0),
-                b: Point2::new(0.0, 0.0),
-            },
-        ],
-        vec![vec![
-            ProfileEdge::Line {
-                a: Point2::new(3.0, 3.0),
-                b: Point2::new(6.0, 3.0),
-            },
-            ProfileEdge::Line {
-                a: Point2::new(6.0, 3.0),
-                b: Point2::new(6.0, 6.0),
-            },
-            ProfileEdge::Line {
-                a: Point2::new(6.0, 6.0),
-                b: Point2::new(3.0, 6.0),
-            },
-            ProfileEdge::Line {
-                a: Point2::new(3.0, 6.0),
-                b: Point2::new(3.0, 3.0),
-            },
-        ]],
+        outer_edges,
+        vec![hole],
     )
-    .expect("well-formed holed arc-polygon");
-    let err = extrude(&mut arena, &profile, Vector3::new(0.0, 0.0, 1.0), H)
-        .expect_err("E1 rejects holes");
+    .expect("valid holed rounded rectangle");
+
+    let mut arena = BrepArena::new();
+    let r =
+        extrude(&mut arena, &profile, Vector3::new(0.0, 0.0, 1.0), H).expect("holed arc extrude");
+    let report = validate_solid(&arena, r.solid).expect("holed arc solid validates");
+    assert_eq!(report.genus, 1, "one through-hole ⇒ genus 1");
+    assert_eq!(report.euler_lhs, report.euler_rhs, "Euler balance");
+    assert_eq!(r.hole_walls.len(), 1, "one hole's walls");
+    assert_eq!(r.hole_walls[0].len(), 4, "square hole ⇒ 4 walls");
+
+    // Exact annulus volume.
+    let expected = (outer_area - hole_area) * H;
+    let vol = geom::signed_volume(&arena, r.solid).expect("annulus volume");
     assert!(
-        matches!(err, KernelV2Error::ExtrudeArcHolesUnsupported),
+        (vol - expected).abs() <= 1e-9 * expected,
+        "holed arc volume {vol} vs analytic {expected}"
+    );
+
+    // The outer's 4 arcs survive as cylinder patches.
+    let cyls = std::iter::once(r.base)
+        .chain(std::iter::once(r.top))
+        .chain(r.walls.iter().copied())
+        .chain(r.hole_walls.iter().flatten().copied())
+        .filter(|&f| {
+            matches!(
+                arena.face(f).map(|fc| fc.surface),
+                Ok(Some(Surface::Cylinder { .. }))
+            )
+        })
+        .count();
+    assert_eq!(cyls, 4, "four convex corner cylinder patches");
+
+    // Watertight tessellation.
+    let mesh = tessellate(&arena, r.solid).expect("tessellate holed arc");
+    assert_watertight(&mesh, "holed arc mesh");
+}
+
+#[test]
+fn rejects_hole_outside_outer() {
+    // A hole loop DISJOINT from but OUTSIDE the outer must be rejected by the
+    // exact arc-aware containment (not silently accepted as a hole).
+    let p = |x, y| Point2::new(x, y);
+    let outer_profile = rounded_rect(4.0, 3.0, 0.5); // spans ≈ [-4,4]×[-3,3]
+    let outer_edges = match outer_profile.region() {
+        kernel_v2::ProfileRegion::ArcPolygon { outer, .. } => outer.clone(),
+        _ => unreachable!(),
+    };
+    // Square far to the upper-right, disjoint from the outer.
+    let hole = vec![
+        ProfileEdge::Line {
+            a: p(10.0, 10.0),
+            b: p(11.0, 10.0),
+        },
+        ProfileEdge::Line {
+            a: p(11.0, 10.0),
+            b: p(11.0, 11.0),
+        },
+        ProfileEdge::Line {
+            a: p(11.0, 11.0),
+            b: p(10.0, 11.0),
+        },
+        ProfileEdge::Line {
+            a: p(10.0, 11.0),
+            b: p(10.0, 10.0),
+        },
+    ];
+    let err = Profile::arc_polygon(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        outer_edges,
+        vec![hole],
+    )
+    .expect_err("hole outside the outer is rejected");
+    assert!(
+        matches!(
+            err,
+            KernelV2Error::ProfileHoleNotInsideOuter { hole_index: 0 }
+        ),
         "{err:?}"
     );
-    assert!(arena.solids.is_empty(), "arena untouched on rejection");
+}
+
+#[test]
+fn rejects_nested_arc_holes() {
+    // Two holes where one is inside the other → ProfileHolesNested.
+    let p = |x, y| Point2::new(x, y);
+    let outer_profile = rounded_rect(6.0, 6.0, 0.5);
+    let outer_edges = match outer_profile.region() {
+        kernel_v2::ProfileRegion::ArcPolygon { outer, .. } => outer.clone(),
+        _ => unreachable!(),
+    };
+    let big_hole = vec![
+        ProfileEdge::Line {
+            a: p(-3.0, -3.0),
+            b: p(3.0, -3.0),
+        },
+        ProfileEdge::Line {
+            a: p(3.0, -3.0),
+            b: p(3.0, 3.0),
+        },
+        ProfileEdge::Line {
+            a: p(3.0, 3.0),
+            b: p(-3.0, 3.0),
+        },
+        ProfileEdge::Line {
+            a: p(-3.0, 3.0),
+            b: p(-3.0, -3.0),
+        },
+    ];
+    let small_hole = vec![
+        ProfileEdge::Line {
+            a: p(-1.0, -1.0),
+            b: p(1.0, -1.0),
+        },
+        ProfileEdge::Line {
+            a: p(1.0, -1.0),
+            b: p(1.0, 1.0),
+        },
+        ProfileEdge::Line {
+            a: p(1.0, 1.0),
+            b: p(-1.0, 1.0),
+        },
+        ProfileEdge::Line {
+            a: p(-1.0, 1.0),
+            b: p(-1.0, -1.0),
+        },
+    ];
+    let err = Profile::arc_polygon(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        outer_edges,
+        vec![big_hole, small_hole],
+    )
+    .expect_err("nested holes are rejected");
+    assert!(
+        matches!(err, KernelV2Error::ProfileHolesNested { .. }),
+        "{err:?}"
+    );
 }
 
 #[test]

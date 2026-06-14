@@ -110,13 +110,16 @@ the print critical path.**
 - **E4 ✅ DONE (2026-06-14).** Adapter wiring: `make_faces_from_profiles`
   reconstructs an `ArcPolygon` from `arc_segments` + the chord polygon (arc runs
   → minor sub-arcs, splitting a semicircle into 2 patches; wrap-aware), routes
-  single arc loops through exact Tier-2, and falls back LOUDLY to the Tier-1
-  chord polygon on anything it declines (incl. holed-arc outers). Adapter +
-  kv8 + GUI `arc-profile-extrude` tests; WASM rebuilt. **E4b tail:** holed-arc
-  Tier 2 (the inner-cap-loop assembler + exact hole containment) — a gear drawn
-  teeth+bore in one sketch stays Tier-1 until then.
-- **Phase E essentially complete** for the gearbox's needs: arc/rounded
-  profiles and bore-less gears extrude with exact cylinder walls.
+  single arc loops through exact Tier-2, falling back LOUDLY to the Tier-1
+  chord polygon on anything it declines. Adapter + kv8 + GUI tests; WASM rebuilt.
+- **E4b ✅ DONE (2026-06-14).** Holed arc Tier 2: the assembler generalized to
+  multi-loop (holes wound CW so the same per-edge code gives annular caps + into-
+  the-cavity walls; genus = hole count) + exact arc-aware hole containment
+  (`point_in_arc_region` ray-cast reusing the E3 predicates). Holed `ArcPolygon`
+  outers now extrude with exact cylinder walls AND holes. Kernel annulus/genus
+  tests + containment RED tests + adapter Tier-2 holed test.
+- **Phase E COMPLETE.** Arc/rounded profiles and gears (with or without bores)
+  extrude with exact cylinder walls.
 
 ### Phase F — Provenance / topological naming *(kernel + app — `KV13`; capstone)*
 "Click any face → the feature that *created* it, through chained

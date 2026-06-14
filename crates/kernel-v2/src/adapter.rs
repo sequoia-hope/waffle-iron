@@ -772,7 +772,8 @@ impl Kernel for KernelV2Adapter {
                 } => *is_outer && point_in_polygon_2d(p, chord_pts),
             }
         };
-        let mut holes_for: std::collections::HashMap<usize, Vec<Vec<Point2>>> =
+        // outer index → indices of the inner loops it contains.
+        let mut holes_for: std::collections::HashMap<usize, Vec<usize>> =
             std::collections::HashMap::new();
         for i in 0..shapes.len() {
             // An inner (`is_outer == false`) polygon or arc loop is a hole;
@@ -814,27 +815,53 @@ impl Kernel for KernelV2Adapter {
                             .unwrap_or(std::cmp::Ordering::Equal)
                     });
                 if let Some(j) = container {
-                    holes_for.entry(j).or_default().push(pts.clone());
+                    holes_for.entry(j).or_default().push(i);
                 }
             }
         }
 
+        // A hole loop's Tier-1 chord polygon (for Profile::new holes).
+        let shape_chord_pts = |s: &Shape| -> Vec<Point2> {
+            match s {
+                Shape::Circle { center, radius } => polygonize_circle(*center, *radius),
+                Shape::Polygon { pts, .. } => pts.clone(),
+                Shape::ArcPolygon { chord_pts, .. } => chord_pts.clone(),
+            }
+        };
+        // A hole loop's exact `ProfileEdge` loop (for Tier-2 arc_polygon holes):
+        // an arc hole keeps its arcs, a polygon/circle hole becomes line edges.
+        let shape_edges = |s: &Shape| -> Vec<crate::ProfileEdge> {
+            match s {
+                Shape::ArcPolygon { edges, .. } => edges.clone(),
+                Shape::Polygon { pts, .. } => pts_to_line_edges(pts),
+                Shape::Circle { center, radius } => {
+                    pts_to_line_edges(&polygonize_circle(*center, *radius))
+                }
+            }
+        };
+
         // ── pass 3: stage one profile per input index (profile_index contract)
         // An outer's index → its holed face; an inner's index → that inner as a
         // standalone face (so selecting just the hole region still extrudes).
+        let no_holes: Vec<usize> = Vec::new();
         let mut out = Vec::with_capacity(shapes.len());
         for (i, s) in shapes.iter().enumerate() {
+            let hole_idx: &Vec<usize> = holes_for.get(&i).unwrap_or(&no_holes);
             let kv2_profile = match s {
                 Shape::Circle { center, radius } => {
-                    if let Some(holes) = holes_for.get(&i) {
+                    if !hole_idx.is_empty() {
                         // A circle rim with holes needs a polygon outer to carry
                         // them (a true holed circle): polygonize the rim.
+                        let holes = hole_idx
+                            .iter()
+                            .map(|&h| shape_chord_pts(&shapes[h]))
+                            .collect();
                         crate::Profile::new(
                             origin,
                             ux,
                             vy,
                             polygonize_circle(*center, *radius),
-                            holes.clone(),
+                            holes,
                         )
                         .map_err(|e| KernelError::Other {
                             message: format!("kernel-v2 holed circle profile rejected: {e}"),
@@ -849,7 +876,10 @@ impl Kernel for KernelV2Adapter {
                 }
                 Shape::Polygon { pts, is_outer } => {
                     let holes = if *is_outer {
-                        holes_for.get(&i).cloned().unwrap_or_default()
+                        hole_idx
+                            .iter()
+                            .map(|&h| shape_chord_pts(&shapes[h]))
+                            .collect()
                     } else {
                         Vec::new()
                     };
@@ -864,35 +894,30 @@ impl Kernel for KernelV2Adapter {
                     chord_pts,
                     is_outer,
                 } => {
-                    let holes = if *is_outer {
-                        holes_for.get(&i).cloned().unwrap_or_default()
-                    } else {
-                        Vec::new()
-                    };
-                    // Holed arc loops route through the Tier-1 chord polygon
-                    // (the holed-arc assembler with exact hole containment is
-                    // a later increment); a single arc loop takes the exact
-                    // Tier-2 path, falling back loudly if simplicity
-                    // validation declines it.
-                    let tier2 = if holes.is_empty() {
-                        crate::Profile::arc_polygon(origin, ux, vy, edges.clone(), Vec::new()).ok()
-                    } else {
-                        None
-                    };
+                    let holes_here: &[usize] = if *is_outer { hole_idx } else { &[] };
+                    // Tier 2 (E4 + E4b): the exact arc loop with exact arc
+                    // holes — `Profile::arc_polygon` is the exact gate (cylinder
+                    // walls on the outer AND arc holes). On ANY decline (failed
+                    // simplicity / containment, or a malformed loop) fall back
+                    // LOUDLY to the Tier-1 chord polygon, so no input regresses.
+                    let hole_edge_loops: Vec<Vec<crate::ProfileEdge>> = holes_here
+                        .iter()
+                        .map(|&h| shape_edges(&shapes[h]))
+                        .collect();
+                    let tier2 =
+                        crate::Profile::arc_polygon(origin, ux, vy, edges.clone(), hole_edge_loops)
+                            .ok();
                     if let Some(p) = tier2 {
                         p
                     } else {
-                        if !holes.is_empty() {
-                            eprintln!(
-                                "kernel-v2 KV12: holed arc profile → Tier-1 chord polygon \
-                                 (holed-arc Tier 2 not yet wired)"
-                            );
-                        } else {
-                            eprintln!(
-                                "kernel-v2 KV12: arc loop failed exact simplicity → \
-                                 Tier-1 chord polygon"
-                            );
-                        }
+                        eprintln!(
+                            "kernel-v2 KV12: arc profile declined Tier 2 (simplicity / \
+                             containment) → Tier-1 chord polygon"
+                        );
+                        let holes = holes_here
+                            .iter()
+                            .map(|&h| shape_chord_pts(&shapes[h]))
+                            .collect();
                         crate::Profile::new(origin, ux, vy, chord_pts.clone(), holes).map_err(
                             |e| KernelError::Other {
                                 message: format!("kernel-v2 profile rejected: {e}"),
@@ -943,6 +968,18 @@ fn polygon_area_abs(poly: &[Point2]) -> f64 {
         j = i;
     }
     (a * 0.5).abs()
+}
+
+/// Closed polyline → `ProfileEdge::Line` loop (a polygon/circle hole carried
+/// into a Tier-2 `ArcPolygon` as straight edges).
+fn pts_to_line_edges(pts: &[Point2]) -> Vec<crate::ProfileEdge> {
+    let n = pts.len();
+    (0..n)
+        .map(|i| crate::ProfileEdge::Line {
+            a: pts[i],
+            b: pts[(i + 1) % n],
+        })
+        .collect()
 }
 
 /// Polygonize a circle rim into an N-gon — only when a circle outer carries
@@ -1339,19 +1376,20 @@ mod tests {
     }
 
     #[test]
-    fn holed_arc_profile_falls_back_to_tier1() {
-        // An arc-bearing OUTER with a hole routes through the Tier-1 chord
-        // polygon (holed-arc Tier 2 not yet wired) and still extrudes a valid
-        // solid — no panic, no cylinder faces (chord walls).
+    fn holed_arc_profile_extrudes_tier2_with_cylinder_wall() {
+        // E4b: an arc-bearing OUTER with a hole routes through the exact Tier-2
+        // path — the corner arc becomes a cylinder patch AND the hole is
+        // carried (genus 1), not a Tier-1 chord fallback.
         let mut adapter = KernelV2Adapter::new();
         let mut positions: HashMap<u32, (f64, f64)> = HashMap::new();
         // Outer: a rounded-ish loop — square corners (0..4) plus a quarter arc
         // bulging at the top-right corner. Sample the arc at a few points.
         positions.insert(0, (0.0, 0.0));
         positions.insert(1, (4.0, 0.0));
-        positions.insert(2, (4.0, 3.0)); // arc start
-        positions.insert(3, (3.7, 3.7));
-        positions.insert(4, (3.0, 4.0)); // arc end
+        positions.insert(2, (4.0, 3.0)); // arc start (0° on centre (3,3) r1)
+        let s = std::f64::consts::FRAC_1_SQRT_2; // 45° sample, exactly on the circle
+        positions.insert(3, (3.0 + s, 3.0 + s));
+        positions.insert(4, (3.0, 4.0)); // arc end (90°)
         positions.insert(5, (0.0, 4.0));
         let outer = ClosedProfile {
             entity_ids: vec![],
@@ -1395,11 +1433,13 @@ mod tests {
             .expect("holed arc profile stages");
         let handle = adapter
             .extrude_face(ids[0], [0.0, 0.0, 1.0], 2.0)
-            .expect("holed arc profile extrudes (Tier-1 fallback)");
-        // Tier-1 chord walls ⇒ no exact cylinder patches.
-        assert_eq!(cylinder_face_count(&adapter, &handle), 0);
-        // The through-hole makes it genus 1: a valid solid all the same.
-        assert!(adapter.list_faces(&handle).len() >= 6);
+            .expect("holed arc profile extrudes (Tier 2)");
+        // Tier 2: the corner quarter-arc survives as an exact cylinder patch.
+        assert_eq!(
+            cylinder_face_count(&adapter, &handle),
+            1,
+            "one corner cylinder patch on the holed solid"
+        );
     }
 
     #[test]

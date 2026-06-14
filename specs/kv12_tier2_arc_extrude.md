@@ -1,8 +1,8 @@
 # KV12 Tier 2 Spec — exact arc-segment profile extrude (cylinder side patches)
 
-Status: Prototype-release Phase E. **E1 + E2 + E3 + E4 DONE (2026-06-14).**
-Single-loop arc profiles now extrude with exact cylinder walls end-to-end
-(kernel → adapter → app); holed-arc Tier 2 is the one remaining tail (E4b).
+Status: Prototype-release Phase E **COMPLETE — E1–E4b DONE (2026-06-14)**.
+Arc profiles (with or without holes) extrude with exact cylinder walls
+end-to-end (kernel → adapter → app).
 Scope: `crates/kernel-v2/src/{profile,construct,geom,validate}.rs`,
 `crates/kernel-v2/src/adapter.rs` (wiring), `crates/cad-primitives` /
 `kernel-v2/exact2d.rs` (new arc predicates). NO yang-rs / boolean change.
@@ -174,12 +174,31 @@ value IS the evidence of simplicity.
   volume), and GUI `arc-profile-extrude.spec.js` (D-shape body now has ≤10
   faces — cylinder patches, not ~18 chord walls). WASM rebuilt.
 
-  **Remaining tail — E4b (holed-arc Tier 2):** a holed arc OUTER currently
-  routes through Tier-1 (chord) because the holed-arc *assembler* (inner cap
-  loops + hole wall faces) and the deferred exact hole-inside-outer containment
-  (E3 §5) are not yet built. Gears drawn solid-then-bored (separate extrudes)
-  already get exact tooth walls; a gear drawn teeth+bore in ONE sketch stays
-  Tier-1 until E4b.
+- **E4b — holed arc Tier 2. ✅ DONE (2026-06-14).** A holed arc OUTER now
+  extrudes through the exact Tier-2 path (cylinder walls on the outer AND arc
+  holes), no longer falling back to Tier-1.
+  - **Assembler** (`extrude_arc_profile`, generalized to multi-loop): each hole
+    loop is wound CW-around-`+a` (the reverse of the outer), so the SAME
+    per-edge generation yields a cap inner loop with the correct opposite
+    winding and wall normals pointing INTO the cavity. The caps become annular
+    faces (`inner_loops`); the shell genus is the hole count. `validate_solid` +
+    exact annulus volume are the gates — it passed first run.
+  - **Exact hole containment** (the E3 §5 deferred piece): `point_in_arc_region`
+    — exact +x-ray crossing parity, reusing the E3 predicates via a new
+    `arc_segment_interior_crossings` (0/1/2 count, tangent → degenerate). A
+    boundary vertex on the ray or an arc tangency returns `None`; the caller
+    retries other hole vertices (all share status once disjoint) and rejects
+    loudly if all are indeterminate — never a silent wrong-containment.
+    `Profile::arc_polygon` now enforces hole-inside-outer + non-nesting.
+  - **Adapter**: `holes_for` keyed by index; holed `ArcPolygon` outers route
+    through Tier-2 (arc holes keep their arcs; polygon/circle holes become line
+    edges via `pts_to_line_edges`), falling back LOUDLY to Tier-1 on any decline.
+  - Tests: kernel `holed_arc_extrude_annulus_volume_and_genus` (genus 1, exact
+    annulus volume, 4 cylinder patches, watertight) + `rejects_hole_outside_outer`
+    + `rejects_nested_arc_holes`; adapter `holed_arc_profile_extrudes_tier2_with_cylinder_wall`.
+  - **Known narrow gap:** the exact containment ray-cast is decided generically;
+    a hole whose every vertex is ray-degenerate vs the outer is rejected (→
+    Tier-1 fallback in the adapter), not silently accepted.
 
 ## 7. Composition / no-regression
 

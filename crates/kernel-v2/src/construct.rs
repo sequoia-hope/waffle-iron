@@ -1301,16 +1301,62 @@ struct ArcEdgeGeom {
     wall_normal: UnitVector3,
 }
 
+/// Per-loop precomputed geometry for the arc extrude assembler.
+struct ArcLoopGeom {
+    /// Edge count of this loop.
+    k: usize,
+    /// Global edge-index offset (Σ of earlier loops' `k`).
+    off: usize,
+    /// Base vertex id (ring0 then ring1 follow).
+    vbase: u32,
+    /// Bottom-ring vertices (embedded boundary).
+    ring0: Vec<Point3>,
+    /// Top-ring vertices (`ring0 + w`).
+    ring1: Vec<Point3>,
+    /// Per-edge surface/curve geometry.
+    eg: Vec<ArcEdgeGeom>,
+}
+
+/// Reverse a working loop: reverse edge order AND swap each edge's endpoints
+/// (circle centre/radius are orientation-free). Used to put the outer loop
+/// CCW-around-`+a` and each hole loop CW-around-`+a`.
+fn reverse_arc_loop(edges: &[ProfileEdge]) -> Vec<ProfileEdge> {
+    edges
+        .iter()
+        .rev()
+        .map(|e| match *e {
+            ProfileEdge::Line { a, b } => ProfileEdge::Line { a: b, b: a },
+            ProfileEdge::Arc {
+                a,
+                b,
+                center,
+                radius,
+                ccw,
+            } => ProfileEdge::Arc {
+                a: b,
+                b: a,
+                center,
+                radius,
+                ccw: !ccw,
+            },
+        })
+        .collect()
+}
+
 /// Extrude a validated mixed line/arc [`Profile`] (`ProfileRegion::ArcPolygon`,
 /// PR-KV12 Tier 2) perpendicular to its plane: planar caps bounded by the
-/// line+arc loop, a planar side wall per line edge, and an exact
+/// line+arc loops, a planar side wall per line edge, and an exact
 /// [`Surface::Cylinder`] patch per arc edge (an arc swept linearly along the
 /// normal IS a cylinder lateral). Direct arena assembler — same half-edge /
 /// twin wiring as [`build_partial_revolve`] (linear seams replace the swept
 /// arcs; the profile edges carry the `Line`/`Arc` curves); the safety
 /// obligation is discharged by `validate_solid` at exit.
 ///
-/// E1 scope: a single outer loop, no holes, perpendicular sweep, minor arcs.
+/// Holes (E4b): each hole loop is wound CW-around-`+a` (the reverse of the
+/// outer), so the SAME per-edge generation yields a cap inner loop with the
+/// correct (opposite) winding and wall normals pointing INTO the cavity. The
+/// caps become annular faces (`inner_loops`); the shell genus is the hole
+/// count (each through-hole adds genus 1).
 #[allow(clippy::too_many_arguments)]
 fn extrude_arc_profile(
     arena: &mut BrepArena,
@@ -1322,10 +1368,7 @@ fn extrude_arc_profile(
     cosine: f64,
     distance: f64,
 ) -> Result<ExtrudeResult, KernelV2Error> {
-    // ---- capability gates (all pre-mutation) ------------------------------
-    if !holes.is_empty() {
-        return Err(KernelV2Error::ExtrudeArcHolesUnsupported);
-    }
+    // ---- oblique gate (pre-mutation) -------------------------------------
     // Oblique sweep of an arc → elliptic-section cylinder (out of Tier-2 v1).
     let n_unit = profile.unit_normal();
     let dn = [d[0] / d_len, d[1] / d_len, d[2] / d_len];
@@ -1339,45 +1382,29 @@ fn extrude_arc_profile(
         return Err(KernelV2Error::ExtrudeObliqueArcUnsupported);
     }
 
-    // ---- geometry (sweep axis `a`, working loop CCW around `+a`) ----------
-    // `a` is the profile normal signed by the sweep sense; the working loop
-    // must wind CCW around `+a` so the finished solid is outward-oriented
-    // (mirror of `extrude`'s `reverse` and `extrude_circle`'s axis sign).
+    // ---- geometry (sweep axis `a`) ---------------------------------------
+    // `a` is the profile normal signed by the sweep sense; the OUTER loop must
+    // wind CCW around `+a` (so the solid is outward-oriented), holes CW.
     let a = if cosine >= 0.0 { n_unit } else { neg(n_unit) };
     let w = [a.x * distance, a.y * distance, a.z * distance];
-    let work: Vec<ProfileEdge> = if cosine >= 0.0 {
-        outer.to_vec()
+    let reverse_outer = cosine < 0.0;
+
+    // Working loops: index 0 = outer (CCW +a), 1.. = holes (CW +a).
+    let mut loops_work: Vec<Vec<ProfileEdge>> = Vec::with_capacity(1 + holes.len());
+    loops_work.push(if reverse_outer {
+        reverse_arc_loop(outer)
     } else {
-        // Reverse the loop: reverse edge order AND swap each edge's endpoints
-        // (the circle center/radius are orientation-free).
-        outer
-            .iter()
-            .rev()
-            .map(|e| match *e {
-                ProfileEdge::Line { a, b } => ProfileEdge::Line { a: b, b: a },
-                ProfileEdge::Arc {
-                    a,
-                    b,
-                    center,
-                    radius,
-                    ccw,
-                } => ProfileEdge::Arc {
-                    a: b,
-                    b: a,
-                    center,
-                    radius,
-                    ccw: !ccw,
-                },
-            })
-            .collect()
-    };
-    let k = work.len();
+        outer.to_vec()
+    });
+    for hole in holes {
+        loops_work.push(if reverse_outer {
+            hole.to_vec()
+        } else {
+            reverse_arc_loop(hole)
+        });
+    }
+    let n_loops = loops_work.len() as u32;
 
-    // Ring vertices: ring0 = boundary embedded; ring1 = ring0 + w.
-    let ring0: Vec<Point3> = work.iter().map(|e| profile.embed(e.start())).collect();
-    let ring1: Vec<Point3> = ring0.iter().map(|p| translate(*p, w)).collect();
-
-    // Per-edge geometry (arc normals / wall surfaces), all before mutation.
     let cross3 = |u: [f64; 3], v: [f64; 3]| {
         [
             u[1] * v[2] - u[2] * v[1],
@@ -1393,81 +1420,96 @@ fn extrude_arc_profile(
             z: v[2] / l,
         })
     };
-    let mut eg: Vec<ArcEdgeGeom> = Vec::with_capacity(k);
-    for (i, e) in work.iter().enumerate() {
-        let a3 = ring0[i];
-        let b3 = ring0[(i + 1) % k];
-        let edge_vec = [b3.x() - a3.x(), b3.y() - a3.y(), b3.z() - a3.z()];
-        match *e {
-            ProfileEdge::Line { .. } => {
-                // Outward normal of the planar wall: (B − A) × a (the line
-                // analog of the Newell normal for a CCW-around-`a` loop).
-                let wn = unit(cross3(edge_vec, [a.x, a.y, a.z]))
-                    .ok_or(KernelV2Error::ProfileArcEdgeInvalid)?;
-                eg.push(ArcEdgeGeom {
-                    is_arc: false,
-                    c_bot: a3,
-                    c_top: a3,
-                    radius: 0.0,
-                    wb_normal: a,
-                    reversed: false,
-                    wall_normal: wn,
-                });
-            }
-            ProfileEdge::Arc { center, radius, .. } => {
-                let c_bot = profile.embed(center);
-                let c_top = translate(c_bot, w);
-                // Sweep sense of A → B around `+a`: sign of ((A−C)×(B−C))·a.
-                let va = [a3.x() - c_bot.x(), a3.y() - c_bot.y(), a3.z() - c_bot.z()];
-                let vb = [b3.x() - c_bot.x(), b3.y() - c_bot.y(), b3.z() - c_bot.z()];
-                let cr = cross3(va, vb);
-                let sdot = cr[0] * a.x + cr[1] * a.y + cr[2] * a.z;
-                let ccw = sdot > 0.0;
-                eg.push(ArcEdgeGeom {
-                    is_arc: true,
-                    c_bot,
-                    c_top,
-                    radius,
-                    // wb[i] (A → B, bottom): CCW around +a ⟺ normal +a.
-                    wb_normal: if ccw { a } else { neg(a) },
-                    // Convex arc (center on the material side) → solid sense;
-                    // concave (CCW false for an outer edge) → cavity wall.
-                    reversed: !ccw,
-                    wall_normal: a, // unused for arc edges
-                });
+
+    // ---- per-loop geometry (all before mutation) -------------------------
+    let mut geoms: Vec<ArcLoopGeom> = Vec::with_capacity(loops_work.len());
+    let mut off = 0usize;
+    for lw in &loops_work {
+        let k = lw.len();
+        let ring0: Vec<Point3> = lw.iter().map(|e| profile.embed(e.start())).collect();
+        let ring1: Vec<Point3> = ring0.iter().map(|p| translate(*p, w)).collect();
+        let mut eg: Vec<ArcEdgeGeom> = Vec::with_capacity(k);
+        for (i, e) in lw.iter().enumerate() {
+            let a3 = ring0[i];
+            let b3 = ring0[(i + 1) % k];
+            let edge_vec = [b3.x() - a3.x(), b3.y() - a3.y(), b3.z() - a3.z()];
+            match *e {
+                ProfileEdge::Line { .. } => {
+                    let wn = unit(cross3(edge_vec, [a.x, a.y, a.z]))
+                        .ok_or(KernelV2Error::ProfileArcEdgeInvalid)?;
+                    eg.push(ArcEdgeGeom {
+                        is_arc: false,
+                        c_bot: a3,
+                        c_top: a3,
+                        radius: 0.0,
+                        wb_normal: a,
+                        reversed: false,
+                        wall_normal: wn,
+                    });
+                }
+                ProfileEdge::Arc { center, radius, .. } => {
+                    let c_bot = profile.embed(center);
+                    let c_top = translate(c_bot, w);
+                    let va = [a3.x() - c_bot.x(), a3.y() - c_bot.y(), a3.z() - c_bot.z()];
+                    let vb = [b3.x() - c_bot.x(), b3.y() - c_bot.y(), b3.z() - c_bot.z()];
+                    let cr = cross3(va, vb);
+                    let sdot = cr[0] * a.x + cr[1] * a.y + cr[2] * a.z;
+                    let ccw = sdot > 0.0;
+                    eg.push(ArcEdgeGeom {
+                        is_arc: true,
+                        c_bot,
+                        c_top,
+                        radius,
+                        wb_normal: if ccw { a } else { neg(a) },
+                        reversed: !ccw,
+                        wall_normal: a,
+                    });
+                }
             }
         }
+        geoms.push(ArcLoopGeom {
+            k,
+            off,
+            vbase: 0,
+            ring0,
+            ring1,
+            eg,
+        });
+        off += k;
     }
+    let total_k = off;
 
-    // ---- arena id layout (mirror of build_partial_revolve) ----------------
-    let vb = arena.vertices.len() as u32;
-    for p in ring0.iter().chain(ring1.iter()) {
-        arena.vertices.push(Some(Vertex { point: *p }));
+    // ---- arena id layout --------------------------------------------------
+    // Vertices: ring0 then ring1, loop by loop (record each loop's base).
+    for g in geoms.iter_mut() {
+        g.vbase = arena.vertices.len() as u32;
+        for p in g.ring0.iter().chain(g.ring1.iter()) {
+            arena.vertices.push(Some(Vertex { point: *p }));
+        }
     }
-    let v0 = |i: usize| VertexId(vb + (i % k) as u32);
-    let v1 = |i: usize| VertexId(vb + k as u32 + (i % k) as u32);
-
     let hb = arena.half_edges.len() as u32;
-    let sc = |i: usize| HalfEdgeId(hb + 6 * ((i % k) as u32));
-    let ec = |i: usize| HalfEdgeId(hb + 6 * ((i % k) as u32) + 1);
-    let wb = |i: usize| HalfEdgeId(hb + 6 * ((i % k) as u32) + 2);
-    let wt = |i: usize| HalfEdgeId(hb + 6 * ((i % k) as u32) + 3);
-    let af = |i: usize| HalfEdgeId(hb + 6 * ((i % k) as u32) + 4);
-    let ab = |i: usize| HalfEdgeId(hb + 6 * ((i % k) as u32) + 5);
-
     let lb = arena.loops.len() as u32;
-    let loop_start = LoopId(lb);
-    let loop_end = LoopId(lb + 1);
-    let loop_wall = |i: usize| LoopId(lb + 2 + (i % k) as u32);
     let fb = arena.faces.len() as u32;
-    let f_start = FaceId(fb);
-    let f_end = FaceId(fb + 1);
-    let f_wall = |i: usize| FaceId(fb + 2 + (i % k) as u32);
     let shell = ShellId(arena.shells.len() as u32);
     let solid = SolidId(arena.solids.len() as u32);
 
-    // Per-edge curve: a `Curve::Arc` (about `center`, around `normal`) for an
-    // arc edge, else a plain segment.
+    // Half-edges: 6 per global edge index; loops are emitted in order so the
+    // global index `off + i` is contiguous and matches these accessors.
+    let sc = |g: u32| HalfEdgeId(hb + 6 * g);
+    let ec = |g: u32| HalfEdgeId(hb + 6 * g + 1);
+    let wb = |g: u32| HalfEdgeId(hb + 6 * g + 2);
+    let wt = |g: u32| HalfEdgeId(hb + 6 * g + 3);
+    let af = |g: u32| HalfEdgeId(hb + 6 * g + 4);
+    let ab = |g: u32| HalfEdgeId(hb + 6 * g + 5);
+    // Loops: bottom caps (one LoopId per profile loop), then top caps, then
+    // one wall loop per global edge.
+    let loop_bot = |l: u32| LoopId(lb + l);
+    let loop_top = |l: u32| LoopId(lb + n_loops + l);
+    let loop_wall = |g: u32| LoopId(lb + 2 * n_loops + g);
+    let f_bot = FaceId(fb);
+    let f_top = FaceId(fb + 1);
+    let f_wall = |g: u32| FaceId(fb + 2 + g);
+
     let arc_or_line = |g: &ArcEdgeGeom, center: Point3, normal: UnitVector3| {
         if g.is_arc {
             Curve::Arc {
@@ -1480,130 +1522,170 @@ fn extrude_arc_profile(
         }
     };
 
-    for (i, g) in eg.iter().enumerate() {
-        // sc[i]: bottom cap, ring0[i+1] → ring0[i] (cap winds CCW around −a).
-        arena.half_edges.push(Some(HalfEdge {
-            twin: wb(i),
-            next: sc(i + k - 1),
-            prev: sc(i + 1),
-            origin: v0(i + 1),
-            loop_id: loop_start,
-            curve: arc_or_line(g, g.c_bot, neg(g.wb_normal)),
-        }));
-        // ec[i]: top cap, ring1[i] → ring1[i+1] (cap winds CCW around +a).
-        arena.half_edges.push(Some(HalfEdge {
-            twin: wt(i),
-            next: ec(i + 1),
-            prev: ec(i + k - 1),
-            origin: v1(i),
-            loop_id: loop_end,
-            curve: arc_or_line(g, g.c_top, g.wb_normal),
-        }));
-        // Wall i cycle: wb[i] → af[i+1] → wt[i] → ab[i] → wb[i].
-        arena.half_edges.push(Some(HalfEdge {
-            twin: sc(i),
-            next: af(i + 1),
-            prev: ab(i),
-            origin: v0(i),
-            loop_id: loop_wall(i),
-            curve: arc_or_line(g, g.c_bot, g.wb_normal),
-        }));
-        arena.half_edges.push(Some(HalfEdge {
-            twin: ec(i),
-            next: ab(i),
-            prev: af(i + 1),
-            origin: v1(i + 1),
-            loop_id: loop_wall(i),
-            curve: arc_or_line(g, g.c_top, neg(g.wb_normal)),
-        }));
-        // af[i]: seam up at vertex i, ring0[i] → ring1[i]; lives in wall
-        // (i−1)'s loop. Linear (unlike revolve's swept arc).
-        arena.half_edges.push(Some(HalfEdge {
-            twin: ab(i),
-            next: wt(i + k - 1),
-            prev: wb(i + k - 1),
-            origin: v0(i),
-            loop_id: loop_wall(i + k - 1),
-            curve: Curve::LineSegment,
-        }));
-        // ab[i]: seam down at vertex i, ring1[i] → ring0[i]; twin af[i].
-        arena.half_edges.push(Some(HalfEdge {
-            twin: af(i),
-            next: wb(i),
-            prev: wt(i),
-            origin: v1(i),
-            loop_id: loop_wall(i),
-            curve: Curve::LineSegment,
-        }));
+    // Emit half-edges loop by loop (so half-edge index hb + 6·(off+i) holds).
+    for (l, lg) in geoms.iter().enumerate() {
+        let l = l as u32;
+        let k = lg.k;
+        let off_l = lg.off as u32;
+        let vbase = lg.vbase;
+        let v0 = |i: usize| VertexId(vbase + (i % k) as u32);
+        let v1 = |i: usize| VertexId(vbase + k as u32 + (i % k) as u32);
+        // Global edge index for local edge `i` (wrapping within this loop).
+        let gi = |i: usize| off_l + (i % k) as u32;
+        let lbot = loop_bot(l);
+        let ltop = loop_top(l);
+        for (i, g) in lg.eg.iter().enumerate() {
+            // sc[i]: bottom cap, ring0[i+1] → ring0[i].
+            arena.half_edges.push(Some(HalfEdge {
+                twin: wb(gi(i)),
+                next: sc(gi(i + k - 1)),
+                prev: sc(gi(i + 1)),
+                origin: v0(i + 1),
+                loop_id: lbot,
+                curve: arc_or_line(g, g.c_bot, neg(g.wb_normal)),
+            }));
+            // ec[i]: top cap, ring1[i] → ring1[i+1].
+            arena.half_edges.push(Some(HalfEdge {
+                twin: wt(gi(i)),
+                next: ec(gi(i + 1)),
+                prev: ec(gi(i + k - 1)),
+                origin: v1(i),
+                loop_id: ltop,
+                curve: arc_or_line(g, g.c_top, g.wb_normal),
+            }));
+            // Wall i cycle: wb[i] → af[i+1] → wt[i] → ab[i] → wb[i].
+            arena.half_edges.push(Some(HalfEdge {
+                twin: sc(gi(i)),
+                next: af(gi(i + 1)),
+                prev: ab(gi(i)),
+                origin: v0(i),
+                loop_id: loop_wall(gi(i)),
+                curve: arc_or_line(g, g.c_bot, g.wb_normal),
+            }));
+            arena.half_edges.push(Some(HalfEdge {
+                twin: ec(gi(i)),
+                next: ab(gi(i)),
+                prev: af(gi(i + 1)),
+                origin: v1(i + 1),
+                loop_id: loop_wall(gi(i)),
+                curve: arc_or_line(g, g.c_top, neg(g.wb_normal)),
+            }));
+            // af[i]: seam up at vertex i; lives in wall (i−1)'s loop.
+            arena.half_edges.push(Some(HalfEdge {
+                twin: ab(gi(i)),
+                next: wt(gi(i + k - 1)),
+                prev: wb(gi(i + k - 1)),
+                origin: v0(i),
+                loop_id: loop_wall(gi(i + k - 1)),
+                curve: Curve::LineSegment,
+            }));
+            // ab[i]: seam down at vertex i; twin af[i].
+            arena.half_edges.push(Some(HalfEdge {
+                twin: af(gi(i)),
+                next: wb(gi(i)),
+                prev: wt(gi(i)),
+                origin: v1(i),
+                loop_id: loop_wall(gi(i)),
+                curve: Curve::LineSegment,
+            }));
+        }
     }
 
-    // ---- loops, faces -----------------------------------------------------
-    arena.loops.push(Some(Loop {
-        face: f_start,
-        boundary: LoopBoundary::Edges(sc(0)),
-        kind: LoopKind::Outer,
-    }));
-    arena.loops.push(Some(Loop {
-        face: f_end,
-        boundary: LoopBoundary::Edges(ec(0)),
-        kind: LoopKind::Outer,
-    }));
-    for i in 0..k {
+    // ---- loops ------------------------------------------------------------
+    // Bottom caps: loop 0 is the outer boundary of f_bot, holes are inner.
+    for l in 0..n_loops {
         arena.loops.push(Some(Loop {
-            face: f_wall(i),
-            boundary: LoopBoundary::Edges(wb(i)),
+            face: f_bot,
+            boundary: LoopBoundary::Edges(sc(geoms[l as usize].off as u32)),
+            kind: if l == 0 {
+                LoopKind::Outer
+            } else {
+                LoopKind::Inner
+            },
+        }));
+    }
+    for l in 0..n_loops {
+        arena.loops.push(Some(Loop {
+            face: f_top,
+            boundary: LoopBoundary::Edges(ec(geoms[l as usize].off as u32)),
+            kind: if l == 0 {
+                LoopKind::Outer
+            } else {
+                LoopKind::Inner
+            },
+        }));
+    }
+    for g in 0..total_k as u32 {
+        arena.loops.push(Some(Loop {
+            face: f_wall(g),
+            boundary: LoopBoundary::Edges(wb(g)),
             kind: LoopKind::Outer,
         }));
     }
 
+    // ---- faces ------------------------------------------------------------
+    let bot_inner: Vec<LoopId> = (1..n_loops).map(loop_bot).collect();
+    let top_inner: Vec<LoopId> = (1..n_loops).map(loop_top).collect();
     arena.faces.push(Some(Face {
         surface: Some(Surface::Plane(Plane {
-            point: ring0[0],
+            point: geoms[0].ring0[0],
             normal: neg(a),
         })),
-        outer_loop: loop_start,
-        inner_loops: Vec::new(),
+        outer_loop: loop_bot(0),
+        inner_loops: bot_inner,
         shell,
     }));
     arena.faces.push(Some(Face {
         surface: Some(Surface::Plane(Plane {
-            point: ring1[0],
+            point: geoms[0].ring1[0],
             normal: a,
         })),
-        outer_loop: loop_end,
-        inner_loops: Vec::new(),
+        outer_loop: loop_top(0),
+        inner_loops: top_inner,
         shell,
     }));
-    let mut walls = Vec::with_capacity(k);
-    for (i, g) in eg.iter().enumerate() {
-        let surface = if g.is_arc {
-            Surface::Cylinder {
-                axis_point: g.c_bot,
-                axis_dir: a,
-                radius: g.radius,
-                reversed: g.reversed,
-            }
+    let mut walls = Vec::with_capacity(geoms[0].k);
+    let mut hole_walls: Vec<Vec<FaceId>> = Vec::with_capacity(holes.len());
+    for (l, lg) in geoms.iter().enumerate() {
+        let mut loop_faces = Vec::with_capacity(lg.k);
+        for (i, g) in lg.eg.iter().enumerate() {
+            let gidx = (lg.off + i) as u32;
+            let surface = if g.is_arc {
+                Surface::Cylinder {
+                    axis_point: g.c_bot,
+                    axis_dir: a,
+                    radius: g.radius,
+                    reversed: g.reversed,
+                }
+            } else {
+                Surface::Plane(Plane {
+                    point: lg.ring0[i],
+                    normal: g.wall_normal,
+                })
+            };
+            arena.faces.push(Some(Face {
+                surface: Some(surface),
+                outer_loop: loop_wall(gidx),
+                inner_loops: Vec::new(),
+                shell,
+            }));
+            loop_faces.push(f_wall(gidx));
+        }
+        if l == 0 {
+            walls = loop_faces;
         } else {
-            Surface::Plane(Plane {
-                point: ring0[i],
-                normal: g.wall_normal,
-            })
-        };
-        arena.faces.push(Some(Face {
-            surface: Some(surface),
-            outer_loop: loop_wall(i),
-            inner_loops: Vec::new(),
-            shell,
-        }));
-        walls.push(f_wall(i));
+            hole_walls.push(loop_faces);
+        }
     }
 
-    let mut shell_faces = vec![f_start, f_end];
-    shell_faces.extend(walls.iter().copied());
+    let mut shell_faces = vec![f_bot, f_top];
+    for g in 0..total_k as u32 {
+        shell_faces.push(f_wall(g));
+    }
     arena.shells.push(Some(Shell {
         solid,
         faces: shell_faces,
-        genus: 0,
+        genus: holes.len() as u32,
     }));
     arena.solids.push(Some(Solid {
         shells: vec![shell],
@@ -1613,10 +1695,10 @@ fn extrude_arc_profile(
     Ok(ExtrudeResult {
         solid,
         shell,
-        base: f_start,
-        top: f_end,
+        base: f_bot,
+        top: f_top,
         walls,
-        hole_walls: Vec::new(),
+        hole_walls,
     })
 }
 

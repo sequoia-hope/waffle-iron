@@ -429,6 +429,47 @@ pub(crate) fn arc_segment_interior_cross(
     false
 }
 
+/// Count transversal crossings of the minor arc `(a→b about centre, radius)`
+/// with the OPEN segment `p→q` (the same geometry as
+/// [`arc_segment_interior_cross`] but returning 0/1/2 instead of a bool — for
+/// ray-cast point-in-region parity). Returns `None` if the segment is exactly
+/// TANGENT to the supporting circle at a qualifying point (a measure-zero
+/// degeneracy that would corrupt the parity); the caller retries with another
+/// ray/witness.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn arc_segment_interior_crossings(
+    a: Point2,
+    b: Point2,
+    centre: Point2,
+    radius: f64,
+    p: Point2,
+    q: Point2,
+) -> Option<usize> {
+    let (dx, dy) = (r(q.x()) - r(p.x()), r(q.y()) - r(p.y()));
+    let (ex, ey) = (r(p.x()) - r(centre.x()), r(p.y()) - r(centre.y()));
+    let aa = dx.clone() * dx.clone() + dy.clone() * dy.clone();
+    let bb = r(2.0) * (ex.clone() * dx.clone() + ey.clone() * dy.clone());
+    let r2 = r(radius) * r(radius);
+    let cc = ex.clone() * ex.clone() + ey.clone() * ey.clone() - r2;
+    let disc = bb.clone() * bb.clone() - r(4.0) * aa.clone() * cc.clone();
+    if disc < RBig::ZERO {
+        return Some(0);
+    }
+    let target = -sgn(&orient_det(a, b, centre));
+    let g0 = orient_det(a, b, p);
+    let g1 = orient_det(a, b, q) - g0.clone();
+    let (zero, one) = (RBig::ZERO, RBig::ONE);
+    let qualifies = |s: i32| -> bool {
+        root_in_open(&aa, &bb, &disc, s, &zero, &one)
+            && linear_side_ok(&aa, &bb, &disc, s, &g0, &g1, target)
+    };
+    if disc == RBig::ZERO {
+        // Tangent double root: a touch, not a crossing — degenerate for parity.
+        return if qualifies(1) { None } else { Some(0) };
+    }
+    Some([1, -1].into_iter().filter(|&s| qualifies(s)).count())
+}
+
 /// Do two minor arcs cross at a point strictly interior to BOTH? Exact.
 ///
 /// The common points of the two supporting circles lie on their radical
