@@ -27,6 +27,14 @@ pub struct RebuildState {
     /// Feature IDs whose solid was consumed by a later boolean union.
     /// These features should not be rendered (their geometry is merged into the consuming feature).
     pub consumed_features: std::collections::HashSet<Uuid>,
+    /// KV13 F6: persistent-id → the feature that INTRODUCED it. Captured per
+    /// feature right after its op runs (before later ops churn the arena), by
+    /// querying `face_provenance` for the faces it created. A face's
+    /// *creating* feature is then `pid_to_feature[face_provenance(face).root_pid]`
+    /// — the original extrude/revolve, resolved through chained booleans.
+    /// (Populated only for features executed this pass; the kernel must track
+    /// persistent ids — empty under `MockKernel`.)
+    pub pid_to_feature: HashMap<u64, Uuid>,
 }
 
 /// Rebuild the feature tree from scratch (or from a change point).
@@ -43,6 +51,7 @@ pub fn rebuild(
         warnings: Vec::new(),
         errors: Vec::new(),
         consumed_features: std::collections::HashSet::new(),
+        pid_to_feature: HashMap::new(),
     };
 
     // Carry forward results from features before the rebuild point
@@ -105,6 +114,9 @@ pub fn rebuild(
                         }
                     }
                 }
+                // KV13 F6: capture this feature's created-face persistent ids
+                // NOW (its faces are current; later ops churn the arena).
+                capture_face_pids(&mut state, feature.id, &result, kb);
                 state.feature_results.insert(feature.id, result);
             }
             Err(e) => {
@@ -115,6 +127,33 @@ pub fn rebuild(
     }
 
     state
+}
+
+/// KV13 F6: record each FACE a feature created → the feature, keyed by the
+/// face's persistent id. Called while the faces are current (right after the
+/// op), so the kernel ids are valid. The kernel must track persistent ids
+/// (`face_provenance`); under `MockKernel` it returns `None` and nothing is
+/// recorded.
+fn capture_face_pids(
+    state: &mut RebuildState,
+    feature_id: Uuid,
+    result: &OpResult,
+    kb: &dyn KernelBundle,
+) {
+    let introspect = kb.as_introspect();
+    // Enumerate the feature's OUTPUT-body faces (current right now) rather than
+    // `provenance.created` — robust regardless of how the op records created
+    // entities. A boolean's output faces carry FRESH pids (mapped to this
+    // feature); their lineage roots are earlier constructor pids (mapped to
+    // those features when they ran), so the root lookup still resolves to the
+    // introducing feature.
+    for (_key, body) in &result.outputs {
+        for face in introspect.list_faces(&body.handle) {
+            if let Some(prov) = introspect.face_provenance(face) {
+                state.pid_to_feature.insert(prov.pid, feature_id);
+            }
+        }
+    }
 }
 
 /// Execute a single feature's operation.

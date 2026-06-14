@@ -29,6 +29,10 @@ pub struct Engine {
     pub errors: Vec<(Uuid, String)>,
     /// Feature IDs consumed by a later boolean (should not be rendered).
     pub consumed_features: std::collections::HashSet<Uuid>,
+    /// KV13 F6: persistent-id → the feature that INTRODUCED it (recomputed each
+    /// rebuild). The basis for resolving a face's *creating* feature through
+    /// chained booleans — see [`Engine::created_by_feature`].
+    pub pid_to_feature: HashMap<u64, Uuid>,
     /// Transient (NOT persisted) inherited body names, keyed by body id. When a
     /// boolean/merge consumes a target body that has a custom name, the result
     /// body inherits it. Recomputed on every rebuild and rename.
@@ -46,9 +50,24 @@ impl Engine {
             warnings: Vec::new(),
             errors: Vec::new(),
             consumed_features: std::collections::HashSet::new(),
+            pid_to_feature: HashMap::new(),
             inherited_body_names: HashMap::new(),
             undo_stack: UndoStack::new(),
         }
+    }
+
+    /// KV13 F6: the feature that *introduced* a face's geometry — through
+    /// chained booleans, not the last boolean. Resolves the face's lineage
+    /// root (via `face_provenance`) to the feature that created that root.
+    /// `None` if the kernel does not track persistent ids, or the root's
+    /// feature is unknown (e.g. produced before an incremental rebuild point).
+    pub fn created_by_feature(
+        &self,
+        introspect: &dyn waffle_types::kernel::KernelIntrospect,
+        face: waffle_types::kernel::KernelId,
+    ) -> Option<Uuid> {
+        let prov = introspect.face_provenance(face)?;
+        self.pid_to_feature.get(&prov.root_pid).copied()
     }
 
     /// Add a feature and rebuild.
@@ -466,6 +485,17 @@ impl Engine {
         self.warnings = state.warnings;
         self.errors = state.errors;
         self.consumed_features = state.consumed_features;
+        // KV13 F6: accumulate the pid→feature map. A full rebuild (from 0)
+        // re-executes and re-captures every feature, so clear first; an
+        // incremental rebuild (from_index > 0) carries earlier features forward
+        // WITHOUT re-executing them, so their captures (from a prior rebuild)
+        // must be retained — their kernel geometry, and thus pids, persist
+        // unchanged in the same arena. Sound because arena pids are never
+        // reused: a pid always maps to its creating feature.
+        if from_index == 0 {
+            self.pid_to_feature.clear();
+        }
+        self.pid_to_feature.extend(state.pid_to_feature);
         self.recompute_body_name_inheritance();
     }
 

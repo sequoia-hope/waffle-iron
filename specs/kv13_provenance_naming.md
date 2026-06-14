@@ -1,6 +1,6 @@
 # KV13 Spec — provenance / topological naming (Parasolid-grade)
 
-Status: IN PROGRESS (spec 2026-06-14; **F1+F2+F3 + F5 (contract) DONE 2026-06-14**). Prototype-release **Phase F** (the capstone,
+Status: IN PROGRESS (spec 2026-06-14; **F1+F2+F3 + F5(contract) + F6a(resolver) DONE 2026-06-14**). Prototype-release **Phase F** (the capstone,
 strictly after the gearbox print). Scope: `crates/kernel-v2/` (persistent tags +
 operation journal — the bulk), `crates/waffle-types/` (`FaceOrigin`, a
 PID-based `Selector`), `crates/feature-engine/` (rebuild-time lineage),
@@ -207,14 +207,28 @@ sub-divided. Ship F1–F3/F5/F6 first; F4 hardens.
   scope F5 to the load-bearing, unit-testable contract; avoid a rushed 5-crate
   change.) Kernel/trait only — no app change, no WASM rebuild.
 
-- **F6 — feature-id resolver + UI: face → feature (through booleans) + inverse.**
-  Now also absorbs the deferred F5 half: a feature-engine `root_pid → feature_id`
-  resolver (capture each feature's created-face Pids via the new
-  `KernelIntrospect::face_provenance` during rebuild) + wasm-bridge plumbing +
-  the Svelte display. Supersede Phase D Tier 1: clicking a face highlights the
-  feature that *introduced* it (lineage, not last-feature); selecting a feature
-  highlights *its* faces. **GUI tests:** union-then-click-original-face →
-  original extrude highlighted; feature→faces.
+- **F6a — feature-engine `root_pid → feature_id` resolver. ✅ DONE (2026-06-14).**
+  `rebuild` captures each feature's output-body face Pids (via
+  `KernelIntrospect::face_provenance`) right after the feature runs (faces are
+  current; later ops churn the arena) into `RebuildState.pid_to_feature`, which
+  the `Engine` ACCUMULATES across rebuilds — cleared only on a full rebuild
+  (`from_index == 0`); an incremental rebuild carries earlier (non-re-executed)
+  features' captures forward (sound: arena pids are never reused, so a pid
+  always maps to its creating feature). `Engine::created_by_feature(introspect,
+  face)` = `pid_to_feature[face_provenance(face).root_pid]` — the feature that
+  *introduced* the face, through chained booleans. **Test** (test-harness
+  `face_provenance.rs`, real kernel): two no-merge box extrudes + an explicit
+  union → every union-body face resolves `created_by` to extrude a or b, NEVER
+  the union feature. The capture uses output-body `list_faces` (not
+  `provenance.created`) for robustness.
+- **F6b — UI: face → feature (through booleans) + inverse. 🔜 REMAINING.**
+  wasm-bridge: thread `created_by_feature` per face into the face-data JSON
+  (`build_face_entries` — resolve via `Engine::created_by_feature` on
+  `range.face_id`). App/Svelte: clicking a face highlights the *introducing*
+  feature (supersede Phase D Tier 1's last-feature); selecting a feature
+  highlights *its* faces (inverse, via `pid_to_feature` + `descendants`). +
+  WASM rebuild. **GUI tests:** union-then-click-original-face → original extrude
+  highlighted; feature→faces.
 
 - **F7 — verification matrix.** The five PERSISTENT-NAMING.md scenarios
   (stability, role→signature fallback, feature-insertion, graceful break,
