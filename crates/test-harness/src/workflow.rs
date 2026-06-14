@@ -483,6 +483,29 @@ impl ModelBuilder {
         self.extract_last_feature_id(name, "AddFeature(Extrude)", response)
     }
 
+    /// Edit an existing extrude feature's depth and rebuild (KV13 F4
+    /// edit-survival testing). Drives `Engine::edit_feature` directly.
+    pub fn edit_extrude_depth(&mut self, name: &str, depth: f64) -> Result<(), HarnessError> {
+        let id = self.feature_id(name)?;
+        let mut op = self
+            .state
+            .engine
+            .tree
+            .find_feature(id)
+            .ok_or_else(|| HarnessError::Engine(format!("no feature {name}")))?
+            .operation
+            .clone();
+        if let Operation::Extrude { params } = &mut op {
+            params.depth = depth;
+        } else {
+            return Err(HarnessError::Engine(format!("{name} is not an extrude")));
+        }
+        self.state
+            .engine
+            .edit_feature(id, op, self.kernel.as_mut())
+            .map_err(|e| HarnessError::Engine(e.to_string()))
+    }
+
     /// Add a cut extrude feature.
     pub fn extrude_cut(
         &mut self,

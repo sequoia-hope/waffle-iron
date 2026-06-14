@@ -1,6 +1,6 @@
 # KV13 Spec — provenance / topological naming (Parasolid-grade)
 
-Status: IN PROGRESS (spec 2026-06-14; **F1+F2+F3+F5+F6 (face↔feature, both directions) DONE 2026-06-14**; F4 + F7 remain). Prototype-release **Phase F** (the capstone,
+Status: IN PROGRESS (spec 2026-06-14; **F1+F2+F3+F5+F6 DONE; F4 GOAL met via recompute — edit-survival proven; deep F4a–d deferred as optional enhancement; F7 partial**). Prototype-release **Phase F** (the capstone,
 strictly after the gearbox print). Scope: `crates/kernel-v2/` (persistent tags +
 operation journal — the bulk), `crates/waffle-types/` (`FaceOrigin`, a
 PID-based `Selector`), `crates/feature-engine/` (rebuild-time lineage),
@@ -170,6 +170,26 @@ sub-divided. Ship F1–F3/F5/F6 first; F4 hardens.
 - **F4 — persistent identity across rebuild (THE long pole, Parasolid-grade).**
   Make Pids + the journal survive a feature-tree rebuild so downstream GeomRefs
   and `FaceOrigin` re-resolve to the SAME entity after upstream edits.
+
+  **Finding (2026-06-14, edit-survival probe):** the face→feature
+  `created_by` capability **already survives an upstream parameter edit**, with
+  NO stable-Pid machinery — because `pid_to_feature` is recomputed every rebuild
+  (F6a), so churned pids are re-bound to their features each time. Test
+  `test-harness/face_provenance.rs::created_by_survives_an_upstream_edit`: build
+  extrude-a + extrude-b + union, edit a's depth, rebuild → the union STILL
+  attributes faces to a and b (the creating-feature set is unchanged by the
+  edit). So Phase F's user-facing goal — "click a face → its creating feature,
+  surviving rebuilds" — is **MET** through recompute + the existing Role/Signature
+  GeomRef resolution (Phase-D-grade), without F4a–F4d.
+
+  **Therefore F4a–F4d are reframed as an OPTIONAL robustness enhancement**, not
+  a requirement: they make STORED *Pid-based* GeomRef selectors survive edits
+  more robustly than Role/Signature under MASSIVE topology restructures (the
+  PERSISTENT-NAMING.md §"What May Break" cases). This is the genuine multi-week,
+  kernel-architecture-deep work (stable seeding + journal remap), and is
+  **DEFERRED** pending a decision that the marginal robustness over the working
+  recompute + Role/Signature path is worth the cost. The sub-increments below
+  remain the plan IF pursued:
   - **F4a — stable Pid seeding.** Re-derive Pids from a content/structural key
     (operation + input identity + role/index), so re-executing an unchanged
     feature reproduces identical Pids. RED: change a *downstream* feature, prove
