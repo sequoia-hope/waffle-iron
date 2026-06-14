@@ -22,6 +22,7 @@
 	let moduleInput = $state(DEFAULT_GEAR_MODULE_DISPLAY.mm);
 	let pressureAngle = $state(DEFAULT_GEAR_PRESSURE_ANGLE);
 	let backlash = $state(0);
+	let isInternal = $state(false);
 
 	// Editing state
 	let editingGearId = $state(null);
@@ -43,6 +44,7 @@
 				moduleInput = formatForInput(dialogState.params.module ?? displayToInternal(1, 'mm'), displayUnit);
 				pressureAngle = dialogState.params.pressureAngle ?? DEFAULT_GEAR_PRESSURE_ANGLE;
 				backlash = dialogState.params.backlash ?? 0;
+				isInternal = dialogState.params.internal ?? false;
 			} else {
 				// Create mode
 				editingGearId = null;
@@ -52,6 +54,7 @@
 					: defaultModuleDisplay();
 				pressureAngle = DEFAULT_GEAR_PRESSURE_ANGLE;
 				backlash = 0;
+				isInternal = false;
 			}
 		}
 	});
@@ -72,7 +75,8 @@
 			backlash,
 			centerX: dialogState.centerX ?? 0,
 			centerY: dialogState.centerY ?? 0,
-			rotationOffset: dialogState.rotationOffset ?? 0
+			rotationOffset: dialogState.rotationOffset ?? 0,
+			internal: isInternal
 		};
 		const gen = ++previewGeneration;
 		const bridge = getBridge();
@@ -113,7 +117,8 @@
 			backlash,
 			centerX: dialogState.centerX ?? 0,
 			centerY: dialogState.centerY ?? 0,
-			rotationOffset: dialogState.rotationOffset ?? 0
+			rotationOffset: dialogState.rotationOffset ?? 0,
+			internal: isInternal
 		};
 
 		if (editingGearId != null) {
@@ -196,6 +201,17 @@
 					step="0.01"
 					bind:value={backlash}
 					data-testid="gear-backlash-input"
+				/>
+			</div>
+
+			<div class="param-row">
+				<label for="gear-internal">Internal (ring)</label>
+				<input
+					id="gear-internal"
+					type="checkbox"
+					bind:checked={isInternal}
+					data-testid="gear-internal-input"
+					title="Teeth point inward — a ring gear's toothed inner boundary (a hole). Add an outer rim in the same sketch, then extrude."
 				/>
 			</div>
 		</div>

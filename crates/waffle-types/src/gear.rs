@@ -32,6 +32,13 @@ pub struct GearParams {
     pub center_y: f64,
     #[serde(default)]
     pub rotation_offset: f64,
+    /// Internal (ring) gear: teeth point INWARD. The profile is the toothed
+    /// inner boundary (a hole), to be combined with a user-drawn outer rim.
+    /// Standard offsets: tip (inner) at `pitch − module`, body/root (outer) at
+    /// `pitch + 1.25·module`; tooth = the conjugate of a meshing external gear's
+    /// space (`half_tooth_angle = angular_pitch/4 − inv α`).
+    #[serde(default)]
+    pub internal: bool,
 }
 
 fn default_pressure_angle() -> f64 {
@@ -48,6 +55,7 @@ impl Default for GearParams {
             center_x: 0.0,
             center_y: 0.0,
             rotation_offset: 0.0,
+            internal: false,
         }
     }
 }
@@ -92,6 +100,9 @@ fn gear_radii(params: &GearParams) -> (f64, f64, f64, f64, f64) {
 ///
 /// Produces Points, Splines, Lines, and Arcs matching the JS implementation exactly.
 pub fn generate_gear_profile(params: &GearParams) -> GearProfileResult {
+    if params.internal {
+        return generate_internal_gear_profile(params);
+    }
     let n = params.tooth_count;
     let (pitch_r, base_r, addendum_r, dedendum_r, root_r) = gear_radii(params);
 
@@ -413,8 +424,180 @@ pub fn generate_gear_profile(params: &GearParams) -> GearProfileResult {
     }
 }
 
+/// Generate a TRUE internal (ring) gear profile — teeth point inward.
+///
+/// Same involute flanks as an external gear of the same `(N, module, α)`, but:
+/// tip (inner) at `pitch − module`, body/root (outer) at `pitch + 1.25·module`
+/// (offsets swap across the pitch circle), and the tooth is the conjugate of a
+/// meshing external gear's SPACE, so `half_tooth_angle = angular_pitch/4 − inv α`
+/// (external uses `+`). Emitted as a sampled closed polyline (the extrude path
+/// consumes `vertex_ids`, like the arc/spline gears), flagged `is_outer = false`
+/// (a hole) — combine with a user-drawn outer rim and extrude (KV14 assembles
+/// the annulus). Sampling chords are the same fidelity the viewport/solver use.
+fn generate_internal_gear_profile(params: &GearParams) -> GearProfileResult {
+    let n = params.tooth_count;
+    let alpha = params.pressure_angle_deg.to_radians();
+    let pitch_r = (n as f64) * params.module / 2.0;
+    let base_r = pitch_r * alpha.cos();
+    let tip_r = pitch_r - params.module; // inner tip of the inward tooth
+    let body_r = pitch_r + 1.25 * params.module; // outer (ring inner wall between teeth)
+
+    let angular_pitch = std::f64::consts::TAU / n as f64;
+    let inv_alpha = involute(alpha);
+    let half = angular_pitch / 4.0 - inv_alpha; // conjugate of the external space
+    let backlash_angle = params.backlash / (2.0 * pitch_r);
+    let (cx, cy, rot) = (params.center_x, params.center_y, params.rotation_offset);
+    let transform = |x: f64, y: f64| -> (f64, f64) {
+        let (ca, sa) = (rot.cos(), rot.sin());
+        (cx + x * ca - y * sa, cy + x * sa + y * ca)
+    };
+
+    let roll_max = ((body_r / base_r).powi(2) - 1.0).max(0.0).sqrt();
+    let tip_above = tip_r >= base_r;
+    let roll_min = if tip_above {
+        ((tip_r / base_r).powi(2) - 1.0).max(0.0).sqrt()
+    } else {
+        0.0
+    };
+    // Involute polar angle at the flank's inner/outer ends, so the tip arc and
+    // body arc start/end exactly where the flanks do (no backward jump).
+    let inv_at = |roll: f64| {
+        let p = involute_point(base_r, roll);
+        p.1.atan2(p.0)
+    };
+    let inv_inner = inv_at(roll_min);
+    let inv_outer = inv_at(roll_max);
+    let nflank = 12usize;
+    let narc = 4usize;
+
+    // One involute flank, sampled inner→outer (base→body).
+    let flank = |start: f64, sign: f64| -> Vec<(f64, f64)> {
+        (0..=nflank)
+            .map(|i| {
+                let t = i as f64 / nflank as f64;
+                let roll = roll_min + t * (roll_max - roll_min);
+                let p = involute_point(base_r, roll);
+                let r = (p.0 * p.0 + p.1 * p.1).sqrt();
+                let a = start + sign * p.1.atan2(p.0);
+                transform(r * a.cos(), r * a.sin())
+            })
+            .collect()
+    };
+    let arc = |r: f64, a0: f64, a1: f64| -> Vec<(f64, f64)> {
+        (0..=narc)
+            .map(|i| {
+                let t = i as f64 / narc as f64;
+                let a = a0 + t * (a1 - a0);
+                transform(r * a.cos(), r * a.sin())
+            })
+            .collect()
+    };
+
+    // CCW boundary polyline, deduped at segment joins.
+    let mut boundary: Vec<(f64, f64)> = Vec::new();
+    fn push(b: &mut Vec<(f64, f64)>, p: (f64, f64)) {
+        if b.last()
+            .map_or(true, |&l| (l.0 - p.0).hypot(l.1 - p.1) > 1e-12)
+        {
+            b.push(p);
+        }
+    }
+    for tooth in 0..n {
+        let ta = tooth as f64 * angular_pitch;
+        let ls = ta - half + backlash_angle;
+        let rs = ta + half - backlash_angle;
+        // Internal teeth are the CONJUGATE of the external space: flanks DIVERGE
+        // outward (tooth narrows toward the inner tip), so the involute sign is
+        // opposite the external gear's (left −, right +).
+        // left flank body(outer) → base/inner (reverse of inner→outer samples)
+        for &p in flank(ls, -1.0).iter().rev() {
+            push(&mut boundary, p);
+        }
+        if !tip_above {
+            push(&mut boundary, transform(tip_r * ls.cos(), tip_r * ls.sin()));
+        }
+        // tip arc (inner): left tip (ls − inv_inner) → right tip (rs + inv_inner)
+        for &p in arc(tip_r, ls - inv_inner, rs + inv_inner).iter() {
+            push(&mut boundary, p);
+        }
+        // right flank base/inner → body(outer)
+        for &p in flank(rs, 1.0).iter() {
+            push(&mut boundary, p);
+        }
+        // body arc (outer): right flank end (rs + inv_outer) → next left flank
+        // start (next_ls − inv_outer)
+        let next_ls = (tooth as f64 + 1.0) * angular_pitch - half + backlash_angle;
+        for &p in arc(body_r, rs + inv_outer, next_ls - inv_outer).iter() {
+            push(&mut boundary, p);
+        }
+    }
+    // close: drop a final point coincident with the first
+    if boundary.len() > 1 {
+        let f = boundary[0];
+        if (boundary.last().unwrap().0 - f.0).hypot(boundary.last().unwrap().1 - f.1) < 1e-12 {
+            boundary.pop();
+        }
+    }
+
+    let mut entities = Vec::new();
+    let mut positions = HashMap::new();
+    let mut point_ids = Vec::with_capacity(boundary.len());
+    let mut id = 1u32;
+    for &(x, y) in &boundary {
+        entities.push(SketchEntity::Point {
+            id,
+            x,
+            y,
+            construction: false,
+        });
+        positions.insert(id, (x, y));
+        point_ids.push(id);
+        id += 1;
+    }
+    let mut entity_ids = Vec::with_capacity(point_ids.len());
+    for i in 0..point_ids.len() {
+        let s = point_ids[i];
+        let e = point_ids[(i + 1) % point_ids.len()];
+        entities.push(SketchEntity::Line {
+            id,
+            start_id: s,
+            end_id: e,
+            construction: false,
+        });
+        entity_ids.push(id);
+        id += 1;
+    }
+
+    let profiles = vec![ClosedProfile {
+        entity_ids,
+        is_outer: false,
+        vertex_ids: point_ids,
+        circle: None,
+        spline_segments: vec![],
+        arc_segments: vec![],
+    }];
+    GearProfileResult {
+        entities,
+        positions,
+        profiles,
+        pitch_radius: pitch_r,
+        base_radius: base_r,
+        addendum_radius: tip_r,
+        dedendum_radius: body_r,
+    }
+}
+
 /// Generate a flat polyline approximation of a gear profile for live preview.
 pub fn generate_gear_preview_polyline(params: &GearParams) -> Vec<(f64, f64)> {
+    if params.internal {
+        // The internal profile's vertex_ids are already the boundary polyline.
+        let g = generate_internal_gear_profile(params);
+        return g.profiles[0]
+            .vertex_ids
+            .iter()
+            .map(|id| g.positions[id])
+            .collect();
+    }
     let n = params.tooth_count;
     let (_, base_r, addendum_r, _, root_r) = gear_radii(params);
 
@@ -610,6 +793,7 @@ mod tests {
         };
         let rotated = GearParams {
             rotation_offset: std::f64::consts::FRAC_PI_4,
+            internal: false,
             ..base.clone()
         };
         let poly_base = generate_gear_preview_polyline(&base);

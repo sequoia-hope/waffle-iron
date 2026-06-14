@@ -38,6 +38,7 @@ fn gear_params() -> GearParams {
         center_x: 0.0,
         center_y: 0.0,
         rotation_offset: 0.0,
+        internal: false,
     }
 }
 
@@ -305,6 +306,89 @@ fn arc_segment_profile_without_vertex_ids_stays_walled() {
     assert!(
         format!("{err}").contains("not supported"),
         "typed NotSupported, got {err}"
+    );
+}
+
+/// True internal (ring) gear: correct offsets (tip inward `pitch−m`, body
+/// outward `pitch+1.25m`), produced as a hole, and it extrudes as a real ring
+/// when combined with an outer rim.
+#[test]
+fn internal_gear_offsets_and_ring_extrude() {
+    let params = GearParams {
+        tooth_count: 20,
+        module: 2.0,
+        pressure_angle_deg: 20.0,
+        backlash: 0.0,
+        center_x: 0.0,
+        center_y: 0.0,
+        rotation_offset: 0.0,
+        internal: true,
+    };
+    let pitch_r = 20.0; // N*m/2
+    let tip_r = pitch_r - params.module; // 18 (inner tip)
+    let body_r = pitch_r + 1.25 * params.module; // 22.5 (outer)
+
+    let g = generate_gear_profile(&params);
+    let p = &g.profiles[0];
+    assert!(!p.is_outer, "internal gear profile is a hole (is_outer=false)");
+    assert!(p.spline_segments.is_empty() && p.arc_segments.is_empty());
+
+    // Offsets: vertex radii span [tip_r, body_r].
+    let radii: Vec<f64> = p
+        .vertex_ids
+        .iter()
+        .map(|id| {
+            let (x, y) = g.positions[id];
+            (x * x + y * y).sqrt()
+        })
+        .collect();
+    let rmin = radii.iter().cloned().fold(f64::INFINITY, f64::min);
+    let rmax = radii.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+    assert!((rmin - tip_r).abs() < 1e-6, "inner tip radius {rmin} vs {tip_r}");
+    assert!((rmax - body_r).abs() < 1e-6, "outer body radius {rmax} vs {body_r}");
+    // Standard report fields mirror the offsets.
+    assert!((g.addendum_radius - tip_r).abs() < 1e-9);
+    assert!((g.dedendum_radius - body_r).abs() < 1e-9);
+
+    // Combine with an outer rim circle and extrude → a ring gear.
+    let rim_r = body_r + 4.0;
+    let rim = waffle_types::ClosedProfile {
+        entity_ids: vec![],
+        is_outer: true,
+        vertex_ids: vec![],
+        circle: Some(waffle_types::kernel::CircleProfile {
+            center_u: 0.0,
+            center_v: 0.0,
+            radius: rim_r,
+        }),
+        spline_segments: vec![],
+        arc_segments: vec![],
+    };
+    // Merge the gear profile's positions (rim circle needs none).
+    let positions = g.positions.clone();
+    let mut k = KernelV2Adapter::new();
+    let faces = k
+        .make_faces_from_profiles(
+            &[rim, p.clone()],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            &positions,
+        )
+        .expect("ring gear stages (rim + internal-gear hole, KV14)");
+    let depth = 5.0;
+    let solid = k
+        .extrude_face(faces[0], [0.0, 0.0, 1.0], depth)
+        .expect("ring gear extrudes");
+    let mesh = k.tessellate(&solid, 0.01).expect("tessellate");
+    let vol = mesh_signed_volume(&mesh).abs();
+    // Material is between the rim and the toothed hole: 0 < vol < full disk.
+    let disk = std::f64::consts::PI * rim_r * rim_r * depth;
+    let hole_lo = std::f64::consts::PI * tip_r * tip_r * depth; // hole at least the tip circle
+    assert!(
+        vol > 0.0 && vol < disk - hole_lo * 0.5,
+        "ring volume {vol} should be a thin annulus (< {})",
+        disk - hole_lo * 0.5
     );
 }
 
