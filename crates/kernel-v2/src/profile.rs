@@ -368,6 +368,25 @@ impl Profile {
             validate_arc_loop(hole, k + 1)?;
         }
 
+        // Distinct loops must be pairwise non-touching (exact; the arc analog
+        // of `Profile::new`'s `loops_touch`). Strict hole-inside-outer
+        // containment with an arc-aware point-in-region is PR-KV12 increment
+        // E4 (where holes are actually assembled); the extrude path rejects
+        // `ArcPolygon` holes until then, so no unchecked hole reaches geometry.
+        let all: Vec<&[ProfileEdge]> = std::iter::once(outer.as_slice())
+            .chain(holes.iter().map(|h| h.as_slice()))
+            .collect();
+        for i in 0..all.len() {
+            for j in (i + 1)..all.len() {
+                if arc_loops_touch(all[i], all[j]) {
+                    return Err(KernelV2Error::ProfileLoopsIntersect {
+                        loop_a: i,
+                        loop_b: j,
+                    });
+                }
+            }
+        }
+
         Ok(Self {
             origin,
             u,
@@ -497,10 +516,11 @@ impl ProfileEdge {
     }
 }
 
-/// Well-formedness of one [`ProfileEdge`] loop (PR-KV12 Tier 2, increment
-/// E1): chain closure + per-arc validity. NOT the exact simplicity check
-/// (E3). `loop_index` matches the `Profile::new` convention (0 = outer,
-/// k + 1 = hole k).
+/// Well-formedness + EXACT simplicity of one [`ProfileEdge`] loop (PR-KV12
+/// Tier 2). Pass 1 (E1): chain closure + per-arc validity. Pass 2 (E3): the
+/// loop is a simple closed curve — no two edges share a point other than the
+/// junction vertices consecutive edges legitimately share. `loop_index`
+/// matches the `Profile::new` convention (0 = outer, k + 1 = hole k).
 fn validate_arc_loop(edges: &[ProfileEdge], loop_index: usize) -> Result<(), KernelV2Error> {
     if edges.len() < 2 {
         return Err(KernelV2Error::ProfileTooFewVertices { loop_index });
@@ -553,7 +573,137 @@ fn validate_arc_loop(edges: &[ProfileEdge], loop_index: usize) -> Result<(), Ker
             }
         }
     }
+
+    // A two-edge loop of two straight segments is a zero-area digon (the
+    // segments coincide) — degenerate. (A digon with at least one arc, e.g.
+    // a vesica lens or a circular sector closed by a chord, encloses area.)
+    if n == 2 && edges.iter().all(|e| matches!(e, ProfileEdge::Line { .. })) {
+        return Err(KernelV2Error::ProfileNotSimple { loop_index });
+    }
+
+    // Pass 2 (E3): exact pairwise simplicity. Consecutive edges legitimately
+    // meet at their junction vertex (both junctions for a two-edge loop);
+    // any OTHER shared point — a non-junction endpoint landing on an edge, or
+    // two edge interiors crossing — makes the boundary non-simple.
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let adjacent = j == i + 1 || (i == 0 && j == n - 1);
+            let shared = if adjacent {
+                shared_endpoints(&edges[i], &edges[j])
+            } else {
+                Vec::new()
+            };
+            if edges_meet_illegally(&edges[i], &edges[j], &shared) {
+                return Err(KernelV2Error::ProfileNotSimple { loop_index });
+            }
+        }
+    }
     Ok(())
+}
+
+/// The points that are endpoints of BOTH edges (exact equality) — the
+/// junction(s) consecutive edges share (one for a `k ≥ 3` loop, both for a
+/// two-edge loop).
+fn shared_endpoints(e1: &ProfileEdge, e2: &ProfileEdge) -> Vec<Point2> {
+    let e2v = [e2.start(), e2.end()];
+    [e1.start(), e1.end()]
+        .into_iter()
+        .filter(|v| e2v.contains(v))
+        .collect()
+}
+
+/// Is point `v` on the closed edge (line segment or minor arc)? Exact.
+fn point_on_closed_edge(v: Point2, e: &ProfileEdge) -> bool {
+    match *e {
+        ProfileEdge::Line { a, b } => {
+            exact::orient2d(a, b, v) == std::cmp::Ordering::Equal
+                && exact::on_collinear_segment(a, b, v)
+        }
+        ProfileEdge::Arc {
+            a,
+            b,
+            center,
+            radius,
+            ..
+        } => exact::point_on_closed_arc(v, a, b, center, radius),
+    }
+}
+
+/// Do the relative interiors of two edges cross? Exact dispatch over the
+/// line/arc combinations (PR-KV12 E3 predicates).
+fn interiors_cross(e1: &ProfileEdge, e2: &ProfileEdge) -> bool {
+    match (*e1, *e2) {
+        (ProfileEdge::Line { a: a1, b: b1 }, ProfileEdge::Line { a: a2, b: b2 }) => {
+            exact::segments_properly_cross(a1, b1, a2, b2)
+        }
+        (
+            ProfileEdge::Arc {
+                a,
+                b,
+                center,
+                radius,
+                ..
+            },
+            ProfileEdge::Line { a: p, b: q },
+        )
+        | (
+            ProfileEdge::Line { a: p, b: q },
+            ProfileEdge::Arc {
+                a,
+                b,
+                center,
+                radius,
+                ..
+            },
+        ) => exact::arc_segment_interior_cross(a, b, center, radius, p, q),
+        (
+            ProfileEdge::Arc {
+                a: a1,
+                b: b1,
+                center: c1,
+                radius: r1,
+                ..
+            },
+            ProfileEdge::Arc {
+                a: a2,
+                b: b2,
+                center: c2,
+                radius: r2,
+                ..
+            },
+        ) => exact::arc_arc_interior_cross(a1, b1, c1, r1, a2, b2, c2, r2),
+    }
+}
+
+/// Do two edges share a point that is NOT a permitted junction? Either a
+/// non-junction endpoint lying on the other closed edge, or the two relative
+/// interiors crossing.
+fn edges_meet_illegally(e1: &ProfileEdge, e2: &ProfileEdge, shared: &[Point2]) -> bool {
+    for v in [e1.start(), e1.end()] {
+        if !shared.contains(&v) && point_on_closed_edge(v, e2) {
+            return true;
+        }
+    }
+    for v in [e2.start(), e2.end()] {
+        if !shared.contains(&v) && point_on_closed_edge(v, e1) {
+            return true;
+        }
+    }
+    interiors_cross(e1, e2)
+}
+
+/// Do two distinct [`ProfileEdge`] loops touch anywhere? (Exact; edge-pair
+/// sweep with no permitted shared points — distinct loops must be fully
+/// disjoint.)
+fn arc_loops_touch(a: &[ProfileEdge], b: &[ProfileEdge]) -> bool {
+    for ea in a {
+        for eb in b {
+            if edges_meet_illegally(ea, eb, &[]) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Do two distinct loops intersect or touch anywhere? (Exact; segment-pair

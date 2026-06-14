@@ -544,3 +544,202 @@ fn concave_arc_makes_reversed_cylinder() {
     // 4 edges → 3 line planes + 1 reversed cylinder + 2 caps.
     assert_arc_extrude(&profile, 4, (5, 1, 1), area, "concave bite");
 }
+
+// =========================================================================
+// E3 — exact arc-loop simplicity validation (self-intersection ⇒ NotSimple)
+// =========================================================================
+
+fn arc_polygon_outer(outer: Vec<ProfileEdge>) -> Result<Profile, KernelV2Error> {
+    Profile::arc_polygon(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        outer,
+        vec![],
+    )
+}
+
+#[test]
+fn rejects_line_bowtie() {
+    // Figure-eight: the two diagonals (e0, e2) cross at (2,2). All-line, via
+    // the ArcPolygon path — exercises the exact proper-crossing predicate.
+    let p = |x, y| Point2::new(x, y);
+    let err = arc_polygon_outer(vec![
+        ProfileEdge::Line {
+            a: p(0.0, 0.0),
+            b: p(4.0, 4.0),
+        },
+        ProfileEdge::Line {
+            a: p(4.0, 4.0),
+            b: p(4.0, 0.0),
+        },
+        ProfileEdge::Line {
+            a: p(4.0, 0.0),
+            b: p(0.0, 4.0),
+        },
+        ProfileEdge::Line {
+            a: p(0.0, 4.0),
+            b: p(0.0, 0.0),
+        },
+    ])
+    .expect_err("bowtie is self-intersecting");
+    assert!(
+        matches!(err, KernelV2Error::ProfileNotSimple { loop_index: 0 }),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn rejects_arc_crossed_by_diagonal() {
+    // Quarter-circle sector arc (2,0)→(0,2) about the origin, then a closing
+    // diagonal (2,2)→(0,0) that pierces the arc at (√2, √2). The arc (e1)
+    // and the diagonal (e3) are non-adjacent ⇒ illegal crossing.
+    let p = |x, y| Point2::new(x, y);
+    let err = arc_polygon_outer(vec![
+        ProfileEdge::Line {
+            a: p(0.0, 0.0),
+            b: p(2.0, 0.0),
+        },
+        ProfileEdge::Arc {
+            a: p(2.0, 0.0),
+            b: p(0.0, 2.0),
+            center: p(0.0, 0.0),
+            radius: 2.0,
+            ccw: true,
+        },
+        ProfileEdge::Line {
+            a: p(0.0, 2.0),
+            b: p(2.0, 2.0),
+        },
+        ProfileEdge::Line {
+            a: p(2.0, 2.0),
+            b: p(0.0, 0.0),
+        },
+    ])
+    .expect_err("diagonal pierces the arc");
+    assert!(
+        matches!(err, KernelV2Error::ProfileNotSimple { loop_index: 0 }),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn rejects_two_line_digon() {
+    // A two-edge loop of straight segments is a zero-area degenerate digon.
+    let p = |x, y| Point2::new(x, y);
+    let err = arc_polygon_outer(vec![
+        ProfileEdge::Line {
+            a: p(0.0, 0.0),
+            b: p(4.0, 0.0),
+        },
+        ProfileEdge::Line {
+            a: p(4.0, 0.0),
+            b: p(0.0, 0.0),
+        },
+    ])
+    .expect_err("two-line digon is degenerate");
+    assert!(
+        matches!(err, KernelV2Error::ProfileNotSimple { loop_index: 0 }),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn rejects_vertex_pinch_on_edge() {
+    // A non-junction vertex landing on a non-adjacent edge's interior (the
+    // loop pinches against itself). Square (0,0)→(4,0)→(4,4)→(0,4), but the
+    // last vertex is pulled onto the bottom edge at (2,0).
+    let p = |x, y| Point2::new(x, y);
+    let err = arc_polygon_outer(vec![
+        ProfileEdge::Line {
+            a: p(0.0, 0.0),
+            b: p(4.0, 0.0),
+        },
+        ProfileEdge::Line {
+            a: p(4.0, 0.0),
+            b: p(4.0, 4.0),
+        },
+        ProfileEdge::Line {
+            a: p(4.0, 4.0),
+            b: p(2.0, 0.0),
+        },
+        ProfileEdge::Line {
+            a: p(2.0, 0.0),
+            b: p(0.0, 0.0),
+        },
+    ])
+    .expect_err("vertex pinches the bottom edge");
+    assert!(
+        matches!(err, KernelV2Error::ProfileNotSimple { loop_index: 0 }),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn rejects_hole_crossing_outer() {
+    // A hole loop whose edge crosses the outer boundary ⇒ loops intersect.
+    let p = |x, y| Point2::new(x, y);
+    let outer = vec![
+        ProfileEdge::Line {
+            a: p(0.0, 0.0),
+            b: p(10.0, 0.0),
+        },
+        ProfileEdge::Line {
+            a: p(10.0, 0.0),
+            b: p(10.0, 10.0),
+        },
+        ProfileEdge::Line {
+            a: p(10.0, 10.0),
+            b: p(0.0, 10.0),
+        },
+        ProfileEdge::Line {
+            a: p(0.0, 10.0),
+            b: p(0.0, 0.0),
+        },
+    ];
+    // Hole straddles the right wall (x from 8 to 12 crosses x=10).
+    let hole = vec![
+        ProfileEdge::Line {
+            a: p(8.0, 4.0),
+            b: p(12.0, 4.0),
+        },
+        ProfileEdge::Line {
+            a: p(12.0, 4.0),
+            b: p(12.0, 6.0),
+        },
+        ProfileEdge::Line {
+            a: p(12.0, 6.0),
+            b: p(8.0, 6.0),
+        },
+        ProfileEdge::Line {
+            a: p(8.0, 6.0),
+            b: p(8.0, 4.0),
+        },
+    ];
+    let err = Profile::arc_polygon(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        outer,
+        vec![hole],
+    )
+    .expect_err("hole crosses the outer boundary");
+    assert!(
+        matches!(
+            err,
+            KernelV2Error::ProfileLoopsIntersect {
+                loop_a: 0,
+                loop_b: 1
+            }
+        ),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn accepts_valid_arc_loops() {
+    // Sanity (GREEN): the valid E1/E2 fixtures pass the exact simplicity gate
+    // — a self-intersection check must not reject a simple boundary.
+    sector_profile();
+    rounded_rect(3.0, 2.0, 0.5);
+}

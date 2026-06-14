@@ -101,9 +101,14 @@ the print critical path.**
   rounded rectangle (multiple convex arcs), vesica lens (consecutive arcs,
   k=2), and a concave-arc bite (`reversed` cylinder). No kernel change; fixtures
   only. `tests/kv12_tier2_arc_extrude.rs`.
-- **E3–E4** open: exact arc-loop simplicity validation (the genuine unknown:
-  arc–segment / arc–arc predicates), then adapter wiring (`arc_segments` →
-  `ArcPolygon`) + arc-bearing holes + GUI E2E.
+- **E3 ✅ DONE (2026-06-14).** Exact arc-loop simplicity: `Profile::arc_polygon`
+  rejects self-intersecting line/arc boundaries (`ProfileNotSimple`) with NO
+  sampling. Minor-arc membership = exact chord-side test; line∩circle /
+  circle∩circle crossings decided by a compare-root-vs-rational predicate over
+  `dashu` (the candidate points stay symbolic). New `exact2d` arc predicates +
+  5 unit tests (incl. adversarial near-touch) + 6 profile RED/GREEN cases.
+- **E4** open: adapter wiring (`arc_segments` → `ArcPolygon`) + arc-bearing
+  holes (incl. exact hole-inside-outer containment) + GUI E2E + WASM rebuild.
 
 ### Phase F — Provenance / topological naming *(kernel + app — `KV13`; capstone)*
 "Click any face → the feature that *created* it, through chained

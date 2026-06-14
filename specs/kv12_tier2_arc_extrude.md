@@ -1,6 +1,6 @@
 # KV12 Tier 2 Spec — exact arc-segment profile extrude (cylinder side patches)
 
-Status: IN PROGRESS. Prototype-release Phase E. **E1 + E2 DONE (2026-06-14).**
+Status: IN PROGRESS. Prototype-release Phase E. **E1 + E2 + E3 DONE (2026-06-14).**
 Scope: `crates/kernel-v2/src/{profile,construct,geom,validate}.rs`,
 `crates/kernel-v2/src/adapter.rs` (wiring), `crates/cad-primitives` /
 `kernel-v2/exact2d.rs` (new arc predicates). NO yang-rs / boolean change.
@@ -133,8 +133,30 @@ value IS the evidence of simplicity.
   are not circular arcs, so it would be an approximation adding no new
   code-path coverage beyond the convex/concave/consecutive cases above. All
   pass first run. `tests/kv12_tier2_arc_extrude.rs`.
-- **E3 — exact simplicity validation** (§5). RED self-intersecting arc loops →
-  `ProfileNotSimple`; GREEN valid ones. Adversarial: a near-touching arc pair.
+- **E3 — exact simplicity validation. ✅ DONE (2026-06-14).** `Profile::arc_polygon`
+  now rejects a self-intersecting line/arc boundary EXACTLY (`ProfileNotSimple`)
+  and pairwise-touching distinct loops (`ProfileLoopsIntersect`).
+  **Method (no algebraic-point computation):** every arc here is MINOR (E1
+  guarantee), so "point on arc" ⟺ "strictly on the far side of the chord from
+  the centre" — a rational orientation test. The ≤2 candidate intersection
+  points of a line∩circle / circle∩circle are roots of a rational quadratic in
+  one parameter, and segment-interior (`t∈(0,1)`) + arc-side are LINEAR in that
+  parameter — so the decision reduces to "does a quadratic root satisfy strict
+  linear/interval sign constraints," settled by an exact compare-root-vs-rational
+  predicate over `dashu` `RBig` (`exact2d::{cmp_root, arc_segment_interior_cross,
+  arc_arc_interior_cross, point_on_closed_arc, segments_properly_cross}`).
+  Orchestration in `profile.rs` (`validate_arc_loop` pass 2 + `arc_loops_touch`):
+  per-pair endpoint-incidence (non-junction vertex on the other edge) + interior
+  crossing, with adjacency-aware permitted shared junctions; plus a two-line
+  digon degeneracy guard. **Known narrow gap:** cocircular (concentric) arc
+  overlap is reported as no-crossing — a measure-zero config the gear/rounded
+  adapter inputs never produce (documented at `arc_arc_interior_cross`). Strict
+  hole-inside-outer containment is deferred to E4 (where holes assemble; extrude
+  rejects `ArcPolygon` holes until then, so nothing unchecked reaches geometry).
+  Tests: 5 exact-predicate unit tests (incl. an adversarial ~1° near-touch and
+  the √2 arc∩arc geometry) + 6 profile RED/GREEN cases (line bowtie, arc pierced
+  by a diagonal, two-line digon, vertex pinch, hole crossing outer, valid
+  loops accepted). `exact2d.rs` + `tests/kv12_tier2_arc_extrude.rs`.
 - **E4 — wiring + holes.** Adapter reconstructs `ArcPolygon` from `arc_segments`
   (§3) and routes through Tier 2 when reconstruction+validation succeed, else
   the KV12 Tier-1 chord polygon (loud fallback). Arc-bearing holes (KV14 path,
