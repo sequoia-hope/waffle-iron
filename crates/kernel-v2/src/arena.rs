@@ -78,6 +78,7 @@
 
 use crate::error::KernelV2Error;
 use cad_primitives::Point3;
+use std::collections::BTreeMap;
 
 // ---------------------------------------------------------------------------
 // Ids
@@ -122,6 +123,16 @@ define_id!(
     /// Index of a [`Solid`] slot in the arena.
     SolidId
 );
+
+/// Persistent identity of a topological entity, stable across rebuilds —
+/// distinct from the array-index handles (`FaceId` etc.), which churn on
+/// every reconstruction. KV13 (provenance / topological naming): F1 assigns
+/// `Pid`s to faces; edges/vertices follow in F1b. Allocated monotonically per
+/// arena (deterministic given operation order), so the determinism oracle
+/// stays green; F4a will reseed from a content/structural key so re-executing
+/// an unchanged feature reproduces the same `Pid`s.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Pid(pub u64);
 
 // ---------------------------------------------------------------------------
 // Geometry carried by topology
@@ -399,6 +410,15 @@ pub struct BrepArena {
     pub shells: Vec<Option<Shell>>,
     /// Solid slots.
     pub solids: Vec<Option<Solid>>,
+    /// Persistent-id allocator (monotonic; KV13 F1). Part of the canonical
+    /// arena state, so identical construction sequences produce identical
+    /// `Pid`s (the determinism oracle compares whole arenas).
+    pub next_pid: u64,
+    /// Persistent id per live face (KV13 F1). Edges/vertices are deferred to
+    /// F1b. Faces reused by a body split keep their existing `Pid`. A
+    /// `BTreeMap` (not `HashMap`) so its `Debug` iteration order is
+    /// deterministic — the determinism oracle compares arena debug strings.
+    pub face_pids: BTreeMap<FaceId, Pid>,
 }
 
 macro_rules! checked_getters {
@@ -468,6 +488,39 @@ impl BrepArena {
             .flatten()
             .filter(|l| l.kind == LoopKind::Inner)
             .count()
+    }
+
+    /// Allocate a fresh persistent id (monotonic; KV13 F1).
+    pub fn alloc_pid(&mut self) -> Pid {
+        let p = Pid(self.next_pid);
+        self.next_pid += 1;
+        p
+    }
+
+    /// The persistent id of a face, if one has been assigned (KV13 F1).
+    pub fn face_pid(&self, face: FaceId) -> Option<Pid> {
+        self.face_pids.get(&face).copied()
+    }
+
+    /// Assign a fresh persistent id to every face of `solid` that lacks one,
+    /// in ascending `FaceId` order (deterministic). Constructors call this at
+    /// their exit (`finalize_solid`) so a finished solid's faces are all
+    /// tagged; faces reused by a body split already carry a `Pid` and keep it.
+    pub fn assign_face_pids(&mut self, solid: SolidId) -> Result<(), KernelV2Error> {
+        let shells = self.solid(solid)?.shells.clone();
+        let mut faces: Vec<FaceId> = Vec::new();
+        for sh in shells {
+            faces.extend(self.shell(sh)?.faces.iter().copied());
+        }
+        faces.sort_unstable_by_key(|f| f.0);
+        faces.dedup();
+        for f in faces {
+            if !self.face_pids.contains_key(&f) {
+                let p = self.alloc_pid();
+                self.face_pids.insert(f, p);
+            }
+        }
+        Ok(())
     }
 
     /// Walk the half-edge cycle of a loop, starting at its representative.

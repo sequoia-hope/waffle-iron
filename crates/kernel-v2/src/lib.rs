@@ -80,7 +80,7 @@ pub use adapter::KernelV2Adapter;
 
 pub use arena::{
     BrepArena, Curve, EulerCounts, Face, FaceId, HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId,
-    LoopKind, Plane, Shell, ShellId, Solid, SolidId, Surface, UnitVector3, Vertex, VertexId,
+    LoopKind, Pid, Plane, Shell, ShellId, Solid, SolidId, Surface, UnitVector3, Vertex, VertexId,
 };
 pub use boolean::{boolean_op, from_yang_brep, split_solid_into_bodies, to_yang_brep};
 pub use construct::{

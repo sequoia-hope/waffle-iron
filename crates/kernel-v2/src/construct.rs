@@ -55,6 +55,20 @@ use crate::profile::{cross, Profile, ProfileEdge, ProfileRegion};
 use crate::validate::validate_solid;
 use cad_primitives::{Point2, Point3, Vector3};
 
+/// The universal constructor exit (KV13 F1): validate the finished solid,
+/// then stamp a persistent id on every face that lacks one. Every public
+/// constructor ends here, so all output faces carry a `Pid`. Validation runs
+/// first; `Pid`s are pure metadata and never affect the geometry validate
+/// checks. (Raw Euler-op test arenas that never reach a constructor simply
+/// have no `Pid`s — `validate_solid` itself does not require them.)
+pub(crate) fn finalize_solid(
+    arena: &mut BrepArena,
+    solid: crate::arena::SolidId,
+) -> Result<(), KernelV2Error> {
+    validate_solid(arena, solid)?;
+    arena.assign_face_pids(solid)
+}
+
 /// `|d̂ · n̂|` floor below which an extrude direction is rejected as
 /// in-plane ([`KernelV2Error::ExtrudeDirectionInPlane`]). A *sheared*
 /// extrude (direction oblique to the plane normal) is legal — walls remain
@@ -135,7 +149,7 @@ pub fn make_face_from_profile(
         drill_hole(arena, core.front_anchor, &hole3, None, core.back)?;
     }
 
-    validate_solid(arena, core.solid)?;
+    finalize_solid(arena, core.solid)?;
     Ok(LaminaResult {
         solid: core.solid,
         shell: core.shell,
@@ -241,7 +255,7 @@ pub fn extrude(
         )?);
     }
 
-    validate_solid(arena, core.solid)?;
+    finalize_solid(arena, core.solid)?;
     Ok(ExtrudeResult {
         solid: core.solid,
         shell: core.shell,
@@ -772,7 +786,7 @@ fn build_partial_revolve(
         shells: vec![shell],
     }));
 
-    validate_solid(arena, solid)?;
+    finalize_solid(arena, solid)?;
     Ok(RevolveResult {
         solid,
         shell,
@@ -1062,7 +1076,7 @@ fn build_full_revolve(
         shells: vec![shell],
     }));
 
-    validate_solid(arena, solid)?;
+    finalize_solid(arena, solid)?;
     Ok(RevolveResult {
         solid,
         shell,
@@ -1267,7 +1281,7 @@ fn extrude_circle(
     }));
 
     // ---- full production validation (defense in depth) --------------------
-    validate_solid(arena, solid)?;
+    finalize_solid(arena, solid)?;
     Ok(ExtrudeResult {
         solid,
         shell,
@@ -1691,7 +1705,7 @@ fn extrude_arc_profile(
         shells: vec![shell],
     }));
 
-    validate_solid(arena, solid)?;
+    finalize_solid(arena, solid)?;
     Ok(ExtrudeResult {
         solid,
         shell,
@@ -1766,7 +1780,7 @@ fn circle_lamina(
         shells: vec![shell],
     }));
 
-    validate_solid(arena, solid)?;
+    finalize_solid(arena, solid)?;
     Ok(LaminaResult {
         solid,
         shell,

@@ -1,6 +1,6 @@
 # KV13 Spec — provenance / topological naming (Parasolid-grade)
 
-Status: PLANNED (spec, 2026-06-14). Prototype-release **Phase F** (the capstone,
+Status: IN PROGRESS (spec 2026-06-14; **F1 DONE 2026-06-14**). Prototype-release **Phase F** (the capstone,
 strictly after the gearbox print). Scope: `crates/kernel-v2/` (persistent tags +
 operation journal — the bulk), `crates/waffle-types/` (`FaceOrigin`, a
 PID-based `Selector`), `crates/feature-engine/` (rebuild-time lineage),
@@ -101,14 +101,24 @@ gearbox-grade on their own. **F4 is the long pole** that makes it survive
 arbitrary upstream edits (the full-Parasolid promise); it is multi-week and
 sub-divided. Ship F1–F3/F5/F6 first; F4 hardens.
 
-- **F1 — `Pid` tags in the kernel.** Add `Pid(u64)` + a monotonic allocator to
-  `BrepArena`; a `face_pid: HashMap<FaceId, Pid>` side-table (edges/vertices
-  deferred to F1b). Every constructor (extrude, revolve, arc extrude, circle,
-  lamina) stamps fresh Pids on its output faces. `validate_solid` asserts every
-  shell face has a Pid; the determinism oracle includes Pids. Introspection
-  (`FaceRange`) carries the face Pid out. **Tests:** Pids present/unique/
-  deterministic (bit-identical arenas ⇒ identical Pid maps); a re-run of the
-  same extrude yields the same Pids.
+- **F1 — `Pid` tags in the kernel. ✅ DONE (2026-06-14).** `Pid(u64)` +
+  monotonic allocator (`alloc_pid`) on `BrepArena`; a `face_pids:
+  BTreeMap<FaceId, Pid>` side-table (a BTreeMap, NOT HashMap, so its `Debug`
+  iteration order is deterministic — the determinism oracle compares arena
+  debug strings; this was the one regression and the fix). `assign_face_pids`
+  stamps fresh Pids on a solid's faces in ascending `FaceId` order; the
+  universal exit `construct::finalize_solid` (`validate_solid` + stamp) replaces
+  the bare `validate_solid` call in every constructor (extrude/circle/arc/
+  revolve/lamina) AND the boolean path, so every finished solid's faces carry a
+  Pid. Faces reused by a body split keep their existing Pid. Pids are part of
+  `BrepArena`'s derived `PartialEq`/`Default`, so the determinism oracle covers
+  them automatically. `validate_solid` itself does NOT require Pids (raw
+  Euler-op test arenas predate stamping); presence is guaranteed at the
+  `finalize_solid` chokepoint. **Re-scoped:** the cross-crate `FaceRange`-carries-Pid
+  plumbing is folded into F5 (`get_face_data`), keeping F1 inside kernel-v2.
+  **Tests** (`tests/kv13_provenance.rs`): box/cylinder/arc-wedge/boolean faces
+  all carry unique Pids; two identical extrudes ⇒ bit-identical arenas (incl.
+  Pids); same box ⇒ same `(FaceId, Pid)` map. Full kernel-v2 suite green.
 
 - **F2 — operation journal + boolean attribution.** Add the `Journal` and
   `Evolution` types; each operation appends a record. **Boolean is the crux:**

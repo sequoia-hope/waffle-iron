@@ -95,9 +95,9 @@ use crate::arena::{
     BrepArena, Curve, Face, FaceId, HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId, LoopKind,
     Plane, Shell, ShellId, Solid, SolidId, Surface, UnitVector3, Vertex, VertexId,
 };
+use crate::construct::finalize_solid;
 use crate::error::KernelV2Error;
 use crate::geom;
-use crate::validate::validate_solid;
 use cad_primitives::{BoolOp, Point3, Vector3};
 
 /// Tolerance on `1 − dot(Newell(loop), yang_plane_normal)` for the
@@ -1288,7 +1288,9 @@ pub fn from_yang_brep(
     }
 
     // ---- pass 3: full production validation (defense in depth) -----------
-    validate_solid(arena, solid_id)?;
+    // Validate, then stamp persistent ids on the boolean's output faces
+    // (KV13 F1 — presence only; per-face lineage attribution is F2).
+    finalize_solid(arena, solid_id)?;
     Ok(solid_id)
 }
 
