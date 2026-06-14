@@ -1770,16 +1770,18 @@ swapped every consumer to `predicates::indirect`).
     `kernel-v2/tests/kv8_gear_profile.rs` (with-polygon extrudes / no-polygon
     walled / E2E arc prism volume), GUI `app/tests/gui/arc-profile-extrude.spec.js`
     (closed D-shape line+arc → extrude → body). WASM rebuilt.
-  - **Tier 2 (exact):** new `ProfileRegion::ArcPolygon` variant + an extrude
+  - **Tier 2 (exact): SPEC WRITTEN — `specs/kv12_tier2_arc_extrude.md`** (Phase
+    E, 2026-06-14). New `ProfileRegion::ArcPolygon` variant + an extrude
     assembler that emits arc-bearing planar caps + per-edge walls (planar for
     segments, **cylinder patch** for arcs — an arc swept along the normal is a
     cylinder lateral). Surface vocab (cylinder faces, planar-arc caps,
-    `signed_volume` for arc faces), and the template assembler (the revolve
-    partial-angle branch, `construct.rs:571–684`) already exist. Bulk of the cost
-    is **exact arc-loop simplicity validation** (arc–segment / arc–arc
-    intersection predicates) — the only piece without scaffolding (P9: exact, not
-    sampled). Downstream: extruded-arc solids as boolean operands hit the KV7
-    curved partial-patch re-entry wall — a separate gap.
+    `signed_volume` for arc faces) + the assembler templates (`extrude_circle`,
+    `build_partial_revolve`) already exist. Bulk of the cost is **exact arc-loop
+    simplicity validation** (arc–segment / arc–arc intersection predicates) — the
+    only piece without scaffolding (P9: exact, not sampled). Increments E1–E4 +
+    the B-Rep target, predicates, and acceptance are in the spec. Downstream:
+    extruded-arc solids as boolean operands hit the KV7 curved partial-patch
+    re-entry wall — a separate gap (extrude-only).
   - **Sequencing:** Tier 1 is the gearbox unblock (prototype-release Phase B);
     Tier 2 is a quality follow-up (Phase E). Scoped to extrude-only — booleans on
     the result are out of scope. **Comes before KV6 revolve** (independent).

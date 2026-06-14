@@ -86,7 +86,7 @@ Exact for single-feature bodies (every gear). Ceiling: boolean-result bodies
 report the last feature (the boolean), not the original — that's Phase F (KV13).
 GUI `face-to-feature.spec.js`.
 
-### Phase E — Gear extrude **Tier 2** *(kernel — `KV12` exact path; quality)*
+### Phase E — Gear extrude **Tier 2** *(kernel — `KV12` exact path; quality)* — SPEC WRITTEN (2026-06-14: `specs/kv12_tier2_arc_extrude.md`; increments E1–E4)
 Exact arc → cylinder side patches + arc-bearing planar caps (reuse the revolve
 partial-angle assembler). Exact volume + true fillet walls. Bulk of cost =
 exact arc-loop simplicity validation (arc–segment / arc–arc predicates). Pulls
