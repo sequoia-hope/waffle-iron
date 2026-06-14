@@ -1,6 +1,6 @@
 # KV13 Spec — provenance / topological naming (Parasolid-grade)
 
-Status: IN PROGRESS (spec 2026-06-14; **F1+F2+F3 + F5(contract) + F6 (face→feature) DONE 2026-06-14**; F6 inverse + F4 remain). Prototype-release **Phase F** (the capstone,
+Status: IN PROGRESS (spec 2026-06-14; **F1+F2+F3+F5+F6 (face↔feature, both directions) DONE 2026-06-14**; F4 + F7 remain). Prototype-release **Phase F** (the capstone,
 strictly after the gearbox print). Scope: `crates/kernel-v2/` (persistent tags +
 operation journal — the bulk), `crates/waffle-types/` (`FaceOrigin`, a
 PID-based `Selector`), `crates/feature-engine/` (rebuild-time lineage),
@@ -240,10 +240,15 @@ sub-divided. Ship F1–F3/F5/F6 first; F4 hardens.
     sub-extrude roots get claimed), and ACCUMULATE the engine map
     first-claimant-wins (`entry().or_insert`, NOT `extend`, which overwrote a
     consumed operand's claim with the consuming feature's).
-- **F6c — inverse (feature → its faces). 🔜 SMALL REMAINING TAIL.** Selecting a
-  feature highlights *its* faces in the viewport (group rendered faces by
-  `created_by_feature == feature`, or `descendants`). UI-only; the data is
-  already on the wire (`getMeshes().faceRanges[].created_by_feature`).
+- **F6c — inverse (feature → its faces). ✅ DONE (2026-06-14).** `CadModel`'s
+  `buildMaterials` takes `getSelectedFeatureId()` and colours every face range
+  whose `created_by_feature === selectedFeatureId` with a green highlight
+  (`FEATURE_FACE_COLOR`) — lowest precedence, so explicit face selection/hover
+  still win. Selecting a feature in the tree (`selectFeature`) drives the
+  viewport highlight reactively. UI-only (no Rust/wasm change). GUI test
+  `feature-to-faces.spec.js`: selecting the first extrude → `selectedFeatureId`
+  is it, and its introduced faces are present in the merged body (the green
+  set); canary/face-to-feature/holed specs green (no rendering regression).
 
 - **F7 — verification matrix.** The five PERSISTENT-NAMING.md scenarios
   (stability, role→signature fallback, feature-insertion, graceful break,

@@ -490,6 +490,7 @@ export async function initEngine() {
 			setTool: (tool) => setActiveTool(tool),
 			finishSketch: () => finishSketch(),
 			getFeatureTree: () => featureTree,
+			getSelectedFeatureId: () => selectedFeatureId,
 			getMeshes: () => meshes.map(m => ({
 				featureId: m.featureId,
 				vertexCount: m.vertices?.length / 3,

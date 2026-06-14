@@ -17,7 +17,8 @@
 		getProfilePickMode,
 		isProjectToolActive,
 		getSelectedBodyId,
-		getHoveredBodyId
+		getHoveredBodyId,
+		getSelectedFeatureId
 	} from '$lib/engine/store.svelte.js';
 	import { SIDE_FACE_GROUP_THRESHOLD } from '$lib/config.js';
 
@@ -27,6 +28,10 @@
 	const PICK_HOVER_COLOR = new THREE.Color(0x55cc88);
 	const BODY_SELECTED_COLOR = new THREE.Color(0x44aaff);
 	const BODY_HOVER_COLOR = new THREE.Color(0x6fc0ff);
+	// KV13 F6c: faces whose CREATING feature is the one selected in the tree
+	// (the inverse of click-face→feature). Green, matching the tree's
+	// face-source accent.
+	const FEATURE_FACE_COLOR = new THREE.Color(0x5fcf8f);
 
 	/**
 	 * Check if a GeomRef is a SideFace role.
@@ -140,7 +145,7 @@
 	 * Uses shared material instances to avoid creating thousands of materials for
 	 * complex geometry (e.g., gear profiles with 1600+ face ranges).
 	 */
-	function buildMaterials(faceRanges, hoveredRef, selectedRefs, inSketchMode) {
+	function buildMaterials(faceRanges, hoveredRef, selectedRefs, inSketchMode, selectedFeatureId) {
 		const projectActive = isProjectToolActive();
 		const transparent = inSketchMode && !projectActive;
 		const opacity = transparent ? 0.2 : (projectActive ? 0.5 : 1.0);
@@ -181,6 +186,7 @@
 		const pickMode = getProfilePickMode()?.target === 'extrude';
 		let hoverMat = null;
 		let selectedMat = null;
+		let featureMat = null;
 
 		return faceRanges.map((range) => {
 			const ref = range.geom_ref;
@@ -198,6 +204,13 @@
 				if (hoveredRef && compareFn(hoveredRef, ref)) {
 					if (!hoverMat) hoverMat = makeMat(HOVER_COLOR);
 					return hoverMat;
+				}
+				// KV13 F6c (inverse): a feature is selected in the tree → highlight
+				// the faces it INTRODUCED (lowest precedence — explicit face
+				// selection/hover above still win).
+				if (selectedFeatureId && range.created_by_feature === selectedFeatureId) {
+					if (!featureMat) featureMat = makeMat(FEATURE_FACE_COLOR);
+					return featureMat;
 				}
 			}
 
@@ -258,12 +271,13 @@
 		const inSketch = getSketchMode()?.active ?? false;
 		const selectedBody = getSelectedBodyId();
 		const hoveredBody = getHoveredBodyId();
+		const selFeature = getSelectedFeatureId();
 		return engineMeshes.map((m) => {
 			if (!inSketch && m.bodyId) {
 				if (m.bodyId === selectedBody) return makeBodyMaterial(BODY_SELECTED_COLOR);
 				if (m.bodyId === hoveredBody) return makeBodyMaterial(BODY_HOVER_COLOR);
 			}
-			return buildMaterials(m.faceRanges, hRef, sRefs, inSketch);
+			return buildMaterials(m.faceRanges, hRef, sRefs, inSketch, selFeature);
 		});
 	});
 
