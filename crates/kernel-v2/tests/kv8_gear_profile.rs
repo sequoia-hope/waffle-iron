@@ -462,15 +462,16 @@ fn holed_sketch_extrudes_as_annulus() {
     );
 }
 
-/// KV12 Tier 1 end-to-end: an arc-segment profile extrudes to a clean prism
-/// whose volume is the authored chord polygon's area × depth (the `arc_segments`
-/// annotation is carried but the sampled polygon is what's swept).
+/// KV12 Tier 2 (E4) end-to-end: an arc-segment profile now extrudes with EXACT
+/// cylinder side patches — the `arc_segments` annotation is reconstructed into
+/// a true arc, not swept as the coarse chord polygon. The arc bulges outward
+/// through its chord samples, so the swept volume exceeds the chord-octagon's.
 #[test]
-fn arc_segment_profile_extrudes_to_prism() {
-    // Octagon — a stand-in for a chord-sampled rounded/arc profile — with an
-    // arc_segments annotation spanning one corner.
+fn arc_segment_profile_extrudes_to_cylinder_walled_prism() {
+    // Octagon on radius 2; an arc_segments annotation spans one corner
+    // (vertices 0 → 2, a 90° arc through the intermediate sample at 45°).
     let n = 8usize;
-    let radius = 2.0;
+    let radius: f64 = 2.0;
     let mut positions = HashMap::new();
     let mut vertex_ids = Vec::new();
     for i in 0..n {
@@ -503,16 +504,36 @@ fn arc_segment_profile_extrudes_to_prism() {
             [1.0, 0.0, 0.0],
             &positions,
         )
-        .expect("arc-segment profile stages via its polygon (KV12 Tier 1)");
+        .expect("arc-segment profile stages via Tier 2 reconstruction");
     let solid = k
         .extrude_face(faces[0], [0.0, 0.0, 1.0], depth)
-        .expect("arc-segment prism extrudes");
+        .expect("arc-segment cylinder-walled prism extrudes");
     let mesh = k.tessellate(&solid, 0.001).expect("tessellate");
-    let vol = mesh_signed_volume(&mesh);
-    let expect = polygon_area(&profile.vertex_ids, &positions) * depth;
+    let vol = mesh_signed_volume(&mesh).abs();
+
+    // The arc-span corner (v0→v1→v2 chords, 90° total) is replaced by the true
+    // 90° arc of radius 2. The gained planar area is the chord-to-arc region:
+    // the 90° circular segment minus the triangle (v0, v1, v2).
+    let chord_area = polygon_area(&profile.vertex_ids, &positions);
+    let theta = std::f64::consts::PI / 2.0; // 90° arc span
+    let segment = 0.5 * radius * radius * (theta - theta.sin());
+    let v = |id: u32| {
+        let (x, y) = positions[&id];
+        (x, y)
+    };
+    let (v0, v1, v2) = (v(1), v(2), v(3));
+    let tri = 0.5 * ((v1.0 - v0.0) * (v2.1 - v0.1) - (v1.1 - v0.1) * (v2.0 - v0.0)).abs();
+    let expect = (chord_area + (segment - tri)) * depth;
+    // The tessellated mesh chords the cylinder patch, so it UNDER-fills the
+    // convex bulge by the chord-discretization band (~3e-4 rel at tol 0.001) —
+    // the same "volume in the chord band" contract as the revolve mesh tests.
     assert!(
-        (vol.abs() - expect).abs() <= 1e-6 * expect,
-        "arc-segment prism volume {vol} vs exact {expect}"
+        vol <= expect + 1e-9 && (expect - vol) <= 1e-3 * expect,
+        "Tier-2 arc prism volume {vol} vs exact {expect} (chord band)"
+    );
+    assert!(
+        vol > chord_area * depth,
+        "arc bulges out past the chord polygon"
     );
 }
 

@@ -20,7 +20,7 @@
 //!
 //! | Legacy trait method | Status | Mapping |
 //! |---|---|---|
-//! | `make_faces_from_profiles` | SUPPORTED (polygon + circle + arc/spline-via-polygon + holed regions) | `ClosedProfile` polygon → `kernel_v2::Profile::new`; `CircleProfile` → `Profile::circle` (staged); arc/spline-annotated profiles extrude via their `vertex_ids` chord polygon (KV12); inner (`is_outer=false`) loops are grouped into the strictly-larger outer that contains them → one holed `Profile` (KV14); arc/spline WITHOUT a `vertex_ids` polygon → `NotSupported` |
+//! | `make_faces_from_profiles` | SUPPORTED (polygon + circle + exact arc + spline-via-polygon + holed regions) | `ClosedProfile` polygon → `kernel_v2::Profile::new`; `CircleProfile` → `Profile::circle` (staged); arc-annotated single loops → `Profile::arc_polygon` with EXACT cylinder side patches (KV12 Tier 2, E4 — arc runs reconstructed into minor sub-arcs), falling back LOUDLY to the Tier-1 `vertex_ids` chord polygon when reconstruction / simplicity declines or the loop is holed; spline-annotated profiles (gears) extrude via their chord polygon; inner (`is_outer=false`) loops are grouped into the strictly-larger outer that contains them → one holed `Profile` (KV14); arc/spline WITHOUT a `vertex_ids` polygon → `NotSupported` |
 //! | `extrude_face` | SUPPORTED | staged profile → `kernel_v2::extrude` (sweep vector = `direction · depth`, exactly the legacy semantics); circle profiles → cylinder solids (PR-KV5a) |
 //! | `revolve_face` | SUPPORTED (PR-KV6a) | staged polygon profile → `kernel_v2::revolve` (degrees → radians; world-space in-plane axis). Typed walls: oblique edges (cones, KV6c), circle profiles (torus, KV6d), holed profiles → `NotSupported`; axis touching/crossing the profile and out-of-range angles → `KernelError::Other` (INVALID INPUT — the F0073/F0074 expected-rebuild-error path, never the NotSupported marker) |
 //! | `boolean_union` / `_subtract` / `_intersect` | SUPPORTED (non-coplanar; cylinder×box class PR-KV5b) | `kernel_v2::boolean_op` (yang-rs native pipeline); coplanar input face pairs → `NotSupported` (Yang Stage 0 / roadmap M8); curved partial-patch RESULT operands → `NotSupported` (no yang Stage-1 re-entry); cylinder×cylinder / oblique-ellipse sections → `BooleanFailed` carrying the typed wall text |
@@ -625,8 +625,23 @@ impl Kernel for KernelV2Adapter {
         // A profile's planar shape, classified before staging so KV14 can group
         // inner loops into the outer that contains them.
         enum Shape {
-            Circle { center: Point2, radius: f64 },
-            Polygon { pts: Vec<Point2>, is_outer: bool },
+            Circle {
+                center: Point2,
+                radius: f64,
+            },
+            Polygon {
+                pts: Vec<Point2>,
+                is_outer: bool,
+            },
+            /// KV12 Tier 2: an exact line/arc loop reconstructed from
+            /// `arc_segments`. `chord_pts` is the Tier-1 chord polygon, kept
+            /// for hole grouping and as the loud fallback if `arc_polygon`
+            /// validation rejects the loop.
+            ArcPolygon {
+                edges: Vec<crate::ProfileEdge>,
+                chord_pts: Vec<Point2>,
+                is_outer: bool,
+            },
         }
 
         // ── pass 1: classify each profile (capability walls fire here) ──────
@@ -641,12 +656,10 @@ impl Kernel for KernelV2Adapter {
                 });
                 continue;
             }
-            // KV12 Tier 1 — an arc-segment profile carries a fully sampled
-            // `vertex_ids` polygon (16 chord points per arc — the same points
-            // the solver/viewport use); accept it via that polygon, exactly
-            // like the spline-annotated gears. Without a polygon there is
-            // nothing to extrude — stay walled. (Tier 2, exact arc → cylinder
-            // walls, is its own milestone; see KV12.)
+            // KV12 — an arc-segment profile carries a fully sampled
+            // `vertex_ids` polygon (the same chord points the solver/viewport
+            // use). Without a polygon there is nothing to extrude — stay
+            // walled.
             if !profile.arc_segments.is_empty() && profile.vertex_ids.is_empty() {
                 return Err(Self::not_supported(
                     "make_faces_from_profiles: arc-segment profile without an authored \
@@ -697,6 +710,30 @@ impl Kernel for KernelV2Adapter {
                     Point2::new(pu, pv)
                 })
                 .collect();
+
+            // KV12 Tier 2: if this profile carries arc segments over an
+            // authored `vertex_ids` polygon, reconstruct an exact line/arc
+            // loop (arc edges → cylinder side patches). The chord polygon is
+            // retained as the loud fallback if reconstruction or simplicity
+            // validation declines the exact form. The arc-segment indices are
+            // into `vertex_ids`, which is exactly `keys` here.
+            let used_vertex_ids = !profile.vertex_ids.is_empty()
+                && keys.len() == profile.vertex_ids.len()
+                && keys.iter().zip(&profile.vertex_ids).all(|(a, b)| a == b);
+            if !profile.arc_segments.is_empty() && used_vertex_ids {
+                if let Some(edges) = reconstruct_arc_polygon_edges(&pts2, &profile.arc_segments) {
+                    shapes.push(Shape::ArcPolygon {
+                        edges,
+                        chord_pts: pts2,
+                        is_outer: profile.is_outer,
+                    });
+                    continue;
+                }
+                eprintln!(
+                    "kernel-v2 KV12: arc-segment reconstruction declined; \
+                     falling back to the Tier-1 chord polygon"
+                );
+            }
             shapes.push(Shape::Polygon {
                 pts: pts2,
                 is_outer: profile.is_outer,
@@ -711,12 +748,13 @@ impl Kernel for KernelV2Adapter {
         // exactly and CCW-normalizes every loop, so a mis-assignment fails loud.
         let shape_is_outer = |s: &Shape| match s {
             Shape::Circle { .. } => true,
-            Shape::Polygon { is_outer, .. } => *is_outer,
+            Shape::Polygon { is_outer, .. } | Shape::ArcPolygon { is_outer, .. } => *is_outer,
         };
         let shape_area = |s: &Shape| -> f64 {
             match s {
                 Shape::Circle { radius, .. } => std::f64::consts::PI * radius * radius,
                 Shape::Polygon { pts, .. } => polygon_area_abs(pts),
+                Shape::ArcPolygon { chord_pts, .. } => polygon_area_abs(chord_pts),
             }
         };
         let outer_contains = |s: &Shape, p: Point2| -> bool {
@@ -727,16 +765,31 @@ impl Kernel for KernelV2Adapter {
                     dx * dx + dy * dy < radius * radius
                 }
                 Shape::Polygon { pts, is_outer } => *is_outer && point_in_polygon_2d(p, pts),
+                Shape::ArcPolygon {
+                    chord_pts,
+                    is_outer,
+                    ..
+                } => *is_outer && point_in_polygon_2d(p, chord_pts),
             }
         };
         let mut holes_for: std::collections::HashMap<usize, Vec<Vec<Point2>>> =
             std::collections::HashMap::new();
         for i in 0..shapes.len() {
-            if let Shape::Polygon {
-                pts,
-                is_outer: false,
-            } = &shapes[i]
-            {
+            // An inner (`is_outer == false`) polygon or arc loop is a hole;
+            // group it by its chord polygon.
+            let inner_pts: Option<&Vec<Point2>> = match &shapes[i] {
+                Shape::Polygon {
+                    pts,
+                    is_outer: false,
+                } => Some(pts),
+                Shape::ArcPolygon {
+                    chord_pts,
+                    is_outer: false,
+                    ..
+                } => Some(chord_pts),
+                _ => None,
+            };
+            if let Some(pts) = inner_pts {
                 // Witness = centroid (robustly interior, unlike a vertex which
                 // can sit on a coincident outer's boundary).
                 let n = pts.len() as f64;
@@ -806,6 +859,47 @@ impl Kernel for KernelV2Adapter {
                         }
                     })?
                 }
+                Shape::ArcPolygon {
+                    edges,
+                    chord_pts,
+                    is_outer,
+                } => {
+                    let holes = if *is_outer {
+                        holes_for.get(&i).cloned().unwrap_or_default()
+                    } else {
+                        Vec::new()
+                    };
+                    // Holed arc loops route through the Tier-1 chord polygon
+                    // (the holed-arc assembler with exact hole containment is
+                    // a later increment); a single arc loop takes the exact
+                    // Tier-2 path, falling back loudly if simplicity
+                    // validation declines it.
+                    let tier2 = if holes.is_empty() {
+                        crate::Profile::arc_polygon(origin, ux, vy, edges.clone(), Vec::new()).ok()
+                    } else {
+                        None
+                    };
+                    if let Some(p) = tier2 {
+                        p
+                    } else {
+                        if !holes.is_empty() {
+                            eprintln!(
+                                "kernel-v2 KV12: holed arc profile → Tier-1 chord polygon \
+                                 (holed-arc Tier 2 not yet wired)"
+                            );
+                        } else {
+                            eprintln!(
+                                "kernel-v2 KV12: arc loop failed exact simplicity → \
+                                 Tier-1 chord polygon"
+                            );
+                        }
+                        crate::Profile::new(origin, ux, vy, chord_pts.clone(), holes).map_err(
+                            |e| KernelError::Other {
+                                message: format!("kernel-v2 profile rejected: {e}"),
+                            },
+                        )?
+                    }
+                }
             };
             let idx = self.next_staged;
             self.next_staged += 1;
@@ -861,6 +955,139 @@ fn polygonize_circle(center: Point2, radius: f64) -> Vec<Point2> {
             Point2::new(center.x() + radius * a.cos(), center.y() + radius * a.sin())
         })
         .collect()
+}
+
+// ── KV12 Tier 2 reconstruction (arc_segments + chord polygon → ArcPolygon) ──
+
+/// Append minor (`sweep < π`) sub-arcs covering chord-sample vertices
+/// `vstart ..= vend` (indices into `pts`, wrapping mod `n`) of one circular
+/// `arc_segment`, splitting at sample points so each sub-arc clears the
+/// arena's minor-arc requirement. Returns `false` if a sample is off the
+/// circle beyond the import band or a degenerate (zero-sweep) sub-arc would
+/// result — the caller then falls back to the Tier-1 chord polygon.
+fn push_minor_subarcs(
+    out: &mut Vec<crate::ProfileEdge>,
+    pts: &[Point2],
+    n: usize,
+    vstart: usize,
+    vend: usize,
+    center: Point2,
+    radius: f64,
+) -> bool {
+    // Split before the cumulative sweep reaches π (with margin); each
+    // consecutive sample step is small, so this yields the minimum count of
+    // < π sub-arcs (a semicircle → two ≈90° patches).
+    const MAX_SWEEP: f64 = std::f64::consts::PI * 0.9;
+    let band = 1e-9 * radius.max(1.0);
+    let radial = |k: usize| {
+        let p = pts[k % n];
+        (p.x() - center.x(), p.y() - center.y())
+    };
+    // Reject samples off the circle (faithfulness of the exact arc model).
+    for k in vstart..=vend {
+        let (rx, ry) = radial(k);
+        if ((rx * rx + ry * ry).sqrt() - radius).abs() > band {
+            return false;
+        }
+    }
+    let mut group_start = vstart;
+    let mut acc = 0.0;
+    let mut k = vstart;
+    while k < vend {
+        let (ux, uy) = radial(k);
+        let (vx, vy) = radial(k + 1);
+        let step = (ux * vy - uy * vx).atan2(ux * vx + uy * vy).abs();
+        if acc + step > MAX_SWEEP && k > group_start {
+            out.push(crate::ProfileEdge::Arc {
+                a: pts[group_start % n],
+                b: pts[k % n],
+                center,
+                radius,
+                ccw: true,
+            });
+            group_start = k;
+            acc = 0.0;
+        }
+        acc += step;
+        k += 1;
+    }
+    if acc <= 0.0 || group_start % n == vend % n {
+        return false; // degenerate (zero-sweep) trailing sub-arc
+    }
+    out.push(crate::ProfileEdge::Arc {
+        a: pts[group_start % n],
+        b: pts[vend % n],
+        center,
+        radius,
+        ccw: true,
+    });
+    true
+}
+
+/// Reconstruct an exact `ProfileEdge` loop (lines + minor arcs) from a
+/// chord-sample polygon `pts` and its `arc_segments` (PR-KV12 Tier 2, §3).
+/// Each `arc_segment` covers a vertex run `[start ..= end]`; the edges it
+/// spans collapse to minor sub-arcs, every other edge stays a line. Returns
+/// `None` (→ Tier-1 chord fallback) on any malformed segment (out-of-range
+/// or non-increasing indices, overlapping segments, off-circle samples).
+fn reconstruct_arc_polygon_edges(
+    pts: &[Point2],
+    arc_segments: &[waffle_types::ArcSegment],
+) -> Option<Vec<crate::ProfileEdge>> {
+    let n = pts.len();
+    if n < 3 || arc_segments.is_empty() {
+        return None;
+    }
+    // edge_arc[i] = the arc covering edge (i → i+1), if any. An arc run
+    // `[s ..= e]` covers edges `s .. e`; when `e < s` the run wraps through
+    // the closing edge (e.g. a D-shape whose diameter line is drawn first,
+    // so the arc closes onto vertex 0). A run wrapping the 0/n boundary is
+    // simply split there into two same-circle sub-arcs by the walk below —
+    // geometrically harmless (an extra split point).
+    let mut edge_arc: Vec<Option<usize>> = vec![None; n];
+    for (ai, seg) in arc_segments.iter().enumerate() {
+        let (s, e) = (seg.start_vertex_index, seg.end_vertex_index);
+        if s >= n || e >= n || s == e {
+            return None;
+        }
+        let edge_indices: Vec<usize> = if s < e {
+            (s..e).collect()
+        } else {
+            (s..n).chain(0..e).collect()
+        };
+        for edge in edge_indices {
+            if edge_arc[edge].is_some() {
+                return None; // overlapping arc segments
+            }
+            edge_arc[edge] = Some(ai);
+        }
+    }
+    let mut edges = Vec::new();
+    let mut i = 0;
+    while i < n {
+        match edge_arc[i] {
+            None => {
+                edges.push(crate::ProfileEdge::Line {
+                    a: pts[i],
+                    b: pts[(i + 1) % n],
+                });
+                i += 1;
+            }
+            Some(ai) => {
+                let mut j = i;
+                while j < n && edge_arc[j] == Some(ai) {
+                    j += 1;
+                }
+                let seg = &arc_segments[ai];
+                let center = Point2::new(seg.center_u, seg.center_v);
+                if !push_minor_subarcs(&mut edges, pts, n, i, j, center, seg.radius) {
+                    return None;
+                }
+                i = j;
+            }
+        }
+    }
+    Some(edges)
 }
 
 impl KernelIntrospect for KernelV2Adapter {
@@ -1035,6 +1262,144 @@ mod tests {
             .expect("square profile stages");
         assert_eq!(ids.len(), 1);
         ids[0]
+    }
+
+    /// Count cylinder faces in the solid behind a handle.
+    fn cylinder_face_count(adapter: &KernelV2Adapter, handle: &KernelSolidHandle) -> usize {
+        let sid = adapter.solid_of(handle).expect("solid");
+        adapter
+            .solid_faces(sid)
+            .into_iter()
+            .filter(|&f| {
+                matches!(
+                    adapter.arena.face(f).map(|fc| fc.surface),
+                    Ok(Some(Surface::Cylinder { .. }))
+                )
+            })
+            .count()
+    }
+
+    #[test]
+    fn d_shape_arc_profile_extrudes_with_cylinder_faces() {
+        // KV12 Tier 2 (E4): a D-shape — diameter line then a semicircle arc —
+        // reconstructs to an exact line/arc loop. The 180° arc exceeds the
+        // arena's minor-arc limit, so reconstruction splits it into two <π
+        // sub-arcs ⇒ two cylinder side patches. Drawn LINE-FIRST (as the GUI
+        // does), the arc run wraps the closing vertex.
+        let mut adapter = KernelV2Adapter::new();
+        // v0=(-1,0), v1=(1,0) [diameter line], then arc samples over the top
+        // back toward v0 at 30° steps (v6 = 150°; the closing edge v6→v0 is
+        // the last arc span).
+        let mut positions: HashMap<u32, (f64, f64)> = HashMap::new();
+        positions.insert(0, (-1.0, 0.0));
+        positions.insert(1, (1.0, 0.0));
+        for (k, deg) in [
+            (2u32, 30.0f64),
+            (3, 60.0),
+            (4, 90.0),
+            (5, 120.0),
+            (6, 150.0),
+        ] {
+            let t = deg.to_radians();
+            positions.insert(k, (t.cos(), t.sin()));
+        }
+        let profile = ClosedProfile {
+            entity_ids: vec![],
+            is_outer: true,
+            vertex_ids: vec![0, 1, 2, 3, 4, 5, 6],
+            circle: None,
+            spline_segments: vec![],
+            // The arc covers vertices 1 → 0 (over the top); end < start wraps.
+            arc_segments: vec![waffle_types::ArcSegment {
+                start_vertex_index: 1,
+                end_vertex_index: 0,
+                center_u: 0.0,
+                center_v: 0.0,
+                radius: 1.0,
+            }],
+        };
+        let ids = adapter
+            .make_faces_from_profiles(
+                &[profile],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0],
+                &positions,
+            )
+            .expect("D-shape stages");
+        let handle = adapter
+            .extrude_face(ids[0], [0.0, 0.0, 1.0], 2.0)
+            .expect("D-shape extrudes");
+        // Two cylinder patches (the split semicircle), not a chord polygon.
+        assert_eq!(
+            cylinder_face_count(&adapter, &handle),
+            2,
+            "split semicircle ⇒ 2 cylinder patches"
+        );
+    }
+
+    #[test]
+    fn holed_arc_profile_falls_back_to_tier1() {
+        // An arc-bearing OUTER with a hole routes through the Tier-1 chord
+        // polygon (holed-arc Tier 2 not yet wired) and still extrudes a valid
+        // solid — no panic, no cylinder faces (chord walls).
+        let mut adapter = KernelV2Adapter::new();
+        let mut positions: HashMap<u32, (f64, f64)> = HashMap::new();
+        // Outer: a rounded-ish loop — square corners (0..4) plus a quarter arc
+        // bulging at the top-right corner. Sample the arc at a few points.
+        positions.insert(0, (0.0, 0.0));
+        positions.insert(1, (4.0, 0.0));
+        positions.insert(2, (4.0, 3.0)); // arc start
+        positions.insert(3, (3.7, 3.7));
+        positions.insert(4, (3.0, 4.0)); // arc end
+        positions.insert(5, (0.0, 4.0));
+        let outer = ClosedProfile {
+            entity_ids: vec![],
+            is_outer: true,
+            vertex_ids: vec![0, 1, 2, 3, 4, 5],
+            circle: None,
+            spline_segments: vec![],
+            arc_segments: vec![waffle_types::ArcSegment {
+                start_vertex_index: 2,
+                end_vertex_index: 4,
+                center_u: 3.0,
+                center_v: 3.0,
+                radius: 1.0,
+            }],
+        };
+        // A square hole well inside the outer.
+        for (k, p) in [
+            (10u32, (1.0, 1.0)),
+            (11, (2.0, 1.0)),
+            (12, (2.0, 2.0)),
+            (13, (1.0, 2.0)),
+        ] {
+            positions.insert(k, p);
+        }
+        let hole = ClosedProfile {
+            entity_ids: vec![],
+            is_outer: false,
+            vertex_ids: vec![10, 11, 12, 13],
+            circle: None,
+            spline_segments: vec![],
+            arc_segments: vec![],
+        };
+        let ids = adapter
+            .make_faces_from_profiles(
+                &[outer, hole],
+                [0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [1.0, 0.0, 0.0],
+                &positions,
+            )
+            .expect("holed arc profile stages");
+        let handle = adapter
+            .extrude_face(ids[0], [0.0, 0.0, 1.0], 2.0)
+            .expect("holed arc profile extrudes (Tier-1 fallback)");
+        // Tier-1 chord walls ⇒ no exact cylinder patches.
+        assert_eq!(cylinder_face_count(&adapter, &handle), 0);
+        // The through-hole makes it genus 1: a valid solid all the same.
+        assert!(adapter.list_faces(&handle).len() >= 6);
     }
 
     #[test]

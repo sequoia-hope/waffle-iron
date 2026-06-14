@@ -107,8 +107,16 @@ the print critical path.**
   circle∩circle crossings decided by a compare-root-vs-rational predicate over
   `dashu` (the candidate points stay symbolic). New `exact2d` arc predicates +
   5 unit tests (incl. adversarial near-touch) + 6 profile RED/GREEN cases.
-- **E4** open: adapter wiring (`arc_segments` → `ArcPolygon`) + arc-bearing
-  holes (incl. exact hole-inside-outer containment) + GUI E2E + WASM rebuild.
+- **E4 ✅ DONE (2026-06-14).** Adapter wiring: `make_faces_from_profiles`
+  reconstructs an `ArcPolygon` from `arc_segments` + the chord polygon (arc runs
+  → minor sub-arcs, splitting a semicircle into 2 patches; wrap-aware), routes
+  single arc loops through exact Tier-2, and falls back LOUDLY to the Tier-1
+  chord polygon on anything it declines (incl. holed-arc outers). Adapter +
+  kv8 + GUI `arc-profile-extrude` tests; WASM rebuilt. **E4b tail:** holed-arc
+  Tier 2 (the inner-cap-loop assembler + exact hole containment) — a gear drawn
+  teeth+bore in one sketch stays Tier-1 until then.
+- **Phase E essentially complete** for the gearbox's needs: arc/rounded
+  profiles and bore-less gears extrude with exact cylinder walls.
 
 ### Phase F — Provenance / topological naming *(kernel + app — `KV13`; capstone)*
 "Click any face → the feature that *created* it, through chained

@@ -1,6 +1,8 @@
 # KV12 Tier 2 Spec — exact arc-segment profile extrude (cylinder side patches)
 
-Status: IN PROGRESS. Prototype-release Phase E. **E1 + E2 + E3 DONE (2026-06-14).**
+Status: Prototype-release Phase E. **E1 + E2 + E3 + E4 DONE (2026-06-14).**
+Single-loop arc profiles now extrude with exact cylinder walls end-to-end
+(kernel → adapter → app); holed-arc Tier 2 is the one remaining tail (E4b).
 Scope: `crates/kernel-v2/src/{profile,construct,geom,validate}.rs`,
 `crates/kernel-v2/src/adapter.rs` (wiring), `crates/cad-primitives` /
 `kernel-v2/exact2d.rs` (new arc predicates). NO yang-rs / boolean change.
@@ -157,12 +159,27 @@ value IS the evidence of simplicity.
   the √2 arc∩arc geometry) + 6 profile RED/GREEN cases (line bowtie, arc pierced
   by a diagonal, two-line digon, vertex pinch, hole crossing outer, valid
   loops accepted). `exact2d.rs` + `tests/kv12_tier2_arc_extrude.rs`.
-- **E4 — wiring + holes.** Adapter reconstructs `ArcPolygon` from `arc_segments`
-  (§3) and routes through Tier 2 when reconstruction+validation succeed, else
-  the KV12 Tier-1 chord polygon (loud fallback). Arc-bearing holes (KV14 path,
-  ArcPolygon holes). GUI E2E: the `arc-profile-extrude.spec.js` D-shape now
-  yields a body with a cylinder face (face count / curved face check), and a
-  real gear extrudes with cylindrical fillet walls.
+- **E4 — wiring. ✅ DONE (2026-06-14).** `make_faces_from_profiles` reconstructs
+  an `ArcPolygon` from `arc_segments` + the authored `vertex_ids` chord polygon
+  (`reconstruct_arc_polygon_edges`): each arc run collapses to minor (`< π`)
+  sub-arcs split at sample points (`push_minor_subarcs` — a semicircle → 2
+  patches; handles arc runs that WRAP the closing vertex, e.g. a line-first
+  D-shape), every other edge stays a line. Single arc loops route through the
+  exact Tier-2 `Profile::arc_polygon`; **anything that declines — malformed
+  segments, off-circle samples, failed simplicity, OR the presence of holes —
+  falls back LOUDLY (`eprintln`) to the Tier-1 chord polygon**, so no input
+  regresses. Validated: adapter tests (D-shape → 2 cylinder patches; holed-arc
+  → Tier-1 fallback, 0 cylinder patches), the repurposed kv8
+  `arc_segment_profile_extrudes_to_cylinder_walled_prism` (exact arc-bulge
+  volume), and GUI `arc-profile-extrude.spec.js` (D-shape body now has ≤10
+  faces — cylinder patches, not ~18 chord walls). WASM rebuilt.
+
+  **Remaining tail — E4b (holed-arc Tier 2):** a holed arc OUTER currently
+  routes through Tier-1 (chord) because the holed-arc *assembler* (inner cap
+  loops + hole wall faces) and the deferred exact hole-inside-outer containment
+  (E3 §5) are not yet built. Gears drawn solid-then-bored (separate extrudes)
+  already get exact tooth walls; a gear drawn teeth+bore in ONE sketch stays
+  Tier-1 until E4b.
 
 ## 7. Composition / no-regression
 
