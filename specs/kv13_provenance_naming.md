@@ -1,6 +1,6 @@
 # KV13 Spec — provenance / topological naming (Parasolid-grade)
 
-Status: IN PROGRESS (spec 2026-06-14; **F1+F2+F3 + F5(contract) + F6a(resolver) DONE 2026-06-14**). Prototype-release **Phase F** (the capstone,
+Status: IN PROGRESS (spec 2026-06-14; **F1+F2+F3 + F5(contract) + F6 (face→feature) DONE 2026-06-14**; F6 inverse + F4 remain). Prototype-release **Phase F** (the capstone,
 strictly after the gearbox print). Scope: `crates/kernel-v2/` (persistent tags +
 operation journal — the bulk), `crates/waffle-types/` (`FaceOrigin`, a
 PID-based `Selector`), `crates/feature-engine/` (rebuild-time lineage),
@@ -221,14 +221,29 @@ sub-divided. Ship F1–F3/F5/F6 first; F4 hardens.
   union → every union-body face resolves `created_by` to extrude a or b, NEVER
   the union feature. The capture uses output-body `list_faces` (not
   `provenance.created`) for robustness.
-- **F6b — UI: face → feature (through booleans) + inverse. 🔜 REMAINING.**
-  wasm-bridge: thread `created_by_feature` per face into the face-data JSON
-  (`build_face_entries` — resolve via `Engine::created_by_feature` on
-  `range.face_id`). App/Svelte: clicking a face highlights the *introducing*
-  feature (supersede Phase D Tier 1's last-feature); selecting a feature
-  highlights *its* faces (inverse, via `pid_to_feature` + `descendants`). +
-  WASM rebuild. **GUI tests:** union-then-click-original-face → original extrude
-  highlighted; feature→faces.
+- **F6b — UI: face → introducing feature (through booleans). ✅ DONE (2026-06-14).**
+  wasm-bridge `build_face_entries` resolves each face's `created_by_feature` via
+  `Engine::created_by_feature(introspect, range.face_id)` and emits it in the
+  per-face JSON (both `get_face_data` and `get_body_face_data`). App: the face
+  ranges carry `created_by_feature` through worker→store→`getMeshes`;
+  `getSelectedRefFeatureId` now returns the picked face's introducing feature
+  (via `createdByFeatureForRef` matching the face range), falling back to the
+  GeomRef anchor (Phase-D Tier 1 — exact for single-feature bodies). WASM
+  rebuilt. **GUI test** `face-to-feature-through-boolean.spec.js`: two
+  overlapping extrudes auto-union; the merged body carries faces attributed to
+  BOTH introducing extrudes (a single mesh with ≥2 distinct `created_by_feature`
+  — the through-boolean signature Phase D could not produce). Phase-D
+  `face-to-feature.spec.js` (single extrude) + canary green.
+  - **Capture subtlety solved:** a consumed operand's lineage root must keep
+    its introducing feature across incremental rebuilds. The fix: capture each
+    output face's own pid AND its lineage ROOT (so an auto-union's intra-feature
+    sub-extrude roots get claimed), and ACCUMULATE the engine map
+    first-claimant-wins (`entry().or_insert`, NOT `extend`, which overwrote a
+    consumed operand's claim with the consuming feature's).
+- **F6c — inverse (feature → its faces). 🔜 SMALL REMAINING TAIL.** Selecting a
+  feature highlights *its* faces in the viewport (group rendered faces by
+  `created_by_feature == feature`, or `descendants`). UI-only; the data is
+  already on the wire (`getMeshes().faceRanges[].created_by_feature`).
 
 - **F7 — verification matrix.** The five PERSISTENT-NAMING.md scenarios
   (stability, role→signature fallback, feature-insertion, graceful break,

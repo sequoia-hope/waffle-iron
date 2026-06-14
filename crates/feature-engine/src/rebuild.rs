@@ -150,7 +150,19 @@ fn capture_face_pids(
     for (_key, body) in &result.outputs {
         for face in introspect.list_faces(&body.handle) {
             if let Some(prov) = introspect.face_provenance(face) {
+                // The output face's own (fresh) pid → this feature.
                 state.pid_to_feature.insert(prov.pid, feature_id);
+                // Its lineage ROOT → this feature, but only if unclaimed: a
+                // root introduced WITHIN this op (e.g. a sub-step extrude that
+                // an auto-union then consumed — never surfaced as an output)
+                // is claimed here, while a root from an EARLIER feature (claimed
+                // when that feature ran) is preserved. `or_insert` =
+                // first-claimant-wins, and features run in order, so the
+                // introducing feature always wins.
+                state
+                    .pid_to_feature
+                    .entry(prov.root_pid)
+                    .or_insert(feature_id);
             }
         }
     }

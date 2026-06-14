@@ -495,7 +495,15 @@ impl Engine {
         if from_index == 0 {
             self.pid_to_feature.clear();
         }
-        self.pid_to_feature.extend(state.pid_to_feature);
+        // First-claimant-wins (NOT `extend`, which would OVERWRITE): an
+        // incremental rebuild's fresh state re-derives a consumed operand's
+        // root pids and would otherwise re-attribute them to the consuming
+        // feature. The introducing feature claimed them in an earlier rebuild;
+        // keep that. (Within a single rebuild's state, `capture_face_pids`
+        // already applies first-claimant ordering via feature order.)
+        for (pid, fid) in state.pid_to_feature {
+            self.pid_to_feature.entry(pid).or_insert(fid);
+        }
         self.recompute_body_name_inheritance();
     }
 

@@ -501,6 +501,7 @@ export async function initEngine() {
 					geom_ref: r.geom_ref,
 					start_index: r.start_index,
 					end_index: r.end_index,
+					created_by_feature: r.created_by_feature ?? null,
 				})),
 			})),
 			getMeshBoundingBox: () => {
@@ -931,17 +932,39 @@ export function getSelectedRefs() {
 }
 
 /**
- * Face→feature (Tier 1): the producing feature id of the currently selected
- * face/edge — the feature that owns the body this geometry belongs to. Read
- * straight off the selected GeomRef's `FeatureOutput` anchor (already on the
- * wire). Null when nothing is selected, or the selection is a datum.
+ * Face→feature (KV13 F6b): the feature that *introduced* the selected face's
+ * geometry, through chained booleans — NOT the last feature that owns the body.
+ * Prefers the picked face's `created_by_feature` (resolved kernel-side from the
+ * face's persistent-id lineage) when present, falling back to the GeomRef
+ * anchor's feature (the Phase-D Tier-1 behavior — exact for single-feature
+ * bodies). Null when nothing is selected, or the selection is a datum.
  * @returns {string | null}
  */
 export function getSelectedRefFeatureId() {
 	for (const ref of selectedRefs) {
 		const anchor = ref?.anchor;
 		if (anchor?.type === 'FeatureOutput' && anchor.feature_id) {
-			return anchor.feature_id;
+			return createdByFeatureForRef(ref) ?? anchor.feature_id;
+		}
+	}
+	return null;
+}
+
+/**
+ * The `created_by_feature` (introducing feature) of the face matching `ref`,
+ * looked up from the rendered meshes' face ranges. Null if `ref` is not a face
+ * or carries no resolved provenance. (KV13 F6b)
+ * @param {any} ref
+ * @returns {string | null}
+ */
+function createdByFeatureForRef(ref) {
+	if (ref?.kind?.type !== 'Face') return null;
+	for (const mesh of meshes) {
+		if (!mesh.faceRanges) continue;
+		for (const range of mesh.faceRanges) {
+			if (range.geom_ref && geomRefEquals(range.geom_ref, ref)) {
+				return range.created_by_feature ?? null;
+			}
 		}
 	}
 	return null;

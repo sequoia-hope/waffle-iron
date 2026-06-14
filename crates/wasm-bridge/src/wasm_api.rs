@@ -295,6 +295,8 @@ pub fn get_face_data(feature_index: usize) -> String {
             &output_key,
             mesh,
             &result.provenance.role_assignments,
+            &engine.state.engine,
+            &engine.kernel,
         );
         serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string())
     })
@@ -307,6 +309,10 @@ fn build_face_entries(
     output_key: &OutputKey,
     mesh: &RenderMesh,
     role_assignments: &[(KernelId, Role)],
+    // KV13 F6b: resolve each face's INTRODUCING feature (through chained
+    // booleans) for the face→feature UI.
+    fe: &feature_engine::Engine,
+    introspect: &dyn waffle_types::kernel::KernelIntrospect,
 ) -> Vec<serde_json::Value> {
     // Lookup from KernelId → Role from provenance.
     let role_map: std::collections::HashMap<_, _> = role_assignments.iter().cloned().collect();
@@ -350,10 +356,18 @@ fn build_face_entries(
             }
         };
 
+        // KV13 F6b: the feature that INTRODUCED this face's geometry (through
+        // chained booleans) — the original extrude/revolve, not the last
+        // boolean. `null` when unresolved (e.g. carried before a rebuild point).
+        let created_by_feature = fe
+            .created_by_feature(introspect, range.face_id)
+            .map(|id| id.to_string());
+
         entries.push(serde_json::json!({
             "geom_ref": geom_ref,
             "start_index": range.start_index,
             "end_index": range.end_index,
+            "created_by_feature": created_by_feature,
         }));
     }
     entries
@@ -724,6 +738,8 @@ pub fn get_body_face_data(body_index: usize) -> String {
             key,
             mesh,
             &result.provenance.role_assignments,
+            &engine.state.engine,
+            &engine.kernel,
         );
         serde_json::to_string(&entries).unwrap_or_else(|_| "[]".to_string())
     })
