@@ -971,8 +971,8 @@ fn v3_round_trip_single_tab() {
 fn v3_save_document_two_tabs() {
     let tree1 = make_simple_tree();
     let tree2 = FeatureTree::new();
-    let tab1_id = Uuid::new_v4();
-    let tab2_id = Uuid::new_v4();
+    let tab1_id = Uuid::new_v4().to_string();
+    let tab2_id = Uuid::new_v4().to_string();
 
     let doc = DocumentMetadata {
         name: "Two Tabs".to_string(),
@@ -983,7 +983,7 @@ fn v3_save_document_two_tabs() {
 
     let tabs = vec![
         Tab {
-            id: tab1_id,
+            id: tab1_id.clone(),
             name: "Part 1".to_string(),
             kind: TabKind::Part {
                 features: tree1.clone(),
@@ -1000,7 +1000,7 @@ fn v3_save_document_two_tabs() {
         },
     ];
 
-    let json = save_document(&doc, &tabs, tab1_id);
+    let json = save_document(&doc, &tabs, tab1_id.clone());
     let (loaded_doc, loaded_tabs, loaded_active) = load_document(&json).unwrap();
 
     assert_eq!(loaded_doc.name, "Two Tabs");
@@ -1072,9 +1072,9 @@ fn v3_active_tab_validity() {
         modified: Utc::now(),
         display_unit: None,
     };
-    let tab_id = Uuid::new_v4();
+    let tab_id = Uuid::new_v4().to_string();
     let tabs = vec![Tab {
-        id: tab_id,
+        id: tab_id.clone(),
         name: "Part".to_string(),
         kind: TabKind::Part {
             features: FeatureTree::new(),
@@ -1083,13 +1083,13 @@ fn v3_active_tab_validity() {
     }];
 
     // Save with valid active_tab
-    let json = save_document(&doc, &tabs, tab_id);
+    let json = save_document(&doc, &tabs, tab_id.clone());
     let result = load_document(&json);
     assert!(result.is_ok());
 
     // Manually create invalid active_tab reference
     let bad_id = Uuid::new_v4();
-    let _bad_json = json.replace(&tab_id.to_string(), &bad_id.to_string());
+    let _bad_json = json.replace(&tab_id, &bad_id.to_string());
     // Both tab id and active_tab got replaced, so they still match — construct truly invalid JSON
     let mut parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
     parsed["active_tab"] = serde_json::Value::String(Uuid::new_v4().to_string());
@@ -1109,14 +1109,14 @@ fn v3_preview_mesh_serde() {
         modified: Utc::now(),
         display_unit: None,
     };
-    let tab_id = Uuid::new_v4();
+    let tab_id = Uuid::new_v4().to_string();
     let mesh = PreviewMesh {
         vertices: vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0],
         normals: vec![0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0],
         indices: vec![0, 1, 2],
     };
     let tabs = vec![Tab {
-        id: tab_id,
+        id: tab_id.clone(),
         name: "Part".to_string(),
         kind: TabKind::Part {
             features: FeatureTree::new(),
@@ -1141,8 +1141,8 @@ fn v3_preview_mesh_serde() {
 fn v3_load_project_returns_active_tab_features() {
     let tree1 = make_simple_tree();
     let tree2 = FeatureTree::new();
-    let tab1_id = Uuid::new_v4();
-    let tab2_id = Uuid::new_v4();
+    let tab1_id = Uuid::new_v4().to_string();
+    let tab2_id = Uuid::new_v4().to_string();
 
     let doc = DocumentMetadata {
         name: "Multi Tab".to_string(),
@@ -1153,7 +1153,7 @@ fn v3_load_project_returns_active_tab_features() {
 
     let tabs = vec![
         Tab {
-            id: tab1_id,
+            id: tab1_id.clone(),
             name: "Part 1".to_string(),
             kind: TabKind::Part {
                 features: tree1.clone(),
@@ -1161,7 +1161,7 @@ fn v3_load_project_returns_active_tab_features() {
             },
         },
         Tab {
-            id: tab2_id,
+            id: tab2_id.clone(),
             name: "Part 2".to_string(),
             kind: TabKind::Part {
                 features: tree2,
@@ -1188,4 +1188,39 @@ fn v3_load_project_returns_active_tab_features() {
         2,
         "Should return active tab's features"
     );
+}
+
+/// Regression: the UI historically created the implicit first tab with the
+/// literal id `"default"` (not a UUID). Documents saved from such a session
+/// must still load — tab ids are opaque keys, not UUIDs. Previously this
+/// failed with "UUID parsing failed: ... found `u` at 5".
+#[test]
+fn v3_non_uuid_tab_id_loads() {
+    let json = r#"{
+        "format": "waffle-iron",
+        "version": 3,
+        "document": {
+            "name": "Legacy Default Tab",
+            "created": "2026-01-01T00:00:00Z",
+            "modified": "2026-01-01T00:00:00Z"
+        },
+        "tabs": [{
+            "id": "default",
+            "name": "Part 1",
+            "kind": { "type": "Part", "features": { "features": [], "active_index": null } }
+        }],
+        "active_tab": "default"
+    }"#;
+
+    // load_project (used by the engine on file open) must not choke on it.
+    let (tree, meta) = load_project(json).expect("non-uuid tab id should load");
+    assert_eq!(meta.name, "Legacy Default Tab");
+    assert_eq!(tree.features.len(), 0);
+
+    // load_document (document model) must round-trip the opaque id too.
+    let (doc, tabs, active) = load_document(json).expect("non-uuid tab id should load");
+    assert_eq!(doc.name, "Legacy Default Tab");
+    assert_eq!(tabs.len(), 1);
+    assert_eq!(tabs[0].id, "default");
+    assert_eq!(active, "default");
 }

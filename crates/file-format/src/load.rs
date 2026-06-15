@@ -1,6 +1,5 @@
 use feature_engine::types::FeatureTree;
 use serde::Deserialize;
-use uuid::Uuid;
 
 use crate::errors::LoadError;
 use crate::metadata::{DocumentMetadata, ProjectMetadata, Tab, TabKind};
@@ -24,13 +23,13 @@ struct WaffleFileV3Raw {
     pub version: u32,
     pub document: DocumentMetadata,
     pub tabs: Vec<Tab>,
-    pub active_tab: Uuid,
+    pub active_tab: String,
 }
 
 /// Load a v3 document from JSON.
 /// Handles both v2 (flat) and v3 (tabbed) formats.
 /// For v2/v1, wraps the single feature tree into a Part tab.
-pub fn load_document(json: &str) -> Result<(DocumentMetadata, Vec<Tab>, Uuid), LoadError> {
+pub fn load_document(json: &str) -> Result<(DocumentMetadata, Vec<Tab>, String), LoadError> {
     let value: serde_json::Value =
         serde_json::from_str(json).map_err(|e| LoadError::ParseError(e.to_string()))?;
 
@@ -68,7 +67,7 @@ pub fn load_document(json: &str) -> Result<(DocumentMetadata, Vec<Tab>, Uuid), L
 
     // Fall back to v2/v1 loading (flat format)
     let (tree, meta) = load_project_from_value(value)?;
-    let tab_id = Uuid::new_v4();
+    let tab_id = uuid::Uuid::new_v4().to_string();
     let doc = DocumentMetadata {
         name: meta.name,
         created: meta.created,
@@ -76,7 +75,7 @@ pub fn load_document(json: &str) -> Result<(DocumentMetadata, Vec<Tab>, Uuid), L
         display_unit: meta.display_unit,
     };
     let tab = Tab {
-        id: tab_id,
+        id: tab_id.clone(),
         name: "Part 1".to_string(),
         kind: TabKind::Part {
             features: tree,

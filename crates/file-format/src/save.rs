@@ -30,17 +30,21 @@ pub struct WaffleFileV3 {
     pub version: u32,
     pub document: DocumentMetadata,
     pub tabs: Vec<Tab>,
-    pub active_tab: Uuid,
+    pub active_tab: String,
 }
 
 /// Serialize a v3 document to pretty-printed JSON.
-pub fn save_document(document: &DocumentMetadata, tabs: &[Tab], active_tab: Uuid) -> String {
+pub fn save_document(
+    document: &DocumentMetadata,
+    tabs: &[Tab],
+    active_tab: impl Into<String>,
+) -> String {
     let file = WaffleFileV3 {
         format: "waffle-iron".to_string(),
         version: FORMAT_VERSION,
         document: document.clone(),
         tabs: tabs.to_vec(),
-        active_tab,
+        active_tab: active_tab.into(),
     };
     serde_json::to_string_pretty(&file).expect("Document serialization should never fail")
 }
@@ -48,7 +52,7 @@ pub fn save_document(document: &DocumentMetadata, tabs: &[Tab], active_tab: Uuid
 /// Serialize a project to a pretty-printed JSON string (v3 format).
 /// Wraps the single feature tree into a single Part tab for backwards compatibility.
 pub fn save_project(tree: &FeatureTree, metadata: &ProjectMetadata) -> String {
-    let tab_id = Uuid::new_v4();
+    let tab_id = Uuid::new_v4().to_string();
     let doc = DocumentMetadata {
         name: metadata.name.clone(),
         created: metadata.created,
@@ -56,7 +60,7 @@ pub fn save_project(tree: &FeatureTree, metadata: &ProjectMetadata) -> String {
         display_unit: metadata.display_unit.clone(),
     };
     let tab = Tab {
-        id: tab_id,
+        id: tab_id.clone(),
         name: "Part 1".to_string(),
         kind: TabKind::Part {
             features: tree.clone(),

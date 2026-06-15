@@ -460,9 +460,12 @@ export async function initEngine() {
 			activeDocId = generateDocId();
 		}
 
-		// Initialize default tab state if no document was loaded
+		// Initialize default tab state if no document was loaded.
+		// Use a real UUID (not a literal like 'default') so the document
+		// round-trips through the Rust loader, which historically required
+		// tab ids to be parseable — see load.rs / metadata.rs Tab.id.
 		if (documentTabs.length === 0) {
-			const tabId = 'default';
+			const tabId = generateUUID();
 			documentTabs = [{ id: tabId, name: 'Part 1', kind: { type: 'Part', features: { features: [], active_index: null } } }];
 			activeTabId = tabId;
 		}

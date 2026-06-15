@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use feature_engine::types::FeatureTree;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 /// Project metadata stored alongside the feature tree.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,9 +46,15 @@ pub struct DocumentMetadata {
 }
 
 /// A single tab in a document.
+///
+/// `id` is an opaque document-level key used only for matching `active_tab`
+/// to its tab. It is *not* required to be a UUID — the UI has historically
+/// emitted non-UUID ids (e.g. the literal `"default"` for the implicit first
+/// tab), so it is stored as a free-form string to keep those documents
+/// loadable.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
-    pub id: Uuid,
+    pub id: String,
     pub name: String,
     pub kind: TabKind,
 }
