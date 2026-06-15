@@ -182,7 +182,14 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 let planar = matches!(f.surface, Surface::Plane { .. });
                 probe(
                     "face-unsupported",
-                    &format!("pair=({},{}) face={fi} planar={planar}", p.face_a, p.face_b),
+                    &format!(
+                        "pair=({},{}) face={fi} planar={planar} bad[{}] A[{}] B[{}]",
+                        p.face_a,
+                        p.face_b,
+                        face_curve_histogram(brep, fi),
+                        face_curve_histogram(a, p.face_a),
+                        face_curve_histogram(b, p.face_b),
+                    ),
                 );
                 return Err(pair_err(p.face_a, p.face_b));
             }
@@ -249,6 +256,31 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             face_b: p.face_b,
             opposite,
         });
+
+        // PR-M8-disc (increment 1): a pair where ONE face is a flat circular
+        // disc and the other a convex polygon, in pure CONTAINMENT, is built
+        // DIRECTLY (not through the sweep overlay, which re-subdivides the
+        // disc rim and would break conformality with the cylinder lateral
+        // that shares it). The disc keeps its exact Stage-1 rim ring; the
+        // overlap is a shared rim/boundary triangulation and the remainder an
+        // angular-merge annulus. Crossing / non-convex / disc∩disc stay the
+        // loud residue.
+        let disc_pair =
+            disc_circle_edge(a, p.face_a).is_some() || disc_circle_edge(b, p.face_b).is_some();
+        if disc_pair {
+            match build_disc_pair(a, b, p.face_a, p.face_b, &va, &vb, frame, opposite) {
+                DiscPair::Handled { tris_a, tris_b } => {
+                    overrides_a.insert(p.face_a, tris_a);
+                    overrides_b.insert(p.face_b, tris_b);
+                    continue;
+                }
+                DiscPair::Empty => continue,
+                DiscPair::Wall(tag) => {
+                    probe(tag, &format!("pair=({},{})", p.face_a, p.face_b));
+                    return Err(pair_err(p.face_a, p.face_b));
+                }
+            }
+        }
 
         // Shared-frame 2D polygons (and per-corner (u,v) keys).
         let (poly_a, corners_a) = face_polygon_2d(a, p.face_a, &va, frame).ok_or_else(|| {
@@ -326,7 +358,8 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         );
 
         // §4.5.5 shared boundary sampling: overlay vertices subdividing a
-        // face's boundary edges propagate to the adjacent faces.
+        // face's boundary edges propagate to the adjacent faces. (Disc pairs
+        // never reach here — they `continue` from the direct builder above.)
         collect_edge_splits(
             a,
             p.face_a,
@@ -452,15 +485,132 @@ fn canonical_frame(a: &BRep, face_a: usize) -> Option<Frame> {
 // face → polygon helpers
 // ════════════════════════════════════════════════════════════════════════
 
-/// Is this face overlay-supported: planar surface, every loop edge a
-/// `Curve::LineSegment`?
+/// Is this face overlay-supported: a planar surface that is EITHER an
+/// all-`LineSegment` polygon OR a full-circle disc (PR-M8-disc — the single
+/// dominant M8 coplanar sub-class: a cylinder end-cap flush against another
+/// planar face). The disc is handled by sampling its rim into the SAME ring
+/// Stage 1 uses, then routing it through the existing polygon overlay.
 fn overlay_face_supported(brep: &BRep, fi: usize) -> bool {
     let f = &brep.faces()[fi];
-    matches!(f.surface, Surface::Plane { .. })
-        && std::iter::once(&f.outer_loop)
-            .chain(f.inner_loops.iter())
-            .flatten()
-            .all(|&e| matches!(brep.edges()[e as usize].curve, Curve::LineSegment))
+    if !matches!(f.surface, Surface::Plane { .. }) {
+        return false;
+    }
+    if disc_circle_edge(brep, fi).is_some() {
+        return true;
+    }
+    std::iter::once(&f.outer_loop)
+        .chain(f.inner_loops.iter())
+        .flatten()
+        .all(|&e| matches!(brep.edges()[e as usize].curve, Curve::LineSegment))
+}
+
+/// If `fi` is a flat circular disc — planar surface, no holes, a single
+/// outer-loop edge that is a closed `Curve::Circle` (`start == end`) — return
+/// that circle edge's index. Else `None`.
+fn disc_circle_edge(brep: &BRep, fi: usize) -> Option<u32> {
+    let f = &brep.faces()[fi];
+    if !matches!(f.surface, Surface::Plane { .. }) || !f.inner_loops.is_empty() {
+        return None;
+    }
+    if f.outer_loop.len() != 1 {
+        return None;
+    }
+    let e = f.outer_loop[0];
+    let edge = &brep.edges()[e as usize];
+    matches!(edge.curve, Curve::Circle { .. } if edge.start == edge.end).then_some(e)
+}
+
+/// Extract a disc face's rim ring (ordered CCW in the pair `frame`) by
+/// re-running Stage 1 on this solid with the current (snapped) `coords` and
+/// reading the cap fan's vertices. Returns the ring as ordered 3D points.
+///
+/// Pulling the ring from Stage 1's OWN output (rather than re-deriving it)
+/// makes the disc mesh bit-identical to the cap/lateral tessellation
+/// `build_stage0_mesh` produces for every non-overridden face — the
+/// conformality the §4.5.5 shared-mesh guarantee rests on.
+fn disc_rim_ring(brep: &BRep, fi: usize, coords: &[Point3], frame: &Frame) -> Option<Vec<Point3>> {
+    let circle_e = disc_circle_edge(brep, fi)?;
+    let Curve::Circle { center, .. } = brep.edges()[circle_e as usize].curve else {
+        return None;
+    };
+    let verts: Vec<BRepVertex> = coords.iter().map(|&p| BRepVertex { point: p }).collect();
+    let tess = stage1_tessellate(&verts, brep.edges(), brep.faces()).ok()?;
+    let range = tess.face_tri_ranges.get(fi)?.clone();
+
+    // Unique vertices of the cap fan = the rim ring + the one center Steiner
+    // vertex. Drop the vertex nearest the circle centre; the rest are the rim.
+    let c = center.as_array();
+    let mut seen = std::collections::BTreeSet::new();
+    let mut rim: Vec<Point3> = Vec::new();
+    for tri in &tess.tris[range] {
+        for &v in tri {
+            if seen.insert(v) {
+                let p = tess.verts[v as usize];
+                let pa = p.as_array();
+                let dr = ((pa[0] - c[0]).powi(2) + (pa[1] - c[1]).powi(2) + (pa[2] - c[2]).powi(2))
+                    .sqrt();
+                rim.push(p);
+                let _ = dr;
+            }
+        }
+    }
+    if rim.len() < 4 {
+        return None;
+    }
+    // Identify and drop the centre vertex (strictly closest to `center`).
+    let center_idx = (0..rim.len()).min_by(|&i, &j| {
+        let di = dist2(rim[i].as_array(), c);
+        let dj = dist2(rim[j].as_array(), c);
+        di.partial_cmp(&dj).unwrap()
+    })?;
+    rim.remove(center_idx);
+    if rim.len() < 3 {
+        return None;
+    }
+    // Order CCW by the in-frame angle about the circle centre.
+    rim.sort_by(|p, q| {
+        let ang = |x: &Point3| {
+            let (u, v) = frame.project(*x);
+            let (cu, cv) = frame.project(Point3::new(c[0], c[1], c[2]));
+            (v - cv).atan2(u - cu)
+        };
+        ang(p).partial_cmp(&ang(q)).unwrap()
+    });
+    Some(rim)
+}
+
+fn dist2(a: [f64; 3], b: [f64; 3]) -> f64 {
+    (a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)
+}
+
+/// Diagnostic-only: histogram of a face's loop-edge curve types + structure,
+/// for the M8 residue survey (`YANG_COPLANAR_PROBE`). Not on any hot path.
+fn face_curve_histogram(brep: &BRep, fi: usize) -> String {
+    let f = &brep.faces()[fi];
+    let mut seg = 0;
+    let mut circle = 0;
+    let mut ellipse = 0;
+    let mut other = 0;
+    for &e in std::iter::once(&f.outer_loop)
+        .chain(f.inner_loops.iter())
+        .flatten()
+    {
+        match brep.edges()[e as usize].curve {
+            Curve::LineSegment => seg += 1,
+            Curve::Circle { .. } => circle += 1,
+            Curve::Ellipse { .. } => ellipse += 1,
+            _ => other += 1,
+        }
+    }
+    let surf = match f.surface {
+        Surface::Plane { .. } => "plane",
+        _ => "nonplane",
+    };
+    format!(
+        "surf={surf} outer={} holes={} seg={seg} circle={circle} ellipse={ellipse} other={other}",
+        f.outer_loop.len(),
+        f.inner_loops.len(),
+    )
 }
 
 /// All loop vertex indices of a face (outer + holes), deduped.
@@ -524,6 +674,377 @@ fn face_polygon_2d(
         holes.push(project_ring(lp)?);
     }
     Some((PolygonWithHoles { outer, holes }, corners))
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// PR-M8-disc — direct disc∩convex-polygon containment builder
+// ════════════════════════════════════════════════════════════════════════
+
+/// Outcome of the direct disc-pair construction.
+enum DiscPair {
+    /// Handled: final per-face override triangles (face B already winding-
+    /// swapped iff `opposite`).
+    Handled {
+        tris_a: Vec<[Point3; 3]>,
+        tris_b: Vec<[Point3; 3]>,
+    },
+    /// Coplanar disc pair that is disjoint in-plane — benign, no override.
+    Empty,
+    /// Outside increment 1's scope — the caller raises the loud residue. The
+    /// `&str` is the probe sub-tag.
+    Wall(&'static str),
+}
+
+/// A disc-loop vertex carrying its in-frame 2D position (exact, for
+/// orientation/containment; f64, for angular sorting) and its resolved 3D
+/// point (shared between both solids).
+struct V2 {
+    e: ExactPoint2,
+    u: f64,
+    v: f64,
+    p: Point3,
+}
+
+/// Build the override triangles for a near-coplanar pair in which exactly one
+/// face is a flat circular disc and the other a convex polygon, when one
+/// strictly contains the other (§4.5.5, the dominant M8 sub-class).
+///
+/// The disc keeps its exact Stage-1 rim ring (so the override is conformal
+/// with the cylinder lateral that shares it); the contained region is a
+/// shared rim/boundary triangulation emitted IDENTICALLY to both solids, and
+/// the surrounding region is an angular-merge annulus on the larger face.
+#[allow(clippy::too_many_arguments)]
+fn build_disc_pair(
+    a: &BRep,
+    b: &BRep,
+    face_a: usize,
+    face_b: usize,
+    va: &[Point3],
+    vb: &[Point3],
+    frame: &Frame,
+    opposite: bool,
+) -> DiscPair {
+    let da = disc_circle_edge(a, face_a);
+    let db = disc_circle_edge(b, face_b);
+    // disc∩disc is not in increment 1.
+    if da.is_some() && db.is_some() {
+        return DiscPair::Wall("disc-disc");
+    }
+    let disc_is_a = da.is_some();
+    let (disc_brep, disc_fi, disc_coords) = if disc_is_a {
+        (a, face_a, va)
+    } else {
+        (b, face_b, vb)
+    };
+    let (poly_brep, poly_fi, poly_coords) = if disc_is_a {
+        (b, face_b, vb)
+    } else {
+        (a, face_a, va)
+    };
+
+    // Disc rim (exact Stage-1 ring, CCW in frame) + centre as 2D/3D verts.
+    let Some(rim3) = disc_rim_ring(disc_brep, disc_fi, disc_coords, frame) else {
+        return DiscPair::Wall("disc-rim");
+    };
+    let circle_e = da.or(db).expect("one disc");
+    let Curve::Circle { center, .. } = disc_brep.edges()[circle_e as usize].curve else {
+        return DiscPair::Wall("disc-rim");
+    };
+    let disc: Vec<V2> = match rim3.iter().map(|&p| mk_v2(p, frame)).collect() {
+        Some(v) => v,
+        None => return DiscPair::Wall("disc-rim"),
+    };
+    let center_v = match mk_v2(center, frame) {
+        Some(v) => v,
+        None => return DiscPair::Wall("disc-rim"),
+    };
+
+    // Convex polygon corners (must be hole-free; CCW in frame).
+    if !poly_brep.faces()[poly_fi].inner_loops.is_empty() {
+        return DiscPair::Wall("disc-poly-holed");
+    }
+    let Some(poly_ring) =
+        loop_vertex_ring(poly_brep.edges(), &poly_brep.faces()[poly_fi].outer_loop)
+    else {
+        return DiscPair::Wall("disc-poly-loop");
+    };
+    let poly: Vec<V2> = match poly_ring
+        .iter()
+        .map(|&vi| mk_v2(poly_coords[vi as usize], frame))
+        .collect()
+    {
+        Some(v) => v,
+        None => return DiscPair::Wall("disc-poly-loop"),
+    };
+    let Some(poly) = orient_ccw(poly) else {
+        return DiscPair::Wall("disc-poly-degenerate");
+    };
+    if !is_strictly_convex(&poly) {
+        return DiscPair::Wall("disc-poly-nonconvex");
+    }
+    // `disc` is convex by construction but re-orient defensively (the rim is
+    // already CCW in frame).
+    let Some(disc) = orient_ccw(disc) else {
+        return DiscPair::Wall("disc-degenerate");
+    };
+
+    // Containment: which shape is strictly inside the other? (Strict — a
+    // tangency or crossing falls through to the loud residue.)
+    let disc_in_poly = disc.iter().all(|v| strictly_inside_convex(&poly, &v.e));
+    let poly_in_disc = poly.iter().all(|v| strictly_inside_convex(&disc, &v.e));
+
+    let (inner, outer, center_opt): (&[V2], &[V2], Option<&V2>) = if disc_in_poly {
+        (&disc, &poly, Some(&center_v))
+    } else if poly_in_disc {
+        (&poly, &disc, None)
+    } else if convex_rings_overlap(&disc, &poly) {
+        // Partial overlap: a circle×segment crossing (irrational on the
+        // sampled ring) plus boundary-split propagation — a deferred slice.
+        return DiscPair::Wall("disc-crossing");
+    } else {
+        // Coplanar but disjoint in-plane (the scan's AABBs overlap, the
+        // shapes do not): benign — the exact arrangement passes the coplanar
+        // non-overlap through (deviation N17). Nothing to override.
+        return DiscPair::Empty;
+    };
+
+    // OVERLAP = the inner region; emitted to BOTH faces. A disc inner uses a
+    // rim fan about its centre; a polygon inner uses an ear-clip.
+    let Some(overlap) = (match center_opt {
+        Some(c) => fan_tris(c, inner),
+        None => earclip_tris(inner),
+    }) else {
+        return DiscPair::Wall("disc-overlap-tri");
+    };
+    // OUTER-only = `outer` with `inner` as a hole; emitted to the larger face.
+    let Some(annulus) = annulus_tris(outer, inner) else {
+        return DiscPair::Wall("disc-annulus-tri");
+    };
+
+    // The larger face owns the annulus; both faces own the overlap. Triangles
+    // are frame-CCW (normal = +n̂ = face A's outward normal): face A keeps
+    // them, face B swaps iff opposite.
+    let outer_is_disc = poly_in_disc; // when poly⊆disc, the disc is larger
+    let mut disc_face_tris = overlap.clone();
+    let mut poly_face_tris = overlap;
+    if outer_is_disc {
+        disc_face_tris.extend(annulus);
+    } else {
+        poly_face_tris.extend(annulus);
+    }
+    let (tris_a, mut tris_b) = if disc_is_a {
+        (disc_face_tris, poly_face_tris)
+    } else {
+        (poly_face_tris, disc_face_tris)
+    };
+    if opposite {
+        for t in &mut tris_b {
+            t.swap(1, 2);
+        }
+    }
+    DiscPair::Handled { tris_a, tris_b }
+}
+
+/// Lift a 3D point to a `V2` (in-frame 2D + the original 3D point).
+fn mk_v2(p: Point3, frame: &Frame) -> Option<V2> {
+    let (u, v) = frame.project(p);
+    Some(V2 {
+        e: ExactPoint2::from_f64(u, v)?,
+        u,
+        v,
+        p,
+    })
+}
+
+/// Re-orient a ring CCW in the frame (exact shoelace); `None` if degenerate.
+fn orient_ccw(ring: Vec<V2>) -> Option<Vec<V2>> {
+    let n = ring.len();
+    if n < 3 {
+        return None;
+    }
+    let mut area2 = RBig::ZERO;
+    for i in 1..n - 1 {
+        area2 += cross_r(&ring[0].e, &ring[i].e, &ring[i + 1].e);
+    }
+    if area2 == RBig::ZERO {
+        return None;
+    }
+    if area2 > RBig::ZERO {
+        Some(ring)
+    } else {
+        Some(ring.into_iter().rev().collect())
+    }
+}
+
+/// Strictly convex CCW polygon: every corner turns strictly left.
+fn is_strictly_convex(ring: &[V2]) -> bool {
+    let n = ring.len();
+    if n < 3 {
+        return false;
+    }
+    (0..n).all(|i| cross_r(&ring[(i + n - 1) % n].e, &ring[i].e, &ring[(i + 1) % n].e) > RBig::ZERO)
+}
+
+/// Is `q` strictly inside the convex CCW polygon `ring`?
+fn strictly_inside_convex(ring: &[V2], q: &ExactPoint2) -> bool {
+    let n = ring.len();
+    (0..n).all(|i| cross_r(&ring[i].e, &ring[(i + 1) % n].e, q) > RBig::ZERO)
+}
+
+/// Do two convex CCW rings overlap with positive area? A vertex of one
+/// strictly inside the other, or a proper edge crossing (the rotated-rectangle
+/// case with no vertex inside). Exact. Used only to tell a benign disjoint
+/// coplanar pair from a partial-overlap (crossing) one.
+fn convex_rings_overlap(a: &[V2], b: &[V2]) -> bool {
+    if a.iter().any(|v| strictly_inside_convex(b, &v.e))
+        || b.iter().any(|v| strictly_inside_convex(a, &v.e))
+    {
+        return true;
+    }
+    let (na, nb) = (a.len(), b.len());
+    for i in 0..na {
+        let (a0, a1) = (&a[i].e, &a[(i + 1) % na].e);
+        for j in 0..nb {
+            let (b0, b1) = (&b[j].e, &b[(j + 1) % nb].e);
+            if segs_properly_cross(a0, a1, b0, b1) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Do open segments `p0p1` and `q0q1` cross at a single interior point? (Both
+/// endpoints of each strictly straddle the other's supporting line.)
+fn segs_properly_cross(
+    p0: &ExactPoint2,
+    p1: &ExactPoint2,
+    q0: &ExactPoint2,
+    q1: &ExactPoint2,
+) -> bool {
+    let d1 = cross_r(p0, p1, q0);
+    let d2 = cross_r(p0, p1, q1);
+    let d3 = cross_r(q0, q1, p0);
+    let d4 = cross_r(q0, q1, p1);
+    ((d1 > RBig::ZERO) != (d2 > RBig::ZERO))
+        && (d1 != RBig::ZERO && d2 != RBig::ZERO)
+        && ((d3 > RBig::ZERO) != (d4 > RBig::ZERO))
+        && (d3 != RBig::ZERO && d4 != RBig::ZERO)
+}
+
+/// Fan a convex CCW ring about an interior apex (the disc centre).
+fn fan_tris(apex: &V2, ring: &[V2]) -> Option<Vec<[Point3; 3]>> {
+    let n = ring.len();
+    if n < 3 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(n);
+    for i in 0..n {
+        out.push([apex.p, ring[i].p, ring[(i + 1) % n].p]);
+    }
+    Some(out)
+}
+
+/// Ear-clip a simple CCW ring into frame-CCW triangles.
+fn earclip_tris(ring: &[V2]) -> Option<Vec<[Point3; 3]>> {
+    let pts: Vec<ExactPoint2> = ring.iter().map(|v| v.e.clone()).collect();
+    let idx = crate::coplanar_overlay::ear_clip(&pts).ok()?;
+    Some(
+        idx.into_iter()
+            .map(|[i, j, k]| [ring[i].p, ring[j].p, ring[k].p])
+            .collect(),
+    )
+}
+
+/// Triangulate `outer` (convex CCW) minus `inner` (convex CCW, strictly
+/// inside) — the annular region between two nested convex rings.
+///
+/// Both rings are star-shaped about the inner ring's centroid `O` (interior to
+/// `inner` by convexity, hence to `outer` since `inner ⊆ outer`), so their
+/// vertices are angularly monotone about `O`. The annulus is the strip between
+/// the two monotone chains; it triangulates by an angular merge (advance the
+/// chain whose next vertex comes first in angle), each triangle oriented
+/// frame-CCW exactly. No keyhole, no Steiner points — every boundary vertex of
+/// both rings is preserved, so the inner ring stays bit-shared with the
+/// overlap fan and the cylinder lateral.
+fn annulus_tris(outer: &[V2], inner: &[V2]) -> Option<Vec<[Point3; 3]>> {
+    let (ni, no) = (inner.len(), outer.len());
+    if ni < 3 || no < 3 {
+        return None;
+    }
+    let ox: f64 = inner.iter().map(|v| v.u).sum::<f64>() / ni as f64;
+    let oy: f64 = inner.iter().map(|v| v.v).sum::<f64>() / ni as f64;
+    let ang = |v: &V2| (v.v - oy).atan2(v.u - ox);
+
+    // A ring → an ascending-unwrapped angle chain starting at its min-angle
+    // vertex, with the start vertex appended again (closing the loop at
+    // angle a0 + 2π).
+    let chain = |ring: &[V2]| -> (Vec<usize>, Vec<f64>) {
+        let n = ring.len();
+        let start = (0..n)
+            .min_by(|&a, &b| ang(&ring[a]).partial_cmp(&ang(&ring[b])).unwrap())
+            .unwrap();
+        let mut order = Vec::with_capacity(n + 1);
+        let mut angs = Vec::with_capacity(n + 1);
+        let mut prev = f64::NEG_INFINITY;
+        for k in 0..=n {
+            let idx = (start + k) % n;
+            let mut a = ang(&ring[idx]);
+            while a <= prev {
+                a += std::f64::consts::TAU;
+            }
+            prev = a;
+            order.push(idx);
+            angs.push(a);
+        }
+        (order, angs)
+    };
+    let (io, ia) = chain(inner);
+    let (oo, oa) = chain(outer);
+
+    // Merge the two monotone chains into a strip triangulation.
+    let tri = |a: &V2, b: &V2, c: &V2| -> [Point3; 3] {
+        if cross_r(&a.e, &b.e, &c.e) >= RBig::ZERO {
+            [a.p, b.p, c.p]
+        } else {
+            [a.p, c.p, b.p]
+        }
+    };
+    let mut out: Vec<[Point3; 3]> = Vec::with_capacity(ni + no);
+    let (mut i, mut j) = (0usize, 0usize);
+    let mut guard = 0usize;
+    while i < ni || j < no {
+        guard += 1;
+        if guard > ni + no + 8 {
+            return None;
+        }
+        let advance_inner = if i >= ni {
+            false
+        } else if j >= no {
+            true
+        } else {
+            ia[i + 1] <= oa[j + 1]
+        };
+        if advance_inner {
+            let t = tri(&inner[io[i]], &inner[io[i + 1]], &outer[oo[j]]);
+            if !degenerate(&t) {
+                out.push(t);
+            }
+            i += 1;
+        } else {
+            let t = tri(&outer[oo[j]], &outer[oo[j + 1]], &inner[io[i]]);
+            if !degenerate(&t) {
+                out.push(t);
+            }
+            j += 1;
+        }
+    }
+    Some(out)
+}
+
+/// A triangle with two coincident vertices (zero geometric extent).
+fn degenerate(t: &[Point3; 3]) -> bool {
+    t[0] == t[1] || t[1] == t[2] || t[2] == t[0]
 }
 
 // ════════════════════════════════════════════════════════════════════════

@@ -1673,6 +1673,44 @@ swapped every consumer to `predicates::indirect`).
     arrangement-deferred exact-coplanar tri pairs (8 cases),
     build-mesh/overlay robustness (7 cases). Stage-0's survey probes are
     kept env-gated (`YANG_COPLANAR_PROBE=1`) for future residue sizing.
+  - **M8 slice e ✅ (PR-M8-disc, 2026-06-15): the flat-disc∩convex-polygon
+    containment class** — the dominant `face-unsupported` sub-class. A
+    probe-instrumented survey (`YANG_COPLANAR_PROBE=1`, both-face curve
+    histograms) showed EVERY `face-unsupported` coplanar-wall hit is the same
+    shape: a flat circular DISC (a planar face bounded by a single closed
+    `Curve::Circle` — a cylinder end-cap) coplanar with a planar POLYGON face
+    (a 4-sided box face or a high-segment tessellated profile); no disc∩disc,
+    no ellipse, no partial arc in that class. The disc is now built DIRECTLY
+    (NOT through the sweep overlay, which re-subdivides the disc rim at every
+    sweep-line crossing and would break conformality with the cylinder lateral
+    that shares the rim): (1) `scan_near_coplanar`'s per-face AABB now expands
+    by a `Circle` edge's analytic box `center ± r·√(1−n_k²)` — previously a
+    disc face's AABB was just its seam vertex (a single point), so a coplanar
+    disc∩polygon pair was detected only when the seam happened to overlap the
+    other face (the `polygon ⊆ disc` orientation was missed entirely);
+    (2) `build_disc_pair` (`stage0.rs`) extracts the disc's exact Stage-1 rim
+    ring from Stage 1's OWN output (bit-identical → conformal with the
+    cap/lateral mesh), tests strict containment (disc ⊆ poly or poly ⊆ disc,
+    exact), and emits a shared rim/boundary triangulation as the overlap
+    (rim fan for a disc inner, ear-clip for a polygon inner) plus an
+    angular-merge annulus (the region between two nested convex rings,
+    star-shaped about the inner centroid — no keyhole, no Steiner points, so
+    every boundary vertex stays bit-shared) on the larger face, wound
+    frame-CCW and distributed per the existing (op, normal-agreement) rule.
+    Scope: pure containment with a CONVEX polygon. The loud residue keeps:
+    disc∩disc (the newly-unmasked dominant remainder — coaxial cap pairs,
+    86 probe hits), disc×polygon CROSSING (circle×segment is irrational on
+    the sampled ring + needs boundary-split propagation, 13 hits),
+    non-convex / holed polygons (gears). Corpus: **SUPPORTED_CORRECT 58→62**
+    (F0026, F0030, F0062 + R0067 — the prior KV4-F1c render-tess ERROR, now
+    chains through), SUPPORTED_WRONG 0→0, coplanar-walled 41→39; several
+    ERROR↔coplanar lateral moves (R0079/R0092 ERROR→loud-typed coplanar wall,
+    R0023/R0089 coplanar→a distinct downstream ERROR), zero CORRECT→worse
+    regressions. Oracle: `crates/yang-rs/tests/m8_disc_coplanar.rs` (both
+    containment orientations end-to-end watertight + volume; the crossing
+    case pinned to stay `CoplanarFacesUnsupported`). Next M8 disc lever:
+    **disc∩disc containment** (coaxial caps — the same direct construction
+    with two rims instead of a rim + polygon), then disc×polygon crossing.
   - **KV4-F1 ✅ RESOLVED (PR-KV4-F1, 2026-06-12): the rational-ray
     fallback** — `rational_ray_inner_label` in cherchi-rs
     `labeling/inside_out.rs` implements the branch the C++ reference

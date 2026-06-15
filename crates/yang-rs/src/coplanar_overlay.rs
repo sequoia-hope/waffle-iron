@@ -795,7 +795,7 @@ pub(crate) fn point_in_even_odd(p: &ExactPoint2, edges: &[(ExactPoint2, ExactPoi
 /// `stage0::triangulate_ring`, whose docs explain why an ear-clip's long
 /// diagonals are UNSAFE across the femto-crooked split chains. The
 /// visibility is reverted to private; this routine is overlay-internal.)
-fn ear_clip(ring: &[ExactPoint2]) -> Result<Vec<[usize; 3]>, CoplanarOverlayError> {
+pub(crate) fn ear_clip(ring: &[ExactPoint2]) -> Result<Vec<[usize; 3]>, CoplanarOverlayError> {
     let mut idx: Vec<usize> = (0..ring.len()).collect();
     let mut out = Vec::with_capacity(ring.len() - 2);
     while idx.len() > 3 {

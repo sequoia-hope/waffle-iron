@@ -1,0 +1,272 @@
+//! PR-M8-disc (increment 1) — §4.5.5 coplanar preprocessing for the dominant
+//! M8 residue sub-class: a flat circular DISC (a cylinder end-cap, a planar
+//! face bounded by a single closed `Curve::Circle`) coplanar with a planar
+//! POLYGON face of the other solid.
+//!
+//! The full-corpus survey (`YANG_COPLANAR_PROBE=1`) found that EVERY
+//! `face-unsupported` coplanar-wall hit is exactly this shape — a disc vs a
+//! 4-sided box face (22) or a high-segment tessellated face (6); no
+//! disc∩disc, no ellipse, no partial arc. Stage 0 now samples the disc's rim
+//! into the SAME ring Stage 1 builds for the cap/lateral (extracted from
+//! Stage 1's own output, so it is bit-identical and the §4.5.5 shared-mesh
+//! guarantee holds), then routes the disc through the existing exact polygon
+//! overlay.
+//!
+//! Increment 1 covers pure CONTAINMENT (disc ⊆ polygon or polygon ⊆ disc):
+//! no circle×edge crossing point, so the rational overlay introduces no
+//! irrational arc∩segment intersection and no boundary-split propagation is
+//! needed. A crossing pair stays the loud `CoplanarFacesUnsupported` residue
+//! (asserted below — the increment boundary is pinned, not silent).
+
+use cad_primitives::{BoolOp, Point3, Vector3};
+use yang_rs::{boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, Mesh, Surface, YangError};
+
+// ════════════════════════════════════════════════════════════════════
+// fixtures
+// ════════════════════════════════════════════════════════════════════
+
+fn p(x: f64, y: f64, z: f64) -> Point3 {
+    Point3::new(x, y, z)
+}
+
+/// Axis-aligned box B-Rep [lo, hi] (yr24/yr26 hexahedron topology).
+fn box_brep(lo: [f64; 3], hi: [f64; 3]) -> BRep {
+    let v = |x: f64, y: f64, z: f64| BRepVertex { point: p(x, y, z) };
+    let vertices = vec![
+        v(lo[0], lo[1], lo[2]),
+        v(hi[0], lo[1], lo[2]),
+        v(hi[0], hi[1], lo[2]),
+        v(lo[0], hi[1], lo[2]),
+        v(hi[0], hi[1], hi[2]),
+        v(hi[0], lo[1], hi[2]),
+        v(lo[0], lo[1], hi[2]),
+        v(lo[0], hi[1], hi[2]),
+    ];
+    const EDGE_PAIRS: [(u32, u32); 24] = [
+        (0, 1),
+        (1, 2),
+        (2, 3),
+        (3, 0),
+        (4, 5),
+        (5, 6),
+        (6, 7),
+        (7, 4),
+        (2, 1),
+        (1, 5),
+        (5, 4),
+        (4, 2),
+        (3, 2),
+        (2, 4),
+        (4, 7),
+        (7, 3),
+        (0, 3),
+        (3, 7),
+        (7, 6),
+        (6, 0),
+        (1, 0),
+        (0, 6),
+        (6, 5),
+        (5, 1),
+    ];
+    let edges: Vec<BRepEdge> = EDGE_PAIRS
+        .iter()
+        .map(|&(start, end)| BRepEdge {
+            start,
+            end,
+            curve: Curve::LineSegment,
+        })
+        .collect();
+    let planes: [([f64; 3], f64); 6] = [
+        ([0.0, 0.0, -1.0], lo[2]),
+        ([0.0, 0.0, 1.0], -hi[2]),
+        ([1.0, 0.0, 0.0], -hi[0]),
+        ([0.0, 1.0, 0.0], -hi[1]),
+        ([-1.0, 0.0, 0.0], lo[0]),
+        ([0.0, -1.0, 0.0], lo[1]),
+    ];
+    let faces: Vec<BRepFace> = planes
+        .iter()
+        .enumerate()
+        .map(|(i, &(n, d))| BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(n[0], n[1], n[2]),
+                d,
+            },
+            outer_loop: (4 * i as u32..4 * i as u32 + 4).collect(),
+            inner_loops: Vec::new(),
+            reversed: false,
+        })
+        .collect();
+    BRep::new(vertices, edges, faces).expect("box BRep::new")
+}
+
+/// A z-axis cylinder whose BOTTOM cap sits on the plane `z = base_z`
+/// (normal −z), centred at `(cx, cy, base_z)`, of the given `radius` and
+/// `height` (extruded toward +z). Two circle rims + one seam segment; the
+/// bottom cap is the disc that goes coplanar with a box top face.
+fn z_cylinder(cx: f64, cy: f64, base_z: f64, radius: f64, height: f64) -> BRep {
+    let bottom = [cx, cy, base_z];
+    let top = [cx, cy, base_z + height];
+    // Seam at +x.
+    let v0 = p(cx + radius, cy, base_z);
+    let v1 = p(cx + radius, cy, base_z + height);
+    let verts = vec![BRepVertex { point: v0 }, BRepVertex { point: v1 }];
+    let edges = vec![
+        BRepEdge {
+            start: 0,
+            end: 0,
+            curve: Curve::Circle {
+                center: p(bottom[0], bottom[1], bottom[2]),
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                radius,
+            },
+        },
+        BRepEdge {
+            start: 1,
+            end: 1,
+            curve: Curve::Circle {
+                center: p(top[0], top[1], top[2]),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                radius,
+            },
+        },
+        BRepEdge {
+            start: 0,
+            end: 1,
+            curve: Curve::LineSegment,
+        },
+    ];
+    let faces = vec![
+        BRepFace {
+            surface: Surface::Cylinder {
+                axis_point: p(bottom[0], bottom[1], bottom[2]),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                radius,
+            },
+            outer_loop: vec![0, 2, 1, 2],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+        BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, -1.0),
+                d: base_z,
+            },
+            outer_loop: vec![0],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+        BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                d: -(base_z + height),
+            },
+            outer_loop: vec![1],
+            inner_loops: Vec::new(),
+            reversed: false,
+        },
+    ];
+    BRep::new(verts, edges, faces).expect("z_cylinder BRep::new")
+}
+
+// ════════════════════════════════════════════════════════════════════
+// oracles
+// ════════════════════════════════════════════════════════════════════
+
+fn signed_volume(mesh: &Mesh) -> f64 {
+    mesh.tris
+        .iter()
+        .map(|t| {
+            let a = mesh.verts[t[0] as usize];
+            let b = mesh.verts[t[1] as usize];
+            let c = mesh.verts[t[2] as usize];
+            (a.x() * (b.y() * c.z() - b.z() * c.y()) - a.y() * (b.x() * c.z() - b.z() * c.x())
+                + a.z() * (b.x() * c.y() - b.y() * c.x()))
+                / 6.0
+        })
+        .sum()
+}
+
+/// Every undirected triangle edge is shared by exactly two triangles
+/// (closed 2-manifold surface).
+fn is_watertight(mesh: &Mesh) -> bool {
+    use std::collections::BTreeMap;
+    let mut counts: BTreeMap<(u32, u32), u32> = BTreeMap::new();
+    for t in &mesh.tris {
+        for k in 0..3 {
+            let (a, b) = (t[k], t[(k + 1) % 3]);
+            *counts.entry((a.min(b), a.max(b))).or_insert(0) += 1;
+        }
+    }
+    !counts.is_empty() && counts.values().all(|&c| c == 2)
+}
+
+fn nb() -> impl yang_rs::MeshBoolean {
+    yang_rs::native_backend().expect("native backend always available")
+}
+
+// ════════════════════════════════════════════════════════════════════
+// tests
+// ════════════════════════════════════════════════════════════════════
+
+/// CONTAINMENT (disc ⊆ polygon): a r=0.5 cylinder stands on the centre of a
+/// [0,2]³ box's top face (z = 2). The bottom cap (disc) is coplanar with and
+/// strictly inside the 2×2 top face. Union must now SUCCEED (was the
+/// `CoplanarFacesUnsupported` M8 wall) and yield a single watertight solid of
+/// volume ≈ box (8) + cylinder (π r² h = π·0.25·1 ≈ 0.7854), within the
+/// Stage-1 chord band.
+#[test]
+fn disc_in_polygon_union_succeeds() {
+    let a = box_brep([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+    let b = z_cylinder(1.0, 1.0, 2.0, 0.5, 1.0);
+    let out = boolean(&a, &b, BoolOp::Union, &nb())
+        .expect("disc-in-polygon union must be handled by Stage 0");
+    let mesh = out.as_mesh();
+    assert!(
+        is_watertight(mesh),
+        "union output must be a closed 2-manifold"
+    );
+    let vol = signed_volume(mesh);
+    let analytic = 8.0 + std::f64::consts::PI * 0.25 * 1.0;
+    // Discretized cylinder under-fills the disc; allow a generous chord band
+    // but reject a missing-cylinder (vol ≈ 8) or doubled-sheet result.
+    assert!(
+        (vol - analytic).abs() < 0.05,
+        "union volume {vol} not within chord band of analytic {analytic}"
+    );
+}
+
+/// CONTAINMENT (polygon ⊆ disc): a small [0.9,1.1]²×[1,2] box stands on the
+/// flat top cap of a wide r=0.5 cylinder, the box's bottom face coplanar with
+/// and strictly inside the cap disc. The orientation with the disc on the
+/// OTHER solid exercises the symmetric `ring_b` resolution path.
+#[test]
+fn polygon_in_disc_union_succeeds() {
+    let cyl = z_cylinder(1.0, 1.0, 0.0, 0.5, 1.0); // top cap at z = 1
+    let small = box_brep([0.9, 0.9, 1.0], [1.1, 1.1, 2.0]);
+    let out = boolean(&cyl, &small, BoolOp::Union, &nb())
+        .expect("polygon-in-disc union must be handled by Stage 0");
+    assert!(
+        is_watertight(out.as_mesh()),
+        "union output must be a closed 2-manifold"
+    );
+}
+
+/// INCREMENT BOUNDARY: a disc that CROSSES the polygon boundary (the cap pokes
+/// past the box edge) introduces an irrational arc∩segment crossing the
+/// rational overlay can only approximate, plus a boundary split that must
+/// propagate — a deferred slice. It MUST stay the loud typed residue, not be
+/// silently mis-handled.
+#[test]
+fn disc_crossing_polygon_stays_unsupported() {
+    // Box top is [0,2]², cap radius 0.5 centred at the CORNER (0,0): the disc
+    // crosses the x = 0 and y = 0 box edges.
+    let a = box_brep([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+    let b = z_cylinder(0.0, 0.0, 2.0, 0.5, 1.0);
+    let err = boolean(&a, &b, BoolOp::Union, &nb())
+        .expect_err("a crossing disc pair must stay the loud M8 residue");
+    assert!(
+        matches!(err, YangError::CoplanarFacesUnsupported { .. }),
+        "expected CoplanarFacesUnsupported, got {err:?}"
+    );
+}

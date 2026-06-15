@@ -4341,6 +4341,27 @@ pub(crate) fn scan_near_coplanar(a: &BRep, b: &BRep) -> CoplanarScan {
                                 hi[k] = hi[k].max(p[k]);
                             }
                         }
+                        // A `Circle`/`Ellipse` loop edge's endpoints are only
+                        // its seam — the swept curve reaches much further. A
+                        // disc cap bounded by a single closed circle would
+                        // otherwise get a single-POINT AABB (the seam), so a
+                        // coplanar disc∩polygon pair is detected only when the
+                        // seam happens to overlap the other face. Expand by the
+                        // analytic circle box: `center ± r·√(1−n_k²)` per axis.
+                        if let Curve::Circle {
+                            center,
+                            normal,
+                            radius,
+                        } = edge.curve
+                        {
+                            let c = center.as_array();
+                            let nu = normalize3(normal.as_array());
+                            for k in 0..3 {
+                                let ext = radius * (1.0 - nu[k] * nu[k]).max(0.0).sqrt();
+                                lo[k] = lo[k].min(c[k] - ext);
+                                hi[k] = hi[k].max(c[k] + ext);
+                            }
+                        }
                     }
                 }
                 if !lo[0].is_finite() {
