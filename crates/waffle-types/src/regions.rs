@@ -42,7 +42,9 @@ pub struct Region {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub holes: Vec<Vec<(f64, f64)>>,
     /// Filled area (outer minus holes). The UI selects the smallest region whose
-    /// interior contains the click.
+    /// interior contains the click. Defaulted on deserialize so the extrude path
+    /// can send a geometry-only region (just `outer`/`holes`).
+    #[serde(default)]
     pub area: f64,
     /// When `Some`, this region equals one whole-entity profile and has no holes:
     /// these are that profile's `entity_ids`. The UI resolves them to a

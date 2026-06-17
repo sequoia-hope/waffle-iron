@@ -321,7 +321,7 @@
 
 				const regionTag = target.region ? `r${(target.region.area ?? 0).toFixed(4)}` : `p${target.profileIndex}`;
 				fills.push({
-					key: `${data.featureId}-${regionTag}-${target.color}`,
+					key: `${data.featureId}-${regionTag}-${target.color}-${fills.length}`,
 					geometry: shapeGeo,
 					color: target.color === 'selected' ? COLOR_PROFILE_SELECTED : COLOR_PROFILE_HOVER,
 					opacity: target.color === 'selected' ? 0.2 : 0.12
@@ -806,7 +806,8 @@
 {/each}
 
 {#each profileFills as fill (fill.key)}
-	<T.Mesh geometry={fill.geometry} renderOrder={2}>
+	<!-- raycast disabled: highlight fills are decoration, never a pickable face -->
+	<T.Mesh geometry={fill.geometry} renderOrder={2} raycast={() => {}}>
 		<T.MeshBasicMaterial
 			color={fill.color}
 			transparent
