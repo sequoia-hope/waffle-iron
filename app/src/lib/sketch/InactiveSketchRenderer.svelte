@@ -19,7 +19,9 @@
 		addProfileRegion,
 		setRevolveAxis,
 		getExtrudeDialogState,
-		getRevolveDialogState
+		getRevolveDialogState,
+		getInactiveGearDisplay,
+		ensureInactiveGearsExpanded
 	} from '$lib/engine/store.svelte.js';
 	import { computeAxisFromSketchLine, computeAxisFromSketchCircle } from './axisUtils.js';
 	import { buildSketchPlane, sketchToWorld } from './sketchCoords.js';
@@ -64,6 +66,23 @@
 	/**
 	 * Parse sketch data into entities, positions, plane, and profiles.
 	 */
+	let inactiveGears = $derived(getInactiveGearDisplay());
+
+	// Expand any gear in a visible inactive sketch into the store's gear cache so
+	// completed gear sketches render their teeth (a compact `Gear` entity carries
+	// no drawable primitives on its own).
+	$effect(() => {
+		const specs = [];
+		for (const feature of sketchFeatures) {
+			for (const e of (feature.operation.sketch.entities || [])) {
+				if (e.type === 'Gear') {
+					specs.push({ key: `${feature.id}:${e.id}`, entityId: e.id, params: e.params });
+				}
+			}
+		}
+		ensureInactiveGearsExpanded(specs);
+	});
+
 	let sketchData = $derived.by(() => {
 		const result = [];
 		for (const feature of sketchFeatures) {
@@ -72,15 +91,24 @@
 			const normal = sketch.plane_normal || [0, 0, 1];
 			const plane = buildSketchPlane(origin, normal);
 
-			const entities = sketch.entities || [];
-
 			// Reconstruct positions from Point entities — solved_positions
 			// is not serialized from Rust (skip_serializing), so we mirror
-			// the Rust recompute_derived() logic here.
+			// the Rust recompute_derived() logic here. Gear entities are replaced
+			// by their cached display expansion (curves + positions).
+			const entities = [];
 			const positions = new Map();
-			for (const entity of entities) {
-				if (entity.type === 'Point' && entity.id != null) {
-					positions.set(entity.id, { x: entity.x, y: entity.y });
+			for (const entity of (sketch.entities || [])) {
+				if (entity.type === 'Gear') {
+					const exp = inactiveGears.get(`${feature.id}:${entity.id}`);
+					if (exp) {
+						entities.push(...exp.entities);
+						for (const [id, p] of exp.positions) positions.set(id, p);
+					}
+				} else {
+					entities.push(entity);
+					if (entity.type === 'Point' && entity.id != null) {
+						positions.set(entity.id, { x: entity.x, y: entity.y });
+					}
 				}
 			}
 			const profiles = extractProfiles(entities, positions);

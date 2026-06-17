@@ -687,6 +687,20 @@ export async function initEngine() {
 			deleteGear: (gearId) => deleteGear(gearId),
 			getGearRegistry: () => new Map(gearRegistry),
 			getGearIdForEntity: (entityId) => getGearIdForEntity(entityId),
+			// Inactive (completed) sketch gear display cache, for tests/debug.
+			getInactiveGearDisplay: () => {
+				const out = {};
+				for (const [key, disp] of inactiveGearDisplay) {
+					out[key] = {
+						entityCount: disp.entities.length,
+						counts: disp.entities.reduce((acc, e) => {
+							acc[e.type] = (acc[e.type] || 0) + 1;
+							return acc;
+						}, {})
+					};
+				}
+				return out;
+			},
 			// Ephemeral per-gear display expansion (entities + counts), for tests/debug.
 			getGearDisplay: () => {
 				const out = {};
@@ -1780,12 +1794,15 @@ export function getGearDisplay() { return gearDisplay; }
  * @param {object} gearParams - canonical GearParams (camelCase)
  * @returns {Promise<object>} the display expansion entry
  */
-async function expandGearForDisplay(gearId, gearParams) {
-	// Deep-clone: gearParams may be a Svelte reactive proxy (e.g. from a loaded
-	// Gear entity), which postMessage cannot structured-clone to the worker.
-	const params = JSON.parse(JSON.stringify(gearParams));
-	const response = await bridge.send({ type: 'GenerateGearProfile', params });
-	const base = gearDisplayIdBase(gearId);
+/**
+ * Remap a raw gear-profile response into a display entry: primitive entities
+ * (curves + construction pitch circle) and positions in a collision-free id
+ * range (`base`), plus the boundary polygon for hit-testing.
+ * @param {object} response - GenerateGearProfile response
+ * @param {number} base - id offset for this gear's primitives
+ * @returns {{ entities: object[], positions: Map<number,{x:number,y:number}>, pitchRadius: number, outline: Array<{x:number,y:number}> }}
+ */
+function remapGearResponse(response, base) {
 	const remap = (id) => base + id;
 	const positions = new Map();
 	const entities = response.entities.map((e) => {
@@ -1799,7 +1816,6 @@ async function expandGearForDisplay(gearId, gearParams) {
 	});
 	// Pitch circle: a construction reference centered on the gear center (always
 	// the first emitted point — external and internal both lead with the center).
-	// It was historically added JS-side; now it is part of the display expansion.
 	if (response.entities.length > 0) {
 		const centerId = remap(response.entities[0].id);
 		entities.push({
@@ -1819,11 +1835,51 @@ async function expandGearForDisplay(gearId, gearParams) {
 	const outline = (response.profiles?.[0]?.vertex_ids ?? [])
 		.map(id => localPos.get(id))
 		.filter(Boolean);
-	const entry = { entities, positions, pitchRadius: response.pitch_radius, outline };
+	return { entities, positions, pitchRadius: response.pitch_radius, outline };
+}
+
+async function expandGearForDisplay(gearId, gearParams) {
+	// Deep-clone: gearParams may be a Svelte reactive proxy (e.g. from a loaded
+	// Gear entity), which postMessage cannot structured-clone to the worker.
+	const params = JSON.parse(JSON.stringify(gearParams));
+	const response = await bridge.send({ type: 'GenerateGearProfile', params });
+	const entry = remapGearResponse(response, gearDisplayIdBase(gearId));
 	const next = new Map(gearDisplay);
 	next.set(gearId, entry);
 	gearDisplay = next;
 	return entry;
+}
+
+// -- Inactive (completed) sketch gear display --
+// Gears in finished sketches are rendered by InactiveSketchRenderer, which has
+// no access to the per-edit `gearDisplay`. Expand them into this cache, keyed by
+// `${featureId}:${entityId}`, so completed gear sketches render their teeth.
+let inactiveGearDisplay = $state(new Map());
+
+/** @returns {Map<string, object>} */
+export function getInactiveGearDisplay() { return inactiveGearDisplay; }
+
+/**
+ * Ensure every gear in the given inactive sketches is expanded into
+ * `inactiveGearDisplay`, and drop entries no longer present. Idempotent.
+ * @param {Array<{ key: string, entityId: number, params: object }>} specs
+ */
+export async function ensureInactiveGearsExpanded(specs) {
+	const wanted = new Set(specs.map(s => s.key));
+	let changed = false;
+	const next = new Map(inactiveGearDisplay);
+	for (const k of [...next.keys()]) {
+		if (!wanted.has(k)) { next.delete(k); changed = true; }
+	}
+	for (const { key, entityId, params } of specs) {
+		if (next.has(key)) continue;
+		const p = JSON.parse(JSON.stringify(params));
+		const response = await bridge.send({ type: 'GenerateGearProfile', params: p });
+		// Per-gear id range, distinct from the active `gearDisplay` range.
+		next.set(key, remapGearResponse(response, 50_000_000 + entityId * 100_000));
+		changed = true;
+	}
+	if (changed) inactiveGearDisplay = next;
 }
 
 /**

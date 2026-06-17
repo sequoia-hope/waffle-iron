@@ -386,6 +386,29 @@ test.describe('gear tool', () => {
 		expect(state.splines).toBe(22); // 11 teeth × 2 involute flanks → the gear renders
 	});
 
+	test('a finished gear sketch renders as an inactive wireframe (teeth expanded)', async ({ waffle }) => {
+		const page = waffle.page;
+		await clickSketch(page);
+
+		await page.evaluate(() => window.__waffle.createGear({
+			toothCount: 12, module: 0.002, pressureAngleDeg: 20, backlash: 0,
+			centerX: 0, centerY: 0, rotationOffset: 0, internal: true
+		}));
+		await clickFinishSketch(page);
+		await waitForFeatureCount(page, 1, 10000);
+
+		// The inactive renderer expands the finished gear into its display cache,
+		// so the completed sketch shows the gear teeth (not just other geometry).
+		await page.waitForFunction(
+			() => Object.keys(window.__waffle.getInactiveGearDisplay()).length === 1,
+			{ timeout: 5000 }
+		);
+		const disp = await page.evaluate(() => Object.values(window.__waffle.getInactiveGearDisplay())[0]);
+		// Internal gear → a dense boundary polyline (many Lines) + pitch circle.
+		expect(disp.counts.Line).toBeGreaterThan(20);
+		expect(disp.counts.Circle).toBe(1);
+	});
+
 	test('gear sketch can be extruded', async ({ waffle }) => {
 		const crashes = collectCrashErrors(waffle.page);
 
