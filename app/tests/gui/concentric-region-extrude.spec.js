@@ -106,6 +106,11 @@ test('clicking the annulus extrudes a prism with a through-hole (KV-region)', as
 	expect(picked.region?.profile_entity_ids ?? null).toBeNull();
 	expect((picked.region?.holes ?? []).length).toBe(1);
 
+	// The ghost preview must reflect the picked region (a hole), not the parent
+	// disk — i.e. preview matches what will extrude.
+	const preview = await waffle.page.evaluate(() => window.__waffle.getExtrudePreviewParams());
+	expect(preview?.[0]?.region?.holes?.length, 'preview carries the region hole').toBe(1);
+
 	await waffle.page.locator('[data-testid="extrude-depth"]').fill('20');
 	await waffle.page.locator('[data-testid="extrude-apply"]').click();
 	await waitForFeatureCount(waffle.page, 2, 10000);

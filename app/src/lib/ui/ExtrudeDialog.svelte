@@ -68,7 +68,7 @@
 		}
 		const params = regions.map(r => {
 			if (r.type === 'sketchProfile' || (!r.type && r.sketchId)) {
-				return { type: 'sketchProfile', sketchId: r.sketchId, profileIndex: r.profileIndex ?? 0, depth, flipDirection, symmetric: secondDir === 'Symmetric', cut };
+				return { type: 'sketchProfile', sketchId: r.sketchId, profileIndex: r.profileIndex ?? 0, region: r.region ?? null, depth, flipDirection, symmetric: secondDir === 'Symmetric', cut };
 			}
 			if (r.type === 'face') {
 				return { type: 'face', geomRef: r.geomRef, depth, flipDirection, symmetric: secondDir === 'Symmetric', cut };

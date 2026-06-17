@@ -53,29 +53,41 @@
 		const positions = sketchData.solved_positions;
 		if (!profiles || !positions) return null;
 
-		const profile = profiles[params.profileIndex];
-		if (!profile) return null;
-
 		let shape;
-		if (profile.circle) {
-			const c = profile.circle;
-			shape = new THREE.Shape();
-			shape.absarc(c.center_u, c.center_v, c.radius, 0, Math.PI * 2, false);
-		} else {
-			// Use vertex_ids (dense polygon with curve samples) if available,
-			// falling back to entity_ids for older profiles.
-			const vids = profile.vertex_ids || profile.entity_ids;
-			if (!vids || vids.length < 3) return null;
-
-			const points2d = [];
-			for (let i = 0; i < vids.length; i++) {
-				const ptId = vids[i];
-				const pos = positions[ptId];
-				if (!pos) continue;
-				points2d.push(new THREE.Vector2(pos[0], pos[1]));
+		if (params.region) {
+			// A picked minimal region (sub-region of overlapping shapes): build the
+			// ghost from its explicit boundary (outer minus holes), so the preview
+			// matches what will actually extrude.
+			const outer = (params.region.outer ?? []).map(([x, y]) => new THREE.Vector2(x, y));
+			if (outer.length < 3) return null;
+			shape = new THREE.Shape(outer);
+			for (const hole of params.region.holes ?? []) {
+				if (hole.length < 3) continue;
+				shape.holes.push(new THREE.Path(hole.map(([x, y]) => new THREE.Vector2(x, y))));
 			}
-			if (points2d.length < 3) return null;
-			shape = new THREE.Shape(points2d);
+		} else {
+			const profile = profiles[params.profileIndex];
+			if (!profile) return null;
+			if (profile.circle) {
+				const c = profile.circle;
+				shape = new THREE.Shape();
+				shape.absarc(c.center_u, c.center_v, c.radius, 0, Math.PI * 2, false);
+			} else {
+				// Use vertex_ids (dense polygon with curve samples) if available,
+				// falling back to entity_ids for older profiles.
+				const vids = profile.vertex_ids || profile.entity_ids;
+				if (!vids || vids.length < 3) return null;
+
+				const points2d = [];
+				for (let i = 0; i < vids.length; i++) {
+					const ptId = vids[i];
+					const pos = positions[ptId];
+					if (!pos) continue;
+					points2d.push(new THREE.Vector2(pos[0], pos[1]));
+				}
+				if (points2d.length < 3) return null;
+				shape = new THREE.Shape(points2d);
+			}
 		}
 		const effectiveDepth = Math.max(params.depth, 0.00001);
 		const extrudeDepth = params.symmetric ? effectiveDepth * 2 : effectiveDepth;
