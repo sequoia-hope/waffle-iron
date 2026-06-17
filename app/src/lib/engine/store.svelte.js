@@ -1816,6 +1816,18 @@ export async function createGear(gearParams) {
 	endSketchAction();
 	reExtractProfiles();
 
+	// Anchor the whole gear by its center with a single constraint. The gear's
+	// shape is fully determined by its parameters, so the solver should treat it
+	// as a rigid block pinned at the center — not as ~hundreds of free vertices
+	// (see triggerSolve, which excludes gear geometry from the solve). Without
+	// this, an internal gear's dense point/line polyline floods the solver.
+	addLocalConstraint({
+		type: 'WhereDragged',
+		point: pitchCircleCenterId,
+		x: gearParams.centerX,
+		y: gearParams.centerY
+	});
+
 	// Register gear
 	const newRegistry = new Map(gearRegistry);
 	newRegistry.set(gearId, { ...gearParams, entityIds: [...entityIds] });
@@ -3950,6 +3962,50 @@ export async function discardAutoSave() {
 	autoRestoreState = null;
 }
 
+// Constraint property names that are scalar parameters, not entity references.
+// Any *other* numeric-valued constraint property is treated as an entity id.
+const CONSTRAINT_SCALAR_KEYS = new Set([
+	'value', 'value_degrees', 'x', 'y', 'ratio', 'radius', 'distance', 'angle'
+]);
+
+/**
+ * Drop gear-owned entities from the solver payload so the solver treats each
+ * gear as a rigid block pinned by its center anchor, rather than as hundreds of
+ * free vertices. Any gear entity referenced by a constraint is retained (and so
+ * are the endpoints of any retained line/arc/spline), so user constraints onto
+ * gear geometry still solve correctly.
+ * @param {Array<object>} entities - all sketch entities (already cloned)
+ * @param {Array<object>} constraints - all sketch constraints (already cloned)
+ * @returns {Array<object>} the subset of entities to send to the solver
+ */
+function excludeRigidGearGeometry(entities, constraints) {
+	if (entityToGearMap.size === 0) return entities;
+
+	// Entity ids referenced by any constraint must stay in the solve.
+	const referenced = new Set();
+	for (const c of constraints) {
+		for (const [k, v] of Object.entries(c)) {
+			if (typeof v === 'number' && !CONSTRAINT_SCALAR_KEYS.has(k)) referenced.add(v);
+		}
+	}
+
+	// Keep non-gear entities and any gear entity a constraint references.
+	const keep = new Set();
+	for (const e of entities) {
+		if (!entityToGearMap.has(e.id) || referenced.has(e.id)) keep.add(e.id);
+	}
+	// A retained line/arc/spline needs its endpoint points retained too.
+	for (const e of entities) {
+		if (!keep.has(e.id)) continue;
+		for (const k of ['start_id', 'end_id', 'center_id']) {
+			if (e[k] != null) keep.add(e[k]);
+		}
+		if (Array.isArray(e.point_ids)) for (const p of e.point_ids) keep.add(p);
+	}
+
+	return entities.filter(e => keep.has(e.id));
+}
+
 /**
  * Trigger a constraint solve via the libslvs solver in the worker.
  * Sends current sketch state to the worker for solving.
@@ -3966,8 +4022,17 @@ export function triggerSolve() {
 	}
 
 	// Deep-clone reactive state to avoid DataCloneError from Svelte 5 proxies
-	const entities = JSON.parse(JSON.stringify(sketchEntities));
+	const allEntities = JSON.parse(JSON.stringify(sketchEntities));
 	const constraints = JSON.parse(JSON.stringify(sketchConstraints));
+
+	// A gear is a rigid, fully-parametric block: its shape is fixed by its
+	// parameters and it is anchored by a single WhereDragged on its center.
+	// Feeding its ~hundreds of vertices/lines to the solver as free DOF makes
+	// the solve explode (worst for internal gears, which are a dense point
+	// polyline). Exclude gear-owned geometry from the solve, keeping only the
+	// few entities a constraint actually references (e.g. the center anchor, or
+	// any vertex the user later constrains to).
+	const entities = excludeRigidGearGeometry(allEntities, constraints);
 
 	bridge
 		.send({

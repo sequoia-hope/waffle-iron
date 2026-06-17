@@ -3,6 +3,7 @@
  */
 import { test, expect } from './helpers/waffle-test.js';
 import { clickSketch, clickFinishSketch, clickExtrude } from './helpers/toolbar.js';
+import { getConstraints } from './helpers/constraint.js';
 import {
 	isSketchActive,
 	getEntityCount,
@@ -246,6 +247,57 @@ test.describe('gear tool', () => {
 		expect(registry[gearId]).toBeDefined();
 		expect(registry[gearId].toothCount).toBe(8);
 		expect(registry[gearId].module).toBe(0.001);
+	});
+
+	test('internal gear: pitch circle is centered on the gear, anchored by one constraint', async ({ waffle }) => {
+		// Regression for two internal-gear bugs:
+		//  (b) the construction pitch circle was anchored on the first boundary
+		//      vertex (internal gears emitted no center point), drawing it as a
+		//      ring offset from the gear.
+		//  (a) the gear's dense point/line polyline flooded the constraint solver;
+		//      it should be a rigid block pinned by a single center anchor.
+		const crashes = collectCrashErrors(waffle.page);
+		await clickSketch(waffle.page);
+
+		const cx = 0.012;
+		const cy = -0.007;
+		await waffle.page.evaluate(({ cx, cy }) => {
+			return window.__waffle.createGear({
+				toothCount: 14,
+				module: 0.001,
+				pressureAngle: 20,
+				backlash: 0,
+				centerX: cx,
+				centerY: cy,
+				rotationOffset: 0,
+				internal: true
+			});
+		}, { cx, cy });
+
+		const result = await waffle.page.evaluate(() => {
+			const entities = window.__waffle.getEntities();
+			const circle = entities.find(e => e.type === 'Circle' && e.construction);
+			const center = entities.find(e => e.type === 'Point' && e.id === circle?.center_id);
+			return { circleCenter: center ? { x: center.x, y: center.y } : null };
+		});
+
+		// (b) pitch circle center coincides with the gear center, not a tooth vertex.
+		expect(result.circleCenter).not.toBeNull();
+		expect(result.circleCenter.x).toBeCloseTo(cx, 9);
+		expect(result.circleCenter.y).toBeCloseTo(cy, 9);
+
+		// (a) exactly one anchor constraint (WhereDragged) for the whole gear.
+		const constraints = await getConstraints(waffle.page);
+		const anchors = constraints.filter(c => c.type === 'WhereDragged');
+		expect(anchors.length).toBe(1);
+		expect(anchors[0].point).toBe(
+			await waffle.page.evaluate(() => {
+				const e = window.__waffle.getEntities();
+				return e.find(x => x.type === 'Circle' && x.construction)?.center_id;
+			})
+		);
+
+		expectNoAnyCrash(crashes);
 	});
 
 	test('gear sketch can be extruded', async ({ waffle }) => {

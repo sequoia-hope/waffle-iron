@@ -541,8 +541,22 @@ fn generate_internal_gear_profile(params: &GearParams) -> GearProfileResult {
 
     let mut entities = Vec::new();
     let mut positions = HashMap::new();
-    let mut point_ids = Vec::with_capacity(boundary.len());
     let mut id = 1u32;
+    // Center point FIRST, matching the external gear's contract (entity[0] is
+    // the gear center). The JS `createGear` anchors the construction pitch
+    // circle on `entityIds[0]`; without an explicit center here that landed on
+    // the first boundary vertex, drawing the pitch circle offset from the gear.
+    // The center is not part of `vertex_ids`, so it never enters the profile.
+    let center = transform(0.0, 0.0);
+    entities.push(SketchEntity::Point {
+        id,
+        x: center.0,
+        y: center.1,
+        construction: false,
+    });
+    positions.insert(id, center);
+    id += 1;
+    let mut point_ids = Vec::with_capacity(boundary.len());
     for &(x, y) in &boundary {
         entities.push(SketchEntity::Point {
             id,
@@ -807,6 +821,39 @@ mod tests {
             (bx - rx).abs() > 1e-6 || (by - ry).abs() > 1e-6,
             "rotation should change point positions"
         );
+    }
+
+    #[test]
+    fn internal_gear_first_entity_is_center() {
+        // Regression: internal gears must emit the gear center as entity[0],
+        // matching the external gear contract. The JS layer anchors the
+        // construction pitch circle on `entities[0]`; when that was a boundary
+        // vertex the pitch circle drew offset from the gear (bug report).
+        let params = GearParams {
+            tooth_count: 12,
+            module: 1.5,
+            pressure_angle_deg: 20.0,
+            center_x: 3.0,
+            center_y: -2.0,
+            internal: true,
+            ..Default::default()
+        };
+        let result = generate_gear_profile(&params);
+        let first = &result.entities[0];
+        match first {
+            SketchEntity::Point { id, x, y, .. } => {
+                assert!(
+                    (*x - 3.0).abs() < 1e-9 && (*y - (-2.0)).abs() < 1e-9,
+                    "entity[0] must be the gear center at (center_x, center_y)"
+                );
+                // The center is an anchor only — never part of the profile loop.
+                assert!(
+                    !result.profiles[0].vertex_ids.contains(id),
+                    "center point must not be in the boundary vertex_ids"
+                );
+            }
+            _ => panic!("entity[0] must be the center Point"),
+        }
     }
 
     #[test]
