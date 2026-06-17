@@ -150,6 +150,10 @@
 
 	function regionLabel(region) {
 		if (region.type === 'sketchProfile') {
+			// A genuine sub-region (annulus, lens, …) has no whole-loop profile.
+			if (region.region && region.region.profile_entity_ids == null) {
+				return `${region.sketchName} / Region`;
+			}
 			return `${region.sketchName} / Profile ${region.profileIndex + 1}`;
 		}
 		if (region.type === 'face') return region.label || 'Face';

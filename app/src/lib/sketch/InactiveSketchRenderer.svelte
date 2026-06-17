@@ -17,6 +17,7 @@
 		getProfilePickMode,
 		getAxisPickMode,
 		addProfileRegion,
+		getSketchRegions,
 		setRevolveAxis,
 		getExtrudeDialogState,
 		getRevolveDialogState,
@@ -25,7 +26,7 @@
 	} from '$lib/engine/store.svelte.js';
 	import { computeAxisFromSketchLine, computeAxisFromSketchCircle } from './axisUtils.js';
 	import { buildSketchPlane, sketchToWorld } from './sketchCoords.js';
-	import { extractProfiles, profileToPolygon, pointInPolygon } from './profiles.js';
+	import { extractProfiles, profileToPolygon, pointInPolygon, pointInRegion } from './profiles.js';
 	import { sampleBSpline } from './bspline.js';
 
 	const { renderer } = useThrelte();
@@ -239,20 +240,20 @@
 		if (sm?.active) return [];
 		const targets = [];
 
-		// Hovered profile
+		// Hovered profile/region
 		const hovered = getInactiveHoveredProfile();
 		if (hovered) {
-			targets.push({ featureId: hovered.featureId, profileIndex: hovered.profileIndex, color: 'hover' });
+			targets.push({ featureId: hovered.featureId, profileIndex: hovered.profileIndex, region: hovered.region ?? null, color: 'hover' });
 		}
 
-		// Selected profiles from extrude dialog regions
+		// Selected profiles/regions from extrude dialog regions
 		const extrudeState = getExtrudeDialogState();
 		if (extrudeState?.regions) {
 			for (const r of extrudeState.regions) {
 				if (r.type === 'sketchProfile' && r.sketchId) {
-					const alreadyHovered = hovered && hovered.featureId === r.sketchId && hovered.profileIndex === (r.profileIndex ?? 0);
+					const alreadyHovered = hovered && hovered.featureId === r.sketchId && hovered.profileIndex === (r.profileIndex ?? 0) && !r.region;
 					if (!alreadyHovered) {
-						targets.push({ featureId: r.sketchId, profileIndex: r.profileIndex ?? 0, color: 'selected' });
+						targets.push({ featureId: r.sketchId, profileIndex: r.profileIndex ?? 0, region: r.region ?? null, color: 'selected' });
 					}
 				}
 			}
@@ -279,18 +280,34 @@
 		for (const target of profileFillTargets) {
 			for (const data of sketchData) {
 				if (data.featureId !== target.featureId) continue;
-				const profile = data.profiles[target.profileIndex];
-				if (!profile) continue;
 
-				const poly = profileToPolygon(profile, data.entities, data.positions);
-				if (poly.length < 3) continue;
-
-				const shape = new THREE.Shape();
-				shape.moveTo(poly[0].x, poly[0].y);
-				for (let j = 1; j < poly.length; j++) {
-					shape.lineTo(poly[j].x, poly[j].y);
+				let shape;
+				if (target.region) {
+					// Highlight the exact region: outer boundary minus holes.
+					const outer = (target.region.outer ?? []).map(([x, y]) => ({ x, y }));
+					if (outer.length < 3) continue;
+					shape = new THREE.Shape();
+					shape.moveTo(outer[0].x, outer[0].y);
+					for (let j = 1; j < outer.length; j++) shape.lineTo(outer[j].x, outer[j].y);
+					shape.closePath();
+					for (const hole of target.region.holes ?? []) {
+						if (hole.length < 3) continue;
+						const path = new THREE.Path();
+						path.moveTo(hole[0][0], hole[0][1]);
+						for (let j = 1; j < hole.length; j++) path.lineTo(hole[j][0], hole[j][1]);
+						path.closePath();
+						shape.holes.push(path);
+					}
+				} else {
+					const profile = data.profiles[target.profileIndex];
+					if (!profile) continue;
+					const poly = profileToPolygon(profile, data.entities, data.positions);
+					if (poly.length < 3) continue;
+					shape = new THREE.Shape();
+					shape.moveTo(poly[0].x, poly[0].y);
+					for (let j = 1; j < poly.length; j++) shape.lineTo(poly[j].x, poly[j].y);
+					shape.closePath();
 				}
-				shape.closePath();
 
 				const shapeGeo = new THREE.ShapeGeometry(shape);
 				const posAttr = shapeGeo.getAttribute('position');
@@ -302,8 +319,9 @@
 				}
 				posAttr.needsUpdate = true;
 
+				const regionTag = target.region ? `r${(target.region.area ?? 0).toFixed(4)}` : `p${target.profileIndex}`;
 				fills.push({
-					key: `${data.featureId}-${target.profileIndex}-${target.color}`,
+					key: `${data.featureId}-${regionTag}-${target.color}`,
 					geometry: shapeGeo,
 					color: target.color === 'selected' ? COLOR_PROFILE_SELECTED : COLOR_PROFILE_HOVER,
 					opacity: target.color === 'selected' ? 0.2 : 0.12
@@ -453,6 +471,26 @@
 	}
 
 	/**
+	 * Map an analytical region (one whose boundary equals a whole-loop profile)
+	 * back to that profile's index in the JS profile list, so selecting it uses
+	 * the existing analytical extrude path. Returns 0 for genuine sub-regions
+	 * (their profile_index is unused — they extrude from explicit geometry).
+	 * @param {{ profiles: Array<object> }} data
+	 * @param {{ profile_entity_ids?: number[] }} region
+	 * @returns {number}
+	 */
+	function resolveRegionProfileIndex(data, region) {
+		const ids = region.profile_entity_ids;
+		if (!ids || ids.length === 0) return 0;
+		const want = [...ids].sort((a, b) => a - b).join(',');
+		for (let i = 0; i < data.profiles.length; i++) {
+			const got = [...(data.profiles[i].entityIds ?? [])].sort((a, b) => a - b).join(',');
+			if (got === want) return i;
+		}
+		return 0;
+	}
+
+	/**
 	 * Hit-test cursor against inactive sketch profiles (non-sketch mode)
 	 * or pick inactive sketch points (sketch mode).
 	 * @param {MouseEvent} e
@@ -536,9 +574,15 @@
 			hoveredAxisEntity = null;
 		}
 
-		// Check each sketch's profiles
+		// Check each sketch. For extrude, prefer the smallest Rust-computed
+		// region under the cursor (so sub-regions of overlapping shapes are
+		// reachable); fall back to whole-loop profiles when no regions are
+		// available (revolve, gear sketches, or before regions arrive).
+		const useRegions = getProfilePickMode()?.target === 'extrude';
 		for (const data of sketchData) {
-			if (data.profiles.length === 0) continue;
+			const regions = useRegions ? getSketchRegions(data.featureId) : null;
+			const hasRegions = regions && regions.length > 0;
+			if (!hasRegions && data.profiles.length === 0) continue;
 
 			const origin = data.sketch.plane_origin || [0, 0, 0];
 			const normal = data.sketch.plane_normal || [0, 0, 1];
@@ -552,6 +596,25 @@
 			const rel = _intersection.clone().sub(o);
 			const sx = rel.dot(data.plane.xAxis);
 			const sy = rel.dot(data.plane.yAxis);
+
+			if (hasRegions) {
+				// Smallest-area region whose interior contains the cursor.
+				let best = null;
+				for (const region of regions) {
+					if (pointInRegion(sx, sy, region) && (!best || region.area < best.area)) {
+						best = region;
+					}
+				}
+				if (best) {
+					setInactiveHoveredProfile({
+						featureId: data.featureId,
+						profileIndex: resolveRegionProfileIndex(data, best),
+						region: best
+					});
+					return;
+				}
+				continue;
+			}
 
 			for (let i = 0; i < data.profiles.length; i++) {
 				const poly = profileToPolygon(data.profiles[i], data.entities, data.positions);
@@ -597,11 +660,11 @@
 		_mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 		_raycaster.setFromCamera(_mouse, camera);
 
-		// Profile picking: check if cursor is over a profile
+		// Profile picking: check if cursor is over a profile/region
 		if (pickMode) {
 			const hovered = getInactiveHoveredProfile();
 			if (hovered) {
-				addProfileRegion(hovered.featureId, hovered.profileIndex);
+				addProfileRegion(hovered.featureId, hovered.profileIndex, hovered.region ?? null);
 				return;
 			}
 		}

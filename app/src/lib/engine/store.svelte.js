@@ -2276,7 +2276,58 @@ export function getExtrudePreviewParams() { return extrudePreviewParams; }
 export function setExtrudePreviewParams(params) { extrudePreviewParams = params; }
 
 export function getProfilePickMode() { return profilePickMode; }
-export function setProfilePickMode(mode) { profilePickMode = mode; }
+export function setProfilePickMode(mode) {
+	profilePickMode = mode;
+	// Entering a profile/region pick: compute the minimal sketch regions in
+	// Rust so the renderer can hit-test the smallest region under the click
+	// (including sub-regions of overlapping shapes). Fire-and-forget; the
+	// renderer falls back to whole-loop profiles until the regions arrive.
+	if (mode) computeAllSketchRegions();
+}
+
+/**
+ * Minimal sketch faces (regions) per sketch feature id, computed in Rust via
+ * the ComputeRegions query. Each region is annotated with its `_index`.
+ * @type {Map<string, Array<object>>}
+ */
+let sketchRegions = $state(new Map());
+
+/** @param {string} featureId @returns {Array<object> | null} */
+export function getSketchRegions(featureId) {
+	return sketchRegions.get(featureId) ?? null;
+}
+
+/**
+ * Compute regions for every completed sketch in the feature tree and cache
+ * them in `sketchRegions`. Idempotent enough for repeated pick-mode entry.
+ */
+export async function computeAllSketchRegions() {
+	if (!bridge || !engineReady) return;
+	const tree = featureTree;
+	if (!tree?.features) return;
+	const next = new Map();
+	for (const feature of tree.features) {
+		if (feature.operation?.type !== 'Sketch') continue;
+		const sketch = feature.operation.sketch;
+		const entities = (sketch.entities || []).filter(e => e.type !== 'Gear');
+		const solved_positions = {};
+		for (const e of entities) {
+			if (e.type === 'Point' && e.id != null) solved_positions[e.id] = [e.x, e.y];
+		}
+		try {
+			const response = await bridge.send({
+				type: 'ComputeRegions',
+				entities: JSON.parse(JSON.stringify(entities)),
+				solved_positions
+			});
+			const regions = (response?.regions ?? []).map((r, i) => ({ ...r, _index: i }));
+			next.set(feature.id, regions);
+		} catch (err) {
+			console.error('ComputeRegions failed:', err);
+		}
+	}
+	sketchRegions = next;
+}
 
 export function getAxisPickMode() { return axisPickMode; }
 export function setAxisPickMode(active) { axisPickMode = active; }
@@ -2361,17 +2412,31 @@ export function changeExtrudeSketch(sketchId) {
  * @param {string} sketchName
  * @param {number} profileIndex
  */
-export function addExtrudeRegion(sketchId, sketchName, profileIndex) {
+export function addExtrudeRegion(sketchId, sketchName, profileIndex, region = null) {
 	if (!extrudeDialogState) return;
-	// Avoid duplicates
-	const exists = extrudeDialogState.regions.some(
-		r => r.sketchId === sketchId && r.profileIndex === profileIndex
+	// A genuine sub-region (annulus, lens, …) is identified by its geometry,
+	// not a profile_index. Use a geometry key to dedup those; whole-loop
+	// selections still dedup by (sketchId, profileIndex).
+	const subRegion = region && region.profile_entity_ids == null;
+	const key = subRegion ? regionKey(region) : null;
+	const exists = extrudeDialogState.regions.some(r =>
+		r.sketchId === sketchId &&
+		(subRegion ? r.regionKey === key : (r.region == null && r.profileIndex === profileIndex))
 	);
 	if (exists) return;
 	extrudeDialogState = {
 		...extrudeDialogState,
-		regions: [...extrudeDialogState.regions, { type: 'sketchProfile', sketchId, sketchName, profileIndex }]
+		regions: [
+			...extrudeDialogState.regions,
+			{ type: 'sketchProfile', sketchId, sketchName, profileIndex, region, regionKey: key }
+		]
 	};
+}
+
+/** Stable-ish identity for a sub-region (first outer vertex + area). */
+function regionKey(region) {
+	const p = region.outer?.[0] ?? [0, 0];
+	return `${p[0].toFixed(6)},${p[1].toFixed(6)}:${(region.area ?? 0).toFixed(6)}`;
 }
 
 /**
@@ -2490,6 +2555,14 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 	const effectiveSketchId = region?.sketchId ?? extrudeDialogState.sketchId;
 	const effectiveProfileIndex = region?.profileIndex ?? profileIndex;
 
+	// A genuine sub-region (no whole-loop profile denotes it) is extruded from
+	// its explicit boundary; whole-loop selections leave this null and use
+	// profile_index (the analytical path).
+	const subRegion =
+		region?.region && region.region.profile_entity_ids == null
+			? { outer: region.region.outer, holes: region.region.holes ?? [] }
+			: null;
+
 	const { depthMode = 'Blind', secondDir = 'None', secondDepth = 10, flipDirection = false } = opts;
 
 	const depth_mode = { type: depthMode };
@@ -2530,7 +2603,8 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 			cut: !!cut,
 			target_body: null,
 			depth_mode,
-			second_direction
+			second_direction,
+			region: subRegion
 		}
 	};
 
@@ -2675,8 +2749,11 @@ export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex) 
  * Add a profile region from viewport click, dispatching to the appropriate dialog.
  * @param {string} featureId - sketch feature id
  * @param {number} profileIndex
+ * @param {object|null} region - the picked minimal region (geometry + provenance),
+ *   when the click resolved to a Rust-computed region. Sub-regions (annulus,
+ *   lens) carry `profile_entity_ids == null` and are extruded from geometry.
  */
-export function addProfileRegion(featureId, profileIndex) {
+export function addProfileRegion(featureId, profileIndex, region = null) {
 	if (!profilePickMode) return;
 
 	// Find sketch name from feature tree
@@ -2684,7 +2761,7 @@ export function addProfileRegion(featureId, profileIndex) {
 	const sketchName = feature?.name || 'Sketch';
 
 	if (profilePickMode.target === 'extrude') {
-		addExtrudeRegion(featureId, sketchName, profileIndex);
+		addExtrudeRegion(featureId, sketchName, profileIndex, region);
 	} else if (profilePickMode.target === 'revolve') {
 		if (!revolveDialogState) return;
 		revolveDialogState = {

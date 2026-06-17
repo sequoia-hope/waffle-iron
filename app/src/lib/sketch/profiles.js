@@ -230,6 +230,25 @@ export function pointInPolygon(px, py, polygon) {
 	return inside;
 }
 
+/**
+ * Test whether a point lies inside a region: inside the outer loop AND outside
+ * every hole. Region loops are arrays of [x, y] pairs (Rust `Region` format).
+ *
+ * @param {number} px
+ * @param {number} py
+ * @param {{ outer: Array<[number, number]>, holes?: Array<Array<[number, number]>> }} region
+ * @returns {boolean}
+ */
+export function pointInRegion(px, py, region) {
+	const outer = (region.outer ?? []).map(([x, y]) => ({ x, y }));
+	if (!pointInPolygon(px, py, outer)) return false;
+	for (const hole of region.holes ?? []) {
+		const h = hole.map(([x, y]) => ({ x, y }));
+		if (pointInPolygon(px, py, h)) return false;
+	}
+	return true;
+}
+
 // --- Internal helpers ---
 
 function edgeKey(edge) {
