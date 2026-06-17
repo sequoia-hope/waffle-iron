@@ -2307,14 +2307,40 @@ export async function computeAllSketchRegions() {
 	if (!bridge || !engineReady) return;
 	const tree = featureTree;
 	if (!tree?.features) return;
+
+	// Expand gears to their primitive entities first, so gear sketches (e.g. a
+	// ring gear with a bore) get real minimal regions instead of falling back to
+	// the whole-entity profile (which would mis-shade the hover).
+	const gearSpecs = [];
+	for (const f of tree.features) {
+		if (f.operation?.type !== 'Sketch') continue;
+		for (const e of (f.operation.sketch.entities || [])) {
+			if (e.type === 'Gear') gearSpecs.push({ key: `${f.id}:${e.id}`, entityId: e.id, params: e.params });
+		}
+	}
+	if (gearSpecs.length) await ensureInactiveGearsExpanded(gearSpecs);
+	const gears = getInactiveGearDisplay();
+
 	const next = new Map();
 	for (const feature of tree.features) {
 		if (feature.operation?.type !== 'Sketch') continue;
 		const sketch = feature.operation.sketch;
-		const entities = (sketch.entities || []).filter(e => e.type !== 'Gear');
+		const entities = [];
 		const solved_positions = {};
-		for (const e of entities) {
-			if (e.type === 'Point' && e.id != null) solved_positions[e.id] = [e.x, e.y];
+		for (const e of (sketch.entities || [])) {
+			if (e.type === 'Gear') {
+				// Substitute the gear's cached primitive expansion (teeth + points).
+				const exp = gears.get(`${feature.id}:${e.id}`);
+				if (exp) {
+					for (const ge of exp.entities) {
+						entities.push(ge);
+						if (ge.type === 'Point' && ge.id != null) solved_positions[ge.id] = [ge.x, ge.y];
+					}
+				}
+			} else {
+				entities.push(e);
+				if (e.type === 'Point' && e.id != null) solved_positions[e.id] = [e.x, e.y];
+			}
 		}
 		try {
 			const response = await bridge.send({

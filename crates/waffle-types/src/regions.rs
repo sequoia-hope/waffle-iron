@@ -1021,6 +1021,42 @@ mod tests {
     }
 
     #[test]
+    fn ring_gear_with_bore_yields_ring_and_bore_regions() {
+        // A spur gear plus a concentric bore → the body (gear minus bore) is a
+        // ring sub-region with a hole; the bore is its own disk. Before the gear
+        // was expanded for region computation, hover fell back to the whole gear.
+        use crate::gear::{generate_gear_profile, GearParams};
+        let gear = generate_gear_profile(&GearParams {
+            tooth_count: 12,
+            module: 0.005,
+            ..Default::default()
+        });
+        let mut entities = gear.entities;
+        let mut positions = gear.positions;
+        // Bore at the gear center (origin), well inside the root circle.
+        positions.insert(900_001, (0.0, 0.0));
+        entities.push(SketchEntity::Circle {
+            id: 900_000,
+            center_id: 900_001,
+            radius: 0.008,
+            construction: false,
+        });
+
+        let regions = compute_regions(&entities, &positions, DEFAULT_CHORD_TOLERANCE);
+        // The ring (gear body with the bore as a hole) and the bore disk.
+        assert!(
+            regions.iter().any(|r| !r.holes.is_empty()),
+            "gear body should be a ring region with a hole"
+        );
+        // The bore disk is the smallest region and contains the center.
+        let smallest = regions
+            .iter()
+            .min_by(|a, b| a.area.partial_cmp(&b.area).unwrap())
+            .unwrap();
+        assert!(smallest.holes.is_empty(), "bore disk has no hole");
+    }
+
+    #[test]
     fn nested_rectangle_edges_are_all_lines() {
         let positions = pos(&[
             (1, -10.0, -10.0),
