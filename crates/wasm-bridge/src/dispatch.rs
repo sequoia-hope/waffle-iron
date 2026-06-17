@@ -242,6 +242,16 @@ fn handle_message(
             })
         }
 
+        UiToEngine::ComputeRegions {
+            entities,
+            solved_positions,
+            chord_tolerance,
+        } => {
+            let tol = chord_tolerance.unwrap_or(waffle_types::regions::DEFAULT_CHORD_TOLERANCE);
+            let regions = waffle_types::compute_regions(&entities, &solved_positions, tol);
+            Ok(EngineToUi::RegionsComputed { regions })
+        }
+
         UiToEngine::ExportStl => {
             // Whole model: merge all renderable bodies (a multi-body model would
             // otherwise lose every body but the last).

@@ -6,7 +6,7 @@ use uuid::Uuid;
 use feature_engine::types::{FeatureTree, Operation};
 use waffle_types::kernel::{EdgeRenderData, RenderMesh};
 use waffle_types::{
-    ClosedProfile, GearParams, GeomRef, SketchConstraint, SketchEntity, SolvedSketch,
+    ClosedProfile, GearParams, GeomRef, Region, SketchConstraint, SketchEntity, SolvedSketch,
 };
 
 /// Serde helper for HashMap<u32, (f64, f64)> — JSON string keys ↔ u32.
@@ -177,6 +177,19 @@ pub enum UiToEngine {
     GenerateGearProfile {
         params: GearParams,
     },
+
+    // -- Region selection (stateless) --
+    /// Compute every minimal closed face of a solved sketch, so the UI can
+    /// select the smallest region under a click (including sub-regions of
+    /// overlapping shapes). Stateless: derived purely from the inputs.
+    ComputeRegions {
+        entities: Vec<SketchEntity>,
+        #[serde(default, with = "u32_key_map")]
+        solved_positions: HashMap<u32, (f64, f64)>,
+        /// Relative chord tolerance for tessellating curved boundaries.
+        #[serde(default)]
+        chord_tolerance: Option<f64>,
+    },
 }
 
 /// Messages from the engine (WASM Worker) to the UI (JavaScript main thread).
@@ -237,4 +250,7 @@ pub enum EngineToUi {
         profiles: Vec<ClosedProfile>,
         pitch_radius: f64,
     },
+
+    /// Minimal closed faces of a sketch, in selection order.
+    RegionsComputed { regions: Vec<Region> },
 }

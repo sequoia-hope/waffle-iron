@@ -297,6 +297,56 @@ fn dispatch_delete_nonexistent_feature_returns_error() {
     assert!(matches!(response, EngineToUi::Error { .. }));
 }
 
+#[test]
+fn dispatch_compute_regions_concentric_circles() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    // Two concentric circles → inner disk + annulus.
+    let mut solved_positions = std::collections::HashMap::new();
+    solved_positions.insert(1u32, (0.0, 0.0));
+    solved_positions.insert(2u32, (0.0, 0.0));
+    let entities = vec![
+        SketchEntity::Circle {
+            id: 10,
+            center_id: 1,
+            radius: 5.0,
+            construction: false,
+        },
+        SketchEntity::Circle {
+            id: 20,
+            center_id: 2,
+            radius: 2.0,
+            construction: false,
+        },
+    ];
+
+    let msg = UiToEngine::ComputeRegions {
+        entities,
+        solved_positions,
+        chord_tolerance: None,
+    };
+
+    // Round-trips through JSON the same way the worker delivers it.
+    let json = serde_json::to_string(&msg).unwrap();
+    let msg: UiToEngine = serde_json::from_str(&json).unwrap();
+
+    let response = wasm_bridge::dispatch(&mut state, msg, &mut kernel);
+    match response {
+        EngineToUi::RegionsComputed { regions } => {
+            assert_eq!(regions.len(), 2, "expected inner disk + annulus");
+            assert_eq!(
+                regions.iter().filter(|r| !r.holes.is_empty()).count(),
+                1,
+                "exactly one region (the annulus) has a hole"
+            );
+            // Response also serializes cleanly back to the UI.
+            let _ = serde_json::to_string(&EngineToUi::RegionsComputed { regions }).unwrap();
+        }
+        other => panic!("expected RegionsComputed, got {other:?}"),
+    }
+}
+
 // ── Engine State Tests ───────────────────────────────────────────────────
 
 #[test]
