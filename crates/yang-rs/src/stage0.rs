@@ -726,9 +726,11 @@ fn build_disc_pair(
 ) -> DiscPair {
     let da = disc_circle_edge(a, face_a);
     let db = disc_circle_edge(b, face_b);
-    // disc∩disc is not in increment 1.
+    // disc∩disc (e.g. a bearing recess: a small cylinder cap coplanar with a
+    // larger cylinder cap) — both faces keep their exact Stage-1 rim rings, so
+    // the containment build stays conformal with BOTH cylinder laterals.
     if da.is_some() && db.is_some() {
-        return DiscPair::Wall("disc-disc");
+        return build_disc_disc_containment(a, b, face_a, face_b, va, vb, frame, opposite);
     }
     let disc_is_a = da.is_some();
     let (disc_brep, disc_fi, disc_coords) = if disc_is_a {
@@ -836,6 +838,101 @@ fn build_disc_pair(
         (disc_face_tris, poly_face_tris)
     } else {
         (poly_face_tris, disc_face_tris)
+    };
+    if opposite {
+        for t in &mut tris_b {
+            t.swap(1, 2);
+        }
+    }
+    DiscPair::Handled { tris_a, tris_b }
+}
+
+/// A disc face's exact Stage-1 rim ring (frame coords) plus its centre, both as
+/// `V2`. The rim is bit-identical to what the cylinder lateral sharing it gets,
+/// so any override built from it stays conformal.
+fn disc_ring_and_center(
+    brep: &BRep,
+    fi: usize,
+    coords: &[Point3],
+    frame: &Frame,
+) -> Option<(Vec<V2>, V2)> {
+    let circle_e = disc_circle_edge(brep, fi)?;
+    let Curve::Circle { center, .. } = brep.edges()[circle_e as usize].curve else {
+        return None;
+    };
+    let rim3 = disc_rim_ring(brep, fi, coords, frame)?;
+    let ring: Vec<V2> = rim3
+        .iter()
+        .map(|&p| mk_v2(p, frame))
+        .collect::<Option<_>>()?;
+    let center_v = mk_v2(center, frame)?;
+    Some((ring, center_v))
+}
+
+/// Build override triangles for a near-coplanar pair where BOTH faces are flat
+/// circular discs and one rim strictly contains the other (the §4.5.5
+/// disc∩disc containment sub-class — a bearing recess / coaxial cap-on-cap).
+///
+/// Mirrors [`build_disc_pair`]'s containment build: the OVERLAP is the inner
+/// disc fanned about its own centre (emitted identically to both solids), and
+/// the larger disc additionally owns the angular-merge ANNULUS between the two
+/// rims. Both rims are kept exactly (each shared with its cylinder lateral).
+/// Crossing rims defer to Increment 2 (`Wall("disc-disc-crossing")`); a benign
+/// disjoint coplanar pair returns `Empty`.
+#[allow(clippy::too_many_arguments)]
+fn build_disc_disc_containment(
+    a: &BRep,
+    b: &BRep,
+    face_a: usize,
+    face_b: usize,
+    va: &[Point3],
+    vb: &[Point3],
+    frame: &Frame,
+    opposite: bool,
+) -> DiscPair {
+    let (Some((ring_a, center_a)), Some((ring_b, center_b))) = (
+        disc_ring_and_center(a, face_a, va, frame),
+        disc_ring_and_center(b, face_b, vb, frame),
+    ) else {
+        return DiscPair::Wall("disc-rim");
+    };
+    let (Some(ring_a), Some(ring_b)) = (orient_ccw(ring_a), orient_ccw(ring_b)) else {
+        return DiscPair::Wall("disc-degenerate");
+    };
+
+    // Strict containment (a tangency or crossing falls through, as in the
+    // disc∩polygon path).
+    let a_in_b = ring_a.iter().all(|v| strictly_inside_convex(&ring_b, &v.e));
+    let b_in_a = ring_b.iter().all(|v| strictly_inside_convex(&ring_a, &v.e));
+    // (inner, outer, inner-centre, inner_is_a)
+    let (inner, outer, inner_center, inner_is_a) = if a_in_b {
+        (&ring_a, &ring_b, &center_a, true)
+    } else if b_in_a {
+        (&ring_b, &ring_a, &center_b, false)
+    } else if convex_rings_overlap(&ring_a, &ring_b) {
+        return DiscPair::Wall("disc-disc-crossing");
+    } else {
+        return DiscPair::Empty;
+    };
+
+    let Some(overlap) = fan_tris(inner_center, inner) else {
+        return DiscPair::Wall("disc-overlap-tri");
+    };
+    let Some(annulus) = annulus_tris(outer, inner) else {
+        return DiscPair::Wall("disc-annulus-tri");
+    };
+
+    // Triangles are frame-CCW (= face A's outward normal): the inner face owns
+    // the overlap, the outer face owns overlap + annulus. Face A keeps frame-CCW
+    // winding; face B swaps iff its outward normal opposes the canonical one.
+    let (tris_a, mut tris_b) = if inner_is_a {
+        let mut outer_t = overlap.clone();
+        outer_t.extend(annulus);
+        (overlap, outer_t)
+    } else {
+        let mut outer_t = overlap.clone();
+        outer_t.extend(annulus);
+        (outer_t, overlap)
     };
     if opposite {
         for t in &mut tris_b {

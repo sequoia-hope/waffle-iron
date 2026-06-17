@@ -730,12 +730,12 @@ fn smoke_corpus_boundary_categories() {
         ("F0025", Category::SupportedCorrect),
         // PR-KV5b: circle profiles now extrude to cylinder solids, so these
         // cases march PAST the old curved-profile wall to their next
-        // boundary — the auto-union of coaxial stacked cylinders is a
-        // coplanar pair (cap-on-cap), the M8 Stage-0 residue.
-        (
-            "F0030",
-            Category::Unsupported(UnsupportedReason::CoplanarBoolean),
-        ),
+        // boundary — the auto-union of coaxial cylinders is a coplanar pair
+        // (cap-on-cap). PR-M8-disc-disc (Increment 1) handles disc∩disc
+        // CONTAINMENT, so F0030 (coaxial cap-on-cap, one rim inside the other)
+        // now succeeds end-to-end. F0086 stays the M8 residue (a coplanar
+        // sub-case Increment 1 does not yet cover — crossing / multi-pair).
+        ("F0030", Category::SupportedCorrect),
         (
             "F0086",
             Category::Unsupported(UnsupportedReason::CoplanarBoolean),
@@ -774,9 +774,11 @@ fn smoke_corpus_boundary_categories() {
         // F0041: cylinder×cylinder lateral∩lateral is degree-4 — yang's
         // Stage-3 SSI wall (AmbiguousCurve), surfaced loudly.
         ("F0041", Category::Error),
-        // R0067: yang Stage-5 in/out classification NoExplicitRayOrigin on
-        // a curved patch — fails INSIDE yang, typed and loud.
-        ("R0067", Category::Error),
+        // R0067: was a yang Stage-5 NoExplicitRayOrigin wall on a curved patch;
+        // that path has since been resolved and the case now replays correctly
+        // (all mesh oracles pass). Stale-pin reconciliation — pre-existing
+        // drift, independent of the M8 coplanar work.
+        ("R0067", Category::SupportedCorrect),
         // F0091: TRUE face-to-face union — 1u cube extruded ON the 2u cube's
         // top face (bottom face strictly inside the top face). The coplanar
         // NotSupported gate does not fire for strict containment and the

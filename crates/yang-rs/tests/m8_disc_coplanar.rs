@@ -3,10 +3,9 @@
 //! face bounded by a single closed `Curve::Circle`) coplanar with a planar
 //! POLYGON face of the other solid.
 //!
-//! The full-corpus survey (`YANG_COPLANAR_PROBE=1`) found that EVERY
-//! `face-unsupported` coplanar-wall hit is exactly this shape — a disc vs a
-//! 4-sided box face (22) or a high-segment tessellated face (6); no
-//! disc∩disc, no ellipse, no partial arc. Stage 0 now samples the disc's rim
+//! PR-M8-disc-disc (Increment 1) extends this to disc∩disc CONTAINMENT — a
+//! cap-on-cap pair where one rim is strictly inside the other (a bearing
+//! recess / coaxial cap stack). Stage 0 samples the disc's rim
 //! into the SAME ring Stage 1 builds for the cap/lateral (extracted from
 //! Stage 1's own output, so it is bit-identical and the §4.5.5 shared-mesh
 //! guarantee holds), then routes the disc through the existing exact polygon
@@ -205,6 +204,29 @@ fn nb() -> impl yang_rs::MeshBoolean {
     yang_rs::native_backend().expect("native backend always available")
 }
 
+/// Is the mesh CONSISTENTLY oriented — every interior edge traversed in
+/// opposite directions by its two triangles? A flipped patch makes some
+/// directed edge appear twice (same direction). This is orientation-correct
+/// even for concave/pocketed solids (unlike a centroid-outward heuristic).
+fn is_consistently_oriented(mesh: &Mesh) -> bool {
+    use std::collections::HashMap;
+    let mut directed: HashMap<(u32, u32), u32> = HashMap::new();
+    for t in &mesh.tris {
+        for k in 0..3 {
+            *directed.entry((t[k], t[(k + 1) % 3])).or_insert(0) += 1;
+        }
+    }
+    // Consistent ⇔ no directed edge is used more than once.
+    directed.values().all(|&c| c == 1)
+}
+
+/// Then orient globally: a consistently-oriented closed mesh has positive
+/// signed volume iff outward. Combined with `is_consistently_oriented`, a
+/// positive signed volume confirms an outward-oriented solid.
+fn is_outward_solid(mesh: &Mesh) -> bool {
+    is_consistently_oriented(mesh) && signed_volume(mesh) > 0.0
+}
+
 // ════════════════════════════════════════════════════════════════════
 // tests
 // ════════════════════════════════════════════════════════════════════
@@ -249,6 +271,100 @@ fn polygon_in_disc_union_succeeds() {
     assert!(
         is_watertight(out.as_mesh()),
         "union output must be a closed 2-manifold"
+    );
+}
+
+/// disc∩disc CONTAINMENT, UNION: a narrow r=0.5 cylinder stands coaxially on
+/// the flat top cap (r=2) of a wide cylinder — both caps coplanar at z=2, the
+/// small rim strictly inside the large rim. Union must succeed (was the M8
+/// `disc-disc` wall), watertight, volume ≈ wide cylinder (π·4·2) + the small
+/// protrusion (π·0.25·1) within the chord band.
+#[test]
+fn disc_in_disc_union_succeeds() {
+    let wide = z_cylinder(0.0, 0.0, 0.0, 2.0, 2.0); // top cap at z=2
+    let pin = z_cylinder(0.0, 0.0, 2.0, 0.5, 1.0); // bottom cap at z=2
+    let out = boolean(&wide, &pin, BoolOp::Union, &nb())
+        .expect("disc∩disc containment union must be handled by Stage 0");
+    let mesh = out.as_mesh();
+    assert!(
+        is_watertight(mesh),
+        "union output must be a closed 2-manifold"
+    );
+    // The pin protrudes above the body top: the union must reach the pin's top
+    // (z=3), proving the small disc was fused (not dropped). (Volume is a poor
+    // discriminator here — the pin is only ~3% of the coarsely-tessellated wide
+    // cylinder, well inside the N-gon under-fill band.)
+    let max_z = mesh.verts.iter().map(|p| p.z()).fold(f64::MIN, f64::max);
+    assert!(
+        (max_z - 3.0).abs() < 1e-6,
+        "union must include the protruding pin (max z {max_z}, expected 3)"
+    );
+    assert!(
+        is_outward_solid(mesh),
+        "union must be consistently outward-oriented (no flipped patch)"
+    );
+    let vol = signed_volume(mesh).abs();
+    let analytic = std::f64::consts::PI * 4.0 * 2.0 + std::f64::consts::PI * 0.25 * 1.0;
+    assert!(
+        (vol - analytic).abs() / analytic < 0.06,
+        "union volume {vol} not within chord band of analytic {analytic}"
+    );
+}
+
+/// disc∩disc CONTAINMENT, SUBTRACT — the BEARING RECESS the user reported: a
+/// small cylinder is cut partial-depth into the flat top of a larger cylinder,
+/// the two caps coplanar at z=2. Must succeed (was the M8 wall), watertight,
+/// and remove material (volume strictly less than the solid body).
+#[test]
+fn bearing_recess_subtract_succeeds() {
+    let body = z_cylinder(0.0, 0.0, 0.0, 2.0, 2.0); // body top cap at z=2
+                                                    // Recess tool: small cylinder spanning the cap, cut downward into the body.
+    let tool = z_cylinder(0.0, 0.0, 1.0, 0.5, 1.0); // top cap at z=2, into body
+    let out = boolean(&body, &tool, BoolOp::Subtract, &nb())
+        .expect("bearing-recess subtract (disc∩disc) must be handled by Stage 0");
+    let mesh = out.as_mesh();
+    assert!(
+        is_watertight(mesh),
+        "bearing-recess output must be a closed 2-manifold"
+    );
+    assert!(
+        is_outward_solid(mesh),
+        "bearing-recess normals must point outward"
+    );
+    let vol = signed_volume(mesh).abs();
+    let body_vol = std::f64::consts::PI * 4.0 * 2.0;
+    let recess = std::f64::consts::PI * 0.25 * 1.0;
+    assert!(
+        vol < body_vol - recess * 0.5,
+        "recess must remove material: vol {vol} vs body {body_vol}"
+    );
+}
+
+/// Two coplanar caps whose rims are disjoint in-plane (AABBs overlap via the
+/// scan band, the discs do not): benign — Stage 0 emits no override and the
+/// exact arrangement passes the coplanar non-overlap through.
+#[test]
+fn disc_disc_disjoint_is_benign() {
+    // Both caps at z=2; centres 3 apart, radii 0.5 each → rims disjoint.
+    let left = z_cylinder(-1.5, 0.0, 2.0, 0.5, 1.0);
+    let right = z_cylinder(1.5, 0.0, 0.0, 0.5, 2.0); // top cap at z=2
+    let out =
+        boolean(&left, &right, BoolOp::Union, &nb()).expect("disjoint coplanar caps are benign");
+    assert!(is_watertight(out.as_mesh()));
+}
+
+/// INCREMENT 2 BOUNDARY: two coplanar caps whose rims CROSS (neither contained)
+/// need arc∩arc crossing + rim-split propagation — deferred. Must stay loud.
+#[test]
+fn disc_disc_crossing_stays_unsupported() {
+    // Both caps at z=2, radius 1, centres 1 apart → rims cross.
+    let a = z_cylinder(-0.5, 0.0, 2.0, 1.0, 1.0);
+    let b = z_cylinder(0.5, 0.0, 0.0, 1.0, 2.0); // top cap at z=2
+    let err = boolean(&a, &b, BoolOp::Union, &nb())
+        .expect_err("crossing disc∩disc must stay the loud M8 residue");
+    assert!(
+        matches!(err, YangError::CoplanarFacesUnsupported { .. }),
+        "expected CoplanarFacesUnsupported, got {err:?}"
     );
 }
 
