@@ -2559,11 +2559,12 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 
 	// A genuine sub-region (no whole-loop profile denotes it) is extruded from
 	// its explicit boundary; whole-loop selections leave this null and use
-	// profile_index (the analytical path).
-	// Deep-clone to strip Svelte 5 $state proxies (postMessage can't clone them).
+	// profile_index (the analytical path). Send the whole region (outer/holes +
+	// recovered arc edges) so the engine builds true curved walls. Deep-clone to
+	// strip Svelte 5 $state proxies (postMessage can't clone them).
 	const subRegion =
 		region?.region && region.region.profile_entity_ids == null
-			? JSON.parse(JSON.stringify({ outer: region.region.outer, holes: region.region.holes ?? [] }))
+			? JSON.parse(JSON.stringify(region.region))
 			: null;
 
 	const { depthMode = 'Blind', secondDir = 'None', secondDepth = 10, flipDirection = false } = opts;

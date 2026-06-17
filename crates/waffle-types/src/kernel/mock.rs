@@ -1302,18 +1302,18 @@ impl Kernel for MockKernel {
 
     fn make_face_from_region(
         &mut self,
-        outer: &[(f64, f64)],
-        holes: &[Vec<(f64, f64)>],
+        region: &crate::Region,
         plane_origin: [f64; 3],
         plane_normal: [f64; 3],
         _plane_x_axis: [f64; 3],
     ) -> Result<KernelId, KernelError> {
-        let outer_area = if outer.len() >= 3 {
-            shoelace_area(outer).abs()
+        let outer_area = if region.outer.len() >= 3 {
+            shoelace_area(&region.outer).abs()
         } else {
             1.0
         };
-        let hole_area: f64 = holes
+        let hole_area: f64 = region
+            .holes
             .iter()
             .filter(|h| h.len() >= 3)
             .map(|h| shoelace_area(h).abs())

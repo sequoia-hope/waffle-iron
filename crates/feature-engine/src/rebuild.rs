@@ -397,13 +397,7 @@ fn execute_feature(
             // denotes — build its face directly. Otherwise use the profile list
             // (the analytical path: Profile::circle / exact loops).
             let face_id = if let Some(region) = &params.region {
-                kb.make_face_from_region(
-                    &region.outer,
-                    &region.holes,
-                    face_origin,
-                    sketch.plane_normal,
-                    x_axis,
-                )?
+                kb.make_face_from_region(region, face_origin, sketch.plane_normal, x_axis)?
             } else {
                 let face_ids = kb.make_faces_from_profiles(
                     &sketch.solved_profiles,

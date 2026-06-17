@@ -117,10 +117,13 @@ test('clicking the annulus extrudes a prism with a through-hole (KV-region)', as
 
 	const meshes = await waffle.page.evaluate(() => window.__waffle.getMeshes());
 	expect(meshes.length).toBeGreaterThanOrEqual(1);
-	// An annular prism has the hole's inner walls: more than a plain disk.
+	// TRUE CURVES: the annulus extrudes as exact cylinder walls (a few patches
+	// per circle) + caps — inner walls present (>6) but NOT a faceted prism
+	// (~140 faces at this tessellation).
 	expect(
 		meshes[0].faceRangeCount,
-		`annulus should have inner walls (>6 faces), got ${meshes[0].faceRangeCount}`
+		`annulus should be a holed solid with cylinder walls, got ${meshes[0].faceRangeCount}`
 	).toBeGreaterThan(6);
+	expect(meshes[0].faceRangeCount).toBeLessThanOrEqual(24);
 	expectNoAnyCrash(crashes);
 });

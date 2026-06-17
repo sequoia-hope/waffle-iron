@@ -138,12 +138,12 @@ pub trait Kernel {
     ///
     /// Used to extrude minimal sub-regions of overlapping sketch shapes
     /// (annulus, lens, crescent) that no single whole-loop profile denotes. The
-    /// boundary is taken as given (tessellated) — analytical surface recovery is
-    /// not attempted here.
+    /// region's `*_edges` carry recovered circular arcs so the implementation
+    /// can build exact cylinder walls; `outer`/`holes` are the tessellated
+    /// fallback.
     fn make_face_from_region(
         &mut self,
-        _outer: &[(f64, f64)],
-        _holes: &[Vec<(f64, f64)>],
+        _region: &crate::Region,
         _plane_origin: [f64; 3],
         _plane_normal: [f64; 3],
         _plane_x_axis: [f64; 3],

@@ -81,11 +81,13 @@ fn annulus_region_extrudes_to_holed_prism() {
         (volume - expected_volume).abs() / expected_volume < 1e-3,
         "annulus volume {volume} should match area×depth {expected_volume}"
     );
-    // A holed prism has inner walls: more than a plain box's 6 faces.
+    // TRUE CURVES: outer + inner walls are a handful of exact cylinder patches
+    // (a few per circle) + 2 caps — NOT a faceted prism (which would be ~140
+    // faces at this tessellation). Inner walls present ⇒ > 6 faces.
+    let faces = mesh.face_ranges.len();
     assert!(
-        mesh.face_ranges.len() > 6,
-        "annulus prism should have inner walls (>6 faces), got {}",
-        mesh.face_ranges.len()
+        (7..=24).contains(&faces),
+        "annulus should be a holed solid with exact cylinder walls (got {faces} faces)"
     );
 }
 
@@ -110,5 +112,12 @@ fn lens_region_extrudes_to_solid() {
     assert!(
         (volume - expected_volume).abs() / expected_volume < 1e-3,
         "lens volume {volume} should match area×depth {expected_volume}"
+    );
+    // TRUE CURVES: the lens is bounded by two exact cylinder walls (each maybe
+    // split once) + 2 caps — a single-digit face count, not a faceted prism.
+    let faces = mesh.face_ranges.len();
+    assert!(
+        faces <= 10,
+        "lens should have exact cylinder walls (got {faces} faces)"
     );
 }

@@ -13,7 +13,7 @@ pub use gear::{
 };
 pub use geom_ref::*;
 pub use profiles::extract_profiles;
-pub use regions::{compute_regions, Region};
+pub use regions::{compute_regions, Region, RegionEdge};
 pub use roles::*;
 pub use sketch::*;
 pub use topo::*;

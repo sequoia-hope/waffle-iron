@@ -20,9 +20,12 @@
 //! ids back to a `profile_index` and extrudes through the existing analytical
 //! path (`Profile::circle` for circles, exact loops otherwise), so the common
 //! non-overlapping case is byte-for-byte unchanged. Genuine sub-regions
-//! (annulus, lens, crescent) have `profile_entity_ids == None` and are extruded
-//! from their explicit tessellated boundary — curved sub-region boundaries are
-//! therefore faceted, an accepted and documented limitation.
+//! (annulus, lens, crescent) have `profile_entity_ids == None`; their boundary
+//! is still extruded with TRUE curves: [`recover_edges`] re-derives the circular
+//! arc runs from the tessellated boundary (vertices placed exactly on the source
+//! circle, full/major arcs split into minor sub-arcs) and the kernel builds
+//! exact cylinder walls via `Profile::arc_polygon`. The tessellated `outer`/
+//! `holes` remain for hit-testing and as a loud fallback.
 
 use std::collections::HashMap;
 
@@ -53,6 +56,32 @@ pub struct Region {
     /// explicit `outer`/`holes`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile_entity_ids: Option<Vec<u32>>,
+    /// Curve-aware outer boundary: the same loop as `outer`, but with runs that
+    /// lie on a source circle/arc recovered as [`RegionEdge::Arc`] (split into
+    /// minor arcs, vertices placed exactly on the circle). The extrude path
+    /// builds exact cylinder walls from these.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outer_edges: Vec<RegionEdge>,
+    /// Curve-aware hole boundaries (parallel to `holes`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hole_edges: Vec<Vec<RegionEdge>>,
+}
+
+/// One boundary edge of a region, in sketch UV coordinates. Mirrors the
+/// kernel's `ProfileEdge` so a sub-region extrudes with true curved walls.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind")]
+pub enum RegionEdge {
+    /// Straight segment `a → b`.
+    Line { a: (f64, f64), b: (f64, f64) },
+    /// Minor circular arc `a → b` (sweep `< π`) about `center` of `radius`.
+    Arc {
+        a: (f64, f64),
+        b: (f64, f64),
+        center: (f64, f64),
+        radius: f64,
+        ccw: bool,
+    },
 }
 
 /// Default relative chord tolerance for tessellating curved boundaries.
@@ -134,6 +163,9 @@ pub fn compute_regions(
         faces.remove(i);
     }
 
+    // Source circles/arcs, for recovering true-curve boundary edges.
+    let circles = source_circles(entities, positions);
+
     // Canonical whole-entity profiles, for analytical provenance matching.
     let profiles = crate::profiles::extract_profiles(entities, positions);
     let profile_outlines: Vec<(f64, (f64, f64), &crate::sketch::ClosedProfile)> = profiles
@@ -168,14 +200,339 @@ pub fn compute_regions(
             None
         };
 
+        // Recover true-curve edges (arc runs on source circles → minor arcs).
+        let outer_edges = recover_edges(&outer, &circles);
+        let hole_edges: Vec<Vec<RegionEdge>> =
+            holes.iter().map(|h| recover_edges(h, &circles)).collect();
+
         regions.push(Region {
             outer,
             holes,
             area,
             profile_entity_ids,
+            outer_edges,
+            hole_edges,
         });
     }
     regions
+}
+
+// ── true-curve recovery ─────────────────────────────────────────────────────
+
+/// A source circle/arc carrier: any boundary point lying on it is on this circle.
+struct CircleCurve {
+    center: (f64, f64),
+    radius: f64,
+}
+
+fn source_circles(
+    entities: &[SketchEntity],
+    positions: &HashMap<u32, (f64, f64)>,
+) -> Vec<CircleCurve> {
+    let mut out = Vec::new();
+    for e in entities {
+        if e.is_construction() {
+            continue;
+        }
+        match e {
+            SketchEntity::Circle {
+                center_id, radius, ..
+            } => {
+                if let Some(&c) = positions.get(center_id) {
+                    out.push(CircleCurve {
+                        center: c,
+                        radius: *radius,
+                    });
+                }
+            }
+            SketchEntity::Arc {
+                center_id,
+                start_id,
+                ..
+            } => {
+                if let (Some(&c), Some(&s)) = (positions.get(center_id), positions.get(start_id)) {
+                    let r = ((s.0 - c.0).powi(2) + (s.1 - c.1).powi(2)).sqrt();
+                    if r > 0.0 {
+                        out.push(CircleCurve {
+                            center: c,
+                            radius: r,
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+fn dist(a: (f64, f64), b: (f64, f64)) -> f64 {
+    ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt()
+}
+
+fn signed_area(p: &[(f64, f64)]) -> f64 {
+    let n = p.len();
+    let mut a = 0.0;
+    for i in 0..n {
+        let j = (i + 1) % n;
+        a += p[i].0 * p[j].1 - p[j].0 * p[i].1;
+    }
+    a / 2.0
+}
+
+/// Maximum sweep per emitted arc edge. Strictly under π so every edge is the
+/// MINOR arc the kernel assembler expects.
+const MAX_ARC_SWEEP: f64 = 2.0;
+
+/// One maximal run of consecutive boundary segments sharing a circle (or none).
+struct Run {
+    circle: Option<usize>,
+    seg0: usize, // first segment index (= the run's start point index)
+    len: usize,  // number of segments
+}
+
+/// Recover the curve-aware edge loop for a tessellated boundary `pts` (cyclic,
+/// no repeated closing vertex). A segment lies on a circle when both endpoints
+/// and its midpoint do; consecutive same-circle segments form an arc run that is
+/// re-emitted as minor arcs with vertices placed EXACTLY on the circle (by
+/// angle), and run boundaries placed at the exact circle∩circle intersection (or
+/// projected onto the circle at an arc↔line junction). Straight segments stay
+/// `Line`. The exactness is required by the kernel's arc validator.
+fn recover_edges(pts: &[(f64, f64)], circles: &[CircleCurve]) -> Vec<RegionEdge> {
+    if pts.len() < 2 {
+        return Vec::new();
+    }
+    // The kernel's arc assembler takes EVERY loop CCW (it reverses holes itself),
+    // so normalize a clockwise input (i_overlay's hole convention) to CCW first.
+    let ccw_owned;
+    let pts: &[(f64, f64)] = if signed_area(pts) < 0.0 {
+        ccw_owned = pts.iter().rev().copied().collect::<Vec<_>>();
+        &ccw_owned
+    } else {
+        pts
+    };
+    let n = pts.len();
+
+    // Tag each cyclic segment with the circle it lies on, if any.
+    let seg_circle: Vec<Option<usize>> = (0..n)
+        .map(|i| {
+            let a = pts[i];
+            let b = pts[(i + 1) % n];
+            let mid = ((a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5);
+            circles.iter().position(|c| {
+                // circle∩circle corners are chord-intersections ~sagitta inside,
+                // so allow that slack; a straight line's midpoint is far off,
+                // which is what rejects line segments.
+                let end_tol = (5.0e-3 * c.radius).max(1.0e-9);
+                let mid_tol = (5.0e-3 * c.radius).max(1.0e-9);
+                (dist(a, c.center) - c.radius).abs() < end_tol
+                    && (dist(b, c.center) - c.radius).abs() < end_tol
+                    && (dist(mid, c.center) - c.radius).abs() < mid_tol
+            })
+        })
+        .collect();
+
+    // No arcs at all → straight loop (tessellation == exact for lines).
+    if seg_circle.iter().all(|s| s.is_none()) {
+        return (0..n)
+            .map(|i| RegionEdge::Line {
+                a: pts[i],
+                b: pts[(i + 1) % n],
+            })
+            .collect();
+    }
+
+    // A single full-circle loop: split 2π into minor arcs, vertices on-circle.
+    if seg_circle.iter().all(|s| *s == seg_circle[0]) {
+        let c = &circles[seg_circle[0].unwrap()];
+        let v0 = project_to_circle(pts[0], c);
+        let sweep = loop_signed_sweep(pts, c);
+        return split_arc(v0, v0, c, sweep);
+    }
+
+    // Build runs cyclically, rotating so a run never straddles index 0.
+    let start = (0..n)
+        .find(|&i| seg_circle[i] != seg_circle[(i + n - 1) % n])
+        .unwrap_or(0);
+    let mut runs: Vec<Run> = Vec::new();
+    let mut k = 0;
+    while k < n {
+        let seg = (start + k) % n;
+        let circle = seg_circle[seg];
+        let mut len = 0;
+        while k + len < n && seg_circle[(start + k + len) % n] == circle {
+            len += 1;
+        }
+        runs.push(Run {
+            circle,
+            seg0: seg,
+            len,
+        });
+        k += len;
+    }
+
+    // Exact boundary vertex between run[j-1] and run[j] (at point runs[j].seg0).
+    let m = runs.len();
+    let verts: Vec<(f64, f64)> = (0..m)
+        .map(|j| {
+            let prev = runs[(j + m - 1) % m].circle;
+            let cur = runs[j].circle;
+            exact_corner(pts[runs[j].seg0], prev, cur, circles)
+        })
+        .collect();
+
+    // Emit each run between its exact boundary vertices.
+    let mut edges = Vec::new();
+    for j in 0..m {
+        let run = &runs[j];
+        let vs = verts[j];
+        let ve = verts[(j + 1) % m];
+        match run.circle {
+            None => {
+                // Straight run: keep interior tessellated vertices (e.g. polygon
+                // corners), with exact endpoints at the run boundaries.
+                let mut a = vs;
+                for s in 1..run.len {
+                    let p = pts[(run.seg0 + s) % n];
+                    edges.push(RegionEdge::Line { a, b: p });
+                    a = p;
+                }
+                edges.push(RegionEdge::Line { a, b: ve });
+            }
+            Some(cid) => {
+                let c = &circles[cid];
+                let sweep = run_signed_sweep(pts, n, run.seg0, run.len, c);
+                edges.extend(split_arc(vs, ve, c, sweep));
+            }
+        }
+    }
+    edges
+}
+
+fn project_to_circle(p: (f64, f64), c: &CircleCurve) -> (f64, f64) {
+    let d = (p.0 - c.center.0, p.1 - c.center.1);
+    let len = (d.0 * d.0 + d.1 * d.1).sqrt();
+    if len < 1.0e-300 {
+        return (c.center.0 + c.radius, c.center.1);
+    }
+    (
+        c.center.0 + c.radius * d.0 / len,
+        c.center.1 + c.radius * d.1 / len,
+    )
+}
+
+fn point_at_angle(c: &CircleCurve, theta: f64) -> (f64, f64) {
+    (
+        c.center.0 + c.radius * theta.cos(),
+        c.center.1 + c.radius * theta.sin(),
+    )
+}
+
+/// Signed sweep of a full-circle loop (≈ ±2π), summed from per-segment deltas.
+fn loop_signed_sweep(pts: &[(f64, f64)], c: &CircleCurve) -> f64 {
+    let n = pts.len();
+    (0..n).map(|i| seg_delta(pts[i], pts[(i + 1) % n], c)).sum()
+}
+
+/// Signed sweep of an arc run (segments seg0..seg0+len on circle `c`).
+fn run_signed_sweep(pts: &[(f64, f64)], n: usize, seg0: usize, len: usize, c: &CircleCurve) -> f64 {
+    (0..len)
+        .map(|j| {
+            let i = (seg0 + j) % n;
+            seg_delta(pts[i], pts[(i + 1) % n], c)
+        })
+        .sum()
+}
+
+fn seg_delta(a: (f64, f64), b: (f64, f64), c: &CircleCurve) -> f64 {
+    let aa = (a.1 - c.center.1).atan2(a.0 - c.center.0);
+    let ab = (b.1 - c.center.1).atan2(b.0 - c.center.0);
+    let mut d = ab - aa;
+    while d > std::f64::consts::PI {
+        d -= std::f64::consts::TAU;
+    }
+    while d < -std::f64::consts::PI {
+        d += std::f64::consts::TAU;
+    }
+    d
+}
+
+/// Split the arc on `c` from `vs` to `ve` (both exactly on `c`) sweeping `sweep`
+/// into minor sub-arcs (< π each), interior vertices placed on-circle by angle
+/// so the kernel's exact arc validator accepts them. `vs`/`ve` are used verbatim
+/// as the run's exact boundary vertices.
+fn split_arc(vs: (f64, f64), ve: (f64, f64), c: &CircleCurve, sweep: f64) -> Vec<RegionEdge> {
+    let kk = ((sweep.abs() / MAX_ARC_SWEEP).ceil() as usize).max(1);
+    let theta0 = (vs.1 - c.center.1).atan2(vs.0 - c.center.0);
+    let ccw = sweep > 0.0;
+    let mut out = Vec::with_capacity(kk);
+    for i in 0..kk {
+        let a = if i == 0 {
+            vs
+        } else {
+            point_at_angle(c, theta0 + sweep * (i as f64 / kk as f64))
+        };
+        let b = if i + 1 == kk {
+            ve
+        } else {
+            point_at_angle(c, theta0 + sweep * ((i + 1) as f64 / kk as f64))
+        };
+        if dist(a, b) < 1.0e-12 {
+            continue;
+        }
+        out.push(RegionEdge::Arc {
+            a,
+            b,
+            center: c.center,
+            radius: c.radius,
+            ccw,
+        });
+    }
+    out
+}
+
+/// Exact run-boundary vertex near `tess` between a run on `prev` and a run on
+/// `cur`. Arc↔arc → the circle∩circle intersection nearest `tess`; arc↔line →
+/// the tessellated point projected onto the arc's circle; line↔line → `tess`.
+fn exact_corner(
+    tess: (f64, f64),
+    prev: Option<usize>,
+    cur: Option<usize>,
+    circles: &[CircleCurve],
+) -> (f64, f64) {
+    match (prev, cur) {
+        (Some(pa), Some(cb)) if pa != cb => {
+            circle_intersection(&circles[pa], &circles[cb], tess).unwrap_or(tess)
+        }
+        (Some(ci), _) | (_, Some(ci)) => project_to_circle(tess, &circles[ci]),
+        _ => tess,
+    }
+}
+
+/// The intersection point of two circles nearest `near`, if they intersect.
+fn circle_intersection(a: &CircleCurve, b: &CircleCurve, near: (f64, f64)) -> Option<(f64, f64)> {
+    let dx = b.center.0 - a.center.0;
+    let dy = b.center.1 - a.center.1;
+    let d2 = dx * dx + dy * dy;
+    let d = d2.sqrt();
+    if d < 1.0e-12 || d > a.radius + b.radius || d < (a.radius - b.radius).abs() {
+        return None;
+    }
+    // Distance from a.center to the radical line, and half-chord height.
+    let aa = (a.radius * a.radius - b.radius * b.radius + d2) / (2.0 * d);
+    let h2 = a.radius * a.radius - aa * aa;
+    let h = if h2 > 0.0 { h2.sqrt() } else { 0.0 };
+    let mx = a.center.0 + aa * dx / d;
+    let my = a.center.1 + aa * dy / d;
+    let ox = -dy / d * h;
+    let oy = dx / d * h;
+    let p1 = (mx + ox, my + oy);
+    let p2 = (mx - ox, my - oy);
+    Some(if dist(p1, near) <= dist(p2, near) {
+        p1
+    } else {
+        p2
+    })
 }
 
 // ── tessellation ──────────────────────────────────────────────────────────
@@ -559,5 +916,142 @@ mod tests {
     fn empty_sketch_yields_no_regions() {
         let positions = HashMap::new();
         assert!(compute_regions(&[], &positions, DEFAULT_CHORD_TOLERANCE).is_empty());
+    }
+
+    // ── true-curve recovery ────────────────────────────────────────────
+
+    fn arc_count(edges: &[RegionEdge]) -> usize {
+        edges
+            .iter()
+            .filter(|e| matches!(e, RegionEdge::Arc { .. }))
+            .count()
+    }
+    fn line_count(edges: &[RegionEdge]) -> usize {
+        edges
+            .iter()
+            .filter(|e| matches!(e, RegionEdge::Line { .. }))
+            .count()
+    }
+    /// Every arc edge must be a minor arc (sweep < π) for the kernel assembler,
+    /// with both endpoints exactly on its stated circle.
+    fn assert_arcs_valid(edges: &[RegionEdge]) {
+        for e in edges {
+            if let RegionEdge::Arc {
+                a,
+                b,
+                center,
+                radius,
+                ..
+            } = e
+            {
+                let on = |p: &(f64, f64)| {
+                    let d = (((p.0 - center.0).powi(2) + (p.1 - center.1).powi(2)).sqrt() - radius)
+                        .abs();
+                    assert!(d < 1e-9 * radius.max(1.0), "arc endpoint off circle by {d}");
+                };
+                on(a);
+                on(b);
+                let ang = |p: &(f64, f64)| (p.1 - center.1).atan2(p.0 - center.0);
+                let mut d = (ang(b) - ang(a)).abs();
+                if d > std::f64::consts::PI {
+                    d = std::f64::consts::TAU - d;
+                }
+                assert!(d < std::f64::consts::PI, "arc sweep {d} must be < π");
+            }
+        }
+    }
+
+    #[test]
+    fn annulus_outer_and_hole_are_all_arcs_minor_on_circle() {
+        let positions = pos(&[(1, 0.0, 0.0), (2, 0.0, 0.0)]);
+        let entities = vec![circle_r(10, 1, 5.0), circle_r(20, 2, 2.0)];
+        let regions = compute_regions(&entities, &positions, DEFAULT_CHORD_TOLERANCE);
+        let annulus = regions
+            .iter()
+            .find(|r| !r.holes.is_empty())
+            .expect("annulus");
+
+        assert_eq!(
+            line_count(&annulus.outer_edges),
+            0,
+            "circle outer has no line edges"
+        );
+        assert!(
+            arc_count(&annulus.outer_edges) >= 3,
+            "full circle splits into ≥3 minor arcs"
+        );
+        assert_arcs_valid(&annulus.outer_edges);
+
+        assert_eq!(annulus.hole_edges.len(), 1);
+        assert_eq!(line_count(&annulus.hole_edges[0]), 0);
+        assert!(arc_count(&annulus.hole_edges[0]) >= 3);
+        assert_arcs_valid(&annulus.hole_edges[0]);
+    }
+
+    #[test]
+    fn lens_boundary_is_arcs_only() {
+        let positions = pos(&[(1, -1.5, 0.0), (2, 1.5, 0.0)]);
+        let entities = vec![circle_r(10, 1, 3.0), circle_r(20, 2, 3.0)];
+        let regions = compute_regions(&entities, &positions, DEFAULT_CHORD_TOLERANCE);
+        let lens = regions
+            .iter()
+            .min_by(|a, b| a.area.partial_cmp(&b.area).unwrap())
+            .unwrap();
+        assert_eq!(line_count(&lens.outer_edges), 0, "lens has no line edges");
+        assert!(arc_count(&lens.outer_edges) >= 2, "lens has ≥2 arc edges");
+        assert_arcs_valid(&lens.outer_edges);
+    }
+
+    #[test]
+    fn crescent_major_arc_is_split_minor() {
+        let positions = pos(&[(1, -1.5, 0.0), (2, 1.5, 0.0)]);
+        let entities = vec![circle_r(10, 1, 3.0), circle_r(20, 2, 3.0)];
+        let regions = compute_regions(&entities, &positions, DEFAULT_CHORD_TOLERANCE);
+        let mut by_area: Vec<&Region> = regions.iter().collect();
+        by_area.sort_by(|a, b| b.area.partial_cmp(&a.area).unwrap());
+        for crescent in by_area.iter().take(2) {
+            assert_eq!(
+                line_count(&crescent.outer_edges),
+                0,
+                "crescent has no lines"
+            );
+            assert!(arc_count(&crescent.outer_edges) >= 2);
+            assert_arcs_valid(&crescent.outer_edges);
+        }
+    }
+
+    #[test]
+    fn nested_rectangle_edges_are_all_lines() {
+        let positions = pos(&[
+            (1, -10.0, -10.0),
+            (2, 10.0, -10.0),
+            (3, 10.0, 10.0),
+            (4, -10.0, 10.0),
+            (5, -4.0, -4.0),
+            (6, 4.0, -4.0),
+            (7, 4.0, 4.0),
+            (8, -4.0, 4.0),
+        ]);
+        let line = |id, a, b| SketchEntity::Line {
+            id,
+            start_id: a,
+            end_id: b,
+            construction: false,
+        };
+        let entities = vec![
+            line(10, 1, 2),
+            line(11, 2, 3),
+            line(12, 3, 4),
+            line(13, 4, 1),
+            line(20, 5, 6),
+            line(21, 6, 7),
+            line(22, 7, 8),
+            line(23, 8, 5),
+        ];
+        let regions = compute_regions(&entities, &positions, DEFAULT_CHORD_TOLERANCE);
+        for r in &regions {
+            assert_eq!(arc_count(&r.outer_edges), 0, "rectangles have no arcs");
+            assert!(line_count(&r.outer_edges) >= 4);
+        }
     }
 }

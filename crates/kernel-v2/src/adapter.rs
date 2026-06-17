@@ -936,8 +936,7 @@ impl Kernel for KernelV2Adapter {
 
     fn make_face_from_region(
         &mut self,
-        outer: &[(f64, f64)],
-        holes: &[Vec<(f64, f64)>],
+        region: &waffle_types::Region,
         plane_origin: [f64; 3],
         plane_normal: [f64; 3],
         plane_x_axis: [f64; 3],
@@ -955,14 +954,43 @@ impl Kernel for KernelV2Adapter {
         let ux = Vector3::new(x[0], x[1], x[2]);
         let vy = Vector3::new(y[0], y[1], y[2]);
 
-        let outer_pts: Vec<Point2> = outer.iter().map(|&(u, v)| Point2::new(u, v)).collect();
-        let hole_pts: Vec<Vec<Point2>> = holes
+        // Tier 2: recovered arc edges → exact cylinder walls (Profile::arc_polygon
+        // is the exact gate). On ANY decline, fall back LOUDLY to the tessellated
+        // polygon so no region regresses to "unsupported".
+        if !region.outer_edges.is_empty() {
+            let outer = region_edges_to_profile(&region.outer_edges);
+            let holes: Vec<Vec<crate::ProfileEdge>> = region
+                .hole_edges
+                .iter()
+                .map(|h| region_edges_to_profile(h))
+                .collect();
+            match crate::Profile::arc_polygon(origin, ux, vy, outer, holes) {
+                Ok(profile) => {
+                    let idx = self.next_staged;
+                    self.next_staged += 1;
+                    self.staged.insert(idx, profile);
+                    return Ok(KernelId(TAG_PROFILE | idx));
+                }
+                Err(e) => {
+                    eprintln!(
+                        "kernel-v2 region: arc_polygon declined ({e}) → tessellated polygon fallback"
+                    );
+                }
+            }
+        }
+
+        // Tier 1: tessellated polygon. Profile::new is the exact gate (simplicity,
+        // disjointness, containment) and normalizes loop winding.
+        let outer_pts: Vec<Point2> = region
+            .outer
+            .iter()
+            .map(|&(u, v)| Point2::new(u, v))
+            .collect();
+        let hole_pts: Vec<Vec<Point2>> = region
+            .holes
             .iter()
             .map(|h| h.iter().map(|&(u, v)| Point2::new(u, v)).collect())
             .collect();
-
-        // Profile::new is the exact gate (simplicity, disjointness, containment)
-        // and normalizes loop winding.
         let profile = crate::Profile::new(origin, ux, vy, outer_pts, hole_pts).map_err(|e| {
             KernelError::Other {
                 message: format!("kernel-v2 region profile rejected: {e}"),
@@ -974,6 +1002,32 @@ impl Kernel for KernelV2Adapter {
         self.staged.insert(idx, profile);
         Ok(KernelId(TAG_PROFILE | idx))
     }
+}
+
+/// Map recovered region edges to kernel `ProfileEdge`s (plane coordinates).
+fn region_edges_to_profile(edges: &[waffle_types::RegionEdge]) -> Vec<crate::ProfileEdge> {
+    edges
+        .iter()
+        .map(|e| match *e {
+            waffle_types::RegionEdge::Line { a, b } => crate::ProfileEdge::Line {
+                a: Point2::new(a.0, a.1),
+                b: Point2::new(b.0, b.1),
+            },
+            waffle_types::RegionEdge::Arc {
+                a,
+                b,
+                center,
+                radius,
+                ccw,
+            } => crate::ProfileEdge::Arc {
+                a: Point2::new(a.0, a.1),
+                b: Point2::new(b.0, b.1),
+                center: Point2::new(center.0, center.1),
+                radius,
+                ccw,
+            },
+        })
+        .collect()
 }
 
 // ── KV14 hole-assembly helpers (f64 heuristics; Profile::new is the exact gate) ─
