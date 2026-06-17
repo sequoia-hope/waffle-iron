@@ -83,6 +83,7 @@ fn make_extrude_op(sketch_id: Uuid) -> Operation {
             target_body: None,
             depth_mode: DepthMode::Blind,
             second_direction: None,
+            region: None,
         },
     }
 }
@@ -321,6 +322,7 @@ fn engine_edit_feature_triggers_rebuild() {
         target_body: None,
         depth_mode: DepthMode::Blind,
         second_direction: None,
+        region: None,
     };
     let result = engine.edit_feature(e_id, Operation::Extrude { params: new_params }, &mut kernel);
     assert!(result.is_ok());
@@ -610,6 +612,7 @@ fn rebuild_after_edit_updates_results() {
             target_body: None,
             depth_mode: DepthMode::Blind,
             second_direction: None,
+            region: None,
         },
     };
     engine.edit_feature(e_id, new_op, &mut kernel).unwrap();
@@ -723,6 +726,7 @@ fn undo_edit_feature() {
             target_body: None,
             depth_mode: DepthMode::Blind,
             second_direction: None,
+            region: None,
         },
     };
     engine.edit_feature(e_id, new_op, &mut kernel).unwrap();
@@ -901,6 +905,7 @@ fn make_extrude_op_depth(sketch_id: Uuid, depth: f64) -> Operation {
             target_body: None,
             depth_mode: DepthMode::Blind,
             second_direction: None,
+            region: None,
         },
     }
 }
@@ -1639,6 +1644,7 @@ fn extrude_through_all_without_target_body_uses_fallback() {
             target_body: None,
             depth_mode: DepthMode::ThroughAll,
             second_direction: None,
+            region: None,
         },
     };
     let e2 = engine
@@ -1685,6 +1691,7 @@ fn extrude_through_all_no_prior_body_uses_large_fallback() {
             target_body: None,
             depth_mode: DepthMode::ThroughAll,
             second_direction: None,
+            region: None,
         },
     };
     let e1 = engine
@@ -1740,6 +1747,7 @@ fn cut_extrude_produces_boolean_subtract_result() {
             target_body: None,
             depth_mode: DepthMode::Blind,
             second_direction: None,
+            region: None,
         },
     };
     let e2 = engine
@@ -1783,6 +1791,7 @@ fn cut_extrude_without_base_body_errors() {
             target_body: None,
             depth_mode: DepthMode::Blind,
             second_direction: None,
+            region: None,
         },
     };
     let e1 = engine
@@ -1830,6 +1839,7 @@ fn symmetric_extrude_produces_solid() {
             target_body: None,
             depth_mode: DepthMode::Blind,
             second_direction: Some(SecondDirection::Symmetric),
+            region: None,
         },
     };
     let e1 = engine
@@ -1872,6 +1882,7 @@ fn symmetric_flag_backwards_compat() {
             target_body: None,
             depth_mode: DepthMode::Blind,
             second_direction: None,
+            region: None,
         },
     };
     let e1 = engine
@@ -1908,6 +1919,7 @@ fn second_direction_blind_produces_solid() {
             target_body: None,
             depth_mode: DepthMode::Blind,
             second_direction: Some(SecondDirection::Blind { depth: 3.0 }),
+            region: None,
         },
     };
     let e1 = engine
@@ -2293,6 +2305,7 @@ fn depth_mode_upto_behind_sketch_plane_errors() {
                 },
             },
             second_direction: None,
+            region: None,
         },
     };
     let e2 = engine
@@ -2347,6 +2360,7 @@ fn cut_extrude_with_symmetric_second_direction() {
             target_body: None,
             depth_mode: DepthMode::Blind,
             second_direction: Some(SecondDirection::Symmetric),
+            region: None,
         },
     };
     let e2 = engine
@@ -2390,6 +2404,7 @@ fn second_direction_through_all_produces_solid() {
             target_body: None,
             depth_mode: DepthMode::Blind,
             second_direction: Some(SecondDirection::ThroughAll),
+            region: None,
         },
     };
     let e2 = engine
@@ -3090,6 +3105,7 @@ fn extrude_profile_index_out_of_range_errors() {
             target_body: None,
             depth_mode: DepthMode::Blind,
             second_direction: None,
+            region: None,
         },
     };
     let e1 = engine
@@ -3147,6 +3163,7 @@ fn extrude_custom_direction() {
             target_body: None,
             depth_mode: DepthMode::Blind,
             second_direction: None,
+            region: None,
         },
     };
     let e1 = engine
@@ -3206,6 +3223,7 @@ fn depth_mode_upto_success() {
                 },
             },
             second_direction: None,
+            region: None,
         },
     };
     let e2 = engine
@@ -3254,6 +3272,7 @@ fn depth_mode_upto_datum_reference() {
                 },
             },
             second_direction: None,
+            region: None,
         },
     };
     let e1 = engine
@@ -3317,6 +3336,7 @@ fn second_direction_upto_produces_solid() {
                     policy: ResolvePolicy::Strict,
                 },
             }),
+            region: None,
         },
     };
     let e2 = engine
@@ -3361,6 +3381,7 @@ fn cut_extrude_with_blind_second_direction() {
             target_body: None,
             depth_mode: DepthMode::Blind,
             second_direction: Some(SecondDirection::Blind { depth: 3.0 }),
+            region: None,
         },
     };
     let e2 = engine
@@ -4195,6 +4216,7 @@ fn cut_extrude_skips_sketch_and_suppressed_in_body_search() {
             target_body: None,
             depth_mode: DepthMode::Blind,
             second_direction: None,
+            region: None,
         },
     };
     let e3 = engine
@@ -4238,6 +4260,7 @@ fn through_all_with_suppressed_target_still_works() {
             target_body: None,
             depth_mode: DepthMode::ThroughAll,
             second_direction: None,
+            region: None,
         },
     };
     let e2 = engine

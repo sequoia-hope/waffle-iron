@@ -175,6 +175,12 @@ pub struct ExtrudeParams {
     pub depth_mode: DepthMode,
     #[serde(default)]
     pub second_direction: Option<SecondDirection>,
+    /// Explicit region boundary for a sketch sub-region (annulus, lens, …) that
+    /// no whole-loop `profile_index` denotes. When `Some`, the face is built
+    /// directly from this boundary and `profile_index` is ignored. Whole-loop
+    /// selections leave this `None` and use `profile_index` (analytical path).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub region: Option<waffle_types::Region>,
 }
 
 /// Parameters for a revolve operation.

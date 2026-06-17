@@ -357,6 +357,7 @@ mod tests {
                         target_body: None,
                         depth_mode: DepthMode::Blind,
                         second_direction: Some(SecondDirection::Blind { depth: 5.0 }),
+                        region: None,
                     },
                 },
                 suppressed: false,

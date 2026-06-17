@@ -933,6 +933,47 @@ impl Kernel for KernelV2Adapter {
         }
         Ok(out)
     }
+
+    fn make_face_from_region(
+        &mut self,
+        outer: &[(f64, f64)],
+        holes: &[Vec<(f64, f64)>],
+        plane_origin: [f64; 3],
+        plane_normal: [f64; 3],
+        plane_x_axis: [f64; 3],
+    ) -> Result<KernelId, KernelError> {
+        // Legacy frame convention: y axis = normal × x axis (matches
+        // make_faces_from_profiles).
+        let n = plane_normal;
+        let x = plane_x_axis;
+        let y = [
+            n[1] * x[2] - n[2] * x[1],
+            n[2] * x[0] - n[0] * x[2],
+            n[0] * x[1] - n[1] * x[0],
+        ];
+        let origin = Point3::new(plane_origin[0], plane_origin[1], plane_origin[2]);
+        let ux = Vector3::new(x[0], x[1], x[2]);
+        let vy = Vector3::new(y[0], y[1], y[2]);
+
+        let outer_pts: Vec<Point2> = outer.iter().map(|&(u, v)| Point2::new(u, v)).collect();
+        let hole_pts: Vec<Vec<Point2>> = holes
+            .iter()
+            .map(|h| h.iter().map(|&(u, v)| Point2::new(u, v)).collect())
+            .collect();
+
+        // Profile::new is the exact gate (simplicity, disjointness, containment)
+        // and normalizes loop winding.
+        let profile = crate::Profile::new(origin, ux, vy, outer_pts, hole_pts).map_err(|e| {
+            KernelError::Other {
+                message: format!("kernel-v2 region profile rejected: {e}"),
+            }
+        })?;
+
+        let idx = self.next_staged;
+        self.next_staged += 1;
+        self.staged.insert(idx, profile);
+        Ok(KernelId(TAG_PROFILE | idx))
+    }
 }
 
 // ── KV14 hole-assembly helpers (f64 heuristics; Profile::new is the exact gate) ─

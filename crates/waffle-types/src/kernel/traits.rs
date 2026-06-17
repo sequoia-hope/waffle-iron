@@ -130,6 +130,28 @@ pub trait Kernel {
         plane_x_axis: [f64; 3],
         positions: &HashMap<u32, (f64, f64)>,
     ) -> Result<Vec<KernelId>, KernelError>;
+
+    /// Create a single planar face from an explicit region boundary: an outer
+    /// loop plus zero or more hole loops, in sketch (u, v) coordinates. Each
+    /// loop is a closed polyline WITHOUT a repeated closing vertex; winding is
+    /// normalized by the kernel.
+    ///
+    /// Used to extrude minimal sub-regions of overlapping sketch shapes
+    /// (annulus, lens, crescent) that no single whole-loop profile denotes. The
+    /// boundary is taken as given (tessellated) — analytical surface recovery is
+    /// not attempted here.
+    fn make_face_from_region(
+        &mut self,
+        _outer: &[(f64, f64)],
+        _holes: &[Vec<(f64, f64)>],
+        _plane_origin: [f64; 3],
+        _plane_normal: [f64; 3],
+        _plane_x_axis: [f64; 3],
+    ) -> Result<KernelId, KernelError> {
+        Err(KernelError::NotSupported {
+            operation: "make_face_from_region".to_string(),
+        })
+    }
 }
 
 /// Topology introspection trait. Provides read-only queries on kernel geometry.

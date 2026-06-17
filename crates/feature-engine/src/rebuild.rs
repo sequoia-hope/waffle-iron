@@ -391,29 +391,41 @@ fn execute_feature(
             };
 
             let x_axis = tangent_x_from_normal(sketch.plane_normal);
-            let face_ids = kb.make_faces_from_profiles(
-                &sketch.solved_profiles,
-                face_origin,
-                sketch.plane_normal,
-                x_axis,
-                &sketch.solved_positions,
-            )?;
 
-            if face_ids.is_empty() {
-                return Err(EngineError::ProfileOutOfRange {
-                    index: params.profile_index,
-                    count: 0,
-                });
-            }
+            // A genuine sub-region of overlapping shapes (annulus, lens, …)
+            // carries an explicit boundary that no whole-loop profile_index
+            // denotes — build its face directly. Otherwise use the profile list
+            // (the analytical path: Profile::circle / exact loops).
+            let face_id = if let Some(region) = &params.region {
+                kb.make_face_from_region(
+                    &region.outer,
+                    &region.holes,
+                    face_origin,
+                    sketch.plane_normal,
+                    x_axis,
+                )?
+            } else {
+                let face_ids = kb.make_faces_from_profiles(
+                    &sketch.solved_profiles,
+                    face_origin,
+                    sketch.plane_normal,
+                    x_axis,
+                    &sketch.solved_positions,
+                )?;
 
-            let face_index = params.profile_index.min(face_ids.len() - 1);
-            let extrude_result = execute_extrude(
-                kb,
-                face_ids[face_index],
-                extrude_direction,
-                extrude_depth,
-                None,
-            )?;
+                if face_ids.is_empty() {
+                    return Err(EngineError::ProfileOutOfRange {
+                        index: params.profile_index,
+                        count: 0,
+                    });
+                }
+
+                let face_index = params.profile_index.min(face_ids.len() - 1);
+                face_ids[face_index]
+            };
+
+            let extrude_result =
+                execute_extrude(kb, face_id, extrude_direction, extrude_depth, None)?;
 
             if params.cut {
                 // Find the target body to subtract from (most recent solid before this feature)
@@ -1583,6 +1595,7 @@ mod tests {
                             target_body: None,
                             depth_mode: crate::types::DepthMode::Blind,
                             second_direction: None,
+                            region: None,
                         },
                     },
                     suppressed: false,

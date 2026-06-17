@@ -1299,6 +1299,39 @@ impl Kernel for MockKernel {
 
         Ok(face_ids)
     }
+
+    fn make_face_from_region(
+        &mut self,
+        outer: &[(f64, f64)],
+        holes: &[Vec<(f64, f64)>],
+        plane_origin: [f64; 3],
+        plane_normal: [f64; 3],
+        _plane_x_axis: [f64; 3],
+    ) -> Result<KernelId, KernelError> {
+        let outer_area = if outer.len() >= 3 {
+            shoelace_area(outer).abs()
+        } else {
+            1.0
+        };
+        let hole_area: f64 = holes
+            .iter()
+            .filter(|h| h.len() >= 3)
+            .map(|h| shoelace_area(h).abs())
+            .sum();
+        let area = (outer_area - hole_area).max(0.0);
+
+        let face_id = self.alloc_id();
+        let mock_face = MockFace {
+            id: face_id,
+            edges: Vec::new(),
+            normal: plane_normal,
+            centroid: plane_origin,
+            area,
+            surface_type: "planar".to_string(),
+        };
+        self.standalone_faces.insert(face_id.0, mock_face);
+        Ok(face_id)
+    }
 }
 
 /// Compute area of a 2D polygon using the shoelace formula.

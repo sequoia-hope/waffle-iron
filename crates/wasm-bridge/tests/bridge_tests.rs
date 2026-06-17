@@ -83,6 +83,7 @@ fn make_extrude_op(sketch_id: Uuid) -> Operation {
             target_body: None,
             depth_mode: feature_engine::types::DepthMode::Blind,
             second_direction: None,
+            region: None,
         },
     }
 }
@@ -989,6 +990,7 @@ fn dispatch_export_step_with_solid_reaches_kernel() {
                     target_body: None,
                     depth_mode: feature_engine::types::DepthMode::Blind,
                     second_direction: None,
+                    region: None,
                 },
             },
         },
