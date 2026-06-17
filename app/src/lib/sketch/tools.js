@@ -23,6 +23,7 @@ import {
 	findSplineNear,
 	getGearIdForEntity,
 	getGearRegistry,
+	getGearDisplay,
 	showGearDialog,
 	getExtractedProfiles,
 	setSelectedProfileIndex,
@@ -835,8 +836,9 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 		setSnapIndicator(snap.indicator);
 		updateSnapCandidates(snap, screenPixelSize);
 
-		// Hit-test for hover
-		const hitId = hitTest(x, y, screenPixelSize);
+		// Hit-test for hover (concrete geometry, then gear body)
+		let hitId = hitTest(x, y, screenPixelSize);
+		if (hitId == null) hitId = hitTestGear(x, y);
 		setSketchHover(hitId);
 
 		// Profile hover detection (only when no entity is hovered)
@@ -853,7 +855,9 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 		selectPointerDownPos = { x, y };
 		dragPointId = null;
 
-		const hitId = hitTest(x, y, screenPixelSize);
+		// Try concrete geometry first, then fall back to gear-body selection.
+		let hitId = hitTest(x, y, screenPixelSize);
+		if (hitId == null) hitId = hitTestGear(x, y);
 		const selection = getSketchSelection();
 
 		if (hitId == null) {
@@ -897,32 +901,12 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 		lastSelectClickTime = now;
 		lastSelectClickEntity = hitId;
 
-		// Gear group selection: select all entities in the gear
-		if (gearId != null && !shiftKey) {
-			const gearData = getGearRegistry().get(gearId);
-			if (gearData && gearData.entityIds) {
-				setSketchSelection(new Set(gearData.entityIds));
-				return;
-			}
-		}
-
+		// A gear is a single compact entity, so selection is uniform: `hitId` is
+		// either a concrete entity or the gear's `Gear` entity id.
 		if (shiftKey) {
 			const next = new Set(selection);
-			if (gearId != null) {
-				// Shift-click toggles entire gear group
-				const gearData = getGearRegistry().get(gearId);
-				if (gearData && gearData.entityIds) {
-					const allSelected = gearData.entityIds.every(eid => next.has(eid));
-					for (const eid of gearData.entityIds) {
-						if (allSelected) next.delete(eid);
-						else next.add(eid);
-					}
-				}
-			} else if (next.has(hitId)) {
-				next.delete(hitId);
-			} else {
-				next.add(hitId);
-			}
+			if (next.has(hitId)) next.delete(hitId);
+			else next.add(hitId);
 			setSketchSelection(next);
 		} else {
 			setSketchSelection(new Set([hitId]));
@@ -988,6 +972,28 @@ function hitTest(x, y, screenPixelSize) {
 	const nearSpline = findSplineNear(x, y, lineThreshold);
 	if (nearSpline) return nearSpline.id;
 
+	return null;
+}
+
+/**
+ * Hit-test gears: a gear is one compact `Gear` entity whose drawable geometry
+ * lives in `gearDisplay`. A click inside a gear's boundary outline selects the
+ * whole gear. Returns the gear's `Gear` entity id, or null.
+ *
+ * @param {number} x
+ * @param {number} y
+ * @returns {number | null}
+ */
+function hitTestGear(x, y) {
+	const display = getGearDisplay();
+	if (display.size === 0) return null;
+	const registry = getGearRegistry();
+	for (const [gearId, disp] of display) {
+		if (disp.outline && disp.outline.length >= 3 && pointInPolygon(x, y, disp.outline)) {
+			const entityId = registry.get(gearId)?.entityId;
+			if (entityId != null) return entityId;
+		}
+	}
 	return null;
 }
 

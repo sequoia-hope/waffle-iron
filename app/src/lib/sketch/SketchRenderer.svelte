@@ -14,7 +14,9 @@
 		getSelectedProfileIndex,
 		getHoveredProfileIndex,
 		getOverConstrainedEntities,
-		getFailedConstraintIndices
+		getFailedConstraintIndices,
+		getGearDisplay,
+		getGearRegistry
 	} from '$lib/engine/store.svelte.js';
 	import { getPreview, getSnapIndicator, getSnapCandidates } from './sketchToolState.svelte.js';
 	import { buildSketchPlane, sketchToWorld } from './sketchCoords.js';
@@ -39,6 +41,40 @@
 	let sm = $derived(getSketchMode());
 	let entities = $derived(getSketchEntities());
 	let positions = $derived(getSketchPositions());
+	let gearDisplay = $derived(getGearDisplay());
+
+	// Merged view for the curve builders (lines/arcs/circles/splines): canonical
+	// sketch geometry plus each gear's ephemeral display primitives. Gears are
+	// stored as one compact `Gear` entity; their drawable curves live in
+	// `gearDisplay` with ids in a non-colliding high range. Points are NOT merged
+	// — gear vertices must not render as hundreds of draggable spheres.
+	let renderEntities = $derived.by(() => {
+		const merged = entities.filter(e => e.type !== 'Gear');
+		for (const disp of gearDisplay.values()) merged.push(...disp.entities);
+		return merged;
+	});
+	let renderPositions = $derived.by(() => {
+		if (gearDisplay.size === 0) return positions;
+		const merged = new Map(positions);
+		for (const disp of gearDisplay.values()) {
+			for (const [id, p] of disp.positions) merged.set(id, p);
+		}
+		return merged;
+	});
+
+	// Map each gear display-curve id → its owning `Gear` entity id, so the gear's
+	// curves reflect the selection/hover state of the (single) gear entity.
+	let gearCurveOwner = $derived.by(() => {
+		const m = new Map();
+		if (gearDisplay.size === 0) return m;
+		const reg = getGearRegistry();
+		for (const [gearId, disp] of gearDisplay) {
+			const ownerId = reg.get(gearId)?.entityId;
+			if (ownerId == null) continue;
+			for (const e of disp.entities) m.set(e.id, ownerId);
+		}
+		return m;
+	});
 	let selection = $derived(getSketchSelection());
 	let hoverEntity = $derived(getSketchHover());
 	let constraints = $derived(getSketchConstraints());
@@ -70,7 +106,7 @@
 	 * @returns {boolean}
 	 */
 	function isConstruction(entityId) {
-		const entity = entities.find(e => e.id === entityId);
+		const entity = renderEntities.find(e => e.id === entityId);
 		return entity?.construction ?? false;
 	}
 
@@ -80,8 +116,10 @@
 	 * @returns {number}
 	 */
 	function entityColor(entityId) {
-		if (selection.has(entityId)) return COLOR_SELECTED;
-		if (hoverEntity === entityId) return COLOR_HOVERED;
+		// Gear curves inherit the selection/hover state of their owning gear entity.
+		const selId = gearCurveOwner.get(entityId) ?? entityId;
+		if (selection.has(selId)) return COLOR_SELECTED;
+		if (hoverEntity === selId) return COLOR_HOVERED;
 		if (overConstrained.has(entityId)) return COLOR_OVERCONSTRAINED;
 		if (selectedProfileEntityIds.has(entityId)) return COLOR_PROFILE_SELECT;
 		if (hoveredProfileEntityIds.has(entityId)) return COLOR_PROFILE_HOVER;
@@ -112,11 +150,11 @@
 	 */
 	let lineData = $derived.by(() => {
 		if (!plane) return [];
-		return entities
+		return renderEntities
 			.filter(e => e.type === 'Line')
 			.map(e => {
-				const p1 = positions.get(e.start_id);
-				const p2 = positions.get(e.end_id);
+				const p1 = renderPositions.get(e.start_id);
+				const p2 = renderPositions.get(e.end_id);
 				if (!p1 || !p2) return null;
 				const w1 = sketchToWorld(p1.x, p1.y, plane);
 				const w2 = sketchToWorld(p2.x, p2.y, plane);
@@ -131,10 +169,10 @@
 	 */
 	let circleData = $derived.by(() => {
 		if (!plane) return [];
-		return entities
+		return renderEntities
 			.filter(e => e.type === 'Circle')
 			.map(e => {
-				const center = positions.get(e.center_id);
+				const center = renderPositions.get(e.center_id);
 				if (!center) return null;
 				const segments = 64;
 				const points = [];
@@ -155,12 +193,12 @@
 	 */
 	let arcData = $derived.by(() => {
 		if (!plane) return [];
-		return entities
+		return renderEntities
 			.filter(e => e.type === 'Arc')
 			.map(e => {
-				const center = positions.get(e.center_id);
-				const startPt = positions.get(e.start_id);
-				const endPt = positions.get(e.end_id);
+				const center = renderPositions.get(e.center_id);
+				const startPt = renderPositions.get(e.start_id);
+				const endPt = renderPositions.get(e.end_id);
 				if (!center || !startPt || !endPt) return null;
 
 				const dx = startPt.x - center.x;
@@ -192,12 +230,12 @@
 	 */
 	let splineData = $derived.by(() => {
 		if (!plane) return [];
-		return entities
+		return renderEntities
 			.filter(e => e.type === 'Spline')
 			.map(e => {
 				if (!e.point_ids || e.point_ids.length < 2) return null;
 				const ctrlPts = e.point_ids
-					.map(pid => positions.get(pid))
+					.map(pid => renderPositions.get(pid))
 					.filter(Boolean);
 				if (ctrlPts.length < 2) return null;
 

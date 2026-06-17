@@ -110,14 +110,20 @@ test.describe('gear dialog UI', () => {
 		// Dialog should close
 		await dialog.waitFor({ state: 'hidden', timeout: 5000 });
 
-		// Should create entities: 12 Splines + 12 Arcs + 12 Lines + 1 Circle + points
-		await waitForEntityCount(page, 20, 5000);
-		const splines = await getEntityCountByType(page, 'Spline');
-		const arcs = await getEntityCountByType(page, 'Arc');
-		const circles = await getEntityCountByType(page, 'Circle');
-		expect(splines).toBe(12);
-		expect(arcs).toBe(12);
-		expect(circles).toBe(1);
+		// The gear is stored as a single compact Gear entity...
+		await waitForEntityCount(page, 1, 5000);
+		expect(await getEntityCountByType(page, 'Gear')).toBe(1);
+
+		// ...and its (non-persisted) display expansion holds the primitive counts:
+		// 12 Splines + 12 Arcs + 12 Lines + 1 construction pitch Circle (6 teeth).
+		const counts = await page.evaluate(() => {
+			const disp = window.__waffle.getGearDisplay();
+			return Object.values(disp)[0]?.counts ?? {};
+		});
+		expect(counts.Spline).toBe(12);
+		expect(counts.Arc).toBe(12);
+		expect(counts.Line).toBe(12);
+		expect(counts.Circle).toBe(1);
 
 		expectNoAnyCrash(crashes);
 	});

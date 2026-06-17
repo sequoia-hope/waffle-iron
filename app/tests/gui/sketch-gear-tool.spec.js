@@ -2,8 +2,9 @@
  * Gear tool — create gear via __waffle API, finish sketch, verify no errors.
  */
 import { test, expect } from './helpers/waffle-test.js';
-import { clickSketch, clickFinishSketch, clickExtrude } from './helpers/toolbar.js';
-import { getConstraints } from './helpers/constraint.js';
+import { clickSketch, clickFinishSketch, clickExtrude, clickSelect } from './helpers/toolbar.js';
+import { getConstraints, getSketchSelection } from './helpers/constraint.js';
+import { clickAt } from './helpers/canvas.js';
 import {
 	isSketchActive,
 	getEntityCount,
@@ -41,33 +42,25 @@ test.describe('gear tool', () => {
 
 		expect(gearId).toBeDefined();
 
-		// Verify entities were created (points + splines + arcs + pitch circle)
-		const entityCount = await getEntityCount(waffle.page);
-		expect(entityCount).toBeGreaterThan(10);
-
-		// Verify spline entities exist and have valid point_ids (no nulls)
+		// The gear is stored as a single compact Gear entity (not expanded primitives).
 		const entities = await getEntities(waffle.page);
-		const splines = entities.filter(e => e.type === 'Spline');
-		expect(splines.length).toBeGreaterThan(0);
+		const gearEntities = entities.filter(e => e.type === 'Gear');
+		expect(gearEntities.length).toBe(1);
+		expect(gearEntities[0].params.toothCount).toBe(8);
 
+		// Its display expansion has valid (non-null, numeric) primitive ids.
+		const display = await waffle.page.evaluate((gid) => window.__waffle.getGearDisplay()[gid], gearId);
+		const splines = display.entities.filter(e => e.type === 'Spline');
+		expect(splines.length).toBeGreaterThan(0);
 		for (const spline of splines) {
-			expect(spline.point_ids).toBeDefined();
 			expect(Array.isArray(spline.point_ids)).toBe(true);
 			expect(spline.point_ids.length).toBeGreaterThan(0);
-			// Every point_id must be a number, not null/undefined
 			for (const pid of spline.point_ids) {
-				expect(pid).not.toBeNull();
-				expect(pid).not.toBeUndefined();
 				expect(typeof pid).toBe('number');
 			}
 		}
-
-		// Verify arc entities have valid IDs (no nulls)
-		const arcs = entities.filter(e => e.type === 'Arc');
+		const arcs = display.entities.filter(e => e.type === 'Arc');
 		for (const arc of arcs) {
-			expect(arc.center_id).not.toBeNull();
-			expect(arc.start_id).not.toBeNull();
-			expect(arc.end_id).not.toBeNull();
 			expect(typeof arc.center_id).toBe('number');
 			expect(typeof arc.start_id).toBe('number');
 			expect(typeof arc.end_id).toBe('number');
@@ -101,7 +94,7 @@ test.describe('gear tool', () => {
 	test('gear profile forms a single closed loop (shared point IDs)', async ({ waffle }) => {
 		await clickSketch(waffle.page);
 
-		await waffle.page.evaluate(() => {
+		const gearId = await waffle.page.evaluate(() => {
 			return window.__waffle.createGear({
 				toothCount: 6,
 				module: 0.001,
@@ -113,9 +106,10 @@ test.describe('gear tool', () => {
 			});
 		});
 
-		// Build an adjacency map from entity endpoints and verify single closed loop
-		const result = await waffle.page.evaluate(() => {
-			const entities = window.__waffle.getEntities();
+		// Build an adjacency map from the gear's display-primitive endpoints and
+		// verify the profile forms a single closed loop.
+		const result = await waffle.page.evaluate((gid) => {
+			const entities = window.__waffle.getGearDisplay()[gid].entities;
 			const splines = entities.filter(e => e.type === 'Spline');
 			const arcs = entities.filter(e => e.type === 'Arc' && !e.construction);
 			const lines = entities.filter(e => e.type === 'Line');
@@ -171,7 +165,7 @@ test.describe('gear tool', () => {
 				visitedInLoop: visited,
 				loopClosed: current === parseInt(vertices[0])
 			};
-		});
+		}, gearId);
 
 		// 6 teeth × 6 entities per tooth (2 splines + 2 lines + tip arc + root arc) = 36 edges
 		expect(result.edgeCount).toBe(36);
@@ -185,7 +179,7 @@ test.describe('gear tool', () => {
 	test('gear entities have correct types and counts', async ({ waffle }) => {
 		await clickSketch(waffle.page);
 
-		await waffle.page.evaluate(() => {
+		const gearId = await waffle.page.evaluate(() => {
 			return window.__waffle.createGear({
 				toothCount: 6,
 				module: 0.002,
@@ -197,25 +191,21 @@ test.describe('gear tool', () => {
 			});
 		});
 
-		const pointCount = await getEntityCountByType(waffle.page, 'Point');
-		const splineCount = await getEntityCountByType(waffle.page, 'Spline');
-		const lineCount = await getEntityCountByType(waffle.page, 'Line');
-		const arcCount = await getEntityCountByType(waffle.page, 'Arc');
-		const circleCount = await getEntityCountByType(waffle.page, 'Circle');
+		// Canonical sketch holds exactly one compact Gear entity.
+		expect(await getEntityCountByType(waffle.page, 'Gear')).toBe(1);
 
-		// 6 teeth: each tooth produces 2 splines (right + left involute)
-		expect(splineCount).toBe(12);
-		// 6 teeth: each tooth produces 2 lines (rootR→baseR radials)
-		expect(lineCount).toBe(12);
-		// 6 teeth: each tooth produces 2 arcs (tip + root)
-		expect(arcCount).toBe(12);
-		// Pitch circle as construction
-		expect(circleCount).toBe(1);
-		// Points: 1 center + 12 root points + 6×(1 rightBase + 11 mid + 1 rightTip + 1 leftTip + 11 mid + 1 leftBase) = 169
-		expect(pointCount).toBeGreaterThan(30);
+		// The display expansion carries the primitive type counts.
+		const display = await waffle.page.evaluate((gid) => window.__waffle.getGearDisplay()[gid], gearId);
+		const counts = display.counts;
+		// 6 teeth: each tooth → 2 splines, 2 lines, 2 arcs; plus 1 construction pitch circle
+		expect(counts.Spline).toBe(12);
+		expect(counts.Line).toBe(12);
+		expect(counts.Arc).toBe(12);
+		expect(counts.Circle).toBe(1);
+		expect(counts.Point).toBeGreaterThan(30);
 
-		// All arcs should share a single center point
-		const arcs = (await getEntities(waffle.page)).filter(e => e.type === 'Arc');
+		// All arcs share a single center point.
+		const arcs = display.entities.filter(e => e.type === 'Arc');
 		const centerIds = new Set(arcs.map(a => a.center_id));
 		expect(centerIds.size).toBe(1);
 	});
@@ -249,23 +239,22 @@ test.describe('gear tool', () => {
 		expect(registry[gearId].module).toBe(0.001);
 	});
 
-	test('internal gear: pitch circle is centered on the gear, anchored by one constraint', async ({ waffle }) => {
-		// Regression for two internal-gear bugs:
-		//  (b) the construction pitch circle was anchored on the first boundary
-		//      vertex (internal gears emitted no center point), drawing it as a
-		//      ring offset from the gear.
-		//  (a) the gear's dense point/line polyline flooded the constraint solver;
-		//      it should be a rigid block pinned by a single center anchor.
+	test('internal gear: stored compact + pitch circle centered + no loose geometry', async ({ waffle }) => {
+		// Regression for the internal-gear bugs, now under the compact-entity model:
+		//  (b) the construction pitch circle must be centered on the gear center
+		//      (it used to anchor on the first boundary vertex → an offset ring).
+		//  (a) the gear is a single rigid Gear entity with NO loose primitives and
+		//      NO anchor constraint flooding the solver — it is rigid by params.
 		const crashes = collectCrashErrors(waffle.page);
 		await clickSketch(waffle.page);
 
 		const cx = 0.012;
 		const cy = -0.007;
-		await waffle.page.evaluate(({ cx, cy }) => {
+		const gearId = await waffle.page.evaluate(({ cx, cy }) => {
 			return window.__waffle.createGear({
 				toothCount: 14,
 				module: 0.001,
-				pressureAngle: 20,
+				pressureAngleDeg: 20,
 				backlash: 0,
 				centerX: cx,
 				centerY: cy,
@@ -274,30 +263,127 @@ test.describe('gear tool', () => {
 			});
 		}, { cx, cy });
 
-		const result = await waffle.page.evaluate(() => {
-			const entities = window.__waffle.getEntities();
-			const circle = entities.find(e => e.type === 'Circle' && e.construction);
-			const center = entities.find(e => e.type === 'Point' && e.id === circle?.center_id);
-			return { circleCenter: center ? { x: center.x, y: center.y } : null };
-		});
+		// (a) canonical sketch holds exactly one Gear entity and zero loose primitives.
+		const entities = await getEntities(waffle.page);
+		expect(entities.length).toBe(1);
+		expect(entities[0].type).toBe('Gear');
+		expect(entities[0].params.internal).toBe(true);
 
-		// (b) pitch circle center coincides with the gear center, not a tooth vertex.
+		// No anchor constraint is needed — the Gear entity is inherently rigid.
+		const constraints = await getConstraints(waffle.page);
+		expect(constraints.length).toBe(0);
+
+		// (b) in the display expansion, the construction pitch circle is centered
+		// on the gear center, not on a tooth-boundary vertex.
+		const result = await waffle.page.evaluate((gid) => {
+			const ents = window.__waffle.getGearDisplay()[gid].entities;
+			const circle = ents.find(e => e.type === 'Circle' && e.construction);
+			const center = ents.find(e => e.type === 'Point' && e.id === circle?.center_id);
+			return { circleCenter: center ? { x: center.x, y: center.y } : null };
+		}, gearId);
 		expect(result.circleCenter).not.toBeNull();
 		expect(result.circleCenter.x).toBeCloseTo(cx, 9);
 		expect(result.circleCenter.y).toBeCloseTo(cy, 9);
 
-		// (a) exactly one anchor constraint (WhereDragged) for the whole gear.
-		const constraints = await getConstraints(waffle.page);
-		const anchors = constraints.filter(c => c.type === 'WhereDragged');
-		expect(anchors.length).toBe(1);
-		expect(anchors[0].point).toBe(
-			await waffle.page.evaluate(() => {
-				const e = window.__waffle.getEntities();
-				return e.find(x => x.type === 'Circle' && x.construction)?.center_id;
-			})
-		);
-
 		expectNoAnyCrash(crashes);
+	});
+
+	test('clicking a gear body selects the whole gear (one Gear entity)', async ({ waffle }) => {
+		const page = waffle.page;
+		await clickSketch(page);
+
+		const gearId = await page.evaluate(() => window.__waffle.createGear({
+			toothCount: 10, module: 0.003, pressureAngleDeg: 20, backlash: 0,
+			centerX: 0, centerY: 0, rotationOffset: 0
+		}));
+		const gearEntityId = await page.evaluate((gid) =>
+			window.__waffle.getGearRegistry().get(gid).entityId, gearId);
+
+		// Click the gear body (canvas center = sketch origin = gear center).
+		await clickSelect(page);
+		await clickAt(page, 0, 0);
+
+		const selection = await getSketchSelection(page);
+		expect(selection).toEqual([gearEntityId]);
+	});
+
+	test('double-clicking a gear opens the edit dialog with its params', async ({ waffle }) => {
+		const page = waffle.page;
+		await clickSketch(page);
+
+		await page.evaluate(() => window.__waffle.createGear({
+			toothCount: 9, module: 0.003, pressureAngleDeg: 20, backlash: 0,
+			centerX: 0, centerY: 0, rotationOffset: 0
+		}));
+
+		// Two rapid clicks inside the gear → double-click → edit dialog.
+		await clickSelect(page);
+		await clickAt(page, 0, 0);
+		await clickAt(page, 0, 0);
+
+		const dialog = page.locator('[data-testid="gear-dialog"]');
+		await dialog.waitFor({ state: 'visible', timeout: 5000 });
+		await expect(page.locator('[data-testid="gear-teeth-input"]')).toHaveValue('9');
+	});
+
+	test('deleting a gear entity clears its registry + display expansion', async ({ waffle }) => {
+		const page = waffle.page;
+		await clickSketch(page);
+
+		const gearId = await page.evaluate(() => window.__waffle.createGear({
+			toothCount: 8, module: 0.002, pressureAngleDeg: 20, backlash: 0,
+			centerX: 0, centerY: 0, rotationOffset: 0
+		}));
+		const gearEntityId = await page.evaluate((gid) =>
+			window.__waffle.getGearRegistry().get(gid).entityId, gearId);
+
+		await page.evaluate((eid) => window.__waffle.removeSketchEntities([eid]), gearEntityId);
+
+		const state = await page.evaluate(() => ({
+			gearEntities: window.__waffle.getEntities().filter(e => e.type === 'Gear').length,
+			display: Object.keys(window.__waffle.getGearDisplay()).length,
+			registry: window.__waffle.getGearRegistry().size
+		}));
+		expect(state.gearEntities).toBe(0);
+		expect(state.display).toBe(0);
+		expect(state.registry).toBe(0);
+	});
+
+	test('a gear survives save/reload: regrouped + editable in the reopened sketch', async ({ waffle }) => {
+		const page = waffle.page;
+		await clickSketch(page);
+		await page.evaluate(() => window.__waffle.createGear({
+			toothCount: 11, module: 0.003, pressureAngleDeg: 20, backlash: 0,
+			centerX: 0, centerY: 0, rotationOffset: 0
+		}));
+		await clickFinishSketch(page);
+		await waitForFeatureCount(page, 1, 10000);
+
+		// Save and reload the document (grouping/display are session-only and must
+		// be rebuilt from the persisted compact Gear entity).
+		const json = await page.evaluate(() => window.__waffle.saveProject());
+		await page.evaluate((j) => window.__waffle.loadProject(j), json);
+
+		// Reopen the sketch for editing → rebuildGearsFromEntities runs.
+		const sketchId = await page.evaluate(() =>
+			window.__waffle.getFeatureTree().features.find(f => f.operation?.type === 'Sketch').id);
+		await page.evaluate((id) => window.__waffle.enterSketchEditMode(id), sketchId);
+		await page.waitForFunction(
+			() => window.__waffle?.getState()?.sketchMode?.active === true, { timeout: 5000 });
+
+		// One compact Gear entity persisted; its grouping + display were rebuilt.
+		const state = await page.evaluate(() => ({
+			gearEntities: window.__waffle.getEntities().filter(e => e.type === 'Gear').length,
+			display: Object.keys(window.__waffle.getGearDisplay()).length,
+			registry: window.__waffle.getGearRegistry().size,
+			toothCount: window.__waffle.getEntities().find(e => e.type === 'Gear')?.params.toothCount,
+			splines: Object.values(window.__waffle.getGearDisplay())[0]?.counts.Spline
+		}));
+		expect(state.gearEntities).toBe(1);
+		expect(state.display).toBe(1);
+		expect(state.registry).toBe(1);
+		expect(state.toothCount).toBe(11);
+		expect(state.splines).toBe(22); // 11 teeth × 2 involute flanks → the gear renders
 	});
 
 	test('gear sketch can be extruded', async ({ waffle }) => {

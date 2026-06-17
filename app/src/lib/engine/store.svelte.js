@@ -274,6 +274,23 @@ let gearRegistry = $state(new Map());
 /** @type {Map<number, number>} entityId -> gearId */
 let entityToGearMap = $state(new Map());
 
+/**
+ * Ephemeral, NON-persisted expansion of each gear's compact `Gear` entity into
+ * the primitives used purely for display (rendering). Keyed by gearId. The
+ * canonical/persisted representation is the single `SketchEntity::Gear` in
+ * `sketchEntities`; this map is derived from it (rebuilt on create and on sketch
+ * load) and never saved. The primitive ids are remapped into a per-gear high
+ * range (see `gearDisplayIdBase`) so they never collide with real sketch entity
+ * ids or with another gear's primitives.
+ * @type {Map<number, { entities: object[], positions: Map<number, {x:number,y:number}>, pitchRadius: number }>}
+ */
+let gearDisplay = $state(new Map());
+
+/** Per-gear id offset for ephemeral display primitives (kept far above real entity ids). */
+function gearDisplayIdBase(gearId) {
+	return 10_000_000 + gearId * 100_000;
+}
+
 /** @type {object | null} */
 let gearDialogState = $state(null);
 
@@ -670,6 +687,21 @@ export async function initEngine() {
 			deleteGear: (gearId) => deleteGear(gearId),
 			getGearRegistry: () => new Map(gearRegistry),
 			getGearIdForEntity: (entityId) => getGearIdForEntity(entityId),
+			// Ephemeral per-gear display expansion (entities + counts), for tests/debug.
+			getGearDisplay: () => {
+				const out = {};
+				for (const [gid, disp] of gearDisplay) {
+					out[gid] = {
+						entities: [...disp.entities],
+						pitchRadius: disp.pitchRadius,
+						counts: disp.entities.reduce((acc, e) => {
+							acc[e.type] = (acc[e.type] || 0) + 1;
+							return acc;
+						}, {})
+					};
+				}
+				return out;
+			},
 			removeSketchConstraint: (index) => removeSketchConstraint(index),
 			toggleConstraintReference: (index) => toggleConstraintReference(index),
 			dragSketchPoint: (pointId, x, y) => dragSketchPoint(pointId, x, y),
@@ -1678,6 +1710,15 @@ export function removeSketchEntities(entityIds) {
 	}
 	sketchPositions = nextPos;
 
+	// Purge gear bookkeeping for any removed Gear entity (registry + display map).
+	for (const id of toRemove) {
+		const gid = entityToGearMap.get(id);
+		if (gid == null) continue;
+		const nextReg = new Map(gearRegistry); nextReg.delete(gid); gearRegistry = nextReg;
+		const nextMap = new Map(entityToGearMap); nextMap.delete(id); entityToGearMap = nextMap;
+		const nextDisp = new Map(gearDisplay); nextDisp.delete(gid); gearDisplay = nextDisp;
+	}
+
 	// Clear selection
 	sketchSelection = new Set();
 
@@ -1725,6 +1766,67 @@ export function removeSketchConstraint(index) {
 export function getGearRegistry() { return gearRegistry; }
 
 /**
+ * Get the ephemeral per-gear display expansion (primitives + profiles derived
+ * from each compact `Gear` entity). Not persisted; for rendering / profile
+ * preview only.
+ * @returns {Map<number, object>}
+ */
+export function getGearDisplay() { return gearDisplay; }
+
+/**
+ * Build the display expansion for a gear from its params via WASM, and store it
+ * in `gearDisplay` keyed by gearId. Shared by create and load paths.
+ * @param {number} gearId
+ * @param {object} gearParams - canonical GearParams (camelCase)
+ * @returns {Promise<object>} the display expansion entry
+ */
+async function expandGearForDisplay(gearId, gearParams) {
+	// Deep-clone: gearParams may be a Svelte reactive proxy (e.g. from a loaded
+	// Gear entity), which postMessage cannot structured-clone to the worker.
+	const params = JSON.parse(JSON.stringify(gearParams));
+	const response = await bridge.send({ type: 'GenerateGearProfile', params });
+	const base = gearDisplayIdBase(gearId);
+	const remap = (id) => base + id;
+	const positions = new Map();
+	const entities = response.entities.map((e) => {
+		const m = { ...e, id: remap(e.id) };
+		if (m.start_id != null) m.start_id = remap(m.start_id);
+		if (m.end_id != null) m.end_id = remap(m.end_id);
+		if (m.center_id != null) m.center_id = remap(m.center_id);
+		if (m.point_ids) m.point_ids = m.point_ids.map(remap);
+		if (m.type === 'Point') positions.set(m.id, { x: m.x, y: m.y });
+		return m;
+	});
+	// Pitch circle: a construction reference centered on the gear center (always
+	// the first emitted point — external and internal both lead with the center).
+	// It was historically added JS-side; now it is part of the display expansion.
+	if (response.entities.length > 0) {
+		const centerId = remap(response.entities[0].id);
+		entities.push({
+			type: 'Circle',
+			id: base + 90000,
+			center_id: centerId,
+			radius: response.pitch_radius,
+			construction: true
+		});
+	}
+	// Boundary polygon (sketch coords) for click hit-testing — the profile's
+	// ordered vertex loop, resolved from the un-remapped point coords.
+	const localPos = new Map();
+	for (const e of response.entities) {
+		if (e.type === 'Point') localPos.set(e.id, { x: e.x, y: e.y });
+	}
+	const outline = (response.profiles?.[0]?.vertex_ids ?? [])
+		.map(id => localPos.get(id))
+		.filter(Boolean);
+	const entry = { entities, positions, pitchRadius: response.pitch_radius, outline };
+	const next = new Map(gearDisplay);
+	next.set(gearId, entry);
+	gearDisplay = next;
+	return entry;
+}
+
+/**
  * Get gear dialog state.
  * @returns {object | null}
  */
@@ -1755,88 +1857,40 @@ export function hideGearDialog() {
 }
 
 /**
- * Create a gear from parameters. Calls WASM to generate entities, then adds them locally.
- * @param {object} gearParams - { toothCount, module, pressureAngleDeg, backlash, centerX, centerY, rotationOffset }
+ * Create a gear from parameters.
+ *
+ * The gear is stored as a single compact `Gear` sketch entity (the canonical,
+ * persisted form — Rust expands it on rebuild/extrude and the solver skips it,
+ * so a gear is inherently a rigid block). The primitive geometry used to draw
+ * the gear and preview its profile is held separately in `gearDisplay` and is
+ * never persisted. This is what lets gear grouping survive save/reload.
+ * @param {object} gearParams - { toothCount, module, pressureAngleDeg, backlash, centerX, centerY, rotationOffset, internal }
  * @returns {Promise<number>} The gear ID
  */
 export async function createGear(gearParams) {
 	const gearId = nextGearId++;
 
-	// Generate gear profile via WASM
-	const response = await bridge.send({ type: 'GenerateGearProfile', params: gearParams });
+	// Build the (non-persisted) display expansion from the gear params.
+	await expandGearForDisplay(gearId, gearParams);
 
+	// Store the single compact Gear entity — this is the persisted representation.
+	const gearEntityId = allocEntityId();
 	beginSketchAction();
-	suppressProfileExtraction = true;
-
-	const entityIds = [];
-
-	// Build ID remap: Rust-space id → JS-space id
-	const idMap = new Map();
-	for (const entity of response.entities) {
-		const newId = allocEntityId();
-		idMap.set(entity.id, newId);
-		entityIds.push(newId);
-	}
-
-	// Add entities with remapped IDs and internal references
-	for (const entity of response.entities) {
-		const remapped = { ...entity, id: idMap.get(entity.id) };
-		// Remap point references in Lines
-		if (remapped.start_id != null && idMap.has(remapped.start_id)) {
-			remapped.start_id = idMap.get(remapped.start_id);
-		}
-		if (remapped.end_id != null && idMap.has(remapped.end_id)) {
-			remapped.end_id = idMap.get(remapped.end_id);
-		}
-		// Remap point references in Arcs
-		if (remapped.center_id != null && idMap.has(remapped.center_id)) {
-			remapped.center_id = idMap.get(remapped.center_id);
-		}
-		// Remap point references in Splines
-		if (remapped.point_ids) {
-			remapped.point_ids = remapped.point_ids.map(pid => idMap.get(pid) ?? pid);
-		}
-		addLocalEntity(remapped);
-	}
-
-	// Add pitch circle as construction geometry
-	// Find the center point (first entity is the center point at id=1 in Rust space)
-	const pitchCircleCenterId = entityIds[0]; // center point is always first
-	const pitchCircleId = allocEntityId();
 	addLocalEntity({
-		type: 'Circle',
-		id: pitchCircleId,
-		center_id: pitchCircleCenterId,
-		radius: response.pitch_radius,
-		construction: true
+		type: 'Gear',
+		id: gearEntityId,
+		params: { ...gearParams },
+		construction: false
 	});
-	entityIds.push(pitchCircleId);
-
-	suppressProfileExtraction = false;
 	endSketchAction();
-	reExtractProfiles();
 
-	// Anchor the whole gear by its center with a single constraint. The gear's
-	// shape is fully determined by its parameters, so the solver should treat it
-	// as a rigid block pinned at the center — not as ~hundreds of free vertices
-	// (see triggerSolve, which excludes gear geometry from the solve). Without
-	// this, an internal gear's dense point/line polyline floods the solver.
-	addLocalConstraint({
-		type: 'WhereDragged',
-		point: pitchCircleCenterId,
-		x: gearParams.centerX,
-		y: gearParams.centerY
-	});
-
-	// Register gear
+	// Register gear: one entity id per gear (not a list of expanded primitives).
 	const newRegistry = new Map(gearRegistry);
-	newRegistry.set(gearId, { ...gearParams, entityIds: [...entityIds] });
+	newRegistry.set(gearId, { ...gearParams, entityId: gearEntityId });
 	gearRegistry = newRegistry;
 
 	const newEntityMap = new Map(entityToGearMap);
-	for (const eid of entityIds) {
-		newEntityMap.set(eid, gearId);
-	}
+	newEntityMap.set(gearEntityId, gearId);
 	entityToGearMap = newEntityMap;
 
 	log('sketch', `Gear created: ${gearParams.toothCount} teeth, module ${gearParams.module}`, { gearId });
@@ -1852,52 +1906,43 @@ export async function updateGear(gearId, newParams) {
 	const existing = gearRegistry.get(gearId);
 	if (!existing) return;
 
-	// Delete old entities
-	const oldIds = new Set(existing.entityIds || []);
-	if (oldIds.size > 0) {
-		removeSketchEntities(oldIds);
-	}
+	// Remove the old compact Gear entity and its registry/display entries.
+	deleteGear(gearId);
 
-	// Clean up registry entries for old entities
-	const cleanedMap = new Map(entityToGearMap);
-	for (const eid of oldIds) {
-		cleanedMap.delete(eid);
-	}
-	entityToGearMap = cleanedMap;
-
-	// Create new gear with updated params
+	// Recreate with merged params, then re-key the new gear back to gearId so
+	// callers (and the entity→gear map) keep referring to the same gear.
 	const mergedParams = { ...existing, ...newParams };
-	delete mergedParams.entityIds;
+	delete mergedParams.entityId;
 	const newGearId = await createGear(mergedParams);
 
-	// Remap old gearId to new
+	const newGearData = gearRegistry.get(newGearId);
 	const updatedRegistry = new Map(gearRegistry);
-	const newGearData = updatedRegistry.get(newGearId);
 	updatedRegistry.delete(newGearId);
 	updatedRegistry.set(gearId, newGearData);
 	gearRegistry = updatedRegistry;
 
-	// Update entity-to-gear map
 	const updatedEntityMap = new Map(entityToGearMap);
-	for (const eid of newGearData.entityIds) {
-		updatedEntityMap.set(eid, gearId);
-	}
+	updatedEntityMap.set(newGearData.entityId, gearId);
 	entityToGearMap = updatedEntityMap;
+
+	const updatedDisplay = new Map(gearDisplay);
+	updatedDisplay.set(gearId, updatedDisplay.get(newGearId));
+	updatedDisplay.delete(newGearId);
+	gearDisplay = updatedDisplay;
 
 	nextGearId--; // Reuse the ID we allocated
 }
 
 /**
- * Delete a gear and all its entities.
+ * Delete a gear and its compact entity.
  * @param {number} gearId
  */
 export function deleteGear(gearId) {
 	const existing = gearRegistry.get(gearId);
 	if (!existing) return;
 
-	const oldIds = new Set(existing.entityIds || []);
-	if (oldIds.size > 0) {
-		removeSketchEntities(oldIds);
+	if (existing.entityId != null) {
+		removeSketchEntities(new Set([existing.entityId]));
 	}
 
 	const newRegistry = new Map(gearRegistry);
@@ -1905,10 +1950,12 @@ export function deleteGear(gearId) {
 	gearRegistry = newRegistry;
 
 	const newEntityMap = new Map(entityToGearMap);
-	for (const eid of oldIds) {
-		newEntityMap.delete(eid);
-	}
+	if (existing.entityId != null) newEntityMap.delete(existing.entityId);
 	entityToGearMap = newEntityMap;
+
+	const newDisplay = new Map(gearDisplay);
+	newDisplay.delete(gearId);
+	gearDisplay = newDisplay;
 
 	log('sketch', `Gear deleted`, { gearId });
 }
@@ -2063,6 +2110,32 @@ export function resetSketchState() {
 	sketchRedoStack = [];
 	pendingSketchAction = null;
 	referenceSnapPoints = [];
+	// Gears belong to a specific sketch; clear and rebuild per sketch (see
+	// rebuildGearsFromEntities, called on sketch-edit load).
+	gearRegistry = new Map();
+	entityToGearMap = new Map();
+	gearDisplay = new Map();
+	nextGearId = 1;
+}
+
+/**
+ * Rebuild the per-session gear bookkeeping (registry, entity→gear map, display
+ * expansion) from the compact `Gear` entities in the current sketch. Called
+ * after a sketch is loaded for editing, so gears persisted across save/reload
+ * are rendered and re-editable as gears.
+ */
+async function rebuildGearsFromEntities() {
+	const gearEntities = sketchEntities.filter(e => e.type === 'Gear');
+	for (const ge of gearEntities) {
+		const gearId = nextGearId++;
+		await expandGearForDisplay(gearId, ge.params);
+		const nextReg = new Map(gearRegistry);
+		nextReg.set(gearId, { ...ge.params, entityId: ge.id });
+		gearRegistry = nextReg;
+		const nextMap = new Map(entityToGearMap);
+		nextMap.set(ge.id, gearId);
+		entityToGearMap = nextMap;
+	}
 }
 
 // Sketch state getters/setters
@@ -3561,6 +3634,10 @@ export async function enterSketchEditMode(featureId) {
 	}
 	nextEntityId = maxId + 1;
 
+	// Rebuild gear grouping/display from the compact Gear entities so gears
+	// persisted across reload render and stay editable as gears.
+	await rebuildGearsFromEntities();
+
 	reExtractProfiles();
 
 	// Send BeginSketch to engine with the sketch's plane
@@ -3962,50 +4039,6 @@ export async function discardAutoSave() {
 	autoRestoreState = null;
 }
 
-// Constraint property names that are scalar parameters, not entity references.
-// Any *other* numeric-valued constraint property is treated as an entity id.
-const CONSTRAINT_SCALAR_KEYS = new Set([
-	'value', 'value_degrees', 'x', 'y', 'ratio', 'radius', 'distance', 'angle'
-]);
-
-/**
- * Drop gear-owned entities from the solver payload so the solver treats each
- * gear as a rigid block pinned by its center anchor, rather than as hundreds of
- * free vertices. Any gear entity referenced by a constraint is retained (and so
- * are the endpoints of any retained line/arc/spline), so user constraints onto
- * gear geometry still solve correctly.
- * @param {Array<object>} entities - all sketch entities (already cloned)
- * @param {Array<object>} constraints - all sketch constraints (already cloned)
- * @returns {Array<object>} the subset of entities to send to the solver
- */
-function excludeRigidGearGeometry(entities, constraints) {
-	if (entityToGearMap.size === 0) return entities;
-
-	// Entity ids referenced by any constraint must stay in the solve.
-	const referenced = new Set();
-	for (const c of constraints) {
-		for (const [k, v] of Object.entries(c)) {
-			if (typeof v === 'number' && !CONSTRAINT_SCALAR_KEYS.has(k)) referenced.add(v);
-		}
-	}
-
-	// Keep non-gear entities and any gear entity a constraint references.
-	const keep = new Set();
-	for (const e of entities) {
-		if (!entityToGearMap.has(e.id) || referenced.has(e.id)) keep.add(e.id);
-	}
-	// A retained line/arc/spline needs its endpoint points retained too.
-	for (const e of entities) {
-		if (!keep.has(e.id)) continue;
-		for (const k of ['start_id', 'end_id', 'center_id']) {
-			if (e[k] != null) keep.add(e[k]);
-		}
-		if (Array.isArray(e.point_ids)) for (const p of e.point_ids) keep.add(p);
-	}
-
-	return entities.filter(e => keep.has(e.id));
-}
-
 /**
  * Trigger a constraint solve via the libslvs solver in the worker.
  * Sends current sketch state to the worker for solving.
@@ -4021,18 +4054,12 @@ export function triggerSolve() {
 		posObj[id] = { x: pos.x, y: pos.y };
 	}
 
-	// Deep-clone reactive state to avoid DataCloneError from Svelte 5 proxies
-	const allEntities = JSON.parse(JSON.stringify(sketchEntities));
+	// Deep-clone reactive state to avoid DataCloneError from Svelte 5 proxies.
+	// Gears are stored as a single compact `Gear` entity which the solver skips
+	// natively (it is a rigid, fully-parametric block), so no gear filtering is
+	// needed here.
+	const entities = JSON.parse(JSON.stringify(sketchEntities));
 	const constraints = JSON.parse(JSON.stringify(sketchConstraints));
-
-	// A gear is a rigid, fully-parametric block: its shape is fixed by its
-	// parameters and it is anchored by a single WhereDragged on its center.
-	// Feeding its ~hundreds of vertices/lines to the solver as free DOF makes
-	// the solve explode (worst for internal gears, which are a dense point
-	// polyline). Exclude gear-owned geometry from the solve, keeping only the
-	// few entities a constraint actually references (e.g. the center anchor, or
-	// any vertex the user later constrains to).
-	const entities = excludeRigidGearGeometry(allEntities, constraints);
 
 	bridge
 		.send({
