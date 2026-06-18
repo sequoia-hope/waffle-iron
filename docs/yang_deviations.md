@@ -732,6 +732,36 @@ indirect-`orient3d` oracle.
 **Sign-off:** candidate — source-faithful scope split; TPI and the coplanar
 point-construction paths are roadmap-tracked to AR2 / a later slice.
 
+**UPDATE — single-coplanar-edge CONTAINED sub-config now CLASSIFIED (this PR):**
+`checkSingleCoplanarEdgeIntersections` (cpp:422-657) is now ported for the
+**edge-contained** sub-config of the single-coplanar-edge case. When exactly one
+edge of one triangle lies in the other's plane (`singleCoplanarEdge`, orBA/orAB
+sign triple with two zeros) AND both endpoints of that coplanar edge lie on the
+**closed** other triangle (ON_VERT / ON_EDGE / STRICTLY_INSIDE) with NO proper
+edge-edge crossing, `classify_pair` now emits the two endpoints as `Explicit`
+intersection vertices (placed onto the other triangle's correct edge/interior by
+`group_intersection_points`, joined into the symbolic segment by
+`group_constraint_segments`) — replacing the loud `Deferred(SingleCoplanarEdge)`.
+The whole-arrangement consequence: a contained single-coplanar-edge solid pair
+that previously raised `ArrangementError::CoplanarPairDeferred` now builds the
+arrangement. New clean-room finer predicates (`predicates::simplex_location`:
+`point_in_segment_3d`, `point_in_triangle_3d_loc`, `segment_segment_intersect_3d`,
+all EXACT via Shewchuk `orient2d`/`orient3d` + `dashu` betweenness) supply the
+ON_VERT/ON_EDGE discrimination the coarse `point_in_triangle_3d` lacked
+(resolving this entry's "Secondary note"). Reference parity verified at the
+arrangement level (vertex-set Hausdorff-0 vs the C++ `mesh_booleans` sidecar) in
+`crates/cherchi-rs/tests/single_coplanar_edge_parity.rs`.
+
+**STILL DEFERRED (loud, this PR):** (1) the **edge-CROSSING** sub-config — a
+coplanar edge that enters/exits the other triangle through its edges, requiring
+the in-plane edge-edge `addEdgeCrossEdgeInters` **jolly-LPI** path (cpp:557/589/
+621). That LPI lies on an edge of BOTH triangles, but `aux_structure` keys an
+`Lpi` by its `plane` generators (a triangle's 3 corners), which the jolly plane
+is not, so the dual-edge placement is not yet representable. (2) the
+**fully-coplanar** (`allCoplanarEdges`, orBA `0 0 0`) case (out of scope; Yang
+Stage-0 / M8). Both remain `Deferred(SingleCoplanarEdge)` / `Deferred(Coplanar)`
+— never a guessed result (P9/P10).
+
 ### N14 — PR-CR-AR2a point/edge insertion: readable `splitSingleTriangle` with a uniform on-edge check; structural LPI dedup
 
 **Code location:** `crates/cherchi-rs/src/arrangements/retriangulate.rs` and

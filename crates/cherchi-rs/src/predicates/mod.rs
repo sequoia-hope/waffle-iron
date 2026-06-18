@@ -18,6 +18,7 @@ pub mod orient;
 pub mod orientation;
 pub mod point_in_triangle;
 pub mod segment_triangle;
+pub mod simplex_location;
 pub mod triangle_intersect;
 pub mod triangle_pair;
 
@@ -26,5 +27,9 @@ pub use orient::{orient2d, orient3d, Sign};
 pub use orientation::{max_component_in_triangle_normal, Axis};
 pub use point_in_triangle::{point_in_triangle_3d, PointLocation};
 pub use segment_triangle::{segment_intersects_triangle_3d, SegmentTriangleIntersection};
+pub use simplex_location::{
+    point_in_segment_3d, point_in_triangle_3d_loc, segment_segment_intersect_3d,
+    SegSegIntersection, SegmentLocation, TriangleLocation,
+};
 pub use triangle_intersect::{triangle_intersects_triangle_3d, TriangleIntersection};
 pub use triangle_pair::triangles_are_coplanar;

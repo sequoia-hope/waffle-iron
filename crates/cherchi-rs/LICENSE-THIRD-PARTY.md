@@ -53,7 +53,8 @@ No third-party license obligations attach to these files.
 
 | Rust file | Upstream source | Project |
 |---|---|---|
-| `src/arrangements/intersection_points.rs` | `arrangements/code/intersection_classification.cpp` | Cherchi 2022 |
+| `src/arrangements/intersection_points.rs` | `arrangements/code/intersection_classification.cpp` (incl. `checkSingleCoplanarEdgeIntersections`, single-coplanar-edge contained sub-config) | Cherchi 2022 |
+| `src/predicates/simplex_location.rs` | cinolib `predicates.cpp` (`point_in_segment_3d` / `point_in_triangle_3d` / `segment_segment_intersect_{2d,3d}`) | cinolib (used by Cherchi 2020/2022) |
 | `src/arrangements/aux_structure.rs` | `arrangements/code/triangulation.cpp` (aux-structure / point grouping) | Cherchi 2022 |
 | `src/arrangements/retriangulate.rs` | `arrangements/code/triangulation.cpp` (`splitSingleTriangle` / `findContainingTriangle` / `fastPointOnLine`) | Cherchi 2022 |
 | `src/arrangements/gp_dispatch.rs` | `arrangements/code/triangulation.cpp` (generic-point predicate dispatch — extracted from `retriangulate.rs`, PR-CR-AR3a) | Cherchi 2022 |

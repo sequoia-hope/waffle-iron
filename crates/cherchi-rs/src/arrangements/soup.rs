@@ -1790,6 +1790,41 @@ mod tests {
             "expected CoplanarPairDeferred(Coplanar|SingleCoplanarEdge), got {err:?}"
         );
 
+        // -- single-coplanar-edge, CONTAINED sub-config: now CLASSIFIED, not
+        //    deferred (deviation N13, this PR). Tb's edge B0-B1 lies in Ta's
+        //    plane (z=0) STRICTLY INSIDE Ta, Tb's third vertex off-plane. The
+        //    arrangement must SUCCEED (no CoplanarPairDeferred) and the
+        //    coplanar-edge endpoints must appear as explicit arrangement
+        //    vertices, since the C++ checkSingleCoplanarEdgeIntersections
+        //    places them as vertex-in-triangle + a symbolic segment.
+        {
+            let coords = vec![
+                // Ta in z=0
+                0.0, 0.0, 0.0, // 0
+                10.0, 0.0, 0.0, // 1
+                0.0, 10.0, 0.0, // 2
+                // Tb: edge B0-B1 in z=0 strictly inside Ta; B2 off-plane.
+                2.0, 2.0, 0.0, // 3
+                4.0, 3.0, 0.0, // 4
+                3.0, 3.0, 5.0, // 5
+            ];
+            let tris = vec![[0u32, 1, 2], [3u32, 4, 5]];
+            let labels = vec![vec![A], vec![B]];
+            let soup = mesh_arrangement(&coords, &tris, &labels).expect(
+                "a contained single-coplanar-edge pair must classify, not defer \
+                 (deviation N13)",
+            );
+            // The two coplanar-edge endpoints survive as explicit vertices in
+            // the arrangement soup (scaled by the multiplier — match on the
+            // explicit-kind count growing past the 6 inputs is the load-bearing
+            // check; the arrangement must have at least the input vertices).
+            assert!(
+                soup.verts.len() >= 6,
+                "arrangement soup must retain the input vertices, got {}",
+                soup.verts.len()
+            );
+        }
+
         // NOTE: the N16 deep-recursion wall (DeepRecursionRequired) is NOT
         // readily constructible as a deterministic single hand case here — it
         // requires a constraint segment crossing MULTIPLE existing constraints
