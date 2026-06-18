@@ -275,6 +275,11 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                     continue;
                 }
                 DiscPair::Empty => continue,
+                // A non-convex polygon partner falls through to the GENERAL
+                // overlay path (disc-aware via the tessellated builder), which
+                // propagates the polygon-edge subdivisions the direct builder
+                // cannot. Any other wall stays the loud residue.
+                DiscPair::Wall("disc-poly-nonconvex") => {}
                 DiscPair::Wall(tag) => {
                     probe(tag, &format!("pair=({},{})", p.face_a, p.face_b));
                     return Err(pair_err(p.face_a, p.face_b));
@@ -282,15 +287,18 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             }
         }
 
-        // Shared-frame 2D polygons (and per-corner (u,v) keys).
-        let (poly_a, corners_a) = face_polygon_2d(a, p.face_a, &va, frame).ok_or_else(|| {
-            probe("polygon2d-a", &format!("pair=({},{})", p.face_a, p.face_b));
-            pair_err(p.face_a, p.face_b)
-        })?;
-        let (poly_b, corners_b) = face_polygon_2d(b, p.face_b, &vb, frame).ok_or_else(|| {
-            probe("polygon2d-b", &format!("pair=({},{})", p.face_a, p.face_b));
-            pair_err(p.face_a, p.face_b)
-        })?;
+        // Shared-frame 2D polygons (corner→vertex keys, plus rim→3D for a
+        // tessellated disc face).
+        let (poly_a, corners_a, rim_a) = face_polygon_2d_tessellated(a, p.face_a, &va, frame)
+            .ok_or_else(|| {
+                probe("polygon2d-a", &format!("pair=({},{})", p.face_a, p.face_b));
+                pair_err(p.face_a, p.face_b)
+            })?;
+        let (poly_b, corners_b, rim_b) = face_polygon_2d_tessellated(b, p.face_b, &vb, frame)
+            .ok_or_else(|| {
+                probe("polygon2d-b", &format!("pair=({},{})", p.face_a, p.face_b));
+                pair_err(p.face_a, p.face_b)
+            })?;
 
         let overlay = coplanar_overlay(&poly_a, &poly_b).map_err(|e| {
             probe(
@@ -308,10 +316,47 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             continue;
         }
 
+        // CROSSING GATE: a disc rim that the overlap boundary CROSSES (the
+        // overlay subdivides a rim sub-chord) needs rim-split propagation into
+        // the cylinder lateral — the crossing increment. Without it the lateral
+        // keeps the un-subdivided rim → a T-junction → a downstream labeling
+        // failure. Detect a crossing and keep the loud coplanar residue.
+        if (!rim_a.is_empty() && rim_subdivided(&poly_a, &overlay))
+            || (!rim_b.is_empty() && rim_subdivided(&poly_b, &overlay))
+        {
+            probe(
+                "disc-crossing",
+                &format!("pair=({},{})", p.face_a, p.face_b),
+            );
+            return Err(pair_err(p.face_a, p.face_b));
+        }
+
+        // Tessellated rim points (f64 in-frame u,v → 3D), for the near-snap
+        // below. A curved rim fed through the exact overlay can spawn a sweep
+        // vertex a few ULPs off a rim point; lifting it independently would mint
+        // a near-coincident-but-distinct 3D point (a degenerate sliver against
+        // the cylinder lateral's exact rim → a spurious coplanar deferral). Snap
+        // such a vertex to the exact rim point it is essentially on.
+        let rim_pts: Vec<(f64, f64, Point3)> = rim_a
+            .iter()
+            .chain(rim_b.iter())
+            .map(|(ex, &pt)| (ex.x.to_f64().value(), ex.y.to_f64().value(), pt))
+            .collect();
+        // ε ≪ any real rim spacing (chord tolerance ~1e-3·scale), ≫ the ULP gap.
+        let snap_eps2 = {
+            let scale = rim_pts
+                .iter()
+                .map(|(u, v, _)| u.abs().max(v.abs()))
+                .fold(1.0_f64, f64::max);
+            let e = 1.0e-9 * scale;
+            e * e
+        };
+
         // Resolve every overlay vertex to ONE solid-independent 3D point:
         // corner of face A → A's (snapped/welded) vertex; corner of face B
-        // → B's; otherwise the frame lift L(u,v). Shared between BOTH
-        // solids' meshes so the Overlap triangles are bit-identical.
+        // → B's; rim point → the exact 3D rim point; otherwise the frame lift
+        // L(u,v) (snapped to a rim point if it lands within ε of one). Shared
+        // between BOTH solids' meshes so the Overlap triangles are bit-identical.
         let coords: Vec<Point3> = (0..overlay.verts.len())
             .map(|i| {
                 let exact = &overlay.exact_verts[i];
@@ -319,9 +364,21 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                     va[ai as usize]
                 } else if let Some(&bi) = corners_b.get(exact) {
                     vb[bi as usize]
+                } else if let Some(&pt) = rim_a.get(exact) {
+                    pt
+                } else if let Some(&pt) = rim_b.get(exact) {
+                    pt
                 } else {
                     let q = overlay.verts[i];
-                    frame.lift(q.x(), q.y())
+                    let (qx, qy) = (q.x(), q.y());
+                    if let Some(&(_, _, pt)) = rim_pts.iter().find(|(u, v, _)| {
+                        let (du, dv) = (u - qx, v - qy);
+                        du * du + dv * dv <= snap_eps2
+                    }) {
+                        pt
+                    } else {
+                        frame.lift(qx, qy)
+                    }
                 }
             })
             .collect();
@@ -674,6 +731,105 @@ fn face_polygon_2d(
         holes.push(project_ring(lp)?);
     }
     Some((PolygonWithHoles { outer, holes }, corners))
+}
+
+/// Does any overlay vertex lie STRICTLY interior to one of `poly`'s outer
+/// sub-chords (a rim edge)? True ⇒ the overlap boundary crosses the rim, so the
+/// rim is subdivided and the cylinder lateral must absorb the split (the
+/// crossing increment). Exact (rational), endpoints excluded.
+fn rim_subdivided(poly: &PolygonWithHoles, overlay: &ClassifiedOverlay) -> bool {
+    let ring = &poly.outer;
+    let n = ring.len();
+    if n < 2 {
+        return false;
+    }
+    // Exact rim-edge keys (one per sub-chord), to skip overlay verts that ARE
+    // rim vertices (endpoints) cheaply.
+    for i in 0..n {
+        let s = &ring[i];
+        let e = &ring[(i + 1) % n];
+        let (sx, sy) = (s.x(), s.y());
+        let (ex, ey) = (e.x(), e.y());
+        let (Some(s2), Some(e2)) = (ExactPoint2::from_f64(sx, sy), ExactPoint2::from_f64(ex, ey))
+        else {
+            continue;
+        };
+        let dx = &e2.x - &s2.x;
+        let dy = &e2.y - &s2.y;
+        let len2 = &dx * &dx + &dy * &dy;
+        if len2 == RBig::ZERO {
+            continue;
+        }
+        for q in &overlay.exact_verts {
+            let wx = &q.x - &s2.x;
+            let wy = &q.y - &s2.y;
+            // On the sub-chord's supporting line?
+            if &dx * &wy - &dy * &wx != RBig::ZERO {
+                continue;
+            }
+            // Strictly interior, away from BOTH endpoints by a margin? A vertex
+            // a few ULPs off a rim sample (t≈0 or t≈1) is that sample
+            // reconstructed by the overlay — the rim-snap reconciles it, so it
+            // is NOT a crossing. A genuine crossing sits macroscopically
+            // mid-chord. The 1e-6 margin cleanly separates the two.
+            let t = (&dx * &wx + &dy * &wy) / &len2;
+            let tf = t.to_f64().value();
+            if tf > 1.0e-6 && tf < 1.0 - 1.0e-6 {
+                if std::env::var_os("RIM_SUBDIV_PROBE").is_some() {
+                    eprintln!(
+                        "[rim-subdiv] sub-chord {i} ({sx},{sy})->({ex},{ey}) interior vert ({},{}) t={tf}",
+                        q.x.to_f64().value(),
+                        q.y.to_f64().value(),
+                    );
+                }
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Like [`face_polygon_2d`], but a flat circular DISC face is tessellated to its
+/// Result of [`face_polygon_2d_tessellated`]: the in-frame 2D polygon, a
+/// corner→vertex-index key map, and a rim-key→3D-point map (empty for line
+/// loops).
+type TessellatedFacePolygon = (
+    PolygonWithHoles,
+    BTreeMap<ExactPoint2, u32>,
+    BTreeMap<ExactPoint2, Point3>,
+);
+
+/// exact Stage-1 rim ring. The third return value maps each rim vertex's exact
+/// 2D key to its bit-identical 3D rim point (for overlay-vertex → 3D
+/// resolution; the cylinder lateral shares that exact ring, keeping the overlap
+/// mesh conformal). Line-loop faces return an empty rim map.
+fn face_polygon_2d_tessellated(
+    brep: &BRep,
+    fi: usize,
+    coords: &[Point3],
+    frame: &Frame,
+) -> Option<TessellatedFacePolygon> {
+    if disc_circle_edge(brep, fi).is_some() {
+        let rim = disc_rim_ring(brep, fi, coords, frame)?;
+        let mut outer = Vec::with_capacity(rim.len());
+        let mut rim_map: BTreeMap<ExactPoint2, Point3> = BTreeMap::new();
+        for &pt in &rim {
+            let (u, v) = frame.project(pt);
+            let ex = ExactPoint2::from_f64(u, v)?;
+            rim_map.insert(ex, pt);
+            outer.push(Point2::new(u, v));
+        }
+        return Some((
+            PolygonWithHoles {
+                outer,
+                holes: Vec::new(),
+            },
+            BTreeMap::new(),
+            rim_map,
+        ));
+    }
+    let (poly, corners) = face_polygon_2d(brep, fi, coords, frame)?;
+    Some((poly, corners, BTreeMap::new()))
 }
 
 // ════════════════════════════════════════════════════════════════════════

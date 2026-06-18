@@ -168,6 +168,81 @@ fn z_cylinder(cx: f64, cy: f64, base_z: f64, radius: f64, height: f64) -> BRep {
     BRep::new(verts, edges, faces).expect("z_cylinder BRep::new")
 }
 
+/// A prism extruded from a CCW 2D `profile` (z0→z1), with per-face directed
+/// edges (mirrors nc1_nonconvex::u_prism). Works for NON-CONVEX profiles.
+fn polygon_prism(profile: &[[f64; 2]], z0: f64, z1: f64) -> BRep {
+    let n = profile.len();
+    let mut verts: Vec<BRepVertex> = Vec::with_capacity(2 * n);
+    for &[x, y] in profile {
+        verts.push(BRepVertex { point: p(x, y, z0) });
+    }
+    for &[x, y] in profile {
+        verts.push(BRepVertex { point: p(x, y, z1) });
+    }
+    let line = |s: u32, e: u32| BRepEdge {
+        start: s,
+        end: e,
+        curve: Curve::LineSegment,
+    };
+    let mut edges: Vec<BRepEdge> = Vec::new();
+    let mut faces: Vec<BRepFace> = Vec::new();
+
+    // Bottom cap (normal −z): profile reversed so it reads CCW from below.
+    let bottom_order: Vec<u32> = std::iter::once(0u32).chain((1..n as u32).rev()).collect();
+    let bb = edges.len() as u32;
+    for i in 0..n {
+        edges.push(line(bottom_order[i], bottom_order[(i + 1) % n]));
+    }
+    faces.push(BRepFace {
+        surface: Surface::Plane {
+            normal: Vector3::new(0.0, 0.0, -1.0),
+            d: z0,
+        },
+        outer_loop: (bb..bb + n as u32).collect(),
+        inner_loops: Vec::new(),
+        reversed: false,
+    });
+    // Top cap (normal +z): forward.
+    let tb = edges.len() as u32;
+    for i in 0..n as u32 {
+        edges.push(line(n as u32 + i, n as u32 + (i + 1) % n as u32));
+    }
+    faces.push(BRepFace {
+        surface: Surface::Plane {
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            d: -z1,
+        },
+        outer_loop: (tb..tb + n as u32).collect(),
+        inner_loops: Vec::new(),
+        reversed: false,
+    });
+    // Side walls.
+    for i in 0..n as u32 {
+        let (bi, bj) = (i, (i + 1) % n as u32);
+        let (ti, tj) = (n as u32 + i, n as u32 + (i + 1) % n as u32);
+        let base = edges.len() as u32;
+        edges.push(line(bi, bj));
+        edges.push(line(bj, tj));
+        edges.push(line(tj, ti));
+        edges.push(line(ti, bi));
+        let a = profile[i as usize];
+        let b = profile[((i + 1) % n as u32) as usize];
+        let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+        let len = (dx * dx + dy * dy).sqrt();
+        let (nx, ny) = (dy / len, -dx / len);
+        faces.push(BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(nx, ny, 0.0),
+                d: -(nx * a[0] + ny * a[1]),
+            },
+            outer_loop: vec![base, base + 1, base + 2, base + 3],
+            inner_loops: Vec::new(),
+            reversed: false,
+        });
+    }
+    BRep::new(verts, edges, faces).expect("polygon_prism BRep::new")
+}
+
 // ════════════════════════════════════════════════════════════════════
 // oracles
 // ════════════════════════════════════════════════════════════════════
@@ -365,6 +440,40 @@ fn disc_disc_crossing_stays_unsupported() {
     assert!(
         matches!(err, YangError::CoplanarFacesUnsupported { .. }),
         "expected CoplanarFacesUnsupported, got {err:?}"
+    );
+}
+
+/// NON-CONVEX containment: a small cylinder cap sits coplanar inside the
+/// non-convex top face of an L-prism (in the lower arm, away from the reflex
+/// corner). The convex fast path does not apply; the general overlay handles
+/// it. Union succeeds, watertight, consistently oriented.
+#[test]
+fn disc_in_nonconvex_polygon_union_succeeds() {
+    let l = polygon_prism(
+        &[
+            [0.0, 0.0],
+            [3.0, 0.0],
+            [3.0, 1.0],
+            [1.0, 1.0],
+            [1.0, 3.0],
+            [0.0, 3.0],
+        ],
+        0.0,
+        1.0,
+    );
+    let pin = z_cylinder(0.5, 0.5, 1.0, 0.3, 1.0);
+    let out = boolean(&l, &pin, BoolOp::Union, &nb())
+        .expect("disc in non-convex polygon (containment) must be handled by Stage 0");
+    let mesh = out.as_mesh();
+    assert!(is_watertight(mesh), "union must be a closed 2-manifold");
+    assert!(
+        is_outward_solid(mesh),
+        "union must be consistently outward-oriented"
+    );
+    let max_z = mesh.verts.iter().map(|p| p.z()).fold(f64::MIN, f64::max);
+    assert!(
+        (max_z - 2.0).abs() < 1e-6,
+        "pin must protrude (max z {max_z})"
     );
 }
 
