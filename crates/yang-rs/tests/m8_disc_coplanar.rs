@@ -539,3 +539,22 @@ fn same_normal_crossing_defers_loudly() {
         "expected MeshBooleanFailed (cherchi N13 SingleCoplanarEdge), got {err:?}"
     );
 }
+
+/// USER REPRO: cylinder dia 10 (r=5) length 10, a dia-5 (r=2.5) circle on the
+/// top face, extrude-CUT 2 deep (concentric). The cut tool's top cap (r=2.5,
+/// z=10) is coplanar+contained in the body top cap (r=5, z=10) — disc∩disc
+/// CONTAINMENT (bearing recess). Reported failing in-app with a Stage-5/6
+/// "geometric face resolution failed for kept triangle …".
+#[test]
+fn user_recess_dia10_len10_dia5_cut2() {
+    let body = z_cylinder(0.0, 0.0, 0.0, 5.0, 10.0); // top cap at z=10
+    let tool = z_cylinder(0.0, 0.0, 8.0, 2.5, 2.0); // top cap z=10, floor z=8
+    match boolean(&body, &tool, BoolOp::Subtract, &nb()) {
+        Ok(out) => {
+            let m = out.as_mesh();
+            assert!(is_watertight(m), "recess subtract must be watertight");
+            assert!(is_outward_solid(m), "recess subtract must be outward");
+        }
+        Err(e) => panic!("user recess failed: {e:?}"),
+    }
+}
