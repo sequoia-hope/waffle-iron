@@ -116,6 +116,27 @@ fn cube_and_edge_contact_tetra() -> (Mesh, Mesh) {
     (a, b)
 }
 
+/// Single-coplanar-edge edge-CROSSING fixture: cube A = [0,2]³ (top face
+/// z = 2), tetra B with ONE bottom edge lying flush in A's top-face plane
+/// (z = 2) but running from INSIDE the top face to OUTSIDE it, so the coplanar
+/// edge properly CROSSES the top-face boundary (the singleCoplanarEdge
+/// edge-crossing configuration this slice adds). The other two B vertices are
+/// ABOVE (z > 2).
+///
+/// Coplanar edge endpoints: (1.0, 1.0, 2) INSIDE the [0,2]² top face and
+/// (3.0, 1.0, 2) OUTSIDE it (x > 2). The edge crosses A's top-face boundary
+/// x = 2 at (2.0, 1.0, 2). Apexes (1.3, 0.7, 3) and (1.6, 1.4, 3) above.
+fn cube_and_edge_crossing_tetra() -> (Mesh, Mesh) {
+    let a = boxx(0.0, 0.0, 0.0, 2.0, 2.0, 2.0);
+    let b = tetra(
+        p(1.0, 1.0, 2.0),
+        p(3.0, 1.0, 2.0),
+        p(1.3, 0.7, 3.0),
+        p(1.6, 1.4, 3.0),
+    );
+    (a, b)
+}
+
 /// Exact-coordinate vertex weld (bit-identical merge); returns the vertex list.
 fn welded_verts(m: &Mesh) -> Vec<Point3> {
     use std::collections::BTreeMap;
@@ -173,6 +194,40 @@ fn contained_single_coplanar_edge_arrangement_parity() {
 
     let native = native_labeled_arrangement(&a, &b)
         .expect("native arrangement must classify the contained coplanar edge, not defer");
+    let native_v = welded_verts(&native.mesh);
+    let sidecar_v = welded_verts(&sidecar_arrangement(&a, &b));
+
+    if let Some(v) = vertex_cover_gap(&native_v, &sidecar_v, VERT_TOL) {
+        panic!(
+            "native arrangement vertex {v:?} has no sidecar vertex within {VERT_TOL} \
+             (native {} verts, sidecar {} verts)",
+            native_v.len(),
+            sidecar_v.len()
+        );
+    }
+    if let Some(v) = vertex_cover_gap(&sidecar_v, &native_v, VERT_TOL) {
+        panic!(
+            "sidecar arrangement vertex {v:?} has no native vertex within {VERT_TOL} \
+             (native {} verts, sidecar {} verts)",
+            native_v.len(),
+            sidecar_v.len()
+        );
+    }
+}
+
+/// Arrangement-level reference parity on the edge-CROSSING single-coplanar-
+/// edge fixture (deviation N13, this slice): the coplanar edge crosses the
+/// other triangle's boundary, producing an in-plane edge-edge crossing vertex
+/// (the C++ `addEdgeCrossEdgeInters` jolly-LPI). Native arrangement vertex set
+/// ≡ sidecar arrangement vertex set (Hausdorff-0 at `VERT_TOL`, both
+/// directions). The crossing point on A's top-face boundary is the load-
+/// bearing new vertex.
+#[test]
+fn crossing_single_coplanar_edge_arrangement_parity() {
+    let (a, b) = cube_and_edge_crossing_tetra();
+
+    let native = native_labeled_arrangement(&a, &b)
+        .expect("native arrangement must classify the crossing coplanar edge, not defer");
     let native_v = welded_verts(&native.mesh);
     let sidecar_v = welded_verts(&sidecar_arrangement(&a, &b));
 

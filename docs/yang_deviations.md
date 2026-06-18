@@ -752,15 +752,44 @@ ON_VERT/ON_EDGE discrimination the coarse `point_in_triangle_3d` lacked
 arrangement level (vertex-set Hausdorff-0 vs the C++ `mesh_booleans` sidecar) in
 `crates/cherchi-rs/tests/single_coplanar_edge_parity.rs`.
 
-**STILL DEFERRED (loud, this PR):** (1) the **edge-CROSSING** sub-config — a
-coplanar edge that enters/exits the other triangle through its edges, requiring
-the in-plane edge-edge `addEdgeCrossEdgeInters` **jolly-LPI** path (cpp:557/589/
-621). That LPI lies on an edge of BOTH triangles, but `aux_structure` keys an
-`Lpi` by its `plane` generators (a triangle's 3 corners), which the jolly plane
-is not, so the dual-edge placement is not yet representable. (2) the
+**UPDATE 2 — single-coplanar-edge edge-CROSSING sub-config now CLASSIFIED
+(this PR):** the **edge-CROSSING** sub-config is now ported. When the coplanar
+edge enters/exits the other (convex) triangle through one of its edges, the
+coplanar edge ∩ other-triangle is a single sub-segment `[P, Q]`; each of `P, Q`
+is either a coplanar-edge endpoint on the closed other triangle (`Explicit`, the
+contained path) or an in-plane crossing of the coplanar edge with one of the
+other triangle's edges. The crossing is a new `IntersectionVertex::EdgeEdge { e,
+f, jolly, approx }` (the C++ `addEdgeCrossEdgeInters` jolly-LPI, cpp:285-318/
+557/589/621): its EXACT coordinates are the line `e` ∩ the plane through
+`[f0, f1, jolly]` (geometrically **jolly-INDEPENDENT** — any out-of-plane jolly
+gives the same in-plane e×f crossing; the jolly only makes the plane
+non-degenerate and only affects the `approx` readback). The jolly is the FIRST
+of the four regular-tetrahedron jolly directions (scaled generously relative to
+the live edge magnitude) with `orient3d(f0, f1, j, f_other) != Zero`, matching
+the C++ `noCoplanarJollyPointID` arg order (cpp:406-418).
+
+`group_intersection_points` interns the `EdgeEdge` as `Lpi { line: e, plane:
+[f0, f1, jolly] }` (so it shares one geometric id with any coincident `Explicit`/
+`Lpi` via the exact-coordinate interner) and places it on the edge bucket of
+BOTH owners — the coplanar edge `e` AND the other-triangle edge `f` (cpp
+`addVertexInEdge(e0_id, ..) + addVertexInEdge(e1_id, ..)`), NOT through
+`pierced_triangle` (the jolly plane is not a triangle). This resolves UPDATE 1's
+"dual-edge placement not yet representable" note. The in-plane proper-crossing
+test projects to the dominant-normal plane of the other triangle and uses exact
+`orient2d` cross-side signs — avoiding the axis-aligned degenerate-projection
+blind spot of the generic 3D `segment_segment_intersect_3d` (which collapses a
+coplanar edge parallel to a dropped axis to a point). Reference parity verified
+at the arrangement level (vertex-set Hausdorff-0 vs the C++ `mesh_booleans`
+sidecar) in `crossing_single_coplanar_edge_arrangement_parity`.
+
+**STILL DEFERRED (loud, P9/P10):** (1) sub-configs where an other-triangle
+**vertex lies strictly inside the coplanar edge** (the C++ `tvX_in_edge`
+symbolic-segment branches, cpp:545-547/570/602/634) or the coplanar edge is
+**collinear / overlapping** with an other-triangle edge — these need the
+cross-edge symbolic-segment bookkeeping not constructed here; `classify_single_
+coplanar_edge` returns `None` → `Deferred(SingleCoplanarEdge)`. (2) the
 **fully-coplanar** (`allCoplanarEdges`, orBA `0 0 0`) case (out of scope; Yang
-Stage-0 / M8). Both remain `Deferred(SingleCoplanarEdge)` / `Deferred(Coplanar)`
-— never a guessed result (P9/P10).
+Stage-0 / M8) → `Deferred(Coplanar)`. Never a guessed result.
 
 ### N14 — PR-CR-AR2a point/edge insertion: readable `splitSingleTriangle` with a uniform on-edge check; structural LPI dedup
 

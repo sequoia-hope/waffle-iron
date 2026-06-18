@@ -52,11 +52,11 @@
 
 use crate::arrangements::FastTrimesh;
 use crate::predicates::{
-    orient3d, point_in_segment_3d, point_in_triangle_3d, point_in_triangle_3d_loc,
-    segment_intersects_triangle_3d, segment_segment_intersect_3d, PointLocation,
-    SegSegIntersection, SegmentLocation, SegmentTriangleIntersection, Sign, TriangleLocation,
+    max_component_in_triangle_normal, orient2d, orient3d, point_in_segment_3d,
+    point_in_triangle_3d, point_in_triangle_3d_loc, segment_intersects_triangle_3d, Axis,
+    PointLocation, SegmentLocation, SegmentTriangleIntersection, Sign, TriangleLocation,
 };
-use cad_primitives::Point3;
+use cad_primitives::{Point2, Point3};
 
 /// One endpoint of a tri-tri intersection, correctly typed.
 ///
@@ -80,6 +80,25 @@ pub enum IntersectionVertex {
     Lpi {
         line: [Point3; 2],
         plane: [Point3; 3],
+        approx: Point3,
+    },
+    /// In-plane crossing of a coplanar edge `e` with an edge `f` of the other
+    /// (convex) triangle, in the single-coplanar-edge edge-CROSSING sub-config
+    /// (deviation N13). Mirrors the C++ `addEdgeCrossEdgeInters`
+    /// (`intersection_classification.cpp:285-318`):
+    /// `implicitPoint3D_LPI(e.v0, e.v1, f.v0, f.v1, jolly)`. Its EXACT
+    /// coordinates are the line∩plane of `line = e` with the plane through
+    /// `[f[0], f[1], jolly]`; geometrically the crossing is jolly-INDEPENDENT
+    /// (any out-of-plane jolly yields the same in-plane e×f crossing), so the
+    /// `jolly` only makes the plane non-degenerate and only affects `approx`.
+    ///
+    /// This vertex lies on an edge of BOTH triangles (the coplanar edge `e`
+    /// and the other-triangle edge `f`), so `group_intersection_points` places
+    /// it onto both owners' matching edge buckets.
+    EdgeEdge {
+        e: [Point3; 2],
+        f: [Point3; 2],
+        jolly: Point3,
         approx: Point3,
     },
 }
@@ -349,36 +368,35 @@ fn check_single_no_coplanar_edge_intersection(
     );
 }
 
-/// Port of `checkSingleCoplanarEdgeIntersections` (cpp:422-657), RESTRICTED to
-/// the **edge-contained** sub-configs (deviation N13, this slice).
+/// Port of `checkSingleCoplanarEdgeIntersections` (cpp:422-657), covering the
+/// **edge-contained** AND the **edge-CROSSING** sub-configs (deviation N13).
 ///
 /// `e0`/`e1` are the two endpoints of the coplanar edge (an edge of triangle
 /// `e_t`, whose corners are `_e_tri`, soup id `_e_tri_id`); `o_tri`/`o_tri_id`
-/// are the OTHER triangle (the plane owner). Returns:
+/// are the OTHER triangle (the plane owner).
 ///
-/// - `Some(vertices)` when BOTH endpoints lie on the closed other triangle
-///   (ON_VERT / ON_EDGE / STRICTLY_INSIDE) and the edge does NOT properly
-///   cross any edge of the other triangle. The returned `vertices` are the
-///   `Explicit` endpoint placements (a corner of `e_t` landing on `o_t`),
-///   which `group_intersection_points` places onto `o_t`'s correct
-///   edge/interior and `group_constraint_segments` joins into the symbolic
-///   segment (cpp `addSymbolicSegment`). An endpoint that coincides with a
-///   corner of `o_t` (ON_VERT) introduces no new geometry and is recorded as
-///   an `Explicit` of `o_t` itself (dropped from `o_t`'s buckets there, but
-///   still a valid segment endpoint via geometric identity).
+/// KEY GEOMETRIC FACT: the coplanar edge (a segment) ∩ the OTHER convex
+/// triangle is a SINGLE sub-segment `[P, Q]`. Each of `P`, `Q` is either:
+/// - a coplanar-edge ENDPOINT that lies on the closed other triangle
+///   (ON_VERT / ON_EDGE / STRICTLY_INSIDE) → an `Explicit` vertex (the
+///   contained path), placed onto `o_t` by `group_intersection_points`, OR
+/// - an in-plane CROSSING of the coplanar edge with one of `o_t`'s 3 edges →
+///   an [`IntersectionVertex::EdgeEdge`] (the C++ `addEdgeCrossEdgeInters`
+///   jolly-LPI, cpp:557/589/621), which lies on an edge of BOTH triangles.
 ///
-/// - `None` (defer LOUDLY) when the configuration needs an in-plane
-///   edge-edge crossing — the C++ `addEdgeCrossEdgeInters` jolly-LPI path
-///   (cpp:557/589/621). That LPI lies on an edge of BOTH triangles; the
-///   current `aux_structure` placement keys an `Lpi` by its `plane`
-///   generators (a triangle's 3 corners), which the jolly plane is not, so
-///   the dual-edge placement cannot yet be represented. Deferring is correct
-///   (P9/P10): never emit a guessed crossing.
+/// So at most TWO distinct sub-segment endpoints are emitted;
+/// `group_constraint_segments` joins them into the one `ConstraintSegment`
+/// (cpp `addSymbolicSegment`).
 ///
-/// Both endpoints landing on the SAME corner-pair as `o_t`'s own vertices
-/// (an exact shared edge, ON_VERT+ON_VERT) returns `Some(vec![])` (no new
-/// geometry, no segment) matching the C++ `if(v0_in_vtx && v1_in_vtx) return;`
-/// (cpp:460).
+/// Returns:
+/// - `Some(vertices)` with the ≤2 distinct sub-segment endpoints.
+/// - `Some(vec![])` for an exact shared edge (both endpoints ON o_t vertices,
+///   cpp:460 `if(v0_in_vtx && v1_in_vtx) return;`) — no new geometry.
+/// - `None` (defer LOUDLY, P9/P10) for a degenerate/ambiguous configuration
+///   we cannot resolve to a clean ≤2-endpoint sub-segment: an o_t vertex
+///   strictly inside the coplanar edge (the cpp `tvX_in_edge` symbolic-segment
+///   bookkeeping, cpp:545-547/658-674), a collinear/overlapping edge pair, or
+///   any case that fails to yield exactly the sub-segment's endpoints.
 fn classify_single_coplanar_edge(
     e0: Point3,
     e1: Point3,
@@ -406,34 +424,11 @@ fn classify_single_coplanar_edge(
     let e0_seg = on_edge_index(loc0);
     let e1_seg = on_edge_index(loc1);
 
-    // The coplanar edge must NOT properly cross any (non-excluded) edge of the
-    // other triangle — that is the `addEdgeCrossEdgeInters` path
-    // (cpp:552-646), which this slice defers. A crossing whose shared point is
-    // interior to BOTH segments (not a shared endpoint, neither o_t vertex
-    // strictly inside the coplanar edge) on an edge that hosts NEITHER
-    // endpoint forces deferral (cpp:552-555 guard).
-    let o_edges = [
-        (o_tri[0], o_tri[1]),
-        (o_tri[1], o_tri[2]),
-        (o_tri[2], o_tri[0]),
-    ];
-    for (i, (oa, ob)) in o_edges.into_iter().enumerate() {
-        if e0_seg == Some(i) || e1_seg == Some(i) {
-            continue; // an endpoint already rests on this edge (cpp:552)
-        }
-        if segment_segment_intersect_3d(e0, e1, oa, ob) == SegSegIntersection::Intersect
-            && point_in_segment_3d(oa, e0, e1) == SegmentLocation::StrictlyOutside
-            && point_in_segment_3d(ob, e0, e1) == SegmentLocation::StrictlyOutside
-        {
-            // A genuine in-plane edge-edge crossing → needs a jolly-LPI; defer.
-            return None;
-        }
-    }
-
-    // Also defer if a vertex of the other triangle lies strictly inside the
+    // Defer if a vertex of the other triangle lies strictly inside the
     // coplanar edge — that becomes a vertex-in-edge on the coplanar edge plus
-    // a symbolic segment in the C++ (cpp:545-547 / cpp:658-674), which again
-    // needs cross-edge bookkeeping this slice does not construct.
+    // a symbolic segment in the C++ (cpp:545-547 / cpp:658-674 / the
+    // `tvX_in_edge` branches at cpp:570/602/634), which needs cross-edge
+    // bookkeeping this slice does not construct. P9: never guess.
     if o_tri
         .iter()
         .any(|&w| point_in_segment_3d(w, e0, e1) == SegmentLocation::StrictlyInside)
@@ -441,31 +436,19 @@ fn classify_single_coplanar_edge(
         return None;
     }
 
-    // Both endpoints must lie on the closed other triangle; if either is
-    // strictly outside, the contained sub-config does not apply (the edge
-    // exits without a constructed crossing) → defer.
-    if loc0 == TriangleLocation::StrictlyOutside || loc1 == TriangleLocation::StrictlyOutside {
-        return None;
-    }
-
-    // cpp:460 — both endpoints coincide with o_t vertices: shared edge, no new
-    // geometry, no segment.
     let is_on_vert = |l: TriangleLocation| {
         matches!(
             l,
             TriangleLocation::OnVert0 | TriangleLocation::OnVert1 | TriangleLocation::OnVert2
         )
     };
+
+    // cpp:460 — both endpoints coincide with o_t vertices: shared edge, no new
+    // geometry, no segment.
     if is_on_vert(loc0) && is_on_vert(loc1) {
         return Some(Vec::new());
     }
 
-    // Emit the two endpoints as Explicit intersection vertices owned by the
-    // coplanar edge's triangle (`e_t`). `group_intersection_points` places
-    // each onto `o_t` (the OTHER triangle) at its correct edge/interior, and
-    // `group_constraint_segments` joins the two interned ids into the
-    // symbolic segment. The corner index is the endpoint's position within
-    // `e_t`'s corner list.
     let corner_of = |p: Point3| -> u8 {
         if p == _e_tri[0] {
             0
@@ -475,28 +458,261 @@ fn classify_single_coplanar_edge(
             2
         }
     };
+
+    // ── Build the sub-segment [P, Q] = coplanar edge ∩ o_t ─────────────
+    //
+    // Each sub-segment endpoint is collected as an `IntersectionVertex`:
+    // a contained coplanar-edge endpoint → `Explicit`; an in-plane crossing
+    // of the coplanar edge with an o_t edge → `EdgeEdge`. We collect ≤2
+    // distinct endpoints; anything else is degenerate → defer LOUDLY.
     let mut out: Vec<IntersectionVertex> = Vec::new();
-    push_unique(
-        &mut out,
-        IntersectionVertex::Explicit {
-            tri: e_tri_id,
-            corner: corner_of(e0),
-            point: e0,
-        },
-    );
-    push_unique(
-        &mut out,
-        IntersectionVertex::Explicit {
-            tri: e_tri_id,
-            corner: corner_of(e1),
-            point: e1,
-        },
-    );
+
+    // (a) Each coplanar-edge endpoint that lies on the closed o_t is an
+    //     `Explicit` sub-segment endpoint (the contained path).
+    for (ep, loc) in [(e0, loc0), (e1, loc1)] {
+        if loc != TriangleLocation::StrictlyOutside {
+            push_unique(
+                &mut out,
+                IntersectionVertex::Explicit {
+                    tri: e_tri_id,
+                    corner: corner_of(ep),
+                    point: ep,
+                },
+            );
+        }
+    }
+
+    // (b) Each proper in-plane crossing of the coplanar edge with an o_t edge
+    //     is an `EdgeEdge` sub-segment endpoint (cpp:552-646). The C++ guard
+    //     (cpp:552-555): the o_t edge hosts NEITHER coplanar-edge endpoint
+    //     (`v0_in_seg != o_t_eX && v1_in_seg != o_t_eX`), the segments
+    //     INTERSECT, and NEITHER o_t-edge vertex is strictly inside the
+    //     coplanar edge (otherwise it is a vertex-in-edge, not a crossing).
+    let o_edges = [
+        (o_tri[0], o_tri[1]),
+        (o_tri[1], o_tri[2]),
+        (o_tri[2], o_tri[0]),
+    ];
+    // Project to the plane with the largest normal component of o_t (the
+    // coplanar edge AND all o_t edges live in that plane, so the in-plane
+    // crossing is captured exactly by `orient2d` there — avoiding the
+    // axis-aligned degenerate-projection blind spot of the generic 3D
+    // `segment_segment_intersect_3d`, which collapses to a point in a dropped
+    // axis when the coplanar edge is parallel to it).
+    let axis = max_component_in_triangle_normal(o_tri[0], o_tri[1], o_tri[2]);
+    for (i, (oa, ob)) in o_edges.into_iter().enumerate() {
+        if e0_seg == Some(i) || e1_seg == Some(i) {
+            continue; // an endpoint already rests on this edge (cpp:552)
+        }
+        // A genuine in-plane crossing requires the o_t-edge vertices to be off
+        // the coplanar edge (cpp:554-555); an o_t vertex on the coplanar edge
+        // is a vertex-in-edge handled by the (already-deferred) tvX_in_edge
+        // path.
+        if point_in_segment_3d(oa, e0, e1) != SegmentLocation::StrictlyOutside
+            || point_in_segment_3d(ob, e0, e1) != SegmentLocation::StrictlyOutside
+        {
+            continue;
+        }
+        match in_plane_proper_crossing(axis, e0, e1, oa, ob) {
+            CrossingKind::Proper => {
+                // In-plane edge-edge crossing → an `EdgeEdge` (jolly-LPI,
+                // cpp:557/589/621 `addEdgeCrossEdgeInters`).
+                let jolly = pick_non_coplanar_jolly(oa, ob, e0)?;
+                let approx = lpi_approx(e0, e1, oa, ob, jolly);
+                push_unique(
+                    &mut out,
+                    IntersectionVertex::EdgeEdge {
+                        e: [e0, e1],
+                        f: [oa, ob],
+                        jolly,
+                        approx,
+                    },
+                );
+            }
+            CrossingKind::Collinear => {
+                // Collinear overlap of the coplanar edge with an o_t edge that
+                // hosts neither coplanar-edge endpoint: the clean ≤2-endpoint
+                // sub-segment is ambiguous (the C++ handles this via the
+                // collinear symbolic-segment branches) → defer LOUDLY
+                // (P9/P10).
+                return None;
+            }
+            CrossingKind::None => {}
+        }
+    }
+
+    // The coplanar edge ∩ a convex triangle is a single sub-segment with at
+    // most two distinct endpoints. More than two distinct sub-segment
+    // endpoints is geometrically impossible for a convex o_t → defer LOUDLY
+    // rather than emit a guessed segment.
+    if distinct_geometric_endpoints(&out) > 2 {
+        return None;
+    }
+
     // `o_tri_id` participates only as the pierced-side triangle, resolved by
     // `group_intersection_points` from the pair ids; referenced here to keep
     // the C++ call-shape (e_t_id, o_t_id) visible in the signature.
     let _ = o_tri_id;
     Some(out)
+}
+
+/// Result of the in-plane proper-crossing test between the coplanar edge and
+/// one o_t edge (both coplanar, projected to the dominant plane of o_t).
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+enum CrossingKind {
+    /// The two segments cross at a single interior point of BOTH (a proper
+    /// transversal crossing — the four `orient2d` cross-side signs are
+    /// strictly opposite on both segments, no shared endpoint).
+    Proper,
+    /// The two segments are collinear in the plane (an `orient2d`-degenerate
+    /// pair) — ambiguous sub-segment, deferred upstream.
+    Collinear,
+    /// No interior crossing (disjoint, or touching only at an endpoint).
+    None,
+}
+
+/// Project `p` to 2D by dropping the axis of `axis` (the dominant normal
+/// component of the shared plane). Exact (no arithmetic — coordinate copy).
+fn drop_axis(axis: Axis, p: Point3) -> Point2 {
+    match axis {
+        Axis::X => Point2::new(p.y(), p.z()),
+        Axis::Y => Point2::new(p.x(), p.z()),
+        Axis::Z => Point2::new(p.x(), p.y()),
+    }
+}
+
+/// Proper in-plane crossing of segment `(e0, e1)` with segment `(oa, ob)`,
+/// both lying in the plane whose dominant normal axis is `axis`. EXACT via
+/// `orient2d` (CR10) on the dropped-axis projection.
+///
+/// Mirrors the cinolib `segment_segment_intersect_2d` cross-side rule
+/// (`predicates.cpp:581-641`) but specialized to the KNOWN-coplanar inputs of
+/// the single-coplanar-edge config, projecting to the plane the segments
+/// actually live in (so a coplanar edge parallel to a dropped 3D axis is not a
+/// false negative). A `Proper` crossing is the strict four-sign-opposite case
+/// with no shared endpoint; an all-zero `orient2d` quartet is `Collinear`.
+fn in_plane_proper_crossing(
+    axis: Axis,
+    e0: Point3,
+    e1: Point3,
+    oa: Point3,
+    ob: Point3,
+) -> CrossingKind {
+    let q0 = drop_axis(axis, e0);
+    let q1 = drop_axis(axis, e1);
+    let r0 = drop_axis(axis, oa);
+    let r1 = drop_axis(axis, ob);
+
+    let s_e0 = orient2d(r0, r1, q0);
+    let s_e1 = orient2d(r0, r1, q1);
+    let s_o0 = orient2d(q0, q1, r0);
+    let s_o1 = orient2d(q0, q1, r1);
+
+    // All four collinear → degenerate / overlapping in this plane.
+    if s_e0 == Sign::Zero && s_e1 == Sign::Zero && s_o0 == Sign::Zero && s_o1 == Sign::Zero {
+        return CrossingKind::Collinear;
+    }
+
+    // Proper crossing: each segment's endpoints strictly straddle the other's
+    // supporting line (signs strictly opposite, neither zero), and no shared
+    // endpoint (guaranteed: a shared endpoint would have been an ON_VERT /
+    // ON_EDGE endpoint excluded above, and the o_t-vertex-on-edge cases are
+    // filtered before this call).
+    let straddle_e = s_e0 != Sign::Zero && s_e1 != Sign::Zero && s_e0 != s_e1;
+    let straddle_o = s_o0 != Sign::Zero && s_o1 != Sign::Zero && s_o0 != s_o1;
+    if straddle_e && straddle_o {
+        CrossingKind::Proper
+    } else {
+        CrossingKind::None
+    }
+}
+
+/// Pick the FIRST of the (scaled) tetrahedral jolly points whose
+/// `orient3d(f0, f1, j, f_other) != Zero` — i.e. not aligned with the o_t edge
+/// `(f0, f1)`. Mirrors the C++ `noCoplanarJollyPointID(ts, e1.v0, e1.v1,
+/// e0.v0)` arg order (cpp:406-418, called from `addEdgeCrossEdgeInters`
+/// cpp:286). The chosen jolly makes the LPI plane through `(f0, f1, jolly)`
+/// non-degenerate; since the crossing is jolly-INDEPENDENT geometrically, the
+/// choice only affects `approx`.
+///
+/// Returns `None` (defer LOUDLY) in the impossible event that all four jolly
+/// points are coplanar with the edge — never fabricates a degenerate plane.
+fn pick_non_coplanar_jolly(f0: Point3, f1: Point3, f_other: Point3) -> Option<Point3> {
+    // Scale the regular-tetrahedron jolly directions generously relative to
+    // the coordinate magnitude of the edge so they are non-coplanar with the
+    // mesh edge regardless of input scale (the soup coords classify_pair sees
+    // are already multiplier-scaled). `compute_multiplier` is not visible
+    // here; deriving the scale from the live coordinates is sufficient because
+    // the EXACT crossing is jolly-independent — the scale only affects `approx`
+    // and the non-degeneracy `orient3d != Zero` check.
+    let mag = [f0, f1, f_other]
+        .iter()
+        .flat_map(|p| [p.x().abs(), p.y().abs(), p.z().abs()])
+        .fold(1.0_f64, f64::max);
+    let m = mag * 4.0;
+    // Regular tetrahedron directions (the four C++ jolly points, spec §8).
+    let dirs = [
+        (0.942_809_041_6, 0.0, -0.333_333_3),
+        (-0.471_404_520_8, 0.816_496_580_9, -0.333_333_3),
+        (-0.471_404_520_8, -0.816_496_580_9, -0.333_333_3),
+        (0.0, 0.0, 1.0),
+    ];
+    for (dx, dy, dz) in dirs {
+        let j = Point3::new(dx * m, dy * m, dz * m);
+        if orient3d(f0, f1, j, f_other) != Sign::Zero {
+            return Some(j);
+        }
+    }
+    None
+}
+
+/// Count of DISTINCT GEOMETRIC sub-segment endpoints in a partial intersection-
+/// vertex list, comparing by exact `VertexCoords` rational coordinates (so an
+/// `Explicit` endpoint that coincides with an `EdgeEdge` crossing is counted
+/// once). Falls back to structural equality for any point whose exact coords
+/// are unresolvable.
+fn distinct_geometric_endpoints(vs: &[IntersectionVertex]) -> usize {
+    use crate::arrangements::aux_structure::exact_point_coords;
+    use crate::arrangements::fast_trimesh::VertexCoords;
+    let mut exact_keys: Vec<[dashu::rational::RBig; 3]> = Vec::new();
+    let mut structural: Vec<VertexCoords> = Vec::new();
+    for iv in vs {
+        let coords = vertex_coords_of_local(iv);
+        match exact_point_coords(&coords) {
+            Some(k) => {
+                if !exact_keys.contains(&k) {
+                    exact_keys.push(k);
+                }
+            }
+            None => {
+                if !structural.contains(&coords) {
+                    structural.push(coords);
+                }
+            }
+        }
+    }
+    exact_keys.len() + structural.len()
+}
+
+/// The [`VertexCoords`] an [`IntersectionVertex`] interns as (local mirror of
+/// `aux_structure::vertex_coords_of`, kept here to avoid a cross-module
+/// visibility change). `EdgeEdge` interns as `Lpi { line: e, plane: [f0, f1,
+/// jolly] }` — its exact coordinates are the in-plane crossing.
+fn vertex_coords_of_local(
+    iv: &IntersectionVertex,
+) -> crate::arrangements::fast_trimesh::VertexCoords {
+    use crate::arrangements::fast_trimesh::VertexCoords;
+    match iv {
+        IntersectionVertex::Explicit { point, .. } => VertexCoords::Explicit(*point),
+        IntersectionVertex::Lpi { line, plane, .. } => VertexCoords::Lpi {
+            line: *line,
+            plane: *plane,
+        },
+        IntersectionVertex::EdgeEdge { e, f, jolly, .. } => VertexCoords::Lpi {
+            line: *e,
+            plane: [f[0], f[1], *jolly],
+        },
+    }
 }
 
 /// Approximate explicit coordinates of the line-plane intersection, read back
@@ -706,6 +922,13 @@ mod tests {
             .count()
     }
 
+    /// Count EdgeEdge (in-plane edge-edge crossing) vertices.
+    fn count_edge_edge(v: &[IntersectionVertex]) -> usize {
+        v.iter()
+            .filter(|iv| matches!(iv, IntersectionVertex::EdgeEdge { .. }))
+            .count()
+    }
+
     /// Unwrap to the transversal vertex list or panic with the actual
     /// classification (so a stub `Disjoint` fails loudly with context).
     fn expect_transversal(c: &PairClassification) -> &Vec<IntersectionVertex> {
@@ -792,17 +1015,19 @@ mod tests {
     }
 
     /// orBA `1 0 0`-style (single coplanar edge) where the coplanar edge is a
-    /// CHORD crossing A through two distinct A edges → still
-    /// Deferred(SingleCoplanarEdge): the in-plane edge-edge crossing needs the
-    /// `addEdgeCrossEdgeInters` jolly-LPI path this slice does not construct.
+    /// CHORD crossing A through two distinct A edges → now CLASSIFIED
+    /// (edge-CROSSING sub-config, deviation N13, this slice) as Transversal
+    /// with two `EdgeEdge` in-plane crossings (the C++
+    /// `addEdgeCrossEdgeInters` jolly-LPI path).
     ///
     /// A = xy_triangle_a. B = (-1,1,0),(5,1,0),(2,2,3): B0,B1 in z=0
     /// (signs 0,0), B2 at z=3 off-plane (sign ≠ 0). The coplanar edge B0-B1
     /// lies along y=1 from x=-1 (outside A) to x=5 (outside A), so it ENTERS
     /// A through edge2 (x=0) at (0,1) and EXITS through edge1 (x+y=4) at
-    /// (3,1) — a proper two-edge chord crossing.
+    /// (3,1) — a proper two-edge chord crossing → 2 EdgeEdge, 0 Explicit,
+    /// 0 Lpi.
     #[test]
-    fn pattern_single_coplanar_edge_chord_is_deferred() {
+    fn pattern_single_coplanar_edge_chord_two_edge_edge() {
         let a = xy_triangle_a();
         let b = [
             Point3::new(-1.0, 1.0, 0.0),
@@ -810,10 +1035,15 @@ mod tests {
             Point3::new(2.0, 2.0, 3.0),
         ];
         let (soup, _, _) = soup_pair(a, b);
+        let c = classify_pair(&soup, 0, 1);
+        let v = expect_transversal(&c);
         assert_eq!(
-            classify_pair(&soup, 0, 1),
-            PairClassification::Deferred(DeferReason::SingleCoplanarEdge)
+            count_edge_edge(v),
+            2,
+            "chord crossing two A edges → 2 EdgeEdge, got {v:?}"
         );
+        assert_eq!(count_explicit(v), 0, "both endpoints outside A, got {v:?}");
+        assert_eq!(count_lpi(v), 0, "no transversal LPI, got {v:?}");
     }
 
     /// orBA `-1 1 1`-style transversal: one vtx of B on one side of A's
@@ -1062,10 +1292,10 @@ mod tests {
             Point3::new(1.0, 3.0, 0.0),
         ];
         // Single-coplanar-edge CHORD (same fixture as
-        // `pattern_single_coplanar_edge_chord_is_deferred`): edge B0-B1 lies in
-        // A's plane and crosses A through two edges, B2 off-plane. Stays
-        // Deferred(SingleCoplanarEdge); exercises that arm of the oracle (CR9
-        // == Intersects here, NOT Disjoint).
+        // `pattern_single_coplanar_edge_chord_two_edge_edge`): edge B0-B1 lies
+        // in A's plane and crosses A through two edges, B2 off-plane. Now
+        // CLASSIFIED Transversal (2 EdgeEdge); CR9 == Intersects, so the
+        // Transversal arm of the oracle agrees.
         let b_sce = [
             Point3::new(-1.0, 1.0, 0.0),
             Point3::new(5.0, 1.0, 0.0),
@@ -1105,10 +1335,10 @@ mod tests {
     }
 
     #[test]
-    fn single_coplanar_edge_chord_deferred() {
-        // A CHORD-crossing coplanar edge (enters/exits A through two edges)
-        // still defers — the in-plane edge-edge crossing needs the jolly-LPI
-        // path this slice does not construct.
+    fn single_coplanar_edge_chord_classified_two_edge_edge() {
+        // A CHORD-crossing coplanar edge (enters/exits A through two edges) is
+        // now CLASSIFIED via the in-plane edge-edge jolly-LPI path: two
+        // EdgeEdge crossings, no Explicit/Lpi.
         let a = xy_triangle_a();
         let b = [
             Point3::new(-1.0, 1.0, 0.0),
@@ -1116,10 +1346,10 @@ mod tests {
             Point3::new(2.0, 2.0, 3.0),
         ];
         let (soup, _, _) = soup_pair(a, b);
-        assert_eq!(
-            classify_pair(&soup, 0, 1),
-            PairClassification::Deferred(DeferReason::SingleCoplanarEdge)
-        );
+        let c = classify_pair(&soup, 0, 1);
+        let v = expect_transversal(&c);
+        assert_eq!(count_edge_edge(v), 2, "got {v:?}");
+        assert_eq!(count_explicit(v) + count_lpi(v), 0, "got {v:?}");
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -1195,13 +1425,13 @@ mod tests {
         assert_eq!(count_lpi(v), 0, "got {v:?}");
     }
 
-    /// Edge-CROSSING sub-config stays deferred (P9/P10): B's coplanar edge
-    /// enters and EXITS A through two distinct A edges (a chord), needing the
-    /// in-plane edge-edge jolly-LPI path this slice does not construct.
-    /// B0=(-1,2,0) outside A, B1=(2,2,0) inside → the edge crosses A's edge2
-    /// (x=0) at (0,2,0) properly → defer.
+    /// Edge-CROSSING sub-config: ONE coplanar-edge endpoint inside A, the
+    /// other outside, the edge crossing ONE A edge → CLASSIFIED as Transversal
+    /// with one `Explicit` (the contained endpoint) + one `EdgeEdge` (the
+    /// crossing). B0=(-1,2,0) outside A, B1=(2,2,0) inside → the edge crosses
+    /// A's edge2 (x=0) at (0,2,0) properly.
     #[test]
-    fn single_coplanar_edge_chord_crossing_still_deferred() {
+    fn single_coplanar_edge_one_in_one_cross_is_classified() {
         let a = [
             Point3::new(0.0, 0.0, 0.0),
             Point3::new(10.0, 0.0, 0.0),
@@ -1213,12 +1443,27 @@ mod tests {
             Point3::new(1.0, 3.0, 5.0),
         ];
         let (soup, _, _) = soup_pair(a, b);
+        let c = classify_pair(&soup, 0, 1);
+        let v = expect_transversal(&c);
         assert_eq!(
-            classify_pair(&soup, 0, 1),
-            PairClassification::Deferred(DeferReason::SingleCoplanarEdge),
-            "a coplanar edge properly crossing an A edge needs the jolly-LPI \
-             path → still deferred"
+            count_explicit(v),
+            1,
+            "B1 inside A → 1 Explicit endpoint, got {v:?}"
         );
+        assert_eq!(
+            count_edge_edge(v),
+            1,
+            "edge crosses one A edge → 1 EdgeEdge, got {v:?}"
+        );
+        // The Explicit endpoint is exactly B1 = (2,2,0).
+        let exp: Vec<Point3> = v
+            .iter()
+            .filter_map(|iv| match iv {
+                IntersectionVertex::Explicit { point, .. } => Some(*point),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(exp, vec![Point3::new(2.0, 2.0, 0.0)], "got {v:?}");
     }
 
     // ════════════════════════════════════════════════════════════════

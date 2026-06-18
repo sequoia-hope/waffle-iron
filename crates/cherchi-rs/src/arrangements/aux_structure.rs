@@ -287,6 +287,34 @@ pub fn group_intersection_points(
                         place_lpi_in_pierced(soup, y, line, plane, id, &mut buckets);
                     }
                 }
+                IntersectionVertex::EdgeEdge { e, f, jolly, .. } => {
+                    // An in-plane edge-edge crossing (single-coplanar-edge
+                    // edge-CROSSING sub-config, deviation N13). It lies on an
+                    // edge of BOTH triangles: the coplanar edge `e` (owned by
+                    // one tri) AND the other triangle's edge `f`. Its EXACT
+                    // coordinates are the in-plane crossing = line `e` ∩ the
+                    // plane through `[f0, f1, jolly]` (jolly-independent), so
+                    // it interns as that `Lpi`.
+                    let coords = VertexCoords::Lpi {
+                        line: *e,
+                        plane: [f[0], f[1], *jolly],
+                    };
+                    let id = interner.intern(coords);
+
+                    // Place onto the edge bucket of BOTH owners (cpp
+                    // `addVertexInEdge(e0_id, ..)` + `addVertexInEdge(e1_id,
+                    // ..)`, cpp:313-314). Do NOT route through
+                    // `pierced_triangle`: the jolly plane is not a triangle of
+                    // the pair.
+                    let e_line: [Point3; 2] = *e;
+                    let f_line: [Point3; 2] = *f;
+                    if let Some((x, edge_i)) = owner_edge(soup, *ta, *tb, &e_line) {
+                        push_unique(&mut buckets[x as usize].edges[edge_i], id);
+                    }
+                    if let Some((y, edge_j)) = owner_edge(soup, *ta, *tb, &f_line) {
+                        push_unique(&mut buckets[y as usize].edges[edge_j], id);
+                    }
+                }
             }
         }
     }
@@ -303,6 +331,14 @@ fn vertex_coords_of(iv: &IntersectionVertex) -> VertexCoords {
         IntersectionVertex::Lpi { line, plane, .. } => VertexCoords::Lpi {
             line: *line,
             plane: *plane,
+        },
+        // An EdgeEdge crossing interns as the in-plane LPI line `e` ∩ the
+        // plane through `[f0, f1, jolly]` (jolly-independent exact crossing) —
+        // identical to the coords `group_intersection_points` interns it as,
+        // so `group_constraint_segments` resolves it to the same id.
+        IntersectionVertex::EdgeEdge { e, f, jolly, .. } => VertexCoords::Lpi {
+            line: *e,
+            plane: [f[0], f[1], *jolly],
         },
     }
 }
@@ -804,6 +840,79 @@ mod tests {
         assert!(
             aux_b.edges[2].contains(&i02),
             "LPI from B0-B2 must be in B.edges[2] (edge (2,0)), got {aux_b:?}"
+        );
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Test 1b: single-coplanar-edge edge-CROSSING — the EdgeEdge crossing
+    //          lands on BOTH owners' matching edge buckets (deviation N13).
+    // ════════════════════════════════════════════════════════════════
+
+    /// A = big z=0 triangle (0,0,0),(10,0,0),(0,10,0). B's coplanar edge B0-B1
+    /// runs from (5,5,0) (STRICTLY INSIDE A: 5+5=10 is ON edge1, so pick
+    /// (4,4,0) inside) to (-2,4,0) (OUTSIDE A), crossing A's edge2 (x=0) at
+    /// (0,4,0). B2=(1,1,5) off-plane. So the pair yields one Explicit (the
+    /// inside endpoint) + one EdgeEdge crossing (on A's edge2 AND on B's
+    /// coplanar edge B0-B1). The EdgeEdge must appear in A's edges[2] bucket
+    /// AND in B's edges[0] bucket (B0-B1 is B's edge0), in neither interior.
+    #[test]
+    fn edge_crossing_lands_on_both_owner_edges() {
+        let a = [
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(10.0, 0.0, 0.0),
+            Point3::new(0.0, 10.0, 0.0),
+        ];
+        // B0 inside A, B1 outside A (x<0), edge crosses A's edge2 (x=0) at
+        // (0,4,0). B0-B1 is B's edge0 (corners 0,1).
+        let b = [
+            Point3::new(4.0, 4.0, 0.0),
+            Point3::new(-2.0, 4.0, 0.0),
+            Point3::new(1.0, 1.0, 5.0),
+        ];
+        let soup = soup_pair(a, b);
+        let classified = classify(&soup);
+        let (points, buckets) = group_intersection_points(&soup, &classified);
+
+        assert_eq!(buckets.len(), 2, "indexed by base-tri id");
+
+        // The EdgeEdge crossing interns as Lpi{ line = B0-B1, plane = [A-edge2
+        // endpoints, jolly] }. We do not know the jolly, so locate the crossing
+        // by its exact coordinates (0,4,0).
+        let cross = Point3::new(0.0, 4.0, 0.0);
+        let cross_r = crate::arrangements::aux_structure::exact_point_coords;
+        let cross_key = {
+            // exact rational coords of (0,4,0)
+            cross_r(&VertexCoords::Explicit(cross)).expect("explicit coords")
+        };
+        let cross_id = points
+            .iter()
+            .position(|tp| cross_r(&tp.coords).as_ref() == Some(&cross_key))
+            .map(|i| i as u32)
+            .expect("the (0,4,0) edge-edge crossing must be interned");
+
+        // A (tri 0): crossing on A's edge2 (corners 2,0 → x=0 edge), not
+        // interior, not on edges 0/1.
+        let aux_a = &buckets[0];
+        assert!(
+            aux_a.edges[2].contains(&cross_id),
+            "crossing must be in A.edges[2] (x=0 edge), got {aux_a:?}"
+        );
+        assert!(
+            !aux_a.interior.contains(&cross_id)
+                && !aux_a.edges[0].contains(&cross_id)
+                && !aux_a.edges[1].contains(&cross_id),
+            "crossing must be ONLY on A.edges[2], got {aux_a:?}"
+        );
+
+        // B (tri 1): crossing on B's edge0 (B0-B1), not interior.
+        let aux_b = &buckets[1];
+        assert!(
+            aux_b.edges[0].contains(&cross_id),
+            "crossing must be in B.edges[0] (B0-B1), got {aux_b:?}"
+        );
+        assert!(
+            !aux_b.interior.contains(&cross_id),
+            "crossing must not be in B.interior, got {aux_b:?}"
         );
     }
 
