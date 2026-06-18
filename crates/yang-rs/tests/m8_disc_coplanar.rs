@@ -523,20 +523,28 @@ fn cylinder_cap_crossing_box_corner_union_and_subtract() {
     assert!(is_outward_solid(sm), "subtract must be outward-oriented");
 }
 
-/// SCOPE GATE: a cylinder whose TOP cap (+z) is coplanar with the box top (+z,
-/// SAME normal) and crosses the corner edges. Equal-winding overlap copies
-/// meet edge-on → cherchi N13 → the loud `MeshBooleanFailed` deferral. Kept
-/// loud (honest), NOT silently mis-handled.
+/// SAME-normal coplanar crossing: a cylinder whose TOP cap (+z) is coplanar
+/// with the box top (+z, SAME normal), the cap centred at the box CORNER so its
+/// rim crosses the x=0 / y=0 box-top edges. cherchi N13 (commit 6280237d) now
+/// classifies the resulting single-coplanar-edge crossings, so this case is
+/// handled end-to-end (it reaches cherchi — the stage-0 same-normal residue
+/// gate does not fire for it). Union must succeed and be a watertight,
+/// consistently outward solid (NOT silently mis-handled). NB: oblique / scaled
+/// same-normal corpus variants still hit the stage-0 same-normal gate because
+/// the rim-crossing opposite-rim projection is not yet correct for them
+/// (task #20) — this asserts only the axis-aligned config cherchi N13 covers.
 #[test]
-fn same_normal_crossing_defers_loudly() {
+fn same_normal_crossing_union_succeeds() {
     let bx = box_brep([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
     // base_z=1, height 1 → TOP cap (+z) at z=2, same normal as the box top.
     let cyl = z_cylinder(0.0, 0.0, 1.0, 0.5, 1.0);
-    let err = boolean(&bx, &cyl, BoolOp::Union, &nb())
-        .expect_err("same-normal crossing must stay the loud cherchi deferral");
+    let out = boolean(&bx, &cyl, BoolOp::Union, &nb())
+        .expect("same-normal corner crossing union must be handled (cherchi N13)");
+    let m = out.as_mesh();
+    assert!(is_watertight(m), "same-normal crossing union must be watertight");
     assert!(
-        matches!(err, YangError::MeshBooleanFailed(_)),
-        "expected MeshBooleanFailed (cherchi N13 SingleCoplanarEdge), got {err:?}"
+        is_outward_solid(m),
+        "same-normal crossing union must be consistently outward"
     );
 }
 
