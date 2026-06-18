@@ -5302,7 +5302,24 @@ pub fn boolean(
         let band = curved_chord_bound(input_brep.edges());
         let tol_for = |fi: usize, surface: Surface| -> Result<f64, YangError> {
             match surface {
-                Surface::Plane { .. } => Ok(cad_primitives::TAU_WORK),
+                // PR-YR27 Finding 2 (completion): a planar face welded onto a
+                // Stage-0 canonical pair plane legitimately lies up to the
+                // pair's detection `band` from it — the SAME band `plane_dist`
+                // above already measures the centroid against. The membership
+                // THRESHOLD must match that distance basis, so a pair-plane face
+                // uses its pair band; every NON-pair planar face keeps TAU_WORK
+                // byte-for-byte (the exact/band tier split below still keys on
+                // TAU_WORK, so on-plane triangles stay EXACT hits and the
+                // all-planar fuzz corpus is unaffected — this only admits the
+                // band-level offset the Stage-0 weld itself introduced, NOT a
+                // widening). Without it a coplanar boolean at non-unit model
+                // scale (e.g. a 10 mm bearing recess, coords ~1e-2, weld
+                // residual ~1e-10 ≫ TAU_WORK) loses its annulus-cap triangles to
+                // a spurious FaceResolutionFailed.
+                Surface::Plane { .. } => Ok(match stage0_pair_plane(fi) {
+                    Some(pp) => pp.band.max(cad_primitives::TAU_WORK),
+                    None => cad_primitives::TAU_WORK,
+                }),
                 Surface::Cylinder { .. } => match band {
                     Some(de) => Ok(de),
                     None => Err(YangError::FaceResolutionFailed { tri: compact_t }),
