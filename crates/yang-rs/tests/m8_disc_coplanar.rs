@@ -477,21 +477,65 @@ fn disc_in_nonconvex_polygon_union_succeeds() {
     );
 }
 
-/// INCREMENT BOUNDARY: a disc that CROSSES the polygon boundary (the cap pokes
-/// past the box edge) introduces an irrational arc∩segment crossing the
-/// rational overlay can only approximate, plus a boundary split that must
-/// propagate — a deferred slice. It MUST stay the loud typed residue, not be
-/// silently mis-handled.
+/// PR-M8 disc-rim crossing: a disc that CROSSES the polygon boundary (the cap
+/// pokes past the box edge) must now SUCCEED — the rim crossing points
+/// propagate into the cylinder lateral and the opposite cap so the mesh stays
+/// conformal. The cylinder's bottom cap is −z (OPPOSITE the box top's +z), so
+/// it routes through the opposite-normal crossing path.
 #[test]
-fn disc_crossing_polygon_stays_unsupported() {
+fn disc_crossing_polygon_succeeds() {
     // Box top is [0,2]², cap radius 0.5 centred at the CORNER (0,0): the disc
     // crosses the x = 0 and y = 0 box edges.
     let a = box_brep([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
     let b = z_cylinder(0.0, 0.0, 2.0, 0.5, 1.0);
-    let err = boolean(&a, &b, BoolOp::Union, &nb())
-        .expect_err("a crossing disc pair must stay the loud M8 residue");
+    let out = boolean(&a, &b, BoolOp::Union, &nb())
+        .expect("disc-rim crossing (opposite-normal) must be handled by Stage 0");
+    let mesh = out.as_mesh();
     assert!(
-        matches!(err, YangError::CoplanarFacesUnsupported { .. }),
-        "expected CoplanarFacesUnsupported, got {err:?}"
+        is_watertight(mesh),
+        "crossing union output must be a closed 2-manifold"
+    );
+    assert!(
+        is_outward_solid(mesh),
+        "crossing union must be consistently outward-oriented"
+    );
+}
+
+/// PR-M8 disc-rim crossing — the user's reported boss/recess: a cylinder whose
+/// bottom cap (−z) is coplanar with the box top (+z, OPPOSITE normals) and
+/// whose rim crosses the box corner edges. Both UNION (box ∪ boss) and SUBTRACT
+/// (boss − box, operand-swapped) must succeed, watertight + outward.
+#[test]
+fn cylinder_cap_crossing_box_corner_union_and_subtract() {
+    let bx = box_brep([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+    let boss = z_cylinder(0.0, 0.0, 2.0, 0.5, 1.0);
+
+    let u = boolean(&bx, &boss, BoolOp::Union, &nb())
+        .expect("boss-at-corner UNION must be handled by Stage 0");
+    let um = u.as_mesh();
+    assert!(is_watertight(um), "union must be a closed 2-manifold");
+    assert!(is_outward_solid(um), "union must be outward-oriented");
+
+    let s = boolean(&boss, &bx, BoolOp::Subtract, &nb())
+        .expect("boss−box SUBTRACT must be handled by Stage 0");
+    let sm = s.as_mesh();
+    assert!(is_watertight(sm), "subtract must be a closed 2-manifold");
+    assert!(is_outward_solid(sm), "subtract must be outward-oriented");
+}
+
+/// SCOPE GATE: a cylinder whose TOP cap (+z) is coplanar with the box top (+z,
+/// SAME normal) and crosses the corner edges. Equal-winding overlap copies
+/// meet edge-on → cherchi N13 → the loud `MeshBooleanFailed` deferral. Kept
+/// loud (honest), NOT silently mis-handled.
+#[test]
+fn same_normal_crossing_defers_loudly() {
+    let bx = box_brep([0.0, 0.0, 0.0], [2.0, 2.0, 2.0]);
+    // base_z=1, height 1 → TOP cap (+z) at z=2, same normal as the box top.
+    let cyl = z_cylinder(0.0, 0.0, 1.0, 0.5, 1.0);
+    let err = boolean(&bx, &cyl, BoolOp::Union, &nb())
+        .expect_err("same-normal crossing must stay the loud cherchi deferral");
+    assert!(
+        matches!(err, YangError::MeshBooleanFailed(_)),
+        "expected MeshBooleanFailed (cherchi N13 SingleCoplanarEdge), got {err:?}"
     );
 }

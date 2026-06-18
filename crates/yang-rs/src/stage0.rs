@@ -66,8 +66,9 @@ use crate::coplanar_overlay::{
     coplanar_overlay, cross_r, ClassifiedOverlay, ExactPoint2, PolygonWithHoles, RegionClass,
 };
 use crate::{
-    normalize3, ortho_basis, scan_near_coplanar, stage1_tessellate, BRep, BRepEdge, BRepVertex,
-    Curve, InputId, Mesh, Surface, YangError,
+    normalize3, ortho_basis, scan_near_coplanar, stage1_tessellate,
+    stage1_tessellate_with_rim_overrides, BRep, BRepEdge, BRepVertex, Curve, InputId, Mesh,
+    Surface, YangError,
 };
 use cad_primitives::Point2;
 
@@ -239,6 +240,8 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
     let mut overrides_b: BTreeMap<usize, Vec<[Point3; 3]>> = BTreeMap::new();
     let mut splits_a: SplitMap = BTreeMap::new();
     let mut splits_b: SplitMap = BTreeMap::new();
+    let mut rim_overrides_a: RimSplitMap = BTreeMap::new();
+    let mut rim_overrides_b: RimSplitMap = BTreeMap::new();
     let mut pairs: Vec<PairPlane> = Vec::with_capacity(scan.cross.len());
 
     for (p, frame) in scan.cross.iter().zip(&frames) {
@@ -275,11 +278,14 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                     continue;
                 }
                 DiscPair::Empty => continue,
-                // A non-convex polygon partner falls through to the GENERAL
-                // overlay path (disc-aware via the tessellated builder), which
-                // propagates the polygon-edge subdivisions the direct builder
-                // cannot. Any other wall stays the loud residue.
-                DiscPair::Wall("disc-poly-nonconvex") => {}
+                // A non-convex polygon partner OR a disc∩polygon CROSSING falls
+                // through to the GENERAL overlay path (disc-aware via the
+                // tessellated builder), which segments the overlap exactly and
+                // — for a crossing — propagates the rim split into the cylinder
+                // lateral + opposite cap (`collect_rim_crossings`, PR-M8
+                // disc-rim crossing). disc∩disc crossing stays walled here.
+                // Any other wall stays the loud residue.
+                DiscPair::Wall("disc-poly-nonconvex") | DiscPair::Wall("disc-crossing") => {}
                 DiscPair::Wall(tag) => {
                     probe(tag, &format!("pair=({},{})", p.face_a, p.face_b));
                     return Err(pair_err(p.face_a, p.face_b));
@@ -316,16 +322,22 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             continue;
         }
 
-        // CROSSING GATE: a disc rim that the overlap boundary CROSSES (the
-        // overlay subdivides a rim sub-chord) needs rim-split propagation into
-        // the cylinder lateral — the crossing increment. Without it the lateral
-        // keeps the un-subdivided rim → a T-junction → a downstream labeling
-        // failure. Detect a crossing and keep the loud coplanar residue.
-        if (!rim_a.is_empty() && rim_subdivided(&poly_a, &overlay))
-            || (!rim_b.is_empty() && rim_subdivided(&poly_b, &overlay))
-        {
+        // Does the overlap boundary CROSS a disc rim (subdivide a rim
+        // sub-chord)? PR-M8 disc-rim crossing handles the OPPOSITE-normal case
+        // (a boss/recess whose rim crosses a coplanar polygon edge) by
+        // propagating the crossing points into the cylinder lateral + opposite
+        // cap (`collect_rim_crossings` below). SAME-normal crossings stay the
+        // loud residue (see the SCOPE GATE below).
+        let rim_cross_a = !rim_a.is_empty() && rim_subdivided(&poly_a, &overlay);
+        let rim_cross_b = !rim_b.is_empty() && rim_subdivided(&poly_b, &overlay);
+
+        // SCOPE GATE — only OPPOSITE-normal disc∩polygon crossings route
+        // through. Same-normal makes equal-winding overlap copies meet edge-on
+        // → cherchi N13 `SingleCoplanarEdge` → loud downstream failure; keep it
+        // the fast loud coplanar residue.
+        if (rim_cross_a || rim_cross_b) && !opposite {
             probe(
-                "disc-crossing",
+                "disc-crossing-same-normal",
                 &format!("pair=({},{})", p.face_a, p.face_b),
             );
             return Err(pair_err(p.face_a, p.face_b));
@@ -437,24 +449,59 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             &coords,
             &mut splits_b,
         );
+
+        // PR-M8 disc-rim crossing: a disc whose rim the overlap boundary
+        // crosses propagates each crossing point into its OWN cap rim AND the
+        // opposite cap rim of the same cylinder (and thus the lateral, which
+        // shares both rims). OPPOSITE-normal only (the SCOPE GATE above).
+        if rim_cross_a {
+            if let Err(tag) = collect_rim_crossings(
+                a,
+                p.face_a,
+                &poly_a,
+                &overlay,
+                &coords,
+                &mut rim_overrides_a,
+            ) {
+                probe(tag, &format!("pair=({},{})", p.face_a, p.face_b));
+                return Err(pair_err(p.face_a, p.face_b));
+            }
+        }
+        if rim_cross_b {
+            if let Err(tag) = collect_rim_crossings(
+                b,
+                p.face_b,
+                &poly_b,
+                &overlay,
+                &coords,
+                &mut rim_overrides_b,
+            ) {
+                probe(tag, &format!("pair=({},{})", p.face_a, p.face_b));
+                return Err(pair_err(p.face_a, p.face_b));
+            }
+        }
     }
 
     // ── Stage-1 re-tessellation with overrides + propagated splits ──────
     let report_pair = (scan.cross[0].face_a, scan.cross[0].face_b);
-    let mesh_a = build_stage0_mesh(a, &va, &overrides_a, &splits_a).map_err(|e| match e {
-        BuildErr::Yang(y) => y,
-        BuildErr::Unsupported => {
-            probe("build-mesh-a", &format!("pair={report_pair:?}"));
-            pair_err(report_pair.0, report_pair.1)
-        }
-    })?;
-    let mesh_b = build_stage0_mesh(b, &vb, &overrides_b, &splits_b).map_err(|e| match e {
-        BuildErr::Yang(y) => y,
-        BuildErr::Unsupported => {
-            probe("build-mesh-b", &format!("pair={report_pair:?}"));
-            pair_err(report_pair.0, report_pair.1)
-        }
-    })?;
+    let mesh_a = build_stage0_mesh(a, &va, &overrides_a, &splits_a, &rim_overrides_a).map_err(
+        |e| match e {
+            BuildErr::Yang(y) => y,
+            BuildErr::Unsupported => {
+                probe("build-mesh-a", &format!("pair={report_pair:?}"));
+                pair_err(report_pair.0, report_pair.1)
+            }
+        },
+    )?;
+    let mesh_b = build_stage0_mesh(b, &vb, &overrides_b, &splits_b, &rim_overrides_b).map_err(
+        |e| match e {
+            BuildErr::Yang(y) => y,
+            BuildErr::Unsupported => {
+                probe("build-mesh-b", &format!("pair={report_pair:?}"));
+                pair_err(report_pair.0, report_pair.1)
+            }
+        },
+    )?;
 
     Ok(Some(Stage0 {
         mesh_a,
@@ -787,6 +834,220 @@ fn rim_subdivided(poly: &PolygonWithHoles, overlay: &ClassifiedOverlay) -> bool 
         }
     }
     false
+}
+
+/// The cylinder lateral incident to a cap's circle edge, the OPPOSITE rim
+/// edge, and the cylinder's axis params. The cap's circle edge appears in
+/// exactly one `Surface::Cylinder` face's loops; that lateral's OTHER full-
+/// circle rim is the opposite cap's edge.
+///
+/// Returns `Err(tag)` (→ the caller raises the loud residue) if the cap is not
+/// a clean 2-rim cylinder cap (no incident cylinder lateral, or the lateral
+/// does not have exactly two full-circle rims).
+type LateralForCap = (usize, u32, [f64; 3], [f64; 3], f64);
+
+fn lateral_for_cap(brep: &BRep, cap_edge: u32) -> Result<LateralForCap, &'static str> {
+    for (fi, f) in brep.faces().iter().enumerate() {
+        let Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } = f.surface
+        else {
+            continue;
+        };
+        if !f.outer_loop.contains(&cap_edge) {
+            continue;
+        }
+        // Full-circle rims of this lateral.
+        let rims: Vec<u32> = f
+            .outer_loop
+            .iter()
+            .copied()
+            .filter(|&e| {
+                let ed = &brep.edges()[e as usize];
+                matches!(ed.curve, Curve::Circle { .. }) && ed.start == ed.end
+            })
+            .collect();
+        // Dedup (the lateral loop lists the seam twice but each rim once).
+        let mut uniq = rims.clone();
+        uniq.sort_unstable();
+        uniq.dedup();
+        if uniq.len() != 2 {
+            return Err("rim-lateral-not-2rim");
+        }
+        let Some(&opposite) = uniq.iter().find(|&&e| e != cap_edge) else {
+            return Err("rim-lateral-no-opposite");
+        };
+        return Ok((
+            fi,
+            opposite,
+            axis_point.as_array(),
+            normalize3(axis_dir.as_array()),
+            radius,
+        ));
+    }
+    Err("rim-lateral-none")
+}
+
+/// PR-M8 disc-rim crossing (§4.5.5 shared sampling for a CROSSING disc rim):
+/// for each overlay vertex strictly interior to one of the disc rim polygon's
+/// sub-chords, resolve it to its BIT-EXACT shared 3D point (`coords[vi]` — the
+/// SAME point the cap override uses, so no T-junction) and record it on the
+/// cap rim edge; also project that crossing's azimuth (in the cylinder axis
+/// frame) onto the OPPOSITE rim circle and record the exact-radius point there
+/// (so the opposite cap + the lateral stay conformal).
+fn collect_rim_crossings(
+    brep: &BRep,
+    fi: usize,
+    poly: &PolygonWithHoles,
+    overlay: &ClassifiedOverlay,
+    coords: &[Point3],
+    rim_overrides: &mut RimSplitMap,
+) -> Result<(), &'static str> {
+    let cap_edge = disc_circle_edge(brep, fi).ok_or("rim-not-disc")?;
+    // The cap circle's own geometry is not needed (crossing points come from
+    // the resolved `coords`); only the OPPOSITE rim + the cylinder axis are.
+    let (_lat_fi, opp_edge, axis_point, axis_dir, _r) = lateral_for_cap(brep, cap_edge)?;
+    let Curve::Circle {
+        center: opp_center,
+        normal: opp_normal,
+        radius: opp_radius,
+    } = brep.edges()[opp_edge as usize].curve
+    else {
+        return Err("rim-opp-not-circle");
+    };
+
+    // Shared azimuth basis (same `ortho_basis(axis)` for both rims → a global
+    // azimuth, exactly what the lateral azimuth-merge uses).
+    let (a1, a2) = ortho_basis(cad_primitives::Vector3::new(
+        axis_dir[0],
+        axis_dir[1],
+        axis_dir[2],
+    ));
+    let (a1, a2) = (a1.as_array(), a2.as_array());
+    let azimuth = |p: [f64; 3]| -> f64 {
+        let w = [
+            p[0] - axis_point[0],
+            p[1] - axis_point[1],
+            p[2] - axis_point[2],
+        ];
+        let x = w[0] * a1[0] + w[1] * a1[1] + w[2] * a1[2];
+        let y = w[0] * a2[0] + w[1] * a2[1] + w[2] * a2[2];
+        y.atan2(x)
+    };
+
+    let ring = &poly.outer;
+    let n = ring.len();
+    if n < 2 {
+        return Err("rim-poly-degenerate");
+    }
+    let cap_entry = rim_overrides.entry(cap_edge).or_default();
+    let mut cap_pts: Vec<Point3> = Vec::new();
+    for i in 0..n {
+        let s = &ring[i];
+        let e = &ring[(i + 1) % n];
+        let (Some(s2), Some(e2)) = (
+            ExactPoint2::from_f64(s.x(), s.y()),
+            ExactPoint2::from_f64(e.x(), e.y()),
+        ) else {
+            continue;
+        };
+        let dx = &e2.x - &s2.x;
+        let dy = &e2.y - &s2.y;
+        let len2 = &dx * &dx + &dy * &dy;
+        if len2 == RBig::ZERO {
+            continue;
+        }
+        for (vi, q) in overlay.exact_verts.iter().enumerate() {
+            let wx = &q.x - &s2.x;
+            let wy = &q.y - &s2.y;
+            // Exact collinearity with the sub-chord's supporting line.
+            if &dx * &wy - &dy * &wx != RBig::ZERO {
+                continue;
+            }
+            // Strictly interior parameter, away from BOTH endpoints.
+            let t = (&dx * &wx + &dy * &wy) / &len2;
+            let tf = t.to_f64().value();
+            if !(tf > 1.0e-6 && tf < 1.0 - 1.0e-6) {
+                continue;
+            }
+            // The BIT-EXACT shared point (the cap override uses the same one).
+            let pt = coords[vi];
+            if cap_pts.contains(&pt) {
+                continue;
+            }
+            cap_pts.push(pt);
+        }
+    }
+    for &pt in &cap_pts {
+        if !cap_entry.contains(&pt) {
+            cap_entry.push(pt);
+        }
+    }
+
+    // Project each crossing's azimuth onto the OPPOSITE rim circle (exact
+    // radius, on the opposite cap's plane). The opposite rim's `ortho_basis`
+    // frame differs from the axis frame; place the point by world geometry so
+    // it lands at the SAME global azimuth as the cap crossing.
+    let (o1, o2) = ortho_basis(opp_normal);
+    let (o1, o2) = (o1.as_array(), o2.as_array());
+    let oc = opp_center.as_array();
+    let opp_entry = rim_overrides.entry(opp_edge).or_default();
+    for &pt in &cap_pts {
+        let az = azimuth(pt.as_array());
+        // Build the opposite-rim point at global azimuth `az`: choose the angle
+        // in the opposite circle's own frame whose world azimuth equals `az`.
+        // Try both senses of the opposite frame's e2 relative to the axis.
+        let cand = |theta: f64| -> [f64; 3] {
+            let (ct, st) = theta.sin_cos();
+            [
+                oc[0] + opp_radius * (st * o1[0] + ct * o2[0]),
+                oc[1] + opp_radius * (st * o1[1] + ct * o2[1]),
+                oc[2] + opp_radius * (st * o1[2] + ct * o2[2]),
+            ]
+        };
+        // Solve for theta so that azimuth(cand(theta)) == az. The opposite
+        // circle's frame maps theta→world; azimuth is a fixed rotation/flip of
+        // theta, so a 1D search over a fine grid + refine is robust and avoids
+        // sign-convention pitfalls (deterministic, no trig inversion guesswork).
+        let mut best_theta = 0.0;
+        let mut best_err = f64::INFINITY;
+        let steps = 720usize;
+        for k in 0..steps {
+            let theta = std::f64::consts::TAU * (k as f64) / (steps as f64);
+            let mut d = (azimuth(cand(theta)) - az).abs();
+            d = d.min(std::f64::consts::TAU - d);
+            if d < best_err {
+                best_err = d;
+                best_theta = theta;
+            }
+        }
+        // Refine by bisection-free local sampling around best_theta.
+        let mut span = std::f64::consts::TAU / steps as f64;
+        for _ in 0..40 {
+            let mut local_best = best_theta;
+            let mut local_err = best_err;
+            for s in [-1.0_f64, 1.0] {
+                let theta = best_theta + s * span;
+                let mut d = (azimuth(cand(theta)) - az).abs();
+                d = d.min(std::f64::consts::TAU - d);
+                if d < local_err {
+                    local_err = d;
+                    local_best = theta;
+                }
+            }
+            best_theta = local_best;
+            best_err = local_err;
+            span *= 0.5;
+        }
+        let opp_pt3 = cand(best_theta);
+        let opp_pt = Point3::new(opp_pt3[0], opp_pt3[1], opp_pt3[2]);
+        if !opp_entry.contains(&opp_pt) {
+            opp_entry.push(opp_pt);
+        }
+    }
+    Ok(())
 }
 
 /// Like [`face_polygon_2d`], but a flat circular DISC face is tessellated to its
@@ -1311,6 +1572,13 @@ fn degenerate(t: &[Point3; 3]) -> bool {
 /// the canonical `min(vi) → max(vi)` direction + the shared 3D coordinate.
 type SplitMap = BTreeMap<(u32, u32), Vec<(RBig, Point3)>>;
 
+/// PR-M8 disc-rim crossing: extra 3D crossing points to insert into a
+/// full-circle rim edge's Stage-1 ring, keyed by the rim's `Curve::Circle`
+/// edge index (one map per solid). Threaded into
+/// [`stage1_tessellate_with_rim_overrides`] so the cap, the cylinder lateral,
+/// and the opposite cap all share the SAME subdivided rim (no T-junction).
+type RimSplitMap = BTreeMap<u32, Vec<Point3>>;
+
 /// Find overlay vertices lying strictly inside one of the face's loop
 /// edges (exact 2D on-open-segment test over the overlay's rational
 /// coordinates) and record them, with the SAME resolved 3D coordinates the
@@ -1410,12 +1678,18 @@ fn build_stage0_mesh(
     final_coords: &[Point3],
     overrides: &BTreeMap<usize, Vec<[Point3; 3]>>,
     splits: &SplitMap,
+    rim_overrides: &RimSplitMap,
 ) -> Result<Mesh, BuildErr> {
     let brep_verts: Vec<BRepVertex> = final_coords
         .iter()
         .map(|&p| BRepVertex { point: p })
         .collect();
-    let tess = stage1_tessellate(&brep_verts, brep.edges(), brep.faces())?;
+    let tess = stage1_tessellate_with_rim_overrides(
+        &brep_verts,
+        brep.edges(),
+        brep.faces(),
+        rim_overrides,
+    )?;
 
     // Bit-exact coordinate interner seeded with the base tessellation's
     // vertex pool (B-Rep vertices occupy slots 0..n, so override corners

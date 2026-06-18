@@ -568,7 +568,50 @@ pub(crate) fn stage1_tessellate(
     edges: &[BRepEdge],
     faces: &[BRepFace],
 ) -> Result<Stage1Tess, YangError> {
+    stage1_tessellate_with_rim_overrides(verts, edges, faces, &std::collections::BTreeMap::new())
+}
+
+/// Stage 1 tessellation with optional per-circle-edge RIM CROSSING points
+/// (PR-M8 disc-rim crossing). `rim_overrides[e]` lists extra 3D points to
+/// insert into edge `e`'s full-circle rim ring as additional Steiner
+/// vertices — the §4.5.5 shared-boundary sampling for a coplanar disc whose
+/// rim the overlap boundary CROSSES. Each inserted point is placed at its
+/// angle-from-seam sorted position; the edge is recorded in the returned
+/// `inserted_rims` set so [`tessellate_lateral_face`] routes that rim's
+/// lateral through the AZIMUTH-MERGE strip (uniform index-pairing no longer
+/// holds once a rim carries non-uniform samples).
+///
+/// An EMPTY `rim_overrides` map yields byte-identical `verts` and `tris` to
+/// [`stage1_tessellate`] — the uniform-rim path is left 100% untouched (see
+/// the `rim_override_empty_is_byte_identical` unit test).
+///
+/// Loud errors (`MalformedTopology`):
+/// - an override point that coincides ANGULARLY with an existing UNIFORM
+///   sample (we never silently merge a crossing into a uniform vertex), or
+/// - an override point not on the rim circle (off-radius / off-plane).
+///
+/// An override point coinciding with an already-inserted override is
+/// deduplicated (skipped).
+pub(crate) fn stage1_tessellate_with_rim_overrides(
+    verts: &[BRepVertex],
+    edges: &[BRepEdge],
+    faces: &[BRepFace],
+    rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+) -> Result<Stage1Tess, YangError> {
+    stage1_tessellate_inner(verts, edges, faces, rim_overrides).map(|(t, _)| t)
+}
+
+/// Inner implementation returning the tessellation AND the set of rim edges
+/// that received inserted crossing points (consumed by the lateral dispatch).
+#[allow(clippy::type_complexity)]
+fn stage1_tessellate_inner(
+    verts: &[BRepVertex],
+    edges: &[BRepEdge],
+    faces: &[BRepFace],
+    rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+) -> Result<(Stage1Tess, std::collections::BTreeSet<u32>), YangError> {
     {
+        let mut inserted_rims: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
         let mut out_verts: Vec<Point3> = verts.iter().map(|v| v.point).collect();
         let mut sources: Vec<TessellationSource> = (0..verts.len() as u32)
             .map(TessellationSource::BRepVertex)
@@ -764,25 +807,105 @@ pub(crate) fn stage1_tessellate(
                 // seams sit at the same geometric azimuth, stay azimuth-aligned
                 // under the `(N−k)` opposite-rim mapping (spec §6).
                 let phi0 = angle_of(seam_vertex)?;
-                let mut ring: Vec<u32> = Vec::with_capacity(n_seg);
-                // ring[0] = the seam B-Rep vertex (keep its BRepVertex source) —
-                // no duplicate at the seam.
-                ring.push(seam_vertex);
-                for k in 1..n_seg {
-                    let theta = phi0 + 2.0 * std::f64::consts::PI * (k as f64) / (n_seg as f64);
-                    let (ct, st) = (theta.cos(), theta.sin());
-                    let pt = [
-                        c[0] + radius * (ct * e1a[0] + st * e2a[0]),
-                        c[1] + radius * (ct * e1a[1] + st * e2a[1]),
-                        c[2] + radius * (ct * e1a[2] + st * e2a[2]),
-                    ];
-                    let vi = out_verts.len() as u32;
-                    out_verts.push(Point3::new(pt[0], pt[1], pt[2]));
-                    sources.push(TessellationSource::BRepEdge {
-                        edge: e_idx as u32,
-                        t: theta,
-                    });
-                    ring.push(vi);
+                // Uniform sample angles RELATIVE to the seam, in [0, 2π): the
+                // seam at offset 0, the k-th Steiner at 2πk/N. A rim-crossing
+                // override is inserted by its OWN seam-relative angle, sorted in.
+                let two_pi = 2.0 * std::f64::consts::PI;
+                // Build the (angle_offset, kind) list. kind: Uniform(k) places a
+                // uniform Steiner (or reuses the seam for k==0); Override(point)
+                // inserts a crossing point.
+                enum RimSlot {
+                    Uniform(usize),
+                    Override(Point3),
+                }
+                let mut slots: Vec<(f64, RimSlot)> = Vec::with_capacity(n_seg);
+                for k in 0..n_seg {
+                    slots.push((two_pi * (k as f64) / (n_seg as f64), RimSlot::Uniform(k)));
+                }
+                if let Some(extra) = rim_overrides.get(&(e_idx as u32)) {
+                    // Angular margin around a uniform sample: a crossing landing
+                    // within this of an existing uniform vertex is a malformed
+                    // overlap (we never silently merge into a uniform sample).
+                    let uni_step = two_pi / (n_seg as f64);
+                    let merge_tol = uni_step * 1.0e-6;
+                    let mut inserted_offsets: Vec<f64> = Vec::new();
+                    for &pt in extra {
+                        // Resolve the point's seam-relative angle + validate it
+                        // lies on the rim circle.
+                        let sp = pt.as_array();
+                        let w = [sp[0] - c[0], sp[1] - c[1], sp[2] - c[2]];
+                        let nu = normalize3(normal.as_array());
+                        let along = w[0] * nu[0] + w[1] * nu[1] + w[2] * nu[2];
+                        let wx = w[0] * e1a[0] + w[1] * e1a[1] + w[2] * e1a[2];
+                        let wy = w[0] * e2a[0] + w[1] * e2a[1] + w[2] * e2a[2];
+                        let r = (wx * wx + wy * wy).sqrt();
+                        let band = 1e-9 * (1.0 + radius);
+                        if (r - radius).abs() > band || along.abs() > band {
+                            return Err(YangError::MalformedTopology(format!(
+                                "circle edge {e_idx}: rim-crossing override ({},{},{}) is not on \
+                                 the circle (radial {r} vs radius {radius}, axial {along})",
+                                sp[0], sp[1], sp[2]
+                            )));
+                        }
+                        let off = (wy.atan2(wx) - phi0).rem_euclid(two_pi);
+                        // Coincides angularly with a uniform sample? loud.
+                        let k_near = (off / uni_step).round();
+                        if (off - k_near * uni_step).abs() <= merge_tol {
+                            return Err(YangError::MalformedTopology(format!(
+                                "circle edge {e_idx}: rim-crossing override at angle-offset {off} \
+                                 coincides with uniform sample k={k_near} (silent merge refused)"
+                            )));
+                        }
+                        // Coincides with an already-inserted override? dedup/skip.
+                        if inserted_offsets
+                            .iter()
+                            .any(|&o| (o - off).abs() <= merge_tol)
+                        {
+                            continue;
+                        }
+                        inserted_offsets.push(off);
+                        slots.push((off, RimSlot::Override(pt)));
+                    }
+                    if !inserted_offsets.is_empty() {
+                        inserted_rims.insert(e_idx as u32);
+                    }
+                }
+                // Sort by seam-relative angle (the seam, offset 0, leads).
+                slots.sort_by(|a, b| a.0.total_cmp(&b.0));
+                let mut ring: Vec<u32> = Vec::with_capacity(slots.len());
+                for (off, slot) in slots {
+                    match slot {
+                        RimSlot::Uniform(0) => {
+                            // ring[0] = the seam B-Rep vertex (keep its source).
+                            ring.push(seam_vertex);
+                        }
+                        RimSlot::Uniform(_) => {
+                            let theta = phi0 + off;
+                            let (ct, st) = (theta.cos(), theta.sin());
+                            let pt = [
+                                c[0] + radius * (ct * e1a[0] + st * e2a[0]),
+                                c[1] + radius * (ct * e1a[1] + st * e2a[1]),
+                                c[2] + radius * (ct * e1a[2] + st * e2a[2]),
+                            ];
+                            let vi = out_verts.len() as u32;
+                            out_verts.push(Point3::new(pt[0], pt[1], pt[2]));
+                            sources.push(TessellationSource::BRepEdge {
+                                edge: e_idx as u32,
+                                t: theta,
+                            });
+                            ring.push(vi);
+                        }
+                        RimSlot::Override(pt) => {
+                            let theta = phi0 + off;
+                            let vi = out_verts.len() as u32;
+                            out_verts.push(pt);
+                            sources.push(TessellationSource::BRepEdge {
+                                edge: e_idx as u32,
+                                t: theta,
+                            });
+                            ring.push(vi);
+                        }
+                    }
                 }
                 rim_rings.insert(e_idx as u32, ring);
             }
@@ -912,6 +1035,7 @@ pub(crate) fn stage1_tessellate(
                         f,
                         edges,
                         &rim_rings,
+                        &inserted_rims,
                         &out_verts,
                         axis_point,
                         axis_dir,
@@ -955,12 +1079,15 @@ pub(crate) fn stage1_tessellate(
             face_tri_ranges.push(range_start..out_tris.len());
         }
 
-        Ok(Stage1Tess {
-            verts: out_verts,
-            sources,
-            tris: out_tris,
-            face_tri_ranges,
-        })
+        Ok((
+            Stage1Tess {
+                verts: out_verts,
+                sources,
+                tris: out_tris,
+                face_tri_ranges,
+            },
+            inserted_rims,
+        ))
     }
 }
 
@@ -1865,6 +1992,7 @@ fn tessellate_lateral_face(
     f: &BRepFace,
     edges: &[BRepEdge],
     rim_rings: &std::collections::BTreeMap<u32, Vec<u32>>,
+    inserted_rims: &std::collections::BTreeSet<u32>,
     out_verts: &[Point3],
     axis_point: Point3,
     axis_dir: Vector3,
@@ -1933,6 +2061,17 @@ fn tessellate_lateral_face(
         if rim_param(bottom_e) > rim_param(top_e) {
             std::mem::swap(&mut bottom_e, &mut top_e);
         }
+
+        // PR-M8 disc-rim crossing: when EITHER rim carries inserted crossing
+        // points the uniform index-pairing (`b_index`) no longer holds — pair
+        // the two rings by GEOMETRIC azimuth instead. The uniform path is left
+        // 100% untouched for all other cylinders.
+        if inserted_rims.contains(&bottom_e) || inserted_rims.contains(&top_e) {
+            return tessellate_lateral_azimuth_merge(
+                f_idx, f, rim_rings, bottom_e, top_e, out_verts, axis_point, axis_dir, out_tris,
+            );
+        }
+
         let bottom_ring = rim_rings.get(&bottom_e).ok_or_else(|| {
             YangError::MalformedTopology(format!(
                 "face {f_idx}: bottom rim ring {bottom_e} not built"
@@ -2034,6 +2173,109 @@ fn tessellate_lateral_face(
         full_rims.len(),
         arcs.len()
     )))
+}
+
+/// PR-M8 disc-rim crossing: tessellate the canonical tube when one or both
+/// rims carry inserted crossing points, so the uniform `(N−k)` index-pairing
+/// no longer aligns the two rings.
+///
+/// Both rings are projected into ONE SHARED `ortho_basis(axis)` frame (so
+/// their azimuths are GLOBAL, not per-rim-frame), sorted by azimuth, and
+/// verified to present the SAME azimuth multiset within `tol = (2π/n)·0.25`
+/// (the crossing point is shared between both rims by construction — Stage 0
+/// projects each cap crossing onto the opposite rim — so a missing match is a
+/// malformed input, NOT something to fudge). The quad strip then pairs
+/// consecutive-by-azimuth vertices, reusing `orient_target`/`orient_tri`.
+#[allow(clippy::too_many_arguments)]
+fn tessellate_lateral_azimuth_merge(
+    f_idx: usize,
+    f: &BRepFace,
+    rim_rings: &std::collections::BTreeMap<u32, Vec<u32>>,
+    bottom_e: u32,
+    top_e: u32,
+    out_verts: &[Point3],
+    axis_point: Point3,
+    axis_dir: Vector3,
+    out_tris: &mut Vec<[u32; 3]>,
+) -> Result<(), YangError> {
+    let bottom_ring = rim_rings.get(&bottom_e).ok_or_else(|| {
+        YangError::MalformedTopology(format!(
+            "face {f_idx}: bottom rim ring {bottom_e} not built (azimuth merge)"
+        ))
+    })?;
+    let top_ring = rim_rings.get(&top_e).ok_or_else(|| {
+        YangError::MalformedTopology(format!(
+            "face {f_idx}: top rim ring {top_e} not built (azimuth merge)"
+        ))
+    })?;
+    let n = top_ring.len();
+    if n < 3 || bottom_ring.len() != n {
+        return Err(YangError::MalformedTopology(format!(
+            "face {f_idx}: azimuth-merge rims have mismatched / too-few samples ({} vs {})",
+            bottom_ring.len(),
+            top_ring.len()
+        )));
+    }
+
+    // ONE shared frame for both rims → global azimuth.
+    let au = normalize3(axis_dir.as_array());
+    let (e1, e2) = ortho_basis(Vector3::new(au[0], au[1], au[2]));
+    let (e1, e2) = (e1.as_array(), e2.as_array());
+    let ap = axis_point.as_array();
+    let azimuth = |vi: u32| -> f64 {
+        let p = out_verts[vi as usize].as_array();
+        let w = [p[0] - ap[0], p[1] - ap[1], p[2] - ap[2]];
+        let x = w[0] * e1[0] + w[1] * e1[1] + w[2] * e1[2];
+        let y = w[0] * e2[0] + w[1] * e2[1] + w[2] * e2[2];
+        y.atan2(x).rem_euclid(2.0 * std::f64::consts::PI)
+    };
+
+    // Sort each ring's vertex indices by global azimuth.
+    let sort_by_az = |ring: &[u32]| -> Vec<(f64, u32)> {
+        let mut v: Vec<(f64, u32)> = ring.iter().map(|&vi| (azimuth(vi), vi)).collect();
+        v.sort_by(|a, b| a.0.total_cmp(&b.0));
+        v
+    };
+    let bot = sort_by_az(bottom_ring);
+    let top = sort_by_az(top_ring);
+
+    // Verify the SAME azimuth multiset (no silent fudge): pairwise within tol.
+    let tol = (2.0 * std::f64::consts::PI / n as f64) * 0.25;
+    for k in 0..n {
+        let mut d = (bot[k].0 - top[k].0).abs();
+        d = d.min(2.0 * std::f64::consts::PI - d);
+        if d > tol {
+            return Err(YangError::MalformedTopology(format!(
+                "face {f_idx}: azimuth-merge rims disagree at index {k} (bottom {} vs top {}, \
+                 tol {tol})",
+                bot[k].0, top[k].0
+            )));
+        }
+    }
+
+    // Orientation target (outward radial; inward for a cavity wall).
+    let orient_target = |verts: &[Point3], tri: &[u32; 3]| -> [f64; 3] {
+        let nrm = radial_outward_normal(verts, tri, ap, au);
+        if f.reversed {
+            [-nrm[0], -nrm[1], -nrm[2]]
+        } else {
+            nrm
+        }
+    };
+
+    for k in 0..n {
+        let kn = (k + 1) % n;
+        let t0 = top[k].1;
+        let t1 = top[kn].1;
+        let b0 = bot[k].1;
+        let b1 = bot[kn].1;
+        for mut tri in [[b0, b1, t1], [b0, t1, t0]] {
+            let nrm = orient_target(out_verts, &tri);
+            orient_tri(out_verts, &mut tri, nrm);
+            out_tris.push(tri);
+        }
+    }
+    Ok(())
 }
 
 /// PR-YR12 (P2b): tessellate a closed solid-sphere face (one `Surface::Sphere`
@@ -9898,5 +10140,136 @@ mod tests {
             );
         }
         let _ = mesh;
+    }
+
+    // ───────────────────────────────────────────────────────────────────
+    // PR-M8 disc-rim crossing — rim-override Stage-1 unit tests
+    // ───────────────────────────────────────────────────────────────────
+
+    /// A z-axis cylinder B-Rep: bottom cap (−z) at `z=base`, top cap (+z) at
+    /// `z=base+h`, seam at +x, radius `r`. Two full-circle rims + one seam
+    /// segment (mirrors the m8 test fixture).
+    fn rt_cylinder(base: f64, h: f64, r: f64) -> (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFace>) {
+        let v0 = Point3::new(r, 0.0, base);
+        let v1 = Point3::new(r, 0.0, base + h);
+        let verts = vec![BRepVertex { point: v0 }, BRepVertex { point: v1 }];
+        let edges = vec![
+            BRepEdge {
+                start: 0,
+                end: 0,
+                curve: Curve::Circle {
+                    center: Point3::new(0.0, 0.0, base),
+                    normal: Vector3::new(0.0, 0.0, -1.0),
+                    radius: r,
+                },
+            },
+            BRepEdge {
+                start: 1,
+                end: 1,
+                curve: Curve::Circle {
+                    center: Point3::new(0.0, 0.0, base + h),
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    radius: r,
+                },
+            },
+            BRepEdge {
+                start: 0,
+                end: 1,
+                curve: Curve::LineSegment,
+            },
+        ];
+        let faces = vec![
+            BRepFace {
+                surface: Surface::Cylinder {
+                    axis_point: Point3::new(0.0, 0.0, base),
+                    axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                    radius: r,
+                },
+                outer_loop: vec![0, 2, 1, 2],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(0.0, 0.0, -1.0),
+                    d: base,
+                },
+                outer_loop: vec![0],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    d: -(base + h),
+                },
+                outer_loop: vec![1],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+        ];
+        (verts, edges, faces)
+    }
+
+    /// An EMPTY rim-override map yields byte-identical verts AND tris to the
+    /// plain `stage1_tessellate` for a plain cylinder — the uniform-rim path is
+    /// 100% untouched.
+    #[test]
+    fn rim_override_empty_is_byte_identical() {
+        let (verts, edges, faces) = rt_cylinder(0.0, 1.0, 0.5);
+        let plain = stage1_tessellate(&verts, &edges, &faces).expect("plain");
+        let empty: std::collections::BTreeMap<u32, Vec<Point3>> = std::collections::BTreeMap::new();
+        let overridden =
+            stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &empty).expect("empty");
+        assert_eq!(
+            plain.verts.len(),
+            overridden.verts.len(),
+            "empty override must not add verts"
+        );
+        for (a, b) in plain.verts.iter().zip(&overridden.verts) {
+            assert_eq!(a.as_array(), b.as_array(), "verts must be byte-identical");
+        }
+        assert_eq!(plain.tris, overridden.tris, "tris must be byte-identical");
+    }
+
+    /// Inserting a crossing point on BOTH rims (at the same geometric azimuth):
+    /// both points appear bit-exactly on the top AND bottom rim rings, and the
+    /// resulting cylinder mesh (caps + lateral) stays a closed 2-manifold.
+    #[test]
+    fn rim_override_inserts_into_both_rims_no_t_junction() {
+        let (verts, edges, faces) = rt_cylinder(0.0, 1.0, 0.5);
+        // A point on each rim at azimuth 0.3 rad (NOT a uniform sample): radius
+        // 0.5 in the rim's plane.
+        let az = 0.3_f64;
+        let (s, c) = az.sin_cos();
+        let bottom_pt = Point3::new(0.5 * c, 0.5 * s, 0.0);
+        let top_pt = Point3::new(0.5 * c, 0.5 * s, 1.0);
+        let mut ov: std::collections::BTreeMap<u32, Vec<Point3>> =
+            std::collections::BTreeMap::new();
+        ov.insert(0, vec![bottom_pt]); // bottom rim = circle edge 0
+        ov.insert(1, vec![top_pt]); // top rim = circle edge 1
+        let t = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &ov)
+            .expect("dual-rim override");
+
+        // Both inserted points present bit-exactly in the vertex pool.
+        let has = |p: Point3| t.verts.iter().any(|q| q.as_array() == p.as_array());
+        assert!(has(bottom_pt), "bottom crossing point missing from mesh");
+        assert!(has(top_pt), "top crossing point missing from mesh");
+
+        // The mesh stays a closed 2-manifold (every undirected edge shared by
+        // exactly two triangles).
+        let mut counts: std::collections::BTreeMap<(u32, u32), u32> =
+            std::collections::BTreeMap::new();
+        for tri in &t.tris {
+            for k in 0..3 {
+                let (a, b) = (tri[k], tri[(k + 1) % 3]);
+                *counts.entry((a.min(b), a.max(b))).or_insert(0) += 1;
+            }
+        }
+        assert!(!counts.is_empty());
+        assert!(
+            counts.values().all(|&c| c == 2),
+            "dual-rim override must keep the cylinder a closed 2-manifold"
+        );
     }
 }
