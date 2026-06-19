@@ -541,7 +541,10 @@ fn same_normal_crossing_union_succeeds() {
     let out = boolean(&bx, &cyl, BoolOp::Union, &nb())
         .expect("same-normal corner crossing union must be handled (cherchi N13)");
     let m = out.as_mesh();
-    assert!(is_watertight(m), "same-normal crossing union must be watertight");
+    assert!(
+        is_watertight(m),
+        "same-normal crossing union must be watertight"
+    );
     assert!(
         is_outward_solid(m),
         "same-normal crossing union must be consistently outward"
