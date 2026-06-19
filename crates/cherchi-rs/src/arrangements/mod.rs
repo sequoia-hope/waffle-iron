@@ -23,7 +23,8 @@ pub mod tree;
 
 pub use aux_structure::{
     group_constraint_segments, group_intersection_points, ConstraintSegment,
-    ConstraintSegmentError, TriangleAuxPoints, TypedPoint,
+    ConstraintSegmentError, CoplanarAdjacency, TriangleAuxPoints, TypedPoint,
+    VisitedPocketRegistry,
 };
 pub use enforce::{enforce_constraint_segments, enforce_constraints, EnforceError, SegmentSpec};
 pub use fast_trimesh::{FastTrimesh, FastTrimeshError, Plane};

@@ -664,6 +664,124 @@ fn push_unique(vec: &mut Vec<u32>, id: u32) {
     }
 }
 
+// =========================================================================
+// Coplanar-arrangement foundations (PR-1 of the fully-coplanar port)
+// =========================================================================
+//
+// Data structures for the Cherchi 2020/2022 fully-coplanar tri-tri path
+// (`allCoplanarEdges`, `orBA = 0 0 0`). They mirror the C++
+// `AuxiliaryStructure` members `coplanar_tris` and `pockets_map`
+// (`aux_structure.{h,cpp}`). PR-1 lands these as pure data structures with
+// unit coverage; nothing constructs or consumes them yet, so the arrangement
+// output is byte-identical (corpus-neutral). The producers (classify) and
+// consumers (propagate + pocket re-triangulation) land in PRs 2-4. See
+// `docs/cherchi_coplanar_arrangement_plan.md`.
+
+use std::collections::BTreeSet;
+
+/// Adjacency of coplanar triangle pairs, mirroring the C++
+/// `AuxiliaryStructure::coplanar_tris` (a per-triangle list of the triangles
+/// found fully coplanar with it). Built during classification
+/// (`addCoplanarTriangles`, `intersection_classification.cpp:141`) and read by
+/// `propagateCoplanarTrianglesIntersections` (cpp:788) and the per-triangle
+/// pocket re-triangulation (`triangulation.cpp:112`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CoplanarAdjacency {
+    /// `lists[t]` = the triangles coplanar with triangle `t`. Symmetric:
+    /// `add_coplanar_triangles(a, b)` records `b` in `a` and `a` in `b`.
+    lists: Vec<Vec<u32>>,
+}
+
+impl CoplanarAdjacency {
+    /// Empty adjacency sized for `num_tris` base triangles (all lists empty).
+    /// Mirrors `coplanar_tris.resize(ts.numTris())` (`aux_structure.cpp:50`).
+    pub fn new(num_tris: u32) -> Self {
+        Self {
+            lists: vec![Vec::new(); num_tris as usize],
+        }
+    }
+
+    /// Record that triangles `ta` and `tb` are coplanar (symmetric, deduped).
+    /// Mirrors `addCoplanarTriangles` (`aux_structure.cpp:148`). A repeated
+    /// pair is a no-op (the C++ pushes unconditionally, but its consumers
+    /// dedup; we dedup here so the adjacency is the canonical set, which the
+    /// pocket-keyed merge in PR-4 relies on). Out-of-range ids are ignored
+    /// (never panics — P9/P10).
+    pub fn add_coplanar_triangles(&mut self, ta: u32, tb: u32) {
+        if ta == tb {
+            return;
+        }
+        if let Some(la) = self.lists.get_mut(ta as usize) {
+            push_unique(la, tb);
+        }
+        if let Some(lb) = self.lists.get_mut(tb as usize) {
+            push_unique(lb, ta);
+        }
+    }
+
+    /// The triangles coplanar with `t` (empty slice if none / out of range).
+    /// Mirrors `coplanarTriangles` (`aux_structure.cpp:161`).
+    pub fn coplanar_triangles(&self, t: u32) -> &[u32] {
+        self.lists.get(t as usize).map_or(&[], |v| v.as_slice())
+    }
+
+    /// Whether `t` has any coplanar partner. Mirrors `triangleHasCoplanars`
+    /// (`aux_structure.cpp:169`).
+    pub fn triangle_has_coplanars(&self, t: u32) -> bool {
+        self.lists.get(t as usize).is_some_and(|v| !v.is_empty())
+    }
+}
+
+/// Global registry deduplicating coplanar-triangle pockets by their boundary
+/// vertex-id SET, mirroring the C++ `AuxiliaryStructure::pockets_map` driven by
+/// `addVisitedPolygonPocket` (`aux_structure.cpp:240`).
+///
+/// This is the load-bearing mechanism for coplanar overlap (see the plan doc):
+/// the SAME overlap region is re-triangulated independently inside each of two
+/// coplanar triangles, producing DIFFERENT interior sub-triangulations, so the
+/// triangles are NOT bit-identical and never collapse under
+/// [`super::remove_degenerate_and_duplicated_triangles`]. They DO, however,
+/// share the same pocket BOUNDARY (same constraint/border vertex set, because
+/// `propagateCoplanarTrianglesIntersections` gives both triangles the same
+/// points + segments). Keying by that boundary set lets the second triangle's
+/// overlap pocket be recognized as already-emitted and its label OR-merged in,
+/// instead of re-emitting (double-counting) the region.
+#[derive(Clone, Debug, Default)]
+pub struct VisitedPocketRegistry {
+    /// Boundary vertex-id set (canonical, sorted/unique via `BTreeSet`) → the
+    /// position at which that pocket's triangles were first emitted.
+    map: BTreeMap<BTreeSet<u32>, usize>,
+}
+
+impl VisitedPocketRegistry {
+    /// Empty registry.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Register a pocket whose boundary vertices are `polygon`, to be emitted
+    /// at `pos`. Mirrors `addVisitedPolygonPocket(polygon, pos)`
+    /// (`aux_structure.cpp:240`): the C++ keys on a `remove_duplicates`'d
+    /// vertex vector (sorted + unique), which we canonicalize as a `BTreeSet`.
+    ///
+    /// Returns:
+    /// - `None` if the pocket was NOT seen before (now inserted at `pos`) —
+    ///   the C++ `-1` sentinel, meaning "emit this pocket's triangles".
+    /// - `Some(prev_pos)` if an identical-boundary pocket was already
+    ///   registered — meaning "do not re-emit; OR-merge the label at
+    ///   `prev_pos`".
+    pub fn add_visited_polygon_pocket(&mut self, polygon: &[u32], pos: usize) -> Option<usize> {
+        let key: BTreeSet<u32> = polygon.iter().copied().collect();
+        match self.map.entry(key) {
+            std::collections::btree_map::Entry::Occupied(e) => Some(*e.get()),
+            std::collections::btree_map::Entry::Vacant(e) => {
+                e.insert(pos);
+                None
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! RED tests for PR-CR-AR2a Cycle 3 (`group_intersection_points`).
@@ -1432,5 +1550,87 @@ mod ar3c_tests {
                 "{name}: segment endpoints must be geometrically distinct"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod coplanar_foundations_tests {
+    //! PR-1 of the fully-coplanar arrangement port: pure data-structure
+    //! coverage for [`CoplanarAdjacency`] and [`VisitedPocketRegistry`].
+    //! Nothing in the pipeline constructs or consumes these yet (the
+    //! arrangement output is unchanged), so these tests exercise the
+    //! structures directly against the C++ semantics they mirror.
+
+    use super::{CoplanarAdjacency, VisitedPocketRegistry};
+
+    // ---- CoplanarAdjacency ----
+
+    #[test]
+    fn adjacency_records_symmetric_pairs() {
+        let mut adj = CoplanarAdjacency::new(4);
+        adj.add_coplanar_triangles(1, 3);
+        assert!(adj.triangle_has_coplanars(1));
+        assert!(adj.triangle_has_coplanars(3));
+        assert_eq!(adj.coplanar_triangles(1), &[3]);
+        assert_eq!(adj.coplanar_triangles(3), &[1]);
+        // Untouched triangles have no coplanars.
+        assert!(!adj.triangle_has_coplanars(0));
+        assert!(!adj.triangle_has_coplanars(2));
+        assert_eq!(adj.coplanar_triangles(0), &[] as &[u32]);
+    }
+
+    #[test]
+    fn adjacency_dedups_repeated_and_accumulates_multiple() {
+        let mut adj = CoplanarAdjacency::new(5);
+        adj.add_coplanar_triangles(0, 1);
+        adj.add_coplanar_triangles(0, 1); // repeat → no-op
+        adj.add_coplanar_triangles(0, 4); // second partner for 0
+        assert_eq!(adj.coplanar_triangles(0), &[1, 4]);
+        assert_eq!(adj.coplanar_triangles(1), &[0]);
+        assert_eq!(adj.coplanar_triangles(4), &[0]);
+    }
+
+    #[test]
+    fn adjacency_ignores_self_and_out_of_range_without_panicking() {
+        let mut adj = CoplanarAdjacency::new(2);
+        adj.add_coplanar_triangles(1, 1); // self → ignored
+        adj.add_coplanar_triangles(0, 99); // out-of-range partner → 0's side ignored too (99 absent)
+        adj.add_coplanar_triangles(99, 0); // out-of-range owner → ignored
+        assert!(!adj.triangle_has_coplanars(1));
+        // 0 got `99` pushed (its own list exists); 99 has no list. No panic is the point.
+        assert_eq!(adj.coplanar_triangles(0), &[99]);
+        assert_eq!(adj.coplanar_triangles(99), &[] as &[u32]); // out-of-range read → empty
+    }
+
+    // ---- VisitedPocketRegistry ----
+
+    #[test]
+    fn pocket_first_insert_returns_none_then_position() {
+        let mut reg = VisitedPocketRegistry::new();
+        // First time this boundary set is seen → None ("emit", C++ -1).
+        assert_eq!(reg.add_visited_polygon_pocket(&[5, 2, 9], 0), None);
+        // Same set seen again (the coplanar partner's overlap pocket) → the
+        // first emit position ("OR-merge label, don't re-emit").
+        assert_eq!(reg.add_visited_polygon_pocket(&[5, 2, 9], 7), Some(0));
+    }
+
+    #[test]
+    fn pocket_key_is_order_and_duplicate_invariant() {
+        let mut reg = VisitedPocketRegistry::new();
+        assert_eq!(reg.add_visited_polygon_pocket(&[2, 5, 9], 3), None);
+        // Permuted + duplicated entries canonicalize to the same boundary set.
+        assert_eq!(
+            reg.add_visited_polygon_pocket(&[9, 5, 2, 9, 2], 11),
+            Some(3)
+        );
+    }
+
+    #[test]
+    fn pocket_distinct_boundaries_are_independent() {
+        let mut reg = VisitedPocketRegistry::new();
+        assert_eq!(reg.add_visited_polygon_pocket(&[1, 2, 3], 0), None); // A-only pocket
+        assert_eq!(reg.add_visited_polygon_pocket(&[3, 4, 5], 2), None); // B-only pocket, different set
+                                                                         // The overlap pocket (shared set) still dedups against its first emit.
+        assert_eq!(reg.add_visited_polygon_pocket(&[1, 2, 3], 9), Some(0));
     }
 }
