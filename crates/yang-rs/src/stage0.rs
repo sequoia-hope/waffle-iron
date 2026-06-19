@@ -1731,9 +1731,18 @@ fn build_stage0_mesh(
         // Neighbor re-triangulation with the subdivided ring. Scope: planar,
         // all-LineSegment, hole-free, continuous outer loop.
         let Surface::Plane { normal, .. } = f.surface else {
+            probe("build-mesh-nonplanar", &format!("f={f_idx}"));
             return Err(BuildErr::Unsupported);
         };
         if !f.inner_loops.is_empty() || !overlay_face_supported(brep, f_idx) {
+            probe(
+                "build-mesh-holed-or-unsupported",
+                &format!(
+                    "f={f_idx} holes={} sup={}",
+                    f.inner_loops.len(),
+                    overlay_face_supported(brep, f_idx)
+                ),
+            );
             return Err(BuildErr::Unsupported);
         }
         let n = f.outer_loop.len();
@@ -1743,6 +1752,7 @@ fn build_stage0_mesh(
             let edge = &brep.edges()[e_idx as usize];
             let next = &brep.edges()[f.outer_loop[(i + 1) % n] as usize];
             if edge.end != next.start {
+                probe("build-mesh-noncontinuous", &format!("f={f_idx} i={i}"));
                 return Err(BuildErr::Unsupported);
             }
             ring.push(edge.start);
@@ -1761,7 +1771,13 @@ fn build_stage0_mesh(
             }
         }
         let ring_tris =
-            triangulate_ring(&ring, &verts, normal.as_array()).ok_or(BuildErr::Unsupported)?;
+            triangulate_ring(&ring, &mut verts, normal.as_array()).ok_or_else(|| {
+                probe(
+                    "build-mesh-triangulate",
+                    &format!("f={f_idx} ring_len={}", ring.len()),
+                );
+                BuildErr::Unsupported
+            })?;
         tris.extend(ring_tris);
     }
 
@@ -1799,7 +1815,11 @@ fn intern_vert(verts: &mut Vec<Point3>, intern: &mut BTreeMap<[u64; 3], u32>, p:
 /// exact (rationals over the dominant-frame projection); a candidate that
 /// fails (e.g. a corner whose own edge carries splits — collinear or
 /// reflex fan triangles) is skipped deterministically.
-fn triangulate_ring(ring: &[u32], verts: &[Point3], normal: [f64; 3]) -> Option<Vec<[u32; 3]>> {
+fn triangulate_ring(
+    ring: &[u32],
+    verts: &mut Vec<Point3>,
+    normal: [f64; 3],
+) -> Option<Vec<[u32; 3]>> {
     let n = ring.len();
     if n < 3 {
         return None;
@@ -1869,6 +1889,47 @@ fn triangulate_ring(ring: &[u32], verts: &[Point3], normal: [f64; 3]) -> Option<
         if covered == area_abs {
             return Some(tris);
         }
+    }
+
+    // INTERIOR-CENTROID FAN (fallback). A convex face subdivided on ≥2 opposite
+    // edges has NO valid boundary-vertex apex (every vertex is collinear with a
+    // split on one of its edges). Its exact 2D centroid, however, sees every
+    // boundary sub-segment at strictly positive area for a STAR-SHAPED face
+    // (every convex face qualifies). Each sub-segment (incl. split points) stays
+    // a triangle BASE — no chain-spanning chord, so no T-junction / sliver
+    // (the same safety the apex-fan provides). Adds ONE interior vertex
+    // (interior to this face, shared with no neighbor). If the face is not
+    // star-shaped about its centroid (a genuinely non-convex re-tess face), the
+    // exact coverage certificate fails → `None` (unsupported, unchanged).
+    let nr = RBig::from(n as u64);
+    let cx = pts.iter().fold(RBig::ZERO, |a, p| a + &p.x) / &nr;
+    let cy = pts.iter().fold(RBig::ZERO, |a, p| a + &p.y) / &nr;
+    let centroid = ExactPoint2 { x: cx, y: cy };
+    let mut tris: Vec<[u32; 3]> = Vec::with_capacity(n);
+    let mut covered = RBig::ZERO;
+    // 3D interior point: the on-plane average of the ring's 3D vertices.
+    let mut acc = [0.0_f64; 3];
+    for &vi in ring {
+        let p = verts[vi as usize].as_array();
+        acc[0] += p[0];
+        acc[1] += p[1];
+        acc[2] += p[2];
+    }
+    let inv = 1.0 / n as f64;
+    let cpt = Point3::new(acc[0] * inv, acc[1] * inv, acc[2] * inv);
+    let c_idx = verts.len() as u32;
+    for j in 0..n {
+        let (i0, i1) = (order[j], order[(j + 1) % n]);
+        let c = cross_r(&centroid, &pts[i0], &pts[i1]);
+        if c <= RBig::ZERO {
+            return None; // not star-shaped about its centroid (non-convex)
+        }
+        covered += c;
+        tris.push([c_idx, ring[i0], ring[i1]]);
+    }
+    if covered == area_abs {
+        verts.push(cpt);
+        return Some(tris);
     }
     None
 }

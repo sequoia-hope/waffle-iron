@@ -569,3 +569,30 @@ fn user_recess_dia10_len10_dia5_cut2() {
         Err(e) => panic!("user recess failed: {e:?}"),
     }
 }
+
+/// CORE M8 planar partial-overlap (the cross-box, F0002/F0004/F0006 class): two
+/// box prisms whose coplanar caps PARTIALLY overlap (neither contains the
+/// other) — a cross shape. Stage 0's exact 2D overlay segments the coplanar
+/// faces, and the neighbor side walls are re-tessellated with the propagated
+/// boundary splits. The side walls are convex rectangles subdivided on TWO
+/// opposite edges, which the apex-fan cannot triangulate — the interior-centroid
+/// fan fallback in `triangulate_ring` covers them. Union must be a watertight,
+/// outward solid with the exact cross volume (4 + 4 − 1 = 7).
+#[test]
+fn cross_box_partial_overlap_union_succeeds() {
+    let a = box_brep([-2.0, -0.5, 0.0], [2.0, 0.5, 1.0]); // bar along x, vol 4
+    let b = box_brep([-0.5, -2.0, 0.0], [0.5, 2.0, 1.0]); // bar along y, vol 4
+    let out = boolean(&a, &b, BoolOp::Union, &nb())
+        .expect("cross-box partial-overlap union must be handled by Stage 0");
+    let m = out.as_mesh();
+    assert!(is_watertight(m), "cross-box union must be watertight");
+    assert!(
+        is_outward_solid(m),
+        "cross-box union must be outward-oriented"
+    );
+    let v = signed_volume(m);
+    assert!(
+        (v - 7.0).abs() < 1e-9,
+        "cross-box union volume must be 4+4-1=7, got {v}"
+    );
+}
