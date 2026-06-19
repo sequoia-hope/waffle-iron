@@ -5471,9 +5471,32 @@ pub fn boolean(
                             .collect();
                         match kept.len() {
                             1 => Ok(Some(kept[0])),
-                            // 0 (centroid on every tied face's boundary) or
-                            // ≥2 (genuinely ambiguous / undecidable) — loud.
-                            _ => Err(YangError::FaceResolutionFailed { tri: compact_t }),
+                            // 0 (centroid on every tied face's boundary) — loud.
+                            0 => Err(YangError::FaceResolutionFailed { tri: compact_t }),
+                            // ≥2 survivors. SAME-SURFACE TIE: faces sharing
+                            // IDENTICAL surface geometry are INTERCHANGEABLE for
+                            // attribution — a triangle on that surface belongs to
+                            // it no matter which fragment owns it, and topology
+                            // reconstruction regroups them by adjacency into one
+                            // output face. This arises when one analytic surface
+                            // is SPLIT into several faces — e.g. a cylindrical
+                            // bore fragmented into arc-faces by the
+                            // tessellated-polygon profile fallback (gear bores).
+                            // Pick the lowest index: NOT silent-wrong (same
+                            // surface), unlike a tolerance widening. A tie among
+                            // GEOMETRICALLY DISTINCT surfaces stays the loud error
+                            // (P9 — genuinely ambiguous).
+                            _ => {
+                                let s0 = input_brep.faces()[kept[0] as usize].surface;
+                                if kept
+                                    .iter()
+                                    .all(|&fi| input_brep.faces()[fi as usize].surface == s0)
+                                {
+                                    Ok(kept.iter().copied().min())
+                                } else {
+                                    Err(YangError::FaceResolutionFailed { tri: compact_t })
+                                }
+                            }
                         }
                     }
                 }
