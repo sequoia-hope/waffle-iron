@@ -4164,31 +4164,6 @@ fn build_intersection_curves(
             }
         }
 
-        // LINEAR-intersection ambiguity → exact LineSegment. A plane PARALLEL to
-        // a cylinder's axis cuts it in straight cylinder RULINGS, not a conic.
-        // Near tangency SSI returns the two rulings nearly coincident, BOTH
-        // parallel to the (vertical) mesh edge — so the tangent discriminator
-        // cannot separate them. But a ruling is STRAIGHT: the edge's exact curve
-        // is a `Line` regardless of WHICH ruling, and the mesh edge — a segment
-        // on the cylinder within its chord band — is itself that straight edge
-        // on BOTH surfaces (a line parallel to the axis IS a valid ruling). So
-        // when EVERY endpoint-matching candidate is a `Line`, emit the
-        // `LineSegment` (the mesh edge, UNrelocated): the exact straight edge,
-        // NOT an arbitrary pick of one ruling — identical in spirit to the
-        // plane∩plane short-circuit above, and P10-safe (no relocation/guess).
-        // Mixed Line/conic matches stay the loud ambiguity.
-        if matched > 1 {
-            let all_matched_lines = returned.iter().all(|cv| {
-                let matches_edge = curve_contains_point(cv, p_s, point_tol(p_s, cv), source_radius)
-                    && curve_contains_point(cv, p_e, point_tol(p_e, cv), source_radius);
-                !matches_edge || matches!(cv, ssi_rs::SsiCurve::Line { .. })
-            });
-            if all_matched_lines {
-                out.insert((s, e), Curve::LineSegment);
-                continue;
-            }
-        }
-
         let idx = match (matched, matched_idx) {
             (1, Some(idx)) => idx,
             _ => {
@@ -6497,29 +6472,14 @@ fn stage4_relocate_and_correct(
                         }
                     }
                 }
-                let lr = match (matched_n, matched) {
-                    (1, Some(lr)) => lr,
-                    // No analytic ruling fits the edge — a genuine producer
-                    // fault → loud (P9).
-                    (0, _) => {
-                        return Err(YangError::SsiRefinementFailed {
-                            edge: (s, e),
-                            reason: SsiRefinementError::AmbiguousCurve {
-                                candidates: returned.len(),
-                                matched: 0,
-                            },
-                        })
-                    }
-                    // ≥2 parallel rulings match: a plane PARALLEL to the cylinder
-                    // axis near TANGENCY cuts two nearly-coincident rulings, both
-                    // parallel to (hence indistinguishable from) the vertical mesh
-                    // edge. The edge is a straight ruling regardless of WHICH one,
-                    // and its verts already sit on the cylinder within its chord
-                    // band, so leave them UNrelocated — the Stage-3 `LineSegment`
-                    // stands. A linear edge needs no relocation; this is NOT an
-                    // arbitrary pick of one ruling (P10-safe), mirroring the
-                    // all-Lines short-circuit in `build_intersection_curves`.
-                    _ => continue,
+                let Some(lr) = (if matched_n == 1 { matched } else { None }) else {
+                    return Err(YangError::SsiRefinementFailed {
+                        edge: (s, e),
+                        reason: SsiRefinementError::AmbiguousCurve {
+                            candidates: returned.len(),
+                            matched: matched_n,
+                        },
+                    });
                 };
                 for v in [s, e] {
                     // A vertex on TWO DIFFERENT lines (e.g. a box corner ruling
