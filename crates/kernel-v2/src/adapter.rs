@@ -964,7 +964,7 @@ impl Kernel for KernelV2Adapter {
                 .iter()
                 .map(|h| region_edges_to_profile(h))
                 .collect();
-            match crate::Profile::arc_polygon(origin, ux, vy, outer, holes) {
+            match crate::Profile::arc_polygon(origin, ux, vy, outer, holes.clone()) {
                 Ok(profile) => {
                     let idx = self.next_staged;
                     self.next_staged += 1;
@@ -972,6 +972,45 @@ impl Kernel for KernelV2Adapter {
                     return Ok(KernelId(TAG_PROFILE | idx));
                 }
                 Err(e) => {
+                    // Tier 2b (MIXED). The full arc profile declined — typically
+                    // the OUTER loop (e.g. a non-simple gear-tooth polyline /
+                    // spline), NOT the holes. If a HOLE is a clean arc (a bearing
+                    // bore circle), retry with the OUTER as the tessellated
+                    // POLYGON (line edges — the same simple loop Tier 1 accepts)
+                    // while keeping the HOLES as arc edges → EXACT cylinder bore
+                    // walls. This preserves a bore as a true cylinder so it welds
+                    // with a coincident cylinder-bore solid (the gear-flange
+                    // union), instead of a polygon-vs-cylinder mismatch that
+                    // self-intersects. On any decline here, fall through to the
+                    // full polygon Tier 1 (LOUD, no regression).
+                    let holes_have_arc = region.hole_edges.iter().any(|h| {
+                        h.iter()
+                            .any(|e| matches!(e, waffle_types::RegionEdge::Arc { .. }))
+                    });
+                    if holes_have_arc && !region.outer.is_empty() {
+                        let outer_poly: Vec<crate::ProfileEdge> = region
+                            .outer
+                            .iter()
+                            .zip(region.outer.iter().cycle().skip(1))
+                            .map(|(&(ax, ay), &(bx, by))| crate::ProfileEdge::Line {
+                                a: Point2::new(ax, ay),
+                                b: Point2::new(bx, by),
+                            })
+                            .collect();
+                        match crate::Profile::arc_polygon(origin, ux, vy, outer_poly, holes) {
+                            Ok(profile) => {
+                                let idx = self.next_staged;
+                                self.next_staged += 1;
+                                self.staged.insert(idx, profile);
+                                return Ok(KernelId(TAG_PROFILE | idx));
+                            }
+                            Err(e2) => {
+                                eprintln!(
+                                    "kernel-v2 region: mixed poly-outer+arc-hole also declined ({e2})"
+                                );
+                            }
+                        }
+                    }
                     eprintln!(
                         "kernel-v2 region: arc_polygon declined ({e}) → tessellated polygon fallback"
                     );
