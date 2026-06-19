@@ -840,10 +840,23 @@ fn stage1_tessellate_inner(
                         let wy = w[0] * e2a[0] + w[1] * e2a[1] + w[2] * e2a[2];
                         let r = (wx * wx + wy * wy).sqrt();
                         let band = 1e-9 * (1.0 + radius);
-                        if (r - radius).abs() > band || along.abs() > band {
+                        // A rim-crossing override lies on the tessellated rim
+                        // POLYGON — a CHORD between two on-circle samples — so it
+                        // sits up to the Stage-1 chord sagitta
+                        // `radius·(1 − cos(π/N))` INSIDE the analytic circle.
+                        // That chord is the rim's own Stage-1 representation
+                        // (A14.3 chord bound), the SAME points the cap overlay
+                        // triangles use, so the radial deficit is expected, not a
+                        // fault — validating against it keeps the override
+                        // bit-identical with the overlap mesh (no T-junction) and
+                        // is NOT a tolerance widening. A point OUTSIDE the circle,
+                        // or inside by MORE than the sagitta (a bad projection),
+                        // or off the cap plane (axial) is still a loud fault.
+                        let sagitta = radius * (1.0 - (std::f64::consts::PI / n_seg as f64).cos());
+                        if r - radius > band || radius - r > sagitta + band || along.abs() > band {
                             return Err(YangError::MalformedTopology(format!(
-                                "circle edge {e_idx}: rim-crossing override ({},{},{}) is not on \
-                                 the circle (radial {r} vs radius {radius}, axial {along})",
+                                "circle edge {e_idx}: rim-crossing override ({},{},{}) is off the \
+                                 rim (radial {r} vs radius {radius} sagitta {sagitta}, axial {along})",
                                 sp[0], sp[1], sp[2]
                             )));
                         }
@@ -10287,6 +10300,84 @@ mod tests {
         assert!(
             counts.values().all(|&c| c == 2),
             "dual-rim override must keep the cylinder a closed 2-manifold"
+        );
+    }
+
+    /// A rim-crossing override lies on the tessellated rim POLYGON (a CHORD
+    /// between two on-circle samples), so it sits radially INSIDE the analytic
+    /// circle by up to the Stage-1 chord sagitta. The override validation must
+    /// ACCEPT such a point (it is the same point the cap overlay uses — snapping
+    /// it to the circle would mint a T-junction), while still rejecting a point
+    /// that is OUTSIDE the circle or inside by MORE than the sagitta (a genuine
+    /// off-rim fault). Regression for task #21 (the `is not on the circle`
+    /// rejection that masked the same-normal crossing path).
+    #[test]
+    fn rim_override_accepts_chord_point_rejects_off_rim() {
+        let (verts, edges, faces) = rt_cylinder(0.0, 1.0, 0.5);
+        let r = 0.5_f64;
+        let az = 0.3_f64; // not a uniform sample
+        let (s, c) = az.sin_cos();
+        // Derive a point GUARANTEED on a chord of the actual tessellated top
+        // rim (circle edge 1): the midpoint of two consecutive rim samples — its
+        // radial deficit equals the exact Stage-1 chord sagitta for this N.
+        let plain = stage1_tessellate(&verts, &edges, &faces).expect("plain");
+        let mut rim1: Vec<(f64, Point3)> = plain
+            .sources
+            .iter()
+            .enumerate()
+            .filter_map(|(i, src)| match src {
+                TessellationSource::BRepEdge { edge: 1, t } => Some((*t, plain.verts[i])),
+                _ => None,
+            })
+            .collect();
+        rim1.sort_by(|a, b| a.0.total_cmp(&b.0));
+        assert!(rim1.len() >= 2, "top rim must have >=2 samples");
+        let (p0, p1) = (rim1[0].1.as_array(), rim1[1].1.as_array());
+        let mx = 0.5 * (p0[0] + p1[0]);
+        let my = 0.5 * (p0[1] + p1[1]);
+        let top_chord = Point3::new(mx, my, 1.0);
+        // Same (x,y) on the BOTTOM rim plane (z=0): same global azimuth + same
+        // radial deficit (the cylinder is axis-aligned), so inserting on BOTH
+        // rims keeps the lateral azimuth-merge balanced.
+        let bot_chord = Point3::new(mx, my, 0.0);
+        let single = |e: u32, p: Point3| {
+            let mut ov: std::collections::BTreeMap<u32, Vec<Point3>> =
+                std::collections::BTreeMap::new();
+            ov.insert(e, vec![p]);
+            ov
+        };
+
+        // (1) chord point (radial deficit = chord sagitta) → ACCEPTED + present.
+        let mut both: std::collections::BTreeMap<u32, Vec<Point3>> =
+            std::collections::BTreeMap::new();
+        both.insert(0, vec![bot_chord]);
+        both.insert(1, vec![top_chord]);
+        let t = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &both)
+            .expect("a rim point on the tessellated chord must be accepted");
+        assert!(
+            t.verts.iter().any(|q| q.as_array() == top_chord.as_array()),
+            "accepted chord point must appear in the mesh"
+        );
+
+        // (2) far INSIDE the circle (deficit 0.1 ≫ sagitta) → loud reject
+        // (the off-rim validation fires before the lateral merge).
+        let too_deep = Point3::new((r - 0.1) * c, (r - 0.1) * s, 1.0);
+        assert!(
+            matches!(
+                stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &single(1, too_deep)),
+                Err(YangError::MalformedTopology(_))
+            ),
+            "a point far inside the rim circle must be rejected (off-rim fault)"
+        );
+
+        // (3) OUTSIDE the circle → loud reject.
+        let outside = Point3::new((r + 0.01) * c, (r + 0.01) * s, 1.0);
+        assert!(
+            matches!(
+                stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &single(1, outside)),
+                Err(YangError::MalformedTopology(_))
+            ),
+            "a point outside the rim circle must be rejected"
         );
     }
 }
