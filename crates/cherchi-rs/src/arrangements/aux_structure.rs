@@ -257,7 +257,12 @@ pub fn group_intersection_points(
     for ((ta, tb), classification) in classified {
         let vertices = match classification {
             PairClassification::Transversal { vertices } => vertices,
-            PairClassification::Deferred(_) | PairClassification::Disjoint => continue,
+            // PR-2 corpus-neutral: `Coplanar` carries constructed vertices +
+            // segments, but PR-2 does NOT bucket them yet (the pipeline still
+            // defers coplanar pairs). PR-3 will consume them.
+            PairClassification::Coplanar { .. }
+            | PairClassification::Deferred(_)
+            | PairClassification::Disjoint => continue,
         };
 
         for iv in vertices {
@@ -428,7 +433,12 @@ pub fn group_constraint_segments(
     for ((ta, tb), classification) in classified {
         let vertices = match classification {
             PairClassification::Transversal { vertices } => vertices,
-            PairClassification::Deferred(_) | PairClassification::Disjoint => continue,
+            // PR-2 corpus-neutral: `Coplanar` carries constructed vertices +
+            // segments, but PR-2 does NOT bucket them yet (the pipeline still
+            // defers coplanar pairs). PR-3 will consume them.
+            PairClassification::Coplanar { .. }
+            | PairClassification::Deferred(_)
+            | PairClassification::Disjoint => continue,
         };
 
         // Collect distinct interned endpoint ids (order-preserving dedup).

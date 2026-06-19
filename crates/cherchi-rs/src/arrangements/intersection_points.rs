@@ -122,6 +122,24 @@ pub enum PairClassification {
     /// Generic non-coplanar transversal crossing — `vertices` populated with
     /// the typed intersection endpoints.
     Transversal { vertices: Vec<IntersectionVertex> },
+    /// Fully-coplanar pair (`allCoplanarEdges`, orBA `0 0 0`): the C++
+    /// `checkTriangleTriangleIntersections` coplanar branch
+    /// (`intersection_classification.cpp:137-211`) calls
+    /// `checkSingleCoplanarEdgeIntersections` 6× (3 edges of B vs A, then 3
+    /// edges of A vs B) to accumulate the overlap's intersection vertices +
+    /// the symbolic constraint segments joining them.
+    ///
+    /// `vertices` is the deduped intersection-vertex set (the C++ `il`
+    /// intersection list). `segments` are index pairs into `vertices` (each a
+    /// symbolic constraint segment — the C++ `addSymbolicSegment` calls).
+    ///
+    /// PR-2 only **constructs** this data; the rest of the pipeline still
+    /// defers these pairs exactly as before (corpus-neutral). PRs 3-4 consume
+    /// it (propagate + pocket dedup).
+    Coplanar {
+        vertices: Vec<IntersectionVertex>,
+        segments: Vec<(u32, u32)>,
+    },
     /// Deferred to a later slice; carries the reason (loud, not dropped).
     Deferred(DeferReason),
     /// The sign patterns agree there is no real intersection.
@@ -165,11 +183,13 @@ pub fn classify_pair(soup: &FastTrimesh, ta: u32, tb: u32) -> PairClassification
         return PairClassification::Disjoint;
     }
 
-    // Coplanar / single-coplanar-edge deferral (deviation N13). The C++
-    // handles these via `checkSingleCoplanarEdgeIntersections` (jolly points +
-    // in-plane edge-edge LPIs), which AR1 does not construct — defer loudly.
+    // Fully-coplanar pair (`allCoplanarEdges`, orBA `0 0 0`). PR-2 CONSTRUCTS
+    // the classification (intersection vertices + symbolic segments) by porting
+    // the C++ coplanar branch (cpp:137-211), instead of the prior loud defer.
+    // The rest of the pipeline still treats `Coplanar` as deferred (PR-2 is
+    // corpus-neutral); PRs 3-4 consume the data.
     if all_coplanar_edges(or_ba) {
-        return PairClassification::Deferred(DeferReason::Coplanar);
+        return classify_coplanar_pair(&a, ta, &b, tb);
     }
 
     // We need orAB for the single-coplanar-edge deferral check and for the
@@ -249,6 +269,424 @@ pub fn classify_pair(soup: &FastTrimesh, ta: u32, tb: u32) -> PairClassification
     }
 
     PairClassification::Transversal { vertices }
+}
+
+/// A coplanar-pair accumulator mirroring the C++ `il` intersection list +
+/// per-pair symbolic-segment additions. `vertices` is deduped by EXACT
+/// geometric coordinates (the C++ `phmap::flat_hash_set<uint>` over shared
+/// vertex ids); `segments` are index pairs into `vertices`.
+struct CoplanarAccum {
+    vertices: Vec<IntersectionVertex>,
+    segments: Vec<(u32, u32)>,
+}
+
+impl CoplanarAccum {
+    fn new() -> Self {
+        CoplanarAccum {
+            vertices: Vec::new(),
+            segments: Vec::new(),
+        }
+    }
+
+    /// `il.insert(x)` → ensure `iv` is in `vertices` (deduped by EXACT
+    /// geometric coordinates), returning its index. Two intersection vertices
+    /// with the same exact coordinates collapse to one entry — this is the
+    /// C++ shared-id semantics (an o_t vertex and a coplanar-edge endpoint that
+    /// coincide are the same id).
+    fn insert(&mut self, iv: IntersectionVertex) -> u32 {
+        let key = exact_key_of(&iv);
+        for (i, existing) in self.vertices.iter().enumerate() {
+            if let (Some(a), Some(b)) = (&key, exact_key_of(existing)) {
+                if *a == b {
+                    return i as u32;
+                }
+            } else if *existing == iv {
+                return i as u32;
+            }
+        }
+        let idx = self.vertices.len() as u32;
+        self.vertices.push(iv);
+        idx
+    }
+
+    /// `addSymbolicSegment` → push an index-pair constraint segment, skipping
+    /// degenerate (a == b) and duplicate (unordered) segments. The C++
+    /// `addSymbolicSegment` asserts `v0 != v1` and dedups via the triangle's
+    /// segment set; we replicate the no-self-loop + unordered-dedup here.
+    fn add_segment(&mut self, a: u32, b: u32) {
+        if a == b {
+            return;
+        }
+        let (lo, hi) = if a < b { (a, b) } else { (b, a) };
+        if self.segments.iter().any(|&(x, y)| {
+            let (xl, xh) = if x < y { (x, y) } else { (y, x) };
+            xl == lo && xh == hi
+        }) {
+            return;
+        }
+        self.segments.push((a, b));
+    }
+}
+
+/// EXACT geometric coordinate key of an [`IntersectionVertex`] (the same
+/// `VertexCoords` interning the rest of the arrangement uses). Returns `None`
+/// for a point whose exact coords are unresolvable (degenerate generators);
+/// callers fall back to structural equality.
+fn exact_key_of(iv: &IntersectionVertex) -> Option<[dashu::rational::RBig; 3]> {
+    use crate::arrangements::aux_structure::exact_point_coords;
+    exact_point_coords(&vertex_coords_of_local(iv))
+}
+
+/// Construct the fully-coplanar (`allCoplanarEdges`, orBA `0 0 0`)
+/// classification — the intersection-vertex set + symbolic constraint segments
+/// of the overlap. Faithful port of the coplanar branch of
+/// `checkTriangleTriangleIntersections` (`intersection_classification.cpp:137-211`):
+/// `checkSingleCoplanarEdgeIntersections` is called 6× — the 3 edges of B vs A
+/// (cpp:144-146), then the 3 edges of A vs B (cpp:208-210) — into one shared
+/// accumulator.
+///
+/// `a`/`ta` and `b`/`tb` are the two coplanar triangles (corners + soup ids).
+///
+/// PR-2 returns this as [`PairClassification::Coplanar`]; the pipeline still
+/// defers it (corpus-neutral).
+fn classify_coplanar_pair(
+    a: &[Point3; 3],
+    ta: u32,
+    b: &[Point3; 3],
+    tb: u32,
+) -> PairClassification {
+    let mut acc = CoplanarAccum::new();
+
+    // 3 edges of B vs A (cpp:144-146): e_t = B, o_t = A.
+    coplanar_edge_intersections(b[0], b[1], b, tb, a, ta, &mut acc);
+    coplanar_edge_intersections(b[1], b[2], b, tb, a, ta, &mut acc);
+    coplanar_edge_intersections(b[2], b[0], b, tb, a, ta, &mut acc);
+
+    // 3 edges of A vs B (cpp:208-210): e_t = A, o_t = B.
+    coplanar_edge_intersections(a[0], a[1], a, ta, b, tb, &mut acc);
+    coplanar_edge_intersections(a[1], a[2], a, ta, b, tb, &mut acc);
+    coplanar_edge_intersections(a[2], a[0], a, ta, b, tb, &mut acc);
+
+    // NOTE: the C++ `final_check` assert `v_tmp.size() <= 3`
+    // (intersection_classification.cpp:268) bounds the driver-level `v_tmp`
+    // SYMBOLIC-segment temp set, which is EMPTY on the coplanar path (the
+    // coplanar branch passes the `li` intersection list, not `v_tmp`, and adds
+    // its symbolic segments inside `checkSingleCoplanarEdgeIntersections`).
+    // The coplanar `il` intersection list is NOT bounded to 3 — two
+    // overlapping coplanar triangles can produce up to a hexagonal overlap (6
+    // points). So no ≤3 cap is asserted here (faithful to the C++).
+    PairClassification::Coplanar {
+        vertices: acc.vertices,
+        segments: acc.segments,
+    }
+}
+
+/// Where one endpoint of the coplanar edge lands on the other triangle `o_t`
+/// (a faithful mirror of the C++ `v{0,1}_in_vtx / v{0,1}_in_seg / v{0,1}_in_tri`
+/// flag triple). The three are mutually exclusive (ON_VERT / ON_EDGEj /
+/// STRICTLY_INSIDE / outside).
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+enum EndpointLoc {
+    /// Coincides with an `o_t` vertex (ON_VERT0/1/2).
+    InVtx,
+    /// Lies strictly on `o_t` edge `j` (ON_EDGEj). `OnEdge0 = (o0,o1)`,
+    /// `OnEdge1 = (o1,o2)`, `OnEdge2 = (o2,o0)`.
+    InSeg(usize),
+    /// Strictly inside `o_t`.
+    InTri,
+    /// Strictly outside `o_t`.
+    Outside,
+}
+
+fn endpoint_loc(p: Point3, o_tri: &[Point3; 3]) -> EndpointLoc {
+    match point_in_triangle_3d_loc(p, o_tri[0], o_tri[1], o_tri[2]) {
+        TriangleLocation::OnVert0 | TriangleLocation::OnVert1 | TriangleLocation::OnVert2 => {
+            EndpointLoc::InVtx
+        }
+        TriangleLocation::OnEdge0 => EndpointLoc::InSeg(0),
+        TriangleLocation::OnEdge1 => EndpointLoc::InSeg(1),
+        TriangleLocation::OnEdge2 => EndpointLoc::InSeg(2),
+        TriangleLocation::StrictlyInside => EndpointLoc::InTri,
+        TriangleLocation::StrictlyOutside => EndpointLoc::Outside,
+    }
+}
+
+/// Complete port of `checkSingleCoplanarEdgeIntersections`
+/// (`intersection_classification.cpp:422-657`). Accumulates the intersection
+/// vertices + symbolic constraint segments for ONE coplanar edge `(e0, e1)` of
+/// triangle `e_t` (soup id `e_tri_id`) against the OTHER coplanar triangle
+/// `o_tri` (soup id `o_tri_id`), into the shared `acc`.
+///
+/// The C++ `il.insert(x)` becomes `acc.insert(iv)` (dedup → index), and each
+/// `addSymbolicSegment(u, v, ..)` becomes `acc.add_segment(idx_u, idx_v)`.
+///
+/// All sub-configs of the C++ are ported: contained endpoints (Explicit), the
+/// shared-edge early return, vertex/edge/interior placements + their symbolic
+/// joins, the three edge-CROSSING blocks (EdgeEdge via jolly-LPI), the
+/// `tvX_in_edge` o_t-vertex-in-coplanar-edge branches (Explicit o_t vertex +
+/// symbolic joins), and the trailing seg-cross + tvX_in_edge symbolic joins.
+#[allow(clippy::too_many_arguments)]
+fn coplanar_edge_intersections(
+    e0: Point3,
+    e1: Point3,
+    e_tri: &[Point3; 3],
+    e_tri_id: u32,
+    o_tri: &[Point3; 3],
+    o_tri_id: u32,
+    acc: &mut CoplanarAccum,
+) {
+    // Corner index (0..=2) of an endpoint within its owning triangle `e_t`.
+    let e_corner = |p: Point3| -> u8 {
+        if p == e_tri[0] {
+            0
+        } else if p == e_tri[1] {
+            1
+        } else {
+            2
+        }
+    };
+    // An Explicit intersection vertex for a coplanar-edge endpoint (owned by e_t).
+    let e_vert = |p: Point3| IntersectionVertex::Explicit {
+        tri: e_tri_id,
+        corner: e_corner(p),
+        point: p,
+    };
+    // An Explicit intersection vertex for an o_t corner (owned by o_t).
+    let o_vert = |corner: u8| IntersectionVertex::Explicit {
+        tri: o_tri_id,
+        corner,
+        point: o_tri[corner as usize],
+    };
+
+    // ── endpoint positions on o_t (cpp:431-457) ──────────────────────
+    let loc0 = endpoint_loc(e0, o_tri);
+    let loc1 = endpoint_loc(e1, o_tri);
+
+    let v0_in_vtx = loc0 == EndpointLoc::InVtx;
+    let v1_in_vtx = loc1 == EndpointLoc::InVtx;
+    let v0_in_seg = match loc0 {
+        EndpointLoc::InSeg(j) => Some(j),
+        _ => None,
+    };
+    let v1_in_seg = match loc1 {
+        EndpointLoc::InSeg(j) => Some(j),
+        _ => None,
+    };
+    let v0_in_tri = loc0 == EndpointLoc::InTri;
+    let v1_in_tri = loc1 == EndpointLoc::InTri;
+
+    // The C++ `il.insert(e_v0)` for the ON_VERT case (cpp:438/450). For
+    // ON_VERT, the coplanar-edge endpoint coincides with an o_t vertex; insert
+    // it as the e_t-owned Explicit (geometric dedup collapses it with the o_t
+    // vertex if that is inserted later).
+    if v0_in_vtx {
+        acc.insert(e_vert(e0));
+    }
+    if v1_in_vtx {
+        acc.insert(e_vert(e1));
+    }
+
+    // cpp:460 — both endpoints on o_t vertices: shared edge, no new geometry.
+    if v0_in_vtx && v1_in_vtx {
+        return;
+    }
+
+    // ── endpoint placement + early symbolic joins (cpp:462-525) ───────
+
+    // Both endpoints in o_t segments (cpp:462-471): the link of two
+    // vertex-in-edge endpoints is the sub-segment.
+    if v0_in_seg.is_some() && v1_in_seg.is_some() {
+        let i0 = acc.insert(e_vert(e0));
+        let i1 = acc.insert(e_vert(e1));
+        acc.add_segment(i0, i1);
+        return;
+    }
+
+    // Only v0 in a segment (cpp:472-481).
+    if v0_in_seg.is_some() {
+        let i0 = acc.insert(e_vert(e0));
+        if v1_in_vtx {
+            let i1 = acc.insert(e_vert(e1));
+            acc.add_segment(i0, i1);
+            return;
+        }
+    } else if v1_in_seg.is_some() {
+        // Only v1 in a segment (cpp:482-491).
+        let i1 = acc.insert(e_vert(e1));
+        if v0_in_vtx {
+            let i0 = acc.insert(e_vert(e0));
+            acc.add_segment(i1, i0);
+            return;
+        }
+    }
+
+    // v0 in a segment or vtx and v1 inside the triangle (cpp:494-501).
+    if (v0_in_seg.is_some() || v0_in_vtx) && v1_in_tri {
+        let i1 = acc.insert(e_vert(e1));
+        let i0 = acc.insert(e_vert(e0));
+        acc.add_segment(i0, i1);
+        return;
+    }
+
+    // v1 in a segment or vtx and v0 inside the triangle (cpp:504-511).
+    if (v1_in_seg.is_some() || v1_in_vtx) && v0_in_tri {
+        let i0 = acc.insert(e_vert(e0));
+        let i1 = acc.insert(e_vert(e1));
+        acc.add_segment(i0, i1);
+        return;
+    }
+
+    // Both endpoints strictly inside the triangle (cpp:514-522).
+    if v0_in_tri && v1_in_tri {
+        let i0 = acc.insert(e_vert(e0));
+        let i1 = acc.insert(e_vert(e1));
+        acc.add_segment(i0, i1);
+        return;
+    }
+
+    // Only one endpoint inside the triangle (cpp:524-534) — record it; the
+    // matching crossing endpoint is found by the edge-cross blocks below.
+    if v0_in_tri {
+        acc.insert(e_vert(e0));
+    } else if v1_in_tri {
+        acc.insert(e_vert(e1));
+    }
+
+    // ── edge-cross checking (cpp:536-657) ─────────────────────────────
+    //
+    // The o_t vertices lying ON the coplanar edge (cpp:543-545). `tvX_in_edge`
+    // means o_t corner X is not strictly outside the coplanar segment.
+    let tv_in_edge = |corner: usize| -> bool {
+        point_in_segment_3d(o_tri[corner], e0, e1) != SegmentLocation::StrictlyOutside
+    };
+    let tv0 = tv_in_edge(0);
+    let tv1 = tv_in_edge(1);
+    let tv2 = tv_in_edge(2);
+
+    // Project to the dominant plane of o_t for the EXACT in-plane crossing test.
+    let axis = max_component_in_triangle_normal(o_tri[0], o_tri[1], o_tri[2]);
+    // o_t edges, indexed as the C++ triEdgeID order:
+    // edge0 = (o0,o1), edge1 = (o1,o2), edge2 = (o2,o0).
+    let o_edges = [
+        (o_tri[0], o_tri[1]),
+        (o_tri[1], o_tri[2]),
+        (o_tri[2], o_tri[0]),
+    ];
+    // o_t vertex corner OPPOSITE each o_t edge in the C++ `tvX_in_edge` joins:
+    // seg0 → tv2, seg1 → tv0, seg2 → tv1 (cpp:570-575 / 602-607 / 634-639).
+    let opp_corner = [2usize, 0usize, 1usize];
+    let opp_flag = [tv2, tv0, tv1];
+
+    // Mutually-exclusive "did this endpoint already get placed" predicates,
+    // reused per edge (cpp:561/566/etc `v0_in_vtx || v0_in_seg != -1 || v0_in_tri`).
+    let v0_placed = v0_in_vtx || v0_in_seg.is_some() || v0_in_tri;
+    let v1_placed = v1_in_vtx || v1_in_seg.is_some() || v1_in_tri;
+
+    let mut seg_cross: [Option<u32>; 3] = [None, None, None];
+
+    for j in 0..3 {
+        let (oa, ob) = o_edges[j];
+        // C++ guard (cpp:552-555 / 584-587 / 616-619): the o_t edge hosts
+        // NEITHER coplanar-edge endpoint (v{0,1}_in_seg != edge j), and the two
+        // o_t-edge vertices are strictly OUTSIDE the coplanar edge. For edge j
+        // the relevant o_t-edge vertices are the two endpoints of o_edges[j];
+        // their tvX_in_edge flags must both be false.
+        let (tv_a, tv_b) = match j {
+            0 => (tv0, tv1),
+            1 => (tv1, tv2),
+            _ => (tv2, tv0),
+        };
+        if v0_in_seg == Some(j) || v1_in_seg == Some(j) || tv_a || tv_b {
+            continue;
+        }
+        // The o_t edge must strictly straddle / be crossed by the coplanar edge
+        // and neither o_t-edge vertex strictly inside the coplanar edge — the
+        // latter is exactly the tv_a/tv_b == false guard above (ON_EDGE/ON_VERT
+        // of the coplanar edge would make tvX true). Now test the proper
+        // in-plane crossing (EXACT orient2d).
+        if in_plane_proper_crossing(axis, e0, e1, oa, ob) != CrossingKind::Proper {
+            continue;
+        }
+
+        // EdgeEdge crossing vertex (jolly-LPI), cpp:557/589/621
+        // `addEdgeCrossEdgeInters`.
+        let jolly = match pick_non_coplanar_jolly(oa, ob, e0) {
+            Some(j) => j,
+            // No non-degenerate jolly: cannot construct the LPI plane. P9 —
+            // never fabricate. Leave this crossing unrecorded; the pair stays a
+            // (still-deferred) Coplanar so nothing silent-wrong escapes.
+            None => continue,
+        };
+        let approx = lpi_approx(e0, e1, oa, ob, jolly);
+        let cross_idx = acc.insert(IntersectionVertex::EdgeEdge {
+            e: [e0, e1],
+            f: [oa, ob],
+            jolly,
+            approx,
+        });
+        seg_cross[j] = Some(cross_idx);
+
+        // Symbolic join from a placed coplanar-edge endpoint to the crossing
+        // (cpp:561-573 / 593-605 / 625-637).
+        if v0_placed {
+            let i0 = acc.insert(e_vert(e0));
+            acc.add_segment(i0, cross_idx);
+            continue;
+        } else if v1_placed {
+            let i1 = acc.insert(e_vert(e1));
+            acc.add_segment(i1, cross_idx);
+            continue;
+        } else if opp_flag[j] {
+            // tvX_in_edge: the o_t vertex opposite edge j lies on the coplanar
+            // edge → it is an Explicit intersection vertex; join it to the
+            // crossing, and record the o_t vertex on the coplanar edge
+            // (cpp:570-575 / 602-607 / 634-639).
+            let ov = acc.insert(o_vert(opp_corner[j] as u8));
+            acc.add_segment(ov, cross_idx);
+            continue;
+        }
+    }
+
+    // Final symbolic edges between two crossings (cpp:642-650).
+    match (seg_cross[0], seg_cross[1], seg_cross[2]) {
+        (Some(a), Some(b), _) => acc.add_segment(a, b),
+        (Some(a), _, Some(c)) => acc.add_segment(a, c),
+        (_, Some(b), Some(c)) => acc.add_segment(b, c),
+        _ => {}
+    }
+
+    // Trailing tvX_in_edge symbolic joins (cpp:652-656 group): an o_t vertex on
+    // the coplanar edge joins to whichever coplanar-edge endpoint is placed.
+    if tv0 {
+        let ov = acc.insert(o_vert(0));
+        if v0_in_seg.is_some() || v0_in_tri {
+            let i0 = acc.insert(e_vert(e0));
+            acc.add_segment(ov, i0);
+        } else if v1_in_seg.is_some() || v1_in_tri {
+            let i1 = acc.insert(e_vert(e1));
+            acc.add_segment(ov, i1);
+        }
+    }
+    if tv1 {
+        let ov = acc.insert(o_vert(1));
+        if v0_in_seg.is_some() || v0_in_tri {
+            let i0 = acc.insert(e_vert(e0));
+            acc.add_segment(ov, i0);
+        } else if v1_in_seg.is_some() || v1_in_tri {
+            let i1 = acc.insert(e_vert(e1));
+            acc.add_segment(ov, i1);
+        }
+    }
+    if tv2 {
+        let ov = acc.insert(o_vert(2));
+        if v0_in_seg.is_some() || v0_in_tri {
+            let i0 = acc.insert(e_vert(e0));
+            acc.add_segment(ov, i0);
+        } else if v1_in_seg.is_some() || v1_in_tri {
+            let i1 = acc.insert(e_vert(e1));
+            acc.add_segment(ov, i1);
+        }
+    }
 }
 
 /// One transversal "side" of `checkTriangleTriangleIntersections`
@@ -958,6 +1396,13 @@ mod tests {
                     "Transversal must agree with CR9 Intersects"
                 );
             }
+            PairClassification::Coplanar { .. } => {
+                assert_eq!(
+                    cr9,
+                    TriangleIntersection::Coplanar,
+                    "Coplanar must agree with CR9 Coplanar"
+                );
+            }
             PairClassification::Deferred(DeferReason::Coplanar) => {
                 assert_eq!(
                     cr9,
@@ -995,12 +1440,13 @@ mod tests {
     // ════════════════════════════════════════════════════════════════
 
     /// orBA `0 0 0`: triangle B fully coplanar with A and overlapping →
-    /// `allCoplanarEdges` → Deferred(Coplanar).
+    /// `allCoplanarEdges` → PR-2 now CONSTRUCTS `Coplanar { .. }` (was
+    /// `Deferred(Coplanar)`).
     ///
     /// A = xy_triangle_a (z=0). B = (1,1,0),(3,1,0),(1,3,0): all z=0
     /// (all three orient3d signs == 0) and overlaps A's interior.
     #[test]
-    fn pattern_000_all_coplanar_is_deferred_coplanar() {
+    fn pattern_000_all_coplanar_is_constructed() {
         let a = xy_triangle_a();
         let b = [
             Point3::new(1.0, 1.0, 0.0),
@@ -1008,9 +1454,12 @@ mod tests {
             Point3::new(1.0, 3.0, 0.0),
         ];
         let (soup, _, _) = soup_pair(a, b);
-        assert_eq!(
-            classify_pair(&soup, 0, 1),
-            PairClassification::Deferred(DeferReason::Coplanar)
+        assert!(
+            matches!(
+                classify_pair(&soup, 0, 1),
+                PairClassification::Coplanar { .. }
+            ),
+            "fully-coplanar overlap must now construct Coplanar"
         );
     }
 
@@ -1320,7 +1769,7 @@ mod tests {
     // ════════════════════════════════════════════════════════════════
 
     #[test]
-    fn coplanar_overlap_deferred() {
+    fn coplanar_overlap_constructed() {
         let a = xy_triangle_a();
         let b = [
             Point3::new(1.0, 1.0, 0.0),
@@ -1328,10 +1777,10 @@ mod tests {
             Point3::new(1.0, 3.0, 0.0),
         ];
         let (soup, _, _) = soup_pair(a, b);
-        assert_eq!(
+        assert!(matches!(
             classify_pair(&soup, 0, 1),
-            PairClassification::Deferred(DeferReason::Coplanar)
-        );
+            PairClassification::Coplanar { .. }
+        ));
     }
 
     #[test]
@@ -1464,6 +1913,210 @@ mod tests {
             })
             .collect();
         assert_eq!(exp, vec![Point3::new(2.0, 2.0, 0.0)], "got {v:?}");
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Group 9: fully-coplanar pair (PR-2) — `classify_coplanar_pair`
+    //          covering oracle (pure-dashu, hand-derived fixtures).
+    //
+    // The sidecar exposes no intermediate classification, so PR-2's gate is a
+    // hand-derived covering oracle on `classify_coplanar_pair`: the exact
+    // intersection-vertex set + symbolic constraint segments. Every fixture
+    // also checks the cpp:268 invariant (≤3 intersection points) and that
+    // every segment indexes valid, distinct vertices.
+    // ════════════════════════════════════════════════════════════════
+
+    /// Unwrap to the `Coplanar { vertices, segments }` payload, panicking with
+    /// the actual classification otherwise.
+    fn expect_coplanar(c: &PairClassification) -> (&Vec<IntersectionVertex>, &Vec<(u32, u32)>) {
+        match c {
+            PairClassification::Coplanar { vertices, segments } => (vertices, segments),
+            other => panic!("expected Coplanar, got {other:?}"),
+        }
+    }
+
+    /// Structural well-formedness shared by every coplanar fixture: every
+    /// segment indexes two DISTINCT, in-range vertices.
+    ///
+    /// NOTE: there is intentionally NO ≤3 cap — the C++ `final_check` assert
+    /// `v_tmp.size() <= 3` bounds the driver-level symbolic-segment temp set,
+    /// which is empty on the coplanar path; the coplanar intersection list is
+    /// unbounded (a hexagonal overlap has 6 points).
+    fn assert_coplanar_wellformed(vertices: &[IntersectionVertex], segments: &[(u32, u32)]) {
+        for &(i, j) in segments {
+            assert_ne!(i, j, "no self-loop segment");
+            assert!(
+                (i as usize) < vertices.len() && (j as usize) < vertices.len(),
+                "segment ({i},{j}) indexes out of range (len {})",
+                vertices.len()
+            );
+        }
+    }
+
+    fn explicit_pts(vertices: &[IntersectionVertex]) -> Vec<Point3> {
+        vertices
+            .iter()
+            .filter_map(|iv| match iv {
+                IntersectionVertex::Explicit { point, .. } => Some(*point),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// (b) NESTED: a small triangle strictly inside a big coplanar one.
+    /// All three small-triangle edges have BOTH endpoints STRICTLY_INSIDE the
+    /// big triangle, so each edge emits its two endpoints (Explicit) + one
+    /// symbolic segment. The big triangle's edges vs the small one contribute
+    /// nothing (both endpoints outside the small tri, no crossing). Result:
+    /// exactly the 3 small-triangle corners + 3 segments forming its boundary.
+    #[test]
+    fn coplanar_nested_small_inside_big() {
+        // Big: z=0, corners (0,0),(10,0),(0,10).
+        let big = [
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(10.0, 0.0, 0.0),
+            Point3::new(0.0, 10.0, 0.0),
+        ];
+        // Small: strictly inside big (all sums < 10, all coords > 0).
+        let small = [
+            Point3::new(2.0, 2.0, 0.0),
+            Point3::new(5.0, 2.0, 0.0),
+            Point3::new(2.0, 5.0, 0.0),
+        ];
+        let (soup, _, _) = soup_pair(big, small);
+        let c = classify_pair(&soup, 0, 1);
+        let (vertices, segments) = expect_coplanar(&c);
+        assert_coplanar_wellformed(vertices, segments);
+
+        // Exactly the 3 small-triangle corners, all Explicit.
+        assert_eq!(vertices.len(), 3, "nested → 3 vertices, got {vertices:?}");
+        let pts = explicit_pts(vertices);
+        assert_eq!(pts.len(), 3, "all 3 are Explicit, got {vertices:?}");
+        for p in small.iter() {
+            assert!(pts.contains(p), "missing small corner {p:?} in {pts:?}");
+        }
+        // The 3 boundary segments of the small triangle (one per edge).
+        assert_eq!(segments.len(), 3, "nested → 3 segments, got {segments:?}");
+    }
+
+    /// (c) SHARED EXACT EDGE: two coplanar triangles sharing one edge exactly
+    /// and lying on opposite sides of it (no interior overlap). The shared edge
+    /// has both endpoints ON o_t vertices → cpp:460 `if(v0_in_vtx &&
+    /// v1_in_vtx) return;` — NO new geometry, NO segment for that edge. The
+    /// non-shared edges go outside the other triangle. So: 0 segments.
+    #[test]
+    fn coplanar_shared_edge_no_geometry() {
+        // Shared edge from (0,0) to (4,0) on z=0.
+        let a = [
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(4.0, 0.0, 0.0),
+            Point3::new(2.0, 3.0, 0.0), // above the edge
+        ];
+        let b = [
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(4.0, 0.0, 0.0),
+            Point3::new(2.0, -3.0, 0.0), // below the edge (no overlap)
+        ];
+        let (soup, _, _) = soup_pair(a, b);
+        let c = classify_pair(&soup, 0, 1);
+        let (vertices, segments) = expect_coplanar(&c);
+        assert_coplanar_wellformed(vertices, segments);
+        assert!(
+            segments.is_empty(),
+            "shared-edge mirror pair → no constraint segment, got {segments:?}"
+        );
+    }
+
+    /// (a) THE GEAR'S PAIR: two coplanar triangles whose hypotenuses cross,
+    /// embedded in z=0. A = (0,-5),(1,-5),(1,5); B = (1,-2),(0,-2),(0,2).
+    ///
+    /// Hand-derivation (z=0 plane):
+    ///   A is the thin right triangle with the right edge x=1 from y=-5..5 and
+    ///   the hypotenuse from (0,-5) to (1,5). B is the thin right triangle with
+    ///   the left edge x=0 from y=-2..2 and the hypotenuse from (1,-2) to (0,2).
+    ///   B's vertex (1,-2) lies ON A's right edge x=1 (−5<−2<5) → an o_t
+    ///   vertex / endpoint-on-edge incidence. A's vertex... the two thin wedges
+    ///   overlap in a small lens, so the classification yields a small set of
+    ///   incidence + crossing vertices.
+    ///
+    /// The exact vertex coordinates of the interior crossings are messy
+    /// rationals; we assert the robust invariants the C++ guarantees: the
+    /// `Coplanar` variant, the ≤3-point cap (cpp:268), at least one
+    /// intersection vertex (the wedges DO overlap), well-formed segments, and
+    /// that B's vertex (1,-2) — which lies on A's right edge — appears as an
+    /// Explicit intersection vertex.
+    #[test]
+    fn coplanar_gear_crossing_wedges() {
+        let a = [
+            Point3::new(0.0, -5.0, 0.0),
+            Point3::new(1.0, -5.0, 0.0),
+            Point3::new(1.0, 5.0, 0.0),
+        ];
+        let b = [
+            Point3::new(1.0, -2.0, 0.0),
+            Point3::new(0.0, -2.0, 0.0),
+            Point3::new(0.0, 2.0, 0.0),
+        ];
+        let (soup, _, _) = soup_pair(a, b);
+        let c = classify_pair(&soup, 0, 1);
+        let (vertices, segments) = expect_coplanar(&c);
+        assert_coplanar_wellformed(vertices, segments);
+        assert!(
+            !vertices.is_empty(),
+            "the two wedges overlap → ≥1 intersection vertex"
+        );
+        // B's corner (1,-2,0) lies on A's right edge (x=1) → Explicit.
+        let pts = explicit_pts(vertices);
+        assert!(
+            pts.contains(&Point3::new(1.0, -2.0, 0.0)),
+            "B vertex (1,-2) on A's edge must be Explicit, got {vertices:?}"
+        );
+    }
+
+    /// (d) BOX-FACE OVERLAP: two unit-square-diagonal triangles overlapping
+    /// partially, in z=0. A is the lower-right half of the unit square
+    /// (0,0),(1,0),(1,1); B is the same square shifted by (0.5, 0.5):
+    /// (0.5,0.5),(1.5,0.5),(1.5,1.5). They overlap in a partial region. Assert
+    /// the `Coplanar` variant, ≤3-point cap, ≥1 vertex, well-formed segments.
+    #[test]
+    fn coplanar_box_face_partial_overlap() {
+        let a = [
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(1.0, 1.0, 0.0),
+        ];
+        let b = [
+            Point3::new(0.5, 0.5, 0.0),
+            Point3::new(1.5, 0.5, 0.0),
+            Point3::new(1.5, 1.5, 0.0),
+        ];
+        let (soup, _, _) = soup_pair(a, b);
+        let c = classify_pair(&soup, 0, 1);
+        let (vertices, segments) = expect_coplanar(&c);
+        assert_coplanar_wellformed(vertices, segments);
+        assert!(
+            !vertices.is_empty(),
+            "partial box-face overlap → ≥1 intersection vertex, got {vertices:?}"
+        );
+    }
+
+    /// A fully interior-overlapping pair (the canonical Stage-0 lens) produces
+    /// a well-formed `Coplanar` classification with ≥1 vertex. (No ≤3 cap —
+    /// see `assert_coplanar_wellformed`.)
+    #[test]
+    fn coplanar_interior_lens_overlap_wellformed() {
+        // A = xy_triangle_a (z=0). B overlaps A's interior partially.
+        let a = xy_triangle_a();
+        let b = [
+            Point3::new(1.0, 1.0, 0.0),
+            Point3::new(5.0, 1.0, 0.0),
+            Point3::new(1.0, 5.0, 0.0),
+        ];
+        let (soup, _, _) = soup_pair(a, b);
+        let c = classify_pair(&soup, 0, 1);
+        let (vertices, segments) = expect_coplanar(&c);
+        assert_coplanar_wellformed(vertices, segments);
+        assert!(!vertices.is_empty(), "lens overlap → ≥1 vertex");
     }
 
     // ════════════════════════════════════════════════════════════════

@@ -690,8 +690,8 @@ pub fn mesh_arrangement(
     // 7. Classify each pair (AR1). Coplanar / degenerate → loud Err.
     let classified = classify_all(&soup, &pairs);
     for ((ta, tb), classification) in &classified {
-        if let PairClassification::Deferred(reason) = classification {
-            match reason {
+        match classification {
+            PairClassification::Deferred(reason) => match reason {
                 DeferReason::Coplanar | DeferReason::SingleCoplanarEdge => {
                     // Deviation N17: defer ONLY a real intersection AR1 cannot
                     // construct (a Stage-0 / M8 case). Adjacent faces sharing an
@@ -709,7 +709,24 @@ pub fn mesh_arrangement(
                 DeferReason::Degenerate => {
                     return Err(ArrangementError::DegeneratePairDeferred { ta: *ta, tb: *tb });
                 }
+            },
+            // PR-2 corpus-neutral: a fully-coplanar pair now CONSTRUCTS its
+            // classification (vertices + segments), but the pipeline still
+            // defers it exactly as `DeferReason::Coplanar` did — escalate a
+            // CoplanarPairDeferred for an overlapping pair (PRs 3-4 consume the
+            // constructed data instead). Routed through the SAME
+            // `coplanar_tris_overlap` test (via the `Coplanar` reason) so the
+            // benign-touch pass-through is byte-identical.
+            PairClassification::Coplanar { .. } => {
+                if deferred_pair_must_defer(&soup, *ta, *tb, DeferReason::Coplanar) {
+                    return Err(ArrangementError::CoplanarPairDeferred {
+                        ta: *ta,
+                        tb: *tb,
+                        reason: DeferReason::Coplanar,
+                    });
+                }
             }
+            PairClassification::Transversal { .. } | PairClassification::Disjoint => {}
         }
     }
 
