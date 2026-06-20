@@ -51,24 +51,48 @@ fn err_waffle_json() -> Option<String> {
 //     reintroduce the reverted F0057 planar-weld masking).
 //
 //   • DEFECT 2 remains (the present wall): "reassembled output would be
-//     non-2-manifold". Single shell with χ = −1 and a PINCH at vertex 4492
-//     (z=0, on the bore cylinder, mid-plug), where 7 gear-bore-wall triangles
-//     (InputId A) and 2 flange-wall triangles (InputId B) meet at one shared
-//     vertex. ROOT CAUSE is in cherchi-rs (Stage 2), NOT yang-rs: over the
-//     overlap band z∈[−0.002,0.002] the gear bore wall and the flange outer
-//     wall are the SAME (coincident, opposite-sense) cylinder, yet cherchi's
-//     ray-cast in/out labels the bore-wall band inside=[false,false] (kept by
-//     the union) instead of inside=[_, true] (interior to the flange, dropped).
-//     Both walls' fans therefore survive and pinch. Fixing this requires
-//     cherchi to multi-label / correctly classify the coincident-cylinder
-//     WALL overlap (not just the cap-rim membrane) — the conformal curved
-//     Stage-0/labeling work, out of yang-rs scope. Forcing past it is
-//     silent-wrong (P9). Un-ignore when that lands.
-#[ignore = "M8-cyl: PR-6 fixed the Stage-4 DegenerateTriangle (cap-rim conformal \
-            weld); the gear now reaches reassembly but a coincident-cylinder \
-            WALL labeling defect in cherchi-rs (bore-wall band mis-classified \
-            inside=[false,false]) pinches the seam (χ=-1). Needs cherchi \
-            coincident-cylinder in/out labeling — out of yang-rs scope"]
+//     non-2-manifold". RE-LOCALIZED in task28 by reference-parity
+//     discrimination — the PRIOR cherchi-labeling diagnosis was WRONG.
+//
+//     The gear's bore wall (r≈0.005909, INWARD-facing — a hole) and the
+//     unioned flange's OUTER wall (same r, OUTWARD-facing) are the SAME 32-gon
+//     cylinder with bit-identical x,y generators but OPPOSITE normal sense.
+//     They are also NON-CONFORMAL in z: the bore wall is one tall quad band
+//     (verts only at z=±0.005), the flange wall + caps land at z=±0.002.
+//
+//     The discriminating experiment (the EXACT meshes yang feeds cherchi,
+//     extracted via a temporary YANG_DUMP_MESHES probe, fed to BOTH the native
+//     cherchi boolean AND the upstream C++ `mesh_booleans` sidecar): both
+//     produce the SAME non-watertight union — 9152 tris / 4550 verts / 54
+//     unpaired edges, volumes matching to ~5e-11. Per the discrimination
+//     protocol, native == sidecar == non-watertight ⇒ the INPUT meshes are
+//     non-conformal / degenerate, NOT a cherchi labeling bug. cherchi is
+//     faithful to the reference. The 54 unpaired edges all lie on the bore
+//     cylinder at the flange's cap-plane rings z=±0.002.
+//
+//     The minimal reproduction + parity oracle is
+//     `crates/cherchi-rs/tests/task28_plug_in_bore.rs` (a tube with an inward
+//     bore wall ∪ a coaxial outward plug at the same radius): the C++
+//     reference ALSO fails it (24 unpaired even with conformal z), proving the
+//     mesh boolean cannot resolve an opposite-normal coincident-cylinder wall
+//     at the mesh level.
+//
+//     ROOT CAUSE: a missing yang STAGE-0 capability — the cylinder analog of
+//     the §4.5.5 opposite-normal coplanar overlap (already handled for the
+//     planar disc∩polygon CROSSING). The coincident wall sheets must be
+//     dropped (interior to the union) and the cap-ring boundary stitched
+//     conformally BEFORE the mesh boolean. `detect_coincident_cylinder_pairs`
+//     only supplies a post-arrangement keep/drop hint; it does NOT
+//     re-tessellate, so the non-conformal degenerate input reaches cherchi
+//     unchanged. Forcing past this is silent-wrong (P9). Un-ignore when the
+//     Stage-0 coincident-cylinder re-tessellation lands.
+#[ignore = "M8-cyl Stage-0 gap (task28 re-localized): the gear bore wall and \
+            flange wall are an OPPOSITE-normal coincident cylinder, non-conformal \
+            in z. Native cherchi == C++ sidecar (both 54 unpaired edges) — NOT a \
+            cherchi labeling bug; the degenerate coincident-sheet input needs a \
+            yang Stage-0 coincident-cylinder re-tessellation (drop interior \
+            sheets + stitch cap rings), the cylinder analog of §4.5.5. See \
+            crates/cherchi-rs/tests/task28_plug_in_bore.rs."]
 #[test]
 fn gear_flange_union_builds_full_height() {
     let Some(json) = err_waffle_json() else {
