@@ -17,16 +17,17 @@ use nalgebra::{DMatrix, DVector};
 
 use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt, MinimizationReport};
 
-use crate::constraint_mapping::{weight, CompiledConstraint};
+use crate::constraint_mapping::{weight, residual_count, CompiledConstraint};
 use crate::entity_mapping::ParamLayout;
 use crate::profiles::extract_profiles;
 use crate::types::{Sketch, SolveStatus, SolvedSketch};
 
-/// Default tolerance for residual satisfiability. The spec references 1e-9
-/// (SolveSpace's tolerance with unsquared residuals); we use 1e-6 because
-/// the `EqualLines` residual uses `ℓ²_a − ℓ²_b` (spec deviation #5), which
-/// scales as O(ℓ) times larger than the unsquared form. 1e-6 is sub-micron
-/// precision at the kernel's meter scale (A14.2: feature floor 1e-6 m).
+/// Default tolerance for residual satisfiability. 1e-6 m = 1 micrometer,
+/// which is the kernel's feature-size floor per A14.2 (TAU_MODEL = 1e-7 m).
+/// A solve tolerance one order of magnitude above the model tolerance is
+/// sufficient to distinguish "constraints satisfied" from "constraints
+/// violated" without false positives from floating-point noise.
+/// **Decision banked: sub-micron precision is acceptable.**
 const SOLVE_TOL: f64 = 1e-6;
 
 /// Rank-revealing QR tolerance: singular values below this are treated as zero.
@@ -58,12 +59,7 @@ impl SketchProblem {
     ) -> Self {
         let n_params = layout.n_params();
         let weights: Vec<f64> = compiled.iter().map(|c| weight(c)).collect();
-        let n_residuals: usize = compiled.iter().map(|c| match c {
-            CompiledConstraint::Coincident { .. } => 2,
-            CompiledConstraint::Midpoint { .. } => 2,
-            CompiledConstraint::Dragged { .. } => 2,
-            _ => 1,
-        }).sum();
+        let n_residuals: usize = compiled.iter().map(|c| residual_count(c)).sum();
 
         let mut problem = SketchProblem {
             params: DVector::from_vec(layout.params.clone()),

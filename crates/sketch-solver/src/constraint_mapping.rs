@@ -121,6 +121,50 @@ pub enum CompiledConstraint {
         px: usize, py: usize,
         fixed_x: f64, fixed_y: f64,
     },
+    // ── PR-SS2 constraints ──────────────────────────────────────────────
+    /// Two points symmetric about a line: midpoint on line + AB ⊥ line
+    Symmetric {
+        ax: usize, ay: usize, bx: usize, by: usize,
+        cx: usize, cy: usize, dx: usize, dy: usize,
+    },
+    /// Symmetric about Y-axis (opposite x, same y). slvs "Horiz" = offset is horizontal.
+    SymmetricH {
+        ax: usize, ay: usize, bx: usize, by: usize,
+    },
+    /// Symmetric about X-axis (same x, opposite y). slvs "Vert" = offset is vertical.
+    SymmetricV {
+        ax: usize, ay: usize, bx: usize, by: usize,
+    },
+    /// Line tangent to circle: dist(center, line) - radius = 0
+    TangentLineCircle {
+        cx: usize, cy: usize, r: usize,
+        ax: usize, ay: usize, bx: usize, by: usize,
+    },
+    /// Line tangent to arc: dist(center, line) - ‖C-S‖ = 0
+    TangentLineArc {
+        cx: usize, cy: usize, sx: usize, sy: usize,
+        ax: usize, ay: usize, bx: usize, by: usize,
+    },
+    /// Equal angle: angle(a,b) == angle(c,d)
+    EqualAngle {
+        ax: usize, ay: usize, bx: usize, by: usize,
+        cx: usize, cy: usize, dx: usize, dy: usize,
+        ex: usize, ey: usize, fx: usize, fy: usize,
+        gx: usize, gy: usize, hx: usize, hy: usize,
+    },
+    /// Length ratio: ℓ_a - value * ℓ_b = 0
+    Ratio {
+        ax: usize, ay: usize, bx: usize, by: usize,
+        cx: usize, cy: usize, dx: usize, dy: usize,
+        value: f64,
+    },
+    /// Equal point-to-line distances: dist(P_a, L) - dist(P_b, L) = 0
+    EqualPointToLine {
+        ax: usize, ay: usize, bx: usize, by: usize,
+        lx0: usize, ly0: usize, lx1: usize, ly1: usize,
+    },
+    /// SameOrientation: 2D noop (normals always aligned in workplane)
+    SameOrientation,
 }
 
 /// Number of residual rows a compiled constraint contributes.
@@ -129,6 +173,10 @@ pub fn residual_count(cc: &CompiledConstraint) -> usize {
         CompiledConstraint::Coincident { .. } => 2,
         CompiledConstraint::Midpoint { .. } => 2,
         CompiledConstraint::Dragged { .. } => 2,
+        CompiledConstraint::Symmetric { .. } => 2,
+        CompiledConstraint::SymmetricH { .. } => 2,
+        CompiledConstraint::SymmetricV { .. } => 2,
+        CompiledConstraint::SameOrientation => 0,
         _ => 1,
     }
 }
@@ -403,19 +451,76 @@ impl CompiledConstraint {
                 Ok(CompiledConstraint::Dragged { px, py, fixed_x, fixed_y })
             }
 
-            // Banked to PR-SS2:
-            SketchConstraint::Tangent { .. }
-            | SketchConstraint::Symmetric { .. }
-            | SketchConstraint::SymmetricH { .. }
-            | SketchConstraint::SymmetricV { .. }
-            | SketchConstraint::EqualAngle { .. }
-            | SketchConstraint::Ratio { .. }
-            | SketchConstraint::EqualPointToLine { .. }
-            | SketchConstraint::SameOrientation { .. } => {
-                Err(format!(
-                    "constraint {:?} not in PR-SS1 scope (banked to PR-SS2)",
-                    constraint
-                ))
+            // ── PR-SS2 constraints ──────────────────────────────────────
+
+            SketchConstraint::Symmetric { entity_a, entity_b, symmetry_line } => {
+                let (ax, ay) = pt(*entity_a)?;
+                let (bx, by) = pt(*entity_b)?;
+                let [cx, cy, dx, dy] = line_param_pts(*symmetry_line)?;
+                Ok(CompiledConstraint::Symmetric { ax, ay, bx, by, cx, cy, dx, dy })
+            }
+
+            SketchConstraint::SymmetricH { point_a, point_b } => {
+                let (ax, ay) = pt(*point_a)?;
+                let (bx, by) = pt(*point_b)?;
+                Ok(CompiledConstraint::SymmetricH { ax, ay, bx, by })
+            }
+
+            SketchConstraint::SymmetricV { point_a, point_b } => {
+                let (ax, ay) = pt(*point_a)?;
+                let (bx, by) = pt(*point_b)?;
+                Ok(CompiledConstraint::SymmetricV { ax, ay, bx, by })
+            }
+
+            SketchConstraint::Tangent { line, curve } => {
+                let [ax, ay, bx, by] = line_param_pts(*line)?;
+                let kind = kind_of(*curve)?;
+                match kind {
+                    EntityKind::Circle => {
+                        let r = radius_idx(*curve)?;
+                        let (cx, cy) = circle_center(*curve)?;
+                        Ok(CompiledConstraint::TangentLineCircle { cx, cy, r, ax, ay, bx, by })
+                    }
+                    EntityKind::Arc => {
+                        let (cx, cy) = arc_center(*curve)?;
+                        let (sx, sy) = {
+                            let (_, s, _) = layout.arc_endpoints[curve];
+                            pt(s)?
+                        };
+                        Ok(CompiledConstraint::TangentLineArc { cx, cy, sx, sy, ax, ay, bx, by })
+                    }
+                    _ => Err(format!("Tangent curve must be arc or circle, got {kind:?}")),
+                }
+            }
+
+            SketchConstraint::EqualAngle { line_a, line_b, line_c, line_d } => {
+                let [ax, ay, bx, by] = line_param_pts(*line_a)?;
+                let [cx, cy, dx, dy] = line_param_pts(*line_b)?;
+                let [ex, ey, fx, fy] = line_param_pts(*line_c)?;
+                let [gx, gy, hx, hy] = line_param_pts(*line_d)?;
+                Ok(CompiledConstraint::EqualAngle {
+                    ax, ay, bx, by, cx, cy, dx, dy,
+                    ex, ey, fx, fy, gx, gy, hx, hy,
+                })
+            }
+
+            SketchConstraint::Ratio { entity_a, entity_b, value } => {
+                let [ax, ay, bx, by] = line_param_pts(*entity_a)?;
+                let [cx, cy, dx, dy] = line_param_pts(*entity_b)?;
+                Ok(CompiledConstraint::Ratio { ax, ay, bx, by, cx, cy, dx, dy, value: *value })
+            }
+
+            SketchConstraint::EqualPointToLine { point_a, point_b, line } => {
+                let (ax, ay) = pt(*point_a)?;
+                let (bx, by) = pt(*point_b)?;
+                let [lx0, ly0, lx1, ly1] = line_param_pts(*line)?;
+                Ok(CompiledConstraint::EqualPointToLine { ax, ay, bx, by, lx0, ly0, lx1, ly1 })
+            }
+
+            SketchConstraint::SameOrientation { .. } => {
+                // 2D noop: normals are always aligned in the workplane.
+                // Zero residual rows, zero Jacobian rows — contributes nothing.
+                Ok(CompiledConstraint::SameOrientation)
             }
         }
     }
@@ -585,6 +690,130 @@ impl CompiledConstraint {
                 r[0] = p[*px] - fixed_x;
                 r[1] = p[*py] - fixed_y;
                 r
+            }
+
+            // ── PR-SS2 residuals ───────────────────────────────────────────
+
+            // Symmetric about line L (C→D): midpoint on line + AB ⊥ L
+            CompiledConstraint::Symmetric { ax, ay, bx, by, cx, cy, dx, dy } => {
+                let ldx = p[*dx] - p[*cx];
+                let ldy = p[*dy] - p[*cy];
+                let len = (ldx * ldx + ldy * ldy).sqrt();
+                let mut r = DVector::zeros(2);
+                if len > 1e-15 {
+                    let mid_x = (p[*ax] + p[*bx]) / 2.0;
+                    let mid_y = (p[*ay] + p[*by]) / 2.0;
+                    // r0: midpoint on line (signed perpendicular distance)
+                    r[0] = ((mid_x - p[*cx]) * ldy - (mid_y - p[*cy]) * ldx) / len;
+                    // r1: AB perpendicular to line direction
+                    let abx = p[*ax] - p[*bx];
+                    let aby = p[*ay] - p[*by];
+                    r[1] = (abx * ldx + aby * ldy) / len;
+                }
+                r
+            }
+
+            // SymmetricH: mirror about Y-axis → x_a + x_b = 0, y_a - y_b = 0
+            CompiledConstraint::SymmetricH { ax, ay, bx, by } => {
+                let mut r = DVector::zeros(2);
+                r[0] = p[*ax] + p[*bx];
+                r[1] = p[*ay] - p[*by];
+                r
+            }
+
+            // SymmetricV: mirror about X-axis → x_a - x_b = 0, y_a + y_b = 0
+            CompiledConstraint::SymmetricV { ax, ay, bx, by } => {
+                let mut r = DVector::zeros(2);
+                r[0] = p[*ax] - p[*bx];
+                r[1] = p[*ay] + p[*by];
+                r
+            }
+
+            // Tangent line-circle: dist(center, line)² - radius² = 0
+            // Using squared form to handle both sides of the line (signed dist can be ±radius)
+            CompiledConstraint::TangentLineCircle { cx, cy, r, ax, ay, bx, by } => {
+                let ldx = p[*bx] - p[*ax];
+                let ldy = p[*by] - p[*ay];
+                let len2 = ldx * ldx + ldy * ldy;
+                let mut rv = DVector::zeros(1);
+                if len2 > 1e-30 {
+                    let cross = (p[*cx] - p[*ax]) * ldy - (p[*cy] - p[*ay]) * ldx;
+                    let dist = cross / len2.sqrt();
+                    rv[0] = dist * dist - p[*r] * p[*r];
+                }
+                rv
+            }
+
+            // Tangent line-arc: dist(center, line)² - ‖C-S‖² = 0
+            CompiledConstraint::TangentLineArc { cx, cy, sx, sy, ax, ay, bx, by } => {
+                let ldx = p[*bx] - p[*ax];
+                let ldy = p[*by] - p[*ay];
+                let len2 = ldx * ldx + ldy * ldy;
+                let mut rv = DVector::zeros(1);
+                if len2 > 1e-30 {
+                    let cross = (p[*cx] - p[*ax]) * ldy - (p[*cy] - p[*ay]) * ldx;
+                    let dist = cross / len2.sqrt();
+                    let rdx = p[*cx] - p[*sx];
+                    let rdy = p[*cy] - p[*sy];
+                    let radius2 = rdx * rdx + rdy * rdy;
+                    rv[0] = dist * dist - radius2;
+                }
+                rv
+            }
+
+            // EqualAngle: atan2(cross_ab, dot_ab) - atan2(cross_cd, dot_cd) = 0
+            CompiledConstraint::EqualAngle {
+                ax, ay, bx, by, cx, cy, dx, dy,
+                ex, ey, fx, fy, gx, gy, hx, hy,
+            } => {
+                let dax = p[*bx] - p[*ax];
+                let day = p[*by] - p[*ay];
+                let dbx = p[*dx] - p[*cx];
+                let dby = p[*dy] - p[*cy];
+                let dex = p[*fx] - p[*ex];
+                let dey = p[*fy] - p[*ey];
+                let dgx = p[*hx] - p[*gx];
+                let dgy = p[*hy] - p[*gy];
+
+                let cross_ab = dax * dby - day * dbx;
+                let dot_ab = dax * dbx + day * dby;
+                let cross_cd = dex * dgy - dey * dgx;
+                let dot_cd = dex * dgx + dey * dgy;
+
+                let angle_ab = cross_ab.atan2(dot_ab);
+                let angle_cd = cross_cd.atan2(dot_cd);
+
+                let mut r = DVector::zeros(1);
+                r[0] = angle_ab - angle_cd;
+                r
+            }
+
+            // Ratio: ℓ_a - value * ℓ_b = 0
+            CompiledConstraint::Ratio { ax, ay, bx, by, cx, cy, dx, dy, value } => {
+                let la = ((p[*bx] - p[*ax]).powi(2) + (p[*by] - p[*ay]).powi(2)).sqrt();
+                let lb = ((p[*dx] - p[*cx]).powi(2) + (p[*dy] - p[*cy]).powi(2)).sqrt();
+                let mut r = DVector::zeros(1);
+                r[0] = la - value * lb;
+                r
+            }
+
+            // EqualPointToLine: dist(P_a, L) - dist(P_b, L) = 0
+            CompiledConstraint::EqualPointToLine { ax, ay, bx, by, lx0, ly0, lx1, ly1 } => {
+                let ldx = p[*lx1] - p[*lx0];
+                let ldy = p[*ly1] - p[*ly0];
+                let len = (ldx * ldx + ldy * ldy).sqrt();
+                let mut r = DVector::zeros(1);
+                if len > 1e-15 {
+                    let cross_a = (p[*ax] - p[*lx0]) * ldy - (p[*ay] - p[*ly0]) * ldx;
+                    let cross_b = (p[*bx] - p[*lx0]) * ldy - (p[*by] - p[*ly0]) * ldx;
+                    r[0] = cross_a / len - cross_b / len;
+                }
+                r
+            }
+
+            // SameOrientation: 2D noop, zero residual rows
+            CompiledConstraint::SameOrientation => {
+                DVector::zeros(0)
             }
         }
     }
@@ -978,6 +1207,262 @@ impl CompiledConstraint {
                 j[(1, *py)] = 1.0;
                 j
             }
+
+            // ── PR-SS2 Jacobians ───────────────────────────────────────────
+
+            // Symmetric about line: r0 = midpoint-on-line, r1 = AB⊥L
+            // Same structure as DistancePL (r0) and Perpendicular (r1)
+            CompiledConstraint::Symmetric { ax, ay, bx, by, cx, cy, dx, dy } => {
+                let mut j = DMatrix::zeros(2, n_params);
+                let ldx = p[*dx] - p[*cx];
+                let ldy = p[*dy] - p[*cy];
+                let len = (ldx * ldx + ldy * ldy).sqrt();
+                if len > 1e-15 {
+                    let inv_l = 1.0 / len;
+                    let inv_l2 = 1.0 / (len * len);
+                    let mid_x = (p[*ax] + p[*bx]) / 2.0;
+                    let mid_y = (p[*ay] + p[*by]) / 2.0;
+                    let cross = (mid_x - p[*cx]) * ldy - (mid_y - p[*cy]) * ldx;
+
+                    // r0 = cross/len — same form as DistancePL with P=midpoint
+                    j[(0, *ax)] = 0.5 * ldy * inv_l;
+                    j[(0, *bx)] = 0.5 * ldy * inv_l;
+                    j[(0, *ay)] = -0.5 * ldx * inv_l;
+                    j[(0, *by)] = -0.5 * ldx * inv_l;
+                    // Line endpoints: chain rule through ldx, ldy
+                    // ∂cross/∂cx = -ldy + (mid_y - cy), same as DistancePL with pmay
+                    let pmay = mid_y - p[*cy];
+                    let pmax = mid_x - p[*cx];
+                    j[(0, *cx)] = ((pmay - ldy) * inv_l + cross * ldx * inv_l2 * inv_l);
+                    j[(0, *cy)] = ((ldx - pmax) * inv_l + cross * ldy * inv_l2 * inv_l);
+                    j[(0, *dx)] = (-pmay * inv_l - cross * ldx * inv_l2 * inv_l);
+                    j[(0, *dy)] = (pmax * inv_l - cross * ldy * inv_l2 * inv_l);
+
+                    // r1 = (AB · L) / len — AB perpendicular to L
+                    // ∂r1/∂param = (∂dot/∂param * len - dot * ∂len/∂param) / len²
+                    let abx = p[*ax] - p[*bx];
+                    let aby = p[*ay] - p[*by];
+                    let dot_al = abx * ldx + aby * ldy; // numerator of r1
+                    j[(1, *ax)] = ldx * inv_l;
+                    j[(1, *bx)] = -ldx * inv_l;
+                    j[(1, *ay)] = ldy * inv_l;
+                    j[(1, *by)] = -ldy * inv_l;
+                    // Line endpoints: chain rule through ldx, ldy, and len
+                    // ∂r1/∂cx = -abx/len + dot_al*ldx/len³
+                    j[(1, *cx)] = -abx * inv_l + dot_al * ldx * inv_l2 * inv_l;
+                    j[(1, *cy)] = -aby * inv_l + dot_al * ldy * inv_l2 * inv_l;
+                    j[(1, *dx)] = abx * inv_l - dot_al * ldx * inv_l2 * inv_l;
+                    j[(1, *dy)] = aby * inv_l - dot_al * ldy * inv_l2 * inv_l;
+                }
+                j
+            }
+
+            // SymmetricH: r = [xa+xb, ya-yb]
+            CompiledConstraint::SymmetricH { ax, ay, bx, by } => {
+                let mut j = DMatrix::zeros(2, n_params);
+                j[(0, *ax)] = 1.0;
+                j[(0, *bx)] = 1.0;
+                j[(1, *ay)] = 1.0;
+                j[(1, *by)] = -1.0;
+                j
+            }
+
+            // SymmetricV: r = [xa-xb, ya+yb]
+            CompiledConstraint::SymmetricV { ax, ay, bx, by } => {
+                let mut j = DMatrix::zeros(2, n_params);
+                j[(0, *ax)] = 1.0;
+                j[(0, *bx)] = -1.0;
+                j[(1, *ay)] = 1.0;
+                j[(1, *by)] = 1.0;
+                j
+            }
+
+            // TangentLineCircle: r = dist² - radius²
+            // ∂r/∂p = 2*dist * ∂dist/∂p - 2*radius * ∂radius/∂p
+            // where ∂dist/∂p is the same as the OnEntityLine/DistancePL Jacobian
+            CompiledConstraint::TangentLineCircle { cx, cy, r, ax, ay, bx, by } => {
+                let mut j = DMatrix::zeros(1, n_params);
+                let ldx = p[*bx] - p[*ax];
+                let ldy = p[*by] - p[*ay];
+                let len = (ldx * ldx + ldy * ldy).sqrt();
+                if len > 1e-15 {
+                    let cross = (p[*cx] - p[*ax]) * ldy - (p[*cy] - p[*ay]) * ldx;
+                    let dist = cross / len;
+                    let radius = p[*r];
+                    let inv_l = 1.0 / len;
+                    let inv_l2 = 1.0 / (len * len);
+                    let pmay = p[*cy] - p[*ay];
+                    let pmax = p[*cx] - p[*ax];
+                    let scale = 2.0 * dist;
+
+                    // ∂dist/∂cx = ldy/len
+                    j[(0, *cx)] = scale * ldy * inv_l;
+                    j[(0, *cy)] = scale * (-ldx) * inv_l;
+                    // ∂dist/∂ax: chain rule through ldx, ldy
+                    j[(0, *ax)] = scale * (pmay - ldy) * inv_l + scale * cross * ldx * inv_l2 * inv_l;
+                    j[(0, *ay)] = scale * (ldx - pmax) * inv_l + scale * cross * ldy * inv_l2 * inv_l;
+                    j[(0, *bx)] = scale * (-pmay) * inv_l - scale * cross * ldx * inv_l2 * inv_l;
+                    j[(0, *by)] = scale * pmax * inv_l - scale * cross * ldy * inv_l2 * inv_l;
+                    // -2*radius * ∂radius/∂r = -2*radius
+                    j[(0, *r)] = -2.0 * radius;
+                }
+                j
+            }
+
+            // TangentLineArc: r = dist² - ‖C-S‖²
+            CompiledConstraint::TangentLineArc { cx, cy, sx, sy, ax, ay, bx, by } => {
+                let mut j = DMatrix::zeros(1, n_params);
+                let ldx = p[*bx] - p[*ax];
+                let ldy = p[*by] - p[*ay];
+                let len = (ldx * ldx + ldy * ldy).sqrt();
+                let rdx = p[*cx] - p[*sx];
+                let rdy = p[*cy] - p[*sy];
+                let radius = (rdx * rdx + rdy * rdy).sqrt();
+                if len > 1e-15 && radius > 1e-15 {
+                    let cross = (p[*cx] - p[*ax]) * ldy - (p[*cy] - p[*ay]) * ldx;
+                    let dist = cross / len;
+                    let inv_l = 1.0 / len;
+                    let inv_l2 = 1.0 / (len * len);
+                    let pmay = p[*cy] - p[*ay];
+                    let pmax = p[*cx] - p[*ax];
+                    let scale = 2.0 * dist;
+
+                    // dist² part
+                    j[(0, *cx)] = scale * ldy * inv_l;
+                    j[(0, *cy)] = scale * (-ldx) * inv_l;
+                    j[(0, *ax)] = scale * (pmay - ldy) * inv_l + scale * cross * ldx * inv_l2 * inv_l;
+                    j[(0, *ay)] = scale * (ldx - pmax) * inv_l + scale * cross * ldy * inv_l2 * inv_l;
+                    j[(0, *bx)] = scale * (-pmay) * inv_l - scale * cross * ldx * inv_l2 * inv_l;
+                    j[(0, *by)] = scale * pmax * inv_l - scale * cross * ldy * inv_l2 * inv_l;
+
+                    // -‖C-S‖² part: ∂/∂cx = -2*rdx, ∂/∂sx = +2*rdx, etc.
+                    j[(0, *cx)] -= 2.0 * rdx;
+                    j[(0, *cy)] -= 2.0 * rdy;
+                    j[(0, *sx)] = 2.0 * rdx;
+                    j[(0, *sy)] = 2.0 * rdy;
+                }
+                j
+            }
+
+            // EqualAngle: r = atan2(cross_ab, dot_ab) - atan2(cross_cd, dot_cd)
+            // Same derivative structure as Angle constraint
+            CompiledConstraint::EqualAngle {
+                ax, ay, bx, by, cx, cy, dx, dy,
+                ex, ey, fx, fy, gx, gy, hx, hy,
+            } => {
+                let mut j = DMatrix::zeros(1, n_params);
+                let dax = p[*bx] - p[*ax];
+                let day = p[*by] - p[*ay];
+                let dbx = p[*dx] - p[*cx];
+                let dby = p[*dy] - p[*cy];
+                let dex = p[*fx] - p[*ex];
+                let dey = p[*fy] - p[*ey];
+                let dgx = p[*hx] - p[*gx];
+                let dgy = p[*hy] - p[*gy];
+
+                let cross_ab = dax * dby - day * dbx;
+                let dot_ab = dax * dbx + day * dby;
+                let denom_ab = cross_ab * cross_ab + dot_ab * dot_ab;
+
+                let cross_cd = dex * dgy - dey * dgx;
+                let dot_cd = dex * dgx + dey * dgy;
+                let denom_cd = cross_cd * cross_cd + dot_cd * dot_cd;
+
+                if denom_ab > 1e-20 {
+                    let d = 1.0 / denom_ab;
+                    // ∂atan2(cross, dot)/∂param = (dot * ∂cross - cross * ∂dot) / denom
+                    j[(0, *ax)] = (dot_ab * (-dby) - cross_ab * (-dbx)) * d;
+                    j[(0, *ay)] = (dot_ab * (dbx) - cross_ab * (-dby)) * d;
+                    j[(0, *bx)] = (dot_ab * (dby) - cross_ab * (dbx)) * d;
+                    j[(0, *by)] = (dot_ab * (-dbx) - cross_ab * (dby)) * d;
+                    j[(0, *cx)] = (dot_ab * (day) - cross_ab * (-dax)) * d;
+                    j[(0, *cy)] = (dot_ab * (-dax) - cross_ab * (-day)) * d;
+                    j[(0, *dx)] = (dot_ab * (-day) - cross_ab * (dax)) * d;
+                    j[(0, *dy)] = (dot_ab * (dax) - cross_ab * (day)) * d;
+                }
+                if denom_cd > 1e-20 {
+                    let d = 1.0 / denom_cd;
+                    // Subtract the second angle's derivative
+                    j[(0, *ex)] -= (dot_cd * (-dgy) - cross_cd * (-dgx)) * d;
+                    j[(0, *ey)] -= (dot_cd * (dgx) - cross_cd * (-dgy)) * d;
+                    j[(0, *fx)] -= (dot_cd * (dgy) - cross_cd * (dgx)) * d;
+                    j[(0, *fy)] -= (dot_cd * (-dgx) - cross_cd * (dgy)) * d;
+                    j[(0, *gx)] -= (dot_cd * (dey) - cross_cd * (-dex)) * d;
+                    j[(0, *gy)] -= (dot_cd * (-dex) - cross_cd * (-dey)) * d;
+                    j[(0, *hx)] -= (dot_cd * (-dey) - cross_cd * (dex)) * d;
+                    j[(0, *hy)] -= (dot_cd * (dex) - cross_cd * (dey)) * d;
+                }
+                j
+            }
+
+            // Ratio: r = ℓ_a - value * ℓ_b
+            CompiledConstraint::Ratio { ax, ay, bx, by, cx, cy, dx, dy, value } => {
+                let mut j = DMatrix::zeros(1, n_params);
+                let dax = p[*bx] - p[*ax];
+                let day = p[*by] - p[*ay];
+                let la = (dax * dax + day * day).sqrt();
+                let dbx = p[*dx] - p[*cx];
+                let dby = p[*dy] - p[*cy];
+                let lb = (dbx * dbx + dby * dby).sqrt();
+                if la > 1e-15 {
+                    j[(0, *ax)] = -dax / la;
+                    j[(0, *ay)] = -day / la;
+                    j[(0, *bx)] = dax / la;
+                    j[(0, *by)] = day / la;
+                }
+                if lb > 1e-15 {
+                    j[(0, *cx)] = value * dbx / lb;
+                    j[(0, *cy)] = value * dby / lb;
+                    j[(0, *dx)] = -value * dbx / lb;
+                    j[(0, *dy)] = -value * dby / lb;
+                }
+                j
+            }
+
+            // EqualPointToLine: r = dist(P_a, L) - dist(P_b, L)
+            // dist(P, L) = cross/len — same as OnEntityLine
+            CompiledConstraint::EqualPointToLine { ax, ay, bx, by, lx0, ly0, lx1, ly1 } => {
+                let mut j = DMatrix::zeros(1, n_params);
+                let ldx = p[*lx1] - p[*lx0];
+                let ldy = p[*ly1] - p[*ly0];
+                let len = (ldx * ldx + ldy * ldy).sqrt();
+                if len > 1e-15 {
+                    let inv_l = 1.0 / len;
+                    let inv_l2 = 1.0 / (len * len);
+                    let cross_a = (p[*ax] - p[*lx0]) * ldy - (p[*ay] - p[*ly0]) * ldx;
+                    let cross_b = (p[*bx] - p[*lx0]) * ldy - (p[*by] - p[*ly0]) * ldx;
+                    let amay = p[*ay] - p[*ly0];
+                    let amax = p[*ax] - p[*lx0];
+                    let bmay = p[*by] - p[*ly0];
+                    let bmax = p[*bx] - p[*lx0];
+
+                    // ∂dist(P_a, L)/∂param — point part
+                    j[(0, *ax)] = ldy * inv_l;
+                    j[(0, *ay)] = -ldx * inv_l;
+                    // ∂dist(P_b, L)/∂param (subtracted) — point part
+                    j[(0, *bx)] = -ldy * inv_l;
+                    j[(0, *by)] = ldx * inv_l;
+
+                    // Line endpoint derivatives — chain rule through ldx, ldy
+                    // ∂dist_a/∂lx0 = (amay - ldy)/len + cross_a*ldx/(len³)
+                    // ∂dist_b/∂lx0 = (bmay - ldy)/len + cross_b*ldx/(len³)
+                    // r = dist_a - dist_b, so ∂r/∂lx0 = ∂dist_a/∂lx0 - ∂dist_b/∂lx0
+                    j[(0, *lx0)] = ((amay - ldy) * inv_l + cross_a * ldx * inv_l2 * inv_l)
+                        - ((bmay - ldy) * inv_l + cross_b * ldx * inv_l2 * inv_l);
+                    j[(0, *ly0)] = ((ldx - amax) * inv_l + cross_a * ldy * inv_l2 * inv_l)
+                        - ((ldx - bmax) * inv_l + cross_b * ldy * inv_l2 * inv_l);
+                    j[(0, *lx1)] = (-amay * inv_l - cross_a * ldx * inv_l2 * inv_l)
+                        - (-bmay * inv_l - cross_b * ldx * inv_l2 * inv_l);
+                    j[(0, *ly1)] = (amax * inv_l - cross_a * ldy * inv_l2 * inv_l)
+                        - (bmax * inv_l - cross_b * ldy * inv_l2 * inv_l);
+                }
+                j
+            }
+
+            // SameOrientation: 2D noop, zero rows
+            CompiledConstraint::SameOrientation => {
+                DMatrix::zeros(0, n_params)
+            }
         }
     }
 }
@@ -1280,5 +1765,170 @@ mod tests {
             px: 4, py: 5, ax: 0, ay: 1, bx: 2, by: 3, value: 2.0,
         };
         check_jacobian(cc, vec![0.0, 0.0, 10.0, 0.0, 5.0, 7.0]);
+    }
+
+    // ── PR-SS2 Jacobian verification tests ──────────────────────────────
+
+    #[test]
+    fn symmetric_residual_zero_and_jacobian() {
+        // Points (20, 30) and (80, 30) symmetric about vertical line x=50
+        // Line from (50, 0) to (50, 100)
+        let cc = CompiledConstraint::Symmetric {
+            ax: 0, ay: 1, bx: 2, by: 3,
+            cx: 4, cy: 5, dx: 6, dy: 7,
+        };
+        let p = vec![20.0, 30.0, 80.0, 30.0, 50.0, 0.0, 50.0, 100.0];
+        let r = cc.residuals(&p);
+        assert!(r[0].abs() < 1e-12 && r[1].abs() < 1e-12, "residual not zero: {r}");
+        check_jacobian(cc, p);
+    }
+
+    #[test]
+    fn symmetric_jacobian_general_position() {
+        let cc = CompiledConstraint::Symmetric {
+            ax: 0, ay: 1, bx: 2, by: 3,
+            cx: 4, cy: 5, dx: 6, dy: 7,
+        };
+        check_jacobian(cc, vec![15.0, 20.0, 70.0, 25.0, 40.0, 0.0, 45.0, 90.0]);
+    }
+
+    #[test]
+    fn symmetric_h_residual_zero_and_jacobian() {
+        // Symmetric about Y-axis: (30, 20) and (-30, 20)
+        let cc = CompiledConstraint::SymmetricH { ax: 0, ay: 1, bx: 2, by: 3 };
+        let p = vec![30.0, 20.0, -30.0, 20.0];
+        let r = cc.residuals(&p);
+        assert!(r[0].abs() < 1e-12 && r[1].abs() < 1e-12, "residual not zero: {r}");
+        check_jacobian(cc, p);
+    }
+
+    #[test]
+    fn symmetric_v_residual_zero_and_jacobian() {
+        // Symmetric about X-axis: (20, 30) and (20, -30)
+        let cc = CompiledConstraint::SymmetricV { ax: 0, ay: 1, bx: 2, by: 3 };
+        let p = vec![20.0, 30.0, 20.0, -30.0];
+        let r = cc.residuals(&p);
+        assert!(r[0].abs() < 1e-12 && r[1].abs() < 1e-12, "residual not zero: {r}");
+        check_jacobian(cc, p);
+    }
+
+    #[test]
+    fn tangent_line_circle_residual_zero_and_jacobian() {
+        // Circle center (0, 50), radius 50. Line y=0 from (-50,0) to (50,0).
+        // dist(center, line) = 50 = radius → tangent
+        let cc = CompiledConstraint::TangentLineCircle {
+            cx: 4, cy: 5, r: 6, ax: 0, ay: 1, bx: 2, by: 3,
+        };
+        let p = vec![-50.0, 0.0, 50.0, 0.0, 0.0, 50.0, 50.0];
+        let r = cc.residuals(&p);
+        assert!(r[0].abs() < 1e-9, "residual not zero: {r}");
+        check_jacobian(cc, p);
+    }
+
+    #[test]
+    fn tangent_line_circle_jacobian_general_position() {
+        let cc = CompiledConstraint::TangentLineCircle {
+            cx: 4, cy: 5, r: 6, ax: 0, ay: 1, bx: 2, by: 3,
+        };
+        check_jacobian(cc, vec![-40.0, 5.0, 45.0, -3.0, 10.0, 40.0, 30.0]);
+    }
+
+    #[test]
+    fn tangent_line_arc_residual_zero_and_jacobian() {
+        // Arc center (0, 50), start (0, 0) → radius = 50.
+        // Line y=0 from (-50,0) to (50,0). dist = 50 = radius → tangent
+        let cc = CompiledConstraint::TangentLineArc {
+            cx: 4, cy: 5, sx: 6, sy: 7, ax: 0, ay: 1, bx: 2, by: 3,
+        };
+        let p = vec![-50.0, 0.0, 50.0, 0.0, 0.0, 50.0, 0.0, 0.0];
+        let r = cc.residuals(&p);
+        assert!(r[0].abs() < 1e-9, "residual not zero: {r}");
+        check_jacobian(cc, p);
+    }
+
+    #[test]
+    fn tangent_line_arc_jacobian_general_position() {
+        let cc = CompiledConstraint::TangentLineArc {
+            cx: 4, cy: 5, sx: 6, sy: 7, ax: 0, ay: 1, bx: 2, by: 3,
+        };
+        check_jacobian(cc, vec![-40.0, 5.0, 45.0, -3.0, 10.0, 40.0, 5.0, 3.0]);
+    }
+
+    #[test]
+    fn equal_angle_residual_zero_and_jacobian() {
+        // Lines a=(0,0)→(1,0), b=(0,0)→(0,1): angle = 90°
+        // Lines c=(0,0)→(1,0), d=(0,0)→(0,1): angle = 90°
+        // Equal angle: 90° - 90° = 0
+        let cc = CompiledConstraint::EqualAngle {
+            ax: 0, ay: 1, bx: 2, by: 3,
+            cx: 4, cy: 5, dx: 6, dy: 7,
+            ex: 8, ey: 9, fx: 10, fy: 11,
+            gx: 12, gy: 13, hx: 14, hy: 15,
+        };
+        let p = vec![0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+                      0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+        let r = cc.residuals(&p);
+        assert!(r[0].abs() < 1e-12, "residual not zero: {r}");
+        check_jacobian(cc, p);
+    }
+
+    #[test]
+    fn equal_angle_jacobian_general_position() {
+        let cc = CompiledConstraint::EqualAngle {
+            ax: 0, ay: 1, bx: 2, by: 3,
+            cx: 4, cy: 5, dx: 6, dy: 7,
+            ex: 8, ey: 9, fx: 10, fy: 11,
+            gx: 12, gy: 13, hx: 14, hy: 15,
+        };
+        check_jacobian(cc, vec![0.0, 0.0, 3.0, 1.0, 1.0, 2.0, 4.0, 5.0,
+                                 2.0, 1.0, 5.0, 2.0, 0.0, 0.0, 1.0, 3.0]);
+    }
+
+    #[test]
+    fn ratio_residual_zero_and_jacobian() {
+        // Line a: (0,0)→(10,0) len=10, Line b: (0,0)→(5,0) len=5
+        // Ratio = 10/5 = 2.0
+        let cc = CompiledConstraint::Ratio {
+            ax: 0, ay: 1, bx: 2, by: 3,
+            cx: 4, cy: 5, dx: 6, dy: 7,
+            value: 2.0,
+        };
+        let p = vec![0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 5.0, 0.0];
+        let r = cc.residuals(&p);
+        assert!(r[0].abs() < 1e-12, "residual not zero: {r}");
+        check_jacobian(cc, p);
+    }
+
+    #[test]
+    fn ratio_jacobian_general_position() {
+        let cc = CompiledConstraint::Ratio {
+            ax: 0, ay: 1, bx: 2, by: 3,
+            cx: 4, cy: 5, dx: 6, dy: 7,
+            value: 1.5,
+        };
+        check_jacobian(cc, vec![0.0, 0.0, 7.0, 3.0, 1.0, 1.0, 6.0, 2.0]);
+    }
+
+    #[test]
+    fn equal_point_to_line_residual_zero_and_jacobian() {
+        // Line from (0,0) to (10,0). Points at (3, 5) and (7, 5).
+        // Both are distance 5 from the line.
+        let cc = CompiledConstraint::EqualPointToLine {
+            ax: 0, ay: 1, bx: 2, by: 3,
+            lx0: 4, ly0: 5, lx1: 6, ly1: 7,
+        };
+        let p = vec![3.0, 5.0, 7.0, 5.0, 0.0, 0.0, 10.0, 0.0];
+        let r = cc.residuals(&p);
+        assert!(r[0].abs() < 1e-12, "residual not zero: {r}");
+        check_jacobian(cc, p);
+    }
+
+    #[test]
+    fn equal_point_to_line_jacobian_general_position() {
+        let cc = CompiledConstraint::EqualPointToLine {
+            ax: 0, ay: 1, bx: 2, by: 3,
+            lx0: 4, ly0: 5, lx1: 6, ly1: 7,
+        };
+        check_jacobian(cc, vec![3.0, 7.0, 8.0, 2.0, 1.0, 1.0, 9.0, 4.0]);
     }
 }

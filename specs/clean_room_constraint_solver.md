@@ -261,8 +261,13 @@ evaluated at the solution:
      undefined) → `SolveFailed { reason: "constraint {i} references
      degenerate geometry: {detail}" }`.
 
-`tol = 1e-9` (matches SolveSpace's published tolerance; configurable via a
-`SolverTolerance` param in `solver.rs`).
+`tol = 1e-6` (1 micrometer — the kernel's feature-size floor per A14.2;
+configurable via a `SolverTolerance` param in `solver.rs`). **Decision
+banked: sub-micron precision is acceptable.** The spec originally
+referenced 1e-9 (SolveSpace's tolerance); 1e-6 is used instead because
+it is one order of magnitude above `TAU_MODEL = 1e-7 m`, sufficient to
+distinguish satisfied from violated constraints without floating-point
+false positives.
 
 ## Error contract
 
