@@ -313,6 +313,9 @@ function gearDisplayIdBase(gearId) {
 /** @type {object | null} */
 let gearDialogState = $state(null);
 
+/** @type {boolean} */
+let planetaryDialogOpen = $state(false);
+
 /** @type {number} */
 let nextGearId = $state(1);
 
@@ -746,6 +749,7 @@ export async function initEngine() {
 			addSketchConstraint: (constraint) => addLocalConstraint(constraint),
 			removeSketchEntities: (ids) => removeSketchEntities(new Set(ids)),
 			createGear: (params) => createGear(params),
+			createPlanetary: (params) => createPlanetary(params),
 			updateGear: (gearId, params) => updateGear(gearId, params),
 			deleteGear: (gearId) => deleteGear(gearId),
 			getGearRegistry: () => new Map(gearRegistry),
@@ -1995,6 +1999,15 @@ export function hideGearDialog() {
 	gearDialogState = null;
 }
 
+/** @returns {boolean} */
+export function getPlanetaryDialogOpen() { return planetaryDialogOpen; }
+
+/** Show the planetary gear dialog. */
+export function showPlanetaryDialog() { planetaryDialogOpen = true; }
+
+/** Hide the planetary gear dialog. */
+export function hidePlanetaryDialog() { planetaryDialogOpen = false; }
+
 /**
  * Create a gear from parameters.
  *
@@ -2007,6 +2020,21 @@ export function hideGearDialog() {
  * @returns {Promise<number>} The gear ID
  */
 export async function createGear(gearParams) {
+	beginSketchAction();
+	const gearId = await addGearFromParams(gearParams);
+	endSketchAction();
+	return gearId;
+}
+
+/**
+ * Add a single Gear entity (display expansion + compact entity + registry)
+ * WITHOUT managing the undo-action grouping. Callers wrap one or more of these
+ * in a single `beginSketchAction()`/`endSketchAction()` so a multi-gear
+ * operation (e.g. a planetary stage) is ONE undo step.
+ * @param {object} gearParams
+ * @returns {Promise<number>} The gear ID
+ */
+async function addGearFromParams(gearParams) {
 	const gearId = nextGearId++;
 
 	// Build the (non-persisted) display expansion from the gear params.
@@ -2014,14 +2042,12 @@ export async function createGear(gearParams) {
 
 	// Store the single compact Gear entity — this is the persisted representation.
 	const gearEntityId = allocEntityId();
-	beginSketchAction();
 	addLocalEntity({
 		type: 'Gear',
 		id: gearEntityId,
 		params: { ...gearParams },
 		construction: false
 	});
-	endSketchAction();
 
 	// Register gear: one entity id per gear (not a list of expanded primitives).
 	const newRegistry = new Map(gearRegistry);
@@ -2034,6 +2060,60 @@ export async function createGear(gearParams) {
 
 	log('sketch', `Gear created: ${gearParams.toothCount} teeth, module ${gearParams.module}`, { gearId });
 	return gearId;
+}
+
+/**
+ * Generate a planetary gear stage (sun + N planets + ring) and add all N+2
+ * gears to the ACTIVE sketch as ONE undo step.
+ *
+ * The Rust core (`generate_planetary`) validates the tooth-count / assembly /
+ * non-interference constraints, computes the positioned `GearParams` with the
+ * meshing phasing, and either blocks (hint mode) or auto-adjusts. We surface
+ * its hints (and any blocking validation error) as toasts — never a silent bad
+ * sketch. Requires an active sketch (like `createGear`).
+ *
+ * @param {object} params - { module, pressureAngleDeg, sunTeeth, planetTeeth, planetCount, backlash, autoAdjust }
+ *   `module`/`backlash` are in INTERNAL units (meters); the dialog converts.
+ * @returns {Promise<{ gearIds: number[], result: object } | null>} null if blocked/invalid
+ */
+export async function createPlanetary(params) {
+	if (!sketchMode.active) {
+		showToast('error', 'Start or open a sketch before creating a planetary stage');
+		return null;
+	}
+	if (!bridge) {
+		showToast('error', 'Engine not ready');
+		return null;
+	}
+
+	let result;
+	try {
+		// Deep-clone to avoid Svelte 5 proxy DataCloneError across postMessage.
+		const p = JSON.parse(JSON.stringify(params));
+		const response = await bridge.send({ type: 'GeneratePlanetary', params: p });
+		result = response.result;
+	} catch (err) {
+		// Blocking validation error (hint mode, no valid config) — show loudly.
+		showToast('warning', `Planetary stage not created: ${err.message || err}`);
+		return null;
+	}
+
+	// Surface any advisory hints (e.g. auto-adjusted planet count).
+	for (const hint of result.hints ?? []) {
+		showToast('info', hint);
+	}
+
+	// Add all N+2 gears as a SINGLE undo step.
+	beginSketchAction();
+	const gearIds = [];
+	for (const g of result.gears) {
+		// `g` is a GearParams (camelCase serde) — the shape createGear expects.
+		gearIds.push(await addGearFromParams({ ...g }));
+	}
+	endSketchAction();
+
+	log('sketch', `Planetary stage created: ${result.gears.length} gears (ring ${result.ringTeeth}t)`);
+	return { gearIds, result };
 }
 
 /**

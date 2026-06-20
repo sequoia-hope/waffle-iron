@@ -6,7 +6,8 @@ use uuid::Uuid;
 use feature_engine::types::{FeatureTree, Operation};
 use waffle_types::kernel::{EdgeRenderData, RenderMesh};
 use waffle_types::{
-    ClosedProfile, GearParams, GeomRef, Region, SketchConstraint, SketchEntity, SolvedSketch,
+    ClosedProfile, GearParams, GeomRef, PlanetaryParams, PlanetaryResult, Region, SketchConstraint,
+    SketchEntity, SolvedSketch,
 };
 
 /// Serde helper for HashMap<u32, (f64, f64)> — JSON string keys ↔ u32.
@@ -177,6 +178,11 @@ pub enum UiToEngine {
     GenerateGearProfile {
         params: GearParams,
     },
+    /// Generate a planetary gear stage: validate + compute the positioned
+    /// sun/planet/ring `GearParams`. Stateless.
+    GeneratePlanetary {
+        params: PlanetaryParams,
+    },
 
     // -- Region selection (stateless) --
     /// Compute every minimal closed face of a solved sketch, so the UI can
@@ -253,4 +259,7 @@ pub enum EngineToUi {
 
     /// Minimal closed faces of a sketch, in selection order.
     RegionsComputed { regions: Vec<Region> },
+
+    /// Planetary stage generated: positioned gears + derived radii + hints.
+    PlanetaryGenerated { result: PlanetaryResult },
 }

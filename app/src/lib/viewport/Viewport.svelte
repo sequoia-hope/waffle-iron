@@ -14,6 +14,7 @@
 	import AutoRestoreDialog from '$lib/ui/AutoRestoreDialog.svelte';
 	import SketchPlanePrompt from '$lib/ui/SketchPlanePrompt.svelte';
 	import GearDialog from '$lib/ui/GearDialog.svelte';
+	import PlanetaryGearDialog from '$lib/ui/PlanetaryGearDialog.svelte';
 	import { isRebuilding, getSketchMode } from '$lib/engine/store.svelte.js';
 	import { longPressContextMenu } from '$lib/ui/longPressContextMenu.js';
 
@@ -109,6 +110,7 @@
 	<AutoRestoreDialog />
 	<SketchPlanePrompt />
 	<GearDialog />
+	<PlanetaryGearDialog />
 	{#if showSpinner}
 		<div class="rebuild-overlay" data-testid="rebuild-spinner">
 			<div class="rebuild-spinner"></div>

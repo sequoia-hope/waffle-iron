@@ -20,6 +20,7 @@
 		showShellDialog,
 		showBooleanDialog,
 		showDatumPlaneDialog,
+		showPlanetaryDialog,
 		saveProject,
 		saveToStorage,
 		loadProject,
@@ -153,6 +154,7 @@
 		{ id: 'project', label: 'Proj', shortcut: 'J' },
 		{ id: 'slot', label: 'Slot', shortcut: 'T' },
 		{ id: 'gear', label: 'Gear', shortcut: 'G' },
+		{ id: 'planetary', label: 'Planet', shortcut: '' },
 		{ id: 'trim', label: 'Trim', shortcut: '' },
 		{ id: 'sketch-fillet', label: 'Fillet', shortcut: 'F' },
 		{ id: 'construction', label: 'Constr', shortcut: 'X' },
@@ -209,6 +211,11 @@
 		}
 		if (toolId === 'construction') {
 			handleToggleConstruction();
+			return;
+		}
+		if (toolId === 'planetary') {
+			// Opens a dialog (centered at origin) rather than placing on the canvas.
+			showPlanetaryDialog();
 			return;
 		}
 		setActiveTool(toolId);
@@ -387,7 +394,7 @@
 								disabled={!ready}
 								title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
 								data-testid="toolbar-btn-{t.id}"
-								onclick={() => { t.id === 'construction' ? handleToggleConstruction() : setActiveTool(t.id); showSketchTools = false; }}
+								onclick={() => { t.id === 'construction' ? handleToggleConstruction() : t.id === 'planetary' ? showPlanetaryDialog() : setActiveTool(t.id); showSketchTools = false; }}
 							>{t.label}</button>
 						{/each}
 					</div>
@@ -403,7 +410,7 @@
 						disabled={!ready}
 						title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
 						data-testid="toolbar-btn-{t.id}"
-						onclick={() => t.id === 'construction' ? handleToggleConstruction() : setActiveTool(t.id)}
+						onclick={() => t.id === 'construction' ? handleToggleConstruction() : t.id === 'planetary' ? showPlanetaryDialog() : setActiveTool(t.id)}
 					>{t.label}</button>
 				{/each}
 			</div>

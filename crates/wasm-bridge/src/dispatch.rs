@@ -242,6 +242,15 @@ fn handle_message(
             })
         }
 
+        UiToEngine::GeneratePlanetary { params } => {
+            match waffle_types::generate_planetary(&params) {
+                Ok(result) => Ok(EngineToUi::PlanetaryGenerated { result }),
+                Err(e) => Err(BridgeError::InvalidRequest {
+                    reason: e.to_string(),
+                }),
+            }
+        }
+
         UiToEngine::ComputeRegions {
             entities,
             solved_positions,

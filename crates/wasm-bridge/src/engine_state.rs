@@ -162,4 +162,7 @@ pub enum BridgeError {
 
     #[error("no mesh data available for export")]
     NoMeshData,
+
+    #[error("invalid request: {reason}")]
+    InvalidRequest { reason: String },
 }
