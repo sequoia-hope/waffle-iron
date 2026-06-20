@@ -193,7 +193,12 @@ fn execute_feature(
 
         Operation::DatumPlane { params } => {
             // Validate the plane definition resolves correctly
-            resolve_plane_definition(&params.definition, tree, feature_results)?;
+            resolve_plane_definition(
+                &params.definition,
+                tree,
+                feature_results,
+                kb.as_introspect(),
+            )?;
             Ok(OpResult {
                 outputs: Vec::new(),
                 provenance: modeling_ops::Provenance {
@@ -793,7 +798,8 @@ fn resolve_reference_position(
             })
         }
         waffle_types::Anchor::Datum { datum_id } => {
-            let (origin, _normal) = find_datum_plane_data(*datum_id, tree, feature_results)?;
+            let (origin, _normal) =
+                find_datum_plane_data(*datum_id, tree, feature_results, kb.as_introspect())?;
             Ok(origin)
         }
     }
@@ -995,6 +1001,7 @@ fn resolve_plane_definition(
     def: &PlaneDefinition,
     tree: &FeatureTree,
     feature_results: &HashMap<Uuid, OpResult>,
+    introspect: &dyn waffle_types::kernel::KernelIntrospect,
 ) -> Result<([f64; 3], [f64; 3]), EngineError> {
     match def {
         PlaneDefinition::PointNormal { origin, normal } => {
@@ -1013,7 +1020,16 @@ fn resolve_plane_definition(
             distance,
         } => {
             let (base_origin, base_normal) =
-                find_datum_plane_data(*base_plane_id, tree, feature_results)?;
+                find_datum_plane_data(*base_plane_id, tree, feature_results, introspect)?;
+            let origin = [
+                base_origin[0] + base_normal[0] * distance,
+                base_origin[1] + base_normal[1] * distance,
+                base_origin[2] + base_normal[2] * distance,
+            ];
+            Ok((origin, base_normal))
+        }
+        PlaneDefinition::OffsetFromFace { base, distance } => {
+            let (base_origin, base_normal) = resolve_face_plane(base, feature_results, introspect)?;
             let origin = [
                 base_origin[0] + base_normal[0] * distance,
                 base_origin[1] + base_normal[1] * distance,
@@ -1024,6 +1040,63 @@ fn resolve_plane_definition(
     }
 }
 
+/// Resolve a planar face GeomRef to its base plane `(origin, normal)`.
+///
+/// `origin` is a deterministic point ON the face (the average of the face's
+/// boundary vertices, from `compute_signature`); `normal` is the planar face's
+/// outward normal. Because the face is resolved from the *current* geometry
+/// every rebuild, a face-base datum plane tracks the face as it moves — it is
+/// not frozen at creation.
+///
+/// A non-planar base face is a loud `ResolutionFailed` — never a guessed plane.
+///
+/// JS agreement (`computeFacePlane` in `store.svelte.js`): both resolvers
+/// return the SAME outward `normal` (the planar face normal) and an `origin`
+/// that lies ON the same planar face — so the offset `origin + normal*distance`
+/// lands on the SAME infinite plane in both. (JS uses the first rendered
+/// triangle's centroid; the engine uses the face-centroid from
+/// `compute_signature`. The `KernelIntrospect` contract does not expose raw
+/// per-face triangles, and feature-engine must not reach into kernel-v2
+/// internals, so the two on-face origin points may differ by an in-plane
+/// translation — they are guaranteed coplanar, which is the property the
+/// offset depends on.)
+fn resolve_face_plane(
+    base: &waffle_types::GeomRef,
+    feature_results: &HashMap<Uuid, OpResult>,
+    introspect: &dyn waffle_types::kernel::KernelIntrospect,
+) -> Result<([f64; 3], [f64; 3]), EngineError> {
+    let resolved = resolve_with_fallback(base, feature_results)?;
+    let sig = introspect.compute_signature(resolved.kernel_id, TopoKind::Face);
+
+    match sig.surface_type.as_deref() {
+        Some("planar") => {}
+        other => {
+            return Err(EngineError::ResolutionFailed {
+                reason: format!(
+                    "Datum plane base face is not planar (surface_type: {})",
+                    other.unwrap_or("unknown")
+                ),
+            });
+        }
+    }
+
+    let normal = sig.normal.ok_or_else(|| EngineError::ResolutionFailed {
+        reason: "Datum plane base face has no normal".into(),
+    })?;
+    let origin = sig.centroid.ok_or_else(|| EngineError::ResolutionFailed {
+        reason: "Datum plane base face has no centroid".into(),
+    })?;
+
+    let len = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
+    if len < TAU_WORK {
+        return Err(EngineError::ResolutionFailed {
+            reason: "Datum plane base face normal is zero-length".into(),
+        });
+    }
+    let n = [normal[0] / len, normal[1] / len, normal[2] / len];
+    Ok((origin, n))
+}
+
 /// Look up origin and normal for a datum plane by its UUID.
 ///
 /// Checks the three built-in planes first, then searches the feature tree
@@ -1032,6 +1105,7 @@ fn find_datum_plane_data(
     datum_id: Uuid,
     tree: &FeatureTree,
     feature_results: &HashMap<Uuid, OpResult>,
+    introspect: &dyn waffle_types::kernel::KernelIntrospect,
 ) -> Result<([f64; 3], [f64; 3]), EngineError> {
     let id_str = datum_id.to_string();
     // Built-in planes
@@ -1049,7 +1123,12 @@ fn find_datum_plane_data(
     for feature in &tree.features {
         if feature.id == datum_id {
             if let Operation::DatumPlane { params } = &feature.operation {
-                return resolve_plane_definition(&params.definition, tree, feature_results);
+                return resolve_plane_definition(
+                    &params.definition,
+                    tree,
+                    feature_results,
+                    introspect,
+                );
             }
         }
     }
@@ -1086,6 +1165,7 @@ fn tangent_x_from_normal(n: [f64; 3]) -> [f64; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use waffle_types::{GeomRef, ResolvePolicy, Selector};
 
     /// Helper: compute cross product ref x n manually for verification.
     fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
@@ -1462,12 +1542,293 @@ mod tests {
         assert!(result.is_ok(), "Offset from built-in should succeed");
 
         // Verify resolution
-        let (origin, normal) = resolve_plane_definition(&def, &tree, &results).unwrap();
+        let mk = waffle_types::kernel::MockKernel::new();
+        let (origin, normal) =
+            resolve_plane_definition(&def, &tree, &results, mk.as_introspect()).unwrap();
         assert!(
             (origin[2] - 10.0).abs() < 1e-10,
             "Origin Z should be offset by 10"
         );
         assert!((normal[2] - 1.0).abs() < 1e-10, "Normal should be [0,0,1]");
+    }
+
+    /// Build a box solid (rectangle sketch → extrude) and return the rebuild
+    /// state plus the extrude feature id, so face-base datum tests have real
+    /// MockKernel faces to resolve against.
+    fn make_box_rebuild() -> (FeatureTree, Uuid, RebuildState) {
+        use waffle_types::SketchEntity;
+        let sketch_id = Uuid::new_v4();
+        let sketch = make_deserialized_sketch(
+            sketch_id,
+            vec![
+                SketchEntity::Point {
+                    id: 1,
+                    x: 0.0,
+                    y: 0.0,
+                    construction: false,
+                },
+                SketchEntity::Point {
+                    id: 2,
+                    x: 0.01,
+                    y: 0.0,
+                    construction: false,
+                },
+                SketchEntity::Point {
+                    id: 3,
+                    x: 0.01,
+                    y: 0.005,
+                    construction: false,
+                },
+                SketchEntity::Point {
+                    id: 4,
+                    x: 0.0,
+                    y: 0.005,
+                    construction: false,
+                },
+                SketchEntity::Line {
+                    id: 5,
+                    start_id: 1,
+                    end_id: 2,
+                    construction: false,
+                },
+                SketchEntity::Line {
+                    id: 6,
+                    start_id: 2,
+                    end_id: 3,
+                    construction: false,
+                },
+                SketchEntity::Line {
+                    id: 7,
+                    start_id: 3,
+                    end_id: 4,
+                    construction: false,
+                },
+                SketchEntity::Line {
+                    id: 8,
+                    start_id: 4,
+                    end_id: 1,
+                    construction: false,
+                },
+            ],
+        );
+        let (tree, extrude_id) = make_sketch_extrude_tree(sketch);
+        let mut kb = waffle_types::kernel::MockKernel::new();
+        let existing = HashMap::new();
+        let state = rebuild(&tree, &mut kb, 0, &existing);
+        (tree, extrude_id, state)
+    }
+
+    #[test]
+    fn test_offset_from_face_matches_equivalent_offset_from_plane() {
+        // A face-base offset datum plane must resolve to (base-face plane
+        // origin + distance*normal), and must produce the SAME plane as an
+        // explicit PointNormal offset from that same base face plane. This is
+        // the dual-resolver agreement contract in plane space: same normal,
+        // and the offset origin lies the correct signed distance off the face
+        // along its normal.
+        let (tree, extrude_id, state) = make_box_rebuild();
+        assert!(
+            !state.errors.iter().any(|(id, _)| *id == extrude_id),
+            "box extrude should succeed: {:?}",
+            state.errors
+        );
+
+        // Build the kernel fresh and re-resolve so we hold a live introspect.
+        let mut kb = waffle_types::kernel::MockKernel::new();
+        let existing = HashMap::new();
+        let state = rebuild(&tree, &mut kb, 0, &existing);
+        let extrude_result = state
+            .feature_results
+            .get(&extrude_id)
+            .expect("extrude result");
+
+        // Pick a planar face from the extrude provenance.
+        let face = extrude_result
+            .provenance
+            .created
+            .iter()
+            .find(|e| {
+                e.kind == TopoKind::Face && e.signature.surface_type.as_deref() == Some("planar")
+            })
+            .expect("extrude should create at least one planar face");
+
+        // GeomRef pinned to that exact face by its own signature.
+        let face_ref = GeomRef {
+            kind: TopoKind::Face,
+            anchor: waffle_types::Anchor::FeatureOutput {
+                feature_id: extrude_id,
+                output_key: OutputKey::Main,
+            },
+            selector: Selector::Signature {
+                signature: face.signature.clone(),
+            },
+            policy: ResolvePolicy::Strict,
+        };
+
+        let introspect = kb.as_introspect();
+        let distance = 0.02_f64;
+
+        // Resolve the base face plane directly (the "must match" reference).
+        let (base_origin, base_normal) =
+            resolve_face_plane(&face_ref, &state.feature_results, introspect).unwrap();
+
+        // (a) offset-from-face
+        let off_face = PlaneDefinition::OffsetFromFace {
+            base: face_ref.clone(),
+            distance,
+        };
+        let (face_origin, face_n) =
+            resolve_plane_definition(&off_face, &tree, &state.feature_results, introspect).unwrap();
+
+        // (b) equivalent explicit PointNormal offset from the same base plane.
+        let expected_origin = [
+            base_origin[0] + base_normal[0] * distance,
+            base_origin[1] + base_normal[1] * distance,
+            base_origin[2] + base_normal[2] * distance,
+        ];
+
+        // Normals identical.
+        for k in 0..3 {
+            assert!(
+                (face_n[k] - base_normal[k]).abs() < 1e-12,
+                "normal mismatch axis {}: {} vs {}",
+                k,
+                face_n[k],
+                base_normal[k]
+            );
+        }
+        // Origin = base origin + distance*normal.
+        for k in 0..3 {
+            assert!(
+                (face_origin[k] - expected_origin[k]).abs() < 1e-12,
+                "origin mismatch axis {}: {} vs {}",
+                k,
+                face_origin[k],
+                expected_origin[k]
+            );
+        }
+
+        // The resolved offset origin lies exactly `distance` off the face
+        // along the normal: (origin - base_origin)·normal == distance.
+        let signed = (face_origin[0] - base_origin[0]) * base_normal[0]
+            + (face_origin[1] - base_origin[1]) * base_normal[1]
+            + (face_origin[2] - base_origin[2]) * base_normal[2];
+        assert!(
+            (signed - distance).abs() < 1e-12,
+            "signed offset should equal distance: {} vs {}",
+            signed,
+            distance
+        );
+
+        // A negative distance flips to the back side (no separate variant).
+        let off_back = PlaneDefinition::OffsetFromFace {
+            base: face_ref,
+            distance: -distance,
+        };
+        let (back_origin, _) =
+            resolve_plane_definition(&off_back, &tree, &state.feature_results, introspect).unwrap();
+        let signed_back = (back_origin[0] - base_origin[0]) * base_normal[0]
+            + (back_origin[1] - base_origin[1]) * base_normal[1]
+            + (back_origin[2] - base_origin[2]) * base_normal[2];
+        assert!(
+            (signed_back + distance).abs() < 1e-12,
+            "negative distance should offset to the back side"
+        );
+    }
+
+    #[test]
+    fn test_offset_from_non_planar_face_is_resolution_failed() {
+        // A non-planar base face must be a loud ResolutionFailed, never a
+        // guessed plane. We fillet the box to introduce a cylindrical face
+        // (MockKernel models a fillet face as "cylindrical"), then attempt to
+        // base an offset datum plane on it.
+        use waffle_types::kernel::Kernel;
+
+        let (_tree, extrude_id, state) = make_box_rebuild();
+        let extrude_result = state
+            .feature_results
+            .get(&extrude_id)
+            .expect("extrude result");
+        let handle = extrude_result
+            .outputs
+            .first()
+            .map(|(_, body)| body.handle.clone())
+            .expect("extrude main output");
+
+        // Re-run on a fresh kernel so the handle is live in `kb`.
+        let mut kb = waffle_types::kernel::MockKernel::new();
+        let existing = HashMap::new();
+        let state = rebuild(&_tree, &mut kb, 0, &existing);
+        let handle = state
+            .feature_results
+            .get(&extrude_id)
+            .and_then(|r| r.outputs.first())
+            .map(|(_, body)| body.handle.clone())
+            .unwrap_or(handle);
+
+        let edges = kb.as_introspect().list_edges(&handle);
+        let edge0 = *edges.first().expect("box has edges");
+        let filleted = kb.fillet_edges(&handle, &[edge0], 0.001).unwrap();
+
+        let intro = kb.as_introspect();
+        let faces = intro.list_faces(&filleted);
+        let cyl_face = faces
+            .iter()
+            .copied()
+            .find(|&f| {
+                intro
+                    .compute_signature(f, TopoKind::Face)
+                    .surface_type
+                    .as_deref()
+                    == Some("cylindrical")
+            })
+            .expect("fillet should create a cylindrical face");
+
+        // Expose that real kernel face through a synthetic OpResult so
+        // resolve_with_fallback can find it by signature.
+        let feat_id = Uuid::new_v4();
+        let cyl_sig = intro.compute_signature(cyl_face, TopoKind::Face);
+        let mut results = HashMap::new();
+        results.insert(
+            feat_id,
+            modeling_ops::OpResult {
+                outputs: vec![],
+                provenance: modeling_ops::Provenance {
+                    created: vec![modeling_ops::EntityRecord {
+                        kernel_id: cyl_face,
+                        kind: TopoKind::Face,
+                        signature: cyl_sig.clone(),
+                    }],
+                    deleted: vec![],
+                    modified: vec![],
+                    role_assignments: vec![],
+                },
+                diagnostics: modeling_ops::Diagnostics::default(),
+            },
+        );
+
+        let cyl_ref = GeomRef {
+            kind: TopoKind::Face,
+            anchor: waffle_types::Anchor::FeatureOutput {
+                feature_id: feat_id,
+                output_key: OutputKey::Main,
+            },
+            selector: Selector::Signature { signature: cyl_sig },
+            policy: ResolvePolicy::Strict,
+        };
+
+        let err = resolve_face_plane(&cyl_ref, &results, kb.as_introspect()).unwrap_err();
+        assert!(
+            matches!(err, EngineError::ResolutionFailed { .. }),
+            "non-planar base must be ResolutionFailed, got: {:?}",
+            err
+        );
+        let msg = err.to_string();
+        assert!(
+            msg.contains("not planar"),
+            "error should be loud about non-planar base, got: {}",
+            msg
+        );
     }
 
     #[test]
@@ -1816,8 +2177,10 @@ mod tests {
         results.insert(first_plane.id, r1);
 
         // Resolve the second plane's definition
+        let mk = waffle_types::kernel::MockKernel::new();
         let (origin, normal) =
-            resolve_plane_definition(&second_plane_def, &tree, &results).unwrap();
+            resolve_plane_definition(&second_plane_def, &tree, &results, mk.as_introspect())
+                .unwrap();
         assert!(
             (origin[2] - 12.0).abs() < 1e-10,
             "Z should be 5+7=12, got {}",

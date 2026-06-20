@@ -255,6 +255,17 @@ pub enum PlaneDefinition {
         base_plane_id: Uuid,
         distance: f64,
     },
+    /// Parallel offset from a planar face. The base face's plane (origin +
+    /// outward normal) is resolved from the *current* geometry each rebuild,
+    /// so the datum tracks the face as it moves. A non-planar base face
+    /// resolves to `ResolutionFailed` (loud). A negative distance flips the
+    /// offset to the back side of the face.
+    #[serde(rename = "offset-face")]
+    OffsetFromFace {
+        /// GeomRef of the planar face that defines the base plane.
+        base: GeomRef,
+        distance: f64,
+    },
 }
 
 /// Parameters for a datum (construction) plane.

@@ -10,7 +10,8 @@
 		getFeatureTree,
 		getSketchMode,
 		isPlaneVisible,
-		isAxisVisible
+		isAxisVisible,
+		computeFacePlane
 	} from '$lib/engine/store.svelte.js';
 	import { getAllPlanes, makePlaneRef, resolvePlane, PLANE_HALF_SIZE } from '$lib/engine/planes.js';
 
@@ -36,7 +37,7 @@
 	let planeData = $derived(getAllPlanes(features).map((plane) => {
 		let resolved;
 		try {
-			resolved = resolvePlane(plane.definition, features);
+			resolved = resolvePlane(plane.definition, features, computeFacePlane);
 		} catch {
 			resolved = { origin: [0, 0, 0], normal: [0, 0, 1] };
 		}

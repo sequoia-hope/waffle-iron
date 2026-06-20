@@ -19,8 +19,9 @@ export const PLANE_HALF_SIZE = 0.018;
 /**
  * @typedef {{ method: 'point-normal', origin: [number,number,number], normal: [number,number,number] }} PointNormalDef
  * @typedef {{ method: 'offset', basePlaneId: string, distance: number }} OffsetDef
+ * @typedef {{ method: 'offset-face', base: any, distance: number }} OffsetFaceDef
  * @typedef {{ method: 'three-points', points: [[number,number,number],[number,number,number],[number,number,number]] }} ThreePointsDef
- * @typedef {PointNormalDef | OffsetDef | ThreePointsDef} PlaneDefinition
+ * @typedef {PointNormalDef | OffsetDef | OffsetFaceDef | ThreePointsDef} PlaneDefinition
  */
 
 /**
@@ -103,18 +104,28 @@ export function getAllPlanes(features = []) {
 
 /**
  * Resolve a PlaneDefinition to origin + normal.
+ *
+ * Pure: any face-base resolution is delegated to the injected `faceResolver`
+ * (the store's `computeFacePlane`) so this module stays free of store/mesh
+ * dependencies. The face-base path mirrors the Rust engine resolver
+ * (`resolve_face_plane` in feature-engine/rebuild.rs): same outward normal,
+ * and the offset origin sits the signed `distance` off the face along that
+ * normal — so the rendered plane and the engine-validated plane agree.
+ *
  * @param {PlaneDefinition} definition
  * @param {Array<any>} features - Feature tree features array (for resolving user planes)
+ * @param {((geomRef: any) => ({ origin: [number,number,number], normal: [number,number,number] } | null)) | null} [faceResolver]
+ *   Resolves a planar-face GeomRef to its base plane. Required for 'offset-face'.
  * @returns {{ origin: [number,number,number], normal: [number,number,number] }}
  */
-export function resolvePlane(definition, features = []) {
+export function resolvePlane(definition, features = [], faceResolver = null) {
 	if (definition.method === 'point-normal') {
 		return { origin: definition.origin, normal: definition.normal };
 	}
 	if (definition.method === 'offset') {
 		const base = getPlaneById(definition.basePlaneId, features);
 		if (!base) throw new Error(`Base plane ${definition.basePlaneId} not found`);
-		const resolved = resolvePlane(base.definition, features);
+		const resolved = resolvePlane(base.definition, features, faceResolver);
 		const d = definition.distance;
 		return {
 			origin: [
@@ -123,6 +134,25 @@ export function resolvePlane(definition, features = []) {
 				resolved.origin[2] + resolved.normal[2] * d,
 			],
 			normal: resolved.normal,
+		};
+	}
+	if (definition.method === 'offset-face') {
+		if (typeof faceResolver !== 'function') {
+			throw new Error('offset-face plane requires a faceResolver');
+		}
+		const basePlane = faceResolver(definition.base);
+		if (!basePlane) {
+			throw new Error('offset-face base face could not be resolved to a plane');
+		}
+		const { origin, normal } = basePlane;
+		const d = definition.distance;
+		return {
+			origin: /** @type {[number,number,number]} */ ([
+				origin[0] + normal[0] * d,
+				origin[1] + normal[1] * d,
+				origin[2] + normal[2] * d,
+			]),
+			normal: /** @type {[number,number,number]} */ ([...normal]),
 		};
 	}
 	if (definition.method === 'three-points') {

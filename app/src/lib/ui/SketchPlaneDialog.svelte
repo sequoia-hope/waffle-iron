@@ -8,7 +8,8 @@
 		getSelectedRefs,
 		computeFacePlane,
 		getFeatureTree,
-		createDatumPlane
+		createDatumPlane,
+		getSketchPlaneDialogStartInOffset
 	} from '$lib/engine/store.svelte.js';
 	import { getAllPlanes, resolvePlane } from '$lib/engine/planes.js';
 
@@ -18,7 +19,12 @@
 
 	// Reactive plane list: built-in + user-created
 	let allPlanes = $derived(getAllPlanes(features).map((p) => {
-		const resolved = resolvePlane(p.definition, features);
+		let resolved;
+		try {
+			resolved = resolvePlane(p.definition, features, computeFacePlane);
+		} catch {
+			resolved = { origin: [0, 0, 0], normal: [0, 0, 1] };
+		}
 		return { id: p.id, label: p.name, origin: resolved.origin, normal: resolved.normal, builtin: p.builtin };
 	}));
 
@@ -27,10 +33,25 @@
 	let offsetBasePlaneId = $state('');
 	let offsetDistance = $state(10);
 	let offsetName = $state('Offset Plane');
+	// When set, the offset base is a selected planar FACE (GeomRef) instead of
+	// a plane from the dropdown. Captured from the current selection.
+	let offsetBaseFace = $state(/** @type {any} */ (null));
 
-	// Wire face clicks into the dialog while it's visible
+	// Track the currently-selected planar face GeomRef (for the face base).
+	let selectedFaceRef = $derived.by(() => {
+		const refs = getSelectedRefs();
+		if (refs.length === 1 && refs[0]?.kind?.type === 'Face') {
+			// Only true mesh faces (not datum-plane refs) make sense as a base.
+			if (refs[0]?.anchor?.type === 'DatumPlane') return null;
+			return refs[0];
+		}
+		return null;
+	});
+
+	// Wire face clicks into the dialog while it's visible (select mode only).
 	$effect(() => {
 		if (!visible) return;
+		if (mode !== 'select') return;
 		const refs = getSelectedRefs();
 		if (refs.length === 1 && refs[0]?.kind?.type === 'Face') {
 			const plane = computeFacePlane(refs[0]);
@@ -60,27 +81,60 @@
 		if (allPlanes.length > 0 && !offsetBasePlaneId) {
 			offsetBasePlaneId = allPlanes[0].id;
 		}
+		// If a planar face is already selected, default the base to it.
+		offsetBaseFace = selectedFaceRef ?? null;
 		mode = 'create-offset';
 	}
 
+	function useSelectedFaceAsBase() {
+		if (selectedFaceRef) offsetBaseFace = selectedFaceRef;
+	}
+
+	function clearFaceBase() {
+		offsetBaseFace = null;
+	}
+
 	function handleCreateOffset() {
-		if (!offsetBasePlaneId) return;
-		const definition = {
-			method: 'offset',
-			basePlaneId: offsetBasePlaneId,
-			distance: offsetDistance
-		};
+		/** @type {any} */
+		let definition;
+		if (offsetBaseFace) {
+			definition = {
+				method: 'offset-face',
+				base: offsetBaseFace,
+				distance: offsetDistance
+			};
+		} else {
+			if (!offsetBasePlaneId) return;
+			definition = {
+				method: 'offset',
+				basePlaneId: offsetBasePlaneId,
+				distance: offsetDistance
+			};
+		}
 		createDatumPlane(definition, offsetName);
-		// Reset and go back to select mode
+		// Reset offset state.
+		const standalone = getSketchPlaneDialogStartInOffset();
 		mode = 'select';
 		offsetDistance = 10;
 		offsetName = 'Offset Plane';
+		offsetBaseFace = null;
+		// Standalone entry: the datum plane is created — close the dialog
+		// (there is no sketch to start). The in-sketch "+ Offset Plane" flow
+		// stays open so the user can pick a plane to sketch on.
+		if (standalone) {
+			hideSketchPlaneDialog();
+		}
 	}
 
 	$effect(() => {
 		if (!visible) return;
-		// Reset mode when dialog opens
-		mode = 'select';
+		// Reset mode when dialog opens. The standalone "Datum Plane" entry
+		// opens straight into the offset-creation flow.
+		if (getSketchPlaneDialogStartInOffset()) {
+			switchToCreateOffset();
+		} else {
+			mode = 'select';
+		}
 
 		function onKeyDown(e) {
 			if (e.key === 'Enter' && selection && mode === 'select') {
@@ -134,14 +188,24 @@
 						Name
 						<input class="field-input" type="text" bind:value={offsetName} data-testid="offset-name-input" />
 					</label>
-					<label class="field-label">
-						Base Plane
-						<select class="field-input" bind:value={offsetBasePlaneId} data-testid="offset-base-select">
-							{#each allPlanes as plane (plane.id)}
-								<option value={plane.id}>{plane.label}</option>
-							{/each}
-						</select>
-					</label>
+					<div class="field-label">
+						Base
+						{#if offsetBaseFace}
+							<div class="face-base" data-testid="offset-base-face">
+								<span class="face-base-label">Selected face</span>
+								<button type="button" class="face-base-clear" data-testid="offset-base-use-plane" onclick={clearFaceBase}>Use plane instead</button>
+							</div>
+						{:else}
+							<select class="field-input" bind:value={offsetBasePlaneId} data-testid="offset-base-select">
+								{#each allPlanes as plane (plane.id)}
+									<option value={plane.id}>{plane.label}</option>
+								{/each}
+							</select>
+							{#if selectedFaceRef}
+								<button type="button" class="face-base-use" data-testid="offset-base-use-face" onclick={useSelectedFaceAsBase}>Use selected face</button>
+							{/if}
+						{/if}
+					</div>
 					<label class="field-label">
 						Distance
 						<input class="field-input" type="number" bind:value={offsetDistance} step="1" data-testid="offset-distance-input" />
@@ -294,6 +358,44 @@
 	.field-input:focus {
 		outline: none;
 		border-color: var(--accent, #0078d4);
+	}
+
+	.face-base {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		padding: 6px 8px;
+		background: var(--bg-primary, #1e1e1e);
+		border: 1px solid #aa8844;
+		border-radius: 4px;
+	}
+
+	.face-base-label {
+		font-size: 12px;
+		color: #ffcc88;
+	}
+
+	.face-base-clear,
+	.face-base-use {
+		background: transparent;
+		border: 1px dashed var(--border-color, #555);
+		color: var(--text-secondary, #aaa);
+		border-radius: 4px;
+		font-size: 11px;
+		padding: 3px 8px;
+		cursor: pointer;
+	}
+
+	.face-base-use {
+		margin-top: 4px;
+		align-self: flex-start;
+	}
+
+	.face-base-clear:hover,
+	.face-base-use:hover {
+		border-color: var(--accent, #0078d4);
+		color: var(--text-primary, #eee);
 	}
 
 	.dialog-footer {

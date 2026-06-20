@@ -19,6 +19,7 @@
 		showFilletDialog,
 		showShellDialog,
 		showBooleanDialog,
+		showDatumPlaneDialog,
 		saveProject,
 		saveToStorage,
 		loadProject,
@@ -139,6 +140,7 @@
 		{ id: 'chamfer', label: 'Chamfer', shortcut: '' },
 		{ id: 'shell', label: 'Shell', shortcut: '' },
 		{ id: 'boolean', label: 'Boolean', shortcut: '' },
+		{ id: 'datum-plane', label: 'Plane', shortcut: '' },
 	];
 
 	const sketchTools = [
@@ -199,6 +201,10 @@
 		}
 		if (toolId === 'boolean' && !inSketch) {
 			showBooleanDialog();
+			return;
+		}
+		if (toolId === 'datum-plane' && !inSketch) {
+			showDatumPlaneDialog();
 			return;
 		}
 		if (toolId === 'construction') {

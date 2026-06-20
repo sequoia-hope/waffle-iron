@@ -194,6 +194,13 @@ let editingSketchFeatureId = $state(null);
 let sketchPlaneDialogVisible = $state(false);
 /** @type {{ origin: [number,number,number], normal: [number,number,number], label: string } | null} */
 let sketchPlaneDialogSelection = $state(null);
+/**
+ * When true, the sketch-plane dialog opens straight into the datum-plane
+ * (offset) creation flow rather than the plane-selection flow. Used by the
+ * standalone "Datum Plane" toolbar entry so a datum plane can be created
+ * without starting a sketch.
+ */
+let sketchPlaneDialogStartInOffset = $state(false);
 
 // -- Inline sketch plane selection mode --
 
@@ -561,6 +568,22 @@ export async function initEngine() {
 			computeFacePlane: (geomRef) => computeFacePlane(geomRef),
 			applyExtrude: (depth, profileIndex, cut, opts) => applyExtrude(depth, profileIndex, cut, opts),
 			showExtrudeDialog: () => showExtrudeDialog(),
+			showDatumPlaneDialog: () => showDatumPlaneDialog(),
+			/**
+			 * Resolve a plane (by feature id, including offset-face datums) to
+			 * its rendered origin + normal, using the live face resolver — the
+			 * same path DatumVis renders with. Test verification helper.
+			 */
+			resolvePlaneById: (id) => {
+				const features = featureTree?.features ?? [];
+				const plane = getPlaneById(id, features);
+				if (!plane) return null;
+				try {
+					return resolvePlane(plane.definition, features, computeFacePlane);
+				} catch {
+					return null;
+				}
+			},
 			saveProject: () => saveProject(),
 			// Test SETUP only (the pick-mode interaction has its own specs):
 			// sets the revolve dialog's axis as a viewport pick would.
@@ -1158,8 +1181,28 @@ export function geomRefEquals(a, b) {
 		a.anchor?.plane === b.anchor?.plane &&
 		a.anchor?.id === b.anchor?.id &&
 		a.selector?.type === b.selector?.type &&
-		JSON.stringify(a.selector) === JSON.stringify(b.selector)
+		canonicalJson(a.selector) === canonicalJson(b.selector)
 	);
+}
+
+/**
+ * Stable JSON of an object with object keys sorted recursively, so two
+ * structurally-equal GeomRef selectors compare equal regardless of key
+ * insertion order. (A selector that round-trips through the Rust engine comes
+ * back with serde's key order, which differs from the JS-built order — a
+ * plain JSON.stringify would then spuriously differ.)
+ * @param {any} v
+ * @returns {string}
+ */
+function canonicalJson(v) {
+	return JSON.stringify(v, (_k, val) => {
+		if (val && typeof val === 'object' && !Array.isArray(val)) {
+			const sorted = {};
+			for (const key of Object.keys(val).sort()) sorted[key] = val[key];
+			return sorted;
+		}
+		return val;
+	});
 }
 
 /**
@@ -3152,13 +3195,21 @@ export async function applyBoolean(operation, targetFeatureId, toolFeatureId) {
 export function computeFacePlane(geomRef) {
 	if (!geomRef) return null;
 
-	// Handle datum planes directly
+	// Handle datum planes directly. User-created datums (including
+	// offset-from-face) need the feature list and a face resolver — pass the
+	// feature tree and computeFacePlane itself (recursively) so an
+	// offset-face datum resolves through its base face.
 	if (isDatumPlaneRef(geomRef)) {
 		const planeId = getPlaneIdFromRef(geomRef);
 		if (!planeId) return null;
-		const plane = getPlaneById(planeId);
+		const features = featureTree?.features ?? [];
+		const plane = getPlaneById(planeId, features);
 		if (!plane) return null;
-		return resolvePlane(plane.definition);
+		try {
+			return resolvePlane(plane.definition, features, computeFacePlane);
+		} catch {
+			return null;
+		}
 	}
 
 	for (const mesh of meshes) {
@@ -3705,12 +3756,27 @@ export function setSketchPlaneDialogSelection(sel) { sketchPlaneDialogSelection 
 export function showSketchPlaneDialog() {
 	log('ui', 'Show sketch plane dialog');
 	sketchPlaneDialogSelection = null;
+	sketchPlaneDialogStartInOffset = false;
 	sketchPlaneDialogVisible = true;
 }
+
+/**
+ * Open the dialog directly in the datum-plane (offset) creation flow, so a
+ * DatumPlane feature can be created standalone (without starting a sketch).
+ */
+export function showDatumPlaneDialog() {
+	log('ui', 'Show datum plane dialog (standalone)');
+	sketchPlaneDialogSelection = null;
+	sketchPlaneDialogStartInOffset = true;
+	sketchPlaneDialogVisible = true;
+}
+
+export function getSketchPlaneDialogStartInOffset() { return sketchPlaneDialogStartInOffset; }
 
 export function hideSketchPlaneDialog() {
 	sketchPlaneDialogVisible = false;
 	sketchPlaneDialogSelection = null;
+	sketchPlaneDialogStartInOffset = false;
 }
 
 export async function confirmSketchPlaneDialog() {
@@ -4589,12 +4655,16 @@ export async function loadAssayCase(id) {
 export async function createDatumPlane(definition, name) {
 	if (!bridge || !engineReady) return;
 	log('action', 'Create datum plane', { name, method: definition.method });
+	// Strip any reactive/proxy wrappers (e.g. a face GeomRef captured from
+	// $state) to a plain structured-cloneable object before crossing the
+	// Worker boundary — otherwise postMessage throws DataCloneError.
+	const plainDefinition = JSON.parse(JSON.stringify(definition));
 	try {
 		await sendRebuild({
 			type: 'AddFeature',
 			operation: {
 				type: 'DatumPlane',
-				params: { name, definition }
+				params: { name, definition: plainDefinition }
 			}
 		});
 	} catch (err) {

@@ -73,6 +73,9 @@ fn migrate_feature_v1_to_v2(feature: &mut Feature) {
             PlaneDefinition::Offset { distance, .. } => {
                 *distance *= MM_TO_METERS;
             }
+            PlaneDefinition::OffsetFromFace { distance, .. } => {
+                *distance *= MM_TO_METERS;
+            }
         },
         Operation::BooleanCombine { .. } => {
             // No length fields
