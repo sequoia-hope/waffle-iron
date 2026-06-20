@@ -68,7 +68,7 @@ RUN chmod +x /home/$USERNAME/entrypoint.sh /home/$USERNAME/setup-keyboard.sh
 
 USER $USERNAME
 WORKDIR /home/$USERNAME
-ENV PATH="/home/$USERNAME/.local/bin:/home/$USERNAME/.cargo/bin:/home/$USERNAME/emsdk:/home/$USERNAME/emsdk/upstream/emscripten:$PATH"
+ENV PATH="/home/$USERNAME/.local/bin:/home/$USERNAME/.opencode/bin:/home/$USERNAME/.cargo/bin:/home/$USERNAME/emsdk:/home/$USERNAME/emsdk/upstream/emscripten:$PATH"
 ENV EMSDK="/home/$USERNAME/emsdk"
 
 # Install Rust toolchain + wasm-pack
@@ -86,6 +86,9 @@ RUN git clone https://github.com/emscripten-core/emsdk.git /home/$USERNAME/emsdk
 
 # Install Claude Code
 RUN curl -fsSL https://claude.ai/install.sh | bash
+
+# Install opencode (parallel CLI agent — runs in its own tmux session)
+RUN curl -fsSL https://opencode.ai/install | bash
 
 # Install Playwright browsers + system dependencies (for GUI tests including mobile)
 # install-deps needs root for apt-get; install downloads to user cache

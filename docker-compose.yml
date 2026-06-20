@@ -19,6 +19,11 @@ services:
       # Claude auth persistence
       - ${HOME}/.claude:/home/claude/.claude
       - ${HOME}/.claude.json:/home/claude/.claude.json
+      # opencode config / auth / state (mirror of host XDG dirs)
+      - ${HOME}/.config/opencode:/home/claude/.config/opencode
+      - ${HOME}/.local/share/opencode:/home/claude/.local/share/opencode
+      - ${HOME}/.local/state/opencode:/home/claude/.local/state/opencode
+      - ${HOME}/.cache/opencode:/home/claude/.cache/opencode
       # Git config (read-only)
       - ${HOME}/.gitconfig:/home/claude/.gitconfig:ro
       # SSH keys for git operations (read-only)
