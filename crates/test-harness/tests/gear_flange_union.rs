@@ -86,13 +86,30 @@ fn err_waffle_json() -> Option<String> {
 //     re-tessellate, so the non-conformal degenerate input reaches cherchi
 //     unchanged. Forcing past this is silent-wrong (P9). Un-ignore when the
 //     Stage-0 coincident-cylinder re-tessellation lands.
-#[ignore = "M8-cyl Stage-0 gap (task28 re-localized): the gear bore wall and \
-            flange wall are an OPPOSITE-normal coincident cylinder, non-conformal \
-            in z. Native cherchi == C++ sidecar (both 54 unpaired edges) — NOT a \
-            cherchi labeling bug; the degenerate coincident-sheet input needs a \
-            yang Stage-0 coincident-cylinder re-tessellation (drop interior \
-            sheets + stitch cap rings), the cylinder analog of §4.5.5. See \
-            crates/cherchi-rs/tests/task28_plug_in_bore.rs."]
+// M8-cyl Increment 1 landed the coincident-cylinder Stage-0 conformal
+// re-tessellation (yang-rs `stage0::coincident_cylinder_stage0`). The gear NOW
+// BUILDS the union with NO errors, NO "Auto-union failed" warning, the FULL
+// gear height (combined bbox z≈[-0.005,0.005]), positive volume, and PASSES
+// watertight + no_self_intersection + no_degenerate_triangles + positive_volume
+// + outward_normals (98.5%) + valid oracles. The minimal repro
+// (`crates/cherchi-rs/tests/task28_plug_in_bore.rs` parity + the yang sibling
+// `crates/yang-rs/tests/m8cyl_plug_in_bore.rs`) is now WATERTIGHT and
+// consistently wound.
+//
+// REMAINING WALL (increment 2+ — a SEPARATE defect, NOT the Stage-0 coincident
+// cylinder gap): `consistent_normals` fails at 98.5% (142 of 9652 render
+// triangles reversed). Localized by radius to the FLANGE'S DISC CAPS
+// (r-centroid ≈ 0.0033/0.0037, the bore floor/ceiling where the plug meets the
+// open bore above/below) — these come from the CONTAINED solid B's unchanged
+// Stage-1 caps and get reversed RENDER normals in the union output's
+// reassembly. The minimal plug-in-bore union is consistently wound (no
+// reversed patch), so this is NOT a defect of the Stage-0 mechanism but a
+// gear-specific output-reassembly cap-winding issue. Un-ignore when that
+// reassembly winding is fixed.
+#[ignore = "M8-cyl Inc1 DONE (union builds watertight/manifold/full-height); \
+            remaining: consistent_normals 98.5% — flange disc caps get reversed \
+            render normals in reassembly (separate increment-2 defect, not the \
+            Stage-0 coincident-cylinder gap)."]
 #[test]
 fn gear_flange_union_builds_full_height() {
     let Some(json) = err_waffle_json() else {

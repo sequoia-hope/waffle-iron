@@ -598,7 +598,31 @@ pub(crate) fn stage1_tessellate_with_rim_overrides(
     faces: &[BRepFace],
     rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
 ) -> Result<Stage1Tess, YangError> {
-    stage1_tessellate_inner(verts, edges, faces, rim_overrides).map(|(t, _)| t)
+    stage1_tessellate_inner(verts, edges, faces, rim_overrides, None).map(|(t, _)| t)
+}
+
+/// Stage 1 tessellation forcing the circle-rim segment count to AT LEAST
+/// `min_n_seg` (M8-cyl Increment 1). The cylinder rim N is normally derived
+/// from this solid's own chord-error AABB; for two COINCIDENT cylinders to get
+/// identical overlap meshes (§4.5.5) BOTH must sample at the SAME N. The caller
+/// passes the max of both solids' N so each gets a rim sampling that satisfies
+/// BOTH chord bounds (a FINER tessellation is always chord-valid — it can only
+/// REDUCE the sagitta, never widen it; this is not a tolerance relaxation).
+/// `min_n_seg = None` is byte-identical to [`stage1_tessellate`].
+pub(crate) fn stage1_tessellate_min_segments(
+    verts: &[BRepVertex],
+    edges: &[BRepEdge],
+    faces: &[BRepFace],
+    min_n_seg: Option<usize>,
+) -> Result<Stage1Tess, YangError> {
+    stage1_tessellate_inner(
+        verts,
+        edges,
+        faces,
+        &std::collections::BTreeMap::new(),
+        min_n_seg,
+    )
+    .map(|(t, _)| t)
 }
 
 /// Inner implementation returning the tessellation AND the set of rim edges
@@ -609,6 +633,7 @@ fn stage1_tessellate_inner(
     edges: &[BRepEdge],
     faces: &[BRepFace],
     rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    min_n_seg: Option<usize>,
 ) -> Result<(Stage1Tess, std::collections::BTreeSet<u32>), YangError> {
     {
         let mut inserted_rims: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
@@ -715,6 +740,12 @@ fn stage1_tessellate_inner(
                 while max_r * (1.0 - (std::f64::consts::PI / n_seg as f64).cos()) > d_eps {
                     n_seg += 1;
                 }
+            }
+            // M8-cyl Increment 1: a coincident-cylinder pair forces BOTH solids
+            // to the same (max) N so their overlap rings are identically sampled
+            // (a finer N only shrinks the sagitta — chord-valid for this solid).
+            if let Some(force) = min_n_seg {
+                n_seg = n_seg.max(force);
             }
 
             // Build the shared sample CHAIN for each circle edge (PR-KV6b-1):
@@ -5027,6 +5058,20 @@ pub fn boolean(
     // multi-pair faces and overlay failures) keeps the loud typed PR-YR24
     // wall (`CoplanarFacesUnsupported`).
     let stage0 = stage0::stage0_preprocess(a, b)?;
+    // M8-cyl Increment 1 (§4.5.5 curved analog): when the planar scan found NO
+    // cross pairs, a COINCIDENT-CYLINDER pair (the gear's bore wall ∩ a coaxial
+    // flange/plug wall, opposite normal, full θ, one z-extent contained in the
+    // other) gets a conformal re-tessellation so its overlap band is
+    // bit-identical on BOTH solids' meshes. cherchi then pocket-dedups the band
+    // into one multi-label sheet and the membrane resolution below drops it.
+    // `task28_plug_in_bore` proved both native cherchi AND the C++ sidecar leave
+    // this non-watertight WITHOUT this upstream conformal step. Only consulted
+    // when the planar Stage-0 produced nothing (the two paths never overlap on a
+    // single pair in Increment 1's scope).
+    let stage0 = match stage0 {
+        Some(s0) => Some(s0),
+        None => stage0::coincident_cylinder_stage0(a, b)?,
+    };
     // PR-5: coincident-CYLINDER A×B pairs (the membrane analog of the planar
     // `PairPlane`s in `stage0`). cherchi (coplanar PRs 1-4) constructs the
     // coincident-cylinder overlap with a MULTI-SOLID label exactly as it does a
