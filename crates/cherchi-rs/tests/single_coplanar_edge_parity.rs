@@ -137,6 +137,87 @@ fn cube_and_edge_crossing_tetra() -> (Mesh, Mesh) {
     (a, b)
 }
 
+/// Tilted-slab fixture (positive-VOLUME interpenetration with a coplanar
+/// contact edge through A's interior): cube A = [0,2]³ and a box B = [1,3] ×
+/// [0,2] × [0,2] whose z-faces are tilted by an exact 1/8-per-x slope, so B's
+/// bottom-face x = 1 edge (1,0,0)-(1,2,0) lies EXACTLY in A's z = 0 plane and
+/// runs through A's bottom-face strict interior (a `SingleCoplanarEdge`
+/// crossing the diagonal), while B's untilted y-faces overlap A's y-planes.
+/// Unlike the measure-zero edge-touch fixtures, this is a real positive-volume
+/// boolean, so the arrangement vertex sets must match the C++ reference
+/// exactly. (Previously this whole config was a loud `CoplanarPairDeferred`;
+/// the tvX/edge-crossing slice now constructs it — pinned here against the
+/// reference, and asserted conforming in `soup.rs`'s adversary suite.)
+fn cube_and_tilted_slab() -> (Mesh, Mesh) {
+    let a = boxx(0.0, 0.0, 0.0, 2.0, 2.0, 2.0);
+    let s = 0.125_f64; // exact in binary
+    let bx = |xi: usize| if xi == 0 { 1.0 } else { 3.0 };
+    let by = |yi: usize| if yi == 0 { 0.0 } else { 2.0 };
+    let mut verts = Vec::new();
+    for zi in 0..2 {
+        for yi in 0..2 {
+            for xi in 0..2 {
+                let x = bx(xi);
+                let y = by(yi);
+                let zbase = if zi == 0 { 0.0 } else { 2.0 };
+                verts.push(p(x, y, zbase + s * (x - 1.0)));
+            }
+        }
+    }
+    let cid = |xi: usize, yi: usize, zi: usize| (zi * 4 + yi * 2 + xi) as u32;
+    let quad = |a: u32, b: u32, c: u32, d: u32| vec![[a, b, c], [a, c, d]];
+    let mut tris: Vec<[u32; 3]> = Vec::new();
+    tris.extend(quad(cid(0, 0, 0), cid(1, 0, 0), cid(1, 1, 0), cid(0, 1, 0)));
+    tris.extend(quad(cid(0, 0, 1), cid(1, 0, 1), cid(1, 1, 1), cid(0, 1, 1)));
+    tris.extend(quad(cid(0, 0, 0), cid(1, 0, 0), cid(1, 0, 1), cid(0, 0, 1)));
+    tris.extend(quad(cid(0, 1, 0), cid(1, 1, 0), cid(1, 1, 1), cid(0, 1, 1)));
+    tris.extend(quad(cid(0, 0, 0), cid(0, 1, 0), cid(0, 1, 1), cid(0, 0, 1)));
+    tris.extend(quad(cid(1, 0, 0), cid(1, 1, 0), cid(1, 1, 1), cid(1, 0, 1)));
+    (a, Mesh::new(verts, tris))
+}
+
+/// Single-coplanar-edge tvX_in_edge fixture: cube A = [0,2]³ (top face z = 2,
+/// split into triangles T0 = (0,0,2),(2,0,2),(2,2,2) and T1 = (0,0,2),(2,2,2),
+/// (0,2,2)). Tetra B has ONE bottom edge in the z = 2 plane running from
+/// (1, 0.5, 2) — STRICTLY INSIDE T0 — out THROUGH A's corner (2, 0, 2) (a
+/// VERTEX of T0, strictly inside B's coplanar edge) to (3, -0.5, 2) outside.
+/// So the coplanar edge crosses the other triangle at one of ITS CORNERS — the
+/// `tvX_in_edge` config: the crossing point is the exact o_t vertex (2,0,2),
+/// not a jolly-LPI. Apexes (1.3, 0.7, 3) and (1.6, 0.4, 3) above.
+///
+/// The load-bearing new arrangement vertex is (1, 0.5, 2) on A's top face;
+/// (2, 0, 2) already exists.
+fn cube_and_edge_corner_crossing_tetra() -> (Mesh, Mesh) {
+    let a = boxx(0.0, 0.0, 0.0, 2.0, 2.0, 2.0);
+    let b = tetra(
+        p(1.0, 0.5, 2.0),
+        p(3.0, -0.5, 2.0),
+        p(1.3, 0.7, 3.0),
+        p(1.6, 0.4, 3.0),
+    );
+    (a, b)
+}
+
+/// Single-coplanar-edge COLLINEAR-OVERLAP fixture: cube A = [0,2]³ (top face
+/// z = 2; boundary edge v4-v5 from (0,0,2) to (2,0,2) along y = 0). Tetra B has
+/// ONE bottom edge collinear with that boundary edge, running from (1, 0, 2)
+/// — strictly inside edge v4-v5 — to (3, 0, 2) outside, so the coplanar edge
+/// partially OVERLAPS A's top-face boundary edge. Overlap = [(1,0,2), (2,0,2)].
+/// Apexes (1.5, 0.4, 3) and (2.2, 0.4, 3) above.
+///
+/// The load-bearing new arrangement vertex is (1, 0, 2) on edge v4-v5;
+/// (2, 0, 2) already exists.
+fn cube_and_edge_collinear_overlap_tetra() -> (Mesh, Mesh) {
+    let a = boxx(0.0, 0.0, 0.0, 2.0, 2.0, 2.0);
+    let b = tetra(
+        p(1.0, 0.0, 2.0),
+        p(3.0, 0.0, 2.0),
+        p(1.5, 0.4, 3.0),
+        p(2.2, 0.4, 3.0),
+    );
+    (a, b)
+}
+
 /// Exact-coordinate vertex weld (bit-identical merge); returns the vertex list.
 fn welded_verts(m: &Mesh) -> Vec<Point3> {
     use std::collections::BTreeMap;
@@ -228,6 +309,108 @@ fn crossing_single_coplanar_edge_arrangement_parity() {
 
     let native = native_labeled_arrangement(&a, &b)
         .expect("native arrangement must classify the crossing coplanar edge, not defer");
+    let native_v = welded_verts(&native.mesh);
+    let sidecar_v = welded_verts(&sidecar_arrangement(&a, &b));
+
+    if let Some(v) = vertex_cover_gap(&native_v, &sidecar_v, VERT_TOL) {
+        panic!(
+            "native arrangement vertex {v:?} has no sidecar vertex within {VERT_TOL} \
+             (native {} verts, sidecar {} verts)",
+            native_v.len(),
+            sidecar_v.len()
+        );
+    }
+    if let Some(v) = vertex_cover_gap(&sidecar_v, &native_v, VERT_TOL) {
+        panic!(
+            "sidecar arrangement vertex {v:?} has no native vertex within {VERT_TOL} \
+             (native {} verts, sidecar {} verts)",
+            native_v.len(),
+            sidecar_v.len()
+        );
+    }
+}
+
+/// Arrangement-level reference parity on the tvX_in_edge single-coplanar-edge
+/// fixture (deviation N13, this slice): the coplanar edge exits the other
+/// triangle THROUGH one of its corners (a degenerate crossing whose crossing
+/// point is the exact o_t vertex, the C++ `tvX_in_edge` symbolic branch). The
+/// previously-deferred config must now classify; native arrangement vertex set
+/// ≡ sidecar arrangement vertex set (Hausdorff-0 at `VERT_TOL`, both
+/// directions). The interior endpoint (1, 0.5, 2) is the load-bearing new
+/// vertex.
+#[test]
+fn corner_crossing_single_coplanar_edge_arrangement_parity() {
+    let (a, b) = cube_and_edge_corner_crossing_tetra();
+
+    let native = native_labeled_arrangement(&a, &b).expect(
+        "native arrangement must classify the corner-crossing (tvX_in_edge) coplanar edge, not defer",
+    );
+    let native_v = welded_verts(&native.mesh);
+    let sidecar_v = welded_verts(&sidecar_arrangement(&a, &b));
+
+    if let Some(v) = vertex_cover_gap(&native_v, &sidecar_v, VERT_TOL) {
+        panic!(
+            "native arrangement vertex {v:?} has no sidecar vertex within {VERT_TOL} \
+             (native {} verts, sidecar {} verts)",
+            native_v.len(),
+            sidecar_v.len()
+        );
+    }
+    if let Some(v) = vertex_cover_gap(&sidecar_v, &native_v, VERT_TOL) {
+        panic!(
+            "sidecar arrangement vertex {v:?} has no native vertex within {VERT_TOL} \
+             (native {} verts, sidecar {} verts)",
+            native_v.len(),
+            sidecar_v.len()
+        );
+    }
+}
+
+/// Arrangement-level reference parity on the tilted-slab fixture (positive-
+/// volume interpenetration whose coplanar contact edge runs through A's
+/// interior). The previously-deferred config must now classify; native
+/// arrangement vertex set ≡ sidecar arrangement vertex set (Hausdorff-0 at
+/// `VERT_TOL`, both directions).
+#[test]
+fn tilted_slab_through_interior_arrangement_parity() {
+    let (a, b) = cube_and_tilted_slab();
+
+    let native = native_labeled_arrangement(&a, &b)
+        .expect("native arrangement must classify the tilted-slab coplanar edge, not defer");
+    let native_v = welded_verts(&native.mesh);
+    let sidecar_v = welded_verts(&sidecar_arrangement(&a, &b));
+
+    if let Some(v) = vertex_cover_gap(&native_v, &sidecar_v, VERT_TOL) {
+        panic!(
+            "native arrangement vertex {v:?} has no sidecar vertex within {VERT_TOL} \
+             (native {} verts, sidecar {} verts)",
+            native_v.len(),
+            sidecar_v.len()
+        );
+    }
+    if let Some(v) = vertex_cover_gap(&sidecar_v, &native_v, VERT_TOL) {
+        panic!(
+            "sidecar arrangement vertex {v:?} has no native vertex within {VERT_TOL} \
+             (native {} verts, sidecar {} verts)",
+            native_v.len(),
+            sidecar_v.len()
+        );
+    }
+}
+
+/// Arrangement-level reference parity on the collinear-overlap single-coplanar-
+/// edge fixture (deviation N13, this slice): the coplanar edge runs collinear
+/// with an edge of the other triangle and partially overlaps it. The
+/// previously-deferred config must now classify; native arrangement vertex set
+/// ≡ sidecar arrangement vertex set (Hausdorff-0 at `VERT_TOL`, both
+/// directions). The overlap-start vertex (1, 0, 2) is the load-bearing new
+/// vertex.
+#[test]
+fn collinear_overlap_single_coplanar_edge_arrangement_parity() {
+    let (a, b) = cube_and_edge_collinear_overlap_tetra();
+
+    let native = native_labeled_arrangement(&a, &b)
+        .expect("native arrangement must classify the collinear-overlap coplanar edge, not defer");
     let native_v = welded_verts(&native.mesh);
     let sidecar_v = welded_verts(&sidecar_arrangement(&a, &b));
 

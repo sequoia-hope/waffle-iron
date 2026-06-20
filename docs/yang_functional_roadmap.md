@@ -1315,7 +1315,12 @@ swapped every consumer to `predicates::indirect`).
       `DegenerateTpi` walls remain typed errors where unreached; coplanar
       overlap + single-coplanar-edge-through-interior are loud
       `CoplanarPairDeferred` (the §4.5.5 2D-Boolean pre-pass is **M8**). Feeds
-      BL*.
+      BL*. **(UPDATE 2026-06-20:** the single-coplanar-edge class is now
+      CONSTRUCTED end-to-end — contained, edge-CROSSING, and the
+      tvX-corner / through-interior sub-configs all classify with sidecar
+      parity; only fully-coplanar `0 0 0` whole-triangle overlap still defers as
+      `DeferReason::Coplanar`. See `single_coplanar_edge_parity.rs` and
+      `soup.rs::adversary_coplanar_edge_through_interior_is_constructed`.**)
   - **PR-CR-BL1 — patch flood-fill (DONE, 2026-06-09).** Ported
     `computeAllPatches` / `computeSinglePatch` (booleans.cpp:396/426, serial
     variant) into the new feature-gated `labeling/patches.rs`:

@@ -2523,20 +2523,21 @@ mod adversary_tests {
     }
 
     // ════════════════════════════════════════════════════════════════
-    // 3. Near-shared faces — loud deferral, never a silent/wrong soup.
+    // 3. Near-shared faces — never a silent/wrong soup.
     //
     // (a) Two near-coplanar boxes whose contact includes a single coplanar EDGE
     //     lying in the other's face-plane and crossing its interior (plus an
-    //     independent coplanar y-face overlap). Both are real intersections AR1
-    //     cannot construct (N13/N17, M8 scope) → loud CoplanarPairDeferred. This
-    //     pins the SingleCoplanarEdge deferral branch end-to-end. The
-    //     transversal-CONFORMING guarantee for near-coplanar faces is covered by
-    //     the box-overlap family (case_b/case_c + winding/order invariance).
-    // (b) A genuinely coplanar OVERLAPPING pair → loud CoplanarPairDeferred.
+    //     independent coplanar y-face overlap). As of the N13 tvX/edge-crossing
+    //     slice this real positive-volume intersection is now CONSTRUCTED (a
+    //     conforming subdivision), not deferred — reference-parity-verified in
+    //     `single_coplanar_edge_parity.rs::tilted_slab_through_interior_*`. This
+    //     pins that it is never a silent pass-through (P9/P10): the soup is
+    //     subdivided with new geometry beyond the raw input.
+    // (b) A genuinely coplanar OVERLAPPING pair → constructed (PR-4).
     // ════════════════════════════════════════════════════════════════
 
     #[test]
-    fn adversary_coplanar_edge_through_interior_is_loudly_deferred() {
+    fn adversary_coplanar_edge_through_interior_is_constructed() {
         // Box A = axis-aligned [0,2]^3.
         // Box B = [1,3]x[0,2]x[0,2] but its z=0 / z=2 faces are TILTED by a small
         // exact slope (1/8 per unit x) so B is a transversal slab, NOT coplanar
@@ -2580,21 +2581,25 @@ mod adversary_tests {
 
         // The 1/8 tilt pivots at x=1, so B's bottom-face x=1 edge (1,0,0)→(1,2,0)
         // lies EXACTLY in A's z=0 plane and runs through the strict interior of
-        // A's bottom face — a genuine SingleCoplanarEdge intersection. B's
-        // untilted y=0/y=2 faces additionally overlap A's y-planes in positive
-        // area (an independent Coplanar contact). Both are real intersections AR1
-        // cannot construct (deviation N13/N17, M8 / Stage-0 scope), so the
-        // pipeline MUST surface a loud CoplanarPairDeferred — never a silent or
-        // wrong soup (P9/P10).
-        let res = mesh_arrangement(&coords, &tris, &labels);
-        assert!(
-            res.is_err(),
-            "coplanar-edge-through-interior must NOT be a silent Ok soup, got Ok"
+        // A's bottom face — a genuine SingleCoplanarEdge intersection (the
+        // tvX/edge-crossing config). B's untilted y=0/y=2 faces additionally
+        // overlap A's y-planes in positive area (an independent Coplanar
+        // contact, constructed since PR-4). The whole positive-volume
+        // interpenetration is now CONSTRUCTED as a conforming subdivision
+        // (reference-parity-verified, see the parity suite) — it must never be a
+        // silent pass-through nor a wrong soup (P9/P10): the result is a real
+        // subdivision with new geometry beyond the raw input triangles.
+        let n_input_tris = tris.len();
+        let n_input_verts = coords.len() / 3;
+        let soup = mesh_arrangement(&coords, &tris, &labels).expect(
+            "coplanar-edge-through-interior is now CONSTRUCTED (N13 tvX slice), not deferred",
         );
         assert!(
-            matches!(res, Err(ArrangementError::CoplanarPairDeferred { .. })),
-            "coplanar-edge-through-interior must be the classified \
-             CoplanarPairDeferred, got {res:?}"
+            soup.tris.len() > n_input_tris && soup.verts.len() > n_input_verts,
+            "interpenetration must be subdivided with new geometry, got {} tris / {} verts \
+             (raw input {n_input_tris} tris / {n_input_verts} verts)",
+            soup.tris.len(),
+            soup.verts.len()
         );
     }
 
@@ -2881,10 +2886,10 @@ mod adversary_tests {
     fn adversary_out_of_scope_inputs_are_never_silent_ok() {
         // (Coplanar positive-area overlap moved to
         // `adversary_genuinely_coplanar_overlap_is_constructed` — as of PR-4 it
-        // is IN scope and CONSTRUCTS, no longer a deferral. The remaining
-        // genuinely-out-of-scope coplanar sub-config (SingleCoplanarEdge
-        // vertex-in-edge) is still loudly deferred — see
-        // `adversary_coplanar_edge_through_interior_is_loudly_deferred`.)
+        // is IN scope and CONSTRUCTS, no longer a deferral. The SingleCoplanarEdge
+        // vertex-in-edge / through-interior sub-config is likewise now CONSTRUCTED
+        // by the N13 tvX/edge-crossing slice — see
+        // `adversary_coplanar_edge_through_interior_is_constructed`.)
 
         // Label/triangle count mismatch is still loud, never a silent
         // truncation.

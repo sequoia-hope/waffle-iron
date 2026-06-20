@@ -862,17 +862,16 @@ fn classify_single_coplanar_edge(
     let e0_seg = on_edge_index(loc0);
     let e1_seg = on_edge_index(loc1);
 
-    // Defer if a vertex of the other triangle lies strictly inside the
-    // coplanar edge — that becomes a vertex-in-edge on the coplanar edge plus
-    // a symbolic segment in the C++ (cpp:545-547 / cpp:658-674 / the
-    // `tvX_in_edge` branches at cpp:570/602/634), which needs cross-edge
-    // bookkeeping this slice does not construct. P9: never guess.
-    if o_tri
-        .iter()
-        .any(|&w| point_in_segment_3d(w, e0, e1) == SegmentLocation::StrictlyInside)
-    {
-        return None;
-    }
+    // A vertex of the other triangle that lies strictly inside the coplanar
+    // edge (`tvX_in_edge`, cpp:545-547 / 658-674) is a DEGENERATE crossing:
+    // the coplanar edge enters/exits `o_t` THROUGH one of its corners, so the
+    // crossing point is the EXACT o_t vertex (an `Explicit`), not a jolly-LPI.
+    // (The coplanar edge ∩ a convex `o_t` is one segment with ≤ 2 endpoints, so
+    // such a vertex is always an entry/exit, never strictly interior to the
+    // sub-segment.) These are collected as `Explicit` sub-segment endpoints in
+    // section (a2) below — placed by `group_intersection_points` as a
+    // vertex-in-edge on the coplanar edge (the C++ `addVertexInEdge(curr_e_id,
+    // v_id)`), and dropped on the `o_t` side where they are already a corner.
 
     let is_on_vert = |l: TriangleLocation| {
         matches!(
@@ -915,6 +914,26 @@ fn classify_single_coplanar_edge(
                     tri: e_tri_id,
                     corner: corner_of(ep),
                     point: ep,
+                },
+            );
+        }
+    }
+
+    // (a2) Each o_t VERTEX strictly inside the coplanar edge (`tvX_in_edge`,
+    //      cpp:545-547) is a degenerate edge-edge crossing AT that corner: the
+    //      crossing point IS the exact o_t vertex. Collect it as an `Explicit`
+    //      endpoint tagged with the o_t triangle (so `group_intersection_points`
+    //      places it as a vertex-in-edge on the coplanar edge and drops it on
+    //      the o_t side, where it is already a corner — the C++
+    //      `addVertexInEdge(curr_e_id, v_id)`).
+    for (corner, &w) in o_tri.iter().enumerate() {
+        if point_in_segment_3d(w, e0, e1) == SegmentLocation::StrictlyInside {
+            push_unique(
+                &mut out,
+                IntersectionVertex::Explicit {
+                    tri: o_tri_id,
+                    corner: corner as u8,
+                    point: w,
                 },
             );
         }
@@ -987,10 +1006,6 @@ fn classify_single_coplanar_edge(
         return None;
     }
 
-    // `o_tri_id` participates only as the pierced-side triangle, resolved by
-    // `group_intersection_points` from the pair ids; referenced here to keep
-    // the C++ call-shape (e_t_id, o_t_id) visible in the signature.
-    let _ = o_tri_id;
     Some(out)
 }
 
@@ -1913,6 +1928,57 @@ mod tests {
             })
             .collect();
         assert_eq!(exp, vec![Point3::new(2.0, 2.0, 0.0)], "got {v:?}");
+    }
+
+    /// `tvX_in_edge` sub-config: the coplanar edge enters A's interior and
+    /// EXITS THROUGH ONE OF A'S CORNERS (a degenerate edge-edge crossing whose
+    /// crossing point is the exact A vertex, cpp:545-547). B0=(5,2,0) inside A,
+    /// B1=(15,-2,0) outside, the edge passing through A's corner a1=(10,0,0)
+    /// (strictly inside B0-B1). Expect Transversal with TWO `Explicit`
+    /// endpoints — the contained B0 (owned by B, tri 1) and the corner a1
+    /// (owned by A, tri 0) — and ZERO `EdgeEdge` (the crossing is AT a vertex,
+    /// not a proper edge-interior crossing).
+    #[test]
+    fn single_coplanar_edge_tvx_corner_crossing_is_classified() {
+        let a = [
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(10.0, 0.0, 0.0),
+            Point3::new(0.0, 10.0, 0.0),
+        ];
+        let b = [
+            Point3::new(5.0, 2.0, 0.0),
+            Point3::new(15.0, -2.0, 0.0),
+            Point3::new(8.0, 1.0, 5.0),
+        ];
+        let (soup, _, _) = soup_pair(a, b);
+        let c = classify_pair(&soup, 0, 1);
+        let v = expect_transversal(&c);
+        assert_eq!(
+            count_explicit(v),
+            2,
+            "contained B0 + corner a1 → 2 Explicit, got {v:?}"
+        );
+        assert_eq!(
+            count_edge_edge(v),
+            0,
+            "crossing AT a vertex → 0 EdgeEdge, got {v:?}"
+        );
+        assert_eq!(count_lpi(v), 0, "no LPI, got {v:?}");
+        // The corner endpoint is exactly a1 = (10,0,0), owned by A (tri 0); the
+        // contained endpoint is B0 = (5,2,0), owned by B (tri 1).
+        let mut a_owned = Vec::new();
+        let mut b_owned = Vec::new();
+        for iv in v {
+            if let IntersectionVertex::Explicit { tri, point, .. } = iv {
+                match *tri {
+                    0 => a_owned.push(*point),
+                    1 => b_owned.push(*point),
+                    _ => unreachable!(),
+                }
+            }
+        }
+        assert_eq!(a_owned, vec![Point3::new(10.0, 0.0, 0.0)], "got {v:?}");
+        assert_eq!(b_owned, vec![Point3::new(5.0, 2.0, 0.0)], "got {v:?}");
     }
 
     // ════════════════════════════════════════════════════════════════
