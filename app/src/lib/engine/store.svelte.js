@@ -401,57 +401,35 @@ export async function initEngine() {
 	});
 
 	bridge.on('sketchSolved', (msg) => {
-		if (msg.positions && msg.status !== 'not_ready' && msg.status !== 'solver_not_ready') {
+		// The Rust engine sends { solved: { positions, profiles, status: SolveStatus } }
+		// where SolveStatus is { type: 'FullyConstrained' } | { type: 'UnderConstrained', dof }
+		// | { type: 'OverConstrained', conflicts } | { type: 'SolveFailed', reason }.
+		// Normalize to the flat format the rest of the store expects.
+		const solved = msg.solved || msg;
+		const statusObj = solved.status || { type: msg.status || 'unknown' };
+		const statusStr = statusObj.type || (typeof statusObj === 'string' ? statusObj : 'unknown');
+		const dof = statusObj.dof ?? msg.dof ?? -1;
+		const positions = solved.positions || msg.positions;
+		const failed = statusObj.conflicts || msg.failed || [];
+
+		if (positions && statusStr !== 'not_ready' && statusStr !== 'solver_not_ready') {
 			const newPositions = new Map();
-			for (const [id, pos] of Object.entries(msg.positions)) {
-				newPositions.set(Number(id), pos);
+			for (const [id, pos] of Object.entries(positions)) {
+				const p = pos.x !== undefined ? pos : { x: pos[0], y: pos[1] };
+				newPositions.set(Number(id), p);
 			}
 			sketchPositions = newPositions;
-
-			// Apply solved radii to circle entities
-			if (msg.solvedRadii) {
-				let changed = false;
-				for (const [id, radius] of Object.entries(msg.solvedRadii)) {
-					const numId = Number(id);
-					const idx = sketchEntities.findIndex(e => e.id === numId);
-					if (idx >= 0 && sketchEntities[idx].type === 'Circle') {
-						sketchEntities[idx] = { ...sketchEntities[idx], radius };
-						changed = true;
-					}
-				}
-				if (changed) {
-					sketchEntities = [...sketchEntities];
-				}
-			}
-
 			reExtractProfiles();
 		}
 
-		// Apply reference dimension value updates
-		if (msg.refUpdates && msg.refUpdates.length > 0) {
-			let constraintsChanged = false;
-			for (const upd of msg.refUpdates) {
-				if (upd.index >= 0 && upd.index < sketchConstraints.length) {
-					const c = sketchConstraints[upd.index];
-					if (c.reference && 'value' in c) {
-						sketchConstraints[upd.index] = { ...c, value: upd.value };
-						constraintsChanged = true;
-					}
-				}
-			}
-			if (constraintsChanged) {
-				sketchConstraints = [...sketchConstraints];
-			}
-		}
-
 		sketchSolveStatus = {
-			status: msg.status,
-			dof: msg.dof ?? -1,
-			failed: msg.failed || [],
+			status: statusStr,
+			dof,
+			failed,
 			solveTime: msg.solveTime
 		};
 		recomputeOverConstrained();
-		log('engine', 'Sketch solved', { status: msg.status, dof: msg.dof });
+		log('engine', 'Sketch solved', { status: statusStr, dof });
 	});
 
 	bridge.on('error', (msg) => {

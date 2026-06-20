@@ -474,30 +474,30 @@
 			onclick={() => setActiveTool('dimension')}
 		>Dim</button>
 		<div class="toolbar-sep"></div>
-		{#if solveStatus}
-			<span
-				class="dof-badge"
-				class:dof-ok={solveStatus.dof === 0 && solveStatus.status === 'okay'}
-				class:dof-under={solveStatus.dof > 0 && solveStatus.status === 'okay'}
-				class:dof-over={solveStatus.status === 'inconsistent'}
-				class:dof-redundant={solveStatus.status === 'didnt_converge'}
-				data-testid="dof-badge"
-				title={solveStatus.status === 'inconsistent' ? 'Over-constrained: conflicting constraints detected'
-					: solveStatus.status === 'didnt_converge' ? 'Solver did not converge (possible redundant constraints)'
-					: solveStatus.dof === 0 ? 'Fully constrained'
-					: `${solveStatus.dof} degrees of freedom remaining`}
-			>
-				{#if solveStatus.status === 'inconsistent'}
-					Over-constrained
-				{:else if solveStatus.status === 'didnt_converge'}
-					Redundant?
-				{:else if solveStatus.dof === 0}
-					Fully constrained
-				{:else}
-					{solveStatus.dof} DOF
-				{/if}
-			</span>
-		{/if}
+	{#if solveStatus}
+		<span
+			class="dof-badge"
+			class:dof-ok={solveStatus.dof === 0 && solveStatus.status === 'FullyConstrained'}
+			class:dof-under={solveStatus.dof > 0 && solveStatus.status === 'UnderConstrained'}
+			class:dof-over={solveStatus.status === 'OverConstrained'}
+			class:dof-redundant={solveStatus.status === 'SolveFailed'}
+			data-testid="dof-badge"
+			title={solveStatus.status === 'OverConstrained' ? 'Over-constrained: conflicting constraints detected'
+				: solveStatus.status === 'SolveFailed' ? 'Solver did not converge (possible redundant constraints)'
+				: solveStatus.dof === 0 ? 'Fully constrained'
+				: `${solveStatus.dof} degrees of freedom remaining`}
+		>
+			{#if solveStatus.status === 'OverConstrained'}
+				Over-constrained
+			{:else if solveStatus.status === 'SolveFailed'}
+				Redundant?
+			{:else if solveStatus.dof === 0}
+				Fully constrained
+			{:else}
+				{solveStatus.dof} DOF
+			{/if}
+		</span>
+	{/if}
 		<div class="toolbar-sep"></div>
 		<button class="toolbar-btn finish-btn" data-testid="toolbar-btn-finish-sketch" onclick={handleFinishSketch}>
 			Finish Sketch
