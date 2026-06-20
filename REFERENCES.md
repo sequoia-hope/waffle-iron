@@ -1,6 +1,6 @@
 # Waffle Iron — Reference Materials
 
-Technical references for B-rep kernel development, boolean operations, and computational geometry.
+Technical references for B-rep kernel development, boolean operations, computational geometry, and 2D geometric constraint solving.
 
 ## Keyword Index
 
@@ -13,6 +13,7 @@ Find references by topic. Numbers refer to reference entries below.
 **CDT / constrained Delaunay** → #10 (optimized CDT), #12 (per-triangle CDT), #39 (Livesu et al. 2021, deterministic linear-time simplified earcut)
 **Chained booleans** → #24 (bijective re-mapping preserves topology across chains)
 **Classification (face/in-out)** → #7 (winding number), #8 (winding number vectors), #12 (radial sort), #17 (set membership), #20 (4-way/8-way), #30 (GWN on trimmed NURBS, no tessellation), #38 (Cherchi 2022 §5 / Algorithm 1, exact ray-cast per-patch)
+**Constraint solving (2D geometric)** → #40 (Bouma et al. 1993, graph-reduction foundational), #41 (Gao 2006 C-tree decomposition), #42 (Haller 2010 body-and-cad rigidity), #47 (Hoffmann-Lomonosov-Sitharam 2001 cluster decomposition), #48 (Fudos-Hoffmann 1997 graph-constructive), #49 (Hoffmann-Joan-Arinyo 2005 brief survey), #50 (Jermann-Trombettoni 2006 decomposition survey)
 **Convergent modeling** → #36 (Parasolid v26+, mixed mesh+analytic bodies, boolean on faceted+parametric)
 **Coplanar / overlap regions** → #3 (same-domain analysis), #8 (coplanar CDT clustering), #10 (coplanar-heavy perf), #11 (plane-based repr), #26 (overlap as 2D phenomenon, bilevel optimization), #33 §6.1 (coincident surface imprinting)
 **Curve-face intersection classification** → #33 §6.1.1 (ENTERS/LEAVES/INOSCUL/OUTOSCUL/WIRE/ONEDGE, sequencing rules)
@@ -24,14 +25,18 @@ Find references by topic. Numbers refer to reference entries below.
 **Deflation / singularity regulation** → #29 (over-determined system transforms singular zeros to regular)
 **Degeneracy handling** → #5 (SoS), #6 (topology-oriented), #8 (no general position), #12 (two-case reduction), #25 (characteristic points determine topology), #29 (deflation for tangent points/tiny loops)
 **Delaunay complexes** → #23 Ch.III (alpha complexes)
+**Degrees of freedom (DOF) / over-under-constrained analysis** → #40 (Bouma et al. graph-reduction DOF counting), #41 (Gao C-tree DOF via merge patterns), #42 (Haller nested-sparsity counting condition), #44 (Nocedal-Wright rank-revealing QR)
 **Dixon resultant / implicitization** → #25 (Dixon matrix for SSI topology), #27 (algebraic methods survey)
 **Edge splitting / pave blocks** → #3 (OCCT pave blocks, shrunk ranges)
 **Euler operators** → #2 Ch.2, #16 (completeness proof), #20 (MEV/MEF/MEKL), #33 Ch.4 (spanning sets, matrix decomposition, 99 operators)
 **Exact arithmetic** → #4 (adaptive expansions), #9 (indirect predicates), #10 (exact constructions), #13 (lazy exact), #15 (Nef, exact throughout), #19 (filter thresholds), #38 (Cherchi 2022 — exact ray-cast in/out via implicit-point comparators)
 **Floating-point robustness** → #1 Ch.4, #2 Ch.4, #4, #19 (filter failure probabilities)
+**Graph decomposition / constructive GCS** → #40 (Bouma graph-reduction), #41 (Gao C-tree), #47 (Hoffmann-Lomonosov-Sitharam decomposition plans), #48 (Fudos-Hoffmann graph-constructive), #50 (Jermann-Trombettoni decomposition survey)
 **Homology / topological invariants** → #23 Ch.IV–V (Euler characteristic, Betti numbers)
 **Hybrid B-Rep/mesh boolean** → #14 (Sheng 2018), #24 (Yang 2025, bijective mapping)
+**Interaction (dragged point / sketch editing)** → #40 (Bouma solution-redirecting in exponentially large search space), #46 (rust-cv LM weighted residuals for drag)
 **Intersection curves** → #1 Ch.5–6, #3 (FF interference), #13 (algebraic curves on quadrics), #25 (topology-guaranteed tracing), #27 (comprehensive survey)
+**Levenberg-Marquardt / damped least-squares** → #43 (Moré 1978 original), #44 (Nocedal-Wright ch. 4 & 10), #45 (MINPACK reference impl, public domain), #46 (rust-cv crate, MIT, MINPACK port)
 **Feature modelling** → #33 Ch.9 (facesets, frames, design-by-features, recognition, verification)
 **Gluing / face joining** → #33 §6.4 (identical topology), #33 §6.13 (non-matching faces via local boolean)
 **Manifoldness** → #6 (topology-first guarantees), #16 (Euler ops preserve), #17 (regularization)
@@ -44,6 +49,7 @@ Find references by topic. Numbers refer to reference entries below.
 **NURBS / parametric surfaces** → #1 Ch.5, #2 Ch.5, #13 (ESOLID), #14 (hybrid), #28 (watertight reparameterization), #32 (comprehensive NURBS algorithms)
 **NURBS evaluation and derivatives** → #32 Ch.2-4 (basis functions, curves, surfaces, rational forms)
 **NURBS implementation** → #32 Ch.13 (data structures, memory, error control, programming concepts)
+**Newton-Raphson / nonlinear least-squares** → #43 (Moré 1978), #44 (Nocedal-Wright), #45 (MINPACK), #46 (rust-cv LM crate)
 **Numerical robustness** → #1 Ch.4, #2 Ch.4, #4, #6, #19
 **Point inversion / projection** → #32 Ch.6 (A6.1-A6.5, Newton iteration with convergence criteria)
 **Offset curves/surfaces** → #1 Ch.11
@@ -56,7 +62,8 @@ Find references by topic. Numbers refer to reference entries below.
 **Radial sort** → #10 (Levy, non-manifold edges), #12 (Barki, classification)
 **Regularized booleans** → #12 (explicit regularization), #17 (closure-of-interior definition)
 **Robustness comparison** → #15 (Nef vs ACIS), #20 (Tekla vs CGAL vs EMBER), #27 (SSI method comparison across OCCT/ACIS/SolidWorks)
-**Rust implementations** → #21 (kigumi mesh booleans)
+**Rust implementations** → #21 (kigumi mesh booleans), #46 (levenberg-marquardt crate, MIT, MINPACK port)
+**Rigidity theory / body-and-cad** → #42 (Haller et al. 2010, 21 constraint types, nested sparsity)
 **Scale normalization** → #24 (unit-cube normalization before mesh boolean), #27 (all production systems normalize), #31 (unit-cube + ε=10⁻⁶ after normalization)
 **Set membership classification** → #17 (PADL), #20 (in/out/on)
 **Model verification / healing** → #33 §14.1 (ACIS body checker: edge convexity, containment, self-intersection), #33 §14.2 (topological/geometric healing)
@@ -901,6 +908,331 @@ https://www.cad-journal.net/files/vol_12/CAD_12(2)_2015_181-191.pdf
 
 **Relevance**: A constrained Delaunay triangulation (CDT) algorithm for simple polygons with **deterministic O(n) worst-case complexity**, ~100× faster in practice than the previous best [Shewchuk and Brown 2015]. Cherchi 2022 [#38] §4 substituted this in for the original O(n²) earcut used in [#9] Cherchi 2020's segment-insertion step. Yang 2025 [#24] §4.4.1 (mesh updating) also relies on CDT to obtain valid trimmed-mesh discretizations. **Citation hygiene**: cite #39 for any "linear-time CDT for simple polygons given a constrained edge set" claim — including segment insertion in the arrangement and CDT-based mesh trimming around refined SSI curves. **Do not** use the older "Livesu & Cherchi 2022" label in new code/specs; use `Livesu et al. 2021` to match Cherchi 2022's bibliography.
 
+## Geometric Constraint Solving References
+
+These references support the clean-room 2D variational constraint solver project
+(`specs/clean_room_constraint_solver.md`). The solver replaces the GPL-3.0
+libslvs dependency with a Rust implementation built on permissively-licensed
+numerical primitives (Levenberg-Marquardt + nalgebra). The literature splits
+into two traditions: **variational** (numerical — model as equations, solve
+with LM/Newton) and **constructive / graph-decomposition** (combinatorial —
+decompose the constraint graph into solvable subproblems). Our implementation
+is variational; the constructive references inform DOF analysis and
+over/under-constrained detection.
+
+### 40. Bouma, Fudos, Hoffmann, Cai & Paige — "A Geometric Constraint Solver" (1993)
+
+**Access**: Free PDF, Purdue e-Pubs (open access):
+https://docs.lib.purdue.edu/cstech/1068
+
+Direct PDF: https://docs.lib.purdue.edu/cgi/viewcontent.cgi?article=2067&context=cstech
+
+**Local copy**: `refs/bouma1993_geometric_constraint_solver.pdf` (1.1 MB, 40 pages)
+**Text extraction**: `refs/text/bouma1993_geometric_constraint_solver.txt` (1,743 lines)
+
+**Citation**: Bouma, W., Fudos, I., Hoffmann, C.M., Cai, J., and Paige, R.
+"A Geometric Constraint Solver." Purdue CSD-TR-93-054, August 1993.
+Department of Computer Science Technical Reports, Paper 1068.
+
+**Relevance**: The foundational paper for constructive (graph-reduction)
+geometric constraint solving. Defines the architecture used by D-Cubed 2D DCM
+(Siemens) and its descendants. Handles 2D sketches of points, lines, circles,
+segments, and arcs with constraints of parallelism, incidence,
+perpendicularity, tangency, concentricity, collinearity, and prescribed radii.
+Uses a graph-reduction directed algebraic approach achieving interactive
+speed. Key contributions for our work: (1) the graph-reduction framework that
+identifies solvable sub-problems incrementally, (2) the solution-redirecting
+approach for navigating the exponentially large solution space to find the
+solution "appropriate to the application and intuitive to an untrained user"
+— directly relevant to our dragged-point interaction model. The graph-reduction
+DOF counting technique informs our `SolveStatus::UnderConstrained { dof }`
+classification (PR-SS1c). Implemented from the published algorithm; no code
+consulted from libslvs or SolveSpace.
+
+### 41. Gao, Lin & Zhang — "A C-Tree Decomposition Algorithm for 2D and 3D Geometric Constraint Solving" (2006)
+
+**Access**: Free PDF, HAL open archive:
+https://inria.hal.science/inria-00517706
+
+**Local copy**: `refs/gao2006_ctree_decomposition.pdf` (636 KB, 14 pages)
+**Text extraction**: `refs/text/gao2006_ctree_decomposition.txt` (1,296 lines)
+
+**Citation**: Gao, X.-S., Lin, Q., and Zhang, G. "A C-Tree Decomposition
+Algorithm for 2D and 3D Geometric Constraint Solving." Computer-Aided Design
+38(1):1–13, 2006.
+
+**Relevance**: Decomposes a constraint problem into a binary C-tree whose
+leaves are general construction sequences and whose internal nodes are basic
+merge patterns — the smallest sub-problems that must be solved. The merge
+pattern classification (for both 2D and 3D) gives closed-form solutions for
+many sub-problems, reducing the numerical solve to a sequence of small,
+well-conditioned systems. Complexity O(n²(nCe)e) for n objects and e
+constraints. The C-tree is the basis for the constructive approach to DOF
+analysis: each merge pattern has a known valence (number of scalar equations),
+and the tree structure reveals over/under-constrained sub-problems locally
+rather than globally. Informs our status classification algorithm (PR-SS1c):
+merge-pattern valence counting is an alternative to rank-revealing QR for DOF
+detection. Banked as a future optimization; PR-SS1 uses pure numerical
+rank-revealing QR, which is simpler but less efficient for large sketches.
+
+### 42. Haller, Lee-St.John, Sitharam, Streinu & White — "Body-and-cad Geometric Constraint Systems" (2010)
+
+**Access**: Free PDF, arXiv (fully open):
+https://arxiv.org/abs/1006.1126
+
+Direct PDF: https://arxiv.org/pdf/1006.1126
+
+**Local copy**: `refs/haller2010_body_and_cad.pdf` (5.3 MB, 33 pages)
+**Text extraction**: `refs/text/haller2010_body_and_cad.txt` (2,055 lines)
+
+**Citation**: Haller, K., Lee-St.John, A., Sitharam, M., Streinu, I., and
+White, N. "Body-and-cad Geometric Constraint Systems." arXiv:1006.1126 [cs.CG],
+2010. Abbreviated version in 24th ACM Symposium on Applied Computing, GCR'09,
+2009. Published in Computational Geometry: Theory and Applications 45(8):
+385–405, 2012.
+
+**Relevance**: The modern (2010+) rigidity-theoretic treatment of CAD
+constraint systems. Identifies 21 relevant geometric constraints across six
+categories (point-point, point-line, point-plane, line-line, line-plane,
+plane-plane) — a superset of our 13 PR-SS1 constraints. Develops the
+infinitesimal rigidity theory (rigidity matrix pattern) for these structures
+and identifies **nested sparsity**, a necessary-but-not-sufficient counting
+condition for minimal rigidity — the body-and-cad generalization of Maxwell's
+sparsity condition. The nested-sparsity check is an O(n²) DOF filter that can
+quickly reject over-constrained sketches before running the full numerical
+solve. Also presents an efficient pebble-game algorithm for nested sparsity.
+Relevant as a future optimization: PR-SS1 uses rank-revealing QR (accurate but
+O(n³)); the nested-sparsity pebble game could be added as a fast pre-filter
+for large sketches (PR-SS2+). Also the definitive reference for the 21
+constraint-type taxonomy used in industrial solvers (D-Cubed DCM, SolidWorks).
+
+### 43. Moré — "The Levenberg-Marquardt Algorithm: Implementation and Theory" (1978)
+
+**Access**: Springer LN (paywalled):
+https://link.springer.com/chapter/10.1007/BFb0067700
+
+**Local copy**: none (paywalled). The algorithm is described in full in
+Nocedal & Wright #44 ch. 4 & 10, and implemented in MINPACK #45 (public
+domain).
+
+**Citation**: Moré, J.J. "The Levenberg-Marquardt algorithm: Implementation
+and theory." In Watson, G.A. (ed.), Numerical Analysis, Lecture Notes in
+Mathematics vol 630, Springer, Berlin, Heidelberg, 1978. pp. 105–116.
+
+**Relevance**: The original LM algorithm paper by one of the MINPACK authors.
+Establishes the trust-region formulation of damped least-squares and the
+adaptive damping factor update that bears Levenberg's and Marquardt's names.
+The algorithm itself is public domain (via the MINPACK implementation #45,
+which Moré co-authored) and is described in textbook form in Nocedal-Wright
+#44. Cite this paper for algorithmic provenance; the implementation we use is
+the rust-cv `levenberg-marquardt` crate #46, which is a direct port of
+MINPACK's `lmdif` and reports floating-point-identical output to the Fortran
+reference on rank-deficient problems.
+
+### 44. Nocedal & Wright — "Numerical Optimization" (2nd Edition, 2006)
+
+**Access**: Springer (paywalled). Widely held in university libraries.
+Course-hosted PDF (Reichel, Kent State):
+https://www.math.kent.edu/~reichel/courses/optimization/Numerical_Optimization.pdf
+
+**Local copy**: `refs/nocedal_wright_numerical_optimization.pdf` (4.4 MB, 683 pages)
+**Text extraction**: `refs/text/nocedal_wright_numerical_optimization.txt` (43,630 lines)
+
+**Citation**: Nocedal, J. and Wright, S.J. Numerical Optimization, 2nd
+edition. Springer Series in Operations Research and Financial Engineering,
+2006. ISBN 978-0-387-30303-1.
+
+**Relevance**: The canonical numerical optimization textbook. Chapter 4
+covers trust-region methods (the framework underlying LM); Chapter 10 covers
+nonlinear least-squares including the LM algorithm, Jacobian computation,
+rank-deficient handling, and convergence theory. The algorithm description is
+free to implement — it is the source we implement from for the clean-room
+solver (PR-SS1b/SS1c), since it presents LM in textbook form without
+dependency on any specific source code. The rank-revealing QR technique used
+for our DOF classification (PR-SS1c) is described in §3.4. Cite for the
+algorithmic provenance of the numerical core; pair with #45 (MINPACK source)
+and #46 (rust-cv crate) for the actual implementation.
+
+### 45. MINPACK — Reference Levenberg-Marquardt Implementation
+
+**Access**: Public domain (US government work), freely distributable:
+https://www.netlib.org/minpack/
+
+**Local copy**: `refs/minpack_lmdif_source.txt` (Fortran source of `lmdif`,
+the LM driver — 454 lines)
+**Local copy**: `refs/minpack_readme.txt` (18 lines, netlib readme)
+
+**Citation**: Moré, J.J., Garbow, B.S., and Hillstrom, K.E. "User Guide for
+MINPACK-1." Argonne National Laboratory, ANL-80-74, 1980. The `lmdif` routine
+specifically: Moré, J.J. "The Levenberg-Marquardt algorithm: Implementation
+and theory," #43.
+
+**Relevance**: MINPACK is the public-domain reference implementation of the
+LM algorithm, produced at Argonne National Laboratory under US government
+funding — hence public domain. The `lmdif` routine (whose source is in
+`refs/minpack_lmdif_source.txt`) is the damped least-squares driver that the
+rust-cv `levenberg-marquardt` crate #46 ports directly, reporting
+floating-point-identical output on rank-deficient problems. Reading the
+Fortran source is not required for implementing our solver (the crate handles
+it), but it is the authoritative reference for the algorithm's convergence
+criterion, damping factor update, and step acceptance logic. The public
+domain status of MINPACK is why the algorithm is free to implement and port
+without license obligations — a key fact for our MIT relicensing goal.
+
+### 46. `levenberg-marquardt` Rust crate (rust-cv)
+
+**Access**: MIT/Apache-2.0 dual-licensed, source on GitHub:
+https://github.com/rust-cv/levenberg-marquardt
+
+docs.rs: https://docs.rs/levenberg-marquardt/0.15.0/levenberg_marquardt/
+
+crates.io: https://crates.io/crates/levenberg-marquardt
+
+**Local copy**: `refs/levenberg_marquardt_crate_readme.md` (65 lines)
+
+**Citation**: `levenberg-marquardt` crate v0.15.0, rust-cv working group.
+Maintainers: vadixidav, jannschu. MIT/Apache-2.0.
+
+**Relevance**: The numerical core of our clean-room constraint solver
+(PR-SS1). A direct Rust port of MINPACK's `lmdif` (#45). The crate's
+`LeastSquaresProblem<f64>` trait is exactly the abstraction we need: supply
+residuals + analytic Jacobian, call `LevenbergMarquardt::new().minimize(problem)`,
+receive solved parameters + a `MinimizationReport` with termination reason.
+Built on `nalgebra` (BSD-3-Clause) for linear algebra. The crate's built-in
+`differentiate_numerically` helper is used in our unit tests (PR-SS1b) to
+verify each constraint's analytic Jacobian against numerical differentiation
+— the exact verification workflow recommended in the crate's own docs.
+Reports floating-point-identical output to MINPACK on rank-deficient unstable
+problems, satisfying our determinism invariant (AGENTS.md rule 13). The MIT
+license is the key dependency for our MIT relicensing goal: no copyleft
+attaches to the combined WASM binary from this crate. Companion crate
+`argmin` (MIT/Apache) provides BFGS/dogleg/trust-region alternatives if we
+need to swap optimizers (not required for PR-SS1).
+
+### 47. Hoffmann, Lomonosov & Sitharam — "Decomposition Plans for Geometric Constraint Systems, Parts I & II" (2001)
+
+**Access**: ScienceDirect (paywalled):
+Part I: https://www.sciencedirect.com/science/article/pii/S074771710004025
+Part II: https://www.sciencedirect.com/science/article/pii/S074771710004035
+
+**Local copy** (both parts):
+- `refs/hoffmann2001_decomposition_plans_part1.pdf` (577 KB, Part I: Performance Measures for CAD)
+  Text: `refs/text/hoffmann2001_decomposition_plans_part1.txt` (2,743 lines)
+- `refs/hoffmann2001_decomposition_plans_part2.pdf` (418 KB, Part II: New Algorithms)
+  Text: `refs/text/hoffmann2001_decomposition_plans_part2.txt` (1,482 lines)
+
+**Citation**: Hoffmann, C.M., Lomonosov, A., and Sitharam, M. "Decomposition
+Plans for Geometric Constraint Systems, Part I: Performance Measures for
+CAD." Journal of Symbolic Computation 31(4):367–408, 2001. "Decomposition
+Plans for Geometric Constraint Problems, Part II: New Algorithms." Journal of
+Symbolic Computation 31(4):409–427, 2001.
+
+**Relevance**: The canonical reference for cluster-based decomposition of
+constraint graphs — the constructive approach to GCS that complements the
+variational (numerical) approach. Part I defines performance measures for
+decomposition quality (how close to optimal is the solve order); Part II
+introduces new decomposition algorithms achieving those measures. The
+cluster-decomposition framework partitions the constraint graph into
+maximally rigid subgraphs (clusters), solves each cluster independently,
+then merges — the same divide-and-conquer structure as Gao's C-tree #41 but
+with a richer performance model. Relevant as a future optimization for large
+sketches: solving clusters independently reduces the LM problem size and
+improves conditioning. PR-SS1 uses a single monolithic LM solve; cluster
+decomposition is banked for PR-SS2+ when sketch complexity warrants it. Also
+the reference for the "decomposition plan" terminology used in the GCS
+literature.
+
+### 48. Fudos & Hoffmann — "A Graph-Constructive Approach to Solving Systems of Geometric Constraints" (1997)
+
+**Access**: Free PDF, Purdue cgvlab:
+https://www.cs.purdue.edu/cgvlab/www/resources/papers/Fudos-ACMTOG-1997-A_Graph_Constructive_Approach_to_Solving_Systems_of_Geomeric_Cons.pdf
+
+Also at Purdue e-Pubs (CSD-TR-96-007): https://docs.lib.purdue.edu/cstech/1263
+
+**Local copy**: `refs/fudos_hoffmann1997_graph_constructive.pdf` (1.0 MB, 40 pages)
+**Text extraction**: `refs/text/fudos_hoffmann1997_graph_constructive.txt` (1,917 lines)
+
+**Citation**: Fudos, I. and Hoffmann, C.M. "A Graph-Constructive Approach to
+Solving Systems of Geometric Constraints." ACM Transactions on Graphics
+16(2):179–212, 1997. (Earlier version: Purdue CSD-TR-96-007, 1996. A shorter
+companion appeared in Computer-Aided Design 28(11), 1996.)
+
+**Relevance**: The full journal version of the graph-based formalization that
+Bouma et al. #40 builds upon. Introduces the constraint graph representation
+(vertices = geometric primitives, edges = constraints) and the graph-reduction
+rules that identify solvable sub-problems by pattern matching (e.g., a point
+constrained by two distance constraints from two fixed points is solvable by
+circle intersection). The reduction rules are the constructive counterpart to
+the variational approach's residual equations — each reduction rule corresponds
+to a small, closed-form solvable system. Relevant as the theoretical basis
+for graph-reduction DOF analysis: a constraint graph that cannot be fully
+reduced is either over- or under-constrained, and the irreducible residue
+identifies which constraints conflict. Cite alongside #40 for the
+graph-reduction tradition. Not implemented in PR-SS1 (which uses numerical
+rank-revealing QR); banked as a future DOF-analysis optimization.
+
+### 49. Hoffmann & Joan-Arinyo — "A Brief on Constraint Solving" (2005)
+
+**Access**: Free PDF, Purdue cgvlab:
+https://www.cs.purdue.edu/cgvlab/www/resources/papers/Hoffmann-Computer_aided_Design-2005-A_Brief_on_constraint_solving.pdf
+
+**Local copy**: `refs/hoffmann2005_brief_on_constraint_solving.pdf` (351 KB, 10 pages)
+**Text extraction**: `refs/text/hoffmann2005_brief_on_constraint_solving.txt` (460 lines)
+
+**Citation**: Hoffmann, C.M. and Joan-Arinyo, R. "A Brief on Constraint
+Solving." Computer-Aided Design and Applications 2(5):655–663, 2005.
+DOI: 10.1080/16864360.2005.10738330.
+
+**Note on provenance**: This entry replaces a phantom CiteSeerX reference
+("Joan-Arinyo, Basics on Geometric Constraint Solving," DOI 10.1.1.331.9554)
+that Wikipedia's "Geometric constraint solving" entry cited but which does not
+exist — the DOI resolves to nothing, the Wayback Machine has no copy, and
+Google returns no matches for the cited title. The Wikipedia citation was
+almost certainly a mis-attribution of this peer-reviewed Hoffmann-Joan-Arinyo
+survey, which is co-authored by the very person Wikipedia named and covers
+exactly the "basics of geometric constraint solving" scope. An expanded
+version was once hosted at `www.cs.purdue.edu/homes/cmh/distribution/papers/
+Constraints/ThailandFull.pdf` and `www.lsi.upc.es/~robert/ThailandFull.pdf`
+but is no longer available; the published 10-page version is the citable
+reference.
+
+**Relevance**: A readable peer-reviewed survey of 2D geometric constraint
+solving co-authored by two of the field's principals (Hoffmann — Purdue, the
+constructive GCS tradition; Joan-Arinyo — UPC Barcelona, the
+decomposition/DOF analysis tradition). Covers the constraint problem
+formalization (E, O, X, C) tuple, the major solving approaches (variational
+numerical, constructive graph-reduction, hybrid), and touches on spatial
+constraint solving. The formalization in §2 directly informs our `Sketch` /
+`SketchEntity` / `SketchConstraint` type design. Use as the starting point
+for understanding the GCS landscape before diving into the primary papers
+(#40 Bouma, #47 Hoffmann-Lomonosov-Sitharam, #48 Fudos-Hoffmann). Pair with
+the Jermann-Trombettoni survey #50 for the decomposition-technique taxonomy.
+
+### 50. Jermann, Trombettoni, Neveu & Mathis — "Decomposition of Geometric Constraint Systems: a Survey" (2006)
+
+**Access**: Free PDF (author's page, LIRMM):
+https://www.lirmm.fr/~trombetton/publis/survey_ijcga_2006.pdf
+
+**Local copy**: `refs/trombetton2006_gcs_survey.pdf` (731 KB, 35 pages)
+**Text extraction**: `refs/text/trombetton2006_gcs_survey.txt` (1,879 lines)
+
+**Citation**: Jermann, C., Trombettoni, G., Neveu, B., and Mathis, P.
+"Decomposition of Geometric Constraint Systems: a Survey." International
+Journal of Computational Geometry & Applications 16(5):493–529, 2006.
+
+**Relevance**: The most comprehensive survey of GCS decomposition techniques,
+covering four categories of decomposition methods (rigidity-based, DOF-based
+maximum-matching, connectivity-based, structural). Explains the modus operandi
+of each category and establishes similarities between traditionally separate
+methods. Covers key concepts used across our constructive references: DR-planners
+(decomposition-recombination), PDOF (parametric degrees of freedom), WCM
+(well-constrained matching), and the maximum-matching algorithm for DOF
+analysis. More current and detailed than the Hoffmann-Joan-Arinyo brief #49 — this is the
+survey to read first for the decomposition landscape. Pair with #47
+(Hoffmann-Lomonosov-Sitharam) for the specific algorithms the survey
+evaluates. Relevant as a future optimization reference (PR-SS2+): decomposition
+reduces the monolithic LM solve into smaller, better-conditioned sub-problems.
+
 ## How to Reference During Development
 
 When working on boolean reliability or kernel improvements:
@@ -933,3 +1265,16 @@ When working on boolean reliability or kernel improvements:
 26. **Use Aubry (#35)** for industrial-grade NURBS tessellation — anisotropic metric tensors from principal curvatures, watertight conformity between adjacent patches, degeneracy handling for production CAD models.
 27. **Use Parasolid (#36)** for surface type taxonomy — the 3-tier hierarchy (analytic, procedural, NURBS) is the industry-standard architecture. Informs SurfaceGeom enum design, lazy conversion strategy, and surface-type-aware tessellation.
 28. **Use Mistry (#37)** for swept volume construction — profile + spine + orientation law formalization. Directly applicable to Tier 2 procedural surface representation.
+
+When working on the 2D geometric constraint solver (clean-room replacement for libslvs, per `specs/clean_room_constraint_solver.md`):
+
+29. **Use Nocedal & Wright #44** for the LM algorithm — ch. 4 (trust-region) & ch. 10 (nonlinear least-squares). The textbook we implement from. Pair with #43 (Moré 1978) for algorithmic provenance.
+30. **Use MINPACK #45** for the reference LM implementation — `lmdif` source (public domain). The authoritative reference for convergence criterion, damping factor update, and step acceptance logic.
+31. **Use the `levenberg-marquardt` crate #46** for the numerical core — MIT/Apache Rust port of MINPACK. Its `LeastSquaresProblem` trait is our residual+Jacobian interface; `differentiate_numerically` is our Jacobian-verification tool.
+32. **Use Bouma et al. #40** for graph-reduction DOF analysis — the foundational constructive approach. Solution-redirecting (navigating the exponentially large solution space) informs dragged-point interaction.
+33. **Use Haller et al. #42** for the 21-constraint taxonomy and nested-sparsity DOF filter — the modern rigidity-theoretic treatment. Pebble-game algorithm is a future optimization for fast over-constrained pre-filtering.
+34. **Use Gao #41** for C-tree decomposition — merge-pattern classification with closed-form solutions for many sub-problems. Banked as a future optimization for large sketches (PR-SS2+).
+35. **Use Hoffmann-Lomonosov-Sitharam #47** for cluster decomposition — the canonical decomposition-plan reference. Banked for PR-SS2+ when sketch complexity warrants divide-and-conquer solving.
+36. **Use Fudos-Hoffmann #48** for graph-based constraint formalization — the theoretical basis for graph-reduction DOF analysis. Pair with #40.
+37. **Use Hoffmann-Joan-Arinyo #49** for GCS survey context — peer-reviewed overview of 2D constraint solving approaches and the (E, O, X, C) problem formalization. Read first for the landscape; pair with #50 for decomposition taxonomy.
+38. **Use Jermann-Trombettoni #50** for the comprehensive decomposition survey — four categories of decomposition methods, DR-planner evaluation, maximum-matching DOF analysis. Read this for the decomposition landscape; pair with #47 for specific algorithms.
