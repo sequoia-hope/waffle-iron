@@ -34,25 +34,41 @@ fn err_waffle_json() -> Option<String> {
     None
 }
 
-// QUARANTINED (RED) — PR-5 landed the Stage-6 coincident-cylinder MEMBRANE
-// resolution (the original blocker: "geometric face resolution failed … a
-// multi-solid label with no matching Stage-0 pair plane"). That now succeeds,
-// and the coincident-cylinder SSI-degenerate edge is handled (curve from the
-// overlap boundary, not the refused SSI). But the gear still does NOT build
-// clean: the coincident-cylinder union hits a downstream Stage-4 wall —
-//   "Stage-4 relocation region around vertex 4497 is invalid: DegenerateTriangle"
-// a pre-existing zero-area sliver at the flange cap rim (a vertex at z=0.002
-// alongside its coincident-cylinder twin ~10 ULPs away at 0.001999999999999998),
-// and beyond it a single seam PINCH vertex (χ=-1) where the two opposite-sense
-// cylinder walls meet at one point after the membrane drop. Forcing past either
-// produces silent-wrong output (a rounding-weld attempt regressed assay F0057
-// from a loud ERROR to SUPPORTED_WRONG — reverted, P9). Resolving them needs
-// conformal Stage-0 handling of coincident CURVED surfaces (the cylinder analog
-// of the planar §4.5.5 overlay), which is beyond PR-5's Stage-6 scope.
-// Un-ignore when that lands.
-#[ignore = "M8-cyl: coincident-cylinder union builds the membrane but hits a \
-            Stage-4 DegenerateTriangle + seam-pinch downstream; needs conformal \
-            curved Stage-0 (the membrane resolution itself is fixed + shipped)"]
+// QUARANTINED (RED) — progress across PR-5 and PR-6, gear still not clean:
+//
+//   • PR-5 landed the Stage-6 coincident-cylinder MEMBRANE resolution (the
+//     original "no matching Stage-0 pair plane" face-resolution failure).
+//   • PR-6 fixed DEFECT 1 conformally: the "Stage-4 relocation region around
+//     vertex 4497 is invalid: DegenerateTriangle" sliver. Confirmed cause —
+//     31 cap-rim points (cap plane z=±0.002 ∩ the coincident bore/flange
+//     cylinder) were minted redundantly by cherchi's exact arrangement,
+//     clustered ~1 ULP apart (max sep ~9e-19 at coord scale 5e-3) and left
+//     DISTINCT by the curved-input bit-exact weld, so a kept triangle carried
+//     two copies of one geometric rim point. PR-6 welds those redundant
+//     reconstructions by EXACT IDENTITY, gated on analytic on-cylinder
+//     membership (radial dist ~1e-19) + a sub-feature-size cluster band — a
+//     conformal merge, NOT a tolerance bucket (touches no planar case, cannot
+//     reintroduce the reverted F0057 planar-weld masking).
+//
+//   • DEFECT 2 remains (the present wall): "reassembled output would be
+//     non-2-manifold". Single shell with χ = −1 and a PINCH at vertex 4492
+//     (z=0, on the bore cylinder, mid-plug), where 7 gear-bore-wall triangles
+//     (InputId A) and 2 flange-wall triangles (InputId B) meet at one shared
+//     vertex. ROOT CAUSE is in cherchi-rs (Stage 2), NOT yang-rs: over the
+//     overlap band z∈[−0.002,0.002] the gear bore wall and the flange outer
+//     wall are the SAME (coincident, opposite-sense) cylinder, yet cherchi's
+//     ray-cast in/out labels the bore-wall band inside=[false,false] (kept by
+//     the union) instead of inside=[_, true] (interior to the flange, dropped).
+//     Both walls' fans therefore survive and pinch. Fixing this requires
+//     cherchi to multi-label / correctly classify the coincident-cylinder
+//     WALL overlap (not just the cap-rim membrane) — the conformal curved
+//     Stage-0/labeling work, out of yang-rs scope. Forcing past it is
+//     silent-wrong (P9). Un-ignore when that lands.
+#[ignore = "M8-cyl: PR-6 fixed the Stage-4 DegenerateTriangle (cap-rim conformal \
+            weld); the gear now reaches reassembly but a coincident-cylinder \
+            WALL labeling defect in cherchi-rs (bore-wall band mis-classified \
+            inside=[false,false]) pinches the seam (χ=-1). Needs cherchi \
+            coincident-cylinder in/out labeling — out of yang-rs scope"]
 #[test]
 fn gear_flange_union_builds_full_height() {
     let Some(json) = err_waffle_json() else {

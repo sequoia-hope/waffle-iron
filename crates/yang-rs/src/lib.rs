@@ -5152,7 +5152,8 @@ pub fn boolean(
         // bit-identical occurrence.
         use std::collections::HashMap;
         let mut first: HashMap<[u64; 3], u32> = HashMap::with_capacity(la.mesh.verts.len());
-        la.mesh
+        let mut weld: Vec<u32> = la
+            .mesh
             .verts
             .iter()
             .enumerate()
@@ -5160,7 +5161,112 @@ pub fn boolean(
                 let key = [v.x().to_bits(), v.y().to_bits(), v.z().to_bits()];
                 *first.entry(key).or_insert(i as u32)
             })
-            .collect()
+            .collect();
+
+        // PR-6 (coincident-cylinder rim conformal weld). The §4.5.5 planar
+        // Stage-0 overlay makes two coincident PLANAR faces' shared loop
+        // vertices bit-identical (the cross-weld at `stage0.rs:261`). Its
+        // curved analog: where a coincident-CYLINDER pair's lateral meets a
+        // CAP PLANE, cherchi's exact arrangement mints the SAME rim-circle
+        // point redundantly (once per generating tri-pair / incident surface),
+        // landing a cluster of copies a FEW ULPs apart (verified on
+        // `err.waffle`: 31 such near-twins, all at machine-zero distance from
+        // a `cyl_pairs` lateral AND on the cap plane, max separation ~9e-19 at
+        // a coordinate scale of 5e-3 — i.e. ~1 ULP). The bit-exact weld leaves
+        // them distinct, so a kept triangle can carry two copies of one
+        // geometric rim point: a zero-area sliver that fails Stage-4
+        // (`DegenerateTriangle` at v4497/v4495) and pinches the post-membrane
+        // seam.
+        //
+        // The conformal reconciliation: union ONLY vertices that lie EXACTLY
+        // (within the pair's analytic band) on a coincident-cylinder pair's
+        // shared lateral AND are within the scale-relative `TAU_WORK·(1+scale)`
+        // band of each other. This is an EXACT-IDENTITY weld of redundant
+        // reconstructions of one analytic point — NOT a tolerance bucket:
+        //   • Membership is gated on the analytic coincident-cylinder surface
+        //     (machine-zero radial distance), not a proximity guess.
+        //   • The union band (~1e-12) is six orders below MIN_FEATURE_SIZE
+        //     (1e-6); genuinely distinct rim points (≥ chord-spacing ~1e-4)
+        //     never fuse — only sub-ULP duplicates do.
+        //   • It touches NO planar case (gated on `cyl_pairs`), so it cannot
+        //     reintroduce the reverted F0057 planar-weld masking (that weld
+        //     fused planar vertices and hid 74 unpaired edges).
+        // Survivor = the cluster's minimum welded index (deterministic).
+        if !cyl_pairs.is_empty() {
+            let verts = &la.mesh.verts;
+            // On-cylinder predicate: radial distance within the pair band. The
+            // observed rim duplicates sit at ~1e-19 (machine zero); the band
+            // (1e-7) is a safe analytic membership gate that admits no
+            // off-surface vertex of this model (off-rim arrangement points are
+            // ≥ chord-scale ~1e-4 off any OTHER cylinder, and on-lateral
+            // tessellation chords sit up to the sagitta INSIDE the radius —
+            // far beyond 1e-7 — so only true on-surface rim points qualify).
+            let on_rim = |i: u32| -> bool {
+                let c = verts[i as usize].as_array();
+                cyl_pairs
+                    .iter()
+                    .any(|p| centroid_on_cylinder(c, p) <= p.band)
+            };
+            let scale = verts
+                .iter()
+                .flat_map(|v| v.as_array())
+                .fold(0.0f64, |m, c| m.max(c.abs()));
+            let cluster_band = cad_primitives::TAU_WORK * (1.0 + scale);
+            // Candidate rim vertices (post bit-exact weld representatives only).
+            let rim: Vec<u32> = (0..verts.len() as u32)
+                .filter(|&i| weld[i as usize] == i && on_rim(i))
+                .collect();
+            // Bucketed union-find (27-neighborhood probe + exact pairwise band).
+            let mut parent: HashMap<u32, u32> = rim.iter().map(|&i| (i, i)).collect();
+            fn find(parent: &mut HashMap<u32, u32>, mut x: u32) -> u32 {
+                while parent[&x] != x {
+                    let g = parent[&parent[&x]];
+                    parent.insert(x, g);
+                    x = g;
+                }
+                x
+            }
+            let cell = |c: f64| -> i64 { (c / cluster_band).floor() as i64 };
+            let mut grid: HashMap<[i64; 3], Vec<u32>> = HashMap::new();
+            for &i in &rim {
+                let p = verts[i as usize].as_array();
+                let key = [cell(p[0]), cell(p[1]), cell(p[2])];
+                for dx in -1..=1i64 {
+                    for dy in -1..=1i64 {
+                        for dz in -1..=1i64 {
+                            let Some(occ) = grid.get(&[key[0] + dx, key[1] + dy, key[2] + dz])
+                            else {
+                                continue;
+                            };
+                            for &j in occ {
+                                let q = verts[j as usize].as_array();
+                                let pair_band = cad_primitives::TAU_WORK
+                                    * (1.0
+                                        + p.iter()
+                                            .chain(q.iter())
+                                            .fold(0.0f64, |m, c| m.max(c.abs())));
+                                if (0..3).all(|k| (p[k] - q[k]).abs() <= pair_band) {
+                                    let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+                                    if ri != rj {
+                                        parent.insert(ri.max(rj), ri.min(rj));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                grid.entry(key).or_default().push(i);
+            }
+            // Re-point every vertex whose bit-exact representative is a rim
+            // candidate to its cluster minimum.
+            for w in weld.iter_mut() {
+                if parent.contains_key(w) {
+                    *w = find(&mut parent, *w);
+                }
+            }
+        }
+
+        weld
     };
 
     // (3) Stage 4: which arrangement tris survive `op`.
@@ -8340,6 +8446,62 @@ mod tests {
     // branch must report a reversal. (Was the N3 logic inversion: returned
     // `false` = "healthy", silently failing to correct the very reversal §4.5.3
     // exists for; reachable whenever relocation produces an out-of-order point.)
+
+    // PR-6 (coincident-cylinder rim conformal weld). Locks the two invariants
+    // that make the curved-input rim weld a conformal exact-identity merge of
+    // redundant reconstructions — NOT a tolerance bucket that could mask
+    // unpaired edges (the reverted F0057 hazard):
+    //   (1) two sub-ULP rim duplicates of one analytic point are BOTH on the
+    //       cylinder (within the analytic band) AND within the cluster band,
+    //       so they fuse;
+    //   (2) two GENUINELY distinct rim points (≥ MIN_FEATURE_SIZE apart, here
+    //       the ~1e-4 chord spacing) are on the cylinder but FAR outside the
+    //       cluster band, so they never fuse.
+    #[test]
+    fn pr6_rim_weld_fuses_only_sub_ulp_duplicates() {
+        let cyl = stage0::PairCylinder {
+            axis_point: [0.0, 0.0, 0.0],
+            axis_dir: [0.0, 0.0, 1.0],
+            radius: 1.0,
+            band: 1e-7,
+            opposite: true,
+        };
+        let base = [1.0, 0.0, 0.3];
+        // (1) A sub-ULP duplicate: perturb the in-plane coord by ~2 ULPs.
+        let twin = [1.0 + 2.0 * f64::EPSILON, 0.0, 0.3];
+        let scale = base
+            .iter()
+            .chain(twin.iter())
+            .fold(0.0f64, |m, &c| m.max(c.abs()));
+        let cluster_band = cad_primitives::TAU_WORK * (1.0 + scale);
+        assert!(
+            centroid_on_cylinder(base, &cyl) <= cyl.band,
+            "base rim point must be on the cylinder"
+        );
+        assert!(
+            centroid_on_cylinder(twin, &cyl) <= cyl.band,
+            "sub-ULP twin must still be on the cylinder"
+        );
+        assert!(
+            (0..3).all(|k| (base[k] - twin[k]).abs() <= cluster_band),
+            "sub-ULP twin must be within the cluster band ⇒ fuses"
+        );
+        // (2) A genuinely distinct rim point ~1e-4 away along the rim: on the
+        // cylinder, but FAR outside the cluster band ⇒ never fused.
+        let theta = 1e-4_f64;
+        let distinct = [theta.cos(), theta.sin(), 0.3];
+        assert!(
+            centroid_on_cylinder(distinct, &cyl) <= cyl.band,
+            "the distinct rim point is also exactly on the cylinder"
+        );
+        assert!(
+            (0..3).any(|k| (base[k] - distinct[k]).abs() > cluster_band),
+            "a genuinely distinct rim point (≥ chord spacing) must lie OUTSIDE \
+             the cluster band so the conformal weld never fuses it (no \
+             tolerance-bucket masking)"
+        );
+    }
+
     #[test]
     fn n3_degenerate_tangent_is_reversal() {
         let mesh = Mesh::new(
