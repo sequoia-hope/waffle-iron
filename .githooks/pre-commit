@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Waffle Iron pre-commit hook.
+#
+# Auto-stage the assay UI snapshot if it has unstaged changes, so a fresh
+# assay run's `app/tests/cases/assay/results.json` is never left out of a
+# commit. This file is the source of truth the deploy's `prebuild`
+# (sync-assay) copies into static/ and serves on GitHub Pages, so the
+# published AssayBrowser stays in sync with the shipped WASM.
+#
+# Enable once per clone:  ./scripts/setup-hooks.sh   (sets core.hooksPath)
+set -u
+cd "$(git rev-parse --show-toplevel)" || exit 0
+
+results='app/tests/cases/assay/results.json'
+
+# `git diff --quiet` exits non-zero when the working tree differs from the
+# index — i.e. results.json was regenerated but not yet staged. Pull it in.
+if ! git diff --quiet -- "$results" 2>/dev/null; then
+    git add -- "$results"
+    printf 'pre-commit: auto-staged updated %s\n' "$results" >&2
+fi
+
+exit 0

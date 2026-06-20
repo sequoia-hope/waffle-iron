@@ -197,3 +197,32 @@ Baseline timing data from `profile-rust.sh` run:
 | size_probe | 33s | Full |
 | boolean_failures | 158s | Full |
 | **extrude_chains** | **1659s** | Full (96% of harness time) |
+
+## Assay UI snapshot (`results.json`) — a committed file served on GitHub Pages
+
+The in-app **AssayBrowser** shows per-case pass/fail/error status by fetching
+`/assay/results.json`. That file is a **committed snapshot**, not computed at
+deploy time:
+
+- Source of truth: `app/tests/cases/assay/results.json` (committed).
+- The deploy's `prebuild` step (`app/scripts/sync-assay.mjs`) copies it into
+  `app/static/assay/` → served at `/assay/results.json`. **The GitHub Pages
+  deploy does NOT re-run the assay** — it just builds the committed files. So
+  if the snapshot is stale, the published AssayBrowser disagrees with the
+  shipped WASM.
+- Regenerate after any kernel/engine change that moves the corpus (a FULL
+  `--release` run writes the committed snapshot; a FAST/partial run does not):
+
+  ```
+  cargo test -p test-harness --test assay_kv2 --release -- --ignored --nocapture
+  git add app/tests/cases/assay/results.json
+  ```
+
+A **pre-commit hook** (`.githooks/pre-commit`) auto-stages this file whenever it
+has unstaged changes, so a fresh assay run's `results.json` is never left out of
+a commit (we re-run the assay often; this guarantees the update rides along).
+Enable it once per clone:
+
+  ```
+  ./scripts/setup-hooks.sh     # sets core.hooksPath -> .githooks
+  ```
