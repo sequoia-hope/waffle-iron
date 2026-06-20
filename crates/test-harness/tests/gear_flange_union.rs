@@ -96,20 +96,20 @@ fn err_waffle_json() -> Option<String> {
 // `crates/yang-rs/tests/m8cyl_plug_in_bore.rs`) is now WATERTIGHT and
 // consistently wound.
 //
-// REMAINING WALL (increment 2+ — a SEPARATE defect, NOT the Stage-0 coincident
-// cylinder gap): `consistent_normals` fails at 98.5% (142 of 9652 render
-// triangles reversed). Localized by radius to the FLANGE'S DISC CAPS
-// (r-centroid ≈ 0.0033/0.0037, the bore floor/ceiling where the plug meets the
-// open bore above/below) — these come from the CONTAINED solid B's unchanged
-// Stage-1 caps and get reversed RENDER normals in the union output's
-// reassembly. The minimal plug-in-bore union is consistently wound (no
-// reversed patch), so this is NOT a defect of the Stage-0 mechanism but a
-// gear-specific output-reassembly cap-winding issue. Un-ignore when that
-// reassembly winding is fixed.
-#[ignore = "M8-cyl Inc1 DONE (union builds watertight/manifold/full-height); \
-            remaining: consistent_normals 98.5% — flange disc caps get reversed \
-            render normals in reassembly (separate increment-2 defect, not the \
-            Stage-0 coincident-cylinder gap)."]
+// M8-cyl Increment 2 (RESOLVED — gate now GREEN): the `consistent_normals`
+// failure (142 of 9652 render triangles reversed) was the FLANGE'S ANNULAR
+// COUNTERBORE CAPS (z = ±0.002, outer rim r≈0.005909, inner bore r≈0.004903,
+// kernel-v2 faces 4420/4421). The two ring loops are anchored at INDEPENDENT
+// seam azimuths (~108° apart — they descend from different boolean-output
+// vertices), but `tessellate_annular_cap` stitched them column-`k`-to-
+// column-`k`, twisting each quad so its two triangles wound OPPOSITELY (exactly
+// 71 of 142 reversed per face — the half-reversed signature of a twisted
+// strip). The fix triangulates the annulus by an AZIMUTH SWEEP of both rings
+// (advance whichever ring is angularly behind) so every triangle winds CCW
+// around the face normal regardless of the seam phase offset — rooted in the
+// same `face.normal ≡ Newell(outer_loop)` orientation rule the rest of
+// tessellation uses, NOT a post-pass normal flip. The minimal plug-in-bore
+// union has azimuth-aligned seams, which is why it was already clean.
 #[test]
 fn gear_flange_union_builds_full_height() {
     let Some(json) = err_waffle_json() else {

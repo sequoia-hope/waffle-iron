@@ -600,19 +600,19 @@ fn tessellate_annular_cap(
     let (c_o, nu_o, r_o, anchor_o) = circle_of(face.outer_loop)?;
     let (c_r, _nu_r, r_r, anchor_r) = circle_of(ring_lid)?;
 
-    // One shared frame (the outer circle's, CCW around the face normal ==
-    // the outer circle's traversal normal); the ring row uses the same
-    // angle table from ITS anchor's frame so its boundary samples match the
-    // adjacent lateral's rim samples (both anchored at the same seam
-    // vertex with the mirrored axis — agreement within trig rounding).
+    // Each ring is sampled in its OWN anchor frame (CCW around `nu_o`), so its
+    // boundary samples coincide with the adjacent lateral's rim samples (both
+    // anchored at the same seam vertex) — load-bearing for cross-face
+    // watertightness. The two seams need NOT be at the same azimuth (the
+    // gear's counterbore floor has independent outer/inner seams); the strip
+    // below sweeps both rings by azimuth rather than stitching column-to-
+    // column, so a phase offset between the seams no longer twists the quads.
     let Some((e1_o, e2_o)) = circle_frame(c_o, nu_o, anchor_o) else {
         return Err(KernelV2Error::TessellationFailed {
             face: fid,
             reason: "degenerate circle frame (anchor does not span a radial direction)",
         });
     };
-    // Ring sampled CCW around the SAME face normal (its half-edge traverses
-    // the other way, but the strip below wants aligned columns).
     let Some((e1_r, e2_r)) = circle_frame(c_r, nu_o, anchor_r) else {
         return Err(KernelV2Error::TessellationFailed {
             face: fid,
@@ -623,6 +623,11 @@ fn tessellate_annular_cap(
     let range_start = out.indices.len() as u32;
     let base = out.num_vertices() as u32;
     let n = n_seg;
+
+    // Emit both rings' samples (each anchored at its OWN seam — load-bearing
+    // for cross-face watertightness with the adjacent lateral, which samples
+    // from the same seam vertex). The outer ring occupies render indices
+    // base..base+n, the inner ring base+n..base+2n.
     for (center, radius, e1, e2) in [(c_o, r_o, e1_o, e2_o), (c_r, r_r, e1_r, e2_r)] {
         for k in 0..n {
             let theta = 2.0 * std::f64::consts::PI * (k as f64) / (n as f64);
@@ -636,19 +641,121 @@ fn tessellate_annular_cap(
                 .extend_from_slice(&[plane.normal.x, plane.normal.y, plane.normal.z]);
         }
     }
-    for k in 0..n {
-        let k1 = (k + 1) % n;
-        let (ok, ok1, ik, ik1) = (base + k, base + k1, base + n + k, base + n + k1);
-        // Outer row CCW around the face normal ⇒ this winding faces +normal.
-        out.indices.extend_from_slice(&[ok, ok1, ik1]);
-        out.indices.extend_from_slice(&[ok, ik1, ik]);
+
+    // The two rings are anchored at INDEPENDENT seam azimuths (the gear's
+    // counterbore floor: outer rim seam ≠ inner bore seam — they descend from
+    // different boolean-output vertices). A column-`k`-to-column-`k` strip
+    // would stitch outer[k] to inner[k] across that phase offset, producing
+    // twisted, self-overlapping quads whose two triangles wind OPPOSITELY —
+    // half facing +normal, half −normal (PR-M8-cyl-Inc2). Instead, sweep both
+    // rings by their azimuth around the shared axis (measured in the OUTER
+    // frame `(e1_o, e2_o)`, CCW around `nu_o`) and advance whichever ring is
+    // angularly behind — the standard two-ring annulus triangulation. Each
+    // emitted triangle then winds CCW around `nu_o`, i.e. faces `+nu_o`.
+    let tau = 2.0 * std::f64::consts::PI;
+    // Azimuth (in the OUTER frame, CCW around nu_o, in [0, 2π)) of ring sample
+    // `k`. A ring is sampled in its own anchor frame, so sample 0 sits at the
+    // anchor's azimuth (measured in the outer frame) and each subsequent sample
+    // advances by 2π/n.
+    let azimuth = |anchor_dir: [f64; 3], k: u32| -> f64 {
+        let ax = anchor_dir[0] * e1_o[0] + anchor_dir[1] * e1_o[1] + anchor_dir[2] * e1_o[2];
+        let ay = anchor_dir[0] * e2_o[0] + anchor_dir[1] * e2_o[1] + anchor_dir[2] * e2_o[2];
+        let base_phi = ay.atan2(ax);
+        (base_phi + tau * (k as f64) / (n as f64)).rem_euclid(tau)
+    };
+    let dir_of = |anchor: Point3, center: Point3| -> [f64; 3] {
+        [
+            anchor.x() - center.x(),
+            anchor.y() - center.y(),
+            anchor.z() - center.z(),
+        ]
+    };
+    let outer_dir = dir_of(anchor_o, c_o);
+    let inner_dir = dir_of(anchor_r, c_r);
+    let outer_az: Vec<f64> = (0..n).map(|k| azimuth(outer_dir, k)).collect();
+    let inner_az: Vec<f64> = (0..n).map(|k| azimuth(inner_dir, k)).collect();
+
+    // Two-pointer sweep. We walk both rings once around the full turn. At each
+    // step the quad face (outer[oi], outer[oi+1] | inner[ii], inner[ii+1]) is
+    // split by advancing the ring whose NEXT sample has the smaller forward
+    // azimuth gap, emitting a triangle that always uses the current edge of one
+    // ring and the leading vertex of the other. Winding `[a, b, c]` is chosen
+    // so the triangle normal points along `+nu_o` (== the outer frame's CCW
+    // sense); the per-vertex render normal is `plane.normal`.
+    for tri in annulus_sweep_triangles(&outer_az, &inner_az, base, base + n) {
+        out.indices.extend_from_slice(&tri);
     }
+
     out.face_ranges.push(FaceRange {
         face: fid,
         start: range_start,
         count: out.indices.len() as u32 - range_start,
     });
     Ok(())
+}
+
+/// Triangulate the annulus between two concentric rings sampled CCW around a
+/// common axis at INDEPENDENT seam azimuths (PR-M8-cyl-Inc2). `outer_az` /
+/// `inner_az` are the per-sample azimuths (radians, in the same CCW frame);
+/// `outer_base` / `inner_base` are the render-vertex indices of each ring's
+/// sample 0. Sweeps both rings by azimuth — at each step advancing whichever
+/// ring's current vertex is angularly behind — so every emitted triangle winds
+/// CCW around the axis (faces `+axis`), regardless of the phase offset between
+/// the two seams. A naive column-`k`-to-column-`k` strip would twist each quad
+/// when the seams differ, flipping half its triangles.
+fn annulus_sweep_triangles(
+    outer_az: &[f64],
+    inner_az: &[f64],
+    outer_base: u32,
+    inner_base: u32,
+) -> Vec<[u32; 3]> {
+    let tau = 2.0 * std::f64::consts::PI;
+    let fwd_gap = |from: f64, to: f64| -> f64 { (to - from).rem_euclid(tau) };
+    let no = outer_az.len();
+    let ni = inner_az.len();
+    let mut tris = Vec::with_capacity(no + ni);
+    if no == 0 || ni == 0 {
+        return tris;
+    }
+    // Align the inner walk's start to the sample nearest-ahead of outer[0] so
+    // the two pointers march in lockstep around the turn (deterministic).
+    let ii0 = inner_az
+        .iter()
+        .enumerate()
+        .min_by(|(_, a), (_, b)| {
+            fwd_gap(outer_az[0], **a)
+                .partial_cmp(&fwd_gap(outer_az[0], **b))
+                .unwrap_or(Ordering::Equal)
+        })
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    let outer_idx = |k: usize| outer_base + (k % no) as u32;
+    let inner_idx = |k: usize| inner_base + ((ii0 + k) % ni) as u32;
+    let mut oi = 0usize;
+    let mut ii = 0usize;
+    while oi < no || ii < ni {
+        let advance_outer = if oi >= no {
+            false
+        } else if ii >= ni {
+            true
+        } else {
+            let o_cur = outer_az[oi % no];
+            let i_cur = inner_az[(ii0 + ii) % ni];
+            // Advance whichever ring's current vertex is angularly behind the
+            // other's (smaller forward gap).
+            fwd_gap(o_cur, i_cur) <= fwd_gap(i_cur, o_cur)
+        };
+        if advance_outer {
+            // outer[oi], outer[oi+1], inner[ii] — CCW around +axis.
+            tris.push([outer_idx(oi), outer_idx(oi + 1), inner_idx(ii)]);
+            oi += 1;
+        } else {
+            // outer[oi], inner[ii+1], inner[ii] — CCW around +axis.
+            tris.push([outer_idx(oi), inner_idx(ii + 1), inner_idx(ii)]);
+            ii += 1;
+        }
+    }
+    tris
 }
 
 /// The single canonical cylinder-lateral routine (PR-KV5a): the full tube
@@ -2131,4 +2238,106 @@ fn is_ear(ring: &[Node], i: usize) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod annulus_sweep_tests {
+    use super::annulus_sweep_triangles;
+
+    // Build the 3D positions for a ring of `n` samples at azimuths `az`,
+    // radius `r`, height `z`, in the XY plane (axis = +z).
+    fn ring_positions(az: &[f64], r: f64, z: f64) -> Vec<[f64; 3]> {
+        az.iter().map(|&a| [r * a.cos(), r * a.sin(), z]).collect()
+    }
+
+    // Every emitted triangle must wind CCW around +z (its geometric normal's
+    // z-component is strictly positive) and have non-zero area.
+    fn assert_all_wind_up(tris: &[[u32; 3]], outer: &[[f64; 3]], inner: &[[f64; 3]]) {
+        let pos = |idx: u32| -> [f64; 3] {
+            let i = idx as usize;
+            if i < outer.len() {
+                outer[i]
+            } else {
+                inner[i - outer.len()]
+            }
+        };
+        let mut reversed = 0usize;
+        let mut degenerate = 0usize;
+        for t in tris {
+            let (o, a, b) = (pos(t[0]), pos(t[1]), pos(t[2]));
+            let u = [a[0] - o[0], a[1] - o[1], a[2] - o[2]];
+            let v = [b[0] - o[0], b[1] - o[1], b[2] - o[2]];
+            let nz = u[0] * v[1] - u[1] * v[0];
+            if nz.abs() < 1e-18 {
+                degenerate += 1;
+            } else if nz < 0.0 {
+                reversed += 1;
+            }
+        }
+        assert_eq!(
+            reversed,
+            0,
+            "{reversed} of {} triangles wind DOWN",
+            tris.len()
+        );
+        assert_eq!(degenerate, 0, "{degenerate} zero-area triangles");
+    }
+
+    #[test]
+    fn aligned_seams_wind_consistently() {
+        let n = 16usize;
+        let az: Vec<f64> = (0..n)
+            .map(|k| std::f64::consts::TAU * (k as f64) / (n as f64))
+            .collect();
+        let outer = ring_positions(&az, 2.0, 0.0);
+        let inner = ring_positions(&az, 1.0, 0.0);
+        let tris = annulus_sweep_triangles(&az, &az, 0, n as u32);
+        assert_eq!(tris.len(), 2 * n, "n outer + n inner edges → 2n triangles");
+        assert_all_wind_up(&tris, &outer, &inner);
+    }
+
+    #[test]
+    fn offset_seams_wind_consistently() {
+        // The gear's counterbore-floor case: the inner ring's seam is ~108°
+        // ahead of the outer ring's. A column-k strip would twist and reverse
+        // half the triangles; the azimuth sweep must keep them all up.
+        let n = 32usize;
+        let phase = 108.0_f64.to_radians();
+        let outer_az: Vec<f64> = (0..n)
+            .map(|k| std::f64::consts::TAU * (k as f64) / (n as f64))
+            .collect();
+        let inner_az: Vec<f64> = (0..n)
+            .map(|k| {
+                (phase + std::f64::consts::TAU * (k as f64) / (n as f64))
+                    .rem_euclid(std::f64::consts::TAU)
+            })
+            .collect();
+        let outer = ring_positions(&outer_az, 5.909, 0.0);
+        let inner = ring_positions(&inner_az, 4.903, 0.0);
+        let tris = annulus_sweep_triangles(&outer_az, &inner_az, 0, n as u32);
+        assert_eq!(tris.len(), 2 * n);
+        assert_all_wind_up(&tris, &outer, &inner);
+    }
+
+    #[test]
+    fn offset_seams_unequal_counts_wind_consistently() {
+        // Robustness: differing sample counts (general annulus) still all-up.
+        let no = 24usize;
+        let ni = 17usize;
+        let phase = 1.234_f64;
+        let outer_az: Vec<f64> = (0..no)
+            .map(|k| std::f64::consts::TAU * (k as f64) / (no as f64))
+            .collect();
+        let inner_az: Vec<f64> = (0..ni)
+            .map(|k| {
+                (phase + std::f64::consts::TAU * (k as f64) / (ni as f64))
+                    .rem_euclid(std::f64::consts::TAU)
+            })
+            .collect();
+        let outer = ring_positions(&outer_az, 3.0, 0.0);
+        let inner = ring_positions(&inner_az, 1.5, 0.0);
+        let tris = annulus_sweep_triangles(&outer_az, &inner_az, 0, no as u32);
+        assert_eq!(tris.len(), no + ni);
+        assert_all_wind_up(&tris, &outer, &inner);
+    }
 }
