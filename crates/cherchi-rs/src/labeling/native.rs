@@ -617,20 +617,32 @@ mod tests {
     }
 
     // ════════════════════════════════════════════════════════════════
-    // Oracle #5 — loud typed errors: a real coplanar-overlap pair (two
-    // stacked cubes overlapping on the z=2 plane) must surface as
-    // NativeBooleanError::Arrangement(CoplanarPairDeferred), never as a
-    // silent wrong result (deviation N17 / Stage-0 M8 deferral).
+    // Oracle #5 — coplanar overlap CONSTRUCTS (PR-4 pocket dedup): a real
+    // coplanar-overlap pair (cube B's bottom face on A's z=2 plane) no
+    // longer defers; the arrangement builds a labeled result, deterministically.
+    //
+    // NOTE on this particular fixture: the coplanar contact here is a CORNER
+    // touch (A-top [0,2]² meets B-bottom [1,3]² in the square [1,2]², whose
+    // boundary runs along coincident lateral-face edges). This is a degenerate
+    // contact that the upstream C++ `mesh_booleans` reference ITSELF does not
+    // fully resolve (its UNION emits a thin membrane: vol 16.667, 4 unpaired
+    // edges) — and the native port is in EXACT PARITY with that reference
+    // result, which is the correctness oracle. So this test pins only that the
+    // pair CONSTRUCTS (no CoplanarPairDeferred) and is DETERMINISTIC; the
+    // clean coplanar pocket-dedup parity (vol 750 / 32, watertight) is gated by
+    // the coaxial-prism fixtures in tests/coplanar_pocket_parity.rs.
     // ════════════════════════════════════════════════════════════════
     #[test]
-    fn coplanar_overlap_is_loudly_deferred() {
+    fn coplanar_overlap_is_constructed_deterministically() {
         let a = cube_mesh(0.0, 0.0, 0.0, 2.0);
         let b = cube_mesh(1.0, 1.0, 2.0, 2.0); // bottom face overlaps A's top
-        match native_labeled_arrangement(&a, &b) {
-            Err(NativeBooleanError::Arrangement(ArrangementError::CoplanarPairDeferred {
-                ..
-            })) => {}
-            other => panic!("expected Arrangement(CoplanarPairDeferred), got {other:?}"),
-        }
+        let la1 = native_labeled_arrangement(&a, &b)
+            .expect("coplanar overlap now CONSTRUCTS (PR-4 pocket dedup), no defer");
+        assert!(
+            !la1.mesh.tris.is_empty(),
+            "coplanar overlap must produce a non-empty arrangement"
+        );
+        let la2 = native_labeled_arrangement(&a, &b).expect("re-run");
+        assert_eq!(la1, la2, "coplanar arrangement must be deterministic");
     }
 }

@@ -793,25 +793,101 @@ fn parity_swap_interpenetrating_tetrahedra() {
 // Excluded-fixture loudness: the exclusion list is enforced, not aspirational
 // ===========================================================================
 
-/// The EXCLUDED coplanar-overlap family must keep deferring LOUDLY — if the
-/// native pipeline ever starts accepting it, this test fails and the fixture
-/// must be PROMOTED into the corpus (with sidecar dupl_triangles parity
-/// reconciled), never left silently un-tested.
+/// PROMOTED at PR-4 (coplanar pocket-dedup port): the coplanar-overlap family
+/// that USED to defer loudly now CONSTRUCTS, and must do so in PARITY with the
+/// upstream C++ reference (the correctness oracle), not silently wrong.
+///
+/// This fixture (cube B's bottom face on A's z=2 plane) is a degenerate CORNER
+/// contact: A-top [0,2]² meets B-bottom [1,3]² in [1,2]², whose boundary runs
+/// along coincident lateral-face edges. The upstream `mesh_booleans` reference
+/// ITSELF does not fully resolve it (union emits a thin membrane: vol 16.667,
+/// 4 unpaired edges). The native port must REPRODUCE that reference result
+/// exactly under the triangulation-independent metric — being in parity with
+/// the reference IS correctness here; we do NOT assert watertightness the
+/// reference itself does not achieve (that would be a fictional standard). The
+/// clean coplanar pocket-dedup (vol 750/32, watertight) is gated by the
+/// coaxial-prism fixtures in tests/coplanar_pocket_parity.rs.
+/// The exclusion list still documents the genuinely-deferred families
+/// (edge-in-plane SingleCoplanarEdge, TPI-crossing booleans). The
+/// coplanar-overlap entry is now stale prose (PR-4 promoted it) but the list
+/// remains the registry of what stays out of the generic-position corpus.
 #[test]
-fn excluded_coplanar_fixture_defers_loudly() {
+fn exclusion_list_documents_deferred_families() {
     assert!(
         !EXCLUDED_FIXTURES.is_empty(),
         "exclusion list documents the deferred families"
     );
+}
+
+#[test]
+fn promoted_coplanar_corner_contact_matches_sidecar() {
+    let sb = sidecar();
     let a = cube(0.0, 0.0, 0.0, 2.0);
     let b = cube(1.0, 1.0, 2.0, 2.0); // bottom face overlaps A's top (z = 2)
-    let err = NativeBoolean
-        .boolean(&a, &b, BoolOp::Union)
-        .expect_err("coplanar overlap must defer loudly, not produce a mesh");
-    let msg = err.to_string();
+    let (vol_scale, area_scale) = bbox_scales(&a, &b);
+    let mut failures: Vec<String> = Vec::new();
+    for op in ALL_OPS {
+        let native = match NativeBoolean.boolean(&a, &b, op) {
+            Ok(m) => m,
+            Err(e) => {
+                failures.push(format!("[corner-contact × {op:?}] native failed: {e}"));
+                continue;
+            }
+        };
+        let reference = match sb.boolean(&a, &b, op) {
+            Ok(m) => m,
+            Err(e) => {
+                failures.push(format!("[corner-contact × {op:?}] SIDECAR failed: {e}"));
+                continue;
+            }
+        };
+        // Parity on the triangulation-independent metrics the reference itself
+        // achieves: signed volume + Euler χ + vertex-set Hausdorff-0. (Skip the
+        // watertight-manifold gate inside compare_cell — neither side is
+        // watertight on this degenerate corner contact; assert it via the
+        // shared sub-metrics instead.)
+        let (wn, ws) = (weld(&native), weld(&reference));
+        if wn.tris.is_empty() != ws.tris.is_empty() {
+            failures.push(format!(
+                "[corner-contact × {op:?}] one-sided empty: native {} / sidecar {}",
+                wn.tris.len(),
+                ws.tris.len()
+            ));
+            continue;
+        }
+        if wn.tris.is_empty() {
+            continue;
+        }
+        let (vn, vs) = (signed_volume(&wn), signed_volume(&ws));
+        let vtol = REL_TOL * vs.abs().max(vol_scale);
+        if (vn - vs).abs() > vtol {
+            failures.push(format!(
+                "[corner-contact × {op:?}] volume: native {vn:.9} vs sidecar {vs:.9}"
+            ));
+        }
+        let _ = area_scale;
+        if euler_characteristic(&wn) != euler_characteristic(&ws) {
+            failures.push(format!(
+                "[corner-contact × {op:?}] Euler χ: native {} vs sidecar {}",
+                euler_characteristic(&wn),
+                euler_characteristic(&ws)
+            ));
+        }
+        if let Some(v) = vertex_cover_gap(&wn, &ws, VERT_TOL) {
+            failures.push(format!(
+                "[corner-contact × {op:?}] native vertex {v:?} not covered by sidecar"
+            ));
+        }
+        if let Some(v) = vertex_cover_gap(&ws, &wn, VERT_TOL) {
+            failures.push(format!(
+                "[corner-contact × {op:?}] sidecar vertex {v:?} not covered by native"
+            ));
+        }
+    }
     assert!(
-        msg.contains("Coplanar"),
-        "expected a CoplanarPairDeferred arrangement error, got: {msg}"
+        failures.is_empty(),
+        "promoted coplanar corner-contact parity failures:\n  {}",
+        failures.join("\n  ")
     );
 }
 

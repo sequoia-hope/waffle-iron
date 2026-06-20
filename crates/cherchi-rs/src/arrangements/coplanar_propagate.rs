@@ -47,15 +47,16 @@
 //! [`super::group_intersection_points`] (whose `Coplanar => continue` arm is
 //! untouched — neutrality depends on it).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::arrangements::aux_structure::exact_point_coords;
+use crate::arrangements::aux_structure::{exact_point_coords, ConstraintSegment};
 use crate::arrangements::fast_trimesh::VertexCoords;
 use crate::arrangements::{
     CoplanarAdjacency, FastTrimesh, IntersectionVertex, PairClassification, Plane,
     TriangleAuxPoints, TypedPoint,
 };
 use crate::predicates::indirect::{GenericPoint3D, Sign as IpSign};
+use crate::predicates::{max_component_in_triangle_normal, Axis};
 use cad_primitives::Point3;
 use dashu::rational::RBig;
 
@@ -372,8 +373,10 @@ fn place_in_triangle(
         }
     }
 
+    let plane = triangle_ref_plane(soup, t);
+
     // Inside-or-on? (boundary-inclusive). If strictly outside, drop.
-    if !generic_inside_or_on(soup.ref_plane(), gp, &ce) {
+    if !generic_inside_or_on(plane, gp, &ce) {
         return;
     }
 
@@ -381,7 +384,7 @@ fn place_in_triangle(
     for (i, _) in ce.iter().enumerate() {
         let a = &ce[i];
         let b = &ce[(i + 1) % 3];
-        if dispatch(soup.ref_plane(), a, b, gp) == IpSign::Zero {
+        if dispatch(plane, a, b, gp) == IpSign::Zero {
             push_unique(&mut buckets[tu].edges[i], id);
             return;
         }
@@ -411,7 +414,7 @@ fn generic_point_inside_triangle(
         GenericPoint3D::explicit(soup.tri_vert(t, 1)),
         GenericPoint3D::explicit(soup.tri_vert(t, 2)),
     ];
-    let plane = soup.ref_plane();
+    let plane = triangle_ref_plane(soup, t);
     if strict {
         generic_strictly_inside(plane, &p, &ce)
     } else {
@@ -458,6 +461,23 @@ fn generic_inside_or_on(plane: Plane, p: &GenericPoint3D, ce: &[GenericPoint3D; 
 /// `orient2d(a, b, p)` projected to `plane`, via the native indirect dispatch.
 fn dispatch(plane: Plane, a: &GenericPoint3D, b: &GenericPoint3D, p: &GenericPoint3D) -> IpSign {
     crate::arrangements::gp_dispatch::dispatch_orient2d(plane, a, b, p)
+}
+
+/// The reference projection plane for base triangle `t` — drop its dominant-
+/// normal axis. MUST match `soup::triangle_plane` (the plane the per-triangle
+/// submesh + `split_single_triangle` use), so coplanar point classification
+/// agrees with the split path. A vertical facet projects to XY as a zero-area
+/// line, so `soup.ref_plane()` (always XY for the global container) is WRONG
+/// for coplanar lateral faces — this picks the facet's own plane.
+fn triangle_ref_plane(soup: &FastTrimesh, t: u32) -> Plane {
+    let c0 = soup.tri_vert(t, 0);
+    let c1 = soup.tri_vert(t, 1);
+    let c2 = soup.tri_vert(t, 2);
+    match max_component_in_triangle_normal(c0, c1, c2) {
+        Axis::X => Plane::YZ,
+        Axis::Y => Plane::ZX,
+        Axis::Z => Plane::XY,
+    }
 }
 
 /// True iff the native generic point `gp` equals the explicit point `q`
@@ -526,6 +546,57 @@ fn interned_is_corner_of(soup: &FastTrimesh, t: u32, id: u32, interner: &Coplana
     false
 }
 
+/// Place GLOBAL point id `id` (coords from `points`) into triangle `t`'s
+/// `bucket`: interior if strictly inside, `edges[i]` if on edge `i`, dropped if
+/// corner-coincident or strictly outside. Boundary-inclusive, exact — the
+/// same classification as [`place_in_triangle`] but keyed on a global id /
+/// `points` slice (used to guarantee coplanar segment endpoints become submesh
+/// vertices). Idempotent (deduped by id).
+fn place_global_in_triangle(
+    soup: &FastTrimesh,
+    t: u32,
+    plane: Plane,
+    id: u32,
+    points: &[TypedPoint],
+    bucket: &mut TriangleAuxPoints,
+) {
+    let gp = match points.get(id as usize) {
+        Some(tp) => generic_point_of(&tp.coords),
+        None => return,
+    };
+    let c = [
+        soup.tri_vert(t, 0),
+        soup.tri_vert(t, 1),
+        soup.tri_vert(t, 2),
+    ];
+    let ce = [
+        GenericPoint3D::explicit(c[0]),
+        GenericPoint3D::explicit(c[1]),
+        GenericPoint3D::explicit(c[2]),
+    ];
+    for cv in &c {
+        if gp_eq_explicit(&gp, *cv) {
+            return; // corner-coincident → already a vertex
+        }
+    }
+    if !generic_inside_or_on(plane, &gp, &ce) {
+        return; // strictly outside → not on this triangle
+    }
+    // Already present in interior or any edge bucket? (idempotent)
+    if bucket.interior.contains(&id) || bucket.edges.iter().any(|e| e.contains(&id)) {
+        return;
+    }
+    for (i, _) in ce.iter().enumerate() {
+        let a = &ce[i];
+        let b = &ce[(i + 1) % 3];
+        if dispatch(plane, a, b, &gp) == IpSign::Zero {
+            push_unique(&mut bucket.edges[i], id);
+            return;
+        }
+    }
+    push_unique(&mut bucket.interior, id);
+}
+
 fn push_unique(vec: &mut Vec<u32>, id: u32) {
     if !vec.contains(&id) {
         vec.push(id);
@@ -542,6 +613,251 @@ fn push_unique_seg(vec: &mut Vec<(u32, u32)>, seg: (u32, u32)) {
     };
     if !vec.contains(&key) {
         vec.push(key);
+    }
+}
+
+// =========================================================================
+// PR-4: pocket flood-fill (port of findPocketsInTriangle, triangulation.cpp:1269)
+// =========================================================================
+
+/// One pocket of a re-triangulated coplanar base triangle: the list of submesh
+/// sub-triangle ids forming the pocket, plus the SUBMESH-LOCAL vertex ids on
+/// its boundary polygon (the endpoints of every constraint/border edge the
+/// flood-fill stopped at). `mesh_arrangement` welds the boundary ids to GLOBAL
+/// ids to form the dedup key (so the two coplanar triangles' shared overlap
+/// pocket hashes identically), and emits / OR-merges the sub-triangles.
+pub struct TrianglePocket {
+    /// Submesh sub-triangle ids in this pocket.
+    pub sub_tris: Vec<u32>,
+    /// Submesh-local boundary vertex ids (constraint/border edge endpoints).
+    pub boundary_verts: BTreeSet<u32>,
+}
+
+/// Port of `findPocketsInTriangle` (`triangulation.cpp:1269-1314`).
+///
+/// Flood-fill the submesh sub-triangles into pockets: the flood STOPS at edges
+/// where `edge_is_constr(e) || edge_is_boundary(e)` (those edges' endpoints
+/// become the pocket's boundary polygon), and CROSSES every other interior
+/// edge. The submesh here is the fully re-triangulated single base triangle
+/// (post split + enforce), so the constraint edges are exactly the overlap-
+/// boundary segments `enforce_constraints` flagged via `set_edge_constr`.
+pub fn find_pockets_in_triangle(subm: &FastTrimesh) -> Vec<TrianglePocket> {
+    let n = subm.num_tris();
+    let mut visited = vec![false; n as usize];
+    let mut pockets: Vec<TrianglePocket> = Vec::new();
+
+    for seed in 0..n {
+        if visited[seed as usize] {
+            continue;
+        }
+        let mut sub_tris: Vec<u32> = Vec::new();
+        let mut boundary: BTreeSet<u32> = BTreeSet::new();
+        let mut stack: Vec<u32> = vec![seed];
+
+        while let Some(curr) = stack.pop() {
+            if visited[curr as usize] {
+                continue;
+            }
+            visited[curr as usize] = true;
+            sub_tris.push(curr);
+
+            for e in subm.tri_edges(curr) {
+                if subm.edge_is_constr(e) || subm.edge_is_boundary(e) {
+                    boundary.insert(subm.edge_vert_id(e, 0));
+                    boundary.insert(subm.edge_vert_id(e, 1));
+                } else {
+                    for &nbr in subm.adj_e2t(e) {
+                        if nbr != curr && !visited[nbr as usize] {
+                            stack.push(nbr);
+                        }
+                    }
+                }
+            }
+        }
+
+        pockets.push(TrianglePocket {
+            sub_tris,
+            boundary_verts: boundary,
+        });
+    }
+
+    pockets
+}
+
+// =========================================================================
+// PR-4: integrate the coplanar buckets/segments into the LIVE arrangement
+// =========================================================================
+
+/// The result of folding the coplanar path into the transversal arrangement
+/// state, consumed by `soup::mesh_arrangement` step 9.
+pub struct CoplanarIntegration {
+    /// The coplanar adjacency — `triangle_has_coplanars(t)` selects the pocket
+    /// emit path; `coplanar_triangles(t)` is unused downstream but kept whole.
+    pub adjacency: CoplanarAdjacency,
+    /// The set of base triangles that carry coplanar overlap geometry (those
+    /// with a coplanar partner that contributed any point/segment). Step 9
+    /// routes these through `solve_pockets_in_coplanar_triangle` instead of the
+    /// plain per-sub-triangle emit.
+    pub coplanar_tris: BTreeSet<u32>,
+}
+
+/// Wire the coplanar classification into the transversal `points` / `buckets` /
+/// `segments_per_tri` so coplanar triangles enter the split path with their
+/// overlap-boundary points + segments. This is the PR-4 step-(a) glue.
+///
+/// Concretely:
+/// 1. build the coplanar adjacency + bucket the per-pair `Coplanar` payloads
+///    ([`bucket_coplanar_intersections`]) + run the propagate pass
+///    ([`propagate_coplanar_intersections`]) on the coplanar-local id space;
+/// 2. MERGE the coplanar-local points into the GLOBAL `points` list by EXACT
+///    geometric identity (reusing [`exact_point_coords`] — the same key the
+///    transversal interner uses), building a coplanar→global id remap so a
+///    point reached via both paths shares one global id;
+/// 3. fold each coplanar triangle's remapped interior/edge point ids into the
+///    global `buckets[t]`, and convert its symbolic segment list into
+///    [`ConstraintSegment`]s appended to `segments_per_tri[t]` (with the
+///    partner coplanar triangle's corners as the in-plane `source_tri`).
+///
+/// Returns the adjacency + the set of triangles that gained coplanar geometry.
+/// `points`, `buckets`, `segments_per_tri` are mutated in place.
+pub fn integrate_coplanar_into_arrangement(
+    soup: &FastTrimesh,
+    classified: &[((u32, u32), PairClassification)],
+    points: &mut Vec<TypedPoint>,
+    buckets: &mut [TriangleAuxPoints],
+    segments_per_tri: &mut [Vec<ConstraintSegment>],
+) -> CoplanarIntegration {
+    let adjacency = build_coplanar_adjacency(soup, classified);
+
+    // Steps 1: bucket + propagate on the coplanar-local id space.
+    let mut cb = bucket_coplanar_intersections(soup, classified);
+    propagate_coplanar_intersections(
+        soup,
+        &adjacency,
+        &cb.points,
+        &mut cb.buckets,
+        &mut cb.tri_segments,
+    );
+
+    // Step 2: merge coplanar-local points into the GLOBAL `points` by exact
+    // geometric identity. `remap[local_id] = global_id`.
+    let mut by_exact: BTreeMap<[RBig; 3], u32> = BTreeMap::new();
+    let mut structural: Vec<u32> = Vec::new(); // global ids without exact coords
+    for (gid, tp) in points.iter().enumerate() {
+        match exact_point_coords(&tp.coords) {
+            Some(xc) => {
+                by_exact.entry(xc).or_insert(gid as u32);
+            }
+            None => structural.push(gid as u32),
+        }
+    }
+    let mut remap: Vec<u32> = Vec::with_capacity(cb.points.len());
+    for tp in &cb.points {
+        let gid = match exact_point_coords(&tp.coords) {
+            Some(xc) => match by_exact.get(&xc) {
+                Some(&g) => g,
+                None => {
+                    let g = points.len() as u32;
+                    points.push(tp.clone());
+                    by_exact.insert(xc, g);
+                    g
+                }
+            },
+            None => {
+                // Degenerate-generator fallback: structural equality.
+                match structural
+                    .iter()
+                    .find(|&&g| points[g as usize].coords == tp.coords)
+                {
+                    Some(&g) => g,
+                    None => {
+                        let g = points.len() as u32;
+                        points.push(tp.clone());
+                        structural.push(g);
+                        g
+                    }
+                }
+            }
+        };
+        remap.push(gid);
+    }
+
+    // Step 3: fold per-triangle buckets + segments into the global structures.
+    let mut coplanar_tris: BTreeSet<u32> = BTreeSet::new();
+    let n = soup.num_tris() as usize;
+    for t in 0..n {
+        if !adjacency.triangle_has_coplanars(t as u32) {
+            continue;
+        }
+        let mut touched = false;
+
+        // interior points.
+        for &lid in &cb.buckets[t].interior {
+            push_unique(&mut buckets[t].interior, remap[lid as usize]);
+            touched = true;
+        }
+        // edge points.
+        for (i, edge) in cb.buckets[t].edges.iter().enumerate() {
+            for &lid in edge {
+                push_unique(&mut buckets[t].edges[i], remap[lid as usize]);
+                touched = true;
+            }
+        }
+
+        // segments → ConstraintSegments. The segment lies in the coplanar
+        // common plane; use a coplanar partner triangle's corners as the
+        // in-plane `source_tri` (a plane through the overlap — the segment can
+        // only meet other in-plane constraints at shared endpoints, a V-
+        // junction, so no spurious TPI arises; the field is only consulted on
+        // an interior crossing).
+        let partner = adjacency
+            .coplanar_triangles(t as u32)
+            .first()
+            .copied()
+            .unwrap_or(t as u32);
+        let src = [
+            soup.tri_vert(partner, 0),
+            soup.tri_vert(partner, 1),
+            soup.tri_vert(partner, 2),
+        ];
+        for &(l0, l1) in &cb.tri_segments[t] {
+            let (g0, g1) = (remap[l0 as usize], remap[l1 as usize]);
+            if g0 == g1 {
+                continue;
+            }
+            // Dedup against any existing (transversal or coplanar) segment with
+            // the same geometric endpoint pair.
+            let exists = segments_per_tri[t].iter().any(|s| {
+                (s.endpoints.0 == g0 && s.endpoints.1 == g1)
+                    || (s.endpoints.0 == g1 && s.endpoints.1 == g0)
+            });
+            if !exists {
+                segments_per_tri[t].push(ConstraintSegment {
+                    endpoints: (g0, g1),
+                    source_tri: src,
+                });
+            }
+            // Every segment endpoint MUST be a submesh vertex after split, or
+            // `enforce_constraints` cannot resolve it (EndpointNotInSubmesh).
+            // A propagated partner segment's endpoint may not have arrived via
+            // the point buckets (the propagate pass copies only partner EDGE
+            // points, but a segment endpoint can be a partner INTERIOR point or
+            // an on-edge point), so place both endpoints into `buckets[t]` here
+            // by their exact position on `t`.
+            let plane_t = triangle_ref_plane(soup, t as u32);
+            place_global_in_triangle(soup, t as u32, plane_t, g0, points, &mut buckets[t]);
+            place_global_in_triangle(soup, t as u32, plane_t, g1, points, &mut buckets[t]);
+            touched = true;
+        }
+
+        if touched {
+            coplanar_tris.insert(t as u32);
+        }
+    }
+
+    CoplanarIntegration {
+        adjacency,
+        coplanar_tris,
     }
 }
 

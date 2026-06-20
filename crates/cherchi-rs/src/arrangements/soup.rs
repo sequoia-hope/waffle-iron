@@ -61,8 +61,14 @@
 // clean without touching the frozen test code (semantics unchanged either way).
 #![allow(clippy::manual_contains)]
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use crate::arrangements::aux_structure::{
     group_constraint_segments, group_intersection_points, ConstraintSegmentError, TypedPoint,
+    VisitedPocketRegistry,
+};
+use crate::arrangements::coplanar_propagate::{
+    find_pockets_in_triangle, integrate_coplanar_into_arrangement, CoplanarIntegration,
 };
 use crate::arrangements::enforce::{enforce_constraints, EnforceError};
 use crate::arrangements::fast_trimesh::VertexCoords;
@@ -710,22 +716,13 @@ pub fn mesh_arrangement(
                     return Err(ArrangementError::DegeneratePairDeferred { ta: *ta, tb: *tb });
                 }
             },
-            // PR-2 corpus-neutral: a fully-coplanar pair now CONSTRUCTS its
-            // classification (vertices + segments), but the pipeline still
-            // defers it exactly as `DeferReason::Coplanar` did — escalate a
-            // CoplanarPairDeferred for an overlapping pair (PRs 3-4 consume the
-            // constructed data instead). Routed through the SAME
-            // `coplanar_tris_overlap` test (via the `Coplanar` reason) so the
-            // benign-touch pass-through is byte-identical.
-            PairClassification::Coplanar { .. } => {
-                if deferred_pair_must_defer(&soup, *ta, *tb, DeferReason::Coplanar) {
-                    return Err(ArrangementError::CoplanarPairDeferred {
-                        ta: *ta,
-                        tb: *tb,
-                        reason: DeferReason::Coplanar,
-                    });
-                }
-            }
+            // PR-4: a fully-coplanar pair that AR1/AR2 CONSTRUCTED (vertices +
+            // segments) is now wired into the split path + pocket dedup below
+            // (no longer escalated to CoplanarPairDeferred). A coplanar pair
+            // that genuinely could not be constructed is recorded as
+            // `Deferred(Coplanar)` (handled above), not `Coplanar`, so it still
+            // defers loudly — this arm only sees constructible pairs.
+            PairClassification::Coplanar { .. } => {}
             PairClassification::Transversal { .. } | PairClassification::Disjoint => {}
         }
     }
@@ -739,12 +736,29 @@ pub fn mesh_arrangement(
     //    `group_constraint_segments` resolves endpoints by the same geometric
     //    keying. A pair resolving to >2 geometric endpoints is loud (the C++
     //    final_check assert), never a silently dropped segment.
-    let (points, buckets) = group_intersection_points(&soup, &classified);
-    let segments_per_tri = group_constraint_segments(&soup, &classified, &points).map_err(
+    let (mut points, mut buckets) = group_intersection_points(&soup, &classified);
+    let mut segments_per_tri = group_constraint_segments(&soup, &classified, &points).map_err(
         |ConstraintSegmentError::TooManyGeometricEndpoints { ta, tb, count }| {
             ArrangementError::TransversalEndpointOvercount { ta, tb, count }
         },
     )?;
+
+    // 8b. (PR-4) Fold the fully-coplanar overlap geometry into the SAME
+    //     buckets/segments the transversal path uses, so coplanar triangles
+    //     get their overlap-boundary points + segments and enter the split
+    //     path. `coplanar_tris` marks which base triangles route through the
+    //     pocket-dedup emit (step 9). Geometric point identity is preserved by
+    //     merging into the existing `points` interner by exact coords.
+    let CoplanarIntegration {
+        adjacency: _coplanar_adj,
+        coplanar_tris,
+    } = integrate_coplanar_into_arrangement(
+        &soup,
+        &classified,
+        &mut points,
+        &mut buckets,
+        &mut segments_per_tri,
+    );
 
     // The global vertex list seeds with the deduped input corners (Explicit),
     // in their existing global-id order; new implicit points append on demand.
@@ -753,6 +767,15 @@ pub fn mesh_arrangement(
     };
     let mut out_tris: Vec<[u32; 3]> = Vec::new();
     let mut out_labels: Vec<Label> = Vec::new();
+
+    // (PR-4) Global pocket dedup state, threaded across the whole step-9 loop
+    // (one instance). `registry` maps a pocket's GLOBAL boundary-vertex SET to
+    // the position at which its sub-triangles were first emitted; `pocket_pos`
+    // records the actual out-position LIST for each pocket key, so a repeat
+    // OR-merges the label into exactly those positions (more robust than the
+    // C++ `size()-2` arithmetic — handles interior vertices in the pocket).
+    let mut pocket_registry = VisitedPocketRegistry::new();
+    let mut pocket_pos: BTreeMap<BTreeSet<u32>, Vec<usize>> = BTreeMap::new();
 
     // 9. Per base triangle: fast path (pass-through) or split + enforce.
     for t in 0..soup.num_tris() {
@@ -817,23 +840,78 @@ pub fn mesh_arrangement(
             },
         )?;
 
-        // Assemble: map each submesh vertex → a global id (§7 weld), then push
-        // each sub-triangle with the parent base triangle's label.
+        // Assemble: map each submesh vertex → a global id (§7 weld).
         let base_corners = [c0, c1, c2];
         let base_global_ids = soup.tri(t);
-        for st in 0..subm.num_tris() {
-            let local = subm.tri(st);
-            let mut global = [0u32; 3];
-            for (k, &lv) in local.iter().enumerate() {
-                global[k] = weld_vertex(
-                    subm.vert_coords(lv),
-                    &base_corners,
-                    &base_global_ids,
-                    &mut globals,
-                );
+        let weld_local = |lv: u32, globals: &mut GlobalVerts| -> u32 {
+            weld_vertex(
+                subm.vert_coords(lv),
+                &base_corners,
+                &base_global_ids,
+                globals,
+            )
+        };
+        let label = kept_labels[t as usize].clone();
+
+        if coplanar_tris.contains(&t) {
+            // (PR-4) Pocket path — port of solvePocketsInCoplanarTriangle
+            // (triangulation.cpp:1226). Flood-fill the submesh into pockets
+            // bounded by constraint/border edges; key each pocket by its
+            // GLOBAL boundary-vertex set. A new key emits the pocket's
+            // sub-triangles (recording their out-positions); a SEEN key (the
+            // coplanar partner's identical overlap pocket) is NOT re-emitted —
+            // its label is OR-merged into the recorded positions. THIS is the
+            // dedup that prevents the overlap double-count.
+            for pocket in find_pockets_in_triangle(&subm) {
+                // GLOBAL boundary-vertex set (welds both coplanar triangles'
+                // shared overlap boundary to the SAME global ids → same key).
+                let mut boundary_global: BTreeSet<u32> = BTreeSet::new();
+                for &lv in &pocket.boundary_verts {
+                    boundary_global.insert(weld_local(lv, &mut globals));
+                }
+                let boundary_vec: Vec<u32> = boundary_global.iter().copied().collect();
+
+                match pocket_registry.add_visited_polygon_pocket(&boundary_vec, out_tris.len()) {
+                    None => {
+                        // New pocket → emit its sub-triangles, record positions.
+                        let mut positions: Vec<usize> = Vec::with_capacity(pocket.sub_tris.len());
+                        for &st in &pocket.sub_tris {
+                            let local = subm.tri(st);
+                            let global = [
+                                weld_local(local[0], &mut globals),
+                                weld_local(local[1], &mut globals),
+                                weld_local(local[2], &mut globals),
+                            ];
+                            positions.push(out_tris.len());
+                            out_tris.push(global);
+                            out_labels.push(label.clone());
+                        }
+                        pocket_pos.insert(boundary_global, positions);
+                    }
+                    Some(_) => {
+                        // Already emitted (the partner's identical overlap
+                        // pocket) → OR-merge the label into every recorded
+                        // out-position; do NOT re-emit (no double-count).
+                        if let Some(positions) = pocket_pos.get(&boundary_global) {
+                            for &p in positions {
+                                or_merge_label(&mut out_labels[p], &label);
+                            }
+                        }
+                    }
+                }
             }
-            out_tris.push(global);
-            out_labels.push(kept_labels[t as usize].clone());
+        } else {
+            // Non-coplanar triangle: plain per-sub-triangle emit (unchanged).
+            for st in 0..subm.num_tris() {
+                let local = subm.tri(st);
+                let global = [
+                    weld_local(local[0], &mut globals),
+                    weld_local(local[1], &mut globals),
+                    weld_local(local[2], &mut globals),
+                ];
+                out_tris.push(global);
+                out_labels.push(label.clone());
+            }
         }
     }
 
@@ -911,7 +989,6 @@ mod tests {
     use crate::arrangements::soup::{
         merge_duplicated_vertices, remove_degenerate_and_duplicated_triangles,
     };
-    use crate::arrangements::DeferReason;
     use crate::labeled_arrangement::InputId;
     use cad_primitives::Point3;
     use dashu::float::FBig;
@@ -1774,12 +1851,15 @@ mod tests {
     // classified ArrangementError, NEVER a silent / wrong soup.
     // ════════════════════════════════════════════════════════════════
 
-    /// Two triangles in the SAME plane (z=0) that overlap. AR1 classifies this
-    /// pair `Deferred(Coplanar | SingleCoplanarEdge)`, which the orchestration
-    /// must surface as `ArrangementError::CoplanarPairDeferred` — loud, never a
-    /// silent pass or a wrong soup.
+    /// Two triangles in the SAME plane (z=0) that overlap in positive area.
+    /// As of PR-4 (coplanar pocket-dedup port) AR1's constructed `Coplanar`
+    /// classification is wired into the split path: the pair CONSTRUCTS a
+    /// conforming subdivision (A-only / overlap / B-only) instead of deferring.
+    /// The overlap boundary appears as new (implicit) vertices, so the soup has
+    /// strictly more vertices than the 6 inputs and more than 2 triangles —
+    /// never a silent pass-through (which would emit exactly the 2 inputs).
     #[test]
-    fn coplanar_pair_is_loudly_deferred() {
+    fn coplanar_overlap_pair_is_constructed() {
         // Ta and Tb both in z=0, overlapping (Tb shifted into Ta's interior).
         let coords = vec![
             // Ta
@@ -1794,17 +1874,18 @@ mod tests {
         let tris = vec![[0u32, 1, 2], [3u32, 4, 5]];
         let labels = vec![vec![A], vec![B]];
 
-        let err = mesh_arrangement(&coords, &tris, &labels)
-            .expect_err("coplanar overlapping pair must be loudly deferred, not silently handled");
+        let soup = mesh_arrangement(&coords, &tris, &labels)
+            .expect("coplanar overlapping pair now CONSTRUCTS (PR-4 pocket dedup)");
         assert!(
-            matches!(
-                err,
-                ArrangementError::CoplanarPairDeferred {
-                    reason: DeferReason::Coplanar | DeferReason::SingleCoplanarEdge,
-                    ..
-                }
-            ),
-            "expected CoplanarPairDeferred(Coplanar|SingleCoplanarEdge), got {err:?}"
+            soup.tris.len() > 2,
+            "the overlap must be subdivided (got {} tris, the 2 raw inputs = \
+             silent pass-through)",
+            soup.tris.len()
+        );
+        assert!(
+            soup.verts.len() > 6,
+            "overlap-boundary crossings must add new vertices (got {})",
+            soup.verts.len()
         );
 
         // -- single-coplanar-edge, CONTAINED sub-config: now CLASSIFIED, not
@@ -2518,9 +2599,12 @@ mod adversary_tests {
     }
 
     #[test]
-    fn adversary_genuinely_coplanar_overlap_is_loudly_deferred() {
+    fn adversary_genuinely_coplanar_overlap_is_constructed() {
         // Two triangles in the SAME plane z=0, overlapping in positive area.
-        // Must be loud CoplanarPairDeferred — and explicitly NOT Ok.
+        // As of PR-4 this CONSTRUCTS a conforming subdivision (pocket dedup),
+        // it does not defer. The overlap is subdivided (more than the 2 raw
+        // input triangles) and new boundary vertices appear — never a silent
+        // pass-through, never a wrong soup.
         let coords = vec![
             0.0, 0.0, 0.0, // 0
             4.0, 0.0, 0.0, // 1
@@ -2531,10 +2615,13 @@ mod adversary_tests {
         ];
         let tris = vec![[0u32, 1, 2], [3u32, 4, 5]];
         let labels = vec![vec![A], vec![B]];
-        let res = mesh_arrangement(&coords, &tris, &labels);
+        let soup = mesh_arrangement(&coords, &tris, &labels)
+            .expect("coplanar positive-area overlap now CONSTRUCTS (PR-4)");
         assert!(
-            matches!(res, Err(ArrangementError::CoplanarPairDeferred { .. })),
-            "coplanar positive-area overlap must be loud CoplanarPairDeferred, got {res:?}"
+            soup.tris.len() > 2 && soup.verts.len() > 6,
+            "overlap must be subdivided with new boundary vertices, got {} tris / {} verts",
+            soup.tris.len(),
+            soup.verts.len()
         );
     }
 
@@ -2792,26 +2879,15 @@ mod adversary_tests {
 
     #[test]
     fn adversary_out_of_scope_inputs_are_never_silent_ok() {
-        // (a) Coplanar positive-area overlap.
-        let coplanar = (
-            vec![
-                0.0, 0.0, 0.0, 4.0, 0.0, 0.0, 0.0, 4.0, 0.0, // Ta z=0
-                1.0, 1.0, 0.0, 5.0, 1.0, 0.0, 1.0, 5.0, 0.0, // Tb z=0 overlapping
-            ],
-            vec![[0u32, 1, 2], [3u32, 4, 5]],
-            vec![vec![A], vec![B]],
-        );
-        let r = mesh_arrangement(&coplanar.0, &coplanar.1, &coplanar.2);
-        assert!(
-            r.is_err(),
-            "coplanar overlap must NOT be Ok (silent), got Ok"
-        );
-        assert!(
-            matches!(r, Err(ArrangementError::CoplanarPairDeferred { .. })),
-            "coplanar overlap must be the classified CoplanarPairDeferred, got {r:?}"
-        );
+        // (Coplanar positive-area overlap moved to
+        // `adversary_genuinely_coplanar_overlap_is_constructed` — as of PR-4 it
+        // is IN scope and CONSTRUCTS, no longer a deferral. The remaining
+        // genuinely-out-of-scope coplanar sub-config (SingleCoplanarEdge
+        // vertex-in-edge) is still loudly deferred — see
+        // `adversary_coplanar_edge_through_interior_is_loudly_deferred`.)
 
-        // (b) Label/triangle count mismatch.
+        // Label/triangle count mismatch is still loud, never a silent
+        // truncation.
         let (c2, t2, mut l2) = cube(0.0, 0.0, 0.0, 1.0, A);
         l2.pop();
         let r2 = mesh_arrangement(&c2, &t2, &l2);
