@@ -21,6 +21,10 @@ pub mod status;
 pub mod solver;
 
 #[cfg(not(feature = "legacy-solver"))]
+#[path = "clean/constraint_mapping.rs"]
+pub mod constraint_mapping;
+
+#[cfg(not(feature = "legacy-solver"))]
 #[path = "clean/solver.rs"]
 pub mod solver;
 
