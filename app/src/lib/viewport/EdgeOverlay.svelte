@@ -11,8 +11,10 @@
 		geomRefEquals,
 		getCameraObject,
 		getSketchMode,
-		isProjectToolActive
+		isProjectToolActive,
+		getSectionState
 	} from '$lib/engine/store.svelte.js';
+	import { buildSectionClipPlane } from './sectionPlane.js';
 
 	const { renderer } = useThrelte();
 
@@ -242,6 +244,30 @@
 		const hRef = getHoveredRef();
 		const sRefs = getSelectedRefs();
 		return edgeGeometries.map((e) => buildEdgeMaterials(e.ranges, hRef, sRefs));
+	});
+
+	// Capped section view: clip edges on the removed side with the SAME plane
+	// CadModel uses. Re-applies whenever the materials rebuild (hover/selection)
+	// or the section plane changes; cleared to [] when inactive.
+	let sectionClipPlane = $derived.by(() => {
+		const s = getSectionState();
+		if (!s.active || !s.plane) return null;
+		return buildSectionClipPlane(s.plane, s.flipped, s.offset);
+	});
+
+	$effect(() => {
+		const plane = sectionClipPlane;
+		const planes = plane ? [plane] : [];
+		for (const matArr of edgeMaterials) {
+			if (!matArr) continue;
+			for (const mat of matArr) {
+				if (!mat) continue;
+				mat.clippingPlanes = planes;
+				mat.needsUpdate = true;
+			}
+		}
+		fallbackMaterial.clippingPlanes = planes;
+		fallbackMaterial.needsUpdate = true;
 	});
 
 	onMount(() => {

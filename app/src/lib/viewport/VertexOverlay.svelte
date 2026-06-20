@@ -10,8 +10,10 @@
 		selectRef,
 		geomRefEquals,
 		getCameraObject,
-		getSketchMode
+		getSketchMode,
+		getSectionState
 	} from '$lib/engine/store.svelte.js';
+	import { buildSectionClipPlane } from './sectionPlane.js';
 
 	const { renderer } = useThrelte();
 
@@ -193,11 +195,28 @@
 			canvas.removeEventListener('click', handleClick);
 		};
 	});
+
+	// Capped section view: clip vertices on the removed side with the SAME plane
+	// CadModel/EdgeOverlay use. Bound to the PointsMaterial via `pointsMaterial`.
+	let pointsMaterial = $state(null);
+	let sectionClipPlane = $derived.by(() => {
+		const s = getSectionState();
+		if (!s.active || !s.plane) return null;
+		return buildSectionClipPlane(s.plane, s.flipped, s.offset);
+	});
+
+	$effect(() => {
+		const plane = sectionClipPlane;
+		if (!pointsMaterial) return;
+		pointsMaterial.clippingPlanes = plane ? [plane] : [];
+		pointsMaterial.needsUpdate = true;
+	});
 </script>
 
 {#if pointsGeometry}
 	<T.Points geometry={pointsGeometry} renderOrder={10}>
 		<T.PointsMaterial
+			bind:ref={pointsMaterial}
 			size={4}
 			sizeAttenuation={false}
 			vertexColors
