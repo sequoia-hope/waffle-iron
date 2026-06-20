@@ -12,6 +12,7 @@
 //! exactness oracles).
 
 pub mod aux_structure;
+pub mod coplanar_propagate;
 pub mod enforce;
 pub mod fast_trimesh;
 pub(crate) mod gp_dispatch;
@@ -25,6 +26,10 @@ pub use aux_structure::{
     group_constraint_segments, group_intersection_points, ConstraintSegment,
     ConstraintSegmentError, CoplanarAdjacency, TriangleAuxPoints, TypedPoint,
     VisitedPocketRegistry,
+};
+pub use coplanar_propagate::{
+    bucket_coplanar_intersections, build_coplanar_adjacency, propagate_coplanar_intersections,
+    CoplanarBuckets, TriangleSegments,
 };
 pub use enforce::{enforce_constraint_segments, enforce_constraints, EnforceError, SegmentSpec};
 pub use fast_trimesh::{FastTrimesh, FastTrimeshError, Plane};
