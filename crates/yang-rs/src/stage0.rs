@@ -99,6 +99,37 @@ pub(crate) struct PairPlane {
     pub(crate) opposite: bool,
 }
 
+/// One coincident-CYLINDER A×B face pair, for the post-`keep_set` multi-label
+/// overlap ("membrane") resolution in `boolean()`. The analog of [`PairPlane`]
+/// for two faces that share the SAME cylindrical surface (a coaxial flange
+/// outer wall coincident with a gear's central bore — the `err.waffle` case).
+///
+/// cherchi (coplanar PRs 1-4) constructs the coincident-cylinder overlap region
+/// with a MULTI-SOLID label, exactly as for a coplanar planar overlap; but
+/// Stage-0's planar scan ([`scan_near_coplanar`]) only records `Surface::Plane`
+/// pairs, so a coincident-cylinder sheet has no matching [`PairPlane`] and was
+/// dropped with `FaceResolutionFailed`. This parallel detector supplies the
+/// keep/drop decision for those sheets the SAME way the planar path does.
+pub(crate) struct PairCylinder {
+    /// A point on the shared axis (input A's `axis_point`).
+    pub(crate) axis_point: [f64; 3],
+    /// Unit axis direction (input A's `axis_dir`, normalized).
+    pub(crate) axis_dir: [f64; 3],
+    /// The shared cylinder radius.
+    pub(crate) radius: f64,
+    /// The pair's scale-relative detection band (mirrors the planar
+    /// `near_coplanar_band`: sub-model-resolution, NOT absolute `TAU_WORK`, so
+    /// it works at mm model scale — the banked bearing-recess lesson).
+    pub(crate) band: f64,
+    /// `true` iff the two cylinder faces' EFFECTIVE outward normals OPPOSE on
+    /// the shared surface (one an inner/bore wall pointing toward the axis, the
+    /// other an outer wall pointing away). Derived from the faces' `reversed`
+    /// flags exactly as the planar pair derives `opposite` from its normals:
+    /// both faces share the same analytic outward direction (radially away from
+    /// the axis), so they oppose iff exactly one is `reversed`.
+    pub(crate) opposite: bool,
+}
+
 /// Output of Stage-0 coplanar preprocessing.
 pub(crate) struct Stage0 {
     pub(crate) mesh_a: Mesh,
@@ -1932,4 +1963,287 @@ fn triangulate_ring(
         return Some(tris);
     }
     None
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// PR-5 — coincident-cylinder pair detector (the membrane analog of PairPlane)
+// ════════════════════════════════════════════════════════════════════════
+
+/// Detect coincident-cylinder A×B face pairs: one `Surface::Cylinder` face from
+/// A and one from B that share the SAME cylindrical surface (collinear axes,
+/// equal radius) with overlapping axial extent. Each becomes a [`PairCylinder`]
+/// supplying the post-`keep_set` membrane keep/drop decision in `boolean()`.
+///
+/// This is a PARALLEL detector — it does NOT touch the planar overlay / mesh
+/// re-tessellation path. cherchi already constructs the coincident-cylinder
+/// overlap (the shared lateral sheet is bit-identical in both solids' Stage-1
+/// meshes because the gear's bore wall and the flange's outer wall are the
+/// identical analytic cylinder); we only need to tell `boolean()` whether that
+/// internal sheet survives the op.
+pub(crate) fn detect_coincident_cylinder_pairs(a: &BRep, b: &BRep) -> Vec<PairCylinder> {
+    let cyls_a = cylinder_faces(a);
+    let cyls_b = cylinder_faces(b);
+    let mut out = Vec::new();
+    for ca in &cyls_a {
+        for cb in &cyls_b {
+            // Scale-relative band over both cylinders' geometry (axis points,
+            // radii, and the axial-extent endpoints). Mirrors the planar
+            // `near_coplanar_band`: `TAU_MODEL.max(scale·TAU_WORK)`.
+            let mut scale = 0.0_f64;
+            for v in ca
+                .axis_point
+                .iter()
+                .chain(cb.axis_point.iter())
+                .chain(std::iter::once(&ca.radius))
+                .chain(std::iter::once(&cb.radius))
+                .chain(ca.extent.iter())
+                .chain(cb.extent.iter())
+            {
+                scale = scale.max(v.abs());
+            }
+            let band = cad_primitives::TAU_MODEL.max(scale * cad_primitives::TAU_WORK);
+
+            if !cylinders_coincident(ca, cb, band) {
+                continue;
+            }
+            // Axial extents must overlap (band-inflated) — two coaxial,
+            // equal-radius cylinders that do not overlap along the axis share
+            // no surface region.
+            let (lo_a, hi_a) = (ca.extent[0], ca.extent[1]);
+            let (lo_b, hi_b) = (cb.extent[0], cb.extent[1]);
+            if lo_a > hi_b + band || lo_b > hi_a + band {
+                continue;
+            }
+            // Opposite iff exactly one face is a cavity wall (`reversed`): both
+            // share the analytic outward direction (radially away from axis), so
+            // their EFFECTIVE outward normals oppose iff their `reversed` flags
+            // differ — the same opposite/equal split the planar pair makes.
+            let opposite = ca.reversed != cb.reversed;
+            out.push(PairCylinder {
+                axis_point: ca.axis_point,
+                axis_dir: ca.axis_dir,
+                radius: ca.radius,
+                band,
+                opposite,
+            });
+        }
+    }
+    out
+}
+
+/// A cylinder face's analytic parameters plus the axial extent of its loop
+/// vertices (projected onto the axis) and its `reversed` flag.
+struct CylFace {
+    axis_point: [f64; 3],
+    axis_dir: [f64; 3],
+    radius: f64,
+    /// `[lo, hi]` axial parameter `(p − axis_point)·axis_dir` over the face's
+    /// loop vertices.
+    extent: [f64; 2],
+    reversed: bool,
+}
+
+/// All `Surface::Cylinder` faces of `brep` with normalized axes and the axial
+/// extent of their loop vertices. Faces whose axis is degenerate are skipped.
+fn cylinder_faces(brep: &BRep) -> Vec<CylFace> {
+    let mut out = Vec::new();
+    for (fi, f) in brep.faces().iter().enumerate() {
+        let Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } = f.surface
+        else {
+            continue;
+        };
+        let ap = axis_point.as_array();
+        let ad = axis_dir.as_array();
+        let len = (ad[0] * ad[0] + ad[1] * ad[1] + ad[2] * ad[2]).sqrt();
+        if len < cad_primitives::MIN_FEATURE_SIZE {
+            continue;
+        }
+        let au = [ad[0] / len, ad[1] / len, ad[2] / len];
+        // Axial extent over the face's loop vertices.
+        let mut lo = f64::INFINITY;
+        let mut hi = f64::NEG_INFINITY;
+        for vi in face_loop_verts(brep, fi) {
+            let Some(v) = brep.vertices().get(vi as usize) else {
+                continue;
+            };
+            let p = v.point.as_array();
+            let t = (p[0] - ap[0]) * au[0] + (p[1] - ap[1]) * au[1] + (p[2] - ap[2]) * au[2];
+            lo = lo.min(t);
+            hi = hi.max(t);
+        }
+        if !lo.is_finite() {
+            // No loop vertices (e.g. a seam-only loop): treat the extent as a
+            // point at the axis origin so coaxial/equal-radius matching still
+            // fires but the axial-overlap test stays meaningful.
+            lo = 0.0;
+            hi = 0.0;
+        }
+        out.push(CylFace {
+            axis_point: ap,
+            axis_dir: au,
+            radius,
+            extent: [lo, hi],
+            reversed: f.reversed,
+        });
+    }
+    out
+}
+
+/// Are two cylinder faces COINCIDENT: collinear axes (parallel directions AND
+/// one axis point lies on the other's axis line) and equal radius, all within
+/// the scale-relative `band`?
+fn cylinders_coincident(ca: &CylFace, cb: &CylFace, band: f64) -> bool {
+    // Equal radius.
+    if (ca.radius - cb.radius).abs() > band {
+        return false;
+    }
+    // Parallel axis directions (|cross| ≈ 0).
+    let cross = [
+        ca.axis_dir[1] * cb.axis_dir[2] - ca.axis_dir[2] * cb.axis_dir[1],
+        ca.axis_dir[2] * cb.axis_dir[0] - ca.axis_dir[0] * cb.axis_dir[2],
+        ca.axis_dir[0] * cb.axis_dir[1] - ca.axis_dir[1] * cb.axis_dir[0],
+    ];
+    let sin = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
+    // Scale the angular tolerance by the radius so the band is a true distance
+    // bound on the surface (a tiny angular error over a large radius is still a
+    // surface displacement of band·… — keep it conservative: compare directly).
+    if sin > band.max(cad_primitives::TAU_MODEL) {
+        return false;
+    }
+    // b's axis point lies on a's axis line: the perpendicular distance from
+    // cb.axis_point to a's line (point ca.axis_point, dir ca.axis_dir).
+    let w = [
+        cb.axis_point[0] - ca.axis_point[0],
+        cb.axis_point[1] - ca.axis_point[1],
+        cb.axis_point[2] - ca.axis_point[2],
+    ];
+    let t = w[0] * ca.axis_dir[0] + w[1] * ca.axis_dir[1] + w[2] * ca.axis_dir[2];
+    let perp = [
+        w[0] - t * ca.axis_dir[0],
+        w[1] - t * ca.axis_dir[1],
+        w[2] - t * ca.axis_dir[2],
+    ];
+    let perp_dist = (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt();
+    perp_dist <= band
+}
+
+#[cfg(test)]
+mod cylinder_pair_tests {
+    use super::*;
+    use crate::{BRepEdge, BRepFace, BRepVertex, Curve};
+    use cad_primitives::{Point3, Vector3};
+
+    /// Build a minimal closed-cylinder B-Rep: two full-circle rim edges at
+    /// z=`z0` and z=`z1`, one lateral `Surface::Cylinder` face referencing both
+    /// rims, with the given `reversed` flag. Axis = +Z through the origin.
+    fn cylinder_brep(radius: f64, z0: f64, z1: f64, reversed: bool) -> BRep {
+        // Two rim vertices (seam points) + the lateral face.
+        let v0 = BRepVertex {
+            point: Point3::new(radius, 0.0, z0),
+        };
+        let v1 = BRepVertex {
+            point: Point3::new(radius, 0.0, z1),
+        };
+        let rim0 = BRepEdge {
+            start: 0,
+            end: 0,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, z0),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                radius,
+            },
+        };
+        let rim1 = BRepEdge {
+            start: 1,
+            end: 1,
+            curve: Curve::Circle {
+                center: Point3::new(0.0, 0.0, z1),
+                normal: Vector3::new(0.0, 0.0, 1.0),
+                radius,
+            },
+        };
+        let face = BRepFace {
+            surface: Surface::Cylinder {
+                axis_point: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                radius,
+            },
+            outer_loop: vec![0, 1],
+            inner_loops: vec![],
+            reversed,
+        };
+        BRep::new(vec![v0, v1], vec![rim0, rim1], vec![face]).expect("build cylinder brep")
+    }
+
+    #[test]
+    fn coaxial_bore_vs_wall_one_opposite_pair() {
+        // A: a bore (cavity wall, reversed) of radius 2, z∈[0,5].
+        // B: an outer wall (solid, not reversed) of the SAME cylinder, z∈[0,5].
+        let a = cylinder_brep(2.0, 0.0, 5.0, true);
+        let b = cylinder_brep(2.0, 0.0, 5.0, false);
+        let pairs = detect_coincident_cylinder_pairs(&a, &b);
+        assert_eq!(pairs.len(), 1, "exactly one coincident-cylinder pair");
+        assert!(
+            pairs[0].opposite,
+            "bore (reversed) vs wall (not reversed) must be opposite"
+        );
+        assert!((pairs[0].radius - 2.0).abs() < 1e-12);
+        assert!((pairs[0].axis_dir[2] - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn coaxial_same_sense_not_opposite() {
+        // Two solid walls of the same cylinder (both not reversed) → equal.
+        let a = cylinder_brep(2.0, 0.0, 5.0, false);
+        let b = cylinder_brep(2.0, 1.0, 4.0, false);
+        let pairs = detect_coincident_cylinder_pairs(&a, &b);
+        assert_eq!(pairs.len(), 1);
+        assert!(!pairs[0].opposite, "same-sense walls are not opposite");
+    }
+
+    #[test]
+    fn different_radius_no_pair() {
+        let a = cylinder_brep(2.0, 0.0, 5.0, true);
+        let b = cylinder_brep(3.0, 0.0, 5.0, false);
+        assert!(detect_coincident_cylinder_pairs(&a, &b).is_empty());
+    }
+
+    #[test]
+    fn offset_axis_no_pair() {
+        // Same radius/direction but axis shifted off in x by 1 (parallel, not
+        // collinear) → not coincident.
+        let a = cylinder_brep(2.0, 0.0, 5.0, true);
+        let mut b = cylinder_brep(2.0, 0.0, 5.0, false);
+        // Shift B's axis off the line: rebuild with a translated axis_point.
+        if let Surface::Cylinder {
+            axis_dir, radius, ..
+        } = b.faces()[0].surface
+        {
+            let new_face = BRepFace {
+                surface: Surface::Cylinder {
+                    axis_point: Point3::new(1.0, 0.0, 0.0),
+                    axis_dir,
+                    radius,
+                },
+                outer_loop: b.faces()[0].outer_loop.clone(),
+                inner_loops: vec![],
+                reversed: b.faces()[0].reversed,
+            };
+            b = BRep::new(b.vertices().to_vec(), b.edges().to_vec(), vec![new_face])
+                .expect("rebuild offset cylinder");
+        }
+        assert!(detect_coincident_cylinder_pairs(&a, &b).is_empty());
+    }
+
+    #[test]
+    fn disjoint_axial_extent_no_pair() {
+        // Coaxial, equal radius, but z-ranges do not overlap.
+        let a = cylinder_brep(2.0, 0.0, 5.0, true);
+        let b = cylinder_brep(2.0, 10.0, 15.0, false);
+        assert!(detect_coincident_cylinder_pairs(&a, &b).is_empty());
+    }
 }

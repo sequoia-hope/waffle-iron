@@ -4065,6 +4065,27 @@ fn build_intersection_curves(
             continue;
         }
 
+        if cylinders_are_coincident(surf0, surf1, tol) {
+            // PR-5: COINCIDENT cylinders (the §4.5.5 membrane analog for a coaxial
+            // flange wall == gear bore, `err.waffle`). `ssi_rs::intersect`
+            // correctly refuses an identical-quadric pair (`DegenerateInput`):
+            // the two cylinders do not intersect transversally, so the edge
+            // curve does NOT come from SSI but from the overlap boundary on the
+            // shared cylinder — exactly the coincident-PLANE case above.
+            //
+            // Every such edge (rim, generator, or interior tessellation chord)
+            // is left to the `Curve::LineSegment` fallback in `emit_topology`
+            // (the mesh chord — the analog of the plane case handing every seam
+            // edge a straight segment, refinement-free). Emitting a rim
+            // `Curve::Circle` here would instead mark its endpoints for Stage-4
+            // relocation onto the analytic circle, collapsing adjacent
+            // membrane-region triangles (`DegenerateTriangle`): those vertices
+            // already sit on the shared cylinder's exact chord rim (the lateral
+            // tessellation put them there) and need no relocation. It is NEVER
+            // sent to the degenerate SSI (which would be a loud `DegenerateInput`).
+            continue;
+        }
+
         let q0 = surface_to_quadric(surf0).map_err(|reason| YangError::SsiRefinementFailed {
             edge: (s, e),
             reason,
@@ -4884,6 +4905,72 @@ fn point_strictly_in_planar_face(brep: &BRep, fi: usize, p: [f64; 3]) -> Option<
     Some(point_in_even_odd(&q, &edges2))
 }
 
+/// Surface distance of a point `c` to a coincident-cylinder pair, namely the
+/// value `abs(dist_to_axis_line minus radius)`, which is zero on the shared
+/// cylindrical surface. Used by the membrane resolution to match an
+/// overlap-sheet triangle to a [`stage0::PairCylinder`] (the cylinder analog of
+/// the planar plane-distance match).
+fn centroid_on_cylinder(c: [f64; 3], p: &stage0::PairCylinder) -> f64 {
+    let w = [
+        c[0] - p.axis_point[0],
+        c[1] - p.axis_point[1],
+        c[2] - p.axis_point[2],
+    ];
+    let t = w[0] * p.axis_dir[0] + w[1] * p.axis_dir[1] + w[2] * p.axis_dir[2];
+    let perp = [
+        w[0] - t * p.axis_dir[0],
+        w[1] - t * p.axis_dir[1],
+        w[2] - t * p.axis_dir[2],
+    ];
+    let dist = (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt();
+    (dist - p.radius).abs()
+}
+
+/// PR-5: are `surf0` and `surf1` COINCIDENT cylinders — same axis line
+/// (parallel axes, collinear) and equal radius, all within `tol`? Two such
+/// cylinders share their entire lateral surface and `ssi_rs::intersect` refuses
+/// them (`DegenerateInput`), so the caller must NOT route their edges to SSI.
+fn cylinders_are_coincident(surf0: Surface, surf1: Surface, tol: f64) -> bool {
+    let (
+        Surface::Cylinder {
+            axis_point: ap0,
+            axis_dir: ad0,
+            radius: r0,
+        },
+        Surface::Cylinder {
+            axis_point: ap1,
+            axis_dir: ad1,
+            radius: r1,
+        },
+    ) = (surf0, surf1)
+    else {
+        return false;
+    };
+    let ad0 = normalize3(ad0.as_array());
+    let ad1 = normalize3(ad1.as_array());
+    // Parallel axes (|cross| ≈ 0).
+    let cross = [
+        ad0[1] * ad1[2] - ad0[2] * ad1[1],
+        ad0[2] * ad1[0] - ad0[0] * ad1[2],
+        ad0[0] * ad1[1] - ad0[1] * ad1[0],
+    ];
+    let sin = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
+    if sin > tol.max(cad_primitives::TAU_MODEL) {
+        return false;
+    }
+    // Equal radius.
+    if (r0 - r1).abs() > tol {
+        return false;
+    }
+    // Collinear axes: ap1 lies on ap0's axis line (perpendicular distance ≈ 0).
+    let ap0a = ap0.as_array();
+    let ap1a = ap1.as_array();
+    let w = [ap1a[0] - ap0a[0], ap1a[1] - ap0a[1], ap1a[2] - ap0a[2]];
+    let tw = w[0] * ad0[0] + w[1] * ad0[1] + w[2] * ad0[2];
+    let perp = [w[0] - tw * ad0[0], w[1] - tw * ad0[1], w[2] - tw * ad0[2]];
+    (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt() <= tol
+}
+
 /// Boolean operation on two B-Rep solids via a `MeshBoolean` backend.
 ///
 /// **M3 functional pipeline** (replaces the PR-YR3/YR4 spatial-match +
@@ -4940,6 +5027,17 @@ pub fn boolean(
     // multi-pair faces and overlay failures) keeps the loud typed PR-YR24
     // wall (`CoplanarFacesUnsupported`).
     let stage0 = stage0::stage0_preprocess(a, b)?;
+    // PR-5: coincident-CYLINDER A×B pairs (the membrane analog of the planar
+    // `PairPlane`s in `stage0`). cherchi (coplanar PRs 1-4) constructs the
+    // coincident-cylinder overlap with a MULTI-SOLID label exactly as it does a
+    // coplanar planar overlap, but the Stage-0 planar scan records only
+    // `Surface::Plane` pairs — so a coaxial-cylinder sheet (a flange outer wall
+    // coincident with a gear bore, `err.waffle`) had no matching pair and was
+    // dropped with `FaceResolutionFailed`. This parallel detector supplies the
+    // keep/drop decision for those sheets. It does NOT touch the planar overlay
+    // / mesh re-tessellation path (the coincident-cylinder meshes are already
+    // bit-identical: both faces are the identical analytic cylinder).
+    let cyl_pairs = stage0::detect_coincident_cylinder_pairs(a, b);
     let (mesh_a, mesh_b): (&Mesh, &Mesh) = match &stage0 {
         Some(s0) => (&s0.mesh_a, &s0.mesh_b),
         // No coplanar pairs: the B-Reps' own Stage-1 meshes — byte-for-byte
@@ -5112,11 +5210,6 @@ pub fn boolean(
         // (subtract-opposite / union-equal / intersect-equal all bound the
         // result with A's outward direction).
         if la.surface[orig_t].len() > 1 {
-            let Some(s0) = &stage0 else {
-                // Multi-label tris can only come from Stage-0 overlap
-                // welds; without a Stage-0 plan this is out of scope (P9).
-                return Err(YangError::FaceResolutionFailed { tri: orig_t });
-            };
             let p0 = la.mesh.verts[raw[0] as usize].as_array();
             let p1 = la.mesh.verts[raw[1] as usize].as_array();
             let p2 = la.mesh.verts[raw[2] as usize].as_array();
@@ -5125,17 +5218,42 @@ pub fn boolean(
                 (p0[1] + p1[1] + p2[1]) / 3.0,
                 (p0[2] + p1[2] + p2[2]) / 3.0,
             ];
-            let Some(pair) = s0
-                .pairs
-                .iter()
-                .find(|p| (p.n[0] * c[0] + p.n[1] * c[1] + p.n[2] * c[2] + p.d).abs() <= p.band)
-            else {
-                // On no known pair plane — loud, never a guessed config.
-                return Err(YangError::FaceResolutionFailed { tri: orig_t });
+            // The sheet's `opposite` flag — found by matching its centroid to a
+            // Stage-0 PLANAR pair plane (the §4.5.5 membrane) OR, failing that,
+            // to a coincident-CYLINDER pair (PR-5: a sheet triangle lies on a
+            // cylinder pair iff `|dist(c, axis_line) − radius| <= band`). Only
+            // if NEITHER matches is it an unhandled config — still loud (P9).
+            let planar = stage0.as_ref().and_then(|s0| {
+                s0.pairs
+                    .iter()
+                    .find(|p| (p.n[0] * c[0] + p.n[1] * c[1] + p.n[2] * c[2] + p.d).abs() <= p.band)
+                    .map(|p| p.opposite)
+            });
+            let opposite = match planar {
+                Some(o) => o,
+                // A sheet triangle on the TESSELLATED cylinder sits up to the
+                // Stage-1 chord sagitta inside the analytic radius — far beyond
+                // the detection `band`. Match against the curved chord bound
+                // `d_ε` (the SAME bound Stage 1 sizes the tessellation to and
+                // Stage-6 attribution uses for cylinder faces — A14.3, not a
+                // widening). Both solids' overlap meshes are bit-identical, so
+                // either chord bound applies; use the larger to be safe.
+                None => match cyl_pairs.iter().find(|p| {
+                    let de = curved_chord_bound(a.edges())
+                        .unwrap_or(0.0)
+                        .max(curved_chord_bound(b.edges()).unwrap_or(0.0))
+                        .max(p.band);
+                    centroid_on_cylinder(c, p) <= de
+                }) {
+                    Some(p) => p.opposite,
+                    // On no known pair (planar or cylinder) — loud, never a
+                    // guessed config.
+                    None => return Err(YangError::FaceResolutionFailed { tri: orig_t }),
+                },
             };
             let keep_sheet = match op {
-                BoolOp::Union | BoolOp::Intersect => !pair.opposite,
-                BoolOp::Subtract => pair.opposite,
+                BoolOp::Union | BoolOp::Intersect => !opposite,
+                BoolOp::Subtract => opposite,
                 // XOR never reaches here (rejected at (3a) on a non-empty
                 // kept set), but the side rule drops the sheet in both
                 // configs anyway.
@@ -5687,9 +5805,26 @@ fn merge_same_plane_patches(
         return patches;
     }
 
-    // Unit-normalized inherited plane per patch (`None` = curved / degenerate
-    // — never merged).
-    let planes: Vec<Option<([f64; 3], f64)>> = patches
+    // Inherited surface key per patch (`None` = unmergeable surface kind or
+    // degenerate — never merged). A `Plane` keys on its unit `(n̂, d̂)`; a
+    // `Cylinder` keys on its unit axis, an axis-line anchor (the axis point
+    // projected to remove the free axial slide), the radius, AND the effective
+    // outward sense (`reversed`) — two coincident cylinders of OPPOSITE sense
+    // (a bore wall vs an outer wall) must NEVER merge (PR-5; mirrors the planar
+    // opposite-normal guard). Spheres/cones keep `None` (not yet needed).
+    enum SurfKey {
+        Plane {
+            n: [f64; 3],
+            d: f64,
+        },
+        Cyl {
+            axis: [f64; 3],
+            anchor: [f64; 3],
+            radius: f64,
+            reversed: bool,
+        },
+    }
+    let keys: Vec<Option<SurfKey>> = patches
         .iter()
         .map(|p| {
             let brep = match p.attribution.input {
@@ -5697,23 +5832,81 @@ fn merge_same_plane_patches(
                 InputId::B => b,
             };
             let f = brep.faces().get(p.attribution.face as usize)?;
-            let Surface::Plane { normal, d } = f.surface else {
-                return None;
-            };
-            let n = normal.as_array();
-            let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-            if len < cad_primitives::MIN_FEATURE_SIZE {
-                return None;
+            match f.surface {
+                Surface::Plane { normal, d } => {
+                    let n = normal.as_array();
+                    let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+                    if len < cad_primitives::MIN_FEATURE_SIZE {
+                        return None;
+                    }
+                    Some(SurfKey::Plane {
+                        n: [n[0] / len, n[1] / len, n[2] / len],
+                        d: d / len,
+                    })
+                }
+                Surface::Cylinder {
+                    axis_point,
+                    axis_dir,
+                    radius,
+                } => {
+                    let ad = axis_dir.as_array();
+                    let len = (ad[0] * ad[0] + ad[1] * ad[1] + ad[2] * ad[2]).sqrt();
+                    if len < cad_primitives::MIN_FEATURE_SIZE {
+                        return None;
+                    }
+                    let axis = [ad[0] / len, ad[1] / len, ad[2] / len];
+                    // Anchor = axis_point with its axial component removed, so
+                    // two cylinders sharing one axis LINE but with axis points at
+                    // different axial offsets get an identical anchor.
+                    let ap = axis_point.as_array();
+                    let t = ap[0] * axis[0] + ap[1] * axis[1] + ap[2] * axis[2];
+                    let anchor = [
+                        ap[0] - t * axis[0],
+                        ap[1] - t * axis[1],
+                        ap[2] - t * axis[2],
+                    ];
+                    Some(SurfKey::Cyl {
+                        axis,
+                        anchor,
+                        radius,
+                        reversed: f.reversed,
+                    })
+                }
+                _ => None,
             }
-            Some(([n[0] / len, n[1] / len, n[2] / len], d / len))
         })
         .collect();
     let mergeable = |i: usize, j: usize| -> bool {
-        let (Some((ni, di)), Some((nj, dj))) = (planes[i], planes[j]) else {
-            return false;
-        };
-        (di - dj).abs() <= cad_primitives::TAU_WORK
-            && (0..3).all(|k| (ni[k] - nj[k]).abs() <= cad_primitives::TAU_WORK)
+        match (&keys[i], &keys[j]) {
+            (Some(SurfKey::Plane { n: ni, d: di }), Some(SurfKey::Plane { n: nj, d: dj })) => {
+                (di - dj).abs() <= cad_primitives::TAU_WORK
+                    && (0..3).all(|k| (ni[k] - nj[k]).abs() <= cad_primitives::TAU_WORK)
+            }
+            (
+                Some(SurfKey::Cyl {
+                    axis: ai,
+                    anchor: anchi,
+                    radius: ri,
+                    reversed: revi,
+                }),
+                Some(SurfKey::Cyl {
+                    axis: aj,
+                    anchor: anchj,
+                    radius: rj,
+                    reversed: revj,
+                }),
+            ) => {
+                // Same effective sense, equal radius, parallel axes, same axis
+                // line (anchors agree up to TAU_WORK; axes may be antiparallel —
+                // a cylinder's axis_dir sign is free — so compare |aᵢ·aⱼ|≈1).
+                revi == revj
+                    && (ri - rj).abs() <= cad_primitives::TAU_WORK
+                    && (ai[0] * aj[0] + ai[1] * aj[1] + ai[2] * aj[2]).abs()
+                        >= 1.0 - cad_primitives::TAU_WORK
+                    && (0..3).all(|k| (anchi[k] - anchj[k]).abs() <= cad_primitives::TAU_WORK)
+            }
+            _ => false,
+        }
     };
 
     // patch index per mesh triangle.
@@ -7539,6 +7732,12 @@ fn validate_relocated_triangles(
         let nrm = tri_area_vector(p0, p1, p2);
         let twice_area = (nrm[0] * nrm[0] + nrm[1] * nrm[1] + nrm[2] * nrm[2]).sqrt();
         if twice_area * 0.5 < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE {
+            if std::env::var_os("YANG_RELOC_PROBE").is_some() {
+                eprintln!(
+                    "[reloc-degen] tri={tri:?} moved={:?} p0={p0:?} p1={p1:?} p2={p2:?} 2A={twice_area}",
+                    tri.iter().map(|v| moved.contains(v)).collect::<Vec<_>>()
+                );
+            }
             return Err(YangError::Stage4RegionInvalid {
                 vertex: tri[0],
                 reason: Stage4InvalidReason::DegenerateTriangle,
