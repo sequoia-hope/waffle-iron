@@ -89,8 +89,11 @@ test.describe('offset datum plane creation', () => {
 			.locator('[data-testid="offset-base-face"]')
 			.waitFor({ state: 'visible', timeout: 5000 });
 
-		const distance = 25;
-		await waffle.page.locator('[data-testid="offset-distance-input"]').fill(String(distance));
+		// Distance is entered in the document display unit (mm) and converted to
+		// internal meters by the dialog (like ExtrudeDialog).
+		const distanceMm = 25;
+		const distanceInternal = distanceMm / 1000;
+		await waffle.page.locator('[data-testid="offset-distance-input"]').fill(String(distanceMm));
 		await waffle.page.locator('[data-testid="offset-create-btn"]').click();
 
 		// A new DatumPlane feature must appear in the tree (3rd feature).
@@ -124,7 +127,7 @@ test.describe('offset datum plane creation', () => {
 			],
 			basePlane.normal
 		);
-		expect(signed).toBeCloseTo(distance, 6);
+		expect(signed).toBeCloseTo(distanceInternal, 6);
 
 		// Starting a sketch on the datum lands on the SAME resolved plane —
 		// proves the datum is consumable (not frozen / not divergent).
@@ -161,8 +164,9 @@ test.describe('offset datum plane creation', () => {
 			.waitFor({ state: 'visible', timeout: 5000 });
 		await waffle.page.locator('[data-testid="offset-base-select"]').selectOption(FRONT_PLANE_ID);
 
-		const distance = 15;
-		await waffle.page.locator('[data-testid="offset-distance-input"]').fill(String(distance));
+		const distanceMm = 15;
+		const distanceInternal = distanceMm / 1000;
+		await waffle.page.locator('[data-testid="offset-distance-input"]').fill(String(distanceMm));
 		await waffle.page.locator('[data-testid="offset-create-btn"]').click();
 
 		await waitForFeatureCount(waffle.page, 1, 10000);
@@ -179,7 +183,7 @@ test.describe('offset datum plane creation', () => {
 		expect(resolved).not.toBeNull();
 		// Front plane: origin [0,0,0], normal [0,0,1] → offset along +Z.
 		expect(resolved.normal).toEqual([0, 0, 1]);
-		expect(resolved.origin[2]).toBeCloseTo(distance, 6);
+		expect(resolved.origin[2]).toBeCloseTo(distanceInternal, 6);
 
 		expectNoAnyCrash(crashes);
 	});

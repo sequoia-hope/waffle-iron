@@ -9,9 +9,18 @@
 		computeFacePlane,
 		getFeatureTree,
 		createDatumPlane,
-		getSketchPlaneDialogStartInOffset
+		getSketchPlaneDialogStartInOffset,
+		getDocumentDisplayUnit
 	} from '$lib/engine/store.svelte.js';
 	import { getAllPlanes, resolvePlane } from '$lib/engine/planes.js';
+	import { parseAndConvert, UNITS } from '$lib/units.js';
+
+	// Offset distance is entered in the document display unit (e.g. mm) and
+	// converted to internal meters — like ExtrudeDialog. Without this the raw
+	// value was sent as METERS, placing the plane ~1000× off-screen (the model
+	// is meter-scale internally), so offset planes appeared not to render.
+	let displayUnit = $derived(getDocumentDisplayUnit());
+	let unitLabel = $derived(UNITS[displayUnit]?.label ?? displayUnit);
 
 	let visible = $derived(getSketchPlaneDialogVisible());
 	let selection = $derived(getSketchPlaneDialogSelection());
@@ -31,7 +40,10 @@
 	// Dialog mode: 'select' or 'create-offset'
 	let mode = $state('select');
 	let offsetBasePlaneId = $state('');
-	let offsetDistance = $state(10);
+	// Display-unit string (what the user types); `offsetDistance` is the
+	// converted internal value (meters) sent to the engine.
+	let offsetDistanceInput = $state('10');
+	let offsetDistance = $derived(parseAndConvert(offsetDistanceInput, displayUnit));
 	let offsetName = $state('Offset Plane');
 	// When set, the offset base is a selected planar FACE (GeomRef) instead of
 	// a plane from the dropdown. Captured from the current selection.
@@ -95,6 +107,7 @@
 	}
 
 	function handleCreateOffset() {
+		if (!Number.isFinite(offsetDistance)) return;
 		/** @type {any} */
 		let definition;
 		if (offsetBaseFace) {
@@ -115,7 +128,7 @@
 		// Reset offset state.
 		const standalone = getSketchPlaneDialogStartInOffset();
 		mode = 'select';
-		offsetDistance = 10;
+		offsetDistanceInput = '10';
 		offsetName = 'Offset Plane';
 		offsetBaseFace = null;
 		// Standalone entry: the datum plane is created — close the dialog
@@ -207,8 +220,8 @@
 						{/if}
 					</div>
 					<label class="field-label">
-						Distance
-						<input class="field-input" type="number" bind:value={offsetDistance} step="1" data-testid="offset-distance-input" />
+						Distance ({unitLabel})
+						<input class="field-input" type="text" bind:value={offsetDistanceInput} data-testid="offset-distance-input" />
 					</label>
 				</div>
 				<div class="dialog-footer">
