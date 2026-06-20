@@ -666,16 +666,13 @@ These are acceptable divergences documented for the parity harness:
    reveals a different effective weight is needed, this is a tunable in
    `solver.rs`, not a contract change. Weight is fixed per solve (no
    per-iteration reweighting).
-5. **Squared-length residual for `Equal(L_a, L_b)`.** We use `ℓ²_a − ℓ²_b`
-   to avoid `sqrt`; libslvs uses the unsquared length difference. Both are
-   zero iff the lengths are equal, but the squared form rescales that
-   residual's contribution to the LM objective, which can shift convergence
-   basins and iteration counts on degenerate or near-equal cases. Parity
-   asserts position agreement at `1e-6`, not iteration-count or
-   residual-trajectory parity. This is a deliberate deviation, not a bug:
-   the squared form is smoother near zero (no `sqrt` derivative singularity)
-   and is the standard formulation in Nocedal-Wright §10 for least-squares
-   problems with quadratic residuals.
+5. **Unsquared-length residual for `Equal(L_a, L_b)`.** We use `ℓ_a − ℓ_b`
+   (with a `sqrt`). The spec originally proposed `ℓ²_a − ℓ²_b` to avoid `sqrt`,
+   but the squared form amplifies position errors by a factor of ~2ℓ (≈120 for
+   60mm lines), making the `SOLVE_TOL = 1e-6` tolerance unreachable. The
+   `sqrt` singularity at zero-length lines is handled by a `dist > 1e-15`
+   guard that zeroes the Jacobian for degenerate cases. Parity asserts
+   position agreement at `1e-6`, matching the unsquared form's natural scale.
 
 ## References
 

@@ -31,6 +31,9 @@ pub struct ParamLayout {
     /// Circle/Arc entity ID → radius_param_index.
     pub radius_indices: HashMap<u32, usize>,
 
+    /// Circle entity ID → center_point_id.
+    pub circle_centers: HashMap<u32, u32>,
+
     /// Entity ID → EntityKind (for constraint dispatch).
     pub entity_kinds: HashMap<u32, EntityKind>,
 
@@ -53,6 +56,7 @@ impl ParamLayout {
             params: Vec::new(),
             point_indices: HashMap::new(),
             radius_indices: HashMap::new(),
+            circle_centers: HashMap::new(),
             entity_kinds: HashMap::new(),
             line_endpoints: HashMap::new(),
             arc_endpoints: HashMap::new(),
@@ -84,11 +88,15 @@ impl ParamLayout {
                     layout.entity_kinds.insert(*id, EntityKind::Line);
                 }
                 SketchEntity::Circle {
-                    id, radius, ..
+                    id,
+                    center_id,
+                    radius,
+                    ..
                 } => {
                     let ri = layout.params.len();
                     layout.params.push(*radius);
                     layout.radius_indices.insert(*id, ri);
+                    layout.circle_centers.insert(*id, *center_id);
                     layout.entity_kinds.insert(*id, EntityKind::Circle);
                 }
                 SketchEntity::Arc {

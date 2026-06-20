@@ -87,6 +87,32 @@ pub enum CompiledConstraint {
         px: usize, py: usize,
         cx: usize, cy: usize, r: usize,
     },
+    /// Radius constraint on an arc: residual = ‖C-S‖ - value
+    /// (arcs have no stored radius param; radius = center→start distance)
+    RadiusArc {
+        cx: usize, cy: usize, sx: usize, sy: usize,
+        value: f64,
+    },
+    /// Diameter constraint on an arc: residual = 2*‖C-S‖ - value
+    DiameterArc {
+        cx: usize, cy: usize, sx: usize, sy: usize,
+        value: f64,
+    },
+    /// Equal between arc (radius=‖C-S‖) and circle (stored radius param)
+    EqualArcCircle {
+        acx: usize, acy: usize, asx: usize, asy: usize,
+        r: usize,
+    },
+    /// Equal between two arcs (both radius = ‖center-start‖)
+    EqualArcArc {
+        acx: usize, acy: usize, asx: usize, asy: usize,
+        bcx: usize, bcy: usize, bsx: usize, bsy: usize,
+    },
+    /// OnEntity: point on arc (radius = ‖C-S‖)
+    OnEntityArc {
+        px: usize, py: usize,
+        cx: usize, cy: usize, sx: usize, sy: usize,
+    },
     Midpoint {
         px: usize, py: usize,
         ax: usize, ay: usize, bx: usize, by: usize,
@@ -166,29 +192,21 @@ impl CompiledConstraint {
         };
 
         let circle_center = |id: u32| -> Result<(usize, usize), String> {
-            // Circle center is a point referenced by center_id. We don't store
-            // center_id directly in ParamLayout, so we look it up from the
-            // entity list. But ParamLayout doesn't retain the entity list.
-            // Workaround: circle radius index exists; center point must be
-            // found by convention. Actually, we need center_id.
-            //
-            // For circles, the radius param exists. The center point params
-            // are found via the circle's center_id. Since ParamLayout stores
-            // radius_indices keyed by circle entity ID, and the center is a
-            // separate point entity, we need the mapping.
-            //
-            // FIXME: This requires ParamLayout to store circle center_id.
-            // For PR-SS1b (Jacobian unit tests), we pass layout explicitly,
-            // so tests construct layouts that have the circle + center point.
-            // The actual compile path needs this mapping. Defer to PR-SS1c
-            // when we wire the full solver — for now, return an error if
-            // the circle's center isn't findable via a side channel.
-            //
-            // Actually, let's just require the caller to have pre-resolved.
-            // This won't be hit in PR-SS1b unit tests since they construct
-            // CompiledConstraint variants directly.
-            let _ = id;
-            Err("circle center resolution requires full entity list (PR-SS1c)".into())
+            let center_id = layout
+                .circle_centers
+                .get(&id)
+                .copied()
+                .ok_or_else(|| format!("circle {id} has no recorded center"))?;
+            pt(center_id)
+        };
+
+        let arc_center = |id: u32| -> Result<(usize, usize), String> {
+            let (center_id, _, _) = layout
+                .arc_endpoints
+                .get(&id)
+                .copied()
+                .ok_or_else(|| format!("arc {id} has no recorded endpoints"))?;
+            pt(center_id)
         };
 
         match constraint {
@@ -229,13 +247,43 @@ impl CompiledConstraint {
                         let [cx, cy, dx, dy] = line_param_pts(*entity_b)?;
                         Ok(CompiledConstraint::EqualLines { ax, ay, bx, by, cx, cy, dx, dy })
                     }
-                    (EntityKind::Circle, EntityKind::Circle)
-                    | (EntityKind::Circle, EntityKind::Arc)
-                    | (EntityKind::Arc, EntityKind::Circle)
-                    | (EntityKind::Arc, EntityKind::Arc) => {
+                    (EntityKind::Circle, EntityKind::Circle) => {
                         let ra = radius_idx(*entity_a)?;
                         let rb = radius_idx(*entity_b)?;
                         Ok(CompiledConstraint::EqualCircles { ra, rb })
+                    }
+                    (EntityKind::Arc, EntityKind::Arc) => {
+                        let (acx, acy) = arc_center(*entity_a)?;
+                        let (asx, asy) = {
+                            let (_, s, _) = layout.arc_endpoints[entity_a];
+                            pt(s)?
+                        };
+                        let (bcx, bcy) = arc_center(*entity_b)?;
+                        let (bsx, bsy) = {
+                            let (_, s, _) = layout.arc_endpoints[entity_b];
+                            pt(s)?
+                        };
+                        Ok(CompiledConstraint::EqualArcArc {
+                            acx, acy, asx, asy, bcx, bcy, bsx, bsy,
+                        })
+                    }
+                    (EntityKind::Circle, EntityKind::Arc) => {
+                        let r = radius_idx(*entity_a)?;
+                        let (acx, acy) = arc_center(*entity_b)?;
+                        let (asx, asy) = {
+                            let (_, s, _) = layout.arc_endpoints[entity_b];
+                            pt(s)?
+                        };
+                        Ok(CompiledConstraint::EqualArcCircle { acx, acy, asx, asy, r })
+                    }
+                    (EntityKind::Arc, EntityKind::Circle) => {
+                        let r = radius_idx(*entity_b)?;
+                        let (acx, acy) = arc_center(*entity_a)?;
+                        let (asx, asy) = {
+                            let (_, s, _) = layout.arc_endpoints[entity_a];
+                            pt(s)?
+                        };
+                        Ok(CompiledConstraint::EqualArcCircle { acx, acy, asx, asy, r })
                     }
                     _ => Err(format!(
                         "Equal constraint not supported between {ka:?} and {kb:?}"
@@ -278,13 +326,41 @@ impl CompiledConstraint {
             }
 
             SketchConstraint::Radius { entity, value } => {
-                let r = radius_idx(*entity)?;
-                Ok(CompiledConstraint::Radius { r, value: *value })
+                let kind = kind_of(*entity)?;
+                match kind {
+                    EntityKind::Circle => {
+                        let r = radius_idx(*entity)?;
+                        Ok(CompiledConstraint::Radius { r, value: *value })
+                    }
+                    EntityKind::Arc => {
+                        let (cx, cy) = arc_center(*entity)?;
+                        let (sx, sy) = {
+                            let (_, s, _) = layout.arc_endpoints[entity];
+                            pt(s)?
+                        };
+                        Ok(CompiledConstraint::RadiusArc { cx, cy, sx, sy, value: *value })
+                    }
+                    _ => Err(format!("Radius requires circle/arc, got {kind:?}")),
+                }
             }
 
             SketchConstraint::Diameter { entity, value } => {
-                let r = radius_idx(*entity)?;
-                Ok(CompiledConstraint::Diameter { r, value: *value })
+                let kind = kind_of(*entity)?;
+                match kind {
+                    EntityKind::Circle => {
+                        let r = radius_idx(*entity)?;
+                        Ok(CompiledConstraint::Diameter { r, value: *value })
+                    }
+                    EntityKind::Arc => {
+                        let (cx, cy) = arc_center(*entity)?;
+                        let (sx, sy) = {
+                            let (_, s, _) = layout.arc_endpoints[entity];
+                            pt(s)?
+                        };
+                        Ok(CompiledConstraint::DiameterArc { cx, cy, sx, sy, value: *value })
+                    }
+                    _ => Err(format!("Diameter requires circle/arc, got {kind:?}")),
+                }
             }
 
             SketchConstraint::OnEntity { point, entity } => {
@@ -301,9 +377,12 @@ impl CompiledConstraint {
                         Ok(CompiledConstraint::OnEntityCircle { px, py, cx, cy, r })
                     }
                     EntityKind::Arc => {
-                        // Arc center is found via arc_endpoints. For PR-SS1b,
-                        // we defer arc OnEntity to PR-SS1c full wiring.
-                        Err("OnEntity on arc requires full entity list (PR-SS1c)".into())
+                        let (cx, cy) = arc_center(*entity)?;
+                        let (sx, sy) = {
+                            let (_, s, _) = layout.arc_endpoints[entity];
+                            pt(s)?
+                        };
+                        Ok(CompiledConstraint::OnEntityArc { px, py, cx, cy, sx, sy })
                     }
                     _ => Err(format!("OnEntity target must be line/circle/arc, got {ke:?}")),
                 }
@@ -376,11 +455,14 @@ impl CompiledConstraint {
                 r
             }
             CompiledConstraint::EqualLines { ax, ay, bx, by, cx, cy, dx, dy } => {
-                // ℓ²_a − ℓ²_b (squared to avoid sqrt — see spec deviation #5)
+                // ℓ_a − ℓ_b (unsquared — spec deviation #5 revised: the squared
+                // form amplifies errors by ~2ℓ, making the 1e-6 tolerance
+                // unreachable for typical geometry. The sqrt singularity at
+                // zero-length lines is handled by the dist > 1e-15 guard.)
                 let mut r = DVector::zeros(1);
-                let la2 = (p[*bx] - p[*ax]).powi(2) + (p[*by] - p[*ay]).powi(2);
-                let lb2 = (p[*dx] - p[*cx]).powi(2) + (p[*dy] - p[*cy]).powi(2);
-                r[0] = la2 - lb2;
+                let la = ((p[*bx] - p[*ax]).powi(2) + (p[*by] - p[*ay]).powi(2)).sqrt();
+                let lb = ((p[*dx] - p[*cx]).powi(2) + (p[*dy] - p[*cy]).powi(2)).sqrt();
+                r[0] = la - lb;
                 r
             }
             CompiledConstraint::EqualCircles { ra, rb } => {
@@ -444,6 +526,53 @@ impl CompiledConstraint {
                 let dist = (dx * dx + dy * dy).sqrt();
                 r_vec[0] = dist - p[*r];
                 r_vec
+            }
+            // Arc radius = ‖C-S‖ (center→start distance)
+            CompiledConstraint::RadiusArc { cx, cy, sx, sy, value } => {
+                let mut r = DVector::zeros(1);
+                let dx = p[*cx] - p[*sx];
+                let dy = p[*cy] - p[*sy];
+                let dist = (dx * dx + dy * dy).sqrt();
+                r[0] = dist - value;
+                r
+            }
+            CompiledConstraint::DiameterArc { cx, cy, sx, sy, value } => {
+                let mut r = DVector::zeros(1);
+                let dx = p[*cx] - p[*sx];
+                let dy = p[*cy] - p[*sy];
+                let dist = (dx * dx + dy * dy).sqrt();
+                r[0] = 2.0 * dist - value;
+                r
+            }
+            CompiledConstraint::EqualArcCircle { acx, acy, asx, asy, r } => {
+                let mut rv = DVector::zeros(1);
+                let dx = p[*acx] - p[*asx];
+                let dy = p[*acy] - p[*asy];
+                let arc_radius = (dx * dx + dy * dy).sqrt();
+                rv[0] = arc_radius - p[*r];
+                rv
+            }
+            CompiledConstraint::EqualArcArc { acx, acy, asx, asy, bcx, bcy, bsx, bsy } => {
+                let mut r = DVector::zeros(1);
+                let dax = p[*acx] - p[*asx];
+                let day = p[*acy] - p[*asy];
+                let ra = (dax * dax + day * day).sqrt();
+                let dbx = p[*bcx] - p[*bsx];
+                let dby = p[*bcy] - p[*bsy];
+                let rb = (dbx * dbx + dby * dby).sqrt();
+                r[0] = ra - rb;
+                r
+            }
+            CompiledConstraint::OnEntityArc { px, py, cx, cy, sx, sy } => {
+                let mut r = DVector::zeros(1);
+                let pdx = p[*px] - p[*cx];
+                let pdy = p[*py] - p[*cy];
+                let pdist = (pdx * pdx + pdy * pdy).sqrt();
+                let sdx = p[*cx] - p[*sx];
+                let sdy = p[*cy] - p[*sy];
+                let arc_radius = (sdx * sdx + sdy * sdy).sqrt();
+                r[0] = pdist - arc_radius;
+                r
             }
             CompiledConstraint::Midpoint { px, py, ax, ay, bx, by } => {
                 let mut r = DVector::zeros(2);
@@ -540,25 +669,29 @@ impl CompiledConstraint {
                 j
             }
 
-            // ── EqualLines: r = ℓ²_a - ℓ²_b ──────────────────────────────
-            // ℓ²_a = (bx-ax)² + (by-ay)²
-            // ∂ℓ²_a/∂ax = -2(bx-ax), ∂ℓ²_a/∂ay = -2(by-ay)
-            // ∂ℓ²_a/∂bx =  2(bx-ax), ∂ℓ²_a/∂by =  2(by-ay)
-            // Similarly for ℓ²_b; subtract.
+            // ── EqualLines: r = ℓ_a - ℓ_b (unsquared) ────────────────────
+            // ℓ_a = ‖B-A‖, ∂ℓ_a/∂ax = -(bx-ax)/ℓ_a, ∂ℓ_a/∂bx = (bx-ax)/ℓ_a
+            // Similarly for ℓ_b; subtract.
             CompiledConstraint::EqualLines { ax, ay, bx, by, cx, cy, dx, dy } => {
                 let mut j = DMatrix::zeros(1, n_params);
                 let dax = p[*bx] - p[*ax];
                 let day = p[*by] - p[*ay];
+                let la = (dax * dax + day * day).sqrt();
                 let dbx = p[*dx] - p[*cx];
                 let dby = p[*dy] - p[*cy];
-                j[(0, *ax)] = -2.0 * dax;
-                j[(0, *ay)] = -2.0 * day;
-                j[(0, *bx)] = 2.0 * dax;
-                j[(0, *by)] = 2.0 * day;
-                j[(0, *cx)] = 2.0 * dbx;
-                j[(0, *cy)] = 2.0 * dby;
-                j[(0, *dx)] = -2.0 * dbx;
-                j[(0, *dy)] = -2.0 * dby;
+                let lb = (dbx * dbx + dby * dby).sqrt();
+                if la > 1e-15 {
+                    j[(0, *ax)] = -dax / la;
+                    j[(0, *ay)] = -day / la;
+                    j[(0, *bx)] = dax / la;
+                    j[(0, *by)] = day / la;
+                }
+                if lb > 1e-15 {
+                    j[(0, *cx)] = dbx / lb;
+                    j[(0, *cy)] = dby / lb;
+                    j[(0, *dx)] = -dbx / lb;
+                    j[(0, *dy)] = -dby / lb;
+                }
                 j
             }
 
@@ -711,6 +844,117 @@ impl CompiledConstraint {
                     j[(0, *cx)] = -ux;
                     j[(0, *cy)] = -uy;
                     j[(0, *r)] = -1.0;
+                }
+                j
+            }
+
+            // ── RadiusArc: r = ‖C-S‖ - v ────────────────────────────────
+            // Same form as DistancePP with B=S, A=C
+            CompiledConstraint::RadiusArc { cx, cy, sx, sy, value: _ } => {
+                let mut j = DMatrix::zeros(1, n_params);
+                let dx = p[*cx] - p[*sx];
+                let dy = p[*cy] - p[*sy];
+                let dist = (dx * dx + dy * dy).sqrt();
+                if dist > 1e-15 {
+                    let ux = dx / dist;
+                    let uy = dy / dist;
+                    j[(0, *cx)] = ux;
+                    j[(0, *cy)] = uy;
+                    j[(0, *sx)] = -ux;
+                    j[(0, *sy)] = -uy;
+                }
+                j
+            }
+
+            // ── DiameterArc: r = 2*‖C-S‖ - v ────────────────────────────
+            CompiledConstraint::DiameterArc { cx, cy, sx, sy, value: _ } => {
+                let mut j = DMatrix::zeros(1, n_params);
+                let dx = p[*cx] - p[*sx];
+                let dy = p[*cy] - p[*sy];
+                let dist = (dx * dx + dy * dy).sqrt();
+                if dist > 1e-15 {
+                    let ux = 2.0 * dx / dist;
+                    let uy = 2.0 * dy / dist;
+                    j[(0, *cx)] = ux;
+                    j[(0, *cy)] = uy;
+                    j[(0, *sx)] = -ux;
+                    j[(0, *sy)] = -uy;
+                }
+                j
+            }
+
+            // ── EqualArcCircle: r = ‖C-S‖_arc - r_circle ────────────────
+            CompiledConstraint::EqualArcCircle { acx, acy, asx, asy, r } => {
+                let mut j = DMatrix::zeros(1, n_params);
+                let dx = p[*acx] - p[*asx];
+                let dy = p[*acy] - p[*asy];
+                let dist = (dx * dx + dy * dy).sqrt();
+                if dist > 1e-15 {
+                    let ux = dx / dist;
+                    let uy = dy / dist;
+                    j[(0, *acx)] = ux;
+                    j[(0, *acy)] = uy;
+                    j[(0, *asx)] = -ux;
+                    j[(0, *asy)] = -uy;
+                    j[(0, *r)] = -1.0;
+                }
+                j
+            }
+
+            // ── EqualArcArc: r = ‖C_a-S_a‖ - ‖C_b-S_b‖ ──────────────────
+            CompiledConstraint::EqualArcArc { acx, acy, asx, asy, bcx, bcy, bsx, bsy } => {
+                let mut j = DMatrix::zeros(1, n_params);
+                let dax = p[*acx] - p[*asx];
+                let day = p[*acy] - p[*asy];
+                let da = (dax * dax + day * day).sqrt();
+                let dbx = p[*bcx] - p[*bsx];
+                let dby = p[*bcy] - p[*bsy];
+                let db = (dbx * dbx + dby * dby).sqrt();
+                if da > 1e-15 {
+                    let uax = dax / da;
+                    let uay = day / da;
+                    j[(0, *acx)] = uax;
+                    j[(0, *acy)] = uay;
+                    j[(0, *asx)] = -uax;
+                    j[(0, *asy)] = -uay;
+                }
+                if db > 1e-15 {
+                    let ubx = dbx / db;
+                    let uby = dby / db;
+                    j[(0, *bcx)] = -ubx;
+                    j[(0, *bcy)] = -uby;
+                    j[(0, *bsx)] = ubx;
+                    j[(0, *bsy)] = uby;
+                }
+                j
+            }
+
+            // ── OnEntityArc: r = ‖P-C‖ - ‖C-S‖ ─────────────────────────
+            CompiledConstraint::OnEntityArc { px, py, cx, cy, sx, sy } => {
+                let mut j = DMatrix::zeros(1, n_params);
+                let pdx = p[*px] - p[*cx];
+                let pdy = p[*py] - p[*cy];
+                let pdist = (pdx * pdx + pdy * pdy).sqrt();
+                let sdx = p[*cx] - p[*sx];
+                let sdy = p[*cy] - p[*sy];
+                let arc_r = (sdx * sdx + sdy * sdy).sqrt();
+                if pdist > 1e-15 {
+                    let upx = pdx / pdist;
+                    let upy = pdy / pdist;
+                    j[(0, *px)] = upx;
+                    j[(0, *py)] = upy;
+                    j[(0, *cx)] = -upx;
+                    j[(0, *cy)] = -upy;
+                }
+                if arc_r > 1e-15 {
+                    let usx = sdx / arc_r;
+                    let usy = sdy / arc_r;
+                    // ∂(-‖C-S‖)/∂cx = -usx, but we already have -upx for cx from pdist.
+                    // Net: ∂r/∂cx = -upx - usx, ∂r/∂sx = +usx
+                    j[(0, *cx)] -= usx;
+                    j[(0, *cy)] -= usy;
+                    j[(0, *sx)] = usx;
+                    j[(0, *sy)] = usy;
                 }
                 j
             }

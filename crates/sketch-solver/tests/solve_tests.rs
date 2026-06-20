@@ -1790,6 +1790,7 @@ fn bench_solve_100_constraints() {
 }
 
 #[test]
+#[ignore = "wall-clock benchmark — run manually with --ignored"]
 fn bench_solve_300_constraints() {
     // ~43 rectangles: 344 entities, ~301 constraints
     let (entities, constraints) = make_rectangle_chain(43);
