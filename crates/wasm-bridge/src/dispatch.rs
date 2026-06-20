@@ -251,6 +251,11 @@ fn handle_message(
             }
         }
 
+        UiToEngine::GeneratePlanetaryPreview { params } => {
+            let polylines = waffle_types::generate_planetary_preview(&params);
+            Ok(EngineToUi::PlanetaryPreviewGenerated { polylines })
+        }
+
         UiToEngine::ComputeRegions {
             entities,
             solved_positions,

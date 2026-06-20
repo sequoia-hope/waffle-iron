@@ -313,8 +313,13 @@ function gearDisplayIdBase(gearId) {
 /** @type {object | null} */
 let gearDialogState = $state(null);
 
-/** @type {boolean} */
-let planetaryDialogOpen = $state(false);
+/**
+ * Planetary dialog state — null when closed, else an object seeded by the
+ * placement tool: `{ centerX, centerY }` (internal sketch coords). Mirrors
+ * `gearDialogState`.
+ * @type {object | null}
+ */
+let planetaryDialogState = $state(null);
 
 /** @type {number} */
 let nextGearId = $state(1);
@@ -524,6 +529,7 @@ export async function initEngine() {
 				entityCount: sketchEntities.length,
 				lastError,
 				statusMessage,
+				planetaryDialog: planetaryDialogState ? { ...planetaryDialogState } : null,
 			}),
 			getEntities: () => [...sketchEntities],
 			getPositions: () => new Map(sketchPositions),
@@ -2000,13 +2006,25 @@ export function hideGearDialog() {
 }
 
 /** @returns {boolean} */
-export function getPlanetaryDialogOpen() { return planetaryDialogOpen; }
+export function getPlanetaryDialogOpen() { return planetaryDialogState != null; }
 
-/** Show the planetary gear dialog. */
-export function showPlanetaryDialog() { planetaryDialogOpen = true; }
+/** @returns {object | null} The seeded dialog state ({ centerX, centerY }). */
+export function getPlanetaryDialogState() { return planetaryDialogState; }
+
+/**
+ * Show the planetary gear dialog seeded with a placement center. Mirrors
+ * `showGearDialog`. Called by the planetary placement tool on click.
+ * @param {object} [params] - { centerX, centerY } in internal sketch coords.
+ */
+export function showPlanetaryGearDialog(params = {}) {
+	planetaryDialogState = { centerX: params.centerX ?? 0, centerY: params.centerY ?? 0 };
+}
+
+/** Show the planetary gear dialog centered at the origin (legacy entry). */
+export function showPlanetaryDialog() { showPlanetaryGearDialog({ centerX: 0, centerY: 0 }); }
 
 /** Hide the planetary gear dialog. */
-export function hidePlanetaryDialog() { planetaryDialogOpen = false; }
+export function hidePlanetaryDialog() { planetaryDialogState = null; }
 
 /**
  * Create a gear from parameters.
@@ -2103,17 +2121,26 @@ export async function createPlanetary(params) {
 		showToast('info', hint);
 	}
 
-	// Add all N+2 gears as a SINGLE undo step.
+	// Add all N+2 gears AND a center Point at the sun + each planet as a SINGLE
+	// undo step. `result.centers` is sun-first, then N planets (ring shares the
+	// sun center, so it is not repeated) → N+1 points.
 	beginSketchAction();
 	const gearIds = [];
 	for (const g of result.gears) {
 		// `g` is a GearParams (camelCase serde) — the shape createGear expects.
 		gearIds.push(await addGearFromParams({ ...g }));
 	}
+	const pointIds = [];
+	for (const c of result.centers ?? []) {
+		const pid = allocEntityId();
+		// Regular (non-construction) sketch point — a real snap/constraint target.
+		addLocalEntity({ type: 'Point', id: pid, x: c[0], y: c[1], construction: false });
+		pointIds.push(pid);
+	}
 	endSketchAction();
 
-	log('sketch', `Planetary stage created: ${result.gears.length} gears (ring ${result.ringTeeth}t)`);
-	return { gearIds, result };
+	log('sketch', `Planetary stage created: ${result.gears.length} gears + ${pointIds.length} center points (ring ${result.ringTeeth}t)`);
+	return { gearIds, pointIds, result };
 }
 
 /**

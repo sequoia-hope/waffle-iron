@@ -1,19 +1,26 @@
 /**
  * Planetary gear stage generator — real toolbar/dialog interactions.
  *
- * Opens the planetary dialog from the toolbar, sets a valid combo, Creates,
- * and asserts the active sketch gained N+2 Gear entities (sun + N planets +
- * ring). Then finishes the sketch and extrudes into a solid. Also covers a
- * blocking (hint-mode) invalid case and an auto-adjust case.
+ * The planetary tool is a PLACEMENT tool (mirroring the single-gear tool):
+ * selecting it then clicking in the sketch captures the center and opens the
+ * dialog seeded with it. The dialog drives a live `planetary-preview` and, on
+ * Create, adds N+2 Gear entities (sun + N planets + ring) AND N+1 center
+ * Points (sun + each planet) as one undo step. Then we finish the sketch and
+ * extrude. Also covers a blocking (hint-mode) invalid case and auto-adjust.
  *
  * Per project GUI rules: real interactions (no try/catch around waits),
  * crash detection via collectCrashErrors + expectNoAnyCrash.
  */
 import { test, expect } from './helpers/waffle-test.js';
 import { clickSketch, clickFinishSketch, clickExtrude } from './helpers/toolbar.js';
+import { clickAt } from './helpers/canvas.js';
 import {
 	isSketchActive,
 	getEntityCountByType,
+	getEntities,
+	getActiveTool,
+	getState,
+	getPreview,
 	waitForEntityCount,
 	waitForFeatureCount,
 	hasFeatureOfType,
@@ -21,9 +28,14 @@ import {
 	expectNoAnyCrash,
 } from './helpers/state.js';
 
-/** Open the planetary dialog via the toolbar button and wait for it. */
-async function openPlanetaryDialog(page) {
+/**
+ * Open the planetary dialog the production way: select the placement tool from
+ * the toolbar, then click in the sketch at the given offset from canvas center
+ * (default a non-origin spot) to seed the center and open the dialog.
+ */
+async function openPlanetaryDialog(page, xOffset = 60, yOffset = -40) {
 	await page.locator('[data-testid="toolbar-btn-planetary"]').click();
+	await clickAt(page, xOffset, yOffset);
 	await page.locator('[data-testid="planetary-dialog"]').waitFor({ state: 'visible', timeout: 5000 });
 }
 
@@ -146,6 +158,91 @@ test.describe('planetary gear stage', () => {
 		// snapped count, not the invalid 3 (which would be 5 gears).
 		const gearCount = await getEntityCountByType(page, 'Gear');
 		expect([2 + 2, 4 + 2, 5 + 2]).toContain(gearCount);
+
+		expectNoAnyCrash(crashes);
+	});
+
+	// ---- Placement tool: click-to-place center + preview + center points ----
+
+	test('selecting the tool + clicking opens the dialog seeded with a non-origin center', async ({ waffle }) => {
+		const page = waffle.page;
+		const crashes = collectCrashErrors(page);
+
+		// Select the placement tool — this no longer opens the dialog directly.
+		await page.locator('[data-testid="toolbar-btn-planetary"]').click();
+		expect(await getActiveTool(page)).toBe('planetary');
+		await expect(page.locator('[data-testid="planetary-dialog"]')).toBeHidden();
+
+		// Click in the sketch away from the origin to place the center.
+		await clickAt(page, 70, -50);
+		await page.locator('[data-testid="planetary-dialog"]').waitFor({ state: 'visible', timeout: 5000 });
+
+		// Dialog is seeded with the clicked (non-origin) center.
+		const st = await getState(page);
+		expect(st.planetaryDialog).not.toBeNull();
+		const seeded = Math.hypot(st.planetaryDialog.centerX, st.planetaryDialog.centerY);
+		expect(seeded).toBeGreaterThan(1e-6);
+
+		expectNoAnyCrash(crashes);
+	});
+
+	test('a planetary-preview appears while the dialog is open and clears on close', async ({ waffle }) => {
+		const page = waffle.page;
+		const crashes = collectCrashErrors(page);
+
+		await openPlanetaryDialog(page);
+		await page.locator('[data-testid="planetary-sun-input"]').fill('24');
+		await page.locator('[data-testid="planetary-planet-input"]').fill('16');
+		await page.locator('[data-testid="planetary-count-input"]').fill('4');
+		await page.waitForTimeout(300);
+
+		// A live planetary preview with one polyline per gear (N+2 = 6).
+		const preview = await getPreview(page);
+		expect(preview).not.toBeNull();
+		expect(preview.type).toBe('planetary-preview');
+		expect(Array.isArray(preview.data.polylines)).toBe(true);
+		expect(preview.data.polylines.length).toBe(6);
+		for (const poly of preview.data.polylines) expect(poly.length).toBeGreaterThan(2);
+
+		// Closing the dialog clears the preview.
+		await page.locator('[data-testid="planetary-cancel-btn"]').click();
+		await page.locator('[data-testid="planetary-dialog"]').waitFor({ state: 'hidden', timeout: 5000 });
+		await page.waitForTimeout(150);
+		expect(await getPreview(page)).toBeNull();
+
+		expectNoAnyCrash(crashes);
+	});
+
+	test('Create adds N+2 Gears and N+1 center Points, including one at the sun center', async ({ waffle }) => {
+		const page = waffle.page;
+		const crashes = collectCrashErrors(page);
+
+		await openPlanetaryDialog(page, 70, -50);
+		await page.locator('[data-testid="planetary-sun-input"]').fill('24');
+		await page.locator('[data-testid="planetary-planet-input"]').fill('16');
+		await page.locator('[data-testid="planetary-count-input"]').fill('4');
+		await page.waitForTimeout(200);
+
+		// Seeded sun center (== placement center) read before Create.
+		const st = await getState(page);
+		const sun = { x: st.planetaryDialog.centerX, y: st.planetaryDialog.centerY };
+		expect(Math.hypot(sun.x, sun.y)).toBeGreaterThan(1e-6);
+
+		const createBtn = page.locator('[data-testid="planetary-create-btn"]');
+		await expect(createBtn).toBeEnabled();
+		await createBtn.click();
+		await page.locator('[data-testid="planetary-dialog"]').waitFor({ state: 'hidden', timeout: 5000 });
+
+		// N+2 = 6 gears, N+1 = 5 center points (sun + 4 planets; ring shares sun).
+		await waitForEntityCount(page, 6 + 5, 5000);
+		expect(await getEntityCountByType(page, 'Gear')).toBe(6);
+		expect(await getEntityCountByType(page, 'Point')).toBe(5);
+
+		// A Point sits at the sun center (== the placement center).
+		const entities = await getEntities(page);
+		const points = entities.filter(e => e.type === 'Point');
+		const atSun = points.some(p => Math.hypot(p.x - sun.x, p.y - sun.y) < 1e-6);
+		expect(atSun).toBe(true);
 
 		expectNoAnyCrash(crashes);
 	});

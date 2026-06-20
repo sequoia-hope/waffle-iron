@@ -25,6 +25,7 @@ import {
 	getGearRegistry,
 	getGearDisplay,
 	showGearDialog,
+	showPlanetaryGearDialog,
 	getExtractedProfiles,
 	setSelectedProfileIndex,
 	setHoveredProfileIndex,
@@ -300,6 +301,9 @@ export function handleToolEvent(activeTool, eventType, sketchX, sketchY, screenP
 			break;
 		case 'gear':
 			handleGearTool(eventType, sketchX, sketchY, screenPixelSize);
+			break;
+		case 'planetary':
+			handlePlanetaryTool(eventType, sketchX, sketchY, screenPixelSize);
 			break;
 	}
 }
@@ -1419,6 +1423,64 @@ function handleGearTool(eventType, x, y, screenPixelSize) {
 
 			setPreview(null);
 			toolState = 'gearDialogOpen';
+		}
+	}
+}
+
+// ---- Planetary Gear Tool ----
+//
+// Placement tool mirroring the single-gear tool: a hover preview at the cursor
+// and a click that captures the center (snap point, or a clicked existing
+// point) then opens the planetary dialog seeded with it. The dialog drives the
+// live param-/center-aware preview while open.
+
+function handlePlanetaryTool(eventType, x, y, screenPixelSize) {
+	const snap = detectSnaps(x, y, null, screenPixelSize);
+	setSnapIndicator(snap.indicator);
+
+	if (eventType === 'pointermove') {
+		updateSnapCandidates(snap, screenPixelSize);
+		// Lightweight stage preview at the cursor (default params) via WASM.
+		if (toolState === 'idle') {
+			const b = getBridge();
+			if (b) {
+				b.send({
+					type: 'GeneratePlanetaryPreview',
+					params: {
+						module: GEAR_PREVIEW_MODULE_M,
+						pressureAngleDeg: DEFAULT_GEAR_PRESSURE_ANGLE,
+						sunTeeth: 24,
+						planetTeeth: 16,
+						planetCount: 4,
+						backlash: 0,
+						centerX: snap.x,
+						centerY: snap.y,
+						autoAdjust: false
+					}
+				}).then(response => {
+					setPreview({ type: 'planetary-preview', data: { polylines: response.polylines } });
+				}).catch(() => {});
+			}
+		}
+		return;
+	}
+
+	if (eventType === 'pointerdown') {
+		if (toolState === 'idle') {
+			let centerX = snap.x;
+			let centerY = snap.y;
+
+			// Reuse a clicked existing point as the center, like the gear tool.
+			const nearPoint = findPointNear(snap.x, snap.y, 8 * screenPixelSize);
+			if (nearPoint) {
+				centerX = nearPoint.x;
+				centerY = nearPoint.y;
+			}
+
+			showPlanetaryGearDialog({ centerX, centerY });
+
+			setPreview(null);
+			toolState = 'planetaryDialogOpen';
 		}
 	}
 }

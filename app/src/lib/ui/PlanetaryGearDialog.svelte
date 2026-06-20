@@ -1,17 +1,24 @@
 <script>
 	import {
 		getPlanetaryDialogOpen,
+		getPlanetaryDialogState,
 		hidePlanetaryDialog,
 		createPlanetary,
 		getMobileLayout,
 		getDocumentDisplayUnit,
 		getBridge
 	} from '$lib/engine/store.svelte.js';
+	import { setPreview } from '$lib/sketch/sketchToolState.svelte.js';
 	import { log } from '$lib/engine/logger.js';
 	import { internalToDisplay, parseAndConvert, UNITS } from '$lib/units.js';
 	import { DEFAULT_GEAR_MODULE_DISPLAY, DEFAULT_GEAR_PRESSURE_ANGLE } from '$lib/config.js';
 
 	let isOpen = $derived(getPlanetaryDialogOpen());
+	let dialogState = $derived(getPlanetaryDialogState());
+	// Placement center (internal sketch coords) — already internal, NO unit
+	// conversion (the click position is in sketch space, not a display input).
+	let centerX = $derived(dialogState?.centerX ?? 0);
+	let centerY = $derived(dialogState?.centerY ?? 0);
 	let isMobile = $derived(getMobileLayout());
 	let displayUnit = $derived(getDocumentDisplayUnit());
 	let unitLabel = $derived(UNITS[displayUnit]?.label ?? displayUnit);
@@ -90,6 +97,41 @@
 	);
 	let blocking = $derived(basicError || (!autoAdjust && hints.length > 0));
 
+	// Build the engine params (camelCase serde) for preview + create. The center
+	// is threaded straight through (already internal sketch coords).
+	function buildParams() {
+		return {
+			module: module_,
+			pressureAngleDeg: pressureAngle,
+			sunTeeth: Math.round(sunTeeth),
+			planetTeeth: Math.round(planetTeeth),
+			planetCount: Math.round(planetCount),
+			backlash: backlash_,
+			centerX,
+			centerY,
+			autoAdjust
+		};
+	}
+
+	// Live preview via WASM — latest-wins (generation counter), mirroring the
+	// single-gear dialog. Updates as params/center change; cleared on close.
+	let previewGeneration = 0;
+	$effect(() => {
+		if (!isOpen) {
+			setPreview(null);
+			return;
+		}
+		const params = buildParams();
+		const gen = ++previewGeneration;
+		const bridge = getBridge();
+		if (!bridge) return;
+		bridge.send({ type: 'GeneratePlanetaryPreview', params }).then(response => {
+			if (gen === previewGeneration) {
+				setPreview({ type: 'planetary-preview', data: { polylines: response.polylines } });
+			}
+		}).catch(() => { /* stale or bridge error — ignore */ });
+	});
+
 	$effect(() => {
 		if (!isOpen) return;
 		function onKeyDown(e) {
@@ -103,26 +145,17 @@
 	async function handleCreate() {
 		if (blocking || creating) return;
 		creating = true;
-		const params = {
-			module: module_,
-			pressureAngleDeg: pressureAngle,
-			sunTeeth: Math.round(sunTeeth),
-			planetTeeth: Math.round(planetTeeth),
-			planetCount: Math.round(planetCount),
-			backlash: backlash_,
-			autoAdjust
-		};
-		const res = await createPlanetary(params);
+		const res = await createPlanetary(buildParams());
 		creating = false;
 		if (res) {
 			log('sketch', `Planetary stage: ${res.result.gears.length} gears`);
+			setPreview(null);
 			hidePlanetaryDialog();
 		}
 		// On null (blocked/invalid), keep the dialog open; createPlanetary toasts.
-		void getBridge;
 	}
 
-	function handleCancel() { hidePlanetaryDialog(); }
+	function handleCancel() { setPreview(null); hidePlanetaryDialog(); }
 </script>
 
 {#if isOpen}

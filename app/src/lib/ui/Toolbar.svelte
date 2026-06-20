@@ -20,7 +20,6 @@
 		showShellDialog,
 		showBooleanDialog,
 		showDatumPlaneDialog,
-		showPlanetaryDialog,
 		saveProject,
 		saveToStorage,
 		loadProject,
@@ -213,11 +212,6 @@
 			handleToggleConstruction();
 			return;
 		}
-		if (toolId === 'planetary') {
-			// Opens a dialog (centered at origin) rather than placing on the canvas.
-			showPlanetaryDialog();
-			return;
-		}
 		setActiveTool(toolId);
 	}
 
@@ -394,7 +388,7 @@
 								disabled={!ready}
 								title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
 								data-testid="toolbar-btn-{t.id}"
-								onclick={() => { t.id === 'construction' ? handleToggleConstruction() : t.id === 'planetary' ? showPlanetaryDialog() : setActiveTool(t.id); showSketchTools = false; }}
+								onclick={() => { t.id === 'construction' ? handleToggleConstruction() : setActiveTool(t.id); showSketchTools = false; }}
 							>{t.label}</button>
 						{/each}
 					</div>
@@ -410,7 +404,7 @@
 						disabled={!ready}
 						title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
 						data-testid="toolbar-btn-{t.id}"
-						onclick={() => t.id === 'construction' ? handleToggleConstruction() : t.id === 'planetary' ? showPlanetaryDialog() : setActiveTool(t.id)}
+						onclick={() => t.id === 'construction' ? handleToggleConstruction() : setActiveTool(t.id)}
 					>{t.label}</button>
 				{/each}
 			</div>

@@ -183,6 +183,11 @@ pub enum UiToEngine {
     GeneratePlanetary {
         params: PlanetaryParams,
     },
+    /// Generate a lightweight planetary preview: one polyline per positioned
+    /// gear (sun, N planets, ring). Stateless; mirrors `GenerateGearPreview`.
+    GeneratePlanetaryPreview {
+        params: PlanetaryParams,
+    },
 
     // -- Region selection (stateless) --
     /// Compute every minimal closed face of a solved sketch, so the UI can
@@ -262,4 +267,8 @@ pub enum EngineToUi {
 
     /// Planetary stage generated: positioned gears + derived radii + hints.
     PlanetaryGenerated { result: PlanetaryResult },
+
+    /// Planetary preview generated: one polyline per gear (sun, N planets,
+    /// ring). Empty when the params are invalid.
+    PlanetaryPreviewGenerated { polylines: Vec<Vec<(f64, f64)>> },
 }

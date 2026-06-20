@@ -102,6 +102,24 @@ export async function getEntities(page) {
 }
 
 /**
+ * Get the full debug state object.
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<any>}
+ */
+export async function getState(page) {
+	return page.evaluate(() => window.__waffle?.getState() ?? null);
+}
+
+/**
+ * Get the current sketch tool preview ({ type, data } | null).
+ * @param {import('@playwright/test').Page} page
+ * @returns {Promise<any>}
+ */
+export async function getPreview(page) {
+	return page.evaluate(() => window.__waffle?.getPreview() ?? null);
+}
+
+/**
  * Count entities of a specific type.
  * @param {import('@playwright/test').Page} page
  * @param {string} type - e.g. 'Point', 'Line', 'Circle', 'Arc'

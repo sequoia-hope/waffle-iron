@@ -41,6 +41,14 @@ pub struct PlanetaryParams {
     pub planet_count: u32,
     #[serde(default)]
     pub backlash: f64,
+    /// Stage center X (internal units). The sun and ring sit here; planet `k`
+    /// sits at `(center_x, center_y) + R_c·(cos ψ_k, sin ψ_k)`. The dialog
+    /// seeds this from the click location (already in internal sketch coords).
+    #[serde(default)]
+    pub center_x: f64,
+    /// Stage center Y (internal units). See [`Self::center_x`].
+    #[serde(default)]
+    pub center_y: f64,
     /// When `true`, snap an invalid planet count to the nearest valid divisor
     /// (and clamp to a non-interfering value) and proceed. When `false`, an
     /// invalid stage is reported via `hints`/error and the caller blocks.
@@ -61,6 +69,8 @@ impl Default for PlanetaryParams {
             planet_teeth: 16,
             planet_count: 3,
             backlash: 0.0,
+            center_x: 0.0,
+            center_y: 0.0,
             auto_adjust: false,
         }
     }
@@ -73,6 +83,11 @@ pub struct PlanetaryResult {
     /// The positioned gears: sun first, then `planet_count` planets, then the
     /// ring last.
     pub gears: Vec<GearParams>,
+    /// The center of the sun and each planet, in world (sketch) coordinates —
+    /// sun first, then `planet_count` planets, in the same order as the
+    /// corresponding gears. The ring shares the sun center, so it is NOT
+    /// repeated. Used by the UI to drop a sketch `Point` at each gear center.
+    pub centers: Vec<(f64, f64)>,
     /// Derived ring tooth count `Z_r = Z_s + 2·Z_p`.
     pub ring_teeth: u32,
     /// Carrier radius `R_c = (Z_s + Z_p)·m/2` (sun-planet center distance).
@@ -166,6 +181,7 @@ pub fn mesh_external(
     backlash: f64,
     planet_teeth: u32,
     carrier_angle: f64,
+    center: (f64, f64),
 ) -> GearParams {
     let rc = carrier_radius(sun_teeth, planet_teeth, module);
     let zs = sun_teeth as f64;
@@ -184,8 +200,11 @@ pub fn mesh_external(
         module,
         pressure_angle_deg,
         backlash,
-        center_x: rc * psi.cos(),
-        center_y: rc * psi.sin(),
+        // Planet sits on the carrier circle around the stage center. The phasing
+        // is a pure rotation that does NOT depend on the translation, so meshing
+        // is preserved when all gears are offset by the same `center`.
+        center_x: center.0 + rc * psi.cos(),
+        center_y: center.1 + rc * psi.sin(),
         rotation_offset,
         internal: false,
     }
@@ -316,42 +335,51 @@ pub fn generate_planetary(params: &PlanetaryParams) -> Result<PlanetaryResult, P
     // Each mesh gets B = B/2 (gear A) + B/2 (gear B); see plan §Backlash.
     let half_backlash = effective.backlash / 2.0;
 
-    let mut gears = Vec::with_capacity(effective.planet_count as usize + 2);
+    let (cx, cy) = (effective.center_x, effective.center_y);
 
-    // Sun: centered, no rotation.
+    let mut gears = Vec::with_capacity(effective.planet_count as usize + 2);
+    // Sun + each planet center (ring shares the sun center, so not repeated).
+    let mut centers = Vec::with_capacity(effective.planet_count as usize + 1);
+
+    // Sun: at the stage center, no rotation.
     gears.push(GearParams {
         tooth_count: effective.sun_teeth,
         module: effective.module,
         pressure_angle_deg: effective.pressure_angle_deg,
         backlash: half_backlash,
-        center_x: 0.0,
-        center_y: 0.0,
+        center_x: cx,
+        center_y: cy,
         rotation_offset: 0.0,
         internal: false,
     });
+    centers.push((cx, cy));
 
-    // Planets: equally spaced at ψ_k = 2π·k/N, meshed against the sun.
+    // Planets: equally spaced at ψ_k = 2π·k/N, meshed against the sun, all
+    // offset by the stage center.
     for k in 0..effective.planet_count {
         let psi = TAU * k as f64 / effective.planet_count as f64;
-        gears.push(mesh_external(
+        let planet = mesh_external(
             effective.sun_teeth,
             effective.module,
             effective.pressure_angle_deg,
             half_backlash,
             effective.planet_teeth,
             psi,
-        ));
+            (cx, cy),
+        );
+        centers.push((planet.center_x, planet.center_y));
+        gears.push(planet);
     }
 
-    // Ring: internal, centered, no rotation. Conjugate consistency with the
-    // sun is guaranteed by Z_r = Z_s + 2·Z_p + the assembly condition.
+    // Ring: internal, at the stage center, no rotation. Conjugate consistency
+    // with the sun is guaranteed by Z_r = Z_s + 2·Z_p + the assembly condition.
     gears.push(GearParams {
         tooth_count: zr,
         module: effective.module,
         pressure_angle_deg: effective.pressure_angle_deg,
         backlash: half_backlash,
-        center_x: 0.0,
-        center_y: 0.0,
+        center_x: cx,
+        center_y: cy,
         rotation_offset: 0.0,
         internal: true,
     });
@@ -366,11 +394,33 @@ pub fn generate_planetary(params: &PlanetaryParams) -> Result<PlanetaryResult, P
 
     Ok(PlanetaryResult {
         gears,
+        centers,
         ring_teeth: zr,
         carrier_radius: rc,
         hints: out_hints,
         adjusted,
     })
+}
+
+/// Generate a lightweight live-preview for a planetary stage: one flat polyline
+/// per positioned gear (sun, N planets, ring), each via
+/// [`crate::gear::generate_gear_preview_polyline`]. Mirrors the single-gear
+/// preview but returns a polyline-per-gear so the UI can draw the whole stage
+/// as the user drags params / moves the placement center.
+///
+/// Returns an empty `Vec` when the params are invalid (so the UI simply clears
+/// the preview) — it does not surface validation errors. In hint mode an
+/// invalid planet count yields no preview; auto-adjust mode previews the
+/// snapped stage.
+pub fn generate_planetary_preview(params: &PlanetaryParams) -> Vec<Vec<(f64, f64)>> {
+    match generate_planetary(params) {
+        Ok(result) => result
+            .gears
+            .iter()
+            .map(crate::gear::generate_gear_preview_polyline)
+            .collect(),
+        Err(_) => Vec::new(),
+    }
 }
 
 #[cfg(test)]
@@ -386,6 +436,8 @@ mod tests {
             planet_teeth: planet,
             planet_count: n,
             backlash: 0.0,
+            center_x: 0.0,
+            center_y: 0.0,
             auto_adjust: false,
         }
     }
@@ -627,5 +679,89 @@ mod tests {
             g1 > g0,
             "backlash should widen the mesh gap: g(0)={g0:.4e}, g(B)={g1:.4e}"
         );
+    }
+
+    // ---- Center placement ----
+
+    #[test]
+    fn nonzero_center_offsets_every_gear_and_emits_centers() {
+        let base = generate_planetary(&valid(20, 20, 4)).unwrap();
+
+        let mut p = valid(20, 20, 4);
+        p.center_x = 0.123;
+        p.center_y = -0.456;
+        let off = generate_planetary(&p).unwrap();
+
+        // Same gear count and identical relative layout: each gear's center is
+        // exactly shifted by (cx, cy); rotation/teeth/internal unchanged.
+        assert_eq!(off.gears.len(), base.gears.len());
+        for (g, b) in off.gears.iter().zip(base.gears.iter()) {
+            assert!((g.center_x - (b.center_x + 0.123)).abs() < 1e-12);
+            assert!((g.center_y - (b.center_y - 0.456)).abs() < 1e-12);
+            assert_eq!(g.tooth_count, b.tooth_count);
+            assert_eq!(g.internal, b.internal);
+            assert!((g.rotation_offset - b.rotation_offset).abs() < 1e-15);
+        }
+
+        // Center list: sun + N planets (N+1), ring NOT repeated.
+        assert_eq!(off.centers.len(), p.planet_count as usize + 1);
+        // centers[0] is the sun center == (cx, cy).
+        assert!((off.centers[0].0 - 0.123).abs() < 1e-12);
+        assert!((off.centers[0].1 - (-0.456)).abs() < 1e-12);
+        // Each subsequent center matches its planet gear's center.
+        for (k, c) in off.centers.iter().enumerate().skip(1) {
+            let g = &off.gears[k]; // gears[1..=N] are the planets
+            assert!((c.0 - g.center_x).abs() < 1e-12 && (c.1 - g.center_y).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn offset_stage_still_meshes() {
+        // Offsetting every gear by the same translation must NOT change meshing
+        // (the meshes are relative). Run the oracle on an offset stage.
+        let mut p = valid(20, 20, 4);
+        p.center_x = 0.5;
+        p.center_y = -0.25;
+        let r = generate_planetary(&p).unwrap();
+        let sun_g = &r.gears[0];
+        let ring_g = r.gears.last().unwrap();
+        for k in 0..p.planet_count as usize {
+            let planet_g = &r.gears[1 + k];
+            assert_mesh(sun_g, planet_g, &format!("offset sun-planet{k}"));
+            assert_mesh(planet_g, ring_g, &format!("offset planet{k}-ring"));
+        }
+    }
+
+    // ---- Preview ----
+
+    #[test]
+    fn preview_returns_polyline_per_gear() {
+        let r = generate_planetary_preview(&valid(24, 16, 4));
+        // N + 2 gears (sun + 4 planets + ring).
+        assert_eq!(r.len(), 4 + 2);
+        for poly in &r {
+            assert!(poly.len() > 2, "each preview polyline should be non-empty");
+        }
+    }
+
+    #[test]
+    fn preview_reflects_center_offset() {
+        let p0 = valid(24, 16, 4);
+        let mut p1 = p0.clone();
+        p1.center_x = 1.0;
+        p1.center_y = 2.0;
+        let a = generate_planetary_preview(&p0);
+        let b = generate_planetary_preview(&p1);
+        assert_eq!(a.len(), b.len());
+        // The sun preview (gear 0) first point shifts by exactly (1, 2).
+        assert!((b[0][0].0 - (a[0][0].0 + 1.0)).abs() < 1e-9);
+        assert!((b[0][0].1 - (a[0][0].1 + 2.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn preview_empty_on_invalid() {
+        // 24/16/3 is assembly-invalid in hint mode → no preview.
+        let r = generate_planetary_preview(&valid(24, 16, 3));
+        assert!(r.is_empty());
     }
 }

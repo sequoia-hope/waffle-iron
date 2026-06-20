@@ -377,6 +377,25 @@
 			return { type: 'line', geometry: new THREE.BufferGeometry().setFromPoints(worldPoints) };
 		}
 
+		if (preview.type === 'planetary-preview') {
+			// One polyline per gear (sun, N planets, ring). The renderer draws a
+			// single geometry per preview, so merge the disjoint polylines into
+			// ONE LineSegments geometry (consecutive vertex PAIRS), avoiding the
+			// stray connecting edge a single LineStrip would draw between gears.
+			const { polylines } = preview.data;
+			if (!polylines || polylines.length === 0) return null;
+			const segPoints = [];
+			for (const poly of polylines) {
+				if (!poly || poly.length < 2) continue;
+				const w = poly.map(p => sketchToWorld(p[0], p[1], plane));
+				for (let i = 0; i + 1 < w.length; i++) {
+					segPoints.push(w[i], w[i + 1]);
+				}
+			}
+			if (segPoints.length < 2) return null;
+			return { type: 'line-segments', geometry: new THREE.BufferGeometry().setFromPoints(segPoints) };
+		}
+
 		if (preview.type === 'trim-highlight') {
 			const { points: pts } = preview.data;
 			const worldPoints = pts.map(p => sketchToWorld(p.x, p.y, plane));
@@ -849,6 +868,8 @@
 	{#if previewGeo}
 		{#if previewGeo.type === 'line'}
 			<T.Line geometry={previewGeo.geometry} material={previewMaterial} renderOrder={10} />
+		{:else if previewGeo.type === 'line-segments'}
+			<T.LineSegments geometry={previewGeo.geometry} material={previewMaterial} renderOrder={10} />
 		{:else if previewGeo.type === 'trim'}
 			<T.Line geometry={previewGeo.geometry} material={trimPreviewMaterial} renderOrder={11} />
 		{/if}
