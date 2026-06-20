@@ -40,7 +40,12 @@
 		toggleDatumPlanes,
 		toggleOriginTriad,
 		removeSketchEntities,
-		getSketchSolveStatus
+		getSketchSolveStatus,
+		getSectionState,
+		toggleSection,
+		flipSection,
+		setSectionOffset,
+		clearSection
 	} from '$lib/engine/store.svelte.js';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
@@ -58,6 +63,7 @@
 	let positions = $derived(getSketchPositions());
 
 	let isMobile = $derived(getMobileLayout());
+	let section = $derived(getSectionState());
 	let applicable = $derived(inSketch ? getApplicableConstraints(selection, entities, positions) : {});
 	let solveStatus = $derived(inSketch ? getSketchSolveStatus() : null);
 
@@ -200,6 +206,12 @@
 			return;
 		}
 		setActiveTool(toolId);
+	}
+
+	function handleToggleSection() {
+		// toggleSection captures the selected plane/face; it toasts a hint and
+		// stays off if nothing suitable is selected.
+		toggleSection();
 	}
 
 	function handleToggleConstruction() {
@@ -545,6 +557,42 @@
 					data-testid="toolbar-btn-toggle-axes"
 					onclick={() => toggleOriginTriad()}
 				>Axes</button>
+			</div>
+			<div class="toolbar-sep"></div>
+			<div class="toolbar-group">
+				<button
+					class="toolbar-btn"
+					class:active={section.active}
+					disabled={!ready}
+					title="Section view — clip the model at the selected plane/face (capped)"
+					data-testid="toolbar-btn-section"
+					onclick={handleToggleSection}
+				>Section</button>
+				{#if section.active}
+					<button
+						class="toolbar-btn"
+						title="Flip which half is kept"
+						data-testid="toolbar-btn-section-flip"
+						onclick={() => flipSection()}
+					>Flip</button>
+					<label class="section-offset" title="Move the cut along the plane normal">
+						<input
+							type="range"
+							min="-0.1"
+							max="0.1"
+							step="0.001"
+							value={section.offset}
+							data-testid="section-offset"
+							oninput={(e) => setSectionOffset(parseFloat(e.currentTarget.value))}
+						/>
+					</label>
+					<button
+						class="toolbar-btn"
+						title="Exit section view"
+						data-testid="toolbar-btn-section-clear"
+						onclick={() => clearSection()}
+					>Clear</button>
+				{/if}
 			</div>
 		{/if}
 	{/if}
@@ -1070,6 +1118,16 @@
 			min-height: 28px;
 		}
 	}
+	.section-offset {
+		display: flex;
+		align-items: center;
+		padding: 0 4px;
+	}
+
+	.section-offset input[type='range'] {
+		width: 80px;
+	}
+
 	.build-info {
 		padding: 6px 12px;
 		font-size: 11px;

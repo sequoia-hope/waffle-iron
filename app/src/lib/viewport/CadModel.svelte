@@ -18,9 +18,11 @@
 		isProjectToolActive,
 		getSelectedBodyId,
 		getHoveredBodyId,
-		getSelectedFeatureId
+		getSelectedFeatureId,
+		getSectionState
 	} from '$lib/engine/store.svelte.js';
 	import { SIDE_FACE_GROUP_THRESHOLD } from '$lib/config.js';
+	import { buildSectionClipPlane } from './sectionPlane.js';
 
 	const DEFAULT_COLOR = new THREE.Color(0x8899aa);
 	const HOVER_COLOR = new THREE.Color(0xaabbdd);
@@ -283,6 +285,36 @@
 
 	let showTestBox = $derived(engineMeshes.length === 0);
 	let inSketchMode = $derived(getSketchMode()?.active ?? false);
+
+	// Capped section view: derive the clip plane from section state and apply it
+	// to the solid body materials only. Cleared (set to []) when inactive so the
+	// normal view is restored exactly. Re-runs whenever the materials are rebuilt
+	// (hover/selection) or the section plane changes.
+	let sectionClipPlane = $derived.by(() => {
+		const s = getSectionState();
+		if (!s.active || !s.plane) return null;
+		return buildSectionClipPlane(s.plane, s.flipped, s.offset);
+	});
+
+	$effect(() => {
+		const plane = sectionClipPlane;
+		const mats = meshMaterials;
+		const planes = plane ? [plane] : [];
+		for (const matArr of mats) {
+			if (!matArr) continue;
+			for (const mat of matArr) {
+				if (!mat) continue;
+				mat.clippingPlanes = planes;
+				mat.clipShadows = false;
+				mat.needsUpdate = true;
+			}
+		}
+		// Also clip the fallback test material, harmless when no body present.
+		if (testMaterial) {
+			testMaterial.clippingPlanes = planes;
+			testMaterial.needsUpdate = true;
+		}
+	});
 
 	/**
 	 * Handle pointer move on mesh for hover highlighting.

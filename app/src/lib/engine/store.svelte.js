@@ -236,6 +236,18 @@ let selectOtherState = $state({ intersections: [], cycleIndex: 0, lastScreenX: -
 // -- Two-finger touch gesture state --
 let twoFingerActive = $state(false);
 
+// -- Section view state --
+
+/**
+ * Capped section-view state. When `active`, the solid bodies are clipped at
+ * `plane` and the cut is capped (stencil fill) so the model reads as a solid
+ * section. `plane` is stored as plain origin/normal arrays (the captured
+ * section plane). `flipped` keeps the opposite half; `offset` shifts the cut
+ * along the normal (meters).
+ * @type {{ active: boolean, plane: { origin: [number,number,number], normal: [number,number,number] } | null, flipped: boolean, offset: number }}
+ */
+let sectionState = $state({ active: false, plane: null, flipped: false, offset: 0 });
+
 // -- Mobile layout state --
 
 let isMobileLayout = $state(false);
@@ -669,6 +681,32 @@ export async function initEngine() {
 			getAutoRestoreState: () => getAutoRestoreState(),
 			restoreAutoSave: () => restoreAutoSave(),
 			discardAutoSave: () => discardAutoSave(),
+			getSectionState: () => ({ ...sectionState, plane: sectionState.plane ? { origin: [...sectionState.plane.origin], normal: [...sectionState.plane.normal] } : null }),
+			toggleSection: () => toggleSection(),
+			flipSection: () => flipSection(),
+			setSectionOffset: (o) => setSectionOffset(o),
+			clearSection: () => clearSection(),
+			// Count live MeshStandardMaterials in the scene that currently carry a
+			// clipping plane — used by the section-view GUI test to confirm the
+			// section clip actually reached materials in the render graph.
+			countClippedMaterials: () => {
+				const scene = cameraObject?.parent;
+				if (!scene) return 0;
+				const seen = new Set();
+				let clipped = 0;
+				scene.traverse((obj) => {
+					if (obj.isMesh && obj.material) {
+						const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+						for (const m of mats) {
+							if (m && Array.isArray(m.clippingPlanes) && m.clippingPlanes.length > 0 && !seen.has(m.uuid)) {
+								seen.add(m.uuid);
+								clipped++;
+							}
+						}
+					}
+				});
+				return clipped;
+			},
 			getDatumPlanes: () => BUILTIN_PLANES,
 			createDatumPlane: (definition, name) => createDatumPlane(definition, name),
 			enterSketchEditMode: (featureId) => enterSketchEditMode(featureId),
@@ -3482,6 +3520,77 @@ export function getCameraObject() {
  */
 export function getControlsObject() {
 	return controlsObject;
+}
+
+// -- Section view (capped clipping) --
+
+/** Reactive section-view state. */
+export function getSectionState() {
+	return sectionState;
+}
+
+/** True when a capped section view is active. */
+export function isSectionActive() {
+	return sectionState.active;
+}
+
+/**
+ * Toggle the section view. When turning on, captures the currently-selected
+ * datum plane or planar face as the section plane. If nothing suitable is
+ * selected, shows a hint toast and stays off. Toggling while active turns it
+ * off (restoring the normal view exactly).
+ * @returns {boolean} the resulting active state
+ */
+export function toggleSection() {
+	if (sectionState.active) {
+		clearSection();
+		return false;
+	}
+
+	// Resolve a section plane from the current selection.
+	let plane = null;
+	for (const ref of selectedRefs) {
+		if (isDatumPlaneRef(ref) || ref?.kind?.type === 'Face') {
+			const p = computeFacePlane(ref);
+			if (p) { plane = p; break; }
+		}
+	}
+
+	if (!plane) {
+		showToast('info', 'Select a plane or planar face');
+		return false;
+	}
+
+	sectionState = {
+		active: true,
+		plane: { origin: [...plane.origin], normal: [...plane.normal] },
+		flipped: false,
+		offset: 0,
+	};
+	log('ui', 'Section view on', { origin: plane.origin, normal: plane.normal });
+	return true;
+}
+
+/** Flip which half of the model the section keeps. */
+export function flipSection() {
+	if (!sectionState.active) return;
+	sectionState = { ...sectionState, flipped: !sectionState.flipped };
+}
+
+/**
+ * Set the section cut offset along the plane normal (meters).
+ * @param {number} offset
+ */
+export function setSectionOffset(offset) {
+	if (!sectionState.active) return;
+	sectionState = { ...sectionState, offset: Number(offset) || 0 };
+}
+
+/** Clear/exit the section view, restoring the normal (un-clipped) render. */
+export function clearSection() {
+	if (!sectionState.active) return;
+	sectionState = { active: false, plane: null, flipped: false, offset: 0 };
+	log('ui', 'Section view off');
 }
 
 // -- Camera projection state accessors --
