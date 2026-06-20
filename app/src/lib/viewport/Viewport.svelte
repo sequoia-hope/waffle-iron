@@ -22,6 +22,10 @@
 		powerPreference: 'high-performance',
 		antialias: true,
 		alpha: true,
+		// Stencil buffer required by the capped section view (SectionCap.svelte).
+		// three.js r163+ defaults `stencil` to false; without it the cap's
+		// stencil test always passes and the cap quad fills the whole viewport.
+		stencil: true,
 		logarithmicDepthBuffer: true
 	});
 
