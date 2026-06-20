@@ -31,6 +31,11 @@ members = [
 exclude = ["archive"]
 resolver = "2"
 
+# TEMPORARY: slvs patch for dev-only parity oracle. Removed when parity
+# validation is complete and the legacy-oracle feature is dropped.
+[patch.crates-io]
+slvs = { path = "crates/slvs-patch/slvs-0.6.0" }
+
 # Use panic=unwind so catch_unwind works on NATIVE targets.
 # See .cargo/config.toml for WASM-specific settings.
 [profile.release]

@@ -162,15 +162,17 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
         };
     }
 
-    let n_params = layout.n_params();
-    let n_constraints = compiled.len();
+    let _n_params = layout.n_params();
 
     // Build and run LM.
     let problem = SketchProblem::new(&layout, compiled);
+    let n_residuals = problem.n_residuals;
+    let n_params = problem.n_params;
     let lm = LevenbergMarquardt::new()
         .with_ftol(SOLVE_TOL)
         .with_xtol(SOLVE_TOL)
-        .with_gtol(SOLVE_TOL);
+        .with_gtol(SOLVE_TOL)
+        .with_patience(50); // Cap at 50*(n_params+1) evals; default is 200
 
     let (solved, report) = lm.minimize(problem);
 
@@ -181,7 +183,7 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
     let status = classify_status(
         &final_residuals,
         &final_jacobian,
-        n_constraints,
+        n_residuals,
         n_params,
         &report,
     );
@@ -213,12 +215,12 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
 ///    - dof == 0 → FullyConstrained
 ///    - dof > 0  → UnderConstrained { dof }
 /// 4. If ‖r‖∞ ≥ tol (unsatisfiable):
-///    - rank(J) < #constraints → OverConstrained { conflicts }
-///    - rank(J) == #constraints → SolveFailed { reason }
+///    - rank(J) < n_residuals → OverConstrained { conflicts }
+///    - rank(J) == n_residuals → SolveFailed { reason }
 fn classify_status(
     residuals: &DVector<f64>,
     jacobian: &DMatrix<f64>,
-    n_constraints: usize,
+    n_residuals: usize,
     n_params: usize,
     report: &MinimizationReport<f64>,
 ) -> SolveStatus {
@@ -237,7 +239,7 @@ fn classify_status(
         }
     } else {
         // Constraints unsatisfiable — decision tree per G2.
-        if rank < n_constraints {
+        if rank < n_residuals {
             // Redundant/conflicting direction exists.
             // Find constraint indices with largest residual contribution.
             // We map residual rows back to constraint indices.
@@ -255,17 +257,35 @@ fn classify_status(
 }
 
 /// Compute the rank of a matrix via QR decomposition with column pivoting.
-/// nalgebra's ColPivQR is used; singular values below `tol` are treated as zero.
+///
+/// Uses ColPivQR (column-pivoted QR) for reliable rank determination. Column
+/// pivoting ensures that linearly independent columns are processed first,
+/// giving accurate rank even when early columns are near-zero (e.g., a
+/// parameter pinned by Dragged). The R matrix diagonal gives the rank;
+/// values below `tol` are zero.
+///
+/// Performance: O(mn² + n³) — more expensive than plain QR, but called only
+/// once per solve (after LM converges), not per iteration.
 fn matrix_rank(m: &DMatrix<f64>, tol: f64) -> usize {
     if m.nrows() == 0 || m.ncols() == 0 {
         return 0;
     }
     let qr = nalgebra::ColPivQR::new(m.clone());
-    // The R matrix's diagonal gives us the rank. Values below tol are zero.
     let r = qr.r();
+    // Use a relative tolerance: scale by the largest diagonal element to
+    // handle Jacobians with widely varying magnitudes (e.g., DistancePL
+    // entries divided by ℓ² can be very small).
+    let max_diag = (0..r.nrows().min(r.ncols()))
+        .map(|i| r[(i, i)].abs())
+        .fold(0.0f64, f64::max);
+    let effective_tol = if max_diag > 0.0 {
+        tol * max_diag
+    } else {
+        tol
+    };
     let mut rank = 0;
     for i in 0..r.nrows().min(r.ncols()) {
-        if r[(i, i)].abs() > tol {
+        if r[(i, i)].abs() > effective_tol {
             rank += 1;
         }
     }
