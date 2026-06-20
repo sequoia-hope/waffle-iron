@@ -209,15 +209,13 @@ pub fn classify_pair(soup: &FastTrimesh, ta: u32, tb: u32) -> PairClassification
     // edge's crossings with the other triangle's edges become in-plane
     // edge-edge LPIs, and a symbolic segment connects them.
     //
-    // SCOPE (this slice): we construct the **edge-contained** sub-configs —
-    // both coplanar-edge endpoints lie ON the closed other triangle
-    // (ON_VERT / ON_EDGE / STRICTLY_INSIDE) and the edge does NOT properly
-    // cross an edge of the other triangle, so NO in-plane edge-edge LPI is
-    // needed. These are emitted as `Transversal` vertices (Explicit endpoints
-    // placed by `group_intersection_points`, segment by
-    // `group_constraint_segments`). Any sub-config requiring an in-plane
-    // edge-edge crossing (the `addEdgeCrossEdgeInters` jolly-LPI path) is
-    // still deferred LOUDLY — see `classify_single_coplanar_edge`.
+    // `classify_single_coplanar_edge` constructs ALL single-coplanar-edge
+    // sub-configs end-to-end: edge-contained endpoints (Explicit), in-plane
+    // edge-edge crossings (`addEdgeCrossEdgeInters` jolly-LPI), tvX_in_edge
+    // (the edge crossing o_t through a corner → exact o_t vertex), and
+    // collinear-disjoint o_t edges (no crossing → skipped). It returns `None`
+    // only for the >2-distinct-endpoint safety guard (geometrically impossible
+    // for a convex o_t), which maps to a loud `Deferred(SingleCoplanarEdge)`.
     let sce_ba = single_coplanar_edge(or_ba);
     let sce_ab = single_coplanar_edge(or_ab);
     if let Some(edge0) = sce_ba {
@@ -806,8 +804,10 @@ fn check_single_no_coplanar_edge_intersection(
     );
 }
 
-/// Port of `checkSingleCoplanarEdgeIntersections` (cpp:422-657), covering the
-/// **edge-contained** AND the **edge-CROSSING** sub-configs (deviation N13).
+/// Port of `checkSingleCoplanarEdgeIntersections` (cpp:422-657), covering ALL
+/// single-coplanar-edge sub-configs (deviation N13): edge-contained,
+/// edge-CROSSING, tvX_in_edge (crossing through an o_t corner), and
+/// collinear-disjoint o_t edges.
 ///
 /// `e0`/`e1` are the two endpoints of the coplanar edge (an edge of triangle
 /// `e_t`, whose corners are `_e_tri`, soup id `_e_tri_id`); `o_tri`/`o_tri_id`
@@ -820,21 +820,25 @@ fn check_single_no_coplanar_edge_intersection(
 ///   contained path), placed onto `o_t` by `group_intersection_points`, OR
 /// - an in-plane CROSSING of the coplanar edge with one of `o_t`'s 3 edges →
 ///   an [`IntersectionVertex::EdgeEdge`] (the C++ `addEdgeCrossEdgeInters`
-///   jolly-LPI, cpp:557/589/621), which lies on an edge of BOTH triangles.
+///   jolly-LPI, cpp:557/589/621), which lies on an edge of BOTH triangles, OR
+/// - an o_t VERTEX strictly inside the coplanar edge (`tvX_in_edge`,
+///   cpp:545-547) — a degenerate crossing THROUGH a corner, so the crossing
+///   point is the exact o_t vertex (an `Explicit`), collected in section (a2).
 ///
 /// So at most TWO distinct sub-segment endpoints are emitted;
 /// `group_constraint_segments` joins them into the one `ConstraintSegment`
-/// (cpp `addSymbolicSegment`).
+/// (cpp `addSymbolicSegment`). A collinear o_t edge yields no crossing (a real
+/// overlap is captured via the endpoint/tvX paths; collinear-disjoint is
+/// skipped), matching the C++.
 ///
 /// Returns:
 /// - `Some(vertices)` with the ≤2 distinct sub-segment endpoints.
 /// - `Some(vec![])` for an exact shared edge (both endpoints ON o_t vertices,
-///   cpp:460 `if(v0_in_vtx && v1_in_vtx) return;`) — no new geometry.
-/// - `None` (defer LOUDLY, P9/P10) for a degenerate/ambiguous configuration
-///   we cannot resolve to a clean ≤2-endpoint sub-segment: an o_t vertex
-///   strictly inside the coplanar edge (the cpp `tvX_in_edge` symbolic-segment
-///   bookkeeping, cpp:545-547/658-674), a collinear/overlapping edge pair, or
-///   any case that fails to yield exactly the sub-segment's endpoints.
+///   cpp:460 `if(v0_in_vtx && v1_in_vtx) return;`) or a collinear-disjoint
+///   pass-through — no new geometry.
+/// - `None` (defer LOUDLY, P9/P10) ONLY for the >2-distinct-endpoint safety
+///   guard — geometrically impossible for a convex `o_t`, so this surfaces an
+///   upstream-classification bug rather than silently emitting a guess.
 fn classify_single_coplanar_edge(
     e0: Point3,
     e1: Point3,
@@ -899,9 +903,10 @@ fn classify_single_coplanar_edge(
     // ── Build the sub-segment [P, Q] = coplanar edge ∩ o_t ─────────────
     //
     // Each sub-segment endpoint is collected as an `IntersectionVertex`:
-    // a contained coplanar-edge endpoint → `Explicit`; an in-plane crossing
-    // of the coplanar edge with an o_t edge → `EdgeEdge`. We collect ≤2
-    // distinct endpoints; anything else is degenerate → defer LOUDLY.
+    // a contained coplanar-edge endpoint → `Explicit` (a); an o_t vertex on the
+    // coplanar edge → `Explicit` (a2, tvX); an in-plane crossing of the coplanar
+    // edge with an o_t edge → `EdgeEdge` (b). We collect ≤2 distinct endpoints;
+    // >2 is geometrically impossible for a convex o_t → defer LOUDLY (safety).
     let mut out: Vec<IntersectionVertex> = Vec::new();
 
     // (a) Each coplanar-edge endpoint that lies on the closed o_t is an
@@ -987,12 +992,17 @@ fn classify_single_coplanar_edge(
                 );
             }
             CrossingKind::Collinear => {
-                // Collinear overlap of the coplanar edge with an o_t edge that
-                // hosts neither coplanar-edge endpoint: the clean ≤2-endpoint
-                // sub-segment is ambiguous (the C++ handles this via the
-                // collinear symbolic-segment branches) → defer LOUDLY
-                // (P9/P10).
-                return None;
+                // This o_t edge is collinear with the coplanar edge. A real
+                // OVERLAP would already have tripped a guard above — an o_t-edge
+                // vertex strictly inside the coplanar edge (the `!= StrictlyOutside`
+                // skip) or a coplanar-edge endpoint resting on this o_t edge
+                // (`e{0,1}_seg == Some(i)`) — and been captured by section (a)/(a2).
+                // So reaching here means collinear-but-DISJOINT (no shared interior):
+                // there is no crossing on this edge. The C++ has no collinear-defer
+                // branch — `segment_segment_intersect_3d` simply does not report a
+                // proper crossing and the loop moves on — so we skip, matching the
+                // reference and the fully-coplanar sibling `coplanar_edge_intersections`.
+                continue;
             }
             CrossingKind::None => {}
         }
@@ -1979,6 +1989,38 @@ mod tests {
         }
         assert_eq!(a_owned, vec![Point3::new(10.0, 0.0, 0.0)], "got {v:?}");
         assert_eq!(b_owned, vec![Point3::new(5.0, 2.0, 0.0)], "got {v:?}");
+    }
+
+    /// Collinear-but-DISJOINT sub-config: the coplanar edge lies on the LINE of
+    /// an o_t edge but does not overlap the o_t edge's segment (here B's
+    /// coplanar edge (12,0,0)-(15,0,0) is collinear with A's edge0 line y=0 but
+    /// sits beyond A at x>10). A genuine collinear OVERLAP would have tripped an
+    /// endpoint-host / o_t-vertex-in-edge guard and been captured as a sub-
+    /// segment; reaching the collinear crossing-kind means no shared interior,
+    /// so there is NO crossing on that edge. The C++ has no collinear-defer
+    /// branch, so this CLASSIFIES (Transversal with no intersection geometry),
+    /// it does NOT spuriously `Deferred(SingleCoplanarEdge)`. (B's third vertex
+    /// (5,5,5) is off-plane so this is a single-coplanar-edge, not fully-
+    /// coplanar, config.)
+    #[test]
+    fn single_coplanar_edge_collinear_disjoint_classifies_without_geometry() {
+        let a = [
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(10.0, 0.0, 0.0),
+            Point3::new(0.0, 10.0, 0.0),
+        ];
+        let b = [
+            Point3::new(12.0, 0.0, 0.0),
+            Point3::new(15.0, 0.0, 0.0),
+            Point3::new(5.0, 5.0, 5.0),
+        ];
+        let (soup, _, _) = soup_pair(a, b);
+        let c = classify_pair(&soup, 0, 1);
+        let v = expect_transversal(&c);
+        assert!(
+            v.is_empty(),
+            "collinear-disjoint coplanar edge introduces no geometry, got {v:?}"
+        );
     }
 
     // ════════════════════════════════════════════════════════════════
