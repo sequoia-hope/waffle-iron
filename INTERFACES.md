@@ -434,10 +434,10 @@ pub enum SketchEntity {
 }
 
 /// A constraint between sketch entities.
-/// Maps directly to libslvs constraint types via the slvs crate.
+/// Consumed by the clean-room Rust constraint solver (Levenberg-Marquardt).
 ///
 /// Producer: sketch-ui (user applies constraints)
-/// Consumer: sketch-solver (passed to libslvs)
+/// Consumer: sketch-solver (compiled to residual + Jacobian)
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type")]
 pub enum SketchConstraint {

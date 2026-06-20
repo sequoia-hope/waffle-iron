@@ -46,23 +46,12 @@ fn handle_message(
         }
 
         UiToEngine::SolveSketch => {
-            #[cfg(feature = "native-solver")]
-            {
-                let sketch = state.build_sketch()?;
-                let solved = sketch_solver::solve_sketch(&sketch);
-                if let Some(active) = state.active_sketch.as_mut() {
-                    active.solve_status = solved.status.clone();
-                }
-                Ok(EngineToUi::SketchSolved { solved })
+            let sketch = state.build_sketch()?;
+            let solved = sketch_solver::solve_sketch(&sketch);
+            if let Some(active) = state.active_sketch.as_mut() {
+                active.solve_status = solved.status.clone();
             }
-            #[cfg(not(feature = "native-solver"))]
-            {
-                // In WASM builds, solving is done by the Emscripten-compiled
-                // libslvs module via JS glue code in the web worker.
-                Err(BridgeError::NotImplemented {
-                    operation: "SolveSketch (use JS bridge to libslvs WASM)".to_string(),
-                })
-            }
+            Ok(EngineToUi::SketchSolved { solved })
         }
 
         UiToEngine::FinishSketch {

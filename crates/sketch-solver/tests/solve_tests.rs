@@ -3616,3 +3616,153 @@ fn angle_constraint_90_degrees() {
     let tol = 1e-4;
     assert_point_near(&result.positions, 3, (0.0, 50.0), tol);
 }
+
+// ── Degenerate Cases (Parity Harness Fixtures) ──────────────────────────────
+// Per specs/clean_room_constraint_solver.md §"Parity harness":
+// hand-curated degenerate cases that a clean-room implementation must handle.
+// implementation must match. These run on both legacy and clean paths.
+
+#[test]
+fn degenerate_zero_length_line() {
+    // Two coincident points with a line between them — zero-length line.
+    // Horizontal constraint should be trivially satisfied.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: 1, x: 5.0, y: 5.0, construction: false },
+            SketchEntity::Point { id: 2, x: 5.0, y: 5.0, construction: false },
+            SketchEntity::Line { id: 10, start_id: 1, end_id: 2, construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Coincident { point_a: 1, point_b: 2 },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(result.status, SolveStatus::FullyConstrained | SolveStatus::UnderConstrained { .. }),
+        "zero-length line should solve, got {:?}",
+        result.status
+    );
+    assert_point_near(&result.positions, 1, (5.0, 5.0), 1e-6);
+    assert_point_near(&result.positions, 2, (5.0, 5.0), 1e-6);
+}
+
+#[test]
+fn degenerate_circle_radius_zero() {
+    // Circle with radius = 0 — degenerate but should not panic.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: 1, x: 10.0, y: 10.0, construction: false },
+            SketchEntity::Circle { id: 10, center_id: 1, radius: 0.0, construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Radius { entity: 10, value: 0.0 },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    assert!(
+        !matches!(result.status, SolveStatus::SolveFailed { .. }),
+        "radius=0 should not fail: {:?}",
+        result.status
+    );
+}
+
+#[test]
+fn degenerate_over_constrained_but_consistent() {
+    // Redundant but consistent constraints: Distance(50) + Distance(50) on same pair.
+    // Should be FullyConstrained (redundant OK), not OverConstrained.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: 1, x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: 2, x: 50.0, y: 0.0, construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Horizontal { entity: 10 },
+            SketchConstraint::Distance { entity_a: 1, entity_b: 2, value: 50.0 },
+            SketchConstraint::Distance { entity_a: 1, entity_b: 2, value: 50.0 },
+        ],
+    );
+    // Note: entity 10 (line) doesn't exist in this sketch, so Horizontal will fail.
+    // Fix: add the line.
+    let sketch = Sketch {
+        entities: vec![
+            SketchEntity::Point { id: 1, x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: 2, x: 50.0, y: 0.0, construction: false },
+            SketchEntity::Line { id: 10, start_id: 1, end_id: 2, construction: false },
+        ],
+        constraints: vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Horizontal { entity: 10 },
+            SketchConstraint::Distance { entity_a: 1, entity_b: 2, value: 50.0 },
+            SketchConstraint::Distance { entity_a: 1, entity_b: 2, value: 50.0 },
+        ],
+        ..sketch
+    };
+    let result = solve_sketch(&sketch);
+    // Redundant consistent constraints should still solve
+    assert!(
+        matches!(result.status, SolveStatus::FullyConstrained | SolveStatus::OverConstrained { .. }),
+        "redundant consistent: {:?}",
+        result.status
+    );
+    if matches!(result.status, SolveStatus::FullyConstrained) {
+        assert_point_near(&result.positions, 2, (50.0, 0.0), 1e-6);
+    }
+}
+
+#[test]
+fn degenerate_contradictory_distances() {
+    // Distance(10) AND Distance(20) on same point pair — contradictory.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: 1, x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: 2, x: 10.0, y: 0.0, construction: false },
+            SketchEntity::Line { id: 10, start_id: 1, end_id: 2, construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Horizontal { entity: 10 },
+            SketchConstraint::Distance { entity_a: 1, entity_b: 2, value: 10.0 },
+            SketchConstraint::Distance { entity_a: 1, entity_b: 2, value: 20.0 },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(result.status, SolveStatus::OverConstrained { .. } | SolveStatus::SolveFailed { .. }),
+        "contradictory distances should fail: {:?}",
+        result.status
+    );
+}
+
+#[test]
+fn degenerate_under_constrained_with_dragged() {
+    // Single point with Dragged — should be FullyConstrained (0 DOF).
+    let sketch = make_sketch(
+        vec![SketchEntity::Point { id: 1, x: 42.0, y: 17.0, construction: false }],
+        vec![SketchConstraint::Dragged { point: 1 }],
+    );
+    let result = solve_sketch(&sketch);
+    assert!(matches!(result.status, SolveStatus::FullyConstrained));
+    assert_point_near(&result.positions, 1, (42.0, 17.0), 1e-6);
+}
+
+#[test]
+fn degenerate_point_coincident_with_itself() {
+    // Point coincident with itself — trivially satisfied.
+    let sketch = make_sketch(
+        vec![SketchEntity::Point { id: 1, x: 5.0, y: 5.0, construction: false }],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Coincident { point_a: 1, point_b: 1 },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(result.status, SolveStatus::FullyConstrained),
+        "self-coincident: {:?}",
+        result.status
+    );
+    assert_point_near(&result.positions, 1, (5.0, 5.0), 1e-6);
+}

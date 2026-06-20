@@ -19,7 +19,7 @@ Research references use `[#N]` notation from REFERENCES.md.
 │  Engine Layer                                        │
 │  ├─ feature-engine: parametric tree, rebuild, undo  │
 │  ├─ modeling-ops: extrude, revolve, boolean         │
-│  └─ sketch-solver: 2D constraint solving (slvs)    │
+│  └─ sketch-solver: 2D constraint solving (LM)      │
 └──────────────────────┬──────────────────────────────┘
                        │
 ┌──────────────────────┴──────────────────────────────┐
@@ -153,8 +153,8 @@ GeomRef (semantic geometry references that survive rebuild). Undo/redo.
 
 ### Sketch Solver
 
-2D geometric constraint solving via libslvs (SolveSpace's solver).
-Newton-Raphson iteration with DOF analysis.
+2D geometric constraint solving via clean-room Rust solver (Levenberg-Marquardt
+least-squares minimization with rank-revealing QR for DOF analysis).
 
 ## Presentation Layer
 

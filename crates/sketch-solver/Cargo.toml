@@ -3,20 +3,8 @@ name = "sketch-solver"
 version = "0.1.0"
 edition = "2021"
 
-[features]
-# Default: legacy slvs-based solver. Retained through PR-SS1a/1b/1c so main
-# stays green; PR-SS1d flips the default and removes this feature entirely.
-default = ["legacy-solver"]
-legacy-solver = ["dep:slvs"]
-
-# Dev-only: enables the libslvs parity harness in tests/parity.rs. Never
-# default, never in release builds (the harness code is in tests/, which
-# only compiles under `cargo test`). Deleted at cutover (PR-SS1d).
-libslvs-oracle = ["dep:slvs"]
-
 [dependencies]
 waffle-types = { path = "../waffle-types" }
-slvs = { version = "0.6", optional = true }
 levenberg-marquardt = "0.15"
 nalgebra = "0.34"
 serde = { version = "1", features = ["derive"] }

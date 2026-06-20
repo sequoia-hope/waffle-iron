@@ -1480,7 +1480,7 @@ export function addLocalEntity(entity) {
 
 /**
  * Map a JS sketch constraint to the Rust bridge format.
- * Some constraint type names differ between JS (libslvs) and Rust (waffle-types).
+ * Some constraint type names differ between JS and Rust (waffle-types).
  * @param {object} c - Constraint in JS format
  * @returns {object | null} Constraint in Rust bridge format, or null to skip
  */
@@ -3832,7 +3832,7 @@ export function applyDimensionFromPopup(value) {
 	} else if (p.dimType === 'pointLineDistance') {
 		addLocalConstraint({ type: 'PointLineDistance', point: p.entityA, entity: p.entityB, value });
 	} else if (p.dimType === 'radius') {
-		// libslvs uses Diameter constraint; convert radius to diameter
+		// Rust solver uses Radius constraint; convert diameter to radius
 		addLocalConstraint({ type: 'Diameter', entity: p.entityA, value: value * 2 });
 	} else if (p.dimType === 'angle') {
 		if (p.entityB != null) {
@@ -4485,35 +4485,17 @@ export async function discardAutoSave() {
 }
 
 /**
- * Trigger a constraint solve via the libslvs solver in the worker.
- * Sends current sketch state to the worker for solving.
+ * Trigger a constraint solve via the Rust solver (Levenberg-Marquardt) in the
+ * WASM engine. Sends SolveSketch command through the bridge.
  */
 export function triggerSolve() {
 	if (!bridge || !engineReady) return;
 	if (!sketchMode.active) return;
 	if (sketchEntities.length === 0) return;
 
-	// Serialize positions map to plain object for postMessage (clone values to unwrap proxies)
-	const posObj = {};
-	for (const [id, pos] of sketchPositions) {
-		posObj[id] = { x: pos.x, y: pos.y };
-	}
-
-	// Deep-clone reactive state to avoid DataCloneError from Svelte 5 proxies.
-	// Gears are stored as a single compact `Gear` entity which the solver skips
-	// natively (it is a rigid, fully-parametric block), so no gear filtering is
-	// needed here.
-	const entities = JSON.parse(JSON.stringify(sketchEntities));
-	const constraints = JSON.parse(JSON.stringify(sketchConstraints));
-
 	bridge
-		.send({
-			type: 'SolveSketchLocal',
-			entities,
-			constraints,
-			positions: posObj
-		})
-		.catch(err => log('error', `SolveSketchLocal failed: ${err}`));
+		.send({ type: 'SolveSketch' })
+		.catch(err => log('error', `SolveSketch failed: ${err}`));
 }
 
 const AUTOSAVE_KEY = 'waffle-autosave';

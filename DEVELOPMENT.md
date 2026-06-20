@@ -23,8 +23,7 @@ Ubuntu-based container with:
 - **Rust toolchain** — latest stable via rustup, plus `wasm32-unknown-unknown` target
 - **wasm-pack** — for building Rust to WASM
 - **Node.js** (LTS) — for Svelte/SvelteKit/three.js development
-- **clang + libclang** — required for the slvs crate's `cc` + `bindgen` build of libslvs
-- **cmake** — required for building libslvs from source
+- **clang + libclang** — required by cherchi-sidecar-rs (LGPL predicate FFI)
 - **git** — version control
 - **Claude Code CLI** — for autonomous agent sessions
 
