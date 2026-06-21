@@ -3,17 +3,11 @@ name = "sketch-solver"
 version = "0.1.0"
 edition = "2021"
 
-[features]
-# Dev-only: enables the legacy libslvs solver for parity validation.
-# Never default, never in release/WASM builds.
-legacy-oracle = ["dep:slvs"]
-
 [dependencies]
 waffle-types = { path = "../waffle-types" }
 levenberg-marquardt = "0.15"
 nalgebra = "0.34"
 serde = { version = "1", features = ["derive"] }
-slvs = { version = "0.6", optional = true }
 
 [dev-dependencies]
 uuid = { version = "1", features = ["v4", "serde"] }
