@@ -683,11 +683,12 @@ fn smoke_corpus_boundary_categories() {
     assert!(!cases.is_empty(), "assay corpus not found at {dir:?}");
 
     let expected: &[(&str, Category)] = &[
-        // identical coplanar squares → auto-union hits the M8 coplanar wall
-        (
-            "F0002",
-            Category::Unsupported(UnsupportedReason::CoplanarBoolean),
-        ),
+        // F0002: cross-shaped prisms with PARTIALLY-overlapping coplanar caps.
+        // The M8 planar partial-overlap fix (interior-centroid fan fallback in
+        // `triangulate_ring`, commit 8c64c236) takes F0002/F0004/F0006 end-to-end
+        // — all mesh oracles pass. Stale-pin reconciliation: the pin lagged the
+        // fix (the full tier isn't in the rewrite inner loop, so it stayed latent).
+        ("F0002", Category::SupportedCorrect),
         // PR-TH1: previously pinned UNSUPPORTED(coplanar-boolean), but the
         // case replays cleanly; its only failures were oracle false
         // positives (one-sided collinear boundary subdivision from
