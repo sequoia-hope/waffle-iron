@@ -1,7 +1,7 @@
 /**
  * Sprint 3: Construction toggle tests.
  *
- * Verifies G key toggles construction flag on selected entities,
+ * Verifies X key toggles construction flag on selected entities,
  * and construction entities are excluded from profile extraction.
  */
 import { test, expect } from './helpers/waffle-test.js';
@@ -15,7 +15,7 @@ test.describe('sketch construction toggle', () => {
 		await clickSketch(waffle.page);
 	});
 
-	test('G key toggles construction flag on selected line', async ({ waffle }) => {
+	test('X key toggles construction flag on selected line', async ({ waffle }) => {
 		const page = waffle.page;
 
 		// Draw a line
@@ -29,7 +29,7 @@ test.describe('sketch construction toggle', () => {
 		// Select the line and press G
 		await clickSelect(page);
 		await setSketchSelection(page, [line.id]);
-		await page.keyboard.press('g');
+		await page.keyboard.press('x');
 		await page.waitForTimeout(200);
 
 		// Check construction flag is now true
@@ -38,7 +38,7 @@ test.describe('sketch construction toggle', () => {
 		expect(updatedLine.construction).toBe(true);
 	});
 
-	test('G key toggles construction back to false', async ({ waffle }) => {
+	test('X key toggles construction back to false', async ({ waffle }) => {
 		const page = waffle.page;
 
 		await drawLine(page, -100, 0, 100, 0);
@@ -51,13 +51,13 @@ test.describe('sketch construction toggle', () => {
 		await setSketchSelection(page, [line.id]);
 
 		// Toggle on
-		await page.keyboard.press('g');
+		await page.keyboard.press('x');
 		await page.waitForTimeout(200);
 		let updated = await getEntities(page);
 		expect(updated.find(e => e.id === line.id).construction).toBe(true);
 
 		// Toggle off
-		await page.keyboard.press('g');
+		await page.keyboard.press('x');
 		await page.waitForTimeout(200);
 		updated = await getEntities(page);
 		expect(updated.find(e => e.id === line.id).construction).toBe(false);
@@ -98,7 +98,7 @@ test.describe('sketch construction toggle', () => {
 		// Select circle and toggle construction
 		await clickSelect(page);
 		await setSketchSelection(page, [circle.id]);
-		await page.keyboard.press('g');
+		await page.keyboard.press('x');
 		await page.waitForTimeout(200);
 
 		const updated = await getEntities(page);
@@ -126,7 +126,7 @@ test.describe('sketch construction toggle', () => {
 		// Multi-select both lines
 		await clickSelect(page);
 		await setSketchSelection(page, lines.map(l => l.id));
-		await page.keyboard.press('g');
+		await page.keyboard.press('x');
 		await page.waitForTimeout(200);
 
 		// Both should be construction

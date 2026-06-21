@@ -419,6 +419,25 @@ export async function initEngine() {
 				newPositions.set(Number(id), p);
 			}
 			sketchPositions = newPositions;
+
+			// Apply solved RADII to circle entities. The radius is a standalone
+			// solver param (not a point), so a Diameter/Radius constraint's result
+			// arrives here in `radii`, not `positions` — without this the solved
+			// circle radius is silently discarded (the resize never shows).
+			const radii = solved.radii || msg.radii;
+			if (radii && Object.keys(radii).length > 0) {
+				let changed = false;
+				const updated = sketchEntities.map((e) => {
+					if (e.type === 'Circle' && e.id != null && radii[e.id] != null
+						&& Math.abs((e.radius ?? 0) - radii[e.id]) > 1e-12) {
+						changed = true;
+						return { ...e, radius: radii[e.id] };
+					}
+					return e;
+				});
+				if (changed) sketchEntities = updated;
+			}
+
 			reExtractProfiles();
 		}
 

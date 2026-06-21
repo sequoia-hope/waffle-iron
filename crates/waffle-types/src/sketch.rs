@@ -343,6 +343,12 @@ pub enum SolveStatus {
 pub struct SolvedSketch {
     /// Solved positions for all points. Key is point entity ID.
     pub positions: HashMap<u32, (f64, f64)>,
+    /// Solved radii for circles (and any radius-param entity), keyed by entity
+    /// ID. A Diameter/Radius constraint solves the radius param; without this it
+    /// never reaches the UI (only points flow through `positions`). Arcs are
+    /// absent (their radius is the center→start distance, captured by points).
+    #[serde(default)]
+    pub radii: HashMap<u32, f64>,
     /// Closed profiles extracted from the solved geometry.
     pub profiles: Vec<ClosedProfile>,
     /// Solve status.
@@ -1021,6 +1027,7 @@ mod tests {
 
         let ss = SolvedSketch {
             positions,
+            radii: HashMap::new(),
             profiles: vec![ClosedProfile {
                 entity_ids: vec![1, 2],
                 is_outer: false,

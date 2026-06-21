@@ -1291,6 +1291,7 @@ fn serde_roundtrip_sketch_solved() {
     let msg = EngineToUi::SketchSolved {
         solved: SolvedSketch {
             positions: std::collections::HashMap::new(),
+            radii: std::collections::HashMap::new(),
             profiles: vec![ClosedProfile {
                 entity_ids: vec![1, 2],
                 is_outer: true,

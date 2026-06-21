@@ -144,6 +144,7 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
     // Edge case: no constraints.
     if compiled.is_empty() {
         let positions = layout.extract_positions(&layout.params);
+        let radii = layout.extract_radii(&layout.params);
         let dof = layout.n_params() as u32;
         let status = if dof == 0 {
             SolveStatus::FullyConstrained
@@ -153,6 +154,7 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
         let profiles = extract_profiles(&sketch.entities, &positions);
         return SolvedSketch {
             positions,
+            radii,
             profiles,
             status,
         };
@@ -185,8 +187,9 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
     );
 
     let positions = layout.extract_positions(solved.params().as_slice());
+    let radii = layout.extract_radii(solved.params().as_slice());
 
-    let profiles = if matches!(
+    let mut profiles = if matches!(
         status,
         SolveStatus::FullyConstrained | SolveStatus::UnderConstrained { .. }
     ) {
@@ -194,9 +197,22 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
     } else {
         Vec::new()
     };
+    // `extract_profiles` reads the ORIGINAL entity radius; override a standalone
+    // circle profile's radius with the SOLVED radius so the solver's output is
+    // self-consistent (a Diameter/Radius constraint actually resizes the circle).
+    for profile in &mut profiles {
+        if let Some(circle) = profile.circle.as_mut() {
+            if profile.entity_ids.len() == 1 {
+                if let Some(&r) = radii.get(&profile.entity_ids[0]) {
+                    circle.radius = r;
+                }
+            }
+        }
+    }
 
     SolvedSketch {
         positions,
+        radii,
         profiles,
         status,
     }
@@ -312,8 +328,10 @@ fn find_conflict_constraints(
 /// Build a SolveFailed result with initial positions.
 fn failed_result(layout: &ParamLayout, reason: String) -> SolvedSketch {
     let positions = layout.extract_positions(&layout.params);
+    let radii = layout.extract_radii(&layout.params);
     SolvedSketch {
         positions,
+        radii,
         profiles: Vec::new(),
         status: SolveStatus::SolveFailed { reason },
     }

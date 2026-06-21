@@ -136,6 +136,20 @@ impl ParamLayout {
         }
         positions
     }
+
+    /// Solved radius for every circle (and any entity with a stored radius
+    /// param), keyed by entity id. Arcs carry no radius param (their radius is
+    /// the center→start distance) and are absent here. Mirrors
+    /// [`Self::extract_positions`] — a Diameter/Radius constraint solves the
+    /// radius param, which would otherwise be discarded (only points reach the
+    /// UI through `positions`).
+    pub fn extract_radii(&self, params: &[f64]) -> HashMap<u32, f64> {
+        let mut radii = HashMap::new();
+        for (&id, &ri) in &self.radius_indices {
+            radii.insert(id, params[ri]);
+        }
+        radii
+    }
 }
 
 #[cfg(test)]
