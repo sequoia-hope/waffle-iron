@@ -146,14 +146,10 @@ test.describe('sketch H/V distance dimensions', () => {
 		await setSketchSelection(page, [points[0].id, points[1].id]);
 		await page.waitForTimeout(300);
 
-		// Check if HDistance button is visible
-		const hdBtn = page.locator('[data-testid="toolbar-constraint-hDistance"]');
-		const hdVisible = await hdBtn.isVisible().catch(() => false);
-		expect(hdVisible).toBe(true);
-
-		const vdBtn = page.locator('[data-testid="toolbar-constraint-vDistance"]');
-		const vdVisible = await vdBtn.isVisible().catch(() => false);
-		expect(vdVisible).toBe(true);
+		// HDistance/VDistance live in the constraints dropdown; for a 2-point
+		// selection they must be APPLICABLE (enabled).
+		expect(await isConstraintEnabled(page, 'hDistance')).toBe(true);
+		expect(await isConstraintEnabled(page, 'vDistance')).toBe(true);
 	});
 
 	test('HDistance constraint preserves value after solver', async ({ waffle }) => {

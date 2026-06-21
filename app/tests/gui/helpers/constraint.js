@@ -55,13 +55,28 @@ export async function isConstraintEnabled(page, constraintId) {
 }
 
 /**
- * Check if a constraint button is visible.
+ * Check if a constraint button is available (present in the constraints
+ * dropdown). Opens the dropdown first — the constraint buttons live in a
+ * dropdown panel, so they are not rendered until it is open. Outside sketch
+ * mode the dropdown trigger does not exist, so this resolves to false.
  * @param {import('@playwright/test').Page} page
  * @param {string} constraintId
  * @returns {Promise<boolean>}
  */
 export async function isConstraintVisible(page, constraintId) {
-	return page.locator(`[data-testid="toolbar-constraint-${constraintId}"]`).isVisible();
+	const dropdown = page.locator('[data-testid="constraints-dropdown"]');
+	if (!(await dropdown.isVisible({ timeout: 1000 }).catch(() => false))) {
+		const trigger = page.locator('[data-testid="toolbar-btn-constraints-dropdown"]');
+		if (!(await trigger.isVisible({ timeout: 500 }).catch(() => false))) {
+			return false; // not in sketch mode → no constraints dropdown at all
+		}
+		await trigger.click();
+		await page.waitForTimeout(200);
+	}
+	return page
+		.locator(`[data-testid="toolbar-constraint-${constraintId}"]`)
+		.isVisible({ timeout: 1000 })
+		.catch(() => false);
 }
 
 /**
