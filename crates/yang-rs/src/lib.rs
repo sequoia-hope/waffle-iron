@@ -2919,6 +2919,71 @@ fn circle_residual_split(pt: Point3, center: Point3, normal: Vector3, radius: f6
     (axial, (radial - radius).abs())
 }
 
+/// M8 disc∩disc CROSSING: the exact intersection of two COPLANAR circles
+/// `(c_a, n_a, r_a)` and `(c_b, n_b, r_b)`, picking the root nearest `near`.
+/// Two coplanar circles meet in ≤ 2 points (the lens corners); closed-form 2D
+/// in their shared plane. Returns `None` (→ a loud Stage-4 STOP) when the
+/// circles are NOT coplanar (parallel normals + co-planar centers), are
+/// concentric, or do not actually cross — none of which is a disc∩disc lens
+/// corner, so we never guess.
+fn coplanar_circle_circle_intersection(
+    c_a: Point3,
+    n_a: Vector3,
+    r_a: f64,
+    c_b: Point3,
+    n_b: Vector3,
+    r_b: f64,
+    near: Point3,
+) -> Option<Point3> {
+    let n = normalize3(n_a.as_array());
+    let nb = normalize3(n_b.as_array());
+    let ca = c_a.as_array();
+    let cb = c_b.as_array();
+    // Coplanarity: normals parallel AND c_b in c_a's plane.
+    let cross_n = [
+        n[1] * nb[2] - n[2] * nb[1],
+        n[2] * nb[0] - n[0] * nb[2],
+        n[0] * nb[1] - n[1] * nb[0],
+    ];
+    let cross_mag =
+        (cross_n[0] * cross_n[0] + cross_n[1] * cross_n[1] + cross_n[2] * cross_n[2]).sqrt();
+    let u = [cb[0] - ca[0], cb[1] - ca[1], cb[2] - ca[2]];
+    let off_plane = (u[0] * n[0] + u[1] * n[1] + u[2] * n[2]).abs();
+    if cross_mag > cad_primitives::MIN_FEATURE_SIZE || off_plane > cad_primitives::MIN_FEATURE_SIZE
+    {
+        return None; // not coplanar → not a disc∩disc lens corner
+    }
+    let d = (u[0] * u[0] + u[1] * u[1] + u[2] * u[2]).sqrt();
+    if d < cad_primitives::MIN_FEATURE_SIZE {
+        return None; // concentric
+    }
+    let uh = [u[0] / d, u[1] / d, u[2] / d];
+    // Distance from c_a to the radical line along û.
+    let a = (d * d + r_a * r_a - r_b * r_b) / (2.0 * d);
+    let h2 = r_a * r_a - a * a;
+    if h2 <= 0.0 {
+        return None; // circles do not cross (tangent/disjoint)
+    }
+    let h = h2.sqrt();
+    let m = [ca[0] + a * uh[0], ca[1] + a * uh[1], ca[2] + a * uh[2]];
+    // In-plane perpendicular: v̂ = n × û (unit by construction).
+    let vh = [
+        n[1] * uh[2] - n[2] * uh[1],
+        n[2] * uh[0] - n[0] * uh[2],
+        n[0] * uh[1] - n[1] * uh[0],
+    ];
+    let q = near.as_array();
+    let mut best: Option<(Point3, f64)> = None;
+    for s in [h, -h] {
+        let x = [m[0] + s * vh[0], m[1] + s * vh[1], m[2] + s * vh[2]];
+        let dd = (x[0] - q[0]).powi(2) + (x[1] - q[1]).powi(2) + (x[2] - q[2]).powi(2);
+        if best.map(|(_, b)| dd < b).unwrap_or(true) {
+            best = Some((Point3::new(x[0], x[1], x[2]), dd));
+        }
+    }
+    best.map(|(p, _)| p)
+}
+
 /// PR-F3 (KV6b-F3): the exact ruling LINE for one plane∥axis × cylinder
 /// intersection edge (`ssi` plane_cylinder C3a/C3b), carried per-vertex like
 /// `vert_circle`. The stored `Curve::LineSegment` carries no analytic data, so
@@ -6354,6 +6419,15 @@ fn stage4_relocate_and_correct(
     // insert time (a silent overwrite would relocate one ellipse's endpoint
     // onto the other, collapsing the seam).
     let mut vert_ell_junction: BTreeMap<u32, (EllipseReloc, EllipseReloc)> = BTreeMap::new();
+    // M8 disc∩disc CROSSING: a vertex shared by TWO DIFFERENT coplanar CIRCLE
+    // edges (the lens corners of two overlapping coplanar cap rims) must land on
+    // BOTH circles — the exact junction is the closed-form circle∩circle
+    // intersection in their shared plane. Detected at insert time (a silent
+    // overwrite would relocate it onto only the last-scanned circle, leaving the
+    // other arc's endpoint off-circle by the lens displacement — the kernel-v2
+    // "output arc endpoint does not lie on its circle" reject). The circle analog
+    // of `vert_ell_junction`.
+    let mut vert_circle_junction: BTreeMap<u32, (CircleAssign, CircleAssign)> = BTreeMap::new();
     // PR-KV11: per-vertex plane∩plane intersection-LINE incidences. The pp
     // segments themselves are exact (skipped), but their ENDPOINT on a
     // chordized curved lateral is a TRIPLE point (e.g. capA∩faceB line ×
@@ -6396,6 +6470,37 @@ fn stage4_relocate_and_correct(
             return;
         }
         vert_ellipse.insert(v, er);
+        endpoints.push(v);
+    }
+    // M8 disc∩disc: insert a CIRCLE assignment, demoting to `vert_circle_junction`
+    // when the vertex already carries a DIFFERENT circle (the lens corner of two
+    // coplanar cap rims). Mirrors `insert_ellipse_or_junction`.
+    fn insert_circle_or_junction(
+        v: u32,
+        ca: CircleAssign,
+        vert_circle: &mut BTreeMap<u32, CircleAssign>,
+        vert_circle_junction: &mut BTreeMap<u32, (CircleAssign, CircleAssign)>,
+        endpoints: &mut Vec<u32>,
+    ) {
+        if let Some(prev) = vert_circle.get(&v).copied() {
+            // Same circle (two arcs of ONE split circle meet here) → keep single.
+            let same = prev.0.as_array() == ca.0.as_array()
+                && prev.1.as_array() == ca.1.as_array()
+                && prev.2 == ca.2;
+            if !same {
+                vert_circle.remove(&v);
+                vert_circle_junction.insert(v, (prev, ca));
+                endpoints.push(v);
+                return;
+            }
+        } else if vert_circle_junction.contains_key(&v) {
+            // Already a circle∩circle junction; a third co-incident circle adds
+            // no relocation freedom (the junction is fully determined by the
+            // first two), so don't overwrite — just keep it an endpoint.
+            endpoints.push(v);
+            return;
+        }
+        vert_circle.insert(v, ca);
         endpoints.push(v);
     }
     let mut endpoints: Vec<u32> = Vec::new();
@@ -6553,8 +6658,13 @@ fn stage4_relocate_and_correct(
                     }
                 }
                 for v in [s, e] {
-                    vert_circle.insert(v, (center, normal, radius, source_radius));
-                    endpoints.push(v);
+                    insert_circle_or_junction(
+                        v,
+                        (center, normal, radius, source_radius),
+                        &mut vert_circle,
+                        &mut vert_circle_junction,
+                        &mut endpoints,
+                    );
                 }
             }
             Curve::Ellipse {
@@ -6941,6 +7051,26 @@ fn stage4_relocate_and_correct(
         }
     }
 
+    // M8 disc∩disc no-skip audit (P10): a circle∩circle lens corner that is ALSO
+    // on any OTHER curve type (a line, ellipse, cone conic, or line+circle
+    // junction) is an over-determined junction this arm does not resolve — loud
+    // STOP rather than relocate it onto only the two circles. (Cannot arise for a
+    // pure disc∩disc lens, but never silently pick.)
+    for v in vert_circle_junction.keys() {
+        if vert_line.contains_key(v)
+            || vert_ellipse.contains_key(v)
+            || vert_cone_ellipse.contains_key(v)
+            || vert_parabola.contains_key(v)
+            || vert_cone_hyperbola.contains_key(v)
+            || vert_junction.contains_key(v)
+        {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: *v,
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+            });
+        }
+    }
+
     // A vertex shared by BOTH a circle and an ellipse edge (two distinct curves
     // through one vertex) is a genuine ambiguity — relocating it twice would be
     // wrong, so loud STOP rather than silently picking one (spec §4 no-skip
@@ -7043,6 +7173,62 @@ fn stage4_relocate_and_correct(
         // but still yields the retag `t`; for the relocate band it moves the
         // vertex onto the curve.
         let (proj, t) = project_onto_circle(p, center, normal, radius)
+            .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
+        if rho > cad_primitives::TAU_WORK {
+            mesh.verts[v as usize] = proj;
+            moved.insert(v);
+        }
+        relocations.push((v, t));
+        processed.insert(v);
+    }
+
+    // M8 disc∩disc CROSSING: relocate each lens-corner vertex onto the EXACT
+    // circle∩circle intersection (on BOTH coplanar circles). The vertex sits on
+    // a Stage-1 chord, off each circle radially by ≤ d_eps; the displacement to
+    // the exact corner is amplified by `1/sin θ`, θ = angle between the two
+    // circles' radial directions at the corner (the same derived gradient metric
+    // as the cyl×cyl ellipse junction — NOT tolerance widening). A grazing/
+    // tangent crossing (θ → 0) has no well-defined corner and `coplanar_circle_
+    // circle_intersection` returns `None` → loud STOP.
+    for (&v, &(ca, cb)) in &vert_circle_junction {
+        let p = mesh.verts[v as usize];
+        let (c_a, n_a, r_a, _) = ca;
+        let (c_b, n_b, r_b, _) = cb;
+        let Some(j) = coplanar_circle_circle_intersection(c_a, n_a, r_a, c_b, n_b, r_b, p) else {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: v,
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+            });
+        };
+        let pa = p.as_array();
+        let ja = j.as_array();
+        let rho =
+            ((ja[0] - pa[0]).powi(2) + (ja[1] - pa[1]).powi(2) + (ja[2] - pa[2]).powi(2)).sqrt();
+        // sin θ = |r̂_a × r̂_b| at the corner (both radial vectors are in-plane).
+        let ra_v = [ja[0] - c_a.x(), ja[1] - c_a.y(), ja[2] - c_a.z()];
+        let rb_v = [ja[0] - c_b.x(), ja[1] - c_b.y(), ja[2] - c_b.z()];
+        let ra_h = normalize3(ra_v);
+        let rb_h = normalize3(rb_v);
+        let cr = [
+            ra_h[1] * rb_h[2] - ra_h[2] * rb_h[1],
+            ra_h[2] * rb_h[0] - ra_h[0] * rb_h[2],
+            ra_h[0] * rb_h[1] - ra_h[1] * rb_h[0],
+        ];
+        let sin_theta = (cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]).sqrt();
+        let gate = if sin_theta > 0.0 {
+            2.0 * d_eps / sin_theta
+        } else {
+            f64::INFINITY
+        };
+        if rho > gate {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: v,
+                reason: Stage4InvalidReason::OffCurveBeyondChordBand,
+            });
+        }
+        // `j` is on circle_a by construction; project to get its frame angle `t`
+        // for the source retag (positionally exact on both circles either way).
+        let (proj, t) = project_onto_circle(j, c_a, n_a, r_a)
             .map_err(|reason| YangError::Stage4RegionInvalid { vertex: v, reason })?;
         if rho > cad_primitives::TAU_WORK {
             mesh.verts[v as usize] = proj;

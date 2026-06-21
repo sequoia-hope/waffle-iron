@@ -431,15 +431,60 @@ fn disc_disc_disjoint_is_benign() {
 /// INCREMENT 2 BOUNDARY: two coplanar caps whose rims CROSS (neither contained)
 /// need arc∩arc crossing + rim-split propagation — deferred. Must stay loud.
 #[test]
-fn disc_disc_crossing_stays_unsupported() {
-    // Both caps at z=2, radius 1, centres 1 apart → rims cross.
-    let a = z_cylinder(-0.5, 0.0, 2.0, 1.0, 1.0);
-    let b = z_cylinder(0.5, 0.0, 0.0, 1.0, 2.0); // top cap at z=2
-    let err = boolean(&a, &b, BoolOp::Union, &nb())
-        .expect_err("crossing disc∩disc must stay the loud M8 residue");
+fn disc_disc_crossing_union_succeeds() {
+    // Two r=1 cylinders, caps coplanar at z=2, centres 1 apart → the rims CROSS
+    // (a lens overlap). A is z∈[2,3] (bottom cap at z=2, normal −z); B is
+    // z∈[0,2] (top cap at z=2, normal +z) — OPPOSITE-normal, measure-zero face
+    // contact over the lens. The union is the two cylinders fused at the lens
+    // (the coplanar overlap is interior → dropped). Resolved by cherchi's
+    // coplanar arrangement (N13 / PRs 1-4) — was the M8 `disc-disc-crossing`
+    // wall. Watertight, outward, volume = vol(A)+vol(B) = π·1·1 + π·1·2 = 3π
+    // (the contact is measure-zero — no material subtracted).
+    let a = z_cylinder(-0.45, 0.07, 2.0, 1.0, 1.0);
+    let b = z_cylinder(0.55, -0.03, 0.0, 0.8, 2.0); // top cap at z=2, asymmetric
+    let out = boolean(&a, &b, BoolOp::Union, &nb())
+        .expect("crossing disc∩disc union must be handled (cherchi coplanar arrangement)");
+    let mesh = out.as_mesh();
     assert!(
-        matches!(err, YangError::CoplanarFacesUnsupported { .. }),
-        "expected CoplanarFacesUnsupported, got {err:?}"
+        is_watertight(mesh),
+        "union output must be a closed 2-manifold"
+    );
+    assert!(
+        is_outward_solid(mesh),
+        "union must be consistently outward-oriented (no flipped patch)"
+    );
+    let vol = signed_volume(mesh).abs();
+    let analytic = std::f64::consts::PI * 2.28; // A(r=1,h=1)=π + B(r=0.8,h=2)=1.28π
+    assert!(
+        (vol - analytic).abs() / analytic < 0.06,
+        "union volume {vol} not within chord band of analytic {analytic}"
+    );
+}
+
+/// disc∩disc crossing, SUBTRACT: the coplanar cap contact is measure-zero, so
+/// `B − A` removes nothing — the result is B unchanged (vol ≈ π·1·2 = 2π),
+/// watertight + outward. Pins that the crossing coplanar contact does not
+/// corrupt a subtract (no spurious material removed / no flipped patch).
+#[test]
+fn disc_disc_crossing_subtract_is_clean() {
+    let a = z_cylinder(-0.5, 0.0, 2.0, 1.0, 1.0); // z∈[2,3]
+    let b = z_cylinder(0.5, 0.0, 0.0, 1.0, 2.0); // z∈[0,2], top cap at z=2
+    let out = boolean(&b, &a, BoolOp::Subtract, &nb())
+        .expect("crossing disc∩disc subtract must be handled");
+    let mesh = out.as_mesh();
+    assert!(
+        is_watertight(mesh),
+        "subtract output must be a closed 2-manifold"
+    );
+    assert!(
+        is_outward_solid(mesh),
+        "subtract must be consistently outward"
+    );
+    let vol = signed_volume(mesh).abs();
+    let analytic = std::f64::consts::PI * 2.0; // B unchanged (contact removes nothing)
+    assert!(
+        (vol - analytic).abs() / analytic < 0.06,
+        "subtract volume {vol} not within chord band of analytic {analytic} (B unchanged)"
     );
 }
 

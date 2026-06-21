@@ -603,6 +603,56 @@ enum EdgeKind {
     },
 }
 
+/// UNDIRECTED curve identity for manifold edge-pairing, so two DISTINCT curved
+/// edges sharing the same endpoint pair (a "bigon" — e.g. the LENS of two
+/// crossing coplanar disc rims, bounded by one arc per circle) are paired
+/// SEPARATELY. Keying the pairing by vertex pair alone would lump the lens's
+/// two arcs into "4 uses" and reject a perfectly manifold output. Ignores the
+/// per-use `forward_normal` (the two uses of one edge negate it); two real
+/// twins always share exact `(center, radius)` (the curve-agreement check below
+/// requires it), so this never splits a genuine twin — it only distinguishes
+/// arcs on DIFFERENT circles.
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
+enum CurveKey {
+    Seg,
+    Circle {
+        center: [u64; 3],
+        radius: u64,
+    },
+    Ellipse {
+        center: [u64; 3],
+        major: [u64; 3],
+        major_r: u64,
+        minor_r: u64,
+    },
+}
+
+fn curve_key(ek: &EdgeKind) -> CurveKey {
+    let pb = |p: Point3| [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()];
+    let vb = |v: [f64; 3]| [v[0].to_bits(), v[1].to_bits(), v[2].to_bits()];
+    match ek {
+        EdgeKind::Seg => CurveKey::Seg,
+        EdgeKind::Full { center, radius, .. } | EdgeKind::Arc { center, radius, .. } => {
+            CurveKey::Circle {
+                center: pb(*center),
+                radius: radius.to_bits(),
+            }
+        }
+        EdgeKind::EllipseArc {
+            center,
+            major_axis,
+            major_radius,
+            minor_radius,
+            ..
+        } => CurveKey::Ellipse {
+            center: pb(*center),
+            major: vb(*major_axis),
+            major_r: major_radius.to_bits(),
+            minor_r: minor_radius.to_bits(),
+        },
+    }
+}
+
 /// One validated loop of the yang output: owning yang face, kind, the
 /// vertex cycle in walk order (yang vertex indices), and the per-edge
 /// curve classification.
@@ -810,12 +860,16 @@ pub fn from_yang_brep_indexed(
         pos: usize,
         forward: bool, // a < b for ordinary edges; unused for self-pairs
     }
-    let mut pair_uses: BTreeMap<(u32, u32), Vec<EdgeUse>> = BTreeMap::new();
+    // Keyed by (undirected vertex pair, undirected curve identity) so a LENS
+    // bigon (two arcs on different circles sharing both endpoints) pairs each
+    // arc separately instead of collapsing to a spurious 4-use "non-manifold"
+    // edge (M8 disc∩disc crossing).
+    let mut pair_uses: BTreeMap<(u32, u32, CurveKey), Vec<EdgeUse>> = BTreeMap::new();
     for (si, spec) in loops.iter().enumerate() {
         let m = spec.cycle.len();
         for k in 0..m {
             let (a, b) = (spec.cycle[k], spec.cycle[(k + 1) % m]);
-            let key = (a.min(b), a.max(b));
+            let key = (a.min(b), a.max(b), curve_key(&spec.edges[k]));
             pair_uses.entry(key).or_default().push(EdgeUse {
                 loop_idx: si,
                 pos: k,
@@ -825,7 +879,7 @@ pub fn from_yang_brep_indexed(
     }
     // Per (loop, pos) directional normal for full-circle uses.
     let mut full_normals: BTreeMap<(usize, usize), UnitVector3> = BTreeMap::new();
-    for (&(a, b), uses) in &pair_uses {
+    for (&(a, b, ref _ck), uses) in &pair_uses {
         if uses.len() != 2 {
             return Err(KernelV2Error::InvalidBooleanOutput(
                 "an undirected output edge is not used by exactly two directed edges",
@@ -1122,7 +1176,12 @@ pub fn from_yang_brep_indexed(
     let mut shell_genus: BTreeMap<usize, u32> = BTreeMap::new();
     for (&rep, faces) in &shells_faces {
         let mut vset: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
-        let mut eset: std::collections::BTreeSet<(u32, u32)> = std::collections::BTreeSet::new();
+        // Key edges by (vertex pair, curve identity) so a LENS bigon's two arcs
+        // count as TWO distinct edges (else E is undercounted and the
+        // Euler–Poincaré parity check spuriously fails). Mirrors the manifold
+        // pairing key above.
+        let mut eset: std::collections::BTreeSet<(u32, u32, CurveKey)> =
+            std::collections::BTreeSet::new();
         let mut rings = 0i64;
         for spec in loops.iter().filter(|s| component[s.face] == rep) {
             if spec.kind == LoopKind::Inner {
@@ -1132,7 +1191,7 @@ pub fn from_yang_brep_indexed(
             for k in 0..m {
                 let (a, b) = (spec.cycle[k], spec.cycle[(k + 1) % m]);
                 vset.insert(a);
-                eset.insert((a.min(b), a.max(b)));
+                eset.insert((a.min(b), a.max(b), curve_key(&spec.edges[k])));
             }
         }
         let lhs = vset.len() as i64 - eset.len() as i64 + faces.len() as i64 - rings;
@@ -1180,7 +1239,10 @@ pub fn from_yang_brep_indexed(
 
     // Faces, loops, half-edges (faces in yang index order; loops outer
     // first then rings in yang order; half-edges in walk order).
-    let mut twin_table: BTreeMap<(u32, u32), HalfEdgeId> = BTreeMap::new();
+    // Keyed by (vertex pair, curve identity) so a LENS bigon's two arcs twin
+    // each within its own curve, not cross-twinned by shared endpoints (M8
+    // disc∩disc crossing). Mirrors the manifold-pairing + Euler keys above.
+    let mut twin_table: BTreeMap<(u32, u32, CurveKey), HalfEdgeId> = BTreeMap::new();
     let mut face_ids: Vec<Option<FaceId>> = vec![None; yfaces.len()];
     for (si, spec) in loops.iter().enumerate() {
         let fi = spec.face;
@@ -1231,9 +1293,9 @@ pub fn from_yang_brep_indexed(
         for k in 0..m {
             let (a, b) = (spec.cycle[k], spec.cycle[(k + 1) % m]);
             let h = HalfEdgeId(he_base + k as u32);
-            let key = (a.min(b), a.max(b));
-            // Twin pairing: the second visitor of an undirected pair links
-            // both directions (pass 1c proved exactly two consistent uses).
+            let key = (a.min(b), a.max(b), curve_key(&spec.edges[k]));
+            // Twin pairing: the second visitor of an undirected (pair, curve)
+            // links both directions (pass 1c proved exactly two consistent uses).
             let twin = match twin_table.get(&key) {
                 Some(&other) => {
                     if let Some(Some(o)) = arena.half_edges.get_mut(other.index()) {

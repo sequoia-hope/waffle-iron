@@ -265,6 +265,23 @@ fn spotlight_f0061_gear_cut() {
     }
 }
 
+/// Spotlight: F0094 — disc∩disc coplanar CROSSING (two cylinders extruded in
+/// OPPOSITE directions from z=0, rims crossing). Resolved by cherchi coplanar
+/// arrangement (N13) + Stage-4 circle∩circle relocation + the curve-aware B-Rep
+/// bigon keys. Must replay as a working solid.
+#[test]
+#[ignore]
+fn spotlight_f0094_disc_disc_crossing() {
+    let dir = Path::new(ASSAY_DIR);
+    if !dir.exists() {
+        eprintln!("Assay corpus not generated yet");
+        return;
+    }
+    let r = run_single_case(dir, "F0094", true).expect("F0094 not found in corpus");
+    println!("F0094 status={:?} detail={}", r.status, r.detail);
+    assert_eq!(r.status, AssayStatus::Passed, "F0094 must pass: {}", r.detail);
+}
+
 /// Generate the full catalog markdown and write to ASSAY_CATALOG.md.
 ///
 /// Run with: cargo test -p test-harness --test assay_randomized -- generate_catalog --ignored --nocapture

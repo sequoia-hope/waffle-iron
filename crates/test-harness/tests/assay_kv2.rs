@@ -825,7 +825,7 @@ fn smoke_corpus_boundary_categories() {
 fn full_corpus_categorized() {
     let dir = assay_dir();
     let cases = discover_cases(&dir);
-    assert_eq!(cases.len(), 193, "expected the 193-case assay corpus");
+    assert_eq!(cases.len(), 194, "expected the 194-case assay corpus");
 
     // Per-case timeout (default 30s, env-overridable) so no single case can
     // wedge the run. ASSAY_FAST=1 skips cases on the auto slow-list for a quick

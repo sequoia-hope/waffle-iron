@@ -438,3 +438,44 @@ fn to_yang_brep_converts_each_solid_independently() {
     assert_eq!(yb.faces().len(), 6);
     assert_eq!(yb.vertices().len(), 8);
 }
+
+/// M8 disc∩disc coplanar CROSSING (asymmetric), UNION through kernel-v2. Two
+/// cylinders whose z=2 caps are coplanar with CROSSING rims (a lens overlap):
+/// A is z∈[2,3] (bottom cap −z), B is z∈[1,2] (top cap +z) — opposite normal,
+/// measure-zero contact at the lens. The lens is a BIGON (one arc per circle
+/// between the two corners); the B-Rep reconstruction's manifold-pairing,
+/// Euler, and twin keys are curve-aware so the two arcs pair separately.
+/// Validates as a solid; volume = vol(A)+vol(B) (measure-zero contact removes
+/// nothing) within the chord under-fill band.
+#[test]
+fn disc_disc_coplanar_crossing_union_succeeds() {
+    let mut arena = BrepArena::new();
+    let pa = Profile::circle(
+        Point3::new(0.0, 0.0, 2.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        Point2::new(0.4, 0.5),
+        0.30,
+    )
+    .expect("circle A");
+    let a = extrude(&mut arena, &pa, Vector3::new(0.0, 0.0, 1.0), 1.0).expect("cyl A");
+    let pb = Profile::circle(
+        Point3::new(0.0, 0.0, 2.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        Point2::new(0.75, 0.5),
+        0.25,
+    )
+    .expect("circle B");
+    let b = extrude(&mut arena, &pb, Vector3::new(0.0, 0.0, -1.0), 1.0).expect("cyl B");
+    let out = boolean_op(&mut arena, a.solid, b.solid, BoolOp::Union)
+        .unwrap_or_else(|e| panic!("disc∩disc coplanar crossing union: {e:?}"));
+    validate_solid(&arena, out).expect("crossing union validates as a solid");
+    let mesh = tessellate(&arena, out).expect("tessellate");
+    let vol = mesh_volume(&mesh);
+    let expect = std::f64::consts::PI * (0.30_f64.powi(2) * 1.0 + 0.25_f64.powi(2) * 1.0);
+    assert!(
+        vol <= expect * 1.001 && vol >= 0.92 * expect,
+        "volume {vol} vs exact {expect} (measure-zero contact removes nothing)"
+    );
+}
