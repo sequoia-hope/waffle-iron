@@ -1,5 +1,11 @@
 # 02 — Sketch Solver: Architecture
 
+> **SUPERSEDED.** The slvs/libslvs-based solver described below has been
+> replaced by a clean-room Rust implementation (Levenberg-Marquardt +
+> nalgebra). See `specs/clean_room_constraint_solver.md` and
+> `crates/sketch-solver/src/` for the current implementation. This document
+> is retained as a historical record.
+
 ## Purpose
 
 Integrate the [`slvs` crate](https://crates.io/crates/slvs) (v0.6.0) — type-safe Rust bindings for SolveSpace's libslvs — to provide 2D geometric constraint solving for Waffle Iron sketches.

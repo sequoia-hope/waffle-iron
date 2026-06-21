@@ -132,7 +132,12 @@ export class EngineBridge {
 		// Build summary data for the log entry
 		const summary = { type: msg.type };
 		if (msg.type === 'ModelUpdated') summary.meshCount = msg.meshes?.length ?? 0;
-		if (msg.type === 'SketchSolved') { summary.dof = msg.dof; summary.status = msg.status; }
+		if (msg.type === 'SketchSolved') {
+			const s = msg.solved || msg;
+			const st = s.status || {};
+			summary.dof = st.dof ?? msg.dof ?? -1;
+			summary.status = st.type || (typeof st === 'string' ? st : 'unknown');
+		}
 		if (msg.type === 'Error') summary.message = msg.message;
 		if (msg.needsRestart) summary.needsRestart = true;
 		log('engine', `Recv: ${msg.type}`, summary);

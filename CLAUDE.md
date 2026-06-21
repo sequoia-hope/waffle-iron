@@ -283,9 +283,8 @@ After any Rust crate changes that affect the WASM bridge:
 3. Verify dev server still works: `npm run dev`
 
 Notes:
-- `--no-default-features` disables `native-solver` (libslvs can't compile to
-  wasm32; the app uses the separate Emscripten slvs bundle in
-  `app/static/pkg/slvs/`).
+- The sketch solver is pure Rust (Levenberg-Marquardt + nalgebra) and compiles
+  to wasm32-unknown-unknown natively — no Emscripten, no separate WASM module.
 - wasm-bindgen CLI version must match the crate version in Cargo.lock
   (wasm-pack downloads the right one automatically).
 - The wasm32 rustflags in `.cargo/config.toml` keep an enlarged 4MB stack for

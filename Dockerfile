@@ -5,7 +5,6 @@ FROM ubuntu:24.04
 
 ARG TTYD_VERSION=1.7.7
 ARG NODE_MAJOR=18
-ARG EMSDK_VERSION=latest
 
 # System packages + GitHub CLI + Waffle Iron build dependencies
 RUN apt-get update && apt-get install -y \
@@ -14,12 +13,12 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     locales \
     python3 \
-    # C/C++ toolchain (required by slvs crate / libslvs, and by the Cherchi
-    # reference sidecars — see scripts/build_sidecars.sh / roadmap M0). These
-    # prereqs suffice to build the Cherchi 2022 binary + Indirect_Predicates;
-    # we deliberately do NOT bake that ~22-min build into the image. Run
-    # `scripts/build_sidecars.sh` once after container start to populate the
-    # default paths the new-kernel crates' parity tests expect.
+    # C/C++ toolchain (required by the Cherchi reference sidecars — see
+    # scripts/build_sidecars.sh / roadmap M0). These prereqs suffice to build
+    # the Cherchi 2022 binary + Indirect_Predicates; we deliberately do NOT
+    # bake that ~22-min build into the image. Run `scripts/build_sidecars.sh`
+    # once after container start to populate the default paths the new-kernel
+    # crates' parity tests expect.
     build-essential \
     cmake \
     clang \
@@ -68,8 +67,7 @@ RUN chmod +x /home/$USERNAME/entrypoint.sh /home/$USERNAME/setup-keyboard.sh
 
 USER $USERNAME
 WORKDIR /home/$USERNAME
-ENV PATH="/home/$USERNAME/.local/bin:/home/$USERNAME/.opencode/bin:/home/$USERNAME/.cargo/bin:/home/$USERNAME/emsdk:/home/$USERNAME/emsdk/upstream/emscripten:$PATH"
-ENV EMSDK="/home/$USERNAME/emsdk"
+ENV PATH="/home/$USERNAME/.local/bin:/home/$USERNAME/.opencode/bin:/home/$USERNAME/.cargo/bin:$PATH"
 
 # Install Rust toolchain + wasm-pack
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
@@ -77,12 +75,6 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
     && rustup component add clippy rustfmt llvm-tools-preview \
     && rustup target add wasm32-unknown-unknown \
     && curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
-# Install Emscripten SDK (for building libslvs WASM)
-RUN git clone https://github.com/emscripten-core/emsdk.git /home/$USERNAME/emsdk \
-    && cd /home/$USERNAME/emsdk \
-    && ./emsdk install ${EMSDK_VERSION} \
-    && ./emsdk activate ${EMSDK_VERSION}
 
 # Install Claude Code
 RUN curl -fsSL https://claude.ai/install.sh | bash

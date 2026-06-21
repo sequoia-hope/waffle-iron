@@ -27,7 +27,7 @@ constraints and ellipse/Bezier support are banked to follow-up PRs.
 |---|---|---|
 | **`levenberg-marquardt`** crate (rust-cv, v0.15.0) | MIT/Apache-2.0 | LM numerical core — port of MINPACK (public domain) |
 | **`nalgebra`** | BSD-3-Clause | Linear algebra + rank-revealing QR for DOF analysis |
-| **`argmin`** (optional) | MIT/Apache-2.0 | Alternative optimizer framework (BFGS, dogleg) if needed |
+| **argmin** (optional) | MIT/Apache-2.0 | ~~Alternative optimizer framework (BFGS, dogleg) if needed~~ **DROPPED from PR-SS1 scope.** `levenberg-marquardt` + `nalgebra` cover the PR-SS1 feature set. If BFGS/dogleg is ever needed for PR-SS2+, add it then. |
 | libslvs / SolveSpace | GPL-3.0 | **REMOVED** — current dep |
 | FreeCAD PlaneGCS | LGPL-2.1+ | **REJECTED** — static link into WASM copylefts combined work |
 | NoteCAD (C#) | No LICENSE file / "contact for licensing" | **REJECTED** — proprietary |
@@ -169,9 +169,15 @@ is implemented in the residual-weighting layer, not in the LM core:
 
 - Each residual `r_i` has a weight `w_i` (default 1.0).
 - For the dragged point's `WhereDragged` residual, `w_i = 1/20`.
+- Weight is **fixed per solve** — no per-iteration reweighting. This matches
+  SolveSpace's published behavior (the 1/20 scaling is a constant residual
+  weight, not an adaptive scheme).
 - The LM problem becomes `min Σ (w_i · r_i)²`. This is a standard weighted
   least-squares formulation; the `levenberg-marquardt` crate supports it via
-  residual scaling in `set_params` / `residuals`.
+  residual scaling in `set_params` / `residuals`. If the crate's API does not
+  natively expose per-residual weights, apply weighting by pre-multiplying the
+  residual vector by `diag(w)` before handing to LM — mathematically
+  equivalent.
 
 This is implemented from the description in `docs/SKETCH-SYSTEM-PLAN.md:48` and
 the SolveSpace user-facing wiki, **not from SolveSpace source code**.
@@ -228,16 +234,40 @@ evaluated at the solution:
 1. Compute rank-revealing QR of `J` (nalgebra `QR` or `ColPivQR`).
 2. `rank = number of independent constraint directions`.
 3. `dof = n_params − rank`.
-4. **If `‖residual‖∞ < tol`** (constraints satisfiable):
+4. Determine satisfiability: `‖residual‖∞ < tol` (constraints satisfiable) vs
+   `‖residual‖∞ ≥ tol` (constraints unsatisfiable).
+5. **If satisfiable** (`‖residual‖∞ < tol`):
    - `dof == 0` → `SolveStatus::FullyConstrained`
    - `dof > 0`  → `SolveStatus::UnderConstrained { dof }`
-5. **If `‖residual‖∞ ≥ tol`** (constraints unsatisfiable):
-   - If LM reports rank-deficiency with non-convergence → `OverConstrained`
-     with `conflicts` = constraint indices with residual magnitude > tol.
-   - If LM reports max-iterations / step-too-small → `SolveFailed { reason }`.
+6. **If unsatisfiable** (`‖residual‖∞ ≥ tol`) — apply the deterministic
+   decision tree below. The two LM termination conditions (rank-deficiency
+   vs max-iter/step-too-small) can overlap; the decision is driven by
+   `rank(J)`, not by LM's reported termination reason:
 
-`tol = 1e-9` (matches SolveSpace's published tolerance; configurable via a
-`SolverTolerance` param in `solver.rs`).
+   - **(a) `rank(J) < #constraints`** (a redundant or conflicting constraint
+     direction exists at the solution) → `OverConstrained`. Populate
+     `conflicts` with the constraint indices whose residual row magnitude
+     exceeds `tol`, sorted by descending residual magnitude. This is the
+     canonical case for contradictory constraints such as
+     `Distance(P_a, P_b, 10)` + `Distance(P_a, P_b, 20)`: the Jacobian has
+     rank 1 (two constraints on the same 1-DOF direction), and both residuals
+     are non-zero at the LM midpoint solution `(10+20)/2 = 15`.
+   - **(b) `rank(J) == #constraints`** (no redundant direction; constraints are
+     independent but LM could not satisfy them) → `SolveFailed { reason }`.
+     Reason string records the LM termination cause (max-iterations or
+     step-too-small) for diagnostics.
+   - **(c) Degenerate-input carve-out:** if the Jacobian cannot be assembled
+     (e.g., a constraint references a zero-length line where direction is
+     undefined) → `SolveFailed { reason: "constraint {i} references
+     degenerate geometry: {detail}" }`.
+
+`tol = 1e-6` (1 micrometer — the kernel's feature-size floor per A14.2;
+configurable via a `SolverTolerance` param in `solver.rs`). **Decision
+banked: sub-micron precision is acceptable.** The spec originally
+referenced 1e-9 (SolveSpace's tolerance); 1e-6 is used instead because
+it is one order of magnitude above `TAU_MODEL = 1e-7 m`, sufficient to
+distinguish satisfied from violated constraints without floating-point
+false positives.
 
 ## Error contract
 
@@ -251,6 +281,13 @@ correctness improvement over the current code, not a regression.
 Unknown entity IDs in constraints (referencing a point/line not in the
 entities list) → `SolveFailed { reason: "constraint references unknown entity
 {id}" }`, not a panic.
+
+**`thiserror` dependency:** retained only if the existing `status.rs` defines
+an error type that derives `thiserror::Error` for inter-crate conversion
+(`wasm-bridge` may rely on `From` impls). PR-SS1a verifies this during the
+dep swap — if no such type exists, `thiserror` is dropped from the AFTER
+`Cargo.toml`. If it exists, it stays. This is a verification step, not an
+open question.
 
 ## Determinism
 
@@ -389,8 +426,8 @@ verification purpose — see `docs.rs/levenberg-marquardt`). Tolerance `1e-9`.
 ### Group 3 — Solver convergence
 
 - Single point fixed by `Dragged` → stays put, FullyConstrained.
-- Two points + `Distance(10)` → solved distance == 10, UnderConstrained (1 DOF
-  for rotation).
+- Two points + `Distance(10)` → solved distance == 10, `UnderConstrained {
+  dof: 3 }` (2 translational + 1 rotational).
 - Two points + `Distance(10)` + `Horizontal` → FullyConstrained, positions
   (0,0) and (10,0) (modulo initial-condition offset).
 - Rectangle (4 points, 4 lines, 4 coincident, 2 Horizontal, 2 Vertical, 1
@@ -435,16 +472,48 @@ verification purpose — see `docs.rs/levenberg-marquardt`). Tolerance `1e-9`.
 
 PR-SS1 is split into 4 sub-PRs for review tractability (per `AGENTS.md` rule
 7: "if stuck for more than 15 minutes without a commit, the task scope is too
-broad").
+broad"). These land as sequential commits on a single feature branch
+(`new-solver`); the project does not use PRs. Merge to `main` occurs once
+PR-SS1d is green and adversary-validated.
+
+### Feature-cycle classification (DoD compliance)
+
+PR-SS1 is **not** a single feature cycle. Per `DEFINITION_OF_DONE.md` §0, the
+sub-PRs are classified by change type, which determines whether FIP applies:
+
+| Sub-PR | Change type (DoD §) | FIP? | Roles |
+|--------|---------------------|------|-------|
+| PR-SS1a | Infrastructure / Tooling (§6) | No | Solo agent (role A, assigned by Manager) |
+| PR-SS1b | Infrastructure / Tooling (§6) | No | Solo agent (role A) |
+| PR-SS1c | Modeling Feature (§1) | **Yes — full FIP** | Test Author (B), Implementer (C), Adversary (D) — role separation enforced per P5 |
+| PR-SS1d | Bug-fix / cutover variant (§2/§8) | Yes (FIP §8 variant) | Test Author (B), Implementer (C), Adversary (D) |
+
+PR-SS1a/1b are infrastructure (dep swap, scaffolding, Jacobian unit
+verification) — no FIP required, just tests-pass + determinism preserved.
+PR-SS1c is the modeling feature that ships the working solver: full FIP with
+role separation (B writes Groups 3/4/5, C implements, D validates). PR-SS1d
+is the cutover bug-fix variant: parity tests first, then deletion.
+
+### Legacy-solver feature flag
+
+To keep `main` green at every stage, the old slvs path is retained behind a
+non-default `legacy-solver` feature through PR-SS1a/1b/1c. `solve_sketch`
+dispatches to the legacy path when `legacy-solver` is on, the new path when
+off. Production builds keep `legacy-solver` as the default until PR-SS1d
+flips the default and removes the flag entirely. This means **no intermediate
+commit regresses the solver** — the new path is opt-in via
+`--no-default-features` during development.
 
 ### PR-SS1a — Scaffold + entity mapping
 
-- Replace `Cargo.toml` deps (slvs → levenberg-marquardt + nalgebra).
+- Replace `Cargo.toml` deps (slvs → levenberg-marquardt + nalgebra); keep
+  `slvs` behind the `legacy-solver` feature.
 - Rewrite `entity_mapping.rs` as `ParamLayout` (no slvs types).
-- Add `libslvs-oracle` dev-feature and empty parity harness stub.
+- Add `libslvs-oracle` dev-only feature and empty parity harness stub.
+- Verify `thiserror` retention per §"Error contract".
 - Tests: Group 1.
-- The crate does not yet solve; `solve_sketch` returns positions unchanged
-  with `SolveFailed { reason: "not yet implemented" }`.
+- The new path's `solve_sketch` returns positions unchanged with
+  `SolveFailed { reason: "not yet implemented" }`; legacy path unchanged.
 
 ### PR-SS1b — Constraint residuals + Jacobians
 
@@ -461,17 +530,95 @@ broad").
 - Wire dragged-point 1/20 weighting.
 - Tests: Groups 3, 4, 5.
 
-### PR-SS1d — Parity + cutover
+### PR-SS1d — Parity + code cutover
 
 - Populate parity harness fixtures (Group 6).
 - Run against full assay corpus.
-- When green: delete `crates/slvs-patch/`, `app/src/lib/engine/slvs-solver.js`,
-  Emscripten `Dockerfile` step, `worker.js:18-31` slvs loader.
-- Update `architecture.html` diagram 1, 4, 7, 8 to remove slvs references.
-- Update `README.md`, `ARCHITECTURE.md`, `STATUS.md` to remove SolveSpace
-  attribution and GPL-3.0 license claim (relicense to MIT in same PR).
-- Update `AGENTS.md` if it references slvs.
-- Remove the `libslvs-oracle` dev-feature.
+- When green: flip the default (new path is the only path; remove
+  `legacy-solver` feature). Delete the full slvs removal checklist (see
+  §"slvs removal checklist" below).
+- Adversary phase: full workspace `cargo test`; WASM smoke build
+  (`cargo build --target wasm32-unknown-unknown -p wasm-bridge`); confirm no
+  slvs symbol remains in active code (historical-doc header notes excepted).
+- **Relicense is NOT part of PR-SS1d.** See §"Relicense (Stage 5)" below.
+
+### slvs removal checklist
+
+The slvs/libslvs footprint spans ~20 files. PR-SS1d processes this list in
+full. Files are grouped by action.
+
+**Code/artifacts to delete:**
+- `crates/slvs-patch/` (entire vendored tree)
+- `app/src/lib/engine/slvs-solver.js`
+- `app/static/pkg/slvs/` (built Emscripten artifacts)
+- Root `Cargo.toml` `[patch.crates-io]` slvs entry (lines 34-38)
+- `crates/sketch-solver/Cargo.toml` — drop `slvs`, add `levenberg-marquardt` +
+  `nalgebra`; remove `legacy-solver` feature
+- `crates/wasm-bridge/Cargo.toml` — `native-solver` becomes the only path;
+  remove the `legacy-solver`-conditional dep
+
+**Code to edit:**
+- `crates/wasm-bridge/src/dispatch.rs:48-66` — delete the
+  `#[cfg(not(feature = "native-solver"))]` arm (the "use JS bridge to libslvs"
+  NotImplemented branch)
+- `crates/wasm-bridge/tests/bridge_tests.rs:512` — un-`#[ignore]` the test
+  (now runs on all builds)
+- `Dockerfile` — remove the Emscripten SDK install step (slvs-specific).
+  **Verify before removing clang/cmake**: `cherchi-sidecar-rs` still needs a
+  C++ toolchain. Only remove the Emscripten step.
+
+**Non-protected docs to update (agent-doable in PR-SS1d):**
+- `README.md` — stack table line 16 (remove slvs attribution); line 36
+  (license text change deferred to Stage 5, but remove slvs mention now)
+- `STATUS.md` — lines 12, 54
+- `DEVELOPMENT.md` — lines 26-27 (toolchain notes; verify clang/cmake still
+  needed for cherchi-sidecar before removing)
+- `CLAUDE.md` — lines 286-288 (native-solver feature explanation)
+- `INTERFACES.md` — lines 437-440 (doc comment referencing libslvs)
+- `architecture.html` — lines 133-134, 170-171, 267, 409, 560, 562, 590
+  (diagram nodes + table refs)
+- `docs/SYSTEM_DESIGN.md` — lines 22, 156
+- `docs/SKETCH-SYSTEM-PLAN.md` — add header note: "Historical planning record;
+  solver replaced by clean-room implementation per
+  `specs/clean_room_constraint_solver.md`." Do not rewrite — it is a planning
+  record, not an active doc.
+- `projects/02-sketch-solver/{ARCHITECTURE,CLAUDE,INTERFACES,PLAN,HANDOFF,WASM_STRATEGY}.md`
+  — add "superseded by clean-room solver" header notes
+- `projects/03-wasm-bridge/{ARCHITECTURE,CLAUDE,PLAN}.md` — remove libslvs
+  WASM module section
+- `projects/05-sketch-ui/PLAN.md` — lines 64, 124
+- `projects/10-assemblies/{ARCHITECTURE,PLAN}.md` — lines 33, 22
+
+**Protected docs (deferred to Stage 5 — require human approval per
+Constitution §11):**
+- `ARCHITECTURE.md` — lines 16, 32, 95, 120, 131, 209 (GPL-3.0 + slvs
+  references). PR-SS1d adds a TODO comment; actual edit is Stage 5.
+- `LICENSE` — currently GPL-3.0; Stage 5 replaces with MIT.
+- Root `Cargo.toml` `license =` fields (if any) — Stage 5.
+
+### Relicense (Stage 5) — HUMAN-GATED, separate commit on `main`
+
+**This stage is blocked on a human legal decision and cannot proceed without
+it.** It lands on `main` after `new-solver` is merged, not on `new-solver`
+itself.
+
+Removing slvs clears the only *external* GPL-3.0 *dependency* from the
+shipped binary. The project's *own* code (kernel stack, engine, bridge) is
+GPL-3.0 by the authors' choice (`README.md` line 3, `ARCHITECTURE.md` line
+16, `LICENSE` file). Relicensing own-code to MIT is a separate decision that
+requires amending protected files per Constitution §11.
+
+**Decision (confirmed): relicense to MIT.** Stage 5 applies:
+
+- `LICENSE` → MIT text.
+- `README.md` lines 3, 15, 36 → MIT attribution; remove GPL-3.0 references.
+- `ARCHITECTURE.md` lines 16, 209 → MIT; remove GPL-3.0 references.
+- `CONTRIBUTING.md` → update license references if any.
+- All `Cargo.toml` `license =` fields → `"MIT"`.
+- `architecture.html` line 90 → MIT.
+- `INTERFACES.md`, `STATUS.md`, project docs → update license references.
+- Commit titled: "Amend Architecture: relicense own-code GPL-3.0 → MIT"
+  with rationale + migration plan per Constitution §11.
 
 ## Invariants
 
@@ -495,6 +642,12 @@ broad").
    only because their `libslvs-oracle` feature gate removes the dependency
    they exercise — and the cutover PR is the explicit "delete the oracle"
    step the harness was built to enable.
+6. **Protected files deferred.** Edits to `ARCHITECTURE.md`, `/governance/*`,
+   and `/agents/*` require explicit human approval per Constitution §11.
+   PR-SS1d does not touch these; the relicense edits land in Stage 5 as a
+   separate human-gated commit on `main`. `AGENTS.md` is in the `/agents/*`
+   tree and is therefore protected — if it references slvs, the edit is
+   deferred to Stage 5, not bundled into PR-SS1d.
 
 ## Deliberate deviations from libslvs behavior
 
@@ -516,7 +669,15 @@ These are acceptable divergences documented for the parity harness:
    differ.
 4. **WhereDragged weight.** SolveSpace uses 1/20; we use 1/20. If parity
    reveals a different effective weight is needed, this is a tunable in
-   `solver.rs`, not a contract change.
+   `solver.rs`, not a contract change. Weight is fixed per solve (no
+   per-iteration reweighting).
+5. **Unsquared-length residual for `Equal(L_a, L_b)`.** We use `ℓ_a − ℓ_b`
+   (with a `sqrt`). The spec originally proposed `ℓ²_a − ℓ²_b` to avoid `sqrt`,
+   but the squared form amplifies position errors by a factor of ~2ℓ (≈120 for
+   60mm lines), making the `SOLVE_TOL = 1e-6` tolerance unreachable. The
+   `sqrt` singularity at zero-length lines is handled by a `dist > 1e-15`
+   guard that zeroes the Jacobian for degenerate cases. Parity asserts
+   position agreement at `1e-6`, matching the unsquared form's natural scale.
 
 ## References
 

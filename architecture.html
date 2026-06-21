@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Waffle Iron — Architecture</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose',
+    flowchart: { htmlLabels: true, curve: 'basis', padding: 12 },
+    sequence: { actorMargin: 60, boxTextMargin: 8, mirrorActors: false } });
+  document.addEventListener('DOMContentLoaded', () => {
+    mermaid.run({ querySelector: 'pre.mermaid' }).catch(e => console.error('mermaid run:', e));
+  });
+</script>
+<style>
+  :root {
+    --k:    #1f4d6a; --e: #2a6f4a; --b: #6b4f9a; --p: #b3591f; --dev:#888;
+    --bg:#fafafa; --ink:#222; --link:#056;
+  }
+  html { scroll-behavior: smooth; }
+  body { font: 15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+         color: var(--ink); background: var(--bg); margin:0; padding:0 320px 0 16px; }
+  nav#toc {
+    position:fixed; top:0; right:0; width:300px; height:100vh; overflow:auto;
+    background:#fff; border-left:1px solid #ddd; padding:8px 12px; font-size:13px;
+  }
+  nav#toc h2 { font-size:13px; margin:14px 4px 6px; color:#555; text-transform:uppercase; letter-spacing:.06em; }
+  nav#toc a { display:block; padding:3px 6px; color:#333; text-decoration:none; border-radius:4px; }
+  nav#toc a:hover { background:#eef; color: var(--link); }
+  h1 { color: var(--k); font-size: 28px; margin: 18px 0 4px; }
+  h1+p.lead { color:#666; margin: 0 0 18px; max-width: 100%; }
+  h2.section { color: var(--k); border-bottom:2px solid var(--k); padding-bottom:3px;
+               margin: 32px 0 8px; font-size:20px; }
+  h3.sub { color:#333; margin:16px 0 4px; font-size:15px; }
+  .diagram { background:#fff; border:1px solid #e0e0e0; border-radius:8px; padding:10px;
+             margin:8px 0; overflow-x:auto; }
+  .mermaid { display:flex; justify-content:center; min-height:120px; }
+  p.note { background:#fffbe6; border-left:3px solid #d9a400; padding:6px 10px;
+          margin:8px 0; font-size:13px; }
+  p.file { font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+           font-size:12px; color:#555; margin:2px 0 12px; }
+  table { border-collapse:collapse; width:100%; background:#fff; font-size:13px; }
+  table th, table td { border:1px solid #ddd; padding:5px 8px; text-align:left; vertical-align:top; }
+  table th { background:#f0f0f0; }
+  table tr:nth-child(even) td { background:#f7f7f7; }
+  table.ref td:first-child { font-weight:600; white-space:nowrap; }
+  table.ssi td.yes { background:#e6f4ea; color:#1c6e2f; font-weight:600; }
+  table.ssi td.partial { background:#fff7e0; color:#955700; }
+  table.ssi td.no { background:#fdeaea; color:#9a2f1f; }
+  table.ssi td.na { background:#eee; color:#888; }
+  table.ssi th { text-align:center; }
+  table.ssi td:not(:first-child) { text-align:center; }
+  a { color: var(--link); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  code { background:#eef; padding:1px 4px; border-radius:3px; font-size:13px;
+         font-family: ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; margin:8px 0 16px; font-size:13px; }
+  .legend span { display:inline-flex; align-items:center; gap:5px; }
+  .legend i { width:12px; height:12px; display:inline-block; border-radius:2px; }
+  footer { margin:32px 0 60px; color:#888; font-size:12px; border-top:1px solid #ddd; padding-top:8px; }
+  @media (max-width: 900px) { body { padding:0 12px; } nav#toc { display:none; } }
+</style>
+</head>
+<body>
+<nav id="toc">
+  <h2>Waffle Iron</h2>
+  <a href="#intro">Introduction</a>
+  <a href="#legend">Legend</a>
+  <h2>Diagrams</h2>
+  <a href="#d1">1. System Overview</a>
+  <a href="#d2">2. Kernel Stack DAG</a>
+  <a href="#d3">3. Yang Hybrid Boolean Pipeline</a>
+  <a href="#d4">4. Conceptual CAD Pipeline</a>
+  <a href="#d5">5. Request Lifecycle</a>
+  <a href="#d6">6. GeomRef Resolution</a>
+  <a href="#d7">7. Frontend Architecture</a>
+  <a href="#d8">8. Testing & Oracles</a>
+  <a href="#d9">9. SSI Solver Matrix</a>
+  <h2>Reference</h2>
+  <a href="#ref">File Reference Table</a>
+  <h2>External</h2>
+  <a href="ARCHITECTURE.md">ARCHITECTURE.md</a>
+  <a href="INTERFACES.md">INTERFACES.md</a>
+  <a href="CLAUDE.md">CLAUDE.md</a>
+  <a href="docs/yang_functional_roadmap.md">Yang roadmap</a>
+</nav>
+
+<h1 id="intro">Waffle Iron — Architecture</h1>
+<p class="lead">A browser-based, GPL-3.0 parametric CAD system.
+The geometry kernel runs in WebAssembly inside a Web Worker; the UI is Svelte 5 + three.js/Threlte.
+Generated read-only from the repo at <code>2026-06-19</code>. Hover diagram nodes for tooltips;
+click the File Reference Table for source locations.</p>
+
+<div id="legend" class="legend">
+  <span><i style="background:var(--k)"></i>Kernel layer (Rust→WASM)</span>
+  <span><i style="background:var(--e)"></i>Engine layer (Rust→WASM, in Worker)</span>
+  <span><i style="background:var(--b)"></i>Bridge layer (Rust/WASM + JS glue)</span>
+  <span><i style="background:var(--p)"></i>Presentation layer (Svelte/three.js, main thread)</span>
+  <span><i style="background:var(--dev);border:1px dashed #555"></i>Dev-only oracle (non-WASM)</span>
+</div>
+
+<p class="note"><b>Layering rule.</b> Cargo dependencies enforce an acyclic DAG:
+<code>cad-primitives ← {cherchi-rs, ssi-rs} ← yang-rs ← kernel-v2</code> behind the
+<code>Kernel</code>/<code>KernelIntrospect</code> traits in <code>waffle-types</code>.
+The legacy <code>crates/kernel/</code> was deleted at the Phase 6 migration (2026-06-11).</p>
+
+<!-- ============================ D1 ============================ -->
+<h2 id="d1" class="section">1. System Overview — Four Layers & the Worker Boundary</h2>
+<p class="file">all UI in main thread; all geometry compute in worker; JSON commands down,
+transferable TypedArrays (mesh) up. <code>app/src/lib/engine/bridge.js:36</code>,
+<code>app/src/lib/engine/worker.js:339</code>, <code>crates/wasm-bridge/src/wasm_api.rs:50</code>.</p>
+<div class="diagram"><pre class="mermaid">
+flowchart TB
+  classDef p fill:#fde7cf,stroke:#b3591f,color:#400;
+  classDef b fill:#e8e0f7,stroke:#6b4f9a,color:#214;
+  classDef e fill:#d9f0e2,stroke:#2a6f4a,color:#024;
+  classDef k fill:#d6eaf6,stroke:#1f4d6a,color:#022a40;
+  classDef dev fill:#eee,stroke:#888,stroke-dasharray:4 3,color:#333;
+
+  subgraph MT ["Main thread (browser)"]
+    direction TB
+    UI["Svelte 5 UI<br/>store.svelte.js"]:::p
+    VP["3D Viewport<br/>Threlte / three.js<br/>CadModel, EdgeOverlay, SketchRenderer"]:::p
+    BR["EngineBridge<br/>bridge.js — Promise-based send() / on()"]:::p
+    UI --> BR
+    BR --> VP
+    BR -. "postMessage(UiToEngine)" .-> W
+  end
+
+  subgraph WW ["Web Worker (module worker)"]
+    direction TB
+    W["worker.js<br/>imports wasm_bridge.js + slvs.wasm"]:::b
+    SOLVE["SolveSketchLocal — libslvs (Emscripten)<br/>JS-side solver, bypasses Rust"]:::b
+    W --> SOLVE
+    W --> PM["process_message(json)<br/>wasm-bridge/src/dispatch.rs:16"]:::b
+    PM --> ES["EngineState<br/>active_sketch, selection"]:::b
+    ES --> FE["feature-engine::Engine<br/>tree, rebuild, GeomRef, undo"]:::e
+    FE --> MO["modeling-ops::execute_*<br/>diff → roles → OpResult"]:::e
+    MO --> K["KernelBundle<br/>= Kernel + KernelIntrospect"]:::e
+  end
+
+  subgraph KL ["WASM linear memory (kernel stack)"]
+    direction TB
+    K --> K2["kernel-v2::KernelV2Adapter<br/>B-Rep arena, Euler ops, tessellate"]:::k
+    K2 -. "boolean_*" .-> YANG["yang-rs<br/>Stage 0..6 hybrid boolean"]:::k
+    YANG --> CH["cherchi-rs<br/>mesh boolean + predicates"]:::k
+    YANG --> SSI["ssi-rs<br/>analytical SSI curves"]:::k
+  end
+
+  subgraph DEVSIDE ["Dev-only oracles — non-WASM, not shipped"]
+    SC1["cherchi-sidecar-rs<br/>C++ subprocess"]:::dev
+    SC2["indirect-predicates-sidecar-rs<br/>LGPL FFI"]:::dev
+    PGEN["predicate-gen<br/>codegen, no deps"]:::dev
+    SC1 -. dev-dep .-> CH
+    SC2 -. dev-dep .-> CH
+    PGEN -. generates into .-> CH
+  end
+
+  W -. "postMessage(EngineToUi,<br/>transferable TypedArrays)" .-> BR
+  FE --> TR["tessellation_runner<br/>kernel.tessellate → RenderMesh"]:::e
+  TR --> COLL["collectBodies<br/>worker.js:167 — Float32Array/Uint32Array views"]:::b
+  COLL -. transferable .-> BR
+  VP --> PICK["Picking: raycast →<br/>binary search face_ranges → GeomRef"]:::p
+  COLL -. "face_data JSON" .-> PICK
+</pre></div>
+
+<p class="note"><b>BREP never leaves WASM.</b> JS sees only opaque handles and tessellated output.
+Only model changes trigger mesh transfer, not per-frame. Sketch solving is split:
+native builds link the C <code>slvs</code> crate; the production WASM build omits it
+(<code>--no-default-features</code>) and uses an Emscripten-compiled libslvs in the worker JS.</p>
+
+<!-- ============================ D2 ============================ -->
+<h2 id="d2" class="section">2. Kernel Stack — Compiler-Enforced Dependency DAG</h2>
+<p class="file">See each crate's <code>Cargo.toml</code>. <code>crates/waffle-types/src/kernel/traits.rs:6</code>,
+<code>crates/cad-primitives/src/lib.rs:1</code>, <code>crates/kernel-v2/src/adapter.rs</code>.</p>
+<div class="diagram"><pre class="mermaid">
+flowchart TB
+  classDef leaf  fill:#d6eaf6,stroke:#1f4d6a;
+  classDef prod  fill:#d9f0e2,stroke:#2a6f4a;
+  classDef trait fill:#fff7d6,stroke:#b0844f,color:#400;
+  classDef dev   fill:#eee,stroke:#888,stroke-dasharray:4 3;
+
+  WT["waffle-types<br/>Kernel + KernelIntrospect TRAITS<br/>MockKernel (feature mock-kernel)"]:::trait
+  CAD["cad-primitives<br/>Point3/Vector3/BoolOp +<br/>TAU_MODEL/MIN_FEATURE_SIZE — DAG root, no algorithms"]:::leaf
+  CHER["cherchi-rs<br/>Cherchi 2020/2022 mesh boolean<br/>+ clean-room indirect predicates (M7)"]:::prod
+  SSI["ssi-rs<br/>analytical SSI (Patrikalakis Ch.5)<br/>10 of 15 quadric pairs done"]:::prod
+  YANG["yang-rs<br/>Yang 2025 hybrid boolean pipeline<br/>Stages 0..6 + TessellationMap"]:::prod
+  KV2["kernel-v2<br/>half-edge B-Rep arena, Euler ops,<br/>tessellation, KernelV2Adapter"]:::prod
+
+  CAD --> CHER
+  CAD --> SSI
+  CAD --> YANG
+  CAD --> KV2
+  CHER --> YANG
+  SSI --> YANG
+  YANG --> KV2
+  WT --> KV2
+
+  WT -. trait consumers .-> WB["wasm-bridge, feature-engine,<br/>modeling-ops, file-format, test-harness"]:::trait
+
+  subgraph DevOnly ["Dev-only oracles (non-WASM, not shipped)"]
+    CSC["cherchi-sidecar-rs<br/>C++ subprocess, MIT, dev-dep of cherchi-rs"]:::dev
+    IPC["indirect-predicates-sidecar-rs<br/>LGPL FFI, dev-dep of cherchi-rs"]:::dev
+    PG["predicate-gen<br/>codegen → cherchi-rs/src/predicates/indirect/generated.rs<br/>no deps, not in workspace layering"]:::dev
+  end
+  CSC -. dev-dep .-> CHER
+  IPC -. dev-dep .-> CHER
+  PG -. writes into .-> CHER
+
+  WT2["waffle-types<br/>re-exports shared types<br/>geom_ref, roles, profiles, topo"]:::trait
+  WT --> WT2
+</pre></div>
+<p class="note"><b>Strict layering.</b> Each crate's <code>Cargo.toml</code> documents and enforces its allowed
+workspace deps. The apparent <code>cherchi-rs ↔ cherchi-sidecar-rs</code> cycle is a deliberate
+<code>[dev-dependencies]</code> cycle (Cargo permits it) — the sidecar is the differential parity oracle,
+not a production dep. <code>waffle-types</code> is a leaf contract crate: no workspace deps.</p>
+
+<!-- ============================ D3 ============================ -->
+<h2 id="d3" class="region">3. Yang 2025 Hybrid Boolean Pipeline — Stages 0..6</h2>
+<p class="file">Plan of record: <code>docs/yang_functional_roadmap.md</code>. Audit:
+<code>docs/audits/yang_2025_audit.md</code> (20/20 CORRECT). <code>crates/yang-rs/src/lib.rs:8</code>.</p>
+<div class="diagram"><pre class="mermaid">
+flowchart LR
+  classDef yang fill:#d9f0e2,stroke:#2a6f4a;
+  classDef ch fill:#d6eaf6,stroke:#1f4d6a;
+  classDef ss fill:#fff7d6,stroke:#b0844f;
+  classDef kv fill:#e8e0f7,stroke:#6b4f9a;
+
+  IN["Two B-Reps (A, B)<br/>from kernel-v2"]:::kv
+  S0["Stage 0: Coplanar preprocessing<br/>§4.5.5<br/>yang-rs/src/stage0.rs + coplanar_overlay.rs<br/>exact 2D overlay (dashu RBig)"]:::yang
+  S1["Stage 1: Bijective tessellation<br/>§4.1<br/>stage1_tessellate — per-surface dispatch<br/>establishes 1:1 TessellationMap"]:::yang
+  S2["Stage 2: Mesh boolean<br/>§4.2 — delegates to cherchi-rs::NativeBoolean<br/>produces LabeledArrangement (frozen contract)"]:::ch
+  S3["Stage 3: SSI refinement<br/>§4.3 — delegates to ssi-rs::intersect<br/>mesh-approx curves → exact analytical curves"]:::ss
+  S4["Stage 4: Mesh updating<br/>§4.4.1 — relocate crossings onto exact curve<br/>(§4.5.3 reversed-point sweep)"]:::yang
+  S5["Stage 5: Patch segmentation<br/>§4.4.2 flood-fill → reconstruct_topology<br/>(PR-YR5c handles inner-loop holes)"]:::yang
+  S6["Stage 6: B-Rep reassembly<br/>watertight 2-manifold output BRep"]:::yang
+  OUT["Output BRep<br/>kernel-v2 rebuilds its arena solid"]:::kv
+
+  IN --> S0 --> S1 --> S2 --> S3 --> S4 --> S5 --> S6 --> OUT
+  CHER["cherchi-rs<br/>arrangement AR1..AR3b<br/>labeling BL1..BL3<br/>keep_set(op)"]:::ch
+  SSI["ssi-rs<br/>Line/Circle/Ellipse/<br/>Parabola/Hyperbola"]:::ss
+  S2 -. delegates .-> CHER
+  S3 -. delegates .-> SSI
+</pre></div>
+<p class="note"><b>Milestones.</b> M0..M3 DONE, M5 Steps 1..9 DONE (10 of 15 SSI pairs),
+M6 DONE (native cherchi-rs, parity-green vs sidecar, 2026-06-10), M7 DONE (clean-room indirect predicates,
+LGPL FFI demoted), M8 slice a/b DONE (Stage 0 coplanar overlay, 2026-06-10). Remaining capability gaps:
+M5 general degree-4 SSI (cyl×cyl skew), Torus pairs, §4.5.4 illegal-self-intersection removal (deviation N6).</p>
+
+<!-- ============================ D4 ============================ -->
+<h2 id="d4" class="region">4. Conceptual CAD Pipeline — sketch → solve → extrude → boolean → tessellate → display</h2>
+<p class="file"><code>sketch-solver/src/solver.rs:10</code>, <code>feature-engine/src/rebuild.rs:172</code>,
+<code>modeling-ops/src/extrude.rs:14</code>, <code>crates/kernel-v2/src/tessellate.rs</code>,
+<code>app/src/lib/viewport/CadModel.svelte:109</code>.</p>
+<div class="diagram"><pre class="mermaid">
+flowchart LR
+  classDef js   fill:#fde7cf,stroke:#b3591f;
+  classDef sk   fill:#e8e0f7,stroke:#6b4f9a;
+  classDef fe   fill:#d9f0e2,stroke:#2a6f4a;
+  classDef mo   fill:#cdeebd,stroke:#2a6f4a;
+  classDef kv   fill:#d6eaf6,stroke:#1f4d6a;
+  classDef ya   fill:#a8d8ea,stroke:#1f4d6a;
+  classDef rt   fill:#ffe7c2,stroke:#b3591f;
+
+  SKETCH["sketch-ui<br/>tools.js state machine<br/>line/rect/circle/arc/slot/gear"]:::sk
+  SOLVE["sketch-solver<br/>libslvs Newton-Raphson<br/>classify_status (Fully/Under/Over)<br/>extract_profiles → ClosedProfile"]:::sk
+  COMMIT["FinishSketch<br/>commits Sketch feature<br/>(solved_positions + profiles from JS)"]:::fe
+  REBUILD["feature-engine::rebuild<br/>replays from change point<br/>captures face pids → pid_to_feature"]:::fe
+  EXEC["modeling-ops::execute_extrude<br/>make_faces_from_profiles → extrude_face<br/>diff before/after → assign Roles<br/>→ OpResult{outputs, provenance, diagnostics}"]:::mo
+  BOOL["modeling-ops::execute_boolean<br/>kernel.boolean_*_multi → multi-body<br/>assign BooleanBodyAFace/BFace Roles"]:::mo
+  KERNEL["kernel-v2<br/>construct.extrude (Stroud §6.2)<br/>Euler ops mvfs/mev/mef/..."]:::kv
+  YANG["yang-rs Stage 0..6<br/>(boolean delegation)"]:::ya
+  TESS["tessellation_runner<br/>kernel.tessellate → RenderMesh +<br/>kernel.extract_edges → EdgeRenderData<br/>cached per BodyOutput"]:::fe
+  COLLECT["collectBodies<br/>worker.js:167 — TypedArray views into WASM<br/>transferred as transferables"]:::sk
+  RENDER["CadModel.svelte<br/>BufferGeometry + per-face groups from faceRanges<br/>MeshStandardMaterial[] per state"]:::js
+  PICK["Picking<br/>raycast → findFaceRef (binary search) →<br/>setHoveredRef / selectRef → GeomRef"]:::js
+  PROV["Provenance feedback loop<br/>role_assignments + created/deleted feed<br/>feature-engine::resolve::resolve_geom_ref"]:::fe
+
+  SKETCH --> SOLVE --> COMMIT --> REBUILD --> EXEC
+  EXEC --> KERNEL
+  EXEC -- "if cut / merge" --> BOOL
+  BOOL --> KERNEL
+  KERNEL -. "boolean_* delegates" .-> YANG
+  REBUILD -. post-dispatch .-> TESS
+  TESS --> COLLECT --> RENDER --> PICK
+  EXEC -. "OpResult.provenance" .-> PROV
+  PROV -. "GeomRef resolution<br/>for later features" .-> REBUILD
+</pre></div>
+<p class="note"><b>Persistent naming.</b> Each op returns an <code>OpResult</code> whose <code>provenance.role_assignments</code>
+maps <code>KernelId → Role</code> (EndCapPositive, SideFace, BooleanBodyAFace, FilletFace, …). Later features
+resolve their <code>GeomRef</code>s through this map (Role → Signature → Query fallback). See diagram 6.</p>
+
+<!-- ============================ D5 ============================ -->
+<h2 id="d5" class="region">5. Request Lifecycle — edit → rebuild → re-render</h2>
+<p class="file">A typical "edit extrude depth" round-trip.
+<code>app/src/lib/engine/store.svelte.js:862</code> (sendRebuild),
+<code>crates/wasm-bridge/src/dispatch.rs:340</code> (model_updated_response),
+<code>app/src/lib/engine/worker.js:246</code> (collectMeshes).</p>
+<div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  actor U as User
+  participant UI as PropertyEditor.svelte
+  participant ST as store.svelte.js
+  participant BR as EngineBridge (main)
+  participant W as worker.js
+  participant WASM as wasm_bridge_bg.wasm
+  participant FE as feature-engine
+  participant MO as modeling-ops
+  participant K as kernel-v2
+  participant Y as yang-rs
+  participant T as tessellation_runner
+  participant VP as CadModel.svelte
+
+  U->>UI: change depth, debounced 300ms
+  UI->>ST: editFeature(id, op)
+  ST->>BR: send(EditFeature)
+  BR->>W: postMessage(UiToEngine)
+  W->>WASM: process_message(json)
+  WASM->>FE: engine.edit_feature + rebuild(from_index)
+  FE->>FE: carry forward pre-change OpResults
+  FE->>MO: execute_extrude (resolved GeomRef → KernelId)
+  MO->>K: kernel.extrude_face(handle, dir, depth)
+  K->>K: Euler ops, B-Rep arena mutate
+  alt cut / merge
+    MO->>K: kernel.boolean_subtract_multi(a, b)
+    K->>Y: to_yang_brep + boolean + from_yang_brep
+    Y->>Y: Stage 0..6 pipeline
+  end
+  MO->>MO: diff(before, after) → roles → OpResult
+  FE->>FE: cache OpResult, capture_face_pids, mark consumed
+  FE-->>WASM: ModelUpdated response (no meshes yet)
+  WASM->>T: tessellate_missing_meshes
+  T->>K: kernel.tessellate(handle, 0.0001)
+  T->>K: kernel.extract_edges(handle, 0.0001)
+  K-->>T: RenderMesh + EdgeRenderData, cached in BodyOutput
+  WASM-->>W: JSON response with feature_tree + preview_mesh
+  W->>W: collectBodies (TypedArray views, copied)
+  W-->>BR: postMessage(EngineToUi, transferables)
+  BR->>ST: on('modelUpdated', cb)
+  ST->>ST: featureTree = $state(...), meshes = $state(...)
+  ST->>VP: $derived(getMeshes()) reactive
+  VP->>VP: buildGeometry + buildMaterials
+  VP->>VP: three.js render frame
+  VP-->>U: viewport updated
+</pre></div>
+<p class="note"><b>Zero-copy mesh transfer.</b> <code>get_body_vertices</code> uses
+<code>js_sys::Float32Array::view(&mesh.vertices)</code> — a direct view into WASM linear memory,
+invalidated by memory growth, so the worker copies into fresh buffers and passes them as
+<code>postMessage</code> transferables (true zero-copy to the main thread). Face/edge range data
+rides as JSON in the same message (small).</p>
+
+<!-- ============================ D6 ============================ -->
+<h2 id="d6" class="region">6. GeomRef / Persistent-Naming Resolution</h2>
+<p class="file"><code>crates/feature-engine/src/resolve.rs:18</code> (resolve_geom_ref),
+<code>:68</code> (resolve_with_fallback), <code>:303</code> (resolve_by_role),
+<code>INTERFACES.md</code> §A (lines 12–256).</p>
+<div class="diagram"><pre class="mermaid">
+flowchart TB
+  classDef fe fill:#d9f0e2,stroke:#2a6f4a;
+  classDef inter fill:#fff7d6,stroke:#b0844f;
+
+  REF["GeomRef<br/>{anchor: Anchor::FeatureOutput(feature_id),<br/> selector: Selector, depth, ...}"]:::inter
+  OR["feature-engine::resolve::resolve_geom_ref"]:::fe
+  ANCHOR["Extract feature_id from Anchor<br/>look up cached OpResult in feature_results"]:::fe
+  SEL["Match on Selector"]:::fe
+
+  REF --> OR --> ANCHOR --> SEL
+
+  SEL --> ROLE["Role → resolve_by_role<br/>filter provenance.role_assignments by Role kind<br/>(EndCapPositive, SideFace, BooleanBodyAFace, ...)"]:::fe
+  SEL --> SIG["Signature → resolve_by_signature<br/>best similarity &gt; 0.5 else ResolvePolicy"]:::fe
+  SEL --> QRY["Query → resolve_by_query<br/>apply Filter + TieBreak over created set"]:::fe
+  SEL --> POS["Position → error (viewport-only)"]:::fe
+
+  ROLE --> FOUND["ResolvableRef { kernel_id, warnings }"]:::fe
+  SIG --> STRICT["Strict: no match → Err"]:::fe
+  SIG --> BEST["BestEffort: pick best, warn"]:::fe
+  QRY --> FOUND
+
+  FOUND --> FB["resolve_with_fallback<br/>on miss: Role→kind-match among created"]:::fe
+  FB --> OUT["KernelId fed back into next execute_* call"]:::fe
+
+  STRICT --> FB
+  BEST --> FB
+</pre></div>
+<p class="note"><b>Resolution order</b> is Role first (cheapest, exact), then Signature (similarity-based
+over <code>TopoSignature</code>: surface type, area, centroid, normal, length — see
+<code>modeling-ops/src/diff.rs:160</code>), then Query (filter+tiebreak over the created set).
+<code>Position</code> selectors are viewport-only and error in the engine. The provenance loop closes
+the cycle: every op's role assignments feed the next op's GeomRef resolution, enabling stable references
+across rebuilds even when topological IDs change.</p>
+
+<!-- ============================ D7 ============================ -->
+<h2 id="d7" class="region">7. Frontend Architecture — SvelteKit app</h2>
+<p class="file"><code>app/src/lib/engine/store.svelte.js:34</code> (state declaration),
+<code>app/src/lib/viewport/CadModel.svelte:109</code> (buildGeometry),
+<code>app/src/lib/viewport/CameraControls.svelte:37</code> (quaternion orbit patch),
+<code>app/src/lib/sketch/tools.js:255</code> (handleToolEvent).</p>
+<div class="diagram"><pre class="mermaid">
+flowchart TB
+  classDef js fill:#fde7cf,stroke:#b3591f;
+  classDef br fill:#e8e0f7,stroke:#6b4f9a;
+
+  subgraph APP ["app/ — SvelteKit, Svelte 5 runes, adapter-static SPA"]
+    direction TB
+    ROUTES["routes/<br/>+layout.svelte (initEngine onMount)<br/>+page.svelte (workbench grid)<br/>home/ doc/[id]/"]:::js
+    STORE["lib/engine/store.svelte.js<br/>$state: featureTree, meshes, selection,<br/>sketchMode, dialogs, documentTabs<br/>~120 getters/actions via window.__waffle"]:::br
+    BRIDGE["lib/engine/bridge.js<br/>EngineBridge: spawn Worker, send/on/terminate"]:::br
+    WORKER["lib/engine/worker.js<br/>imports wasm_bridge.js + slvs.wasm<br/>crash-recovery via fresh blob URL"]:::br
+
+    ROUTES --> STORE
+    STORE --> BRIDGE
+    BRIDGE -- "new Worker(module)" --> WORKER
+
+    subgraph VP ["lib/viewport/ — Threlte / three.js"]
+      direction TB
+      VIEW["Viewport.svelte<br/>Canvas + dialog mounts"]:::js
+      SCENE["Scene.svelte<br/>interactivity() + render graph"]:::js
+      CADM["CadModel.svelte<br/>BufferGeometry + per-face groups<br/>state materials (DEFAULT/HOVER/SELECTED/...)"]:::js
+      EDGE["EdgeOverlay.svelte"]:::js
+      VERT["VertexOverlay.svelte"]:::js
+      SKETCHR["SketchRenderer.svelte<br/>913 lines, color = solve status"]:::js
+      CAM["CameraControls.svelte<br/>quaternion orbit, zoom-to-cursor,<br/>Onshape mouse map, two-finger touch"]:::js
+      VIEW --> SCENE
+      SCENE --> CADM
+      SCENE --> EDGE
+      SCENE --> VERT
+      SCENE --> SKETCHR
+      SCENE --> CAM
+    end
+
+    subgraph SK ["lib/sketch/ — 2D sketch editing"]
+      direction TB
+      TOOLS["tools.js — 1882 lines state machine<br/>line/rect/circle/arc/slot/trim/gear/dimension"]:::js
+      SNAP["snap.js — detectSnaps / collectSnapCandidates"]:::js
+      PROFS["profiles.js — extractProfiles (closed regions)"]:::js
+      CONSTR["ConstraintMenu.svelte + constraintLogic.js<br/>getApplicableConstraints"]:::js
+      DIM["DimensionInput.svelte + DimensionLabels.svelte"]:::js
+    end
+
+    subgraph UC ["lib/ui/ — app chrome"]
+      direction TB
+      TB["Toolbar.svelte (1081 lines)"]:::js
+      FT["FeatureTree.svelte (923 lines)<br/>drag-reorder, suppress, bodies section"]:::js
+      PE["PropertyEditor.svelte — debounced 300ms edits"]:::js
+      SB["StatusBar.svelte"]:::js
+      DLG["Dialogs: Extrude/Revolve/Fillet/Chamfer/Shell/Boolean/Gear/SketchPlane"]:::js
+    end
+
+    subgraph ST ["lib/storage/"]
+      IDB["IndexedDB persistence"]:::js
+      GH["GitHub OAuth + gist sync"]:::js
+    end
+
+    STORE -. $derived .-> CADM
+    STORE -. $derived .-> FT
+    STORE -. actions .-> BRIDGE
+    STORE -. $derived .-> SKETCHR
+    STORE -. $state .-> DLG
+    STORE -. actions .-> ST
+  end
+</pre></div>
+<p class="note"><b>Single reactive store.</b> No separate <code>stores/</code> folder; <code>store.svelte.js</code>
+is a module of exported getter/action functions over module-private <code>$state</code> runes. Components call
+<code>getXxx()</code> in <code>$derived(...)</code>; the bridge callbacks mutate state directly, triggering
+reactive updates. A large <code>window.__waffle</code> debug API mirrors ~120 of these for Playwright tests.</p>
+
+<!-- ============================ D8 ============================ -->
+<h2 id="d8" class="region">8. Testing & Oracles — test-harness</h2>
+<p class="file"><code>crates/test-harness/src/workflow.rs:53</code> (ModelBuilder),
+<code>crates/test-harness/src/oracle.rs:482</code> (check_watertight_mesh),
+<code>crates/test-harness/src/assay/gen.rs:410</code> (derive_seed),
+<code>crates/test-harness/src/bin/assay_gen.rs:11</code> (CLI: default seed 42, count 100).</p>
+<div class="diagram"><pre class="mermaid">
+flowchart TB
+  classDef th fill:#d9f0e2,stroke:#2a6f4a;
+  classDef mock fill:#fff7d6,stroke:#b0844f;
+  classDef real fill:#d6eaf6,stroke:#1f4d6a;
+  classDef gen fill:#e8e0f7,stroke:#6b4f9a;
+
+  MB["ModelBuilder<br/>workflow.rs:53<br/>mock() or kernel_v2()"]:::th
+  MOCK["MockKernel<br/>waffle-types/src/kernel/mock.rs<br/>2219 lines, feature mock-kernel,<br/>deterministic synthetic topology"]:::mock
+  KV2A["KernelV2Adapter<br/>kv2_adapter.rs (one-line shim → kernel-v2)"]:::real
+
+  MB --> MOCK
+  MB --> KV2A
+
+  MB -- "drives the real wasm-bridge::dispatch path" --> DISP["wasm_bridge::dispatch<br/>test-harness runs the actual dispatch, not a simulation"]:::th
+
+  DISP --> OPS["Sketch shortcuts<br/>rect/polygon/circle/true_circle<br/>Feature ops: extrude/revolve/fillet/boolean<br/>History: undo/redo/suppress/reorder"]:::th
+  OPS --> Q["Queries: tessellate, topology_counts,<br/>face_signatures, op_result, consumed_features"]:::th
+  Q --> ORC["Oracles (oracle.rs) — pure fns, no panics"]:::th
+
+  ORC --> O1["check_euler_formula V−E+F=2"]:::th
+  ORC --> O2["check_manifold_edges (every edge 2 faces)"]:::th
+  ORC --> O3["check_watertight_mesh<br/>HYBRID exact-f32-bitwise +<br/>position-quantized + T-junction-subdiv<br/>(env-gated Y38 grid probe)"]:::th
+  ORC --> O4["check_outward_normals (signed volume)<br/>check_aabb_collapse (bbox-as-operand detector)"]:::th
+  ORC --> O5["check_role_exists, face_range_coverage,<br/>no_degenerate_triangles, unit_normals"]:::th
+
+  DISP --> ASSAY["Assay system — property-based / generative<br/>src/assay/ (12 submodules)<br/>Strategy levels 0..5<br/>properties_v2 / strategies_v2"]:::gen
+  ASSAY --> GEN["assay_gen binary<br/>CLI: --seed N (default 42) --count N (default 100)<br/>seed-deterministic via derive_seed(master, idx)<br/>emits .waffle + .meta.json sidecars"]:::gen
+  ASSAY --> CORPUS["corpus/ — hand-curated JSON<br/>CorpusEntry {id, status Pass/Fail/Ignore,<br/>scenario, expected_topology, expected_volume}<br/>auto-generated by proptest shrinking"]:::gen
+  GEN --> CORPUS
+
+  DISP --> STLX["stl.rs — render_mesh_to_stl<br/>(also used by wasm-bridge ExportStl/ExportBodyStl)"]:::th
+</pre></div>
+<p class="note"><b>Test tiers.</b> <code>./scripts/test.sh rewrite</code> (kernel-stack ~70s),
+<code>fast</code> (+ consumers, ~80s), <code>full</code> (+ complete test-harness, ~2min),
+<code>gui-fast</code>/<code>gui-full</code> (Playwright). Capability-pending tests are
+<code>#[ignore]</code>-tagged (Rust) or <code>test.skip</code>-quarantined (GUI) with milestone
+reasons (KV6/M8/M5) — un-quarantine them when their milestone lands. All tiers green since Phase 6.</p>
+
+<!-- ============================ D9 ============================ -->
+<h2 id="d9" class="region">9. SSI Solver Matrix — 15 quadric pairs</h2>
+<p class="file"><code>crates/ssi-rs/src/lib.rs:355</code> (intersect dispatcher),
+<code>crates/ssi-rs/src/lib.rs:414</code> (plane_plane) through <code>:1488</code> (cylinder_cylinder).
+Targets Patrikalakis &amp; Maekawa 2002 Ch.5 §5.8.</p>
+<table class="ssi">
+<tr><th>A ∩ B</th><th>Plane</th><th>Sphere</th><th>Cylinder</th><th>Cone</th><th>Torus</th></tr>
+<tr><th>Plane</th>      <td class="yes">✅ Line</td>          <td class="yes">✅ Circle</td>   <td class="yes">✅ Circle/Ellipse/Line</td>     <td class="yes">✅ Complete (Parabola/Hyperbola)</td>  <td class="no">❌</td></tr>
+<tr><th>Sphere</th>                       <td class="yes">✅ Circle</td>  <td class="yes">✅ Circle</td>  <td class="partial">◐ coaxial circles only; non-coaxial → Err(ASNA)</td><td class="partial">◐ coaxial circles only; non-coaxial → Err(ASNA)</td><td class="no">❌</td></tr>
+<tr><th>Cylinder</th>                                       <td class="yes">✅ Ellipse/Line</td><td class="partial">◐ parallel axes → Line; equal-R coplanar → 2 Ellipses; skew → Err(ASNA)</td><td class="partial">◐ coaxial → 2 circles (no discriminant); non-coaxial → Err(ASNA)</td><td class="no">❌</td></tr>
+<tr><th>Cone</th>                                                                      <td class="yes">✅ Complete</td>     <td class="partial">◐ coaxial → 2/1/0 circles; non-coaxial → Err(ASNA)</td><td class="partial">◐ coaxial → 2 circles; non-coaxial → Err(ASNA)</td><td class="partial">◐ coaxial → 2/1/0 circles; non-coaxial → Err(ASNA)</td><td class="no">❌</td></tr>
+<tr><th>Torus</th>                                                                                                <td class="no">❌</td>     <td class="no">❌</td>     <td class="no">❌</td>                       <td class="no">❌</td>                                <td class="no">❌</td></tr>
+</table>
+<p class="note"><b>A15.2 loud errors.</b> The 5 Torus pairs are blocked on the
+<code>Torus</code> surface variant not yet being in <code>ssi-rs::QuadricSurface</code>.
+General non-coaxial degree-4 curves are staged behind <code>Err(AnalyticalSolutionNotAvailable)</code>
+— never a silent mesh/grid fallback. All 10 implemented non-Torus pairs are wired into Yang Stage 3
+refinement as of PR-YR9. <code>217/217</code> tests at SSI9.</p>
+
+<!-- ============================ REF ============================ -->
+<h2 id="ref" class="region">File Reference Table</h2>
+<p>Click a row to open the file in your editor (relative paths work because this page lives in the repo root).</p>
+<table class="ref">
+<tr><th>Module / Subsystem</th><th>File</th><th>Purpose</th></tr>
+<tr><td colspan="3"><b>Layer 1 — Kernel (Rust→WASM)</b></td></tr>
+<tr><td>waffle-types</td><td><a href="crates/waffle-types/src/kernel/traits.rs">crates/waffle-types/src/kernel/traits.rs:6</a></td><td>Kernel + KernelIntrospect traits</td></tr>
+<tr><td>waffle-types</td><td><a href="crates/waffle-types/src/kernel/mock.rs">crates/waffle-types/src/kernel/mock.rs</a></td><td>MockKernel (2219 lines, feature mock-kernel)</td></tr>
+<tr><td>cad-primitives</td><td><a href="crates/cad-primitives/src/lib.rs">crates/cad-primitives/src/lib.rs:1</a></td><td>Point3/Vector3/BoolOp + tolerance constants only — DAG root</td></tr>
+<tr><td>cherchi-rs</td><td><a href="crates/cherchi-rs/src/lib.rs">crates/cherchi-rs/src/lib.rs</a></td><td>Cherchi 2020/2022 mesh boolean + arrangement</td></tr>
+<tr><td>cherchi-rs</td><td><a href="crates/cherchi-rs/src/labeled_arrangement.rs">crates/cherchi-rs/src/labeled_arrangement.rs:35</a></td><td>LabeledArrangement (frozen Stage-2 contract) + keep_set(op)</td></tr>
+<tr><td>cherchi-rs</td><td><a href="crates/cherchi-rs/src/predicates/indirect/">crates/cherchi-rs/src/predicates/indirect/</a></td><td>Clean-room Attene indirect predicates (M7, generated)</td></tr>
+<tr><td>ssi-rs</td><td><a href="crates/ssi-rs/src/lib.rs">crates/ssi-rs/src/lib.rs:355</a></td><td>intersect(a, b) dispatcher</td></tr>
+<tr><td>yang-rs</td><td><a href="crates/yang-rs/src/lib.rs">crates/yang-rs/src/lib.rs:8</a></td><td>Yang 2025 hybrid boolean pipeline entry, stages 0..6</td></tr>
+<tr><td>yang-rs</td><td><a href="crates/yang-rs/src/stage0.rs">crates/yang-rs/src/stage0.rs</a></td><td>Stage 0 coplanar preprocessing</td></tr>
+<tr><td>yang-rs</td><td><a href="crates/yang-rs/src/coplanar_overlay.rs">crates/yang-rs/src/coplanar_overlay.rs</a></td><td>Exact 2D overlay engine (dashu RBig)</td></tr>
+<tr><td>kernel-v2</td><td><a href="crates/kernel-v2/src/lib.rs">crates/kernel-v2/src/lib.rs:63</a></td><td>forbid(unsafe_code); B-Rep arena, adapter</td></tr>
+<tr><td>kernel-v2</td><td><a href="crates/kernel-v2/src/arena.rs">crates/kernel-v2/src/arena.rs</a></td><td>Half-edge B-Rep arena (Stroud §2.2/§3.3)</td></tr>
+<tr><td>kernel-v2</td><td><a href="crates/kernel-v2/src/euler.rs">crates/kernel-v2/src/euler.rs</a></td><td>Euler ops mvfs/mev/mef/kemr/kfmrh</td></tr>
+<tr><td>kernel-v2</td><td><a href="crates/kernel-v2/src/construct.rs">crates/kernel-v2/src/construct.rs</a></td><td>extrude/revolve/make_face_from_profile</td></tr>
+<tr><td>kernel-v2</td><td><a href="crates/kernel-v2/src/tessellate.rs">crates/kernel-v2/src/tessellate.rs</a></td><td>Geometry-driven tessellation → RenderMesh + FaceRange</td></tr>
+<tr><td>kernel-v2</td><td><a href="crates/kernel-v2/src/adapter.rs">crates/kernel-v2/src/adapter.rs</a></td><td>KernelV2Adapter implements Kernel/KernelIntrospect</td></tr>
+<tr><td>kernel-v2</td><td><a href="crates/kernel-v2/src/boolean.rs">crates/kernel-v2/src/boolean.rs</a></td><td>Delegates to yang-rs: to_yang_brep / from_yang_brep</td></tr>
+<tr><td colspan="3"><b>Dev-only oracles (non-WASM, not shipped)</b></td></tr>
+<tr><td>cherchi-sidecar-rs</td><td><a href="crates/cherchi-sidecar-rs/src/lib.rs">crates/cherchi-sidecar-rs/src/lib.rs</a></td><td>C++ subprocess, MIT, dev-dep of cherchi-rs (differential parity)</td></tr>
+<tr><td>indirect-predicates-sidecar-rs</td><td><a href="crates/indirect-predicates-sidecar-rs/src/lib.rs">crates/indirect-predicates-sidecar-rs/src/lib.rs</a></td><td>LGPL FFI (Attene Indirect_Predicates), dev-dep of cherchi-rs</td></tr>
+<tr><td>predicate-gen</td><td><a href="crates/predicate-gen/src/lib.rs">crates/predicate-gen/src/lib.rs:43</a></td><td>Codegen → cherchi-rs/src/predicates/indirect/generated.rs</td></tr>
+<tr><td colspan="3"><b>Layer 2–3 — Engine + Bridge (Rust→WASM, in Worker)</b></td></tr>
+<tr><td>sketch-solver</td><td><a href="crates/sketch-solver/src/solver.rs">crates/sketch-solver/src/solver.rs:10</a></td><td>solve_sketch → libslvs Newton-Raphson → profiles</td></tr>
+<tr><td>sketch-solver</td><td><a href="crates/sketch-solver/src/entity_mapping.rs">crates/sketch-solver/src/entity_mapping.rs:14</a></td><td>SketchToSlvs mapping (workplane, points, lines, circles, arcs)</td></tr>
+<tr><td>sketch-solver</td><td><a href="crates/sketch-solver/src/constraint_mapping.rs">crates/sketch-solver/src/constraint_mapping.rs</a></td><td>Add constraints → slvs constraint types</td></tr>
+<tr><td>sketch-solver</td><td><a href="crates/sketch-solver/src/status.rs">crates/sketch-solver/src/status.rs:6</a></td><td>classify_status → Fully/Under/OverConstrained/Failed</td></tr>
+<tr><td>feature-engine</td><td><a href="crates/feature-engine/src/lib.rs">crates/feature-engine/src/lib.rs:21</a></td><td>Engine struct (tree, results, consumed, pid_to_feature, undo)</td></tr>
+<tr><td>feature-engine</td><td><a href="crates/feature-engine/src/rebuild.rs">crates/feature-engine/src/rebuild.rs:43</a></td><td>rebuild (replay from change point, capture_face_pids)</td></tr>
+<tr><td>feature-engine</td><td><a href="crates/feature-engine/src/rebuild.rs">crates/feature-engine/src/rebuild.rs:172</a></td><td>execute_feature dispatch (Extrude/Revolve/Boolean/Fillet/...)</td></tr>
+<tr><td>feature-engine</td><td><a href="crates/feature-engine/src/resolve.rs">crates/feature-engine/src/resolve.rs:18</a></td><td>resolve_geom_ref (Role → Signature → Query)</td></tr>
+<tr><td>feature-engine</td><td><a href="crates/feature-engine/src/undo.rs">crates/feature-engine/src/undo.rs</a></td><td>UndoStack (two-stack undo/redo, Command enum)</td></tr>
+<tr><td>modeling-ops</td><td><a href="crates/modeling-ops/src/lib.rs">crates/modeling-ops/src/lib.rs</a></td><td>execute_* ops</td></tr>
+<tr><td>modeling-ops</td><td><a href="crates/modeling-ops/src/kernel_ext.rs">crates/modeling-ops/src/kernel_ext.rs:1</a></td><td>KernelBundle trait = Kernel + KernelIntrospect (blanket impl)</td></tr>
+<tr><td>modeling-ops</td><td><a href="crates/modeling-ops/src/types.rs">crates/modeling-ops/src/types.rs:8</a></td><td>OpResult, BodyOutput, Provenance, EntityRecord, Role</td></tr>
+<tr><td>modeling-ops</td><td><a href="crates/modeling-ops/src/diff.rs">crates/modeling-ops/src/diff.rs:39</a></td><td>diff(before, after) → DiffResult; signature_similarity</td></tr>
+<tr><td>modeling-ops</td><td><a href="crates/modeling-ops/src/extrude.rs">crates/modeling-ops/src/extrude.rs:14</a></td><td>execute_extrude + assign_extrude_roles (EndCap/SideFace)</td></tr>
+<tr><td>modeling-ops</td><td><a href="crates/modeling-ops/src/boolean.rs">crates/modeling-ops/src/boolean.rs:17</a></td><td>execute_boolean (multi-body, BooleanBodyAFace/BFace roles)</td></tr>
+<tr><td>wasm-bridge</td><td><a href="crates/wasm-bridge/src/lib.rs">crates/wasm-bridge/src/lib.rs</a></td><td>crate-type cdylib+rlib; native-solver feature</td></tr>
+<tr><td>wasm-bridge</td><td><a href="crates/wasm-bridge/src/messages.rs">crates/wasm-bridge/src/messages.rs:54</a></td><td>UiToEngine / EngineToUi (#[serde(tag="type")])</td></tr>
+<tr><td>wasm-bridge</td><td><a href="crates/wasm-bridge/src/dispatch.rs">crates/wasm-bridge/src/dispatch.rs:16</a></td><td>dispatch(state, msg, kb) → EngineToUi</td></tr>
+<tr><td>wasm-bridge</td><td><a href="crates/wasm-bridge/src/engine_state.rs">crates/wasm-bridge/src/engine_state.rs</a></td><td>EngineState (Engine + active_sketch + selection)</td></tr>
+<tr><td>wasm-bridge</td><td><a href="crates/wasm-bridge/src/wasm_api.rs">crates/wasm-bridge/src/wasm_api.rs:50</a></td><td>process_message (thread_local) + init()</td></tr>
+<tr><td>wasm-bridge</td><td><a href="crates/wasm-bridge/src/wasm_api.rs">crates/wasm-bridge/src/wasm_api.rs:161</a></td><td>get_mesh_vertices etc — Float32Array::view (zero-copy)</td></tr>
+<tr><td>wasm-bridge</td><td><a href="crates/wasm-bridge/src/tessellation_runner.rs">crates/wasm-bridge/src/tessellation_runner.rs:19</a></td><td>tessellate_missing_meshes (post-dispatch)</td></tr>
+<tr><td>file-format</td><td><a href="crates/file-format/src/save.rs">crates/file-format/src/save.rs:11</a></td><td>.waffle v3 (multi-tab), FORMAT_VERSION=3</td></tr>
+<tr><td>file-format</td><td><a href="crates/file-format/src/load.rs">crates/file-format/src/load.rs:32</a></td><td>load_document/load_project, v1→v2→v3 migration</td></tr>
+<tr><td>file-format</td><td><a href="crates/file-format/src/step_export.rs">crates/file-format/src/step_export.rs:14</a></td><td>STEP export (stub — kernel-v2 returns NotSupported)</td></tr>
+<tr><td colspan="3"><b>Layer 4 — Presentation (Svelte 5 + Threlte/three.js, main thread)</b></td></tr>
+<tr><td>app shell</td><td><a href="app/package.json">app/package.json</a></td><td>Svelte 5, @threlte/core 8, @threlte/extras 9, three 0.170, Playwright</td></tr>
+<tr><td>app shell</td><td><a href="app/vite.config.js">app/vite.config.js</a></td><td>wasm + topLevelAwait + sveltekit + testCaseApiPlugin</td></tr>
+<tr><td>app shell</td><td><a href="app/svelte.config.js">app/svelte.config.js</a></td><td>adapter-static, SPA fallback, kit.paths.base</td></tr>
+<tr><td>engine (JS)</td><td><a href="app/src/lib/engine/bridge.js">app/src/lib/engine/bridge.js:36</a></td><td>EngineBridge: new Worker(module), send/on/terminate</td></tr>
+<tr><td>engine (JS)</td><td><a href="app/src/lib/engine/worker.js">app/src/lib/engine/worker.js:339</a></td><td>Module worker: imports wasm_bridge.js + slvs.wasm, crash-recovery</td></tr>
+<tr><td>engine (JS)</td><td><a href="app/src/lib/engine/store.svelte.js">app/src/lib/engine/store.svelte.js:34</a></td><td>Svelte 5 runes store, ~120 window.__waffle getters/actions</td></tr>
+<tr><td>viewport</td><td><a href="app/src/lib/viewport/Viewport.svelte">app/src/lib/viewport/Viewport.svelte</a></td><td>Canvas + dialog mounts, right-click disambiguation</td></tr>
+<tr><td>viewport</td><td><a href="app/src/lib/viewport/Scene.svelte">app/src/lib/viewport/Scene.svelte</a></td><td>interactivity() + render graph</td></tr>
+<tr><td>viewport</td><td><a href="app/src/lib/viewport/CadModel.svelte">app/src/lib/viewport/CadModel.svelte:109</a></td><td>buildGeometry (per-face groups) + buildMaterials (state colors)</td></tr>
+<tr><td>viewport</td><td><a href="app/src/lib/viewport/CadModel.svelte">app/src/lib/viewport/CadModel.svelte:86</a></td><td>findFaceRef binary search (picking)</td></tr>
+<tr><td>viewport</td><td><a href="app/src/lib/viewport/CameraControls.svelte">app/src/lib/viewport/CameraControls.svelte:37</a></td><td>Quaternion orbit patch, zoom-to-cursor, Onshape mouse map</td></tr>
+<tr><td>sketch</td><td><a href="app/src/lib/sketch/tools.js">app/src/lib/sketch/tools.js:255</a></td><td>handleToolEvent state machine (line/rect/circle/arc/slot/gear/trim)</td></tr>
+<tr><td>sketch</td><td><a href="app/src/lib/sketch/snap.js">app/src/lib/sketch/snap.js</a></td><td>detectSnaps / collectSnapCandidates</td></tr>
+<tr><td>sketch</td><td><a href="app/src/lib/sketch/profiles.js">app/src/lib/sketch/profiles.js</a></td><td>extractProfiles (closed loops for extrusion)</td></tr>
+<tr><td>sketch</td><td><a href="app/src/lib/sketch/ConstraintMenu.svelte">app/src/lib/sketch/ConstraintMenu.svelte</a></td><td>Applicable constraints menu</td></tr>
+<tr><td>sketch</td><td><a href="app/src/lib/viewport/SketchRenderer.svelte">app/src/lib/viewport/SketchRenderer.svelte</a></td><td>913 lines — sketch overlay on the plane, color = solve status</td></tr>
+<tr><td>ui-chrome</td><td><a href="app/src/lib/ui/Toolbar.svelte">app/src/lib/ui/Toolbar.svelte</a></td><td>1081 lines — top toolbar, mode-aware</td></tr>
+<tr><td>ui-chrome</td><td><a href="app/src/lib/ui/FeatureTree.svelte">app/src/lib/ui/FeatureTree.svelte</a></td><td>923 lines — drag-reorder, suppress, bodies section</td></tr>
+<tr><td>ui-chrome</td><td><a href="app/src/lib/ui/PropertyEditor.svelte">app/src/lib/ui/PropertyEditor.svelte</a></td><td>Debounced 300ms edits → editFeature</td></tr>
+<tr><td>storage</td><td><a href="app/src/lib/storage/">app/src/lib/storage/</a></td><td>IndexedDB + GitHub OAuth + gist sync</td></tr>
+<tr><td colspan="3"><b>Testing &amp; Oracles</b></td></tr>
+<tr><td>test-harness</td><td><a href="crates/test-harness/src/workflow.rs">crates/test-harness/src/workflow.rs:53</a></td><td>ModelBuilder fluent API (mock() / kernel_v2())</td></tr>
+<tr><td>test-harness</td><td><a href="crates/test-harness/src/oracle.rs">crates/test-harness/src/oracle.rs:482</a></td><td>check_watertight_mesh (HYBRID exact + quantized)</td></tr>
+<tr><td>test-harness</td><td><a href="crates/test-harness/src/assay/gen.rs">crates/test-harness/src/assay/gen.rs:410</a></td><td>derive_seed(master, idx) — seed-deterministic corpus</td></tr>
+<tr><td>test-harness</td><td><a href="crates/test-harness/src/bin/assay_gen.rs">crates/test-harness/src/bin/assay_gen.rs:11</a></td><td>CLI: --seed (default 42) --count (default 100)</td></tr>
+<tr><td colspan="3"><b>Top-level docs</b></td></tr>
+<tr><td>architecture</td><td><a href="ARCHITECTURE.md">ARCHITECTURE.md</a></td><td>System design (kernel sections describe DELETED legacy kernel)</td></tr>
+<tr><td>interfaces</td><td><a href="INTERFACES.md">INTERFACES.md</a></td><td>7-section cross-crate type contract (GeomRef, OpResult, Sketch, FeatureTree, Bridge, RenderMesh, Kernel traits)</td></tr>
+<tr><td>session guide</td><td><a href="CLAUDE.md">CLAUDE.md</a></td><td>Kernel-v2 routing, Yang priorities, test tiers, WASM rebuild workflow</td></tr>
+<tr><td>Yang roadmap</td><td><a href="docs/yang_functional_roadmap.md">docs/yang_functional_roadmap.md</a></td><td>Plan of record — M0..M8 milestones</td></tr>
+<tr><td>Yang audit</td><td><a href="docs/audits/yang_2025_audit.md">docs/audits/yang_2025_audit.md</a></td><td>20/20 CORRECT per-step assessment</td></tr>
+<tr><td>governance</td><td><a href="governance/">governance/</a></td><td>Engineering Constitution, FIP, DoD, Architectural Invariants (A15 = analytical primacy)</td></tr>
+</table>
+
+<footer>Generated read-only from the repo at 2026-06-19 by Claude. Diagrams via Mermaid 11 (CDN).
+Hover nodes for tooltips; click the File Reference Table for source locations.
+For offline viewing, vendor <code>mermaid.min.js</code> into <code>app/static/pkg/</code> and swap the script src.</footer>
+
+</body>
+</html>

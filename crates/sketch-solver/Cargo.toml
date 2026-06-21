@@ -5,7 +5,9 @@ edition = "2021"
 
 [dependencies]
 waffle-types = { path = "../waffle-types" }
-slvs = "0.6"
+levenberg-marquardt = "0.15"
+nalgebra = "0.34"
 serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
 uuid = { version = "1", features = ["v4", "serde"] }
-thiserror = "1"

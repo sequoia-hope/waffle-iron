@@ -1,5 +1,12 @@
 # Sketch System Development Plan
 
+> **Historical planning record.** The solver described below (libslvs/SolveSpace)
+> has been replaced by a clean-room Rust implementation per
+> `specs/clean_room_constraint_solver.md`. This document is retained as a
+> planning record; references to slvs-solver.js, Emscripten, and libslvs are
+> historical. The constraint types and UI phases described here remain
+> applicable as the feature roadmap for the clean-room solver (PR-SS2+).
+
 ## Current State
 
 Waffle Iron has a working sketch system built on **libslvs** (SolvSpace's constraint solver compiled to WASM). The solver itself is capable — it supports 10 entity types and 38 constraint types. But the application layer only exposes a fraction of that capability.

@@ -9,7 +9,7 @@ Status codes: **W** = Working end-to-end, **P** = Partial, **DEFERRED** = Deferr
 | Feature | Status | Notes |
 |---------|:------:|-------|
 | Sketch drawing (line/rect/circle/arc) | **W** | Click-click and click-drag modes |
-| Sketch constraints (all types) | **W** | Via libslvs (Emscripten WASM) |
+| Sketch constraints (all types) | **W** | Via clean-room Rust solver (Levenberg-Marquardt) |
 | Sketch profile extraction | **W** | Closed profile detection for extrude/revolve |
 | Construction geometry | **W** | |
 | Extrude | **W** | Depth, direction, profile selector, cut toggle |
@@ -51,7 +51,7 @@ The core parametric pipeline is functional end-to-end:
 
 1. **Sketch on plane** — Select XY/XZ/YZ plane, enter sketch mode
 2. **Draw geometry** — Line, rectangle, circle, arc (click-click and click-drag)
-3. **Apply constraints** — All constraint types via libslvs solver
+3. **Apply constraints** — All constraint types via clean-room Rust solver
 4. **Extrude/Revolve** — Create 3D solids from sketch profiles with parameter dialogs
 5. **Feature tree management** — Full CRUD, undo/redo, rollback, reorder, suppress
 6. **3D viewport** — Shaded rendering, face picking, edge overlay, camera controls

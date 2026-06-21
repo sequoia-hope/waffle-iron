@@ -1,5 +1,10 @@
 # 03 — WASM Bridge: Architecture
 
+> **NOTE:** The libslvs WASM module section below is historical. The sketch
+> solver is now pure Rust (Levenberg-Marquardt) and compiles to
+> wasm32-unknown-unknown natively — no Emscripten, no separate WASM module.
+> The bridge architecture otherwise remains accurate.
+
 ## Purpose
 
 Communication layer between the Rust/WASM engine (running in a Web Worker) and the JavaScript presentation layer (running on the main thread). All cross-language communication flows through this bridge.

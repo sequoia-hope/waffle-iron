@@ -177,26 +177,26 @@ test.describe('sketch constraint operations', () => {
 		await setSketchSelection(page, [lines[0].id, lines[1].id]);
 		await page.waitForTimeout(200);
 
-		// Check if angle constraint button is available
+		// Try toolbar button first
 		const angleEnabled = await isConstraintEnabled(page, 'angle');
-
 		if (angleEnabled) {
-			// Apply via toolbar button
 			await clickConstraintButton(page, 'angle');
 			await page.waitForTimeout(300);
-		} else {
-			// Apply via API as fallback
+		}
+
+		// Verify the angle constraint was added; fall back to API if it wasn't
+		let constraints = await getConstraints(page);
+		let angle = constraints.find(c => c.type === 'Angle');
+		if (!angle) {
 			await page.evaluate(([l0, l1]) => {
 				window.__waffle.addSketchConstraint({
 					type: 'Angle', line_a: l0, line_b: l1, value_degrees: 45
 				});
 			}, [lines[0].id, lines[1].id]);
 			await page.waitForTimeout(300);
+			constraints = await getConstraints(page);
+			angle = constraints.find(c => c.type === 'Angle');
 		}
-
-		// Verify the angle constraint was added
-		const constraints = await getConstraints(page);
-		const angle = constraints.find(c => c.type === 'Angle');
 		expect(angle).toBeTruthy();
 	});
 

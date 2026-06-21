@@ -7,14 +7,13 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["native-solver"]
-native-solver = ["sketch-solver"]
+default = []
 
 [dependencies]
 feature-engine = { path = "../feature-engine" }
 kernel-v2 = { path = "../kernel-v2" }
 modeling-ops = { path = "../modeling-ops" }
-sketch-solver = { path = "../sketch-solver", optional = true }
+sketch-solver = { path = "../sketch-solver" }
 file-format = { path = "../file-format" }
 waffle-types = { path = "../waffle-types" }
 serde = { version = "1", features = ["derive"] }

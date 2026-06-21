@@ -13,7 +13,7 @@
 | Layer | Choice | License |
 |-------|--------|---------|
 | Geometry kernel | Clean-sheet B-Rep kernel | GPL-3.0 |
-| 2D constraint solver | [slvs](https://crates.io/crates/slvs) (SolveSpace libslvs) | GPL-3.0 |
+| 2D constraint solver | Clean-room Rust (Levenberg-Marquardt) | MIT |
 | 3D rendering | [three.js](https://threejs.org/) via [Threlte](https://threlte.xyz/) | MIT |
 | UI framework | [Svelte](https://svelte.dev/) / SvelteKit | MIT |
 | WASM bridge | wasm-bindgen + Web Worker | — |

@@ -401,57 +401,35 @@ export async function initEngine() {
 	});
 
 	bridge.on('sketchSolved', (msg) => {
-		if (msg.positions && msg.status !== 'not_ready' && msg.status !== 'solver_not_ready') {
+		// The Rust engine sends { solved: { positions, profiles, status: SolveStatus } }
+		// where SolveStatus is { type: 'FullyConstrained' } | { type: 'UnderConstrained', dof }
+		// | { type: 'OverConstrained', conflicts } | { type: 'SolveFailed', reason }.
+		// Normalize to the flat format the rest of the store expects.
+		const solved = msg.solved || msg;
+		const statusObj = solved.status || { type: msg.status || 'unknown' };
+		const statusStr = statusObj.type || (typeof statusObj === 'string' ? statusObj : 'unknown');
+		const dof = statusObj.dof ?? msg.dof ?? -1;
+		const positions = solved.positions || msg.positions;
+		const failed = statusObj.conflicts || msg.failed || [];
+
+		if (positions && statusStr !== 'not_ready' && statusStr !== 'solver_not_ready') {
 			const newPositions = new Map();
-			for (const [id, pos] of Object.entries(msg.positions)) {
-				newPositions.set(Number(id), pos);
+			for (const [id, pos] of Object.entries(positions)) {
+				const p = pos.x !== undefined ? pos : { x: pos[0], y: pos[1] };
+				newPositions.set(Number(id), p);
 			}
 			sketchPositions = newPositions;
-
-			// Apply solved radii to circle entities
-			if (msg.solvedRadii) {
-				let changed = false;
-				for (const [id, radius] of Object.entries(msg.solvedRadii)) {
-					const numId = Number(id);
-					const idx = sketchEntities.findIndex(e => e.id === numId);
-					if (idx >= 0 && sketchEntities[idx].type === 'Circle') {
-						sketchEntities[idx] = { ...sketchEntities[idx], radius };
-						changed = true;
-					}
-				}
-				if (changed) {
-					sketchEntities = [...sketchEntities];
-				}
-			}
-
 			reExtractProfiles();
 		}
 
-		// Apply reference dimension value updates
-		if (msg.refUpdates && msg.refUpdates.length > 0) {
-			let constraintsChanged = false;
-			for (const upd of msg.refUpdates) {
-				if (upd.index >= 0 && upd.index < sketchConstraints.length) {
-					const c = sketchConstraints[upd.index];
-					if (c.reference && 'value' in c) {
-						sketchConstraints[upd.index] = { ...c, value: upd.value };
-						constraintsChanged = true;
-					}
-				}
-			}
-			if (constraintsChanged) {
-				sketchConstraints = [...sketchConstraints];
-			}
-		}
-
 		sketchSolveStatus = {
-			status: msg.status,
-			dof: msg.dof ?? -1,
-			failed: msg.failed || [],
+			status: statusStr,
+			dof,
+			failed,
 			solveTime: msg.solveTime
 		};
 		recomputeOverConstrained();
-		log('engine', 'Sketch solved', { status: msg.status, dof: msg.dof });
+		log('engine', 'Sketch solved', { status: statusStr, dof });
 	});
 
 	bridge.on('error', (msg) => {
@@ -1480,7 +1458,7 @@ export function addLocalEntity(entity) {
 
 /**
  * Map a JS sketch constraint to the Rust bridge format.
- * Some constraint type names differ between JS (libslvs) and Rust (waffle-types).
+ * Some constraint type names differ between JS and Rust (waffle-types).
  * @param {object} c - Constraint in JS format
  * @returns {object | null} Constraint in Rust bridge format, or null to skip
  */
@@ -3832,7 +3810,7 @@ export function applyDimensionFromPopup(value) {
 	} else if (p.dimType === 'pointLineDistance') {
 		addLocalConstraint({ type: 'PointLineDistance', point: p.entityA, entity: p.entityB, value });
 	} else if (p.dimType === 'radius') {
-		// libslvs uses Diameter constraint; convert radius to diameter
+		// Rust solver uses Radius constraint; convert diameter to radius
 		addLocalConstraint({ type: 'Diameter', entity: p.entityA, value: value * 2 });
 	} else if (p.dimType === 'angle') {
 		if (p.entityB != null) {
@@ -4485,35 +4463,17 @@ export async function discardAutoSave() {
 }
 
 /**
- * Trigger a constraint solve via the libslvs solver in the worker.
- * Sends current sketch state to the worker for solving.
+ * Trigger a constraint solve via the Rust solver (Levenberg-Marquardt) in the
+ * WASM engine. Sends SolveSketch command through the bridge.
  */
 export function triggerSolve() {
 	if (!bridge || !engineReady) return;
 	if (!sketchMode.active) return;
 	if (sketchEntities.length === 0) return;
 
-	// Serialize positions map to plain object for postMessage (clone values to unwrap proxies)
-	const posObj = {};
-	for (const [id, pos] of sketchPositions) {
-		posObj[id] = { x: pos.x, y: pos.y };
-	}
-
-	// Deep-clone reactive state to avoid DataCloneError from Svelte 5 proxies.
-	// Gears are stored as a single compact `Gear` entity which the solver skips
-	// natively (it is a rigid, fully-parametric block), so no gear filtering is
-	// needed here.
-	const entities = JSON.parse(JSON.stringify(sketchEntities));
-	const constraints = JSON.parse(JSON.stringify(sketchConstraints));
-
 	bridge
-		.send({
-			type: 'SolveSketchLocal',
-			entities,
-			constraints,
-			positions: posObj
-		})
-		.catch(err => log('error', `SolveSketchLocal failed: ${err}`));
+		.send({ type: 'SolveSketch' })
+		.catch(err => log('error', `SolveSketch failed: ${err}`));
 }
 
 const AUTOSAVE_KEY = 'waffle-autosave';

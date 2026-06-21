@@ -507,10 +507,6 @@ fn dispatch_load_restores_tree() {
 // ── Sketch Workflow Dispatch Tests ────────────────────────────────────
 
 #[test]
-#[cfg_attr(
-    not(feature = "native-solver"),
-    ignore = "needs the native slvs solver (run with default features)"
-)]
 fn dispatch_solve_sketch_returns_solved() {
     let mut state = EngineState::new();
     let mut kernel = MockKernel::new();
