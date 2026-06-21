@@ -66,8 +66,19 @@ pub enum UiToEngine {
     AddConstraint {
         constraint: SketchConstraint,
     },
-    /// Run the constraint solver on the active sketch.
-    SolveSketch,
+    /// Run the constraint solver on the active sketch. The UI may pass its LIVE
+    /// state to replace the active sketch atomically before solving — the
+    /// append-only `AddSketchEntity` / `AddConstraint` paths keep the ORIGINAL
+    /// drawn positions and cannot express a removal or a REFERENCE (driven)
+    /// dimension toggle. `entities` carries current point positions (so a drag
+    /// persists); `constraints` is the DRIVING set (reference dims excluded).
+    /// `None` (omitted) solves the existing engine state unchanged.
+    SolveSketch {
+        #[serde(default)]
+        entities: Option<Vec<SketchEntity>>,
+        #[serde(default)]
+        constraints: Option<Vec<SketchConstraint>>,
+    },
     /// Exit sketch mode and commit the sketch as a feature.
     FinishSketch {
         #[serde(default, with = "u32_key_map")]

@@ -580,7 +580,7 @@ fn dispatch_solve_sketch_returns_solved() {
     );
 
     // Solve
-    let response = wasm_bridge::dispatch(&mut state, UiToEngine::SolveSketch, &mut kernel);
+    let response = wasm_bridge::dispatch(&mut state, UiToEngine::SolveSketch { entities: None, constraints: None }, &mut kernel);
     if let EngineToUi::SketchSolved { solved } = &response {
         // Should have positions for all 4 points
         assert_eq!(solved.positions.len(), 4);
@@ -598,7 +598,7 @@ fn dispatch_solve_without_sketch_returns_error() {
     let mut state = EngineState::new();
     let mut kernel = MockKernel::new();
 
-    let response = wasm_bridge::dispatch(&mut state, UiToEngine::SolveSketch, &mut kernel);
+    let response = wasm_bridge::dispatch(&mut state, UiToEngine::SolveSketch { entities: None, constraints: None }, &mut kernel);
     assert!(matches!(response, EngineToUi::Error { .. }));
 }
 
@@ -864,7 +864,7 @@ fn dispatch_solve_sketch_checks_all_4_corners() {
     );
 
     // Solve
-    let response = wasm_bridge::dispatch(&mut state, UiToEngine::SolveSketch, &mut kernel);
+    let response = wasm_bridge::dispatch(&mut state, UiToEngine::SolveSketch { entities: None, constraints: None }, &mut kernel);
     if let EngineToUi::SketchSolved { solved } = &response {
         assert_eq!(solved.positions.len(), 4, "Should have 4 solved positions");
 
@@ -1121,11 +1121,14 @@ fn serde_roundtrip_add_constraint() {
 
 #[test]
 fn serde_roundtrip_solve_sketch() {
-    let msg = UiToEngine::SolveSketch;
+    let msg = UiToEngine::SolveSketch {
+        entities: None,
+        constraints: None,
+    };
     let json = serde_json::to_string(&msg).unwrap();
     assert!(json.contains("\"type\":\"SolveSketch\""));
     let d: UiToEngine = serde_json::from_str(&json).unwrap();
-    assert!(matches!(d, UiToEngine::SolveSketch));
+    assert!(matches!(d, UiToEngine::SolveSketch { .. }));
 }
 
 #[test]

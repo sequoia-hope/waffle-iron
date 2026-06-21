@@ -79,6 +79,39 @@ impl EngineState {
         Ok(())
     }
 
+    /// REPLACE the active sketch's constraint list. The UI is the source of
+    /// truth for which constraints are live: it removes constraints, and it
+    /// excludes REFERENCE (driven) dimensions — which display a measured value
+    /// but must NOT constrain. The incremental `add_sketch_constraint` path
+    /// cannot express removal or reference toggling, so the UI re-syncs the full
+    /// driving set here before each solve.
+    pub fn set_sketch_constraints(
+        &mut self,
+        constraints: Vec<SketchConstraint>,
+    ) -> Result<(), BridgeError> {
+        let sketch = self
+            .active_sketch
+            .as_mut()
+            .ok_or(BridgeError::NoActiveSketch)?;
+        sketch.constraints = constraints;
+        Ok(())
+    }
+
+    /// REPLACE the active sketch's entity list with the UI's live geometry, so
+    /// the solver starts from the current point positions (a drag persists)
+    /// rather than the append-only original drawn positions.
+    pub fn set_sketch_entities(
+        &mut self,
+        entities: Vec<SketchEntity>,
+    ) -> Result<(), BridgeError> {
+        let sketch = self
+            .active_sketch
+            .as_mut()
+            .ok_or(BridgeError::NoActiveSketch)?;
+        sketch.entities = entities;
+        Ok(())
+    }
+
     /// Build a Sketch struct from the active sketch state.
     pub fn build_sketch(&self) -> Result<Sketch, BridgeError> {
         let active = self

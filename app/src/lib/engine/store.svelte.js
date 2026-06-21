@@ -4490,9 +4490,40 @@ export function triggerSolve() {
 	if (!sketchMode.active) return;
 	if (sketchEntities.length === 0) return;
 
-	bridge
-		.send({ type: 'SolveSketch' })
-		.catch(err => log('error', `SolveSketch failed: ${err}`));
+	// Re-sync the live sketch state before solving. The engine's per-item
+	// AddSketchEntity / AddConstraint paths are append-only — they keep the
+	// ORIGINAL drawn positions and cannot express a removal or a REFERENCE
+	// (driven) dimension toggle. Replacing both lists makes the solver a pure
+	// function of the UI's live geometry: point entities carry their current
+	// (last-solved / dragged) position, and reference dims are excluded (they
+	// display a measured value but must NOT constrain).
+	// Deep-clone (JSON) to strip Svelte 5 reactive proxies — they cannot be
+	// structured-cloned across the Worker boundary (DataCloneError), the same
+	// reason AddSketchEntity/AddConstraint clone before sending.
+	const entities = JSON.parse(
+		JSON.stringify(
+			sketchEntities.map((e) => {
+				if (e.type === 'Point' && e.id != null) {
+					const p = sketchPositions.get(e.id);
+					if (p) return { ...e, x: p.x, y: p.y };
+				}
+				return e;
+			})
+		)
+	);
+	const driving = JSON.parse(
+		JSON.stringify(
+			sketchConstraints
+				.filter((c) => !c.reference)
+				.map((c) => mapConstraintForBridge(c))
+				.filter(Boolean)
+		)
+	);
+	// One atomic message: replace the engine's sketch state with the UI's live
+	// geometry + driving constraints, then solve. Avoids the multi-round-trip
+	// race/latency of separate sync messages.
+	bridge.send({ type: 'SolveSketch', entities, constraints: driving })
+		.catch((err) => log('error', `SolveSketch failed: ${err}`));
 }
 
 const AUTOSAVE_KEY = 'waffle-autosave';

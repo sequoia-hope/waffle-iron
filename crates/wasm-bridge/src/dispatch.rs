@@ -45,7 +45,18 @@ fn handle_message(
             Ok(model_updated_response(state))
         }
 
-        UiToEngine::SolveSketch => {
+        UiToEngine::SolveSketch {
+            entities,
+            constraints,
+        } => {
+            // Atomically replace the active sketch with the UI's live state
+            // (when provided) before solving — one round-trip, no races.
+            if let Some(entities) = entities {
+                state.set_sketch_entities(entities)?;
+            }
+            if let Some(constraints) = constraints {
+                state.set_sketch_constraints(constraints)?;
+            }
             let sketch = state.build_sketch()?;
             let solved = sketch_solver::solve_sketch(&sketch);
             if let Some(active) = state.active_sketch.as_mut() {
