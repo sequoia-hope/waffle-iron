@@ -8,18 +8,48 @@
  * @param {string} constraintId - e.g. 'horizontal', 'vertical', 'coincident', etc.
  */
 export async function clickConstraintButton(page, constraintId) {
-	await page.locator(`[data-testid="toolbar-constraint-${constraintId}"]`).click();
+	// Open the constraints dropdown if it's closed
+	const dropdown = page.locator('[data-testid="constraints-dropdown"]');
+	if (!(await dropdown.isVisible({ timeout: 1000 }).catch(() => false))) {
+		await page.locator('[data-testid="toolbar-btn-constraints-dropdown"]').click();
+		await page.waitForTimeout(200);
+	}
+	const btn = page.locator(`[data-testid="toolbar-constraint-${constraintId}"]`);
+	await btn.waitFor({ state: 'visible', timeout: 5000 });
+
+	// Check if button is disabled
+	const disabled = await btn.isDisabled();
+	if (disabled) {
+		throw new Error(`Constraint button "${constraintId}" is disabled`);
+	}
+
+	// Click the button
+	await btn.click();
 	await page.waitForTimeout(200);
+
+	// Close dropdown if still open (click may have closed it already)
+	if (await dropdown.isVisible({ timeout: 100 }).catch(() => false)) {
+		await page.keyboard.press('Escape');
+		await page.waitForTimeout(100);
+	}
 }
 
 /**
  * Check if a constraint button is enabled (not disabled).
+ * Opens the constraints dropdown first if it's not already open.
  * @param {import('@playwright/test').Page} page
  * @param {string} constraintId
  * @returns {Promise<boolean>}
  */
 export async function isConstraintEnabled(page, constraintId) {
+	// Open the constraints dropdown if it's closed
+	const dropdown = page.locator('[data-testid="constraints-dropdown"]');
+	if (!(await dropdown.isVisible({ timeout: 1000 }).catch(() => false))) {
+		await page.locator('[data-testid="toolbar-btn-constraints-dropdown"]').click();
+		await page.waitForTimeout(200);
+	}
 	const btn = page.locator(`[data-testid="toolbar-constraint-${constraintId}"]`);
+	await btn.waitFor({ state: 'visible', timeout: 5000 });
 	const disabled = await btn.isDisabled();
 	return !disabled;
 }
