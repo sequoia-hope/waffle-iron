@@ -1,6 +1,6 @@
 # Waffle Iron
 
-**An experimental open-source parametric CAD system** created by Sequoia Alexander and [Claude](https://claude.ai) to push the limits of coding agent capabilities, and see if we can use them to build solid, dependable tools for everyday use. GPL-3.0 licensed.
+**An experimental open-source parametric CAD system** created by Sequoia Alexander and [Claude](https://claude.ai) to push the limits of coding agent capabilities, and see if we can use them to build solid, dependable tools for everyday use. MIT licensed.
 
 **[Try it in your browser](https://sequoia-hope.github.io/waffle-iron/)**
 
@@ -12,7 +12,7 @@
 
 | Layer | Choice | License |
 |-------|--------|---------|
-| Geometry kernel | Clean-sheet B-Rep kernel | GPL-3.0 |
+| Geometry kernel | Clean-sheet B-Rep kernel | MIT |
 | 2D constraint solver | Clean-room Rust (Levenberg-Marquardt) | MIT |
 | 3D rendering | [three.js](https://threejs.org/) via [Threlte](https://threlte.xyz/) | MIT |
 | UI framework | [Svelte](https://svelte.dev/) / SvelteKit | MIT |
@@ -33,4 +33,4 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for system design, and [INTERFACES.md](IN
 
 ## License
 
-GPL-3.0 — see [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE) for details.

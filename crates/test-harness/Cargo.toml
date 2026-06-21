@@ -2,6 +2,7 @@
 name = "test-harness"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 
 [dependencies]
 kernel-v2 = { path = "../kernel-v2" }

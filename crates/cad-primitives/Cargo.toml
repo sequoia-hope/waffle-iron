@@ -2,6 +2,7 @@
 name = "cad-primitives"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 description = "Shared geometric primitive types and constants for the clean-sheet kernel rewrite. Types only — no algorithms."
 
 # DISCIPLINE: this crate has ZERO workspace dependencies. It is the

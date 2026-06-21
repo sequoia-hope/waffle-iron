@@ -13,7 +13,7 @@
 
 ## Vision
 
-Waffle Iron is the "KiCad of mechanical CAD" — an open-source parametric CAD system that replaces Onshape for daily mechanical design work. GPL-3.0 licensed, community-driven, built for the workflow engineers actually use: sketch on plane → constrain sketch → extrude/revolve → fillet/chamfer → pattern → assemble. The architecture prioritizes determinism, testability, and autonomous agent development.
+Waffle Iron is the "KiCad of mechanical CAD" — an open-source parametric CAD system that replaces Onshape for daily mechanical design work. MIT licensed, community-driven, built for the workflow engineers actually use: sketch on plane → constrain sketch → extrude/revolve → fillet/chamfer → pattern → assemble. The architecture prioritizes determinism, testability, and autonomous agent development.
 
 ## Architecture Overview
 
@@ -206,6 +206,6 @@ The clean-sheet kernel (`crates/kernel/`) is under active development. **980 ker
 
 [CADmium](https://github.com/CADmium-Co/CADmium) (archived September 2025, 1.6k GitHub stars) used exactly the stack we're targeting: truck (Rust) + SvelteKit + Tailwind + three.js via Threlte + Tauri + JSON feature storage. It validated the pattern of BREP kernel in WASM with three.js rendering, but did not reach production quality.
 
-CADmium was released under Elastic License 2.0 (incompatible with our GPL-3.0 goals). A relicense conversation with the author may be pursued. Regardless of outcome, our architecture is self-sufficient — CADmium's code is reference material, not a dependency.
+CADmium was released under Elastic License 2.0 (incompatible with our MIT goals). A relicense conversation with the author may be pursued. Regardless of outcome, our architecture is self-sufficient — CADmium's code is reference material, not a dependency.
 
 The same pattern (BREP in WASM, tessellate in WASM, render in three.js) is used by OpenCascade.js-based tools, Replicad, and Chili3D. It is the industry-standard approach for browser-based CAD.

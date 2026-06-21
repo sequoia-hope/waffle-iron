@@ -2,6 +2,7 @@
 name = "cherchi-sidecar-rs"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 description = "Cherchi 2022 mesh boolean engine via subprocess sidecar. NOT WASM-compatible."
 
 # Strict layering: depends on cad-primitives (for BoolOp) and cherchi-rs

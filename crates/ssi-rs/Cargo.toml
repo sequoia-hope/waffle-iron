@@ -2,6 +2,7 @@
 name = "ssi-rs"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 description = "Analytical surface-surface intersection solvers (Patrikalakis Ch.5). Closed-form solutions for quadric surface pairs."
 
 # Strict layering: ssi-rs sits directly above cad-primitives. Independent of

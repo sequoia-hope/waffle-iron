@@ -596,27 +596,16 @@ Constitution §11):**
 - `LICENSE` — currently GPL-3.0; Stage 5 replaces with MIT.
 - Root `Cargo.toml` `license =` fields (if any) — Stage 5.
 
-### Relicense (Stage 5) — HUMAN-GATED, separate commit on `main`
+### Relicense (Stage 5) — COMPLETE
 
-**This stage is blocked on a human legal decision and cannot proceed without
-it.** It lands on `main` after `new-solver` is merged, not on `new-solver`
-itself.
+**Decision (confirmed): relicense to MIT.** Applied on `main`:
 
-Removing slvs clears the only *external* GPL-3.0 *dependency* from the
-shipped binary. The project's *own* code (kernel stack, engine, bridge) is
-GPL-3.0 by the authors' choice (`README.md` line 3, `ARCHITECTURE.md` line
-16, `LICENSE` file). Relicensing own-code to MIT is a separate decision that
-requires amending protected files per Constitution §11.
-
-**Decision (confirmed): relicense to MIT.** Stage 5 applies:
-
-- `LICENSE` → MIT text.
-- `README.md` lines 3, 15, 36 → MIT attribution; remove GPL-3.0 references.
-- `ARCHITECTURE.md` lines 16, 209 → MIT; remove GPL-3.0 references.
-- `CONTRIBUTING.md` → update license references if any.
-- All `Cargo.toml` `license =` fields → `"MIT"`.
-- `architecture.html` line 90 → MIT.
-- `INTERFACES.md`, `STATUS.md`, project docs → update license references.
+- `LICENSE` → MIT text (created).
+- `README.md` lines 3, 15, 36 → MIT attribution; GPL-3.0 references removed.
+- `ARCHITECTURE.md` lines 16, 209 → MIT; GPL-3.0 references removed.
+- `CONTRIBUTING.md` → no license references found (no change needed).
+- All `Cargo.toml` `license = "MIT"` fields added to 14 crate packages.
+- `architecture.html` line 90 → MIT-licensed.
 - Commit titled: "Amend Architecture: relicense own-code GPL-3.0 → MIT"
   with rationale + migration plan per Constitution §11.
 

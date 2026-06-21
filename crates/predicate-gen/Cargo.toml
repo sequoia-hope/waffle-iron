@@ -2,6 +2,7 @@
 name = "predicate-gen"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 description = """
 Code generator for cherchi-rs's clean-room indirect predicates (M7).
 Implements Meyer-Pion 2008 (FPG) forward error analysis to derive the

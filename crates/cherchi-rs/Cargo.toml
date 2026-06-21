@@ -2,6 +2,7 @@
 name = "cherchi-rs"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
 description = "Pure-Rust port of Cherchi 2020 + 2022 (mesh arrangements + interactive booleans). Mesh in, labeled mesh out. No B-Rep."
 
 # Strict layering: cherchi-rs sits directly above cad-primitives. It does NOT
