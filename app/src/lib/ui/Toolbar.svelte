@@ -448,8 +448,11 @@
 				>Constraints ▾</button>
 				{#if showConstraints}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div class="dropdown-backdrop" onclick={() => showConstraints = false}></div>
-					<div class="dropdown-panel constraints-panel" data-testid="constraints-dropdown">
+					<div class="dropdown-backdrop" onclick={() => showConstraints = false} onpointerdown={(e) => e.stopPropagation()}></div>
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div class="dropdown-panel constraints-panel" data-testid="constraints-dropdown"
+						onpointerdown={(e) => e.stopPropagation()}
+					>
 						<div class="dropdown-grid constraints-grid">
 							{#each constraintButtons as cb}
 								<button

@@ -307,11 +307,15 @@ test.describe('constraint toolbar button interaction', () => {
 
 		const constraintsBefore = await getConstraintCount(waffle.page);
 
-		try {
-			await waffle.page.locator('[data-testid="toolbar-constraint-horizontal"]').click({ force: true });
-		} catch {
-			// Expected — button may reject click when disabled
-		}
+		// With nothing selected, the horizontal constraint is not applicable, so
+		// its dropdown button must be disabled.
+		expect(await isConstraintEnabled(waffle.page, 'horizontal')).toBe(false);
+
+		// Force-clicking the disabled button must not create a constraint.
+		await waffle.page
+			.locator('[data-testid="toolbar-constraint-horizontal"]')
+			.click({ force: true })
+			.catch(() => {});
 		await waffle.page.waitForTimeout(200);
 
 		const constraintsAfter = await getConstraintCount(waffle.page);
