@@ -1358,7 +1358,16 @@ fn build_disc_disc_containment(
     } else if b_in_a {
         (&ring_b, &ring_a, &center_b, false)
     } else if convex_rings_overlap(&ring_a, &ring_b) {
-        return DiscPair::Wall("disc-disc-crossing");
+        // CROSSING rims (a lens overlap, neither contained). No Stage-0
+        // override: the two caps keep their default conformal Stage-1 fans and
+        // cherchi's coplanar arrangement (single-coplanar-edge N13 + the
+        // fully-coplanar PRs 1-4 pocket dedup) resolves the coplanar lens
+        // directly — the explicit two-disc lens construction the overlay would
+        // need is unnecessary now that cherchi handles coplanar overlap. (A
+        // genuine disjoint pair returns `Empty` below; a crossing produces a
+        // real coplanar overlap cherchi must arrange, but the keep/drop is the
+        // same `Empty` no-override path.)
+        return DiscPair::Empty;
     } else {
         return DiscPair::Empty;
     };

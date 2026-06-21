@@ -1,6 +1,6 @@
 {
   "master_seed": 42,
-  "count": 193,
+  "count": 194,
   "generator_version": 4,
   "cases": [
     {
@@ -1352,6 +1352,13 @@
       "filename": "F0093.waffle",
       "meta_filename": "F0093.meta.json",
       "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut) —              internal-void (deliberate): rectangular cavity 0.6×0.6 fully enclosed in a 2×2×1 box;              expect 2 shells (outer + cavity), invisible from outside",
+      "featured": true
+    },
+    {
+      "id": "F0094",
+      "filename": "F0094.waffle",
+      "meta_filename": "F0094.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) — disc∩disc coplanar CROSSING (opposite normal, M8)",
       "featured": true
     }
   ]
