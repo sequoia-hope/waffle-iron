@@ -789,6 +789,7 @@ export async function initEngine() {
 			removeSketchConstraint: (index) => removeSketchConstraint(index),
 			toggleConstraintReference: (index) => toggleConstraintReference(index),
 			dragSketchPoint: (pointId, x, y) => dragSketchPoint(pointId, x, y),
+			dragSketchLine: (lineId, dx, dy) => dragSketchLine(lineId, dx, dy),
 			finalizeDrag: () => finalizeDrag(),
 			undo: () => undo(),
 			redo: () => redo(),
@@ -2245,16 +2246,57 @@ export function dragSketchPoint(pointId, newX, newY) {
 export function finalizeDrag() {
 	if (!dragState) return;
 
-	const { pointId } = dragState;
-
-	// Remove temporary drag constraint
-	sketchConstraints = sketchConstraints.filter(c => !(c.type === 'WhereDragged' && c.point === pointId && c._isDrag));
+	// Remove all temporary drag constraints (single-point or multi-point line drag)
+	sketchConstraints = sketchConstraints.filter(c => !c._isDrag);
 
 	// Trigger final solve without the drag constraint
 	triggerSolve();
 	reExtractProfiles();
 
 	dragState = null;
+}
+
+/**
+ * Drag a whole line by translating both endpoints by (dx, dy) from where the
+ * drag started. Adds temporary WhereDragged constraints on both endpoints and
+ * re-solves, so any geometry pinned to those endpoints (e.g. a square whose
+ * side midpoints are Midpoint-constrained to this line) follows along.
+ * @param {number} lineId
+ * @param {number} dx - total X offset from drag start (sketch units)
+ * @param {number} dy - total Y offset from drag start (sketch units)
+ */
+export function dragSketchLine(lineId, dx, dy) {
+	const line = sketchEntities.find(e => e.id === lineId && e.type === 'Line');
+	if (!line) return;
+
+	if (!dragState || dragState.lineId !== lineId) {
+		const sp = sketchPositions.get(line.start_id);
+		const ep = sketchPositions.get(line.end_id);
+		if (!sp || !ep) return;
+		dragState = {
+			lineId,
+			points: [
+				{ pointId: line.start_id, originalX: sp.x, originalY: sp.y },
+				{ pointId: line.end_id, originalX: ep.x, originalY: ep.y },
+			],
+		};
+	}
+
+	const nextPos = new Map(sketchPositions);
+	// Drop prior drag constraints, then re-pin every dragged endpoint.
+	let nextConstraints = sketchConstraints.filter(c => !c._isDrag);
+	for (const p of dragState.points) {
+		const nx = p.originalX + dx;
+		const ny = p.originalY + dy;
+		nextPos.set(p.pointId, { x: nx, y: ny });
+		nextConstraints = [...nextConstraints, {
+			type: 'WhereDragged', point: p.pointId, x: nx, y: ny, _isDrag: true
+		}];
+	}
+	sketchPositions = nextPos;
+	sketchConstraints = nextConstraints;
+
+	triggerSolve();
 }
 
 /** @returns {{ pointId: number, originalX: number, originalY: number } | null} */

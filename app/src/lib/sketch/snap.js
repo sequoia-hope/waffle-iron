@@ -103,7 +103,10 @@ export function detectSnaps(x, y, fromPointId, screenPixelSize) {
 			if (dist < coincidentThreshold) {
 				return {
 					x: midX, y: midY,
-					constraints: [],
+					// Pin the new point to the line's midpoint. The point id is not
+					// known until the entity is created, so emit a template carrying
+					// the line id; applyPointSnapConstraints fills in `point`.
+					constraints: [{ type: 'Midpoint', line: entity.id }],
 					indicator: { type: 'midpoint', x: midX, y: midY, entityId: entity.id }
 				};
 			}

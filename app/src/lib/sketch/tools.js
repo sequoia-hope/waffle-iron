@@ -33,6 +33,7 @@ import {
 	hideDimensionPopup,
 	getSnapSettings,
 	dragSketchPoint,
+	dragSketchLine,
 	finalizeDrag,
 	getDragState,
 	getHoveredRef,
@@ -114,6 +115,10 @@ let filletCorner = null;
 // -- Drag-to-reposition state --
 /** @type {number | null} Point ID being dragged */
 let dragPointId = null;
+/** @type {number | null} Line ID being dragged (whole-line translate) */
+let dragLineId = null;
+/** @type {{ x: number, y: number } | null} Sketch position where a line drag started */
+let dragLineStart = null;
 /** @type {{ x: number, y: number } | null} Screen position at drag start */
 let selectPointerDownPos = null;
 
@@ -197,6 +202,8 @@ export function resetTool() {
 	isDragging = false;
 	pointerDownPos = null;
 	dragPointId = null;
+	dragLineId = null;
+	dragLineStart = null;
 	selectPointerDownPos = null;
 	if (getDragState()) finalizeDrag();
 	hideDimensionPopup();
@@ -222,6 +229,9 @@ function applyPointSnapConstraints(pointId, snap) {
 	for (const c of snap.constraints) {
 		if (c.type === 'WhereDragged') {
 			addLocalConstraint({ type: 'WhereDragged', point: pointId, x: c.x, y: c.y });
+		} else if (c.type === 'Midpoint') {
+			// Pin this point to the midpoint of the snapped line.
+			addLocalConstraint({ type: 'Midpoint', point: pointId, line: c.line });
 		}
 	}
 }
@@ -413,6 +423,8 @@ function finalizeLine(snap, screenPixelSize) {
 			addLocalConstraint({ type: 'Perpendicular', line_a: lineId, line_b: c.entity_b });
 		} else if (c.type === 'WhereDragged') {
 			addLocalConstraint({ type: 'WhereDragged', point: endPt.id, x: c.x, y: c.y });
+		} else if (c.type === 'Midpoint') {
+			addLocalConstraint({ type: 'Midpoint', point: endPt.id, line: c.line });
 		}
 	}
 
@@ -811,13 +823,19 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 			return;
 		}
 
+		// Handle active whole-line drag (translate both endpoints)
+		if (dragLineId != null && dragLineStart) {
+			dragSketchLine(dragLineId, x - dragLineStart.x, y - dragLineStart.y);
+			return;
+		}
+
 		// Detect drag threshold for select drag
 		if (selectPointerDownPos) {
 			const dx = x - selectPointerDownPos.x;
 			const dy = y - selectPointerDownPos.y;
 			const dragThreshold = DRAG_THRESHOLD_PX * screenPixelSize;
 			if (Math.sqrt(dx * dx + dy * dy) > dragThreshold) {
-				// Check if we clicked on a point — start dragging it
+				// Check what we clicked on at drag start.
 				const hitId = hitTest(selectPointerDownPos.x, selectPointerDownPos.y, screenPixelSize);
 				if (hitId != null) {
 					const entities = getSketchEntities();
@@ -829,8 +847,15 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 						dragSketchPoint(dragPointId, snap.x, snap.y);
 						return;
 					}
+					if (entity && entity.type === 'Line') {
+						// Drag the whole line by translating both endpoints.
+						dragLineId = hitId;
+						dragLineStart = { x: selectPointerDownPos.x, y: selectPointerDownPos.y };
+						dragSketchLine(dragLineId, x - dragLineStart.x, y - dragLineStart.y);
+						return;
+					}
 				}
-				// Not dragging a point — clear down pos to stop checking
+				// Not dragging a draggable entity — clear down pos to stop checking
 				selectPointerDownPos = null;
 			}
 		}
@@ -921,6 +946,11 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 		if (dragPointId != null) {
 			finalizeDrag();
 			dragPointId = null;
+		}
+		if (dragLineId != null) {
+			finalizeDrag();
+			dragLineId = null;
+			dragLineStart = null;
 		}
 		selectPointerDownPos = null;
 	}
