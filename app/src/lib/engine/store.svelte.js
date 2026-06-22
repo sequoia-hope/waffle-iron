@@ -104,6 +104,12 @@ let extractedProfilesState = $state([]);
 /** @type {number | null} */
 let selectedProfileIndex = $state(null);
 
+/** @type {number | null} Index (into sketchConstraints) of a selected constraint badge */
+let selectedConstraintIndex = $state(null);
+
+/** @type {Map<string, {dx:number, dy:number}>} Per-constraint badge display offsets (cosmetic, session-only) */
+let constraintBadgeOffsets = $state(new Map());
+
 /** @type {number | null} */
 let hoveredProfileIndex = $state(null);
 
@@ -748,6 +754,10 @@ export async function initEngine() {
 			toggleAxisVisibility: (axisId) => toggleAxisVisibility(axisId),
 			getSketchSelection: () => [...sketchSelection],
 			setSketchSelection: (ids) => { sketchSelection = new Set(ids); },
+			getSelectedConstraintIndex: () => getSelectedConstraintIndex(),
+			setSelectedConstraintIndex: (idx) => setSelectedConstraintIndex(idx),
+			deleteSelectedConstraint: () => deleteSelectedConstraint(),
+			getConstraintBadgeOffsets: () => Object.fromEntries(constraintBadgeOffsets),
 			addSketchEntity: (entity) => addLocalEntity(entity),
 			addSketchConstraint: (constraint) => addLocalConstraint(constraint),
 			removeSketchEntities: (ids) => removeSketchEntities(new Set(ids)),
@@ -2437,6 +2447,43 @@ export function setSketchSelection(sel) { sketchSelection = sel; }
 export function getSketchHover() { return sketchHover; }
 /** @param {number | null} id */
 export function setSketchHover(id) { sketchHover = id; }
+
+// -- Constraint badge selection + display offsets --
+
+export function getSelectedConstraintIndex() { return selectedConstraintIndex; }
+/** @param {number | null} idx */
+export function setSelectedConstraintIndex(idx) {
+	selectedConstraintIndex = idx;
+	if (idx != null) {
+		// Selecting a constraint clears entity/profile selection (mutually exclusive).
+		sketchSelection = new Set();
+		selectedProfileIndex = null;
+	}
+}
+
+/** @returns {Map<string, {dx:number, dy:number}>} */
+export function getConstraintBadgeOffsets() { return constraintBadgeOffsets; }
+/** @param {string} key @param {number} dx @param {number} dy */
+export function setConstraintBadgeOffset(key, dx, dy) {
+	const next = new Map(constraintBadgeOffsets);
+	next.set(key, { dx, dy });
+	constraintBadgeOffsets = next;
+}
+
+/**
+ * Delete the currently selected constraint badge, if any.
+ * @returns {boolean} whether a constraint was deleted
+ */
+export function deleteSelectedConstraint() {
+	if (selectedConstraintIndex == null) return false;
+	const idx = selectedConstraintIndex;
+	selectedConstraintIndex = null;
+	if (idx >= 0 && idx < sketchConstraints.length) {
+		removeSketchConstraint(idx);
+		return true;
+	}
+	return false;
+}
 
 export function getExtractedProfiles() { return extractedProfilesState; }
 export function getSelectedProfileIndex() { return selectedProfileIndex; }

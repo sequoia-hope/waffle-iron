@@ -41,7 +41,12 @@ import {
 	geomRefEquals,
 	getSketchMode,
 	removeSketchEntities,
-	getBridge
+	getBridge,
+	getSketchConstraints,
+	getFailedConstraintIndices,
+	getConstraintBadgeOffsets,
+	setConstraintBadgeOffset,
+	setSelectedConstraintIndex
 } from '$lib/engine/store.svelte.js';
 import {
 	findLineLineIntersection,
@@ -54,6 +59,7 @@ import {
 } from './geometry-utils.js';
 import { log } from '$lib/engine/logger.js';
 import { detectSnaps, collectSnapCandidates } from './snap.js';
+import { computeConstraintBadges } from './constraintBadges.js';
 import { profileToPolygon, pointInPolygon } from './profiles.js';
 import { setPreview, setSnapIndicator, setSnapCandidates, getPreview as _getPreview, getSnapIndicator as _getSnapIndicator, getSnapCandidates as _getSnapCandidates } from './sketchToolState.svelte.js';
 import { buildSketchPlane } from './sketchCoords.js';
@@ -121,6 +127,31 @@ let dragLineId = null;
 let dragLineStart = null;
 /** @type {object | null} Most recent snap during a point drag (applied on release) */
 let lastDragSnap = null;
+/** @type {object | null} Constraint badge grabbed at pointerdown (pending drag/select) */
+let pendingBadge = null;
+/** @type {string | null} Constraint badge key currently being dragged */
+let dragBadgeKey = null;
+/** @type {{ x:number, y:number, dx:number, dy:number } | null} Drag-start anchor + original offset */
+let dragBadgeOrig = null;
+
+/**
+ * Hit-test geometric constraint badges at the given sketch coords.
+ * @returns {{ index:number, key:string, sx:number, sy:number } | null}
+ */
+function hitTestConstraintBadge(x, y, screenPixelSize) {
+	const threshold = 10 * screenPixelSize;
+	const badges = computeConstraintBadges(
+		getSketchConstraints(), getSketchEntities(), getSketchPositions(),
+		getFailedConstraintIndices(), getConstraintBadgeOffsets()
+	);
+	let best = null;
+	let bestDist = threshold;
+	for (const b of badges) {
+		const d = Math.hypot(x - b.sx, y - b.sy);
+		if (d < bestDist) { bestDist = d; best = b; }
+	}
+	return best;
+}
 /** @type {{ x: number, y: number } | null} Screen position at drag start */
 let selectPointerDownPos = null;
 
@@ -207,6 +238,9 @@ export function resetTool() {
 	dragLineId = null;
 	dragLineStart = null;
 	lastDragSnap = null;
+	pendingBadge = null;
+	dragBadgeKey = null;
+	dragBadgeOrig = null;
 	selectPointerDownPos = null;
 	if (getDragState()) finalizeDrag();
 	hideDimensionPopup();
@@ -865,12 +899,33 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 			return;
 		}
 
+		// Handle active constraint-badge drag (reposition its display offset)
+		if (dragBadgeKey != null && dragBadgeOrig) {
+			setConstraintBadgeOffset(dragBadgeKey,
+				dragBadgeOrig.dx + (x - dragBadgeOrig.x),
+				dragBadgeOrig.dy + (y - dragBadgeOrig.y));
+			return;
+		}
+
 		// Detect drag threshold for select drag
 		if (selectPointerDownPos) {
 			const dx = x - selectPointerDownPos.x;
 			const dy = y - selectPointerDownPos.y;
 			const dragThreshold = DRAG_THRESHOLD_PX * screenPixelSize;
 			if (Math.sqrt(dx * dx + dy * dy) > dragThreshold) {
+				// A constraint badge was grabbed → start dragging it.
+				if (pendingBadge) {
+					const off = getConstraintBadgeOffsets().get(pendingBadge.key);
+					dragBadgeKey = pendingBadge.key;
+					dragBadgeOrig = {
+						x: selectPointerDownPos.x, y: selectPointerDownPos.y,
+						dx: off?.dx ?? 0, dy: off?.dy ?? 0,
+					};
+					setConstraintBadgeOffset(dragBadgeKey,
+						dragBadgeOrig.dx + (x - dragBadgeOrig.x),
+						dragBadgeOrig.dy + (y - dragBadgeOrig.y));
+					return;
+				}
 				// Check what we clicked on at drag start.
 				const hitId = hitTest(selectPointerDownPos.x, selectPointerDownPos.y, screenPixelSize);
 				if (hitId != null) {
@@ -920,6 +975,23 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 	if (eventType === 'pointerdown') {
 		selectPointerDownPos = { x, y };
 		dragPointId = null;
+		pendingBadge = null;
+
+		// A point directly under the cursor wins (corner handles must stay
+		// draggable). Otherwise a constraint badge here selects/primes-drag it.
+		// Badges glyphs sit just off their geometry, so this only competes with
+		// a line/circle edge near the badge — acceptable (the badge is the
+		// intended target there).
+		const directPoint = findPointNear(x, y, 8 * screenPixelSize);
+		if (!directPoint) {
+			const badge = hitTestConstraintBadge(x, y, screenPixelSize);
+			if (badge) {
+				setSelectedConstraintIndex(badge.index);
+				pendingBadge = badge;
+				return;
+			}
+		}
+		setSelectedConstraintIndex(null);
 
 		// Try concrete geometry first, then fall back to gear-body selection.
 		let hitId = hitTest(x, y, screenPixelSize);
@@ -992,6 +1064,9 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 			dragLineId = null;
 			dragLineStart = null;
 		}
+		dragBadgeKey = null;
+		dragBadgeOrig = null;
+		pendingBadge = null;
 		lastDragSnap = null;
 		selectPointerDownPos = null;
 	}

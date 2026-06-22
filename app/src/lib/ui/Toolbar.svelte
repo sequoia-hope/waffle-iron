@@ -10,6 +10,8 @@
 		getSketchSelection,
 		getSketchEntities,
 		getSketchPositions,
+		getSelectedConstraintIndex,
+		deleteSelectedConstraint,
 		toggleConstruction,
 		addLocalConstraint,
 		finishSketch,
@@ -323,6 +325,12 @@
 				case 'Delete':
 				case 'Backspace':
 					if (inSketch) {
+						// A selected constraint badge takes priority over entities.
+						if (getSelectedConstraintIndex() != null) {
+							e.preventDefault();
+							deleteSelectedConstraint();
+							break;
+						}
 						const sel = getSketchSelection();
 						if (sel.size > 0) {
 							e.preventDefault();

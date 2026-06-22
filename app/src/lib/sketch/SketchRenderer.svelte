@@ -16,10 +16,13 @@
 		getOverConstrainedEntities,
 		getFailedConstraintIndices,
 		getGearDisplay,
-		getGearRegistry
+		getGearRegistry,
+		getConstraintBadgeOffsets,
+		getSelectedConstraintIndex
 	} from '$lib/engine/store.svelte.js';
 	import { getPreview, getSnapIndicator, getSnapCandidates } from './sketchToolState.svelte.js';
 	import { buildSketchPlane, sketchToWorld } from './sketchCoords.js';
+	import { computeConstraintBadges } from './constraintBadges.js';
 	import { profileToPolygon } from './profiles.js';
 	import { sampleBSpline } from './bspline.js';
 
@@ -497,115 +500,21 @@
 
 	let failedIndices = $derived(getFailedConstraintIndices());
 
-	// Constraint label data (icons near constrained entities)
+	// Constraint badge data (shared with the select-tool hit-test so what's
+	// drawn is exactly what's clickable). computeConstraintBadges returns
+	// sketch-space positions; map them to world here.
+	let badgeOffsets = $derived(getConstraintBadgeOffsets());
+	let selectedConstraintIndex = $derived(getSelectedConstraintIndex());
 	let constraintLabels = $derived.by(() => {
 		if (!plane) return [];
-		const labels = [];
-		const failed = failedIndices;
-		const addLabel = (ci, text, world) => {
-			labels.push({ text, world, failed: failed.has(ci) });
-		};
-		for (let ci = 0; ci < constraints.length; ci++) {
-			const c = constraints[ci];
-			// Skip temporary drag constraints
-			if (c._isDrag) continue;
-
-			if (c.type === 'Horizontal' || c.type === 'Vertical') {
-				const entity = entities.find(e => e.id === c.entity);
-				if (entity && entity.type === 'Line') {
-					const p1 = positions.get(entity.start_id);
-					const p2 = positions.get(entity.end_id);
-					if (p1 && p2) {
-						const mx = (p1.x + p2.x) / 2;
-						const my = (p1.y + p2.y) / 2;
-						const offsetX = c.type === 'Vertical' ? 0.0002 : 0;
-						addLabel(ci, c.type === 'Horizontal' ? 'H' : 'V',
-							sketchToWorld(mx + offsetX, my + 0.00015, plane));
-					}
-				}
-			} else if (c.type === 'Parallel') {
-				const l0 = entities.find(e => e.id === c.line_a);
-				const l1 = entities.find(e => e.id === c.line_b);
-				if (l0 && l1) {
-					const p0s = positions.get(l0.start_id);
-					const p0e = positions.get(l0.end_id);
-					const p1s = positions.get(l1.start_id);
-					const p1e = positions.get(l1.end_id);
-					if (p0s && p0e && p1s && p1e) {
-						const mx = (p0s.x + p0e.x + p1s.x + p1e.x) / 4;
-						const my = (p0s.y + p0e.y + p1s.y + p1e.y) / 4;
-						addLabel(ci, '||', sketchToWorld(mx, my + 0.00015, plane));
-					}
-				}
-			} else if (c.type === 'Perpendicular') {
-				const l0 = entities.find(e => e.id === c.line_a);
-				const l1 = entities.find(e => e.id === c.line_b);
-				if (l0 && l1) {
-					const p0s = positions.get(l0.start_id);
-					const p0e = positions.get(l0.end_id);
-					const p1s = positions.get(l1.start_id);
-					const p1e = positions.get(l1.end_id);
-					if (p0s && p0e && p1s && p1e) {
-						const mx = (p0s.x + p0e.x + p1s.x + p1e.x) / 4;
-						const my = (p0s.y + p0e.y + p1s.y + p1e.y) / 4;
-						addLabel(ci, '\u27c2', sketchToWorld(mx, my + 0.00015, plane));
-					}
-				}
-			} else if (c.type === 'Equal' || c.type === 'EqualRadius') {
-				const e0 = entities.find(e => e.id === c.entity_a);
-				const e1 = entities.find(e => e.id === c.entity_b);
-				if (e0 && e1) {
-					for (const ent of [e0, e1]) {
-						const pos = getEntityMidpoint(ent, positions);
-						if (pos) {
-							addLabel(ci, '=', sketchToWorld(pos.x, pos.y + 0.00015, plane));
-						}
-					}
-				}
-			} else if (c.type === 'Tangent') {
-				const line = entities.find(e => e.id === c.line);
-				const curve = entities.find(e => e.id === c.curve);
-				if (line && curve) {
-					const center = positions.get(curve.center_id);
-					const ls = positions.get(line.start_id);
-					const le = positions.get(line.end_id);
-					if (center && ls && le) {
-						const mx = (ls.x + le.x) / 2;
-						const my = (ls.y + le.y) / 2;
-						addLabel(ci, 'T', sketchToWorld(mx, my + 0.00015, plane));
-					}
-				}
-			} else if (c.type === 'Coincident') {
-				const posA = positions.get(c.point_a);
-				if (posA) {
-					addLabel(ci, '\u2022', sketchToWorld(posA.x + 0.0001, posA.y + 0.0001, plane));
-				}
-			} else if (c.type === 'Midpoint') {
-				const pos = positions.get(c.point);
-				if (pos) {
-					addLabel(ci, 'M', sketchToWorld(pos.x, pos.y + 0.00015, plane));
-				}
-			} else if (c.type === 'WhereDragged') {
-				const pos = positions.get(c.point);
-				if (pos) {
-					addLabel(ci, '\ud83d\udccc', sketchToWorld(pos.x + 0.0001, pos.y + 0.0001, plane));
-				}
-			} else if (c.type === 'Symmetric' || c.type === 'SymmetricH' || c.type === 'SymmetricV') {
-				const posA = positions.get(c.point_a ?? c.entity_a);
-				const posB = positions.get(c.point_b ?? c.entity_b);
-				if (posA && posB) {
-					const mx = (posA.x + posB.x) / 2;
-					const my = (posA.y + posB.y) / 2;
-					addLabel(ci, '\u2194', sketchToWorld(mx, my + 0.00015, plane));
-				}
-			} else if (c.type === 'OnEntity') {
-				const pos = positions.get(c.point);
-				if (pos) {
-					addLabel(ci, '\u00d7', sketchToWorld(pos.x + 0.0001, pos.y + 0.0001, plane));
-				}
-			}
-		}
-		return labels;
+		return computeConstraintBadges(constraints, entities, positions, failedIndices, badgeOffsets)
+			.map((b) => ({
+				index: b.index,
+				text: b.glyph,
+				failed: b.failed,
+				selected: b.index === selectedConstraintIndex,
+				world: sketchToWorld(b.sx, b.sy, plane),
+			}));
 	});
 
 	/**
@@ -915,14 +824,15 @@
 		</HTML>
 	{/if}
 
-	<!-- Constraint labels: small badge showing the constraint glyph (H/V/M/…) -->
+	<!-- Constraint badges: small glyph (H/V/M/…); selectable/draggable/deletable -->
 	{#each constraintLabels as label, i}
+		{@const sz = label.selected ? 0.00022 : (label.failed ? 0.0002 : 0.00016)}
 		<T.Mesh position={[label.world.x, label.world.y, label.world.z]} renderOrder={12}
 			raycast={() => {}}>
-			<T.PlaneGeometry args={[label.failed ? 0.0002 : 0.00016, label.failed ? 0.0002 : 0.00016]} />
+			<T.PlaneGeometry args={[sz, sz]} />
 			<T.MeshBasicMaterial map={glyphTexture(label.text)}
-				color={label.failed ? COLOR_OVERCONSTRAINED : COLOR_SNAP}
-				depthTest={false} transparent opacity={0.95} />
+				color={label.selected ? COLOR_SELECTED : (label.failed ? COLOR_OVERCONSTRAINED : COLOR_SNAP)}
+				depthTest={false} transparent opacity={label.selected ? 1.0 : 0.95} />
 		</T.Mesh>
 	{/each}
 

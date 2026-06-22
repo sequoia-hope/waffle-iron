@@ -1,0 +1,121 @@
+/**
+ * Shared computation of geometric constraint badge placement.
+ *
+ * A "badge" is the little glyph (H, V, M, ‖, ⟂, =, T, •, ↔, ×, 📌) drawn near a
+ * geometric constraint. Both the renderer (SketchRenderer) and the hit-test
+ * (select tool) consume this so badge visuals and click targets stay in sync.
+ *
+ * Returns sketch-space positions (the caller maps to world via sketchToWorld).
+ * Dimensional constraints (Distance/Radius/Angle/…) are intentionally excluded
+ * — those render as interactive HTML labels in DimensionLabels.svelte.
+ */
+
+const V_OFFSET = 0.00015; // lift the badge slightly above its anchor
+const DOT_OFFSET = 0.0001; // diagonal offset for point-anchored glyphs
+
+/** Stable, presentation-order-independent key for a constraint (for offsets). */
+export function constraintKey(c) {
+	const refs = [
+		c.entity, c.entity_a, c.entity_b, c.entity_c,
+		c.line, c.curve, c.line_a, c.line_b,
+		c.point, c.point_a, c.point_b,
+	].filter((v) => v != null);
+	refs.sort((a, b) => a - b);
+	return `${c.type}|${refs.join(',')}`;
+}
+
+function lineMid(entity, positions) {
+	const p1 = positions.get(entity.start_id);
+	const p2 = positions.get(entity.end_id);
+	if (p1 && p2) return { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+	return null;
+}
+
+function entityMidpoint(entity, positions) {
+	if (!entity) return null;
+	if (entity.type === 'Line') return lineMid(entity, positions);
+	if (entity.type === 'Circle') {
+		const center = positions.get(entity.center_id);
+		if (center) return { x: center.x + (entity.radius || 1), y: center.y };
+	} else if (entity.type === 'Arc') {
+		const center = positions.get(entity.center_id);
+		if (center) return { x: center.x, y: center.y };
+	} else if (entity.type === 'Spline' && entity.point_ids?.length > 0) {
+		const midPt = positions.get(entity.point_ids[Math.floor(entity.point_ids.length / 2)]);
+		if (midPt) return { x: midPt.x, y: midPt.y };
+	}
+	return null;
+}
+
+/**
+ * @param {object[]} constraints
+ * @param {object[]} entities
+ * @param {Map<number,{x:number,y:number}>} positions
+ * @param {Set<number>} failedIndices
+ * @param {Map<string,{dx:number,dy:number}>} [offsets] - per-key drag offsets
+ * @returns {Array<{index:number,key:string,glyph:string,sx:number,sy:number,failed:boolean}>}
+ */
+export function computeConstraintBadges(constraints, entities, positions, failedIndices, offsets) {
+	const byId = new Map(entities.map((e) => [e.id, e]));
+	const out = [];
+	const push = (index, key, glyph, sx, sy) => {
+		const off = offsets?.get(key);
+		out.push({
+			index, key, glyph,
+			sx: sx + (off?.dx ?? 0),
+			sy: sy + (off?.dy ?? 0),
+			failed: failedIndices?.has(index) ?? false,
+		});
+	};
+
+	for (let ci = 0; ci < constraints.length; ci++) {
+		const c = constraints[ci];
+		if (c._isDrag) continue;
+		const key = constraintKey(c);
+
+		if (c.type === 'Horizontal' || c.type === 'Vertical') {
+			const e = byId.get(c.entity);
+			const m = e && e.type === 'Line' ? lineMid(e, positions) : null;
+			if (m) push(ci, key, c.type === 'Horizontal' ? 'H' : 'V',
+				m.x + (c.type === 'Vertical' ? 0.0002 : 0), m.y + V_OFFSET);
+		} else if (c.type === 'Parallel' || c.type === 'Perpendicular') {
+			const l0 = byId.get(c.line_a);
+			const l1 = byId.get(c.line_b);
+			if (l0 && l1) {
+				const p0s = positions.get(l0.start_id), p0e = positions.get(l0.end_id);
+				const p1s = positions.get(l1.start_id), p1e = positions.get(l1.end_id);
+				if (p0s && p0e && p1s && p1e) {
+					const mx = (p0s.x + p0e.x + p1s.x + p1e.x) / 4;
+					const my = (p0s.y + p0e.y + p1s.y + p1e.y) / 4;
+					push(ci, key, c.type === 'Parallel' ? '‖' : '⟂', mx, my + V_OFFSET);
+				}
+			}
+		} else if (c.type === 'Equal' || c.type === 'EqualRadius') {
+			for (const ref of [c.entity_a, c.entity_b]) {
+				const m = entityMidpoint(byId.get(ref), positions);
+				if (m) push(ci, key, '=', m.x, m.y + V_OFFSET);
+			}
+		} else if (c.type === 'Tangent') {
+			const line = byId.get(c.line);
+			const m = line ? lineMid(line, positions) : null;
+			if (m) push(ci, key, 'T', m.x, m.y + V_OFFSET);
+		} else if (c.type === 'Coincident') {
+			const p = positions.get(c.point_a);
+			if (p) push(ci, key, '•', p.x + DOT_OFFSET, p.y + DOT_OFFSET);
+		} else if (c.type === 'Midpoint') {
+			const p = positions.get(c.point);
+			if (p) push(ci, key, 'M', p.x, p.y + V_OFFSET);
+		} else if (c.type === 'WhereDragged') {
+			const p = positions.get(c.point);
+			if (p) push(ci, key, '📌', p.x + DOT_OFFSET, p.y + DOT_OFFSET);
+		} else if (c.type === 'Symmetric' || c.type === 'SymmetricH' || c.type === 'SymmetricV') {
+			const a = positions.get(c.point_a ?? c.entity_a);
+			const b = positions.get(c.point_b ?? c.entity_b);
+			if (a && b) push(ci, key, '↔', (a.x + b.x) / 2, (a.y + b.y) / 2 + V_OFFSET);
+		} else if (c.type === 'OnEntity') {
+			const p = positions.get(c.point);
+			if (p) push(ci, key, '×', p.x + DOT_OFFSET, p.y + DOT_OFFSET);
+		}
+	}
+	return out;
+}
