@@ -49,7 +49,10 @@ test.describe('sketch DOF display', () => {
 	test('adding H constraint reduces DOF by 1', async ({ waffle }) => {
 		const page = waffle.page;
 
-		await drawLine(page, -100, 0, 100, 0);
+		// Draw a diagonal line so the drawing snap does not auto-apply a
+		// Horizontal/Vertical constraint (which would make the explicit
+		// Horizontal below redundant and leave DOF unchanged).
+		await drawLine(page, -100, -40, 100, 40);
 		await waitForEntityCount(page, 3, 5000);
 		await page.waitForTimeout(500);
 

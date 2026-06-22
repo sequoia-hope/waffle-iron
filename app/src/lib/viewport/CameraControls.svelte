@@ -7,6 +7,7 @@
 		getSketchMode, setCameraRefs, getSketchPositions, getMeshes,
 		getCameraProjection, setViewCubeTransform, setTwoFingerActive
 	} from '$lib/engine/store.svelte.js';
+	import { buildSketchPlane } from '$lib/sketch/sketchCoords.js';
 
 	const { scene, renderer, camera } = useThrelte();
 
@@ -707,13 +708,12 @@
 		const newPos = o.clone().addScaledVector(n, dist);
 		cameraRef.position.copy(newPos);
 
-		// Choose an appropriate up vector (perpendicular to normal)
-		const worldUp = new THREE.Vector3(0, 1, 0);
-		if (Math.abs(n.dot(worldUp)) > 0.99) {
-			cameraRef.up.set(0, 0, -Math.sign(n.y));
-		} else {
-			cameraRef.up.copy(worldUp);
-		}
+		// Align screen-up with the sketch plane's +Y axis so that screen
+		// horizontal == sketch X (Horizontal) and screen vertical == sketch Y.
+		// buildSketchPlane derives the same xAxis/yAxis basis the sketch drawing
+		// and rebuild.rs use, so the in-sketch view matches the stored geometry.
+		const { yAxis } = buildSketchPlane(origin, normal);
+		cameraRef.up.copy(yAxis);
 
 		cameraRef.lookAt(o);
 		cameraRef.updateProjectionMatrix();
