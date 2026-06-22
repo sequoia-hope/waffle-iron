@@ -38,6 +38,28 @@
 	const COLOR_OVERCONSTRAINED = 0xff4444; // red, over-constrained
 	const COLOR_FULLY_CONSTRAINED = 0x44cc88; // green, fully constrained (DOF=0)
 
+	// Cache of glyph textures so the constraint badges actually show their letter
+	// ('H', 'V', 'M', '||', …) instead of a blank square. Keyed by glyph text.
+	/** @type {Map<string, THREE.CanvasTexture>} */
+	const _glyphTextures = new Map();
+	function glyphTexture(text) {
+		if (_glyphTextures.has(text)) return _glyphTextures.get(text);
+		const size = 64;
+		const canvas = document.createElement('canvas');
+		canvas.width = canvas.height = size;
+		const ctx = canvas.getContext('2d');
+		ctx.clearRect(0, 0, size, size);
+		ctx.fillStyle = '#ffffff';
+		ctx.font = `bold ${Math.floor(size * 0.62)}px sans-serif`;
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.fillText(String(text ?? ''), size / 2, size / 2 + size * 0.04);
+		const tex = new THREE.CanvasTexture(canvas);
+		tex.needsUpdate = true;
+		_glyphTextures.set(text, tex);
+		return tex;
+	}
+
 	let sm = $derived(getSketchMode());
 	let entities = $derived(getSketchEntities());
 	let positions = $derived(getSketchPositions());
@@ -893,12 +915,14 @@
 		</HTML>
 	{/if}
 
-	<!-- Constraint labels -->
+	<!-- Constraint labels: small badge showing the constraint glyph (H/V/M/…) -->
 	{#each constraintLabels as label, i}
 		<T.Mesh position={[label.world.x, label.world.y, label.world.z]} renderOrder={12}
 			raycast={() => {}}>
-			<T.PlaneGeometry args={[label.failed ? 0.00016 : 0.00012, label.failed ? 0.00016 : 0.00012]} />
-			<T.MeshBasicMaterial color={label.failed ? COLOR_OVERCONSTRAINED : COLOR_DEFAULT} depthTest={false} transparent opacity={0.7} />
+			<T.PlaneGeometry args={[label.failed ? 0.0002 : 0.00016, label.failed ? 0.0002 : 0.00016]} />
+			<T.MeshBasicMaterial map={glyphTexture(label.text)}
+				color={label.failed ? COLOR_OVERCONSTRAINED : COLOR_SNAP}
+				depthTest={false} transparent opacity={0.95} />
 		</T.Mesh>
 	{/each}
 

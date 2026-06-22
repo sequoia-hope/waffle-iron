@@ -119,6 +119,8 @@ let dragPointId = null;
 let dragLineId = null;
 /** @type {{ x: number, y: number } | null} Sketch position where a line drag started */
 let dragLineStart = null;
+/** @type {object | null} Most recent snap during a point drag (applied on release) */
+let lastDragSnap = null;
 /** @type {{ x: number, y: number } | null} Screen position at drag start */
 let selectPointerDownPos = null;
 
@@ -204,6 +206,7 @@ export function resetTool() {
 	dragPointId = null;
 	dragLineId = null;
 	dragLineStart = null;
+	lastDragSnap = null;
 	selectPointerDownPos = null;
 	if (getDragState()) finalizeDrag();
 	hideDimensionPopup();
@@ -276,6 +279,9 @@ export function handleToolEvent(activeTool, eventType, sketchX, sketchY, screenP
 		log('sketch', `Tool ${activeTool} pointerdown`, { tool: activeTool, x: +sketchX.toFixed(2), y: +sketchY.toFixed(2) });
 	}
 	switch (activeTool) {
+		case 'point':
+			handlePointTool(eventType, sketchX, sketchY, screenPixelSize);
+			break;
 		case 'line':
 			handleLineTool(eventType, sketchX, sketchY, screenPixelSize);
 			break;
@@ -338,6 +344,35 @@ function updateSnapCandidates(snap, screenPixelSize) {
 		}));
 	} else {
 		setSnapCandidates(raw);
+	}
+}
+
+// ---- Point Tool ----
+
+/**
+ * Standalone point tool: each click drops a sketch point at the (optionally
+ * snapped) location. Snapping to the origin / a reference point pins it, and
+ * snapping onto a line midpoint adds a Midpoint constraint.
+ */
+function handlePointTool(eventType, x, y, screenPixelSize) {
+	const snap = detectSnaps(x, y, null, screenPixelSize);
+	setSnapIndicator(snap.indicator);
+
+	if (eventType === 'pointermove') {
+		updateSnapCandidates(snap, screenPixelSize);
+		return;
+	}
+
+	if (eventType === 'pointerdown') {
+		isDragging = false;
+		beginSketchAction();
+		// snapPointId reuse would just re-select an existing point; for the point
+		// tool we always want to drop a new point unless coincident-snapping.
+		const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
+		applyPointSnapConstraints(pt.id, snap);
+		endSketchAction();
+		setSnapIndicator(null);
+		log('sketch', 'Point created', { id: pt.id });
 	}
 }
 
@@ -819,6 +854,7 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 		if (dragPointId != null) {
 			const snap = detectSnaps(x, y, dragPointId, screenPixelSize);
 			setSnapIndicator(snap.indicator);
+			lastDragSnap = snap;
 			dragSketchPoint(dragPointId, snap.x, snap.y);
 			return;
 		}
@@ -844,6 +880,7 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 						dragPointId = hitId;
 						const snap = detectSnaps(x, y, dragPointId, screenPixelSize);
 						setSnapIndicator(snap.indicator);
+						lastDragSnap = snap;
 						dragSketchPoint(dragPointId, snap.x, snap.y);
 						return;
 					}
@@ -945,6 +982,9 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 	if (eventType === 'pointerup') {
 		if (dragPointId != null) {
 			finalizeDrag();
+			// If the drag ended on a snap (origin, another point, a midpoint),
+			// commit the corresponding permanent constraint so the snap "sticks".
+			applyDragEndConstraints(dragPointId, lastDragSnap);
 			dragPointId = null;
 		}
 		if (dragLineId != null) {
@@ -952,8 +992,26 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 			dragLineId = null;
 			dragLineStart = null;
 		}
+		lastDragSnap = null;
 		selectPointerDownPos = null;
 	}
+}
+
+/**
+ * After a point drag, commit a permanent constraint matching the snap the drag
+ * released on. Origin/reference snaps pin via WhereDragged; landing on another
+ * point makes them Coincident; landing on a line midpoint pins via Midpoint.
+ * A free release (no snap) adds nothing.
+ * @param {number} pointId
+ * @param {object | null} snap
+ */
+function applyDragEndConstraints(pointId, snap) {
+	if (!snap) return;
+	if (snap.snapPointId != null && snap.snapPointId !== pointId) {
+		addLocalConstraint({ type: 'Coincident', point_a: pointId, point_b: snap.snapPointId });
+		return;
+	}
+	applyPointSnapConstraints(pointId, snap);
 }
 
 /**

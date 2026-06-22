@@ -145,6 +145,7 @@
 
 	const sketchTools = [
 		{ id: 'select', label: 'Select', shortcut: '' },
+		{ id: 'point', label: 'Point', shortcut: '' },
 		{ id: 'line', label: 'Line', shortcut: 'L' },
 		{ id: 'polyline', label: 'Poly', shortcut: 'P' },
 		{ id: 'rectangle', label: 'Rect', shortcut: 'R' },
