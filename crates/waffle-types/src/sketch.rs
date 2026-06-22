@@ -171,18 +171,21 @@ pub enum SketchEntity {
         id: u32,
         x: f64,
         y: f64,
+        #[serde(default)]
         construction: bool,
     },
     Line {
         id: u32,
         start_id: u32,
         end_id: u32,
+        #[serde(default)]
         construction: bool,
     },
     Circle {
         id: u32,
         center_id: u32,
         radius: f64,
+        #[serde(default)]
         construction: bool,
     },
     Arc {
@@ -190,11 +193,13 @@ pub enum SketchEntity {
         center_id: u32,
         start_id: u32,
         end_id: u32,
+        #[serde(default)]
         construction: bool,
     },
     Spline {
         id: u32,
         point_ids: Vec<u32>,
+        #[serde(default)]
         construction: bool,
     },
     /// A parametric gear profile. Stored compactly; expanded to primitives on demand.
