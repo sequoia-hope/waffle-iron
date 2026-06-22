@@ -14,6 +14,7 @@ import { sampleBSpline } from '$lib/sketch/bspline.js';
 import { getPreview, getSnapIndicator, getSnapCandidates as _getSnapCandidates } from '$lib/sketch/sketchToolState.svelte.js';
 import { resetTool, getToolState as _getToolState, getIsDragging as _getIsDragging, getPointerDownPos as _getPointerDownPos, getStartPos as _getStartPos, getStartPointId as _getStartPointId, getToolEventLog as _getToolEventLog, clearToolEventLog as _clearToolEventLog } from '$lib/sketch/tools.js';
 import { buildSketchPlane, sketchToScreen } from '$lib/sketch/sketchCoords.js';
+import { computeConstraintBadges } from '$lib/sketch/constraintBadges.js';
 import { isDatumPlaneRef, getPlaneIdFromRef, getPlaneById, resolvePlane, BUILTIN_PLANES } from './planes.js';
 import { fetchTestCases, fetchTestCase, createTestCase as apiCreateTestCase, deleteTestCase as apiDeleteTestCase } from './testCaseApi.js';
 
@@ -109,6 +110,9 @@ let selectedConstraintIndex = $state(null);
 
 /** @type {Map<string, {dx:number, dy:number}>} Per-constraint badge display offsets (cosmetic, session-only) */
 let constraintBadgeOffsets = $state(new Map());
+
+/** @type {number} Live sketch units per screen pixel (updated by SketchInteraction) */
+let sketchPixelSize = $state(0.00001);
 
 /** @type {number | null} */
 let hoveredProfileIndex = $state(null);
@@ -758,6 +762,7 @@ export async function initEngine() {
 			setSelectedConstraintIndex: (idx) => setSelectedConstraintIndex(idx),
 			deleteSelectedConstraint: () => deleteSelectedConstraint(),
 			getConstraintBadgeOffsets: () => Object.fromEntries(constraintBadgeOffsets),
+			getConstraintBadges: () => getConstraintBadges(),
 			addSketchEntity: (entity) => addLocalEntity(entity),
 			addSketchConstraint: (constraint) => addLocalConstraint(constraint),
 			removeSketchEntities: (ids) => removeSketchEntities(new Set(ids)),
@@ -2459,6 +2464,18 @@ export function setSelectedConstraintIndex(idx) {
 		sketchSelection = new Set();
 		selectedProfileIndex = null;
 	}
+}
+
+export function getSketchPixelSize() { return sketchPixelSize; }
+/** @param {number} v */
+export function setSketchPixelSize(v) { if (v > 0 && v !== sketchPixelSize) sketchPixelSize = v; }
+
+/** Compute current geometric constraint badge positions (sketch coords). */
+export function getConstraintBadges() {
+	return computeConstraintBadges(
+		sketchConstraints, sketchEntities, sketchPositions,
+		failedConstraintIndices, constraintBadgeOffsets, sketchPixelSize
+	);
 }
 
 /** @returns {Map<string, {dx:number, dy:number}>} */

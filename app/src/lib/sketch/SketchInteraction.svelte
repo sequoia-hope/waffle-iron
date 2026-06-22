@@ -6,7 +6,8 @@
 		getSketchMode,
 		getActiveTool,
 		setSketchCursorPos,
-		isTwoFingerGestureActive
+		isTwoFingerGestureActive,
+		setSketchPixelSize
 	} from '$lib/engine/store.svelte.js';
 	import { buildSketchPlane, screenToSketchCoords } from './sketchCoords.js';
 	import { handleToolEvent, resetTool } from './tools.js';
@@ -72,6 +73,7 @@
 			if (!coords) return;
 
 			const screenPixelSize = getScreenPixelSize(cam, plane.origin, canvas.clientHeight);
+			setSketchPixelSize(screenPixelSize);
 			const shiftKey = e.shiftKey;
 			const tool = getActiveTool();
 

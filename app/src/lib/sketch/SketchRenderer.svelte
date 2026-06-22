@@ -18,7 +18,8 @@
 		getGearDisplay,
 		getGearRegistry,
 		getConstraintBadgeOffsets,
-		getSelectedConstraintIndex
+		getSelectedConstraintIndex,
+		getSketchPixelSize
 	} from '$lib/engine/store.svelte.js';
 	import { getPreview, getSnapIndicator, getSnapCandidates } from './sketchToolState.svelte.js';
 	import { buildSketchPlane, sketchToWorld } from './sketchCoords.js';
@@ -505,9 +506,10 @@
 	// sketch-space positions; map them to world here.
 	let badgeOffsets = $derived(getConstraintBadgeOffsets());
 	let selectedConstraintIndex = $derived(getSelectedConstraintIndex());
+	let badgePixelSize = $derived(getSketchPixelSize());
 	let constraintLabels = $derived.by(() => {
 		if (!plane) return [];
-		return computeConstraintBadges(constraints, entities, positions, failedIndices, badgeOffsets)
+		return computeConstraintBadges(constraints, entities, positions, failedIndices, badgeOffsets, badgePixelSize)
 			.map((b) => ({
 				index: b.index,
 				text: b.glyph,

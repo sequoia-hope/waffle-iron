@@ -142,7 +142,7 @@ function hitTestConstraintBadge(x, y, screenPixelSize) {
 	const threshold = 10 * screenPixelSize;
 	const badges = computeConstraintBadges(
 		getSketchConstraints(), getSketchEntities(), getSketchPositions(),
-		getFailedConstraintIndices(), getConstraintBadgeOffsets()
+		getFailedConstraintIndices(), getConstraintBadgeOffsets(), screenPixelSize
 	);
 	let best = null;
 	let bestDist = threshold;
@@ -977,13 +977,14 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 		dragPointId = null;
 		pendingBadge = null;
 
-		// A point directly under the cursor wins (corner handles must stay
-		// draggable). Otherwise a constraint badge here selects/primes-drag it.
-		// Badges glyphs sit just off their geometry, so this only competes with
-		// a line/circle edge near the badge — acceptable (the badge is the
-		// intended target there).
-		const directPoint = findPointNear(x, y, 8 * screenPixelSize);
-		if (!directPoint) {
+		// Entities win — a badge is drawn a constant pixel gap off its geometry
+		// (see constraintBadges.js), so it never overlaps a line/point hit zone.
+		// Only when nothing geometric is under the cursor do we test badges.
+		let hitId = hitTest(x, y, screenPixelSize);
+		if (hitId == null) hitId = hitTestGear(x, y);
+		const selection = getSketchSelection();
+
+		if (hitId == null) {
 			const badge = hitTestConstraintBadge(x, y, screenPixelSize);
 			if (badge) {
 				setSelectedConstraintIndex(badge.index);
@@ -992,11 +993,6 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 			}
 		}
 		setSelectedConstraintIndex(null);
-
-		// Try concrete geometry first, then fall back to gear-body selection.
-		let hitId = hitTest(x, y, screenPixelSize);
-		if (hitId == null) hitId = hitTestGear(x, y);
-		const selection = getSketchSelection();
 
 		if (hitId == null) {
 			// Check if clicking inside a profile region

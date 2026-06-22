@@ -5,28 +5,21 @@
 import { test, expect } from './helpers/waffle-test.js';
 import { clickSketch, clickRectangle, clickSelect } from './helpers/toolbar.js';
 import { drawRectangle, clickAt, dragLine } from './helpers/canvas.js';
-import { getEntities, waitForEntityCount } from './helpers/state.js';
+import { waitForEntityCount } from './helpers/state.js';
 import { getConstraintCount } from './helpers/constraint.js';
 
-async function positions(page) {
-	return page.evaluate(() => Object.fromEntries(window.__waffle.getPositions()));
-}
 async function sketchToOffset(page, sx, sy) {
 	return page.evaluate(([x, y]) => window.__waffle.sketchToScreenOffset(x, y), [sx, sy]);
 }
-async function rectBBox(page) {
-	const pos = await positions(page);
-	const pts = (await getEntities(page)).filter((e) => e.type === 'Point').map((e) => e.id);
-	const xs = pts.map((id) => pos[id].x), ys = pts.map((id) => pos[id].y);
-	return {
-		minX: Math.min(...xs), maxX: Math.max(...xs),
-		minY: Math.min(...ys), maxY: Math.max(...ys),
-		cx: (Math.min(...xs) + Math.max(...xs)) / 2,
-		cy: (Math.min(...ys) + Math.max(...ys)) / 2,
-	};
+async function badges(page) {
+	return page.evaluate(() => window.__waffle.getConstraintBadges());
 }
-
-const V_OFFSET = 0.00015; // matches constraintBadges.js
+/** Screen offset of the first badge (its computed sketch position). */
+async function firstBadgeOffset(page) {
+	const list = await badges(page);
+	expect(list.length, 'at least one badge').toBeGreaterThan(0);
+	return sketchToOffset(page, list[0].sx, list[0].sy);
+}
 
 test.describe('constraint badge interaction', () => {
 	test('click selects a badge, Delete removes the constraint', async ({ waffle }) => {
@@ -42,9 +35,8 @@ test.describe('constraint badge interaction', () => {
 
 		await clickSelect(page);
 
-		// The bottom edge's 'H' badge sits at (cx, minY + V_OFFSET).
-		const bb = await rectBBox(page);
-		const badge = await sketchToOffset(page, bb.cx, bb.minY + V_OFFSET);
+		// Click the first badge at its actual computed position.
+		const badge = await firstBadgeOffset(page);
 		await clickAt(page, badge.x, badge.y);
 		await page.waitForTimeout(150);
 
@@ -68,8 +60,7 @@ test.describe('constraint badge interaction', () => {
 		await page.waitForTimeout(400);
 		await clickSelect(page);
 
-		const bb = await rectBBox(page);
-		const badge = await sketchToOffset(page, bb.cx, bb.minY + V_OFFSET);
+		const badge = await firstBadgeOffset(page);
 		// Drag the badge sideways.
 		await dragLine(page, badge.x, badge.y, badge.x + 40, badge.y + 10);
 		await page.waitForTimeout(300);
