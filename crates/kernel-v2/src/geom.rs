@@ -60,6 +60,15 @@ pub fn dot(a: UnitVector3, b: UnitVector3) -> f64 {
     a.x * b.x + a.y * b.y + a.z * b.z
 }
 
+/// Radial distance from the axis to a right-circular-cone surface at axial
+/// coordinate `tau` (the signed distance from the apex measured along the
+/// axis): `tau · tan(half_angle)`. `validate_cone_face` uses it to check rim
+/// radii and vertex-on-surface residuals (KV6c). `half_angle ∈ (0, π/2)`, so
+/// the value is positive exactly on the `+axis` nappe (`tau > 0`).
+pub fn cone_radius_at(tau: f64, half_angle: f64) -> f64 {
+    tau * half_angle.tan()
+}
+
 /// Wrap an angle to the principal interval `(−π, π]`.
 pub(crate) fn wrap_to_pi(mut x: f64) -> f64 {
     use std::f64::consts::PI;
@@ -742,6 +751,19 @@ pub(crate) fn rotate_about_axis(center: Point3, axis: [f64; 3], p: Point3, theta
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cone_radius_at_is_tau_times_tan_half_angle() {
+        // 45° cone: radius == axial distance from the apex.
+        let q = std::f64::consts::FRAC_PI_4;
+        assert!((cone_radius_at(1.0, q) - 1.0).abs() < 1e-12);
+        assert!((cone_radius_at(3.0, q) - 3.0).abs() < 1e-12);
+        // 30° cone: radius == τ·tan(30°) == τ/√3.
+        let h = std::f64::consts::FRAC_PI_6;
+        assert!((cone_radius_at(2.0, h) - 2.0 / 3.0_f64.sqrt()).abs() < 1e-12);
+        // Behind the apex (τ < 0) yields a negative radius — callers reject it.
+        assert!(cone_radius_at(-1.0, q) < 0.0);
+    }
 
     #[test]
     fn newell_of_ccw_unit_square_is_plus_z() {

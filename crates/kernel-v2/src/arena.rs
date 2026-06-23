@@ -197,6 +197,34 @@ pub enum Surface {
         /// `true` = outward toward the axis (cavity wall).
         reversed: bool,
     },
+    /// Right-circular cone (frustum) lateral surface: the half-line of
+    /// half-angle `half_angle` to the axis through `apex` along unit
+    /// `axis_dir`, swept around that axis. The field shape mirrors
+    /// `yang_rs::Surface::Cone` (`apex` / `axis_dir` / `half_angle`) so the
+    /// KV6c boolean conversion is a field-for-field copy, plus the `reversed`
+    /// cavity flag every kernel-v2 curved surface carries (see
+    /// [`Surface::Cylinder`]).
+    ///
+    /// A point `p` lies on the surface when its axial coordinate
+    /// `τ = (p − apex) · axis_dir` is `> 0` (the single nappe on the
+    /// `+axis_dir` side of the apex) and its radial distance from the axis
+    /// equals `τ · tan(half_angle)` (see [`crate::geom::cone_radius_at`]).
+    /// With `reversed == false` the outward side faces radially **away from
+    /// the axis** (a solid cone / frustum); `reversed == true` is the cavity
+    /// sense — outward **toward the axis** (a conical bore wall) — exactly as
+    /// for [`Surface::Cylinder`]. `half_angle ∈ (0, π/2)`.
+    Cone {
+        /// The apex, where the surface degenerates to a point.
+        apex: Point3,
+        /// Unit axis direction, oriented so on-surface points have
+        /// `(p − apex) · axis_dir > 0`.
+        axis_dir: UnitVector3,
+        /// Half-angle between the axis and the slant, radians, `∈ (0, π/2)`.
+        half_angle: f64,
+        /// Cavity sense: `false` = outward away from the axis (solid),
+        /// `true` = outward toward the axis (conical bore wall).
+        reversed: bool,
+    },
 }
 
 /// Curve descriptor carried by a half-edge, AS TRAVERSED by that half-edge.

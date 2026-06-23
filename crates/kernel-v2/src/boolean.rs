@@ -498,6 +498,12 @@ pub fn to_yang_brep_indexed(
                         reversed,
                     });
                 }
+                Some(Surface::Cone { .. }) => {
+                    return Err(KernelV2Error::CurvedGeometryMismatch {
+                        face: f,
+                        reason: "to_yang: Surface::Cone not yet implemented (KV6c increment 5)",
+                    })
+                }
                 None => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
             }
         }

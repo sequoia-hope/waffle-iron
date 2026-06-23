@@ -221,6 +221,13 @@ pub fn tessellate_with_chord_tolerance(
                         tessellate_planar_face(arena, f, n_seg, &mut mesh)?
                     }
                 }
+                Some(Surface::Cone { .. }) => {
+                    return Err(KernelV2Error::CurvedGeometryMismatch {
+                        face: f,
+                        reason:
+                            "tessellation: Surface::Cone not yet implemented (KV6c increment 3)",
+                    })
+                }
                 None => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
             }
         }
