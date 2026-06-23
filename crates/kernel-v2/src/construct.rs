@@ -321,6 +321,23 @@ enum EdgeClass {
     /// vanishes into an annulus bounded by its endpoint rims (full turn).
     /// `outward_plus_axis` = the face's outward normal is `+â`.
     Perpendicular { outward_plus_axis: bool },
+    /// Both radius and axial height change: sweeps a CONE (frustum) band
+    /// (KV6c). Topologically a wall, exactly like [`EdgeClass::Parallel`] —
+    /// two rim circles (at the edge's two radii) plus two seams — only the
+    /// surface differs. The cone parameters are derived from the slant in
+    /// [`validate_revolve_geometry`]: `apex` is where the slant, extended,
+    /// meets the axis; `axis_dir` is oriented so both rims have a positive
+    /// axial coordinate (apex behind); `half_angle = atan|Δs/Δt|`;
+    /// `reversed` = material on the larger-radius side (an inner bore),
+    /// the same `dt > 0` rule as `Parallel`. Only the full-turn builder
+    /// handles it; a partial revolve of an oblique edge sweeps an
+    /// arc-bounded cone patch (KV6c increment 5) and is rejected typed.
+    Oblique {
+        apex: Point3,
+        axis_dir: UnitVector3,
+        half_angle: f64,
+        reversed: bool,
+    },
 }
 
 /// Validated revolve geometry, computed before any arena mutation.
@@ -374,6 +391,16 @@ pub fn revolve(
     if full_turn {
         build_full_revolve(arena, &frame)
     } else {
+        // A partial revolve of an oblique edge sweeps an ARC-bounded cone
+        // patch, which neither the cone tessellation nor `validate_cone_face`
+        // handles yet (KV6c increment 5). Reject before any mutation.
+        if frame
+            .edges
+            .iter()
+            .any(|e| matches!(e, EdgeClass::Oblique { .. }))
+        {
+            return Err(KernelV2Error::RevolveObliqueEdgeUnsupported);
+        }
         build_partial_revolve(arena, &frame, angle_rad)
     }
 }
@@ -531,7 +558,26 @@ fn validate_revolve_geometry(
                 outward_plus_axis: ds > 0.0,
             });
         } else {
-            return Err(KernelV2Error::RevolveObliqueEdgeUnsupported);
+            // Oblique edge → cone frustum band (KV6c). The slant, extended,
+            // meets the axis at `t_apex` (where s = 0): from s = s[i] +
+            // (t − t[i])·ds/dt, set s = 0. `half_angle = atan|ds/dt|`; orient
+            // `axis_dir` toward increasing radius so both rims have τ > 0
+            // (apex behind). `reversed = dt > 0`, the same material-sense rule
+            // as `Parallel` (the cone's default outward normal points away
+            // from the axis; `reversed` flips it toward the axis for a bore).
+            let t_apex = t[i] - s[i] * dt / ds;
+            let apex = Point3::new(
+                axis_origin.x() + t_apex * a.x,
+                axis_origin.y() + t_apex * a.y,
+                axis_origin.z() + t_apex * a.z,
+            );
+            let axis_dir = if (ds > 0.0) == (dt > 0.0) { a } else { neg(a) };
+            edges.push(EdgeClass::Oblique {
+                apex,
+                axis_dir,
+                half_angle: (ds / dt).abs().atan(),
+                reversed: dt > 0.0,
+            });
         }
     }
 
@@ -765,6 +811,9 @@ fn build_partial_revolve(
                 point: fr.ring0[i],
                 normal: if outward_plus_axis { fr.a } else { neg(fr.a) },
             }),
+            // Oblique edges are rejected before `build_partial_revolve` is
+            // called (see `revolve`); this arm keeps the match exhaustive.
+            EdgeClass::Oblique { .. } => return Err(KernelV2Error::RevolveObliqueEdgeUnsupported),
         };
         arena.faces.push(Some(Face {
             surface: Some(surface),
@@ -816,18 +865,16 @@ fn build_full_revolve(
         y: -u.y,
         z: -u.z,
     };
+    // Walls (Parallel cylinders and Oblique cones) must alternate with
+    // Perpendicular annuli: each shared vertex pairs one wall rim with one
+    // annulus rim (the twin structure). Two consecutive walls — or two
+    // consecutive annuli — break that pairing.
+    let is_wall =
+        |c: EdgeClass| matches!(c, EdgeClass::Parallel { .. } | EdgeClass::Oblique { .. });
     for i in 0..k {
-        let same = matches!(
-            (fr.edges[i], fr.edges[(i + 1) % k]),
-            (EdgeClass::Parallel { .. }, EdgeClass::Parallel { .. })
-                | (
-                    EdgeClass::Perpendicular { .. },
-                    EdgeClass::Perpendicular { .. }
-                )
-        );
-        if same {
+        if is_wall(fr.edges[i]) == is_wall(fr.edges[(i + 1) % k]) {
             return Err(KernelV2Error::NotImplemented(
-                "PR-KV6a full-turn revolve of non-alternating rectilinear profiles",
+                "PR-KV6a full-turn revolve of non-alternating profiles",
             ));
         }
     }
@@ -899,7 +946,7 @@ fn build_full_revolve(
     for (i, cls) in fr.edges.iter().enumerate() {
         let j = (i + 1) % k;
         match *cls {
-            EdgeClass::Parallel { reversed, .. } => {
+            EdgeClass::Parallel { reversed, .. } | EdgeClass::Oblique { reversed, .. } => {
                 // Rim normals: for an outward wall the rim's traversal axis
                 // points TOWARD the opposite rim (the KV5a canonical rule);
                 // for a reversed (inner-bore) wall it points AWAY — the
@@ -992,7 +1039,7 @@ fn build_full_revolve(
     for (i, cls) in fr.edges.iter().enumerate() {
         let j = (i + 1) % k;
         let boundary = match *cls {
-            EdgeClass::Parallel { .. } => he(i, 0),
+            EdgeClass::Parallel { .. } | EdgeClass::Oblique { .. } => he(i, 0),
             EdgeClass::Perpendicular { .. } => {
                 let vo = if fr.s[i] >= fr.s[j] { i } else { j };
                 he(i, if vo == i { 0 } else { 2 })
@@ -1030,6 +1077,17 @@ fn build_full_revolve(
                 point: fr.ring0[i],
                 normal: if outward_plus_axis { fr.a } else { neg(fr.a) },
             }),
+            EdgeClass::Oblique {
+                apex,
+                axis_dir,
+                half_angle,
+                reversed,
+            } => Surface::Cone {
+                apex,
+                axis_dir,
+                half_angle,
+                reversed,
+            },
         };
         let inner: Vec<LoopId> = ring_loops
             .iter()
@@ -1056,7 +1114,7 @@ fn build_full_revolve(
                     walls.push(face_of(i));
                 }
             }
-            EdgeClass::Parallel { .. } => walls.push(face_of(i)),
+            EdgeClass::Parallel { .. } | EdgeClass::Oblique { .. } => walls.push(face_of(i)),
         }
     }
     let (Some(start_cap), Some(end_cap)) = (start_cap, end_cap) else {

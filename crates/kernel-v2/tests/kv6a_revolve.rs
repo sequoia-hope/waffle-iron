@@ -585,6 +585,62 @@ fn oblique_edges_circle_profiles_and_holes_rejected_typed() {
 }
 
 // =========================================================================
+// KV6c: full-turn cone (oblique edge → frustum band)
+// =========================================================================
+
+/// A conical washer — inner cylinder r=1, two annular caps, and an OUTER cone
+/// frustum (radius 2 at axial 0 rising to 3 at axial 3) — revolved 360° about
+/// the x-axis. The oblique edge (3,3)→(0,2) sweeps a `Surface::Cone` band
+/// (KV6c increment 4). The solid-of-revolution volume is
+/// ∫₀³ π((2 + x/3)² − 1) dx = 16π.
+#[test]
+fn full_turn_oblique_edge_builds_cone_frustum() {
+    let profile = Profile::new(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(0.0, 1.0),
+            Point2::new(3.0, 1.0),
+            Point2::new(3.0, 3.0),
+            Point2::new(0.0, 2.0),
+        ],
+        vec![],
+    )
+    .expect("conical-washer profile");
+    let mut arena = BrepArena::new();
+    let r = revolve(&mut arena, &profile, AXIS_O, AXIS_D, 2.0 * PI)
+        .expect("full-turn oblique revolve builds a cone frustum");
+
+    // `validate_solid` already ran inside `revolve` (finalize_solid). Confirm
+    // exactly one cone lateral was built.
+    let cone_walls = r
+        .walls
+        .iter()
+        .filter(|&&w| matches!(arena.face(w).unwrap().surface, Some(Surface::Cone { .. })))
+        .count();
+    assert_eq!(cone_walls, 1, "exactly one cone frustum wall");
+
+    // Analytic solid-of-revolution volume = 16π. This is the orientation
+    // oracle: a wrong cone normal / reversed sense would shift the total.
+    let v = geom::signed_volume(&arena, r.solid).expect("volume");
+    assert!(
+        (v - 16.0 * PI).abs() < 1e-9,
+        "volume {v}, want {}",
+        16.0 * PI
+    );
+
+    // Tessellation succeeds end to end (exercises tessellate_cone_lateral).
+    let mesh = tessellate(&arena, r.solid).expect("frustum solid tessellates");
+    let nv = mesh.num_vertices();
+    assert!(!mesh.indices.is_empty(), "non-empty mesh");
+    assert!(
+        mesh.indices.iter().all(|&i| (i as usize) < nv),
+        "all triangle indices in range"
+    );
+}
+
+// =========================================================================
 // 5. Determinism
 // =========================================================================
 

@@ -263,15 +263,24 @@ pub fn signed_volume(
                 continue;
             }
 
-            if let Some(Surface::Cone { apex, axis_dir, .. }) = face.surface {
+            if let Some(Surface::Cone {
+                apex,
+                axis_dir,
+                reversed,
+                ..
+            }) = face.surface
+            {
                 // Frustum lateral: exactly two full-circle rims (validated
-                // shape). The divergence-theorem flux is
-                // `(1/3)∮ x·n̂ dA = −(π/3)·(apex·axis)·(ρ_hi² − ρ_lo²)` with the
-                // rim radii ordered by axial coordinate `τ = (center − apex)·
-                // axis`. The `apex·axis` terms of the lateral and the two flat
-                // caps cancel, leaving the analytic frustum volume
-                // `(π·H/3)(ρ₀² + ρ₀ρ₁ + ρ₁²)` — so a sign error here shows up
-                // as a wrong total on any apex off the coordinate origin.
+                // shape). With the outward normal `cos α·r̂ − sin α·axis`, the
+                // divergence-theorem flux is
+                // `(1/3)∮ x·n̂ dA = −(π/3)·(apex·axis)·(ρ_hi² − ρ_lo²)`, the rim
+                // radii ordered by axial coordinate `τ = (center − apex)·axis`
+                // (axis points away from the apex ⇒ τ > 0). A `reversed` bore
+                // wall has the opposite outward normal, negating the flux. The
+                // `apex·axis` terms of an outward frustum's lateral and its two
+                // flat caps cancel to the analytic frustum volume
+                // `(π·H/3)(ρ₀² + ρ₀ρ₁ + ρ₁²)` — so a sign error here shows up as
+                // a wrong total on any apex off the coordinate origin.
                 let rims: Vec<_> = loop_data
                     .iter()
                     .flat_map(|(_, _, c)| c.iter().copied())
@@ -297,7 +306,8 @@ pub fn signed_volume(
                 let a_dot = rq(apex.x()) * rq(axis_dir.x)
                     + rq(apex.y()) * rq(axis_dir.y)
                     + rq(apex.z()) * rq(axis_dir.z);
-                three_pi += -a_dot * (rq(rhi) * rq(rhi) - rq(rlo) * rq(rlo));
+                let signed = if reversed { a_dot } else { -a_dot };
+                three_pi += signed * (rq(rhi) * rq(rhi) - rq(rlo) * rq(rlo));
                 continue;
             }
 
