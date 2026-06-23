@@ -65,6 +65,8 @@
 pub mod adapter;
 pub mod arena;
 pub mod boolean;
+#[cfg(test)]
+pub(crate) mod cone_fixtures;
 pub mod construct;
 pub mod error;
 pub mod euler;

@@ -149,6 +149,11 @@ pub(crate) fn ccw_sweep(
 ///   `∮ r̂ dθ = 0`, so the exact flux is `(1/3) · 2π ρ² ℓ` with
 ///   `ℓ = (c_other − c_this) · ν` taken from the bottom rim (positive for
 ///   outward laterals).
+/// - **Cone (frustum) laterals** (PR-KV6c): with outward normal
+///   `cos α·r̂ − sin α·axis`, the exact flux is
+///   `−(1/3)·π·(apex·axis)·(ρ_hi² − ρ_lo²)` (rim radii ordered by axial
+///   coordinate). The `apex·axis` terms of the lateral and its two caps
+///   cancel to the analytic frustum volume `(π·H/3)(ρ₀² + ρ₀ρ₁ + ρ₁²)`.
 ///
 /// The π-terms are accumulated as an **exact `dashu` rational coefficient**
 /// (every `f64` converts losslessly), so algebraic cancellations — e.g. the
@@ -255,6 +260,44 @@ pub fn signed_volume(
                     + (rq(c1.y()) - rq(c0.y())) * rq(nu.y)
                     + (rq(c1.z()) - rq(c0.z())) * rq(nu.z);
                 three_pi += RBig::from(2) * rq(rad) * rq(rad) * ell;
+                continue;
+            }
+
+            if let Some(Surface::Cone { apex, axis_dir, .. }) = face.surface {
+                // Frustum lateral: exactly two full-circle rims (validated
+                // shape). The divergence-theorem flux is
+                // `(1/3)∮ x·n̂ dA = −(π/3)·(apex·axis)·(ρ_hi² − ρ_lo²)` with the
+                // rim radii ordered by axial coordinate `τ = (center − apex)·
+                // axis`. The `apex·axis` terms of the lateral and the two flat
+                // caps cancel, leaving the analytic frustum volume
+                // `(π·H/3)(ρ₀² + ρ₀ρ₁ + ρ₁²)` — so a sign error here shows up
+                // as a wrong total on any apex off the coordinate origin.
+                let rims: Vec<_> = loop_data
+                    .iter()
+                    .flat_map(|(_, _, c)| c.iter().copied())
+                    .collect();
+                if rims.len() != 2 {
+                    return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
+                        face: f,
+                        reason: "signed_volume: cone face without exactly two rims",
+                    });
+                }
+                let tau = |c: Point3| {
+                    (c.x() - apex.x()) * axis_dir.x
+                        + (c.y() - apex.y()) * axis_dir.y
+                        + (c.z() - apex.z()) * axis_dir.z
+                };
+                let (c0, _, r0) = rims[0];
+                let (c1, _, r1) = rims[1];
+                let (rlo, rhi) = if tau(c0) <= tau(c1) {
+                    (r0, r1)
+                } else {
+                    (r1, r0)
+                };
+                let a_dot = rq(apex.x()) * rq(axis_dir.x)
+                    + rq(apex.y()) * rq(axis_dir.y)
+                    + rq(apex.z()) * rq(axis_dir.z);
+                three_pi += -a_dot * (rq(rhi) * rq(rhi) - rq(rlo) * rq(rlo));
                 continue;
             }
 
@@ -751,6 +794,36 @@ pub(crate) fn rotate_about_axis(center: Point3, axis: [f64; 3], p: Point3, theta
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn signed_volume_of_frustum_matches_analytic() {
+        use crate::arena::UnitVector3;
+        use crate::cone_fixtures::build_frustum;
+        use std::f64::consts::{FRAC_PI_4, PI};
+        // 45° frustum, rims at radii 1 and 2 (τ = 1..2 ⇒ H = 1). Analytic
+        // frustum volume = (π·H/3)(r0² + r0·r1 + r1²) = (π/3)(1 + 2 + 4) = 7π/3.
+        // Apex deliberately OFF the origin (z = 3) so the cone lateral's
+        // (apex·axis) flux term is non-zero and must cancel against the caps.
+        let plus_z = UnitVector3 {
+            x: 0.0,
+            y: 0.0,
+            z: 1.0,
+        };
+        let (arena, solid, _lat) = build_frustum(
+            Point3::new(5.0, -2.0, 3.0),
+            plus_z,
+            1.0,
+            2.0,
+            FRAC_PI_4,
+            FRAC_PI_4,
+        );
+        let v = signed_volume(&arena, solid).expect("frustum volume");
+        assert!(
+            (v - 7.0 * PI / 3.0).abs() < 1e-9,
+            "got {v}, want {}",
+            7.0 * PI / 3.0
+        );
+    }
 
     #[test]
     fn cone_radius_at_is_tau_times_tan_half_angle() {

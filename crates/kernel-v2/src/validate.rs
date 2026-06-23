@@ -1328,163 +1328,31 @@ pub(crate) fn debug_check_arena(arena: &BrepArena) -> Result<(), KernelV2Error> 
 
 #[cfg(test)]
 mod cone_tests {
-    use crate::arena::{
-        BrepArena, Curve, Face, FaceId, HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId, LoopKind,
-        Plane, Shell, ShellId, Solid, SolidId, Surface, UnitVector3, Vertex, VertexId,
-    };
+    use crate::arena::UnitVector3;
+    use crate::cone_fixtures::build_frustum;
     use crate::error::KernelV2Error;
     use cad_primitives::Point3;
-
-    /// Build a closed 45° truncated cone (frustum) by hand — same topology as
-    /// `construct::extrude_circle` (2 seam vertices, 6 half-edges, 3 faces),
-    /// but the two rims sit at radii 1 and 2 and the lateral carries a
-    /// `Surface::Cone`. Apex at the origin, axis +z, base rim r=1 at z=1, top
-    /// rim r=2 at z=2 (so radius == axial distance ⇒ a 45° half-angle). The
-    /// `surface_half_angle` parameter is what gets STORED on the cone face,
-    /// letting a wrong value drive the negative test.
-    fn build_frustum(surface_half_angle: f64) -> (BrepArena, SolidId) {
-        let mut arena = BrepArena::new();
-        let a = UnitVector3 {
-            x: 0.0,
-            y: 0.0,
-            z: 1.0,
-        };
-        let neg_a = UnitVector3 {
-            x: 0.0,
-            y: 0.0,
-            z: -1.0,
-        };
-        let (c0, c1) = (Point3::new(0.0, 0.0, 1.0), Point3::new(0.0, 0.0, 2.0));
-        let (r0, r1) = (1.0, 2.0);
-        let (v0, v1) = (Point3::new(1.0, 0.0, 1.0), Point3::new(2.0, 0.0, 2.0));
-
-        let (vid0, vid1) = (VertexId(0), VertexId(1));
-        arena.vertices.push(Some(Vertex { point: v0 }));
-        arena.vertices.push(Some(Vertex { point: v1 }));
-
-        let (cap_b, lat_b, seam_up, lat_t, cap_t, seam_dn) = (
-            HalfEdgeId(0),
-            HalfEdgeId(1),
-            HalfEdgeId(2),
-            HalfEdgeId(3),
-            HalfEdgeId(4),
-            HalfEdgeId(5),
-        );
-        let (loop_base, loop_top, loop_lat) = (LoopId(0), LoopId(1), LoopId(2));
-        let (f_base, f_top, f_lat) = (FaceId(0), FaceId(1), FaceId(2));
-        let shell = ShellId(0);
-        let solid = SolidId(0);
-
-        let circle = |center: Point3, normal: UnitVector3, radius: f64| Curve::Circle {
-            center,
-            normal,
-            radius,
-        };
-        // Base cap boundary: one closed circle CCW around the cap normal −a.
-        arena.half_edges.push(Some(HalfEdge {
-            twin: lat_b,
-            next: cap_b,
-            prev: cap_b,
-            origin: vid0,
-            loop_id: loop_base,
-            curve: circle(c0, neg_a, r0),
-        }));
-        // Lateral loop: bottom rim (toward top, +a), seam up, top rim
-        // (toward bottom, −a), seam down.
-        arena.half_edges.push(Some(HalfEdge {
-            twin: cap_b,
-            next: seam_up,
-            prev: seam_dn,
-            origin: vid0,
-            loop_id: loop_lat,
-            curve: circle(c0, a, r0),
-        }));
-        arena.half_edges.push(Some(HalfEdge {
-            twin: seam_dn,
-            next: lat_t,
-            prev: lat_b,
-            origin: vid0,
-            loop_id: loop_lat,
-            curve: Curve::LineSegment,
-        }));
-        arena.half_edges.push(Some(HalfEdge {
-            twin: cap_t,
-            next: seam_dn,
-            prev: seam_up,
-            origin: vid1,
-            loop_id: loop_lat,
-            curve: circle(c1, neg_a, r1),
-        }));
-        // Top cap boundary: CCW around the cap normal +a.
-        arena.half_edges.push(Some(HalfEdge {
-            twin: lat_t,
-            next: cap_t,
-            prev: cap_t,
-            origin: vid1,
-            loop_id: loop_top,
-            curve: circle(c1, a, r1),
-        }));
-        arena.half_edges.push(Some(HalfEdge {
-            twin: seam_up,
-            next: lat_b,
-            prev: lat_t,
-            origin: vid1,
-            loop_id: loop_lat,
-            curve: Curve::LineSegment,
-        }));
-
-        for (face, boundary) in [(f_base, cap_b), (f_top, cap_t), (f_lat, lat_b)] {
-            arena.loops.push(Some(Loop {
-                face,
-                boundary: LoopBoundary::Edges(boundary),
-                kind: LoopKind::Outer,
-            }));
-        }
-        arena.faces.push(Some(Face {
-            surface: Some(Surface::Plane(Plane {
-                point: c0,
-                normal: neg_a,
-            })),
-            outer_loop: loop_base,
-            inner_loops: Vec::new(),
-            shell,
-        }));
-        arena.faces.push(Some(Face {
-            surface: Some(Surface::Plane(Plane {
-                point: c1,
-                normal: a,
-            })),
-            outer_loop: loop_top,
-            inner_loops: Vec::new(),
-            shell,
-        }));
-        arena.faces.push(Some(Face {
-            surface: Some(Surface::Cone {
-                apex: Point3::new(0.0, 0.0, 0.0),
-                axis_dir: a,
-                half_angle: surface_half_angle,
-                reversed: false,
-            }),
-            outer_loop: loop_lat,
-            inner_loops: Vec::new(),
-            shell,
-        }));
-        arena.shells.push(Some(Shell {
-            solid,
-            faces: vec![f_base, f_top, f_lat],
-            genus: 0,
-        }));
-        arena.solids.push(Some(Solid {
-            shells: vec![shell],
-        }));
-        (arena, solid)
-    }
+    use std::f64::consts::{FRAC_PI_3, FRAC_PI_4};
 
     use super::validate_solid;
 
+    const PLUS_Z: UnitVector3 = UnitVector3 {
+        x: 0.0,
+        y: 0.0,
+        z: 1.0,
+    };
+
     #[test]
     fn frustum_with_matching_half_angle_validates() {
-        let (arena, solid) = build_frustum(std::f64::consts::FRAC_PI_4);
+        // 45° frustum, apex at the origin: rims at radii 1 and 2.
+        let (arena, solid, _lat) = build_frustum(
+            Point3::new(0.0, 0.0, 0.0),
+            PLUS_Z,
+            1.0,
+            2.0,
+            FRAC_PI_4,
+            FRAC_PI_4,
+        );
         let report = validate_solid(&arena, solid).expect("45° frustum must validate");
         assert_eq!(report.faces, 3);
         assert_eq!(report.vertices, 2);
@@ -1495,7 +1363,14 @@ mod cone_tests {
     fn frustum_with_wrong_half_angle_is_rejected() {
         // Geometry is 45° but the stored cone claims 60°: the rim radii no
         // longer satisfy τ·tan(half_angle), so validation rejects it loudly.
-        let (arena, solid) = build_frustum(std::f64::consts::FRAC_PI_3);
+        let (arena, solid, _lat) = build_frustum(
+            Point3::new(0.0, 0.0, 0.0),
+            PLUS_Z,
+            1.0,
+            2.0,
+            FRAC_PI_4,
+            FRAC_PI_3,
+        );
         let err = validate_solid(&arena, solid).expect_err("mismatched half-angle must fail");
         assert!(
             matches!(err, KernelV2Error::CurvedGeometryMismatch { .. }),

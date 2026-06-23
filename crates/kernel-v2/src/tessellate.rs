@@ -222,11 +222,15 @@ pub fn tessellate_with_chord_tolerance(
                     }
                 }
                 Some(Surface::Cone { .. }) => {
-                    return Err(KernelV2Error::CurvedGeometryMismatch {
-                        face: f,
-                        reason:
-                            "tessellation: Surface::Cone not yet implemented (KV6c increment 3)",
-                    })
+                    if face_has_circle_edge(arena, f)? {
+                        tessellate_cone_lateral(arena, f, n_seg, &mut mesh)?
+                    } else {
+                        // Partial cone patch (boolean output) — KV6c increment 5.
+                        return Err(KernelV2Error::CurvedGeometryMismatch {
+                            face: f,
+                            reason: "tessellation: partial Surface::Cone patch not yet implemented (KV6c increment 5)",
+                        });
+                    }
                 }
                 None => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
             }
@@ -915,6 +919,165 @@ fn tessellate_cylinder_lateral(
         } else {
             // CCW-around-axis bottom row + axis toward the top row ⇒ these
             // wind with outward normals (∝ tangent × axis = radial).
+            out.indices.extend_from_slice(&[bk, bk1, tk1]);
+            out.indices.extend_from_slice(&[bk, tk1, tk]);
+        }
+    }
+    out.face_ranges.push(FaceRange {
+        face: fid,
+        start: range_start,
+        count: out.indices.len() as u32 - range_start,
+    });
+    Ok(())
+}
+
+/// Tessellate a canonical [`Surface::Cone`] frustum band (KV6c increment 3).
+///
+/// The two full-circle rims sit at DIFFERENT radii, so sampling each row at
+/// its own rim radius/center — exactly as [`tessellate_cylinder_lateral`] —
+/// yields the frustum strip directly; only the surface NORMAL differs. The
+/// outward cone normal is `cos(α)·r̂ − sin(α)·axis` (the radial tilted back
+/// toward the apex by the half-angle α; → r̂ as α→0, the cylinder limit),
+/// negated for the cavity (`reversed`) sense. Rows are sampled with the
+/// adjacent cap's BITWISE circle frame, so the band is watertight against its
+/// caps by construction — the same PR-KV7 scheme the cylinder lateral uses.
+fn tessellate_cone_lateral(
+    arena: &BrepArena,
+    fid: FaceId,
+    n_seg: u32,
+    out: &mut RenderMesh,
+) -> Result<(), KernelV2Error> {
+    let face = arena.face(fid)?;
+    let (half_angle, axis_dir, reversed) = match face.surface {
+        Some(Surface::Cone {
+            half_angle,
+            axis_dir,
+            reversed,
+            ..
+        }) => (half_angle, axis_dir, reversed),
+        _ => {
+            return Err(KernelV2Error::TessellationFailed {
+                face: fid,
+                reason: "tessellate_cone_lateral called on a non-cone face",
+            })
+        }
+    };
+    let (sa, ca) = half_angle.sin_cos();
+    let hes = arena.loop_half_edges(face.outer_loop)?;
+    let mut rims = Vec::new();
+    for &h in &hes {
+        let he = arena.half_edge(h)?;
+        if let Curve::Circle {
+            center,
+            normal,
+            radius,
+        } = he.curve
+        {
+            rims.push((center, normal, radius, arena.vertex(he.origin)?.point));
+        }
+    }
+    let [rim_a, rim_b] = rims[..] else {
+        return Err(KernelV2Error::TessellationFailed {
+            face: fid,
+            reason: "cone lateral must be bounded by exactly two full-circle rims (KV6c)",
+        });
+    };
+    let toward = |from: &(Point3, UnitVector3, f64, Point3),
+                  to: &(Point3, UnitVector3, f64, Point3)| {
+        (to.0.x() - from.0.x()) * from.1.x
+            + (to.0.y() - from.0.y()) * from.1.y
+            + (to.0.z() - from.0.z()) * from.1.z
+    };
+    // Material sense: identical to the cylinder lateral (rim traversal axes
+    // point toward each other for an outward band, away for a cavity bore).
+    let (bot, top) = match (
+        reversed,
+        toward(&rim_a, &rim_b) > 0.0,
+        toward(&rim_b, &rim_a) > 0.0,
+    ) {
+        (false, true, _) => (rim_a, rim_b),
+        (false, false, true) => (rim_b, rim_a),
+        (true, false, false) => (rim_a, rim_b),
+        _ => {
+            return Err(KernelV2Error::TessellationFailed {
+                face: fid,
+                reason: "cone rim orientations disagree with the material sense",
+            });
+        }
+    };
+    let (cb, _nub, _radius, _anchor) = bot;
+    let ct = top.0;
+
+    let sample_row = |row: &(Point3, UnitVector3, f64, Point3),
+                      out: &mut RenderMesh|
+     -> Result<[f64; 3], KernelV2Error> {
+        let (c0, nu, r, anc) = *row;
+        let cap_nu = UnitVector3 {
+            x: -nu.x,
+            y: -nu.y,
+            z: -nu.z,
+        };
+        let Some((e1, e2)) = circle_frame(c0, cap_nu, anc) else {
+            return Err(KernelV2Error::TessellationFailed {
+                face: fid,
+                reason: "degenerate circle frame (anchor does not span a radial direction)",
+            });
+        };
+        for k in 0..n_seg {
+            let theta = 2.0 * std::f64::consts::PI * (k as f64) / (n_seg as f64);
+            let (s, c) = theta.sin_cos();
+            let radial = [
+                c * e1[0] + s * e2[0],
+                c * e1[1] + s * e2[1],
+                c * e1[2] + s * e2[2],
+            ];
+            out.positions.extend_from_slice(&[
+                c0.x() + r * radial[0],
+                c0.y() + r * radial[1],
+                c0.z() + r * radial[2],
+            ]);
+            // Cone normal: cos(α)·r̂ − sin(α)·axis (negated for the cavity).
+            let mut nrm = [
+                ca * radial[0] - sa * axis_dir.x,
+                ca * radial[1] - sa * axis_dir.y,
+                ca * radial[2] - sa * axis_dir.z,
+            ];
+            if reversed {
+                nrm = [-nrm[0], -nrm[1], -nrm[2]];
+            }
+            out.normals.extend_from_slice(&nrm);
+        }
+        Ok([cap_nu.x, cap_nu.y, cap_nu.z])
+    };
+
+    let range_start = out.indices.len() as u32;
+    let base = out.num_vertices() as u32;
+    let n = n_seg;
+    let d_bot = sample_row(&bot, out)?;
+    let d_top = sample_row(&top, out)?;
+
+    let axis_up = [ct.x() - cb.x(), ct.y() - cb.y(), ct.z() - cb.z()];
+    let along = |d: &[f64; 3]| d[0] * axis_up[0] + d[1] * axis_up[1] + d[2] * axis_up[2];
+    let idx_b = |k: u32| -> u32 {
+        if along(&d_bot) >= 0.0 {
+            base + (k % n)
+        } else {
+            base + ((n - (k % n)) % n)
+        }
+    };
+    let idx_t = |k: u32| -> u32 {
+        if along(&d_top) >= 0.0 {
+            base + n + (k % n)
+        } else {
+            base + n + ((n - (k % n)) % n)
+        }
+    };
+    for k in 0..n {
+        let (bk, bk1, tk, tk1) = (idx_b(k), idx_b(k + 1), idx_t(k), idx_t(k + 1));
+        if reversed {
+            out.indices.extend_from_slice(&[bk, tk1, bk1]);
+            out.indices.extend_from_slice(&[bk, tk, tk1]);
+        } else {
             out.indices.extend_from_slice(&[bk, bk1, tk1]);
             out.indices.extend_from_slice(&[bk, tk1, tk]);
         }
@@ -2346,5 +2509,69 @@ mod annulus_sweep_tests {
         let tris = annulus_sweep_triangles(&outer_az, &inner_az, 0, no as u32);
         assert_eq!(tris.len(), no + ni);
         assert_all_wind_up(&tris, &outer, &inner);
+    }
+}
+
+#[cfg(test)]
+mod cone_tess_tests {
+    use super::tessellate;
+    use crate::arena::UnitVector3;
+    use crate::cone_fixtures::build_frustum;
+    use cad_primitives::Point3;
+    use std::f64::consts::FRAC_PI_4;
+
+    #[test]
+    fn frustum_lateral_tessellates_with_tilted_outward_normals() {
+        // 45° frustum, apex at the origin, axis +z, rims at radii 1 and 2.
+        let plus_z = UnitVector3 {
+            x: 0.0,
+            y: 0.0,
+            z: 1.0,
+        };
+        let (arena, solid, lat) = build_frustum(
+            Point3::new(0.0, 0.0, 0.0),
+            plus_z,
+            1.0,
+            2.0,
+            FRAC_PI_4,
+            FRAC_PI_4,
+        );
+        let mesh = tessellate(&arena, solid).expect("frustum tessellates");
+
+        let nv = mesh.num_vertices();
+        assert!(
+            mesh.indices.iter().all(|&i| (i as usize) < nv),
+            "all triangle indices in range"
+        );
+
+        // Isolate the cone lateral's triangles.
+        let fr = mesh
+            .face_ranges
+            .iter()
+            .find(|r| r.face == lat)
+            .expect("lateral face range present");
+        assert!(fr.count > 0 && fr.count % 3 == 0, "whole triangles");
+
+        let want_z = -(FRAC_PI_4.sin()); // tilt toward the apex: n·axis = −sin α
+        let want_xy = FRAC_PI_4.cos(); // radial magnitude = cos α
+        let s = fr.start as usize;
+        let e = s + fr.count as usize;
+        for &idx in &mesh.indices[s..e] {
+            let i = idx as usize;
+            let n = [
+                mesh.normals[3 * i],
+                mesh.normals[3 * i + 1],
+                mesh.normals[3 * i + 2],
+            ];
+            let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            assert!((len - 1.0).abs() < 1e-9, "unit normal, got {len}");
+            assert!((n[2] - want_z).abs() < 1e-9, "n.z={} want {want_z}", n[2]);
+            let xy = (n[0] * n[0] + n[1] * n[1]).sqrt();
+            assert!((xy - want_xy).abs() < 1e-9, "radial magnitude cos(α)");
+            // Outward: the radial component agrees with the position's radial
+            // (apex at origin, axis +z ⇒ position radial = (x, y)).
+            let p = [mesh.positions[3 * i], mesh.positions[3 * i + 1]];
+            assert!(n[0] * p[0] + n[1] * p[1] > 0.0, "outward radial");
+        }
     }
 }
