@@ -1131,13 +1131,25 @@ fn stage1_tessellate_inner(
                         &mut out_tris,
                     )?;
                 }
-                Surface::Torus { .. } => {
-                    // KV6d 4a wires the Torus TYPE + analytics (signed_distance,
-                    // face_eval, tol_for). The 2D bijective tessellation grid is
-                    // the focused follow-up 4b.
-                    return Err(YangError::MalformedTopology(format!(
-                        "face {f_idx}: Surface::Torus tessellation not yet implemented (KV6d 4b)"
-                    )));
+                Surface::Torus {
+                    center,
+                    axis_dir,
+                    major_radius,
+                    minor_radius,
+                } => {
+                    tessellate_torus_face(
+                        f_idx,
+                        f,
+                        edges,
+                        &rim_rings,
+                        center,
+                        axis_dir,
+                        major_radius,
+                        minor_radius,
+                        &mut out_verts,
+                        &mut sources,
+                        &mut out_tris,
+                    )?;
                 }
             }
             face_tri_ranges.push(range_start..out_tris.len());
@@ -2725,6 +2737,202 @@ fn tessellate_cone_frustum_band(
             }
             orient_tri(out_verts, &mut tri, n);
             out_tris.push(tri);
+        }
+    }
+    Ok(())
+}
+
+/// KV6d 4b: tessellate a partial-torus `Surface::Torus` face — a bent tube —
+/// as a watertight (θ × φ) bijective grid. Rows are meridians (constant sweep
+/// angle θ), columns are longitudes (constant profile angle φ). The two θ-end
+/// meridians REUSE the profile-circle rim rings (so they match the disk caps
+/// bit-for-bit → watertight); the φ=0 column REUSES the seam-arc chain; the
+/// interior points are fresh `BRepFace { u=φ, v=θ }` (so `eval_source`
+/// round-trips via the torus `face_eval` arm). Rings are aligned by intrinsic
+/// φ (`atan2(τ, ρ−R)`), so a counter-rotating end meridian still lines up
+/// column-for-column.
+#[allow(clippy::too_many_arguments)]
+fn tessellate_torus_face(
+    f_idx: usize,
+    f: &BRepFace,
+    edges: &[BRepEdge],
+    rim_rings: &std::collections::BTreeMap<u32, Vec<u32>>,
+    center: Point3,
+    axis_dir: Vector3,
+    major: f64,
+    minor: f64,
+    out_verts: &mut Vec<Point3>,
+    sources: &mut Vec<TessellationSource>,
+    out_tris: &mut Vec<[u32; 3]>,
+) -> Result<(), YangError> {
+    use std::collections::BTreeSet;
+    use std::f64::consts::PI;
+    let malformed = |m: String| YangError::MalformedTopology(m);
+    let cen = center.as_array();
+    let ax = normalize3(axis_dir.as_array());
+    let (e1v, e2v) = ortho_basis(axis_dir);
+    let (e1, e2) = (e1v.as_array(), e2v.as_array());
+    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let band = 1e-9 * (1.0 + major + minor);
+
+    // Classify the boundary edges: 2 profile circles (closed, radius ≈ minor)
+    // + 1 seam arc (open, radius ≈ major+minor).
+    let mut profiles: Vec<u32> = Vec::new();
+    let mut seam: Option<u32> = None;
+    let mut seen = BTreeSet::new();
+    for &e in f.outer_loop.iter() {
+        if !seen.insert(e) {
+            continue;
+        }
+        if let Curve::Circle { radius, .. } = edges[e as usize].curve {
+            let ed = &edges[e as usize];
+            if ed.start == ed.end && (radius - minor).abs() <= band {
+                profiles.push(e);
+            } else if ed.start != ed.end && (radius - (major + minor)).abs() <= band {
+                seam = Some(e);
+            }
+        }
+    }
+    let (Some(seam_e), 2) = (seam, profiles.len()) else {
+        return Err(malformed(format!(
+            "face {f_idx}: torus face needs 2 profile circles + 1 seam arc (got {} circles)",
+            profiles.len()
+        )));
+    };
+    let seam_chain = rim_rings
+        .get(&seam_e)
+        .ok_or_else(|| malformed(format!("face {f_idx}: seam chain {seam_e} not built")))?;
+    let n_theta = seam_chain.len() - 1;
+    if n_theta < 1 {
+        return Err(malformed(format!(
+            "face {f_idx}: torus seam chain too short"
+        )));
+    }
+    let (seam_start, seam_end) = (edges[seam_e as usize].start, edges[seam_e as usize].end);
+    let prof0_e = *profiles
+        .iter()
+        .find(|&&p| edges[p as usize].start == seam_start)
+        .ok_or_else(|| malformed(format!("face {f_idx}: no θ=0 profile at the seam start")))?;
+    let profa_e = *profiles
+        .iter()
+        .find(|&&p| edges[p as usize].start == seam_end)
+        .ok_or_else(|| malformed(format!("face {f_idx}: no θ=α profile at the seam end")))?;
+    let ring0 = rim_rings
+        .get(&prof0_e)
+        .ok_or_else(|| malformed(format!("face {f_idx}: θ=0 profile ring not built")))?;
+    let ringa = rim_rings
+        .get(&profa_e)
+        .ok_or_else(|| malformed(format!("face {f_idx}: θ=α profile ring not built")))?;
+    let n_phi = ring0.len();
+    if ringa.len() != n_phi || n_phi < 3 {
+        return Err(malformed(format!(
+            "face {f_idx}: torus profile rings mismatched / too few ({n_phi} vs {})",
+            ringa.len()
+        )));
+    }
+
+    // Intrinsic profile angle φ of a mesh vertex → its φ grid slot.
+    let phi_slot = |out_verts: &[Point3], vi: u32| -> usize {
+        let p = out_verts[vi as usize].as_array();
+        let d = [p[0] - cen[0], p[1] - cen[1], p[2] - cen[2]];
+        let tau = dot(d, ax);
+        let radial = [d[0] - tau * ax[0], d[1] - tau * ax[1], d[2] - tau * ax[2]];
+        let rho = dot(radial, radial).sqrt();
+        let phi = tau.atan2(rho - major).rem_euclid(2.0 * PI);
+        ((phi / (2.0 * PI / n_phi as f64)).round() as usize) % n_phi
+    };
+    let mut row0 = vec![u32::MAX; n_phi];
+    for &v in ring0 {
+        row0[phi_slot(out_verts, v)] = v;
+    }
+    let mut rowa = vec![u32::MAX; n_phi];
+    for &v in ringa {
+        rowa[phi_slot(out_verts, v)] = v;
+    }
+    if row0.contains(&u32::MAX) || rowa.contains(&u32::MAX) {
+        return Err(malformed(format!(
+            "face {f_idx}: torus profile ring φ sampling is not slot-aligned"
+        )));
+    }
+
+    // Build the full (n_theta+1) × n_phi grid of vertex indices.
+    let mut grid: Vec<Vec<u32>> = Vec::with_capacity(n_theta + 1);
+    #[allow(clippy::needless_range_loop)]
+    for i in 0..=n_theta {
+        if i == 0 {
+            grid.push(row0.clone());
+        } else if i == n_theta {
+            grid.push(rowa.clone());
+        } else {
+            let s = seam_chain[i];
+            let p = out_verts[s as usize].as_array();
+            let d = [p[0] - cen[0], p[1] - cen[1], p[2] - cen[2]];
+            let theta = dot(d, e2).atan2(dot(d, e1));
+            let (st, ct) = theta.sin_cos();
+            let mut row = vec![0u32; n_phi];
+            row[0] = s; // φ=0 column reuses the seam chain
+            for (j, slot) in row.iter_mut().enumerate().skip(1) {
+                let phi = 2.0 * PI * (j as f64) / (n_phi as f64);
+                let rad = major + minor * phi.cos();
+                let sp = minor * phi.sin();
+                let pt = [
+                    cen[0] + rad * (ct * e1[0] + st * e2[0]) + sp * ax[0],
+                    cen[1] + rad * (ct * e1[1] + st * e2[1]) + sp * ax[1],
+                    cen[2] + rad * (ct * e1[2] + st * e2[2]) + sp * ax[2],
+                ];
+                let vi = out_verts.len() as u32;
+                out_verts.push(Point3::new(pt[0], pt[1], pt[2]));
+                sources.push(TessellationSource::BRepFace {
+                    face: f_idx as u32,
+                    u: phi,
+                    v: theta,
+                });
+                *slot = vi;
+            }
+            grid.push(row);
+        }
+    }
+
+    // Emit quads, each triangle wound to agree with the torus outward normal
+    // (direction from the nearest tube-center-circle point).
+    let emit = |a: u32, b: u32, c: u32, out_verts: &[Point3], out_tris: &mut Vec<[u32; 3]>| {
+        let pa = out_verts[a as usize].as_array();
+        let pb = out_verts[b as usize].as_array();
+        let pc = out_verts[c as usize].as_array();
+        let e_a = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
+        let e_b = [pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]];
+        let gn = [
+            e_a[1] * e_b[2] - e_a[2] * e_b[1],
+            e_a[2] * e_b[0] - e_a[0] * e_b[2],
+            e_a[0] * e_b[1] - e_a[1] * e_b[0],
+        ];
+        let ctr = [
+            (pa[0] + pb[0] + pc[0]) / 3.0,
+            (pa[1] + pb[1] + pc[1]) / 3.0,
+            (pa[2] + pb[2] + pc[2]) / 3.0,
+        ];
+        let d = [ctr[0] - cen[0], ctr[1] - cen[1], ctr[2] - cen[2]];
+        let tau = dot(d, ax);
+        let rv = [d[0] - tau * ax[0], d[1] - tau * ax[1], d[2] - tau * ax[2]];
+        let rl = dot(rv, rv).sqrt().max(1e-300);
+        let rhat = [rv[0] / rl, rv[1] / rl, rv[2] / rl];
+        let on = [
+            ctr[0] - (cen[0] + major * rhat[0]),
+            ctr[1] - (cen[1] + major * rhat[1]),
+            ctr[2] - (cen[2] + major * rhat[2]),
+        ];
+        if dot(gn, on) >= 0.0 {
+            out_tris.push([a, b, c]);
+        } else {
+            out_tris.push([a, c, b]);
+        }
+    };
+    for i in 0..n_theta {
+        for j in 0..n_phi {
+            let jn = (j + 1) % n_phi;
+            let (a, b, c, d) = (grid[i][j], grid[i][jn], grid[i + 1][jn], grid[i + 1][j]);
+            emit(a, b, c, out_verts, out_tris);
+            emit(a, c, d, out_verts, out_tris);
         }
     }
     Ok(())
