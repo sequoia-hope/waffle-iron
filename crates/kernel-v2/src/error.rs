@@ -247,6 +247,15 @@ pub enum KernelV2Error {
     /// than mistranslated.
     UnsupportedCurvedBoolean { face: FaceId },
 
+    /// KV6c increment 5: a boolean operand carries a `Surface::Cone` face.
+    /// kernel-v2 revolve produces FRUSTUM-BAND cones (two rims, since the
+    /// profile cannot touch the axis), but yang's B-Rep models only an
+    /// APEX-POINTED cone bounded by a single base rim (fanned from the apex).
+    /// A frustum band therefore has no yang representation — walled loudly at
+    /// conversion. Unblocking cone booleans needs yang frustum-cone support
+    /// (increment 5b, a yang-rs change).
+    UnsupportedConeBoolean { face: FaceId },
+
     /// PR-KV7: a boolean operand solid has MULTIPLE shells (an internal
     /// void from a fully-contained subtraction, or disjoint bodies from a
     /// non-overlapping union). yang-rs's BRep input is a flat face list

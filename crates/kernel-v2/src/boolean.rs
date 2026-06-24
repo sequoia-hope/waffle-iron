@@ -499,10 +499,17 @@ pub fn to_yang_brep_indexed(
                     });
                 }
                 Some(Surface::Cone { .. }) => {
-                    return Err(KernelV2Error::CurvedGeometryMismatch {
-                        face: f,
-                        reason: "to_yang: Surface::Cone not yet implemented (KV6c increment 5)",
-                    })
+                    // kernel-v2 revolve produces FRUSTUM-BAND cones (two rims,
+                    // because the profile cannot touch the axis). yang's B-Rep
+                    // models a cone face as an APEX-POINTED cone bounded by a
+                    // SINGLE base rim (fanned from the apex — `tessellate_cone_
+                    // face`), so a two-rim frustum band has no yang
+                    // representation: feeding it through would hit yang's
+                    // `MalformedTopology` ("exactly one base-rim Circle edge")
+                    // wall. Reject here with the accurate, kernel-v2-owned
+                    // reason. Unblocking cone booleans needs yang frustum-cone
+                    // support (KV6c increment 5b, a yang-rs change).
+                    return Err(KernelV2Error::UnsupportedConeBoolean { face: f });
                 }
                 None => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
             }
