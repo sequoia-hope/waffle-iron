@@ -364,14 +364,26 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
 
         // SCOPE GATE — only OPPOSITE-normal disc∩polygon crossings route
         // through. Same-normal makes equal-winding overlap copies meet edge-on
-        // → cherchi N13 `SingleCoplanarEdge` → loud downstream failure; keep it
-        // the fast loud coplanar residue.
+        // → assorted downstream failures (Stage-3 SSI ambiguity, Stage-4
+        // relocation, Stage-6 scale-relative attribution, cherchi loops); keep
+        // it the fast loud coplanar residue.
+        //
+        // M8 SAME-NORMAL CAMPAIGN dev harness: the production default is the
+        // loud wall (P9 — never a wrong result). Setting `YANG_M8_SAMENORMAL_DEV`
+        // lifts the wall so the per-mode downstream fixes can be developed
+        // against the RED campaign tests in
+        // `crates/test-harness/tests/m8_samenormal_campaign.rs`. Production
+        // behaviour (env unset) is BYTE-IDENTICAL to the pre-harness wall. When
+        // all in-scope modes are GREEN this gate is replaced by a per-pair
+        // safety predicate (or removed). See `kernel_v2_m8_coplanar_landscape`.
         if (rim_cross_a || rim_cross_b) && !opposite {
             probe(
                 "disc-crossing-same-normal",
                 &format!("pair=({},{})", p.face_a, p.face_b),
             );
-            return Err(pair_err(p.face_a, p.face_b));
+            if std::env::var_os("YANG_M8_SAMENORMAL_DEV").is_none() {
+                return Err(pair_err(p.face_a, p.face_b));
+            }
         }
 
         // Tessellated rim points (f64 in-frame u,v → 3D), for the near-snap
