@@ -71,6 +71,8 @@ export function computeConstraintBadges(constraints, entities, positions, failed
 		const off = offsets?.get(key);
 		out.push({
 			index, key, glyph,
+			// Raw anchor on the annotated geometry (where the leader line ends).
+			ax, ay,
 			sx: ax + gap + (off?.dx ?? 0),
 			sy: ay + gap + (off?.dy ?? 0),
 			failed: failedIndices?.has(index) ?? false,

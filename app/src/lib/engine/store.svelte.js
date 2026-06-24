@@ -111,6 +111,9 @@ let selectedConstraintIndex = $state(null);
 /** @type {Map<string, {dx:number, dy:number}>} Per-constraint badge display offsets (cosmetic, session-only) */
 let constraintBadgeOffsets = $state(new Map());
 
+/** @type {Map<string, {dx:number, dy:number}>} Per-dimension-label display offsets (cosmetic, session-only) */
+let dimensionLabelOffsets = $state(new Map());
+
 /** @type {number} Live sketch units per screen pixel (updated by SketchInteraction) */
 let sketchPixelSize = $state(0.00001);
 
@@ -2485,6 +2488,15 @@ export function setConstraintBadgeOffset(key, dx, dy) {
 	const next = new Map(constraintBadgeOffsets);
 	next.set(key, { dx, dy });
 	constraintBadgeOffsets = next;
+}
+
+/** @returns {Map<string, {dx:number, dy:number}>} Per-dimension-label drag offsets. */
+export function getDimensionLabelOffsets() { return dimensionLabelOffsets; }
+/** @param {string} key @param {number} dx @param {number} dy */
+export function setDimensionLabelOffset(key, dx, dy) {
+	const next = new Map(dimensionLabelOffsets);
+	next.set(key, { dx, dy });
+	dimensionLabelOffsets = next;
 }
 
 /**

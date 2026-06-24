@@ -516,6 +516,7 @@
 				failed: b.failed,
 				selected: b.index === selectedConstraintIndex,
 				world: sketchToWorld(b.sx, b.sy, plane),
+				anchor: sketchToWorld(b.ax, b.ay, plane),
 			}));
 	});
 
@@ -828,6 +829,13 @@
 
 	<!-- Constraint badges: small glyph (H/V/M/…); selectable/draggable/deletable -->
 	{#each constraintLabels as label, i}
+		<!-- Leader line from the annotated geometry to the offset badge -->
+		{@const leaderGeo = new THREE.BufferGeometry().setFromPoints([label.anchor, label.world])}
+		<T.Line geometry={leaderGeo} renderOrder={11}>
+			<T.LineBasicMaterial
+				color={label.selected ? COLOR_SELECTED : (label.failed ? COLOR_OVERCONSTRAINED : COLOR_SNAP)}
+				depthTest={false} transparent opacity={label.selected ? 0.7 : 0.35} />
+		</T.Line>
 		{@const sz = label.selected ? 0.00022 : (label.failed ? 0.0002 : 0.00016)}
 		<T.Mesh position={[label.world.x, label.world.y, label.world.z]} renderOrder={12}
 			raycast={() => {}}>

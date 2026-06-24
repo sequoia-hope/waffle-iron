@@ -9,9 +9,15 @@
 		getSketchPositions,
 		updateConstraintValue,
 		toggleConstraintReference,
-		getDocumentDisplayUnit
+		getDocumentDisplayUnit,
+		getSelectedConstraintIndex,
+		setSelectedConstraintIndex,
+		getDimensionLabelOffsets,
+		setDimensionLabelOffset,
+		getSketchPixelSize
 	} from '$lib/engine/store.svelte.js';
 	import { buildSketchPlane, sketchToWorld } from './sketchCoords.js';
+	import { constraintKey } from './constraintBadges.js';
 	import { internalToDisplay, formatWithUnit, parseAndConvert } from '$lib/units.js';
 
 	let sm = $derived(getSketchMode());
@@ -25,12 +31,75 @@
 	let editingIndex = $state(null);
 	let editValue = $state('');
 
+	// Which constraint is selected (shared with geometric badges; a dimension is
+	// just a constraint, so Delete reuses the global deleteSelectedConstraint).
+	let selectedIndex = $derived(getSelectedConstraintIndex());
+
+	// Pointer interaction: pointerdown selects + arms a drag; a drag past the
+	// threshold MOVES the label (cosmetic offset), a clean click EDITS the value.
+	const DRAG_PX = 5;
+	let dragState = null;
+
+	function onLabelPointerDown(e, label) {
+		e.stopPropagation();
+		setSelectedConstraintIndex(label.index);
+		const c = constraints[label.index];
+		if (!c) return;
+		const key = constraintKey(c);
+		const off = labelOffsets.get(key);
+		dragState = {
+			index: label.index,
+			key,
+			startX: e.clientX,
+			startY: e.clientY,
+			baseDx: off?.dx ?? 0,
+			baseDy: off?.dy ?? 0,
+			reference: label.reference,
+			value: label.value,
+			type: label.type,
+			moved: false
+		};
+		window.addEventListener('pointermove', onWinMove);
+		window.addEventListener('pointerup', onWinUp);
+	}
+
+	function onWinMove(e) {
+		if (!dragState) return;
+		const dxp = e.clientX - dragState.startX;
+		const dyp = e.clientY - dragState.startY;
+		if (!dragState.moved && Math.hypot(dxp, dyp) < DRAG_PX) return;
+		dragState.moved = true;
+		// sketchPixelSize = sketch units per screen pixel; screen-right ≈ +x,
+		// screen-down ≈ −y in the axis-aligned sketch view.
+		const px = getSketchPixelSize();
+		setDimensionLabelOffset(dragState.key, dragState.baseDx + dxp * px, dragState.baseDy - dyp * px);
+	}
+
+	function onWinUp() {
+		window.removeEventListener('pointermove', onWinMove);
+		window.removeEventListener('pointerup', onWinUp);
+		// A clean click (no drag) on a driving dimension opens the value editor.
+		if (dragState && !dragState.moved && !dragState.reference) {
+			startEditing(dragState.index, dragState.value, dragState.type);
+		}
+		dragState = null;
+	}
+
 	/**
 	 * Compute label data for dimensional constraints.
 	 */
+	let labelOffsets = $derived(getDimensionLabelOffsets());
+
 	let dimensionLabels = $derived.by(() => {
 		if (!plane) return [];
 		const labels = [];
+		// Apply the per-label drag offset (sketch space) to the label position;
+		// the leader start stays anchored on the geometry so it stretches to the
+		// moved label.
+		const worldWithOffset = (c, x, y) => {
+			const off = labelOffsets.get(constraintKey(c));
+			return sketchToWorld(x + (off?.dx ?? 0), y + (off?.dy ?? 0), plane);
+		};
 
 		constraints.forEach((c, index) => {
 			if (c.type === 'Distance') {
@@ -41,7 +110,7 @@
 						type: 'Distance',
 						value: c.value,
 						reference: !!c.reference,
-						world: sketchToWorld(labelPos.x, labelPos.y, plane),
+						world: worldWithOffset(c, labelPos.x, labelPos.y),
 						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
 					});
 				}
@@ -53,7 +122,7 @@
 						type: 'Radius',
 						value: c.value,
 						reference: !!c.reference,
-						world: sketchToWorld(labelPos.x, labelPos.y, plane),
+						world: worldWithOffset(c, labelPos.x, labelPos.y),
 						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
 					});
 				}
@@ -65,7 +134,7 @@
 						type: 'Diameter',
 						value: c.value,
 						reference: !!c.reference,
-						world: sketchToWorld(labelPos.x, labelPos.y, plane),
+						world: worldWithOffset(c, labelPos.x, labelPos.y),
 						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
 					});
 				}
@@ -77,7 +146,7 @@
 						type: 'Angle',
 						value: c.value_degrees,
 						reference: !!c.reference,
-						world: sketchToWorld(labelPos.x, labelPos.y, plane),
+						world: worldWithOffset(c, labelPos.x, labelPos.y),
 						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
 					});
 				}
@@ -89,7 +158,7 @@
 						type: 'HDistance',
 						value: c.value,
 						reference: !!c.reference,
-						world: sketchToWorld(labelPos.x, labelPos.y, plane),
+						world: worldWithOffset(c, labelPos.x, labelPos.y),
 						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
 					});
 				}
@@ -101,7 +170,7 @@
 						type: 'VDistance',
 						value: c.value,
 						reference: !!c.reference,
-						world: sketchToWorld(labelPos.x, labelPos.y, plane),
+						world: worldWithOffset(c, labelPos.x, labelPos.y),
 						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
 					});
 				}
@@ -113,7 +182,7 @@
 						type: 'PointLineDistance',
 						value: c.value,
 						reference: !!c.reference,
-						world: sketchToWorld(labelPos.x, labelPos.y, plane),
+						world: worldWithOffset(c, labelPos.x, labelPos.y),
 						leaderStart: sketchToWorld(labelPos.fromX, labelPos.fromY, plane)
 					});
 				}
@@ -303,9 +372,10 @@
 				<button
 					class="dim-label"
 					class:dim-reference={label.reference}
-					onclick={() => { if (!label.reference) startEditing(label.index, label.value, label.type); }}
+					class:dim-selected={label.index === selectedIndex}
+					onpointerdown={(e) => onLabelPointerDown(e, label)}
 					oncontextmenu={(e) => { e.preventDefault(); toggleConstraintReference(label.index); }}
-					title={label.reference ? 'Reference dimension (right-click to make driving)' : 'Right-click to toggle reference'}
+					title={label.reference ? 'Reference dimension (drag to move · right-click to make driving · Delete to remove)' : 'Click to edit · drag to move · right-click to toggle reference · Delete to remove'}
 				>
 					{formatValue(label)}
 				</button>
@@ -343,6 +413,13 @@
 	:global(.dim-label:hover) {
 		background: rgba(40, 40, 80, 0.95);
 		color: #ccddff;
+	}
+
+	:global(.dim-label.dim-selected) {
+		border-color: #ffdd44;
+		background: rgba(70, 60, 20, 0.95);
+		color: #ffeeaa;
+		box-shadow: 0 0 0 1px #ffdd44;
 	}
 
 	:global(.dim-label.dim-reference) {
