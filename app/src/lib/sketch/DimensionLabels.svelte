@@ -41,6 +41,9 @@
 	let dragState = null;
 
 	function onLabelPointerDown(e, label) {
+		// Left button only — right-click is reserved for the reference toggle
+		// (oncontextmenu); letting it arm the drag/edit would also open the editor.
+		if (e.button !== 0) return;
 		e.stopPropagation();
 		setSelectedConstraintIndex(label.index);
 		const c = constraints[label.index];
