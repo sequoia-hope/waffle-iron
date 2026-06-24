@@ -763,6 +763,7 @@ fn a3_sense_encoding_and_exact_params() {
     let mut saw_box_plane = false;
     for f in r.faces() {
         match f.surface {
+            Surface::Torus { .. } => unreachable!("KV6d: torus not produced by this test"),
             Surface::Cylinder { .. } => {
                 assert!(f.reversed, "yr14-adv A3: tube wall must be reversed==true");
                 assert_eq!(

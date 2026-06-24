@@ -156,6 +156,7 @@ fn survey(name: &str, r: &Result<BRep, yang_rs::YangError>) {
                     Surface::Cylinder { .. } => "Cylinder",
                     Surface::Sphere { .. } => "Sphere",
                     Surface::Cone { .. } => "Cone",
+                    Surface::Torus { .. } => "Torus",
                 };
                 *surf.entry(k).or_default() += 1;
             }

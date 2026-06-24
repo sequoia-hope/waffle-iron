@@ -723,6 +723,7 @@ fn a3_sense_encoding_and_exact_params() {
     let mut saw_box_plane = false;
     for f in r.faces() {
         match f.surface {
+            Surface::Torus { .. } => unreachable!("KV6d: torus not produced by this test"),
             Surface::Cylinder { .. } => {
                 // I-rev3: exact input params; the sense lives ONLY in the flag.
                 assert!(

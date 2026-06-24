@@ -168,6 +168,18 @@ pub enum Surface {
         axis_dir: Vector3,
         half_angle: f64,
     },
+    /// Ring torus (KV6d): revolving a circle of radius `minor_radius` (the
+    /// profile, the tube) about the axis through `center` along `axis_dir`, the
+    /// profile center tracing a circle of radius `major_radius` (the tube
+    /// center circle) in the plane through `center` ⊥ the axis. `major_radius >
+    /// minor_radius`. Outward side = radially **away from the tube center
+    /// circle** (a solid ring). No `sense` field (mirrors the other surfaces).
+    Torus {
+        center: Point3,
+        axis_dir: Vector3,
+        major_radius: f64,
+        minor_radius: f64,
+    },
 }
 
 /// Analytical curve for a B-Rep edge.
@@ -1119,6 +1131,14 @@ fn stage1_tessellate_inner(
                         &mut out_tris,
                     )?;
                 }
+                Surface::Torus { .. } => {
+                    // KV6d 4a wires the Torus TYPE + analytics (signed_distance,
+                    // face_eval, tol_for). The 2D bijective tessellation grid is
+                    // the focused follow-up 4b.
+                    return Err(YangError::MalformedTopology(format!(
+                        "face {f_idx}: Surface::Torus tessellation not yet implemented (KV6d 4b)"
+                    )));
+                }
             }
             face_tri_ranges.push(range_start..out_tris.len());
         }
@@ -1347,6 +1367,30 @@ impl BRep {
                             ap[0] + v * ax[0] + rr * (cu * e1a[0] + su * e2a[0]),
                             ap[1] + v * ax[1] + rr * (cu * e1a[1] + su * e2a[1]),
                             ap[2] + v * ax[2] + rr * (cu * e1a[2] + su * e2a[2]),
+                        )
+                    }
+                    // KV6d: torus FACE arm. `u` = φ (profile angle), `v` = θ
+                    // (sweep), in the `ortho_basis(axis)` frame:
+                    //   p(u,v) = center + (R + r cos u)(cos v·ê1 + sin v·ê2)
+                    //            + r sin u · â
+                    Surface::Torus {
+                        center,
+                        axis_dir,
+                        major_radius,
+                        minor_radius,
+                    } => {
+                        let ax = normalize3(axis_dir.as_array());
+                        let (e1, e2) = ortho_basis(axis_dir);
+                        let e1a = e1.as_array();
+                        let e2a = e2.as_array();
+                        let cc = center.as_array();
+                        let (cu, su) = (u.cos(), u.sin());
+                        let (cv, sv) = (v.cos(), v.sin());
+                        let rad = major_radius + minor_radius * cu;
+                        Point3::new(
+                            cc[0] + rad * (cv * e1a[0] + sv * e2a[0]) + minor_radius * su * ax[0],
+                            cc[1] + rad * (cv * e1a[1] + sv * e2a[1]) + minor_radius * su * ax[1],
+                            cc[2] + rad * (cv * e1a[2] + sv * e2a[2]) + minor_radius * su * ax[2],
                         )
                     }
                 }
@@ -2941,6 +2985,27 @@ pub fn signed_distance_to_surface(surface: Surface, point: Point3) -> Result<f64
                 .sqrt();
             Ok(radial - h_axial.abs() * half_angle.tan())
         }
+        // KV6d: signed distance to the torus tube surface,
+        // `√((ρ − R)² + τ²) − r` (ρ = radial dist from axis, τ = axial). <0
+        // inside the tube, >0 outside, ≈0 on the surface.
+        Surface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+        } => {
+            let au = normalize3(axis_dir.as_array());
+            let c = center.as_array();
+            let w = [x[0] - c[0], x[1] - c[1], x[2] - c[2]];
+            let tau = w[0] * au[0] + w[1] * au[1] + w[2] * au[2];
+            let radial_vec = [w[0] - tau * au[0], w[1] - tau * au[1], w[2] - tau * au[2]];
+            let rho = (radial_vec[0] * radial_vec[0]
+                + radial_vec[1] * radial_vec[1]
+                + radial_vec[2] * radial_vec[2])
+                .sqrt();
+            let d = rho - major_radius;
+            Ok((d * d + tau * tau).sqrt() - minor_radius)
+        }
     }
 }
 
@@ -3794,6 +3859,9 @@ fn surface_to_quadric(s: Surface) -> Result<ssi_rs::QuadricSurface, SsiRefinemen
             axis_dir,
             half_angle,
         }),
+        // A torus is a DEGREE-4 surface, not a quadric — its SSI refinement is
+        // out of the quadric-solver vocabulary (KV6d boolean increment).
+        Surface::Torus { .. } => Err(SsiRefinementError::UnsupportedSurfaceForSsi),
     }
 }
 
@@ -5811,6 +5879,12 @@ pub fn boolean(
                         None => Err(YangError::FaceResolutionFailed { tri: compact_t }),
                     }
                 }
+                // KV6d: a torus face uses the rim chord `band` (the rim AABB
+                // bound covers the outermost latitude radius major+minor).
+                Surface::Torus { .. } => match band {
+                    Some(de) => Ok(de),
+                    None => Err(YangError::FaceResolutionFailed { tri: compact_t }),
+                },
             }
         };
 
@@ -8434,7 +8508,10 @@ fn emit_topology(
             // Cylinder, Sphere, and Cone are all handled by the curved branch
             // above (PR-YR17 added Cone), so these arms are unreachable-
             // defensive. Kept LOUD (P9) for any genuinely unexpected surface.
-            Surface::Sphere { .. } | Surface::Cylinder { .. } | Surface::Cone { .. } => {
+            Surface::Sphere { .. }
+            | Surface::Cylinder { .. }
+            | Surface::Cone { .. }
+            | Surface::Torus { .. } => {
                 return Err(YangError::CurvedSurfaceNotYetSupported { face: face_idx });
             }
         };

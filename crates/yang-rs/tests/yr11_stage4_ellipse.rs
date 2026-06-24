@@ -394,6 +394,7 @@ fn oblique_d_eps() -> f64 {
 
 fn surface_to_quadric(s: Surface) -> ssi_rs::QuadricSurface {
     match s {
+        Surface::Torus { .. } => unreachable!("KV6d: torus not exercised by this test"),
         Surface::Plane { normal, d } => {
             let n = unit(normal.as_array());
             let point = scale(n, -d);
