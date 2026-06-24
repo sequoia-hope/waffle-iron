@@ -386,6 +386,24 @@ pub fn revolve(
         return Err(KernelV2Error::RevolveInvalidAngle);
     }
 
+    // A circle profile sweeps a TORUS (KV6d). Partial revolves build a bent
+    // solid tube (2 disk caps + a toroidal lateral with longitude-arc seams);
+    // the full-turn case (a closed genus-1 torus) is a later increment.
+    if let ProfileRegion::Circle { center, radius } = profile.region() {
+        if full_turn {
+            return Err(KernelV2Error::RevolveCircleProfileUnsupported);
+        }
+        return build_torus_revolve(
+            arena,
+            profile,
+            *center,
+            *radius,
+            axis_origin,
+            axis_direction,
+            angle_rad,
+        );
+    }
+
     let frame = validate_revolve_geometry(profile, axis_origin, axis_direction)?;
 
     if full_turn {
@@ -1141,6 +1159,263 @@ fn build_full_revolve(
         start_cap,
         end_cap,
         walls,
+    })
+}
+
+/// Revolve a circle [`Profile`] by `angle ∈ (0, 2π)` into a PARTIAL torus
+/// (KV6d): a bent solid tube. Topology mirrors [`extrude_circle`] — 2 seam
+/// vertices, 6 half-edges, 3 faces — but the caps are the profile disks at
+/// `θ = 0` and `θ = α` (meridian planes), the rims are the profile circles
+/// (minor radius), the seams are longitude ARCS (the φ = 0 latitude, radius
+/// `R + r`), and the lateral is a [`Surface::Torus`]. Direct assembler; the
+/// safety obligation is discharged by `validate_solid` at exit.
+#[allow(clippy::too_many_arguments)]
+fn build_torus_revolve(
+    arena: &mut BrepArena,
+    profile: &Profile,
+    center2d: Point2,
+    minor_radius: f64,
+    axis_origin: Point3,
+    axis_direction: Vector3,
+    angle: f64,
+) -> Result<RevolveResult, KernelV2Error> {
+    // ---- frame + validation (ALL before the first mutation) ----------------
+    let d = [axis_direction.x(), axis_direction.y(), axis_direction.z()];
+    let d_sq = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    if !d_sq.is_finite()
+        || d_sq <= 0.0
+        || !axis_origin.x().is_finite()
+        || !axis_origin.y().is_finite()
+        || !axis_origin.z().is_finite()
+    {
+        return Err(KernelV2Error::RevolveAxisNotInPlane);
+    }
+    let d_len = d_sq.sqrt();
+    let a = UnitVector3 {
+        x: d[0] / d_len,
+        y: d[1] / d_len,
+        z: d[2] / d_len,
+    };
+    let n = profile.unit_normal();
+    // Axis must lie IN the profile plane (⊥ n, origin on the plane).
+    if (a.x * n.x + a.y * n.y + a.z * n.z).abs() > REVOLVE_AXIS_IN_PLANE_TOLERANCE {
+        return Err(KernelV2Error::RevolveAxisNotInPlane);
+    }
+    let o = profile.origin();
+    let mag = axis_origin
+        .x()
+        .abs()
+        .max(axis_origin.y().abs())
+        .max(axis_origin.z().abs())
+        .max(o.x().abs())
+        .max(o.y().abs())
+        .max(o.z().abs());
+    let plane_dist = (axis_origin.x() - o.x()) * n.x
+        + (axis_origin.y() - o.y()) * n.y
+        + (axis_origin.z() - o.z()) * n.z;
+    if plane_dist.abs() > REVOLVE_AXIS_IN_PLANE_TOLERANCE * (1.0 + mag) {
+        return Err(KernelV2Error::RevolveAxisNotInPlane);
+    }
+    // Radial ŵ = ±normalize(n̂ × â), signed so the circle center is on the +ŵ
+    // side; m̂ = â × ŵ is the sweep-velocity direction at θ = 0.
+    let wx = [
+        n.y * a.z - n.z * a.y,
+        n.z * a.x - n.x * a.z,
+        n.x * a.y - n.y * a.x,
+    ];
+    let w_len = (wx[0] * wx[0] + wx[1] * wx[1] + wx[2] * wx[2]).sqrt();
+    let mut w = UnitVector3 {
+        x: wx[0] / w_len,
+        y: wx[1] / w_len,
+        z: wx[2] / w_len,
+    };
+    let c3 = profile.embed(center2d);
+    let radial = |p: Point3, w: &UnitVector3| {
+        (p.x() - axis_origin.x()) * w.x
+            + (p.y() - axis_origin.y()) * w.y
+            + (p.z() - axis_origin.z()) * w.z
+    };
+    if radial(c3, &w) < 0.0 {
+        w = neg(w);
+    }
+    let m = UnitVector3 {
+        x: a.y * w.z - a.z * w.y,
+        y: a.z * w.x - a.x * w.z,
+        z: a.x * w.y - a.y * w.x,
+    };
+    let t_c = (c3.x() - axis_origin.x()) * a.x
+        + (c3.y() - axis_origin.y()) * a.y
+        + (c3.z() - axis_origin.z()) * a.z;
+    let major = radial(c3, &w); // R: axis → tube center circle
+    let r = minor_radius;
+    // Ring torus: the circle's closest approach to the axis is R − r > 0.
+    let clearance = REVOLVE_MIN_AXIS_CLEARANCE_REL * (1.0 + mag.max(major));
+    if major - r <= clearance {
+        return Err(KernelV2Error::RevolveAxisIntersectsProfile);
+    }
+
+    // ---- geometry ----------------------------------------------------------
+    let center_torus = Point3::new(
+        axis_origin.x() + t_c * a.x,
+        axis_origin.y() + t_c * a.y,
+        axis_origin.z() + t_c * a.z,
+    );
+    // Point at radial `cw` along ŵ + `cm` along m̂ from the tube-plane center.
+    let lin = |cw: f64, cm: f64| {
+        Point3::new(
+            center_torus.x() + cw * w.x + cm * m.x,
+            center_torus.y() + cw * w.y + cm * m.y,
+            center_torus.z() + cw * w.z + cm * m.z,
+        )
+    };
+    let (ca, sa) = (snap_trig(angle.cos()), snap_trig(angle.sin()));
+    let c_alpha = lin(major * ca, major * sa); // end-cap circle center
+    let v0 = lin(major + r, 0.0); // seam anchor at θ=0, φ=0 (outer)
+    let v_alpha = lin((major + r) * ca, (major + r) * sa); // at θ=α, φ=0
+    let m_alpha = UnitVector3 {
+        x: ca * m.x - sa * w.x,
+        y: ca * m.y - sa * w.y,
+        z: ca * m.z - sa * w.z,
+    };
+    let neg_m = neg(m);
+
+    // ---- direct assembly (mirrors `extrude_circle`) ------------------------
+    let vid0 = VertexId(arena.vertices.len() as u32);
+    let vid1 = VertexId(vid0.0 + 1);
+    arena.vertices.push(Some(Vertex { point: v0 }));
+    arena.vertices.push(Some(Vertex { point: v_alpha }));
+
+    let hb = arena.half_edges.len() as u32;
+    let (cap_b, lat_b, seam_up, lat_t, cap_t, seam_dn) = (
+        HalfEdgeId(hb),
+        HalfEdgeId(hb + 1),
+        HalfEdgeId(hb + 2),
+        HalfEdgeId(hb + 3),
+        HalfEdgeId(hb + 4),
+        HalfEdgeId(hb + 5),
+    );
+    let lb = arena.loops.len() as u32;
+    let (loop_base, loop_top, loop_lat) = (LoopId(lb), LoopId(lb + 1), LoopId(lb + 2));
+    let fb = arena.faces.len() as u32;
+    let (f_base, f_top, f_lat) = (FaceId(fb), FaceId(fb + 1), FaceId(fb + 2));
+    let shell = ShellId(arena.shells.len() as u32);
+    let solid = SolidId(arena.solids.len() as u32);
+
+    let profile_rim = |center: Point3, normal: UnitVector3| Curve::Circle {
+        center,
+        normal,
+        radius: r,
+    };
+    let seam_arc = |normal: UnitVector3| Curve::Arc {
+        center: center_torus,
+        normal,
+        radius: major + r,
+    };
+    // Start cap boundary: profile circle CCW around the cap's outward −m̂.
+    arena.half_edges.push(Some(HalfEdge {
+        twin: lat_b,
+        next: cap_b,
+        prev: cap_b,
+        origin: vid0,
+        loop_id: loop_base,
+        curve: profile_rim(c3, neg_m),
+    }));
+    // Lateral loop: start rim (toward +m̂), seam arc fwd, end rim, seam back.
+    arena.half_edges.push(Some(HalfEdge {
+        twin: cap_b,
+        next: seam_up,
+        prev: seam_dn,
+        origin: vid0,
+        loop_id: loop_lat,
+        curve: profile_rim(c3, m),
+    }));
+    arena.half_edges.push(Some(HalfEdge {
+        twin: seam_dn,
+        next: lat_t,
+        prev: lat_b,
+        origin: vid0,
+        loop_id: loop_lat,
+        curve: seam_arc(a),
+    }));
+    arena.half_edges.push(Some(HalfEdge {
+        twin: cap_t,
+        next: seam_dn,
+        prev: seam_up,
+        origin: vid1,
+        loop_id: loop_lat,
+        curve: profile_rim(c_alpha, neg(m_alpha)),
+    }));
+    // End cap boundary: profile circle CCW around the cap's outward +m̂_α.
+    arena.half_edges.push(Some(HalfEdge {
+        twin: lat_t,
+        next: cap_t,
+        prev: cap_t,
+        origin: vid1,
+        loop_id: loop_top,
+        curve: profile_rim(c_alpha, m_alpha),
+    }));
+    arena.half_edges.push(Some(HalfEdge {
+        twin: seam_up,
+        next: lat_b,
+        prev: lat_t,
+        origin: vid1,
+        loop_id: loop_lat,
+        curve: seam_arc(neg(a)),
+    }));
+
+    for (face, boundary) in [(f_base, cap_b), (f_top, cap_t), (f_lat, lat_b)] {
+        arena.loops.push(Some(Loop {
+            face,
+            boundary: LoopBoundary::Edges(boundary),
+            kind: LoopKind::Outer,
+        }));
+    }
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Plane(Plane {
+            point: c3,
+            normal: neg_m,
+        })),
+        outer_loop: loop_base,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Plane(Plane {
+            point: c_alpha,
+            normal: m_alpha,
+        })),
+        outer_loop: loop_top,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Torus {
+            center: center_torus,
+            axis_dir: a,
+            major_radius: major,
+            minor_radius: r,
+            reversed: false,
+        }),
+        outer_loop: loop_lat,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    arena.shells.push(Some(Shell {
+        solid,
+        faces: vec![f_base, f_top, f_lat],
+        genus: 0,
+    }));
+    arena.solids.push(Some(Solid {
+        shells: vec![shell],
+    }));
+
+    finalize_solid(arena, solid)?;
+    Ok(RevolveResult {
+        solid,
+        shell,
+        start_cap: f_base,
+        end_cap: f_top,
+        walls: vec![f_lat],
     })
 }
 

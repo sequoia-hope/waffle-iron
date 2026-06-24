@@ -547,7 +547,8 @@ fn oblique_edges_circle_profiles_and_holes_rejected_typed() {
         revolve(&mut arena, &oblique, AXIS_O, AXIS_D, PI).expect_err("oblique edge → cone (KV6c)");
     assert_eq!(err, KernelV2Error::RevolveObliqueEdgeUnsupported);
 
-    // Circle profile → torus (KV6d).
+    // FULL-turn circle profile → closed torus (KV6d full-turn, still walled;
+    // partial-turn circle revolve → torus is supported, tested separately).
     let circle = Profile::circle(
         Point3::new(0.0, 0.0, 0.0),
         Vector3::new(1.0, 0.0, 0.0),
@@ -556,7 +557,8 @@ fn oblique_edges_circle_profiles_and_holes_rejected_typed() {
         0.5,
     )
     .expect("circle profile");
-    let err = revolve(&mut arena, &circle, AXIS_O, AXIS_D, PI).expect_err("circle profile → torus");
+    let err = revolve(&mut arena, &circle, AXIS_O, AXIS_D, 2.0 * PI)
+        .expect_err("full-turn circle profile → closed torus");
     assert_eq!(err, KernelV2Error::RevolveCircleProfileUnsupported);
 
     // Holed polygon.
@@ -834,4 +836,50 @@ mod adapter {
             .expect("disjoint revolve ∪ box runs since KV6b");
         assert!(!k2.list_faces(&out).is_empty());
     }
+}
+
+// =========================================================================
+// KV6d: partial torus (revolve a circle profile)
+// =========================================================================
+
+/// Revolving a circle profile by a partial angle builds a bent solid tube
+/// (partial torus): 2 disk caps + 1 `Surface::Torus` lateral with longitude
+/// arc seams. Validates as a genus-0 solid (V=2, E=3, F=3).
+#[test]
+fn kv6d_partial_torus_revolve_validates() {
+    // Circle in the XY plane, center at radial 3 from the x-axis, minor r=1.
+    let profile = Profile::circle(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        Point2::new(0.0, 3.0),
+        1.0,
+    )
+    .expect("circle profile");
+    let mut arena = BrepArena::new();
+    let r = revolve(&mut arena, &profile, AXIS_O, AXIS_D, PI / 2.0)
+        .expect("partial torus revolve builds");
+    let report = validate_solid(&arena, r.solid).expect("partial torus validates");
+    assert_eq!(report.faces, 3, "2 caps + 1 toroidal lateral");
+    assert_eq!(report.vertices, 2, "2 seam vertices");
+    assert_eq!(report.edges, 3, "2 profile circles + 1 seam");
+    assert_eq!(report.genus, 0);
+    assert!(
+        r.walls
+            .iter()
+            .any(|&w| matches!(arena.face(w).unwrap().surface, Some(Surface::Torus { .. }))),
+        "a Surface::Torus lateral was built"
+    );
+
+    // Tessellates watertight, and the mesh volume approaches the analytic
+    // partial-torus volume (Pappus): V = α · R · π r² (here α=π/2, R=3, r=1).
+    let mesh = tessellate(&arena, r.solid).expect("partial torus tessellates");
+    assert_mesh_sane(&mesh, "partial torus");
+    assert_watertight(&mesh, "partial torus");
+    let exact = (PI / 2.0) * 3.0 * PI * 1.0 * 1.0;
+    let vol = mesh_signed_volume(&mesh).abs();
+    assert!(
+        (vol - exact).abs() <= 0.05 * exact,
+        "partial torus mesh volume {vol} vs analytic {exact} (5% facet band)"
+    );
 }

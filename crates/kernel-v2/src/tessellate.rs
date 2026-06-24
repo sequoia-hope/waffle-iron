@@ -233,11 +233,7 @@ pub fn tessellate_with_chord_tolerance(
                     }
                 }
                 Some(Surface::Torus { .. }) => {
-                    return Err(KernelV2Error::CurvedGeometryMismatch {
-                        face: f,
-                        reason:
-                            "tessellation: Surface::Torus not yet implemented (KV6d increment 2)",
-                    })
+                    tessellate_torus_lateral(arena, f, n_seg, &mut mesh)?
                 }
                 None => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
             }
@@ -1087,6 +1083,174 @@ fn tessellate_cone_lateral(
         } else {
             out.indices.extend_from_slice(&[bk, bk1, tk1]);
             out.indices.extend_from_slice(&[bk, tk1, tk]);
+        }
+    }
+    out.face_ranges.push(FaceRange {
+        face: fid,
+        start: range_start,
+        count: out.indices.len() as u32 - range_start,
+    });
+    Ok(())
+}
+
+/// Tessellate a [`Surface::Torus`] lateral (KV6d): a partial torus (bent tube)
+/// as a (θ × φ) quad grid. θ runs over the sweep `α`, φ over the profile circle.
+/// The θ=0 / θ=α rings reproduce the start/end profile circles bit-for-bit
+/// (same φ table at `n_seg`), so the band is watertight against its two disk
+/// caps as position sets. The θ=0 reference `w0` and the sweep `α` are recovered
+/// from the seam arc (the φ=0 longitude: radius major+minor, normal +axis).
+fn tessellate_torus_lateral(
+    arena: &BrepArena,
+    fid: FaceId,
+    n_seg: u32,
+    out: &mut RenderMesh,
+) -> Result<(), KernelV2Error> {
+    use std::f64::consts::PI;
+    let face = arena.face(fid)?;
+    let Some(Surface::Torus {
+        center,
+        axis_dir,
+        major_radius: r_maj,
+        minor_radius: r_min,
+        reversed,
+    }) = face.surface
+    else {
+        return Err(KernelV2Error::TessellationFailed {
+            face: fid,
+            reason: "tessellate_torus_lateral on a non-torus face",
+        });
+    };
+    let fail = |reason: &'static str| KernelV2Error::TessellationFailed { face: fid, reason };
+    let ax = [axis_dir.x, axis_dir.y, axis_dir.z];
+    let c = [center.x(), center.y(), center.z()];
+
+    // Recover (w0, α) from the +axis seam arc (radius major+minor).
+    let hes = arena.loop_half_edges(face.outer_loop)?;
+    let mut seam = None;
+    for &h in &hes {
+        let he = arena.half_edge(h)?;
+        if let Curve::Arc { radius, normal, .. } = he.curve {
+            if (radius - (r_maj + r_min)).abs() <= 1e-9 * (1.0 + r_maj + r_min)
+                && (normal.x * ax[0] + normal.y * ax[1] + normal.z * ax[2]) > 0.0
+            {
+                let v0 = arena.vertex(he.origin)?.point;
+                let dest = arena.half_edge(he.next)?.origin;
+                seam = Some((v0, arena.vertex(dest)?.point));
+                break;
+            }
+        }
+    }
+    let Some((v0, valpha)) = seam else {
+        return Err(fail("torus lateral missing its +axis seam arc"));
+    };
+    let wv = [v0.x() - c[0], v0.y() - c[1], v0.z() - c[2]];
+    let along = wv[0] * ax[0] + wv[1] * ax[1] + wv[2] * ax[2];
+    let wr = [
+        wv[0] - along * ax[0],
+        wv[1] - along * ax[1],
+        wv[2] - along * ax[2],
+    ];
+    let wl = (wr[0] * wr[0] + wr[1] * wr[1] + wr[2] * wr[2]).sqrt();
+    if !(wl.is_finite() && wl > 0.0) {
+        return Err(fail("degenerate torus θ=0 reference"));
+    }
+    let w0 = [wr[0] / wl, wr[1] / wl, wr[2] / wl];
+    let alpha =
+        crate::geom::ccw_sweep(center, ax, v0, valpha).ok_or(fail("degenerate torus sweep"))?;
+    let m0 = [
+        ax[1] * w0[2] - ax[2] * w0[1],
+        ax[2] * w0[0] - ax[0] * w0[2],
+        ax[0] * w0[1] - ax[1] * w0[0],
+    ];
+
+    // φ matches the caps (n_seg); θ steps keep a comparable chord at radius R+r.
+    let n_phi = n_seg.max(3) as usize;
+    let n_theta = {
+        let per = (2.0 * PI / n_seg as f64) * r_min / (r_maj + r_min);
+        ((alpha / per).ceil() as usize).max(2)
+    };
+    let range_start = out.indices.len() as u32;
+    let base = out.num_vertices() as u32;
+    let point = |theta: f64, phi: f64| -> ([f64; 3], [f64; 3]) {
+        let (st, ct) = theta.sin_cos();
+        let wth = [
+            ct * w0[0] + st * m0[0],
+            ct * w0[1] + st * m0[1],
+            ct * w0[2] + st * m0[2],
+        ];
+        let (sp, cp) = phi.sin_cos();
+        let rad = r_maj + r_min * cp;
+        let p = [
+            c[0] + rad * wth[0] + r_min * sp * ax[0],
+            c[1] + rad * wth[1] + r_min * sp * ax[1],
+            c[2] + rad * wth[2] + r_min * sp * ax[2],
+        ];
+        let mut nrm = [
+            cp * wth[0] + sp * ax[0],
+            cp * wth[1] + sp * ax[1],
+            cp * wth[2] + sp * ax[2],
+        ];
+        if reversed {
+            nrm = [-nrm[0], -nrm[1], -nrm[2]];
+        }
+        (p, nrm)
+    };
+    for i in 0..=n_theta {
+        let theta = alpha * (i as f64) / (n_theta as f64);
+        for j in 0..n_phi {
+            let phi = 2.0 * PI * (j as f64) / (n_phi as f64);
+            let (p, nrm) = point(theta, phi);
+            out.positions.extend_from_slice(&p);
+            out.normals.extend_from_slice(&nrm);
+        }
+    }
+    let idx = |i: usize, j: usize| base + (i * n_phi + (j % n_phi)) as u32;
+    let pos = |out: &RenderMesh, vi: u32| {
+        let k = vi as usize * 3;
+        [out.positions[k], out.positions[k + 1], out.positions[k + 2]]
+    };
+    // Emit a triangle, winding it so its geometric normal agrees with the
+    // analytic torus outward normal at the centroid (reversed-aware).
+    let emit = |a: u32, b: u32, cc: u32, out: &mut RenderMesh| {
+        let (pa, pb, pc) = (pos(out, a), pos(out, b), pos(out, cc));
+        let e1 = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
+        let e2 = [pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]];
+        let gn = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let cen = [
+            (pa[0] + pb[0] + pc[0]) / 3.0,
+            (pa[1] + pb[1] + pc[1]) / 3.0,
+            (pa[2] + pb[2] + pc[2]) / 3.0,
+        ];
+        let d = [cen[0] - c[0], cen[1] - c[1], cen[2] - c[2]];
+        let t = d[0] * ax[0] + d[1] * ax[1] + d[2] * ax[2];
+        let rv = [d[0] - t * ax[0], d[1] - t * ax[1], d[2] - t * ax[2]];
+        let rl = (rv[0] * rv[0] + rv[1] * rv[1] + rv[2] * rv[2])
+            .sqrt()
+            .max(1e-300);
+        let rhat = [rv[0] / rl, rv[1] / rl, rv[2] / rl];
+        let mut on = [
+            cen[0] - (c[0] + r_maj * rhat[0]),
+            cen[1] - (c[1] + r_maj * rhat[1]),
+            cen[2] - (c[2] + r_maj * rhat[2]),
+        ];
+        if reversed {
+            on = [-on[0], -on[1], -on[2]];
+        }
+        if gn[0] * on[0] + gn[1] * on[1] + gn[2] * on[2] >= 0.0 {
+            out.indices.extend_from_slice(&[a, b, cc]);
+        } else {
+            out.indices.extend_from_slice(&[a, cc, b]);
+        }
+    };
+    for i in 0..n_theta {
+        for j in 0..n_phi {
+            let (a, b, cc, d) = (idx(i, j), idx(i, j + 1), idx(i + 1, j + 1), idx(i + 1, j));
+            emit(a, b, cc, out);
+            emit(a, cc, d, out);
         }
     }
     out.face_ranges.push(FaceRange {
