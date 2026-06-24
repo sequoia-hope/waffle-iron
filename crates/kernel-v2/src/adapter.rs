@@ -23,7 +23,7 @@
 //! | `make_faces_from_profiles` | SUPPORTED (polygon + circle + exact arc + spline-via-polygon + holed regions) | `ClosedProfile` polygon → `kernel_v2::Profile::new`; `CircleProfile` → `Profile::circle` (staged); arc-annotated single loops → `Profile::arc_polygon` with EXACT cylinder side patches (KV12 Tier 2, E4 — arc runs reconstructed into minor sub-arcs), falling back LOUDLY to the Tier-1 `vertex_ids` chord polygon when reconstruction / simplicity declines or the loop is holed; spline-annotated profiles (gears) extrude via their chord polygon; inner (`is_outer=false`) loops are grouped into the strictly-larger outer that contains them → one holed `Profile` (KV14); arc/spline WITHOUT a `vertex_ids` polygon → `NotSupported` |
 //! | `extrude_face` | SUPPORTED | staged profile → `kernel_v2::extrude` (sweep vector = `direction · depth`, exactly the legacy semantics); circle profiles → cylinder solids (PR-KV5a) |
 //! | `revolve_face` | SUPPORTED (PR-KV6a; full-turn cones PR-KV6c) | staged polygon profile → `kernel_v2::revolve` (degrees → radians; world-space in-plane axis). Oblique edges sweep `Surface::Cone` frustum bands on a FULL-turn revolve (KV6c); a PARTIAL-turn oblique edge (arc-bounded cone patch, KV6c increment 5) → `NotSupported`. Typed walls: circle profiles (torus, KV6d), holed profiles → `NotSupported`; axis touching/crossing the profile and out-of-range angles → `KernelError::Other` (INVALID INPUT — the F0073/F0074 expected-rebuild-error path, never the NotSupported marker) |
-//! | `boolean_union` / `_subtract` / `_intersect` | SUPPORTED (non-coplanar; cylinder×box class PR-KV5b) | `kernel_v2::boolean_op` (yang-rs native pipeline); coplanar input face pairs → `NotSupported` (Yang Stage 0 / roadmap M8); curved partial-patch RESULT operands → `NotSupported` (no yang Stage-1 re-entry); cone-frustum (two-rim) operands → `NotSupported` (yang models apex-pointed single-rim cones only — KV6c increment 5b); cylinder×cylinder / oblique-ellipse sections → `BooleanFailed` carrying the typed wall text |
+//! | `boolean_union` / `_subtract` / `_intersect` | SUPPORTED (non-coplanar; cylinder×box class PR-KV5b) | `kernel_v2::boolean_op` (yang-rs native pipeline); coplanar input face pairs → `NotSupported` (Yang Stage 0 / roadmap M8); curved partial-patch RESULT operands → `NotSupported` (no yang Stage-1 re-entry); cone-frustum (two-rim) operands SUPPORTED when the lateral survives a flat ⊥-axis cut whole (KV6c increment 5c); an oblique cut makes a conic-bounded cone patch → `BooleanFailed`; cylinder×cylinder / oblique-ellipse sections → `BooleanFailed` carrying the typed wall text |
 //! | `boolean_*_multi` | default impl | delegates to the single-body methods |
 //! | `fillet_edges` / `chamfer_edges` / `shell` | NOT SUPPORTED | deferred indefinitely (root CLAUDE.md) |
 //! | `tessellate` | SUPPORTED | `kernel_v2::validate_solid` + `kernel_v2::tessellate` (exact-rational, planar) → legacy `RenderMesh`; the tolerance argument is ignored (planar tessellation is exact) |
@@ -351,13 +351,6 @@ impl KernelV2Adapter {
                     "{op_name}: curved partial-patch operand face {face:?} (a previous curved \
                      boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch \
                      tessellation yet)"
-                )))
-            }
-            Err(KernelV2Error::UnsupportedConeBoolean { face }) => {
-                Err(Self::not_supported(&format!(
-                    "{op_name}: cone-frustum operand face {face:?} (kernel-v2 builds two-rim \
-                     frustum cones; yang models apex-pointed single-rim cones only — KV6c \
-                     increment 5b needs yang frustum-cone support)"
                 )))
             }
             // PR-KV7: multi-shell operands (internal voids / disjoint

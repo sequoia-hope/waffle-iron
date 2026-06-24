@@ -66,7 +66,7 @@ pub mod adapter;
 pub mod arena;
 pub mod boolean;
 #[cfg(test)]
-mod cone_boolean_wall_test;
+mod cone_boolean_test;
 #[cfg(test)]
 pub(crate) mod cone_fixtures;
 pub mod construct;

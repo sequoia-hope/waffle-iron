@@ -263,21 +263,26 @@ fn try_recover(brep: &yang_rs::BRep) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, 
             &yfaces[info.faces[0]].surface,
             &yfaces[info.faces[1]].surface,
         );
-        let (cyl, pl) = match (s0, s1) {
-            (Surface::Cylinder { .. }, Surface::Plane { .. }) => (s0, s1),
-            (Surface::Plane { .. }, Surface::Cylinder { .. }) => (s1, s0),
+        // A cylinder or cone lateral meeting a plane ⊥ its axis makes a rim
+        // CIRCLE (a cone frustum survives a flat cut as a whole two-rim band —
+        // KV6c 5c). `curved` is whichever surface is the lateral.
+        let (curved, pl) = match (s0, s1) {
+            (Surface::Cylinder { .. } | Surface::Cone { .. }, Surface::Plane { .. }) => (s0, s1),
+            (Surface::Plane { .. }, Surface::Cylinder { .. } | Surface::Cone { .. }) => (s1, s0),
             _ => continue,
-        };
-        let Surface::Cylinder {
-            axis_point,
-            axis_dir,
-            radius,
-        } = *cyl
-        else {
-            unreachable!()
         };
         let Surface::Plane { normal, d } = *pl else {
             unreachable!()
+        };
+        // Axis point (apex for a cone) + direction of the lateral.
+        let (axis_point, axis_dir) = match *curved {
+            Surface::Cylinder {
+                axis_point,
+                axis_dir,
+                ..
+            } => (axis_point, axis_dir),
+            Surface::Cone { apex, axis_dir, .. } => (apex, axis_dir),
+            _ => unreachable!(),
         };
         let Some(a) = normalize3(axis_dir.as_array()) else {
             continue;
@@ -286,8 +291,8 @@ fn try_recover(brep: &yang_rs::BRep) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, 
             continue;
         };
         // Plane must be ⊥ the axis (a rim plane). Parallel planes make
-        // LINES (left as segments); oblique would make an ellipse (out of
-        // the recovery vocabulary).
+        // LINES (left as segments); an oblique plane on a cone makes a conic
+        // (ellipse/parabola/hyperbola — out of the circle-recovery vocabulary).
         let c = dot3(n, a);
         if (c.abs() - 1.0).abs() > BAND {
             continue;
@@ -298,6 +303,19 @@ fn try_recover(brep: &yang_rs::BRep) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, 
         let p0 = axis_point.as_array();
         let t = -(dot3(n, p0) + d / nlen) / c;
         let center = Point3::new(p0[0] + t * a[0], p0[1] + t * a[1], p0[2] + t * a[2]);
+        // Rim radius: constant for a cylinder; `axial·tan(half_angle)` from the
+        // apex for a cone (the center's axial coordinate IS that distance).
+        let radius = match *curved {
+            Surface::Cylinder { radius, .. } => radius,
+            Surface::Cone { half_angle, .. } => {
+                let w = sub(center, axis_point);
+                dot3(w, a).abs() * half_angle.tan()
+            }
+            _ => unreachable!(),
+        };
+        if !radius.is_finite() || radius <= 0.0 {
+            continue;
+        }
         // Both endpoints exactly on the circle?
         let on_circle = |v: u32| -> bool {
             let w = sub(yverts[v as usize].point, center);
@@ -439,11 +457,29 @@ fn try_recover(brep: &yang_rs::BRep) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, 
             entry.push(single);
         }
         for (&fi, loop_chains) in &face_loop_chains {
-            let Surface::Cylinder {
-                axis_dir, radius, ..
-            } = yfaces[fi].surface
-            else {
-                continue;
+            // Cylinder OR cone laterals canonicalize identically: two closed
+            // rims joined by one azimuth-aligned seam ruling (axis-parallel for
+            // a cylinder, a slant generator for a cone — both connect equal
+            // azimuths). The cone uses its larger rim radius for the angular
+            // band (KV6c 5c).
+            let (axis_dir, radius) = match yfaces[fi].surface {
+                Surface::Cylinder {
+                    axis_dir, radius, ..
+                } => (axis_dir, radius),
+                Surface::Cone { axis_dir, .. } => {
+                    // Representative radius for the angular band = the larger rim
+                    // radius (the two cone rims differ).
+                    let r = loop_chains
+                        .iter()
+                        .flatten()
+                        .filter_map(|&ci| match chains[ci].curve {
+                            EffCurve::Circle { radius, .. } => Some(radius),
+                            _ => None,
+                        })
+                        .fold(0.0f64, f64::max);
+                    (axis_dir, r)
+                }
+                _ => continue,
             };
             let [Some(ca), Some(cb)] = loop_chains.as_slice() else {
                 continue;

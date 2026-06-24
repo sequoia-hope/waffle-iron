@@ -328,12 +328,11 @@ pub fn to_yang_brep_indexed(
                         reversed: false,
                     });
                 }
-                Some(Surface::Cylinder {
-                    axis_point,
-                    axis_dir,
-                    radius,
-                    reversed,
-                }) => {
+                Some(Surface::Cylinder { reversed, .. }) | Some(Surface::Cone { reversed, .. }) => {
+                    // Cylinder and cone laterals share this conversion — the loop
+                    // vocabulary (rims + seams / arcs) and edge handling are
+                    // identical; only the analytic surface differs, built at the
+                    // end (KV6c). yang ingests two-rim frustum cones.
                     // Two convertible shapes (PR-KV6b-2):
                     // - CANONICAL tube: [rim, seam, rim, seam], two closed
                     //   Circle rims, the segs a seam twin PAIR;
@@ -486,30 +485,37 @@ pub fn to_yang_brep_indexed(
                         loop_indices.push(idx);
                     }
 
-                    face_ids.push(f);
-                    yfaces.push(yang_rs::BRepFace {
-                        surface: yang_rs::Surface::Cylinder {
+                    let surface = match face.surface {
+                        Some(Surface::Cylinder {
+                            axis_point,
+                            axis_dir,
+                            radius,
+                            ..
+                        }) => yang_rs::Surface::Cylinder {
                             axis_point,
                             axis_dir: Vector3::new(axis_dir.x, axis_dir.y, axis_dir.z),
                             radius,
                         },
+                        Some(Surface::Cone {
+                            apex,
+                            axis_dir,
+                            half_angle,
+                            ..
+                        }) => yang_rs::Surface::Cone {
+                            apex,
+                            axis_dir: Vector3::new(axis_dir.x, axis_dir.y, axis_dir.z),
+                            half_angle,
+                        },
+                        // The arm pattern restricts face.surface to Cylinder|Cone.
+                        _ => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
+                    };
+                    face_ids.push(f);
+                    yfaces.push(yang_rs::BRepFace {
+                        surface,
                         outer_loop: loop_indices,
                         inner_loops: Vec::new(),
                         reversed,
                     });
-                }
-                Some(Surface::Cone { .. }) => {
-                    // kernel-v2 revolve produces FRUSTUM-BAND cones (two rims,
-                    // because the profile cannot touch the axis). yang's B-Rep
-                    // models a cone face as an APEX-POINTED cone bounded by a
-                    // SINGLE base rim (fanned from the apex — `tessellate_cone_
-                    // face`), so a two-rim frustum band has no yang
-                    // representation: feeding it through would hit yang's
-                    // `MalformedTopology` ("exactly one base-rim Circle edge")
-                    // wall. Reject here with the accurate, kernel-v2-owned
-                    // reason. Unblocking cone booleans needs yang frustum-cone
-                    // support (KV6c increment 5b, a yang-rs change).
-                    return Err(KernelV2Error::UnsupportedConeBoolean { face: f });
                 }
                 None => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
             }
@@ -687,6 +693,12 @@ enum FaceSurf {
         radius: f64,
         reversed: bool,
     },
+    Cone {
+        apex: Point3,
+        axis_dir: [f64; 3],
+        half_angle: f64,
+        reversed: bool,
+    },
 }
 
 /// Reassemble a yang-rs *output* `BRep` into a kernel-v2 solid.
@@ -774,6 +786,32 @@ pub fn from_yang_brep_indexed(
                     axis_point,
                     axis_dir: a,
                     radius,
+                    reversed: f.reversed,
+                });
+            }
+            yang_rs::Surface::Cone {
+                apex,
+                axis_dir,
+                half_angle,
+            } => {
+                let a = axis_dir.as_array();
+                if (norm3(a) - 1.0).abs() > YANG_NORMAL_AGREEMENT_TOLERANCE {
+                    return Err(KernelV2Error::InvalidBooleanOutput(
+                        "output cone axis_dir is not unit-length",
+                    ));
+                }
+                if !(half_angle.is_finite()
+                    && half_angle > 0.0
+                    && half_angle < std::f64::consts::FRAC_PI_2)
+                {
+                    return Err(KernelV2Error::InvalidBooleanOutput(
+                        "output cone half_angle is not in (0, π/2)",
+                    ));
+                }
+                surfs.push(FaceSurf::Cone {
+                    apex,
+                    axis_dir: a,
+                    half_angle,
                     reversed: f.reversed,
                 });
             }
@@ -1023,7 +1061,10 @@ pub fn from_yang_brep_indexed(
                 if let Some(nu) = derive_planar(u) {
                     return Ok(nu);
                 }
-                if matches!(surfs[loops[u.loop_idx].face], FaceSurf::Cylinder { .. }) {
+                if matches!(
+                    surfs[loops[u.loop_idx].face],
+                    FaceSurf::Cylinder { .. } | FaceSurf::Cone { .. }
+                ) {
                     if let Some(nu) = derive_planar(partner) {
                         return Ok(neg_unit(nu));
                     }
@@ -1282,6 +1323,21 @@ pub fn from_yang_brep_indexed(
                             z: axis_dir[2],
                         },
                         radius: *radius,
+                        reversed: *reversed,
+                    },
+                    FaceSurf::Cone {
+                        apex,
+                        axis_dir,
+                        half_angle,
+                        reversed,
+                    } => Surface::Cone {
+                        apex: *apex,
+                        axis_dir: UnitVector3 {
+                            x: axis_dir[0],
+                            y: axis_dir[1],
+                            z: axis_dir[2],
+                        },
+                        half_angle: *half_angle,
                         reversed: *reversed,
                     },
                 };
