@@ -2539,55 +2539,149 @@ fn tessellate_cone_face(
         .copied()
         .filter(|&e| matches!(edges[e as usize].curve, Curve::Circle { .. }))
         .collect();
-    if circle_edges.len() != 1 {
-        return Err(YangError::MalformedTopology(format!(
-            "face {f_idx}: cone lateral must be bounded by exactly one base-rim Circle edge, \
-             found {} (a cone surface on a non-circular boundary is malformed topology)",
-            circle_edges.len()
-        )));
+    // A cone face is bounded by EITHER one base rim (an apex-pointed cone — a
+    // topological disk fanned from the apex, PR-YR16) OR two rims at different
+    // radii (a FRUSTUM band — the ruled analog of the cylinder tube, KV6c 5b;
+    // kernel-v2 revolve produces these, since the profile cannot reach the
+    // axis). Anything else is MalformedTopology (loud).
+    match circle_edges.as_slice() {
+        [rim_e] => {
+            let ring = rim_rings.get(rim_e).ok_or_else(|| {
+                YangError::MalformedTopology(format!(
+                    "face {f_idx}: rim ring for edge {rim_e} not built"
+                ))
+            })?;
+            let nseg = ring.len();
+            if nseg < 3 {
+                return Err(YangError::MalformedTopology(format!(
+                    "face {f_idx}: cone rim ring has {nseg} samples (< 3)"
+                )));
+            }
+            // Locate the pre-seeded apex mesh vertex by exact position match to
+            // the cone's `apex` (within `TAU_MODEL`). The B-Rep verts are seeded
+            // 1:1 into `out_verts` at the top of `BRep::new`, so a vertex's
+            // B-Rep index IS its mesh index. REUSE it (no duplicate apex push →
+            // watertight). No match → loud MalformedTopology.
+            let ap = apex.as_array();
+            let apex_vi = verts
+                .iter()
+                .position(|bv| {
+                    let p = bv.point.as_array();
+                    let dx = p[0] - ap[0];
+                    let dy = p[1] - ap[1];
+                    let dz = p[2] - ap[2];
+                    (dx * dx + dy * dy + dz * dz).sqrt() <= cad_primitives::TAU_MODEL
+                })
+                .map(|i| i as u32)
+                .ok_or_else(|| {
+                    YangError::MalformedTopology(format!(
+                        "face {f_idx}: cone apex {ap:?} matches no pre-seeded B-Rep vertex"
+                    ))
+                })?;
+            // Apex fan: triangle (apex, ring[k], ring[(k+1) % N]); orient each
+            // outward via the tilted cone normal.
+            for k in 0..nseg {
+                let mut tri = [apex_vi, ring[k], ring[(k + 1) % nseg]];
+                let n = cone_outward_normal(out_verts, &tri, apex, axis_dir, half_angle);
+                orient_tri(out_verts, &mut tri, n);
+                out_tris.push(tri);
+            }
+            Ok(())
+        }
+        [rim_a, rim_b] => tessellate_cone_frustum_band(
+            f_idx, f, edges, *rim_a, *rim_b, rim_rings, apex, axis_dir, half_angle, out_verts,
+            out_tris,
+        ),
+        other => Err(YangError::MalformedTopology(format!(
+            "face {f_idx}: cone lateral must be bounded by ONE base rim (apex cone) or TWO \
+             rims (frustum band); found {} circle edges (a cone on a non-circular boundary is \
+             malformed topology)",
+            other.len()
+        ))),
     }
-    let ring = rim_rings.get(&circle_edges[0]).ok_or_else(|| {
+}
+
+/// KV6c increment 5b: tessellate a FRUSTUM-band cone face — two full-circle
+/// rims at different radii — as a ruled quad strip, the tilted-normal analog of
+/// the cylinder canonical tube ([`tessellate_lateral_face`]). The rings pair by
+/// azimuth exactly as the tube does (counter-rotating stored senses ⇒ `N − k`);
+/// each triangle is oriented by [`cone_outward_normal`], negated for a cavity
+/// bore (`f.reversed`).
+#[allow(clippy::too_many_arguments)]
+fn tessellate_cone_frustum_band(
+    f_idx: usize,
+    f: &BRepFace,
+    edges: &[BRepEdge],
+    rim_a: u32,
+    rim_b: u32,
+    rim_rings: &std::collections::BTreeMap<u32, Vec<u32>>,
+    apex: Point3,
+    axis_dir: Vector3,
+    half_angle: f64,
+    out_verts: &[Point3],
+    out_tris: &mut Vec<[u32; 3]>,
+) -> Result<(), YangError> {
+    let au = normalize3(axis_dir.as_array());
+    let ap = apex.as_array();
+    // Axial coordinate (from the apex) and stored-normal sense of a rim.
+    let rim_param = |e: u32| -> f64 {
+        if let Curve::Circle { center, .. } = edges[e as usize].curve {
+            let c = center.as_array();
+            (c[0] - ap[0]) * au[0] + (c[1] - ap[1]) * au[1] + (c[2] - ap[2]) * au[2]
+        } else {
+            0.0
+        }
+    };
+    let rim_sense = |e: u32| -> f64 {
+        if let Curve::Circle { normal, .. } = edges[e as usize].curve {
+            let n = normalize3(normal.as_array());
+            (n[0] * au[0] + n[1] * au[1] + n[2] * au[2]).signum()
+        } else {
+            1.0
+        }
+    };
+    let (mut bottom_e, mut top_e) = (rim_a, rim_b);
+    if rim_param(bottom_e) > rim_param(top_e) {
+        std::mem::swap(&mut bottom_e, &mut top_e);
+    }
+    let bottom_ring = rim_rings.get(&bottom_e).ok_or_else(|| {
         YangError::MalformedTopology(format!(
-            "face {f_idx}: rim ring for edge {} not built",
-            circle_edges[0]
+            "face {f_idx}: bottom rim ring {bottom_e} not built"
         ))
     })?;
-    let nseg = ring.len();
-    if nseg < 3 {
+    let top_ring = rim_rings.get(&top_e).ok_or_else(|| {
+        YangError::MalformedTopology(format!("face {f_idx}: top rim ring {top_e} not built"))
+    })?;
+    let nseg = top_ring.len();
+    if nseg < 3 || bottom_ring.len() != nseg {
         return Err(YangError::MalformedTopology(format!(
-            "face {f_idx}: cone rim ring has {nseg} samples (< 3)"
+            "face {f_idx}: cone frustum rims have mismatched / too-few samples ({} vs {})",
+            bottom_ring.len(),
+            top_ring.len()
         )));
     }
-
-    // ---- Locate the pre-seeded apex mesh vertex by exact position match to the
-    // cone's `apex` (within `TAU_MODEL`). The B-Rep verts are seeded 1:1 into
-    // `out_verts` at the top of `BRep::new`, so a vertex's B-Rep index IS its
-    // mesh index. REUSE it (no duplicate apex push → watertight). No match →
-    // loud MalformedTopology.
-    let ap = apex.as_array();
-    let apex_vi = verts
-        .iter()
-        .position(|bv| {
-            let p = bv.point.as_array();
-            let dx = p[0] - ap[0];
-            let dy = p[1] - ap[1];
-            let dz = p[2] - ap[2];
-            (dx * dx + dy * dy + dz * dz).sqrt() <= cad_primitives::TAU_MODEL
-        })
-        .map(|i| i as u32)
-        .ok_or_else(|| {
-            YangError::MalformedTopology(format!(
-                "face {f_idx}: cone apex {ap:?} matches no pre-seeded B-Rep vertex"
-            ))
-        })?;
-
-    // ---- Apex fan: triangle (apex, ring[k], ring[(k+1) % N]); orient each
-    // outward via the tilted cone normal.
+    let co_rotating = rim_sense(bottom_e) * rim_sense(top_e) > 0.0;
+    let b_index = |k: usize| -> usize {
+        if co_rotating {
+            k
+        } else {
+            (nseg - k) % nseg
+        }
+    };
     for k in 0..nseg {
-        let mut tri = [apex_vi, ring[k], ring[(k + 1) % nseg]];
-        let n = cone_outward_normal(out_verts, &tri, apex, axis_dir, half_angle);
-        orient_tri(out_verts, &mut tri, n);
-        out_tris.push(tri);
+        let kn = (k + 1) % nseg;
+        let t0 = top_ring[k];
+        let t1 = top_ring[kn];
+        let b0 = bottom_ring[b_index(k)];
+        let b1 = bottom_ring[b_index(kn)];
+        for mut tri in [[b0, b1, t1], [b0, t1, t0]] {
+            let mut n = cone_outward_normal(out_verts, &tri, apex, axis_dir, half_angle);
+            if f.reversed {
+                n = [-n[0], -n[1], -n[2]];
+            }
+            orient_tri(out_verts, &mut tri, n);
+            out_tris.push(tri);
+        }
     }
     Ok(())
 }
