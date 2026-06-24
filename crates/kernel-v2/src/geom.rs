@@ -69,6 +69,16 @@ pub fn cone_radius_at(tau: f64, half_angle: f64) -> f64 {
     tau * half_angle.tan()
 }
 
+/// Signed tube residual of a point on/near a torus (KV6d): with `tau` the axial
+/// coordinate `(p − center)·axis_dir` and `rho` the radial distance from the
+/// axis, returns `(rho − major)² + tau² − minor²` — zero on the surface,
+/// negative inside the tube, positive outside. `validate_torus_face` and the
+/// boolean in/out test use it.
+pub fn torus_residual(tau: f64, rho: f64, major: f64, minor: f64) -> f64 {
+    let d = rho - major;
+    d * d + tau * tau - minor * minor
+}
+
 /// Wrap an angle to the principal interval `(−π, π]`.
 pub(crate) fn wrap_to_pi(mut x: f64) -> f64 {
     use std::f64::consts::PI;
@@ -833,6 +843,22 @@ mod tests {
             "got {v}, want {}",
             7.0 * PI / 3.0
         );
+    }
+
+    #[test]
+    fn torus_residual_zero_on_surface() {
+        // Torus major R=3, minor r=1: tube center circle at ρ=3, τ=0.
+        // On-surface points: (ρ,τ) ∈ {(4,0),(2,0),(3,1),(3,-1)} (the tube).
+        for (rho, tau) in [(4.0, 0.0), (2.0, 0.0), (3.0, 1.0), (3.0, -1.0)] {
+            assert!(
+                torus_residual(tau, rho, 3.0, 1.0).abs() < 1e-12,
+                "({rho},{tau})"
+            );
+        }
+        // Inside the tube (ρ=3, τ=0 is the tube center) → negative.
+        assert!(torus_residual(0.0, 3.0, 3.0, 1.0) < 0.0);
+        // Outside (ρ=5, τ=0) → positive.
+        assert!(torus_residual(0.0, 5.0, 3.0, 1.0) > 0.0);
     }
 
     #[test]

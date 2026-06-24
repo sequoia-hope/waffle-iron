@@ -254,6 +254,15 @@ pub fn validate_solid(arena: &BrepArena, solid: SolidId) -> Result<TopologyRepor
                 half_angle,
                 reversed,
             }) => validate_cone_face(arena, f, face, apex, axis_dir, half_angle, reversed)?,
+            Some(Surface::Torus {
+                center,
+                axis_dir,
+                major_radius,
+                minor_radius,
+                ..
+            }) => {
+                validate_torus_face(arena, f, face, center, axis_dir, major_radius, minor_radius)?
+            }
             None => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
         }
     }
@@ -907,6 +916,68 @@ fn validate_cone_face(
     Ok(())
 }
 
+/// Validate a [`Surface::Torus`] face (KV6d increment 1 — foundation).
+///
+/// Checks the analytic parameters (a ring torus needs `major > minor > 0` and a
+/// unit axis) and, in debug builds, that every loop vertex (outer + inner) lies
+/// on the torus surface via [`geom::torus_residual`]. The detailed boundary
+/// topology (profile-circle rims + longitude seam arcs for a partial torus, or
+/// the seam loops of a full torus) is pinned and exercised end to end when the
+/// KV6d revolve constructor (increment 3) produces it; this foundation
+/// validator is deliberately topology-agnostic so it accepts whatever shape the
+/// constructor settles on while still guarding the surface geometry.
+fn validate_torus_face(
+    arena: &BrepArena,
+    f: FaceId,
+    face: &crate::arena::Face,
+    center: Point3,
+    axis_dir: crate::arena::UnitVector3,
+    major_radius: f64,
+    minor_radius: f64,
+) -> Result<(), KernelV2Error> {
+    let mismatch = |reason: &'static str| KernelV2Error::CurvedGeometryMismatch { face: f, reason };
+    if !minor_radius.is_finite() || minor_radius <= 0.0 {
+        return Err(mismatch("torus minor_radius must be finite and positive"));
+    }
+    if !major_radius.is_finite() || major_radius <= minor_radius {
+        return Err(mismatch(
+            "torus major_radius must be finite and exceed minor_radius (ring torus)",
+        ));
+    }
+    let alen = (axis_dir.x * axis_dir.x + axis_dir.y * axis_dir.y + axis_dir.z * axis_dir.z).sqrt();
+    if (alen - 1.0).abs() > NORMAL_AGREEMENT_TOLERANCE {
+        return Err(mismatch("torus axis_dir must be unit-length"));
+    }
+
+    #[cfg(debug_assertions)]
+    {
+        let on_torus_residual = |p: Point3| {
+            let d = [p.x() - center.x(), p.y() - center.y(), p.z() - center.z()];
+            let tau = d[0] * axis_dir.x + d[1] * axis_dir.y + d[2] * axis_dir.z;
+            let radial = [
+                d[0] - tau * axis_dir.x,
+                d[1] - tau * axis_dir.y,
+                d[2] - tau * axis_dir.z,
+            ];
+            let rho =
+                (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
+            geom::torus_residual(tau, rho, major_radius, minor_radius).abs()
+        };
+        let mut loops = vec![face.outer_loop];
+        loops.extend(face.inner_loops.iter().copied());
+        for lid in loops {
+            for p in arena.loop_points(lid)? {
+                // The residual is in length², so compare against a band scaled
+                // by the minor radius (a length·length tolerance).
+                if on_torus_residual(p) > CURVED_SURFACE_DEBUG_TOLERANCE * minor_radius.max(1.0) {
+                    return Err(KernelV2Error::VertexOffSurface { face: f });
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Per-loop unrolled measurements over a cylinder patch (PR-KV5b): net
 /// axis wrap, mean axial height, and (for non-wrapping loops) twice the
 /// signed shoelace area in the unrolled `(θ, h)` frame.
@@ -1285,6 +1356,9 @@ pub(crate) fn debug_check_arena(arena: &BrepArena) -> Result<(), KernelV2Error> 
             // Cone laterals (like cylinders) have no polygonal walk to
             // Newell-check; `validate_cone_face` validates the rim geometry.
             (Some(Surface::Cone { .. }), false) => {}
+            // Torus faces (KV6d) likewise have no polygonal walk;
+            // `validate_torus_face` validates the surface geometry.
+            (Some(Surface::Torus { .. }), false) => {}
             (Some(Surface::Plane(plane)), false) => match geom::newell_unit(&pts) {
                 Some(newell) => {
                     if geom::dot(plane.normal, newell) < 1.0 - NORMAL_AGREEMENT_TOLERANCE {

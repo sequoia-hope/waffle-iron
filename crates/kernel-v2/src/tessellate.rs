@@ -232,6 +232,13 @@ pub fn tessellate_with_chord_tolerance(
                         });
                     }
                 }
+                Some(Surface::Torus { .. }) => {
+                    return Err(KernelV2Error::CurvedGeometryMismatch {
+                        face: f,
+                        reason:
+                            "tessellation: Surface::Torus not yet implemented (KV6d increment 2)",
+                    })
+                }
                 None => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
             }
         }

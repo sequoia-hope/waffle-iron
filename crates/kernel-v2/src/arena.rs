@@ -225,6 +225,32 @@ pub enum Surface {
         /// `true` = outward toward the axis (conical bore wall).
         reversed: bool,
     },
+    /// Torus surface (KV6d): revolving a circle of radius `minor_radius` (the
+    /// profile) about the axis through `center` along unit `axis_dir`, the
+    /// profile's center tracing a circle of radius `major_radius` (the tube
+    /// center circle, in the plane through `center` ⊥ the axis). A ring torus
+    /// requires `major_radius > minor_radius` (the revolve axis-clearance check
+    /// guarantees it).
+    ///
+    /// A point `p` lies on the surface when, with axial `τ = (p − center) ·
+    /// axis_dir` and radial `ρ = |(p − center) − τ·axis_dir|`, the tube residual
+    /// `(ρ − major_radius)² + τ² − minor_radius²` is zero
+    /// ([`crate::geom::torus_residual`]). With `reversed == false` the outward
+    /// normal points AWAY from the tube center circle (a solid ring); `true` is
+    /// the cavity sense (a toroidal groove / subtracted tube).
+    Torus {
+        /// A point on the axis, in the plane of the tube center circle.
+        center: Point3,
+        /// Unit axis direction.
+        axis_dir: UnitVector3,
+        /// Major radius `R`: axis → tube center circle (`> minor_radius`).
+        major_radius: f64,
+        /// Minor radius `r`: the tube (profile-circle) radius (`> 0`).
+        minor_radius: f64,
+        /// Cavity sense: `false` = outward away from the tube center circle
+        /// (solid ring), `true` = outward toward it (a toroidal groove wall).
+        reversed: bool,
+    },
 }
 
 /// Curve descriptor carried by a half-edge, AS TRAVERSED by that half-edge.

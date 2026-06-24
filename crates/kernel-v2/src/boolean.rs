@@ -517,6 +517,15 @@ pub fn to_yang_brep_indexed(
                         reversed,
                     });
                 }
+                Some(Surface::Torus { .. }) => {
+                    // yang has no Torus surface yet (KV6d boolean support is a
+                    // later increment); a torus operand walls loudly.
+                    return Err(KernelV2Error::CurvedGeometryMismatch {
+                        face: f,
+                        reason:
+                            "to_yang: Surface::Torus not yet supported (KV6d boolean increment)",
+                    });
+                }
                 None => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
             }
         }
