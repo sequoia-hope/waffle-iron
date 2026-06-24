@@ -11,9 +11,13 @@
 //!
 //! These tests turn that fan into a tracked RED→GREEN checklist. Each is
 //! `#[ignore]`d (so plain `cargo test` stays green) and asserts the END GOAL:
-//! the corpus case replays through the full kernel-v2 dispatch with NO boolean
-//! failure. They are RED today; as each downstream mode is fixed, its test
-//! goes GREEN and its `#[ignore]` is removed.
+//! the corpus case replays to ORACLE-CORRECT geometry — the SAME gauntlet the
+//! assay's `SUPPORTED_CORRECT` requires (watertight, volume, Euler, bbox extent,
+//! min-tris, single merged body), NOT merely "the boolean did not error". That
+//! distinction is load-bearing: R0082 built clean yet produced a 2.6%-oversized
+//! bbox (a silent-wrong result a build-only check would rubber-stamp — the very
+//! trap that sank the first R0013 attempt). They are RED today; as each mode is
+//! fixed, its test goes GREEN and its `#[ignore]` is removed.
 //!
 //! ## The dev harness
 //!
@@ -53,6 +57,9 @@
 use std::fs;
 use std::path::PathBuf;
 
+use test_harness::assay::gen::AssayMeta;
+use test_harness::helpers::mesh_bounding_box;
+use test_harness::oracle;
 use test_harness::ModelBuilder;
 
 fn assay_dir() -> PathBuf {
@@ -65,22 +72,34 @@ fn assay_dir() -> PathBuf {
 }
 
 /// Replay one corpus case through the full kernel-v2 dispatch WITH the
-/// same-normal dev wall lifted, and return any boolean-failure messages.
+/// same-normal dev wall lifted, and return EVERY failure — boolean failures AND
+/// (if the booleans succeed) the full mesh-oracle gauntlet.
 ///
-/// A boolean failure surfaces either as an engine error (a `cut`/subtract
-/// rebuild failure) or as an `"Auto-union failed: …"` warning (the merge=true
-/// boss path downgrades a boolean error to a warning). An empty result means
-/// every boolean in the case succeeded — the per-case campaign goal.
-fn boolean_failures(case_id: &str) -> Vec<String> {
+/// "Builds without a boolean error" is NOT the GREEN target: R0082 built clean
+/// yet produced a 2.6%-oversized bbox (a silent-wrong result a build-only check
+/// rubber-stamps). So GREEN = ORACLE-CORRECT geometry — the SAME checks the
+/// assay's `SUPPORTED_CORRECT` requires: watertight, consistent/outward normals,
+/// no degenerate triangles, valid indices, positive volume, no self-intersection,
+/// Euler characteristic, volume magnitude, minimum triangle count, bbox extent,
+/// and (multi-op) a single merged body. An empty result means the case is fully
+/// correct.
+fn replay_failures(case_id: &str) -> Vec<String> {
     // Lift the production wall for this process (every test in this binary
     // wants it lifted; separate test binaries are separate processes, so this
     // never leaks to the assay or other suites).
     std::env::set_var("YANG_M8_SAMENORMAL_DEV", "1");
 
-    let waffle_path = assay_dir().join(format!("{case_id}.waffle"));
-    let waffle_json = match fs::read_to_string(&waffle_path) {
+    let dir = assay_dir();
+    let waffle_json = match fs::read_to_string(dir.join(format!("{case_id}.waffle"))) {
         Ok(s) => s,
         Err(e) => return vec![format!("cannot read {case_id}.waffle: {e}")],
+    };
+    let meta: AssayMeta = match fs::read_to_string(dir.join(format!("{case_id}.meta.json")))
+        .map_err(|e| e.to_string())
+        .and_then(|s| serde_json::from_str(&s).map_err(|e| e.to_string()))
+    {
+        Ok(m) => m,
+        Err(e) => return vec![format!("cannot read {case_id}.meta.json: {e}")],
     };
 
     let mut builder = ModelBuilder::kernel_v2();
@@ -88,6 +107,9 @@ fn boolean_failures(case_id: &str) -> Vec<String> {
         return vec![format!("LoadProject failed: {e}")];
     }
 
+    // (a) Boolean failures: engine errors (cut/subtract) + "Auto-union failed"
+    //     warnings (the merge=true boss path downgrades a boolean error to a
+    //     warning). If any, the case did not even build — return them.
     let mut failures: Vec<String> = builder
         .engine_errors()
         .iter()
@@ -100,17 +122,77 @@ fn boolean_failures(case_id: &str) -> Vec<String> {
             .filter(|w| w.contains("Auto-union failed"))
             .cloned(),
     );
+    if !failures.is_empty() {
+        return failures;
+    }
+
+    // (b) Built clean → the FULL oracle gauntlet (mirrors assay_kv2 replay_case
+    //     SUPPORTED_CORRECT). This is what catches silent-wrong geometry.
+    let tess_tol = (meta.scale * 0.01).clamp(1e-9, 0.1);
+    let mesh = match builder.tessellate_last_with_tol(tess_tol) {
+        Ok(m) => m,
+        Err(e) => return vec![format!("tessellation failed: {e}")],
+    };
+    for v in oracle::run_all_mesh_checks(&mesh) {
+        if !v.passed {
+            failures.push(format!("{}: {}", v.oracle_name, v.detail));
+        }
+    }
+    if mesh.indices.is_empty() {
+        failures.push("empty mesh: no triangles".to_string());
+    }
+    let ops: Vec<(String, String)> = meta
+        .operations
+        .iter()
+        .map(|o| (o.kind.clone(), o.profile_type.clone()))
+        .collect();
+    let v = oracle::check_minimum_triangle_count(&mesh, &ops);
+    if !v.passed {
+        failures.push(format!("minimum_triangle_count: {}", v.detail));
+    }
+    if !mesh.vertices.is_empty() {
+        let v = oracle::check_volume_magnitude(&mesh, meta.scale);
+        if !v.passed {
+            failures.push(format!("volume_magnitude: {}", v.detail));
+        }
+        let v = oracle::check_mesh_euler_characteristic(&mesh, meta.oracles.euler_target);
+        if !v.passed {
+            failures.push(format!("mesh_euler_characteristic: {}", v.detail));
+        }
+        let (bb_min, bb_max) = mesh_bounding_box(&mesh);
+        let dx = (bb_max[0] - bb_min[0]) as f64;
+        let dy = (bb_max[1] - bb_min[1]) as f64;
+        let dz = (bb_max[2] - bb_min[2]) as f64;
+        let diagonal = (dx * dx + dy * dy + dz * dz).sqrt();
+        if diagonal > meta.oracles.max_bbox_extent {
+            failures.push(format!(
+                "bbox diagonal {:.3e} exceeds max {:.3e}",
+                diagonal, meta.oracles.max_bbox_extent
+            ));
+        }
+    }
+    // Multi-op cases must end as a single merged body.
+    if meta.operations.len() > 1 {
+        let solid_count = builder.distinct_solid_count();
+        if solid_count > 1 {
+            failures.push(format!(
+                "merge incomplete: {} operations produced {} separate solids",
+                meta.operations.len(),
+                solid_count
+            ));
+        }
+    }
     failures
 }
 
-/// Assert a case replays with no boolean failure (the GREEN target). The panic
-/// message carries the actual downstream failure so the RED run documents which
-/// mode still blocks the case.
-fn assert_builds(case_id: &str) {
-    let failures = boolean_failures(case_id);
+/// Assert a case replays to ORACLE-CORRECT geometry (the GREEN target). The
+/// panic message carries the actual failure(s) so a RED run documents what still
+/// blocks the case — a boolean mode OR a silent-wrong oracle violation.
+fn assert_correct(case_id: &str) {
+    let failures = replay_failures(case_id);
     assert!(
         failures.is_empty(),
-        "M8 same-normal RED — {case_id} still fails its boolean(s):\n  {}",
+        "M8 same-normal RED — {case_id} not yet oracle-correct:\n  {}",
         failures.join("\n  ")
     );
 }
@@ -120,13 +202,13 @@ fn assert_builds(case_id: &str) {
 #[test]
 #[ignore = "M8 same-normal RED (Stage-6 scale-relative planar tol): GREEN when non-pair planar faces of a curved input use a scale-relative membership band"]
 fn red_r0013_stage6_planar_tol() {
-    assert_builds("R0013");
+    assert_correct("R0013");
 }
 
 #[test]
 #[ignore = "M8 same-normal RED (Stage-6 scale-relative planar tol): GREEN when non-pair planar faces of a curved input use a scale-relative membership band"]
 fn red_r0024_stage6_planar_tol() {
-    assert_builds("R0024");
+    assert_correct("R0024");
 }
 
 // ── Mode 2: Stage-4 relocation DegenerateTriangle ──────────────────────────
@@ -134,7 +216,7 @@ fn red_r0024_stage6_planar_tol() {
 #[test]
 #[ignore = "M8 same-normal RED (Stage-4 relocation DegenerateTriangle): GREEN when the §4.5.3 region repair handles the same-normal overlap boundary"]
 fn red_r0021_stage4_relocation() {
-    assert_builds("R0021");
+    assert_correct("R0021");
 }
 
 // ── Mode 3: Stage-3 SSI AmbiguousCurve (cyl∩plane near-tangency) ────────────
@@ -142,7 +224,7 @@ fn red_r0021_stage4_relocation() {
 #[test]
 #[ignore = "M8 same-normal RED (Stage-3 SSI AmbiguousCurve): GREEN when the curve selector adds a POSITION tie-break for near-coincident parallel-line candidates"]
 fn red_r0072_stage3_ambiguous_parallel_lines() {
-    assert_builds("R0072");
+    assert_correct("R0072");
 }
 
 // ── Mode 4: kernel-v2 azimuth-merge rims disagree (reassembly) ──────────────
@@ -150,7 +232,7 @@ fn red_r0072_stage3_ambiguous_parallel_lines() {
 #[test]
 #[ignore = "M8 same-normal RED (kernel-v2 azimuth-merge rims disagree): GREEN when reassembly rim-merge tolerates the same-normal rim split"]
 fn red_r0078_kernel_azimuth_merge() {
-    assert_builds("R0078");
+    assert_correct("R0078");
 }
 
 // ── Mode 5: cherchi TIMEOUT (coincident same-winding overlap) ──────────────
@@ -160,26 +242,26 @@ fn red_r0078_kernel_azimuth_merge() {
 // guard / single-shared-sheet Stage-0 lands — running it would wedge the
 // suite. Documented here so the mode is not lost; add the body with the fix.
 //
-// fn red_r0063_cherchi_timeout() { assert_builds("R0063"); }
+// fn red_r0063_cherchi_timeout() { assert_correct("R0063"); }
 
 // ── Mode 6: residual 2nd coplanar pair ─────────────────────────────────────
 
 #[test]
 #[ignore = "M8 same-normal RED (residual 2nd coplanar pair): GREEN when the second coplanar pair's gate (not lifted by the same-normal env) is also resolved"]
 fn red_r0076_residual_pair() {
-    assert_builds("R0076");
+    assert_correct("R0076");
 }
 
 #[test]
 #[ignore = "M8 same-normal RED (residual 2nd coplanar pair): GREEN when the second coplanar pair's gate (not lifted by the same-normal env) is also resolved"]
 fn red_r0088_residual_pair() {
-    assert_builds("R0088");
+    assert_correct("R0088");
 }
 
 #[test]
 #[ignore = "M8 same-normal RED (residual 2nd coplanar pair): GREEN when the second coplanar pair's gate (not lifted by the same-normal env) is also resolved"]
 fn red_f0061_residual_pair() {
-    assert_builds("F0061");
+    assert_correct("F0061");
 }
 
 // ── Harness self-check (always on) ─────────────────────────────────────────
@@ -191,11 +273,11 @@ fn red_f0061_residual_pair() {
 /// succeed — only that the wall is actually lifted.
 #[test]
 fn harness_lifts_the_wall() {
-    let failures = boolean_failures("R0013");
+    let failures = replay_failures("R0013");
     assert!(
         !failures.is_empty(),
-        "expected R0013 to still fail downstream (RED); if it now builds, \
-         remove this self-check and un-ignore red_r0013_stage6_planar_tol"
+        "expected R0013 to still be RED (not yet oracle-correct); if it now \
+         passes, un-ignore red_r0013_stage6_planar_tol and repoint this check"
     );
     assert!(
         !failures
