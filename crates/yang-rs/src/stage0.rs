@@ -1893,6 +1893,20 @@ fn build_stage0_mesh(
             return Err(BuildErr::Unsupported);
         };
         if !f.inner_loops.is_empty() || !overlay_face_supported(brep, f_idx) {
+            // The planar fan re-triangulation can't handle this face — a mixed
+            // arc+line boundary (a partial-revolve washer-sector cap, R0015's
+            // f=3 with outer curves [L,C,L,C]) or a holed face. But if its
+            // subdivided edges are all STRAIGHT generators that are direct
+            // base-tess edges, the surface-agnostic edge split works here too:
+            // the base Stage-1 tessellation already conforms to the arc
+            // boundary, and we only insert the straight-generator split points
+            // (the same shared points the neighbour cap/lateral use).
+            if let Some(face_tris) =
+                edge_split_curved_face(brep, f_idx, &tess, splits, &mut verts, &mut intern)
+            {
+                tris.extend(face_tris);
+                continue;
+            }
             probe(
                 "build-mesh-holed-or-unsupported",
                 &format!(
