@@ -1721,6 +1721,95 @@ impl From<YangError> for BuildErr {
     }
 }
 
+/// Fan-split triangle `tri` along the edge between loop positions `i` and
+/// `i+1`, inserting the ordered `interior` vertex indices (in `tri[i]→tri[i+1]`
+/// order). Every replacement triangle preserves `tri`'s winding: it fans from
+/// the opposite vertex `tri[i+2]` through the subdivided boundary chain
+/// `tri[i] → interior… → tri[i+1]`, which is a sub-traversal of the original
+/// CCW boundary. Pure index arithmetic — unit-tested.
+fn fan_split_tri(tri: [u32; 3], i: usize, interior: &[u32]) -> Vec<[u32; 3]> {
+    let opp = tri[(i + 2) % 3];
+    let mut chain: Vec<u32> = Vec::with_capacity(interior.len() + 2);
+    chain.push(tri[i]);
+    chain.extend_from_slice(interior);
+    chain.push(tri[(i + 1) % 3]);
+    chain.windows(2).map(|w| [opp, w[0], w[1]]).collect()
+}
+
+/// Surface-agnostic edge split for a CURVED face whose subdivided boundary
+/// edges are ALL straight `Curve::LineSegment` generators (M8 partial-cap /
+/// cylinder-lateral case, R0015): a partial-revolve cap shares a generator with
+/// the cylinder lateral, and the coplanar overlap boundary crossed that
+/// generator. The split points are collinear ON the straight edge — already on
+/// the curved surface — so the face's base tessellation absorbs them by
+/// splitting the base-tess triangle that carries each subdivided generator
+/// (fan from the opposite vertex through the inserted points). NO curved
+/// re-tessellation, exact, and conformal with the planar neighbour that splits
+/// the same edge at the same shared `splits` points.
+///
+/// Returns `None` (→ the loud `build-mesh-nonplanar` residue stands) if ANY
+/// subdivided boundary edge is CURVED (an arc rim — the deferred resampling
+/// case), or if one base-tess triangle carries TWO subdivided edges (a clean
+/// fan split is not well-defined) — keeping the conformal contract loud rather
+/// than risking a gap.
+fn edge_split_curved_face(
+    brep: &BRep,
+    f_idx: usize,
+    tess: &crate::Stage1Tess,
+    splits: &SplitMap,
+    verts: &mut Vec<Point3>,
+    intern: &mut BTreeMap<[u64; 3], u32>,
+) -> Option<Vec<[u32; 3]>> {
+    let f = &brep.faces()[f_idx];
+    let mut subdiv: BTreeMap<(u32, u32), &Vec<(RBig, Point3)>> = BTreeMap::new();
+    for &e in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
+        let edge = &brep.edges()[e as usize];
+        let key = (edge.start.min(edge.end), edge.start.max(edge.end));
+        if let Some(pts) = splits.get(&key) {
+            if !matches!(edge.curve, Curve::LineSegment) {
+                return None; // a curved (arc) subdivided edge — deferred
+            }
+            subdiv.insert(key, pts);
+        }
+    }
+    if subdiv.is_empty() {
+        return None;
+    }
+    let range = tess.face_tri_ranges.get(f_idx)?.clone();
+    let mut out: Vec<[u32; 3]> = Vec::with_capacity(range.len() + subdiv.len() * 2);
+    for tri in &tess.tris[range] {
+        let hits: Vec<usize> = (0..3)
+            .filter(|&i| {
+                let (a, b) = (tri[i], tri[(i + 1) % 3]);
+                subdiv.contains_key(&(a.min(b), a.max(b)))
+            })
+            .collect();
+        match hits.len() {
+            0 => out.push(*tri),
+            1 => {
+                let i = hits[0];
+                let (a, b) = (tri[i], tri[(i + 1) % 3]);
+                let key = (a.min(b), a.max(b));
+                let pts = subdiv[&key];
+                // Stored points run lo→hi; this triangle traverses a→b.
+                let forward = a == key.0;
+                let interior: Vec<u32> = {
+                    let it: Box<dyn Iterator<Item = &(RBig, Point3)>> = if forward {
+                        Box::new(pts.iter())
+                    } else {
+                        Box::new(pts.iter().rev())
+                    };
+                    it.map(|(_, p)| intern_vert(verts, intern, *p)).collect()
+                };
+                out.extend(fan_split_tri(*tri, i, &interior));
+            }
+            // ≥2 subdivided edges on one triangle — defer loudly (no clean fan).
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
 /// Build one solid's Stage-0 mesh: the normal Stage-1 tessellation over the
 /// SNAPPED vertex coordinates, with overlay faces' triangles replaced by
 /// the overlay triangulation and split-edge neighbor faces re-triangulated
@@ -1783,6 +1872,23 @@ fn build_stage0_mesh(
         // Neighbor re-triangulation with the subdivided ring. Scope: planar,
         // all-LineSegment, hole-free, continuous outer loop.
         let Surface::Plane { normal, .. } = f.surface else {
+            // M8 curved-neighbour (R0015): a CURVED face whose subdivided
+            // boundary edges are ALL STRAIGHT line generators — e.g. a
+            // partial-revolve cap shares a generator with the cylinder lateral,
+            // and the coplanar overlap boundary crossed that generator. The
+            // split points are collinear on a straight edge ALREADY ON the
+            // curved surface, so the face's base tessellation absorbs them by a
+            // surface-agnostic EDGE SPLIT — split each base-tess triangle that
+            // carries a subdivided generator at the inserted points. No curved
+            // re-tessellation. A subdivided CURVED (arc) boundary edge is NOT
+            // handled here (the genuine arc-resampling case, deferred) → the
+            // helper returns None and the loud residue stands.
+            if let Some(face_tris) =
+                edge_split_curved_face(brep, f_idx, &tess, splits, &mut verts, &mut intern)
+            {
+                tris.extend(face_tris);
+                continue;
+            }
             probe("build-mesh-nonplanar", &format!("f={f_idx}"));
             return Err(BuildErr::Unsupported);
         };
@@ -3024,5 +3130,64 @@ mod cylinder_pair_tests {
             r.is_ok(),
             "coincident_cylinder_stage0 must never error here"
         );
+    }
+}
+
+#[cfg(test)]
+mod fan_split_tests {
+    use super::fan_split_tri;
+
+    #[test]
+    fn one_point_splits_edge0() {
+        // Split edge (tri[0],tri[1]) of [0,1,2] with interior point 3; fan from
+        // the opposite vertex 2.
+        assert_eq!(
+            fan_split_tri([0, 1, 2], 0, &[3]),
+            vec![[2, 0, 3], [2, 3, 1]]
+        );
+    }
+
+    #[test]
+    fn two_points_splits_edge0() {
+        assert_eq!(
+            fan_split_tri([0, 1, 2], 0, &[3, 4]),
+            vec![[2, 0, 3], [2, 3, 4], [2, 4, 1]]
+        );
+    }
+
+    #[test]
+    fn splits_edge1_and_edge2() {
+        // edge (tri[1],tri[2]) → opposite vertex tri[0].
+        assert_eq!(
+            fan_split_tri([0, 1, 2], 1, &[3]),
+            vec![[0, 1, 3], [0, 3, 2]]
+        );
+        // edge (tri[2],tri[0]) → opposite vertex tri[1].
+        assert_eq!(
+            fan_split_tri([0, 1, 2], 2, &[3]),
+            vec![[1, 2, 3], [1, 3, 0]]
+        );
+    }
+
+    #[test]
+    fn empty_interior_is_the_original_rotated() {
+        // No interior points → one triangle, same winding as the input.
+        assert_eq!(fan_split_tri([0, 1, 2], 0, &[]), vec![[2, 0, 1]]);
+    }
+
+    #[test]
+    fn winding_is_preserved() {
+        // CCW triangle (0,0),(2,0),(1,1); split the bottom edge at its midpoint
+        // (index 3 = (1,0)). Every output triangle must stay CCW (area > 0).
+        let coords = [[0.0, 0.0], [2.0, 0.0], [1.0, 1.0], [1.0, 0.0]];
+        let area2 = |t: [u32; 3]| {
+            let p = |i: u32| coords[i as usize];
+            let (a, b, c) = (p(t[0]), p(t[1]), p(t[2]));
+            (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+        };
+        assert!(area2([0, 1, 2]) > 0.0, "input is CCW");
+        for t in fan_split_tri([0, 1, 2], 0, &[3]) {
+            assert!(area2(t) > 0.0, "split triangle {t:?} must stay CCW");
+        }
     }
 }
