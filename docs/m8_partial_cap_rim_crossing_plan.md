@@ -9,8 +9,16 @@ That case is now SHIPPED via a surface-agnostic edge split (`edge_split_curved_f
 overlap boundary subdividing a CURVED (Circle/arc) rim shared with a cylinder
 lateral. `edge_split_curved_face` returns `None` for that (loud residue), so the
 sections below (sample the arc rim conformally → per-rim-edge `collect_rim_crossings`)
-still apply to it. Find a corpus case that hits it first (grep the `build-mesh-
-nonplanar` residue with a `circle=true` split edge) — R0015 was NOT it.
+still apply to it.
+
+**BUT (verified 2026-06-25 via `YANG_ARC_PROBE` across the WHOLE corpus, both in
+production AND with the same-normal gate lifted): NO corpus case hits the arc-rim
+residue.** Zero occurrences. The straight-generator edge-split fix above covered
+the ENTIRE `build-mesh-nonplanar` residue class the corpus exercises. So the
+arc-rim handler is currently UNREACHABLE / UNVERIFIABLE — do NOT implement it
+speculatively (P9, the holed-disc lesson). Implement it only when a REAL case
+(corpus or a user `.waffle`) actually hits it; the design below is the head start
+for that day. The `None` deferral is correct until then.
 
 **Scope:** one focused session. Touches `crates/yang-rs/src/stage0.rs` only.
 **Goal:** un-block the `build-mesh-nonplanar` residue that the coplanar-overlay
