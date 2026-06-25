@@ -68,6 +68,30 @@ revert — see this session's git history / `kernel_v2_kv6d_torus` memo):
 After 5a a torus boolean RUNS end-to-end and the torus face survives — but its
 output boundary comes back as a **mesh POLYLINE**, which is the wall:
 
+### Increment 5b2 wiring DONE (2026-06-25) — but gated on torus SSI
+
+The Stage-5/6 reassembly + render wiring is now in place and tested:
+- **yang Stage-5/6** reassembles a trimmed torus face (Surface::Torus added to
+  the curved-reassembly gate). A torus traverses the whole yang pipeline; the
+  trimmed lateral survives as a Surface::Torus face, watertight
+  (`yang-rs/tests/kv6d_torus_boolean.rs`). Commit b51b67b6.
+- **kernel-v2 from_yang_brep** has a `FaceSurf::Torus` arm; **kernel-v2 render
+  tessellation** routes a boolean-output torus patch to
+  `yang_rs::tessellate_torus_patch` (the UV-CDT consumer), unit-tested on a
+  synthetic on-surface patch (`tessellate::torus_patch_tess_tests`). Commit
+  ca0e1699.
+
+**PROVEN BLOCKER — torus Stage-4 SSI relocation.** The full
+boolean→reconstruct→render path is gated: yang returns
+`UnsupportedSurfaceForSsi` for a torus, so the trimmed output boundary stays on
+the INPUT tessellation's chords — measured **~0.096 off the analytic torus**
+(`torus_output_boundary_is_chord_off_surface`). `validate_torus_face` correctly
+(P9) rejects that off-surface boundary in `from_yang_brep`; loosening the
+tolerance would be masking. So the remaining piece is a **torus Stage-4 SSI
+relocation** (place the intersection-curve vertices on the analytic torus), NOT
+more reassembly/tessellation wiring. The end-to-end test is `#[ignore]`d with
+that reason.
+
 ### Increment 5b — torus OUTPUT BOUNDARY RECOVERY (the hard tail)
 
 The surviving/trimmed torus face's loop is a polyline (yang reassembly is
