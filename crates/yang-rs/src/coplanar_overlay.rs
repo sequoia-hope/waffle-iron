@@ -505,14 +505,17 @@ pub fn coplanar_overlay(
         verts.push(Point2::new(x, y));
     }
 
-    let overlay = ClassifiedOverlay {
+    let mut overlay = ClassifiedOverlay {
         verts,
         exact_verts,
         tris,
         class,
     };
 
-    // ── 5. Exact coverage post-conditions (P9/P10 — loud). ──────────────
+    // ── 5. Exact coverage post-conditions (P9/P10 — loud). Run on the FULL
+    // (pre-filter) overlay: the exact areas include every triangle, so this
+    // validates the exact 2D boolean is correct BEFORE the f64-collapse filter
+    // below ever drops anything. ──────────────────────────────────────────
     let area_a = overlay.area_exact(RegionClass::AOnly) + overlay.area_exact(RegionClass::Overlap);
     if area_a != input_area(&loops_a) {
         return Err(CoplanarOverlayError::CoverageMismatch { side: 'A' });
@@ -522,22 +525,76 @@ pub fn coplanar_overlay(
         return Err(CoplanarOverlayError::CoverageMismatch { side: 'B' });
     }
 
-    // ── 6. Sliver-collapse gate: every triangle (exactly CCW-positive by
-    // construction) must stay positively oriented in the ROUNDED f64
-    // coordinates. A collapse is rejected LOUDLY, never dropped silently.
-    for tri in &overlay.tris {
+    // ── 6. Sliver-collapse gate: every triangle is exactly CCW-positive by
+    // construction; check it stays positively oriented in the ROUNDED f64
+    // coordinates.
+    //
+    // Two ways a positive exact triangle can round to non-positive f64 area:
+    //   (a) two of its three verts round to the SAME f64 point (a zero-EXTENT
+    //       needle — distinct exact verts a sub-ulp apart, e.g. two 2D-Boolean
+    //       intersection points the same edge crossing minted within an ulp).
+    //       This is benign: the downstream coordinate interner welds f64-
+    //       identical points to one index, so the needle's two non-zero edges
+    //       are the SAME edge — dropping it leaves NO f64 gap and no flip. The
+    //       exact coverage above already proved the overlay correct. DROP it.
+    //   (b) three DISTINCT f64 verts that rounded into collinearity — a real
+    //       sliver whose removal could leave a gap or whose retention flips a
+    //       neighbour. This stays a LOUD reject (P9 — never silently dropped).
+    let mut kept_tris = Vec::with_capacity(overlay.tris.len());
+    let mut kept_class = Vec::with_capacity(overlay.class.len());
+    for (tri, cls) in overlay.tris.iter().zip(overlay.class.iter()) {
         let a2 = overlay.verts[tri[0] as usize];
         let b2 = overlay.verts[tri[1] as usize];
         let c2 = overlay.verts[tri[2] as usize];
-        let area2 = (b2.x() - a2.x()) * (c2.y() - a2.y()) - (b2.y() - a2.y()) * (c2.x() - a2.x());
-        // `<=` would miss NaN (cannot occur — verts are finite — but be
-        // total anyway): keep only strictly-positive areas.
-        if area2.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
-            return Err(CoplanarOverlayError::RoundingCollapse { tri: *tri });
+        match rounded_tri_disposition(a2, b2, c2) {
+            RoundedTri::Positive => {
+                kept_tris.push(*tri);
+                kept_class.push(*cls);
+            }
+            // (a) benign coincident-pair needle — drop (zero f64 extent).
+            RoundedTri::CoincidentNeedle => continue,
+            // (b) genuine collinear sliver — loud.
+            RoundedTri::CollinearSliver => {
+                return Err(CoplanarOverlayError::RoundingCollapse { tri: *tri })
+            }
         }
     }
+    overlay.tris = kept_tris;
+    overlay.class = kept_class;
 
     Ok(overlay)
+}
+
+/// How a positively-oriented EXACT overlay triangle fares when its vertices are
+/// rounded to f64 — the discrimination behind the step-6 sliver-collapse gate.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum RoundedTri {
+    /// Still strictly CCW-positive in f64 — keep it.
+    Positive,
+    /// Two of the three verts rounded to the SAME f64 point (a zero-EXTENT
+    /// needle — distinct exact verts a sub-ulp apart). Benign: the downstream
+    /// coordinate interner welds f64-identical points to one index, so the
+    /// needle's two non-zero edges are the SAME edge — dropping it leaves no
+    /// f64 gap and no flip.
+    CoincidentNeedle,
+    /// Three DISTINCT f64 verts that rounded into collinearity — a real sliver
+    /// whose removal could leave a gap or whose retention flips a neighbour. A
+    /// LOUD reject (P9 — never silently dropped).
+    CollinearSliver,
+}
+
+fn rounded_tri_disposition(a: Point2, b: Point2, c: Point2) -> RoundedTri {
+    let area2 = (b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x());
+    // `partial_cmp` keeps this total over a (cannot-occur) NaN.
+    if area2.partial_cmp(&0.0) == Some(std::cmp::Ordering::Greater) {
+        return RoundedTri::Positive;
+    }
+    let same = |p: Point2, q: Point2| p.x() == q.x() && p.y() == q.y();
+    if same(a, b) || same(b, c) || same(c, a) {
+        RoundedTri::CoincidentNeedle
+    } else {
+        RoundedTri::CollinearSliver
+    }
 }
 
 // ───────────────────────────── exact helpers ────────────────────────────
@@ -860,4 +917,51 @@ fn intern(
     pool.insert(p.clone(), i);
     verts.push(p.clone());
     i
+}
+
+#[cfg(test)]
+mod sliver_gate_tests {
+    use super::{rounded_tri_disposition, RoundedTri};
+    use cad_primitives::Point2;
+
+    #[test]
+    fn positive_triangle_kept() {
+        let d = rounded_tri_disposition(
+            Point2::new(0.0, 0.0),
+            Point2::new(1.0, 0.0),
+            Point2::new(0.0, 1.0),
+        );
+        assert_eq!(d, RoundedTri::Positive);
+    }
+
+    #[test]
+    fn coincident_pair_needle_dropped() {
+        // Two bit-identical verts (the R0015/46/81/98 signature: distinct exact
+        // points that round to the same f64) — a zero-extent needle, benign.
+        let p = Point2::new(2.613513332e-5, -1.588503209e-4);
+        let q = Point2::new(2.613513332e-5, -1.513449247e-4);
+        assert_eq!(
+            rounded_tri_disposition(q, p, p),
+            RoundedTri::CoincidentNeedle
+        );
+        assert_eq!(
+            rounded_tri_disposition(p, q, p),
+            RoundedTri::CoincidentNeedle
+        );
+        assert_eq!(
+            rounded_tri_disposition(p, p, q),
+            RoundedTri::CoincidentNeedle
+        );
+    }
+
+    #[test]
+    fn collinear_distinct_sliver_rejected() {
+        // Three DISTINCT f64 verts rounded collinear — a real sliver, stays loud.
+        let d = rounded_tri_disposition(
+            Point2::new(0.0, 0.0),
+            Point2::new(1.0, 1.0),
+            Point2::new(2.0, 2.0),
+        );
+        assert_eq!(d, RoundedTri::CollinearSliver);
+    }
 }
