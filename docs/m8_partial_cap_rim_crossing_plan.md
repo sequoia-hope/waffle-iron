@@ -1,6 +1,17 @@
 # M8 plan — generalize rim-crossing propagation to partial caps (curved coplanar neighbours)
 
-**Status:** planned, not started. Author handoff 2026-06-25.
+**Status (updated 2026-06-25):** PARTIALLY EXECUTED. Step 0 (confirm-the-geometry)
+**overturned the arc-rim premise** for R0015 — its shared edge is a STRAIGHT line
+GENERATOR (not an arc rim), and the split points land exactly on the cylinder.
+That case is now SHIPPED via a surface-agnostic edge split (`edge_split_curved_face`
++ `fan_split_tri` in `stage0.rs`; R0015 past `build-mesh-nonplanar`, full assay
+74/0). **What REMAINS of this plan: the genuine arc-rim case** — a coplanar
+overlap boundary subdividing a CURVED (Circle/arc) rim shared with a cylinder
+lateral. `edge_split_curved_face` returns `None` for that (loud residue), so the
+sections below (sample the arc rim conformally → per-rim-edge `collect_rim_crossings`)
+still apply to it. Find a corpus case that hits it first (grep the `build-mesh-
+nonplanar` residue with a `circle=true` split edge) — R0015 was NOT it.
+
 **Scope:** one focused session. Touches `crates/yang-rs/src/stage0.rs` only.
 **Goal:** un-block the `build-mesh-nonplanar` residue that the coplanar-overlay
 sliver fix exposed (R0015 and the curved-coplanar class), so a coplanar overlap
