@@ -86,7 +86,13 @@ boundary curves (it fails "missing +axis seam arc"). Two sub-cases:
   torus-patch tessellation** — invert `face_eval` to project the boundary
   polyline → `(u=φ, v=θ)`, constrained-Delaunay-triangulate in `(u,v)` WITH
   interior Steiner points (to bound chord error on a non-tiny patch), map back to
-  3D, weld to the watertight result. RESEARCH-GRADE — see §4.
+  3D, weld to the watertight result. The UV-CDT **consumer is now BUILT**
+  (`yang-rs::tessellate_torus_patch`, 2026-06-25): project → unwrap → snap to
+  TAU_WORK → `cdt_polygon_with_holes_refined` → map back (boundary verts EXACT,
+  Steiner = `face_eval`, on-torus). Test: synthetic UV-rect patch is watertight,
+  every vert on-surface, chorded area = analytic. Remaining for 5b2: wire it into
+  Stage-5/6 (feed the surviving torus patch's recovered boundary polyline). See
+  §4.
 
 ---
 
@@ -98,10 +104,24 @@ max_area)` → `(fresh_verts, tris)`. It builds the constrained CDT and runs
 spade's Delaunay refinement (`with_max_allowed_area(max_area)
 .keep_constraint_edges()`) to add interior Steiner points until every triangle is
 ≤ `max_area` (the caller maps that from the surface chord-error budget). Boundary
-verts preserved (conformal); non-convex interior-only; 4 unit tests; wasm-clean;
-rewrite-tier green. So §5 step 3 is **DONE** — (b2) is now unblocked at the
-primitive level. The torus UV-CDT consumer (invert `face_eval` → project boundary
-→ call this → map back to 3D) is the remaining work, not the primitive itself.
+verts preserved (conformal); non-convex interior-only; wasm-clean; rewrite-tier
+green. So §5 step 3 is **DONE** — (b2) is now unblocked at the primitive level.
+
+**The torus UV-CDT consumer is also now BUILT** (2026-06-25,
+`yang-rs::tessellate_torus_patch`). Two robustness fixes to the primitive were
+needed to make it usable on real (sampled-curve) boundaries:
+- **Angle limit disabled** (`with_angle_limit(0°)`): spade's default 30° Ruppert
+  limit chases the ~1e-16 kinks on a near-collinear (straight-seam) boundary run
+  and over-refines into a slivers storm (352 vs 72 verts on the same rectangle).
+  We want ONLY the area bound.
+- **Topological exterior emit** (flood-fill from the convex hull across
+  non-constraint edges) replaced the float point-in-polygon centroid test, which
+  dropped near-boundary slivers and SLIT the mesh (watertight 2D area but
+  count-1 interior edges → 3D gaps). The flood-fill keeps every interior face
+  (slivers harmless) and still excludes the non-convex notch (L-shape preserved).
+The consumer additionally snaps the inverted `(u,v)` to the TAU_WORK (1e-12) grid
+to kill the trig round-trip noise at its source (geometrically safe: output
+boundary verts are the EXACT input 3D points, Steiner are `face_eval`, on-torus).
 
 The original gap (now closed) was a capability the codebase did not have
 (verified in the KV6d UV-CDT feasibility investigation, 2026-06-24):
@@ -139,7 +159,9 @@ genuinely hard.
    `cdt_polygon_with_holes_refined` (spade refinement; see §4). The gateway to
    5b2 and the non-convex-CDT profile tail is now in place.
 4. **Increment 5b2 (UV-CDT torus-patch tessellation)** — the dominant corpus
-   case; built on (3). Largest piece.
+   case; built on (3). The UV-CDT **consumer is DONE** (2026-06-25,
+   `tessellate_torus_patch`); the remaining piece is wiring it into Stage-5/6
+   (recover the surviving torus patch's boundary polyline, feed it in, weld).
 5. **Increment 6** — corpus verify the 23 cases (full assay; SUPPORTED_WRONG==0
    gate; watertight + bbox/vol oracles per case).
 

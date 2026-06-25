@@ -18,9 +18,10 @@
 use cad_primitives::Point2 as CadPoint2;
 use spade::handles::FixedVertexHandle;
 use spade::{
-    ConstrainedDelaunayTriangulation, InsertionError, Point2 as SpadePoint2, RefinementParameters,
-    Triangulation,
+    AngleLimit, ConstrainedDelaunayTriangulation, InsertionError, Point2 as SpadePoint2,
+    RefinementParameters, Triangulation,
 };
+use std::collections::{HashSet, VecDeque};
 use std::fmt;
 
 /// Error returned by [`cdt_polygon_with_holes`].
@@ -384,17 +385,28 @@ pub fn cdt_polygon_with_holes_refined(
     }
 
     // ---- 4. Interior Steiner refinement. --------------------------------
-    // `keep_constraint_edges` preserves the boundary vertex set (conformality).
-    // We do NOT use `exclude_outer_faces`: for a non-convex domain it over-
-    // excludes (it suppressed all refinement on the L-shape), so the whole
-    // convex hull is refined and the exterior strip is dropped at emit (§6) by
-    // the centroid test. The strip is small for the near-convex UV patches this
-    // serves; correctness over a few unused exterior Steiner points.
+    // `keep_constraint_edges` preserves the boundary vertex set (conformality
+    // with the neighbouring patch — the caller's boundary samples are NOT moved
+    // or split). We do NOT use `exclude_outer_faces`: spade computes its
+    // inside/outside partition by peeling layers from the convex hull, and on a
+    // coarse non-convex mesh (e.g. the 4-triangle L-shape) it over-excludes the
+    // interior, suppressing all refinement. Instead we refine the whole convex
+    // hull and drop the exterior strip at emit (§6) via the centroid test.
+    //
+    // The angle limit is set to 0° (disabled): we want ONLY the area bound. The
+    // spade default is a 30° minimum-angle (Ruppert) limit, which on a boundary
+    // sampled with float noise — so its "collinear" runs have ~1e-16 kinks —
+    // chases those artificial small angles and over-refines wildly (it cannot
+    // fix them under keep_constraint_edges, so it loops inserting interior points
+    // and spawns slivers near the boundary that then fail the centroid test).
+    // With only the area bound, refinement is well-behaved and the centroid
+    // emit is reliable.
     if max_area.is_finite() && max_area > 0.0 {
         cdt.refine(
             RefinementParameters::<f64>::new()
-                .with_max_allowed_area(max_area)
-                .keep_constraint_edges(),
+                .keep_constraint_edges()
+                .with_angle_limit(AngleLimit::from_deg(0.0))
+                .with_max_allowed_area(max_area),
         );
     }
 
@@ -405,29 +417,68 @@ pub fn cdt_polygon_with_holes_refined(
         out_verts[v.index()] = CadPoint2::new(p.x, p.y);
     }
 
-    // ---- 6. Emit interior triangles (centroid in outer, out of holes). ---
-    let outer_pts: Vec<CadPoint2> = outer.iter().map(|&i| verts[i as usize]).collect();
+    // ---- 6a. Mark the OUTER exterior region topologically. --------------
+    // Flood the dual graph from the infinite face inward, crossing only NON-
+    // constraint edges. Any inner face reached this way lies outside the outer
+    // constraint loop (the convex-hull "notch" of a non-convex domain, or the
+    // strip between hull and boundary). This is robust where the float centroid
+    // test is not: a finely-sampled (near-collinear) outer boundary makes
+    // refinement spawn ~0-area slivers, and a centroid test drops them, slitting
+    // the mesh; the flood-fill keeps every interior face (slivers included), so
+    // the result stays watertight. For a convex domain whose hull edges are all
+    // constraints, nothing is seeded and every face is kept.
+    let mut exterior: HashSet<_> = HashSet::new();
+    let mut queue: VecDeque<_> = VecDeque::new();
+    for hull_edge in cdt.convex_hull() {
+        if hull_edge.is_constraint_edge() {
+            continue;
+        }
+        if let Some(f) = hull_edge.rev().face().as_inner() {
+            if exterior.insert(f.fix()) {
+                queue.push_back(f.fix());
+            }
+        }
+    }
+    while let Some(f) = queue.pop_front() {
+        for edge in cdt.face(f).adjacent_edges() {
+            if edge.is_constraint_edge() {
+                continue;
+            }
+            if let Some(nb) = edge.rev().face().as_inner() {
+                if exterior.insert(nb.fix()) {
+                    queue.push_back(nb.fix());
+                }
+            }
+        }
+    }
+
+    // ---- 6b. Emit kept faces (not outer-exterior, centroid out of holes). -
     let hole_pts: Vec<Vec<CadPoint2>> = holes
         .iter()
         .map(|h| h.iter().map(|&i| verts[i as usize]).collect())
         .collect();
     let mut tris: Vec<[u32; 3]> = Vec::new();
     for face in cdt.inner_faces() {
+        if exterior.contains(&face.fix()) {
+            continue;
+        }
         let vs = face.vertices();
         let idx = [
             vs[0].index() as u32,
             vs[1].index() as u32,
             vs[2].index() as u32,
         ];
-        let a = out_verts[idx[0] as usize];
-        let b = out_verts[idx[1] as usize];
-        let c = out_verts[idx[2] as usize];
-        let centroid = CadPoint2::new((a.x() + b.x() + c.x()) / 3.0, (a.y() + b.y() + c.y()) / 3.0);
-        if point_in_polygon(centroid, &outer_pts)
-            && !hole_pts.iter().any(|h| point_in_polygon(centroid, h))
-        {
-            tris.push(idx);
+        if !hole_pts.is_empty() {
+            let a = out_verts[idx[0] as usize];
+            let b = out_verts[idx[1] as usize];
+            let c = out_verts[idx[2] as usize];
+            let centroid =
+                CadPoint2::new((a.x() + b.x() + c.x()) / 3.0, (a.y() + b.y() + c.y()) / 3.0);
+            if hole_pts.iter().any(|h| point_in_polygon(centroid, h)) {
+                continue;
+            }
         }
+        tris.push(idx);
     }
     for t in &mut tris {
         rotate_min_first(t);
@@ -642,11 +693,129 @@ mod tests {
         assert!(verts.len() > 6, "expected interior Steiner points");
         // Interior only: the re-entrant corner's exterior is NOT triangulated, so
         // the total area is the L's area (3.0), not the convex hull's (4.0). This
-        // is the load-bearing exclude_outer_faces + centroid behaviour.
+        // is the load-bearing flood-fill exterior exclusion (§6a): the notch
+        // faces, reachable from the convex hull across non-constraint edges, are
+        // dropped while the L interior is kept.
         assert!(
             (total_area(&verts, &tris) - 3.0).abs() < 1e-9,
             "area = {}",
             total_area(&verts, &tris)
+        );
+    }
+
+    #[test]
+    fn refine_offset_tall_rectangle_tiles_exactly() {
+        // Reproduces the torus UV-patch case: an offset, high-aspect rectangle
+        // [0.2,1.2] x [1.5,5.4] with 8 collinear samples per side (32 verts).
+        let (x0, x1, y0, y1) = (0.2_f64, 1.2, 1.5, 5.4);
+        let ns = 8usize;
+        let mut verts = Vec::new();
+        let mut outer = Vec::new();
+        let corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)];
+        for s in 0..4 {
+            let (fx, fy) = corners[s];
+            let (tx, ty) = corners[(s + 1) % 4];
+            for k in 0..ns {
+                let t = k as f64 / ns as f64;
+                outer.push(verts.len() as u32);
+                verts.push(CadPoint2::new(fx + (tx - fx) * t, fy + (ty - fy) * t));
+            }
+        }
+        let (rv, tris) =
+            cdt_polygon_with_holes_refined(&verts, &outer, &[], 0.05).expect("refine ok");
+        let area = total_area(&rv, &tris);
+        let mut edges: std::collections::BTreeMap<(u32, u32), u32> =
+            std::collections::BTreeMap::new();
+        for t in &tris {
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                *edges.entry((a.min(b), a.max(b))).or_default() += 1;
+            }
+        }
+        let bnd = edges.values().filter(|&&c| c == 1).count();
+        assert_eq!(bnd, outer.len(), "boundary edges {bnd} != {}", outer.len());
+        assert!(
+            (area - 3.9).abs() < 1e-9,
+            "coverage area = {area}, expected 3.9 (= 1.0 x 3.9)"
+        );
+    }
+
+    #[test]
+    fn refine_conditioned_near_collinear_boundary_is_watertight() {
+        // The EXACT 32 scaled (u*r, v*R) points the torus UV-CDT consumer feeds
+        // for a straight-seam patch edge, carrying ~1e-16 atan2 round-trip noise
+        // on coordinates that should be exactly collinear. The consumer snaps
+        // them to the 1e-12 working grid first (done here); the primitive must
+        // then refine without over-refining and emit a watertight (un-slit) mesh
+        // — the flood-fill exterior test keeps every interior face, including the
+        // thin near-boundary triangles a centroid test would have dropped.
+        let raw: [(f64, f64); 32] = [
+            (2.00000000000000038858e-1, 1.5e0),
+            (3.25000000000000011102e-1, 1.5e0),
+            (4.50000000000000066613e-1, 1.49999999999999977796e0),
+            (5.75000000000000066613e-1, 1.5e0),
+            (6.99999999999999844569e-1, 1.5e0),
+            (8.24999999999999955591e-1, 1.5e0),
+            (9.49999999999999733546e-1, 1.49999999999999977796e0),
+            (1.07499999999999995559e0, 1.5e0),
+            (1.19999999999999973355e0, 1.49999999999999977796e0),
+            (1.20000000000000017764e0, 1.98749999999999982236e0),
+            (1.20000000000000017764e0, 2.47499999999999964473e0),
+            (1.20000000000000017764e0, 2.96250000000000035527e0),
+            (1.20000000000000017764e0, 3.44999999999999973355e0),
+            (1.20000000000000017764e0, 3.9375e0),
+            (1.20000000000000062172e0, 4.42500000000000071054e0),
+            (1.20000000000000017764e0, 4.91249999999999964473e0),
+            (1.19999999999999973355e0, 5.40000000000000035527e0),
+            (1.07499999999999995559e0, 5.40000000000000035527e0),
+            (9.50000000000000066613e-1, 5.40000000000000035527e0),
+            (8.24999999999999955591e-1, 5.40000000000000035527e0),
+            (6.99999999999999844569e-1, 5.40000000000000035527e0),
+            (5.75000000000000288658e-1, 5.40000000000000035527e0),
+            (4.50000000000000233147e-1, 5.40000000000000035527e0),
+            (3.24999999999999955591e-1, 5.40000000000000035527e0),
+            (2.00000000000000038858e-1, 5.40000000000000035527e0),
+            (2.00000000000000038858e-1, 4.91249999999999964473e0),
+            (2.00000000000000038858e-1, 4.42500000000000071054e0),
+            (2.00000000000000038858e-1, 3.9375e0),
+            (2.00000000000000038858e-1, 3.44999999999999973355e0),
+            (1.99999999999999955591e-1, 2.96250000000000035527e0),
+            (2.00000000000000038858e-1, 2.47499999999999964473e0),
+            (2.00000000000000038858e-1, 1.98750000000000026645e0),
+        ];
+        let round = |v: f64| (v * 1e12).round() / 1e12;
+        let verts: Vec<CadPoint2> = raw
+            .iter()
+            .map(|&(x, y)| CadPoint2::new(round(x), round(y)))
+            .collect();
+        let outer: Vec<u32> = (0..32).collect();
+        let (rv, tris) =
+            cdt_polygon_with_holes_refined(&verts, &outer, &[], 0.05).expect("refine ok");
+        // Not over-refined (the raw, un-snapped points explode to >350 verts).
+        assert!(rv.len() < 120, "over-refined: {} verts", rv.len());
+        // Exact coverage and a watertight boundary (every boundary edge once,
+        // every interior edge twice — no slits from dropped slivers).
+        assert!(
+            (total_area(&rv, &tris) - 3.9).abs() < 1e-6,
+            "area {}",
+            total_area(&rv, &tris)
+        );
+        let mut edges: std::collections::BTreeMap<(u32, u32), u32> =
+            std::collections::BTreeMap::new();
+        for t in &tris {
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                *edges.entry((a.min(b), a.max(b))).or_default() += 1;
+            }
+        }
+        assert!(
+            edges.values().all(|&c| c == 1 || c == 2),
+            "non-manifold edge"
+        );
+        assert_eq!(
+            edges.values().filter(|&&c| c == 1).count(),
+            32,
+            "boundary must be the original 32-gon (no slits, no boundary splits)"
         );
     }
 

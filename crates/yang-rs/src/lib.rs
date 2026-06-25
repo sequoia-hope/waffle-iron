@@ -2938,6 +2938,269 @@ fn tessellate_torus_face(
     Ok(())
 }
 
+/// Unwrap a periodic angle sequence in place: each value is shifted by a
+/// multiple of 2π so successive entries never jump by more than π (standard
+/// phase unwrapping). Turns a torus patch's `atan2` parameters into a simple
+/// (non-self-crossing) polygon as long as the patch does not wrap the whole way
+/// around a seam.
+// Used by `tessellate_torus_patch`; both are exercised by tests now and wired
+// into Stage-5/6 torus output recovery at KV6d increment 5b2.
+#[allow(dead_code)]
+fn unwrap_seq(a: &mut [f64]) {
+    use std::f64::consts::{PI, TAU};
+    for k in 1..a.len() {
+        while a[k] - a[k - 1] > PI {
+            a[k] -= TAU;
+        }
+        while a[k - 1] - a[k] > PI {
+            a[k] += TAU;
+        }
+    }
+}
+
+/// KV6d UV-CDT consumer: tessellate an arbitrary torus PATCH from its ordered
+/// closed 3D boundary loop `boundary` (the mesh-boolean intersection curve +
+/// seam, finely sampled) via the interior-Steiner CDT
+/// ([`cherchi_rs::cdt_polygon_with_holes_refined`]).
+///
+/// Pipeline: invert each boundary point into the `(u = meridian, v = longitude)`
+/// parameter plane — `face_eval(u,v) = center + (R + r·cos u)·(cos v·ê1 +
+/// sin v·ê2) + r·sin u·â`, so `v = atan2(w·ê2, w·ê1)` and `u = atan2(τ, ρ − R)`
+/// (τ axial, ρ radial-from-axis) — angle-UNWRAP `u` and `v` to a simple polygon,
+/// SCALE to ~arc-length isotropy (`u·r`, `v·R`) so a Delaunay-quality triangle
+/// maps to a well-shaped 3D one, REFINE to `max_3d_area`, then MAP BACK: BOUNDARY
+/// verts keep their EXACT input 3D coordinates (conformal with the neighbouring
+/// patch — the boolean's shared intersection-curve samples), interior STEINER
+/// verts are `face_eval` of their unscaled `(u,v)` (exactly on the torus).
+///
+/// Returns `(verts, tris)` with `verts[0..boundary.len()] == boundary` bit-for-
+/// bit. `None` if the boundary degenerates or the CDT rejects a self-intersecting
+/// projection (a seam-CROSSING / self-overlapping patch — out of this v1 scope;
+/// the deferral is loud at the caller).
+#[allow(clippy::too_many_arguments)]
+#[allow(dead_code)] // wired into Stage-5/6 torus output recovery at KV6d incr 5b2
+fn tessellate_torus_patch(
+    center: Point3,
+    axis_dir: Vector3,
+    major: f64,
+    minor: f64,
+    boundary: &[Point3],
+    max_3d_area: f64,
+) -> Option<(Vec<Point3>, Vec<[u32; 3]>)> {
+    if boundary.len() < 3 || major <= 0.0 || minor <= 0.0 {
+        return None;
+    }
+    let ax = normalize3(axis_dir.as_array());
+    let (e1, e2) = ortho_basis(axis_dir);
+    let (e1a, e2a) = (e1.as_array(), e2.as_array());
+    let c = center.as_array();
+    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let eval = |u: f64, v: f64| -> Point3 {
+        let (cu, su) = (u.cos(), u.sin());
+        let (cv, sv) = (v.cos(), v.sin());
+        let rad = major + minor * cu;
+        Point3::new(
+            c[0] + rad * (cv * e1a[0] + sv * e2a[0]) + minor * su * ax[0],
+            c[1] + rad * (cv * e1a[1] + sv * e2a[1]) + minor * su * ax[1],
+            c[2] + rad * (cv * e1a[2] + sv * e2a[2]) + minor * su * ax[2],
+        )
+    };
+
+    // Invert the boundary into (u, v); unwrap each angle to a simple polygon.
+    let mut us: Vec<f64> = Vec::with_capacity(boundary.len());
+    let mut vs: Vec<f64> = Vec::with_capacity(boundary.len());
+    for &p in boundary {
+        let pa = p.as_array();
+        let w = [pa[0] - c[0], pa[1] - c[1], pa[2] - c[2]];
+        let tau = dot(w, ax);
+        let radial = [w[0] - tau * ax[0], w[1] - tau * ax[1], w[2] - tau * ax[2]];
+        let wx = dot(radial, e1a);
+        let wy = dot(radial, e2a);
+        let rho = (wx * wx + wy * wy).sqrt();
+        vs.push(wy.atan2(wx));
+        us.push(tau.atan2(rho - major));
+    }
+    unwrap_seq(&mut us);
+    unwrap_seq(&mut vs);
+
+    // Condition the parameters to the working tolerance before triangulating.
+    // The atan2/sin/cos inversion introduces ~1 ULP (~1e-16) noise, so a run of
+    // boundary samples that should be exactly collinear in (u,v) (a straight
+    // seam edge: constant u or v) instead has a faint kink. spade's area
+    // refinement then over-refines that near-collinear run into a storm of
+    // ~0-area slivers. Snapping (u,v) to the TAU_WORK (1e-12 rad) grid removes
+    // the sub-tolerance noise so collinear runs stay collinear. This does NOT
+    // perturb the output geometry: the boundary verts are emitted from the EXACT
+    // input 3D points (below), and the Steiner verts are `face_eval` of the
+    // snapped (u,v), which lands exactly on the torus regardless.
+    let snap = |a: f64| (a / 1e-12).round() * 1e-12;
+    for a in us.iter_mut().chain(vs.iter_mut()) {
+        *a = snap(*a);
+    }
+
+    // Scale to ~arc-length isotropy and refine.
+    let scaled: Vec<cad_primitives::Point2> = us
+        .iter()
+        .zip(&vs)
+        .map(|(&u, &v)| cad_primitives::Point2::new(u * minor, v * major))
+        .collect();
+    let outer: Vec<u32> = (0..scaled.len() as u32).collect();
+    let (ref_verts, tris) =
+        cherchi_rs::cdt_polygon_with_holes_refined(&scaled, &outer, &[], max_3d_area).ok()?;
+
+    // Map back: boundary verts → EXACT input 3D; Steiner verts → face_eval.
+    let n = boundary.len();
+    let mut verts3d: Vec<Point3> = Vec::with_capacity(ref_verts.len());
+    for (i, sp) in ref_verts.iter().enumerate() {
+        if i < n {
+            verts3d.push(boundary[i]);
+        } else {
+            verts3d.push(eval(sp.x() / minor, sp.y() / major));
+        }
+    }
+    Some((verts3d, tris))
+}
+
+#[cfg(test)]
+mod torus_patch_tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    #[allow(clippy::too_many_arguments)]
+    fn eval(
+        center: Point3,
+        ax: [f64; 3],
+        e1a: [f64; 3],
+        e2a: [f64; 3],
+        major: f64,
+        minor: f64,
+        u: f64,
+        v: f64,
+    ) -> Point3 {
+        let c = center.as_array();
+        let (cu, su) = (u.cos(), u.sin());
+        let (cv, sv) = (v.cos(), v.sin());
+        let rad = major + minor * cu;
+        Point3::new(
+            c[0] + rad * (cv * e1a[0] + sv * e2a[0]) + minor * su * ax[0],
+            c[1] + rad * (cv * e1a[1] + sv * e2a[1]) + minor * su * ax[1],
+            c[2] + rad * (cv * e1a[2] + sv * e2a[2]) + minor * su * ax[2],
+        )
+    }
+
+    #[test]
+    fn torus_patch_roundtrip_on_surface_watertight() {
+        // Torus: center origin, axis +Z, R=3, r=1.
+        let center = Point3::new(0.0, 0.0, 0.0);
+        let axis = Vector3::new(0.0, 0.0, 1.0);
+        let (major, minor) = (3.0_f64, 1.0_f64);
+        let ax = normalize3(axis.as_array());
+        let (e1, e2) = ortho_basis(axis);
+        let (e1a, e2a) = (e1.as_array(), e2.as_array());
+
+        // A sub-(u,v)-rectangle patch boundary, finely sampled along its 4 edges.
+        let (u0, u1, v0, v1) = (0.2_f64, 1.2_f64, 0.5_f64, 1.8_f64);
+        let ns = 8;
+        let mut boundary: Vec<Point3> = Vec::new();
+        let mut push =
+            |u: f64, v: f64| boundary.push(eval(center, ax, e1a, e2a, major, minor, u, v));
+        for k in 0..ns {
+            let t = k as f64 / ns as f64;
+            push(u0 + (u1 - u0) * t, v0);
+        }
+        for k in 0..ns {
+            let t = k as f64 / ns as f64;
+            push(u1, v0 + (v1 - v0) * t);
+        }
+        for k in 0..ns {
+            let t = k as f64 / ns as f64;
+            push(u1 - (u1 - u0) * t, v1);
+        }
+        for k in 0..ns {
+            let t = k as f64 / ns as f64;
+            push(u0, v1 - (v1 - v0) * t);
+        }
+
+        let n = boundary.len();
+        let (verts, tris) = tessellate_torus_patch(center, axis, major, minor, &boundary, 0.05)
+            .expect("patch tessellation");
+
+        // Interior Steiner points were added (refinement actually fired).
+        assert!(verts.len() > n, "no Steiner points: {} verts", verts.len());
+
+        // Boundary verts preserved bit-for-bit (conformal).
+        for i in 0..n {
+            assert_eq!(verts[i], boundary[i], "boundary vert {i} moved");
+        }
+
+        // Every vert lies on the torus surface.
+        let surf = Surface::Torus {
+            center,
+            axis_dir: axis,
+            major_radius: major,
+            minor_radius: minor,
+        };
+        for (i, &p) in verts.iter().enumerate() {
+            let d = signed_distance_to_surface(surf, p).expect("torus distance");
+            assert!(d.abs() < 1e-9, "vert {i} off torus: d={d}");
+        }
+
+        // Manifold/watertight: every edge in 1 (boundary) or 2 (interior) tris.
+        let mut edges: BTreeMap<(u32, u32), u32> = BTreeMap::new();
+        for t in &tris {
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                *edges.entry((a.min(b), a.max(b))).or_default() += 1;
+            }
+        }
+        assert!(
+            edges.values().all(|&c| c == 1 || c == 2),
+            "non-manifold edge present"
+        );
+
+        // The closed boundary loop is exactly the count-1 edges (no slits).
+        let boundary_edges = edges.values().filter(|&&c| c == 1).count();
+        assert_eq!(
+            boundary_edges, n,
+            "boundary edge count {boundary_edges} != {n}"
+        );
+
+        // The chorded 3D area matches the analytic patch area (a faithful, hole-
+        // free, non-folded tessellation). Analytic area of the (u,v) rectangle:
+        //   ∫∫ (R + r·cos u)·r du dv = r·(v1−v0)·[R·(u1−u0) + r·(sin u1 − sin u0)].
+        let analytic = minor * (v1 - v0) * (major * (u1 - u0) + minor * (u1.sin() - u0.sin()));
+        let mut area3d = 0.0;
+        for t in &tris {
+            let a = verts[t[0] as usize].as_array();
+            let b = verts[t[1] as usize].as_array();
+            let c = verts[t[2] as usize].as_array();
+            let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let cr = [
+                ab[1] * ac[2] - ab[2] * ac[1],
+                ab[2] * ac[0] - ab[0] * ac[2],
+                ab[0] * ac[1] - ab[1] * ac[0],
+            ];
+            area3d += 0.5 * (cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]).sqrt();
+        }
+        // Inscribed chords slightly under-shoot the smooth area; refinement keeps
+        // it within ~1%. It must never exceed the smooth area (that would signal
+        // folded/overlapping triangles).
+        assert!(
+            area3d <= analytic * (1.0 + 1e-6) && area3d >= analytic * 0.985,
+            "area3d {area3d} vs analytic {analytic} (folds or holes?)"
+        );
+    }
+
+    #[test]
+    fn torus_patch_rejects_degenerate() {
+        let center = Point3::new(0.0, 0.0, 0.0);
+        let axis = Vector3::new(0.0, 0.0, 1.0);
+        let too_few = [Point3::new(4.0, 0.0, 0.0), Point3::new(3.0, 0.0, 1.0)];
+        assert!(tessellate_torus_patch(center, axis, 3.0, 1.0, &too_few, 0.05).is_none());
+    }
+}
+
 /// PR-YR12 (P2b): full outward radial normal of a sphere face at the centroid of
 /// `tri` — `normalize(centroid − center)`. The analog of `radial_outward_normal`
 /// but with no axis projection (a sphere is isotropic). Used to orient sphere

@@ -45,4 +45,4 @@ pub use boolean::MeshBoolean;
 pub use labeled_arrangement::{InputId, LabeledArrangement};
 pub use labeling::{native_labeled_arrangement, NativeBoolean, NativeBooleanError};
 pub use mesh::Mesh;
-pub use triangulation::{cdt_polygon_with_holes, CdtError};
+pub use triangulation::{cdt_polygon_with_holes, cdt_polygon_with_holes_refined, CdtError};
