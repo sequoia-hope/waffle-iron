@@ -2984,6 +2984,7 @@ pub fn tessellate_torus_patch(
     major: f64,
     minor: f64,
     boundary: &[Point3],
+    holes: &[Vec<Point3>],
     max_3d_area: f64,
 ) -> Option<(Vec<Point3>, Vec<[u32; 3]>)> {
     if boundary.len() < 3 || major <= 0.0 || minor <= 0.0 {
@@ -3004,55 +3005,87 @@ pub fn tessellate_torus_patch(
             c[2] + rad * (cv * e1a[2] + sv * e2a[2]) + minor * su * ax[2],
         )
     };
-
-    // Invert the boundary into (u, v); unwrap each angle to a simple polygon.
-    let mut us: Vec<f64> = Vec::with_capacity(boundary.len());
-    let mut vs: Vec<f64> = Vec::with_capacity(boundary.len());
-    for &p in boundary {
-        let pa = p.as_array();
-        let w = [pa[0] - c[0], pa[1] - c[1], pa[2] - c[2]];
-        let tau = dot(w, ax);
-        let radial = [w[0] - tau * ax[0], w[1] - tau * ax[1], w[2] - tau * ax[2]];
-        let wx = dot(radial, e1a);
-        let wy = dot(radial, e2a);
-        let rho = (wx * wx + wy * wy).sqrt();
-        vs.push(wy.atan2(wx));
-        us.push(tau.atan2(rho - major));
-    }
-    unwrap_seq(&mut us);
-    unwrap_seq(&mut vs);
-
-    // Condition the parameters to the working tolerance before triangulating.
-    // The atan2/sin/cos inversion introduces ~1 ULP (~1e-16) noise, so a run of
-    // boundary samples that should be exactly collinear in (u,v) (a straight
-    // seam edge: constant u or v) instead has a faint kink. spade's area
-    // refinement then over-refines that near-collinear run into a storm of
-    // ~0-area slivers. Snapping (u,v) to the TAU_WORK (1e-12 rad) grid removes
-    // the sub-tolerance noise so collinear runs stay collinear. This does NOT
-    // perturb the output geometry: the boundary verts are emitted from the EXACT
-    // input 3D points (below), and the Steiner verts are `face_eval` of the
-    // snapped (u,v), which lands exactly on the torus regardless.
     let snap = |a: f64| (a / 1e-12).round() * 1e-12;
-    for a in us.iter_mut().chain(vs.iter_mut()) {
-        *a = snap(*a);
+    // Invert ONE loop into (u, v): project, unwrap each angle to a simple
+    // polygon, and condition to the TAU_WORK (1e-12 rad) grid. The atan2/cos/sin
+    // inversion introduces ~1 ULP noise; on a straight seam run (constant u or
+    // v) that faint kink makes spade over-refine into a sliver storm — snapping
+    // removes it without perturbing output geometry (boundary verts are emitted
+    // from the EXACT input 3D below; Steiner verts are `face_eval`, on-torus).
+    let invert = |loop_pts: &[Point3]| -> (Vec<f64>, Vec<f64>) {
+        let mut us = Vec::with_capacity(loop_pts.len());
+        let mut vs = Vec::with_capacity(loop_pts.len());
+        for &p in loop_pts {
+            let pa = p.as_array();
+            let w = [pa[0] - c[0], pa[1] - c[1], pa[2] - c[2]];
+            let tau = dot(w, ax);
+            let radial = [w[0] - tau * ax[0], w[1] - tau * ax[1], w[2] - tau * ax[2]];
+            let wx = dot(radial, e1a);
+            let wy = dot(radial, e2a);
+            let rho = (wx * wx + wy * wy).sqrt();
+            vs.push(wy.atan2(wx));
+            us.push(tau.atan2(rho - major));
+        }
+        unwrap_seq(&mut us);
+        unwrap_seq(&mut vs);
+        for a in us.iter_mut().chain(vs.iter_mut()) {
+            *a = snap(*a);
+        }
+        (us, vs)
+    };
+
+    let (us, vs) = invert(boundary);
+    // Outer-loop branch reference: each hole is shifted by 2π multiples so its
+    // mean (u, v) sits in the same period as the outer (a hole that atan2 placed
+    // on the opposite branch would otherwise project OUTSIDE the outer polygon).
+    let mean = |a: &[f64]| a.iter().sum::<f64>() / a.len() as f64;
+    let (u_ref, v_ref) = (mean(&us), mean(&vs));
+    use std::f64::consts::TAU;
+
+    let mut verts2d: Vec<cad_primitives::Point2> = Vec::new();
+    let mut boundary_3d: Vec<Point3> = Vec::new();
+    let push_loop = |verts2d: &mut Vec<cad_primitives::Point2>,
+                     boundary_3d: &mut Vec<Point3>,
+                     us: &[f64],
+                     vs: &[f64],
+                     pts: &[Point3]|
+     -> Vec<u32> {
+        let start = verts2d.len() as u32;
+        for ((&u, &v), &p) in us.iter().zip(vs).zip(pts) {
+            verts2d.push(cad_primitives::Point2::new(u * minor, v * major));
+            boundary_3d.push(p);
+        }
+        (start..verts2d.len() as u32).collect()
+    };
+    let outer = push_loop(&mut verts2d, &mut boundary_3d, &us, &vs, boundary);
+    let mut hole_idx: Vec<Vec<u32>> = Vec::with_capacity(holes.len());
+    for h in holes {
+        if h.len() < 3 {
+            return None;
+        }
+        let (mut hu, mut hv) = invert(h);
+        let du = ((mean(&hu) - u_ref) / TAU).round() * TAU;
+        let dv = ((mean(&hv) - v_ref) / TAU).round() * TAU;
+        for a in hu.iter_mut() {
+            *a -= du;
+        }
+        for a in hv.iter_mut() {
+            *a -= dv;
+        }
+        hole_idx.push(push_loop(&mut verts2d, &mut boundary_3d, &hu, &hv, h));
     }
 
-    // Scale to ~arc-length isotropy and refine.
-    let scaled: Vec<cad_primitives::Point2> = us
-        .iter()
-        .zip(&vs)
-        .map(|(&u, &v)| cad_primitives::Point2::new(u * minor, v * major))
-        .collect();
-    let outer: Vec<u32> = (0..scaled.len() as u32).collect();
     let (ref_verts, tris) =
-        cherchi_rs::cdt_polygon_with_holes_refined(&scaled, &outer, &[], max_3d_area).ok()?;
+        cherchi_rs::cdt_polygon_with_holes_refined(&verts2d, &outer, &hole_idx, max_3d_area)
+            .ok()?;
 
-    // Map back: boundary verts → EXACT input 3D; Steiner verts → face_eval.
-    let n = boundary.len();
+    // Map back: boundary verts (outer ++ holes) → EXACT input 3D; the refined
+    // Steiner verts (appended after) → `face_eval`.
+    let n = boundary_3d.len();
     let mut verts3d: Vec<Point3> = Vec::with_capacity(ref_verts.len());
     for (i, sp) in ref_verts.iter().enumerate() {
         if i < n {
-            verts3d.push(boundary[i]);
+            verts3d.push(boundary_3d[i]);
         } else {
             verts3d.push(eval(sp.x() / minor, sp.y() / major));
         }
@@ -3121,8 +3154,9 @@ mod torus_patch_tests {
         }
 
         let n = boundary.len();
-        let (verts, tris) = tessellate_torus_patch(center, axis, major, minor, &boundary, 0.05)
-            .expect("patch tessellation");
+        let (verts, tris) =
+            tessellate_torus_patch(center, axis, major, minor, &boundary, &[], 0.05)
+                .expect("patch tessellation");
 
         // Interior Steiner points were added (refinement actually fired).
         assert!(verts.len() > n, "no Steiner points: {} verts", verts.len());
@@ -3196,7 +3230,73 @@ mod torus_patch_tests {
         let center = Point3::new(0.0, 0.0, 0.0);
         let axis = Vector3::new(0.0, 0.0, 1.0);
         let too_few = [Point3::new(4.0, 0.0, 0.0), Point3::new(3.0, 0.0, 1.0)];
-        assert!(tessellate_torus_patch(center, axis, 3.0, 1.0, &too_few, 0.05).is_none());
+        assert!(tessellate_torus_patch(center, axis, 3.0, 1.0, &too_few, &[], 0.05).is_none());
+    }
+
+    fn torus(major: f64, minor: f64) -> Surface {
+        Surface::Torus {
+            center: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            major_radius: major,
+            minor_radius: minor,
+        }
+    }
+
+    #[test]
+    fn newton_relocates_onto_torus_plane_intersection() {
+        // Torus R=3 r=1 axis +z; oblique-ish plane x = 3.4 (a spiric section,
+        // NOT a conic). A chord point near the curve must land on BOTH surfaces.
+        let t = torus(3.0, 1.0);
+        let plane = Surface::Plane {
+            normal: Vector3::new(1.0, 0.0, 0.0),
+            d: -3.4,
+        };
+        // Seed: a torus surface point near x≈3.4, nudged off both surfaces.
+        let (u, v) = (0.7_f64, 0.15_f64);
+        let rad = 3.0 + 1.0 * u.cos();
+        let seed = Point3::new(
+            rad * v.cos() + 0.03,
+            rad * v.sin() - 0.02,
+            1.0 * u.sin() + 0.04,
+        );
+        let relocated = relocate_onto_implicit_pair(seed, t, plane).expect("converges");
+        let ft = signed_distance_to_surface(t, relocated).unwrap();
+        let fp = signed_distance_to_surface(plane, relocated).unwrap();
+        assert!(ft.abs() <= cad_primitives::TAU_MODEL, "off torus: {ft:e}");
+        assert!(fp.abs() <= cad_primitives::TAU_MODEL, "off plane: {fp:e}");
+    }
+
+    #[test]
+    fn newton_relocates_onto_torus_cylinder_intersection() {
+        let t = torus(3.0, 1.0);
+        // Cylinder coaxial-offset: axis ∥ +y through (3,0,0), radius 0.6 — cuts
+        // the tube near θ=0 in a degree-4 curve.
+        let cyl = Surface::Cylinder {
+            axis_point: Point3::new(3.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 1.0, 0.0),
+            radius: 0.6,
+        };
+        let seed = Point3::new(3.5, 0.1, 0.45);
+        let r = relocate_onto_implicit_pair(seed, t, cyl).expect("converges");
+        assert!(signed_distance_to_surface(t, r).unwrap().abs() <= cad_primitives::TAU_MODEL);
+        assert!(signed_distance_to_surface(cyl, r).unwrap().abs() <= cad_primitives::TAU_MODEL);
+    }
+
+    #[test]
+    fn newton_stops_when_there_is_no_intersection() {
+        // Plane x = 10 lies entirely outside the torus (max x = R+r = 4): no
+        // common zero, so the relocation must REFUSE (no curve to land on)
+        // rather than wander to a wrong point.
+        let t = torus(3.0, 1.0);
+        let far = Surface::Plane {
+            normal: Vector3::new(1.0, 0.0, 0.0),
+            d: -10.0,
+        };
+        let seed = Point3::new(3.5, 0.0, 0.2);
+        assert!(
+            relocate_onto_implicit_pair(seed, t, far).is_none(),
+            "no intersection ⇒ STOP, not a guessed relocation"
+        );
     }
 }
 
@@ -3519,6 +3619,208 @@ fn project_onto_circle(
         c[2] + radius * (ct * e1a[2] + st * e2a[2]),
     );
     Ok((proj, t))
+}
+
+/// KV6d Tier B: the implicit value `F(x)` and UNIT gradient (the surface's
+/// analytic unit normal) of a `Surface` at `x`. `F` matches
+/// [`signed_distance_to_surface`] byte-for-byte (so the residual gate is
+/// shared), and the gradient is `∇F / |∇F|`. Returns `None` where the normal is
+/// undefined — a point on a cylinder/torus axis, a cone apex, a sphere centre,
+/// or (torus) a point on the tube centre circle — which the caller treats as a
+/// loud STOP, never a guess (P9).
+fn surface_value_and_normal(s: Surface, x: [f64; 3]) -> Option<(f64, [f64; 3])> {
+    let eps = cad_primitives::MIN_FEATURE_SIZE;
+    match s {
+        Surface::Plane { normal, d } => {
+            let n = normal.as_array();
+            let f = n[0] * x[0] + n[1] * x[1] + n[2] * x[2] + d;
+            Some((f, normalize3(n)))
+        }
+        Surface::Sphere { center, radius } => {
+            let c = center.as_array();
+            let w = [x[0] - c[0], x[1] - c[1], x[2] - c[2]];
+            let l = (w[0] * w[0] + w[1] * w[1] + w[2] * w[2]).sqrt();
+            if l < eps {
+                return None;
+            }
+            Some((l - radius, [w[0] / l, w[1] / l, w[2] / l]))
+        }
+        Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => {
+            let au = normalize3(axis_dir.as_array());
+            let ap = axis_point.as_array();
+            let w = [x[0] - ap[0], x[1] - ap[1], x[2] - ap[2]];
+            let along = w[0] * au[0] + w[1] * au[1] + w[2] * au[2];
+            let rad = [
+                w[0] - along * au[0],
+                w[1] - along * au[1],
+                w[2] - along * au[2],
+            ];
+            let l = (rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]).sqrt();
+            if l < eps {
+                return None;
+            }
+            Some((l - radius, [rad[0] / l, rad[1] / l, rad[2] / l]))
+        }
+        Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => {
+            let au = normalize3(axis_dir.as_array());
+            let a = apex.as_array();
+            let w = [x[0] - a[0], x[1] - a[1], x[2] - a[2]];
+            let h = w[0] * au[0] + w[1] * au[1] + w[2] * au[2];
+            let rad = [w[0] - h * au[0], w[1] - h * au[1], w[2] - h * au[2]];
+            let l = (rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]).sqrt();
+            if l < eps {
+                return None;
+            }
+            let f = l - h.abs() * half_angle.tan();
+            // ∇F = r̂ − sign(h)·tanα·â ; its unit form is the cone normal
+            // cosα·r̂ − sign(h)·sinα·â.
+            let sgn = if h >= 0.0 { 1.0 } else { -1.0 };
+            let (sa, ca) = half_angle.sin_cos();
+            let g = [
+                ca * rad[0] / l - sgn * sa * au[0],
+                ca * rad[1] / l - sgn * sa * au[1],
+                ca * rad[2] / l - sgn * sa * au[2],
+            ];
+            Some((f, normalize3(g)))
+        }
+        Surface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+        } => {
+            let au = normalize3(axis_dir.as_array());
+            let c = center.as_array();
+            let w = [x[0] - c[0], x[1] - c[1], x[2] - c[2]];
+            let tau = w[0] * au[0] + w[1] * au[1] + w[2] * au[2];
+            let rad = [w[0] - tau * au[0], w[1] - tau * au[1], w[2] - tau * au[2]];
+            let rho = (rad[0] * rad[0] + rad[1] * rad[1] + rad[2] * rad[2]).sqrt();
+            if rho < eps {
+                return None; // on the torus axis: radial direction undefined
+            }
+            let rhat = [rad[0] / rho, rad[1] / rho, rad[2] / rho];
+            // Nearest tube-centre-circle point q = c + R·r̂; normal = (x − q)/|x − q|.
+            let q = [
+                c[0] + major_radius * rhat[0],
+                c[1] + major_radius * rhat[1],
+                c[2] + major_radius * rhat[2],
+            ];
+            let xq = [x[0] - q[0], x[1] - q[1], x[2] - q[2]];
+            let l = (xq[0] * xq[0] + xq[1] * xq[1] + xq[2] * xq[2]).sqrt();
+            if l < eps {
+                return None; // on the tube centre circle: normal undefined
+            }
+            Some((l - minor_radius, [xq[0] / l, xq[1] / l, xq[2] / l]))
+        }
+    }
+}
+
+/// KV6d Tier B: relocate `p` onto the exact intersection curve of two surfaces
+/// by Gauss–Newton on the implicit system `{F0(x)=0, F1(x)=0}` — the degree-4
+/// analog of the closed-form conic projectors, used when a torus is one of the
+/// pair (a torus's intersections are not conics, so there is no closed form).
+/// Each step is the least-norm solution of `J·dx = −[F0; F1]`, with
+/// `J = [n̂0; n̂1]` the 2×3 unit-normal Jacobian; for unit rows
+/// `J Jᵀ = [[1, b], [b, 1]]`, `b = n̂0·n̂1`.
+///
+/// Returns the relocated point with both residuals ≤ `TAU_MODEL`, or `None` for
+/// a loud STOP (P9 — never a partial move or a guessed root):
+/// - a TANGENTIAL pair (`sin²θ = 1 − b² ≤ MIN_FEATURE_SIZE²`): `J` is rank-
+///   deficient and the intersection root is ill-posed;
+/// - an UNDEFINED normal at the iterate (axis / apex / centre circle);
+/// - NON-CONVERGENCE within `MAX_ITERS`.
+fn relocate_onto_implicit_pair(p: Point3, s0: Surface, s1: Surface) -> Option<Point3> {
+    const MAX_ITERS: usize = 32;
+    // Converge tightly (well below the 1e-12 on-surface validation band; the
+    // torus residual is ~2·minor·|F|): Newton is quadratic so this is a few
+    // extra cheap steps. Absolute tol suits the unit-scale model corpus.
+    let tau = 1e-13_f64;
+    let rank_eps = cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
+    let mut x = p.as_array();
+    for _ in 0..=MAX_ITERS {
+        let (f0, n0) = surface_value_and_normal(s0, x)?;
+        let (f1, n1) = surface_value_and_normal(s1, x)?;
+        let b = n0[0] * n1[0] + n0[1] * n1[1] + n0[2] * n1[2];
+        let det = 1.0 - b * b; // sin²θ between the two unit normals
+                               // Tangential / parallel normals → no transversal 1D intersection curve
+                               // to relocate onto (the contact is a point or a higher-order tangency).
+                               // STOP whether or not the residual is already small — a tangent point IS
+                               // on both surfaces but is not a curve a mesh edge can lie along.
+        if det <= rank_eps {
+            return None;
+        }
+        if f0.abs() <= tau && f1.abs() <= tau {
+            return Some(Point3::new(x[0], x[1], x[2]));
+        }
+        // (J Jᵀ)⁻¹ [f0; f1] = 1/det · [[1, −b], [−b, 1]] [f0; f1]
+        let m0 = (f0 - b * f1) / det;
+        let m1 = (f1 - b * f0) / det;
+        // dx = −Jᵀ m = −(n̂0·m0 + n̂1·m1)
+        x = [
+            x[0] - (n0[0] * m0 + n1[0] * m1),
+            x[1] - (n0[1] * m0 + n1[1] * m1),
+            x[2] - (n0[2] * m0 + n1[2] * m1),
+        ];
+    }
+    None
+}
+
+/// KV6d Tier B junction: relocate `p` onto the common point of THREE surfaces
+/// `{F0=0, F1=0, F2=0}` by Newton on the square system (3×3 Jacobian of unit
+/// normals). The torus analog of the conic line+circle / ellipse×ellipse
+/// junctions — e.g. a box EDGE (two planes) piercing the torus: the shared
+/// vertex must land on the torus AND both planes, else relocating it onto only
+/// one pair slides it off the third. `None` is a loud STOP: a degenerate
+/// (near-coplanar normals → `|det J|` below the rank floor) junction, an
+/// undefined normal, or non-convergence (P9 — no partial move).
+fn relocate_onto_implicit_triple(
+    p: Point3,
+    s0: Surface,
+    s1: Surface,
+    s2: Surface,
+) -> Option<Point3> {
+    const MAX_ITERS: usize = 32;
+    // Converge tightly (well below the 1e-12 on-surface validation band; the
+    // torus residual is ~2·minor·|F|): Newton is quadratic so this is a few
+    // extra cheap steps. Absolute tol suits the unit-scale model corpus.
+    let tau = 1e-13_f64;
+    let rank_eps = cad_primitives::MIN_FEATURE_SIZE;
+    let cross = |a: [f64; 3], b: [f64; 3]| {
+        [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+    };
+    let mut x = p.as_array();
+    for _ in 0..=MAX_ITERS {
+        let (f0, n0) = surface_value_and_normal(s0, x)?;
+        let (f1, n1) = surface_value_and_normal(s1, x)?;
+        let (f2, n2) = surface_value_and_normal(s2, x)?;
+        let c12 = cross(n1, n2);
+        let det = n0[0] * c12[0] + n0[1] * c12[1] + n0[2] * c12[2];
+        if det.abs() <= rank_eps {
+            return None; // coplanar normals → ill-posed junction
+        }
+        if f0.abs() <= tau && f1.abs() <= tau && f2.abs() <= tau {
+            return Some(Point3::new(x[0], x[1], x[2]));
+        }
+        // dx = −J⁻¹ f = −(1/det)[ f0·(n1×n2) + f1·(n2×n0) + f2·(n0×n1) ]
+        let c20 = cross(n2, n0);
+        let c01 = cross(n0, n1);
+        for i in 0..3 {
+            x[i] -= (f0 * c12[i] + f1 * c20[i] + f2 * c01[i]) / det;
+        }
+    }
+    None
 }
 
 /// PR-YR10 (spec §4.4): per-component residual `(|axial|, |radial − r|)` of `pt`
@@ -4811,6 +5113,15 @@ fn build_intersection_curves(
             // already sit on the shared cylinder's exact chord rim (the lateral
             // tessellation put them there) and need no relocation. It is NEVER
             // sent to the degenerate SSI (which would be a loud `DegenerateInput`).
+            continue;
+        }
+
+        // KV6d Tier B: a TORUS intersection edge is degree-4 — there is no
+        // analytic SSI curve (`surface_to_quadric` refuses a torus). Leave it as
+        // the `Curve::LineSegment` fallback (the `emit_topology` default); Stage
+        // 4 relocates its endpoints onto the exact torus∩surface curve via the
+        // implicit-pair Newton (`relocate_onto_implicit_pair`/`_triple`).
+        if matches!(surf0, Surface::Torus { .. }) || matches!(surf1, Surface::Torus { .. }) {
             continue;
         }
 
@@ -7483,6 +7794,16 @@ fn stage4_relocate_and_correct(
                 let Some(entries) = inc0.get(&key) else {
                     continue;
                 };
+                // KV6d Tier B: a TORUS-bearing LineSegment edge is a degree-4
+                // intersection handled by the implicit-pair Newton relocation
+                // block after this scan — defer it here (the conic LineSegment
+                // arm has no closed form for it). Skip rather than STOP.
+                if entries
+                    .iter()
+                    .any(|&(_, s)| matches!(s, Surface::Torus { .. }))
+                {
+                    continue;
+                }
                 let mut cyls: Vec<(InputId, Surface)> = Vec::new();
                 let mut plane_surf: Option<Surface> = None;
                 let mut pp: Vec<(Vector3, f64)> = Vec::new();
@@ -8296,6 +8617,158 @@ fn stage4_relocate_and_correct(
         });
     }
 
+    // (2t) KV6d Tier B — degree-4 (TORUS) relocation via Newton on the implicit
+    // surface pair. A torus's intersections are not conics, so these edges never
+    // reach the `curves0` conic scan above; they arrive as untyped chord
+    // segments and would otherwise stay off the analytic torus (the proven KV6d
+    // blocker). For each intersection edge bearing exactly one torus and one
+    // transversal partner, relocate both endpoints onto {F_torus=0, F_other=0}.
+    // Kept SEPARATE from the conic bookkeeping (processed / endpoints /
+    // relocations) — the output torus-intersection edges stay LineSegment
+    // polylines (no analytic curve, no `t` retag), which validation and
+    // `tessellate_torus_patch` already accept — so the conic no-skip audit above
+    // is unaffected. Moved vertices join `moved` for the relocated-triangle
+    // validation. v1 scope: one torus + one partner per edge; torus∩torus,
+    // multi-surface junctions, and torus×conic junctions are loud STOPs (P9).
+    {
+        // Aggregate, per torus-edge endpoint, the single incident torus and the
+        // DISTINCT partner surfaces across all its torus edges. One partner is a
+        // plain torus∩surface edge (2-equation Newton); two partners is a
+        // 3-surface JUNCTION — a box edge (two planes) piercing the torus, or a
+        // torus∩plane meeting a torus∩plane′ — relocated onto all three. More
+        // than two partners, or a torus∩torus edge, is out of v1 scope (STOP).
+        let mut vert_torus: BTreeMap<u32, Surface> = BTreeMap::new();
+        let mut vert_partners: BTreeMap<u32, Vec<Surface>> = BTreeMap::new();
+        for (&(s, e), entries) in &inc0 {
+            let mut tori: Vec<Surface> = Vec::new();
+            let mut others: Vec<Surface> = Vec::new();
+            for &(_input, surf) in entries {
+                if matches!(surf, Surface::Torus { .. }) {
+                    tori.push(surf);
+                } else {
+                    others.push(surf);
+                }
+            }
+            if tori.is_empty() {
+                continue; // not a torus edge — conic scan / exact handles it
+            }
+            if tori.len() != 1 {
+                // torus∩torus (degree-4 with no single base surface) — out of
+                // v1 scope. Loud STOP.
+                return Err(YangError::Stage4RegionInvalid {
+                    vertex: s,
+                    reason: Stage4InvalidReason::LocalRefinementRequired,
+                });
+            }
+            for v in [s, e] {
+                vert_torus.insert(v, tori[0]);
+                let entry = vert_partners.entry(v).or_default();
+                for o in &others {
+                    if !entry.contains(o) {
+                        entry.push(*o);
+                    }
+                }
+            }
+        }
+        for (&v, &t_surf) in &vert_torus {
+            // A torus-edge endpoint that is also a CONIC endpoint mixes the
+            // implicit-pair and closed-form relocations — out of v1 scope, STOP.
+            if endpoint_set.contains(&v) {
+                return Err(YangError::Stage4RegionInvalid {
+                    vertex: v,
+                    reason: Stage4InvalidReason::LocalRefinementRequired,
+                });
+            }
+            let partners = &vert_partners[&v];
+            let p = mesh.verts[v as usize];
+            let (proj, n0, n1) = match partners.as_slice() {
+                [s1] => {
+                    let proj = relocate_onto_implicit_pair(p, t_surf, *s1).ok_or(
+                        YangError::Stage4RegionInvalid {
+                            vertex: v,
+                            reason: Stage4InvalidReason::LocalRefinementRequired,
+                        },
+                    )?;
+                    let qa = proj.as_array();
+                    let (_, n0) = surface_value_and_normal(t_surf, qa).ok_or(
+                        YangError::Stage4RegionInvalid {
+                            vertex: v,
+                            reason: Stage4InvalidReason::LocalRefinementRequired,
+                        },
+                    )?;
+                    let (_, n1) = surface_value_and_normal(*s1, qa).ok_or(
+                        YangError::Stage4RegionInvalid {
+                            vertex: v,
+                            reason: Stage4InvalidReason::LocalRefinementRequired,
+                        },
+                    )?;
+                    (proj, n0, n1)
+                }
+                [s1, s2] => {
+                    // 3-surface junction: relocate onto {torus, s1, s2}. The
+                    // displacement gate uses the torus∩s1 angle (the junction is
+                    // a point; any incident curve's metric bounds the move).
+                    let proj = relocate_onto_implicit_triple(p, t_surf, *s1, *s2).ok_or(
+                        YangError::Stage4RegionInvalid {
+                            vertex: v,
+                            reason: Stage4InvalidReason::LocalRefinementRequired,
+                        },
+                    )?;
+                    let qa = proj.as_array();
+                    let (_, n0) = surface_value_and_normal(t_surf, qa).ok_or(
+                        YangError::Stage4RegionInvalid {
+                            vertex: v,
+                            reason: Stage4InvalidReason::LocalRefinementRequired,
+                        },
+                    )?;
+                    let (_, n1) = surface_value_and_normal(*s1, qa).ok_or(
+                        YangError::Stage4RegionInvalid {
+                            vertex: v,
+                            reason: Stage4InvalidReason::LocalRefinementRequired,
+                        },
+                    )?;
+                    (proj, n0, n1)
+                }
+                _ => {
+                    return Err(YangError::Stage4RegionInvalid {
+                        vertex: v,
+                        reason: Stage4InvalidReason::LocalRefinementRequired,
+                    });
+                }
+            };
+            // Derived displacement gate: a chord point moves to the exact curve
+            // by ≤ 2·d_ε / sin θ, θ the angle between two incident surface
+            // normals at the relocated point (the same metric as the disc∩disc /
+            // cyl×cyl junction bands — NOT tolerance widening). Beyond it is a
+            // real off-curve error, not a Stage-1 chord artifact → STOP.
+            let pa = p.as_array();
+            let qa = proj.as_array();
+            let rho = ((qa[0] - pa[0]).powi(2) + (qa[1] - pa[1]).powi(2) + (qa[2] - pa[2]).powi(2))
+                .sqrt();
+            let cx = [
+                n0[1] * n1[2] - n0[2] * n1[1],
+                n0[2] * n1[0] - n0[0] * n1[2],
+                n0[0] * n1[1] - n0[1] * n1[0],
+            ];
+            let sin_theta = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
+            let gate = if sin_theta > 0.0 {
+                2.0 * d_eps / sin_theta
+            } else {
+                f64::INFINITY
+            };
+            if rho > gate {
+                return Err(YangError::Stage4RegionInvalid {
+                    vertex: v,
+                    reason: Stage4InvalidReason::OffCurveBeyondChordBand,
+                });
+            }
+            if rho > cad_primitives::TAU_WORK {
+                mesh.verts[v as usize] = proj;
+                moved.insert(v);
+            }
+        }
+    }
+
     // (3) §4.5.3 reversed-intersection correction sweep.
     let mut collapsed_any = false;
     let mut attr_vec = std::mem::take(&mut attribution.attributions);
@@ -8810,6 +9283,13 @@ fn reconstruct_topology_stage4(
                     .any(|&(_, s)| !matches!(s, Surface::Plane { .. }))
             }))
     });
+    // KV6d Tier B: a TORUS intersection edge is degree-4 (never conic), so it
+    // does not register above — but its endpoints sit on Stage-1 chords off the
+    // analytic torus and need the implicit-pair Newton relocation in Stage 4.
+    let has_torus = incidence
+        .values()
+        .any(|es| es.iter().any(|(_, s)| matches!(s, Surface::Torus { .. })));
+    let has_conic = has_conic || has_torus;
     // (vertex, circle-frame angle t) for every relocated / retagged intersection
     // vertex. Mapped to `BRepEdge { edge, t }` sources in `emit_topology` once
     // the output edges exist.

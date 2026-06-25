@@ -1,13 +1,13 @@
-//! KV6d increment 5b2: kernel-v2 recovers and RE-TESSELLATES a boolean-output
-//! torus patch.
+//! KV6d increment 5b2 + Tier B relocation: a torus boolean traverses
+//! `yang_rs::boolean` (whose Stage-4 implicit-pair Newton relocates the
+//! intersection boundary ONTO the analytic torus), is reconstructed by kernel-v2
+//! `from_yang_brep` (the `FaceSurf::Torus` arm + on-surface `validate_torus_face`),
+//! and — for a simple (non-seam-wrapping) patch — render-tessellated via the
+//! UV-CDT consumer `yang_rs::tessellate_torus_patch`.
 //!
-//! to_yang torus-operand conversion is a separate later increment, so we build
-//! the torus operand directly as a yang B-Rep, run `yang_rs::boolean`, then feed
-//! yang's OUTPUT through the kernel-v2 reconstruction (`from_yang_brep`, with the
-//! new `FaceSurf::Torus` arm) and render tessellation (which routes the trimmed
-//! torus patch — a polyline boundary, no full-circle edge — to the UV-CDT
-//! consumer `yang_rs::tessellate_torus_patch`). The result must validate and
-//! tessellate into a watertight, on-surface mesh.
+//! to_yang torus-OPERAND conversion is a separate later increment, so we build
+//! the torus operand directly as a yang B-Rep and feed yang's OUTPUT through the
+//! kernel-v2 reconstruction + render path.
 
 use cad_primitives::{BoolOp, Point3, Vector3};
 use kernel_v2::{from_yang_brep, tessellate, validate_solid, BrepArena, RenderMesh};
@@ -197,52 +197,9 @@ fn assert_band_on_surface(mesh: &RenderMesh, what: &str) {
     assert!(band > 0, "{what}: no on-tube torus vertices");
 }
 
-/// The full path — yang boolean → kernel-v2 reconstruction → render — once the
-/// torus output boundary lands on the analytic surface. BLOCKED on torus Stage-4
-/// SSI relocation: yang returns `UnsupportedSurfaceForSsi` for a torus, so the
-/// intersection curve stays on the input tessellation's chords (~0.096 off the
-/// analytic torus for this fixture — see `torus_output_boundary_is_chord_off_surface`),
-/// and `validate_torus_face` (correctly, per P9) rejects the off-surface boundary
-/// during `from_yang_brep`. The reconstruction + UV-CDT render wiring it would
-/// exercise are already in place and unit-tested
-/// (`tessellate::torus_patch_tess_tests`); only the SSI relocation is missing.
-#[test]
-#[ignore = "KV6d-5b2: needs torus Stage-4 SSI relocation — output boundary is ~0.1 off the analytic torus (chord), so from_yang_brep validation rejects it"]
-fn torus_minus_box_reconstructs_and_tessellates() {
-    let Some(backend) = yang_rs::native_backend() else {
-        eprintln!("native backend unavailable — skipping");
-        return;
-    };
-    // Box biting the outer wall near θ=0 trims the torus lateral into an
-    // arbitrary-boundary patch (no full-circle edge → UV-CDT path).
-    let a = partial_torus_brep();
-    let b = box_brep([3.4, -0.6, -0.6], [1.2, 1.2, 1.2]);
-
-    let out = yang_rs::boolean(&a, &b, BoolOp::Subtract, &backend)
-        .unwrap_or_else(|e| panic!("torus − box (yang): {e:?}"));
-
-    let mut arena = BrepArena::new();
-    let solid = from_yang_brep(&mut arena, &out)
-        .unwrap_or_else(|e| panic!("from_yang_brep(torus output): {e:?}"));
-    validate_solid(&arena, solid).expect("reconstructed torus-cut solid validates");
-
-    let mesh = tessellate(&arena, solid).expect("tessellate reconstructed torus cut");
-    assert!(!mesh.indices.is_empty(), "non-empty render mesh");
-    assert_render_watertight(&mesh, "torus − box render");
-    assert_band_on_surface(&mesh, "torus − box render");
-}
-
-/// Documents the blocker above with a hard number: the trimmed torus face's
-/// boundary vertices sit well off the analytic torus (no SSI relocation), so
-/// the analytic-B-Rep reconstruction cannot accept them yet.
-#[test]
-fn torus_output_boundary_is_chord_off_surface() {
-    let Some(backend) = yang_rs::native_backend() else {
-        return;
-    };
-    let a = partial_torus_brep();
-    let b = box_brep([3.4, -0.6, -0.6], [1.2, 1.2, 1.2]);
-    let out = yang_rs::boolean(&a, &b, BoolOp::Subtract, &backend).expect("yang boolean");
+/// Max torus-surface residual over every torus face's boundary vertices of a
+/// yang output B-Rep.
+fn max_torus_boundary_residual(out: &BRep) -> f64 {
     let mut maxr: f64 = 0.0;
     for f in out.faces() {
         if let Surface::Torus {
@@ -255,7 +212,7 @@ fn torus_output_boundary_is_chord_off_surface() {
             let c = center.as_array();
             let ax = axis_dir.as_array();
             let verts = out.vertices();
-            for e in &f.outer_loop {
+            for e in f.outer_loop.iter().chain(f.inner_loops.iter().flatten()) {
                 let pid = out.edges()[*e as usize].start as usize;
                 let p = verts[pid].point.as_array();
                 let d = [p[0] - c[0], p[1] - c[1], p[2] - c[2]];
@@ -267,9 +224,81 @@ fn torus_output_boundary_is_chord_off_surface() {
             }
         }
     }
-    // Far above any analytic-surface tolerance: relocation (SSI) is required.
+    maxr
+}
+
+/// KV6d Tier B: the Stage-4 implicit-pair Newton relocation drives the trimmed
+/// torus boundary ONTO the analytic torus (~0.096 off the chord → ~1e-8), so the
+/// analytic-B-Rep reconstruction `from_yang_brep` (whose `validate_torus_face`
+/// requires on-surface boundary vertices) now ACCEPTS the output where before it
+/// rejected it. This is the end-to-end proof of the relocation. (A "tube minus a
+/// window" cut leaves the surviving lateral wrapping the full meridian seam, the
+/// UV-CDT consumer's documented v1 boundary, so render tessellation of THIS
+/// patch is exercised separately — see `tessellate::torus_patch_tess_tests` for
+/// the simple-patch render and the small-box intersect below.)
+#[test]
+fn torus_boolean_relocates_boundary_onto_surface_and_reconstructs() {
+    let Some(backend) = yang_rs::native_backend() else {
+        eprintln!("native backend unavailable — skipping");
+        return;
+    };
+    let a = partial_torus_brep();
+    let b = box_brep([3.4, -0.6, -0.6], [1.2, 1.2, 1.2]);
+
+    let out = yang_rs::boolean(&a, &b, BoolOp::Subtract, &backend)
+        .unwrap_or_else(|e| panic!("torus − box (yang): {e:?}"));
+
+    // The relocation made every torus-boundary vertex on-surface.
+    let resid = max_torus_boundary_residual(&out);
     assert!(
-        maxr > 1e-3,
-        "expected a large chord-vs-analytic gap, got {maxr:.3e}"
+        resid < 1e-7,
+        "torus boundary not relocated on-surface: {resid:e}"
     );
+
+    // ...so the analytic reconstruction + its validation now succeed.
+    let mut arena = BrepArena::new();
+    let solid = from_yang_brep(&mut arena, &out)
+        .unwrap_or_else(|e| panic!("from_yang_brep(relocated torus output): {e:?}"));
+    validate_solid(&arena, solid).expect("reconstructed torus-cut solid validates");
+}
+
+/// Full path including RENDER of a boolean-output torus patch. The Tier B
+/// relocation + reconstruction succeed (covered green above); the remaining gap
+/// is the UV-CDT consumer's documented v1 boundary — a boolean trims the closed
+/// tube into a patch that WRAPS the meridian seam (cylindrical, not disk,
+/// topology), which the single-loop (u,v) projection cannot triangulate. The
+/// SIMPLE-patch render path is proven by `tessellate::torus_patch_tess_tests`;
+/// extending the consumer to seam-wrapping patches is the follow-on.
+#[test]
+#[ignore = "KV6d-5b2 render tail: boolean torus patches wrap the meridian seam (cylindrical topology); the UV-CDT consumer is single-loop disk-only. Relocation + reconstruction are green; simple-patch render is unit-tested."]
+fn small_box_intersect_torus_reconstructs_and_tessellates() {
+    let Some(backend) = yang_rs::native_backend() else {
+        return;
+    };
+    let a = partial_torus_brep();
+    // Tube centre at θ=45° is ≈(2.12, 2.12, 0); the top is ≈(2.12, 2.12, 1).
+    let b = box_brep([1.7, 1.7, 0.55], [0.9, 0.9, 1.0]);
+
+    let out = yang_rs::boolean(&a, &b, BoolOp::Intersect, &backend)
+        .unwrap_or_else(|e| panic!("torus ∩ box (yang): {e:?}"));
+    assert!(
+        out.faces()
+            .iter()
+            .any(|f| matches!(f.surface, Surface::Torus { .. })),
+        "intersect must keep a torus patch"
+    );
+    let resid = max_torus_boundary_residual(&out);
+    assert!(
+        resid < 1e-7,
+        "torus patch boundary not on-surface: {resid:e}"
+    );
+
+    let mut arena = BrepArena::new();
+    let solid = from_yang_brep(&mut arena, &out)
+        .unwrap_or_else(|e| panic!("from_yang_brep(torus ∩ box): {e:?}"));
+    validate_solid(&arena, solid).expect("reconstructed torus ∩ box validates");
+    let mesh = tessellate(&arena, solid).expect("tessellate torus ∩ box");
+    assert!(!mesh.indices.is_empty(), "non-empty render mesh");
+    assert_render_watertight(&mesh, "torus ∩ box render");
+    assert_band_on_surface(&mesh, "torus ∩ box render");
 }

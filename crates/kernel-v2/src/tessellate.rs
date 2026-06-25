@@ -1303,29 +1303,36 @@ fn tessellate_torus_patch(
         });
     };
     let fail = |reason: &'static str| KernelV2Error::TessellationFailed { face: fid, reason };
-    // v1: the UV-CDT consumer triangulates a single outer boundary (no holes).
-    if !face.inner_loops.is_empty() {
-        return Err(KernelV2Error::CurvedGeometryMismatch {
-            face: fid,
-            reason: "tessellation: torus patch with interior holes not yet supported (KV6d 5b2)",
-        });
-    }
     let c = [center.x(), center.y(), center.z()];
     let ax = [axis_dir.x, axis_dir.y, axis_dir.z];
 
-    // Gather the ordered boundary loop as a 3D polyline: each half-edge's
-    // origin, then its arc interior samples (empty for a line segment), in walk
-    // order. Arc samples are twin-canonical, so a surviving seam arc shared with
-    // a cap is sampled identically on both faces.
-    let hes = arena.loop_half_edges(face.outer_loop)?;
-    let mut boundary: Vec<Point3> = Vec::with_capacity(hes.len());
-    for &h in &hes {
-        let he = arena.half_edge(h)?;
-        boundary.push(arena.vertex(he.origin)?.point);
-        boundary.extend(arc_interior_samples(arena, h, n_seg)?);
-    }
+    // Gather a loop as an ordered 3D polyline: each half-edge's origin, then its
+    // arc interior samples (empty for a line segment), in walk order. Arc
+    // samples are twin-canonical, so a surviving seam arc shared with a cap is
+    // sampled identically on both faces.
+    let gather = |loop_id| -> Result<Vec<Point3>, KernelV2Error> {
+        let hes = arena.loop_half_edges(loop_id)?;
+        let mut pts: Vec<Point3> = Vec::with_capacity(hes.len());
+        for &h in &hes {
+            let he = arena.half_edge(h)?;
+            pts.push(arena.vertex(he.origin)?.point);
+            pts.extend(arc_interior_samples(arena, h, n_seg)?);
+        }
+        Ok(pts)
+    };
+    let boundary = gather(face.outer_loop)?;
     if boundary.len() < 3 {
         return Err(fail("torus patch boundary has fewer than 3 vertices"));
+    }
+    // Interior holes (e.g. a window bitten out of the tube middle) become CDT
+    // holes in the (u, v) parameter plane.
+    let mut holes: Vec<Vec<Point3>> = Vec::with_capacity(face.inner_loops.len());
+    for &lid in &face.inner_loops {
+        let h = gather(lid)?;
+        if h.len() < 3 {
+            return Err(fail("torus patch interior loop has fewer than 3 vertices"));
+        }
+        holes.push(h);
     }
 
     // Triangle-area budget in arc-length² (the consumer scales (u,v) to
@@ -1336,7 +1343,7 @@ fn tessellate_torus_patch(
 
     let axis_v = Vector3::new(ax[0], ax[1], ax[2]);
     let Some((verts, tris)) =
-        yang_rs::tessellate_torus_patch(center, axis_v, r_maj, r_min, &boundary, max_area)
+        yang_rs::tessellate_torus_patch(center, axis_v, r_maj, r_min, &boundary, &holes, max_area)
     else {
         return Err(fail(
             "torus patch UV-CDT failed (self-intersecting projection / seam-crossing patch)",
