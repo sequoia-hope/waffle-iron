@@ -90,10 +90,21 @@ boundary curves (it fails "missing +axis seam arc"). Two sub-cases:
 
 ---
 
-## 4. The long pole: a missing interior-Steiner CDT primitive
+## 4. The long pole: an interior-Steiner CDT primitive — **NOW BUILT (2026-06-25)**
 
-(b2) is gated on a capability **the codebase does not have** (verified in the
-KV6d UV-CDT feasibility investigation, 2026-06-24):
+**UPDATE:** the interior-Steiner CDT primitive is shipped:
+`cherchi_rs::triangulation::cdt_polygon_with_holes_refined(verts, outer, holes,
+max_area)` → `(fresh_verts, tris)`. It builds the constrained CDT and runs
+spade's Delaunay refinement (`with_max_allowed_area(max_area)
+.keep_constraint_edges()`) to add interior Steiner points until every triangle is
+≤ `max_area` (the caller maps that from the surface chord-error budget). Boundary
+verts preserved (conformal); non-convex interior-only; 4 unit tests; wasm-clean;
+rewrite-tier green. So §5 step 3 is **DONE** — (b2) is now unblocked at the
+primitive level. The torus UV-CDT consumer (invert `face_eval` → project boundary
+→ call this → map back to 3D) is the remaining work, not the primitive itself.
+
+The original gap (now closed) was a capability the codebase did not have
+(verified in the KV6d UV-CDT feasibility investigation, 2026-06-24):
 
 - **No reusable interior-Steiner CDT.** kernel-v2 tessellate = exact-rational
   EAR-CLIP (boundary-only, no interior points); yang's planar CDT path "adds NO
@@ -124,11 +135,9 @@ genuinely hard.
 2. **Increment 5b1 (survive-whole recovery)** — medium; extends the cone-5c idea
    to meridian-circle + seam recovery. Flips the union cases where the torus
    isn't cut by the intersection (if any).
-3. **The interior-Steiner CDT primitive** — scope and build as a STANDALONE
-   foundational dependency (it also unblocks the non-convex-CDT profile tail and
-   any future curved-patch tessellation). This is the gateway to 5b2 and the bulk
-   of the 23 cases. Multi-session; needs exact predicates + watertightness +
-   fixtures. **Do this before 5b2.**
+3. **The interior-Steiner CDT primitive** — ✅ **DONE (2026-06-25):**
+   `cdt_polygon_with_holes_refined` (spade refinement; see §4). The gateway to
+   5b2 and the non-convex-CDT profile tail is now in place.
 4. **Increment 5b2 (UV-CDT torus-patch tessellation)** — the dominant corpus
    case; built on (3). Largest piece.
 5. **Increment 6** — corpus verify the 23 cases (full assay; SUPPORTED_WRONG==0
