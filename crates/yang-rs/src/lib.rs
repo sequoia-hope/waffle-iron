@@ -8888,7 +8888,10 @@ fn emit_topology(
         // we reuse `cycles`. We KEEP the E2 degenerate-loop guard.
         if matches!(
             inherited,
-            Surface::Cylinder { .. } | Surface::Sphere { .. } | Surface::Cone { .. }
+            Surface::Cylinder { .. }
+                | Surface::Sphere { .. }
+                | Surface::Cone { .. }
+                | Surface::Torus { .. }
         ) {
             let push_loop = |edges: &mut Vec<BRepEdge>, cycle: &[(u32, u32)]| -> Vec<u32> {
                 let start_idx = edges.len() as u32;
@@ -8976,9 +8979,10 @@ fn emit_topology(
 
         let (normal, d) = match inherited {
             Surface::Plane { normal, d } => (normal, d),
-            // Cylinder, Sphere, and Cone are all handled by the curved branch
-            // above (PR-YR17 added Cone), so these arms are unreachable-
-            // defensive. Kept LOUD (P9) for any genuinely unexpected surface.
+            // Cylinder, Sphere, Cone, and Torus are all handled by the curved
+            // branch above (PR-YR17 added Cone; KV6d-5b2 added Torus), so these
+            // arms are unreachable-defensive. Kept LOUD (P9) for any genuinely
+            // unexpected surface.
             Surface::Sphere { .. }
             | Surface::Cylinder { .. }
             | Surface::Cone { .. }
