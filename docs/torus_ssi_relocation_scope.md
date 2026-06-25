@@ -1,10 +1,18 @@
 # Torus Stage-4 SSI relocation — scope
 
-**Status:** scoping, 2026-06-25. The proven blocker for the KV6d torus-boolean
-end-to-end path (`docs/kv6d_torus_boolean_scope.md` §5b2). The Stage-5/6
-reassembly + kernel-v2 render wiring are DONE and tested (commits b51b67b6,
-ca0e1699); the only missing piece is placing the trimmed torus output boundary
-ON the analytic torus.
+**Status:** Tier B BUILT, 2026-06-25 (commit 2963c430). The implicit-pair Newton
+relocation (§4) is implemented and the end-to-end blocker is cleared: a torus
+boolean's output boundary now lands on the analytic torus (~0.096 → ~1e-8), so
+`from_yang_brep` + `validate_torus_face` accept it
+(`kv6d_torus_boolean_recovery::torus_boolean_relocates_boundary_onto_surface_and_reconstructs`,
+green). Remaining: the render of a seam-WRAPPING (cylindrical-topology) boolean
+patch is the UV-CDT consumer's v1 boundary (simple-patch render is unit-tested);
+Tier A analytic-circle edges are optional polish. Original scope below.
+
+The proven blocker for the KV6d torus-boolean end-to-end path
+(`docs/kv6d_torus_boolean_scope.md` §5b2). The Stage-5/6 reassembly + kernel-v2
+render wiring are DONE and tested (commits b51b67b6, ca0e1699); the only missing
+piece was placing the trimmed torus output boundary ON the analytic torus.
 
 ---
 
