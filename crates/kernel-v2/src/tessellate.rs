@@ -91,7 +91,7 @@ use std::cmp::Ordering;
 use crate::arena::{BrepArena, Curve, FaceId, SolidId, Surface, UnitVector3};
 use crate::error::KernelV2Error;
 use crate::exact2d;
-use cad_primitives::{Point2, Point3};
+use cad_primitives::{Point2, Point3, Vector3};
 
 /// Flat-array triangle mesh for rendering, with per-face index ranges.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -233,7 +233,14 @@ pub fn tessellate_with_chord_tolerance(
                     }
                 }
                 Some(Surface::Torus { .. }) => {
-                    tessellate_torus_lateral(arena, f, n_seg, &mut mesh)?
+                    // Canonical modeling lateral (structured seam-arc loop, KV6d
+                    // 1-3) vs a boolean-output patch (trimmed polyline boundary,
+                    // KV6d 5b2 — delegated to yang-rs's UV-CDT consumer).
+                    if face_has_circle_edge(arena, f)? {
+                        tessellate_torus_lateral(arena, f, n_seg, &mut mesh)?
+                    } else {
+                        tessellate_torus_patch(arena, f, n_seg, &mut mesh)?
+                    }
                 }
                 None => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
             }
@@ -1251,6 +1258,148 @@ fn tessellate_torus_lateral(
             let (a, b, cc, d) = (idx(i, j), idx(i, j + 1), idx(i + 1, j + 1), idx(i + 1, j));
             emit(a, b, cc, out);
             emit(a, cc, d, out);
+        }
+    }
+    out.face_ranges.push(FaceRange {
+        face: fid,
+        start: range_start,
+        count: out.indices.len() as u32 - range_start,
+    });
+    Ok(())
+}
+
+/// KV6d increment 5b2: render-tessellate a boolean-OUTPUT torus PATCH — a
+/// `Surface::Torus` face whose boundary is the trimmed intersection loop (a
+/// chord polyline, possibly with surviving seam-arc spans), NOT the structured
+/// seam-arc loop the modeling tessellator [`tessellate_torus_lateral`] needs.
+///
+/// The torus is degree-4 and NOT developable, so the cylinder patch's
+/// unroll+ear-clip does not transfer; instead we delegate to yang-rs's UV-CDT
+/// consumer [`yang_rs::tessellate_torus_patch`], which projects the boundary
+/// into the `(meridian, longitude)` plane, constrained-Delaunay-triangulates
+/// with interior Steiner points (to bound chord error), and maps back to 3D
+/// with the boundary vertices kept EXACT (conformal with the neighbouring
+/// faces, which sample the same arc/segment edges twin-canonically). We then
+/// emit with the analytic outward torus normal, winding each triangle to agree.
+fn tessellate_torus_patch(
+    arena: &BrepArena,
+    fid: FaceId,
+    n_seg: u32,
+    out: &mut RenderMesh,
+) -> Result<(), KernelV2Error> {
+    use std::f64::consts::PI;
+    let face = arena.face(fid)?;
+    let Some(Surface::Torus {
+        center,
+        axis_dir,
+        major_radius: r_maj,
+        minor_radius: r_min,
+        reversed,
+    }) = face.surface
+    else {
+        return Err(KernelV2Error::TessellationFailed {
+            face: fid,
+            reason: "tessellate_torus_patch on a non-torus face",
+        });
+    };
+    let fail = |reason: &'static str| KernelV2Error::TessellationFailed { face: fid, reason };
+    // v1: the UV-CDT consumer triangulates a single outer boundary (no holes).
+    if !face.inner_loops.is_empty() {
+        return Err(KernelV2Error::CurvedGeometryMismatch {
+            face: fid,
+            reason: "tessellation: torus patch with interior holes not yet supported (KV6d 5b2)",
+        });
+    }
+    let c = [center.x(), center.y(), center.z()];
+    let ax = [axis_dir.x, axis_dir.y, axis_dir.z];
+
+    // Gather the ordered boundary loop as a 3D polyline: each half-edge's
+    // origin, then its arc interior samples (empty for a line segment), in walk
+    // order. Arc samples are twin-canonical, so a surviving seam arc shared with
+    // a cap is sampled identically on both faces.
+    let hes = arena.loop_half_edges(face.outer_loop)?;
+    let mut boundary: Vec<Point3> = Vec::with_capacity(hes.len());
+    for &h in &hes {
+        let he = arena.half_edge(h)?;
+        boundary.push(arena.vertex(he.origin)?.point);
+        boundary.extend(arc_interior_samples(arena, h, n_seg)?);
+    }
+    if boundary.len() < 3 {
+        return Err(fail("torus patch boundary has fewer than 3 vertices"));
+    }
+
+    // Triangle-area budget in arc-length² (the consumer scales (u,v) to
+    // arc-length before refining): match the meridian grid spacing of the
+    // structured tessellator (tube circumference 2π·r_min over n_seg).
+    let seg = 2.0 * PI * r_min / f64::from(n_seg.max(3));
+    let max_area = seg * seg;
+
+    let axis_v = Vector3::new(ax[0], ax[1], ax[2]);
+    let Some((verts, tris)) =
+        yang_rs::tessellate_torus_patch(center, axis_v, r_maj, r_min, &boundary, max_area)
+    else {
+        return Err(fail(
+            "torus patch UV-CDT failed (self-intersecting projection / seam-crossing patch)",
+        ));
+    };
+
+    // Analytic outward torus normal at a point p (reversed-aware): project to
+    // the tube centre circle, take p − tubeCentre.
+    let normal_at = |p: [f64; 3]| -> [f64; 3] {
+        let d = [p[0] - c[0], p[1] - c[1], p[2] - c[2]];
+        let t = d[0] * ax[0] + d[1] * ax[1] + d[2] * ax[2];
+        let rv = [d[0] - t * ax[0], d[1] - t * ax[1], d[2] - t * ax[2]];
+        let rl = (rv[0] * rv[0] + rv[1] * rv[1] + rv[2] * rv[2])
+            .sqrt()
+            .max(1e-300);
+        let rhat = [rv[0] / rl, rv[1] / rl, rv[2] / rl];
+        let tube = [
+            c[0] + r_maj * rhat[0],
+            c[1] + r_maj * rhat[1],
+            c[2] + r_maj * rhat[2],
+        ];
+        let mut n = [p[0] - tube[0], p[1] - tube[1], p[2] - tube[2]];
+        let nl = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt().max(1e-300);
+        n = [n[0] / nl, n[1] / nl, n[2] / nl];
+        if reversed {
+            n = [-n[0], -n[1], -n[2]];
+        }
+        n
+    };
+
+    let range_start = out.indices.len() as u32;
+    let base = out.num_vertices() as u32;
+    for v in &verts {
+        let p = [v.x(), v.y(), v.z()];
+        out.positions.extend_from_slice(&p);
+        out.normals.extend_from_slice(&normal_at(p));
+    }
+    let pos = |out: &RenderMesh, vi: u32| {
+        let k = vi as usize * 3;
+        [out.positions[k], out.positions[k + 1], out.positions[k + 2]]
+    };
+    // Wind each triangle so its geometric normal agrees with the analytic
+    // outward normal at the centroid (reversed-aware).
+    for t in &tris {
+        let (a, b, cc) = (base + t[0], base + t[1], base + t[2]);
+        let (pa, pb, pc) = (pos(out, a), pos(out, b), pos(out, cc));
+        let e1 = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
+        let e2 = [pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]];
+        let gn = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+        let cen = [
+            (pa[0] + pb[0] + pc[0]) / 3.0,
+            (pa[1] + pb[1] + pc[1]) / 3.0,
+            (pa[2] + pb[2] + pc[2]) / 3.0,
+        ];
+        let on = normal_at(cen);
+        if gn[0] * on[0] + gn[1] * on[1] + gn[2] * on[2] >= 0.0 {
+            out.indices.extend_from_slice(&[a, b, cc]);
+        } else {
+            out.indices.extend_from_slice(&[a, cc, b]);
         }
     }
     out.face_ranges.push(FaceRange {
@@ -2744,5 +2893,153 @@ mod cone_tess_tests {
             let p = [mesh.positions[3 * i], mesh.positions[3 * i + 1]];
             assert!(n[0] * p[0] + n[1] * p[1] > 0.0, "outward radial");
         }
+    }
+}
+
+#[cfg(test)]
+mod torus_patch_tess_tests {
+    use super::tessellate_torus_patch;
+    use crate::arena::{
+        BrepArena, Curve, Face, FaceId, HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId, LoopKind,
+        Shell, ShellId, Solid, SolidId, Surface, UnitVector3, Vertex, VertexId,
+    };
+    use crate::tessellate::RenderMesh;
+    use cad_primitives::Point3;
+    use std::collections::BTreeMap;
+
+    /// A boolean-output torus PATCH (arbitrary polyline boundary, no full-circle
+    /// edge) tessellates — via the UV-CDT consumer — into a watertight, on-tube
+    /// mesh with the boundary preserved. This exercises the kernel-v2 render
+    /// wiring in isolation; the full boolean → reconstruction path is gated on
+    /// torus Stage-4 SSI relocation (its output boundary is chord-approximate,
+    /// see `kv6d_torus_boolean_recovery`).
+    #[test]
+    fn boolean_output_torus_patch_tessellates_watertight_and_on_surface() {
+        let (r_maj, r_min) = (3.0_f64, 1.0_f64);
+        // Torus center origin, axis +z, e1=+x, e2=+y.
+        let eval = |u: f64, v: f64| -> Point3 {
+            let rad = r_maj + r_min * u.cos();
+            Point3::new(rad * v.cos(), rad * v.sin(), r_min * u.sin())
+        };
+        // A UV-rectangle patch boundary, 8 samples/side, all exactly on the tube.
+        let (u0, u1, v0, v1) = (0.2_f64, 1.2, 0.5, 1.8);
+        let ns = 8;
+        let mut bpts: Vec<Point3> = Vec::new();
+        let mut push = |u: f64, v: f64| bpts.push(eval(u, v));
+        for k in 0..ns {
+            let t = k as f64 / ns as f64;
+            push(u0 + (u1 - u0) * t, v0);
+        }
+        for k in 0..ns {
+            let t = k as f64 / ns as f64;
+            push(u1, v0 + (v1 - v0) * t);
+        }
+        for k in 0..ns {
+            let t = k as f64 / ns as f64;
+            push(u1 - (u1 - u0) * t, v1);
+        }
+        for k in 0..ns {
+            let t = k as f64 / ns as f64;
+            push(u0, v1 - (v1 - v0) * t);
+        }
+        let n = bpts.len();
+
+        // Minimal arena: one torus face bounded by a single LineSegment loop.
+        let mut arena = BrepArena::new();
+        let (shell, solid, lid, fid) = (ShellId(0), SolidId(0), LoopId(0), FaceId(0));
+        for p in &bpts {
+            arena.vertices.push(Some(Vertex { point: *p }));
+        }
+        for i in 0..n {
+            arena.half_edges.push(Some(HalfEdge {
+                twin: HalfEdgeId(i as u32), // self — line segments never read the twin
+                next: HalfEdgeId(((i + 1) % n) as u32),
+                prev: HalfEdgeId(((i + n - 1) % n) as u32),
+                origin: VertexId(i as u32),
+                loop_id: lid,
+                curve: Curve::LineSegment,
+            }));
+        }
+        arena.loops.push(Some(Loop {
+            face: fid,
+            boundary: LoopBoundary::Edges(HalfEdgeId(0)),
+            kind: LoopKind::Outer,
+        }));
+        arena.faces.push(Some(Face {
+            surface: Some(Surface::Torus {
+                center: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: UnitVector3 {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 1.0,
+                },
+                major_radius: r_maj,
+                minor_radius: r_min,
+                reversed: false,
+            }),
+            outer_loop: lid,
+            inner_loops: Vec::new(),
+            shell,
+        }));
+        arena.shells.push(Some(Shell {
+            solid,
+            faces: vec![fid],
+            genus: 0,
+        }));
+        arena.solids.push(Some(Solid {
+            shells: vec![shell],
+        }));
+
+        let mut mesh = RenderMesh::default();
+        tessellate_torus_patch(&arena, fid, 24, &mut mesh).expect("torus patch tessellates");
+        assert!(!mesh.indices.is_empty(), "non-empty patch mesh");
+
+        // Boundary vertices preserved exactly (conformal): the first n emitted
+        // positions are the input boundary.
+        for (i, p) in bpts.iter().enumerate() {
+            let k = i * 3;
+            assert_eq!(mesh.positions[k], p.x(), "boundary x {i}");
+            assert_eq!(mesh.positions[k + 1], p.y(), "boundary y {i}");
+            assert_eq!(mesh.positions[k + 2], p.z(), "boundary z {i}");
+        }
+
+        // Steiner interior points added (refinement fired).
+        assert!(mesh.num_vertices() > n, "interior Steiner points added");
+
+        // Every render vertex lies on the tube within a tight band.
+        for i in 0..mesh.num_vertices() {
+            let k = i * 3;
+            let (px, py, pz) = (
+                mesh.positions[k],
+                mesh.positions[k + 1],
+                mesh.positions[k + 2],
+            );
+            let rho = (px * px + py * py).sqrt();
+            let resid = (((rho - r_maj).powi(2) + pz * pz).sqrt() - r_min).abs();
+            assert!(resid < 1e-9, "vertex {i} off tube: {resid}");
+            // Outward normal agrees with (p − tubeCentre).
+            let nrm = [mesh.normals[k], mesh.normals[k + 1], mesh.normals[k + 2]];
+            let rhat = [px / rho, py / rho, 0.0];
+            let out = [px - r_maj * rhat[0], py - r_maj * rhat[1], pz];
+            assert!(
+                nrm[0] * out[0] + nrm[1] * out[1] + nrm[2] * out[2] > 0.0,
+                "vertex {i} normal not outward"
+            );
+        }
+
+        // Watertight: every undirected (index) edge shared by 1 (boundary) or 2.
+        let mut ec: BTreeMap<(u32, u32), u32> = BTreeMap::new();
+        for t in mesh.indices.chunks_exact(3) {
+            for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+                let e = if a < b { (a, b) } else { (b, a) };
+                *ec.entry(e).or_insert(0) += 1;
+            }
+        }
+        assert!(ec.values().all(|&c| c == 1 || c == 2), "non-manifold edge");
+        assert_eq!(
+            ec.values().filter(|&&c| c == 1).count(),
+            n,
+            "boundary loop is exactly the original n edges (no slits)"
+        );
     }
 }

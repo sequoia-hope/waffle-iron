@@ -708,6 +708,13 @@ enum FaceSurf {
         half_angle: f64,
         reversed: bool,
     },
+    Torus {
+        center: Point3,
+        axis_dir: [f64; 3],
+        major_radius: f64,
+        minor_radius: f64,
+        reversed: bool,
+    },
 }
 
 /// Reassemble a yang-rs *output* `BRep` into a kernel-v2 solid.
@@ -821,6 +828,37 @@ pub fn from_yang_brep_indexed(
                     apex,
                     axis_dir: a,
                     half_angle,
+                    reversed: f.reversed,
+                });
+            }
+            yang_rs::Surface::Torus {
+                center,
+                axis_dir,
+                major_radius,
+                minor_radius,
+            } => {
+                let a = axis_dir.as_array();
+                if (norm3(a) - 1.0).abs() > YANG_NORMAL_AGREEMENT_TOLERANCE {
+                    return Err(KernelV2Error::InvalidBooleanOutput(
+                        "output torus axis_dir is not unit-length",
+                    ));
+                }
+                if !(major_radius.is_finite() && major_radius > 0.0) {
+                    return Err(KernelV2Error::InvalidBooleanOutput(
+                        "output torus major_radius is not finite and positive",
+                    ));
+                }
+                if !(minor_radius.is_finite() && minor_radius > 0.0 && minor_radius < major_radius)
+                {
+                    return Err(KernelV2Error::InvalidBooleanOutput(
+                        "output torus minor_radius is not finite, positive, and below the major radius",
+                    ));
+                }
+                surfs.push(FaceSurf::Torus {
+                    center,
+                    axis_dir: a,
+                    major_radius,
+                    minor_radius,
                     reversed: f.reversed,
                 });
             }
@@ -1072,7 +1110,7 @@ pub fn from_yang_brep_indexed(
                 }
                 if matches!(
                     surfs[loops[u.loop_idx].face],
-                    FaceSurf::Cylinder { .. } | FaceSurf::Cone { .. }
+                    FaceSurf::Cylinder { .. } | FaceSurf::Cone { .. } | FaceSurf::Torus { .. }
                 ) {
                     if let Some(nu) = derive_planar(partner) {
                         return Ok(neg_unit(nu));
@@ -1347,6 +1385,23 @@ pub fn from_yang_brep_indexed(
                             z: axis_dir[2],
                         },
                         half_angle: *half_angle,
+                        reversed: *reversed,
+                    },
+                    FaceSurf::Torus {
+                        center,
+                        axis_dir,
+                        major_radius,
+                        minor_radius,
+                        reversed,
+                    } => Surface::Torus {
+                        center: *center,
+                        axis_dir: UnitVector3 {
+                            x: axis_dir[0],
+                            y: axis_dir[1],
+                            z: axis_dir[2],
+                        },
+                        major_radius: *major_radius,
+                        minor_radius: *minor_radius,
                         reversed: *reversed,
                     },
                 };

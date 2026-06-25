@@ -2943,9 +2943,6 @@ fn tessellate_torus_face(
 /// phase unwrapping). Turns a torus patch's `atan2` parameters into a simple
 /// (non-self-crossing) polygon as long as the patch does not wrap the whole way
 /// around a seam.
-// Used by `tessellate_torus_patch`; both are exercised by tests now and wired
-// into Stage-5/6 torus output recovery at KV6d increment 5b2.
-#[allow(dead_code)]
 fn unwrap_seq(a: &mut [f64]) {
     use std::f64::consts::{PI, TAU};
     for k in 1..a.len() {
@@ -2977,9 +2974,11 @@ fn unwrap_seq(a: &mut [f64]) {
 /// bit. `None` if the boundary degenerates or the CDT rejects a self-intersecting
 /// projection (a seam-CROSSING / self-overlapping patch — out of this v1 scope;
 /// the deferral is loud at the caller).
+///
+/// Consumed by kernel-v2's render-time torus-patch tessellation (the owner of
+/// output recovery re-tessellation); exposed `pub` for that cross-crate call.
 #[allow(clippy::too_many_arguments)]
-#[allow(dead_code)] // wired into Stage-5/6 torus output recovery at KV6d incr 5b2
-fn tessellate_torus_patch(
+pub fn tessellate_torus_patch(
     center: Point3,
     axis_dir: Vector3,
     major: f64,

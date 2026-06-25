@@ -21,8 +21,12 @@ fn v3(x: f64, y: f64, z: f64) -> Vector3 {
 /// 2 meridian-plane disk caps).
 fn partial_torus_brep() -> BRep {
     let verts = vec![
-        BRepVertex { point: p(4.0, 0.0, 0.0) }, // V0 (θ=0, φ=0)
-        BRepVertex { point: p(0.0, 4.0, 0.0) }, // Vα (θ=α, φ=0)
+        BRepVertex {
+            point: p(4.0, 0.0, 0.0),
+        }, // V0 (θ=0, φ=0)
+        BRepVertex {
+            point: p(0.0, 4.0, 0.0),
+        }, // Vα (θ=α, φ=0)
     ];
     let edges = vec![
         BRepEdge {
