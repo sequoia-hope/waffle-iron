@@ -199,6 +199,17 @@ let planeVisibility = $state(new Map());
 /** @type {Map<string, boolean>} axisId ('x'|'y'|'z') -> visible (default true) */
 let axisVisibility = $state(new Map());
 
+/** @type {Map<string, boolean>} bodyId -> visible (default true) */
+let bodyVisibility = $state(new Map());
+
+/**
+ * Saved `active_index` captured when entering feature-edit mode so we can
+ * restore it when the edit is applied or cancelled. `undefined` means we are
+ * NOT currently in an edit-driven rollback (so restore is a no-op).
+ * @type {number | null | undefined}
+ */
+let savedEditRollbackIndex = undefined;
+
 /** @type {string | null} Feature ID of the sketch being edited (null = creating new) */
 let editingSketchFeatureId = $state(null);
 
@@ -1126,8 +1137,13 @@ export function setHoveredRef(ref) {
  * @param {boolean} additive - If true, toggle selection; if false, replace selection
  */
 export function selectRef(ref, additive = false) {
-	// Intercept face clicks when in profile pick mode (extrude)
+	// Intercept face clicks when in profile pick mode (extrude). Prefer a sketch
+	// region coincident with the face: when a region is under the cursor (set by
+	// the inactive-sketch hover path), let that path add it and ignore the face,
+	// so a sketch drawn on a body face extrudes its region rather than selecting
+	// the (unsupported) underlying face.
 	if (profilePickMode?.target === 'extrude' && ref?.kind?.type === 'Face') {
+		if (inactiveHoveredProfile) return;
 		addExtrudeRegionFromRef(ref);
 		return;
 	}
@@ -1384,6 +1400,7 @@ export function exitSketchMode() {
 	editingSketchFeatureId = null;
 	resetSketchState();
 	sketchMode = { active: false, origin: [0, 0, 0], normal: [0, 0, 1] };
+	restoreEditRollback();
 }
 
 // -- Feature selection --
@@ -2834,6 +2851,7 @@ export function hideExtrudeDialog() {
 	extrudeDialogState = null;
 	extrudePreviewParams = null;
 	profilePickMode = null;
+	restoreEditRollback();
 }
 
 /**
@@ -2869,6 +2887,7 @@ export function showExtrudeDialogForEdit(featureId) {
 		editingFeatureId: featureId,
 		editParams: params
 	};
+	beginEditRollback(featureId);
 }
 
 /**
@@ -2950,6 +2969,7 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 			await sendRebuild({ type: 'AddFeature', operation });
 		}
 
+		await restoreEditRollback();
 		extrudeDialogState = null;
 		extrudePreviewParams = null;
 	} catch (err) {
@@ -3000,6 +3020,7 @@ export function hideRevolveDialog() {
 	revolvePreviewParams = null;
 	profilePickMode = null;
 	axisPickMode = false;
+	restoreEditRollback();
 }
 
 /**
@@ -3035,6 +3056,7 @@ export function showRevolveDialogForEdit(featureId) {
 		editingFeatureId: featureId,
 		editParams: params
 	};
+	beginEditRollback(featureId);
 }
 
 /**
@@ -3068,6 +3090,7 @@ export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex) 
 			await sendRebuild({ type: 'AddFeature', operation });
 		}
 
+		await restoreEditRollback();
 		revolveDialogState = null;
 		revolvePreviewParams = null;
 	} catch (err) {
@@ -4146,6 +4169,70 @@ export function hideAllAxes() {
 	axisVisibility = next;
 }
 
+// -- Body visibility --
+
+/**
+ * Check if a body (by `bodyId`) is visible. Visibility is a client-side display
+ * toggle independent of the engine: hidden bodies are skipped at render time but
+ * still exist in the model.
+ * @param {string} bodyId
+ * @returns {boolean}
+ */
+export function isBodyVisible(bodyId) {
+	return bodyVisibility.get(bodyId) ?? true;
+}
+
+/**
+ * Toggle visibility of a body.
+ * @param {string} bodyId
+ */
+export function toggleBodyVisibility(bodyId) {
+	const next = new Map(bodyVisibility);
+	next.set(bodyId, !(bodyVisibility.get(bodyId) ?? true));
+	bodyVisibility = next;
+}
+
+// -- Feature-edit rollback --
+//
+// Editing a feature rolls the timeline back so the feature's own body (and every
+// body/sketch/plane created after it) is hidden while the user adjusts it — the
+// live ghost preview stands in for the old result. The prior rollback point is
+// restored when the edit is applied or cancelled.
+
+/**
+ * Roll the timeline back for editing the given feature. Captures the current
+ * `active_index` so it can be restored later. For Extrude/Revolve the feature's
+ * own output is excluded (rollback to the feature just before it) so its stale
+ * body disappears; for a Sketch the feature is kept active (it has no body and
+ * the live editor renders it) while everything downstream is hidden.
+ * @param {string} featureId
+ */
+function beginEditRollback(featureId) {
+	const idx = featureTree.features.findIndex((f) => f.id === featureId);
+	if (idx < 0) return;
+	const opType = featureTree.features[idx].operation?.type;
+	const target = opType === 'Extrude' || opType === 'Revolve' ? idx - 1 : idx;
+	if (target < 0) return; // nothing sensible to roll back to (no preceding feature)
+	// Capture the pre-edit rollback point only once, so a re-entered edit doesn't
+	// clobber the original value with an already-rolled-back index.
+	if (savedEditRollbackIndex === undefined) {
+		savedEditRollbackIndex = featureTree.active_index ?? null;
+	}
+	const index = target >= featureTree.features.length - 1 ? null : target;
+	setRollbackIndex(index);
+}
+
+/**
+ * Restore the rollback point saved by {@link beginEditRollback}. No-op when no
+ * edit-driven rollback is active (e.g. creating a new feature).
+ */
+async function restoreEditRollback() {
+	if (savedEditRollbackIndex === undefined) return;
+	const restore = savedEditRollbackIndex;
+	savedEditRollbackIndex = undefined;
+	await setRollbackIndex(restore);
+}
+
 /**
  * Get the feature ID of the sketch currently being edited (null if creating new).
  * @returns {string | null}
@@ -4171,6 +4258,7 @@ export async function enterSketchEditMode(featureId) {
 	log('action', 'Enter sketch edit mode', { featureId, entityCount: sketch.entities?.length });
 
 	editingSketchFeatureId = featureId;
+	beginEditRollback(featureId);
 	resetSketchState();
 
 	// Repopulate sketch state from saved data

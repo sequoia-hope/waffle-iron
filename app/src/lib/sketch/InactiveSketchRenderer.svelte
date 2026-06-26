@@ -55,7 +55,11 @@
 	 */
 	let sketchFeatures = $derived.by(() => {
 		if (!tree?.features) return [];
-		return tree.features.filter(f =>
+		// Hide sketches past the rollback point (active_index): they belong to a
+		// rolled-back portion of the timeline and should disappear from the scene.
+		const ai = tree.active_index;
+		return tree.features.filter((f, idx) =>
+			(ai === null || ai === undefined || idx <= ai) &&
 			f.operation?.type === 'Sketch' &&
 			!f.suppressed &&
 			f.operation.sketch &&

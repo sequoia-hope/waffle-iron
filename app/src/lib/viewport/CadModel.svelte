@@ -19,7 +19,8 @@
 		getSelectedBodyId,
 		getHoveredBodyId,
 		getSelectedFeatureId,
-		getSectionState
+		getSectionState,
+		isBodyVisible
 	} from '$lib/engine/store.svelte.js';
 	import { SIDE_FACE_GROUP_THRESHOLD } from '$lib/config.js';
 	import { buildSectionClipPlane } from './sectionPlane.js';
@@ -240,7 +241,7 @@
 	let engineMeshes = $derived.by(() => {
 		const meshData = getMeshes();
 		if (!meshData || meshData.length === 0) return [];
-		return meshData.map((m) => ({
+		return meshData.filter((m) => isBodyVisible(m.bodyId)).map((m) => ({
 			geometry: buildGeometry(m),
 			faceRanges: m.faceRanges || [],
 			featureId: m.featureId,

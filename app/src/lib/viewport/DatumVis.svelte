@@ -33,8 +33,17 @@
 
 	let features = $derived(getFeatureTree()?.features ?? []);
 
+	// Features up to the rollback point (active_index). User datum planes created
+	// past the rollback are hidden along with the rest of the rolled-back timeline;
+	// built-in planes are always added by getAllPlanes regardless of this slice.
+	let activeFeatures = $derived.by(() => {
+		const ai = getFeatureTree()?.active_index;
+		if (ai === null || ai === undefined) return features;
+		return features.slice(0, ai + 1);
+	});
+
 	// Reactive plane data: built-in + user planes
-	let planeData = $derived(getAllPlanes(features).map((plane) => {
+	let planeData = $derived(getAllPlanes(activeFeatures).map((plane) => {
 		let resolved;
 		try {
 			resolved = resolvePlane(plane.definition, features, computeFacePlane);

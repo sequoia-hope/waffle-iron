@@ -34,7 +34,9 @@
 		selectBody,
 		setHoveredBodyId,
 		renameBody,
-		exportBodyStl
+		exportBodyStl,
+		isBodyVisible,
+		toggleBodyVisibility
 	} from '$lib/engine/store.svelte.js';
 	import { BUILTIN_PLANES, makePlaneRef } from '$lib/engine/planes.js';
 	import { longPressContextMenu } from './longPressContextMenu.js';
@@ -86,6 +88,11 @@
 
 	function handleBodyClick(bodyId) {
 		selectBody(selectedBodyId === bodyId ? null : bodyId);
+	}
+
+	function handleBodyVisibilityToggle(e, bodyId) {
+		e.stopPropagation();
+		toggleBodyVisibility(bodyId);
 	}
 
 	function handleBodyContextMenu(e, body) {
@@ -488,6 +495,11 @@
 						>⚠</button>
 					{/if}
 				</div>
+				{#if tree.active_index !== null && i === tree.active_index && tree.active_index < tree.features.length - 1}
+					<div class="rollback-bar" data-testid="rollback-bar" title="Rollback point — features below are rolled back and hidden">
+						<span class="rollback-bar-label">Rollback</span>
+					</div>
+				{/if}
 			{/each}
 		{/if}
 
@@ -507,6 +519,7 @@
 						<div
 							class="body-item"
 							class:selected={selectedBodyId === body.bodyId}
+							class:hidden-item={!isBodyVisible(body.bodyId)}
 							data-testid="body-item-{i}"
 							onclick={() => handleBodyClick(body.bodyId)}
 							ondblclick={() => handleBodyDblClick(body)}
@@ -527,6 +540,14 @@
 							{:else}
 								<span class="tree-label">{body.name}</span>
 							{/if}
+							<button
+								class="visibility-toggle"
+								title={isBodyVisible(body.bodyId) ? 'Hide body' : 'Show body'}
+								data-testid="body-visibility-{i}"
+								onclick={(e) => handleBodyVisibilityToggle(e, body.bodyId)}
+							>
+								{isBodyVisible(body.bodyId) ? '◉' : '◎'}
+							</button>
 						</div>
 					{/each}
 				{/if}
@@ -709,6 +730,37 @@
 		background: rgba(0, 120, 212, 0.2);
 		border-left: 2px solid var(--accent);
 		padding-left: 10px;
+	}
+
+	.body-item.hidden-item {
+		opacity: 0.45;
+	}
+
+	/* Rollback bar: a horizontal marker drawn just below the active feature.
+	 * Features rendered below it are rolled back (greyed + hidden in the scene). */
+	.rollback-bar {
+		display: flex;
+		align-items: center;
+		height: 0;
+		border-top: 2px solid var(--accent, #0078d4);
+		margin: 3px 0;
+		position: relative;
+	}
+
+	.rollback-bar-label {
+		position: absolute;
+		left: 8px;
+		top: -8px;
+		font-size: 9px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.4px;
+		color: #fff;
+		background: var(--accent, #0078d4);
+		padding: 1px 5px;
+		border-radius: 3px;
+		line-height: 1.2;
+		white-space: nowrap;
 	}
 
 	.empty-state {
