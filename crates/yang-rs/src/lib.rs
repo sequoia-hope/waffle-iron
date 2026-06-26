@@ -3034,7 +3034,37 @@ pub fn tessellate_torus_patch(
         (us, vs)
     };
 
+    // Net winding of a closed loop's already-unwrapped angle sequence: the span
+    // plus the closure step, in units of 2π. Nonzero ⇒ the loop wraps that
+    // periodic coordinate (a meridian- or longitude-wrapping patch).
+    let net_wrap = |a: &[f64]| -> i64 {
+        if a.len() < 2 {
+            return 0;
+        }
+        let raw_closure = a[0] - a[a.len() - 1];
+        // wrap_to_pi(raw_closure)
+        let mut c = raw_closure % std::f64::consts::TAU;
+        if c > std::f64::consts::PI {
+            c -= std::f64::consts::TAU;
+        } else if c <= -std::f64::consts::PI {
+            c += std::f64::consts::TAU;
+        }
+        let net = (a[a.len() - 1] - a[0]) + c;
+        (net / std::f64::consts::TAU).round() as i64
+    };
+
     let (us, vs) = invert(boundary);
+    // KV6d v1 scope: the UV-CDT consumer triangulates a DISK-topology patch (a
+    // bounded (u, v) region, optionally with holes). A boolean can trim the
+    // closed tube into a patch that WRAPS the meridian (u) or longitude (v)
+    // seam — cylindrical/toroidal topology whose (u, v) boundary is not a simple
+    // polygon (the closing edge jumps a full period). Detect it explicitly and
+    // bail (the caller reports it) rather than feed a self-crossing polygon to
+    // the CDT. Seam-wrapping render is the documented follow-on (port the
+    // cylinder patch's pass-1 winding + pass-2 seam-bridge to (u, v)).
+    if net_wrap(&us) != 0 || net_wrap(&vs) != 0 {
+        return None;
+    }
     // Outer-loop branch reference: each hole is shifted by 2π multiples so its
     // mean (u, v) sits in the same period as the outer (a hole that atan2 placed
     // on the opposite branch would otherwise project OUTSIDE the outer polygon).

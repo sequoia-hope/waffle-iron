@@ -262,22 +262,21 @@ fn torus_boolean_relocates_boundary_onto_surface_and_reconstructs() {
     validate_solid(&arena, solid).expect("reconstructed torus-cut solid validates");
 }
 
-/// Full path including RENDER of a boolean-output torus patch. The Tier B
-/// relocation + reconstruction succeed (covered green above); the remaining gap
-/// is the UV-CDT consumer's documented v1 boundary — a boolean trims the closed
-/// tube into a patch that WRAPS the meridian seam (cylindrical, not disk,
-/// topology), which the single-loop (u,v) projection cannot triangulate. The
-/// SIMPLE-patch render path is proven by `tessellate::torus_patch_tess_tests`;
-/// extending the consumer to seam-wrapping patches is the follow-on.
+/// Full path including RENDER of a boolean-output torus patch: a box INTERSECTED
+/// with the tube yields a DISK-topology torus patch (a bounded (u,v) region, no
+/// meridian wrap) which reconstructs AND render-tessellates into a watertight,
+/// on-tube mesh via the UV-CDT consumer. (A cut that wraps the meridian seam —
+/// cylindrical topology — is the documented periodic-render follow-on, detected
+/// and reported loudly by the consumer; see `torus_subtract_seam_cut_is_periodic`.)
 #[test]
-#[ignore = "KV6d-5b2 render tail: boolean torus patches wrap the meridian seam (cylindrical topology); the UV-CDT consumer is single-loop disk-only. Relocation + reconstruction are green; simple-patch render is unit-tested."]
-fn small_box_intersect_torus_reconstructs_and_tessellates() {
+fn box_intersect_torus_reconstructs_and_tessellates() {
     let Some(backend) = yang_rs::native_backend() else {
         return;
     };
     let a = partial_torus_brep();
-    // Tube centre at θ=45° is ≈(2.12, 2.12, 0); the top is ≈(2.12, 2.12, 1).
-    let b = box_brep([1.7, 1.7, 0.55], [0.9, 0.9, 1.0]);
+    // A box over the outer tube near θ=45°: the kept torus patch is a bounded
+    // (u,v) disk (no meridian wrap).
+    let b = box_brep([2.4, 2.4, -0.6], [1.0, 1.0, 1.2]);
 
     let out = yang_rs::boolean(&a, &b, BoolOp::Intersect, &backend)
         .unwrap_or_else(|e| panic!("torus ∩ box (yang): {e:?}"));
@@ -301,4 +300,33 @@ fn small_box_intersect_torus_reconstructs_and_tessellates() {
     assert!(!mesh.indices.is_empty(), "non-empty render mesh");
     assert_render_watertight(&mesh, "torus ∩ box render");
     assert_band_on_surface(&mesh, "torus ∩ box render");
+}
+
+/// A subtract that bites the tube AT the outer (φ=0) seam turns the surviving
+/// torus lateral into a patch that WRAPS the full meridian (cylindrical, not
+/// disk, topology). Relocation + reconstruction still succeed (the boundary is
+/// on-surface), but the single-loop UV-CDT consumer detects the meridian wrap
+/// and reports it loudly rather than feeding a self-crossing polygon to the CDT.
+/// Periodic seam-wrapping render is the documented follow-on (port the cylinder
+/// patch's pass-1 winding + pass-2 seam-bridge to the torus (u,v)).
+#[test]
+fn torus_subtract_seam_cut_is_periodic_and_reported() {
+    let Some(backend) = yang_rs::native_backend() else {
+        return;
+    };
+    let a = partial_torus_brep();
+    let b = box_brep([3.4, -0.6, -0.6], [1.2, 1.2, 1.2]);
+    let out = yang_rs::boolean(&a, &b, BoolOp::Subtract, &backend).expect("torus − box");
+
+    // Reconstruction succeeds (Tier B relocation put the boundary on-surface).
+    let mut arena = BrepArena::new();
+    let solid = from_yang_brep(&mut arena, &out).expect("reconstruct seam-cut torus");
+
+    // Render loudly reports the meridian-wrapping patch (not a silent bad mesh).
+    let err = tessellate(&arena, solid).expect_err("seam-wrapping patch must report");
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("seam-crossing") || msg.contains("UV-CDT"),
+        "expected a loud periodic-patch report, got: {msg}"
+    );
 }
