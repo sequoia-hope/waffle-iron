@@ -187,4 +187,87 @@ test.describe('offset datum plane creation', () => {
 
 		expectNoAnyCrash(crashes);
 	});
+
+	// End-to-end alignment guard: draw an OFF-CENTRE rectangle on an offset plane,
+	// extrude, and assert the resulting BODY lands exactly where the sketch is —
+	// the near cap on the plane, the in-plane centre matching the sketch's world
+	// centre. The prior offset-plane tests stopped at plane resolution / sketch
+	// entry and never verified the extruded body's world position (the user's
+	// reported symptom). An off-centre rect also catches an in-plane shift that a
+	// symmetric rect would hide.
+	test('off-centre rectangle on an offset plane extrudes a body that lines up', async ({
+		waffle,
+	}) => {
+		const crashes = collectCrashErrors(waffle.page);
+
+		// Offset Front plane at 30mm (= 0.03m internal).
+		await waffle.page.locator('[data-testid="toolbar-btn-datum-plane"]').click();
+		await waffle.page
+			.locator('[data-testid="sketch-plane-dialog"]')
+			.waitFor({ state: 'visible', timeout: 5000 });
+		await waffle.page.locator('[data-testid="offset-base-select"]').selectOption(FRONT_PLANE_ID);
+		await waffle.page.locator('[data-testid="offset-distance-input"]').fill('30');
+		await waffle.page.locator('[data-testid="offset-create-btn"]').click();
+		await waitForFeatureCount(waffle.page, 1, 10000);
+
+		const tree = await waffle.page.evaluate(() => window.__waffle.getFeatureTree());
+		const datum = tree.features.find((f) => f.operation?.type === 'DatumPlane');
+		const datumRef = { kind: { type: 'Face' }, anchor: { type: 'DatumPlane', id: datum.id } };
+		await waffle.page.evaluate((r) => window.__waffle.selectRef(r), datumRef);
+		await waffle.page.waitForTimeout(150);
+		await clickSketch(waffle.page);
+
+		await clickRectangle(waffle.page);
+		await drawRectangle(waffle.page, 40, 30, 160, 120); // off-centre
+		await waitForEntityCount(waffle.page, 8, 5000);
+		await clickFinishSketch(waffle.page);
+		await waitForFeatureCount(waffle.page, 2, 10000);
+
+		// Sketch's world centre = plane_origin + mean(u,v) in the buildSketchPlane basis.
+		const sketchCenter = await waffle.page.evaluate(() => {
+			const t = window.__waffle.getFeatureTree();
+			const sk = t.features.find((f) => f.operation?.type === 'Sketch');
+			const s = sk.operation.sketch;
+			const o = s.plane_origin,
+				n = s.plane_normal;
+			const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+			const cross = (a, b) => [
+				a[1] * b[2] - a[2] * b[1],
+				a[2] * b[0] - a[0] * b[2],
+				a[0] * b[1] - a[1] * b[0],
+			];
+			const ref = Math.abs(dot(n, [0, 0, 1])) < 0.99 ? [0, 0, 1] : [1, 0, 0];
+			let x = cross(ref, n);
+			let xl = Math.hypot(...x);
+			x = x.map((v) => v / xl);
+			let y = cross(n, x);
+			let yl = Math.hypot(...y);
+			y = y.map((v) => v / yl);
+			const pos = Object.values(s.solved_positions || {});
+			let cu = 0,
+				cv = 0;
+			for (const p of pos) {
+				cu += p[0] ?? p.x;
+				cv += p[1] ?? p.y;
+			}
+			cu /= pos.length;
+			cv /= pos.length;
+			return [o[0] + x[0] * cu + y[0] * cv, o[1] + x[1] * cu + y[1] * cv, o[2] + x[2] * cu + y[2] * cv];
+		});
+
+		await clickExtrude(waffle.page);
+		await waffle.page.locator('[data-testid="extrude-depth"]').fill('10');
+		await waffle.page.locator('[data-testid="extrude-apply"]').click();
+		await waitForFeatureCount(waffle.page, 3, 10000);
+
+		const bbox = await waffle.page.evaluate(() => window.__waffle.getMeshBoundingBox());
+
+		// In-plane (x,y) body centre must coincide with the sketch's world centre.
+		expect(Math.abs(bbox.center[0] - sketchCenter[0])).toBeLessThan(1e-4);
+		expect(Math.abs(bbox.center[1] - sketchCenter[1])).toBeLessThan(1e-4);
+		// Near cap on the plane (z = 0.03), not at the origin.
+		expect(Math.min(bbox.min[2], bbox.max[2])).toBeCloseTo(0.03, 4);
+
+		expectNoAnyCrash(crashes);
+	});
 });
