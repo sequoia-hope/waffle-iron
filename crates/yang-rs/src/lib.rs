@@ -2977,6 +2977,113 @@ fn unwrap_seq(a: &mut [f64]) {
 ///
 /// Consumed by kernel-v2's render-time torus-patch tessellation (the owner of
 /// output recovery re-tessellation); exposed `pub` for that cross-crate call.
+/// One boundary loop of a torus patch projected into the continuous, scaled
+/// meridian/longitude plane (`su = u·minor`, `sv = v·major`), with its net
+/// MERIDIAN winding `wu` (in 2π units). `wu != 0` ⇒ the loop wraps the meridian
+/// seam (a band edge); the longitude is required non-wrapping (partial torus).
+struct PLoop {
+    su: Vec<f64>,
+    sv: Vec<f64>,
+    pts: Vec<Point3>,
+    wu: i64,
+}
+
+/// KV6d seam-wrapping render — the cylinder patch's pass-2 case-2 ported to the
+/// torus meridian. Unrolls a BAND bounded by two oppositely-meridian-wrapping
+/// loops `pc` (wrap +1) and `mc` (wrap −1) into a single simple ring in the
+/// universal cover: walk `pc` over one full period (`su` increasing by `span`),
+/// bridge to `mc`, walk `mc` reversed (`su` decreasing), bridge back. The seam
+/// bridges connect an anchor pair chosen so neither bridge crosses a boundary
+/// edge; the duplicated anchor vertices coincide in 3D (the meridian is
+/// periodic) so the result is watertight. Returns the ring as `(su, sv, 3d)` per
+/// vertex, or `None` if no unblocked bridge exists.
+fn band_seam_bridge(pc: &PLoop, mc: &PLoop, span: f64) -> Option<Vec<(f64, f64, Point3)>> {
+    let (m, mm) = (pc.su.len(), mc.su.len());
+    if m < 3 || mm < 3 {
+        return None;
+    }
+    let principal = |d: f64| d - (d / span).round() * span;
+    // Proper (open) segment crossing in the (su, sv) plane.
+    let seg_cross = |a: [f64; 2], b: [f64; 2], c: [f64; 2], d: [f64; 2]| -> bool {
+        let o = |p: [f64; 2], q: [f64; 2], r: [f64; 2]| {
+            (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+        };
+        o(a, c, d) * o(b, c, d) < 0.0 && o(a, b, c) * o(a, b, d) < 0.0
+    };
+    let build_ring = |xi: usize, yi: usize, dpr: f64| -> Vec<(f64, f64, Point3)> {
+        let mut ring: Vec<(f64, f64, Point3)> = Vec::with_capacity(m + mm + 2);
+        let base_x = pc.su[xi];
+        for j in 0..=m {
+            let idx = (xi + j) % m;
+            let mut u = pc.su[idx];
+            if j > 0 && (xi + j) >= m {
+                u += span;
+            }
+            if j == m {
+                u = base_x + span;
+            }
+            ring.push((u, pc.sv[idx], pc.pts[idx]));
+        }
+        let y_target = base_x + span + dpr;
+        let y_base = mc.su[yi];
+        let wsign = mc.wu as f64; // −1
+        for j in 0..=mm {
+            let idx = (yi + j) % mm;
+            let mut u = mc.su[idx];
+            if j > 0 && (yi + j) >= mm {
+                u += wsign * span;
+            }
+            if j == mm {
+                u = y_base + wsign * span;
+            }
+            ring.push((u - y_base + y_target, mc.sv[idx], mc.pts[idx]));
+        }
+        ring
+    };
+    // The two seam bridges are ring edges (m → m+1) and (m+1+mm → 0).
+    for xi in 0..m {
+        let xu = pc.su[xi];
+        let mut best: Option<(usize, f64)> = None;
+        for (yi, &syu) in mc.su.iter().enumerate() {
+            let dpr = principal(syu - xu);
+            if best.is_none_or(|(_, b)| dpr.abs() < b.abs()) {
+                best = Some((yi, dpr));
+            }
+        }
+        let (yi, dpr) = best?;
+        let ring = build_ring(xi, yi, dpr);
+        let rl = ring.len();
+        let bridges = [(m, m + 1), (m + 1 + mm, 0)];
+        let mut blocked = false;
+        for &(bi, bj) in &bridges {
+            let p = [ring[bi].0, ring[bi].1];
+            let q = [ring[bj].0, ring[bj].1];
+            if p == q {
+                blocked = true;
+                break;
+            }
+            for i in 0..rl {
+                if i == m || i == m + 1 + mm {
+                    continue; // skip the bridge edges themselves
+                }
+                let a = [ring[i].0, ring[i].1];
+                let b = [ring[(i + 1) % rl].0, ring[(i + 1) % rl].1];
+                if seg_cross(p, q, a, b) {
+                    blocked = true;
+                    break;
+                }
+            }
+            if blocked {
+                break;
+            }
+        }
+        if !blocked {
+            return Some(ring);
+        }
+    }
+    None
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn tessellate_torus_patch(
     center: Point3,
@@ -3053,69 +3160,105 @@ pub fn tessellate_torus_patch(
         (net / std::f64::consts::TAU).round() as i64
     };
 
-    let (us, vs) = invert(boundary);
-    // KV6d v1 scope: the UV-CDT consumer triangulates a DISK-topology patch (a
-    // bounded (u, v) region, optionally with holes). A boolean can trim the
-    // closed tube into a patch that WRAPS the meridian (u) or longitude (v)
-    // seam — cylindrical/toroidal topology whose (u, v) boundary is not a simple
-    // polygon (the closing edge jumps a full period). Detect it explicitly and
-    // bail (the caller reports it) rather than feed a self-crossing polygon to
-    // the CDT. Seam-wrapping render is the documented follow-on (port the
-    // cylinder patch's pass-1 winding + pass-2 seam-bridge to (u, v)).
-    if net_wrap(&us) != 0 || net_wrap(&vs) != 0 {
-        return None;
-    }
-    // Outer-loop branch reference: each hole is shifted by 2π multiples so its
-    // mean (u, v) sits in the same period as the outer (a hole that atan2 placed
-    // on the opposite branch would otherwise project OUTSIDE the outer polygon).
-    let mean = |a: &[f64]| a.iter().sum::<f64>() / a.len() as f64;
-    let (u_ref, v_ref) = (mean(&us), mean(&vs));
     use std::f64::consts::TAU;
-
-    let mut verts2d: Vec<cad_primitives::Point2> = Vec::new();
-    let mut boundary_3d: Vec<Point3> = Vec::new();
-    let push_loop = |verts2d: &mut Vec<cad_primitives::Point2>,
-                     boundary_3d: &mut Vec<Point3>,
-                     us: &[f64],
-                     vs: &[f64],
-                     pts: &[Point3]|
-     -> Vec<u32> {
-        let start = verts2d.len() as u32;
-        for ((&u, &v), &p) in us.iter().zip(vs).zip(pts) {
-            verts2d.push(cad_primitives::Point2::new(u * minor, v * major));
-            boundary_3d.push(p);
-        }
-        (start..verts2d.len() as u32).collect()
-    };
-    let outer = push_loop(&mut verts2d, &mut boundary_3d, &us, &vs, boundary);
-    let mut hole_idx: Vec<Vec<u32>> = Vec::with_capacity(holes.len());
-    for h in holes {
-        if h.len() < 3 {
+    // ---- Pass 1: project every loop into the continuous, scaled (su, sv)
+    // meridian/longitude plane with its net meridian winding `wu`. ----------
+    let project = |pts: &[Point3]| -> Option<PLoop> {
+        if pts.len() < 3 {
             return None;
         }
-        let (mut hu, mut hv) = invert(h);
-        let du = ((mean(&hu) - u_ref) / TAU).round() * TAU;
-        let dv = ((mean(&hv) - v_ref) / TAU).round() * TAU;
-        for a in hu.iter_mut() {
-            *a -= du;
+        let (us, vs) = invert(pts);
+        if net_wrap(&vs) != 0 {
+            return None; // a LONGITUDE wrap is a full-torus seam — out of scope
         }
-        for a in hv.iter_mut() {
-            *a -= dv;
-        }
-        hole_idx.push(push_loop(&mut verts2d, &mut boundary_3d, &hu, &hv, h));
+        let wu = net_wrap(&us);
+        Some(PLoop {
+            su: us.iter().map(|u| u * minor).collect(),
+            sv: vs.iter().map(|v| v * major).collect(),
+            pts: pts.to_vec(),
+            wu,
+        })
+    };
+    let mut ploops: Vec<PLoop> = Vec::with_capacity(1 + holes.len());
+    ploops.push(project(boundary)?);
+    for h in holes {
+        ploops.push(project(h)?);
     }
+    let span = TAU * minor; // one full meridian wrap in scaled u
+    let span_v = TAU * major;
+
+    // ---- Pass 2: assemble one simple (su, sv) outer polygon + holes. -------
+    let wrapping: Vec<usize> = (0..ploops.len()).filter(|&i| ploops[i].wu != 0).collect();
+    let mut verts2d: Vec<cad_primitives::Point2> = Vec::new();
+    let mut vert3d: Vec<Point3> = Vec::new();
+    let mut hole_idx: Vec<Vec<u32>> = Vec::new();
+    let umean = |l: &PLoop| l.su.iter().sum::<f64>() / l.su.len() as f64;
+    let vmean = |l: &PLoop| l.sv.iter().sum::<f64>() / l.sv.len() as f64;
+    let outer: Vec<u32> = match wrapping.len() {
+        0 => {
+            // DISK: boundary is the outer loop; holes are the rest, each shifted
+            // by whole periods so it sits in the outer's period (a hole atan2
+            // placed on the opposite branch would project outside the outer).
+            let (u_ref, v_ref) = (umean(&ploops[0]), vmean(&ploops[0]));
+            let mut o = Vec::with_capacity(ploops[0].su.len());
+            for k in 0..ploops[0].su.len() {
+                o.push(verts2d.len() as u32);
+                verts2d.push(cad_primitives::Point2::new(
+                    ploops[0].su[k],
+                    ploops[0].sv[k],
+                ));
+                vert3d.push(ploops[0].pts[k]);
+            }
+            for l in &ploops[1..] {
+                let du = ((umean(l) - u_ref) / span).round() * span;
+                let dv = ((vmean(l) - v_ref) / span_v).round() * span_v;
+                let mut hi = Vec::with_capacity(l.su.len());
+                for k in 0..l.su.len() {
+                    hi.push(verts2d.len() as u32);
+                    verts2d.push(cad_primitives::Point2::new(l.su[k] - du, l.sv[k] - dv));
+                    vert3d.push(l.pts[k]);
+                }
+                hole_idx.push(hi);
+            }
+            o
+        }
+        2 if ploops.len() == 2 => {
+            // BAND: two oppositely-meridian-wrapping loops, no holes (a holed
+            // band is out of this v1 scope). Universal-cover seam bridge.
+            let (a, b) = (wrapping[0], wrapping[1]);
+            let (pc, mc) = if ploops[a].wu > 0 {
+                (&ploops[a], &ploops[b])
+            } else {
+                (&ploops[b], &ploops[a])
+            };
+            if pc.wu + mc.wu != 0 {
+                return None;
+            }
+            let ring = band_seam_bridge(pc, mc, span)?;
+            let mut o = Vec::with_capacity(ring.len());
+            for (su, sv, p) in &ring {
+                o.push(verts2d.len() as u32);
+                verts2d.push(cad_primitives::Point2::new(*su, *sv));
+                vert3d.push(*p);
+            }
+            o
+        }
+        // 1 wrapping loop (degenerate), a holed band, or > 2 wraps: out of scope.
+        _ => return None,
+    };
 
     let (ref_verts, tris) =
         cherchi_rs::cdt_polygon_with_holes_refined(&verts2d, &outer, &hole_idx, max_3d_area)
             .ok()?;
 
-    // Map back: boundary verts (outer ++ holes) → EXACT input 3D; the refined
-    // Steiner verts (appended after) → `face_eval`.
-    let n = boundary_3d.len();
+    // Map back: boundary verts → EXACT input 3D; refined Steiner verts (appended
+    // after) → `face_eval`. A band's duplicated seam vertices carry the same 3D
+    // point on both sides (the meridian is periodic) ⇒ watertight.
+    let n = vert3d.len();
     let mut verts3d: Vec<Point3> = Vec::with_capacity(ref_verts.len());
     for (i, sp) in ref_verts.iter().enumerate() {
         if i < n {
-            verts3d.push(boundary_3d[i]);
+            verts3d.push(vert3d[i]);
         } else {
             verts3d.push(eval(sp.x() / minor, sp.y() / major));
         }
@@ -3261,6 +3404,96 @@ mod torus_patch_tests {
         let axis = Vector3::new(0.0, 0.0, 1.0);
         let too_few = [Point3::new(4.0, 0.0, 0.0), Point3::new(3.0, 0.0, 1.0)];
         assert!(tessellate_torus_patch(center, axis, 3.0, 1.0, &too_few, &[], 0.05).is_none());
+    }
+
+    /// Seam-wrapping (cylindrical) BAND render: a longitude slice v ∈ [v0, v1] of
+    /// the tube wraps the full meridian (u ∈ [0, 2π)). Bounded by two meridian
+    /// circles (opposite winding), it is triangulated via the universal-cover
+    /// seam bridge into a watertight, on-tube mesh.
+    #[test]
+    fn torus_band_seam_wrapping_render() {
+        let center = Point3::new(0.0, 0.0, 0.0);
+        let axis = Vector3::new(0.0, 0.0, 1.0);
+        let (major, minor) = (3.0_f64, 1.0_f64);
+        let ax = normalize3(axis.as_array());
+        let (e1, e2) = ortho_basis(axis);
+        let (e1a, e2a) = (e1.as_array(), e2.as_array());
+        let (v0, v1) = (0.5_f64, 1.0_f64);
+        let nu = 24;
+        // Two meridian circles: v0 wound +u (wrap +1), v1 wound −u (wrap −1).
+        let mut c0: Vec<Point3> = Vec::new();
+        let mut c1: Vec<Point3> = Vec::new();
+        for k in 0..nu {
+            let u = std::f64::consts::TAU * (k as f64) / (nu as f64);
+            c0.push(eval(center, ax, e1a, e2a, major, minor, u, v0));
+            c1.push(eval(center, ax, e1a, e2a, major, minor, -u, v1));
+        }
+        let (verts, tris) = tessellate_torus_patch(center, axis, major, minor, &c0, &[c1], 0.05)
+            .expect("band tessellation");
+        assert!(!tris.is_empty(), "non-empty band mesh");
+
+        // Every vertex on the tube.
+        let surf = torus(major, minor);
+        for (i, &p) in verts.iter().enumerate() {
+            let d = signed_distance_to_surface(surf, p).unwrap();
+            assert!(d.abs() < 1e-9, "band vert {i} off tube: {d:e}");
+        }
+        // Manifold + watertight across the SEAM: group edges by 3D POSITION (the
+        // periodic seam's duplicated vertices coincide in 3D). Every edge is
+        // shared by 2 tris (interior + the seam, where the universal-cover bridge
+        // duplicates coincide) EXCEPT the band's two real meridian-circle
+        // boundaries at v0 / v1 (shared by 1). No edge is shared by >2.
+        let key = |p: Point3| {
+            let a = p.as_array();
+            [
+                (a[0] * 1e7).round() as i64,
+                (a[1] * 1e7).round() as i64,
+                (a[2] * 1e7).round() as i64,
+            ]
+        };
+        let mut edges: BTreeMap<([i64; 3], [i64; 3]), u32> = BTreeMap::new();
+        for t in &tris {
+            for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+                let (ka, kb) = (key(verts[a as usize]), key(verts[b as usize]));
+                let e = if ka < kb { (ka, kb) } else { (kb, ka) };
+                *edges.entry(e).or_insert(0) += 1;
+            }
+        }
+        assert!(
+            edges.values().all(|&c| c == 1 || c == 2),
+            "non-manifold edge (some positional edge in >2 tris) — seam not watertight"
+        );
+        // Exactly the two meridian-circle boundaries (nu edges each) are count-1;
+        // the seam bridges coincide in 3D and are interior (count-2).
+        let boundary_edges = edges.values().filter(|&&c| c == 1).count();
+        assert_eq!(
+            boundary_edges,
+            2 * nu,
+            "expected the two v-circle boundaries ({} edges), got {boundary_edges}",
+            2 * nu
+        );
+
+        // The chorded area approaches the analytic band area
+        // ∫∫ (R + r cos u)·r du dv = r·(v1−v0)·2π·R  (∫cos u over a full turn = 0).
+        let analytic = minor * (v1 - v0) * std::f64::consts::TAU * major;
+        let mut area = 0.0;
+        for t in &tris {
+            let a = verts[t[0] as usize].as_array();
+            let b = verts[t[1] as usize].as_array();
+            let c = verts[t[2] as usize].as_array();
+            let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let cr = [
+                ab[1] * ac[2] - ab[2] * ac[1],
+                ab[2] * ac[0] - ab[0] * ac[2],
+                ab[0] * ac[1] - ab[1] * ac[0],
+            ];
+            area += 0.5 * (cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]).sqrt();
+        }
+        assert!(
+            area <= analytic * (1.0 + 1e-6) && area >= analytic * 0.97,
+            "band area {area} vs analytic {analytic}"
+        );
     }
 
     fn torus(major: f64, minor: f64) -> Surface {

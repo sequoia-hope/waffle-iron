@@ -1,10 +1,20 @@
 # Seam-wrapping (periodic) torus patch render — scope
 
-**Status:** 2026-06-26. Boolean-output torus patches of **disk topology** now
-render end-to-end (relocation → reconstruction → UV-CDT), and **seam-wrapping
-(periodic) patches are detected and reported loudly**. The periodic render
-itself — triangulating a patch that wraps the meridian (cylindrical topology) —
-is the remaining piece, scoped here.
+**Status: BUILT, 2026-06-26.** The meridian seam-wrapping (cylindrical BAND)
+render is implemented — the cylinder patch's pass-1 winding + pass-2 case-2
+seam-bridge ported to the torus `(u,v)` in `yang_rs::tessellate_torus_patch`. A
+band bounded by two oppositely-meridian-wrapping loops is unrolled in the
+universal cover and CDT'd; the duplicated seam vertices coincide in 3D so the
+result is watertight. Proven: `torus_patch_tests::torus_band_seam_wrapping_render`
+(synthetic band: watertight, on-tube, chorded area = analytic) and the boolean
+`torus_subtract_seam_cut_torus_face_renders` (the seam-cut boolean's torus face
+now renders via the band path). Disk patches (with holes) and disk+detection
+remain as before. Remaining tails: a HOLED band (2 wraps + extra loops), a single
+1-wrap loop (degenerate), and full-torus double periodicity (`v` also wraps) —
+all loud `None` today. Original scope below.
+
+Boolean-output torus patches of **disk topology** also render end-to-end
+(relocation → reconstruction → UV-CDT).
 
 ---
 

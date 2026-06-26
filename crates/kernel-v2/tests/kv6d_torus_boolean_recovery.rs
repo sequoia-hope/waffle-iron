@@ -304,13 +304,15 @@ fn box_intersect_torus_reconstructs_and_tessellates() {
 
 /// A subtract that bites the tube AT the outer (φ=0) seam turns the surviving
 /// torus lateral into a patch that WRAPS the full meridian (cylindrical, not
-/// disk, topology). Relocation + reconstruction still succeed (the boundary is
-/// on-surface), but the single-loop UV-CDT consumer detects the meridian wrap
-/// and reports it loudly rather than feeding a self-crossing polygon to the CDT.
-/// Periodic seam-wrapping render is the documented follow-on (port the cylinder
-/// patch's pass-1 winding + pass-2 seam-bridge to the torus (u,v)).
+/// disk, topology). The seam-wrapping (band) render now handles it: the torus
+/// face is no longer the blocker. (This particular box's planar cut-cap — a
+/// non-convex polygon bounded by the relocated intersection curve — still trips
+/// a SEPARATE planar ear-clip limitation; the assertion below confirms only that
+/// any remaining failure is NOT the torus patch.) The seam-wrapping render
+/// itself is proven watertight + on-tube by `tessellate::torus_patch_tests::
+/// torus_band_seam_wrapping_render`.
 #[test]
-fn torus_subtract_seam_cut_is_periodic_and_reported() {
+fn torus_subtract_seam_cut_torus_face_renders() {
     let Some(backend) = yang_rs::native_backend() else {
         return;
     };
@@ -322,11 +324,13 @@ fn torus_subtract_seam_cut_is_periodic_and_reported() {
     let mut arena = BrepArena::new();
     let solid = from_yang_brep(&mut arena, &out).expect("reconstruct seam-cut torus");
 
-    // Render loudly reports the meridian-wrapping patch (not a silent bad mesh).
-    let err = tessellate(&arena, solid).expect_err("seam-wrapping patch must report");
-    let msg = format!("{err:?}");
-    assert!(
-        msg.contains("seam-crossing") || msg.contains("UV-CDT"),
-        "expected a loud periodic-patch report, got: {msg}"
-    );
+    // The torus seam-wrapping patch no longer blocks: any remaining render error
+    // is a non-torus (planar cut-cap) face, NOT a torus seam/UV-CDT failure.
+    if let Err(e) = tessellate(&arena, solid) {
+        let msg = format!("{e:?}");
+        assert!(
+            !msg.contains("UV-CDT") && !msg.contains("seam-crossing") && !msg.contains("torus"),
+            "the torus band must render; remaining failure must be non-torus, got: {msg}"
+        );
+    }
 }
