@@ -15,6 +15,7 @@ import { getPreview, getSnapIndicator, getSnapCandidates as _getSnapCandidates }
 import { resetTool, getToolState as _getToolState, getIsDragging as _getIsDragging, getPointerDownPos as _getPointerDownPos, getStartPos as _getStartPos, getStartPointId as _getStartPointId, getToolEventLog as _getToolEventLog, clearToolEventLog as _clearToolEventLog } from '$lib/sketch/tools.js';
 import { buildSketchPlane, sketchToScreen } from '$lib/sketch/sketchCoords.js';
 import { computeConstraintBadges } from '$lib/sketch/constraintBadges.js';
+import { stepConstraintModal, modalInstruction, isModalConstraint } from '$lib/sketch/constraintModalEngine.js';
 import { isDatumPlaneRef, getPlaneIdFromRef, getPlaneById, resolvePlane, BUILTIN_PLANES } from './planes.js';
 import { fetchTestCases, fetchTestCase, createTestCase as apiCreateTestCase, deleteTestCase as apiDeleteTestCase } from './testCaseApi.js';
 
@@ -98,6 +99,15 @@ let sketchSelection = $state(new Set());
 
 /** @type {number | null} */
 let sketchHover = $state(null);
+
+/**
+ * Constraint-modal state (constraint-FIRST application). Null when inactive.
+ * `running` is the engine's running pick list (meaning depends on the
+ * constraint's mode — see constraintModalEngine.js). `message` is the current
+ * instruction or transient reject hint shown in the modal panel.
+ * @type {{ constraintId: string, running: number[], message: string|null } | null}
+ */
+let constraintModal = $state(null);
 
 /** @type {Array<{ entityIds: number[], isOuter: boolean }>} */
 let extractedProfilesState = $state([]);
@@ -642,6 +652,14 @@ export async function initEngine() {
 			getCameraProjection: () => getCameraProjection(),
 			setCameraProjection: (proj) => setCameraProjection(proj),
 			getConstraints: () => [...sketchConstraints],
+			getConstraintModal: () => (constraintModal ? { ...constraintModal, running: [...constraintModal.running] } : null),
+			// Pure decision-engine probe over the LIVE sketch entities/positions —
+			// for deterministic branch-coverage tests of the modal step logic.
+			constraintModalStep: (constraintId, running, pickId) =>
+				stepConstraintModal({ constraintId, running, pickId, entities: sketchEntities, positions: sketchPositions }),
+			openConstraintModal: (id) => openConstraintModal(id),
+			constraintModalPick: (pickId) => constraintModalPick(pickId),
+			closeConstraintModal: () => closeConstraintModal(),
 			getProfiles: () => [...extractedProfilesState],
 			getExtrudeDialogState: () => extrudeDialogState,
 			getExtrudePreviewParams: () => extrudePreviewParams,
@@ -1568,6 +1586,63 @@ export function addLocalConstraint(constraint) {
 	}
 
 	triggerSolve();
+}
+
+// --- Constraint modal (constraint-first application) ---
+
+export function getConstraintModal() { return constraintModal; }
+
+/**
+ * Open the constraint modal for a given geometric constraint id, switching the
+ * sketch into the constraint pick-loop tool. No-op for non-modal constraints
+ * (e.g. dimensional ones). Clears the current selection so picks start fresh.
+ * @param {string} constraintId
+ */
+export function openConstraintModal(constraintId) {
+	if (!sketchMode.active || !isModalConstraint(constraintId)) return;
+	constraintModal = { constraintId, running: [], message: modalInstruction(constraintId) };
+	setSketchSelection(new Set());
+	setSelectedProfileIndex(null);
+	setActiveTool('constraint');
+}
+
+/** Close the constraint modal and return to the select tool. */
+export function closeConstraintModal() {
+	if (!constraintModal) return;
+	constraintModal = null;
+	setSketchSelection(new Set());
+	if (activeTool === 'constraint') setActiveTool('select');
+}
+
+/**
+ * Feed a viewport pick (entity id, or null for empty space) into the active
+ * constraint modal. Applies the constraint(s) the engine decides on, advances
+ * the running selection, and highlights it. See /specs/constraint_modal.md.
+ * @param {number | null} pickId
+ */
+export function constraintModalPick(pickId) {
+	if (!constraintModal) return;
+	const step = stepConstraintModal({
+		constraintId: constraintModal.constraintId,
+		running: constraintModal.running,
+		pickId,
+		entities: sketchEntities,
+		positions: sketchPositions,
+	});
+
+	if (step.action === 'apply') {
+		for (const c of step.constraints) addLocalConstraint(c);
+	}
+
+	constraintModal = {
+		constraintId: constraintModal.constraintId,
+		running: step.nextRunning,
+		message: step.message ?? modalInstruction(constraintModal.constraintId),
+	};
+	// Highlight the running selection (e.g. the chain anchor) so the user sees
+	// what the next pick will bind to.
+	setSketchSelection(new Set(step.nextRunning));
+	return step.action;
 }
 
 /**

@@ -48,8 +48,10 @@
 		toggleSection,
 		flipSection,
 		setSectionOffset,
-		clearSection
+		clearSection,
+		openConstraintModal
 	} from '$lib/engine/store.svelte.js';
+	import { isModalConstraint } from '$lib/sketch/constraintModalEngine.js';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
 	import { showToast } from '$lib/ui/toast.svelte.js';
@@ -130,8 +132,16 @@
 	];
 
 	function applyConstraint(id) {
+		// Selection-first: if the current selection already satisfies the
+		// constraint, apply it immediately (legacy behavior).
 		const builder = applicable[id];
-		if (builder) addLocalConstraint(builder());
+		if (builder) {
+			addLocalConstraint(builder());
+			return;
+		}
+		// Otherwise enter the constraint-first modal (keep picking geometry).
+		// See /specs/constraint_modal.md.
+		if (isModalConstraint(id)) openConstraintModal(id);
 	}
 
 	const modelingTools = [
@@ -439,7 +449,7 @@
 						{#each constraintButtons as cb}
 							<button
 								class="constraint-btn"
-								disabled={!applicable[cb.id]}
+								disabled={!applicable[cb.id] && !isModalConstraint(cb.id)}
 								title={cb.title}
 								data-testid="toolbar-constraint-{cb.id}"
 								onclick={() => { applyConstraint(cb.id); showConstraints = false; }}
@@ -466,7 +476,7 @@
 							{#each constraintButtons as cb}
 								<button
 									class="constraint-btn"
-									disabled={!applicable[cb.id]}
+									disabled={!applicable[cb.id] && !isModalConstraint(cb.id)}
 									title={cb.title}
 									data-testid="toolbar-constraint-{cb.id}"
 									onclick={() => { applyConstraint(cb.id); showConstraints = false; }}

@@ -7,7 +7,9 @@
 		getActiveTool,
 		setSketchCursorPos,
 		isTwoFingerGestureActive,
-		setSketchPixelSize
+		setSketchPixelSize,
+		getConstraintModal,
+		closeConstraintModal
 	} from '$lib/engine/store.svelte.js';
 	import { buildSketchPlane, screenToSketchCoords } from './sketchCoords.js';
 	import { handleToolEvent, resetTool } from './tools.js';
@@ -99,10 +101,12 @@
 		};
 	});
 
-	// Reset tool state when switching tools
+	// Reset tool state when switching tools. Leaving the constraint tool (e.g.
+	// the user picks Line) also closes the constraint modal.
 	$effect(() => {
-		const _ = activeTool;
+		const tool = activeTool;
 		resetTool();
+		if (tool !== 'constraint' && getConstraintModal()) closeConstraintModal();
 	});
 </script>
 

@@ -4,6 +4,7 @@
 	import Scene from './Scene.svelte';
 	import ViewCube from './ViewCube.svelte';
 	import ConstraintMenu from '$lib/sketch/ConstraintMenu.svelte';
+	import ConstraintModal from '$lib/sketch/ConstraintModal.svelte';
 	import DimensionInput from '$lib/sketch/DimensionInput.svelte';
 	import ViewportContextMenu from './ViewportContextMenu.svelte';
 	import ExtrudeDialog from '$lib/ui/ExtrudeDialog.svelte';
@@ -100,6 +101,7 @@
 	</Canvas>
 	<ViewCube />
 	<ConstraintMenu bind:menuPos={constraintMenuPos} bind:visible={constraintMenuVisible} />
+	<ConstraintModal />
 	<DimensionInput />
 	<ViewportContextMenu bind:pos={ctxMenuPos} bind:visible={ctxMenuVisible} />
 	<ExtrudeDialog />

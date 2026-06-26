@@ -97,11 +97,21 @@ test.describe('constraint button visibility', () => {
 });
 
 test.describe('constraint button enable/disable state', () => {
-	test('all constraint buttons disabled when nothing selected', async ({ waffle }) => {
+	test('modal constraints enabled without selection; dimensional ones stay disabled', async ({ waffle }) => {
 		await clickSketch(waffle.page);
 
+		// Modal-supported geometric constraints are constraint-FIRST: enabled with
+		// no selection so a click opens the constraint modal (the user then picks
+		// geometry). See /specs/constraint_modal.md.
 		for (const id of ['horizontal', 'vertical', 'coincident', 'perpendicular',
 			'parallel', 'equal', 'tangent', 'midpoint', 'fix']) {
+			const enabled = await isConstraintEnabled(waffle.page, id);
+			expect(enabled, `${id} should be enabled with no selection (opens modal)`).toBe(true);
+		}
+
+		// Dimensional constraints still require a valid selection (handled by the
+		// dimension tool, not the modal).
+		for (const id of ['hDistance', 'vDistance', 'angle']) {
 			const enabled = await isConstraintEnabled(waffle.page, id);
 			expect(enabled, `${id} should be disabled with no selection`).toBe(false);
 		}
@@ -173,22 +183,23 @@ test.describe('constraint button enable/disable state', () => {
 		expect(coincidentEnabled, 'coincident should be enabled for two points').toBe(true);
 	});
 
-	test('buttons re-disable when selection is cleared', async ({ waffle }) => {
-		await sketchWithLine(waffle);
+	test('selection-gated (dimensional) buttons re-disable when selection is cleared', async ({ waffle }) => {
+		await sketchWithTwoLines(waffle);
 		await pressKey(waffle.page, 'Escape');
 
 		const entities = await getEntities(waffle.page);
-		const line = entities.find(e => e.type === 'Line');
+		const points = entities.filter(e => e.type === 'Point');
+		expect(points.length).toBeGreaterThanOrEqual(2);
 
-		// Select line -> H should be enabled
-		await setSketchSelection(waffle.page, [line.id]);
+		// Two points -> horizontal-distance (dimensional) is enabled.
+		await setSketchSelection(waffle.page, [points[0].id, points[1].id]);
 		await waffle.page.waitForTimeout(200);
-		expect(await isConstraintEnabled(waffle.page, 'horizontal')).toBe(true);
+		expect(await isConstraintEnabled(waffle.page, 'hDistance')).toBe(true);
 
-		// Clear selection -> H should be disabled
+		// Clear selection -> the dimensional button disables again.
 		await setSketchSelection(waffle.page, []);
 		await waffle.page.waitForTimeout(200);
-		expect(await isConstraintEnabled(waffle.page, 'horizontal')).toBe(false);
+		expect(await isConstraintEnabled(waffle.page, 'hDistance')).toBe(false);
 	});
 });
 
@@ -307,13 +318,14 @@ test.describe('constraint toolbar button interaction', () => {
 
 		const constraintsBefore = await getConstraintCount(waffle.page);
 
-		// With nothing selected, the horizontal constraint is not applicable, so
-		// its dropdown button must be disabled.
-		expect(await isConstraintEnabled(waffle.page, 'horizontal')).toBe(false);
+		// With nothing selected, a dimensional constraint (horizontal distance) is
+		// not applicable, so its dropdown button must be disabled. (Geometric
+		// constraints are now modal-first and stay enabled — see constraint-modal.spec.)
+		expect(await isConstraintEnabled(waffle.page, 'hDistance')).toBe(false);
 
 		// Force-clicking the disabled button must not create a constraint.
 		await waffle.page
-			.locator('[data-testid="toolbar-constraint-horizontal"]')
+			.locator('[data-testid="toolbar-constraint-hDistance"]')
 			.click({ force: true })
 			.catch(() => {});
 		await waffle.page.waitForTimeout(200);

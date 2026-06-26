@@ -46,7 +46,9 @@ import {
 	getFailedConstraintIndices,
 	getConstraintBadgeOffsets,
 	setConstraintBadgeOffset,
-	setSelectedConstraintIndex
+	setSelectedConstraintIndex,
+	constraintModalPick,
+	getConstraintModal
 } from '$lib/engine/store.svelte.js';
 import {
 	findLineLineIntersection,
@@ -330,6 +332,9 @@ export function handleToolEvent(activeTool, eventType, sketchX, sketchY, screenP
 			break;
 		case 'select':
 			handleSelectTool(eventType, sketchX, sketchY, screenPixelSize, shiftKey);
+			break;
+		case 'constraint':
+			handleConstraintTool(eventType, sketchX, sketchY, screenPixelSize);
 			break;
 		case 'dimension':
 			handleDimensionTool(eventType, sketchX, sketchY, screenPixelSize);
@@ -1065,6 +1070,41 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 		pendingBadge = null;
 		lastDragSnap = null;
 		selectPointerDownPos = null;
+	}
+}
+
+/**
+ * Constraint-modal tool: each click feeds the picked entity into the active
+ * constraint modal, which applies/chains the constraint. Hover highlights the
+ * pickable entity. The modal panel + Escape handle closing. Empty-space clicks
+ * are inert (passed as null so the engine can flash an instruction).
+ * See /specs/constraint_modal.md.
+ */
+function handleConstraintTool(eventType, x, y, screenPixelSize) {
+	if (!getConstraintModal()) return;
+
+	if (eventType === 'pointermove') {
+		let hitId = hitTest(x, y, screenPixelSize);
+		if (hitId == null) hitId = hitTestGear(x, y);
+		setSketchHover(hitId);
+		return;
+	}
+
+	if (eventType === 'pointerdown') {
+		selectPointerDownPos = { x, y };
+		return;
+	}
+
+	if (eventType === 'pointerup') {
+		// Treat as a click only if the pointer didn't travel (no drag/pan).
+		if (selectPointerDownPos) {
+			const moved = Math.hypot(x - selectPointerDownPos.x, y - selectPointerDownPos.y);
+			selectPointerDownPos = null;
+			if (moved > DRAG_THRESHOLD_PX * screenPixelSize) return;
+		}
+		let hitId = hitTest(x, y, screenPixelSize);
+		if (hitId == null) hitId = hitTestGear(x, y);
+		constraintModalPick(hitId);
 	}
 }
 
