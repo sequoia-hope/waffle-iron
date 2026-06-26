@@ -439,6 +439,15 @@ pub struct BRep {
     /// `(input, face)` each output face descends from. Populated by
     /// `boolean()`; empty for `new`/`from_mesh` (no boolean lineage).
     face_attribution: Vec<TriangleAttribution>,
+    /// N4 (1b): per Stage-1 mesh triangle (parallel to `mesh.tris`), the index
+    /// of the B-Rep `face` that produced it. This is the inverse of the Stage-1
+    /// `face_tri_ranges`; it lets `boolean()` attribute a kept arrangement
+    /// triangle to its B-Rep face DIRECTLY from cherchi's per-triangle
+    /// provenance (`LabeledArrangement.source`), replacing geometric
+    /// centroid-proximity (deviation N4). Populated by `BRep::new`; EMPTY for
+    /// `from_mesh` and boolean-output BReps (no Stage-1 face lineage) — those
+    /// fall back to the geometric attribution path.
+    tri_face: Vec<u32>,
 }
 
 impl BRep {
@@ -519,6 +528,15 @@ impl BRep {
         // so the Stage-0 coplanar overlay can re-tessellate with snapped
         // vertices + per-face overrides. Byte-for-byte the pre-YR26 output.
         let tess = stage1_tessellate(&verts, &edges, &faces)?;
+        // N4: invert face_tri_ranges into a per-triangle owning-face map (1:1
+        // with the mesh triangles), so kept arrangement triangles can be
+        // attributed via cherchi provenance instead of geometric proximity.
+        let mut tri_face = vec![0u32; tess.tris.len()];
+        for (fi, range) in tess.face_tri_ranges.iter().enumerate() {
+            for ti in range.clone() {
+                tri_face[ti] = fi as u32;
+            }
+        }
         let mesh = Mesh::new(tess.verts, tess.tris);
         let tessellation = TessellationMap {
             sources: tess.sources,
@@ -532,6 +550,7 @@ impl BRep {
             tessellation,
             triangle_attribution: TriangleAttributionMap::empty(),
             face_attribution: Vec::new(),
+            tri_face,
         })
     }
 
@@ -549,7 +568,16 @@ impl BRep {
             mesh,
             triangle_attribution: TriangleAttributionMap::empty(),
             face_attribution: Vec::new(),
+            tri_face: Vec::new(),
         }
+    }
+
+    /// N4: per Stage-1 mesh triangle, its owning B-Rep face index (parallel to
+    /// `as_mesh().tris`). Empty when there is no Stage-1 face lineage
+    /// (`from_mesh`, boolean output) — callers then fall back to geometric
+    /// attribution.
+    pub(crate) fn tri_face(&self) -> &[u32] {
+        &self.tri_face
     }
 }
 
@@ -6383,6 +6411,31 @@ fn cylinders_are_coincident(surf0: Surface, surf1: Surface, tol: f64) -> bool {
 /// 6. `reconstruct_topology(..)` — flood-fill patches, walk boundary
 ///    cycles, inherit input-face `Surface`; full attribution ⇒ closed
 ///    boundary cycles ⇒ watertight 2-manifold output.
+///
+/// **N4 (provenance):** before the geometric resolution in step 5, a kept
+/// triangle is attributed DIRECTLY from cherchi's per-triangle provenance
+/// (`LabeledArrangement.source` → the parent input triangle → its B-Rep face via
+/// the Stage-1 `tri_face` map) whenever that is unambiguous. The geometric path
+/// remains the fallback. See [`provenance_face`].
+///
+/// N4 helper: resolve a kept arrangement triangle's B-Rep face from cherchi's
+/// per-triangle provenance (`§4.2.3`), not geometric centroid-proximity. Returns
+/// `Some(face)` only when the triangle has a SINGLE parent whose provenance
+/// input agrees with the surface-derived `input` and whose parent triangle has a
+/// Stage-1 `tri_face` lineage. Returns `None` (→ geometric fallback) for a
+/// multi-source coplanar overlap sheet, a lineage-less input (`from_mesh` /
+/// boolean output), or any disagreement.
+fn provenance_face(source: &[(LaInputId, u32)], input_brep: &BRep, input: InputId) -> Option<u32> {
+    let &[(LaInputId(k), local)] = source else {
+        return None; // zero- or multi-source → not unambiguous; geometric path
+    };
+    let src_input = if k == 0 { InputId::A } else { InputId::B };
+    if src_input != input {
+        return None; // defensive: provenance input disagrees with surface label
+    }
+    input_brep.tri_face().get(local as usize).copied()
+}
+
 pub fn boolean(
     a: &BRep,
     b: &BRep,
@@ -6835,6 +6888,21 @@ pub fn boolean(
             }
         };
 
+        // N4 (provenance, §4.2.3): when Stage 0 did NOT re-tessellate the inputs
+        // (so `mesh_a`/`mesh_b` ARE the inputs' own Stage-1 meshes and cherchi's
+        // `source` indices align with `tri_face`), attribute this kept triangle
+        // to its B-Rep face DIRECTLY from its parent input triangle — exact, no
+        // geometry, no tolerance. Falls through to the geometric resolution below
+        // for multi-source coplanar overlap sheets, lineage-less inputs, or any
+        // mismatch (empty `source` means a producer without provenance, e.g. the
+        // sidecar oracle → geometric).
+        if stage0.is_none() && !la.source.is_empty() {
+            if let Some(face) = provenance_face(&la.source[orig_t], input_brep, input) {
+                attributions.push(Some(TriangleAttribution { input, face }));
+                continue;
+            }
+        }
+
         // Centroid of the (compact) triangle — same coords as `la.mesh`.
         let tri = kept_submesh.tris[compact_t];
         let p0 = kept_submesh.verts[tri[0] as usize].as_array();
@@ -7147,6 +7215,10 @@ pub fn boolean(
         tessellation,
         triangle_attribution,
         face_attribution,
+        // A boolean-output BRep has no Stage-1 face_tri_ranges lineage; leave the
+        // provenance map empty so a CHAINED boolean falls back to geometric
+        // attribution (until the output reconstruction also emits a tri→face map).
+        tri_face: Vec::new(),
     })
 }
 
@@ -11986,6 +12058,43 @@ mod tests {
             })
             .collect();
         BRep::new(verts, edges, faces).unwrap()
+    }
+
+    // N4 (1b): `BRep::new` must populate the per-triangle → owning-face map
+    // (`tri_face`) 1:1 with the Stage-1 mesh triangles, with valid face indices
+    // and every face owning ≥1 triangle. This is the provenance substrate that
+    // lets `boolean()` attribute kept triangles to faces directly from cherchi's
+    // `source` instead of geometric proximity. (The end-to-end correctness of
+    // provenance attribution is covered by the full boolean suite / box fuzz,
+    // which now runs provenance as the PRIMARY path.)
+    #[test]
+    fn brep_new_populates_tri_face_provenance() {
+        let cube = cube_brep([0.0, 0.0, 0.0]);
+        let tf = cube.tri_face();
+        assert_eq!(
+            tf.len(),
+            cube.as_mesh().tris.len(),
+            "tri_face must be 1:1 with the Stage-1 mesh triangles"
+        );
+        let nf = cube.faces().len() as u32;
+        assert_eq!(nf, 6, "cube has 6 faces");
+        let mut owned = vec![false; nf as usize];
+        for (t, &f) in tf.iter().enumerate() {
+            assert!(f < nf, "tri {t} → face {f} out of range (faces = {nf})");
+            owned[f as usize] = true;
+        }
+        assert!(
+            owned.iter().all(|&o| o),
+            "every cube face must own ≥1 Stage-1 triangle"
+        );
+
+        // `from_mesh` has no Stage-1 face lineage → empty tri_face (→ geometric
+        // fallback in attribution).
+        let degenerate = BRep::from_mesh(cube.as_mesh().clone());
+        assert!(
+            degenerate.tri_face().is_empty(),
+            "from_mesh BRep carries no provenance map"
+        );
     }
 
     /// Centroid of a triangle.
