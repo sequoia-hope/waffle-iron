@@ -71,6 +71,15 @@ let hoveredBodyId = $state(null);
 /** @type {{ active: boolean, origin: [number, number, number], normal: [number, number, number] }} */
 let sketchMode = $state({ active: false, origin: [0, 0, 0], normal: [0, 0, 1] });
 
+/**
+ * Projected-geometry bindings for the active sketch: each maps a local Point id
+ * to the external model geometry it was projected from. Sent to the engine on
+ * FinishSketch so rebuild can keep the point coincident with its source.
+ * See specs/projected_sketch_geometry.md.
+ * @type {Array<{ point_id: number, source: { geom_ref: object, kind: object } }>}
+ */
+let projectedBindings = $state([]);
+
 /** @type {string | null} */
 let selectedFeatureId = $state(null);
 
@@ -653,6 +662,8 @@ export async function initEngine() {
 			getCameraProjection: () => getCameraProjection(),
 			setCameraProjection: (proj) => setCameraProjection(proj),
 			getConstraints: () => [...sketchConstraints],
+			getProjectedBindings: () => JSON.parse(JSON.stringify(projectedBindings)),
+			projectVertex: (geomRef) => projectVertex(geomRef),
 			getConstraintModal: () => (constraintModal ? { ...constraintModal, running: [...constraintModal.running] } : null),
 			// Pure decision-engine probe over the LIVE sketch entities/positions —
 			// for deterministic branch-coverage tests of the modal step logic.
@@ -1548,6 +1559,44 @@ export function addLocalEntity(entity) {
 	if (!suppressProfileExtraction) {
 		reExtractProfiles();
 	}
+}
+
+// -- Projected geometry (project external model geometry into the sketch) --
+
+export function getProjectedBindings() { return projectedBindings; }
+
+/**
+ * Project a picked model vertex into the active sketch: create a construction
+ * Point at the vertex's position in sketch-plane 2D coordinates, and record a
+ * binding (point id → source) so the engine keeps it coincident with the source
+ * across rebuilds. The vertex GeomRef carries a `Position` selector with the
+ * picked 3D coordinates. Mirrors the Rust SketchPlaneBasis world→local map.
+ * See specs/projected_sketch_geometry.md.
+ * @param {object} geomRef - Vertex GeomRef with a Position selector.
+ * @returns {number | null} the created Point id, or null if not applicable.
+ */
+export function projectVertex(geomRef) {
+	if (!sketchMode.active) return null;
+	const sel = geomRef?.selector;
+	if (!sel || sel.type !== 'Position') return null;
+
+	const plane = buildSketchPlane(sketchMode.origin, sketchMode.normal);
+	const rx = sel.x - plane.origin.x;
+	const ry = sel.y - plane.origin.y;
+	const rz = sel.z - plane.origin.z;
+	const x = rx * plane.xAxis.x + ry * plane.xAxis.y + rz * plane.xAxis.z;
+	const y = rx * plane.yAxis.x + ry * plane.yAxis.y + rz * plane.yAxis.z;
+
+	const id = allocEntityId();
+	beginSketchAction();
+	addLocalEntity({ type: 'Point', id, x, y, construction: true });
+	endSketchAction();
+	projectedBindings = [
+		...projectedBindings,
+		{ point_id: id, source: { geom_ref: JSON.parse(JSON.stringify(geomRef)), kind: { type: 'Vertex' } } },
+	];
+	triggerSolve();
+	return id;
 }
 
 /**
@@ -2512,6 +2561,7 @@ function reExtractProfiles() {
 export function resetSketchState() {
 	sketchEntities = [];
 	sketchConstraints = [];
+	projectedBindings = [];
 	sketchPositions = new Map();
 	nextEntityId = 1;
 	sketchSolveStatus = null;
@@ -3974,6 +4024,7 @@ export async function finishSketch() {
 			constraints: JSON.parse(JSON.stringify(
 				sketchConstraints.filter(c => c.type !== 'WhereDragged')
 			)),
+			projected: JSON.parse(JSON.stringify(projectedBindings)),
 		});
 		// Only clear sketch state after successful commit
 		exitSketchMode();

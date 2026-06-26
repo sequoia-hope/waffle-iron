@@ -48,7 +48,8 @@ import {
 	setConstraintBadgeOffset,
 	setSelectedConstraintIndex,
 	constraintModalPick,
-	getConstraintModal
+	getConstraintModal,
+	projectVertex
 } from '$lib/engine/store.svelte.js';
 import {
 	findLineLineIntersection,
@@ -1440,6 +1441,14 @@ function handleProjectTool(eventType, x, y, screenPixelSize) {
 	// Build sketch plane from current sketch mode
 	const sm = getSketchMode();
 	if (!sm?.active) return;
+
+	// A picked vertex projects to a single construction point that stays
+	// coincident with its source across rebuilds (see store.projectVertex).
+	if (hovered.kind?.type === 'Vertex') {
+		projectVertex(hovered);
+		return;
+	}
+
 	const sketchPlane = buildSketchPlane(sm.origin, sm.normal);
 
 	if (hovered.kind?.type === 'Edge') {

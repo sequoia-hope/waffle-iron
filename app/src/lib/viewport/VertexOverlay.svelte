@@ -13,7 +13,8 @@
 		getSketchMode,
 		getSectionState,
 		isBodyVisible,
-		setRenderedVertexCount
+		setRenderedVertexCount,
+		isProjectToolActive
 	} from '$lib/engine/store.svelte.js';
 	import { buildSectionClipPlane } from './sectionPlane.js';
 
@@ -173,7 +174,8 @@
 	export { pickVertexAtScreen };
 
 	function handlePointerMove(e) {
-		if (getSketchMode()?.active) return;
+		// In sketch mode, only the project tool needs to hover model vertices.
+		if (getSketchMode()?.active && !isProjectToolActive()) return;
 
 		const hit = pickVertexAtScreen(e.clientX, e.clientY);
 		if (hit) {
@@ -182,7 +184,7 @@
 	}
 
 	function handleClick(e) {
-		if (getSketchMode()?.active) return;
+		if (getSketchMode()?.active && !isProjectToolActive()) return;
 
 		const hit = pickVertexAtScreen(e.clientX, e.clientY);
 		if (hit) {
