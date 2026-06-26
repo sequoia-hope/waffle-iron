@@ -334,3 +334,46 @@ fn torus_subtract_seam_cut_torus_face_renders() {
         );
     }
 }
+
+/// KV6d-5b2 band-render fix: a box FULLY INSIDE the tube (subtract) leaves the
+/// torus lateral intact as a meridian-wrapping BAND. The band render (with seam
+/// subdivision) must cover the full tube — before the fix it produced a thin
+/// sliver (vol ~0.5 instead of ~torus−box). Catches that regression: the
+/// reconstructed solid renders watertight, on-tube, with near-torus volume.
+#[test]
+fn contained_box_torus_band_renders_full_volume() {
+    let Some(backend) = yang_rs::native_backend() else {
+        return;
+    };
+    let a = partial_torus_brep();
+    let b = box_brep([1.95, 1.95, -0.3], [0.45, 0.45, 0.6]); // inside the tube
+    let out = yang_rs::boolean(&a, &b, BoolOp::Subtract, &backend).expect("torus − contained box");
+    let mut arena = BrepArena::new();
+    let solid = from_yang_brep(&mut arena, &out).expect("reconstruct");
+    validate_solid(&arena, solid).expect("validates");
+    let mesh = tessellate(&arena, solid).expect("tessellate");
+    assert_render_watertight(&mesh, "contained-box torus band");
+    assert_band_on_surface(&mesh, "contained-box torus band");
+    // Signed volume: the tube (Pappus ≈ π/2·3·π·1² ≈ 14.8) minus the tiny box,
+    // chord-banded. The pre-fix thin sliver was ~0.5; require most of the tube.
+    let p = |i: u32| {
+        let k = (i as usize) * 3;
+        [
+            mesh.positions[k],
+            mesh.positions[k + 1],
+            mesh.positions[k + 2],
+        ]
+    };
+    let mut six = 0.0;
+    for t in mesh.indices.chunks_exact(3) {
+        let (a, b, c) = (p(t[0]), p(t[1]), p(t[2]));
+        six += a[0] * (b[1] * c[2] - b[2] * c[1])
+            + a[1] * (b[2] * c[0] - b[0] * c[2])
+            + a[2] * (b[0] * c[1] - b[1] * c[0]);
+    }
+    let vol = (six / 6.0).abs();
+    assert!(
+        vol > 13.0,
+        "torus band under-covered: vol {vol} (expected ~14.7)"
+    );
+}

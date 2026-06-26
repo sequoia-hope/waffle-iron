@@ -2997,7 +2997,14 @@ struct PLoop {
 /// edge; the duplicated anchor vertices coincide in 3D (the meridian is
 /// periodic) so the result is watertight. Returns the ring as `(su, sv, 3d)` per
 /// vertex, or `None` if no unblocked bridge exists.
-fn band_seam_bridge(pc: &PLoop, mc: &PLoop, span: f64) -> Option<Vec<(f64, f64, Point3)>> {
+fn band_seam_bridge<F: Fn(f64, f64) -> Point3>(
+    pc: &PLoop,
+    mc: &PLoop,
+    span: f64,
+    minor: f64,
+    major: f64,
+    eval: F,
+) -> Option<Vec<(f64, f64, Point3)>> {
     let (m, mm) = (pc.su.len(), mc.su.len());
     if m < 3 || mm < 3 {
         return None;
@@ -3010,6 +3017,28 @@ fn band_seam_bridge(pc: &PLoop, mc: &PLoop, span: f64) -> Option<Vec<(f64, f64, 
         };
         o(a, c, d) * o(b, c, d) < 0.0 && o(a, b, c) * o(a, b, d) < 0.0
     };
+    // Each seam bridge spans the full longitude gap (v0 → v1) as a SINGLE
+    // segment; left unsplit, the CDT cannot place Steiner near it and the edge
+    // region stays coarse → large chord error on the curved tube. Subdivide it
+    // into `k` segments matching the meridian sampling density, with each
+    // intermediate point ON the torus at the seam meridian (so the left- and
+    // right-seam copies, one period apart in u, coincide in 3D → watertight).
+    let mean_step = span / m as f64;
+    // Interpolate a bridge from `(su_a, sv_a)` to `(su_b, sv_b)` at the seam
+    // meridian `u_seam`, returning the K−1 interior points (2D + on-torus 3D).
+    let bridge_pts =
+        |su_a: f64, sv_a: f64, su_b: f64, sv_b: f64, u_seam: f64| -> Vec<(f64, f64, Point3)> {
+            let dsv = (sv_b - sv_a).abs();
+            let k = (dsv / mean_step).ceil().max(1.0) as usize;
+            let mut out = Vec::with_capacity(k.saturating_sub(1));
+            for i in 1..k {
+                let t = i as f64 / k as f64;
+                let su = su_a + (su_b - su_a) * t;
+                let sv = sv_a + (sv_b - sv_a) * t;
+                out.push((su, sv, eval(u_seam, sv / major)));
+            }
+            out
+        };
     let build_ring = |xi: usize, yi: usize, dpr: f64| -> Vec<(f64, f64, Point3)> {
         let mut ring: Vec<(f64, f64, Point3)> = Vec::with_capacity(m + mm + 2);
         let base_x = pc.su[xi];
@@ -3027,6 +3056,15 @@ fn band_seam_bridge(pc: &PLoop, mc: &PLoop, span: f64) -> Option<Vec<(f64, f64, 
         let y_target = base_x + span + dpr;
         let y_base = mc.su[yi];
         let wsign = mc.wu as f64; // −1
+                                  // Bridge 1: pc closing point (base_x+span, v0) → mc start (y_target, v1),
+                                  // at the right-seam meridian (base_x+span)/minor.
+        ring.extend(bridge_pts(
+            base_x + span,
+            pc.sv[xi],
+            y_target,
+            mc.sv[yi],
+            (base_x + span) / minor,
+        ));
         for j in 0..=mm {
             let idx = (yi + j) % mm;
             let mut u = mc.su[idx];
@@ -3038,9 +3076,20 @@ fn band_seam_bridge(pc: &PLoop, mc: &PLoop, span: f64) -> Option<Vec<(f64, f64, 
             }
             ring.push((u - y_base + y_target, mc.sv[idx], mc.pts[idx]));
         }
+        // Bridge 2: mc closing point (≈ base_x+dpr, v1) → pc start (base_x, v0),
+        // at the left-seam meridian base_x/minor (= right meridian − 2π in u, so
+        // `eval` returns the SAME 3D points as bridge 1 → watertight seam).
+        ring.extend(bridge_pts(
+            base_x + dpr,
+            mc.sv[yi],
+            base_x,
+            pc.sv[xi],
+            base_x / minor,
+        ));
         ring
     };
-    // The two seam bridges are ring edges (m → m+1) and (m+1+mm → 0).
+    // Pick the anchor pair (xi on pc, yi on mc) whose two seam-bridge SPANS
+    // (validated as single segments, before subdivision) cross no boundary edge.
     for xi in 0..m {
         let xu = pc.su[xi];
         let mut best: Option<(usize, f64)> = None;
@@ -3051,34 +3100,51 @@ fn band_seam_bridge(pc: &PLoop, mc: &PLoop, span: f64) -> Option<Vec<(f64, f64, 
             }
         }
         let (yi, dpr) = best?;
-        let ring = build_ring(xi, yi, dpr);
-        let rl = ring.len();
-        let bridges = [(m, m + 1), (m + 1 + mm, 0)];
-        let mut blocked = false;
-        for &(bi, bj) in &bridges {
-            let p = [ring[bi].0, ring[bi].1];
-            let q = [ring[bj].0, ring[bj].1];
+        let base_x = pc.su[xi];
+        // The two seam spans (right: pc→mc; left: mc→pc), in the unrolled frame.
+        let spans = [
+            ([base_x + span, pc.sv[xi]], [base_x + span + dpr, mc.sv[yi]]),
+            ([base_x + dpr, mc.sv[yi]], [base_x, pc.sv[xi]]),
+        ];
+        // Boundary edges to test against: the pc bottom chain (at sv=pc.sv) and
+        // the mc top chain (at sv=mc.sv), in the bridge's local frame.
+        let bottom: Vec<[f64; 2]> = (0..=m)
+            .map(|j| {
+                let idx = (xi + j) % m;
+                let mut u = pc.su[idx];
+                if (j > 0 && (xi + j) >= m) || j == m {
+                    u = if j == m { base_x + span } else { u + span };
+                }
+                [u, pc.sv[idx]]
+            })
+            .collect();
+        let y_target = base_x + span + dpr;
+        let y_base = mc.su[yi];
+        let wsign = mc.wu as f64;
+        let top: Vec<[f64; 2]> = (0..=mm)
+            .map(|j| {
+                let idx = (yi + j) % mm;
+                let mut u = mc.su[idx];
+                if (j > 0 && (yi + j) >= mm) || j == mm {
+                    u = if j == mm {
+                        y_base + wsign * span
+                    } else {
+                        u + wsign * span
+                    };
+                }
+                [u - y_base + y_target, mc.sv[idx]]
+            })
+            .collect();
+        let crosses = |p: [f64; 2], q: [f64; 2]| -> bool {
             if p == q {
-                blocked = true;
-                break;
+                return true;
             }
-            for i in 0..rl {
-                if i == m || i == m + 1 + mm {
-                    continue; // skip the bridge edges themselves
-                }
-                let a = [ring[i].0, ring[i].1];
-                let b = [ring[(i + 1) % rl].0, ring[(i + 1) % rl].1];
-                if seg_cross(p, q, a, b) {
-                    blocked = true;
-                    break;
-                }
-            }
-            if blocked {
-                break;
-            }
-        }
-        if !blocked {
-            return Some(ring);
+            let chain_hit =
+                |chain: &[[f64; 2]]| chain.windows(2).any(|w| seg_cross(p, q, w[0], w[1]));
+            chain_hit(&bottom) || chain_hit(&top)
+        };
+        if !spans.iter().any(|&(p, q)| crosses(p, q)) {
+            return Some(build_ring(xi, yi, dpr));
         }
     }
     None
@@ -3234,7 +3300,7 @@ pub fn tessellate_torus_patch(
             if pc.wu + mc.wu != 0 {
                 return None;
             }
-            let ring = band_seam_bridge(pc, mc, span)?;
+            let ring = band_seam_bridge(pc, mc, span, minor, major, eval)?;
             let mut o = Vec::with_capacity(ring.len());
             for (su, sv, p) in &ring {
                 o.push(verts2d.len() as u32);
@@ -3418,7 +3484,10 @@ mod torus_patch_tests {
         let ax = normalize3(axis.as_array());
         let (e1, e2) = ortho_basis(axis);
         let (e1a, e2a) = (e1.as_array(), e2.as_array());
-        let (v0, v1) = (0.5_f64, 1.0_f64);
+        // A FULL-quarter longitude slice (Δv = π/2): a large band whose seam
+        // bridges must be subdivided, or the edge regions stay coarse and the
+        // chorded area undershoots (the KV6d band-render regression).
+        let (v0, v1) = (0.0_f64, std::f64::consts::FRAC_PI_2);
         let nu = 24;
         // Two meridian circles: v0 wound +u (wrap +1), v1 wound −u (wrap −1).
         let mut c0: Vec<Point3> = Vec::new();
