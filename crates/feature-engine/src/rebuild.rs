@@ -7,13 +7,82 @@ use modeling_ops::{
 use uuid::Uuid;
 use waffle_types::kernel::units::TAU_WORK;
 
-use crate::resolve::resolve_with_fallback;
+use crate::resolve::{resolve_by_position, resolve_with_fallback};
 use crate::types::{
     BooleanOp, DepthMode, EngineError, Feature, FeatureTree, Operation, PlaneDefinition,
     SecondDirection,
 };
 use modeling_ops::KernelBundle;
-use waffle_types::{OutputKey, Sketch, TopoKind};
+use waffle_types::kernel::KernelIntrospect;
+use waffle_types::{
+    OutputKey, ProjectedKind, ProjectedSource, Selector, Sketch, SketchEntity, SketchPlaneBasis,
+    TopoKind,
+};
+
+/// Reproject a sketch's externally-driven points (projection feature). For each
+/// binding, resolve the source geometry against the features built so far and
+/// overwrite the bound Point's `(x, y)` with the source position in
+/// sketch-plane coordinates. Sources that cannot be resolved are left at their
+/// last position (BestEffort dangling). Only Point entity coords are mutated;
+/// the caller clears and recomputes derived data afterward.
+/// See `specs/projected_sketch_geometry.md`.
+pub(crate) fn reproject_sketch(
+    sketch: &mut Sketch,
+    feature_results: &HashMap<Uuid, OpResult>,
+    introspect: &dyn KernelIntrospect,
+) {
+    if sketch.projected.is_empty() {
+        return;
+    }
+    let basis = SketchPlaneBasis::from_origin_normal(sketch.plane_origin, sketch.plane_normal);
+
+    // Resolve all bindings first, then apply (avoids overlapping borrows).
+    let mut updates: Vec<(u32, f64, f64)> = Vec::new();
+    for binding in &sketch.projected {
+        if let Some(p3) = resolve_projected_point(&binding.source, feature_results, introspect) {
+            let (u, v) = basis.world_to_local(p3);
+            updates.push((binding.point_id, u, v));
+        }
+    }
+    for (pid, u, v) in updates {
+        for e in &mut sketch.entities {
+            if let SketchEntity::Point { id, x, y, .. } = e {
+                if *id == pid {
+                    *x = u;
+                    *y = v;
+                }
+            }
+        }
+    }
+}
+
+/// Resolve a projected source to a 3D world point: the source vertex's position,
+/// or a point sampled along the source edge at parameter `t`.
+fn resolve_projected_point(
+    source: &ProjectedSource,
+    feature_results: &HashMap<Uuid, OpResult>,
+    introspect: &dyn KernelIntrospect,
+) -> Option<[f64; 3]> {
+    let pos = match &source.geom_ref.selector {
+        Selector::Position { x, y, z } => [*x, *y, *z],
+        _ => return None,
+    };
+    let resolved = resolve_by_position(&source.geom_ref, feature_results, introspect, pos).ok()?;
+    let kid = resolved.kernel_id;
+    match &source.kind {
+        ProjectedKind::Vertex => introspect.compute_signature(kid, TopoKind::Vertex).centroid,
+        ProjectedKind::EdgeSample { t } => {
+            let (a, b) = introspect.edge_vertices(kid);
+            let pa = introspect.compute_signature(a, TopoKind::Vertex).centroid?;
+            let pb = introspect.compute_signature(b, TopoKind::Vertex).centroid?;
+            Some([
+                pa[0] + (pb[0] - pa[0]) * t,
+                pa[1] + (pb[1] - pa[1]) * t,
+                pa[2] + (pb[2] - pa[2]) * t,
+            ])
+        }
+    }
+}
 
 /// State of the engine after a rebuild.
 #[derive(Debug)]
@@ -215,6 +284,14 @@ fn execute_feature(
             let _sketch_result = find_sketch_result(params.sketch_id, feature_results)?;
             let sketch_ref = find_sketch_in_tree(params.sketch_id, tree)?;
             let mut sketch_expanded = sketch_ref.clone();
+            // Projection: re-derive externally-driven point positions from the
+            // features built so far, then force a fresh recompute of derived data
+            // (positions + profiles) from the updated points.
+            if !sketch_expanded.projected.is_empty() {
+                reproject_sketch(&mut sketch_expanded, feature_results, kb.as_introspect());
+                sketch_expanded.solved_positions.clear();
+                sketch_expanded.solved_profiles.clear();
+            }
             sketch_expanded.recompute_derived();
             let sketch = &sketch_expanded;
 
@@ -523,6 +600,14 @@ fn execute_feature(
             let _sketch_result = find_sketch_result(params.sketch_id, feature_results)?;
             let sketch_ref = find_sketch_in_tree(params.sketch_id, tree)?;
             let mut sketch_expanded = sketch_ref.clone();
+            // Projection: re-derive externally-driven point positions from the
+            // features built so far, then force a fresh recompute of derived data
+            // (positions + profiles) from the updated points.
+            if !sketch_expanded.projected.is_empty() {
+                reproject_sketch(&mut sketch_expanded, feature_results, kb.as_introspect());
+                sketch_expanded.solved_positions.clear();
+                sketch_expanded.solved_profiles.clear();
+            }
             sketch_expanded.recompute_derived();
             let sketch = &sketch_expanded;
 
@@ -2233,6 +2318,173 @@ mod tests {
         assert!(
             (normal[2] - 1.0).abs() < 1e-10,
             "Normal should still be [0,0,1]"
+        );
+    }
+
+    /// Projection integration (incr 4): a sketch point bound to a box vertex
+    /// reprojects to that vertex, and tracks it when an upstream edit moves it.
+    #[test]
+    fn reproject_tracks_moved_source_vertex() {
+        use modeling_ops::{BodyOutput, Diagnostics, Provenance};
+        use waffle_types::kernel::{Kernel, KernelSolidHandle, MockKernel};
+        use waffle_types::{
+            Anchor, ClosedProfile, GeomRef, ProjectedEntity, ProjectedKind, ProjectedSource,
+            ResolvePolicy, SolveStatus,
+        };
+
+        fn box_kernel(corners: [(f64, f64); 4], height: f64) -> (MockKernel, KernelSolidHandle) {
+            let mut kernel = MockKernel::new();
+            let profile = ClosedProfile {
+                entity_ids: vec![1, 2, 3, 4],
+                is_outer: true,
+                vertex_ids: vec![],
+                circle: None,
+                spline_segments: vec![],
+                arc_segments: vec![],
+            };
+            let mut positions = HashMap::new();
+            for (i, c) in corners.iter().enumerate() {
+                positions.insert((i + 1) as u32, *c);
+            }
+            let face_ids = kernel
+                .make_faces_from_profiles(
+                    &[profile],
+                    [0.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    [1.0, 0.0, 0.0],
+                    &positions,
+                )
+                .unwrap();
+            let handle = kernel
+                .extrude_face(face_ids[0], [0.0, 0.0, 1.0], height)
+                .unwrap();
+            (kernel, handle)
+        }
+
+        let fid = Uuid::new_v4();
+        let results_with = |handle: KernelSolidHandle| {
+            let mut m: HashMap<Uuid, OpResult> = HashMap::new();
+            m.insert(
+                fid,
+                OpResult {
+                    outputs: vec![(
+                        OutputKey::Main,
+                        BodyOutput {
+                            handle,
+                            mesh: None,
+                            edges: None,
+                        },
+                    )],
+                    provenance: Provenance {
+                        created: vec![],
+                        deleted: vec![],
+                        modified: vec![],
+                        role_assignments: vec![],
+                    },
+                    diagnostics: Diagnostics::default(),
+                },
+            );
+            m
+        };
+
+        // GeomRef picking the top vertex over footprint corner (2, 3).
+        let gref = GeomRef {
+            kind: TopoKind::Vertex,
+            anchor: Anchor::FeatureOutput {
+                feature_id: fid,
+                output_key: OutputKey::Main,
+            },
+            selector: Selector::Position {
+                x: 2.0,
+                y: 3.0,
+                z: 5.0,
+            },
+            policy: ResolvePolicy::BestEffort,
+        };
+        let make_sketch = || Sketch {
+            id: Uuid::new_v4(),
+            plane: gref.clone(),
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            entities: vec![SketchEntity::Point {
+                id: 100,
+                x: 0.0,
+                y: 0.0,
+                construction: true,
+            }],
+            constraints: vec![],
+            solve_status: SolveStatus::UnderConstrained { dof: 0 },
+            solved_positions: HashMap::new(),
+            solved_profiles: vec![],
+            projected: vec![ProjectedEntity {
+                point_id: 100,
+                source: ProjectedSource {
+                    geom_ref: gref.clone(),
+                    kind: ProjectedKind::Vertex,
+                },
+            }],
+        };
+        let point_xy = |s: &Sketch| -> (f64, f64) {
+            for e in &s.entities {
+                if let SketchEntity::Point { id, x, y, .. } = e {
+                    if *id == 100 {
+                        return (*x, *y);
+                    }
+                }
+            }
+            panic!("point 100 not found");
+        };
+        let basis = SketchPlaneBasis::from_origin_normal([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+
+        // Independently find the nearest vertex to the pick (MockKernel builds a
+        // square box of side sqrt(area), so we read actual vertex positions
+        // rather than assume the footprint).
+        let nearest_pos = |k: &MockKernel, h: &KernelSolidHandle| -> [f64; 3] {
+            let pick = [2.0, 3.0, 5.0];
+            k.list_vertices(h)
+                .into_iter()
+                .filter_map(|v| k.compute_signature(v, TopoKind::Vertex).centroid)
+                .min_by(|a, b| {
+                    let da = (a[0] - pick[0]).powi(2)
+                        + (a[1] - pick[1]).powi(2)
+                        + (a[2] - pick[2]).powi(2);
+                    let db = (b[0] - pick[0]).powi(2)
+                        + (b[1] - pick[1]).powi(2)
+                        + (b[2] - pick[2]).powi(2);
+                    da.partial_cmp(&db).unwrap()
+                })
+                .unwrap()
+        };
+
+        // Box 1.
+        let (k1, h1) = box_kernel([(0.0, 0.0), (2.0, 0.0), (2.0, 3.0), (0.0, 3.0)], 5.0);
+        let mut s1 = make_sketch();
+        reproject_sketch(&mut s1, &results_with(h1.clone()), k1.as_introspect());
+        let (eu1, ev1) = basis.world_to_local(nearest_pos(&k1, &h1));
+        let p1 = point_xy(&s1);
+        assert!(
+            (p1.0 - eu1).abs() < 1e-6 && (p1.1 - ev1).abs() < 1e-6,
+            "box1 projection {p1:?} != {:?}",
+            (eu1, ev1)
+        );
+
+        // Box 2: a larger footprint moves the resolved vertex; the same pick
+        // resolves to the (moved) nearest vertex, so the projected point follows.
+        let (k2, h2) = box_kernel([(0.0, 0.0), (2.5, 0.0), (2.5, 3.2), (0.0, 3.2)], 5.0);
+        let mut s2 = make_sketch();
+        reproject_sketch(&mut s2, &results_with(h2.clone()), k2.as_introspect());
+        let (eu2, ev2) = basis.world_to_local(nearest_pos(&k2, &h2));
+        let p2 = point_xy(&s2);
+        assert!(
+            (p2.0 - eu2).abs() < 1e-6 && (p2.1 - ev2).abs() < 1e-6,
+            "box2 projection {p2:?} != {:?}",
+            (eu2, ev2)
+        );
+
+        // Parametric: the projected point MOVED because the source moved.
+        assert!(
+            (p1.0 - p2.0).abs() > 1e-3 || (p1.1 - p2.1).abs() > 1e-3,
+            "projected point must track the upstream edit ({p1:?} -> {p2:?})"
         );
     }
 }
