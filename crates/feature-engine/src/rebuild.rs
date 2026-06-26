@@ -2487,6 +2487,68 @@ mod tests {
             "projected point must track the upstream edit ({p1:?} -> {p2:?})"
         );
     }
+
+    /// Adversarial (incr 7): a projected binding whose source cannot be resolved
+    /// (the source feature has no result — deleted/dangling) leaves the bound
+    /// point at its last position rather than failing or moving to garbage.
+    #[test]
+    fn reproject_dangling_source_keeps_last_position() {
+        use waffle_types::kernel::MockKernel;
+        use waffle_types::{
+            Anchor, GeomRef, ProjectedEntity, ProjectedKind, ProjectedSource, ResolvePolicy,
+            SolveStatus,
+        };
+
+        let gref = GeomRef {
+            kind: TopoKind::Vertex,
+            anchor: Anchor::FeatureOutput {
+                feature_id: Uuid::new_v4(),
+                output_key: OutputKey::Main,
+            },
+            selector: Selector::Position {
+                x: 1.0,
+                y: 2.0,
+                z: 3.0,
+            },
+            policy: ResolvePolicy::BestEffort,
+        };
+        let mut sketch = Sketch {
+            id: Uuid::new_v4(),
+            plane: gref.clone(),
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            entities: vec![SketchEntity::Point {
+                id: 100,
+                x: 7.0,
+                y: -4.0,
+                construction: true,
+            }],
+            constraints: vec![],
+            solve_status: SolveStatus::UnderConstrained { dof: 0 },
+            solved_positions: HashMap::new(),
+            solved_profiles: vec![],
+            projected: vec![ProjectedEntity {
+                point_id: 100,
+                source: ProjectedSource {
+                    geom_ref: gref,
+                    kind: ProjectedKind::Vertex,
+                },
+            }],
+        };
+
+        // Empty feature_results → the source feature is unresolvable.
+        let empty: HashMap<Uuid, OpResult> = HashMap::new();
+        let kernel = MockKernel::new();
+        reproject_sketch(&mut sketch, &empty, kernel.as_introspect());
+
+        // The point keeps its last (x, y) — nothing moved, no panic.
+        match &sketch.entities[0] {
+            SketchEntity::Point { x, y, .. } => {
+                assert!((*x - 7.0).abs() < 1e-12 && (*y + 4.0).abs() < 1e-12);
+            }
+            _ => panic!("expected point"),
+        }
+    }
 }
 
 /// Resolve all GeomRef references for a feature, collecting warnings.
