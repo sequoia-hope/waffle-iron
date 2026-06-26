@@ -328,11 +328,15 @@ pub fn to_yang_brep_indexed(
                         reversed: false,
                     });
                 }
-                Some(Surface::Cylinder { reversed, .. }) | Some(Surface::Cone { reversed, .. }) => {
-                    // Cylinder and cone laterals share this conversion — the loop
-                    // vocabulary (rims + seams / arcs) and edge handling are
-                    // identical; only the analytic surface differs, built at the
-                    // end (KV6c). yang ingests two-rim frustum cones.
+                Some(Surface::Cylinder { reversed, .. })
+                | Some(Surface::Cone { reversed, .. })
+                | Some(Surface::Torus { reversed, .. }) => {
+                    // Cylinder, cone, and torus laterals share this conversion —
+                    // the loop vocabulary (rims/profiles + seams/arcs) and edge
+                    // handling are identical; only the analytic surface differs,
+                    // built at the end (KV6c/KV6d-5a). yang ingests two-rim
+                    // frustum cones and a partial torus (two profile circles + a
+                    // seam-arc twin pair).
                     // Two convertible shapes (PR-KV6b-2):
                     // - CANONICAL tube: [rim, seam, rim, seam], two closed
                     //   Circle rims, the segs a seam twin PAIR;
@@ -351,6 +355,14 @@ pub fn to_yang_brep_indexed(
                         return Err(KernelV2Error::UnsupportedCurvedBoolean { face: f });
                     }
                     if matches!(arena.half_edge(hes[0])?.curve, Curve::LineSegment) {
+                        hes.rotate_left(1);
+                    }
+                    // A torus lateral has ARC seams (no line ruling to anchor the
+                    // rotation); rotate a profile CIRCLE to the front so its
+                    // (Circle, Arc, Circle, Arc) pattern is recognized below.
+                    if matches!(face.surface, Some(Surface::Torus { .. }))
+                        && matches!(arena.half_edge(hes[0])?.curve, Curve::Arc { .. })
+                    {
                         hes.rotate_left(1);
                     }
                     let curve_of = |h: HalfEdgeId| -> Result<Curve, KernelV2Error> {
@@ -380,13 +392,25 @@ pub fn to_yang_brep_indexed(
                             Curve::LineSegment
                         )
                     );
-                    if !(canonical || partial) {
+                    // KV6d-5a: a partial torus lateral — two profile CIRCLES at
+                    // the meridian planes + two seam ARCS (the φ=0 longitude twin
+                    // pair). No line rulings (the meridian is curved).
+                    let torus = matches!(
+                        pattern,
+                        (
+                            Curve::Circle { .. },
+                            Curve::Arc { .. },
+                            Curve::Circle { .. },
+                            Curve::Arc { .. }
+                        )
+                    );
+                    if !(canonical || partial || torus) {
                         return Err(KernelV2Error::UnsupportedCurvedBoolean { face: f });
                     }
                     // Canonical: the two segments must be the seam twin pair.
-                    // Partial: they are two DISTINCT rulings (each twins with
-                    // a cap edge instead).
-                    if canonical && arena.half_edge(hes[1])?.twin != hes[3] {
+                    // Partial: two DISTINCT rulings (each twins with a cap edge).
+                    // Torus: the two seam ARCS (positions 1, 3) are the twin pair.
+                    if (canonical || torus) && arena.half_edge(hes[1])?.twin != hes[3] {
                         return Err(KernelV2Error::UnsupportedCurvedBoolean { face: f });
                     }
 
@@ -506,7 +530,20 @@ pub fn to_yang_brep_indexed(
                             axis_dir: Vector3::new(axis_dir.x, axis_dir.y, axis_dir.z),
                             half_angle,
                         },
-                        // The arm pattern restricts face.surface to Cylinder|Cone.
+                        Some(Surface::Torus {
+                            center,
+                            axis_dir,
+                            major_radius,
+                            minor_radius,
+                            ..
+                        }) => yang_rs::Surface::Torus {
+                            center,
+                            axis_dir: Vector3::new(axis_dir.x, axis_dir.y, axis_dir.z),
+                            major_radius,
+                            minor_radius,
+                        },
+                        // The arm pattern restricts face.surface to
+                        // Cylinder|Cone|Torus.
                         _ => return Err(KernelV2Error::FaceWithoutSurface { face: f }),
                     };
                     face_ids.push(f);
@@ -515,15 +552,6 @@ pub fn to_yang_brep_indexed(
                         outer_loop: loop_indices,
                         inner_loops: Vec::new(),
                         reversed,
-                    });
-                }
-                Some(Surface::Torus { .. }) => {
-                    // yang has no Torus surface yet (KV6d boolean support is a
-                    // later increment); a torus operand walls loudly.
-                    return Err(KernelV2Error::CurvedGeometryMismatch {
-                        face: f,
-                        reason:
-                            "to_yang: Surface::Torus not yet supported (KV6d boolean increment)",
                     });
                 }
                 None => return Err(KernelV2Error::FaceWithoutSurface { face: f }),

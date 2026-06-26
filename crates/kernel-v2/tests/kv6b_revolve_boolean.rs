@@ -172,6 +172,90 @@ fn subtract_contained_box_volume_and_cavity() {
 }
 
 // =========================================================================
+// 3t. KV6d-5a: partial-torus operand booleans through the full adapter,
+//     guarded by volume conservation (the band-render fix made these correct).
+// =========================================================================
+
+/// A circle profile revolved by `angle` → a partial torus (major 3, minor 1,
+/// axis +x), built through the same `revolve` path the corpus uses.
+fn revolve_torus(arena: &mut BrepArena, angle: f64) -> RevolveResult {
+    let profile = Profile::circle(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        Point2::new(0.0, 3.0),
+        1.0,
+    )
+    .expect("circle profile");
+    revolve(
+        arena,
+        &profile,
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        angle,
+    )
+    .expect("partial torus revolve")
+}
+
+/// The torus tube volume (Pappus): α·R·π·r², here R=3, r=1.
+fn torus_pappus(angle: f64) -> f64 {
+    angle * 3.0 * std::f64::consts::PI
+}
+
+#[test]
+fn torus_operand_converts_to_yang() {
+    // KV6d-5a: the to_yang torus wall is gone — a Surface::Torus operand now
+    // converts (two profile circles + a seam-arc twin pair → a yang Torus face).
+    let mut arena = BrepArena::new();
+    let r = revolve_torus(&mut arena, PI / 2.0);
+    let yb = to_yang_brep(&arena, r.solid).expect("torus operand converts to yang (5a)");
+    assert!(
+        yb.faces()
+            .iter()
+            .any(|f| matches!(f.surface, yang_rs::Surface::Torus { .. })),
+        "the converted yang B-Rep carries a Surface::Torus face"
+    );
+}
+
+#[test]
+fn torus_union_contained_box_conserves_volume() {
+    // A box fully inside the 90° tube (centre arc (0, 3cosθ, 3sinθ), minor 1;
+    // at θ=45° the centre ≈ (0, 2.12, 2.12)). A ∪ B = A, so the result keeps the
+    // full tube volume. PRE band-render fix this rendered a thin sliver (~4.3);
+    // the volume guard (⊇ A) now passes only because the band renders fully.
+    let mut arena = BrepArena::new();
+    let r = revolve_torus(&mut arena, PI / 2.0);
+    let b = box_solid(&mut arena, (-0.3, 0.3), (1.85, 2.4), (1.85, 2.4));
+    let out = boolean_op(&mut arena, r.solid, b, BoolOp::Union)
+        .unwrap_or_else(|e| panic!("torus ∪ contained box: {e:?}"));
+    validate_solid(&arena, out).expect("union validates");
+    let vol = mesh_signed_volume(&tessellate(&arena, out).expect("tessellate")).abs();
+    assert_volume_band(vol, torus_pappus(PI / 2.0), "torus ∪ contained box");
+}
+
+#[test]
+fn torus_subtract_contained_box_conserves_volume() {
+    // A − B leaves the tube with an interior box void: vol = tube − box, two
+    // shells. The subtract bound (⊆ A) plus the box-void lower bound catch the
+    // pre-fix thin sliver (~4.5).
+    let mut arena = BrepArena::new();
+    let r = revolve_torus(&mut arena, PI / 2.0);
+    let b = box_solid(&mut arena, (-0.3, 0.3), (1.85, 2.4), (1.85, 2.4));
+    let box_vol = 0.6 * 0.55 * 0.55;
+    let out = boolean_op(&mut arena, r.solid, b, BoolOp::Subtract)
+        .unwrap_or_else(|e| panic!("torus − contained box: {e:?}"));
+    let report = validate_solid(&arena, out).expect("cut validates");
+    assert_eq!(report.shells, 2, "interior box void is a second shell");
+    let vol = mesh_signed_volume(&tessellate(&arena, out).expect("tessellate")).abs();
+    let tube = torus_pappus(PI / 2.0);
+    // ⊆ A (chord-banded) and ≈ tube − box (not a thin sliver).
+    assert!(
+        vol <= tube * 1.001 && vol >= 0.95 * tube - box_vol,
+        "torus − box volume {vol} vs tube {tube} − box {box_vol}"
+    );
+}
+
+// =========================================================================
 // 4. The exactly-π and major-arc operands
 // =========================================================================
 
