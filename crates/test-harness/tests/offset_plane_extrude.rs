@@ -84,6 +84,34 @@ fn extrude_in_plane_offset_rect_keeps_position() {
 }
 
 #[test]
+fn small_offorigin_square_on_primary_plane_lines_up() {
+    // The user's actual scenario: a SMALL square on a PRIMARY plane (through the
+    // origin), positioned in-plane AWAY from the origin. A 3×3mm square with its
+    // near corner 5mm out, extruded 2mm. All in metres (the app's unit). Guards
+    // the in-plane-shift symptom at the real (small) model scale where this
+    // codebase has had tolerance bugs before.
+    let (mn, mx) = extrude_bbox(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+        0.005,
+        0.005,
+        0.003,
+        0.003,
+        0.002,
+    );
+    // Square is 3mm on a side, sitting 5–8mm from the origin in-plane — it must
+    // NOT collapse onto the sketch origin.
+    assert!((mx[0] - mn[0] - 0.003).abs() < 1e-7, "x extent {} != 3mm", mx[0] - mn[0]);
+    assert!((mx[1] - mn[1] - 0.003).abs() < 1e-7, "y extent {} != 3mm", mx[1] - mn[1]);
+    let touches_origin = mn[0] <= 1e-9 && mx[0] >= -1e-9 && mn[1] <= 1e-9 && mx[1] >= -1e-9;
+    assert!(!touches_origin, "off-origin square collapsed toward the sketch origin: bbox {mn:?}..{mx:?}");
+    // Both in-plane corners are ≥5mm out from the origin (sign depends on basis).
+    assert!(mn[0].abs() >= 0.005 - 1e-7 && mn[1].abs() >= 0.005 - 1e-7, "square not offset from origin");
+    // Near cap on the plane (z = 0), far cap at the 2mm depth.
+    assert!((mn[2]).abs() < 1e-7 && (mx[2] - 0.002).abs() < 1e-7, "z range {}..{}", mn[2], mx[2]);
+}
+
+#[test]
 fn extrude_on_top_and_right_builtin_planes_line_up() {
     // Non-Z normals exercise the basis (tangent_x_from_normal). The extrude must
     // grow ALONG the normal and keep the 10×10 face in-plane.

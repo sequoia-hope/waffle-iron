@@ -143,6 +143,38 @@ test.describe('extrude alignment with sketch coordinate frame', () => {
 		expect(bbox.max[1]).toBeLessThanOrEqual(0.01);
 	});
 
+	test('small off-origin square on XY plane extrudes lined up (3mm, offset)', async ({ waffle }) => {
+		// The user's reported scenario: a SMALL (3×3mm) square on a primary plane,
+		// positioned in-plane AWAY from the origin (near corner 5mm out), at real
+		// model scale (metres). It must extrude exactly where the sketch is — not
+		// collapse toward the sketch origin and not malform at small scale.
+		await createPreciseRectangleSketch(waffle.page, {
+			x1: 0.005, y1: 0.005, x2: 0.008, y2: 0.008,
+		});
+
+		await waffle.page.evaluate(() => window.__waffle.showExtrudeDialog());
+		await waffle.page.waitForFunction(
+			() => window.__waffle?.getExtrudeDialogState() !== null,
+			{ timeout: 5000 }
+		);
+		await waffle.page.evaluate(() => window.__waffle.applyExtrude(0.002, 0, false));
+		await waitForMeshWithGeometry(waffle.page, 15000);
+
+		const bbox = await waffle.page.evaluate(() => window.__waffle.getMeshBoundingBox());
+		expect(bbox).not.toBeNull();
+
+		// XY basis: worldX = sketchY ∈ [0.005, 0.008]; worldY = -sketchX ∈ [-0.008, -0.005];
+		// worldZ = depth ∈ [0, 0.002]. The body is a 3×3×2mm box sitting OFF the origin.
+		expect(bbox.size[0]).toBeCloseTo(0.003, 4);
+		expect(bbox.size[1]).toBeCloseTo(0.003, 4);
+		expect(bbox.size[2]).toBeCloseTo(0.002, 4);
+		// In-plane position matches the offset square (NOT centred on the origin).
+		expect(bbox.min[0]).toBeCloseTo(0.005, 4);
+		expect(bbox.max[0]).toBeCloseTo(0.008, 4);
+		expect(bbox.min[1]).toBeCloseTo(-0.008, 4);
+		expect(bbox.max[1]).toBeCloseTo(-0.005, 4);
+	});
+
 	test('GUI-drawn rectangle on XY produces extrude with negative Y coords', async ({ waffle }) => {
 		// This test uses real GUI drawing (not API) to verify the full pipeline
 		await clickSketch(waffle.page);
