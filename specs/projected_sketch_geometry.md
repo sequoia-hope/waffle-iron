@@ -1,10 +1,15 @@
 # Spec: Projected sketch geometry with live source coincidence
 
-> STATUS: SPEC ONLY — not yet implemented. This is the FIP Phase-1 artifact for
-> feature request #2. It is the deepest of the four-part request and spans
-> `waffle-types`, `feature-engine`, `wasm-bridge`, the app UI, and a WASM
-> rebuild. Implement in the increments in §Implementation Plan, each its own
-> red/green cycle, NOT as one merge (Constitution P7).
+> STATUS: IMPLEMENTED (vertex projection end-to-end). Increments 1–7 of the
+> §Implementation Plan are landed (commits 3219bf5e, fbd8ead6, 89c9a373,
+> e0c9b0ab, f144feab, 9fdc6f9a, a512c5f5): SketchPlaneBasis transform,
+> resolve_by_position, ProjectedEntity side-table, rebuild reprojection,
+> FinishSketch bridge + WASM, the projectVertex UI tool, and the dangling-source
+> adversarial case. NOT YET DONE: live projection of **edges** and **faces** in
+> the UI (the data model supports EdgeSample; the tool only projects vertices so
+> far), pick-time cyclic-ref rejection (the engine degrades gracefully to
+> dangling instead), and a full in-browser rebuild oracle for the parametric
+> update (covered by the Rust integration test reproject_tracks_moved_source_vertex).
 
 ## Goal
 
