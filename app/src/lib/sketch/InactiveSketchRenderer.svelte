@@ -96,15 +96,10 @@
 			const normal = sketch.plane_normal || [0, 0, 1];
 			const plane = buildSketchPlane(origin, normal);
 
-			// Reconstruct positions from Point entities. Prefer the constraint
-			// solver's output (sketch.solved_positions, persisted by FinishSketch
-			// and round-tripped through the .waffle file) over the raw drawn
-			// entity.x/y: for a constrained sketch the two diverge, and reading
-			// raw coords renders the finished sketch offset/wrong-sized. Fall back
-			// to raw coords only when a point has no solved entry. Gear entities
-			// are replaced by their cached display expansion (curves + positions).
-			const solved = sketch.solved_positions || {};
-			const solvedPos = (id) => solved[id] ?? solved[String(id)];
+			// Reconstruct positions from Point entities — solved_positions
+			// is not serialized from Rust (skip_serializing), so we mirror
+			// the Rust recompute_derived() logic here. Gear entities are replaced
+			// by their cached display expansion (curves + positions).
 			const entities = [];
 			const positions = new Map();
 			for (const entity of (sketch.entities || [])) {
@@ -117,8 +112,7 @@
 				} else {
 					entities.push(entity);
 					if (entity.type === 'Point' && entity.id != null) {
-						const sp = solvedPos(entity.id);
-						positions.set(entity.id, sp ? { x: sp[0], y: sp[1] } : { x: entity.x, y: entity.y });
+						positions.set(entity.id, { x: entity.x, y: entity.y });
 					}
 				}
 			}
