@@ -2647,12 +2647,6 @@ export async function computeAllSketchRegions() {
 		const sketch = feature.operation.sketch;
 		const entities = [];
 		const solved_positions = {};
-		// Prefer the constraint solver's output over the raw drawn coordinates.
-		// `entity.x`/`entity.y` are the as-drawn positions; the solver writes the
-		// resolved geometry into `sketch.solved_positions`. Building regions from
-		// the raw coords produces an offset/wrong-sized footprint on finish-sketch.
-		const solved = sketch.solved_positions || {};
-		const solvedPos = (id) => solved[id] ?? solved[String(id)];
 		for (const e of (sketch.entities || [])) {
 			if (e.type === 'Gear') {
 				// Substitute the gear's cached primitive expansion (teeth + points).
@@ -2665,7 +2659,7 @@ export async function computeAllSketchRegions() {
 				}
 			} else {
 				entities.push(e);
-				if (e.type === 'Point' && e.id != null) solved_positions[e.id] = solvedPos(e.id) ?? [e.x, e.y];
+				if (e.type === 'Point' && e.id != null) solved_positions[e.id] = [e.x, e.y];
 			}
 		}
 		try {
