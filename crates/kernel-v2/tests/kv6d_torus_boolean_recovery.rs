@@ -197,6 +197,63 @@ fn assert_band_on_surface(mesh: &RenderMesh, what: &str) {
     assert!(band > 0, "{what}: no on-tube torus vertices");
 }
 
+/// Enclosed volume of a yang Stage-1 mesh (divergence theorem).
+fn yang_mesh_volume(m: &yang_rs::Mesh) -> f64 {
+    let mut s = 0.0;
+    for t in &m.tris {
+        let a = m.verts[t[0] as usize].as_array();
+        let b = m.verts[t[1] as usize].as_array();
+        let c = m.verts[t[2] as usize].as_array();
+        s += a[0] * (b[1] * c[2] - b[2] * c[1])
+            + a[1] * (b[2] * c[0] - b[0] * c[2])
+            + a[2] * (b[0] * c[1] - b[1] * c[0]);
+    }
+    (s / 6.0).abs()
+}
+
+/// Enclosed volume of a kernel-v2 render mesh.
+fn render_volume(m: &RenderMesh) -> f64 {
+    let p = |i: u32| {
+        let k = (i as usize) * 3;
+        [m.positions[k], m.positions[k + 1], m.positions[k + 2]]
+    };
+    let mut s = 0.0;
+    for t in m.indices.chunks_exact(3) {
+        let (a, b, c) = (p(t[0]), p(t[1]), p(t[2]));
+        s += a[0] * (b[1] * c[2] - b[2] * c[1])
+            + a[1] * (b[2] * c[0] - b[0] * c[2])
+            + a[2] * (b[0] * c[1] - b[1] * c[0]);
+    }
+    (s / 6.0).abs()
+}
+
+/// Boolean volume CONSERVATION bound — the kernel-independent correctness oracle
+/// the loose `check_volume_magnitude` (16 orders of magnitude) cannot provide:
+/// union ⊇ max(A,B), subtract ⊆ A, intersect ⊆ min(A,B). A 30%-too-thin result
+/// (the band-render regression) violates these; a watertight-but-wrong mesh does
+/// not slip through. `band` is the inscribed-chord slack.
+fn assert_boolean_volume_bounds(op: BoolOp, va: f64, vb: f64, vr: f64, band: f64) {
+    match op {
+        BoolOp::Union => assert!(
+            vr >= va.max(vb) * (1.0 - band) && vr <= (va + vb) * (1.0 + band),
+            "union vol {vr} outside [max(A,B), A+B] for A={va} B={vb}"
+        ),
+        BoolOp::Subtract => assert!(
+            vr <= va * (1.0 + band) && vr >= 0.0,
+            "subtract vol {vr} exceeds A={va}"
+        ),
+        BoolOp::Intersect => assert!(
+            vr <= va.min(vb) * (1.0 + band),
+            "intersect vol {vr} exceeds min(A,B) for A={va} B={vb}"
+        ),
+        // Symmetric difference: bounded above by the union.
+        BoolOp::Xor => assert!(
+            vr <= (va + vb) * (1.0 + band),
+            "xor vol {vr} exceeds A+B for A={va} B={vb}"
+        ),
+    }
+}
+
 /// Max torus-surface residual over every torus face's boundary vertices of a
 /// yang output B-Rep.
 fn max_torus_boundary_residual(out: &BRep) -> f64 {
@@ -277,6 +334,7 @@ fn box_intersect_torus_reconstructs_and_tessellates() {
     // A box over the outer tube near θ=45°: the kept torus patch is a bounded
     // (u,v) disk (no meridian wrap).
     let b = box_brep([2.4, 2.4, -0.6], [1.0, 1.0, 1.2]);
+    let (va, vb) = (yang_mesh_volume(a.as_mesh()), yang_mesh_volume(b.as_mesh()));
 
     let out = yang_rs::boolean(&a, &b, BoolOp::Intersect, &backend)
         .unwrap_or_else(|e| panic!("torus ∩ box (yang): {e:?}"));
@@ -300,6 +358,8 @@ fn box_intersect_torus_reconstructs_and_tessellates() {
     assert!(!mesh.indices.is_empty(), "non-empty render mesh");
     assert_render_watertight(&mesh, "torus ∩ box render");
     assert_band_on_surface(&mesh, "torus ∩ box render");
+    // Intersect ⊆ min(A, B): the kept chunk cannot exceed either operand.
+    assert_boolean_volume_bounds(BoolOp::Intersect, va, vb, render_volume(&mesh), 0.05);
 }
 
 /// A subtract that bites the tube AT the outer (φ=0) seam turns the surviving
@@ -347,6 +407,8 @@ fn contained_box_torus_band_renders_full_volume() {
     };
     let a = partial_torus_brep();
     let b = box_brep([1.95, 1.95, -0.3], [0.45, 0.45, 0.6]); // inside the tube
+    let va = yang_mesh_volume(a.as_mesh());
+    let vb = yang_mesh_volume(b.as_mesh());
     let out = yang_rs::boolean(&a, &b, BoolOp::Subtract, &backend).expect("torus − contained box");
     let mut arena = BrepArena::new();
     let solid = from_yang_brep(&mut arena, &out).expect("reconstruct");
@@ -354,26 +416,12 @@ fn contained_box_torus_band_renders_full_volume() {
     let mesh = tessellate(&arena, solid).expect("tessellate");
     assert_render_watertight(&mesh, "contained-box torus band");
     assert_band_on_surface(&mesh, "contained-box torus band");
-    // Signed volume: the tube (Pappus ≈ π/2·3·π·1² ≈ 14.8) minus the tiny box,
-    // chord-banded. The pre-fix thin sliver was ~0.5; require most of the tube.
-    let p = |i: u32| {
-        let k = (i as usize) * 3;
-        [
-            mesh.positions[k],
-            mesh.positions[k + 1],
-            mesh.positions[k + 2],
-        ]
-    };
-    let mut six = 0.0;
-    for t in mesh.indices.chunks_exact(3) {
-        let (a, b, c) = (p(t[0]), p(t[1]), p(t[2]));
-        six += a[0] * (b[1] * c[2] - b[2] * c[1])
-            + a[1] * (b[2] * c[0] - b[0] * c[2])
-            + a[2] * (b[0] * c[1] - b[1] * c[0]);
-    }
-    let vol = (six / 6.0).abs();
+    // Volume-conservation bound (subtract ⊆ A) PLUS a tight contained-box lower
+    // bound (≈ vol(A) − vol(B)). The pre-fix thin sliver (~0.5) fails both.
+    let vr = render_volume(&mesh);
+    assert_boolean_volume_bounds(BoolOp::Subtract, va, vb, vr, 0.05);
     assert!(
-        vol > 13.0,
-        "torus band under-covered: vol {vol} (expected ~14.7)"
+        vr > va - vb - 0.5,
+        "contained subtract removed too much: vr {vr} vs A {va} − B {vb}"
     );
 }
