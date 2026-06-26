@@ -999,9 +999,18 @@
 		wasSketchActive = sketchActive;
 	});
 
-	// Auto-fit camera when sketch grows beyond visible area (first sketch only)
+	// Largest sketch extent we have already auto-fit to this sketch session.
+	// The auto-fit below only fires when the geometry GROWS past this — never
+	// from the user's own zoom — so zooming into a small feature is not fought
+	// back out to keep the whole sketch on screen. Reset on leaving sketch mode.
+	let lastAutoFitExtent = 0;
+
+	// Auto-fit camera when newly drawn sketch geometry grows beyond the visible
+	// area. Gated on extent growth so a manual zoom-in (which only changes
+	// frustumHalf) never re-triggers a fit and the sketch can flow off screen.
 	$effect(() => {
-		if (!sketchActive || !cameraRef || !controlsRef) return;
+		if (!sketchActive) { lastAutoFitExtent = 0; return; }
+		if (!cameraRef || !controlsRef) return;
 		const positions = getSketchPositions();
 		const hasMeshes = getMeshes().length > 0;
 		if (hasMeshes || positions.size < 2) return;
@@ -1018,6 +1027,13 @@
 		const extentY = maxY - minY;
 		const maxExtent = Math.max(extentX, extentY);
 		if (maxExtent < 0.00001) return;
+
+		// Only fit when the geometry actually grew. A re-run triggered by the
+		// user's zoom (frustumHalf change) sees no growth and bails, so zoom-in
+		// past the sketch extents is allowed.
+		const grew = maxExtent > lastAutoFitExtent + 1e-9;
+		lastAutoFitExtent = Math.max(lastAutoFitExtent, maxExtent);
+		if (!grew) return;
 
 		// Calculate visible range at current camera distance
 		const dist = cameraRef.position.distanceTo(controlsRef.target);
