@@ -1,8 +1,10 @@
 # Yang/Cherchi Implementation Deviations Log
 
-**Purpose:** authoritative record of known divergences between the Yang 2025 hybrid B-Rep/mesh boolean pipeline as specified in the paper, and the implementation in `crates/kernel/`. Any deviation listed here MUST have either (a) a user sign-off with stated rationale, or (b) an active remediation tracked.
+**Purpose:** authoritative record of known divergences between the Yang 2025 hybrid B-Rep/mesh boolean pipeline as specified in the paper, and the implementation. (The `D*` entries reference the now-DELETED legacy `crates/kernel/`; the live pipeline is the `N*` new-crate series in `yang-rs`/`cherchi-rs`.) Any deviation listed here MUST have either (a) a user sign-off with stated rationale, or (b) an active remediation tracked.
 
 **Discipline:** per `CLAUDE.md` "Paper-Spec Compliance is MANDATORY," deviations are errors. Investigation on a component with an open deviation is blocked until either the deviation is fixed or signed off in writing.
+
+**Posture (2026-06-26):** user directive — implement Yang faithfully and *generally*; the assay is a regression detector, not the objective (do not prioritize work by score). The live faithfulness backlog and the general §4.5.5 plan are in `docs/yang_functional_roadmap.md` §0.1–0.2 + M8. Status notes since these entries were written: **N1 is RESOLVED** (native `cherchi-rs` arrangement replaced the sidecar, M6/M7 complete), which **unblocks N4** (§4.2.3 barycentric provenance is now implementable — the native arrangement can expose per-triangle provenance). The substantive open paper-faithfulness deviations are: general Stage-0 §4.5.5 (the keystone), **N4** (face provenance), **N2** (Stage-4 CDT mesh updating), **N5** (unified §4.1 discretization), **N6** (§4.5.4 self-intersection removal). **N7** (closed-form SSI) is signed off; NURBS is a deferred scope milestone.
 
 ---
 

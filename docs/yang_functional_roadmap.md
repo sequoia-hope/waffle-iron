@@ -7,50 +7,84 @@
 > disagree on sequencing, this roadmap wins; when this roadmap and the Yang 2025
 > paper disagree on *algorithm*, the paper wins (see `docs/yang_deviations.md`).
 
-## 0. Honest status
+## 0. Honest status (refreshed 2026-06-26)
 
-The kernel rewrite (tiered crates `cad-primitives` → `cherchi-rs`/`ssi-rs` →
-`yang-rs` → `kernel-v2`) has, after M0–M4 + 3 SSI increments, a **real but narrow
-working boolean** plus deep foundations:
+The kernel rewrite is **live in the app**. The legacy `crates/kernel/` is
+DELETED; the app, feature-engine, and all tests run on `kernel-v2` through the
+`Kernel`/`KernelIntrospect` traits, and the WASM bundle builds on **stable
+Rust**. M0–M7 are COMPLETE, the Phase-6 migration shipped (2026-06-11), and the
+curved-geometry stack (cylinder/cone/torus, partial+full revolve) is in
+production. The native `cherchi-rs` Stage 2 (arrangement + boolean labeling +
+clean-room indirect predicates, WASM-clean) is the production backend; the C++
+sidecar and the LGPL IP FFI are dev-only parity oracles. `ssi-rs` drives the
+exact analytical intersection curves.
 
-- `yang-rs`: **a functional boolean** — `boolean(brep_a, brep_b, op, backend)`
-  produces a correct, topologized B-Rep + mesh for **planar, convex** solids
-  (Union/Intersect/Subtract, **incl. holed faces / inner loops**, PR-YR5c). The
-  randomized box-boolean fuzz (900 cases, aligned + rotated) is **100% correct,
-  0 silent-wrong**. Real per-triangle labels flow from the patched sidecar.
-- `cherchi-sidecar-rs` (M2/M3): patched C++ `mesh_booleans` emitting a
-  `LabeledArrangement` (per-triangle labels + TBB-pinned determinism) — was the
-  interim Stage-2 producer; **demoted to a test-only parity oracle as of
-  PR-CR-BL3c** (yang-rs production backend = native `cherchi-rs`). **Native-only
-  (no WASM).**
-- `ssi-rs`: plane∩plane, plane∩sphere, sphere∩sphere, plane∩cylinder, and
-  plane∩cone (bounded) — 5 analytical solver families, on-surface-exact,
-  adversary-hardened. **Wired into yang Stage 3 as of PR-YR9** (plane∩cylinder
-  drives exact `cylinder ∪ box` intersection edges); the other pairs await their
-  consuming geometry.
-- `cherchi-rs`: pure-Rust predicates + `FastTrimesh`/`Tree` + the **full native
-  Stage 2** — arrangement (AR1–AR3b) + boolean labeling (BL1–BL3) +
-  `NativeBoolean`, parity-green vs the C++ sidecar (M6 ✅ COMPLETE,
-  PR-CR-BL3c 2026-06-10). **Pure Rust / WASM-clean since M7c (PR-CR-M7c,
-  2026-06-10):** every production predicate is the clean-room
-  `predicates::indirect` module; the subprocess sidecar and the IP FFI are
-  both test-only parity oracles now.
-- `indirect-predicates-sidecar-rs`: FFI to Attene's LGPL predicates;
-  intentionally non-WASM. **Dev-only since M7c** — a black-box differential
-  oracle for the clean-room predicates, no production consumer.
-- `kernel-v2`: **empty scaffold** — does NOT implement the `Kernel` trait. There
-  is **no path from a `.waffle`/feature tree to a yang-rs BRep** yet.
+So the foundations are deep and the boolean works across a broad range of real
+geometry. **What is NOT yet faithful to the paper is the remaining set of Yang
+deviations** (`docs/yang_deviations.md`) — and per the project's standing rule
+("Paper-Spec Compliance is MANDATORY; deviations are errors"), closing those, not
+chasing a score, is the work.
 
-**What this is NOT yet:** no curved geometry in the boolean path (planes only),
-no coplanar preprocessing (Stage 0), no non-convex tessellation, no `Kernel`-trait
-surface, native-only (no WASM). The legacy metrics (`yang_fast 12/157`, `1250/34`)
-measure *legacy* `crates/kernel/` — not new-kernel progress. The honest current
-new-kernel metric is the planar-convex box-boolean fuzz (**100%**).
+### 0.1 Posture (2026-06-26 directive): implement Yang faithfully; deviations are errors
 
-The shortest honest path to a first functional boolean is the M0–M8 milestones
-(§4); the full path to a kernel that **replaces legacy** is the Phase 1–6
-completion roadmap (§4b), which reconciles M5–M8 with the under-tracked
-`kernel-v2` driver + migration work.
+The plan of record is **the paper**. We implement what Yang 2025 describes,
+*generally*, not the narrowest special case that moves a metric. Two consequences
+that override older phrasing in this document:
+
+- **The assay is a regression detector, not a goal.** `SUPPORTED_CORRECT` counts
+  prove we didn't break working geometry and help localize failures; they are NOT
+  the target and we do NOT prioritize work by "which increment bumps the score."
+  A faithful Yang stage that lights up zero new corpus cases is still correct work
+  and ships; a score-chasing special case that papers over a structural deviation
+  does not. (This reframes the per-slice "assay N→M" framing throughout §4/§4b:
+  those numbers are history, not the objective.)
+- **General over piecemeal.** Where the paper gives one algorithm for a family of
+  cases (coplanarity, face provenance, mesh updating), we implement that one
+  algorithm — not a lattice of shape-specific handlers (planar-only,
+  opposite-normal-only, non-holed-only, single-pair-only) each with its own loud
+  wall. The piecemeal Stage-0 slices (YR25–27, disc/gear specializations) were
+  real machinery progress but are explicitly an interim scaffold to be subsumed by
+  the general §4.5.5 implementation below.
+
+### 0.2 Open paper-faithfulness deviations (the real backlog)
+
+These are the substantive divergences from Yang 2025 in the live `yang-rs`
+pipeline (full entries in `docs/yang_deviations.md`). They — not the assay — are
+the roadmap's remaining work:
+
+1. **Stage 0 §4.5.5 coplanarity is NOT general** (the keystone; see §4 M8 below).
+   Today a lattice of shape/normal-specific handlers ships and everything else
+   walls loud (`CoplanarFacesUnsupported`): same-normal overlaps, holed faces,
+   curved coplanar surfaces, a face in >1 pair, intra-solid near pairs. The paper
+   specifies ONE general 2D-Boolean-before-discretization with a single shared
+   trimmed surface and identical meshes for both models — **no same/opposite
+   distinction, any surface type** (§4.5.5; Fig. 16).
+2. **N4 — face provenance by centroid-proximity, not §4.2.3 barycentric
+   provenance.** Stage-6 attributes each kept triangle by centroid-in-plane
+   distance + a tolerance tier (`tol_for`). The paper maps each point to BOTH
+   surfaces via the arrangement's per-triangle barycentric coordinates. N4 is the
+   *structural root* of the `FaceResolutionFailed` fragility (and the
+   tolerance-band/unmasking churn). Its blocker (N1, sidecar-only solid-level
+   labels) is GONE now that the native arrangement is complete — so N4 is
+   actionable and should be done *with* the general Stage-0 work.
+3. **N2 — Stage-4 mesh updating is relocation-only (§4.4.1 CDT absent).** We
+   relocate existing intersection vertices; the paper does full CDT mesh updating
+   (split/merge/insert + per-triangle d(T) recompute). This is why Stage 4 hits
+   loud `DegenerateTriangle`/`LocalRefinementRequired` stops on harder coplanar
+   and curved configs.
+4. **N5 — Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2
+   CDT framework** (per-surface ad-hoc Newell fans / rim rings instead).
+5. **N6 — §4.5.4 illegal-self-intersection detection/removal is absent.**
+6. **Scope (deferred, signed off):** **N7** — Stage-3 SSI is exact closed-form
+   (`ssi-rs`) rather than Yang's Newton/geometric mesh optimization; this is a
+   *sound, superior* substitution for analytic surfaces (invariant A15) and the
+   correct choice — it only becomes a gap under NURBS. **NURBS/Bézier** (§4.1.1
+   subdivision, §4.1.2 NURBS-boundary CDT) is a separate architectural milestone.
+
+The shortest honest path to a first functional boolean was the M0–M8 milestones
+(§4); the path to a kernel that **replaced legacy** was the Phase 1–6 completion
+roadmap (§4b) — both now largely DONE. The path to a kernel that is **faithful to
+Yang** is closing the deviations above, led by the general Stage-0 program.
 
 ## 1. Thesis: decouple "functional Yang" from "native arrangement complete"
 
@@ -1538,6 +1572,40 @@ swapped every consumer to `predicates::indirect`).
   detection/removal** (deviation N6) — absent in the new crates; currently benign
   for analytic inputs (sidecar mesh validly trimmed + `check_watertight_2manifold`
   gate), to be added as a post-trim detector here.
+
+  > **Reframe (2026-06-26): M8 is now the GENERAL §4.5.5 program, not a lattice
+  > of special cases.** The slices below (a–e) built and shipped real machinery —
+  > the exact 2D overlay engine (YR25), its wiring into `boolean()` (YR26),
+  > Stage-6 hardening (YR27), the intra-solid plane-bit chained case (KV10), and
+  > the flat-disc∩polygon containment (M8-disc). They are kept as the historical
+  > record and the substrate to build on. But they are an **interim scaffold**:
+  > each handles a specific face shape / normal config and walls the rest. Per the
+  > §0.1 posture, the objective is now to implement §4.5.5 **once, generally**, and
+  > retire the shape-specific gates. The general algorithm (paper §4.5.5, Fig. 16;
+  > `refs/text/yang2025_hybrid_boolean.txt:716-760`):
+  >
+  > 1. **Detect every coplanar surface pair** between A and B (planar first; the
+  >    paper's method extends to coplanar curved surfaces — Fig. 24b's 24 coplanar
+  >    cylinders — via the same overlap-region machinery).
+  > 2. **2D Boolean of the overlapping trims, BEFORE discretization.** Segment the
+  >    coplanar region into three parts: A-only, B-only, and the overlap.
+  > 3. **Replace the overlap with ONE shared trimmed surface**, meshed
+  >    **identically for both models**; the overlap boundary becomes the
+  >    intersection curve; all three parts share identical boundary samples. No
+  >    same/opposite-normal branching — the result/keep rule is applied downstream
+  >    from in/out classification, not by special-casing the normal at Stage 0.
+  >
+  > **Done generally, this subsumes** same-normal overlaps, holed/multi-loop faces,
+  > a face in >1 pair (n-ary overlay), and curved coplanar pairs — all currently
+  > walled. **Co-requisite: deviation N4** (§4.2.3 barycentric per-triangle
+  > provenance). The current `tol_for` centroid-proximity attribution is the
+  > structural reason coplanar overlaps are fragile (multi-attributed overlap
+  > triangles can't be resolved by a single nearest plane); replacing it with the
+  > arrangement's intrinsic provenance removes the tolerance-band machinery and the
+  > "lift a gate → unmask a downstream tolerance bug" churn (the R0082 class). The
+  > general Stage-0 and N4 should land together. **The 6-mode same-normal campaign
+  > (`m8_samenormal_campaign.rs`) is the concrete first proving ground** for the
+  > general path — its modes are the downstream fixes the general overlap exposes.
   - **M8 slice a ✅ (PR-YR25, 2026-06-10): the EXACT 2D overlay engine**
     (`yang_rs::coplanar_overlay`, standalone — NOT yet wired into
     `boolean()`). Two polygons-with-holes in one shared-plane frame → ONE
