@@ -7,6 +7,7 @@ pub mod profiles;
 pub mod regions;
 pub mod roles;
 pub mod sketch;
+pub mod sketch_plane;
 pub mod topo;
 
 pub use gear::{
@@ -21,4 +22,5 @@ pub use profiles::extract_profiles;
 pub use regions::{compute_regions, union_regions, Region, RegionEdge};
 pub use roles::*;
 pub use sketch::*;
+pub use sketch_plane::SketchPlaneBasis;
 pub use topo::*;
