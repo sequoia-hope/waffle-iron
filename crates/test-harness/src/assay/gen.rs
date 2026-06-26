@@ -650,8 +650,22 @@ pub fn generate_case(master_seed: u64, index: usize) -> GeneratedCase {
     // Revolve operations sweep profiles around an axis, potentially creating
     // geometry with diameter much larger than the profile scale. Use a larger
     // multiplier when revolves are present.
+    //
+    // Gear profiles extend to the tooth TIP (addendum) radius, ~pitch·(1+2/teeth)
+    // — up to ~25% beyond the pitch radius the rest of the heuristic is scaled
+    // from — so a valid gear union can exceed the plain 3.0× envelope (e.g. R0082,
+    // a circle∪gear union, overshoots by ~2.7%). The bbox bound is a LOOSE
+    // sanity check (catch a units bug, not measure addendum), so widen it for
+    // gear cases rather than flag a geometrically-valid result as wrong.
     let has_revolve = op_metas.iter().any(|o| o.kind == "revolve");
-    let bbox_multiplier = if has_revolve { 10.0 } else { 3.0 };
+    let has_gear = op_metas.iter().any(|o| o.profile_type == "gear");
+    let bbox_multiplier = if has_revolve {
+        10.0
+    } else if has_gear {
+        4.0
+    } else {
+        3.0
+    };
     let max_bbox_extent = scale * bbox_multiplier;
 
     let meta = AssayMeta {

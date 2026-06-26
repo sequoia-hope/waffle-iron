@@ -6419,21 +6419,29 @@ fn cylinders_are_coincident(surf0: Surface, surf1: Surface, tol: f64) -> bool {
 /// remains the fallback. See [`provenance_face`].
 ///
 /// N4 helper: resolve a kept arrangement triangle's B-Rep face from cherchi's
-/// per-triangle provenance (`§4.2.3`), not geometric centroid-proximity. Returns
-/// `Some(face)` only when the triangle has a SINGLE parent whose provenance
-/// input agrees with the surface-derived `input` and whose parent triangle has a
-/// Stage-1 `tri_face` lineage. Returns `None` (→ geometric fallback) for a
-/// multi-source coplanar overlap sheet, a lineage-less input (`from_mesh` /
-/// boolean output), or any disagreement.
-fn provenance_face(source: &[(LaInputId, u32)], input_brep: &BRep, input: InputId) -> Option<u32> {
-    let &[(LaInputId(k), local)] = source else {
-        return None; // zero- or multi-source → not unambiguous; geometric path
+/// per-triangle provenance (`§4.2.3`), not geometric centroid-proximity.
+///
+/// The triangle is attributed to `surface_input` (A or B — the side the keep-rule
+/// kept it on; for a coplanar overlap sheet the §4.5.5 survivor convention picks
+/// A). We select that side's parent from `source` and resolve it through that
+/// input mesh's per-triangle face map (`tri_face_a` for A, `tri_face_b` for B).
+/// This handles BOTH a non-coplanar triangle (its only parent) AND a coplanar
+/// overlap sheet (the parent on the kept side). Returns `None` (→ geometric
+/// fallback) when that side has no parent in `source`, or the parent is beyond
+/// the face map (a Stage-0 path that did not emit provenance, or a lineage-less
+/// `from_mesh` / boolean-output input) — never a wrong face.
+fn provenance_face(
+    source: &[(LaInputId, u32)],
+    surface_input: InputId,
+    tri_face_a: &[u32],
+    tri_face_b: &[u32],
+) -> Option<u32> {
+    let (want_k, tf): (u32, &[u32]) = match surface_input {
+        InputId::A => (0, tri_face_a),
+        InputId::B => (1, tri_face_b),
     };
-    let src_input = if k == 0 { InputId::A } else { InputId::B };
-    if src_input != input {
-        return None; // defensive: provenance input disagrees with surface label
-    }
-    input_brep.tri_face().get(local as usize).copied()
+    let &(_, local) = source.iter().find(|&&(LaInputId(k), _)| k == want_k)?;
+    tf.get(local as usize).copied()
 }
 
 pub fn boolean(
@@ -6865,7 +6873,17 @@ pub fn boolean(
     }
     let kept_submesh = Mesh::new(compact_verts, compact_tris);
 
-    // (5) Stage 6: geometric face resolution → FULL attribution.
+    // (5) Stage 6: face resolution → FULL attribution. PRIMARY path is N4
+    // provenance (cherchi `source` → B-Rep face via the per-triangle face map);
+    // the geometric resolution below is the fallback. The face map is the
+    // inputs' OWN Stage-1 `tri_face` when Stage 0 did not re-tessellate, else the
+    // Stage-0 re-tessellated meshes' `tri_face` (`stage0::Stage0`). Either may be
+    // empty (a Stage-0 path that does not emit provenance yet, or a lineage-less
+    // input) → that triangle falls back to geometric.
+    let (tri_face_a, tri_face_b): (&[u32], &[u32]) = match &stage0 {
+        Some(s0) => (&s0.tri_face_a, &s0.tri_face_b),
+        None => (a.tri_face(), b.tri_face()),
+    };
     let mut attributions: Vec<Option<TriangleAttribution>> = Vec::with_capacity(orig_tri.len());
     for (compact_t, &orig_t) in orig_tri.iter().enumerate() {
         let surf = &la.surface[orig_t];
@@ -6888,16 +6906,15 @@ pub fn boolean(
             }
         };
 
-        // N4 (provenance, §4.2.3): when Stage 0 did NOT re-tessellate the inputs
-        // (so `mesh_a`/`mesh_b` ARE the inputs' own Stage-1 meshes and cherchi's
-        // `source` indices align with `tri_face`), attribute this kept triangle
-        // to its B-Rep face DIRECTLY from its parent input triangle — exact, no
-        // geometry, no tolerance. Falls through to the geometric resolution below
-        // for multi-source coplanar overlap sheets, lineage-less inputs, or any
-        // mismatch (empty `source` means a producer without provenance, e.g. the
-        // sidecar oracle → geometric).
-        if stage0.is_none() && !la.source.is_empty() {
-            if let Some(face) = provenance_face(&la.source[orig_t], input_brep, input) {
+        // N4 (provenance, §4.2.3): attribute this kept triangle to its B-Rep face
+        // DIRECTLY from its parent input triangle (cherchi `source` → `tri_face`)
+        // — exact, no geometry, no tolerance. Works for non-coplanar AND coplanar
+        // overlaps (the latter via the Stage-0 re-tessellated meshes' face maps).
+        // Falls through to the geometric resolution below only where provenance is
+        // unavailable: an empty `source` (a producer without provenance, e.g. the
+        // sidecar oracle), or a Stage-0 path / input that did not emit `tri_face`.
+        if !la.source.is_empty() {
+            if let Some(face) = provenance_face(&la.source[orig_t], input, tri_face_a, tri_face_b) {
                 attributions.push(Some(TriangleAttribution { input, face }));
                 continue;
             }

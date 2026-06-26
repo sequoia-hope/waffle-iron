@@ -135,6 +135,13 @@ pub(crate) struct Stage0 {
     pub(crate) mesh_a: Mesh,
     pub(crate) mesh_b: Mesh,
     pub(crate) pairs: Vec<PairPlane>,
+    /// N4 (2a): per-triangle → owning-face map for the RE-TESSELLATED `mesh_a` /
+    /// `mesh_b` (1:1 with their `tris`), so `boolean()` Stage-6 can attribute
+    /// coplanar-overlap triangles by provenance (cherchi `source` → face) rather
+    /// than geometric proximity. EMPTY for a producer that does not yet emit it
+    /// (the coincident-cylinder path) → those fall back to geometric attribution.
+    pub(crate) tri_face_a: Vec<u32>,
+    pub(crate) tri_face_b: Vec<u32>,
 }
 
 /// Diagnostic probe for M8 residue-distribution surveys: tags which
@@ -527,29 +534,29 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
 
     // ── Stage-1 re-tessellation with overrides + propagated splits ──────
     let report_pair = (scan.cross[0].face_a, scan.cross[0].face_b);
-    let mesh_a = build_stage0_mesh(a, &va, &overrides_a, &splits_a, &rim_overrides_a).map_err(
-        |e| match e {
+    let (mesh_a, tri_face_a) = build_stage0_mesh(a, &va, &overrides_a, &splits_a, &rim_overrides_a)
+        .map_err(|e| match e {
             BuildErr::Yang(y) => y,
             BuildErr::Unsupported => {
                 probe("build-mesh-a", &format!("pair={report_pair:?}"));
                 pair_err(report_pair.0, report_pair.1)
             }
-        },
-    )?;
-    let mesh_b = build_stage0_mesh(b, &vb, &overrides_b, &splits_b, &rim_overrides_b).map_err(
-        |e| match e {
+        })?;
+    let (mesh_b, tri_face_b) = build_stage0_mesh(b, &vb, &overrides_b, &splits_b, &rim_overrides_b)
+        .map_err(|e| match e {
             BuildErr::Yang(y) => y,
             BuildErr::Unsupported => {
                 probe("build-mesh-b", &format!("pair={report_pair:?}"));
                 pair_err(report_pair.0, report_pair.1)
             }
-        },
-    )?;
+        })?;
 
     Ok(Some(Stage0 {
         mesh_a,
         mesh_b,
         pairs,
+        tri_face_a,
+        tri_face_b,
     }))
 }
 
@@ -1814,13 +1821,17 @@ fn edge_split_curved_face(
 /// SNAPPED vertex coordinates, with overlay faces' triangles replaced by
 /// the overlay triangulation and split-edge neighbor faces re-triangulated
 /// with the subdivided boundary ring.
+/// Returns the re-tessellated mesh AND a per-output-triangle → owning-face map
+/// (`tri_face`, 1:1 with the mesh triangles) — the §4.2.3 provenance for the
+/// Stage-0 mesh, so `boolean()`'s Stage-6 can attribute coplanar-overlap
+/// triangles by provenance instead of geometric proximity (N4, increment 2a).
 fn build_stage0_mesh(
     brep: &BRep,
     final_coords: &[Point3],
     overrides: &BTreeMap<usize, Vec<[Point3; 3]>>,
     splits: &SplitMap,
     rim_overrides: &RimSplitMap,
-) -> Result<Mesh, BuildErr> {
+) -> Result<(Mesh, Vec<u32>), BuildErr> {
     let brep_verts: Vec<BRepVertex> = final_coords
         .iter()
         .map(|&p| BRepVertex { point: p })
@@ -1844,6 +1855,11 @@ fn build_stage0_mesh(
     }
 
     let mut tris: Vec<[u32; 3]> = Vec::with_capacity(tess.tris.len());
+    // Per output triangle, the B-Rep face index that produced it. Each face's
+    // triangles are appended contiguously below, so after every append we
+    // `resize` to the new `tris` length, filling the just-added slots with the
+    // current `f_idx` (resize leaves earlier entries untouched).
+    let mut tri_face: Vec<u32> = Vec::with_capacity(tess.tris.len());
     for (f_idx, f) in brep.faces().iter().enumerate() {
         if let Some(ov_tris) = overrides.get(&f_idx) {
             for tri in ov_tris {
@@ -1853,6 +1869,7 @@ fn build_stage0_mesh(
                 }
                 tris.push(t);
             }
+            tri_face.resize(tris.len(), f_idx as u32);
             continue;
         }
 
@@ -1866,6 +1883,7 @@ fn build_stage0_mesh(
             });
         if !face_split {
             tris.extend_from_slice(&tess.tris[tess.face_tri_ranges[f_idx].clone()]);
+            tri_face.resize(tris.len(), f_idx as u32);
             continue;
         }
 
@@ -1887,6 +1905,7 @@ fn build_stage0_mesh(
                 edge_split_curved_face(brep, f_idx, &tess, splits, &mut verts, &mut intern)
             {
                 tris.extend(face_tris);
+                tri_face.resize(tris.len(), f_idx as u32);
                 continue;
             }
             probe("build-mesh-nonplanar", &format!("f={f_idx}"));
@@ -1905,6 +1924,7 @@ fn build_stage0_mesh(
                 edge_split_curved_face(brep, f_idx, &tess, splits, &mut verts, &mut intern)
             {
                 tris.extend(face_tris);
+                tri_face.resize(tris.len(), f_idx as u32);
                 continue;
             }
             probe(
@@ -1951,9 +1971,11 @@ fn build_stage0_mesh(
                 BuildErr::Unsupported
             })?;
         tris.extend(ring_tris);
+        tri_face.resize(tris.len(), f_idx as u32);
     }
 
-    Ok(Mesh::new(verts, tris))
+    debug_assert_eq!(tri_face.len(), tris.len(), "tri_face 1:1 with stage0 tris");
+    Ok((Mesh::new(verts, tris), tri_face))
 }
 
 /// Get-or-append a mesh vertex by bit-exact coordinates.
@@ -2671,6 +2693,12 @@ pub(crate) fn coincident_cylinder_stage0(a: &BRep, b: &BRep) -> Result<Option<St
         mesh_a,
         mesh_b,
         pairs: Vec::new(),
+        // The coincident-cylinder builder does not yet emit a per-triangle face
+        // map; leave empty so Stage-6 keeps geometric attribution for these
+        // (the existing coincident-cylinder membrane path). 2a covers the planar
+        // Stage-0; the cylinder path is a later increment.
+        tri_face_a: Vec::new(),
+        tri_face_b: Vec::new(),
     }))
 }
 
