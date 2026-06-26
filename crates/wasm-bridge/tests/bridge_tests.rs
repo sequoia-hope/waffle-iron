@@ -84,6 +84,7 @@ fn make_extrude_op(sketch_id: Uuid) -> Operation {
             depth_mode: feature_engine::types::DepthMode::Blind,
             second_direction: None,
             region: None,
+            regions: Vec::new(),
         },
     }
 }
@@ -580,7 +581,14 @@ fn dispatch_solve_sketch_returns_solved() {
     );
 
     // Solve
-    let response = wasm_bridge::dispatch(&mut state, UiToEngine::SolveSketch { entities: None, constraints: None }, &mut kernel);
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::SolveSketch {
+            entities: None,
+            constraints: None,
+        },
+        &mut kernel,
+    );
     if let EngineToUi::SketchSolved { solved } = &response {
         // Should have positions for all 4 points
         assert_eq!(solved.positions.len(), 4);
@@ -598,7 +606,14 @@ fn dispatch_solve_without_sketch_returns_error() {
     let mut state = EngineState::new();
     let mut kernel = MockKernel::new();
 
-    let response = wasm_bridge::dispatch(&mut state, UiToEngine::SolveSketch { entities: None, constraints: None }, &mut kernel);
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::SolveSketch {
+            entities: None,
+            constraints: None,
+        },
+        &mut kernel,
+    );
     assert!(matches!(response, EngineToUi::Error { .. }));
 }
 
@@ -864,7 +879,14 @@ fn dispatch_solve_sketch_checks_all_4_corners() {
     );
 
     // Solve
-    let response = wasm_bridge::dispatch(&mut state, UiToEngine::SolveSketch { entities: None, constraints: None }, &mut kernel);
+    let response = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::SolveSketch {
+            entities: None,
+            constraints: None,
+        },
+        &mut kernel,
+    );
     if let EngineToUi::SketchSolved { solved } = &response {
         assert_eq!(solved.positions.len(), 4, "Should have 4 solved positions");
 
@@ -987,6 +1009,7 @@ fn dispatch_export_step_with_solid_reaches_kernel() {
                     depth_mode: feature_engine::types::DepthMode::Blind,
                     second_direction: None,
                     region: None,
+                    regions: Vec::new(),
                 },
             },
         },

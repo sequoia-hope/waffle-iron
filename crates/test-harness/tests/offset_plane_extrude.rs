@@ -49,11 +49,23 @@ fn extrude_on_z_offset_plane_lands_at_offset() {
     let (mn, mx) = extrude_bbox([0.0, 0.0, 5.0], [0.0, 0.0, 1.0], 0.0, 0.0, 10.0, 10.0, 3.0);
     // Near cap sits ON the sketch plane (z = 5), far cap at z = 8 — NOT at the
     // origin (the reported "body at z=0 while sketch at z=5" symptom).
-    assert!((mn[2] - 5.0).abs() < EPS, "near cap z {} != 5 (offset dropped?)", mn[2]);
+    assert!(
+        (mn[2] - 5.0).abs() < EPS,
+        "near cap z {} != 5 (offset dropped?)",
+        mn[2]
+    );
     assert!((mx[2] - 8.0).abs() < EPS, "far cap z {} != 8", mx[2]);
     // In-plane extent is the 10×10 rectangle (basis for +Z: x∈[0,10], y∈[-10,0]).
-    assert!((mx[0] - mn[0] - 10.0).abs() < EPS, "x extent {}", mx[0] - mn[0]);
-    assert!((mx[1] - mn[1] - 10.0).abs() < EPS, "y extent {}", mx[1] - mn[1]);
+    assert!(
+        (mx[0] - mn[0] - 10.0).abs() < EPS,
+        "x extent {}",
+        mx[0] - mn[0]
+    );
+    assert!(
+        (mx[1] - mn[1] - 10.0).abs() < EPS,
+        "y extent {}",
+        mx[1] - mn[1]
+    );
 }
 
 #[test]
@@ -66,20 +78,34 @@ fn extrude_offset_matches_base_shifted_along_normal() {
         assert!((on[k] - bn[k]).abs() < EPS, "in-plane min axis {k} moved");
         assert!((ox[k] - bx[k]).abs() < EPS, "in-plane max axis {k} moved");
     }
-    assert!((on[2] - (bn[2] + 5.0)).abs() < EPS, "offset not applied along normal");
+    assert!(
+        (on[2] - (bn[2] + 5.0)).abs() < EPS,
+        "offset not applied along normal"
+    );
 }
 
 #[test]
 fn extrude_in_plane_offset_rect_keeps_position() {
     // An off-origin rectangle (corner at u=50,v=50) must extrude there, not at
     // the sketch origin — guards the in-plane-shift symptom.
-    let (mn, mx) = extrude_bbox([0.0, 0.0, 5.0], [0.0, 0.0, 1.0], 50.0, 50.0, 10.0, 10.0, 3.0);
+    let (mn, mx) = extrude_bbox(
+        [0.0, 0.0, 5.0],
+        [0.0, 0.0, 1.0],
+        50.0,
+        50.0,
+        10.0,
+        10.0,
+        3.0,
+    );
     // For the +Z basis (x = +X-from-normal gives x∈[u,u+w] shifted): just assert
     // the in-plane box is 10×10 and NOT centred on the origin.
     assert!((mx[0] - mn[0] - 10.0).abs() < EPS);
     assert!((mx[1] - mn[1] - 10.0).abs() < EPS);
     let centred_on_origin = mn[0] <= 0.0 && mx[0] >= 0.0 && mn[1] <= 0.0 && mx[1] >= 0.0;
-    assert!(!centred_on_origin, "off-origin rect collapsed to the sketch origin");
+    assert!(
+        !centred_on_origin,
+        "off-origin rect collapsed to the sketch origin"
+    );
     assert!((mn[2] - 5.0).abs() < EPS, "near cap off the plane");
 }
 
@@ -101,14 +127,33 @@ fn small_offorigin_square_on_primary_plane_lines_up() {
     );
     // Square is 3mm on a side, sitting 5–8mm from the origin in-plane — it must
     // NOT collapse onto the sketch origin.
-    assert!((mx[0] - mn[0] - 0.003).abs() < 1e-7, "x extent {} != 3mm", mx[0] - mn[0]);
-    assert!((mx[1] - mn[1] - 0.003).abs() < 1e-7, "y extent {} != 3mm", mx[1] - mn[1]);
+    assert!(
+        (mx[0] - mn[0] - 0.003).abs() < 1e-7,
+        "x extent {} != 3mm",
+        mx[0] - mn[0]
+    );
+    assert!(
+        (mx[1] - mn[1] - 0.003).abs() < 1e-7,
+        "y extent {} != 3mm",
+        mx[1] - mn[1]
+    );
     let touches_origin = mn[0] <= 1e-9 && mx[0] >= -1e-9 && mn[1] <= 1e-9 && mx[1] >= -1e-9;
-    assert!(!touches_origin, "off-origin square collapsed toward the sketch origin: bbox {mn:?}..{mx:?}");
+    assert!(
+        !touches_origin,
+        "off-origin square collapsed toward the sketch origin: bbox {mn:?}..{mx:?}"
+    );
     // Both in-plane corners are ≥5mm out from the origin (sign depends on basis).
-    assert!(mn[0].abs() >= 0.005 - 1e-7 && mn[1].abs() >= 0.005 - 1e-7, "square not offset from origin");
+    assert!(
+        mn[0].abs() >= 0.005 - 1e-7 && mn[1].abs() >= 0.005 - 1e-7,
+        "square not offset from origin"
+    );
     // Near cap on the plane (z = 0), far cap at the 2mm depth.
-    assert!((mn[2]).abs() < 1e-7 && (mx[2] - 0.002).abs() < 1e-7, "z range {}..{}", mn[2], mx[2]);
+    assert!(
+        (mn[2]).abs() < 1e-7 && (mx[2] - 0.002).abs() < 1e-7,
+        "z range {}..{}",
+        mn[2],
+        mx[2]
+    );
 }
 
 #[test]
@@ -116,10 +161,26 @@ fn extrude_on_top_and_right_builtin_planes_line_up() {
     // Non-Z normals exercise the basis (tangent_x_from_normal). The extrude must
     // grow ALONG the normal and keep the 10×10 face in-plane.
     let (mn, mx) = extrude_bbox([0.0, 5.0, 0.0], [0.0, 1.0, 0.0], 0.0, 0.0, 10.0, 10.0, 3.0);
-    assert!((mn[1] - 5.0).abs() < EPS, "Top-offset near cap y {} != 5", mn[1]);
-    assert!((mx[1] - 8.0).abs() < EPS, "Top-offset far cap y {} != 8", mx[1]);
+    assert!(
+        (mn[1] - 5.0).abs() < EPS,
+        "Top-offset near cap y {} != 5",
+        mn[1]
+    );
+    assert!(
+        (mx[1] - 8.0).abs() < EPS,
+        "Top-offset far cap y {} != 8",
+        mx[1]
+    );
 
     let (mn, mx) = extrude_bbox([7.0, 0.0, 0.0], [1.0, 0.0, 0.0], 0.0, 0.0, 10.0, 10.0, 3.0);
-    assert!((mn[0] - 7.0).abs() < EPS, "Right-offset near cap x {} != 7", mn[0]);
-    assert!((mx[0] - 10.0).abs() < EPS, "Right-offset far cap x {} != 10", mx[0]);
+    assert!(
+        (mn[0] - 7.0).abs() < EPS,
+        "Right-offset near cap x {} != 7",
+        mn[0]
+    );
+    assert!(
+        (mx[0] - 10.0).abs() < EPS,
+        "Right-offset far cap x {} != 10",
+        mx[0]
+    );
 }

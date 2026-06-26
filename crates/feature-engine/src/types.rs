@@ -181,6 +181,14 @@ pub struct ExtrudeParams {
     /// selections leave this `None` and use `profile_index` (analytical path).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub region: Option<waffle_types::Region>,
+    /// Multiple selected sub-regions extruded as ONE body. When ≥2, their 2D
+    /// footprints are unioned in the sketch plane into merged faces BEFORE the
+    /// extrude, so adjacent regions with shared/coplanar side walls merge
+    /// cleanly without a 3D boolean (which would hit the Yang Stage-0 coplanar
+    /// wall). Empty for single-region (`region`) / whole-profile (`profile_index`)
+    /// extrudes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub regions: Vec<waffle_types::Region>,
 }
 
 /// Parameters for a revolve operation.

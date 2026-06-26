@@ -397,34 +397,76 @@ fn execute_feature(
 
             let x_axis = tangent_x_from_normal(sketch.plane_normal);
 
-            // A genuine sub-region of overlapping shapes (annulus, lens, …)
-            // carries an explicit boundary that no whole-loop profile_index
-            // denotes — build its face directly. Otherwise use the profile list
-            // (the analytical path: Profile::circle / exact loops).
-            let face_id = if let Some(region) = &params.region {
-                kb.make_face_from_region(region, face_origin, sketch.plane_normal, x_axis)?
-            } else {
-                let face_ids = kb.make_faces_from_profiles(
-                    &sketch.solved_profiles,
-                    face_origin,
-                    sketch.plane_normal,
-                    x_axis,
-                    &sketch.solved_positions,
-                )?;
-
-                if face_ids.is_empty() {
-                    return Err(EngineError::ProfileOutOfRange {
-                        index: params.profile_index,
-                        count: 0,
+            // Multi-region selection: the user picked ≥2 sketch regions to extrude
+            // as ONE body. Union their 2D footprints FIRST (sketch plane), so
+            // adjacent regions with shared / coplanar side walls merge into one
+            // clean face — NO 3D boolean, hence no Yang Stage-0 coplanar wall. The
+            // union yields one region per connected component; each becomes its own
+            // face and the (now provably DISJOINT) component solids are unioned (a
+            // disjoint union has no coplanar contact, so it always succeeds).
+            let extrude_result = if params.regions.len() >= 2 {
+                let merged = waffle_types::union_regions(&params.regions);
+                if merged.is_empty() {
+                    return Err(EngineError::ResolutionFailed {
+                        reason: "multi-region extrude: 2D union produced no area".into(),
                     });
                 }
+                let mut acc: Option<OpResult> = None;
+                for region in &merged {
+                    let fid =
+                        kb.make_face_from_region(region, face_origin, sketch.plane_normal, x_axis)?;
+                    let res = execute_extrude(kb, fid, extrude_direction, extrude_depth, None)?;
+                    acc = Some(match acc {
+                        None => res,
+                        Some(prev) => {
+                            let a = prev
+                                .outputs
+                                .first()
+                                .map(|(_, b)| b.handle.clone())
+                                .ok_or_else(|| EngineError::ResolutionFailed {
+                                    reason: "multi-region extrude: empty solid".into(),
+                                })?;
+                            let b = res
+                                .outputs
+                                .first()
+                                .map(|(_, b)| b.handle.clone())
+                                .ok_or_else(|| EngineError::ResolutionFailed {
+                                    reason: "multi-region extrude: empty solid".into(),
+                                })?;
+                            execute_boolean(kb, &a, &b, BooleanKind::Union)?
+                        }
+                    });
+                }
+                acc.expect("merged is non-empty")
+            } else {
+                // A genuine sub-region of overlapping shapes (annulus, lens, …)
+                // carries an explicit boundary that no whole-loop profile_index
+                // denotes — build its face directly. Otherwise use the profile list
+                // (the analytical path: Profile::circle / exact loops).
+                let face_id = if let Some(region) = &params.region {
+                    kb.make_face_from_region(region, face_origin, sketch.plane_normal, x_axis)?
+                } else {
+                    let face_ids = kb.make_faces_from_profiles(
+                        &sketch.solved_profiles,
+                        face_origin,
+                        sketch.plane_normal,
+                        x_axis,
+                        &sketch.solved_positions,
+                    )?;
 
-                let face_index = params.profile_index.min(face_ids.len() - 1);
-                face_ids[face_index]
+                    if face_ids.is_empty() {
+                        return Err(EngineError::ProfileOutOfRange {
+                            index: params.profile_index,
+                            count: 0,
+                        });
+                    }
+
+                    let face_index = params.profile_index.min(face_ids.len() - 1);
+                    face_ids[face_index]
+                };
+
+                execute_extrude(kb, face_id, extrude_direction, extrude_depth, None)?
             };
-
-            let extrude_result =
-                execute_extrude(kb, face_id, extrude_direction, extrude_depth, None)?;
 
             if params.cut {
                 // Find the target body to subtract from (most recent solid before this feature)
@@ -1951,6 +1993,7 @@ mod tests {
                             depth_mode: crate::types::DepthMode::Blind,
                             second_direction: None,
                             region: None,
+                            regions: Vec::new(),
                         },
                     },
                     suppressed: false,

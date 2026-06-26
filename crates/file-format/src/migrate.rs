@@ -361,6 +361,7 @@ mod tests {
                         depth_mode: DepthMode::Blind,
                         second_direction: Some(SecondDirection::Blind { depth: 5.0 }),
                         region: None,
+                        regions: Vec::new(),
                     },
                 },
                 suppressed: false,

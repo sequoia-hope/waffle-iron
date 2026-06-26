@@ -2915,6 +2915,19 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 			? JSON.parse(JSON.stringify(region.region))
 			: null;
 
+	// Multi-region selection: every selected region (on the same sketch) that
+	// carries an explicit boundary is sent so the engine unions their 2D
+	// footprints into one body. ≥2 triggers the union path; adjacent regions
+	// with shared/coplanar walls then merge cleanly (no 3D coplanar boolean).
+	// Deep-clone to strip Svelte 5 $state proxies (postMessage can't clone them).
+	const sameSketchRegions = regions.filter(
+		(r) => (r.sketchId ?? extrudeDialogState.sketchId) === effectiveSketchId && r.region
+	);
+	const multiRegions =
+		sameSketchRegions.length >= 2
+			? JSON.parse(JSON.stringify(sameSketchRegions.map((r) => r.region)))
+			: [];
+
 	const { depthMode = 'Blind', secondDir = 'None', secondDepth = 10, flipDirection = false } = opts;
 
 	const depth_mode = { type: depthMode };
@@ -2956,7 +2969,8 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 			target_body: null,
 			depth_mode,
 			second_direction,
-			region: subRegion
+			region: subRegion,
+			regions: multiRegions
 		}
 	};
 

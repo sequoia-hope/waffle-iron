@@ -18,7 +18,7 @@ pub use gear_planetary::{
 };
 pub use geom_ref::*;
 pub use profiles::extract_profiles;
-pub use regions::{compute_regions, Region, RegionEdge};
+pub use regions::{compute_regions, union_regions, Region, RegionEdge};
 pub use roles::*;
 pub use sketch::*;
 pub use topo::*;

@@ -32,6 +32,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use i_overlay::core::fill_rule::FillRule;
+use i_overlay::float::simplify::SimplifyShape;
 use i_overlay::float::slice::FloatSlice;
 
 use crate::sketch::SketchEntity;
@@ -215,6 +216,72 @@ pub fn compute_regions(
         });
     }
     regions
+}
+
+/// Union a set of regions (in sketch UV coordinates) into their merged
+/// connected components.
+///
+/// Used by the extrude path when the user selects MULTIPLE regions. Rather than
+/// building each as a separate prism and 3D-boolean-unioning them — which would
+/// hit the coplanar shared/aligned side walls of adjacent regions (the Yang
+/// Stage-0 / M8 wall) — we merge their 2D footprints FIRST, so each connected
+/// component extrudes as ONE clean face with no internal wall and no 3D boolean.
+///
+/// Returns one [`Region`] per connected component (outer + holes). The result is
+/// polygon-only: arc/curve recovery (`outer_edges`/`hole_edges`) is dropped, so
+/// merged curved walls fall back to their tessellated polygon. `profile_entity_ids`
+/// is always `None` (a merge never equals a single whole-loop profile).
+pub fn union_regions(regions: &[Region]) -> Vec<Region> {
+    // Collect every region's contours under i_overlay's winding convention
+    // (outer CCW, holes CW — the same convention `Region` already stores). A
+    // NonZero fill over the whole set unions overlapping/adjacent outers and
+    // keeps holes as voids.
+    let mut contours: Vec<Vec<[f64; 2]>> = Vec::new();
+    for r in regions {
+        if r.outer.len() >= 3 {
+            contours.push(r.outer.iter().map(|&(x, y)| [x, y]).collect());
+        }
+        for h in &r.holes {
+            if h.len() >= 3 {
+                contours.push(h.iter().map(|&(x, y)| [x, y]).collect());
+            }
+        }
+    }
+    if contours.is_empty() {
+        return Vec::new();
+    }
+
+    let shapes = contours.simplify_shape(FillRule::NonZero);
+
+    let mut out = Vec::new();
+    for shape in &shapes {
+        if shape.is_empty() {
+            continue;
+        }
+        let outer = contour_to_uv(&shape[0]);
+        if outer.len() < 3 {
+            continue;
+        }
+        let holes: Vec<Vec<(f64, f64)>> = shape[1..]
+            .iter()
+            .map(|c| contour_to_uv(c))
+            .filter(|h| h.len() >= 3)
+            .collect();
+        let hole_area: f64 = holes.iter().map(|h| polygon_area_abs(h)).sum();
+        let area = (polygon_area_abs(&outer) - hole_area).max(0.0);
+        if area <= AREA_EPS {
+            continue;
+        }
+        out.push(Region {
+            outer,
+            holes,
+            area,
+            profile_entity_ids: None,
+            outer_edges: Vec::new(),
+            hole_edges: Vec::new(),
+        });
+    }
+    out
 }
 
 // ── true-curve recovery ─────────────────────────────────────────────────────
