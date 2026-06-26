@@ -43,7 +43,35 @@
 //!
 //! | Mode | Cases | Fix |
 //! |------|-------|-----|
-//! | Stage-6 scale-relative planar attribution tol (non-pair planar face of a curved input; centroid ~1e-12 off plane vs absolute TAU_WORK at model scale) | R0013, R0024 | extend the 707aad7f pair-plane scale-relative band to non-pair planar faces |
+//! | Stage-6 scale-relative planar attribution tol (non-pair planar face; centroid ~1.2e-12 off plane at coord magnitude ~23 — the exact `n·c + d` residual exceeds absolute TAU_WORK once coordinates leave unit scale) | R0013, R0024 | **fix identified — BLOCKED, see note** |
+//!
+//! ### Mode-1 finding (2026-06-26): the planar scale-band fix is correct but UNSHIPPABLE standalone
+//!
+//! The fix is real: give a non-pair `Surface::Plane` face in Stage-6 `tol_for` a
+//! scale-relative membership band `TAU_WORK · max(|coord|, 1)` (the planar analog
+//! of the 707aad7f pair-plane band). Under the dev wall it makes R0013 + R0024
+//! pass the FULL oracle gauntlet, and in the production assay it correctly
+//! converts R0073 ERROR→SUPPORTED_CORRECT.
+//!
+//! BUT the same change converts **R0082 ERROR→SUPPORTED_WRONG** (2.6%-oversized
+//! bbox — the exact silent-wrong this harness was built to catch). Root cause
+//! (instrumented, not guessed): R0082's non-pair planar cap triangles are
+//! admitted correctly (`dist≈1.1e-12, strictly_inside=Some(true)`, identical
+//! signature to R0013/R0024), which lets the boolean COMPLETE past the planar
+//! `FaceResolutionFailed` it previously died on — UNMASKING a pre-existing
+//! curved-union defect: tris 26–51 attribute to a radius-185 cylinder face at
+//! `dist=4.788` (within the chord band) with `in_cyl=Some(true)`, so
+//! finite-extent containment cannot reject them. The oversized result is inherent
+//! to R0082's curved geometry, NOT the planar attribution.
+//!
+//! There is no principled discriminator between R0013/R0024's planar residuals
+//! and R0082's (same magnitude, same `Some(true)` containment), so the planar
+//! band cannot admit one set while keeping the other loud. Per P9/P10 a loud
+//! error must never become a silent-wrong, so Mode-1 stays RED until R0082's
+//! unmasked curved-union bbox defect is resolved (or R0082's `max_bbox_extent`
+//! oracle is proven too tight). Landing order: fix/triage R0082 FIRST, then the
+//! one-line planar band lands cleanly. Reproduce with `YANG_M8_PROBE=1` on a
+//! Stage-6 band-tier dump.
 //! | Stage-4 relocation `DegenerateTriangle` | R0021 | §4.5.3 region repair |
 //! | Stage-3 SSI `AmbiguousCurve` (cyl∩plane near-tangency → 2 near-coincident parallel lines; tangent discriminator can't separate parallels) | R0072 | add a POSITION tie-break for parallel-line candidates |
 //! | kernel-v2 azimuth-merge rims disagree (reassembly) | R0078 | rim-merge robustness |
