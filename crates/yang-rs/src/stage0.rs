@@ -369,28 +369,22 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         let rim_cross_a = !rim_a.is_empty() && rim_subdivided(&poly_a, &overlay);
         let rim_cross_b = !rim_b.is_empty() && rim_subdivided(&poly_b, &overlay);
 
-        // SCOPE GATE — only OPPOSITE-normal disc∩polygon crossings route
-        // through. Same-normal makes equal-winding overlap copies meet edge-on
-        // → assorted downstream failures (Stage-3 SSI ambiguity, Stage-4
-        // relocation, Stage-6 scale-relative attribution, cherchi loops); keep
-        // it the fast loud coplanar residue.
-        //
-        // M8 SAME-NORMAL CAMPAIGN dev harness: the production default is the
-        // loud wall (P9 — never a wrong result). Setting `YANG_M8_SAMENORMAL_DEV`
-        // lifts the wall so the per-mode downstream fixes can be developed
-        // against the RED campaign tests in
-        // `crates/test-harness/tests/m8_samenormal_campaign.rs`. Production
-        // behaviour (env unset) is BYTE-IDENTICAL to the pre-harness wall. When
-        // all in-scope modes are GREEN this gate is replaced by a per-pair
-        // safety predicate (or removed). See `kernel_v2_m8_coplanar_landscape`.
+        // SAME-NORMAL disc∩polygon crossings now route through the SAME path as
+        // opposite-normal (the M8 same-normal wall is LIFTED, 2b). Two things made
+        // this safe: (1) N4 provenance attribution dissolved the Stage-6
+        // `FaceResolutionFailed` mode that the wall guarded against (R0013/R0024
+        // now build correctly end-to-end); (2) the remaining same-normal modes
+        // (Stage-3 SSI ambiguity, Stage-4 relocation, kernel-v2 azimuth-merge,
+        // residual second-pair) all fail LOUD at their own stage — P9-safe, never
+        // a wrong result — so the downstream validations are the safety net, not
+        // a blanket Stage-0 wall. The `YANG_M8_SAMENORMAL_DEV` env (previously the
+        // dev-only lift) is now a no-op; the campaign tests still document each
+        // remaining mode. The `probe` is kept for the M8 residue survey.
         if (rim_cross_a || rim_cross_b) && !opposite {
             probe(
                 "disc-crossing-same-normal",
                 &format!("pair=({},{})", p.face_a, p.face_b),
             );
-            if std::env::var_os("YANG_M8_SAMENORMAL_DEV").is_none() {
-                return Err(pair_err(p.face_a, p.face_b));
-            }
         }
 
         // Tessellated rim points (f64 in-frame u,v → 3D), for the near-snap

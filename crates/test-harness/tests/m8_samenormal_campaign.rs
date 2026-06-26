@@ -225,16 +225,19 @@ fn assert_correct(case_id: &str) {
     );
 }
 
-// ── Mode 1: Stage-6 scale-relative planar attribution tolerance ────────────
+// ── Mode 1: Stage-6 attribution — GREEN (N4 provenance, 2026-06-26) ─────────
+// The Stage-6 `FaceResolutionFailed`/tolerance mode is DISSOLVED: face
+// attribution is now provenance-based (cherchi `source` → B-Rep face), not
+// geometric centroid-proximity, so these build correctly end to end. The
+// same-normal Stage-0 wall is LIFTED in production (the env in `replay_failures`
+// is now a no-op), so R0013/R0024 are production-SUPPORTED — un-ignored.
 
 #[test]
-#[ignore = "M8 same-normal RED (Stage-6 scale-relative planar tol): GREEN when non-pair planar faces of a curved input use a scale-relative membership band"]
 fn red_r0013_stage6_planar_tol() {
     assert_correct("R0013");
 }
 
 #[test]
-#[ignore = "M8 same-normal RED (Stage-6 scale-relative planar tol): GREEN when non-pair planar faces of a curved input use a scale-relative membership band"]
 fn red_r0024_stage6_planar_tol() {
     assert_correct("R0024");
 }
@@ -292,27 +295,28 @@ fn red_f0061_residual_pair() {
     assert_correct("F0061");
 }
 
-// ── Harness self-check (always on) ─────────────────────────────────────────
+// ── Wall-lifted self-check (always on) ─────────────────────────────────────
 
-/// The harness itself must work: with the dev env lifted, a same-normal case
-/// must get PAST the Stage-0 coplanar wall (i.e. its failure is now a
-/// downstream mode, NOT the `coplanar input face pair` wall). This guards
-/// against the env toggle silently breaking. It does NOT require the case to
-/// succeed — only that the wall is actually lifted.
+/// The same-normal Stage-0 wall is LIFTED in production (2b). A still-RED
+/// same-normal case (R0021) must therefore get PAST the Stage-0 coplanar wall —
+/// its failure is a downstream mode (Stage-4 relocation), NOT the
+/// `coplanar input face pair` wall. This guards against the wall silently
+/// re-appearing. It does NOT require the case to succeed — only that the wall is
+/// gone. (If R0021 starts passing, repoint this to another still-RED case.)
 #[test]
-fn harness_lifts_the_wall() {
-    let failures = replay_failures("R0013");
+fn wall_is_lifted_for_same_normal() {
+    let failures = replay_failures("R0021");
     assert!(
         !failures.is_empty(),
-        "expected R0013 to still be RED (not yet oracle-correct); if it now \
-         passes, un-ignore red_r0013_stage6_planar_tol and repoint this check"
+        "expected R0021 to still be RED (Stage-4 relocation); if it now passes, \
+         un-ignore red_r0021_stage4_relocation and repoint this check"
     );
     assert!(
         !failures
             .iter()
             .any(|f| f.contains("coplanar input face pair")),
-        "harness BROKEN: the same-normal wall was NOT lifted by \
-         YANG_M8_SAMENORMAL_DEV — R0013 still hit the Stage-0 coplanar wall:\n  {}",
+        "the same-normal Stage-0 wall has re-appeared — R0021 hit the Stage-0 \
+         coplanar wall instead of its downstream mode:\n  {}",
         failures.join("\n  ")
     );
 }
