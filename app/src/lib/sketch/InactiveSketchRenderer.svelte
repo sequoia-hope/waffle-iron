@@ -96,10 +96,14 @@
 			const normal = sketch.plane_normal || [0, 0, 1];
 			const plane = buildSketchPlane(origin, normal);
 
-			// Reconstruct positions from Point entities — solved_positions
-			// is not serialized from Rust (skip_serializing), so we mirror
-			// the Rust recompute_derived() logic here. Gear entities are replaced
-			// by their cached display expansion (curves + positions).
+			// Position source = the solver output (`solved_positions`), the
+			// engine's authoritative geometry truth (A2.1/A5.2). Raw `entity.x/y`
+			// is pre-solve drawn scratch and renders a finished sketch in the
+			// wrong place/shape (the active-sketch renderer already uses live
+			// solver output, which is why edit mode looked correct and finish did
+			// not). Fall back to raw only for a point with no solved entry yet.
+			// Gear entities are replaced by their cached display expansion.
+			const solved = sketch.solved_positions || {};
 			const entities = [];
 			const positions = new Map();
 			for (const entity of (sketch.entities || [])) {
@@ -112,7 +116,8 @@
 				} else {
 					entities.push(entity);
 					if (entity.type === 'Point' && entity.id != null) {
-						positions.set(entity.id, { x: entity.x, y: entity.y });
+						const sp = solved[entity.id];
+						positions.set(entity.id, sp ? { x: sp[0], y: sp[1] } : { x: entity.x, y: entity.y });
 					}
 				}
 			}

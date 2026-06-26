@@ -2645,6 +2645,14 @@ export async function computeAllSketchRegions() {
 	for (const feature of tree.features) {
 		if (feature.operation?.type !== 'Sketch') continue;
 		const sketch = feature.operation.sketch;
+		// Solver output is the authoritative coordinate source (A2.1/A5.2): the
+		// engine computes geometry truth, the UI must derive from it. Raw drawn
+		// `e.x/e.y` is pre-solve scratch — feeding it to the arrangement produces
+		// geometrically wrong regions (e.g. constraint-centered nested squares
+		// appear off-center/wrong-size). Fall back to raw only when a point has
+		// no solved entry yet (freshly drawn, pre-solve). Gear-expanded points
+		// are deterministic from gear params and carry their own final coords.
+		const solved = sketch.solved_positions || {};
 		const entities = [];
 		const solved_positions = {};
 		for (const e of (sketch.entities || [])) {
@@ -2659,7 +2667,10 @@ export async function computeAllSketchRegions() {
 				}
 			} else {
 				entities.push(e);
-				if (e.type === 'Point' && e.id != null) solved_positions[e.id] = [e.x, e.y];
+				if (e.type === 'Point' && e.id != null) {
+					const sp = solved[e.id];
+					solved_positions[e.id] = sp ? [sp[0], sp[1]] : [e.x, e.y];
+				}
 			}
 		}
 		try {
