@@ -58,6 +58,7 @@ fn make_sketch_op() -> Operation {
         constraints: Vec::new(),
         solve_status: SolveStatus::FullyConstrained,
         solved_positions,
+        projected: Vec::new(),
         solved_profiles: vec![ClosedProfile {
             entity_ids: vec![1, 2, 3, 4],
             is_outer: true,
@@ -1599,6 +1600,7 @@ fn make_sketch_operation() -> Operation {
             solve_status: SolveStatus::FullyConstrained,
             solved_positions: std::collections::HashMap::new(),
             solved_profiles: Vec::new(),
+            projected: Vec::new(),
         },
     }
 }

@@ -100,10 +100,7 @@ impl EngineState {
     /// REPLACE the active sketch's entity list with the UI's live geometry, so
     /// the solver starts from the current point positions (a drag persists)
     /// rather than the append-only original drawn positions.
-    pub fn set_sketch_entities(
-        &mut self,
-        entities: Vec<SketchEntity>,
-    ) -> Result<(), BridgeError> {
+    pub fn set_sketch_entities(&mut self, entities: Vec<SketchEntity>) -> Result<(), BridgeError> {
         let sketch = self
             .active_sketch
             .as_mut()
@@ -129,6 +126,7 @@ impl EngineState {
             solve_status: active.solve_status.clone(),
             solved_positions: HashMap::new(),
             solved_profiles: Vec::new(),
+            projected: Vec::new(),
         })
     }
 

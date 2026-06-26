@@ -106,6 +106,7 @@ fn make_sketch_feature(name: &str) -> Feature {
             spline_segments: vec![],
             arc_segments: vec![],
         }],
+        projected: vec![],
     };
 
     Feature {
@@ -646,6 +647,7 @@ fn make_rebuild_compatible_tree() -> FeatureTree {
             spline_segments: vec![],
             arc_segments: vec![],
         }],
+        projected: vec![],
     };
 
     let sketch_feature = Feature {
@@ -860,6 +862,7 @@ fn round_trip_preserves_all_constraint_types() {
             spline_segments: vec![],
             arc_segments: vec![],
         }],
+        projected: vec![],
     };
 
     let feature = Feature {

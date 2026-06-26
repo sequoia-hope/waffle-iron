@@ -68,6 +68,43 @@ pub struct Sketch {
     /// Derived data — serialized when populated (for WASM→JS bridge), skipped when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub solved_profiles: Vec<ClosedProfile>,
+    /// Projected-geometry bindings: sketch points that are driven by external
+    /// model geometry (a vertex/edge/face of an upstream feature). Each binding
+    /// maps a local Point id to the source it reprojects from on rebuild. Empty
+    /// for ordinary sketches. See `specs/projected_sketch_geometry.md`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub projected: Vec<ProjectedEntity>,
+}
+
+/// A binding from a local sketch Point to the external geometry it projects.
+/// The point remains an ordinary `SketchEntity::Point`; this side-table marks it
+/// as externally driven so rebuild can re-derive its 2D position.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectedEntity {
+    /// The local Point entity id this binding drives.
+    pub point_id: u32,
+    /// Where the point's position comes from.
+    pub source: ProjectedSource,
+}
+
+/// The external source a projected point reprojects from.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectedSource {
+    /// Reference to the source vertex/edge/face in an upstream feature output.
+    pub geom_ref: GeomRef,
+    /// How to derive a 3D point from the resolved source entity.
+    pub kind: ProjectedKind,
+}
+
+/// How a projected point is derived from its resolved source entity.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ProjectedKind {
+    /// Source is a vertex; use its position directly.
+    Vertex,
+    /// Source is an edge; use the point at parameter `t` along it
+    /// (`t = 0` / `t = 1` are the endpoints; interior is exact for straight edges).
+    EdgeSample { t: f64 },
 }
 
 impl Sketch {
@@ -881,6 +918,7 @@ mod tests {
             solve_status: SolveStatus::FullyConstrained,
             solved_positions: positions.clone(),
             solved_profiles: vec![],
+            projected: vec![],
         };
 
         // solved_positions use skip_serializing_if = "HashMap::is_empty":
@@ -950,6 +988,7 @@ mod tests {
             solve_status: SolveStatus::FullyConstrained,
             solved_positions: HashMap::new(),
             solved_profiles: vec![],
+            projected: vec![],
         };
 
         sketch.expand_gears();
@@ -993,6 +1032,7 @@ mod tests {
             solve_status: SolveStatus::FullyConstrained,
             solved_positions: HashMap::new(),
             solved_profiles: vec![],
+            projected: vec![],
         };
         let mut val: serde_json::Value = serde_json::to_value(&sketch).unwrap();
         // Remove the fields so defaults kick in on deserialize
@@ -1075,7 +1115,81 @@ mod tests {
             solve_status: SolveStatus::FullyConstrained,
             solved_positions: HashMap::new(),
             solved_profiles: vec![],
+            projected: vec![],
         }
+    }
+
+    /// Projected-geometry bindings round-trip through JSON serialization, and an
+    /// ordinary sketch omits the `projected` field entirely (serde skip-if-empty).
+    #[test]
+    fn projected_bindings_round_trip() {
+        let mut sketch = make_sketch(vec![SketchEntity::Point {
+            id: 7,
+            x: 1.0,
+            y: 2.0,
+            construction: false,
+        }]);
+        sketch.projected = vec![
+            ProjectedEntity {
+                point_id: 7,
+                source: ProjectedSource {
+                    geom_ref: GeomRef {
+                        kind: crate::topo::TopoKind::Vertex,
+                        anchor: crate::geom_ref::Anchor::FeatureOutput {
+                            feature_id: Uuid::nil(),
+                            output_key: crate::geom_ref::OutputKey::Main,
+                        },
+                        selector: crate::geom_ref::Selector::Position {
+                            x: 1.0,
+                            y: 2.0,
+                            z: 3.0,
+                        },
+                        policy: crate::geom_ref::ResolvePolicy::BestEffort,
+                    },
+                    kind: ProjectedKind::Vertex,
+                },
+            },
+            ProjectedEntity {
+                point_id: 9,
+                source: ProjectedSource {
+                    geom_ref: GeomRef {
+                        kind: crate::topo::TopoKind::Edge,
+                        anchor: crate::geom_ref::Anchor::FeatureOutput {
+                            feature_id: Uuid::nil(),
+                            output_key: crate::geom_ref::OutputKey::Main,
+                        },
+                        selector: crate::geom_ref::Selector::Position {
+                            x: 0.0,
+                            y: 0.0,
+                            z: 0.0,
+                        },
+                        policy: crate::geom_ref::ResolvePolicy::BestEffort,
+                    },
+                    kind: ProjectedKind::EdgeSample { t: 0.5 },
+                },
+            },
+        ];
+
+        let json = serde_json::to_string(&sketch).unwrap();
+        assert!(json.contains("\"projected\""), "projected must serialize");
+        let back: Sketch = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.projected.len(), 2);
+        assert_eq!(back.projected[0].point_id, 7);
+        assert!(matches!(
+            back.projected[0].source.kind,
+            ProjectedKind::Vertex
+        ));
+        match back.projected[1].source.kind {
+            ProjectedKind::EdgeSample { t } => assert!((t - 0.5).abs() < 1e-12),
+            _ => panic!("expected EdgeSample"),
+        }
+
+        // An ordinary sketch (no bindings) omits the field thanks to skip-if-empty.
+        let plain = make_sketch(vec![]);
+        let plain_json = serde_json::to_string(&plain).unwrap();
+        assert!(!plain_json.contains("\"projected\""));
+        let plain_back: Sketch = serde_json::from_str(&plain_json).unwrap();
+        assert!(plain_back.projected.is_empty());
     }
 
     /// B1: Rectangle sketch (4 Points + 4 Lines) produces 1 profile with 4 entity_ids.

@@ -1961,6 +1961,7 @@ mod tests {
             // Simulating deserialization: these are empty because skip_serializing
             solved_positions: HashMap::new(),
             solved_profiles: vec![],
+            projected: vec![],
         }
     }
 
