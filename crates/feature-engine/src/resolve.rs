@@ -1,8 +1,10 @@
 use modeling_ops::OpResult;
 use uuid::Uuid;
-use waffle_types::kernel::KernelId;
+use waffle_types::kernel::units::MIN_FEATURE_SIZE;
+use waffle_types::kernel::{KernelId, KernelIntrospect};
 use waffle_types::{
-    Filter, GeomRef, ResolvePolicy, Role, Selector, TieBreak, TopoKind, TopoQuery, TopoSignature,
+    Anchor, Filter, GeomRef, OutputKey, ResolvePolicy, Role, Selector, TieBreak, TopoKind,
+    TopoQuery, TopoSignature,
 };
 
 use crate::types::EngineError;
@@ -58,6 +60,112 @@ pub fn resolve_geom_ref(
             })
         }
     }
+}
+
+/// Exact-match tolerance for resolving a `Selector::Position`. The UI quantizes
+/// picked viewport positions to 1e-6 (`Math.round(p*1e6)/1e6`), so the match
+/// tolerance must be that grid — `MIN_FEATURE_SIZE` (1e-6) — NOT the finer
+/// `TAU_MODEL` (1e-7), which a quantized position can legitimately exceed.
+/// Distinct topological vertices are far enough apart for this to still
+/// disambiguate; this is quantization accounting, not tolerance widening.
+const POSITION_MATCH_TOL: f64 = MIN_FEATURE_SIZE;
+
+/// Resolve a `Selector::Position` GeomRef to a concrete `KernelId` by finding
+/// the nearest vertex / edge / face (per `geom_ref.kind`) of the anchor
+/// feature's output body, using kernel introspection. This is what lets a
+/// projected sketch entity re-bind to moved geometry across rebuilds.
+///
+/// `pos` is the picked 3D position (normally `geom_ref.selector`'s Position).
+pub fn resolve_by_position(
+    geom_ref: &GeomRef,
+    feature_results: &std::collections::HashMap<Uuid, OpResult>,
+    introspect: &dyn KernelIntrospect,
+    pos: [f64; 3],
+) -> Result<ResolvedRef, EngineError> {
+    let (feature_id, output_key) = match &geom_ref.anchor {
+        Anchor::FeatureOutput {
+            feature_id,
+            output_key,
+        } => (*feature_id, output_key.clone()),
+        Anchor::Datum { datum_id } => {
+            return Err(EngineError::ResolutionFailed {
+                reason: format!("Position selector on datum {} not supported", datum_id),
+            });
+        }
+    };
+
+    let op_result = feature_results
+        .get(&feature_id)
+        .ok_or(EngineError::ResolutionFailed {
+            reason: format!("Feature {} has no result (not yet rebuilt?)", feature_id),
+        })?;
+
+    // The body output whose key matches the anchor (fallback: the first body).
+    let handle = op_result
+        .outputs
+        .iter()
+        .find(|(k, _)| key_matches(k, &output_key))
+        .or_else(|| op_result.outputs.first())
+        .map(|(_, b)| &b.handle)
+        .ok_or(EngineError::ResolutionFailed {
+            reason: "feature produced no body output for position resolution".to_string(),
+        })?;
+
+    let candidates = match geom_ref.kind {
+        TopoKind::Vertex => introspect.list_vertices(handle),
+        TopoKind::Edge => introspect.list_edges(handle),
+        TopoKind::Face => introspect.list_faces(handle),
+        other => {
+            return Err(EngineError::ResolutionFailed {
+                reason: format!("Position selector unsupported for {:?}", other),
+            });
+        }
+    };
+
+    let mut best: Option<(KernelId, f64)> = None;
+    for id in candidates {
+        let sig = introspect.compute_signature(id, geom_ref.kind);
+        if let Some(c) = sig.centroid {
+            let d = ((c[0] - pos[0]).powi(2) + (c[1] - pos[1]).powi(2) + (c[2] - pos[2]).powi(2))
+                .sqrt();
+            if best.map_or(true, |(_, bd)| d < bd) {
+                best = Some((id, d));
+            }
+        }
+    }
+
+    match best {
+        Some((id, d)) if d <= POSITION_MATCH_TOL => Ok(ResolvedRef {
+            kernel_id: id,
+            warnings: Vec::new(),
+        }),
+        Some((id, d)) => match geom_ref.policy {
+            ResolvePolicy::BestEffort => Ok(ResolvedRef {
+                kernel_id: id,
+                warnings: vec![format!(
+                    "Position matched nearest {:?} at distance {:.2e} (> {:.0e}) — geometry may have moved",
+                    geom_ref.kind, d, POSITION_MATCH_TOL
+                )],
+            }),
+            ResolvePolicy::Strict => Err(EngineError::ResolutionFailed {
+                reason: format!(
+                    "No {:?} within {:.0e} of picked position (nearest {:.2e})",
+                    geom_ref.kind, POSITION_MATCH_TOL, d
+                ),
+            }),
+        },
+        None => Err(EngineError::ResolutionFailed {
+            reason: format!(
+                "Feature output has no {:?} entities to match position",
+                geom_ref.kind
+            ),
+        }),
+    }
+}
+
+/// Whether two output keys denote the same body output.
+fn key_matches(a: &OutputKey, b: &OutputKey) -> bool {
+    a.tag() == b.tag()
 }
 
 /// Resolve a GeomRef with automatic fallback from role to signature.
@@ -439,6 +547,167 @@ mod tests {
             },
             diagnostics: Diagnostics::default(),
         }
+    }
+
+    // --- Position-selector resolution (projection incr 2) ---
+
+    use modeling_ops::BodyOutput;
+    use std::collections::HashMap;
+    use waffle_types::kernel::{KernelIntrospect, KernelSolidHandle};
+    use waffle_types::{Anchor, OutputKey, Selector};
+
+    /// Minimal KernelIntrospect over a fixed set of vertex positions.
+    struct FakeIntrospect {
+        verts: Vec<(KernelId, [f64; 3])>,
+    }
+    impl KernelIntrospect for FakeIntrospect {
+        fn list_vertices(&self, _: &KernelSolidHandle) -> Vec<KernelId> {
+            self.verts.iter().map(|(id, _)| *id).collect()
+        }
+        fn compute_signature(&self, entity: KernelId, _kind: TopoKind) -> TopoSignature {
+            let centroid = self
+                .verts
+                .iter()
+                .find(|(id, _)| *id == entity)
+                .map(|(_, p)| *p);
+            TopoSignature {
+                surface_type: None,
+                area: None,
+                centroid,
+                normal: None,
+                bbox: None,
+                adjacency_hash: None,
+                length: None,
+            }
+        }
+        fn list_faces(&self, _: &KernelSolidHandle) -> Vec<KernelId> {
+            vec![]
+        }
+        fn list_edges(&self, _: &KernelSolidHandle) -> Vec<KernelId> {
+            vec![]
+        }
+        fn face_edges(&self, _: KernelId) -> Vec<KernelId> {
+            vec![]
+        }
+        fn edge_faces(&self, _: KernelId) -> Vec<KernelId> {
+            vec![]
+        }
+        fn edge_vertices(&self, _: KernelId) -> (KernelId, KernelId) {
+            (KernelId(0), KernelId(0))
+        }
+        fn face_neighbors(&self, _: KernelId) -> Vec<KernelId> {
+            vec![]
+        }
+        fn compute_all_signatures(
+            &self,
+            _: &KernelSolidHandle,
+            _: TopoKind,
+        ) -> Vec<(KernelId, TopoSignature)> {
+            vec![]
+        }
+    }
+
+    fn op_with_body() -> OpResult {
+        OpResult {
+            outputs: vec![(
+                OutputKey::Main,
+                BodyOutput {
+                    handle: KernelSolidHandle::from_raw(1),
+                    mesh: None,
+                    edges: None,
+                },
+            )],
+            provenance: Provenance {
+                created: vec![],
+                deleted: vec![],
+                modified: vec![],
+                role_assignments: vec![],
+            },
+            diagnostics: Diagnostics::default(),
+        }
+    }
+
+    fn pos_ref(feature_id: Uuid, x: f64, y: f64, z: f64, policy: ResolvePolicy) -> GeomRef {
+        GeomRef {
+            kind: TopoKind::Vertex,
+            anchor: Anchor::FeatureOutput {
+                feature_id,
+                output_key: OutputKey::Main,
+            },
+            selector: Selector::Position { x, y, z },
+            policy,
+        }
+    }
+
+    #[test]
+    fn position_resolves_to_exact_vertex() {
+        let fid = Uuid::new_v4();
+        let mut results = HashMap::new();
+        results.insert(fid, op_with_body());
+        let intro = FakeIntrospect {
+            verts: vec![
+                (KernelId(10), [0.0, 0.0, 0.0]),
+                (KernelId(11), [2.0, 0.0, 0.0]),
+                (KernelId(12), [2.0, 3.0, 5.0]),
+            ],
+        };
+        // Pick exactly vertex 12.
+        let gref = pos_ref(fid, 2.0, 3.0, 5.0, ResolvePolicy::BestEffort);
+        let r = resolve_by_position(&gref, &results, &intro, [2.0, 3.0, 5.0]).unwrap();
+        assert_eq!(r.kernel_id, KernelId(12));
+        assert!(r.warnings.is_empty(), "exact match warns nothing");
+    }
+
+    #[test]
+    fn position_tolerates_ui_quantization() {
+        // The UI rounds positions to 1e-6; a vertex 5e-7 away must still match
+        // exactly (TAU_MODEL=1e-7 would wrongly reject this).
+        let fid = Uuid::new_v4();
+        let mut results = HashMap::new();
+        results.insert(fid, op_with_body());
+        let intro = FakeIntrospect {
+            verts: vec![
+                (KernelId(10), [0.0, 0.0, 0.0]),
+                (KernelId(11), [5.0, 0.0, 0.0]),
+            ],
+        };
+        let gref = pos_ref(fid, 5.0, 0.0, 0.0, ResolvePolicy::BestEffort);
+        let r = resolve_by_position(&gref, &results, &intro, [5.0 + 5e-7, 0.0, 0.0]).unwrap();
+        assert_eq!(r.kernel_id, KernelId(11));
+        assert!(r.warnings.is_empty());
+    }
+
+    #[test]
+    fn position_reresolves_to_moved_vertex() {
+        // Simulate an upstream edit moving the box: the SAME picked position now
+        // lands nearest a vertex that has shifted; BestEffort still resolves it
+        // (and warns), which is how a projected point follows moved geometry.
+        let fid = Uuid::new_v4();
+        let mut results = HashMap::new();
+        results.insert(fid, op_with_body());
+        let intro = FakeIntrospect {
+            verts: vec![
+                (KernelId(10), [0.0, 0.0, 0.0]),
+                (KernelId(11), [2.0, 0.0, 10.0]),
+            ],
+        };
+        // Originally picked the vertex at z=5 (box height 5); the box grew to 10.
+        let gref = pos_ref(fid, 2.0, 0.0, 5.0, ResolvePolicy::BestEffort);
+        let r = resolve_by_position(&gref, &results, &intro, [2.0, 0.0, 5.0]).unwrap();
+        assert_eq!(r.kernel_id, KernelId(11));
+        assert!(!r.warnings.is_empty(), "approximate match should warn");
+    }
+
+    #[test]
+    fn position_strict_errors_when_far() {
+        let fid = Uuid::new_v4();
+        let mut results = HashMap::new();
+        results.insert(fid, op_with_body());
+        let intro = FakeIntrospect {
+            verts: vec![(KernelId(10), [0.0, 0.0, 0.0])],
+        };
+        let gref = pos_ref(fid, 9.0, 9.0, 9.0, ResolvePolicy::Strict);
+        assert!(resolve_by_position(&gref, &results, &intro, [9.0, 9.0, 9.0]).is_err());
     }
 
     #[test]
