@@ -781,6 +781,7 @@ fn build_hyperbola_cap_arrangement(delta: f64) -> LabeledArrangement {
         surface,
         inside,
         patch,
+        source: Vec::new(),
         num_inputs: 2,
     }
 }

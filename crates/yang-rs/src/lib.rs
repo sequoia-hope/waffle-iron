@@ -10357,6 +10357,7 @@ mod tests {
             surface: Vec::new(),
             inside: Vec::new(),
             patch: Vec::new(),
+            source: Vec::new(),
             num_inputs: 2,
         }
     }
@@ -12052,6 +12053,7 @@ mod tests {
             surface,
             inside,
             patch,
+            source: Vec::new(),
             num_inputs: 2,
         }
     }
@@ -12154,6 +12156,7 @@ mod tests {
             surface: vec![vec![LaInputId(0), LaInputId(1)]],
             inside: vec![vec![false, false]], // kept by Union
             patch: vec![0],
+            source: Vec::new(),
             num_inputs: 2,
         };
         let backend = LabelMockBackend::new(la);
@@ -12182,6 +12185,7 @@ mod tests {
             surface: vec![vec![LaInputId(0)]], // claims solid A's surface
             inside: vec![vec![false, false]],  // kept by Union
             patch: vec![0],
+            source: Vec::new(),
             num_inputs: 2,
         };
         let backend = LabelMockBackend::new(la);

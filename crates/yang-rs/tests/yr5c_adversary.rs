@@ -862,6 +862,7 @@ mod tjunction {
             surface: vec![vec![LaInputId(0)]; 3],
             inside: vec![vec![false, false]; 3],
             patch: vec![0, 0, 0],
+            source: Vec::new(),
             num_inputs: 2,
         }
     }

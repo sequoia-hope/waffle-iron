@@ -351,6 +351,7 @@ fn hand_built_tube_arrangement_n(n_facets: usize) -> LabeledArrangement {
         surface,
         inside,
         patch,
+        source: Vec::new(),
         num_inputs: 2,
     }
 }

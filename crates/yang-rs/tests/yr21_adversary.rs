@@ -457,6 +457,7 @@ fn acyl_build_tube(
         surface,
         inside,
         patch,
+        source: Vec::new(),
         num_inputs: 2,
     }
 }
@@ -897,6 +898,7 @@ fn build_cone_cap_arrangement(ring: &[[f64; 3]]) -> LabeledArrangement {
         surface,
         inside,
         patch,
+        source: Vec::new(),
         num_inputs: 2,
     }
 }

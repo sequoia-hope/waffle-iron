@@ -602,6 +602,7 @@ fn build_tube_from_ring(
         surface,
         inside,
         patch,
+        source: Vec::new(),
         num_inputs: 2,
     }
 }
@@ -663,6 +664,7 @@ fn build_tube_from_3d_rings(
         surface,
         inside,
         patch,
+        source: Vec::new(),
         num_inputs: 2,
     }
 }
@@ -1385,6 +1387,7 @@ fn hand_built_planar_box_arrangement() -> LabeledArrangement {
         surface,
         inside,
         patch,
+        source: Vec::new(),
         num_inputs: 2,
     }
 }

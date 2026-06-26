@@ -658,6 +658,7 @@ fn build_tube_from_3d_rings(
         surface,
         inside,
         patch,
+        source: Vec::new(),
         num_inputs: 2,
     }
 }

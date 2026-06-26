@@ -742,6 +742,7 @@ fn build_cone_cap_arrangement(delta: f64) -> LabeledArrangement {
         surface,
         inside,
         patch,
+        source: Vec::new(),
         num_inputs: 2,
     }
 }
@@ -1522,6 +1523,7 @@ fn build_parabola_cap_arrangement() -> LabeledArrangement {
         surface,
         inside,
         patch,
+        source: Vec::new(),
         num_inputs: 2,
     }
 }

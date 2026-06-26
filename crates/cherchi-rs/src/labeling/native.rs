@@ -137,6 +137,12 @@ pub fn native_labeled_arrangement(
     let mut surface = Vec::with_capacity(n);
     let mut inside = Vec::with_capacity(n);
     let mut patch = Vec::with_capacity(n);
+    let mut source = Vec::with_capacity(n);
+    // The soup concatenated A's triangles first (indices `0..n_a`), then B's,
+    // so a base index `bi` maps to `(InputId(0), bi)` for A or
+    // `(InputId(1), bi - n_a)` for B. This is the inverse of the `tris.extend`
+    // concat above (a's tris unshifted, b's index-shifted).
+    let n_a = a.tris.len() as u32;
     for t in 0..n {
         let mut s = soup.labels[t].clone();
         s.sort_unstable();
@@ -146,6 +152,17 @@ pub fn native_labeled_arrangement(
         patch.push(pid);
         let inn = &inner[pid as usize];
         inside.push((0..2u32).map(|k| inn.contains(&InputId(k))).collect());
+        let prov: Vec<(InputId, u32)> = soup.source[t]
+            .iter()
+            .map(|&bi| {
+                if bi < n_a {
+                    (InputId(0), bi)
+                } else {
+                    (InputId(1), bi - n_a)
+                }
+            })
+            .collect();
+        source.push(prov);
     }
 
     // Explicit DESCALED mesh over the REFERENCED vertices only, compacted
@@ -176,6 +193,7 @@ pub fn native_labeled_arrangement(
         surface,
         inside,
         patch,
+        source,
         num_inputs: 2,
     })
 }
@@ -514,6 +532,74 @@ mod tests {
                 assert!(
                     (0.0..=3.0).contains(&c),
                     "vert {p:?} outside the unscaled input bbox [0,3]³"
+                );
+            }
+        }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Oracle #1b — per-output-triangle PROVENANCE (`source`): total,
+    // 1:1, valid indices, and consistent with the surface label. The
+    // single-valued case must agree with `surface`; a coplanar overlap
+    // (stacked cubes sharing a face) must carry BOTH parents. This is the
+    // N4 substrate — yang-rs maps each pair to a B-Rep face via Stage 1.
+    // ════════════════════════════════════════════════════════════════
+    #[test]
+    fn source_provenance_total_valid_and_consistent() {
+        // (a) Corner overlap (no coplanar faces): every output triangle has
+        // exactly one source, whose input matches its single surface label.
+        let a = cube_mesh(0.0, 0.0, 0.0, 2.0);
+        let b = cube_mesh(1.0, 1.0, 1.0, 2.0);
+        let la = native_labeled_arrangement(&a, &b).expect("arrangement");
+        let n = la.mesh.tris.len();
+        assert_eq!(la.source.len(), n, "I1: source 1:1 with mesh.tris");
+        for t in 0..n {
+            assert!(!la.source[t].is_empty(), "source[{t}] total (≥1 parent)");
+            for &(inp, li) in &la.source[t] {
+                let cap = if inp == InputId(0) {
+                    a.tris.len()
+                } else {
+                    b.tris.len()
+                } as u32;
+                assert!(
+                    li < cap,
+                    "source[{t}] = ({inp:?},{li}) out of range (cap {cap})"
+                );
+            }
+            if la.surface[t].len() == 1 {
+                assert_eq!(la.source[t].len(), 1, "single-surface tri has one parent");
+                assert_eq!(
+                    la.source[t][0].0, la.surface[t][0],
+                    "source input must match the surface label"
+                );
+            }
+        }
+
+        // (b) Stacked cubes sharing the z=2 face: the coplanar overlap sheet
+        // has a parent in EACH input → multi-valued source, exactly on the
+        // multi-label (overlap) triangles, sourcing from BOTH inputs.
+        let lo = cube_mesh(0.0, 0.0, 0.0, 2.0);
+        let hi = cube_mesh(0.0, 0.0, 2.0, 2.0);
+        let la2 = native_labeled_arrangement(&lo, &hi).expect("stacked arrangement");
+        let m = la2.mesh.tris.len();
+        let coplanar: Vec<usize> = (0..m).filter(|&t| la2.surface[t].len() >= 2).collect();
+        assert!(
+            !coplanar.is_empty(),
+            "stacked cubes must produce a coplanar overlap sheet"
+        );
+        for t in 0..m {
+            let multi = la2.source[t].len() >= 2;
+            let overlap = la2.surface[t].len() >= 2;
+            assert_eq!(
+                multi, overlap,
+                "tri {t}: multi-source ⟺ coplanar overlap (surface multi-label)"
+            );
+            if multi {
+                let inputs: std::collections::BTreeSet<InputId> =
+                    la2.source[t].iter().map(|&(i, _)| i).collect();
+                assert!(
+                    inputs.contains(&InputId(0)) && inputs.contains(&InputId(1)),
+                    "overlap tri {t} must source from BOTH inputs, got {inputs:?}"
                 );
             }
         }

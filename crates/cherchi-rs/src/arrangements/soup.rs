@@ -101,6 +101,17 @@ pub struct ArrangementSoup {
     pub verts: Vec<VertexCoords>,
     pub tris: Vec<[u32; 3]>,
     pub labels: Vec<Label>,
+    /// Per output triangle (parallel to `tris`): the BASE input-soup triangle
+    /// index/indices it descends from. Every output triangle is a sub-triangle
+    /// of exactly one base input triangle, so this is normally a single index;
+    /// it is MULTI-VALUED only at a coplanar overlap, where the two coincident
+    /// base triangles (one per input solid) merge into one emitted triangle
+    /// (the §4.5.5 shared sheet). This is the per-triangle provenance the
+    /// Stage-2 contract specifies (`source`) — consumed by yang-rs to attribute
+    /// each output triangle to its B-Rep face via the Stage-1 map, replacing
+    /// geometric centroid-proximity (deviation N4). Base indices are in the
+    /// concatenated soup space; the consumer maps them to `(InputId, local)`.
+    pub source: Vec<Vec<u32>>,
     /// Count of jolly points appended at the tail of `verts` (always 5). The
     /// real arrangement vertices are `verts[..verts.len() - jolly_count]`.
     pub jolly_count: u32,
@@ -267,14 +278,22 @@ fn consistent_winding(t0: &[u32; 3], t1: &[u32; 3]) -> bool {
 ///   out-param, booleans.cpp:233-247).
 ///
 /// Output `tris` preserves first-seen order; `labels` is 1:1 with it.
+#[allow(clippy::type_complexity)] // (kept_tris, kept_labels, dupl, kept_source) local prep tuple
 pub fn remove_degenerate_and_duplicated_triangles(
     verts: &[Point3],
     tris: &[[u32; 3]],
     labels: &[Label],
-) -> (Vec<[u32; 3]>, Vec<Label>, Vec<DuplTriInfo>) {
+) -> (Vec<[u32; 3]>, Vec<Label>, Vec<DuplTriInfo>, Vec<Vec<u32>>) {
     let mut kept_tris: Vec<[u32; 3]> = Vec::new();
     let mut kept_labels: Vec<Label> = Vec::new();
     let mut dupl: Vec<DuplTriInfo> = Vec::new();
+    // Per kept triangle: the ORIGINAL input triangle index/indices it
+    // represents — the survivor's own index, plus every exact-coincident
+    // duplicate OR-merged into it. This is the per-triangle PROVENANCE the
+    // Stage-2 `source` contract needs: a coplanar overlap collapses the two
+    // inputs' coincident triangles into one survivor here, so its provenance is
+    // multi-valued. Indices are in the input (concatenated A++B) triangle space.
+    let mut kept_source: Vec<Vec<u32>> = Vec::new();
     // Sorted-vertex key → output index of the first occurrence.
     let mut seen: Vec<([u32; 3], usize)> = Vec::new();
 
@@ -294,6 +313,7 @@ pub fn remove_degenerate_and_duplicated_triangles(
             // Duplicate: OR-merge its label into the survivor (sorted-unique)
             // and record the restoration info (booleans.cpp:233-247).
             or_merge_label(&mut kept_labels[out_idx], &label);
+            kept_source[out_idx].push(ti as u32);
             dupl.push(DuplTriInfo {
                 t_off: out_idx,
                 label: sorted_unique_label(&label),
@@ -303,11 +323,12 @@ pub fn remove_degenerate_and_duplicated_triangles(
             let out_idx = kept_tris.len();
             kept_tris.push(*tri);
             kept_labels.push(sorted_unique_label(&label));
+            kept_source.push(vec![ti as u32]);
             seen.push((key, out_idx));
         }
     }
 
-    (kept_tris, kept_labels, dupl)
+    (kept_tris, kept_labels, dupl, kept_source)
 }
 
 /// Sorted-unique copy of a label (set of `InputId`s, ascending by raw id).
@@ -681,7 +702,11 @@ pub fn mesh_arrangement(
 
     // 4. Remove degenerate / duplicate input triangles (prep, labels
     //    OR-merged, duplicates recorded for the in/out restoration below).
-    let (kept_tris, kept_labels, dupl_triangles) =
+    //    `kept_source[t]` carries the ORIGINAL input triangle index/indices each
+    //    kept base triangle represents (multi-valued where a coplanar overlap
+    //    collapsed the two inputs' coincident triangles) — the provenance the
+    //    step-9 emit loop attaches to every output sub-triangle.
+    let (kept_tris, kept_labels, dupl_triangles, kept_source) =
         remove_degenerate_and_duplicated_triangles(&verts, &remapped_tris, in_labels);
 
     // 5. Build the global soup. `from_soup` takes ONE plane; the per-triangle
@@ -767,6 +792,10 @@ pub fn mesh_arrangement(
     };
     let mut out_tris: Vec<[u32; 3]> = Vec::new();
     let mut out_labels: Vec<Label> = Vec::new();
+    // Per emitted output triangle: the base input-soup triangle index/indices it
+    // came from (parallel to `out_tris`). One index per triangle normally; a
+    // coplanar overlap pocket gets the partner base triangle OR-appended below.
+    let mut out_source: Vec<Vec<u32>> = Vec::new();
 
     // (PR-4) Global pocket dedup state, threaded across the whole step-9 loop
     // (one instance). `registry` maps a pocket's GLOBAL boundary-vertex SET to
@@ -787,6 +816,7 @@ pub fn mesh_arrangement(
         if no_points && no_segments {
             out_tris.push(soup.tri(t));
             out_labels.push(kept_labels[t as usize].clone());
+            out_source.push(kept_source[t as usize].clone());
             continue;
         }
 
@@ -885,16 +915,25 @@ pub fn mesh_arrangement(
                             positions.push(out_tris.len());
                             out_tris.push(global);
                             out_labels.push(label.clone());
+                            out_source.push(kept_source[t as usize].clone());
                         }
                         pocket_pos.insert(boundary_global, positions);
                     }
                     Some(_) => {
                         // Already emitted (the partner's identical overlap
                         // pocket) → OR-merge the label into every recorded
-                        // out-position; do NOT re-emit (no double-count).
+                        // out-position; do NOT re-emit (no double-count). The
+                        // partner base triangle `t` (the OTHER input's coincident
+                        // face) joins each merged triangle's provenance, making
+                        // `source` multi-valued for the shared overlap sheet.
                         if let Some(positions) = pocket_pos.get(&boundary_global) {
                             for &p in positions {
                                 or_merge_label(&mut out_labels[p], &label);
+                                for &src in &kept_source[t as usize] {
+                                    if !out_source[p].contains(&src) {
+                                        out_source[p].push(src);
+                                    }
+                                }
                             }
                         }
                     }
@@ -911,6 +950,7 @@ pub fn mesh_arrangement(
                 ];
                 out_tris.push(global);
                 out_labels.push(label.clone());
+                out_source.push(kept_source[t as usize].clone());
             }
         }
     }
@@ -945,6 +985,7 @@ pub fn mesh_arrangement(
         verts: globals.verts,
         tris: out_tris,
         labels: out_labels,
+        source: out_source,
         jolly_count: 5,
         in_tris: arr_in_tris,
         in_labels: arr_in_labels,
@@ -1472,7 +1513,7 @@ mod tests {
         ];
         let labels = vec![vec![A], vec![A], vec![B]];
 
-        let (kept_tris, kept_labels, _dupl) =
+        let (kept_tris, kept_labels, _dupl, _src) =
             remove_degenerate_and_duplicated_triangles(&verts, &tris, &labels);
 
         assert_eq!(
@@ -1504,7 +1545,7 @@ mod tests {
         ];
         let tris = vec![[0u32, 1, 2], [1u32, 2, 0]]; // same sorted set
         let labels = vec![vec![A], vec![A]];
-        let (kept_tris, kept_labels, _dupl) =
+        let (kept_tris, kept_labels, _dupl, _src) =
             remove_degenerate_and_duplicated_triangles(&verts, &tris, &labels);
         assert_eq!(kept_tris.len(), 1, "duplicate dropped");
         assert_eq!(kept_labels[0], vec![A], "idempotent OR-merge keeps just A");
@@ -3104,7 +3145,7 @@ mod ar3c_tests {
         let mut sc = coords.clone();
         multiply_coordinates(&mut sc, m);
         let (verts, remapped) = merge_duplicated_vertices(&sc, tris);
-        let (kept_tris, _kept_labels, _dupl) =
+        let (kept_tris, _kept_labels, _dupl, _src) =
             remove_degenerate_and_duplicated_triangles(&verts, &remapped, labels);
         let soup = FastTrimesh::from_soup(&verts, &kept_tris, Plane::XY).unwrap();
         let pairs = detect_intersecting_pairs(&soup);

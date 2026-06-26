@@ -340,6 +340,12 @@ fn parse_labels(mesh: Mesh, text: &str) -> Result<LabeledArrangement, SidecarErr
         surface,
         inside,
         patch,
+        // The sidecar is now a dev-only parity oracle and does not emit
+        // per-output-triangle provenance (it would need an additional C++ dump).
+        // `source` empty is the documented "producer does not track provenance"
+        // contract; yang-rs consumes the NATIVE arrangement's `source` in
+        // production and falls back to geometric attribution when it is empty.
+        source: Vec::new(),
         num_inputs,
     })
 }

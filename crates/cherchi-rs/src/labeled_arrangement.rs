@@ -21,6 +21,12 @@ use crate::Mesh;
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct InputId(pub u32);
 
+/// Per-output-triangle provenance: the input triangle(s) — `(InputId,
+/// local_triangle_index)` — that an arrangement triangle descends from. Single
+/// entry normally; multi-valued only at a coplanar overlap (a parent in each
+/// input). See [`LabeledArrangement::source`].
+pub type TriangleSource = Vec<(InputId, u32)>;
+
 /// Stage-2 output of the Yang pipeline: the FULL exact mesh arrangement plus,
 /// per arrangement triangle, which input solid(s) it lies on (`surface`), its
 /// inside/outside classification per input solid (`inside`), and its Cherchi
@@ -43,6 +49,18 @@ pub struct LabeledArrangement {
     pub inside: Vec<Vec<bool>>,
     /// Per triangle: the Cherchi patch id the triangle belongs to.
     pub patch: Vec<u32>,
+    /// Per triangle: the input triangle(s) this output triangle descends from,
+    /// as `(InputId, local_triangle_index)` into that input mesh. Every output
+    /// triangle is a sub-triangle of exactly one input triangle, so this is
+    /// normally a single pair; it is multi-valued only at a coplanar overlap
+    /// (the shared §4.5.5 sheet has a parent triangle in each input). This is
+    /// the per-output-triangle PROVENANCE the Stage-2 contract specifies — the
+    /// consumer (yang-rs) maps each pair to its B-Rep face via the Stage-1
+    /// tessellation map, replacing geometric centroid-proximity attribution
+    /// (deviation N4). Indexed 1:1 with `mesh.tris`. May be empty (`Vec::new()`)
+    /// from a producer that does not track provenance (e.g. the sidecar parity
+    /// oracle); a native arrangement always populates it.
+    pub source: Vec<TriangleSource>,
     /// Number of input solids (2 for a binary boolean).
     pub num_inputs: u32,
 }
@@ -172,6 +190,13 @@ mod tests {
             surface,
             inside,
             patch,
+            // Faithful 1:1 provenance for the fixture: tris 0,1 ← input A's
+            // tris 0,1; tri 2 ← input B's tri 0 (mirrors the surface labels).
+            source: vec![
+                vec![(InputId(0), 0)],
+                vec![(InputId(0), 1)],
+                vec![(InputId(1), 0)],
+            ],
             num_inputs: 2,
         }
     }

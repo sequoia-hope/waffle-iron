@@ -507,6 +507,7 @@ fn pocket_arrangement() -> LabeledArrangement {
         surface,
         inside,
         patch,
+        source: Vec::new(),
         num_inputs: 2,
     }
 }

@@ -1597,6 +1597,7 @@ mod tests {
             verts,
             tris: vec![[e0, e1, lpi]],
             labels: vec![vec![A]],
+            source: Vec::new(), // BL2 test fixture; provenance not exercised
             jolly_count: 0,
             in_tris: cube_tris,
             in_labels: cube_labels,

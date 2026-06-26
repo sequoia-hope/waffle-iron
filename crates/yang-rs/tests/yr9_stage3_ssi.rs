@@ -622,6 +622,7 @@ fn hand_built_tube_arrangement() -> LabeledArrangement {
         surface,
         inside,
         patch,
+        source: Vec::new(),
         num_inputs: 2,
     }
 }
@@ -976,6 +977,7 @@ fn hand_built_single_input_tube() -> LabeledArrangement {
         surface,
         inside,
         patch,
+        source: Vec::new(),
         num_inputs: 2,
     }
 }
@@ -1073,6 +1075,7 @@ fn hand_built_planar_box_arrangement() -> LabeledArrangement {
         surface,
         inside,
         patch,
+        source: Vec::new(),
         num_inputs: 2,
     }
 }
@@ -1356,6 +1359,7 @@ fn hand_built_coincident_plane_arrangement() -> LabeledArrangement {
         surface,
         inside,
         patch,
+        source: Vec::new(),
         num_inputs: 2,
     }
 }

@@ -730,6 +730,7 @@ fn adversary_empty_soup_is_ok_empty() {
         verts: Vec::new(),
         tris: Vec::new(),
         labels: Vec::new(),
+        source: Vec::new(),
         jolly_count: 0,
         in_tris: Vec::new(),
         in_labels: Vec::new(),

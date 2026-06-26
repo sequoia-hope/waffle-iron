@@ -423,6 +423,7 @@ fn dimple_arrangement(dr: f64) -> LabeledArrangement {
         surface,
         inside,
         patch,
+        source: Vec::new(),
         num_inputs: 2,
     }
 }
@@ -906,6 +907,7 @@ fn pocket_arrangement() -> LabeledArrangement {
         surface,
         inside,
         patch,
+        source: Vec::new(),
         num_inputs: 2,
     }
 }

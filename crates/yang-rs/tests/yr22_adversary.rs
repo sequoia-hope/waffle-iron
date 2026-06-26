@@ -635,6 +635,7 @@ fn build_parabola_cap_arrangement(ring: &[[f64; 3]]) -> LabeledArrangement {
         surface,
         inside,
         patch,
+        source: Vec::new(),
         num_inputs: 2,
     }
 }
@@ -1180,6 +1181,7 @@ fn cyl_build_tube(
         surface,
         inside,
         patch,
+        source: Vec::new(),
         num_inputs: 2,
     }
 }
@@ -1521,6 +1523,7 @@ fn circle_tube_arrangement(rprime: f64) -> LabeledArrangement {
         surface,
         inside,
         patch,
+        source: Vec::new(),
         num_inputs: 2,
     }
 }
