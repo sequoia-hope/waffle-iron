@@ -328,6 +328,13 @@
 			return { type: 'line', geometry: new THREE.BufferGeometry().setFromPoints([w1, w2]) };
 		}
 
+		// Dimension leader/witness preview: a polyline of sketch-space [x,y] pts.
+		if (preview.type === 'dimension') {
+			const pts = (preview.data.points || []).map(([px, py]) => sketchToWorld(px, py, plane));
+			if (pts.length < 2) return null;
+			return { type: 'line', geometry: new THREE.BufferGeometry().setFromPoints(pts) };
+		}
+
 		if (preview.type === 'rectangle') {
 			const { x1, y1, x2, y2 } = preview.data;
 			const corners = [

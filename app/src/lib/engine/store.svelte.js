@@ -16,6 +16,7 @@ import { resetTool, getToolState as _getToolState, getIsDragging as _getIsDraggi
 import { buildSketchPlane, sketchToScreen } from '$lib/sketch/sketchCoords.js';
 import { computeConstraintBadges } from '$lib/sketch/constraintBadges.js';
 import { stepConstraintModal, modalInstruction, isModalConstraint } from '$lib/sketch/constraintModalEngine.js';
+import { classifyDimension } from '$lib/sketch/dimensionHeuristic.js';
 import { isDatumPlaneRef, getPlaneIdFromRef, getPlaneById, resolvePlane, BUILTIN_PLANES } from './planes.js';
 import { fetchTestCases, fetchTestCase, createTestCase as apiCreateTestCase, deleteTestCase as apiDeleteTestCase } from './testCaseApi.js';
 
@@ -702,6 +703,10 @@ export async function initEngine() {
 			getSelectOtherState: () => ({ ...selectOtherState }),
 			getRebuildTime: () => rebuildTime,
 			getDimensionPopup: () => dimensionPopup ? { ...dimensionPopup } : null,
+			// Pure dimension heuristic over the LIVE sketch — for branch-coverage
+			// tests. targets: [{id,type}], leader: {x,y}. See /specs/dimension_tool.md.
+			classifyDimension: (targets, leader) =>
+				classifyDimension({ targets, leader, positions: sketchPositions, entities: sketchEntities }),
 			showDimensionPopup: (popup) => showDimensionPopup(popup),
 			hideDimensionPopup: () => hideDimensionPopup(),
 			applyDimensionFromPopup: (value) => applyDimensionFromPopup(value),

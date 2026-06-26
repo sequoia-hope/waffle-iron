@@ -66,6 +66,7 @@ import { profileToPolygon, pointInPolygon } from './profiles.js';
 import { setPreview, setSnapIndicator, setSnapCandidates, getPreview as _getPreview, getSnapIndicator as _getSnapIndicator, getSnapCandidates as _getSnapCandidates } from './sketchToolState.svelte.js';
 import { buildSketchPlane } from './sketchCoords.js';
 import { projectEdgeToSketch, simplifyPolyline } from './projectGeometry.js';
+import { classifyDimension, isDimensionComplete, linearPreviewPolyline } from './dimensionHeuristic.js';
 import { DRAG_THRESHOLD_PX, GEAR_PREVIEW_MODULE_M, DEFAULT_GEAR_TOOTH_COUNT, DEFAULT_GEAR_PRESSURE_ANGLE } from '$lib/config.js';
 
 // -- Module state --
@@ -93,8 +94,13 @@ let arcStartPos = null;
 /** @type {number | null} */
 let arcStartPointId = null;
 
-/** @type {{ id: number, type: string } | null} */
-let dimFirstEntity = null;
+/**
+ * Dimension tool: targets picked so far (points/lines) and whether we are in
+ * the leader-placement phase. See /specs/dimension_tool.md.
+ * @type {Array<{ id: number, type: string }>}
+ */
+let dimTargets = [];
+let dimPlacing = false;
 
 // -- Slot tool state --
 /** @type {number | null} */
@@ -221,7 +227,8 @@ export function resetTool() {
 	centerPointId = null;
 	arcStartPos = null;
 	arcStartPointId = null;
-	dimFirstEntity = null;
+	dimTargets = [];
+	dimPlacing = false;
 	polyFirstPointId = null;
 	slotFirstCenterId = null;
 	slotFirstCenterPos = null;
@@ -1210,131 +1217,185 @@ function hitTestGear(x, y) {
  * idle → click point → firstEntityPicked → click second point → distance popup
  * idle → click point → firstEntityPicked → click line → distance popup
  */
+/**
+ * Pick-then-place dimension tool. The user clicks the object(s) to dimension;
+ * once the pick set is complete a leader follows the cursor, and clicking in
+ * free space places it and opens the value popup. The leader position chooses
+ * the orientation (horizontal/vertical/aligned) for point/line measurements via
+ * the heuristic in dimensionHeuristic.js. Circles/arcs dimension immediately.
+ * See /specs/dimension_tool.md.
+ */
 function handleDimensionTool(eventType, x, y, screenPixelSize) {
 	setSnapIndicator(null);
-	setPreview(null);
 
 	if (eventType === 'pointermove') {
-		const hitId = hitTest(x, y, screenPixelSize);
-		setSketchHover(hitId);
+		if (dimPlacing) {
+			updateDimensionLeaderPreview({ x, y });
+			setSketchHover(null);
+		} else {
+			setPreview(null);
+			setSketchHover(hitTest(x, y, screenPixelSize));
+		}
 		return;
 	}
 
 	if (eventType !== 'pointerdown') return;
 
-	const entities = getSketchEntities();
-	const positions = getSketchPositions();
+	// Placement phase: a click places the leader. Exception — while placing a
+	// single-target dimension, clicking a second compatible entity extends the
+	// pick into a pair (e.g. line→line, point→line) instead of placing.
+	if (dimPlacing) {
+		const hitId = hitTest(x, y, screenPixelSize);
+		if (hitId != null && dimTargets.length === 1 && tryExtendDimensionTargets(hitId)) {
+			updateDimensionLeaderPreview({ x, y });
+			return;
+		}
+		finalizeDimensionPlacement({ x, y });
+		return;
+	}
+
+	// Collecting phase.
 	const hitId = hitTest(x, y, screenPixelSize);
 	if (hitId == null) return;
-
-	const entity = entities.find(e => e.id === hitId);
+	const entity = getSketchEntities().find(e => e.id === hitId);
 	if (!entity) return;
 
-	if (toolState === 'idle') {
-		// Single-click dimension: line → distance, circle/arc → radius
-		if (entity.type === 'Line') {
-			const p1 = positions.get(entity.start_id);
-			const p2 = positions.get(entity.end_id);
-			if (p1 && p2) {
-				const dx = p2.x - p1.x, dy = p2.y - p1.y;
-				const len = Math.sqrt(dx * dx + dy * dy);
-				const mx = (p1.x + p2.x) / 2;
-				const my = (p1.y + p2.y) / 2;
-				showDimensionPopup({
-					entityA: entity.id,
-					entityB: null,
-					sketchX: mx,
-					sketchY: my,
-					dimType: 'distance',
-					defaultValue: parseFloat(len.toFixed(4))
-				});
-			}
-			return;
-		}
-
-		if (entity.type === 'Circle' || entity.type === 'Arc') {
-			const center = positions.get(entity.center_id);
-			let radius = entity.radius;
-			if (entity.type === 'Arc') {
-				const startPt = positions.get(entity.start_id);
-				if (startPt && center) {
-					const dx = startPt.x - center.x, dy = startPt.y - center.y;
-					radius = Math.sqrt(dx * dx + dy * dy);
-				}
-			}
-			if (center) {
-				showDimensionPopup({
-					entityA: entity.id,
-					entityB: null,
-					sketchX: center.x + (radius || 1) * 0.7,
-					sketchY: center.y + (radius || 1) * 0.7,
-					dimType: 'radius',
-					defaultValue: parseFloat((radius || 1).toFixed(4))
-				});
-			}
-			return;
-		}
-
-		if (entity.type === 'Point') {
-			dimFirstEntity = { id: entity.id, type: 'Point' };
-			toolState = 'firstEntityPicked';
-			return;
-		}
-	} else if (toolState === 'firstEntityPicked' && dimFirstEntity) {
-		// Second click: point-to-point or point-to-line distance
-		if (entity.type === 'Point' && entity.id !== dimFirstEntity.id) {
-			const pA = positions.get(dimFirstEntity.id);
-			const pB = positions.get(entity.id);
-			if (pA && pB) {
-				const dx = pB.x - pA.x, dy = pB.y - pA.y;
-				const dist = Math.sqrt(dx * dx + dy * dy);
-				const mx = (pA.x + pB.x) / 2;
-				const my = (pA.y + pB.y) / 2;
-				showDimensionPopup({
-					entityA: dimFirstEntity.id,
-					entityB: entity.id,
-					sketchX: mx,
-					sketchY: my,
-					dimType: 'distance',
-					defaultValue: parseFloat(dist.toFixed(4))
-				});
-			}
-			toolState = 'idle';
-			dimFirstEntity = null;
-			return;
-		}
-
-		if (entity.type === 'Line') {
-			const pos = positions.get(dimFirstEntity.id);
-			const p1 = positions.get(entity.start_id);
-			const p2 = positions.get(entity.end_id);
-			if (pos && p1 && p2) {
-				// Compute perpendicular distance from point to line
-				const lx = p2.x - p1.x, ly = p2.y - p1.y;
-				const lLen = Math.sqrt(lx * lx + ly * ly);
-				const dist = lLen > 1e-10
-					? Math.abs((pos.x - p1.x) * ly - (pos.y - p1.y) * lx) / lLen
-					: 1.0;
-				const mx = (pos.x + (p1.x + p2.x) / 2) / 2;
-				const my = (pos.y + (p1.y + p2.y) / 2) / 2;
-				showDimensionPopup({
-					entityA: dimFirstEntity.id,
-					entityB: entity.id,
-					sketchX: mx,
-					sketchY: my,
-					dimType: 'pointLineDistance',
-					defaultValue: parseFloat(dist.toFixed(4))
-				});
-			}
-			toolState = 'idle';
-			dimFirstEntity = null;
-			return;
-		}
-
-		// Clicked something invalid — reset
-		toolState = 'idle';
-		dimFirstEntity = null;
+	// Circles/arcs dimension immediately (radius) — no placement step.
+	if (entity.type === 'Circle' || entity.type === 'Arc') {
+		showRadiusPopupFor(entity);
+		resetDimensionTool();
+		return;
 	}
+
+	if (entity.type !== 'Point' && entity.type !== 'Line') return;
+	if (dimTargets.some(t => t.id === entity.id)) return; // ignore re-pick
+
+	dimTargets = [...dimTargets, { id: entity.id, type: entity.type }];
+	setSketchSelection(new Set(dimTargets.map(t => t.id)));
+
+	if (isDimensionComplete(dimTargets)) {
+		dimPlacing = true;
+		updateDimensionLeaderPreview({ x, y });
+	}
+}
+
+/** Try to add a second compatible target during placement. */
+function tryExtendDimensionTargets(hitId) {
+	if (dimTargets.some(t => t.id === hitId)) return false;
+	const entity = getSketchEntities().find(e => e.id === hitId);
+	if (!entity || (entity.type !== 'Point' && entity.type !== 'Line')) return false;
+	const candidate = [...dimTargets, { id: entity.id, type: entity.type }];
+	if (!isDimensionComplete(candidate)) return false;
+	dimTargets = candidate;
+	setSketchSelection(new Set(dimTargets.map(t => t.id)));
+	return true;
+}
+
+/** Refresh the leader/witness preview for the current cursor while placing. */
+function updateDimensionLeaderPreview(leader) {
+	const res = classifyDimension({
+		targets: dimTargets,
+		leader,
+		positions: getSketchPositions(),
+		entities: getSketchEntities(),
+	});
+	if (!res) { setPreview(null); return; }
+	const points = dimensionPreviewPoints(res, leader);
+	setPreview(points ? { type: 'dimension', data: { points } } : null);
+}
+
+/** Build the preview polyline (sketch coords) for a classified dimension. */
+function dimensionPreviewPoints(res, leader) {
+	const positions = getSketchPositions();
+	const entities = getSketchEntities();
+	const ent = (id) => entities.find(e => e.id === id);
+
+	if (res.dimKind === 'linear') {
+		const c = res.constraint;
+		const idA = c.point_a ?? c.entity_a;
+		const idB = c.point_b ?? c.entity_b;
+		// For a single-line linear dim the ids are the line endpoints.
+		const a = positions.get(idA);
+		const b = positions.get(idB);
+		if (!a || !b) return null;
+		return linearPreviewPolyline(res.orientation, a, b, leader);
+	}
+	if (res.dimKind === 'perp') {
+		const p = positions.get(res.constraint.point);
+		return p ? [[p.x, p.y], [leader.x, leader.y]] : null;
+	}
+	if (res.dimKind === 'lineDistance') {
+		const line2start = res.constraint.point;
+		const p = positions.get(line2start);
+		return p ? [[p.x, p.y], [leader.x, leader.y]] : null;
+	}
+	if (res.dimKind === 'angle') {
+		const line1 = ent(res.constraint.line_a);
+		const a = line1 && positions.get(line1.start_id);
+		const b = line1 && positions.get(line1.end_id);
+		if (!a || !b) return null;
+		const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+		return [[mid.x, mid.y], [leader.x, leader.y]];
+	}
+	return null;
+}
+
+/** Place the leader: classify, open the value popup, and reset. */
+function finalizeDimensionPlacement(leader) {
+	const res = classifyDimension({
+		targets: dimTargets,
+		leader,
+		positions: getSketchPositions(),
+		entities: getSketchEntities(),
+	});
+	if (res) {
+		const { constraint, valueField } = res;
+		showDimensionPopup({
+			entityA: null,
+			entityB: null,
+			sketchX: leader.x,
+			sketchY: leader.y,
+			dimType: 'custom',
+			defaultValue: res.value,
+			// Reuse the popup's customApply hook: clone the measured constraint
+			// and override its value with the user-entered number.
+			customApply: (v) => {
+				const c = { ...constraint };
+				c[valueField] = v;
+				addLocalConstraint(c);
+			},
+		});
+	}
+	resetDimensionTool();
+}
+
+function resetDimensionTool() {
+	dimTargets = [];
+	dimPlacing = false;
+	setPreview(null);
+	setSketchSelection(new Set());
+}
+
+/** Immediate radius dimension popup for a circle/arc (unchanged behavior). */
+function showRadiusPopupFor(entity) {
+	const positions = getSketchPositions();
+	const center = positions.get(entity.center_id);
+	let radius = entity.radius;
+	if (entity.type === 'Arc') {
+		const startPt = positions.get(entity.start_id);
+		if (startPt && center) {
+			radius = Math.hypot(startPt.x - center.x, startPt.y - center.y);
+		}
+	}
+	if (!center) return;
+	showDimensionPopup({
+		entityA: entity.id,
+		entityB: null,
+		sketchX: center.x + (radius || 1) * 0.7,
+		sketchY: center.y + (radius || 1) * 0.7,
+		dimType: 'radius',
+		defaultValue: parseFloat((radius || 1).toFixed(4)),
+	});
 }
 
 // ---- Project Tool ----
