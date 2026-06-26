@@ -2901,6 +2901,65 @@ export function showExtrudeDialogForEdit(featureId) {
 	beginEditRollback(featureId);
 }
 
+/** Absolute area of a closed polygon `[[x,y], …]` (shoelace). */
+function polyAreaAbs(poly) {
+	let a = 0;
+	for (let i = 0; i < poly.length; i++) {
+		const [x1, y1] = poly[i];
+		const [x2, y2] = poly[(i + 1) % poly.length];
+		a += x1 * y2 - x2 * y1;
+	}
+	return Math.abs(a / 2);
+}
+
+/** Area-weighted centroid of a closed polygon (vertex-average fallback). */
+function polyCentroid(poly) {
+	let a = 0, cx = 0, cy = 0;
+	for (let i = 0; i < poly.length; i++) {
+		const [x1, y1] = poly[i];
+		const [x2, y2] = poly[(i + 1) % poly.length];
+		const cross = x1 * y2 - x2 * y1;
+		a += cross;
+		cx += (x1 + x2) * cross;
+		cy += (y1 + y2) * cross;
+	}
+	if (Math.abs(a) < 1e-14) {
+		const n = poly.length || 1;
+		return [poly.reduce((s, p) => s + p[0], 0) / n, poly.reduce((s, p) => s + p[1], 0) / n];
+	}
+	return [cx / (3 * a), cy / (3 * a)];
+}
+
+/**
+ * The outer-boundary polygon of `solved_profiles[profileIndex]` for a sketch,
+ * built from the authoritative `solved_positions`. Null if it can't be formed.
+ * @param {string} sketchId @param {number} profileIndex
+ */
+function profileOuterPolygon(sketchId, profileIndex) {
+	const sketch = featureTree?.features?.find((f) => f.id === sketchId)?.operation?.sketch;
+	const prof = sketch?.solved_profiles?.[profileIndex];
+	const pos = sketch?.solved_positions || {};
+	if (!prof || !Array.isArray(prof.vertex_ids) || prof.vertex_ids.length < 3) return null;
+	const poly = [];
+	for (const vid of prof.vertex_ids) {
+		const p = pos[vid];
+		if (!p) return null;
+		poly.push([p[0], p[1]]);
+	}
+	return poly;
+}
+
+/** Whether a region outer boundary equals a profile polygon (area + centroid). */
+function outerPolygonMatches(outer, prof) {
+	if (!Array.isArray(outer) || outer.length < 3) return false;
+	const ao = polyAreaAbs(outer), ap = polyAreaAbs(prof);
+	const m = Math.max(ao, ap, 1e-12);
+	if (Math.abs(ao - ap) / m > 1e-2) return false;
+	const co = polyCentroid(outer), cp = polyCentroid(prof);
+	const scale = Math.sqrt(m);
+	return Math.hypot(co[0] - cp[0], co[1] - cp[1]) < 1e-2 * Math.max(scale, 1e-9);
+}
+
 /**
  * Apply an extrude operation from the dialog.
  * @param {number} depth
@@ -2921,10 +2980,40 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 	// profile_index (the analytical path). Send the whole region (outer/holes +
 	// recovered arc edges) so the engine builds true curved walls. Deep-clone to
 	// strip Svelte 5 $state proxies (postMessage can't clone them).
-	const subRegion =
+	let subRegion =
 		region?.region && region.region.profile_entity_ids == null
 			? JSON.parse(JSON.stringify(region.region))
 			: null;
+
+	// Default-selection guard: when no explicit region was clicked (the dialog's
+	// bare `{ profileIndex }` default), resolve it against the engine's
+	// authoritative arrangement (`compute_regions`) rather than the legacy
+	// whole-profile path. That path cannot represent a self-intersecting sketch —
+	// `extract_profiles` yields overlapping/pinched loops the kernel rejects
+	// (ProfileRepeatedVertex / ProfileLoopsIntersect). A sketch with sub-regions
+	// whose outer profile equals exactly one region (a plain or holed rectangle)
+	// extrudes that region; one with NO single region equal to its outer profile
+	// (an X-in-square) requires an explicit pick.
+	if (!region?.region) {
+		let avail = getSketchRegions(effectiveSketchId);
+		if (avail == null) {
+			await computeAllSketchRegions();
+			avail = getSketchRegions(effectiveSketchId);
+		}
+		if (avail && avail.length > 1) {
+			const profPoly = profileOuterPolygon(effectiveSketchId, effectiveProfileIndex);
+			const match = profPoly ? avail.find((r) => outerPolygonMatches(r.outer, profPoly)) : null;
+			if (!match) {
+				showToast('error', 'This sketch has multiple regions — click a region to extrude.');
+				return;
+			}
+			// A holed/genuine sub-region extrudes from its explicit boundary; a
+			// clean whole-loop region keeps the analytical profile_index path.
+			if ((match.holes?.length ?? 0) > 0 || match.profile_entity_ids == null) {
+				subRegion = JSON.parse(JSON.stringify(match));
+			}
+		}
+	}
 
 	// Multi-region selection: every selected region (on the same sketch) that
 	// carries an explicit boundary is sent so the engine unions their 2D
