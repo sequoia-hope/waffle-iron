@@ -637,7 +637,7 @@ export async function initEngine() {
 			getAxisPickMode: () => getAxisPickMode(),
 			setAxisPickMode: (active) => setAxisPickMode(active),
 			getExtrudeRegions: () => getExtrudeRegions(),
-			addExtrudeRegion: (sketchId, sketchName, profileIndex) => addExtrudeRegion(sketchId, sketchName, profileIndex),
+			addExtrudeRegion: (sketchId, sketchName, profileIndex, region = null) => addExtrudeRegion(sketchId, sketchName, profileIndex, region),
 			removeExtrudeRegion: (index) => removeExtrudeRegion(index),
 			changeExtrudeSketch: (sketchId) => changeExtrudeSketch(sketchId),
 			getRevolveDialogState: () => revolveDialogState,
@@ -2792,10 +2792,18 @@ export function addExtrudeRegion(sketchId, sketchName, profileIndex, region = nu
 	};
 }
 
-/** Stable-ish identity for a sub-region (first outer vertex + area). */
+/**
+ * Stable identity for a sub-region. Uses the area-weighted CENTROID (not the
+ * first outer vertex): congruent sub-regions meeting at a shared point — e.g.
+ * the four triangles of an X-in-square all touching the origin — can share a
+ * first vertex AND area, so a first-vertex key collides and silently drops the
+ * later click. The centroid is order-independent and distinct per region.
+ */
 function regionKey(region) {
-	const p = region.outer?.[0] ?? [0, 0];
-	return `${p[0].toFixed(6)},${p[1].toFixed(6)}:${(region.area ?? 0).toFixed(6)}`;
+	const outer = region.outer ?? [];
+	const c = outer.length >= 3 ? polyCentroid(outer) : (outer[0] ?? [0, 0]);
+	const holes = region.holes?.length ?? 0;
+	return `${c[0].toFixed(6)},${c[1].toFixed(6)}:${(region.area ?? 0).toFixed(6)}:${outer.length}:${holes}`;
 }
 
 /**
