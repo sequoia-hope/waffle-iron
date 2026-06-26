@@ -12,7 +12,9 @@
 		getCameraObject,
 		getSketchMode,
 		isProjectToolActive,
-		getSectionState
+		getSectionState,
+		isBodyVisible,
+		setRenderedEdgeBodyCount
 	} from '$lib/engine/store.svelte.js';
 	import { buildSectionClipPlane } from './sectionPlane.js';
 
@@ -229,6 +231,8 @@
 		const meshData = getMeshes();
 		if (!meshData) return [];
 		return meshData
+			// Hiding a body hides its edges too (mirrors CadModel's face filter).
+			.filter((m) => isBodyVisible(m.bodyId))
 			.filter((m) => m.edges && m.edges.vertices && m.edges.vertices.length > 0)
 			.map((m) => ({
 				geometry: buildEdgeGeometry(m.edges),
@@ -238,6 +242,9 @@
 			}))
 			.filter((e) => e.geometry !== null);
 	});
+
+	// Publish the real rendered edge-body count for GUI test introspection.
+	$effect(() => setRenderedEdgeBodyCount(edgeGeometries.length));
 
 	// Build material arrays reactively based on hover/selection state
 	let edgeMaterials = $derived.by(() => {

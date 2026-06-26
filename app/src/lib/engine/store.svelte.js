@@ -203,6 +203,18 @@ let axisVisibility = $state(new Map());
 let bodyVisibility = $state(new Map());
 
 /**
+ * Test-introspection counters: the number of edge bodies and topological
+ * vertices the overlays are ACTUALLY rendering right now. The overlay
+ * components publish their derived render-array lengths here so GUI tests can
+ * assert visibility filtering against the real rendered output (not a
+ * re-implemented filter). Not used by app logic.
+ */
+let renderedEdgeBodyCount = $state(0);
+let renderedVertexCount = $state(0);
+export function setRenderedEdgeBodyCount(n) { renderedEdgeBodyCount = n; }
+export function setRenderedVertexCount(n) { renderedVertexCount = n; }
+
+/**
  * Saved `active_index` captured when entering feature-edit mode so we can
  * restore it when the edit is applied or cancelled. `undefined` means we are
  * NOT currently in an edit-driven rollback (so restore is a no-op).
@@ -574,6 +586,10 @@ export async function initEngine() {
 					created_by_feature: r.created_by_feature ?? null,
 				})),
 			})),
+			getRenderedOverlayCounts: () => ({
+				edgeBodies: renderedEdgeBodyCount,
+				vertices: renderedVertexCount,
+			}),
 			getMeshBoundingBox: () => {
 				const min = [Infinity, Infinity, Infinity];
 				const max = [-Infinity, -Infinity, -Infinity];

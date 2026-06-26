@@ -11,7 +11,9 @@
 		geomRefEquals,
 		getCameraObject,
 		getSketchMode,
-		getSectionState
+		getSectionState,
+		isBodyVisible,
+		setRenderedVertexCount
 	} from '$lib/engine/store.svelte.js';
 	import { buildSectionClipPlane } from './sectionPlane.js';
 
@@ -38,6 +40,8 @@
 		const seen = [];
 
 		for (const mesh of meshData) {
+			// Hiding a body hides its vertices too (mirrors the face/edge filters).
+			if (!isBodyVisible(mesh.bodyId)) continue;
 			if (!mesh.edges || !mesh.edges.vertices || !mesh.edges.ranges) continue;
 			const verts = mesh.edges.vertices;
 
@@ -87,6 +91,9 @@
 			}
 		};
 	}
+
+	// Publish the real rendered vertex count for GUI test introspection.
+	$effect(() => setRenderedVertexCount(vertices.length));
 
 	/**
 	 * Build Points geometry from extracted vertices with hover/selection colors.
