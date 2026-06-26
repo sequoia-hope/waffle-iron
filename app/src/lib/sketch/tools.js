@@ -67,7 +67,7 @@ import { setPreview, setSnapIndicator, setSnapCandidates, getPreview as _getPrev
 import { buildSketchPlane } from './sketchCoords.js';
 import { projectEdgeToSketch, simplifyPolyline } from './projectGeometry.js';
 import { classifyDimension, isDimensionComplete, linearPreviewPolyline } from './dimensionHeuristic.js';
-import { DRAG_THRESHOLD_PX, GEAR_PREVIEW_MODULE_M, DEFAULT_GEAR_TOOTH_COUNT, DEFAULT_GEAR_PRESSURE_ANGLE } from '$lib/config.js';
+import { DRAG_THRESHOLD_PX, DRAG_MIN_DURATION_MS, DRAG_COMMIT_PX, GEAR_PREVIEW_MODULE_M, DEFAULT_GEAR_TOOTH_COUNT, DEFAULT_GEAR_PRESSURE_ANGLE } from '$lib/config.js';
 
 // -- Module state --
 
@@ -78,6 +78,25 @@ let toolState = 'idle';
 let isDragging = false;
 /** @type {{ x: number, y: number } | null} */
 let pointerDownPos = null;
+/** Timestamp (ms) of the most recent pointerdown, for the click-vs-drag time gate. */
+let pointerDownTime = 0;
+
+/**
+ * Whether a pointerup should finalize a click-drag (vs. be a click-in-place).
+ * Requires movement past DRAG_THRESHOLD_PX (isDragging), AND then either an
+ * unambiguous drag distance (> DRAG_COMMIT_PX) or a held press
+ * (>= DRAG_MIN_DURATION_MS). A small, quick twitch fails both and stays a click.
+ * @param {{x:number,y:number}} releasePos - sketch-space release position
+ * @param {number} screenPixelSize - sketch units per screen pixel
+ */
+function isClickDragRelease(releasePos, screenPixelSize) {
+	if (!isDragging) return false;
+	if (pointerDownPos && releasePos) {
+		const d = Math.hypot(releasePos.x - pointerDownPos.x, releasePos.y - pointerDownPos.y);
+		if (d > DRAG_COMMIT_PX * screenPixelSize) return true;
+	}
+	return (Date.now() - pointerDownTime) >= DRAG_MIN_DURATION_MS;
+}
 
 /** @type {number | null} */
 let startPointId = null;
@@ -319,6 +338,7 @@ export function handleToolEvent(activeTool, eventType, sketchX, sketchY, screenP
 	if (toolEventLog.length > MAX_EVENT_LOG) toolEventLog.shift();
 
 	if (eventType === 'pointerdown') {
+		pointerDownTime = Date.now();
 		log('sketch', `Tool ${activeTool} pointerdown`, { tool: activeTool, x: +sketchX.toFixed(2), y: +sketchY.toFixed(2) });
 	}
 	switch (activeTool) {
@@ -466,12 +486,14 @@ function handleLineTool(eventType, x, y, screenPixelSize) {
 	}
 
 	if (eventType === 'pointerup') {
-		if (isDragging && toolState === 'firstPointPlaced') {
+		if (isClickDragRelease({ x: snap.x, y: snap.y }, screenPixelSize) && toolState === 'firstPointPlaced') {
 			// Drag release: finalize the line
 			finalizeLine(snap, screenPixelSize);
 			isDragging = false;
 			pointerDownPos = null;
 		} else {
+			// Quick click (even with jitter): stay in click-click mode.
+			isDragging = false;
 			pointerDownPos = null;
 		}
 	}
@@ -570,11 +592,12 @@ function handleRectangleTool(eventType, x, y, screenPixelSize) {
 	}
 
 	if (eventType === 'pointerup') {
-		if (isDragging && toolState === 'firstCornerPlaced') {
+		if (isClickDragRelease({ x: snap.x, y: snap.y }, screenPixelSize) && toolState === 'firstCornerPlaced') {
 			finalizeRectangle(snap, screenPixelSize);
 			isDragging = false;
 			pointerDownPos = null;
 		} else {
+			isDragging = false;
 			pointerDownPos = null;
 		}
 	}
@@ -663,11 +686,12 @@ function handleCircleTool(eventType, x, y, screenPixelSize) {
 	}
 
 	if (eventType === 'pointerup') {
-		if (isDragging && toolState === 'centerPlaced') {
+		if (isClickDragRelease({ x: snap.x, y: snap.y }, screenPixelSize) && toolState === 'centerPlaced') {
 			finalizeCircle(snap);
 			isDragging = false;
 			pointerDownPos = null;
 		} else {
+			isDragging = false;
 			pointerDownPos = null;
 		}
 	}
@@ -771,7 +795,7 @@ function handleArcTool(eventType, x, y, screenPixelSize) {
 	}
 
 	if (eventType === 'pointerup') {
-		if (isDragging && toolState === 'centerPlaced') {
+		if (isClickDragRelease({ x: snap.x, y: snap.y }, screenPixelSize) && toolState === 'centerPlaced') {
 			// Drag release from center sets the start point of the arc
 			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
 			arcStartPointId = pt.id;
@@ -780,6 +804,7 @@ function handleArcTool(eventType, x, y, screenPixelSize) {
 			isDragging = false;
 			pointerDownPos = null;
 		} else {
+			isDragging = false;
 			pointerDownPos = null;
 		}
 	}

@@ -2,6 +2,14 @@
 export const DRAG_THRESHOLD_PX = 5;
 export const RIGHT_DRAG_THRESHOLD = 5;
 
+// Click-vs-drag disambiguation for drawing tools. A press that moved past
+// DRAG_THRESHOLD_PX finalizes a click-drag on release ONLY IF it also either
+// moved past DRAG_COMMIT_PX (unambiguously a drag) OR was held at least
+// DRAG_MIN_DURATION_MS. A small, quick twitch is therefore a click-in-place, so
+// a fast click that jitters a few pixels no longer drops a tiny segment.
+export const DRAG_MIN_DURATION_MS = 200;
+export const DRAG_COMMIT_PX = 16;
+
 // Snap thresholds (pixels / degrees)
 export const COINCIDENT_SNAP_PX = 8;
 export const ON_ENTITY_SNAP_PX = 5;
