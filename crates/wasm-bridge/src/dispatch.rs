@@ -72,6 +72,7 @@ fn handle_message(
             plane_normal,
             entities,
             constraints,
+            projected,
         } => {
             let sketch = state.finish_sketch(
                 solved_positions,
@@ -80,6 +81,7 @@ fn handle_message(
                 plane_normal,
                 entities,
                 constraints,
+                projected,
             )?;
             let op = Operation::Sketch { sketch };
             let result = state.engine.add_feature("Sketch".to_string(), op, kb);

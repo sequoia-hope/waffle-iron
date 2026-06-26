@@ -387,6 +387,7 @@ fn engine_state_sketch_workflow() {
             [0.0, 0.0, 1.0],
             vec![],
             vec![],
+            vec![],
         )
         .unwrap();
     assert_eq!(sketch.entities.len(), 1);
@@ -411,6 +412,7 @@ fn engine_state_no_sketch_errors() {
         Vec::new(),
         [0.0, 0.0, 0.0],
         [0.0, 0.0, 1.0],
+        vec![],
         vec![],
         vec![],
     );
@@ -654,6 +656,7 @@ fn dispatch_full_sketch_workflow() {
             plane_normal: [0.0, 0.0, 1.0],
             entities: vec![],
             constraints: vec![],
+            projected: vec![],
         },
         &mut kernel,
     );
@@ -742,6 +745,7 @@ fn dispatch_sketch_then_extrude_produces_solid() {
             plane_normal: [0.0, 0.0, 1.0],
             entities: vec![],
             constraints: vec![],
+            projected: vec![],
         },
         &mut kernel,
     );
@@ -987,6 +991,7 @@ fn dispatch_export_step_with_solid_reaches_kernel() {
             plane_normal: [0.0, 0.0, 1.0],
             entities: vec![],
             constraints: vec![],
+            projected: vec![],
         },
         &mut kernel,
     );
@@ -1174,6 +1179,7 @@ fn serde_roundtrip_finish_sketch() {
         plane_normal: [0.0, 1.0, 0.0],
         entities: vec![],
         constraints: vec![],
+        projected: vec![],
     };
     let json = serde_json::to_string(&msg).unwrap();
     assert!(json.contains("\"type\":\"FinishSketch\""));
@@ -1209,6 +1215,7 @@ fn serde_roundtrip_finish_sketch_defaults() {
         plane_normal,
         entities,
         constraints,
+        ..
     } = d
     {
         assert!(solved_positions.is_empty());
@@ -1602,5 +1609,79 @@ fn make_sketch_operation() -> Operation {
             solved_profiles: Vec::new(),
             projected: Vec::new(),
         },
+    }
+}
+
+#[test]
+fn finish_sketch_persists_projected_bindings() {
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::BeginSketch {
+            plane: make_geom_ref(),
+        },
+        &mut kernel,
+    );
+    wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::AddSketchEntity {
+            entity: SketchEntity::Point {
+                id: 50,
+                x: 1.0,
+                y: 2.0,
+                construction: true,
+            },
+        },
+        &mut kernel,
+    );
+
+    let binding = ProjectedEntity {
+        point_id: 50,
+        source: ProjectedSource {
+            geom_ref: GeomRef {
+                kind: TopoKind::Vertex,
+                anchor: Anchor::FeatureOutput {
+                    feature_id: Uuid::new_v4(),
+                    output_key: OutputKey::Main,
+                },
+                selector: Selector::Position {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+                policy: ResolvePolicy::BestEffort,
+            },
+            kind: ProjectedKind::Vertex,
+        },
+    };
+    let resp = wasm_bridge::dispatch(
+        &mut state,
+        UiToEngine::FinishSketch {
+            solved_positions: std::collections::HashMap::new(),
+            solved_profiles: vec![],
+            plane_origin: [0.0, 0.0, 0.0],
+            plane_normal: [0.0, 0.0, 1.0],
+            entities: vec![],
+            constraints: vec![],
+            projected: vec![binding],
+        },
+        &mut kernel,
+    );
+
+    if let EngineToUi::ModelUpdated { feature_tree, .. } = &resp {
+        let sketch = feature_tree
+            .features
+            .iter()
+            .find_map(|f| match &f.operation {
+                Operation::Sketch { sketch } => Some(sketch),
+                _ => None,
+            })
+            .expect("sketch feature present");
+        assert_eq!(sketch.projected.len(), 1, "projected binding must persist");
+        assert_eq!(sketch.projected[0].point_id, 50);
+    } else {
+        panic!("expected ModelUpdated, got {resp:?}");
     }
 }

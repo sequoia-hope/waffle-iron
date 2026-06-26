@@ -96,6 +96,7 @@ fn create_rect_sketch(
             plane_normal,
             entities: vec![],
             constraints: vec![],
+            projected: vec![],
         },
         kernel,
     );
@@ -788,6 +789,7 @@ fn finish_sketch_without_begin_returns_error() {
             plane_normal: [0.0, 0.0, 1.0],
             entities: vec![],
             constraints: vec![],
+            projected: vec![],
         },
         &mut kernel,
     );
@@ -992,6 +994,7 @@ fn extrude_sketch_with_no_profiles_returns_error() {
             plane_normal: [0.0, 0.0, 1.0],
             entities: vec![],
             constraints: vec![],
+            projected: vec![],
         },
         &mut kernel,
     );

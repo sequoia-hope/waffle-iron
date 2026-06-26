@@ -6,8 +6,8 @@ use uuid::Uuid;
 use feature_engine::types::{FeatureTree, Operation};
 use waffle_types::kernel::{EdgeRenderData, RenderMesh};
 use waffle_types::{
-    ClosedProfile, GearParams, GeomRef, PlanetaryParams, PlanetaryResult, Region, SketchConstraint,
-    SketchEntity, SolvedSketch,
+    ClosedProfile, GearParams, GeomRef, PlanetaryParams, PlanetaryResult, ProjectedEntity, Region,
+    SketchConstraint, SketchEntity, SolvedSketch,
 };
 
 /// Serde helper for HashMap<u32, (f64, f64)> — JSON string keys ↔ u32.
@@ -95,6 +95,10 @@ pub enum UiToEngine {
         entities: Vec<SketchEntity>,
         #[serde(default)]
         constraints: Vec<SketchConstraint>,
+        /// Projected-geometry bindings (point id → external source). Empty for
+        /// ordinary sketches. See specs/projected_sketch_geometry.md.
+        #[serde(default)]
+        projected: Vec<ProjectedEntity>,
     },
 
     // -- Feature operations --

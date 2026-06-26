@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use feature_engine::Engine;
-use waffle_types::{ClosedProfile, GeomRef, Sketch, SketchConstraint, SketchEntity, SolveStatus};
+use waffle_types::{
+    ClosedProfile, GeomRef, ProjectedEntity, Sketch, SketchConstraint, SketchEntity, SolveStatus,
+};
 
 /// The engine state wrapper for the WASM bridge.
 ///
@@ -143,6 +145,7 @@ impl EngineState {
         plane_normal: [f64; 3],
         entities: Vec<SketchEntity>,
         constraints: Vec<SketchConstraint>,
+        projected: Vec<ProjectedEntity>,
     ) -> Result<Sketch, BridgeError> {
         let mut sketch = self.build_sketch()?;
         if !entities.is_empty() {
@@ -155,6 +158,7 @@ impl EngineState {
         sketch.solved_profiles = solved_profiles;
         sketch.plane_origin = plane_origin;
         sketch.plane_normal = plane_normal;
+        sketch.projected = projected;
         self.active_sketch = None;
         Ok(sketch)
     }
