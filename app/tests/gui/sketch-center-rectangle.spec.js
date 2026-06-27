@@ -128,6 +128,18 @@ test.describe('Center rectangle drawing', () => {
 		expect(Math.abs(center.y - cy)).toBeLessThan(1e-3);
 	});
 
+	test('center point + construction midpoints do not break closed-profile detection (I5)', async ({ waffle }) => {
+		const page = waffle.page;
+		await drawRectangle(page, 0, 0, 80, 60);
+		await waitForEntityCount(page, 11, 5000);
+
+		// The 4 edges must still form exactly one closed profile; the center point
+		// and the two construction midpoints must not add or block profiles.
+		await expect
+			.poll(async () => (await page.evaluate(() => window.__waffle.getProfiles())).length, { timeout: 5000 })
+			.toBe(1);
+	});
+
 	test('click-drag: 7 points + 4 lines + center scheme', async ({ waffle }) => {
 		const page = waffle.page;
 		await dragRectangle(page, 0, 0, 80, 60);
