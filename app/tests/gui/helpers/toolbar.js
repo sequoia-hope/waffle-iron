@@ -67,6 +67,19 @@ export async function clickRectangle(page) {
 }
 
 /**
+ * Select the Center Rectangle variant via the Rect split-button dropdown.
+ * @param {import('@playwright/test').Page} page
+ */
+export async function clickCenterRectangle(page) {
+	await page.locator('[data-testid="toolbar-btn-rectangle-menu"]').click();
+	await page.locator('[data-testid="rect-variant-rectangle-center"]').click();
+	await page.waitForFunction(
+		() => window.__waffle?.getState()?.activeTool === 'rectangle-center',
+		{ timeout: 3000 }
+	);
+}
+
+/**
  * Click the Circle sketch tool button.
  * @param {import('@playwright/test').Page} page
  */

@@ -86,6 +86,9 @@ let selectedFeatureId = $state(null);
 /** @type {string} */
 let activeTool = $state('select');
 
+/** @type {'rectangle' | 'rectangle-center'} Rectangle split-button selection. */
+let rectMode = $state('rectangle');
+
 // -- Sketch drawing state --
 
 /** @type {Array<object>} */
@@ -579,6 +582,7 @@ export async function initEngine() {
 				engineReady,
 				sketchMode: { ...sketchMode },
 				activeTool,
+				rectMode,
 				entityCount: sketchEntities.length,
 				lastError,
 				statusMessage,
@@ -1488,6 +1492,16 @@ export function getActiveTool() {
 export function setActiveTool(tool) {
 	log('ui', 'Set active tool', { tool });
 	activeTool = tool;
+	// Remember which rectangle variant the split button last selected, so the
+	// button face + the `R` shortcut re-activate the same mode.
+	if (tool === 'rectangle' || tool === 'rectangle-center') {
+		rectMode = tool;
+	}
+}
+
+/** Which rectangle construction mode the split button currently selects. */
+export function getRectMode() {
+	return rectMode;
 }
 
 /**

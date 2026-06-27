@@ -3,6 +3,7 @@
 		isEngineReady,
 		getActiveTool,
 		setActiveTool,
+		getRectMode,
 		getSketchMode,
 		enterSketchMode,
 		undo,
@@ -76,6 +77,14 @@
 	let showOverflow = $state(false);
 	let showConstraints = $state(false);
 	let showSketchTools = $state(false);
+	let showRectMenu = $state(false);
+	let rectMode = $derived(getRectMode());
+
+	// The two rectangle construction variants offered by the Rect split button.
+	const rectVariants = [
+		{ id: 'rectangle', label: 'Corner Rectangle', hint: 'Two opposite corners' },
+		{ id: 'rectangle-center', label: 'Center Rectangle', hint: 'Center, then a corner' },
+	];
 	let showModelingTools = $state(false);
 
 	let showDebugMenu = $state(false);
@@ -308,7 +317,7 @@
 				case 's': handleToolClick('sketch'); break;
 				case 'e': handleToolClick('extrude'); break;
 				case 'l': if (inSketch) setActiveTool('line'); break;
-				case 'r': if (inSketch) setActiveTool('rectangle'); break;
+				case 'r': if (inSketch) setActiveTool(getRectMode()); break;
 				case 'p': if (inSketch) setActiveTool('polyline'); break;
 				case 'c': if (inSketch) setActiveTool('circle'); break;
 				case 'a': if (inSketch) setActiveTool('arc'); break;
@@ -409,6 +418,17 @@
 								data-testid="toolbar-btn-{t.id}"
 								onclick={() => { t.id === 'construction' ? handleToggleConstruction() : setActiveTool(t.id); showSketchTools = false; }}
 							>{t.label}</button>
+							{#if t.id === 'rectangle'}
+								<!-- Center-rectangle variant as its own entry on mobile. -->
+								<button
+									class="toolbar-btn"
+									class:active={tool === 'rectangle-center'}
+									disabled={!ready}
+									title="Center Rectangle"
+									data-testid="toolbar-btn-rectangle-center"
+									onclick={() => { setActiveTool('rectangle-center'); showSketchTools = false; }}
+								>Rect ⌖</button>
+							{/if}
 						{/each}
 					</div>
 				</div>
@@ -417,14 +437,53 @@
 			<!-- Desktop: sketch tools inline -->
 			<div class="toolbar-group">
 				{#each sketchTools as t}
-					<button
-						class="toolbar-btn"
-						class:active={t.id !== 'construction' && tool === t.id}
-						disabled={!ready}
-						title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
-						data-testid="toolbar-btn-{t.id}"
-						onclick={() => t.id === 'construction' ? handleToggleConstruction() : setActiveTool(t.id)}
-					>{t.label}</button>
+					{#if t.id === 'rectangle'}
+						<!-- Rectangle split button: main face selects the current rect
+						     mode; the corner arrow opens the variant menu. -->
+						<div class="split-btn dropdown-container">
+							<button
+								class="toolbar-btn split-btn-main"
+								class:active={tool === 'rectangle' || tool === 'rectangle-center'}
+								disabled={!ready}
+								title="{rectMode === 'rectangle-center' ? 'Center Rectangle' : 'Corner Rectangle'} (R)"
+								data-testid="toolbar-btn-rectangle"
+								onclick={() => setActiveTool(rectMode)}
+							>Rect</button>
+							<button
+								class="split-btn-arrow"
+								disabled={!ready}
+								title="Rectangle type"
+								aria-label="Rectangle type"
+								data-testid="toolbar-btn-rectangle-menu"
+								onclick={() => { showRectMenu = !showRectMenu; showSketchTools = false; showConstraints = false; }}
+							>▾</button>
+							{#if showRectMenu}
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<div class="dropdown-backdrop" onclick={() => showRectMenu = false} onpointerdown={(e) => e.stopPropagation()}></div>
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<div class="dropdown-panel rect-menu" data-testid="rectangle-menu" onpointerdown={(e) => e.stopPropagation()}>
+									{#each rectVariants as rv}
+										<button
+											class="rect-menu-item"
+											class:active={rectMode === rv.id}
+											data-testid="rect-variant-{rv.id}"
+											title={rv.hint}
+											onclick={() => { setActiveTool(rv.id); showRectMenu = false; }}
+										>{rv.label}</button>
+									{/each}
+								</div>
+							{/if}
+						</div>
+					{:else}
+						<button
+							class="toolbar-btn"
+							class:active={t.id !== 'construction' && tool === t.id}
+							disabled={!ready}
+							title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
+							data-testid="toolbar-btn-{t.id}"
+							onclick={() => t.id === 'construction' ? handleToggleConstruction() : setActiveTool(t.id)}
+						>{t.label}</button>
+					{/if}
 				{/each}
 			</div>
 		{/if}
@@ -861,6 +920,84 @@
 	.toolbar-btn:disabled {
 		color: var(--text-muted);
 		cursor: default;
+	}
+
+	/* Rectangle split button: a main face + a small bottom-right dropdown arrow. */
+	.split-btn {
+		display: inline-flex;
+		align-items: stretch;
+	}
+
+	.split-btn-main {
+		border-top-right-radius: 0;
+		border-bottom-right-radius: 0;
+	}
+
+	.split-btn-arrow {
+		display: flex;
+		align-items: flex-end;
+		justify-content: center;
+		background: transparent;
+		border: 1px solid transparent;
+		border-top-left-radius: 0;
+		border-bottom-left-radius: 0;
+		border-top-right-radius: 3px;
+		border-bottom-right-radius: 3px;
+		color: var(--text-primary);
+		cursor: pointer;
+		font-size: 9px;
+		line-height: 1;
+		padding: 4px 3px 3px 1px;
+		margin-left: -1px;
+	}
+
+	.split-btn-arrow:hover:not(:disabled) {
+		background: var(--bg-hover);
+		border-color: var(--border-color);
+	}
+
+	.split-btn-arrow:disabled {
+		color: var(--text-muted);
+		cursor: default;
+	}
+
+	.rect-menu {
+		position: absolute;
+		top: calc(100% + 4px);
+		left: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 160px;
+		background: var(--bg-tertiary);
+		border: 1px solid var(--border-color);
+		border-radius: 6px;
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+		z-index: 200;
+		padding: 6px;
+	}
+
+	.rect-menu-item {
+		background: transparent;
+		border: 1px solid transparent;
+		border-radius: 3px;
+		color: var(--text-primary);
+		cursor: pointer;
+		font-size: 12px;
+		padding: 6px 8px;
+		text-align: left;
+		white-space: nowrap;
+	}
+
+	.rect-menu-item:hover {
+		background: var(--bg-hover);
+		border-color: var(--border-color);
+	}
+
+	.rect-menu-item.active {
+		background: rgba(0, 120, 212, 0.2);
+		border-color: var(--accent);
+		color: var(--accent);
 	}
 
 	.constraint-btn {

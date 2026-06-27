@@ -354,6 +354,9 @@ export function handleToolEvent(activeTool, eventType, sketchX, sketchY, screenP
 		case 'rectangle':
 			handleRectangleTool(eventType, sketchX, sketchY, screenPixelSize);
 			break;
+		case 'rectangle-center':
+			handleRectangleCenterTool(eventType, sketchX, sketchY, screenPixelSize);
+			break;
 		case 'circle':
 			handleCircleTool(eventType, sketchX, sketchY, screenPixelSize);
 			break;
@@ -606,18 +609,25 @@ function handleRectangleTool(eventType, x, y, screenPixelSize) {
 	}
 }
 
-/** Finalize a rectangle from startPos to snap position. */
-function finalizeRectangle(snap, screenPixelSize) {
-	const x1 = startPos.x, y1 = startPos.y;
-	const x2 = snap.x, y2 = snap.y;
+/** Below this half-extent (sketch units) a center rectangle is degenerate. */
+const MIN_RECT_EXTENT = 1e-9;
 
-	// Create 4 corner points (reuse startPoint for p1)
-	const p1 = { id: startPointId, x: x1, y: y1 };
-	const p2 = findOrCreatePoint(x2, y1, screenPixelSize);
-	const p3 = findOrCreatePoint(x2, y2, screenPixelSize);
-	const p4 = findOrCreatePoint(x1, y2, screenPixelSize);
+/**
+ * Shared edge creation for both rectangle modes: 4 corner points + 4 edge lines
+ * (p1→p2→p3→p4→p1) + auto H/V edge constraints.
+ *
+ * @param {{x:number,y:number}[]} corners - exactly 4, ordered p1 p2 p3 p4
+ * @param {number} screenPixelSize
+ * @param {number|null} p1Id - reuse this id for p1 (already created), or null to find/create
+ * @returns {{ points: {id:number}[], lines: number[] }}
+ */
+function createRectangleEdges(corners, screenPixelSize, p1Id) {
+	const [c1, c2, c3, c4] = corners;
+	const p1 = p1Id != null ? { id: p1Id } : findOrCreatePoint(c1.x, c1.y, screenPixelSize);
+	const p2 = findOrCreatePoint(c2.x, c2.y, screenPixelSize);
+	const p3 = findOrCreatePoint(c3.x, c3.y, screenPixelSize);
+	const p4 = findOrCreatePoint(c4.x, c4.y, screenPixelSize);
 
-	// Create 4 lines connecting corners
 	const l1Id = allocEntityId();
 	addLocalEntity({ type: 'Line', id: l1Id, start_id: p1.id, end_id: p2.id, construction: false });
 	const l2Id = allocEntityId();
@@ -627,13 +637,26 @@ function finalizeRectangle(snap, screenPixelSize) {
 	const l4Id = allocEntityId();
 	addLocalEntity({ type: 'Line', id: l4Id, start_id: p4.id, end_id: p1.id, construction: false });
 
-	log('sketch', 'Rectangle created', { lineIds: [l1Id, l2Id, l3Id, l4Id] });
-
-	// Auto-apply H/V constraints
+	// Auto-apply H/V edge constraints (top/bottom horizontal, left/right vertical)
 	addLocalConstraint({ type: 'Horizontal', entity: l1Id });
 	addLocalConstraint({ type: 'Horizontal', entity: l3Id });
 	addLocalConstraint({ type: 'Vertical', entity: l2Id });
 	addLocalConstraint({ type: 'Vertical', entity: l4Id });
+
+	return { points: [p1, p2, p3, p4], lines: [l1Id, l2Id, l3Id, l4Id] };
+}
+
+/** Finalize a corner→corner rectangle from startPos to snap position. */
+function finalizeRectangle(snap, screenPixelSize) {
+	const x1 = startPos.x, y1 = startPos.y;
+	const x2 = snap.x, y2 = snap.y;
+
+	const corners = [
+		{ x: x1, y: y1 }, { x: x2, y: y1 },
+		{ x: x2, y: y2 }, { x: x1, y: y2 },
+	];
+	const { lines } = createRectangleEdges(corners, screenPixelSize, startPointId);
+	log('sketch', 'Rectangle created', { lineIds: lines });
 
 	endSketchAction();
 	toolState = 'idle';
@@ -641,6 +664,113 @@ function finalizeRectangle(snap, screenPixelSize) {
 	startPos = null;
 	setPreview(null);
 	setSnapIndicator(null);
+}
+
+/**
+ * Emit a center rectangle's geometry given an existing center point.
+ * Spec: specs/center_rectangle.md. Center C is tied to the rectangle by:
+ *   - M_top  = midpoint of top edge   (Midpoint constraint)
+ *   - M_left = midpoint of left edge  (Midpoint constraint)
+ *   - VerticalPoints(C, M_top)   ⇒ C.x = (x_left + x_right) / 2
+ *   - HorizontalPoints(C, M_left) ⇒ C.y = (y_bot  + y_top)  / 2
+ *
+ * @returns {{ centerId:number, corners:{id:number}[], lines:number[], mTop:number, mLeft:number } | null}
+ *          null if the half-extents are degenerate (zero-area).
+ */
+function emitCenterRectangle(centerId, cx, cy, mx, my, screenPixelSize) {
+	const hx = mx - cx, hy = my - cy;
+	if (Math.abs(hx) < MIN_RECT_EXTENT || Math.abs(hy) < MIN_RECT_EXTENT) return null;
+
+	// p1 p2 p3 p4 (CCW); p3 is the dragged corner (mx,my). Signed extents keep
+	// the dragged corner an exact corner so it can reuse snapped points.
+	const corners = [
+		{ x: cx - hx, y: cy - hy }, { x: cx + hx, y: cy - hy },
+		{ x: cx + hx, y: cy + hy }, { x: cx - hx, y: cy + hy },
+	];
+	const { points, lines } = createRectangleEdges(corners, screenPixelSize, null);
+	const topLine = lines[2];  // l3: p3→p4 (top edge,  y = cy+hy)
+	const leftLine = lines[3]; // l4: p4→p1 (left edge, x = cx-hx)
+
+	// Construction midpoint reference points for the two alignment relations.
+	const mTop = allocEntityId();
+	addLocalEntity({ type: 'Point', id: mTop, x: cx, y: cy + hy, construction: true });
+	const mLeft = allocEntityId();
+	addLocalEntity({ type: 'Point', id: mLeft, x: cx - hx, y: cy, construction: true });
+
+	addLocalConstraint({ type: 'Midpoint', point: mTop, line: topLine });
+	addLocalConstraint({ type: 'Midpoint', point: mLeft, line: leftLine });
+	addLocalConstraint({ type: 'VerticalPoints', point_a: centerId, point_b: mTop });
+	addLocalConstraint({ type: 'HorizontalPoints', point_a: centerId, point_b: mLeft });
+
+	log('sketch', 'Center rectangle created', { lineIds: lines, centerId, mTop, mLeft });
+	return { centerId, corners: points, lines, mTop, mLeft };
+}
+
+/** Finalize a center→corner rectangle. startPointId is the (real) center point. */
+function finalizeCenterRectangle(snap, screenPixelSize) {
+	const cx = startPos.x, cy = startPos.y;
+	const result = emitCenterRectangle(startPointId, cx, cy, snap.x, snap.y, screenPixelSize);
+	// `result === null` ⇒ degenerate; just reset without creating geometry.
+
+	endSketchAction();
+	toolState = 'idle';
+	startPointId = null;
+	startPos = null;
+	setPreview(null);
+	setSnapIndicator(null);
+}
+
+// ---- Center Rectangle Tool ----
+
+function handleRectangleCenterTool(eventType, x, y, screenPixelSize) {
+	const snap = detectSnaps(x, y, startPointId, screenPixelSize);
+	setSnapIndicator(snap.indicator);
+
+	if (eventType === 'pointermove') {
+		updateSnapCandidates(snap, screenPixelSize);
+		if (pointerDownPos && toolState === 'firstCornerPlaced') {
+			const dragThreshold = DRAG_THRESHOLD_PX * screenPixelSize;
+			const dx = snap.x - pointerDownPos.x;
+			const dy = snap.y - pointerDownPos.y;
+			if (Math.sqrt(dx * dx + dy * dy) > dragThreshold) isDragging = true;
+		}
+		if (toolState === 'firstCornerPlaced' && startPos) {
+			// Preview the full box implied by center + current corner.
+			const hx = snap.x - startPos.x, hy = snap.y - startPos.y;
+			setPreview({
+				type: 'rectangle',
+				data: { x1: startPos.x - hx, y1: startPos.y - hy, x2: startPos.x + hx, y2: startPos.y + hy },
+			});
+		}
+		return;
+	}
+
+	if (eventType === 'pointerdown') {
+		isDragging = false;
+		if (toolState === 'idle') {
+			beginSketchAction();
+			// First click places the (real) center point.
+			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
+			applyPointSnapConstraints(pt.id, snap);
+			startPointId = pt.id;
+			startPos = { x: pt.x, y: pt.y };
+			pointerDownPos = { x: snap.x, y: snap.y };
+			toolState = 'firstCornerPlaced';
+		} else if (toolState === 'firstCornerPlaced') {
+			finalizeCenterRectangle(snap, screenPixelSize);
+		}
+	}
+
+	if (eventType === 'pointerup') {
+		if (isClickDragRelease({ x: snap.x, y: snap.y }, screenPixelSize) && toolState === 'firstCornerPlaced') {
+			finalizeCenterRectangle(snap, screenPixelSize);
+			isDragging = false;
+			pointerDownPos = null;
+		} else {
+			isDragging = false;
+			pointerDownPos = null;
+		}
+	}
 }
 
 // ---- Circle Tool ----
