@@ -1233,3 +1233,67 @@ fn v3_non_uuid_tab_id_loads() {
     assert_eq!(tabs[0].id, "default");
     assert_eq!(active, "default");
 }
+
+/// Spec point_pair_horizontal_vertical.md I4: the new point-pair Horizontal /
+/// Vertical variants survive a save → load round-trip, and an existing line
+/// `Horizontal { entity }` still loads alongside them.
+#[test]
+fn point_pair_hv_constraints_roundtrip() {
+    let plane_ref = GeomRef {
+        kind: TopoKind::Face,
+        anchor: Anchor::Datum { datum_id: Uuid::nil() },
+        selector: Selector::Role { role: Role::EndCapPositive, index: 0 },
+        policy: ResolvePolicy::BestEffort,
+    };
+    let constraints = vec![
+        SketchConstraint::Horizontal { entity: 5 },
+        SketchConstraint::HorizontalPoints { point_a: 1, point_b: 3 },
+        SketchConstraint::VerticalPoints { point_a: 2, point_b: 4 },
+    ];
+    let sketch = Sketch {
+        id: Uuid::new_v4(),
+        plane: plane_ref,
+        plane_origin: [0.0, 0.0, 0.0],
+        plane_normal: [0.0, 0.0, 1.0],
+        entities: vec![
+            SketchEntity::Point { id: 1, x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: 2, x: 10.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: 3, x: 10.0, y: 10.0, construction: false },
+            SketchEntity::Point { id: 4, x: 0.0, y: 10.0, construction: false },
+            SketchEntity::Line { id: 5, start_id: 1, end_id: 2, construction: false },
+        ],
+        constraints: constraints.clone(),
+        solve_status: SolveStatus::UnderConstrained { dof: 1 },
+        solved_positions: std::collections::HashMap::new(),
+        solved_profiles: vec![],
+        projected: vec![],
+    };
+    let feature = Feature {
+        id: sketch.id,
+        name: "PointPair HV".to_string(),
+        operation: Operation::Sketch { sketch },
+        suppressed: false,
+        references: Vec::new(),
+    };
+    let mut tree = FeatureTree::new();
+    tree.features.push(feature);
+
+    let meta = ProjectMetadata::new("PointPair Roundtrip");
+    let json = save_project(&tree, &meta);
+    let (loaded_tree, _) = load_project(&json).unwrap();
+
+    let loaded = match &loaded_tree.features[0].operation {
+        Operation::Sketch { sketch } => &sketch.constraints,
+        other => panic!("Expected Sketch, got {:?}", other),
+    };
+    assert_eq!(loaded.len(), 3, "all three constraints preserved");
+    assert!(matches!(loaded[0], SketchConstraint::Horizontal { entity: 5 }));
+    assert!(
+        matches!(loaded[1], SketchConstraint::HorizontalPoints { point_a: 1, point_b: 3 }),
+        "HorizontalPoints should roundtrip, got {:?}", loaded[1]
+    );
+    assert!(
+        matches!(loaded[2], SketchConstraint::VerticalPoints { point_a: 2, point_b: 4 }),
+        "VerticalPoints should roundtrip, got {:?}", loaded[2]
+    );
+}

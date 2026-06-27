@@ -82,6 +82,10 @@ export function getApplicableConstraints(selectionIds, entities, positions) {
 		};
 		result.symmetricH = () => ({ type: 'SymmetricH', point_a: points[0].id, point_b: points[1].id });
 		result.symmetricV = () => ({ type: 'SymmetricV', point_a: points[0].id, point_b: points[1].id });
+		// Point-pair Horizontal/Vertical: align two points along an axis.
+		// (Line form emits { type:'Horizontal', entity } in the 1-line branch.)
+		result.horizontal = () => ({ type: 'HorizontalPoints', point_a: points[0].id, point_b: points[1].id });
+		result.vertical = () => ({ type: 'VerticalPoints', point_a: points[0].id, point_b: points[1].id });
 		result.hDistance = () => {
 			const pA = positions.get(points[0].id);
 			const pB = positions.get(points[1].id);

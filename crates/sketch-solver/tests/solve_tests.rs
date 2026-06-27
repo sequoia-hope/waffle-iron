@@ -3884,3 +3884,59 @@ fn degenerate_point_coincident_with_itself() {
     );
     assert_point_near(&result.positions, 1, (5.0, 5.0), 1e-6);
 }
+
+// ── Point-pair Horizontal / Vertical constraints ───────────────────────────
+// Spec: specs/point_pair_horizontal_vertical.md
+// Extends Horizontal/Vertical (line-only) to an arbitrary pair of points.
+
+/// I1 + I3: HorizontalPoints equates the two points' Y, leaving X untouched.
+#[test]
+fn horizontal_points_aligns_y_only() {
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: 1, x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: 2, x: 10.0, y: 5.0, construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::HorizontalPoints { point_a: 1, point_b: 2 },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    // Anchor stays put; point 2's Y is pulled to the anchor's Y, X is untouched.
+    assert_point_near(&result.positions, 1, (0.0, 0.0), 1e-6);
+    assert_point_near(&result.positions, 2, (10.0, 0.0), 1e-6);
+}
+
+/// I2 + I3: VerticalPoints equates the two points' X, leaving Y untouched.
+#[test]
+fn vertical_points_aligns_x_only() {
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: 1, x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: 2, x: 5.0, y: 10.0, construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::VerticalPoints { point_a: 1, point_b: 2 },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    assert_point_near(&result.positions, 1, (0.0, 0.0), 1e-6);
+    assert_point_near(&result.positions, 2, (0.0, 10.0), 1e-6);
+}
+
+/// Failure mode: an unknown point id surfaces loudly as SolveFailed.
+#[test]
+fn horizontal_points_unknown_point_fails() {
+    let sketch = make_sketch(
+        vec![SketchEntity::Point { id: 1, x: 0.0, y: 0.0, construction: false }],
+        vec![SketchConstraint::HorizontalPoints { point_a: 1, point_b: 99 }],
+    );
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(result.status, SolveStatus::SolveFailed { .. }),
+        "expected SolveFailed for unknown point, got {:?}",
+        result.status
+    );
+}

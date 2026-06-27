@@ -286,6 +286,19 @@ pub enum SketchConstraint {
     Vertical {
         entity: u32,
     },
+    /// Two points share a Y coordinate (a horizontal line passes through both).
+    /// Point-pair analogue of `Horizontal`, which acts on a single line's
+    /// endpoints. See specs/point_pair_horizontal_vertical.md.
+    HorizontalPoints {
+        point_a: u32,
+        point_b: u32,
+    },
+    /// Two points share an X coordinate (a vertical line passes through both).
+    /// Point-pair analogue of `Vertical`.
+    VerticalPoints {
+        point_a: u32,
+        point_b: u32,
+    },
     Parallel {
         line_a: u32,
         line_b: u32,

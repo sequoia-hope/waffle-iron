@@ -274,6 +274,20 @@ impl CompiledConstraint {
                 Ok(CompiledConstraint::Vertical { ax, bx })
             }
 
+            // Point-pair forms compile to the SAME residual as the line forms —
+            // equate one coordinate axis of two points. (Invariant I3: one axis.)
+            SketchConstraint::HorizontalPoints { point_a, point_b } => {
+                let (_, ay) = pt(*point_a)?;
+                let (_, by) = pt(*point_b)?;
+                Ok(CompiledConstraint::Horizontal { ay, by })
+            }
+
+            SketchConstraint::VerticalPoints { point_a, point_b } => {
+                let (ax, _) = pt(*point_a)?;
+                let (bx, _) = pt(*point_b)?;
+                Ok(CompiledConstraint::Vertical { ax, bx })
+            }
+
             SketchConstraint::Parallel { line_a, line_b } => {
                 let [ax, ay, bx, by] = line_param_pts(*line_a)?;
                 let [cx, cy, dx, dy] = line_param_pts(*line_b)?;

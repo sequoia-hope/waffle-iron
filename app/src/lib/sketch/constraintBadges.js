@@ -88,6 +88,10 @@ export function computeConstraintBadges(constraints, entities, positions, failed
 			const e = byId.get(c.entity);
 			const m = e && e.type === 'Line' ? lineMid(e, positions) : null;
 			if (m) push(ci, key, c.type === 'Horizontal' ? 'H' : 'V', m.x, m.y);
+		} else if (c.type === 'HorizontalPoints' || c.type === 'VerticalPoints') {
+			const a = positions.get(c.point_a);
+			const b = positions.get(c.point_b);
+			if (a && b) push(ci, key, c.type === 'HorizontalPoints' ? 'H' : 'V', (a.x + b.x) / 2, (a.y + b.y) / 2);
 		} else if (c.type === 'Parallel' || c.type === 'Perpendicular') {
 			const l0 = byId.get(c.line_a);
 			const l1 = byId.get(c.line_b);
