@@ -1,15 +1,19 @@
 # Spec: Projected sketch geometry with live source coincidence
 
-> STATUS: IMPLEMENTED (vertex projection end-to-end). Increments 1–7 of the
-> §Implementation Plan are landed (commits 3219bf5e, fbd8ead6, 89c9a373,
-> e0c9b0ab, f144feab, 9fdc6f9a, a512c5f5): SketchPlaneBasis transform,
-> resolve_by_position, ProjectedEntity side-table, rebuild reprojection,
-> FinishSketch bridge + WASM, the projectVertex UI tool, and the dangling-source
-> adversarial case. NOT YET DONE: live projection of **edges** and **faces** in
-> the UI (the data model supports EdgeSample; the tool only projects vertices so
-> far), pick-time cyclic-ref rejection (the engine degrades gracefully to
-> dangling instead), and a full in-browser rebuild oracle for the parametric
-> update (covered by the Rust integration test reproject_tracks_moved_source_vertex).
+> STATUS: IMPLEMENTED — vertex, edge, and face projection end-to-end. Increments
+> 1–7 (commits 3219bf5e, fbd8ead6, 89c9a373, e0c9b0ab, f144feab, 9fdc6f9a,
+> a512c5f5): SketchPlaneBasis transform, resolve_by_position, ProjectedEntity
+> side-table, rebuild reprojection, FinishSketch bridge + WASM, the projectVertex
+> UI tool, and the dangling-source adversarial case. Edge/face projection landed
+> in dff20159: a straight edge → two bound endpoint vertices + a line; a face →
+> its in-plane straight boundary edges as bound construction lines (shared
+> corners deduped). DESIGN NOTE: edges/faces bind by ENDPOINT VERTICES (Position
+> refs), not EdgeSample — this reuses the vertex reproject path and needs no
+> engine change; EdgeSample remains in the data model for future curved-edge
+> interior binding. STILL OPEN: live binding of **curved** edge interiors (kept
+> static for now), pick-time cyclic-ref rejection (engine degrades to dangling),
+> and a full in-browser parametric-update oracle (covered by the Rust
+> integration test reproject_tracks_moved_source_vertex).
 
 ## Goal
 
