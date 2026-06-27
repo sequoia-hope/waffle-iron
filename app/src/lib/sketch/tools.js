@@ -49,7 +49,9 @@ import {
 	setSelectedConstraintIndex,
 	constraintModalPick,
 	getConstraintModal,
-	projectVertex
+	projectVertex,
+	projectEdge,
+	projectFace
 } from '$lib/engine/store.svelte.js';
 import {
 	findLineLineIntersection,
@@ -1454,18 +1456,29 @@ function handleProjectTool(eventType, x, y, screenPixelSize) {
 	if (hovered.kind?.type === 'Edge') {
 		for (const mesh of meshData) {
 			if (!mesh.edges || !mesh.edges.ranges) continue;
+			const verts = mesh.edges.vertices;
 			for (const range of mesh.edges.ranges) {
 				if (!geomRefEquals(range.geom_ref, hovered)) continue;
 
-				const projected = projectEdgeToSketch(
-					mesh.edges.vertices, range, sketchPlane
-				);
-				const simplified = simplifyPolyline(projected);
-				if (simplified.length >= 2) {
-					beginSketchAction();
-					createConstructionLinesFromPoints(simplified, false);
-					endSketchAction();
-					log('sketch', 'Projected edge as construction lines', { pointCount: simplified.length });
+				const si = range.start_index;
+				const ei = range.end_index;
+				if (ei - si === 2) {
+					// Straight edge → live binding: two endpoint vertices + a line.
+					const p0 = [verts[si * 3], verts[si * 3 + 1], verts[si * 3 + 2]];
+					const p1 = [verts[(ei - 1) * 3], verts[(ei - 1) * 3 + 1], verts[(ei - 1) * 3 + 2]];
+					projectEdge(hovered.anchor, p0, p1);
+					log('sketch', 'Projected straight edge (live)');
+				} else {
+					// Curved edge → static construction snapshot (interior points
+					// are not vertices, so no live binding yet).
+					const projected = projectEdgeToSketch(verts, range, sketchPlane);
+					const simplified = simplifyPolyline(projected);
+					if (simplified.length >= 2) {
+						beginSketchAction();
+						createConstructionLinesFromPoints(simplified, false);
+						endSketchAction();
+						log('sketch', 'Projected curved edge as construction lines', { pointCount: simplified.length });
+					}
 				}
 				return;
 			}
@@ -1473,7 +1486,8 @@ function handleProjectTool(eventType, x, y, screenPixelSize) {
 	}
 
 	if (hovered.kind?.type === 'Face') {
-		log('sketch', 'Face projection not yet implemented');
+		const n = projectFace(hovered);
+		log('sketch', 'Projected face boundary edges', { lines: n });
 	}
 }
 

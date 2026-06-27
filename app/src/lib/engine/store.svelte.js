@@ -664,6 +664,8 @@ export async function initEngine() {
 			getConstraints: () => [...sketchConstraints],
 			getProjectedBindings: () => JSON.parse(JSON.stringify(projectedBindings)),
 			projectVertex: (geomRef) => projectVertex(geomRef),
+			projectEdge: (anchor, p0, p1) => projectEdge(anchor, p0, p1),
+			projectFace: (geomRef) => projectFace(geomRef),
 			getConstraintModal: () => (constraintModal ? { ...constraintModal, running: [...constraintModal.running] } : null),
 			// Pure decision-engine probe over the LIVE sketch entities/positions —
 			// for deterministic branch-coverage tests of the modal step logic.
@@ -1562,16 +1564,57 @@ export function addLocalEntity(entity) {
 }
 
 // -- Projected geometry (project external model geometry into the sketch) --
+//
+// Every projected entity is bound to model VERTICES via Position GeomRefs, so
+// edges and faces reuse the proven vertex-reproject path: an edge projects its
+// two endpoint vertices + a line; a face projects its in-plane boundary edges
+// (shared corners deduped). The engine resolves each binding to the nearest
+// vertex and reprojects on rebuild. See specs/projected_sketch_geometry.md.
 
 export function getProjectedBindings() { return projectedBindings; }
 
+/** Quantize a coordinate to the 1e-6 grid the engine resolves against. */
+const quantize6 = (n) => Math.round(n * 1e6) / 1e6;
+
+/** Map a 3D world point to the active sketch plane's 2D (u, v) coordinates. */
+function worldToSketch2D(x, y, z) {
+	const plane = buildSketchPlane(sketchMode.origin, sketchMode.normal);
+	const rx = x - plane.origin.x;
+	const ry = y - plane.origin.y;
+	const rz = z - plane.origin.z;
+	return {
+		u: rx * plane.xAxis.x + ry * plane.xAxis.y + rz * plane.xAxis.z,
+		v: rx * plane.yAxis.x + ry * plane.yAxis.y + rz * plane.yAxis.z,
+	};
+}
+
+/** Build a Vertex GeomRef with a Position selector at a 3D point. */
+function vertexRefAt(anchor, x, y, z) {
+	return {
+		kind: { type: 'Vertex' },
+		anchor: JSON.parse(JSON.stringify(anchor)),
+		selector: { type: 'Position', x: quantize6(x), y: quantize6(y), z: quantize6(z) },
+		policy: { type: 'BestEffort' },
+	};
+}
+
 /**
- * Project a picked model vertex into the active sketch: create a construction
- * Point at the vertex's position in sketch-plane 2D coordinates, and record a
- * binding (point id → source) so the engine keeps it coincident with the source
- * across rebuilds. The vertex GeomRef carries a `Position` selector with the
- * picked 3D coordinates. Mirrors the Rust SketchPlaneBasis world→local map.
- * See specs/projected_sketch_geometry.md.
+ * Create a construction Point at the 2D projection of a 3D point and record a
+ * binding to the given source. Returns the new Point id. Does NOT solve — the
+ * caller batches and solves once.
+ */
+function addBoundProjectedPoint(x3, y3, z3, sourceBinding) {
+	const { u, v } = worldToSketch2D(x3, y3, z3);
+	const id = allocEntityId();
+	addLocalEntity({ type: 'Point', id, x: u, y: v, construction: true });
+	projectedBindings = [...projectedBindings, { point_id: id, source: sourceBinding }];
+	return id;
+}
+
+/**
+ * Project a picked model vertex into the active sketch: a construction Point at
+ * the vertex's sketch-plane 2D position, bound so the engine keeps it coincident
+ * with the source across rebuilds. The GeomRef carries a `Position` selector.
  * @param {object} geomRef - Vertex GeomRef with a Position selector.
  * @returns {number | null} the created Point id, or null if not applicable.
  */
@@ -1580,23 +1623,103 @@ export function projectVertex(geomRef) {
 	const sel = geomRef?.selector;
 	if (!sel || sel.type !== 'Position') return null;
 
-	const plane = buildSketchPlane(sketchMode.origin, sketchMode.normal);
-	const rx = sel.x - plane.origin.x;
-	const ry = sel.y - plane.origin.y;
-	const rz = sel.z - plane.origin.z;
-	const x = rx * plane.xAxis.x + ry * plane.xAxis.y + rz * plane.xAxis.z;
-	const y = rx * plane.yAxis.x + ry * plane.yAxis.y + rz * plane.yAxis.z;
-
-	const id = allocEntityId();
 	beginSketchAction();
-	addLocalEntity({ type: 'Point', id, x, y, construction: true });
+	const id = addBoundProjectedPoint(sel.x, sel.y, sel.z, {
+		geom_ref: JSON.parse(JSON.stringify(geomRef)),
+		kind: { type: 'Vertex' },
+	});
 	endSketchAction();
-	projectedBindings = [
-		...projectedBindings,
-		{ point_id: id, source: { geom_ref: JSON.parse(JSON.stringify(geomRef)), kind: { type: 'Vertex' } } },
-	];
 	triggerSolve();
 	return id;
+}
+
+/**
+ * Project a straight model edge: its two endpoint vertices (bound) plus a
+ * construction Line between them. `anchor` is the source body's GeomRef anchor
+ * (taken from the picked edge); `p0`/`p1` are the endpoint world positions.
+ * @returns {[number, number] | null} the two Point ids.
+ */
+export function projectEdge(anchor, p0, p1) {
+	if (!sketchMode.active) return null;
+	beginSketchAction();
+	const id0 = addBoundProjectedPoint(p0[0], p0[1], p0[2], {
+		geom_ref: vertexRefAt(anchor, p0[0], p0[1], p0[2]),
+		kind: { type: 'Vertex' },
+	});
+	const id1 = addBoundProjectedPoint(p1[0], p1[1], p1[2], {
+		geom_ref: vertexRefAt(anchor, p1[0], p1[1], p1[2]),
+		kind: { type: 'Vertex' },
+	});
+	addLocalEntity({ type: 'Line', id: allocEntityId(), start_id: id0, end_id: id1, construction: true });
+	endSketchAction();
+	triggerSolve();
+	return [id0, id1];
+}
+
+/**
+ * Project a picked model face: every STRAIGHT body edge lying in the face's
+ * plane becomes a bound construction line, with shared corner vertices deduped
+ * so the boundary forms a connected loop. Curved in-plane edges are skipped for
+ * now (their interior points are not vertices). Returns the count of lines made.
+ * @param {object} faceGeomRef
+ * @returns {number} number of construction lines created.
+ */
+export function projectFace(faceGeomRef) {
+	if (!sketchMode.active) return 0;
+	const plane3 = computeFacePlane(faceGeomRef);
+	if (!plane3) return 0;
+	const anchor = faceGeomRef.anchor;
+	const meshData = getMeshes();
+	if (!meshData) return 0;
+
+	const PLANE_TOL = 1e-5; // model units: edge must lie in the face plane
+	/** @type {Map<string, number>} quantized "x,y,z" → projected Point id */
+	const corners = new Map();
+	const getCorner = (x, y, z) => {
+		const key = `${quantize6(x)},${quantize6(y)},${quantize6(z)}`;
+		let id = corners.get(key);
+		if (id == null) {
+			id = addBoundProjectedPoint(x, y, z, {
+				geom_ref: vertexRefAt(anchor, x, y, z),
+				kind: { type: 'Vertex' },
+			});
+			corners.set(key, id);
+		}
+		return id;
+	};
+
+	let lines = 0;
+	beginSketchAction();
+	for (const mesh of meshData) {
+		if (!mesh.edges || !mesh.edges.ranges || !mesh.edges.vertices) continue;
+		const verts = mesh.edges.vertices;
+		for (const range of mesh.edges.ranges) {
+			const si = range.start_index;
+			const ei = range.end_index;
+			if (ei - si !== 2) continue; // straight edges only
+
+			// Both endpoints must lie in the face plane.
+			let inPlane = true;
+			for (let k = si; k < ei; k++) {
+				const dx = verts[k * 3] - plane3.origin[0];
+				const dy = verts[k * 3 + 1] - plane3.origin[1];
+				const dz = verts[k * 3 + 2] - plane3.origin[2];
+				const d = dx * plane3.normal[0] + dy * plane3.normal[1] + dz * plane3.normal[2];
+				if (Math.abs(d) > PLANE_TOL) { inPlane = false; break; }
+			}
+			if (!inPlane) continue;
+
+			const a = getCorner(verts[si * 3], verts[si * 3 + 1], verts[si * 3 + 2]);
+			const b = getCorner(verts[(ei - 1) * 3], verts[(ei - 1) * 3 + 1], verts[(ei - 1) * 3 + 2]);
+			if (a !== b) {
+				addLocalEntity({ type: 'Line', id: allocEntityId(), start_id: a, end_id: b, construction: true });
+				lines++;
+			}
+		}
+	}
+	endSketchAction();
+	if (lines > 0) triggerSolve();
+	return lines;
 }
 
 /**
