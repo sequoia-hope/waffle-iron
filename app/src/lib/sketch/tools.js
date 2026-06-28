@@ -69,7 +69,7 @@ import { profileToPolygon, pointInPolygon } from './profiles.js';
 import { setPreview, setSnapIndicator, setSnapCandidates, getPreview as _getPreview, getSnapIndicator as _getSnapIndicator, getSnapCandidates as _getSnapCandidates } from './sketchToolState.svelte.js';
 import { buildSketchPlane } from './sketchCoords.js';
 import { projectEdgeToSketch, simplifyPolyline } from './projectGeometry.js';
-import { classifyDimension, isDimensionComplete, linearPreviewPolyline } from './dimensionHeuristic.js';
+import { classifyDimension, isDimensionComplete, dimensionPreviewPolyline } from './dimensionHeuristic.js';
 import { DRAG_THRESHOLD_PX, DRAG_MIN_DURATION_MS, DRAG_COMMIT_PX, GEAR_PREVIEW_MODULE_M, DEFAULT_GEAR_TOOTH_COUNT, DEFAULT_GEAR_PRESSURE_ANGLE } from '$lib/config.js';
 
 // -- Module state --
@@ -1388,7 +1388,7 @@ function handleDimensionTool(eventType, x, y, screenPixelSize) {
 
 	if (eventType === 'pointermove') {
 		if (dimPlacing) {
-			updateDimensionLeaderPreview({ x, y });
+			updateDimensionLeaderPreview({ x, y }, screenPixelSize);
 			setSketchHover(null);
 		} else {
 			setPreview(null);
@@ -1405,7 +1405,7 @@ function handleDimensionTool(eventType, x, y, screenPixelSize) {
 	if (dimPlacing) {
 		const hitId = hitTest(x, y, screenPixelSize);
 		if (hitId != null && dimTargets.length === 1 && tryExtendDimensionTargets(hitId)) {
-			updateDimensionLeaderPreview({ x, y });
+			updateDimensionLeaderPreview({ x, y }, screenPixelSize);
 			return;
 		}
 		finalizeDimensionPlacement({ x, y });
@@ -1450,52 +1450,13 @@ function tryExtendDimensionTargets(hitId) {
 }
 
 /** Refresh the leader/witness preview for the current cursor while placing. */
-function updateDimensionLeaderPreview(leader) {
-	const res = classifyDimension({
-		targets: dimTargets,
-		leader,
-		positions: getSketchPositions(),
-		entities: getSketchEntities(),
-	});
-	if (!res) { setPreview(null); return; }
-	const points = dimensionPreviewPoints(res, leader);
-	setPreview(points ? { type: 'dimension', data: { points } } : null);
-}
-
-/** Build the preview polyline (sketch coords) for a classified dimension. */
-function dimensionPreviewPoints(res, leader) {
+function updateDimensionLeaderPreview(leader, pixelSize = 0.001) {
 	const positions = getSketchPositions();
 	const entities = getSketchEntities();
-	const ent = (id) => entities.find(e => e.id === id);
-
-	if (res.dimKind === 'linear') {
-		const c = res.constraint;
-		const idA = c.point_a ?? c.entity_a;
-		const idB = c.point_b ?? c.entity_b;
-		// For a single-line linear dim the ids are the line endpoints.
-		const a = positions.get(idA);
-		const b = positions.get(idB);
-		if (!a || !b) return null;
-		return linearPreviewPolyline(res.orientation, a, b, leader);
-	}
-	if (res.dimKind === 'perp') {
-		const p = positions.get(res.constraint.point);
-		return p ? [[p.x, p.y], [leader.x, leader.y]] : null;
-	}
-	if (res.dimKind === 'lineDistance') {
-		const line2start = res.constraint.point;
-		const p = positions.get(line2start);
-		return p ? [[p.x, p.y], [leader.x, leader.y]] : null;
-	}
-	if (res.dimKind === 'angle') {
-		const line1 = ent(res.constraint.line_a);
-		const a = line1 && positions.get(line1.start_id);
-		const b = line1 && positions.get(line1.end_id);
-		if (!a || !b) return null;
-		const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-		return [[mid.x, mid.y], [leader.x, leader.y]];
-	}
-	return null;
+	const res = classifyDimension({ targets: dimTargets, leader, positions, entities });
+	if (!res) { setPreview(null); return; }
+	const points = dimensionPreviewPolyline(res, { positions, entities, leader, pixelSize });
+	setPreview(points ? { type: 'dimension', data: { points } } : null);
 }
 
 /** Place the leader: classify, open the value popup, and reset. */

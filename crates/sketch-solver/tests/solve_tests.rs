@@ -3940,3 +3940,120 @@ fn horizontal_points_unknown_point_fails() {
         result.status
     );
 }
+
+// ── Coverage: dimension-tool constraints (PointLineDistance / HDistance / VDistance) ─
+// These three SketchConstraint variants are emitted by the dimension tool and
+// were missing from the solver enum (the "unknown variant" parse bug). See
+// specs/dimension_tool.md.
+
+/// A PointLineDistance constraint enforces the perpendicular distance from a
+/// point to a line, identical to a `Distance` over a (point, line) pair.
+#[test]
+fn point_line_distance_enforces_perpendicular_gap() {
+    // A horizontal line along y=0, and a free point above it that must end up
+    // exactly 7 units away from the line.
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: 1, x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: 2, x: 10.0, y: 0.0, construction: false },
+            SketchEntity::Line { id: 10, start_id: 1, end_id: 2, construction: false },
+            SketchEntity::Point { id: 3, x: 4.0, y: 2.0, construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::Horizontal { entity: 10 },
+            SketchConstraint::Distance { entity_a: 1, entity_b: 2, value: 10.0 },
+            SketchConstraint::PointLineDistance { point: 3, entity: 10, value: 7.0 },
+        ],
+    );
+
+    let result = solve_sketch(&sketch);
+    assert!(
+        matches!(
+            result.status,
+            SolveStatus::UnderConstrained { .. } | SolveStatus::FullyConstrained
+        ),
+        "status: {:?}",
+        result.status
+    );
+
+    // Point 3 must be 7 units off the y=0 line.
+    let (_, y3) = result.positions[&3];
+    assert!(
+        (y3.abs() - 7.0).abs() < 1e-6,
+        "perpendicular distance should be 7.0, got {}",
+        y3.abs()
+    );
+}
+
+/// The JSON shape the dimension tool's heuristic emits must deserialize into
+/// the PointLineDistance variant — the bug was "unknown variant `PointLineDistance`".
+#[test]
+fn point_line_distance_deserializes_from_dimension_tool_json() {
+    let json = r#"{"type":"PointLineDistance","point":3,"entity":10,"value":7.0}"#;
+    let c: SketchConstraint = serde_json::from_str(json).expect("must parse PointLineDistance");
+    assert!(matches!(
+        c,
+        SketchConstraint::PointLineDistance { point: 3, entity: 10, value }
+            if (value - 7.0).abs() < 1e-12
+    ));
+}
+
+/// HDistance constrains the horizontal gap |Δx| between two points, leaving Δy free.
+#[test]
+fn hdistance_enforces_x_gap_only() {
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: 1, x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: 2, x: 3.0, y: 5.0, construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::HDistance { point_a: 1, point_b: 2, value: 8.0 },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    let (x1, _) = result.positions[&1];
+    let (x2, _) = result.positions[&2];
+    assert!(
+        ((x2 - x1).abs() - 8.0).abs() < 1e-6,
+        "horizontal gap should be 8.0, got {}",
+        (x2 - x1).abs()
+    );
+}
+
+/// VDistance constrains the vertical gap |Δy| between two points, leaving Δx free.
+#[test]
+fn vdistance_enforces_y_gap_only() {
+    let sketch = make_sketch(
+        vec![
+            SketchEntity::Point { id: 1, x: 0.0, y: 0.0, construction: false },
+            SketchEntity::Point { id: 2, x: 3.0, y: 5.0, construction: false },
+        ],
+        vec![
+            SketchConstraint::Dragged { point: 1 },
+            SketchConstraint::VDistance { point_a: 1, point_b: 2, value: 12.0 },
+        ],
+    );
+    let result = solve_sketch(&sketch);
+    let (_, y1) = result.positions[&1];
+    let (_, y2) = result.positions[&2];
+    assert!(
+        ((y2 - y1).abs() - 12.0).abs() < 1e-6,
+        "vertical gap should be 12.0, got {}",
+        (y2 - y1).abs()
+    );
+}
+
+/// Both axis-aligned dimension variants must deserialize from the heuristic's JSON.
+#[test]
+fn hv_distance_deserialize_from_dimension_tool_json() {
+    let h: SketchConstraint =
+        serde_json::from_str(r#"{"type":"HDistance","point_a":1,"point_b":2,"value":8.0}"#)
+            .expect("must parse HDistance");
+    assert!(matches!(h, SketchConstraint::HDistance { point_a: 1, point_b: 2, .. }));
+    let v: SketchConstraint =
+        serde_json::from_str(r#"{"type":"VDistance","point_a":1,"point_b":2,"value":12.0}"#)
+            .expect("must parse VDistance");
+    assert!(matches!(v, SketchConstraint::VDistance { point_a: 1, point_b: 2, .. }));
+}

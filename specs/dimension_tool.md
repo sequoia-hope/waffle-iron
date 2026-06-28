@@ -31,10 +31,24 @@ for curved geometry is out of scope — "we'll deal with circles later").
 | 1 line             | linear         | horizontal / vertical / aligned | HDistance / VDistance / Distance(start,end) |
 | point + point      | linear         | horizontal / vertical / aligned | HDistance / VDistance / Distance(a,b) |
 | point + line       | perp           | n/a (perpendicular distance)   | PointLineDistance(point,line) |
-| line + line ∥      | lineDistance   | n/a                            | PointLineDistance(line2.start, line1) |
+| line + line ∥      | linear / lineDistance | horizontal / vertical / aligned | HDistance / VDistance(line1.start, line2.start) — or, for **aligned**, PointLineDistance(line2.start, line1) (true perpendicular gap) |
 | line + line ∦      | angle          | n/a                            | Angle(line1, line2) |
 | 1 circle / 1 arc   | radius         | n/a (immediate popup)          | Diameter (= 2·radius) |
 | 1 point only       | (incomplete)   | —                              | none — waits for 2nd pick |
+
+**Two parallel lines are leader-driven** like the point-pair case: each line's
+start point is the representative anchor. A side leader → **vertical** (|Δy| of
+the anchors, `VDistance`); an above/below leader → **horizontal** (|Δx|,
+`HDistance`); a diagonal leader → **aligned**, which for two parallel lines is
+the true perpendicular gap (`PointLineDistance`, `dimKind: 'lineDistance'`)
+rather than the anchor straight-line distance.
+
+All linear / perp / lineDistance previews render the **full dimension**:
+witness (extension) lines to each measured item, a dimension line passing
+through the leader, and outward arrowheads at each end pointing at the items —
+so the hover hints exactly how the click will land. The preview is one
+connected polyline (arrowheads traced out-and-back); arrowhead size is held
+constant on screen via the sketch-units-per-pixel scale.
 
 ### Orientation heuristic (point/line linear case)
 

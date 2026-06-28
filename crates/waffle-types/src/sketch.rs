@@ -337,6 +337,30 @@ pub enum SketchConstraint {
         entity_b: u32,
         value: f64,
     },
+    /// Perpendicular distance between a point and a line. Equivalent to a
+    /// `Distance` constraint over a (point, line) pair, but emitted directly by
+    /// the dimension tool's point–line and parallel-line measurements (for the
+    /// latter, `point` is one line's endpoint). See specs/dimension_tool.md.
+    PointLineDistance {
+        point: u32,
+        entity: u32,
+        value: f64,
+    },
+    /// Horizontal (x-axis) distance between two points: constrains `|Δx|`,
+    /// leaving the vertical offset free. Emitted by the dimension tool when the
+    /// placement leader selects a horizontal orientation. See specs/dimension_tool.md.
+    HDistance {
+        point_a: u32,
+        point_b: u32,
+        value: f64,
+    },
+    /// Vertical (y-axis) distance between two points: constrains `|Δy|`, leaving
+    /// the horizontal offset free. Point-pair analogue of `HDistance`.
+    VDistance {
+        point_a: u32,
+        point_b: u32,
+        value: f64,
+    },
     Angle {
         line_a: u32,
         line_b: u32,

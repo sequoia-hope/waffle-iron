@@ -3,7 +3,10 @@
 //!
 //! PR-SS1 scope: 13 constraints (Coincident, Horizontal, Vertical, Parallel,
 //! Perpendicular, Equal, Distance, Angle, Radius, Diameter, OnEntity,
-//! Midpoint, Dragged). The 8 remaining mapped-but-unexposed constraints
+//! Midpoint, Dragged). The dimension tool also emits PointLineDistance
+//! (point↔line perpendicular gap; reuses the Distance (Point, Line) residual)
+//! and HDistance/VDistance (axis-aligned |Δx|/|Δy| between two points).
+//! The 8 remaining mapped-but-unexposed constraints
 //! (Symmetric, SymmetricH, SymmetricV, Tangent, EqualAngle, Ratio,
 //! EqualPointToLine, SameOrientation) are banked to PR-SS2.
 //!
@@ -64,6 +67,16 @@ pub enum CompiledConstraint {
     DistancePL {
         px: usize, py: usize,
         ax: usize, ay: usize, bx: usize, by: usize,
+        value: f64,
+    },
+    /// Horizontal (x-axis) distance between two points: r = |x_b - x_a| - value.
+    HDistance {
+        ax: usize, bx: usize,
+        value: f64,
+    },
+    /// Vertical (y-axis) distance between two points: r = |y_b - y_a| - value.
+    VDistance {
+        ay: usize, by: usize,
         value: f64,
     },
     Angle {
@@ -378,6 +391,26 @@ impl CompiledConstraint {
                 }
             }
 
+            SketchConstraint::PointLineDistance { point, entity, value } => {
+                // Perpendicular point-to-line distance — same residual as the
+                // (Point, Line) arm of `Distance`.
+                let (px, py) = pt(*point)?;
+                let [ax, ay, bx, by] = line_param_pts(*entity)?;
+                Ok(CompiledConstraint::DistancePL { px, py, ax, ay, bx, by, value: *value })
+            }
+
+            SketchConstraint::HDistance { point_a, point_b, value } => {
+                let (ax, _ay) = pt(*point_a)?;
+                let (bx, _by) = pt(*point_b)?;
+                Ok(CompiledConstraint::HDistance { ax, bx, value: *value })
+            }
+
+            SketchConstraint::VDistance { point_a, point_b, value } => {
+                let (_ax, ay) = pt(*point_a)?;
+                let (_bx, by) = pt(*point_b)?;
+                Ok(CompiledConstraint::VDistance { ay, by, value: *value })
+            }
+
             SketchConstraint::Angle { line_a, line_b, value_degrees } => {
                 let [ax, ay, bx, by] = line_param_pts(*line_a)?;
                 let [cx, cy, dx, dy] = line_param_pts(*line_b)?;
@@ -605,6 +638,16 @@ impl CompiledConstraint {
                 // Signed perpendicular distance: ((P-A) × d) / ℓ
                 let cross = (p[*px] - p[*ax]) * dy - (p[*py] - p[*ay]) * dx;
                 r[0] = cross / len - value;
+                r
+            }
+            CompiledConstraint::HDistance { ax, bx, value } => {
+                let mut r = DVector::zeros(1);
+                r[0] = (p[*bx] - p[*ax]).abs() - value;
+                r
+            }
+            CompiledConstraint::VDistance { ay, by, value } => {
+                let mut r = DVector::zeros(1);
+                r[0] = (p[*by] - p[*ay]).abs() - value;
                 r
             }
             CompiledConstraint::Angle { ax, ay, bx, by, cx, cy, dx, dy, value_radians } => {
@@ -998,6 +1041,26 @@ impl CompiledConstraint {
                     j[(0, *bx)] = (-pmay) * inv_l - cross * dx * inv_l2 * inv_l;
                     j[(0, *by)] = pmax * inv_l - cross * dy * inv_l2 * inv_l;
                 }
+                j
+            }
+
+            // ── HDistance: r = |x_b - x_a| - v ──────────────────────────
+            // ∂r/∂x_b = sign(Δx), ∂r/∂x_a = -sign(Δx). Sign(0) → 1 (the kink at
+            // Δx=0 is harmless: a meaningful horizontal dimension is never zero).
+            CompiledConstraint::HDistance { ax, bx, value: _ } => {
+                let mut j = DMatrix::zeros(1, n_params);
+                let s = if p[*bx] - p[*ax] < 0.0 { -1.0 } else { 1.0 };
+                j[(0, *bx)] = s;
+                j[(0, *ax)] = -s;
+                j
+            }
+
+            // ── VDistance: r = |y_b - y_a| - v ──────────────────────────
+            CompiledConstraint::VDistance { ay, by, value: _ } => {
+                let mut j = DMatrix::zeros(1, n_params);
+                let s = if p[*by] - p[*ay] < 0.0 { -1.0 } else { 1.0 };
+                j[(0, *by)] = s;
+                j[(0, *ay)] = -s;
                 j
             }
 

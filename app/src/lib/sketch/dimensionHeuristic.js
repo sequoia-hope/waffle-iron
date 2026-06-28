@@ -141,17 +141,38 @@ export function classifyDimension({ targets, leader, positions, entities }) {
 		};
 	}
 
-	// line + line → distance if parallel, else angle.
+	// line + line → leader-driven linear distance if parallel, else angle.
 	if (lines.length === 2) {
 		const e0 = lineEndpoints(lines[0], positions);
 		const e1 = lineEndpoints(lines[1], positions);
 		if (!e0 || !e1) return null;
 		if (linesAreParallel(e0[0], e0[1], e1[0], e1[1])) {
-			const value = round4(pointLineDistance(e1[0], e0[0], e0[1]));
+			// Treat each line's start point as the representative anchor and let
+			// the leader choose horizontal / vertical / aligned, mirroring the
+			// point-pair case. Horizontal/vertical measure the axis-aligned gap
+			// between the anchors; aligned measures the true perpendicular gap
+			// between the (parallel) lines. See /specs/dimension_tool.md.
+			const a = e0[0];
+			const b = e1[0];
+			const orientation = orientationFromLeader(a, b, leader);
+			if (orientation === 'horizontal') {
+				const value = round4(Math.abs(b.x - a.x));
+				return {
+					dimKind: 'linear', orientation, value, valueField: 'value',
+					constraint: { type: 'HDistance', point_a: lines[0].start_id, point_b: lines[1].start_id, value },
+				};
+			}
+			if (orientation === 'vertical') {
+				const value = round4(Math.abs(b.y - a.y));
+				return {
+					dimKind: 'linear', orientation, value, valueField: 'value',
+					constraint: { type: 'VDistance', point_a: lines[0].start_id, point_b: lines[1].start_id, value },
+				};
+			}
+			// aligned → perpendicular distance between the two parallel lines.
+			const value = round4(pointLineDistance(b, e0[0], e0[1]));
 			return {
-				dimKind: 'lineDistance',
-				value,
-				valueField: 'value',
+				dimKind: 'lineDistance', orientation: 'aligned', value, valueField: 'value',
 				constraint: { type: 'PointLineDistance', point: lines[1].start_id, entity: lines[0].id, value },
 			};
 		}
@@ -176,10 +197,144 @@ function linearResult(orientation, a, b, idA, idB) {
 	return { dimKind: 'linear', orientation, value, valueField: 'value', constraint };
 }
 
+/** Arrowhead length in screen pixels (converted to sketch units via pixelSize). */
+const ARROW_PX = 11;
+
 /**
- * Build the dimension leader/witness preview polyline (sketch coords) for a
- * classified linear dimension, traced as witnessA → dimLine → witnessB so it
- * renders as one polyline. Returns an array of [x,y] points, or null.
+ * Arrowhead at tip `P` pointing along unit dir (ux,uy), as a sub-polyline that
+ * both starts and ends at `P` (out-and-back barbs) so it splices cleanly into a
+ * single connected stroke without stray connecting segments.
+ */
+function arrowAt(P, ux, uy, size) {
+	const bx = -ux * size; // backward along the dim line
+	const by = -uy * size;
+	const px = -uy * size * 0.42; // perpendicular half-width
+	const py = ux * size * 0.42;
+	const a1 = [P[0] + bx + px, P[1] + by + py];
+	const a2 = [P[0] + bx - px, P[1] + by - py];
+	return [P, a1, P, a2, P];
+}
+
+/** Foot of the perpendicular from point p onto the infinite line l1→l2. */
+function projectOntoLine(p, l1, l2) {
+	const lx = l2.x - l1.x;
+	const ly = l2.y - l1.y;
+	const ll = lx * lx + ly * ly;
+	if (ll < 1e-18) return [l1.x, l1.y];
+	const t = ((p.x - l1.x) * lx + (p.y - l1.y) * ly) / ll;
+	return [l1.x + lx * t, l1.y + ly * t];
+}
+
+/** Unit vector from D2 to D1; falls back to +x for a degenerate segment. */
+function unitFrom(d1, d2) {
+	const dx = d1[0] - d2[0];
+	const dy = d1[1] - d2[1];
+	const m = Math.hypot(dx, dy);
+	return m < 1e-12 ? [1, 0] : [dx / m, dy / m];
+}
+
+/**
+ * A linear dimension between dim-line endpoints d1,d2 with optional witness
+ * lines back to the measured anchors a,b. Traced as one connected polyline:
+ * witnessA → arrow(d1) → dimLine → arrow(d2) → witnessB, with arrowheads
+ * pointing outward at each end toward the items being measured.
+ */
+function dimWithWitness(d1, d2, a, b, size) {
+	const [o1x, o1y] = unitFrom(d1, d2); // outward at d1
+	const [o2x, o2y] = unitFrom(d2, d1); // outward at d2
+	const poly = [];
+	if (a) poly.push([a.x, a.y]); // witness A
+	poly.push(d1, ...arrowAt(d1, o1x, o1y, size).slice(1));
+	poly.push(d2, ...arrowAt(d2, o2x, o2y, size).slice(1));
+	if (b) poly.push([b.x, b.y]); // witness B
+	return poly;
+}
+
+/**
+ * Build the full dimension preview polyline (sketch coords) for a classified
+ * dimension — witness lines, the dimension line, and outward arrowheads — so the
+ * hover clearly hints how a click will land. Returns an array of [x,y], or null.
+ *
+ * `pixelSize` is sketch-units-per-screen-pixel, used to keep arrowheads a stable
+ * on-screen size regardless of zoom.
+ */
+export function dimensionPreviewPolyline(res, { positions, entities, leader, pixelSize = 0.001 }) {
+	if (!res) return null;
+	const size = ARROW_PX * pixelSize;
+	const ent = (id) => entities.find((e) => e.id === id);
+
+	if (res.dimKind === 'linear') {
+		const c = res.constraint;
+		const idA = c.point_a ?? c.entity_a;
+		const idB = c.point_b ?? c.entity_b;
+		const a = positions.get(idA);
+		const b = positions.get(idB);
+		if (!a || !b) return null;
+		let d1;
+		let d2;
+		if (res.orientation === 'horizontal') {
+			d1 = [a.x, leader.y];
+			d2 = [b.x, leader.y];
+		} else if (res.orientation === 'vertical') {
+			d1 = [leader.x, a.y];
+			d2 = [leader.x, b.y];
+		} else {
+			// aligned: dim line parallel to AB, offset through the leader.
+			const dx = b.x - a.x;
+			const dy = b.y - a.y;
+			const len = Math.hypot(dx, dy) || 1;
+			const nx = -dy / len;
+			const ny = dx / len;
+			const off = (leader.x - a.x) * nx + (leader.y - a.y) * ny;
+			d1 = [a.x + nx * off, a.y + ny * off];
+			d2 = [b.x + nx * off, b.y + ny * off];
+		}
+		return dimWithWitness(d1, d2, a, b, size);
+	}
+
+	if (res.dimKind === 'perp') {
+		// point + line: perpendicular from the point to its foot on the line.
+		const p = positions.get(res.constraint.point);
+		const line = ent(res.constraint.entity);
+		const l1 = line && positions.get(line.start_id);
+		const l2 = line && positions.get(line.end_id);
+		if (!p || !l1 || !l2) return null;
+		const foot = projectOntoLine(p, l1, l2);
+		return dimWithWitness([p.x, p.y], foot, null, null, size);
+	}
+
+	if (res.dimKind === 'lineDistance') {
+		// two parallel lines: perpendicular gap at the leader's location, drawn
+		// between feet on each line with arrows pointing at each line. The
+		// constraint stores line0 as `entity` and line1 via its start-point id.
+		const l0 = ent(res.constraint.entity);
+		const a0 = l0 && positions.get(l0.start_id);
+		const b0 = l0 && positions.get(l0.end_id);
+		const startPt = positions.get(res.constraint.point);
+		if (!a0 || !b0 || !startPt) return null;
+		// Foot of the leader on line0, and on the parallel line through line1's
+		// start point (same direction as line0).
+		const f0 = projectOntoLine(leader, a0, b0);
+		const other = { x: startPt.x + (b0.x - a0.x), y: startPt.y + (b0.y - a0.y) };
+		const f1 = projectOntoLine(leader, startPt, other);
+		return dimWithWitness(f0, f1, null, null, size);
+	}
+
+	if (res.dimKind === 'angle') {
+		const line1 = ent(res.constraint.line_a);
+		const a = line1 && positions.get(line1.start_id);
+		const b = line1 && positions.get(line1.end_id);
+		if (!a || !b) return null;
+		const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+		return [[mid.x, mid.y], [leader.x, leader.y]];
+	}
+
+	return null;
+}
+
+/**
+ * Back-compat thin wrapper kept for the linear case (witness + dim line, no
+ * arrows). Prefer {@link dimensionPreviewPolyline}.
  */
 export function linearPreviewPolyline(orientation, a, b, leader) {
 	if (orientation === 'horizontal') {
@@ -190,14 +345,11 @@ export function linearPreviewPolyline(orientation, a, b, leader) {
 		const x = leader.x;
 		return [[a.x, a.y], [x, a.y], [x, b.y], [b.x, b.y]];
 	}
-	// aligned: dim line parallel to AB passing through the leader.
 	const dx = b.x - a.x;
 	const dy = b.y - a.y;
 	const len = Math.hypot(dx, dy) || 1;
-	// unit perpendicular
 	const nx = -dy / len;
 	const ny = dx / len;
-	// signed offset of leader along the perpendicular from A
 	const off = (leader.x - a.x) * nx + (leader.y - a.y) * ny;
 	const a2 = [a.x + nx * off, a.y + ny * off];
 	const b2 = [b.x + nx * off, b.y + ny * off];

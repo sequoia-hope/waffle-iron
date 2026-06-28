@@ -100,10 +100,35 @@ test.describe('dimension tool — classifier branch coverage', () => {
 		expect(perp.dimKind).toBe('perp');
 		expect(perp.constraint.type).toBe('PointLineDistance');
 
-		// Two parallel lines → distance.
-		const lineDist = await classify(page, [ln(La), ln(Lb)], { x: 0, y: 0 });
+		// Two parallel lines → leader-driven, like the point-pair case.
+		// La (y=80) and Lb (y=55) are horizontal; their start points anchor the
+		// dimension. The midpoint of the anchors drives the orientation choice.
+		const lpa = pos[lines[0].start_id];
+		const lpb = pos[lines[1].start_id];
+		const lmid = { x: (lpa.x + lpb.x) / 2, y: (lpa.y + lpb.y) / 2 };
+		const LSPAN = Math.hypot(lpb.x - lpa.x, lpb.y - lpa.y) + 100;
+
+		// Side leader → vertical → |Δy| between the lines (VDistance).
+		const lineVert = await classify(page, [ln(La), ln(Lb)], { x: lmid.x + LSPAN, y: lmid.y });
+		expect(lineVert.dimKind).toBe('linear');
+		expect(lineVert.orientation).toBe('vertical');
+		expect(lineVert.constraint.type).toBe('VDistance');
+		expect(lineVert.value).toBeCloseTo(Math.abs(lpb.y - lpa.y), 3);
+
+		// Above leader → horizontal → |Δx| of the anchors (HDistance).
+		const lineHoriz = await classify(page, [ln(La), ln(Lb)], { x: lmid.x, y: lmid.y + LSPAN });
+		expect(lineHoriz.orientation).toBe('horizontal');
+		expect(lineHoriz.constraint.type).toBe('HDistance');
+
+		// Mutation: same two lines, different leader → different orientation.
+		expect(lineVert.orientation).not.toBe(lineHoriz.orientation);
+
+		// Diagonal leader → aligned → true perpendicular gap (PointLineDistance).
+		const lineDist = await classify(page, [ln(La), ln(Lb)], { x: lmid.x + LSPAN, y: lmid.y + LSPAN });
 		expect(lineDist.dimKind).toBe('lineDistance');
+		expect(lineDist.orientation).toBe('aligned');
 		expect(lineDist.constraint.type).toBe('PointLineDistance');
+		expect(lineDist.value).toBeCloseTo(Math.abs(lpb.y - lpa.y), 3);
 
 		// Line + crossing line → angle.
 		const ang = await classify(page, [ln(La), ln(Lc)], { x: 0, y: 0 });
