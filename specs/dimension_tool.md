@@ -28,13 +28,20 @@ for curved geometry is out of scope — "we'll deal with circles later").
 
 | targets            | dimKind        | orientation (by leader)        | constraint emitted |
 |--------------------|----------------|--------------------------------|--------------------|
-| 1 line             | linear         | horizontal / vertical / aligned | HDistance / VDistance / Distance(start,end) |
+| 1 line             | linear         | axis-locked if the line is ≈horizontal/vertical (±5°); else leader-driven | HDistance / VDistance / Distance(start,end) |
 | point + point      | linear         | horizontal / vertical / aligned | HDistance / VDistance / Distance(a,b) |
 | point + line       | perp           | n/a (perpendicular distance)   | PointLineDistance(point,line) |
 | line + line ∥      | linear / lineDistance | horizontal / vertical / aligned | HDistance / VDistance(line1.start, line2.start) — or, for **aligned**, PointLineDistance(line2.start, line1) (true perpendicular gap) |
 | line + line ∦      | angle          | n/a                            | Angle(line1, line2) |
 | 1 circle / 1 arc   | radius         | n/a (immediate popup)          | Diameter (= 2·radius) |
 | 1 point only       | (incomplete)   | —                              | none — waits for 2nd pick |
+
+**A single line's endpoints both lie on that line**, so the perpendicular axis
+is always a degenerate zero-length measurement. An axis-aligned single line is
+therefore **locked to its own axis** (a horizontal line dimensions horizontally
+= its length, a vertical line vertically), independent of the leader; only a
+slanted line stays leader-driven (where horizontal / vertical / aligned are all
+non-zero).
 
 **Two parallel lines are leader-driven** like the point-pair case: each line's
 start point is the representative anchor. A side leader → **vertical** (|Δy| of
@@ -84,6 +91,11 @@ A circle/arc dimensions immediately (no placement step).
   table; HDistance/VDistance carry the two point ids, aligned a Distance, etc.
 - **No constraint until placement**: picking objects never creates a constraint;
   only confirming the value popup does.
+- **Undo reverts the constraint AND its geometry**: applying a dimension may move
+  points (the sketch re-solves). Undoing the dimension must restore both — the
+  constraint is removed and the geometry returns to its pre-dimension positions,
+  not merely re-solved from the moved state. (Undo entries snapshot the
+  pre-action solved positions and restore them before re-solving.)
 - **Determinism**: identical (targets, leader, positions) ⇒ identical classify.
 
 ## Oracles

@@ -36,6 +36,22 @@ export function orientationFromLeader(a, b, leader) {
 	return 'aligned';
 }
 
+/**
+ * If segment a→b is within ~5° of an axis, the orientation locked to that axis
+ * ('horizontal' | 'vertical'); otherwise null (slanted → leader chooses). Used
+ * to keep a single-line dimension from collapsing onto its degenerate
+ * (perpendicular, zero-length) axis.
+ */
+export function axisAlignedOrientation(a, b) {
+	const dx = Math.abs(b.x - a.x);
+	const dy = Math.abs(b.y - a.y);
+	if (dx === 0 && dy === 0) return null;
+	const deg = Math.atan2(dy, dx) * RAD2DEG; // 0 = horizontal, 90 = vertical
+	if (deg <= 5) return 'horizontal';
+	if (deg >= 85) return 'vertical';
+	return null;
+}
+
 /** Measured value for a linear orientation between two points. */
 function linearValue(orientation, a, b) {
 	if (orientation === 'horizontal') return Math.abs(b.x - a.x);
@@ -101,13 +117,17 @@ export function classifyDimension({ targets, leader, positions, entities }) {
 	if (!isDimensionComplete(targets)) return null;
 	const ent = (id) => entities.find((e) => e.id === id);
 
-	// Single line → treat as a linear dimension on its endpoints.
+	// Single line → linear dimension on its endpoints. Both endpoints lie on the
+	// SAME line, so the perpendicular axis is always degenerate (zero) — an
+	// axis-aligned line must be measured along its own axis (a horizontal line
+	// dimensions horizontally, a vertical line vertically). Only a slanted line
+	// is leader-driven (where horizontal / vertical / aligned are all non-zero).
 	if (targets.length === 1) {
 		const line = ent(targets[0].id);
 		const ep = line && lineEndpoints(line, positions);
 		if (!ep) return null;
 		const [a, b] = ep;
-		const orientation = orientationFromLeader(a, b, leader);
+		const orientation = axisAlignedOrientation(a, b) ?? orientationFromLeader(a, b, leader);
 		return linearResult(orientation, a, b, line.start_id, line.end_id);
 	}
 

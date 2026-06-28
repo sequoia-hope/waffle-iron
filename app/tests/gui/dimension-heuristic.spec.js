@@ -95,6 +95,18 @@ test.describe('dimension tool — classifier branch coverage', () => {
 		expect(single.dimKind).toBe('linear');
 		expect(['HDistance', 'VDistance', 'Distance']).toContain(single.constraint.type);
 
+		// A horizontal single line must dimension HORIZONTALLY (its length),
+		// never vertically (which would be a degenerate zero) — regardless of
+		// where the leader is. La spans x=-70..70 at y=80 (horizontal).
+		const laLen = Math.abs(pos[lines[0].end_id].x - pos[lines[0].start_id].x);
+		for (const leader of [{ x: 0, y: 200 }, { x: 0, y: -200 }, { x: 300, y: 80 }]) {
+			const hLine = await classify(page, [ln(La)], leader);
+			expect(hLine.orientation).toBe('horizontal');
+			expect(hLine.constraint.type).toBe('HDistance');
+			expect(hLine.value).toBeCloseTo(laLen, 3);
+			expect(hLine.value).toBeGreaterThan(0);
+		}
+
 		// Point + line → perpendicular distance.
 		const perp = await classify(page, [pt(P0), ln(La)], { x: 0, y: 0 });
 		expect(perp.dimKind).toBe('perp');
@@ -179,5 +191,53 @@ test.describe('dimension tool — end-to-end place + solve', () => {
 				return Math.abs(Math.abs(b.y - a.y) - target);
 			}, { timeout: 5000 })
 			.toBeLessThan(Math.max(6e-3, target * 0.05));
+	});
+
+	test('undo a dimension reverts the geometry it moved, not just the constraint', async ({ waffle }) => {
+		const page = waffle.page;
+		await clickSketch(page, 'front');
+
+		await drawPoint(page, -60, -40);
+		await drawPoint(page, 40, 30);
+		const pts = (await entities(page)).filter((e) => e.type === 'Point').slice(0, 2);
+		const [P0, P1] = [pts[0].id, pts[1].id];
+
+		// Geometry before any dimension.
+		const before = await positions(page);
+		const gap0 = Math.abs(before[P1].y - before[P0].y);
+		expect(gap0).toBeGreaterThan(0);
+
+		// Dimension the two points vertically and apply a DOUBLED value, which the
+		// solver must satisfy by moving a point.
+		await setTool(page, 'dimension');
+		await clickAt(page, -60, -40);
+		await clickAt(page, 40, 30);
+		await clickAt(page, 150, -5); // side leader → vertical
+		const popup = await page.evaluate(() => window.__waffle.getDimensionPopup());
+		const target = parseFloat((popup.defaultValue * 2).toFixed(6));
+		await page.evaluate((v) => window.__waffle.applyDimensionFromPopup(v), target);
+
+		// The gap really changed (geometry moved).
+		await expect
+			.poll(async () => {
+				const p = await positions(page);
+				return Math.abs(Math.abs(p[P1].y - p[P0].y) - target);
+			}, { timeout: 5000 })
+			.toBeLessThan(Math.max(6e-3, target * 0.05));
+
+		// Undo: the constraint is removed AND the geometry returns to `before`.
+		await page.evaluate(() => window.__waffle.undo());
+		await expect
+			.poll(async () => (await constraints(page)).length, { timeout: 5000 })
+			.toBe(0);
+		await expect
+			.poll(async () => {
+				const p = await positions(page);
+				return Math.max(
+					Math.hypot(p[P0].x - before[P0].x, p[P0].y - before[P0].y),
+					Math.hypot(p[P1].x - before[P1].x, p[P1].y - before[P1].y)
+				);
+			}, { timeout: 5000 })
+			.toBeLessThan(1e-6);
 	});
 });

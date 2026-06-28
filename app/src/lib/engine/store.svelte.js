@@ -1523,11 +1523,21 @@ export function allocEntityId() {
 }
 
 /**
+ * Deep-clone the current solved positions into a plain Map<id,{x,y}>, stripping
+ * Svelte reactive proxies. Stored on undo entries as the pre-action geometry so
+ * undo can revert solver-driven point movement, not just remove the entity/
+ * constraint that triggered the re-solve.
+ */
+function snapshotPositions() {
+	return new Map([...sketchPositions].map(([k, v]) => [k, { x: v.x, y: v.y }]));
+}
+
+/**
  * Begin recording a sketch action (for undo grouping).
  * Call before a tool creates entities/constraints.
  */
 export function beginSketchAction() {
-	pendingSketchAction = { entities: [], constraints: [] };
+	pendingSketchAction = { entities: [], constraints: [], positionsBefore: snapshotPositions() };
 }
 
 /**
@@ -1563,7 +1573,11 @@ export function addLocalEntity(entity) {
 	if (pendingSketchAction) {
 		pendingSketchAction.entities.push(cloned);
 	} else if (sketchMode.active) {
-		sketchUndoStack = [...sketchUndoStack, { entities: [cloned], constraints: [] }];
+		// Snapshot WITHOUT the just-added point (undo restores this then drops the
+		// added point) so geometry reverts to its pre-action state.
+		const positionsBefore = snapshotPositions();
+		if (cloned.type === 'Point') positionsBefore.delete(cloned.id);
+		sketchUndoStack = [...sketchUndoStack, { entities: [cloned], constraints: [], positionsBefore }];
 		sketchRedoStack = [];
 	}
 
@@ -1763,7 +1777,9 @@ export function addLocalConstraint(constraint) {
 	if (pendingSketchAction) {
 		pendingSketchAction.constraints.push(cloned);
 	} else if (sketchMode.active) {
-		sketchUndoStack = [...sketchUndoStack, { entities: [], constraints: [cloned] }];
+		// Snapshot BEFORE the constraint's solve (triggerSolve runs below) so undo
+		// can revert any point movement the new constraint induces.
+		sketchUndoStack = [...sketchUndoStack, { entities: [], constraints: [cloned], positionsBefore: snapshotPositions() }];
 		sketchRedoStack = [];
 	}
 
@@ -5539,11 +5555,16 @@ function undoSketchAction() {
 
 	// Remove entities
 	sketchEntities = sketchEntities.filter(e => !idSet.has(e.id));
-	const nextPos = new Map(sketchPositions);
+	// Restore the pre-action geometry as the base (so solver-driven movement from
+	// the undone constraint/entity is reverted), then drop any points this action
+	// added. Falls back to current positions for legacy entries without a snapshot.
+	const base = action.positionsBefore
+		? new Map([...action.positionsBefore].map(([k, v]) => [k, { x: v.x, y: v.y }]))
+		: new Map(sketchPositions);
 	for (const e of action.entities) {
-		if (e.type === 'Point') nextPos.delete(e.id);
+		if (e.type === 'Point') base.delete(e.id);
 	}
-	sketchPositions = nextPos;
+	sketchPositions = base;
 
 	// Remove action constraints + cascaded constraints
 	const allRemovedJsons = new Set([
@@ -5573,6 +5594,9 @@ function redoSketchAction() {
 	const action = sketchRedoStack[sketchRedoStack.length - 1];
 	sketchRedoStack = sketchRedoStack.slice(0, -1);
 
+	// Pre-redo geometry, so a later undo of this re-application reverts movement.
+	const positionsBefore = snapshotPositions();
+
 	// Re-add entities
 	for (const e of action.entities) {
 		const clone = JSON.parse(JSON.stringify(e));
@@ -5593,7 +5617,8 @@ function redoSketchAction() {
 	// Push to undo stack (merge cascaded into constraints so undo removes them all)
 	sketchUndoStack = [...sketchUndoStack, {
 		entities: action.entities,
-		constraints: allConstraints
+		constraints: allConstraints,
+		positionsBefore
 	}];
 
 	recomputeOverConstrained();
