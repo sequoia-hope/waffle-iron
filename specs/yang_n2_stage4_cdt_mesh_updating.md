@@ -400,6 +400,29 @@ d_ε collapse, whole-patch re-CDT) are now all ruled out by measurement. The
 current Mode-2 loud STOP is CORRECT (never ships wrong geometry); closing it is
 this build.
 
+### 5c.5 BUILT: the keep-interior CDT foundation; FOUND: both cases are FULL-RING (not local bands)
+
+- **Committed:** `cherchi_rs::cdt_polygon_with_holes_keep_interior` (triangulate a
+  polygon-with-holes keeping caller interior vertices) — the §4.4.1 foundation,
+  3 unit tests incl. the collinear-boundary no-degenerate property.
+- **Built then reverted (P9 — unverified, doesn't handle the actual cases):** a
+  LOCAL band re-CDT consumer (`replan_patch_band`: band = degenerate tris +
+  one-ring within the patch, projected to the surface's parametric domain, CDT
+  keep-interior, conformal splice). It works for a *local* band — but probing
+  showed **neither Mode-2 case is local**: the same-normal boss cut produces a
+  **full circumferential intersection ring** on the cylinder lateral. R0072's band
+  normals **cancel** (symmetric perpendicular cut → ref-normal ≈ 0); R0021's band
+  **straddles the θ seam** (40 tris, 34 seed verts). A full annular band in `(θ,z)`
+  is **periodic in θ**, which planar CDT cannot triangulate directly.
+- **Remaining (the real closer):** full-ring periodic-θ re-mesh — cut the annulus
+  at one θ (seam line z_lo→z_hi), DUPLICATE the seam vertices, CDT the unwrapped
+  rectangle `[0,2π]×[z_lo,z_hi]` with the seam as boundary (keep-interior for the
+  off-curve vertices), then RE-IDENTIFY the duplicated seam vertices. The
+  per-triangle outward normal must be taken locally (not a single band ref-normal,
+  which cancels around the ring). This is a substantial, self-contained increment
+  on top of the committed foundation; until it lands, Mode-2 stays a correct loud
+  STOP.
+
 ## 6. Risks & guardrails
 
 - **Conformality** (§3.3): the dominant risk; mitigated by fixed-boundary + the
