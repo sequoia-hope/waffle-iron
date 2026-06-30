@@ -130,6 +130,7 @@ impl ModelBuilder {
                 plane_normal: normal,
                 entities: vec![],
                 constraints: vec![],
+                projected: vec![],
             },
             self.kernel.as_mut(),
         );
@@ -172,6 +173,7 @@ impl ModelBuilder {
                 plane_normal: normal,
                 entities: vec![],
                 constraints: vec![],
+                projected: vec![],
             },
             self.kernel.as_mut(),
         );
@@ -216,6 +218,7 @@ impl ModelBuilder {
                 plane_normal: normal,
                 entities: vec![],
                 constraints: vec![],
+                projected: vec![],
             },
             self.kernel.as_mut(),
         );
@@ -294,6 +297,7 @@ impl ModelBuilder {
                 plane_normal: normal,
                 entities: vec![],
                 constraints: vec![],
+                projected: vec![],
             },
             self.kernel.as_mut(),
         );
@@ -406,6 +410,7 @@ impl ModelBuilder {
                 plane_normal: normal,
                 entities: vec![],
                 constraints: vec![],
+                projected: vec![],
             },
             self.kernel.as_mut(),
         );
