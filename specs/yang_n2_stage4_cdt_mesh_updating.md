@@ -189,6 +189,125 @@ Revised order:
 6. (PLANAR patch re-CDT, §3.1's general form, remains available for any future
    planar degeneracy that is NOT a sub-feature merge — none in the current corpus.)
 
+## 5b. Detailed re-CDT design (increment N2-2, for review)
+
+The patch re-CDT replaces the degenerate-after-relocation triangulation of one
+affected patch with a fresh CDT in the surface's parametric domain. Below is the
+**planar** form (closes R0072); §5b.7 gives the cylinder `(θ,z)` deltas.
+
+### 5b.1 Data already in hand
+
+- `Patch { attribution: TriangleAttribution, tri_indices: Vec<u32> }` (`lib.rs`
+  `flood_fill_patches`) — **the patch's triangle set is `tri_indices`**, exactly
+  what we replace.
+- `patch_boundary_cycle(patch, mesh) -> Vec<Vec<(u32,u32)>>` — the patch's ordered
+  boundary cycles (directed vertex-pair edges). A patch has one outer cycle + 0..n
+  hole cycles.
+- `ortho_basis(normal)` + the `project_loop_2d` projection (`lib.rs:1730`); the
+  CDT `cherchi_rs::cdt_polygon_with_holes(verts2d, outer, holes)`; the
+  local-pool / map-back / orient-to-normal pattern in `tessellate_planar_cdt_face`
+  (`lib.rs:1755+`) — the **template** for this function.
+- `Mesh { verts, tris }`; `attribution.attributions: Vec<Option<TriangleAttribution>>`
+  is 1:1 with `mesh.tris`.
+
+### 5b.2 Trigger (which patches, when)
+
+Run AFTER relocation + the N2-1 merge + the §4.5.3 sweep, as a repair step that
+replaces `validate_relocated_triangles`'s loud STOP for the handled surface types.
+A patch is **affected** iff it contains ≥1 relocated (`moved`) vertex AND ≥1 of its
+`tri_indices` triangles is degenerate (area `< MIN_FEATURE_SIZE²`). Only affected
+patches are re-meshed; all others are byte-untouched (so all-planar / no-conic
+inputs keep the no-op path — `fuzz_boxes` unaffected). Scope this increment to
+`attribution`-surface `Surface::Plane`; other surface types with an affected
+degenerate patch keep the current loud STOP.
+
+### 5b.3 Algorithm (planar patch)
+
+For each affected planar patch P (surface `Plane { normal, .. }`):
+
+1. **Boundary cycles.** `cycles = patch_boundary_cycle(P, mesh)`.
+2. **Local 2D pool.** Collect the unique boundary vertices across all cycles;
+   project each to 2D via `ortho_basis(normal)` (the `project_loop_2d` formula),
+   building `verts2d: Vec<Point2>` + `local_of_global: HashMap<u32,u32>` and its
+   inverse `global_of_local: Vec<u32>`.
+3. **Classify outer vs holes.** Compute each cycle's signed area in the 2D frame;
+   the cycle of largest |area| is `outer`, the rest are `holes` (the same rule
+   `emit_topology` uses at `lib.rs:10048`, reused — not re-invented). Convert each
+   cycle's vertex sequence to local indices.
+4. **CDT.** `tris_local = cdt_polygon_with_holes(&verts2d, &outer_local, &holes_local)?`.
+   No Steiner, no boundary subdivision → the boundary vertex set is preserved
+   bit-for-bit.
+5. **Lift + orient.** Map each `tris_local[i]` triple back to global vertex
+   indices via `global_of_local`. **Wind each new triangle to match P's existing
+   winding** — derive P's reference normal from the average area-vector of its
+   non-degenerate `tri_indices` triangles (NOT the bare `plane.normal`, which can
+   be the opposite sense for a Subtract-reversed / opposite-normal patch), and
+   flip any new triple whose area-vector opposes it. (§5b.5 explains why this is
+   the conformality-critical step.)
+6. **Splice.** Remove P's old triangles (`tri_indices`) from `mesh.tris` +
+   `attribution` in lockstep; append the new triangles, each carrying P's
+   `attribution`. Interior (non-boundary) vertices of P are simply not referenced
+   by the new triangles — a **flat** patch carries no shape in its interior, so
+   dropping them is exact (cleaned by `compact_unreferenced_verts`). *(Curved
+   patches must KEEP interior vertices — §5b.7.)*
+7. **Recompute** Phase A is NOT needed inside the loop (we mutate triangles, not
+   the relocation); after all affected patches are re-meshed, re-run
+   `validate_relocated_triangles` + `check_watertight_2manifold`.
+
+### 5b.4 Splice mechanics (preserving the 1:1 attribution array)
+
+`mesh.tris` and `attribution.attributions` are parallel `Vec`s. The splice must
+keep them parallel. Cleanest: rebuild both in one pass — iterate the old
+`(tri, attr)` pairs, copying through every triangle NOT in any affected patch's
+`tri_indices` (a `HashSet`), then append the new `(tri, P.attribution)` pairs for
+each affected patch. This avoids index-invalidation from in-place removal and is
+the same shape as `collapse_vertex`'s rebuild.
+
+### 5b.5 Conformality (the watertight key — D5 / §4.4.3)
+
+The re-meshed patch shares its boundary vertices with its neighbors (one combined
+mesh). CDT keeps that boundary unsubdivided, so each boundary edge still exists,
+incident to exactly one re-meshed triangle on P's side and the unchanged neighbor
+triangle on the other side. For the half-edge pairing to still cancel, P's
+boundary **half-edges must keep their original direction** — guaranteed by §5b.3
+step 5 (wind to P's existing reference normal, so the boundary is traversed the
+same way). Interior re-triangulation cannot affect pairing (interior edges are
+internal to P). `check_watertight_2manifold` after the splice is the proof gate;
+any breach → loud STOP, never shipped.
+
+### 5b.6 Loud STOPs (P9/P10)
+
+- `cdt_polygon_with_holes` error (degenerate/duplicate/crossing boundary) →
+  `Stage4RegionInvalid { LocalRefinementRequired }` (the boundary is malformed —
+  genuine §4.5.2 territory, not papered).
+- A re-meshed patch that still fails `validate_relocated_triangles` /
+  `check_watertight_2manifold` → loud STOP. Never a silent accept.
+- No tolerance widening anywhere; the only tolerances are the existing
+  `MIN_FEATURE_SIZE` (degeneracy test) and `TAU_WORK` (the watertight pairing),
+  both pre-existing.
+
+### 5b.7 Cylinder `(θ,z)` deltas (increment N2-2b — separate review)
+
+Same skeleton, three changes: (1) project boundary verts to `(θ, z)` in the
+`ortho_basis(axis)` frame (the Stage-1 cylinder frame, `lib.rs:1413`), handling
+the **θ seam wrap** (a patch crossing θ=0/2π must be unwrapped to a continuous θ
+interval before CDT, then re-wrapped on lift-back); (2) **keep interior vertices**
+(project them into the pool too) OR use `cdt_polygon_with_holes_refined` with a
+`max_area` derived from the cylinder chord bound, because a curved patch's interior
+carries shape; (3) lift-back maps `(θ,z)` to 3D via the exact cylinder `eval`, NOT
+an inverse-planar projection. Boundary vertices lift back to their EXISTING 3D
+positions bit-for-bit (they are already on the analytic cylinder from relocation).
+This increment is gated behind N2-2 (planar) landing green.
+
+### 5b.8 Test plan
+
+- `red_r0072_…` reaches oracle-correct (planar re-CDT) → un-`#[ignore]`.
+- A yang-rs lib unit test on the planar re-CDT helper: a synthetic patch with a
+  collinear-monotonic boundary run re-meshes to all-positive-area triangles, same
+  boundary vertex set, wound to the reference normal.
+- Assay 0 SUPPORTED_WRONG, no CORRECT lost; campaign always-on green; `fuzz_boxes`
+  900/900 (no-op path); curved YR suites unregressed.
+
 ## 6. Risks & guardrails
 
 - **Conformality** (§3.3): the dominant risk; mitigated by fixed-boundary + the
