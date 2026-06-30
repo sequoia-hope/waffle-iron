@@ -4485,6 +4485,69 @@ fn line_perp_distance(p: Point3, point: Point3, dir: Vector3) -> f64 {
     (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt()
 }
 
+/// R0072: position tie-break among near-coincident PARALLEL line candidates.
+///
+/// A near-tangent `plane ∩ cylinder` secant yields two near-coincident parallel
+/// generators; both pass the chord-band containment test, so a `matched == 1`
+/// selector deadlocks (`AmbiguousCurve`). The tangent-direction discriminator
+/// cannot help — parallel lines share a direction. But the mesh edge lies on
+/// exactly ONE generator, which is nearer to BOTH endpoints.
+///
+/// Given matched line candidates `(point, unit dir)` and the edge endpoints,
+/// return the index whose endpoint-distance interval `[min, max]` lies strictly
+/// below every other candidate's (`hi_w < lo_j ∀ j≠w`): the winner's worst
+/// endpoint still beats every rival's best, so the endpoints unambiguously lie
+/// on it. Margin-free and scale-free. Returns `None` (caller keeps its loud
+/// stop) when there are < 2 candidates, the candidates are NOT mutually parallel
+/// (a transversal multi-match the tangent pass owns), or the intervals overlap
+/// (generators merged below mesh resolution — true-tangency territory). P9: a
+/// proximity tie-break on geometry already gate-verified on both surfaces, never
+/// a band widening; genuine ambiguity is preserved. Spec
+/// `specs/yr_r0072_parallel_line_position_tiebreak.md`.
+fn select_disjoint_parallel_line(
+    cands: &[(Point3, Vector3)],
+    p_s: Point3,
+    p_e: Point3,
+) -> Option<usize> {
+    if cands.len() < 2 {
+        return None;
+    }
+    // Every candidate must be mutually parallel — the case the tangent
+    // discriminator structurally cannot resolve.
+    let dirs: Vec<[f64; 3]> = cands.iter().map(|c| normalize3(c.1.as_array())).collect();
+    for w in dirs.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let c = [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ];
+        if (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt() >= cad_primitives::TAU_MODEL {
+            return None;
+        }
+    }
+    let ivs: Vec<(f64, f64)> = cands
+        .iter()
+        .map(|c| {
+            let ds = line_perp_distance(p_s, c.0, c.1);
+            let de = line_perp_distance(p_e, c.0, c.1);
+            (ds.min(de), ds.max(de))
+        })
+        .collect();
+    let wk = (0..ivs.len()).min_by(|&i, &j| {
+        ivs[i]
+            .1
+            .partial_cmp(&ivs[j].1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    })?;
+    let hi_w = ivs[wk].1;
+    if (0..ivs.len()).all(|k| k == wk || hi_w < ivs[k].0) {
+        Some(wk)
+    } else {
+        None
+    }
+}
+
 /// PR-YR11 (spec §1): the true cylinder + cutting plane for one oblique ellipse
 /// edge, carried per-vertex (analogous to `vert_circle`'s `(center, normal,
 /// radius)`). The cylinder fields are `Surface::Cylinder`; the plane fields are
@@ -5581,6 +5644,50 @@ fn build_intersection_curves(
             if scored.len() >= 2 && scored[0].0 > scored[1].0 + 0.1 {
                 matched = 1;
                 matched_idx = Some(scored[0].1);
+            }
+        }
+
+        // R0072: POSITION tie-break for near-coincident PARALLEL-line matches.
+        // A near-tangent `plane ∩ cylinder` secant returns two near-coincident
+        // parallel generators; both pass `curve_contains_point` (the `line_amp`
+        // near-tangency band inflation admits both), and the tangent pass above
+        // cannot separate them — parallel lines share a direction, so the
+        // cosine margin never fires. But the mesh edge lies on exactly ONE
+        // generator, which is nearer to BOTH endpoints. Select the candidate
+        // whose endpoint-distance interval lies strictly below every other
+        // matched candidate's (`hi_w < lo_j ∀ j≠w`): the winner's WORST endpoint
+        // still beats every rival's BEST, so the endpoints unambiguously lie on
+        // it. Margin-free and scale-free. If the intervals overlap (generators
+        // merged below mesh resolution — true-tangency territory), no candidate
+        // qualifies and the loud `AmbiguousCurve` stands (P9 — a proximity
+        // tie-break on geometry the on-both gate already verified, never a band
+        // widening). Spec: `specs/yr_r0072_parallel_line_position_tiebreak.md`.
+        if matched > 1 {
+            // Collect the matched candidates that are lines, paired with their
+            // `returned` index; bail if any matched candidate is NOT a line (a
+            // mixed line/conic multi-match is not the parallel-generator case).
+            let mut cands: Vec<(Point3, Vector3)> = Vec::new();
+            let mut cand_idx: Vec<usize> = Vec::new();
+            let mut all_matched_are_lines = true;
+            for (i, curve) in returned.iter().enumerate() {
+                if !(curve_contains_point(curve, p_s, point_tol(p_s, curve), source_radius)
+                    && curve_contains_point(curve, p_e, point_tol(p_e, curve), source_radius))
+                {
+                    continue;
+                }
+                if let ssi_rs::SsiCurve::Line { point, dir } = curve {
+                    cands.push((*point, *dir));
+                    cand_idx.push(i);
+                } else {
+                    all_matched_are_lines = false;
+                    break;
+                }
+            }
+            if all_matched_are_lines && cands.len() == matched {
+                if let Some(wk) = select_disjoint_parallel_line(&cands, p_s, p_e) {
+                    matched = 1;
+                    matched_idx = Some(cand_idx[wk]);
+                }
             }
         }
 
@@ -8295,18 +8402,37 @@ fn stage4_relocate_and_correct(
                 let line_tol = band_amp * tol;
                 let mut matched: Option<LineReloc> = None;
                 let mut matched_n = 0usize;
+                let mut matched_lines: Vec<(Point3, Vector3)> = Vec::new();
                 for c in &returned {
                     if let ssi_rs::SsiCurve::Line { point, dir } = *c {
                         if line_perp_distance(p_s, point, dir) <= line_tol
                             && line_perp_distance(p_e, point, dir) <= line_tol
                         {
                             matched_n += 1;
+                            matched_lines.push((point, dir));
                             matched = Some(LineReloc {
                                 point,
                                 dir,
                                 band_budget: line_tol,
                             });
                         }
+                    }
+                }
+                // R0072: near-tangent plane∩cylinder yields two near-coincident
+                // parallel generators that both pass the band; the edge lies on
+                // exactly one. Break the tie by position (the disjoint-lowest
+                // endpoint-distance interval) — the SAME rule Stage 3 uses. If no
+                // unambiguous winner (overlapping intervals / non-parallel), the
+                // loud `AmbiguousCurve` below stands.
+                if matched_n > 1 {
+                    if let Some(wk) = select_disjoint_parallel_line(&matched_lines, p_s, p_e) {
+                        let (point, dir) = matched_lines[wk];
+                        matched_n = 1;
+                        matched = Some(LineReloc {
+                            point,
+                            dir,
+                            band_budget: line_tol,
+                        });
                     }
                 }
                 let Some(lr) = (if matched_n == 1 { matched } else { None }) else {
@@ -10217,6 +10343,74 @@ fn patch_boundary_cycle(patch: &Patch, mesh: &Mesh) -> Result<Vec<Vec<(u32, u32)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // R0072: position tie-break for near-coincident PARALLEL line candidates
+    // (`select_disjoint_parallel_line`). Mirrors the instrumented R0072 edge
+    // (2,143): two parallel generators whose endpoint-distance intervals are
+    // disjoint → the lower (nearer) one is selected. The numbers are the live
+    // probe values (cand0 ≈ 2.0e-5, cand1 ≈ 3.3e-5).
+    #[test]
+    fn r0072_parallel_line_position_tiebreak() {
+        let dir = Vector3::new(
+            0.539_214_627_766_961_7,
+            -0.348_918_218_865_836_5,
+            -0.766_487_874_493_543,
+        );
+        // Two parallel lines offset along a perpendicular `n̂` (⟂ dir), 2e-5 and
+        // 3.3e-5 from the edge endpoints which sit on the origin segment.
+        let n = {
+            // any unit vector ⟂ dir
+            let d = normalize3(dir.as_array());
+            let t = [1.0, 0.0, 0.0];
+            let dot = t[0] * d[0] + t[1] * d[1] + t[2] * d[2];
+            let p = [t[0] - dot * d[0], t[1] - dot * d[1], t[2] - dot * d[2]];
+            normalize3(p)
+        };
+        let line_at = |off: f64| (Point3::new(off * n[0], off * n[1], off * n[2]), dir);
+        let cand0 = line_at(2.0e-5);
+        let cand1 = line_at(3.3e-5);
+        let p_s = Point3::new(0.0, 0.0, 0.0);
+        let p_e = Point3::new(
+            d_scale(dir, 1e-4)[0],
+            d_scale(dir, 1e-4)[1],
+            d_scale(dir, 1e-4)[2],
+        );
+
+        // Disjoint intervals → the nearer line (index 0) wins regardless of order.
+        assert_eq!(
+            select_disjoint_parallel_line(&[cand0, cand1], p_s, p_e),
+            Some(0)
+        );
+        assert_eq!(
+            select_disjoint_parallel_line(&[cand1, cand0], p_s, p_e),
+            Some(1)
+        );
+
+        // OVERLAPPING intervals (generators merged below resolution) → no clear
+        // winner → None (the caller keeps its loud `AmbiguousCurve`). Put the two
+        // lines symmetrically about the segment so each endpoint is equidistant.
+        let near_a = line_at(2.0e-5);
+        let near_b = line_at(-2.0e-5);
+        assert_eq!(
+            select_disjoint_parallel_line(&[near_a, near_b], p_s, p_e),
+            None
+        );
+
+        // NON-parallel candidates → None (the tangent discriminator's job).
+        let crossing = (Point3::new(0.0, 0.0, 0.0), Vector3::new(n[0], n[1], n[2]));
+        assert_eq!(
+            select_disjoint_parallel_line(&[cand0, crossing], p_s, p_e),
+            None
+        );
+
+        // Fewer than two candidates → None.
+        assert_eq!(select_disjoint_parallel_line(&[cand0], p_s, p_e), None);
+    }
+
+    fn d_scale(v: Vector3, s: f64) -> [f64; 3] {
+        let d = normalize3(v.as_array());
+        [d[0] * s, d[1] * s, d[2] * s]
+    }
 
     // PR-YR10 N3 regression (Yang §4.5.3): a U-turn at p_r — consecutive points
     // double back so v1 ≈ −v2 ⇒ |t̃| ≈ 0 — IS a reversal. The paper places the

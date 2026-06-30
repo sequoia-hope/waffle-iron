@@ -72,8 +72,8 @@
 //! oracle is proven too tight). Landing order: fix/triage R0082 FIRST, then the
 //! one-line planar band lands cleanly. Reproduce with `YANG_M8_PROBE=1` on a
 //! Stage-6 band-tier dump.
-//! | Stage-4 relocation `DegenerateTriangle` | R0021 | §4.5.3 region repair |
-//! | Stage-3 SSI `AmbiguousCurve` (cyl∩plane near-tangency → 2 near-coincident parallel lines; tangent discriminator can't separate parallels) | R0072 | add a POSITION tie-break for parallel-line candidates |
+//! | Stage-4 relocation `DegenerateTriangle` | R0021, R0072 | §4.5.3 region repair |
+//! | Stage-3 SSI `AmbiguousCurve` (cyl∩plane near-tangency → 2 near-coincident parallel lines; tangent discriminator can't separate parallels) | ~~R0072~~ | **RESOLVED** — `select_disjoint_parallel_line` position tie-break in BOTH Stage-3 selection and Stage-4 line relocation (`specs/yr_r0072_parallel_line_position_tiebreak.md`). R0072 advanced PAST this mode to the Stage-4 `DegenerateTriangle` mode (now grouped with R0021). |
 //! | kernel-v2 azimuth-merge rims disagree (reassembly) | R0078 | rim-merge robustness |
 //! | cherchi TIMEOUT (loops on the coincident same-winding overlap input) | R0063 | cherchi guard / single-shared-sheet Stage-0 |
 //! | residual 2nd coplanar pair (the env lifts the first pair; a second pair hits a different gate) | R0076, R0088, F0061 | once the above land, re-scope the remaining pair |
@@ -250,10 +250,18 @@ fn red_r0021_stage4_relocation() {
     assert_correct("R0021");
 }
 
-// ── Mode 3: Stage-3 SSI AmbiguousCurve (cyl∩plane near-tangency) ────────────
+// ── Mode 3: Stage-3 SSI AmbiguousCurve (cyl∩plane near-tangency) — RESOLVED ──
+// The parallel-line ambiguity is fixed: `select_disjoint_parallel_line` adds a
+// POSITION tie-break (disjoint endpoint-distance intervals) in BOTH the Stage-3
+// curve selection and the Stage-4 line relocation. R0072 now advances PAST the
+// `AmbiguousCurve` and surfaces a Stage-4 `DegenerateTriangle` — i.e. it has
+// become a Mode-2 case. Kept `#[ignore]` until Mode 2 (§4.5.3 region repair)
+// lands; the ignore reason names the NEW blocker so the harness stays honest.
+// The Mode-3 fix has its own dedicated regression test in yang-rs
+// (`tests::r0072_parallel_line_position_tiebreak`).
 
 #[test]
-#[ignore = "M8 same-normal RED (Stage-3 SSI AmbiguousCurve): GREEN when the curve selector adds a POSITION tie-break for near-coincident parallel-line candidates"]
+#[ignore = "M8 same-normal RED — Mode 3 (Stage-3 AmbiguousCurve) FIXED; R0072 now blocks on Mode 2 (Stage-4 relocation DegenerateTriangle), GREEN when §4.5.3 region repair lands"]
 fn red_r0072_stage3_ambiguous_parallel_lines() {
     assert_correct("R0072");
 }
