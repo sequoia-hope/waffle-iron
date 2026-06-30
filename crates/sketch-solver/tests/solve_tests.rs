@@ -3894,12 +3894,25 @@ fn degenerate_point_coincident_with_itself() {
 fn horizontal_points_aligns_y_only() {
     let sketch = make_sketch(
         vec![
-            SketchEntity::Point { id: 1, x: 0.0, y: 0.0, construction: false },
-            SketchEntity::Point { id: 2, x: 10.0, y: 5.0, construction: false },
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 10.0,
+                y: 5.0,
+                construction: false,
+            },
         ],
         vec![
             SketchConstraint::Dragged { point: 1 },
-            SketchConstraint::HorizontalPoints { point_a: 1, point_b: 2 },
+            SketchConstraint::HorizontalPoints {
+                point_a: 1,
+                point_b: 2,
+            },
         ],
     );
     let result = solve_sketch(&sketch);
@@ -3913,12 +3926,25 @@ fn horizontal_points_aligns_y_only() {
 fn vertical_points_aligns_x_only() {
     let sketch = make_sketch(
         vec![
-            SketchEntity::Point { id: 1, x: 0.0, y: 0.0, construction: false },
-            SketchEntity::Point { id: 2, x: 5.0, y: 10.0, construction: false },
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 5.0,
+                y: 10.0,
+                construction: false,
+            },
         ],
         vec![
             SketchConstraint::Dragged { point: 1 },
-            SketchConstraint::VerticalPoints { point_a: 1, point_b: 2 },
+            SketchConstraint::VerticalPoints {
+                point_a: 1,
+                point_b: 2,
+            },
         ],
     );
     let result = solve_sketch(&sketch);
@@ -3930,8 +3956,16 @@ fn vertical_points_aligns_x_only() {
 #[test]
 fn horizontal_points_unknown_point_fails() {
     let sketch = make_sketch(
-        vec![SketchEntity::Point { id: 1, x: 0.0, y: 0.0, construction: false }],
-        vec![SketchConstraint::HorizontalPoints { point_a: 1, point_b: 99 }],
+        vec![SketchEntity::Point {
+            id: 1,
+            x: 0.0,
+            y: 0.0,
+            construction: false,
+        }],
+        vec![SketchConstraint::HorizontalPoints {
+            point_a: 1,
+            point_b: 99,
+        }],
     );
     let result = solve_sketch(&sketch);
     assert!(
@@ -3954,16 +3988,44 @@ fn point_line_distance_enforces_perpendicular_gap() {
     // exactly 7 units away from the line.
     let sketch = make_sketch(
         vec![
-            SketchEntity::Point { id: 1, x: 0.0, y: 0.0, construction: false },
-            SketchEntity::Point { id: 2, x: 10.0, y: 0.0, construction: false },
-            SketchEntity::Line { id: 10, start_id: 1, end_id: 2, construction: false },
-            SketchEntity::Point { id: 3, x: 4.0, y: 2.0, construction: false },
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 10.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Line {
+                id: 10,
+                start_id: 1,
+                end_id: 2,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 3,
+                x: 4.0,
+                y: 2.0,
+                construction: false,
+            },
         ],
         vec![
             SketchConstraint::Dragged { point: 1 },
             SketchConstraint::Horizontal { entity: 10 },
-            SketchConstraint::Distance { entity_a: 1, entity_b: 2, value: 10.0 },
-            SketchConstraint::PointLineDistance { point: 3, entity: 10, value: 7.0 },
+            SketchConstraint::Distance {
+                entity_a: 1,
+                entity_b: 2,
+                value: 10.0,
+            },
+            SketchConstraint::PointLineDistance {
+                point: 3,
+                entity: 10,
+                value: 7.0,
+            },
         ],
     );
 
@@ -4004,12 +4066,26 @@ fn point_line_distance_deserializes_from_dimension_tool_json() {
 fn hdistance_enforces_x_gap_only() {
     let sketch = make_sketch(
         vec![
-            SketchEntity::Point { id: 1, x: 0.0, y: 0.0, construction: false },
-            SketchEntity::Point { id: 2, x: 3.0, y: 5.0, construction: false },
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 3.0,
+                y: 5.0,
+                construction: false,
+            },
         ],
         vec![
             SketchConstraint::Dragged { point: 1 },
-            SketchConstraint::HDistance { point_a: 1, point_b: 2, value: 8.0 },
+            SketchConstraint::HDistance {
+                point_a: 1,
+                point_b: 2,
+                value: 8.0,
+            },
         ],
     );
     let result = solve_sketch(&sketch);
@@ -4027,12 +4103,26 @@ fn hdistance_enforces_x_gap_only() {
 fn vdistance_enforces_y_gap_only() {
     let sketch = make_sketch(
         vec![
-            SketchEntity::Point { id: 1, x: 0.0, y: 0.0, construction: false },
-            SketchEntity::Point { id: 2, x: 3.0, y: 5.0, construction: false },
+            SketchEntity::Point {
+                id: 1,
+                x: 0.0,
+                y: 0.0,
+                construction: false,
+            },
+            SketchEntity::Point {
+                id: 2,
+                x: 3.0,
+                y: 5.0,
+                construction: false,
+            },
         ],
         vec![
             SketchConstraint::Dragged { point: 1 },
-            SketchConstraint::VDistance { point_a: 1, point_b: 2, value: 12.0 },
+            SketchConstraint::VDistance {
+                point_a: 1,
+                point_b: 2,
+                value: 12.0,
+            },
         ],
     );
     let result = solve_sketch(&sketch);
@@ -4051,9 +4141,23 @@ fn hv_distance_deserialize_from_dimension_tool_json() {
     let h: SketchConstraint =
         serde_json::from_str(r#"{"type":"HDistance","point_a":1,"point_b":2,"value":8.0}"#)
             .expect("must parse HDistance");
-    assert!(matches!(h, SketchConstraint::HDistance { point_a: 1, point_b: 2, .. }));
+    assert!(matches!(
+        h,
+        SketchConstraint::HDistance {
+            point_a: 1,
+            point_b: 2,
+            ..
+        }
+    ));
     let v: SketchConstraint =
         serde_json::from_str(r#"{"type":"VDistance","point_a":1,"point_b":2,"value":12.0}"#)
             .expect("must parse VDistance");
-    assert!(matches!(v, SketchConstraint::VDistance { point_a: 1, point_b: 2, .. }));
+    assert!(matches!(
+        v,
+        SketchConstraint::VDistance {
+            point_a: 1,
+            point_b: 2,
+            ..
+        }
+    ));
 }

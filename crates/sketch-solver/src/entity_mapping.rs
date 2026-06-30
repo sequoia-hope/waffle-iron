@@ -113,7 +113,7 @@ impl ParamLayout {
                 }
                 SketchEntity::Point { .. } => {} // handled in pass 1
                 SketchEntity::Spline { .. } => {} // not in PR-SS1 scope
-                SketchEntity::Gear { .. } => {}   // expanded before reaching solver
+                SketchEntity::Gear { .. } => {}  // expanded before reaching solver
             }
         }
 
@@ -216,7 +216,11 @@ mod tests {
     fn line_two_points_four_params() {
         let entities = vec![point(1, 0.0, 0.0), point(2, 10.0, 5.0), line(10, 1, 2)];
         let layout = ParamLayout::build(&entities);
-        assert_eq!(layout.n_params(), 4, "line adds no params beyond its points");
+        assert_eq!(
+            layout.n_params(),
+            4,
+            "line adds no params beyond its points"
+        );
         assert_eq!(layout.point_indices.len(), 2);
         assert!(!layout.radius_indices.contains_key(&10));
         assert_eq!(layout.line_endpoints[&10], (1, 2));

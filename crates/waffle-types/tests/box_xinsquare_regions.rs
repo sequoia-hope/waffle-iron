@@ -96,13 +96,24 @@ fn x_in_square_subdivides_into_simple_regions() {
 
     // Four inner triangles + two frame pieces (the outer band split by diagonal 9
     // entering at the TR/BL outer corners).
-    assert_eq!(regions.len(), 6, "X-in-square arrangement = 4 triangles + 2 frame pieces");
+    assert_eq!(
+        regions.len(),
+        6,
+        "X-in-square arrangement = 4 triangles + 2 frame pieces"
+    );
 
     // Every region loop is a simple polygon with no spurious holes — no
     // `ProfileRepeatedVertex`, nothing the kernel would reject.
     for (i, r) in regions.iter().enumerate() {
-        assert!(loop_is_simple(&r.outer), "region {i} outer loop must be simple: {:?}", r.outer);
-        assert!(r.holes.is_empty(), "region {i} must have no holes (X-in-square is hole-free)");
+        assert!(
+            loop_is_simple(&r.outer),
+            "region {i} outer loop must be simple: {:?}",
+            r.outer
+        );
+        assert!(
+            r.holes.is_empty(),
+            "region {i} must have no holes (X-in-square is hole-free)"
+        );
         for h in &r.holes {
             assert!(loop_is_simple(h), "region {i} hole loop must be simple");
         }
@@ -110,21 +121,39 @@ fn x_in_square_subdivides_into_simple_regions() {
 
     // Areas tile the outer square exactly (0.05 * 0.05).
     let total: f64 = regions.iter().map(|r| r.area).sum();
-    assert!((total - 0.0025).abs() < 1e-9, "region areas must tile the outer square, got {total}");
+    assert!(
+        (total - 0.0025).abs() < 1e-9,
+        "region areas must tile the outer square, got {total}"
+    );
 
     // Exactly four triangular inner quadrants, each an eighth of the inner square
     // (inner square 0.04² = 0.0016; each diagonal quadrant = 0.0004).
     let triangles: Vec<&Region> = regions.iter().filter(|r| r.outer.len() == 3).collect();
-    assert_eq!(triangles.len(), 4, "the inner square's two diagonals yield 4 triangles");
+    assert_eq!(
+        triangles.len(),
+        4,
+        "the inner square's two diagonals yield 4 triangles"
+    );
     for t in &triangles {
-        assert!((t.area - 0.0004).abs() < 1e-9, "inner triangle area = 0.0004, got {}", t.area);
+        assert!(
+            (t.area - 0.0004).abs() < 1e-9,
+            "inner triangle area = 0.0004, got {}",
+            t.area
+        );
     }
 
     // Clicking inside one inner quadrant (between origin and the inner-right edge)
     // selects exactly one region and it is a triangle — the diagonals subdivide
     // the face as a real CAD sketch must.
     let probe = (0.005, 0.0);
-    let containing: Vec<&Region> = regions.iter().filter(|r| region_contains(r, probe)).collect();
+    let containing: Vec<&Region> = regions
+        .iter()
+        .filter(|r| region_contains(r, probe))
+        .collect();
     assert_eq!(containing.len(), 1, "the quadrant click is unambiguous");
-    assert_eq!(containing[0].outer.len(), 3, "the selected quadrant is a triangle");
+    assert_eq!(
+        containing[0].outer.len(),
+        3,
+        "the selected quadrant is a triangle"
+    );
 }

@@ -18,6 +18,14 @@
 //! Determinism: residual/Jacobian row order is determined by iterating
 //! `constraints` in declaration order (a `Vec`). No `HashMap` iteration
 //! occurs in the residual or Jacobian assembly path.
+//!
+//! Layout note: the `CompiledConstraint` enum and its `impl` block carry a
+//! `#[rustfmt::skip]`. The variants pack each point's `x,y` parameter indices
+//! on one line (`ax, ay` then `bx, by`; two points per line for the 4-point
+//! constraints) and keep construction sites on a single line — a deliberate
+//! grouping rustfmt would explode to one field per line, destroying the
+//! point-pairing. The skips keep that grouping while the rest of the crate
+//! stays fmt-canonical. Match the surrounding compact style by hand here.
 
 use nalgebra::{DMatrix, DVector};
 
@@ -34,6 +42,7 @@ pub const DRAGGED_WEIGHT: f64 = 1.0 / 20.0;
 /// them to parameter indices at construction time. This avoids repeated
 /// `HashMap` lookups during LM iteration (hot path).
 #[derive(Clone)]
+#[rustfmt::skip]
 pub enum CompiledConstraint {
     Coincident {
         ax: usize, ay: usize,
@@ -202,6 +211,7 @@ pub fn weight(cc: &CompiledConstraint) -> f64 {
     }
 }
 
+#[rustfmt::skip]
 impl CompiledConstraint {
     /// Compile a `SketchConstraint` into a `CompiledConstraint` by resolving
     /// entity IDs to parameter indices via the `ParamLayout`.
@@ -1561,8 +1571,7 @@ mod tests {
 
     impl LeastSquaresProblem<f64, nalgebra::Dyn, nalgebra::Dyn> for SingleConstraintProblem {
         type ResidualStorage = nalgebra::VecStorage<f64, nalgebra::Dyn, nalgebra::U1>;
-        type JacobianStorage =
-            nalgebra::VecStorage<f64, nalgebra::Dyn, nalgebra::Dyn>;
+        type JacobianStorage = nalgebra::VecStorage<f64, nalgebra::Dyn, nalgebra::Dyn>;
         type ParameterStorage = nalgebra::VecStorage<f64, nalgebra::Dyn, nalgebra::U1>;
 
         fn set_params(&mut self, x: &DVector<f64>) {
@@ -1602,12 +1611,10 @@ mod tests {
             n_params,
             n_residuals,
         };
-        let numeric_j = differentiate_numerically(&mut prob_for_num)
-            .expect("numerical differentiation failed");
+        let numeric_j =
+            differentiate_numerically(&mut prob_for_num).expect("numerical differentiation failed");
 
-        let analytic_j = problem
-            .cc
-            .jacobian(problem.params.as_slice(), n_params);
+        let analytic_j = problem.cc.jacobian(problem.params.as_slice(), n_params);
 
         let diff = (&numeric_j - &analytic_j).abs().max();
         assert!(
@@ -1627,10 +1634,18 @@ mod tests {
     #[test]
     fn coincident_residual_zero_and_jacobian() {
         // Points at (3, 4) and (3, 4) — coincident
-        let cc = CompiledConstraint::Coincident { ax: 0, ay: 1, bx: 2, by: 3 };
+        let cc = CompiledConstraint::Coincident {
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+        };
         let p = vec![3.0, 4.0, 3.0, 4.0];
         let r = cc.residuals(&p);
-        assert!(r[0].abs() < 1e-12 && r[1].abs() < 1e-12, "residual not zero: {r}");
+        assert!(
+            r[0].abs() < 1e-12 && r[1].abs() < 1e-12,
+            "residual not zero: {r}"
+        );
         check_jacobian(cc, p);
     }
 
@@ -1658,8 +1673,14 @@ mod tests {
     fn parallel_residual_zero_and_jacobian() {
         // Line A: (0,0)→(10,0), Line B: (1,5)→(11,5) — parallel (both horizontal)
         let cc = CompiledConstraint::Parallel {
-            ax: 0, ay: 1, bx: 2, by: 3,
-            cx: 4, cy: 5, dx: 6, dy: 7,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+            cx: 4,
+            cy: 5,
+            dx: 6,
+            dy: 7,
         };
         let p = vec![0.0, 0.0, 10.0, 0.0, 1.0, 5.0, 11.0, 5.0];
         let r = cc.residuals(&p);
@@ -1671,8 +1692,14 @@ mod tests {
     fn perpendicular_residual_zero_and_jacobian() {
         // Line A: (0,0)→(10,0) horizontal, Line B: (5,0)→(5,8) vertical — perpendicular
         let cc = CompiledConstraint::Perpendicular {
-            ax: 0, ay: 1, bx: 2, by: 3,
-            cx: 4, cy: 5, dx: 6, dy: 7,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+            cx: 4,
+            cy: 5,
+            dx: 6,
+            dy: 7,
         };
         let p = vec![0.0, 0.0, 10.0, 0.0, 5.0, 0.0, 5.0, 8.0];
         let r = cc.residuals(&p);
@@ -1684,8 +1711,14 @@ mod tests {
     fn equal_lines_residual_zero_and_jacobian() {
         // Line A: (0,0)→(5,0) len=5, Line B: (1,1)→(6,1) len=5
         let cc = CompiledConstraint::EqualLines {
-            ax: 0, ay: 1, bx: 2, by: 3,
-            cx: 4, cy: 5, dx: 6, dy: 7,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+            cx: 4,
+            cy: 5,
+            dx: 6,
+            dy: 7,
         };
         let p = vec![0.0, 0.0, 5.0, 0.0, 1.0, 1.0, 6.0, 1.0];
         let r = cc.residuals(&p);
@@ -1706,7 +1739,13 @@ mod tests {
     #[test]
     fn distance_pp_residual_zero_and_jacobian() {
         // Points at (0,0) and (3,4) — distance = 5
-        let cc = CompiledConstraint::DistancePP { ax: 0, ay: 1, bx: 2, by: 3, value: 5.0 };
+        let cc = CompiledConstraint::DistancePP {
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+            value: 5.0,
+        };
         let p = vec![0.0, 0.0, 3.0, 4.0];
         let r = cc.residuals(&p);
         assert!(r[0].abs() < 1e-12, "residual not zero: {r}");
@@ -1718,7 +1757,13 @@ mod tests {
         // Line A: (0,0)→(10,0) horizontal. Point P at (5, -3).
         // Signed perpendicular distance (cross product convention) = +3.
         let cc = CompiledConstraint::DistancePL {
-            px: 4, py: 5, ax: 0, ay: 1, bx: 2, by: 3, value: 3.0,
+            px: 4,
+            py: 5,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+            value: 3.0,
         };
         let p = vec![0.0, 0.0, 10.0, 0.0, 5.0, -3.0];
         let r = cc.residuals(&p);
@@ -1731,8 +1776,14 @@ mod tests {
         // Line A: (0,0)→(1,0) at 0°, Line B: (0,0)→(0,1) at 90°
         // Angle between them = 90° = π/2
         let cc = CompiledConstraint::Angle {
-            ax: 0, ay: 1, bx: 2, by: 3,
-            cx: 4, cy: 5, dx: 6, dy: 7,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+            cx: 4,
+            cy: 5,
+            dx: 6,
+            dy: 7,
             value_radians: std::f64::consts::FRAC_PI_2,
         };
         let p = vec![0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
@@ -1764,7 +1815,12 @@ mod tests {
     fn on_entity_line_residual_zero_and_jacobian() {
         // Line A: (0,0)→(10,0). Point P at (5, 0) — on the line.
         let cc = CompiledConstraint::OnEntityLine {
-            px: 4, py: 5, ax: 0, ay: 1, bx: 2, by: 3,
+            px: 4,
+            py: 5,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
         };
         let p = vec![0.0, 0.0, 10.0, 0.0, 5.0, 0.0];
         let r = cc.residuals(&p);
@@ -1776,7 +1832,11 @@ mod tests {
     fn on_entity_circle_residual_zero_and_jacobian() {
         // Circle center (0,0), r=5. Point P at (3,4) — on circle (dist=5).
         let cc = CompiledConstraint::OnEntityCircle {
-            px: 3, py: 4, cx: 0, cy: 1, r: 2,
+            px: 3,
+            py: 4,
+            cx: 0,
+            cy: 1,
+            r: 2,
         };
         let p = vec![0.0, 0.0, 5.0, 3.0, 4.0];
         let r = cc.residuals(&p);
@@ -1788,11 +1848,19 @@ mod tests {
     fn midpoint_residual_zero_and_jacobian() {
         // Line A: (0,0)→(10,0). Midpoint = (5,0). Point P at (5,0).
         let cc = CompiledConstraint::Midpoint {
-            px: 4, py: 5, ax: 0, ay: 1, bx: 2, by: 3,
+            px: 4,
+            py: 5,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
         };
         let p = vec![0.0, 0.0, 10.0, 0.0, 5.0, 0.0];
         let r = cc.residuals(&p);
-        assert!(r[0].abs() < 1e-12 && r[1].abs() < 1e-12, "residual not zero: {r}");
+        assert!(
+            r[0].abs() < 1e-12 && r[1].abs() < 1e-12,
+            "residual not zero: {r}"
+        );
         check_jacobian(cc, p);
     }
 
@@ -1800,11 +1868,17 @@ mod tests {
     fn dragged_residual_zero_and_jacobian() {
         // Point at (3, 7), fixed at (3, 7)
         let cc = CompiledConstraint::Dragged {
-            px: 0, py: 1, fixed_x: 3.0, fixed_y: 7.0,
+            px: 0,
+            py: 1,
+            fixed_x: 3.0,
+            fixed_y: 7.0,
         };
         let p = vec![3.0, 7.0];
         let r = cc.residuals(&p);
-        assert!(r[0].abs() < 1e-12 && r[1].abs() < 1e-12, "residual not zero: {r}");
+        assert!(
+            r[0].abs() < 1e-12 && r[1].abs() < 1e-12,
+            "residual not zero: {r}"
+        );
         check_jacobian(cc, p);
     }
 
@@ -1813,15 +1887,27 @@ mod tests {
     #[test]
     fn distance_pp_jacobian_general_position() {
         // Points NOT at target distance — verify Jacobian still correct
-        let cc = CompiledConstraint::DistancePP { ax: 0, ay: 1, bx: 2, by: 3, value: 10.0 };
+        let cc = CompiledConstraint::DistancePP {
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+            value: 10.0,
+        };
         check_jacobian(cc, vec![1.0, 2.0, 4.0, 6.0]); // actual dist ≈ 5, not 10
     }
 
     #[test]
     fn angle_jacobian_general_position() {
         let cc = CompiledConstraint::Angle {
-            ax: 0, ay: 1, bx: 2, by: 3,
-            cx: 4, cy: 5, dx: 6, dy: 7,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+            cx: 4,
+            cy: 5,
+            dx: 6,
+            dy: 7,
             value_radians: 1.0,
         };
         check_jacobian(cc, vec![0.0, 0.0, 3.0, 1.0, 1.0, 2.0, 4.0, 5.0]);
@@ -1830,8 +1916,14 @@ mod tests {
     #[test]
     fn parallel_jacobian_general_position() {
         let cc = CompiledConstraint::Parallel {
-            ax: 0, ay: 1, bx: 2, by: 3,
-            cx: 4, cy: 5, dx: 6, dy: 7,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+            cx: 4,
+            cy: 5,
+            dx: 6,
+            dy: 7,
         };
         check_jacobian(cc, vec![0.0, 0.0, 5.0, 1.0, 2.0, 3.0, 7.0, 4.0]);
     }
@@ -1839,7 +1931,13 @@ mod tests {
     #[test]
     fn distance_pl_jacobian_general_position() {
         let cc = CompiledConstraint::DistancePL {
-            px: 4, py: 5, ax: 0, ay: 1, bx: 2, by: 3, value: 2.0,
+            px: 4,
+            py: 5,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+            value: 2.0,
         };
         check_jacobian(cc, vec![0.0, 0.0, 10.0, 0.0, 5.0, 7.0]);
     }
@@ -1851,20 +1949,35 @@ mod tests {
         // Points (20, 30) and (80, 30) symmetric about vertical line x=50
         // Line from (50, 0) to (50, 100)
         let cc = CompiledConstraint::Symmetric {
-            ax: 0, ay: 1, bx: 2, by: 3,
-            cx: 4, cy: 5, dx: 6, dy: 7,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+            cx: 4,
+            cy: 5,
+            dx: 6,
+            dy: 7,
         };
         let p = vec![20.0, 30.0, 80.0, 30.0, 50.0, 0.0, 50.0, 100.0];
         let r = cc.residuals(&p);
-        assert!(r[0].abs() < 1e-12 && r[1].abs() < 1e-12, "residual not zero: {r}");
+        assert!(
+            r[0].abs() < 1e-12 && r[1].abs() < 1e-12,
+            "residual not zero: {r}"
+        );
         check_jacobian(cc, p);
     }
 
     #[test]
     fn symmetric_jacobian_general_position() {
         let cc = CompiledConstraint::Symmetric {
-            ax: 0, ay: 1, bx: 2, by: 3,
-            cx: 4, cy: 5, dx: 6, dy: 7,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+            cx: 4,
+            cy: 5,
+            dx: 6,
+            dy: 7,
         };
         check_jacobian(cc, vec![15.0, 20.0, 70.0, 25.0, 40.0, 0.0, 45.0, 90.0]);
     }
@@ -1872,20 +1985,36 @@ mod tests {
     #[test]
     fn symmetric_h_residual_zero_and_jacobian() {
         // Symmetric about Y-axis: (30, 20) and (-30, 20)
-        let cc = CompiledConstraint::SymmetricH { ax: 0, ay: 1, bx: 2, by: 3 };
+        let cc = CompiledConstraint::SymmetricH {
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+        };
         let p = vec![30.0, 20.0, -30.0, 20.0];
         let r = cc.residuals(&p);
-        assert!(r[0].abs() < 1e-12 && r[1].abs() < 1e-12, "residual not zero: {r}");
+        assert!(
+            r[0].abs() < 1e-12 && r[1].abs() < 1e-12,
+            "residual not zero: {r}"
+        );
         check_jacobian(cc, p);
     }
 
     #[test]
     fn symmetric_v_residual_zero_and_jacobian() {
         // Symmetric about X-axis: (20, 30) and (20, -30)
-        let cc = CompiledConstraint::SymmetricV { ax: 0, ay: 1, bx: 2, by: 3 };
+        let cc = CompiledConstraint::SymmetricV {
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+        };
         let p = vec![20.0, 30.0, 20.0, -30.0];
         let r = cc.residuals(&p);
-        assert!(r[0].abs() < 1e-12 && r[1].abs() < 1e-12, "residual not zero: {r}");
+        assert!(
+            r[0].abs() < 1e-12 && r[1].abs() < 1e-12,
+            "residual not zero: {r}"
+        );
         check_jacobian(cc, p);
     }
 
@@ -1894,7 +2023,13 @@ mod tests {
         // Circle center (0, 50), radius 50. Line y=0 from (-50,0) to (50,0).
         // dist(center, line) = 50 = radius → tangent
         let cc = CompiledConstraint::TangentLineCircle {
-            cx: 4, cy: 5, r: 6, ax: 0, ay: 1, bx: 2, by: 3,
+            cx: 4,
+            cy: 5,
+            r: 6,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
         };
         let p = vec![-50.0, 0.0, 50.0, 0.0, 0.0, 50.0, 50.0];
         let r = cc.residuals(&p);
@@ -1905,7 +2040,13 @@ mod tests {
     #[test]
     fn tangent_line_circle_jacobian_general_position() {
         let cc = CompiledConstraint::TangentLineCircle {
-            cx: 4, cy: 5, r: 6, ax: 0, ay: 1, bx: 2, by: 3,
+            cx: 4,
+            cy: 5,
+            r: 6,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
         };
         check_jacobian(cc, vec![-40.0, 5.0, 45.0, -3.0, 10.0, 40.0, 30.0]);
     }
@@ -1915,7 +2056,14 @@ mod tests {
         // Arc center (0, 50), start (0, 0) → radius = 50.
         // Line y=0 from (-50,0) to (50,0). dist = 50 = radius → tangent
         let cc = CompiledConstraint::TangentLineArc {
-            cx: 4, cy: 5, sx: 6, sy: 7, ax: 0, ay: 1, bx: 2, by: 3,
+            cx: 4,
+            cy: 5,
+            sx: 6,
+            sy: 7,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
         };
         let p = vec![-50.0, 0.0, 50.0, 0.0, 0.0, 50.0, 0.0, 0.0];
         let r = cc.residuals(&p);
@@ -1926,7 +2074,14 @@ mod tests {
     #[test]
     fn tangent_line_arc_jacobian_general_position() {
         let cc = CompiledConstraint::TangentLineArc {
-            cx: 4, cy: 5, sx: 6, sy: 7, ax: 0, ay: 1, bx: 2, by: 3,
+            cx: 4,
+            cy: 5,
+            sx: 6,
+            sy: 7,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
         };
         check_jacobian(cc, vec![-40.0, 5.0, 45.0, -3.0, 10.0, 40.0, 5.0, 3.0]);
     }
@@ -1937,13 +2092,26 @@ mod tests {
         // Lines c=(0,0)→(1,0), d=(0,0)→(0,1): angle = 90°
         // Equal angle: 90° - 90° = 0
         let cc = CompiledConstraint::EqualAngle {
-            ax: 0, ay: 1, bx: 2, by: 3,
-            cx: 4, cy: 5, dx: 6, dy: 7,
-            ex: 8, ey: 9, fx: 10, fy: 11,
-            gx: 12, gy: 13, hx: 14, hy: 15,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+            cx: 4,
+            cy: 5,
+            dx: 6,
+            dy: 7,
+            ex: 8,
+            ey: 9,
+            fx: 10,
+            fy: 11,
+            gx: 12,
+            gy: 13,
+            hx: 14,
+            hy: 15,
         };
-        let p = vec![0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
-                      0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+        let p = vec![
+            0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+        ];
         let r = cc.residuals(&p);
         assert!(r[0].abs() < 1e-12, "residual not zero: {r}");
         check_jacobian(cc, p);
@@ -1952,13 +2120,29 @@ mod tests {
     #[test]
     fn equal_angle_jacobian_general_position() {
         let cc = CompiledConstraint::EqualAngle {
-            ax: 0, ay: 1, bx: 2, by: 3,
-            cx: 4, cy: 5, dx: 6, dy: 7,
-            ex: 8, ey: 9, fx: 10, fy: 11,
-            gx: 12, gy: 13, hx: 14, hy: 15,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+            cx: 4,
+            cy: 5,
+            dx: 6,
+            dy: 7,
+            ex: 8,
+            ey: 9,
+            fx: 10,
+            fy: 11,
+            gx: 12,
+            gy: 13,
+            hx: 14,
+            hy: 15,
         };
-        check_jacobian(cc, vec![0.0, 0.0, 3.0, 1.0, 1.0, 2.0, 4.0, 5.0,
-                                 2.0, 1.0, 5.0, 2.0, 0.0, 0.0, 1.0, 3.0]);
+        check_jacobian(
+            cc,
+            vec![
+                0.0, 0.0, 3.0, 1.0, 1.0, 2.0, 4.0, 5.0, 2.0, 1.0, 5.0, 2.0, 0.0, 0.0, 1.0, 3.0,
+            ],
+        );
     }
 
     #[test]
@@ -1966,8 +2150,14 @@ mod tests {
         // Line a: (0,0)→(10,0) len=10, Line b: (0,0)→(5,0) len=5
         // Ratio = 10/5 = 2.0
         let cc = CompiledConstraint::Ratio {
-            ax: 0, ay: 1, bx: 2, by: 3,
-            cx: 4, cy: 5, dx: 6, dy: 7,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+            cx: 4,
+            cy: 5,
+            dx: 6,
+            dy: 7,
             value: 2.0,
         };
         let p = vec![0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 5.0, 0.0];
@@ -1979,8 +2169,14 @@ mod tests {
     #[test]
     fn ratio_jacobian_general_position() {
         let cc = CompiledConstraint::Ratio {
-            ax: 0, ay: 1, bx: 2, by: 3,
-            cx: 4, cy: 5, dx: 6, dy: 7,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+            cx: 4,
+            cy: 5,
+            dx: 6,
+            dy: 7,
             value: 1.5,
         };
         check_jacobian(cc, vec![0.0, 0.0, 7.0, 3.0, 1.0, 1.0, 6.0, 2.0]);
@@ -1991,8 +2187,14 @@ mod tests {
         // Line from (0,0) to (10,0). Points at (3, 5) and (7, 5).
         // Both are distance 5 from the line.
         let cc = CompiledConstraint::EqualPointToLine {
-            ax: 0, ay: 1, bx: 2, by: 3,
-            lx0: 4, ly0: 5, lx1: 6, ly1: 7,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+            lx0: 4,
+            ly0: 5,
+            lx1: 6,
+            ly1: 7,
         };
         let p = vec![3.0, 5.0, 7.0, 5.0, 0.0, 0.0, 10.0, 0.0];
         let r = cc.residuals(&p);
@@ -2003,8 +2205,14 @@ mod tests {
     #[test]
     fn equal_point_to_line_jacobian_general_position() {
         let cc = CompiledConstraint::EqualPointToLine {
-            ax: 0, ay: 1, bx: 2, by: 3,
-            lx0: 4, ly0: 5, lx1: 6, ly1: 7,
+            ax: 0,
+            ay: 1,
+            bx: 2,
+            by: 3,
+            lx0: 4,
+            ly0: 5,
+            lx1: 6,
+            ly1: 7,
         };
         check_jacobian(cc, vec![3.0, 7.0, 8.0, 2.0, 1.0, 1.0, 9.0, 4.0]);
     }

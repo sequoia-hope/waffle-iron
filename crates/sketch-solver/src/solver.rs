@@ -17,7 +17,7 @@ use nalgebra::{DMatrix, DVector};
 
 use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt, MinimizationReport};
 
-use crate::constraint_mapping::{weight, residual_count, CompiledConstraint};
+use crate::constraint_mapping::{residual_count, weight, CompiledConstraint};
 use crate::entity_mapping::ParamLayout;
 use crate::profiles::extract_profiles;
 use crate::types::{Sketch, SolveStatus, SolvedSketch};
@@ -53,10 +53,7 @@ struct SketchProblem {
 }
 
 impl SketchProblem {
-    fn new(
-        layout: &ParamLayout,
-        compiled: Vec<CompiledConstraint>,
-    ) -> Self {
+    fn new(layout: &ParamLayout, compiled: Vec<CompiledConstraint>) -> Self {
         let n_params = layout.n_params();
         let weights: Vec<f64> = compiled.iter().map(|c| weight(c)).collect();
         let n_residuals: usize = compiled.iter().map(|c| residual_count(c)).sum();
@@ -176,7 +173,9 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
 
     // Extract final residuals and Jacobian for classification.
     let final_residuals = solved.residuals().unwrap_or_else(|| DVector::zeros(0));
-    let final_jacobian = solved.jacobian().unwrap_or_else(|| DMatrix::zeros(0, n_params));
+    let final_jacobian = solved
+        .jacobian()
+        .unwrap_or_else(|| DMatrix::zeros(0, n_params));
 
     let status = classify_status(
         &final_residuals,
@@ -290,11 +289,7 @@ fn matrix_rank(m: &DMatrix<f64>, tol: f64) -> usize {
     let max_diag = (0..r.nrows().min(r.ncols()))
         .map(|i| r[(i, i)].abs())
         .fold(0.0f64, f64::max);
-    let effective_tol = if max_diag > 0.0 {
-        tol * max_diag
-    } else {
-        tol
-    };
+    let effective_tol = if max_diag > 0.0 { tol * max_diag } else { tol };
     let mut rank = 0;
     for i in 0..r.nrows().min(r.ncols()) {
         if r[(i, i)].abs() > effective_tol {
@@ -307,10 +302,7 @@ fn matrix_rank(m: &DMatrix<f64>, tol: f64) -> usize {
 /// Find constraint indices with residuals exceeding the tolerance.
 /// Maps residual rows back to constraint indices using the row layout
 /// (Coincident/Midpoint/Dragged = 2 rows, others = 1 row).
-fn find_conflict_constraints(
-    residuals: &DVector<f64>,
-    _jacobian: &DMatrix<f64>,
-) -> Vec<u32> {
+fn find_conflict_constraints(residuals: &DVector<f64>, _jacobian: &DMatrix<f64>) -> Vec<u32> {
     // We don't have the constraint list here, so we return row indices
     // where the residual exceeds tolerance. The caller (test harness) can
     // map these to constraint indices. For now, return the residual row
