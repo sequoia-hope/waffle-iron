@@ -287,6 +287,166 @@ pub fn cdt_polygon_with_holes(
     Ok(tris)
 }
 
+/// Like [`cdt_polygon_with_holes`] but additionally inserts a caller-provided set
+/// of INTERIOR vertices that are KEPT (triangulated against the boundary, NOT
+/// Steiner-refined and NOT dropped).
+///
+/// This is the primitive Yang §4.4.1 mesh-updating needs to re-triangulate a
+/// surface patch **in its parametric domain while preserving the patch's interior
+/// mesh vertices** — a curved patch (cylinder/sphere/cone) carries shape in its
+/// interior, so unlike a flat patch its interior points cannot be discarded. The
+/// patch boundary loops (`outer` + `holes`, which include the intersection-curve
+/// chain) are the hard constraints; the interior points fill the patch so no
+/// triangle spans three collinear boundary points (the relocation sliver).
+///
+/// * `verts` — the shared 2D pool: boundary vertices AND interior vertices.
+/// * `outer`, `holes` — boundary loops, indices into `verts` (as
+///   [`cdt_polygon_with_holes`]).
+/// * `interior` — additional vertices to insert and keep, indices into `verts`.
+///   Each MUST lie strictly inside the outer loop and outside every hole; an
+///   interior index coincident with a boundary vertex, or lying ON a boundary
+///   constraint edge, yields [`CdtError::DuplicateVertex`] / `TriangulationFailed`
+///   (spade would split a constraint — we never silently introduce Steiner
+///   points).
+///
+/// Output indexes into `verts` (no new points) and is canonicalized for
+/// byte-identical determinism exactly like [`cdt_polygon_with_holes`], so the
+/// boundary vertex set is preserved and the patch stays conformal with its
+/// un-remeshed neighbours.
+pub fn cdt_polygon_with_holes_keep_interior(
+    verts: &[CadPoint2],
+    outer: &[u32],
+    holes: &[Vec<u32>],
+    interior: &[u32],
+) -> Result<Vec<[u32; 3]>, CdtError> {
+    // ---- 1. Validate all indices are in range. --------------------------
+    let n_verts = verts.len();
+    let in_range = |idx: u32| (idx as usize) < n_verts;
+    if !outer.iter().copied().all(in_range)
+        || holes.iter().flatten().any(|&i| !in_range(i))
+        || !interior.iter().copied().all(in_range)
+    {
+        return Err(CdtError::LoopIndexOutOfRange);
+    }
+    if outer.len() < 3 {
+        return Err(CdtError::DegenerateInput);
+    }
+
+    // ---- 2. Insert boundary (outer, holes) then interior vertices. ------
+    let mut cdt: ConstrainedDelaunayTriangulation<SpadePoint2<f64>> =
+        ConstrainedDelaunayTriangulation::new();
+    let mut handle_of: Vec<Option<FixedVertexHandle>> = vec![None; n_verts];
+    let insert_vertex = |cdt: &mut ConstrainedDelaunayTriangulation<SpadePoint2<f64>>,
+                         handle_of: &mut Vec<Option<FixedVertexHandle>>,
+                         idx: u32|
+     -> Result<FixedVertexHandle, CdtError> {
+        if let Some(h) = handle_of[idx as usize] {
+            return Ok(h);
+        }
+        let p = verts[idx as usize];
+        let h = cdt
+            .insert(SpadePoint2::new(p.x(), p.y()))
+            .map_err(map_insertion_error)?;
+        if handle_of.contains(&Some(h)) {
+            return Err(CdtError::DuplicateVertex);
+        }
+        handle_of[idx as usize] = Some(h);
+        Ok(h)
+    };
+    for &idx in outer {
+        insert_vertex(&mut cdt, &mut handle_of, idx)?;
+    }
+    for hole in holes {
+        for &idx in hole {
+            insert_vertex(&mut cdt, &mut handle_of, idx)?;
+        }
+    }
+    for &idx in interior {
+        insert_vertex(&mut cdt, &mut handle_of, idx)?;
+    }
+
+    // ---- 3. Add boundary loops as hard constraints. ---------------------
+    let add_loop = |cdt: &mut ConstrainedDelaunayTriangulation<SpadePoint2<f64>>,
+                    handle_of: &[Option<FixedVertexHandle>],
+                    loop_idx: &[u32]|
+     -> Result<(), CdtError> {
+        let m = loop_idx.len();
+        for i in 0..m {
+            let a = handle_of[loop_idx[i] as usize].ok_or(CdtError::TriangulationFailed)?;
+            let b =
+                handle_of[loop_idx[(i + 1) % m] as usize].ok_or(CdtError::TriangulationFailed)?;
+            if a == b {
+                return Err(CdtError::DegenerateInput);
+            }
+            if cdt.exists_constraint(a, b) {
+                continue;
+            }
+            if !cdt.can_add_constraint(a, b) {
+                return Err(CdtError::TriangulationFailed);
+            }
+            cdt.add_constraint(a, b);
+        }
+        Ok(())
+    };
+    add_loop(&mut cdt, &handle_of, outer)?;
+    for hole in holes {
+        if hole.len() >= 2 {
+            add_loop(&mut cdt, &handle_of, hole)?;
+        }
+    }
+
+    // ---- 4. Local <-> spade-handle translation; no-Steiner guard. -------
+    // Every inserted vertex (boundary + interior) is caller-provided; spade adds
+    // a vertex ONLY when a constraint crossing forces a split, which we reject.
+    if cdt.num_vertices() != count_inserted(&handle_of) {
+        return Err(CdtError::TriangulationFailed);
+    }
+    let mut caller_of_spade: Vec<u32> = vec![u32::MAX; cdt.num_vertices()];
+    for (caller_idx, slot) in handle_of.iter().enumerate() {
+        if let Some(h) = slot {
+            caller_of_spade[h.index()] = caller_idx as u32;
+        }
+    }
+
+    // ---- 5. Classify interior faces by centroid + emit. -----------------
+    let outer_pts: Vec<CadPoint2> = outer.iter().map(|&i| verts[i as usize]).collect();
+    let hole_pts: Vec<Vec<CadPoint2>> = holes
+        .iter()
+        .map(|h| h.iter().map(|&i| verts[i as usize]).collect())
+        .collect();
+    let mut tris: Vec<[u32; 3]> = Vec::new();
+    for face in cdt.inner_faces() {
+        let vs = face.vertices();
+        let li = [
+            caller_of_spade[vs[0].index()],
+            caller_of_spade[vs[1].index()],
+            caller_of_spade[vs[2].index()],
+        ];
+        if li.contains(&u32::MAX) {
+            return Err(CdtError::TriangulationFailed);
+        }
+        let a = verts[li[0] as usize];
+        let b = verts[li[1] as usize];
+        let c = verts[li[2] as usize];
+        let centroid = CadPoint2::new((a.x() + b.x() + c.x()) / 3.0, (a.y() + b.y() + c.y()) / 3.0);
+        let inside_outer = point_in_polygon(centroid, &outer_pts);
+        let in_a_hole = hole_pts.iter().any(|h| point_in_polygon(centroid, h));
+        if inside_outer && !in_a_hole {
+            tris.push(li);
+        }
+    }
+
+    // ---- 6. Canonicalize for byte-identical determinism. ----------------
+    for t in &mut tris {
+        rotate_min_first(t);
+    }
+    tris.sort_unstable();
+    if tris.is_empty() {
+        return Err(CdtError::DegenerateInput);
+    }
+    Ok(tris)
+}
+
 /// Like [`cdt_polygon_with_holes`] but with INTERIOR STEINER REFINEMENT: spade's
 /// Delaunay refinement inserts interior points until every emitted triangle has
 /// area ≤ `max_area` — the size budget a curved-surface caller derives from its
@@ -560,6 +720,79 @@ mod tests {
         assert!(point_in_polygon(CadPoint2::new(0.5, 0.5), &sq));
         assert!(!point_in_polygon(CadPoint2::new(1.5, 0.5), &sq));
         assert!(!point_in_polygon(CadPoint2::new(-0.5, 0.5), &sq));
+    }
+
+    // ---- keep-interior CDT (Yang §4.4.1 patch re-triangulation) ---------
+
+    #[test]
+    fn keep_interior_preserves_interior_point_and_tiles() {
+        // Unit square (0..3) + one interior point (4). The point must be KEPT
+        // (referenced by some output triangle) and the triangles tile the square.
+        let verts = [
+            CadPoint2::new(0.0, 0.0),
+            CadPoint2::new(1.0, 0.0),
+            CadPoint2::new(1.0, 1.0),
+            CadPoint2::new(0.0, 1.0),
+            CadPoint2::new(0.5, 0.5),
+        ];
+        let tris =
+            cdt_polygon_with_holes_keep_interior(&verts, &[0, 1, 2, 3], &[], &[4]).expect("ok");
+        assert!(
+            tris.iter().any(|t| t.contains(&4)),
+            "interior vertex 4 must be kept, not dropped: {tris:?}"
+        );
+        assert!(
+            (total_area(&verts, &tris) - 1.0).abs() < 1e-9,
+            "triangles must tile the unit square exactly"
+        );
+    }
+
+    #[test]
+    fn keep_interior_collinear_boundary_yields_no_degenerate_triangle() {
+        // THE band-remesh property: a boundary with a COLLINEAR run (the bottom
+        // edge has three collinear points 0,1,2) plus an interior point must NOT
+        // produce a zero-area triangle spanning the collinear trio — exactly the
+        // relocation sliver this primitive exists to avoid.
+        let verts = [
+            CadPoint2::new(0.0, 0.0), // 0  ┐
+            CadPoint2::new(0.5, 0.0), // 1  ├ collinear bottom edge
+            CadPoint2::new(1.0, 0.0), // 2  ┘
+            CadPoint2::new(1.0, 1.0), // 3
+            CadPoint2::new(0.0, 1.0), // 4
+            CadPoint2::new(0.5, 0.5), // 5  interior
+        ];
+        let tris =
+            cdt_polygon_with_holes_keep_interior(&verts, &[0, 1, 2, 3, 4], &[], &[5]).expect("ok");
+        for t in &tris {
+            let area = tri_area(
+                verts[t[0] as usize],
+                verts[t[1] as usize],
+                verts[t[2] as usize],
+            );
+            assert!(
+                area > 1e-9,
+                "no degenerate (collinear) triangle: {t:?} area={area}"
+            );
+        }
+        // The collinear middle point (1) and the interior point (5) are both kept.
+        assert!(tris.iter().any(|t| t.contains(&1)));
+        assert!(tris.iter().any(|t| t.contains(&5)));
+        assert!((total_area(&verts, &tris) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn keep_interior_rejects_coincident_interior_vertex() {
+        // An interior index whose position coincides with a boundary vertex would
+        // collapse a constraint — rejected, never silently split.
+        let verts = [
+            CadPoint2::new(0.0, 0.0),
+            CadPoint2::new(1.0, 0.0),
+            CadPoint2::new(1.0, 1.0),
+            CadPoint2::new(0.0, 1.0),
+            CadPoint2::new(0.0, 0.0), // 4 == vertex 0
+        ];
+        let r = cdt_polygon_with_holes_keep_interior(&verts, &[0, 1, 2, 3], &[], &[4]);
+        assert_eq!(r, Err(CdtError::DuplicateVertex));
     }
 
     // ---- interior-Steiner refinement -----------------------------------
