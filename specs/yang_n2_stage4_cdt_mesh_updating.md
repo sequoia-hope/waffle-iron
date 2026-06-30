@@ -308,6 +308,98 @@ This increment is gated behind N2-2 (planar) landing green.
 - Assay 0 SUPPORTED_WRONG, no CORRECT lost; campaign always-on green; `fuzz_boxes`
   900/900 (no-op path); curved YR suites unregressed.
 
+## 5c. Finding (2026-06-30): both Mode-2 slivers are on CYLINDERS — planar re-CDT is moot, curved needs LOCAL repair
+
+Implementing §5b and probing (`YANG_RECDT_PROBE`) revealed the planar scoping was
+wrong. The earlier "R0072 = Plane" was the **pre-merge** triangle (the sub-feature
+pair, now handled by N2-1). After N2-1, R0072's remaining degenerate triangle
+`[111,109,50]` is on **input A, face 2, a Cylinder** (r=0.00021) — same surface
+class as R0021. So:
+
+- **Neither Mode-2 case exercises the planar re-CDT.** The §5b planar whole-patch
+  re-CDT was written and reverted (uncommitted) — it closes no current corpus
+  case, so per demand-driven discipline it is NOT shipped; §5b stays as the
+  documented design for a future planar-sliver case.
+- **Whole-patch re-CDT is WRONG for curved patches.** The affected cylinder patch
+  has **142 triangles** (the whole lateral). Re-triangulating it from the boundary
+  (dropping interior vertices) would collapse the cylinder's curvature → chord
+  error ≫ d_ε → wrong geometry. Curved patches require **§4.5.2 LOCAL** repair
+  (fix the sliver region; keep the rest of the patch tessellation), not a
+  whole-patch CDT.
+
+### 5c.1 The cylinder collinear sliver, precisely
+
+`[111,109,50]` is three relocated points **monotonic-collinear** on the
+intersection generator (a line on the cylinder), 2A≈5e-26. The middle point is a
+**redundant collinear curve sample**: it lies on the segment between its two
+neighbors, so removing it does not change the curve. Triangle longest edge
+≈5.9e-6; cylinder d_ε at this scale ≈5.5e-6 (borderline).
+
+### 5c.2 Two candidate local repairs (DECISION NEEDED)
+
+- **Option A — redundant-collinear-point collapse.** Extend the §4.5.3-style
+  collapse to a monotonic-collinear degenerate relocated triangle: edge-collapse
+  its middle (redundant) vertex onto a neighbor along the curve via
+  `collapse_vertex`. Surface-agnostic, ~15 lines, reuses proven machinery.
+  *Faithful claim:* the removed point is provably on the line (the triangle is
+  collinear), so the CURVE is unchanged; the only effect is off-curve neighbor
+  triangles re-attach to the survivor, shifting one vertex along the curve by the
+  collapsed-edge length. *P9 risk:* that shift must stay within d_ε to be a
+  faithful re-sampling — and here the triangle span (5.9e-6) is ~d_ε
+  (borderline), so the gate (collapse only if longest edge < d_ε) sits right at
+  the edge. Clean if it holds with margin; a hack if forced.
+- **Option B — local (θ,z) re-triangulation.** Re-triangulate ONLY the sliver +
+  its one-ring in the cylinder `(θ,z)` frame, **keeping** all those vertices
+  (needs a CDT that accepts caller interior points — the cherchi-rs extension the
+  original increment-1 proposed, now genuinely demanded). No geometry shift
+  (every vertex kept), faithful by construction. More code; the seam-wrap is
+  avoided because the region is local.
+
+**Recommendation:** Option A *iff* the d_ε gate holds with comfortable margin on
+both cases (measure first); otherwise Option B. Option A is the smaller, lower-
+risk step and is consistent with the existing §4.5.3 collapse philosophy — but the
+borderline d_ε on R0072 means I must measure the margin before committing to it.
+
+### 5c.3 Option A TRIED and RULED OUT (2026-06-30): relocation flattens a STRIP, not a point
+
+Measured d_ε (7.97e-6 R0072 / 1.97e-3 R0021) and widened the N2-1 collapse gate to
+d_ε. Result: each collapse removed one collinear sliver but **exposed a wider
+one** — R0072 cascaded 111→35 (`[35,118,119]`, shortest edge 1.14e-5 **> d_ε
+7.97e-6**), R0021 cascaded 133→127. **Root insight:** relocating the intersection
+vertices onto the exact curve flattens an entire **band of triangles along the
+curve** into collinear slivers, not a single redundant point. Point-by-point
+collapse cascades through the band and stalls at the first sliver whose shortest
+edge exceeds d_ε (collapsing it would distort off-curve neighbours beyond the mesh
+resolution — correctly refused). So Option A is INSUFFICIENT and was reverted (it
+also loosened N2-1's faithful merge for zero gain). The committed N2-1
+(MIN_FEATURE_SIZE merge) stands; it handles genuine duplicates, which is real.
+
+### 5c.4 The faithful fix is §4.4.1 LOCAL band re-triangulation (the real N2 core)
+
+The whole curve-adjacent band must be re-triangulated **at once** (so the
+relocated curve points become a boundary chain, not spanning triangles), KEEPING
+every band vertex (a curved patch carries interior shape — they cannot be
+dropped), in the surface's `(θ,z)` parametric domain, with the intersection curve
+as a constraint edge. This requires:
+
+- **The cherchi-rs CDT extension previously dropped as "unnecessary" is actually
+  REQUIRED here.** §5's claim (a) — that the boundary-only CDT suffices — holds
+  only for the planar *whole-patch* remesh (drop interior). The **curved local
+  band remesh must keep caller-provided interior vertices**, which neither
+  `cdt_polygon_with_holes` (boundary-only) nor `cdt_polygon_with_holes_refined`
+  (adds *new* Steiner, not caller points) provides. So a new
+  `cdt_points_with_constraints(verts, constraint_edges)` (triangulate a given
+  vertex set with hard constraint edges; spade supports it) IS demanded — by this
+  consumer. Increment 1 is **un-dropped**, now with a real caller.
+- Local band identification (the connected set of degenerate collinear relocated
+  triangles + their one-ring), `(θ,z)` projection with seam-wrap, conformal splice
+  (the §5b.4/§5b.5 machinery), re-gate.
+
+**This is a multi-component build, the genuine N2 core.** The shortcuts (merge,
+d_ε collapse, whole-patch re-CDT) are now all ruled out by measurement. The
+current Mode-2 loud STOP is CORRECT (never ships wrong geometry); closing it is
+this build.
+
 ## 6. Risks & guardrails
 
 - **Conformality** (§3.3): the dominant risk; mitigated by fixed-boundary + the
