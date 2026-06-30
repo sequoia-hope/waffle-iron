@@ -2,13 +2,13 @@
   "errored": 23,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 79,
+  "passed": 80,
   "results": [
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0001",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(revolve)",
@@ -83,10 +83,10 @@
       "status": "pass"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "2 NotSupported boundary(ies); first: df14aa73-8dab-4477-8b79-27b0197bb172: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0014",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "ERROR",
@@ -228,7 +228,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "2 engine error(s): b184cc49-01cb-4d27-8984-d4c87b1362cd: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (19, 21): AmbiguousCurve { candidates: 2, matched: 2 }\"); c399daad-a0c2-485c-930d-ece364b19523: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
+      "detail": "2 engine error(s): b184cc49-01cb-4d27-8984-d4c87b1362cd: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (32, 38): AmbiguousCurve { candidates: 0, matched: 0 }\"); c399daad-a0c2-485c-930d-ece364b19523: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
       "id": "R0038",
       "status": "error"
     },
@@ -432,7 +432,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (2, 143): AmbiguousCurve { candidates: 2, matched: 2 }\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 7 is invalid: DegenerateTriangle\"). Body created as standalone.",
       "id": "R0072",
       "status": "error"
     },
