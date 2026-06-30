@@ -146,26 +146,48 @@ interior) and verified by `check_watertight_2manifold` after each patch remesh.
 - New cherchi-rs CDT entry point has its own unit tests (interior constraint
   honored; Steiner interior-only; boundary-only path byte-identical).
 
-## 5. Decomposition (ordered increments — each commits + assay-gated)
+## 5. Decomposition (REVISED 2026-06-30 after grounding — ordered increments)
 
-1. **N2-cdt-1 — cherchi-rs interior-constraint CDT.** Add
-   `cdt_polygon_with_interior_constraints` (+ Steiner). Pure cherchi-rs, unit-
-   tested, no yang-rs change. Boundary-only fn untouched. *Lowest risk; unblocks
-   the rest.*
-2. **N2-cdt-2 — PLANAR patch remesh (R0021/R0072 scope).** Wire §3.1 for
-   `Surface::Plane` patches only; cylinder/sphere/cone patches keep the current
-   relocate-in-place + loud STOP. Target: R0021 + R0072 green, assay 0 WRONG.
-   *This is the increment that closes Mode 2 for the same-normal planar caps.*
-   - Empirical check inside this increment: confirm the two failing triangles are
-     on PLANAR patches (probe their attribution). If R0072's sliver is on the
-     CYLINDER lateral, its near-coincident pair is handled by the §4.4.1(b) merge
-     (merge q's too-close neighbor) restricted to the genuinely-coincident case
-     (Δ < curve-resolution), NOT the planar remesh — split into N2-cdt-2a/2b.
-3. **N2-cdt-3 — CURVED patch remesh** (cylinder `(θ,z)`, then sphere/cone). The
-   parametric-domain CDT for analytic curved surfaces. Larger; later.
-4. **N2-cdt-4 — retire `validate_relocated_triangles` STOP → `LocalRefinementRequired`
-   only for genuinely-unresolvable regions** once remesh covers the surface types.
+**Two findings from grounding the code/cases corrected the original plan:**
+
+- **(A) The "interior-constraint CDT" increment is UNNECESSARY and was dropped.**
+  Flood-fill patches are bounded by intersection edges (`reconstruct_topology`),
+  so an intersection curve is **always a patch boundary, never interior** to a
+  same-attribution patch — there is no interior constraint to add. The existing
+  `cdt_polygon_with_holes` (boundary-only) + `cdt_polygon_with_holes_refined`
+  (interior Steiner via spade area-refinement, already shipped for KV6d torus)
+  cover every CDT need below. Adding an unused function would also violate
+  cherchi-rs demand-driven rule #8.
+- **(B) The two Mode-2 cases are on DIFFERENT surfaces** (`YANG_RELOC_PROBE`,
+  attribution surface dump): **R0072 is on a `Plane`** (near-coincident pair,
+  Δ=1.3e-7 < MIN_FEATURE_SIZE=1e-6) → a §4.4.1(b) **merge**, NOT a remesh;
+  **R0021 is on a `Cylinder`** (r=0.040, monotonic-collinear sliver) → a curved
+  `(θ,z)` re-CDT. So they are NOT the same increment.
+
+Revised order:
+
+1. **N2-1 — §4.4.1(b) sub-feature vertex merge (closes R0072).** When a relocated
+   triangle is degenerate AND its shortest edge is `< MIN_FEATURE_SIZE` (the
+   governance feature floor A14.2 — two points nearer than the smallest
+   representable feature ARE the same point; principled, not a tuned tolerance),
+   edge-collapse that pair via the watertight-preserving `collapse_vertex`,
+   iterating to a fixed point, before `validate_relocated_triangles`. This is
+   "Stage-4 owns junction-duplicate collapse" for curved inputs (the I6 near-weld
+   is bit-exact-only for curved). A genuinely-spread degenerate (R0021, edge
+   0.0013 ≫ floor) is untouched → still a loud STOP. *Small, low-risk, self-
+   contained; the natural first increment.*
+2. **N2-2 — CYLINDER `(θ,z)` patch re-CDT (closes R0021).** Re-triangulate a
+   degenerate cylinder patch in its `(θ, z)` parametric domain (`ortho_basis(axis)`,
+   the Stage-1 frame; seam-wrap aware) with `cdt_polygon_with_holes` (boundary
+   fixed, conformal) — `_refined` if a curved patch needs chord-bounded Steiner.
+   Curved-but-non-cylinder patches keep the loud STOP. *The larger curved piece;
+   its own spec section / review before coding.*
+3. **N2-3 — sphere/cone patch re-CDT** (same parametric-domain pattern).
+4. **N2-4 — retire the `validate_relocated_triangles` STOP** → `LocalRefinementRequired`
+   only for genuinely-unresolvable regions once remesh covers the surface types.
 5. (NURBS parametric-domain CDT is the separate D14 milestone — out of scope.)
+6. (PLANAR patch re-CDT, §3.1's general form, remains available for any future
+   planar degeneracy that is NOT a sub-feature merge — none in the current corpus.)
 
 ## 6. Risks & guardrails
 

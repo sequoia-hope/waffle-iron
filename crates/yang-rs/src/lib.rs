@@ -9355,6 +9355,82 @@ fn stage4_relocate_and_correct(
     let any_collapse = sweep_result?;
     collapsed_any |= any_collapse;
 
+    // (3c) §4.4.1(b) sub-feature-size vertex merge (Yang Fig. 11(b): "if an
+    // endpoint p of the split edge is too close to q, we merge p with q"). After
+    // relocation a degenerate triangle can have two vertices nearer than
+    // MIN_FEATURE_SIZE — the governance feature floor (A14.2): two points closer
+    // than the smallest representable feature ARE the same point. This is the
+    // curved-input analog of the I6 near-weld (which is bit-exact-only for curved
+    // inputs — "Stage-4 owns junction-duplicate collapse"). Merge such a pair via
+    // the watertight-preserving `collapse_vertex` (higher index → lower, dropping
+    // the now-degenerate slivers), iterating to a fixed point. P9/P10: the gate is
+    // the GOVERNANCE feature floor, not a tuned tolerance, and a genuinely-spread
+    // degenerate (vertices ≥ the floor apart — e.g. a monotonic-collinear sliver
+    // on a curved patch) is left UNTOUCHED for `validate_relocated_triangles` to
+    // STOP loudly / the curved-patch re-CDT (N2-2) to handle. Spec
+    // `specs/yang_n2_stage4_cdt_mesh_updating.md` §5 increment N2-1.
+    {
+        let floor = cad_primitives::MIN_FEATURE_SIZE;
+        let mut attr_vec = std::mem::take(&mut attribution.attributions);
+        // Each pass collapses ≤1 sub-feature edge; bounded by the triangle count.
+        let max_merge_passes = mesh.tris.len() + 1;
+        let mut merge_passes = 0usize;
+        loop {
+            merge_passes += 1;
+            if merge_passes > max_merge_passes {
+                attribution.attributions = attr_vec;
+                return Err(YangError::Stage4RegionInvalid {
+                    vertex: u32::MAX,
+                    reason: Stage4InvalidReason::LocalRefinementRequired,
+                });
+            }
+            let mut to_merge: Option<(u32, u32)> = None;
+            for tri in &mesh.tris {
+                if !tri.iter().any(|v| moved.contains(v)) {
+                    continue;
+                }
+                let p0 = mesh.verts[tri[0] as usize].as_array();
+                let p1 = mesh.verts[tri[1] as usize].as_array();
+                let p2 = mesh.verts[tri[2] as usize].as_array();
+                let nrm = tri_area_vector(p0, p1, p2);
+                let twice_area = (nrm[0] * nrm[0] + nrm[1] * nrm[1] + nrm[2] * nrm[2]).sqrt();
+                if twice_area * 0.5 >= floor * floor {
+                    continue; // not degenerate — leave it
+                }
+                // Degenerate relocated triangle: if its SHORTEST edge is below the
+                // feature floor, those two endpoints are the same point → merge.
+                let dist = |a: [f64; 3], b: [f64; 3]| {
+                    let d = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+                    (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+                };
+                let edges = [
+                    (tri[0], tri[1], dist(p0, p1)),
+                    (tri[1], tri[2], dist(p1, p2)),
+                    (tri[2], tri[0], dist(p2, p0)),
+                ];
+                let (u, v, len) = edges
+                    .iter()
+                    .copied()
+                    .min_by(|x, y| x.2.partial_cmp(&y.2).unwrap_or(std::cmp::Ordering::Equal))
+                    .expect("3 edges");
+                if len < floor {
+                    let survivor = u.min(v);
+                    let victim = u.max(v);
+                    to_merge = Some((victim, survivor));
+                    break;
+                }
+            }
+            match to_merge {
+                Some((victim, survivor)) => {
+                    collapse_vertex(mesh, &mut attr_vec, victim, survivor);
+                    collapsed_any = true;
+                }
+                None => break,
+            }
+        }
+        attribution.attributions = attr_vec;
+    }
+
     // (4) Validate every RELOCATED triangle (one touching a moved vertex) for
     // non-degeneracy (Yang §4.5 step 4). Reversed intersections are handled by
     // the §4.5.3 sweep above; watertightness by the global gate below (§4.4.3).
