@@ -47,5 +47,5 @@ pub use labeling::{native_labeled_arrangement, NativeBoolean, NativeBooleanError
 pub use mesh::Mesh;
 pub use triangulation::{
     cdt_polygon_with_holes, cdt_polygon_with_holes_keep_interior, cdt_polygon_with_holes_refined,
-    CdtError,
+    cdt_with_interior_constraints, CdtError,
 };

@@ -650,6 +650,188 @@ pub fn cdt_polygon_with_holes_refined(
     Ok((out_verts, tris))
 }
 
+/// Constrained Delaunay triangulate a planar patch with INTERIOR constraint
+/// edges in addition to the boundary loops.
+///
+/// This is the CDT primitive behind Yang 2025 §4.4.1 "mesh updating" (Fig 11):
+/// an intersection polyline is inserted as a chain of constrained edges, and the
+/// trimmed patch is re-triangulated so each polyline segment is an edge of the
+/// result on BOTH sides (the paper's `split`). Unlike
+/// [`cdt_polygon_with_holes`], a `constraints` edge lies in the patch INTERIOR —
+/// it need not be part of any boundary loop.
+///
+/// * `verts` — the shared 2D pool (boundary vertices, kept interior vertices,
+///   and polyline points).
+/// * `outer`, `holes` — boundary loops, indices into `verts` (as
+///   [`cdt_polygon_with_holes`]).
+/// * `interior` — extra interior vertices to insert and keep (e.g. the Fig 11
+///   loop-`insert` point), indices into `verts`; may be empty. Each MUST lie
+///   strictly inside the outer loop and outside every hole.
+/// * `constraints` — interior constraint edges `[a, b]` (index pairs into
+///   `verts`), e.g. consecutive intersection-polyline points. Both endpoints are
+///   inserted and kept. A constraint edge that would cross a boundary or another
+///   constraint (forcing a Steiner split) is rejected with
+///   [`CdtError::TriangulationFailed`] — we never silently Steiner-split
+///   (P9/P10).
+///
+/// Returns ALL interior triangles (inside `outer`, outside every hole) as index
+/// triples into `verts`. The polyline appears as shared edges of the triangles
+/// straddling it. Output is canonicalized for byte-identical determinism exactly
+/// like the sibling functions. No interior Steiner points are added.
+///
+/// # Errors
+///
+/// Same set as [`cdt_polygon_with_holes_keep_interior`], plus a constraint whose
+/// endpoints are coincident (`DegenerateInput`) or whose insertion conflicts
+/// with the boundary / another constraint (`TriangulationFailed`).
+pub fn cdt_with_interior_constraints(
+    verts: &[CadPoint2],
+    outer: &[u32],
+    holes: &[Vec<u32>],
+    interior: &[u32],
+    constraints: &[[u32; 2]],
+) -> Result<Vec<[u32; 3]>, CdtError> {
+    // ---- 1. Validate all indices are in range. --------------------------
+    let n_verts = verts.len();
+    let in_range = |idx: u32| (idx as usize) < n_verts;
+    if !outer.iter().copied().all(in_range)
+        || holes.iter().flatten().any(|&i| !in_range(i))
+        || !interior.iter().copied().all(in_range)
+        || constraints.iter().flatten().any(|&i| !in_range(i))
+    {
+        return Err(CdtError::LoopIndexOutOfRange);
+    }
+    if outer.len() < 3 {
+        return Err(CdtError::DegenerateInput);
+    }
+
+    // ---- 2. Insert boundary, interior, then constraint-endpoint verts. --
+    let mut cdt: ConstrainedDelaunayTriangulation<SpadePoint2<f64>> =
+        ConstrainedDelaunayTriangulation::new();
+    let mut handle_of: Vec<Option<FixedVertexHandle>> = vec![None; n_verts];
+    let insert_vertex = |cdt: &mut ConstrainedDelaunayTriangulation<SpadePoint2<f64>>,
+                         handle_of: &mut Vec<Option<FixedVertexHandle>>,
+                         idx: u32|
+     -> Result<FixedVertexHandle, CdtError> {
+        if let Some(h) = handle_of[idx as usize] {
+            return Ok(h);
+        }
+        let p = verts[idx as usize];
+        let h = cdt
+            .insert(SpadePoint2::new(p.x(), p.y()))
+            .map_err(map_insertion_error)?;
+        if handle_of.contains(&Some(h)) {
+            return Err(CdtError::DuplicateVertex);
+        }
+        handle_of[idx as usize] = Some(h);
+        Ok(h)
+    };
+    for &idx in outer {
+        insert_vertex(&mut cdt, &mut handle_of, idx)?;
+    }
+    for hole in holes {
+        for &idx in hole {
+            insert_vertex(&mut cdt, &mut handle_of, idx)?;
+        }
+    }
+    for &idx in interior {
+        insert_vertex(&mut cdt, &mut handle_of, idx)?;
+    }
+    for e in constraints {
+        insert_vertex(&mut cdt, &mut handle_of, e[0])?;
+        insert_vertex(&mut cdt, &mut handle_of, e[1])?;
+    }
+
+    // ---- 3. Add boundary loops AND interior constraints as hard edges. --
+    let add_edge = |cdt: &mut ConstrainedDelaunayTriangulation<SpadePoint2<f64>>,
+                    handle_of: &[Option<FixedVertexHandle>],
+                    ia: u32,
+                    ib: u32|
+     -> Result<(), CdtError> {
+        let a = handle_of[ia as usize].ok_or(CdtError::TriangulationFailed)?;
+        let b = handle_of[ib as usize].ok_or(CdtError::TriangulationFailed)?;
+        if a == b {
+            return Err(CdtError::DegenerateInput);
+        }
+        if cdt.exists_constraint(a, b) {
+            return Ok(());
+        }
+        if !cdt.can_add_constraint(a, b) {
+            return Err(CdtError::TriangulationFailed);
+        }
+        cdt.add_constraint(a, b);
+        Ok(())
+    };
+    let add_loop = |cdt: &mut ConstrainedDelaunayTriangulation<SpadePoint2<f64>>,
+                    handle_of: &[Option<FixedVertexHandle>],
+                    loop_idx: &[u32]|
+     -> Result<(), CdtError> {
+        let m = loop_idx.len();
+        for i in 0..m {
+            add_edge(cdt, handle_of, loop_idx[i], loop_idx[(i + 1) % m])?;
+        }
+        Ok(())
+    };
+    add_loop(&mut cdt, &handle_of, outer)?;
+    for hole in holes {
+        if hole.len() >= 2 {
+            add_loop(&mut cdt, &handle_of, hole)?;
+        }
+    }
+    for e in constraints {
+        add_edge(&mut cdt, &handle_of, e[0], e[1])?;
+    }
+
+    // ---- 4. No-Steiner guard (a constraint crossing would add a vertex). -
+    if cdt.num_vertices() != count_inserted(&handle_of) {
+        return Err(CdtError::TriangulationFailed);
+    }
+    let mut caller_of_spade: Vec<u32> = vec![u32::MAX; cdt.num_vertices()];
+    for (caller_idx, slot) in handle_of.iter().enumerate() {
+        if let Some(h) = slot {
+            caller_of_spade[h.index()] = caller_idx as u32;
+        }
+    }
+
+    // ---- 5. Classify interior faces by centroid + emit. -----------------
+    let outer_pts: Vec<CadPoint2> = outer.iter().map(|&i| verts[i as usize]).collect();
+    let hole_pts: Vec<Vec<CadPoint2>> = holes
+        .iter()
+        .map(|h| h.iter().map(|&i| verts[i as usize]).collect())
+        .collect();
+    let mut tris: Vec<[u32; 3]> = Vec::new();
+    for face in cdt.inner_faces() {
+        let vs = face.vertices();
+        let li = [
+            caller_of_spade[vs[0].index()],
+            caller_of_spade[vs[1].index()],
+            caller_of_spade[vs[2].index()],
+        ];
+        if li.contains(&u32::MAX) {
+            return Err(CdtError::TriangulationFailed);
+        }
+        let a = verts[li[0] as usize];
+        let b = verts[li[1] as usize];
+        let c = verts[li[2] as usize];
+        let centroid = CadPoint2::new((a.x() + b.x() + c.x()) / 3.0, (a.y() + b.y() + c.y()) / 3.0);
+        let inside_outer = point_in_polygon(centroid, &outer_pts);
+        let in_a_hole = hole_pts.iter().any(|h| point_in_polygon(centroid, h));
+        if inside_outer && !in_a_hole {
+            tris.push(li);
+        }
+    }
+
+    // ---- 6. Canonicalize for byte-identical determinism. ----------------
+    for t in &mut tris {
+        rotate_min_first(t);
+    }
+    tris.sort_unstable();
+    if tris.is_empty() {
+        return Err(CdtError::DegenerateInput);
+    }
+    Ok(tris)
+}
+
 /// Count how many caller vertices were actually inserted into spade.
 fn count_inserted(handle_of: &[Option<FixedVertexHandle>]) -> usize {
     handle_of.iter().filter(|h| h.is_some()).count()
@@ -1060,5 +1242,142 @@ mod tests {
         let mut t2 = [1u32, 2, 0];
         rotate_min_first(&mut t2);
         assert_eq!(t2, [0, 1, 2]);
+    }
+
+    // ---- cdt_with_interior_constraints (Yang §4.4.1 mesh-updating CDT) ----
+
+    /// True iff the undirected edge (a,b) is an edge of some triangle in `tris`.
+    fn edge_present(tris: &[[u32; 3]], a: u32, b: u32) -> bool {
+        tris.iter().any(|t| {
+            let e = [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])];
+            e.iter().any(|&(x, y)| (x, y) == (a, b) || (x, y) == (b, a))
+        })
+    }
+
+    #[test]
+    fn interior_constraint_chord_becomes_an_edge() {
+        // Unit square, outer loop 0,1,2,3; a horizontal chord across the middle
+        // via two new boundary-midpoint verts 4 (left, x=0) and 5 (right, x=1).
+        // The chord 4-5 must appear as a shared edge on both sides.
+        let verts = vec![
+            CadPoint2::new(0.0, 0.0), // 0
+            CadPoint2::new(1.0, 0.0), // 1
+            CadPoint2::new(1.0, 1.0), // 2
+            CadPoint2::new(0.0, 1.0), // 3
+            CadPoint2::new(0.0, 0.5), // 4  left edge midpoint
+            CadPoint2::new(1.0, 0.5), // 5  right edge midpoint
+        ];
+        // Outer loop weaves the two midpoints into the left/right edges.
+        let outer = vec![0u32, 1, 5, 2, 3, 4];
+        let tris = cdt_with_interior_constraints(&verts, &outer, &[], &[], &[[4, 5]]).unwrap();
+        assert!(
+            edge_present(&tris, 4, 5),
+            "interior chord 4-5 must be an edge of the triangulation"
+        );
+        // Area conservation: the unit square, total = 1.0.
+        let area: f64 = tris
+            .iter()
+            .map(|t| {
+                signed_area(
+                    verts[t[0] as usize],
+                    verts[t[1] as usize],
+                    verts[t[2] as usize],
+                )
+            })
+            .sum();
+        assert!(
+            (area.abs() - 1.0).abs() < 1e-12,
+            "area must equal 1, got {area}"
+        );
+        // No flips: all triangles share one winding sign.
+        assert!(
+            tris.iter().all(|t| signed_area(
+                verts[t[0] as usize],
+                verts[t[1] as usize],
+                verts[t[2] as usize]
+            ) > 0.0)
+                || tris.iter().all(|t| signed_area(
+                    verts[t[0] as usize],
+                    verts[t[1] as usize],
+                    verts[t[2] as usize]
+                ) < 0.0),
+            "no flipped triangles"
+        );
+    }
+
+    #[test]
+    fn interior_constraint_deterministic() {
+        let verts = vec![
+            CadPoint2::new(0.0, 0.0),
+            CadPoint2::new(1.0, 0.0),
+            CadPoint2::new(1.0, 1.0),
+            CadPoint2::new(0.0, 1.0),
+            CadPoint2::new(0.0, 0.5),
+            CadPoint2::new(1.0, 0.5),
+        ];
+        let outer = vec![0u32, 1, 5, 2, 3, 4];
+        let a = cdt_with_interior_constraints(&verts, &outer, &[], &[], &[[4, 5]]).unwrap();
+        let b = cdt_with_interior_constraints(&verts, &outer, &[], &[], &[[4, 5]]).unwrap();
+        assert_eq!(a, b, "byte-identical output on identical input");
+    }
+
+    #[test]
+    fn interior_constraint_out_of_range_rejected() {
+        let verts = vec![
+            CadPoint2::new(0.0, 0.0),
+            CadPoint2::new(1.0, 0.0),
+            CadPoint2::new(1.0, 1.0),
+        ];
+        let outer = vec![0u32, 1, 2];
+        assert_eq!(
+            cdt_with_interior_constraints(&verts, &outer, &[], &[], &[[0, 9]]),
+            Err(CdtError::LoopIndexOutOfRange)
+        );
+    }
+
+    #[test]
+    fn interior_constraint_closed_loop_kept_both_sides() {
+        // Square with a triangular interior loop inserted as constraints (a
+        // closed intersection loop). Both the annulus and the loop interior are
+        // kept (constraints, not holes): the loop edges must all be present.
+        let verts = vec![
+            CadPoint2::new(0.0, 0.0), // 0
+            CadPoint2::new(3.0, 0.0), // 1
+            CadPoint2::new(3.0, 3.0), // 2
+            CadPoint2::new(0.0, 3.0), // 3
+            CadPoint2::new(1.0, 1.0), // 4 loop
+            CadPoint2::new(2.0, 1.0), // 5 loop
+            CadPoint2::new(1.5, 2.0), // 6 loop
+        ];
+        let outer = vec![0u32, 1, 2, 3];
+        let tris = cdt_with_interior_constraints(
+            &verts,
+            &outer,
+            &[],
+            &[4, 5, 6],
+            &[[4, 5], [5, 6], [6, 4]],
+        )
+        .unwrap();
+        assert!(edge_present(&tris, 4, 5));
+        assert!(edge_present(&tris, 5, 6));
+        assert!(edge_present(&tris, 6, 4));
+        let area: f64 = tris
+            .iter()
+            .map(|t| {
+                signed_area(
+                    verts[t[0] as usize],
+                    verts[t[1] as usize],
+                    verts[t[2] as usize],
+                )
+            })
+            .sum();
+        assert!(
+            (area.abs() - 9.0).abs() < 1e-12,
+            "3x3 square area 9, got {area}"
+        );
+    }
+
+    fn signed_area(a: CadPoint2, b: CadPoint2, c: CadPoint2) -> f64 {
+        0.5 * ((b.x() - a.x()) * (c.y() - a.y()) - (c.x() - a.x()) * (b.y() - a.y()))
     }
 }
