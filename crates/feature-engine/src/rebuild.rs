@@ -145,6 +145,7 @@ pub fn rebuild(
                 &state.feature_results,
                 tree,
                 &state.consumed_features,
+                Some(kb.as_introspect()),
             );
             if !consumed_ids.is_empty() {
                 if let Some(result) = state.feature_results.get(&feature.id) {
@@ -172,6 +173,7 @@ pub fn rebuild(
             &state.feature_results,
             tree,
             &state.consumed_features,
+            Some(kb.as_introspect()),
         );
 
         match execute_feature(
@@ -338,10 +340,12 @@ fn execute_feature(
                 _ => match &eff.targets {
                     // Auto default: bodies that share a face with the sketch.
                     TargetStrategy::ShareAFace => resolve_share_a_face(
-                        params.sketch_id,
+                        params,
+                        feature,
                         feature_results,
                         tree,
                         already_consumed,
+                        Some(kb.as_introspect()),
                     ),
                     _ => resolve_combine_targets(&eff.targets, feature, feature_results, tree)?,
                 },
@@ -1039,6 +1043,7 @@ pub(crate) fn find_consumed_feature_ids(
     feature_results: &HashMap<Uuid, OpResult>,
     tree: &FeatureTree,
     already_consumed: &std::collections::HashSet<Uuid>,
+    introspect: Option<&dyn KernelIntrospect>,
 ) -> Vec<Uuid> {
     match &feature.operation {
         Operation::Extrude { params } => {
@@ -1065,10 +1070,12 @@ pub(crate) fn find_consumed_feature_ids(
                             })
                             .collect(),
                         TargetStrategy::ShareAFace => resolve_share_a_face(
-                            params.sketch_id,
+                            params,
+                            feature,
                             feature_results,
                             tree,
                             already_consumed,
+                            introspect,
                         )
                         .into_iter()
                         .map(|(id, _)| id)
@@ -1233,32 +1240,180 @@ fn find_solid_handle(
 /// geometric plane-coincidence + profile-overlap path (b) and multi-body
 /// coincidence are N-mb-3b. Consumed (non-live) bodies are excluded.
 fn resolve_share_a_face(
-    sketch_id: Uuid,
+    params: &crate::types::ExtrudeParams,
+    feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
     tree: &FeatureTree,
     already_consumed: &std::collections::HashSet<Uuid>,
+    introspect: Option<&dyn KernelIntrospect>,
 ) -> Vec<(Uuid, waffle_types::kernel::KernelSolidHandle)> {
-    let sketch = match find_sketch_in_tree(sketch_id, tree) {
-        Ok(s) => s,
+    let sketch = match find_sketch_in_tree(params.sketch_id, tree) {
+        Ok(s) => s.clone(),
         Err(_) => return Vec::new(),
     };
-    let mut out = Vec::new();
+    let mut sketch = sketch;
+    sketch.recompute_derived(); // no-op if already populated
+
+    let mut out: Vec<(Uuid, waffle_types::kernel::KernelSolidHandle)> = Vec::new();
+    let mut seen: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+
+    // (a) Anchor ownership: the sketch is drawn on a body's face → that body,
+    // unless it was already consumed by an earlier feature (not live).
     if let waffle_types::Anchor::FeatureOutput {
         feature_id,
         output_key,
     } = &sketch.plane.anchor
     {
-        // The sketch is drawn on a body's face → that body is the auto target,
-        // unless it was already consumed by an earlier feature (not live).
         if !already_consumed.contains(feature_id) {
             if let Some(result) = feature_results.get(feature_id) {
                 if let Some((_, body)) = result.outputs.iter().find(|(k, _)| k == output_key) {
-                    out.push((*feature_id, body.handle.clone()));
+                    if seen.insert(*feature_id) {
+                        out.push((*feature_id, body.handle.clone()));
+                    }
+                }
+            }
+        }
+    }
+
+    // (b) Geometric coincidence + profile overlap (needs a kernel to read faces).
+    if let Some(intro) = introspect {
+        let profile_pts = profile_footprint_2d(&sketch, params);
+        if profile_pts.len() >= 3 {
+            let profile_hull = crate::share_a_face::convex_hull_2d(&profile_pts);
+            let s_o = sketch.plane_origin;
+            let s_n = sketch.plane_normal;
+            let x_axis = tangent_x_from_normal(s_n);
+            let y_axis = [
+                s_n[1] * x_axis[2] - s_n[2] * x_axis[1],
+                s_n[2] * x_axis[0] - s_n[0] * x_axis[2],
+                s_n[0] * x_axis[1] - s_n[1] * x_axis[0],
+            ];
+            // Live bodies from features BEFORE this one, not consumed.
+            let active = tree.active_features();
+            for f in active.iter().take_while(|f| f.id != feature.id) {
+                if f.suppressed || already_consumed.contains(&f.id) || seen.contains(&f.id) {
+                    continue;
+                }
+                if matches!(
+                    f.operation,
+                    Operation::Sketch { .. } | Operation::DatumPlane { .. }
+                ) {
+                    continue;
+                }
+                let Some(result) = feature_results.get(&f.id) else {
+                    continue;
+                };
+                for (key, body) in &result.outputs {
+                    if !matches!(key, OutputKey::Main | OutputKey::Body { .. }) {
+                        continue;
+                    }
+                    if body_face_shares_sketch(
+                        intro,
+                        &body.handle,
+                        s_o,
+                        s_n,
+                        x_axis,
+                        y_axis,
+                        &profile_hull,
+                    ) {
+                        if seen.insert(f.id) {
+                            out.push((f.id, body.handle.clone()));
+                        }
+                        break;
+                    }
                 }
             }
         }
     }
     out
+}
+
+/// The extrude profile's 2D footprint (sketch-plane coords) as a point set.
+/// Region-based extrudes carry the exact polygon; profile extrudes use the
+/// profile's ordered vertices (or a circle's bbox). The caller convex-hulls it.
+fn profile_footprint_2d(sketch: &Sketch, params: &crate::types::ExtrudeParams) -> Vec<[f64; 2]> {
+    if let Some(region) = &params.region {
+        return region.outer.iter().map(|&(x, y)| [x, y]).collect();
+    }
+    if !params.regions.is_empty() {
+        return params
+            .regions
+            .iter()
+            .flat_map(|r| r.outer.iter().map(|&(x, y)| [x, y]))
+            .collect();
+    }
+    let Some(profile) = sketch.solved_profiles.get(params.profile_index) else {
+        return Vec::new();
+    };
+    if let Some(circle) = &profile.circle {
+        let (u, v, r) = (circle.center_u, circle.center_v, circle.radius);
+        return vec![
+            [u - r, v - r],
+            [u + r, v - r],
+            [u + r, v + r],
+            [u - r, v + r],
+        ];
+    }
+    let ids: Vec<u32> = if !profile.vertex_ids.is_empty() {
+        profile.vertex_ids.clone()
+    } else {
+        profile
+            .entity_ids
+            .iter()
+            .filter_map(|eid| {
+                sketch.entities.iter().find_map(|e| match e {
+                    SketchEntity::Line { id, start_id, .. } if id == eid => Some(*start_id),
+                    _ => None,
+                })
+            })
+            .collect()
+    };
+    ids.iter()
+        .filter_map(|pid| sketch.solved_positions.get(pid).map(|&(x, y)| [x, y]))
+        .collect()
+}
+
+/// Does any planar face of `handle` lie in the sketch plane AND overlap the
+/// profile footprint (both reduced to convex hulls)? Spec §4.3(b).
+fn body_face_shares_sketch(
+    intro: &dyn KernelIntrospect,
+    handle: &waffle_types::kernel::KernelSolidHandle,
+    s_o: [f64; 3],
+    s_n: [f64; 3],
+    x_axis: [f64; 3],
+    y_axis: [f64; 3],
+    profile_hull: &[[f64; 2]],
+) -> bool {
+    for face in intro.list_faces(handle) {
+        let sig = intro.compute_signature(face, TopoKind::Face);
+        let (Some(fnorm), Some(fc)) = (sig.normal, sig.centroid) else {
+            continue;
+        };
+        if !crate::share_a_face::plane_coincident(s_o, s_n, fnorm, fc) {
+            continue;
+        }
+        let mut pts2d: Vec<[f64; 2]> = Vec::new();
+        for edge in intro.face_edges(face) {
+            let (v0, v1) = intro.edge_vertices(edge);
+            for v in [v0, v1] {
+                let vs = intro.compute_signature(v, TopoKind::Vertex);
+                if let Some(p) = vs.centroid {
+                    let d = [p[0] - s_o[0], p[1] - s_o[1], p[2] - s_o[2]];
+                    pts2d.push([
+                        d[0] * x_axis[0] + d[1] * x_axis[1] + d[2] * x_axis[2],
+                        d[0] * y_axis[0] + d[1] * y_axis[1] + d[2] * y_axis[2],
+                    ]);
+                }
+            }
+        }
+        if pts2d.len() >= 3 {
+            let face_hull = crate::share_a_face::convex_hull_2d(&pts2d);
+            if crate::share_a_face::polygons_overlap_2d(profile_hull, &face_hull) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Resolve a normalized combine's target strategy into the concrete set of

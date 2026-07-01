@@ -1,6 +1,7 @@
 pub mod preview_mesh;
 pub mod rebuild;
 pub mod resolve;
+pub mod share_a_face;
 pub mod tree;
 pub mod types;
 pub mod undo;
@@ -249,6 +250,7 @@ impl Engine {
                     &self.feature_results,
                     &self.tree,
                     &self.consumed_features,
+                    None,
                 )
                 .first()
                 .map(|fid| (*fid, FeatureTree::body_id(*fid, &OutputKey::Main)))
@@ -259,6 +261,7 @@ impl Engine {
                     &self.feature_results,
                     &self.tree,
                     &self.consumed_features,
+                    None,
                 )
                 .first()
                 .map(|fid| (*fid, FeatureTree::body_id(*fid, &OutputKey::Main)))
