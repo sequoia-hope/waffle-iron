@@ -22,8 +22,9 @@
 //! unit-tested in isolation — **not** wired into
 //! `stage4_relocate_and_correct` (that is N2-3).
 
-use crate::Surface;
-use cad_primitives::{Point2, Point3};
+use crate::{normalize3, ortho_basis, Surface};
+use cad_primitives::{Point2, Point3, Vector3};
+use std::f64::consts::{FRAC_PI_2, PI};
 
 /// Why `d(T)` / [`eval_uv`] failed (spec §6). Every variant is a P9/P10 LOUD
 /// stop — no clamping, no silent legalization.
@@ -66,8 +67,15 @@ pub enum DtError {
 /// [`DtError::NonFiniteInput`], [`DtError::InvalidSurface`],
 /// [`DtError::PolarRangeOutOfBounds`], [`DtError::NegativeConeAxialRange`].
 pub fn eval_uv(surface: &Surface, p: Point2) -> Result<Point3, DtError> {
-    let _ = (surface, p);
-    todo!("N2-2 Implementer: pinned parametric embedding (spec §2)")
+    // Spec §6: finiteness first — a NaN/∞ coordinate is NonFiniteInput, never
+    // a structural surface defect.
+    if !p.x().is_finite() || !p.y().is_finite() {
+        return Err(DtError::NonFiniteInput);
+    }
+    validate_surface(surface)?;
+    validate_v_range(surface, p.y(), p.y())?;
+    let q = eval_core(surface, p.x(), p.y());
+    Ok(Point3::new(q[0], q[1], q[2]))
 }
 
 /// The Yang 2025 §4.1.2 / Fig 6 per-triangle discretization-error bound
@@ -91,8 +99,424 @@ pub fn eval_uv(surface: &Surface, p: Point2) -> Result<Point3, DtError> {
 /// `Plane` returns exactly `0.0`. Result is finite and `>= 0`, in world
 /// units. Pure and deterministic; no tolerances — there is nothing to tune.
 pub fn d_of_t(surface: &Surface, uv: [Point2; 3]) -> Result<f64, DtError> {
-    let _ = (surface, uv);
-    todo!("N2-2 Implementer: certified Fig-6 control-net bound (spec §3)")
+    // Spec §6: finiteness first (NonFiniteInput outranks every other error).
+    for c in &uv {
+        if !c.x().is_finite() || !c.y().is_finite() {
+            return Err(DtError::NonFiniteInput);
+        }
+    }
+    validate_surface(surface)?;
+
+    // Covering rectangle `[u0,u1]×[v0,v1]` of the three corners (Fig 6c).
+    // Zero-span (degenerate) rectangles are legal — the control net
+    // degenerates to a curve/point net and the hull bound still holds
+    // (spec §3 step 1).
+    let u0 = uv[0].x().min(uv[1].x()).min(uv[2].x());
+    let u1 = uv[0].x().max(uv[1].x()).max(uv[2].x());
+    let v0 = uv[0].y().min(uv[1].y()).min(uv[2].y());
+    let v1 = uv[0].y().max(uv[1].y()).max(uv[2].y());
+    validate_v_range(surface, v0, v1)?;
+
+    // Spec I2: a plane's sub-patch and triangle are coplanar — the Fig-6
+    // bound is trivially and EXACTLY zero; no net is built. (This branch also
+    // exempts planes from the azimuth-span check below: plane u/v are
+    // unbounded in-plane coordinates, not angles.)
+    let (frame, profile) = match *surface {
+        Surface::Plane { .. } => return Ok(0.0),
+        // Spec §3 branch table: profile generator in the (ρ radial, z axial)
+        // half-plane. Cylinder: line ρ = r. Cone: line ρ = v·tan α.
+        Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => (
+            rev_frame(axis_point, axis_dir),
+            Profile::Line {
+                offset: radius,
+                slope: 0.0,
+            },
+        ),
+        Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => (
+            rev_frame(apex, axis_dir),
+            Profile::Line {
+                offset: 0.0,
+                slope: half_angle.tan(),
+            },
+        ),
+        // Spec §2: a sphere has no intrinsic axis — the embedding pins the
+        // canonical ẑ = (0, 0, 1). Profile: arc of radius r about the origin.
+        Surface::Sphere { center, radius } => (
+            rev_frame(center, Vector3::new(0.0, 0.0, 1.0)),
+            Profile::Arc {
+                center_rho: 0.0,
+                r: radius,
+            },
+        ),
+        // Torus profile: arc of radius r about (R, 0).
+        Surface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+        } => (
+            rev_frame(center, axis_dir),
+            Profile::Arc {
+                center_rho: major_radius,
+                r: minor_radius,
+            },
+        ),
+    };
+
+    // Spec §6: u-span > 2π means the caller handed coordinates from more than
+    // one period — the covering rectangle is ambiguous; unwrapping is the
+    // caller's job. Span EXACTLY 2π is legal (a full turn is one period).
+    let span_u = u1 - u0;
+    if span_u > 2.0 * PI {
+        return Err(DtError::AzimuthSpanTooLarge);
+    }
+    let span_v = v1 - v0;
+
+    // The 3D triangle (Fig 6b): eval_uv of the three corners — mesh vertices
+    // are on-surface by construction (spec §2), so corners are shared with
+    // the patch.
+    let mut tri = [[0.0_f64; 3]; 3];
+    for (k, &c) in uv.iter().enumerate() {
+        tri[k] = eval_uv(surface, c)?.as_array();
+    }
+
+    // Subdivision rationale (spec §3 step 2): the exact rational-arc
+    // construction needs span < π, and capping every angular span at π/2
+    // keeps the middle weight cos(span/2) ≥ √2/2 — comfortably positive, so
+    // the convex-hull certificate below applies to every sub-rectangle. The
+    // count is DERIVED (ceil(span / (π/2))), not a parameter. v is an ANGLE
+    // only for sphere/torus; for cylinder/cone v is axial length and the
+    // degree-1 profile line is exact over any span — no v subdivision.
+    let n_u = ((span_u / FRAC_PI_2).ceil() as usize).max(1);
+    let n_v = match surface {
+        Surface::Sphere { .. } | Surface::Torus { .. } => {
+            ((span_v / FRAC_PI_2).ceil() as usize).max(1)
+        }
+        _ => 1,
+    };
+
+    // Spec I1 (the certificate): every weight in the tensor-product rational
+    // Bézier net is positive (endpoint weights 1; middle weights cos(Δ/2) ≥
+    // √2/2 for spans ≤ π/2), so each sub-patch lies in the CONVEX HULL of its
+    // control POINTS [#32 Piegl & Tiller §4.2 properties; ch. 8 surfaces of
+    // revolution]. Point-to-triangle distance is convex in the point, so its
+    // maximum over the hull — hence over the sub-patch — is attained at a
+    // control point. The max over ALL control points of ALL sub-rectangles is
+    // therefore a certified upper bound on the true patch-to-triangle max
+    // distance over the triangle's parametric footprint (⊆ covering rect).
+    //
+    // Spec I5 (determinism): pure f64, fixed iteration order (u-major then
+    // v), no hashing, no randomness.
+    let mut d_max = 0.0_f64;
+    let mut rows: Vec<[f64; 2]> = Vec::new();
+    for iu in 0..n_u {
+        let ua = u0 + span_u * (iu as f64) / (n_u as f64);
+        let ub = u0 + span_u * ((iu + 1) as f64) / (n_u as f64);
+        // Azimuth arc rows [#32 ch. 8]: endpoints on the surface; middle
+        // control point at the TANGENT INTERSECTION — radially scaled by
+        // 1/cos(Δu/2), weight cos(Δu/2). Δu = 0 degenerates cleanly
+        // (cos 0 = 1: middle == endpoints).
+        let du = ub - ua;
+        let mu = 0.5 * (ua + ub);
+        let u_scale = 1.0 / (0.5 * du).cos();
+        let (cos_a, sin_a) = (ua.cos(), ua.sin());
+        let (cos_m, sin_m) = (mu.cos(), mu.sin());
+        let (cos_b, sin_b) = (ub.cos(), ub.sin());
+        for iv in 0..n_v {
+            let va = v0 + span_v * (iv as f64) / (n_v as f64);
+            let vb = v0 + span_v * ((iv + 1) as f64) / (n_v as f64);
+            profile_rows(&profile, va, vb, &mut rows);
+            for &[rho, z] in rows.iter() {
+                // Revolve the profile control point (ρ, z) through the
+                // sub-rect's azimuth arc: endpoint / tangent-intersection
+                // middle / endpoint (spec §3 step 3).
+                for p in [
+                    frame.ring(rho, cos_a, sin_a, z),
+                    frame.ring(rho * u_scale, cos_m, sin_m, z),
+                    frame.ring(rho, cos_b, sin_b, z),
+                ] {
+                    d_max = d_max.max(dist_point_tri(p, &tri));
+                }
+            }
+        }
+    }
+    Ok(d_max)
+}
+
+// =========================================================================
+// Internal helpers (validation, embedding core, control nets, distance).
+// =========================================================================
+
+fn finite3(v: [f64; 3]) -> bool {
+    v[0].is_finite() && v[1].is_finite() && v[2].is_finite()
+}
+
+fn norm2(v: [f64; 3]) -> f64 {
+    v[0] * v[0] + v[1] * v[1] + v[2] * v[2]
+}
+
+/// Spec §6 surface validation. NonFiniteInput checks strictly precede
+/// InvalidSurface: a NaN radius is a non-finite input, not a structural
+/// defect.
+fn validate_surface(surface: &Surface) -> Result<(), DtError> {
+    let (finite, valid) = match *surface {
+        Surface::Plane { normal, d } => (
+            finite3(normal.as_array()) && d.is_finite(),
+            norm2(normal.as_array()) > 0.0,
+        ),
+        Surface::Sphere { center, radius } => (
+            finite3(center.as_array()) && radius.is_finite(),
+            radius > 0.0,
+        ),
+        Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => (
+            finite3(axis_point.as_array()) && finite3(axis_dir.as_array()) && radius.is_finite(),
+            radius > 0.0 && norm2(axis_dir.as_array()) > 0.0,
+        ),
+        // Cone half_angle must lie in the OPEN interval (0, π/2): 0 is a
+        // degenerate line, π/2 a degenerate plane (spec §6).
+        Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => (
+            finite3(apex.as_array()) && finite3(axis_dir.as_array()) && half_angle.is_finite(),
+            half_angle > 0.0 && half_angle < FRAC_PI_2 && norm2(axis_dir.as_array()) > 0.0,
+        ),
+        // Ring torus only: major > minor > 0 (spec §6; horn/spindle rejected).
+        Surface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+        } => (
+            finite3(center.as_array())
+                && finite3(axis_dir.as_array())
+                && major_radius.is_finite()
+                && minor_radius.is_finite(),
+            minor_radius > 0.0 && major_radius > minor_radius && norm2(axis_dir.as_array()) > 0.0,
+        ),
+    };
+    if !finite {
+        return Err(DtError::NonFiniteInput);
+    }
+    if !valid {
+        return Err(DtError::InvalidSurface);
+    }
+    Ok(())
+}
+
+/// Spec §6 v-range checks, shared by [`eval_uv`] (a single point) and
+/// [`d_of_t`] (the covering rectangle's v-extent).
+fn validate_v_range(surface: &Surface, v_min: f64, v_max: f64) -> Result<(), DtError> {
+    match surface {
+        // Sphere latitude must stay within [−π/2, π/2] — INCLUSIVE: the poles
+        // are legal, the azimuth ring degenerates gracefully (spec §5).
+        Surface::Sphere { .. } if v_min < -FRAC_PI_2 || v_max > FRAC_PI_2 => {
+            Err(DtError::PolarRangeOutOfBounds)
+        }
+        // Single-nappe cone: v is the axial distance from the apex, never
+        // negative; v = 0 (the apex itself) is legal (spec §5).
+        Surface::Cone { .. } if v_min < 0.0 => Err(DtError::NegativeConeAxialRange),
+        _ => Ok(()),
+    }
+}
+
+/// Revolution frame: datum point, unit axis `â`, and the deterministic
+/// in-plane pair `(e1, e2) = ortho_basis(axis)` — the ONE frame convention
+/// shared with Stage-1 sampling (PR-YR7; spec §2).
+struct RevFrame {
+    datum: [f64; 3],
+    axis: [f64; 3],
+    e1: [f64; 3],
+    e2: [f64; 3],
+}
+
+fn rev_frame(datum: Point3, axis_dir: Vector3) -> RevFrame {
+    let (e1, e2) = ortho_basis(axis_dir);
+    RevFrame {
+        datum: datum.as_array(),
+        axis: normalize3(axis_dir.as_array()),
+        e1: e1.as_array(),
+        e2: e2.as_array(),
+    }
+}
+
+impl RevFrame {
+    /// `datum + z·â + ρ·(cos θ·e1 + sin θ·e2)` with the azimuth passed as
+    /// precomputed `(cos θ, sin θ)` so control rows reuse one evaluation.
+    fn ring(&self, rho: f64, cos_t: f64, sin_t: f64, z: f64) -> [f64; 3] {
+        [
+            self.datum[0] + z * self.axis[0] + rho * (cos_t * self.e1[0] + sin_t * self.e2[0]),
+            self.datum[1] + z * self.axis[1] + rho * (cos_t * self.e1[1] + sin_t * self.e2[1]),
+            self.datum[2] + z * self.axis[2] + rho * (cos_t * self.e1[2] + sin_t * self.e2[2]),
+        ]
+    }
+}
+
+/// Pinned parametric embedding core (spec §2 table) — callers have already
+/// validated the surface and ranges. [`d_of_t`]'s endpoint control rows land
+/// exactly on these values, which is what makes the triangle corners shared
+/// patch/triangle points (I3's corner pin).
+fn eval_core(surface: &Surface, u: f64, v: f64) -> [f64; 3] {
+    match *surface {
+        // Plane: (−d)·n̂ + u·e1 + v·e2 for the plane n̂·x + d = 0.
+        Surface::Plane { normal, d } => {
+            let n = normalize3(normal.as_array());
+            let (e1, e2) = ortho_basis(normal);
+            let (e1, e2) = (e1.as_array(), e2.as_array());
+            [
+                -d * n[0] + u * e1[0] + v * e2[0],
+                -d * n[1] + u * e1[1] + v * e2[1],
+                -d * n[2] + u * e1[2] + v * e2[2],
+            ]
+        }
+        Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => rev_frame(axis_point, axis_dir).ring(radius, u.cos(), u.sin(), v),
+        Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => rev_frame(apex, axis_dir).ring(v * half_angle.tan(), u.cos(), u.sin(), v),
+        // Sphere: pinned canonical axis ẑ = (0, 0, 1) (spec §2 — a sphere has
+        // no intrinsic axis).
+        Surface::Sphere { center, radius } => rev_frame(center, Vector3::new(0.0, 0.0, 1.0)).ring(
+            radius * v.cos(),
+            u.cos(),
+            u.sin(),
+            radius * v.sin(),
+        ),
+        Surface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            minor_radius,
+        } => rev_frame(center, axis_dir).ring(
+            major_radius + minor_radius * v.cos(),
+            u.cos(),
+            u.sin(),
+            minor_radius * v.sin(),
+        ),
+    }
+}
+
+/// Profile generator in the (ρ radial, z axial) half-plane (spec §3 branch
+/// table). The revolved surface point is
+/// `datum + z·â + ρ·(cos u·e1 + sin u·e2)`.
+enum Profile {
+    /// Cylinder (`ρ = r`) / cone (`ρ = v·tan α`): `ρ(v) = offset + slope·v`,
+    /// `z = v`. The exact degree-1 net is the two endpoints, weights 1.
+    Line { offset: f64, slope: f64 },
+    /// Sphere (`center_rho = 0`) / torus (`center_rho = R`): circular arc of
+    /// radius `r` about `(center_rho, 0)` in the (ρ, z) plane.
+    Arc { center_rho: f64, r: f64 },
+}
+
+/// Profile control points `(ρ, z)` over the sub-rect's v-range `[va, vb]`
+/// (spec §3 step 3). Weights are 1 (line, arc endpoints) and cos(Δv/2) (arc
+/// middle) — all positive for Δv ≤ π/2, which the caller's subdivision
+/// guarantees; the positions alone feed the convex-hull bound.
+fn profile_rows(profile: &Profile, va: f64, vb: f64, rows: &mut Vec<[f64; 2]>) {
+    rows.clear();
+    match *profile {
+        Profile::Line { offset, slope } => {
+            rows.push([offset + slope * va, va]);
+            rows.push([offset + slope * vb, vb]);
+        }
+        // Exact rational-quadratic arc [#32 Piegl & Tiller ch. 7]: endpoints
+        // on the profile circle; middle control point at the TANGENT
+        // INTERSECTION, radially scaled by 1/cos(Δv/2), weight cos(Δv/2).
+        // Δv = 0 degenerates cleanly (cos 0 = 1: middle == endpoints).
+        Profile::Arc { center_rho, r } => {
+            let dv = vb - va;
+            let m = 0.5 * (va + vb);
+            let s = r / (0.5 * dv).cos();
+            rows.push([center_rho + r * va.cos(), r * va.sin()]);
+            rows.push([center_rho + s * m.cos(), s * m.sin()]);
+            rows.push([center_rho + r * vb.cos(), r * vb.sin()]);
+        }
+    }
+}
+
+// ---- Robust point-to-triangle distance (spec §3 step 4). -----------------
+// Standard region/clamp-based closest-point algorithm (Ericson, Real-Time
+// Collision Detection §5.1.5): if the perpendicular foot lands inside a
+// non-degenerate triangle, the plane distance is the answer; otherwise the
+// closest point lies on an edge, and clamped point-segment distances cover
+// edges AND vertices. Degenerate 3D triangles (collinear / coincident
+// corners) skip the interior branch entirely and degrade gracefully to
+// segment/point distance — legal input (spec §3).
+
+fn sub3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+fn dot3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+fn dist_point_seg(p: [f64; 3], a: [f64; 3], b: [f64; 3]) -> f64 {
+    let ab = sub3(b, a);
+    let ap = sub3(p, a);
+    let len2 = dot3(ab, ab);
+    // Zero-length segment (coincident endpoints) → point distance.
+    let t = if len2 == 0.0 {
+        0.0
+    } else {
+        (dot3(ap, ab) / len2).clamp(0.0, 1.0)
+    };
+    let d = [ap[0] - t * ab[0], ap[1] - t * ab[1], ap[2] - t * ab[2]];
+    dot3(d, d).sqrt()
+}
+
+fn dist_point_tri(p: [f64; 3], tri: &[[f64; 3]; 3]) -> f64 {
+    let [a, b, c] = *tri;
+    let edge_min = dist_point_seg(p, a, b)
+        .min(dist_point_seg(p, b, c))
+        .min(dist_point_seg(p, c, a));
+    let v0 = sub3(b, a);
+    let v1 = sub3(c, a);
+    let v2 = sub3(p, a);
+    let n = cross3(v0, v1);
+    let n2 = dot3(n, n);
+    if n2 > 0.0 {
+        // Barycentric coordinates of the perpendicular foot.
+        let d00 = dot3(v0, v0);
+        let d01 = dot3(v0, v1);
+        let d11 = dot3(v1, v1);
+        let d20 = dot3(v2, v0);
+        let d21 = dot3(v2, v1);
+        let denom = d00 * d11 - d01 * d01; // == n2 > 0
+        let bv = (d11 * d20 - d01 * d21) / denom;
+        let bw = (d00 * d21 - d01 * d20) / denom;
+        if bv >= 0.0 && bw >= 0.0 && bv + bw <= 1.0 {
+            // Interior foot: plane distance (≤ every edge distance).
+            return dot3(v2, n).abs() / n2.sqrt();
+        }
+    }
+    edge_min
 }
 
 #[cfg(test)]
