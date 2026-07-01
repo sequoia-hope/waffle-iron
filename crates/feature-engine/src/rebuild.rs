@@ -9,8 +9,8 @@ use waffle_types::kernel::units::TAU_WORK;
 
 use crate::resolve::{resolve_by_position, resolve_with_fallback};
 use crate::types::{
-    BooleanOp, DepthMode, EngineError, Feature, FeatureTree, Operation, PlaneDefinition,
-    SecondDirection,
+    normalize_extrude_combine, BooleanOp, CombineMode, DepthMode, EngineError, Feature,
+    FeatureTree, Operation, PlaneDefinition, SecondDirection, TargetStrategy,
 };
 use modeling_ops::KernelBundle;
 use waffle_types::kernel::KernelIntrospect;
@@ -310,6 +310,17 @@ fn execute_feature(
                 });
             }
 
+            // Normalize the boolean-combine choice once (Constitution §7) and
+            // resolve its target bodies up front: the cut-direction reversal
+            // below needs the primary target, and the final dispatch reuses the
+            // same set. See specs/optional_booleans_multibody_extrude.md.
+            let eff = normalize_extrude_combine(params);
+            let is_cut = matches!(eff.mode, CombineMode::Cut);
+            let combine_targets = match eff.mode {
+                CombineMode::NewBody => Vec::new(),
+                _ => resolve_combine_targets(&eff.targets, feature, feature_results, tree)?,
+            };
+
             // Resolve primary depth from depth mode
             let primary_depth = resolve_depth(
                 &params.depth_mode,
@@ -386,10 +397,9 @@ fn execute_feature(
             // Using vertex positions (not face centroids) gives the true
             // geometric bounding box along the extrude axis, robust against
             // asymmetric face counts or face centroid weighting.
-            let should_reverse_for_cut = if params.cut && params.direction.is_none() {
-                if let Some(target_handle) = find_most_recent_solid(feature, feature_results, tree)
-                {
-                    let verts = kb.list_vertices(&target_handle);
+            let should_reverse_for_cut = if is_cut && params.direction.is_none() {
+                if let Some((_, target_handle)) = combine_targets.first() {
+                    let verts = kb.list_vertices(target_handle);
                     let sketch_proj = sketch.plane_origin[0] * direction[0]
                         + sketch.plane_origin[1] * direction[1]
                         + sketch.plane_origin[2] * direction[2];
@@ -417,7 +427,7 @@ fn execute_feature(
             } else {
                 false // explicit direction or non-cut: never auto-reverse
             };
-            let (extrude_direction, extrude_depth, face_origin) = match (params.cut, second_depth) {
+            let (extrude_direction, extrude_depth, face_origin) = match (is_cut, second_depth) {
                 (true, Some(sd)) => {
                     if should_reverse_for_cut {
                         let offset_origin = [
@@ -545,54 +555,91 @@ fn execute_feature(
                 execute_extrude(kb, face_id, extrude_direction, extrude_depth, None)?
             };
 
-            if params.cut {
-                // Find the target body to subtract from (most recent solid before this feature)
-                let target_handle = find_most_recent_solid(feature, feature_results, tree)
-                    .ok_or_else(|| EngineError::ResolutionFailed {
-                        reason: "Cut extrude requires an existing body to subtract from".into(),
-                    })?;
+            // Dispatch the boolean combine per the normalized mode + resolved
+            // targets. See specs/optional_booleans_multibody_extrude.md §4.
+            let tool_handle = extrude_result
+                .outputs
+                .first()
+                .map(|(_, b)| b.handle.clone())
+                .ok_or_else(|| EngineError::ResolutionFailed {
+                    reason: "Extrude produced no solid output".into(),
+                })?;
 
-                let tool_handle = extrude_result
-                    .outputs
-                    .first()
-                    .map(|(_, body)| body.handle.clone())
-                    .ok_or_else(|| EngineError::ResolutionFailed {
-                        reason: "Extrude produced no solid output for cut".into(),
-                    })?;
+            match eff.mode {
+                // Standalone body — no boolean.
+                CombineMode::NewBody => Ok(extrude_result),
 
-                let boolean_result =
-                    execute_boolean(kb, &target_handle, &tool_handle, BooleanKind::Subtract)?;
-                Ok(boolean_result)
-            } else if params.merge {
-                // Auto-union boss extrude with existing body
-                if let Some(target_handle) = find_most_recent_solid(feature, feature_results, tree)
-                {
-                    if let Some(tool_handle) = extrude_result
-                        .outputs
-                        .first()
-                        .map(|(_, b)| b.handle.clone())
-                    {
-                        match execute_boolean(kb, &target_handle, &tool_handle, BooleanKind::Union)
-                        {
-                            Ok(union_result) => Ok(union_result),
-                            Err(e) => {
-                                let mut result = extrude_result;
-                                result.diagnostics.warnings.push(format!(
-                                    "Auto-union failed: {}. Body created as standalone.",
-                                    e
-                                ));
-                                Ok(result)
-                            }
+                // Union the tool into every target, folding them into one body.
+                CombineMode::Add => {
+                    if combine_targets.is_empty() {
+                        // Add-into-nothing is a benign no-op union → standalone.
+                        // Legacy (`merge`) stays silent to preserve byte-identical
+                        // behavior; an explicit Add with no targets warns.
+                        let mut result = extrude_result;
+                        if !matches!(eff.targets, TargetStrategy::MostRecentLegacy) {
+                            result.diagnostics.warnings.push(
+                                "Add: no target body; body created as standalone.".to_string(),
+                            );
                         }
-                    } else {
-                        Ok(extrude_result)
+                        return Ok(result);
                     }
-                } else {
-                    Ok(extrude_result)
+                    // Fold the targets together, then union the tool.
+                    let mut acc = combine_targets[0].1.clone();
+                    for (_, handle) in &combine_targets[1..] {
+                        acc = execute_boolean(kb, &acc, handle, BooleanKind::Union)?
+                            .outputs
+                            .first()
+                            .map(|(_, b)| b.handle.clone())
+                            .ok_or_else(|| EngineError::ResolutionFailed {
+                                reason: "Add: target union produced no solid".into(),
+                            })?;
+                    }
+                    let legacy = matches!(eff.targets, TargetStrategy::MostRecentLegacy);
+                    match execute_boolean(kb, &acc, &tool_handle, BooleanKind::Union) {
+                        Ok(union_result) => Ok(union_result),
+                        // Legacy auto-union degrades to a standalone body on
+                        // failure (byte-identical to the pre-N-mb-2 behavior);
+                        // an explicit Add propagates the typed error (spec §9).
+                        Err(e) if legacy => {
+                            let mut result = extrude_result;
+                            result.diagnostics.warnings.push(format!(
+                                "Auto-union failed: {}. Body created as standalone.",
+                                e
+                            ));
+                            Ok(result)
+                        }
+                        Err(e) => Err(e.into()),
+                    }
                 }
-            } else {
-                // merge=false: standalone body for explicit boolean operations
-                Ok(extrude_result)
+
+                // Subtract / intersect the tool from each target. Multi-target
+                // (N result bodies) is N-mb-3; N-mb-2 handles a single target.
+                CombineMode::Cut | CombineMode::Intersect => {
+                    let kind = if is_cut {
+                        BooleanKind::Subtract
+                    } else {
+                        BooleanKind::Intersect
+                    };
+                    if combine_targets.is_empty() {
+                        // Preserve the legacy wording/behavior for a legacy cut
+                        // with no prior body (invariance); explicit-empty gets the
+                        // new message. Either way it is a loud STOP (spec §9).
+                        let reason = if matches!(eff.targets, TargetStrategy::MostRecentLegacy) {
+                            "Cut extrude requires an existing body to subtract from".to_string()
+                        } else {
+                            format!("{:?} requires at least one target body", eff.mode)
+                        };
+                        return Err(EngineError::ResolutionFailed { reason });
+                    }
+                    if combine_targets.len() > 1 {
+                        return Err(EngineError::ResolutionFailed {
+                            reason: "multi-target cut/intersect is not yet implemented (N-mb-3)"
+                                .to_string(),
+                        });
+                    }
+                    let result = execute_boolean(kb, &combine_targets[0].1, &tool_handle, kind)?;
+                    Ok(result)
+                }
             }
         }
 
@@ -967,8 +1014,33 @@ pub(crate) fn find_consumed_feature_ids(
     tree: &FeatureTree,
 ) -> Vec<Uuid> {
     match &feature.operation {
-        Operation::Extrude { params } if params.merge || params.cut => {
-            find_most_recent_consumed(feature, feature_results, tree)
+        Operation::Extrude { params } => {
+            // Consumption follows the normalized combine: NewBody consumes
+            // nothing; Add/Cut/Intersect consume their resolved targets (legacy
+            // most-recent, or the explicit target features). ShareAFace is
+            // resolved in N-mb-3 (until then it errors in dispatch, so its
+            // consumption set is empty here).
+            let eff = normalize_extrude_combine(params);
+            match eff.mode {
+                CombineMode::NewBody => vec![],
+                CombineMode::Add | CombineMode::Cut | CombineMode::Intersect => {
+                    match &eff.targets {
+                        TargetStrategy::MostRecentLegacy => {
+                            find_most_recent_consumed(feature, feature_results, tree)
+                        }
+                        TargetStrategy::Explicit(list) => list
+                            .iter()
+                            .filter_map(|gr| match &gr.anchor {
+                                waffle_types::Anchor::FeatureOutput { feature_id, .. } => {
+                                    Some(*feature_id)
+                                }
+                                _ => None,
+                            })
+                            .collect(),
+                        TargetStrategy::ShareAFace => vec![],
+                    }
+                }
+            }
         }
         Operation::Revolve { params } if params.merge || params.cut => {
             find_most_recent_consumed(feature, feature_results, tree)
@@ -1116,6 +1188,60 @@ fn find_solid_handle(
             output_key, feature_id
         ),
     })
+}
+
+/// Resolve a normalized combine's target strategy into the concrete set of
+/// `(feature_id, solid handle)` to boolean against. See
+/// `specs/optional_booleans_multibody_extrude.md` §4.2/§4.3.
+///
+/// - `MostRecentLegacy` → the single most-recent solid (0 or 1), preserving the
+///   legacy auto-boolean behavior byte-for-byte.
+/// - `Explicit(list)` → each listed body, resolved via `find_solid_handle`
+///   (empty list ⇒ empty set).
+/// - `ShareAFace` → **not yet implemented** (sub-increment N-mb-3); a loud STOP.
+fn resolve_combine_targets(
+    targets: &TargetStrategy,
+    feature: &Feature,
+    feature_results: &HashMap<Uuid, OpResult>,
+    tree: &FeatureTree,
+) -> Result<Vec<(Uuid, waffle_types::kernel::KernelSolidHandle)>, EngineError> {
+    match targets {
+        TargetStrategy::ShareAFace => Err(EngineError::ResolutionFailed {
+            reason: "share-a-face auto-target selection is not yet implemented (N-mb-3); \
+                     pick explicit target bodies for now"
+                .to_string(),
+        }),
+        TargetStrategy::MostRecentLegacy => {
+            match find_most_recent_solid(feature, feature_results, tree) {
+                Some(handle) => {
+                    // Pair the handle with its feature id for consumption. The
+                    // most-recent-solid and most-recent-consumed walks are the
+                    // same order, so the first consumed id is this handle's owner.
+                    let fid = find_most_recent_consumed(feature, feature_results, tree)
+                        .into_iter()
+                        .next();
+                    Ok(fid.map(|id| vec![(id, handle)]).unwrap_or_default())
+                }
+                None => Ok(Vec::new()),
+            }
+        }
+        TargetStrategy::Explicit(list) => {
+            let mut out = Vec::with_capacity(list.len());
+            for gr in list {
+                let feature_id = match &gr.anchor {
+                    waffle_types::Anchor::FeatureOutput { feature_id, .. } => *feature_id,
+                    _ => {
+                        return Err(EngineError::ResolutionFailed {
+                            reason: "combine target must anchor to a feature output".to_string(),
+                        });
+                    }
+                };
+                let handle = find_solid_handle(gr, feature_results)?;
+                out.push((feature_id, handle));
+            }
+            Ok(out)
+        }
+    }
 }
 
 /// Well-known UUIDs for the three built-in datum planes (must match planes.js).
