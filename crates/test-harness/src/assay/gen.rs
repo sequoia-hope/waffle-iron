@@ -507,6 +507,8 @@ pub fn generate_case(master_seed: u64, index: usize) -> GeneratedCase {
                 name: format!("Extrude {}", i + 1),
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
+                        combine: None,
+                        targets: None,
                         sketch_id,
                         profile_index: 0,
                         depth: depth_or_angle,
@@ -1435,6 +1437,8 @@ pub fn generate_featured_cases(output_dir: &std::path::Path) -> Vec<ManifestEntr
             name: "Extrude 1".to_string(),
             operation: Operation::Extrude {
                 params: ExtrudeParams {
+                    combine: None,
+                    targets: None,
                     sketch_id: sketch1_id,
                     profile_index: 0,
                     depth: spec.d1,
@@ -1482,6 +1486,8 @@ pub fn generate_featured_cases(output_dir: &std::path::Path) -> Vec<ManifestEntr
             name: "Extrude 2".to_string(),
             operation: Operation::Extrude {
                 params: ExtrudeParams {
+                    combine: None,
+                    targets: None,
                     sketch_id: sketch2_id,
                     profile_index: 0,
                     depth: spec.d2,
@@ -1695,6 +1701,8 @@ fn generate_oblique_plane_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
             name: "Extrude 1".to_string(),
             operation: Operation::Extrude {
                 params: ExtrudeParams {
+                    combine: None,
+                    targets: None,
                     sketch_id: sketch1_id,
                     profile_index: 0,
                     depth: d1,
@@ -1744,6 +1752,8 @@ fn generate_oblique_plane_cases(output_dir: &std::path::Path) -> Vec<ManifestEnt
             name: "Extrude 2".to_string(),
             operation: Operation::Extrude {
                 params: ExtrudeParams {
+                    combine: None,
+                    targets: None,
                     sketch_id: sketch2_id,
                     profile_index: 0,
                     depth: d2,
@@ -1920,6 +1930,8 @@ fn generate_intersecting_oblique_cases(output_dir: &std::path::Path) -> Vec<Mani
                 name: format!("Extrude {}", j + 1),
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
+                        combine: None,
+                        targets: None,
                         sketch_id,
                         profile_index: 0,
                         depth: d,
@@ -2116,6 +2128,8 @@ fn build_sketch_extrude(
         name: extrude_name.to_string(),
         operation: Operation::Extrude {
             params: ExtrudeParams {
+                combine: None,
+                targets: None,
                 sketch_id,
                 profile_index: 0,
                 depth,

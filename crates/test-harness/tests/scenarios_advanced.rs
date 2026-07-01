@@ -760,6 +760,8 @@ fn test_backward_compat_symmetric_flag() {
         "sym_compat",
         "sk",
         ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id,
             profile_index: 0,
             depth: 10.0,
@@ -791,6 +793,8 @@ fn test_extrude_advanced_full_params() {
         "adv",
         "sk",
         ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id,
             profile_index: 0,
             depth: 15.0,

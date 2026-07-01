@@ -74,6 +74,8 @@ fn make_sketch_op() -> Operation {
 fn make_extrude_op(sketch_id: Uuid) -> Operation {
     Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id,
             profile_index: 0,
             depth: 5.0,
@@ -1004,6 +1006,8 @@ fn dispatch_export_step_with_solid_reaches_kernel() {
         UiToEngine::AddFeature {
             operation: Operation::Extrude {
                 params: ExtrudeParams {
+                    combine: None,
+                    targets: None,
                     sketch_id,
                     profile_index: 0,
                     depth: 5.0,

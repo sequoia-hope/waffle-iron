@@ -120,6 +120,8 @@ fn add_extrude(
         UiToEngine::AddFeature {
             operation: Operation::Extrude {
                 params: ExtrudeParams {
+                    combine: None,
+                    targets: None,
                     sketch_id,
                     profile_index: 0,
                     depth,
@@ -159,6 +161,8 @@ fn add_extrude_no_merge(
         UiToEngine::AddFeature {
             operation: Operation::Extrude {
                 params: ExtrudeParams {
+                    combine: None,
+                    targets: None,
                     sketch_id,
                     profile_index: 0,
                     depth,
@@ -680,6 +684,8 @@ fn extrude_nonexistent_sketch_has_rebuild_error() {
         UiToEngine::AddFeature {
             operation: Operation::Extrude {
                 params: ExtrudeParams {
+                    combine: None,
+                    targets: None,
                     sketch_id: fake_sketch_id,
                     profile_index: 0,
                     depth: 5.0,
@@ -735,6 +741,8 @@ fn extrude_profile_index_out_of_range_has_rebuild_error() {
         UiToEngine::AddFeature {
             operation: Operation::Extrude {
                 params: ExtrudeParams {
+                    combine: None,
+                    targets: None,
                     sketch_id,
                     profile_index: 99,
                     depth: 5.0,
@@ -1009,6 +1017,8 @@ fn extrude_sketch_with_no_profiles_returns_error() {
         UiToEngine::AddFeature {
             operation: Operation::Extrude {
                 params: ExtrudeParams {
+                    combine: None,
+                    targets: None,
                     sketch_id,
                     profile_index: 0,
                     depth: 5.0,

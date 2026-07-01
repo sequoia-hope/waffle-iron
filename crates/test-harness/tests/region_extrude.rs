@@ -22,6 +22,8 @@ fn circle(id: u32, center_id: u32, radius: f64) -> SketchEntity {
 
 fn region_params(region: Region, depth: f64) -> ExtrudeParams {
     ExtrudeParams {
+        combine: None,
+        targets: None,
         sketch_id: Uuid::nil(), // overridden by extrude_advanced
         profile_index: 0,
         depth,
@@ -172,6 +174,8 @@ fn split_rectangle_multi_region_extrudes_one_merged_body() {
     // Extrude BOTH regions in one operation via the multi-region path.
     let depth = 3.0;
     let params = ExtrudeParams {
+        combine: None,
+        targets: None,
         sketch_id: Uuid::nil(),
         profile_index: 0,
         depth,

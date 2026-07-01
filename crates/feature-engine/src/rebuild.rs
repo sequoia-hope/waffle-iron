@@ -2068,6 +2068,8 @@ mod tests {
                     name: "Extrude1".to_string(),
                     operation: Operation::Extrude {
                         params: crate::types::ExtrudeParams {
+                            combine: None,
+                            targets: None,
                             sketch_id,
                             profile_index: 0,
                             depth: 0.01,

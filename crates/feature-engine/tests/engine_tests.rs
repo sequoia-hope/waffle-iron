@@ -74,6 +74,8 @@ fn make_sketch_op() -> Operation {
 fn make_extrude_op(sketch_id: Uuid) -> Operation {
     Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id,
             profile_index: 0,
             depth: 5.0,
@@ -314,6 +316,8 @@ fn engine_edit_feature_triggers_rebuild() {
 
     // Edit the extrude to change depth
     let new_params = ExtrudeParams {
+        combine: None,
+        targets: None,
         sketch_id: feature_id,
         profile_index: 0,
         depth: 10.0,
@@ -605,6 +609,8 @@ fn rebuild_after_edit_updates_results() {
     // Edit to different depth
     let new_op = Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id,
             profile_index: 0,
             depth: 20.0,
@@ -720,6 +726,8 @@ fn undo_edit_feature() {
     // Edit depth from 5.0 to 20.0
     let new_op = Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id,
             profile_index: 0,
             depth: 20.0,
@@ -900,6 +908,8 @@ fn rollback_is_not_undoable() {
 fn make_extrude_op_depth(sketch_id: Uuid, depth: f64) -> Operation {
     Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id,
             profile_index: 0,
             depth,
@@ -1640,6 +1650,8 @@ fn extrude_through_all_without_target_body_uses_fallback() {
         .unwrap();
     let through_all_op = Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id: s2,
             profile_index: 0,
             depth: 5.0,
@@ -1688,6 +1700,8 @@ fn extrude_through_all_no_prior_body_uses_large_fallback() {
         .unwrap();
     let through_all_op = Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id: s1,
             profile_index: 0,
             depth: 5.0,
@@ -1745,6 +1759,8 @@ fn cut_extrude_produces_boolean_subtract_result() {
         .unwrap();
     let cut_op = Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id: s2,
             profile_index: 0,
             depth: 3.0,
@@ -1790,6 +1806,8 @@ fn cut_extrude_without_base_body_errors() {
         .unwrap();
     let cut_op = Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id: s1,
             profile_index: 0,
             depth: 3.0,
@@ -1839,6 +1857,8 @@ fn symmetric_extrude_produces_solid() {
 
     let sym_op = Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id: s1,
             profile_index: 0,
             depth: 5.0,
@@ -1883,6 +1903,8 @@ fn symmetric_flag_backwards_compat() {
     // Use the legacy `symmetric: true` field (second_direction: None)
     let sym_op = Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id: s1,
             profile_index: 0,
             depth: 5.0,
@@ -1921,6 +1943,8 @@ fn second_direction_blind_produces_solid() {
 
     let bidir_op = Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id: s1,
             profile_index: 0,
             depth: 5.0,
@@ -2295,6 +2319,8 @@ fn depth_mode_upto_behind_sketch_plane_errors() {
     // sketch_origin projection = 0. depth = 0 - 0 = 0 → should error (depth <= 0).
     let upto_op = Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id: s2,
             profile_index: 0,
             depth: 5.0,
@@ -2364,6 +2390,8 @@ fn cut_extrude_with_symmetric_second_direction() {
         .unwrap();
     let cut_sym_op = Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id: s2,
             profile_index: 0,
             depth: 2.0,
@@ -2409,6 +2437,8 @@ fn second_direction_through_all_produces_solid() {
         .unwrap();
     let bidir_through_op = Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id: s2,
             profile_index: 0,
             depth: 5.0,
@@ -3111,6 +3141,8 @@ fn extrude_profile_index_out_of_range_errors() {
 
     let extrude_op = Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id: s1,
             profile_index: 10, // Only 1 profile exists
             depth: 5.0,
@@ -3170,6 +3202,8 @@ fn extrude_custom_direction() {
 
     let extrude_op = Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id: s1,
             profile_index: 0,
             depth: 5.0,
@@ -3218,6 +3252,8 @@ fn depth_mode_upto_success() {
     // UpTo referencing the EndCapPositive (z=5 face) of the base extrude
     let upto_op = Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id: s2,
             profile_index: 0,
             depth: 5.0,
@@ -3271,6 +3307,8 @@ fn depth_mode_upto_datum_reference() {
     let datum_id = Uuid::new_v4();
     let upto_op = Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id: s1,
             profile_index: 0,
             depth: 5.0,
@@ -3333,6 +3371,8 @@ fn second_direction_upto_produces_solid() {
 
     let bidir_upto_op = Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id: s2,
             profile_index: 0,
             depth: 5.0,
@@ -3392,6 +3432,8 @@ fn cut_extrude_with_blind_second_direction() {
         .unwrap();
     let cut_bidir_op = Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id: s2,
             profile_index: 0,
             depth: 2.0,
@@ -4228,6 +4270,8 @@ fn cut_extrude_skips_sketch_and_suppressed_in_body_search() {
         .unwrap();
     let cut_op = Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id: s3,
             profile_index: 0,
             depth: 2.0,
@@ -4273,6 +4317,8 @@ fn through_all_with_suppressed_target_still_works() {
         .unwrap();
     let through_op = Operation::Extrude {
         params: ExtrudeParams {
+            combine: None,
+            targets: None,
             sketch_id: s2,
             profile_index: 0,
             depth: 5.0,

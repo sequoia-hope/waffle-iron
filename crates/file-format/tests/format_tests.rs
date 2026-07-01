@@ -124,6 +124,8 @@ fn make_extrude_feature(name: &str, sketch_id: Uuid) -> Feature {
         name: name.to_string(),
         operation: Operation::Extrude {
             params: ExtrudeParams {
+                combine: None,
+                targets: None,
                 sketch_id,
                 profile_index: 0,
                 depth: 50.0,
@@ -279,6 +281,8 @@ fn save_all_operation_types() {
         name: "Extrude".to_string(),
         operation: Operation::Extrude {
             params: ExtrudeParams {
+                combine: None,
+                targets: None,
                 sketch_id,
                 profile_index: 0,
                 depth: 25.0,
@@ -663,6 +667,8 @@ fn make_rebuild_compatible_tree() -> FeatureTree {
         name: "Extrude 1".to_string(),
         operation: Operation::Extrude {
             params: ExtrudeParams {
+                combine: None,
+                targets: None,
                 sketch_id: sketch_feature_id, // Points to Feature.id
                 profile_index: 0,
                 depth: 5.0,

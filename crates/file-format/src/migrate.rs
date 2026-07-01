@@ -351,6 +351,8 @@ mod tests {
                 name: "Extrude1".to_string(),
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
+                        combine: None,
+                        targets: None,
                         sketch_id: Uuid::new_v4(),
                         profile_index: 0,
                         depth: 10.0,

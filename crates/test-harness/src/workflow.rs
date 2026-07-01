@@ -435,6 +435,8 @@ impl ModelBuilder {
             UiToEngine::AddFeature {
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
+                        combine: None,
+                        targets: None,
                         sketch_id,
                         profile_index: 0,
                         depth,
@@ -471,6 +473,8 @@ impl ModelBuilder {
             UiToEngine::AddFeature {
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
+                        combine: None,
+                        targets: None,
                         sketch_id,
                         profile_index: 0,
                         depth,
@@ -530,6 +534,8 @@ impl ModelBuilder {
             UiToEngine::AddFeature {
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
+                        combine: None,
+                        targets: None,
                         sketch_id,
                         profile_index: 0,
                         depth,
@@ -567,6 +573,8 @@ impl ModelBuilder {
             UiToEngine::AddFeature {
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
+                        combine: None,
+                        targets: None,
                         sketch_id,
                         profile_index: 0,
                         depth,
@@ -627,6 +635,8 @@ impl ModelBuilder {
             UiToEngine::AddFeature {
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
+                        combine: None,
+                        targets: None,
                         sketch_id,
                         profile_index: 0,
                         depth: 1.0, // fallback for ThroughAll
@@ -663,6 +673,8 @@ impl ModelBuilder {
             UiToEngine::AddFeature {
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
+                        combine: None,
+                        targets: None,
                         sketch_id,
                         profile_index: 0,
                         depth: 1.0, // fallback
@@ -701,6 +713,8 @@ impl ModelBuilder {
             UiToEngine::AddFeature {
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
+                        combine: None,
+                        targets: None,
                         sketch_id,
                         profile_index: 0,
                         depth,
@@ -738,6 +752,8 @@ impl ModelBuilder {
             UiToEngine::AddFeature {
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
+                        combine: None,
+                        targets: None,
                         sketch_id,
                         profile_index: 0,
                         depth,
@@ -775,6 +791,8 @@ impl ModelBuilder {
             UiToEngine::AddFeature {
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
+                        combine: None,
+                        targets: None,
                         sketch_id,
                         profile_index: 0,
                         depth,
@@ -813,6 +831,8 @@ impl ModelBuilder {
             UiToEngine::AddFeature {
                 operation: Operation::Extrude {
                     params: ExtrudeParams {
+                        combine: None,
+                        targets: None,
                         sketch_id,
                         profile_index: 0,
                         depth: total_depth / 2.0,
