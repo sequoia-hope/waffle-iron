@@ -6427,9 +6427,12 @@ fn cylinders_are_coincident(surf0: Surface, surf1: Surface, tol: f64) -> bool {
 /// input mesh's per-triangle face map (`tri_face_a` for A, `tri_face_b` for B).
 /// This handles BOTH a non-coplanar triangle (its only parent) AND a coplanar
 /// overlap sheet (the parent on the kept side). Returns `None` (→ geometric
-/// fallback) when that side has no parent in `source`, or the parent is beyond
+/// fallback) when that side has no parent in `source`, the parent is beyond
 /// the face map (a Stage-0 path that did not emit provenance, or a lineage-less
-/// `from_mesh` / boolean-output input) — never a wrong face.
+/// `from_mesh` / boolean-output input), or the parent maps to the `u32::MAX`
+/// sentinel (a producer that emitted a map but could not attribute THAT
+/// triangle — e.g. a coincident-cylinder band-strip column with no covering
+/// arc-patch face). Never a wrong face.
 fn provenance_face(
     source: &[(LaInputId, u32)],
     surface_input: InputId,
@@ -6441,7 +6444,7 @@ fn provenance_face(
         InputId::B => (1, tri_face_b),
     };
     let &(_, local) = source.iter().find(|&&(LaInputId(k), _)| k == want_k)?;
-    tf.get(local as usize).copied()
+    tf.get(local as usize).copied().filter(|&f| f != u32::MAX)
 }
 
 pub fn boolean(

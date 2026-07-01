@@ -403,7 +403,16 @@ by **N1** (the sidecar's `LabeledArrangement` exposes only *solid*-level
 provenance, not per-triangle barycentric data).
 
 **Remediation:** tied to roadmap **M6** (native arrangement exposes triangle-level
-provenance). **Sign-off:** pending.
+provenance). **Progress (2026-07-01):** provenance attribution is now the PRIMARY
+Stage-6 path (geometric is the fallback), fed by a per-triangle → face map
+(`tri_face`) emitted by every Stage-0 producer: the inputs' own Stage-1
+tessellation (1b), the planar coplanar overlay (2a), and — as of
+commit for `specs/n4_coincident_cylinder_provenance.md` — the coincident-cylinder
+membrane path (band-strip triangles attributed by azimuth to their arc-patch
+face; `u32::MAX` sentinel → geometric fallback where a column has no covering
+arc). Geometric attribution remains only for lineage-less / sidecar-backend
+inputs; it can be RETIRED once those are the sole remaining consumers.
+**Sign-off:** pending (retire geometric path).
 
 ### N5 — Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2 CDT framework
 

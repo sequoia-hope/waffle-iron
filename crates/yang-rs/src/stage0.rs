@@ -138,8 +138,10 @@ pub(crate) struct Stage0 {
     /// N4 (2a): per-triangle → owning-face map for the RE-TESSELLATED `mesh_a` /
     /// `mesh_b` (1:1 with their `tris`), so `boolean()` Stage-6 can attribute
     /// coplanar-overlap triangles by provenance (cherchi `source` → face) rather
-    /// than geometric proximity. EMPTY for a producer that does not yet emit it
-    /// (the coincident-cylinder path) → those fall back to geometric attribution.
+    /// than geometric proximity. Emitted by BOTH the planar overlay (2a) and the
+    /// coincident-cylinder membrane path. May carry the `u32::MAX` sentinel for a
+    /// triangle the producer could not attribute (→ geometric fallback). EMPTY
+    /// only for a producer that emits none (lineage-less / sidecar).
     pub(crate) tri_face_a: Vec<u32>,
     pub(crate) tri_face_b: Vec<u32>,
 }
@@ -2644,7 +2646,7 @@ pub(crate) fn coincident_cylinder_stage0(a: &BRep, b: &BRep) -> Result<Option<St
         return Ok(None);
     }
 
-    let Some(outer_mesh) = build_conformal_outer_mesh(
+    let Some((outer_mesh, outer_tri_face)) = build_conformal_outer_mesh(
         outer_tess,
         outer_faces,
         &outer_rings,
@@ -2663,11 +2665,14 @@ pub(crate) fn coincident_cylinder_stage0(a: &BRep, b: &BRep) -> Result<Option<St
         return Ok(None);
     };
     let cont_mesh = Mesh::new(cont_tess.verts.clone(), cont_tess.tris.clone());
+    // N4: the contained mesh IS `cont_tess` unchanged → its face map is the
+    // direct inversion of the face ranges (every triangle a real Stage-1 face).
+    let cont_tri_face = invert_face_tri_ranges(cont_tess);
 
-    let (mesh_a, mesh_b) = if outer_is_a {
-        (outer_mesh, cont_mesh)
+    let (mesh_a, mesh_b, tri_face_a, tri_face_b) = if outer_is_a {
+        (outer_mesh, cont_mesh, outer_tri_face, cont_tri_face)
     } else {
-        (cont_mesh, outer_mesh)
+        (cont_mesh, outer_mesh, cont_tri_face, outer_tri_face)
     };
     if probe {
         eprintln!(
@@ -2683,16 +2688,17 @@ pub(crate) fn coincident_cylinder_stage0(a: &BRep, b: &BRep) -> Result<Option<St
         );
     }
 
+    debug_assert_eq!(tri_face_a.len(), mesh_a.tris.len(), "tri_face_a 1:1");
+    debug_assert_eq!(tri_face_b.len(), mesh_b.tris.len(), "tri_face_b 1:1");
     Ok(Some(Stage0 {
         mesh_a,
         mesh_b,
         pairs: Vec::new(),
-        // The coincident-cylinder builder does not yet emit a per-triangle face
-        // map; leave empty so Stage-6 keeps geometric attribution for these
-        // (the existing coincident-cylinder membrane path). 2a covers the planar
-        // Stage-0; the cylinder path is a later increment.
-        tri_face_a: Vec::new(),
-        tri_face_b: Vec::new(),
+        // N4: per-triangle → face provenance for BOTH re-tessellated meshes, so
+        // Stage-6 attributes coincident-cylinder overlaps by provenance rather
+        // than geometric proximity (the last Stage-0 producer to gain this).
+        tri_face_a,
+        tri_face_b,
     }))
 }
 
@@ -2772,12 +2778,119 @@ fn cluster_rim_rings(
     Some(rings)
 }
 
+/// N4: invert a Stage-1 tessellation's `face_tri_ranges` into a per-triangle →
+/// owning-face map (1:1 with `tess.tris`), mirroring the `BRep::new` inversion.
+fn invert_face_tri_ranges(tess: &crate::Stage1Tess) -> Vec<u32> {
+    let mut tf = vec![0u32; tess.tris.len()];
+    for (fi, range) in tess.face_tri_ranges.iter().enumerate() {
+        for ti in range.clone() {
+            tf[ti] = fi as u32;
+        }
+    }
+    tf
+}
+
+/// The smallest CCW arc `(start, end)` covering all `azimuths` (each in
+/// `[0, 2π)`): the circle minus the LARGEST cyclic gap between consecutive
+/// (sorted) azimuths. `end < start` denotes an arc that wraps past 2π. `None`
+/// when empty. Recovers an arc-patch cluster face's angular span from its rim
+/// vertices (§4.5.5 coincident-cylinder provenance). Only used for a MULTI-face
+/// cluster, where each face is a proper sub-arc (a single full-θ face is handled
+/// without this — it owns every azimuth).
+fn smallest_covering_arc(azimuths: &[f64]) -> Option<(f64, f64)> {
+    if azimuths.is_empty() {
+        return None;
+    }
+    let mut a: Vec<f64> = azimuths.to_vec();
+    a.sort_by(|x, y| x.total_cmp(y));
+    let m = a.len();
+    if m == 1 {
+        return Some((a[0], a[0]));
+    }
+    let tau = 2.0 * std::f64::consts::PI;
+    // Start assuming the WRAP gap (last → first+2π) is the largest, so the
+    // covering arc is the contiguous span [first, last] with no wrap.
+    let mut best_gap = a[0] + tau - a[m - 1];
+    let mut start = a[0];
+    let mut end = a[m - 1];
+    for i in 0..m - 1 {
+        let gap = a[i + 1] - a[i];
+        if gap > best_gap {
+            // A larger interior gap → the arc wraps: it runs from the vertex
+            // after the gap, past 2π, to the vertex before it.
+            best_gap = gap;
+            start = a[i + 1];
+            end = a[i];
+        }
+    }
+    Some((start, end))
+}
+
+/// Is `theta` within the CCW arc `[start, end]`? Wraps past 2π when `end < start`.
+fn arc_contains(theta: f64, start: f64, end: f64) -> bool {
+    if start <= end {
+        theta >= start && theta <= end
+    } else {
+        theta >= start || theta <= end
+    }
+}
+
+/// Per outer cluster face, its rim-vertex azimuth arc `(face_idx, start, end)`
+/// in the shared axis frame — used to attribute a band-strip triangle to the
+/// arc-patch face covering its column's azimuth.
+fn cluster_face_arcs(
+    outer_tess: &crate::Stage1Tess,
+    outer_faces: &[usize],
+    axis_point: [f64; 3],
+    axis_dir: [f64; 3],
+) -> Vec<(u32, f64, f64)> {
+    let au = normalize3(axis_dir);
+    let (e1, e2) = ortho_basis(cad_primitives::Vector3::new(au[0], au[1], au[2]));
+    let (e1, e2) = (e1.as_array(), e2.as_array());
+    let azof = |p: [f64; 3]| -> f64 {
+        let w = [
+            p[0] - axis_point[0],
+            p[1] - axis_point[1],
+            p[2] - axis_point[2],
+        ];
+        let x = w[0] * e1[0] + w[1] * e1[1] + w[2] * e1[2];
+        let y = w[0] * e2[0] + w[1] * e2[1] + w[2] * e2[2];
+        y.atan2(x).rem_euclid(2.0 * std::f64::consts::PI)
+    };
+    let mut arcs = Vec::new();
+    for &fi in outer_faces {
+        let Some(range) = outer_tess.face_tri_ranges.get(fi) else {
+            continue;
+        };
+        let mut seen: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+        let mut azs: Vec<f64> = Vec::new();
+        for t in &outer_tess.tris[range.clone()] {
+            for &v in t {
+                if seen.insert(v) {
+                    azs.push(azof(outer_tess.verts[v as usize].as_array()));
+                }
+            }
+        }
+        if let Some((s, e)) = smallest_covering_arc(&azs) {
+            arcs.push((fi as u32, s, e));
+        }
+    }
+    arcs
+}
+
 /// Build the OUTER solid's conformal mesh: every face is its Stage-1
 /// triangles, EXCEPT the coincident lateral, which is rebuilt as a banded strip
 /// from its own two rim rings plus the contained solid's overlap-boundary rings
 /// inserted as LITERAL COPIES (bit-identical vertices) at their z-levels. The
 /// band strips between consecutive z-rings are paired by GLOBAL azimuth (the
 /// merge convention — robust to the two solids' differing seam frames).
+///
+/// N4 (provenance): also returns a per-output-triangle → owning-face map
+/// (1:1 with the mesh `tris`). Non-cluster triangles keep their Stage-1 face;
+/// band-strip triangles are attributed to the arc-patch cluster face whose
+/// azimuth arc contains the strip column's midpoint (trivial when the cluster
+/// is a single face). A column that finds no covering arc (a floating-point
+/// anomaly at a seam) gets the `u32::MAX` sentinel → geometric fallback.
 #[allow(clippy::too_many_arguments)]
 fn build_conformal_outer_mesh(
     outer_tess: &crate::Stage1Tess,
@@ -2791,7 +2904,7 @@ fn build_conformal_outer_mesh(
     ov_lo: f64,
     ov_hi: f64,
     band: f64,
-) -> Option<Mesh> {
+) -> Option<(Mesh, Vec<u32>)> {
     let mut verts: Vec<Point3> = outer_tess.verts.clone();
 
     // Assemble the full set of conformal rings for the outer lateral, ordered by
@@ -2841,8 +2954,11 @@ fn build_conformal_outer_mesh(
 
     // If nothing was inserted (extents equal, no interior boundary) the outer
     // lateral is already conformal with the contained one — no rebuild needed.
+    // The mesh IS `outer_tess.tris` unchanged, so its face map is the direct
+    // inversion of the face ranges.
     if all.len() == outer_rings.len() {
-        return Some(Mesh::new(verts, outer_tess.tris.clone()));
+        let tri_face = invert_face_tri_ranges(outer_tess);
+        return Some((Mesh::new(verts, outer_tess.tris.clone()), tri_face));
     }
 
     // Rebuild: keep all faces' triangles EXCEPT the coincident-cylinder cluster
@@ -2855,12 +2971,36 @@ fn build_conformal_outer_mesh(
             *slot = true;
         }
     }
+    // N4: face map built in lockstep with `tris`. Non-cluster triangles keep
+    // their Stage-1 owning face; band-strip triangles are attributed by azimuth.
+    let face_of = invert_face_tri_ranges(outer_tess);
     let mut tris: Vec<[u32; 3]> = Vec::new();
+    let mut tri_face: Vec<u32> = Vec::new();
     for (i, tri) in outer_tess.tris.iter().enumerate() {
         if !in_cluster[i] {
             tris.push(*tri);
+            tri_face.push(face_of[i]);
         }
     }
+    // Per band-strip column midpoint azimuth → the arc-patch cluster face that
+    // covers it. Single-face cluster: trivially that face (the full-θ wall).
+    let single_face = (outer_faces.len() == 1).then(|| outer_faces[0] as u32);
+    let arcs = if single_face.is_some() {
+        Vec::new()
+    } else {
+        cluster_face_arcs(outer_tess, outer_faces, axis_point, axis_dir)
+    };
+    let face_at = |mid: f64| -> u32 {
+        if let Some(f) = single_face {
+            return f;
+        }
+        for &(fi, s, e) in &arcs {
+            if arc_contains(mid, s, e) {
+                return fi;
+            }
+        }
+        u32::MAX // no covering arc → geometric fallback (P9-safe)
+    };
     // Banded strip over consecutive z-rings.
     let probe = std::env::var_os("CYLST0_PROBE").is_some();
     if probe {
@@ -2871,7 +3011,15 @@ fn build_conformal_outer_mesh(
     }
     for w in all.windows(2) {
         if band_strip(
-            &w[0], &w[1], &verts, axis_point, axis_dir, reversed, &mut tris,
+            &w[0],
+            &w[1],
+            &verts,
+            axis_point,
+            axis_dir,
+            reversed,
+            &mut tris,
+            &face_at,
+            &mut tri_face,
         )
         .is_none()
         {
@@ -2881,7 +3029,8 @@ fn build_conformal_outer_mesh(
             return None;
         }
     }
-    Some(Mesh::new(verts, tris))
+    debug_assert_eq!(tri_face.len(), tris.len(), "outer tri_face 1:1 with tris");
+    Some((Mesh::new(verts, tris), tri_face))
 }
 
 /// Connect two cylinder rings (`lo`, `hi`) into a watertight quad strip, pairing
@@ -2889,6 +3038,10 @@ fn build_conformal_outer_mesh(
 /// present the SAME azimuth multiset (within a quarter-step tol — a missing
 /// match is malformed, not fudged). Triangles are oriented radially outward
 /// (inward for a `reversed` cavity wall), matching `tessellate_lateral_face`.
+///
+/// N4 (provenance): each column's two triangles are tagged with the owning
+/// face via `face_at(column_midpoint_azimuth)`, pushed to `out_tri_face` in
+/// lockstep with `out_tris`.
 #[allow(clippy::too_many_arguments)]
 fn band_strip(
     lo: &ConformalRing,
@@ -2898,6 +3051,8 @@ fn band_strip(
     axis_dir: [f64; 3],
     reversed: bool,
     out_tris: &mut Vec<[u32; 3]>,
+    face_at: &dyn Fn(f64) -> u32,
+    out_tri_face: &mut Vec<u32>,
 ) -> Option<()> {
     let n = lo.ids.len();
     if n < 3 || hi.ids.len() != n {
@@ -2937,16 +3092,27 @@ fn band_strip(
             nrm
         }
     };
+    let tau = 2.0 * std::f64::consts::PI;
     for k in 0..n {
         let kn = (k + 1) % n;
         let b0 = lo_s[k].1;
         let b1 = lo_s[kn].1;
         let t0 = hi_s[k].1;
         let t1 = hi_s[kn].1;
+        // Column midpoint azimuth (the wrap column advances the upper azimuth
+        // by 2π so the mean lands inside the column, not on the far side).
+        let a0 = lo_s[k].0;
+        let mut a1 = lo_s[kn].0;
+        if a1 < a0 {
+            a1 += tau;
+        }
+        let mid = ((a0 + a1) * 0.5).rem_euclid(tau);
+        let face = face_at(mid);
         for mut tri in [[b0, b1, t1], [b0, t1, t0]] {
             let nrm = orient(verts, &tri);
             orient_band_tri(verts, &mut tri, nrm);
             out_tris.push(tri);
+            out_tri_face.push(face);
         }
     }
     Some(())
@@ -3151,6 +3317,86 @@ mod cylinder_pair_tests {
         let a = cylinder_brep(2.0, 0.0, 5.0, true);
         let b = cylinder_brep(3.0, 0.0, 5.0, false);
         assert!(detect_coincident_cylinder_groups(&a, &b).is_empty());
+    }
+
+    #[test]
+    fn coincident_stage0_emits_valid_tri_face() {
+        // N4 (coincident-cylinder provenance): the handled path must emit a
+        // per-triangle → face map 1:1 with each produced mesh, so Stage-6 can
+        // attribute by cherchi provenance instead of geometric proximity.
+        // Single-cluster-face case: bore (reversed) z∈[0,5] vs outward wall
+        // z∈[1,4]; A is the containing (outer) extent.
+        let a = cylinder_brep(2.0, 0.0, 5.0, true);
+        let b = cylinder_brep(2.0, 1.0, 4.0, false);
+        let s0 = coincident_cylinder_stage0(&a, &b)
+            .expect("must not error")
+            .expect("must reach the handled path");
+
+        // I1: 1:1 with the meshes, non-empty (the whole point).
+        assert_eq!(s0.tri_face_a.len(), s0.mesh_a.tris.len(), "A map 1:1");
+        assert_eq!(s0.tri_face_b.len(), s0.mesh_b.tris.len(), "B map 1:1");
+        assert!(
+            !s0.tri_face_a.is_empty() && !s0.tri_face_b.is_empty(),
+            "coincident-cylinder Stage-0 must emit provenance"
+        );
+
+        // I2: every entry is a valid face index or the u32::MAX fallback.
+        let na = a.faces().len() as u32;
+        let nb = b.faces().len() as u32;
+        assert!(
+            s0.tri_face_a.iter().all(|&f| f < na || f == u32::MAX),
+            "A face indices valid"
+        );
+        assert!(
+            s0.tri_face_b.iter().all(|&f| f < nb || f == u32::MAX),
+            "B face indices valid"
+        );
+
+        // outer_is_a here (A contains B): A is the outer, one cluster face (0);
+        // its band-strip tris all attribute to real faces, never the sentinel.
+        assert!(
+            s0.tri_face_a.iter().all(|&f| f != u32::MAX),
+            "single-cluster outer fully attributed (no sentinel)"
+        );
+        // I3: the contained mesh (B) is the full Stage-1 re-tessellation — every
+        // tri is a real face; the lateral-only helper has one face (0).
+        assert!(
+            s0.tri_face_b.iter().all(|&f| f == 0),
+            "contained lateral-only cylinder: all tris on face 0"
+        );
+    }
+
+    #[test]
+    fn arc_helpers_partition_the_circle() {
+        use std::f64::consts::PI;
+        // I4: a quarter-arc face's vertices span [0, π/2]; the largest gap is
+        // the rest of the circle → covering arc is exactly [0, π/2] (no wrap).
+        let q = [0.0, PI / 6.0, PI / 3.0, PI / 2.0];
+        let (s, e) = smallest_covering_arc(&q).unwrap();
+        assert!((s - 0.0).abs() < 1e-12 && (e - PI / 2.0).abs() < 1e-12);
+        assert!(arc_contains(PI / 4.0, s, e), "midpoint inside");
+        assert!(!arc_contains(PI, s, e), "opposite side outside");
+
+        // A face straddling the 0/2π seam: vertices near 2π and near 0 → the
+        // covering arc WRAPS (end < start).
+        let w = [0.1, 0.2, 2.0 * PI - 0.2, 2.0 * PI - 0.1];
+        let (s, e) = smallest_covering_arc(&w).unwrap();
+        assert!(s > PI && e < PI, "wrap arc: s={s} e={e}");
+        assert!(
+            arc_contains(0.0, s, e),
+            "seam azimuth 0 is inside the wrap arc"
+        );
+        assert!(arc_contains(2.0 * PI - 0.15, s, e));
+        assert!(!arc_contains(PI, s, e), "far side outside");
+
+        // Two adjacent quarter arcs partition [0, π]: a midpoint lands in
+        // exactly one (they meet at the shared seam π/2, never a column mid).
+        let a0 = smallest_covering_arc(&[0.0, PI / 4.0, PI / 2.0]).unwrap();
+        let a1 = smallest_covering_arc(&[PI / 2.0, 3.0 * PI / 4.0, PI]).unwrap();
+        assert!(arc_contains(PI / 8.0, a0.0, a0.1) && !arc_contains(PI / 8.0, a1.0, a1.1));
+        assert!(
+            arc_contains(3.0 * PI / 4.0, a1.0, a1.1) && !arc_contains(3.0 * PI / 4.0, a0.0, a0.1)
+        );
     }
 
     #[test]
