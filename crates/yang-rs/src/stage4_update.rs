@@ -127,68 +127,82 @@ pub fn stage4_mesh_update(
         }
     }
 
-    // ---- 2. Build the working vertex pool + merge (Fig 11 b/c). ---------
-    // Start from the patch pool; polyline points either MERGE a nearby patch
-    // vertex (reuse its index, move it onto the curve) or APPEND as new points.
+    // ---- 2-3. Classify each polyline point + build the working pool. ----
+    // Faithful §4.4.1 (Fig 11). Each intersection point falls into ONE case,
+    // and EVERY case leaves the boundary polygon geometrically unchanged, so
+    // total area is conserved exactly (spec I4) — no silent boundary reshaping
+    // (P9/P10):
+    //   * boundary-VERTEX merge (Fig 11 b/c) — within `merge_tol` of an existing
+    //     boundary vertex → reuse it and KEEP it fixed (the curve point snaps
+    //     onto the boundary vertex; the boundary does not move). Removes the
+    //     near-coincident split-edge-endpoint sliver.
+    //   * boundary-EDGE split (Fig 11 a) — within `merge_tol` of a boundary edge
+    //     interior → PROJECT onto the edge and splice the foot into the loop. The
+    //     foot lies on the original edge line, so the boundary is unchanged.
+    //   * interior merge — within `merge_tol` of an interior patch vertex → move
+    //     that vertex onto the curve point (interior re-partition, area-safe).
+    //   * interior append — otherwise, a free interior curve vertex.
     let mut verts = patch.verts.clone();
+    let boundary_set: std::collections::HashSet<u32> = patch
+        .boundary
+        .iter()
+        .chain(patch.holes.iter().flatten())
+        .copied()
+        .collect();
     let mut claimed = vec![false; verts.len()];
-    // Index in `verts` for each polyline point.
     let mut poly_vidx: Vec<u32> = Vec::with_capacity(polyline.points.len());
-    for &q in &polyline.points {
-        // Nearest UNCLAIMED existing patch vertex.
-        let mut best: Option<(usize, f64)> = None;
-        for (vi, &vp) in verts.iter().enumerate().take(patch.verts.len()) {
-            if claimed[vi] {
-                continue;
-            }
-            let d = dist2(q, vp);
-            if best.is_none_or(|(_, bd)| d < bd) {
-                best = Some((vi, d));
-            }
-        }
-        match best {
-            // Merge: p is too close to q → fuse p into q (place it AT q, the
-            // exact-curve point is authoritative), reuse its index.
-            Some((vi, d)) if d <= opts.merge_tol * opts.merge_tol => {
-                verts[vi] = q;
-                claimed[vi] = true;
-                poly_vidx.push(vi as u32);
-            }
-            // No merge: q is a fresh vertex.
-            _ => {
-                poly_vidx.push(verts.len() as u32);
-                verts.push(q);
-            }
-        }
-    }
-
-    // ---- 3. Split (Fig 11 a): splice on-boundary non-merged points into ---
-    //         the loop that hosts them; the rest stay interior.
     let mut outer = patch.boundary.clone();
     let mut holes = patch.holes.clone();
     let mut interior: Vec<u32> = Vec::new();
-    // A polyline point that MERGED a boundary vertex is already on the boundary.
-    let boundary_set: std::collections::HashSet<u32> = outer
-        .iter()
-        .chain(holes.iter().flatten())
-        .copied()
-        .collect();
-    // Collect splices per loop-edge, then rebuild loops with points ordered
-    // along each host edge.
-    // host = None => outer; Some(h) => holes[h].
-    let mut splices: Vec<(Option<usize>, usize, f64, u32)> = Vec::new(); // (host, edge_i, t, vidx)
-    for &vidx in &poly_vidx {
-        if boundary_set.contains(&vidx) {
-            continue; // merged onto an existing boundary vertex — already split.
+    // (host, edge_i, t, vidx) per boundary-edge splice.
+    let mut splices: Vec<(Option<usize>, usize, f64, u32)> = Vec::new();
+    let tol2 = opts.merge_tol * opts.merge_tol;
+    for &q in &polyline.points {
+        // Nearest unclaimed boundary vertex (positions never move → patch.verts).
+        let bv = boundary_set
+            .iter()
+            .map(|&i| i as usize)
+            .filter(|&i| !claimed[i])
+            .map(|i| (i, dist2(q, patch.verts[i])))
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        // A boundary vertex within tol wins (Fig 11 sliver removal), fixed pos.
+        if let Some((bi, bd)) = bv {
+            if bd <= tol2 {
+                claimed[bi] = true;
+                poly_vidx.push(bi as u32);
+                continue;
+            }
         }
-        let q = verts[vidx as usize];
-        if let Some((host, edge_i, t)) =
-            locate_on_boundary(q, &outer, &holes, &verts, opts.merge_tol)
-        {
-            splices.push((host, edge_i, t, vidx));
-        } else {
-            // Not on any boundary → interior curve vertex.
-            interior.push(vidx);
+        // Nearest boundary edge (perpendicular foot strictly interior to the edge).
+        let edge = nearest_boundary_edge(q, &outer, &holes, &verts).filter(|e| e.3 <= tol2);
+        // Nearest unclaimed interior patch vertex.
+        let iv = (0..patch.verts.len())
+            .filter(|i| !claimed[*i] && !boundary_set.contains(&(*i as u32)))
+            .map(|i| (i, dist2(q, patch.verts[i])))
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+            .filter(|v| v.1 <= tol2);
+        match (edge, iv) {
+            // Edge split: splice the PROJECTED foot (on the edge line) — boundary
+            // unchanged. Prefer the edge when it is at least as close as `iv`.
+            (Some((host, ei, t, ed, proj)), iv2) if iv2.is_none_or(|(_, ivd)| ed <= ivd) => {
+                let vidx = verts.len() as u32;
+                verts.push(proj);
+                splices.push((host, ei, t, vidx));
+                poly_vidx.push(vidx);
+            }
+            // Interior merge: move the interior vertex onto the curve point.
+            (_, Some((ivi, _))) => {
+                verts[ivi] = q;
+                claimed[ivi] = true;
+                poly_vidx.push(ivi as u32);
+            }
+            // Free interior curve vertex.
+            _ => {
+                let vidx = verts.len() as u32;
+                verts.push(q);
+                interior.push(vidx);
+                poly_vidx.push(vidx);
+            }
         }
     }
     splice_into_loops(&mut outer, &mut holes, &splices);
@@ -285,26 +299,31 @@ fn region_distance(p: Point2, outer: &[Point2], holes: &[Vec<Point2>]) -> f64 {
     best
 }
 
-/// If `q` lies within `tol` of a boundary edge (and not at a vertex), return the
-/// host loop (`None` = outer, `Some(h)` = `holes[h]`), the edge index, and the
-/// along-edge parameter `t`.
-fn locate_on_boundary(
+/// Nearest boundary edge whose perpendicular foot of `q` is STRICTLY interior to
+/// the edge (not at an endpoint — those are handled as boundary-vertex merges).
+/// Returns `(host, edge_i, t, dist², foot)` where `host` is `None` for `outer`
+/// or `Some(h)` for `holes[h]`. `dist²` is the squared perpendicular distance.
+#[allow(clippy::type_complexity)]
+fn nearest_boundary_edge(
     q: Point2,
     outer: &[u32],
     holes: &[Vec<u32>],
     verts: &[Point2],
-    tol: f64,
-) -> Option<(Option<usize>, usize, f64)> {
-    let mut best: Option<(Option<usize>, usize, f64, f64)> = None; // (host, edge, t, dist)
+) -> Option<(Option<usize>, usize, f64, f64, Point2)> {
+    let mut best: Option<(Option<usize>, usize, f64, f64, Point2)> = None;
     let mut scan = |host: Option<usize>, loop_idx: &[u32]| {
         let m = loop_idx.len();
         for i in 0..m {
             let a = verts[loop_idx[i] as usize];
             let b = verts[loop_idx[(i + 1) % m] as usize];
-            let (d, t) = point_segment(q, a, b);
-            // Strictly interior to the edge (not at either endpoint) and within tol.
-            if d <= tol && t > 1e-12 && t < 1.0 - 1e-12 && best.is_none_or(|(_, _, _, bd)| d < bd) {
-                best = Some((host, i, t, d));
+            let (foot, t) = project_segment(q, a, b);
+            // Endpoints are boundary-vertex merges, not edge splits.
+            if t <= 1e-12 || t >= 1.0 - 1e-12 {
+                continue;
+            }
+            let d2 = dist2(q, foot);
+            if best.is_none_or(|(_, _, _, bd, _)| d2 < bd) {
+                best = Some((host, i, t, d2, foot));
             }
         }
     };
@@ -312,7 +331,19 @@ fn locate_on_boundary(
     for (h, hole) in holes.iter().enumerate() {
         scan(Some(h), hole);
     }
-    best.map(|(host, edge, t, _)| (host, edge, t))
+    best
+}
+
+/// Perpendicular foot of `p` on segment `ab` (clamped to `[0,1]`) and its
+/// along-edge parameter `t`.
+fn project_segment(p: Point2, a: Point2, b: Point2) -> (Point2, f64) {
+    let (abx, aby) = (b.x() - a.x(), b.y() - a.y());
+    let len2 = abx * abx + aby * aby;
+    if len2 == 0.0 {
+        return (a, 0.0);
+    }
+    let t = (((p.x() - a.x()) * abx + (p.y() - a.y()) * aby) / len2).clamp(0.0, 1.0);
+    (Point2::new(a.x() + t * abx, a.y() + t * aby), t)
 }
 
 /// Rebuild each loop, inserting spliced vertices in order along their host edge.
@@ -466,15 +497,18 @@ mod tests {
         };
         let u = stage4_mesh_update(&patch, &poly, opts).unwrap();
         // I5: the near endpoint MERGED vertex 4 (net new verts = 1: only the top
-        // endpoint was appended). Vertex 4 moved onto the curve (x = 0.5+1e-6).
+        // endpoint was appended). The curve point snaps ONTO the boundary vertex,
+        // which STAYS fixed at (0.5, 0) — the boundary does not move, so area is
+        // exactly conserved (the adversary-caught silent-reshape fix).
         assert_eq!(
             u.verts.len(),
             6,
             "5 patch verts + 1 top endpoint (merge reused v4)"
         );
-        assert!(
-            (u.verts[4].x() - (0.5 + 1e-6)).abs() < 1e-15,
-            "v4 moved onto curve"
+        assert_eq!(
+            u.verts[4],
+            Point2::new(0.5, 0.0),
+            "boundary vertex 4 stays put; curve point snaps to it"
         );
         assert!(edge_present(&u, 4, 5), "chord edge v4-v5 present");
         assert!(no_flips(&u));
@@ -541,6 +575,417 @@ mod tests {
         let a = stage4_mesh_update(&patch, &poly, opts).unwrap();
         let b = stage4_mesh_update(&patch, &poly, opts).unwrap();
         assert_eq!(a, b);
+    }
+
+    // =====================================================================
+    // ADVERSARY probes (FIP §6). Each asserts spec §4 invariants explicitly.
+    // =====================================================================
+
+    /// Input-patch (outer-loop) area, the I4 reference.
+    fn input_patch_area(patch: &Patch) -> f64 {
+        let pts: Vec<Point2> = patch
+            .boundary
+            .iter()
+            .map(|&i| patch.verts[i as usize])
+            .collect();
+        let mut a = 0.0;
+        let m = pts.len();
+        for i in 0..m {
+            let p = pts[i];
+            let q = pts[(i + 1) % m];
+            a += p.x() * q.y() - q.x() * p.y();
+        }
+        // subtract holes
+        for h in &patch.holes {
+            let hp: Vec<Point2> = h.iter().map(|&i| patch.verts[i as usize]).collect();
+            let mut ha = 0.0;
+            let hm = hp.len();
+            for i in 0..hm {
+                let p = hp[i];
+                let q = hp[(i + 1) % hm];
+                ha += p.x() * q.y() - q.x() * p.y();
+            }
+            a -= ha.abs();
+        }
+        0.5 * a
+    }
+
+    fn assert_i2_no_flips(u: &PatchUpdate) {
+        assert!(
+            no_flips(u),
+            "I2 violated: mixed winding signs in {:?}",
+            u.tris
+        );
+    }
+
+    fn assert_i4_area(u: &PatchUpdate, expect: f64) {
+        let got = total_area(u).abs();
+        assert!(
+            (got - expect.abs()).abs() < 1e-9,
+            "I4 violated: output area {got} != input area {} (delta {})",
+            expect.abs(),
+            (got - expect.abs()).abs()
+        );
+    }
+
+    /// PROBE A (regression) — a curve point sitting `1e-4` PERPENDICULARLY off a
+    /// boundary vertex used to drag that vertex into the interior, shrinking the
+    /// outer-loop region (I4 violated, silent Ok — the FIP-adversary finding).
+    /// The fix: a boundary-vertex merge KEEPS the vertex fixed (the curve point
+    /// snaps onto it), so the boundary never moves and area is conserved exactly.
+    #[test]
+    fn probe_merge_moves_boundary_vertex_off_edge_breaks_area() {
+        // Square with a bottom-edge vertex at (0.5, 0).
+        let mut patch = unit_square();
+        patch.verts.push(Point2::new(0.5, 0.0)); // idx 4
+        patch.boundary = vec![0, 4, 1, 2, 3];
+        let input_area = input_patch_area(&patch); // 1.0
+                                                   // Chord endpoint sits 1e-4 ABOVE the bottom edge (perpendicular), well
+                                                   // within merge_tol=1e-3 → merges v4 and drags it up into the interior.
+        let poly = Polyline {
+            points: vec![Point2::new(0.5, 1e-4), Point2::new(0.5, 1.0)],
+            closed: false,
+        };
+        let opts = MeshUpdateOpts {
+            merge_tol: 1e-3,
+            d_eps: 1e-2,
+        };
+        match stage4_mesh_update(&patch, &poly, opts) {
+            Ok(u) => {
+                // If it returns Ok, area MUST be conserved (I4). It is not: the
+                // boundary vertex moved perpendicular, so the region shrank.
+                assert_i2_no_flips(&u);
+                assert_i4_area(&u, input_area);
+            }
+            Err(e) => panic!("unexpected Err {e:?} (a loud reject would also be acceptable)"),
+        }
+    }
+
+    /// PROBE B — two polyline points that both want to merge the SAME patch
+    /// vertex. The 2nd finds it claimed and APPENDS a fresh point coincident (or
+    /// near-coincident) with the 1st. Assert no coincident/degenerate output.
+    #[test]
+    fn probe_two_points_target_same_vertex() {
+        // Interior patch vertex at (0.5,0.5). Two consecutive-ish polyline points
+        // both within merge_tol of it, but NON-consecutive so the dup-check that
+        // only compares consecutive pairs cannot see them.
+        let mut patch = unit_square();
+        patch.verts.push(Point2::new(0.5, 0.5)); // idx 4 interior
+                                                 // boundary unchanged (0,1,2,3); vertex 4 is a free interior vertex.
+        let opts = MeshUpdateOpts {
+            merge_tol: 1e-2,
+            d_eps: 1e-1,
+        };
+        // Open chord left->right passing NEAR the interior vertex twice.
+        let poly = Polyline {
+            points: vec![
+                Point2::new(0.0, 0.5),        // on left edge
+                Point2::new(0.5 - 1e-4, 0.5), // near interior v4
+                Point2::new(0.5 + 1e-4, 0.5), // also near interior v4 (v4 already claimed)
+                Point2::new(1.0, 0.5),        // on right edge
+            ],
+            closed: false,
+        };
+        match stage4_mesh_update(&patch, &poly, opts) {
+            Ok(u) => {
+                assert_i2_no_flips(&u);
+                assert_i4_area(&u, 1.0);
+                // No two DISTINCT output vertices may be coincident (would mean a
+                // degenerate/zero-length edge lurks).
+                for i in 0..u.verts.len() {
+                    for j in (i + 1)..u.verts.len() {
+                        let d = dist2(u.verts[i], u.verts[j]);
+                        assert!(
+                            d > 1e-24,
+                            "coincident output verts {i}&{j}: {:?}",
+                            u.verts[i]
+                        );
+                    }
+                }
+            }
+            Err(_) => { /* a loud reject is acceptable */ }
+        }
+    }
+
+    /// PROBE C — polyline endpoint landing EXACTLY on an existing boundary vertex
+    /// (a corner, not mid-edge). Merge should fuse it; result stays valid.
+    #[test]
+    fn probe_endpoint_on_boundary_corner() {
+        let patch = unit_square();
+        let opts = MeshUpdateOpts {
+            merge_tol: 1e-3,
+            d_eps: 1e-2,
+        };
+        // chord from corner (0,0)=v0 exactly, to (1,1)=v2 exactly (the diagonal).
+        let poly = Polyline {
+            points: vec![Point2::new(0.0, 0.0), Point2::new(1.0, 1.0)],
+            closed: false,
+        };
+        match stage4_mesh_update(&patch, &poly, opts) {
+            Ok(u) => {
+                assert_i2_no_flips(&u);
+                assert_i4_area(&u, 1.0);
+                // Both endpoints merged existing corners → no new verts.
+                assert_eq!(u.verts.len(), 4, "corners reused, no appended verts");
+                assert!(edge_present(&u, 0, 2), "diagonal 0-2 realized (I1)");
+            }
+            Err(e) => panic!("endpoint-on-corner should succeed, got {e:?}"),
+        }
+    }
+
+    /// PROBE D — open chord with a genuine INTERIOR middle point (3 pts), ends on
+    /// boundary. Every consecutive segment must be an edge (I1).
+    #[test]
+    fn probe_open_chord_interior_middle_point() {
+        let patch = unit_square();
+        let opts = MeshUpdateOpts {
+            merge_tol: 1e-4,
+            d_eps: 1e-2,
+        };
+        let poly = Polyline {
+            points: vec![
+                Point2::new(0.0, 0.5), // left edge
+                Point2::new(0.5, 0.6), // interior kink
+                Point2::new(1.0, 0.5), // right edge
+            ],
+            closed: false,
+        };
+        match stage4_mesh_update(&patch, &poly, opts) {
+            Ok(u) => {
+                assert_i2_no_flips(&u);
+                assert_i4_area(&u, 1.0);
+                // poly_vidx: 4,5,6 (all appended). Both segments must be edges.
+                assert!(edge_present(&u, 4, 5), "I1 seg0 4-5 missing");
+                assert!(edge_present(&u, 5, 6), "I1 seg1 5-6 missing");
+            }
+            Err(e) => panic!("interior-kink chord should succeed, got {e:?}"),
+        }
+    }
+
+    /// PROBE E — concave (non-convex) patch boundary; chord across the notch.
+    #[test]
+    fn probe_concave_patch() {
+        // Arrow/chevron concave hexagon.
+        let patch = Patch {
+            verts: vec![
+                Point2::new(0.0, 0.0), // 0
+                Point2::new(2.0, 0.0), // 1
+                Point2::new(2.0, 2.0), // 2
+                Point2::new(1.0, 1.0), // 3 re-entrant
+                Point2::new(0.0, 2.0), // 4
+            ],
+            boundary: vec![0, 1, 2, 3, 4],
+            holes: vec![],
+        };
+        let input_area = input_patch_area(&patch);
+        let opts = MeshUpdateOpts {
+            merge_tol: 1e-4,
+            d_eps: 1e-2,
+        };
+        // horizontal chord low across the solid part, endpoints on left/right edge
+        let poly = Polyline {
+            points: vec![Point2::new(0.0, 0.5), Point2::new(2.0, 0.5)],
+            closed: false,
+        };
+        match stage4_mesh_update(&patch, &poly, opts) {
+            Ok(u) => {
+                assert_i2_no_flips(&u);
+                assert_i4_area(&u, input_area);
+                assert!(edge_present(&u, 5, 6), "chord edge missing (I1)");
+            }
+            Err(e) => panic!("concave chord should succeed, got {e:?}"),
+        }
+    }
+
+    /// PROBE F — closed loop that DOES enclose a patch interior vertex → insert
+    /// must NOT fire (I5: no interior point added).
+    #[test]
+    fn probe_closed_loop_encloses_interior_vertex_no_insert() {
+        let mut patch = unit_square();
+        patch.verts.push(Point2::new(0.5, 0.5)); // idx 4 interior, no loop
+        let opts = MeshUpdateOpts {
+            merge_tol: 1e-4,
+            d_eps: 1e-2,
+        };
+        // Big triangular loop around the interior vertex.
+        let poly = Polyline {
+            points: vec![
+                Point2::new(0.2, 0.2),
+                Point2::new(0.8, 0.2),
+                Point2::new(0.5, 0.9),
+            ],
+            closed: true,
+        };
+        match stage4_mesh_update(&patch, &poly, opts) {
+            Ok(u) => {
+                assert_i2_no_flips(&u);
+                assert_i4_area(&u, 1.0);
+                // 5 patch verts + 3 loop pts = 8; NO insert point (encloses v4).
+                assert_eq!(u.verts.len(), 8, "insert must NOT fire (loop encloses v4)");
+                assert!(edge_present(&u, 5, 6) && edge_present(&u, 6, 7) && edge_present(&u, 7, 5));
+            }
+            Err(e) => panic!("enclosing loop should succeed, got {e:?}"),
+        }
+    }
+
+    /// PROBE G — self-crossing (figure-8) open polyline → expect a loud Err, NEVER
+    /// a bad mesh.
+    #[test]
+    fn probe_self_crossing_polyline() {
+        let patch = unit_square();
+        let opts = MeshUpdateOpts {
+            merge_tol: 1e-4,
+            d_eps: 1e-2,
+        };
+        // A bowtie: the two segments cross. Endpoints on boundary, middle interior.
+        let poly = Polyline {
+            points: vec![
+                Point2::new(0.0, 0.2),
+                Point2::new(1.0, 0.8),
+                Point2::new(0.0, 0.8),
+                Point2::new(1.0, 0.2),
+            ],
+            closed: false,
+        };
+        match stage4_mesh_update(&patch, &poly, opts) {
+            Ok(u) => {
+                // If it insists on Ok, at minimum it must be a VALID mesh.
+                assert_i2_no_flips(&u);
+                assert_i4_area(&u, 1.0);
+            }
+            Err(MeshUpdateError::SelfIntersectingPolyline) => { /* correct */ }
+            Err(e) => panic!("unexpected error variant {e:?}"),
+        }
+    }
+
+    /// PROBE H — a closed loop whose edges cross an existing hole boundary.
+    #[test]
+    fn probe_loop_crosses_hole() {
+        // 4x4 square with a central 1x1 hole.
+        let patch = Patch {
+            verts: vec![
+                Point2::new(0.0, 0.0), // 0
+                Point2::new(4.0, 0.0), // 1
+                Point2::new(4.0, 4.0), // 2
+                Point2::new(0.0, 4.0), // 3
+                Point2::new(1.5, 1.5), // 4 hole
+                Point2::new(2.5, 1.5), // 5 hole
+                Point2::new(2.5, 2.5), // 6 hole
+                Point2::new(1.5, 2.5), // 7 hole
+            ],
+            boundary: vec![0, 1, 2, 3],
+            holes: vec![vec![4, 5, 6, 7]],
+        };
+        let opts = MeshUpdateOpts {
+            merge_tol: 1e-4,
+            d_eps: 1e-2,
+        };
+        // A loop that straddles the hole boundary (partly inside the hole).
+        let poly = Polyline {
+            points: vec![
+                Point2::new(2.0, 0.5),
+                Point2::new(3.5, 2.0),
+                Point2::new(2.0, 2.0), // inside the hole region
+            ],
+            closed: true,
+        };
+        match stage4_mesh_update(&patch, &poly, opts) {
+            Ok(u) => {
+                assert_i2_no_flips(&u);
+                // area must equal outer(16) - hole(1) = 15
+                assert_i4_area(&u, 15.0);
+            }
+            Err(_) => { /* loud reject acceptable */ }
+        }
+    }
+
+    /// PROBE I — extreme magnitudes (large coords) + tiny tolerances.
+    #[test]
+    fn probe_extreme_magnitude() {
+        let s = 1e6_f64;
+        let patch = Patch {
+            verts: vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(s, 0.0),
+                Point2::new(s, s),
+                Point2::new(0.0, s),
+            ],
+            boundary: vec![0, 1, 2, 3],
+            holes: vec![],
+        };
+        let opts = MeshUpdateOpts {
+            merge_tol: 1.0,
+            d_eps: 10.0,
+        };
+        let poly = Polyline {
+            points: vec![Point2::new(0.0, s / 2.0), Point2::new(s, s / 2.0)],
+            closed: false,
+        };
+        match stage4_mesh_update(&patch, &poly, opts) {
+            Ok(u) => {
+                assert_i2_no_flips(&u);
+                assert_i4_area(&u, s * s);
+                assert!(edge_present(&u, 4, 5), "chord realized at scale (I1)");
+            }
+            Err(e) => panic!("large-scale chord should succeed, got {e:?}"),
+        }
+    }
+
+    /// PROBE J — determinism under REORDERED input: reversing an open polyline
+    /// should give the same triangulated region (same vertex SET & area). The raw
+    /// PatchUpdate may differ in index order, so compare area + winding only.
+    #[test]
+    fn probe_determinism_reordered() {
+        let patch = unit_square();
+        let opts = MeshUpdateOpts {
+            merge_tol: 1e-4,
+            d_eps: 1e-2,
+        };
+        let fwd = Polyline {
+            points: vec![Point2::new(0.0, 0.5), Point2::new(1.0, 0.5)],
+            closed: false,
+        };
+        let rev = Polyline {
+            points: vec![Point2::new(1.0, 0.5), Point2::new(0.0, 0.5)],
+            closed: false,
+        };
+        let a = stage4_mesh_update(&patch, &fwd, opts).unwrap();
+        let b = stage4_mesh_update(&patch, &rev, opts).unwrap();
+        assert_i4_area(&a, 1.0);
+        assert_i4_area(&b, 1.0);
+        assert_i2_no_flips(&a);
+        assert_i2_no_flips(&b);
+    }
+
+    /// PROBE K — a polyline that CROSSES the outer boundary (exits the patch and
+    /// re-enters). A constraint edge crossing the boundary constraint must be a
+    /// loud Err, not a silently clipped mesh.
+    #[test]
+    fn probe_polyline_crosses_boundary() {
+        let patch = unit_square();
+        let opts = MeshUpdateOpts {
+            merge_tol: 1e-4,
+            d_eps: 2.0,
+        };
+        // Middle point sits OUTSIDE the square (but within d_eps), so the chain
+        // pierces the boundary twice.
+        let poly = Polyline {
+            points: vec![
+                Point2::new(0.5, 0.5),
+                Point2::new(1.5, 0.5), // outside, within d_eps
+                Point2::new(0.5, 0.9),
+            ],
+            closed: false,
+        };
+        match stage4_mesh_update(&patch, &poly, opts) {
+            Ok(u) => {
+                // If Ok, the mesh must still be valid & cover exactly the square.
+                assert_i2_no_flips(&u);
+                assert_i4_area(&u, 1.0);
+            }
+            Err(MeshUpdateError::SelfIntersectingPolyline) => {}
+            Err(e) => panic!("unexpected error {e:?}"),
+        }
     }
 
     // ---- Failure modes (spec §6). ---------------------------------------

@@ -56,9 +56,14 @@ Input `polyline`:
 
 Input `opts`:
 - `merge_tol: f64` — Fig 11(b): a patch vertex nearer than this to a polyline
-  point is merged into the polyline point. Default caller-supplied; must be
-  `> 0` and `< d_eps` (a merge must not move a vertex off the curve budget).
-  Valid range `(0, d_eps)`.
+  point is merged. Default caller-supplied; must be `> 0` and `< d_eps` (a merge
+  must not move a vertex off the curve budget). Valid range `(0, d_eps)`.
+  **Boundary-preserving rule:** a merged BOUNDARY vertex is kept FIXED (the curve
+  point snaps onto it) and a boundary-edge split point is PROJECTED onto the
+  edge, so the boundary polygon never moves — merges/splits only re-partition the
+  interior. Only interior patch vertices are moved onto the curve. (This is the
+  guarantee behind I4; without it a curve point sitting perpendicular-off a
+  boundary vertex would drag the boundary inward and change the area.)
 - `d_eps: f64` — the Stage-1 chord budget (`stage4_chord_band`); a polyline
   point must lie within `d_eps` of the patch (in-domain) or it is not this
   patch's crossing (`OffPatchBeyondChordBand`).
@@ -71,7 +76,7 @@ parametric-domain units (dimensionless u,v).
 | Case | `polyline.closed` | Merge hit? | Loop encloses a patch vertex? | Behavior |
 |------|-------------------|------------|-------------------------------|----------|
 | Open chord | false | — | n/a | Split boundary at entry/exit points; polyline becomes an interior constrained chain; CDT both sides. |
-| Open chord, endpoint near existing boundary vertex | false | yes | n/a | Merge that boundary vertex into the polyline endpoint (Fig 11 b/c); then as above. |
+| Open chord, endpoint near existing boundary vertex | false | yes | n/a | Snap the endpoint onto that boundary vertex, kept fixed (Fig 11 b/c); then as above. |
 | Closed loop, non-empty | true | maybe | yes | Add loop as a new hole constraint; CDT the annulus + the loop interior as separate patches. |
 | Closed loop, empty | true | maybe | no | Insert ONE interior point at the loop centroid (Fig 11 insert `i`), then as above. |
 
