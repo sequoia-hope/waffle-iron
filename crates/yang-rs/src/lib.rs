@@ -9431,6 +9431,151 @@ fn stage4_relocate_and_correct(
         attribution.attributions = attr_vec;
     }
 
+    // (3d) §4.4.1(a) edge-split (Yang Fig. 11(a): "locate the constrained edge
+    // containing q, split it at q"). A degenerate relocated triangle D=[a,b,c] is
+    // collinear: the vertex OFF its longest edge (`b`) lies on that long edge
+    // `a-c` (a redundant intersection point on the constraint curve). The faithful
+    // fix inserts `b` into the triangle ON THE OTHER SIDE of `a-c` — split that
+    // neighbour N=[a,c,d] into [a,b,d]+[b,c,d] — and drops D. This is a LOCAL,
+    // watertight-preserving operation (D's edges a-b/b-c re-pair with the split
+    // halves; the long edge a-c, shared only by D and N, vanishes): no re-CDT, no
+    // parametric domain, no cylinder θ-seam. Iterate, each step acting on a
+    // degenerate triangle whose long-edge neighbour is NON-degenerate (so the
+    // strip unzips from its non-degenerate margin inward); a remaining degenerate
+    // triangle with no non-degenerate neighbour is a genuine §4.5.2 STOP. Spec
+    // `specs/yang_n2_stage4_cdt_mesh_updating.md`.
+    {
+        let degen_area = cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE;
+        let is_degen = |ti: usize, mesh: &Mesh| -> bool {
+            let t = mesh.tris[ti];
+            if !t.iter().any(|v| moved.contains(v)) {
+                return false;
+            }
+            let av = tri_area_vector(
+                mesh.verts[t[0] as usize].as_array(),
+                mesh.verts[t[1] as usize].as_array(),
+                mesh.verts[t[2] as usize].as_array(),
+            );
+            (av[0] * av[0] + av[1] * av[1] + av[2] * av[2]).sqrt() * 0.5 < degen_area
+        };
+        // The off-longest-edge vertex `b` (the collinear middle) + extremes a,c.
+        let long_edge_off = |t: &[u32; 3], mesh: &Mesh| -> (u32, u32, u32) {
+            let d = |i: usize, j: usize| {
+                let p = mesh.verts[t[i] as usize].as_array();
+                let q = mesh.verts[t[j] as usize].as_array();
+                let e = [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
+                e[0] * e[0] + e[1] * e[1] + e[2] * e[2]
+            };
+            let (e01, e12, e20) = (d(0, 1), d(1, 2), d(2, 0));
+            if e01 >= e12 && e01 >= e20 {
+                (t[0], t[1], t[2]) // long a-c = v0-v1, off b = v2
+            } else if e12 >= e20 {
+                (t[1], t[2], t[0])
+            } else {
+                (t[2], t[0], t[1])
+            }
+        };
+        let mut attr_vec = std::mem::take(&mut attribution.attributions);
+        let max_passes = mesh.tris.len() + 1;
+        let mut passes = 0usize;
+        loop {
+            passes += 1;
+            if passes > max_passes {
+                attribution.attributions = attr_vec;
+                return Err(YangError::Stage4RegionInvalid {
+                    vertex: u32::MAX,
+                    reason: Stage4InvalidReason::LocalRefinementRequired,
+                });
+            }
+            // Edge → incident triangle indices (for the across-edge neighbour).
+            let mut edge_tris: std::collections::HashMap<(u32, u32), Vec<u32>> =
+                std::collections::HashMap::new();
+            for (ti, tri) in mesh.tris.iter().enumerate() {
+                for (i, j) in [(0, 1), (1, 2), (2, 0)] {
+                    let (u, v) = (tri[i], tri[j]);
+                    let key = if u < v { (u, v) } else { (v, u) };
+                    edge_tris.entry(key).or_default().push(ti as u32);
+                }
+            }
+            // Pick a degenerate triangle whose long-edge neighbour is non-degenerate.
+            let mut action: Option<(usize, usize, u32, u32, u32)> = None;
+            let mut any_degen = false;
+            for ti in 0..mesh.tris.len() {
+                if !is_degen(ti, mesh) {
+                    continue;
+                }
+                any_degen = true;
+                let (a, c, b) = long_edge_off(&mesh.tris[ti], mesh);
+                let key = if a < c { (a, c) } else { (c, a) };
+                let inc = match edge_tris.get(&key) {
+                    Some(v) if v.len() == 2 => v,
+                    _ => continue, // boundary / non-manifold long edge — skip
+                };
+                let n = if inc[0] as usize == ti {
+                    inc[1]
+                } else {
+                    inc[0]
+                } as usize;
+                if is_degen(n, mesh) {
+                    continue; // defer until the neighbour is resolved
+                }
+                action = Some((ti, n, a, c, b));
+                break;
+            }
+            let (d_idx, n_idx, a, c, b) = match action {
+                Some(x) => x,
+                None => {
+                    if any_degen {
+                        // Degenerate triangles remain but none has a non-degenerate
+                        // long-edge neighbour — genuine local-refinement territory.
+                        attribution.attributions = attr_vec;
+                        return Err(YangError::Stage4RegionInvalid {
+                            vertex: u32::MAX,
+                            reason: Stage4InvalidReason::LocalRefinementRequired,
+                        });
+                    }
+                    break; // no degenerate relocated triangles remain
+                }
+            };
+            // Split N=[a,c,d] at b → [a,b,d] + [b,c,d], wound like N; drop D.
+            let nt = mesh.tris[n_idx];
+            let dd = nt
+                .iter()
+                .copied()
+                .find(|&v| v != a && v != c)
+                .expect("neighbour shares edge a-c, has a third vertex");
+            let n_norm = tri_area_vector(
+                mesh.verts[nt[0] as usize].as_array(),
+                mesh.verts[nt[1] as usize].as_array(),
+                mesh.verts[nt[2] as usize].as_array(),
+            );
+            let mut t1 = [a, b, dd];
+            let mut t2 = [b, c, dd];
+            orient_tri(&mesh.verts, &mut t1, n_norm);
+            orient_tri(&mesh.verts, &mut t2, n_norm);
+            let n_attr = attr_vec.get(n_idx).copied().flatten();
+            // Rebuild tris + attribution, dropping D and N, appending the split.
+            let mut new_tris: Vec<[u32; 3]> = Vec::with_capacity(mesh.tris.len() + 1);
+            let mut new_attr: Vec<Option<TriangleAttribution>> =
+                Vec::with_capacity(attr_vec.len() + 1);
+            for (i, t) in mesh.tris.iter().enumerate() {
+                if i == d_idx || i == n_idx {
+                    continue;
+                }
+                new_tris.push(*t);
+                new_attr.push(attr_vec.get(i).copied().flatten());
+            }
+            new_tris.push(t1);
+            new_attr.push(n_attr);
+            new_tris.push(t2);
+            new_attr.push(n_attr);
+            *mesh = Mesh::new(std::mem::take(&mut mesh.verts), new_tris);
+            attr_vec = new_attr;
+            collapsed_any = true;
+        }
+        attribution.attributions = attr_vec;
+    }
+
     // (4) Validate every RELOCATED triangle (one touching a moved vertex) for
     // non-degeneracy (Yang §4.5 step 4). Reversed intersections are handled by
     // the §4.5.3 sweep above; watertightness by the global gate below (§4.4.3).
