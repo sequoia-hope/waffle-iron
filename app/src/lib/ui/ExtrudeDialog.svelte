@@ -10,7 +10,8 @@
 		addExtrudeRegion,
 		setProfilePickMode,
 		getProfilePickMode,
-		getDocumentDisplayUnit
+		getDocumentDisplayUnit,
+		getBodies
 	} from '$lib/engine/store.svelte.js';
 	import { showToast } from '$lib/ui/toast.svelte.js';
 	import { log } from '$lib/engine/logger.js';
@@ -20,7 +21,15 @@
 	let displayUnit = $derived(getDocumentDisplayUnit());
 	let unitLabel = $derived(UNITS[displayUnit]?.label ?? displayUnit);
 	let depthInput = $state('10');
-	let cut = $state(false);
+	// Optional-boolean combine mode: 'NewBody' | 'Add' | 'Cut' | 'Intersect'.
+	// Default 'Add' with Auto targets = the share-a-face auto-merge behavior.
+	let combine = $state('Add');
+	// Target selection: 'Auto' (share-a-face, targets=null) or 'Choose' (explicit).
+	let targetMode = $state('Auto');
+	let selectedTargetIds = $state([]);
+	// Derived legacy cut flag for the ghost preview.
+	let cut = $derived(combine === 'Cut');
+	let bodies = $derived(getBodies());
 	let depthMode = $state('Blind');
 	let secondDir = $state('None');
 	let secondDepthInput = $state('10');
@@ -38,7 +47,24 @@
 			const ep = dialogState.editParams;
 			if (ep) {
 				depthInput = formatForInput(ep.depth, displayUnit);
-				cut = !!ep.cut;
+				// Prefer the explicit combine; else derive from legacy cut/merge.
+				if (ep.combine?.type) combine = ep.combine.type;
+				else if (ep.cut) combine = 'Cut';
+				else if (ep.merge === false) combine = 'NewBody';
+				else combine = 'Add';
+				if (Array.isArray(ep.targets)) {
+					targetMode = 'Choose';
+					selectedTargetIds = ep.targets
+						.map((t) =>
+							t?.anchor?.feature_id
+								? `${t.anchor.feature_id}/${t.anchor.output_key?.type ?? 'Main'}`
+								: null
+						)
+						.filter(Boolean);
+				} else {
+					targetMode = 'Auto';
+					selectedTargetIds = [];
+				}
 				depthMode = ep.depth_mode?.type ?? 'Blind';
 				if (ep.symmetric) secondDir = 'Symmetric';
 				else if (ep.second_direction) secondDir = ep.second_direction.type ?? 'None';
@@ -47,7 +73,9 @@
 				flipDirection = ep.direction != null;
 			} else {
 				depthInput = '10';
-				cut = false;
+				combine = 'Add';
+				targetMode = 'Auto';
+				selectedTargetIds = [];
 				depthMode = 'Blind';
 				secondDir = 'None';
 				secondDepthInput = '10';
@@ -109,14 +137,49 @@
 			return;
 		}
 
+		// Auto (share-a-face) ⇒ targets null; Choose ⇒ explicit GeomRefs (an empty
+		// list forces a new body). New Body ignores targets entirely.
+		let targets = null;
+		if (combine !== 'NewBody' && targetMode === 'Choose') {
+			const all = getBodies();
+			targets = selectedTargetIds
+				.map((id) => all.find((b) => b.bodyId === id))
+				.filter(Boolean)
+				.map(bodyToGeomRef);
+		}
+
 		const opts = {
 			depthMode,
 			secondDir,
 			secondDepth,
-			flipDirection
+			flipDirection,
+			combine,
+			targets
 		};
 		applyExtrude(depth, firstRegion.profileIndex ?? 0, cut, opts)
 			.catch(err => log('error', `Extrude dialog apply failed: ${err}`));
+	}
+
+	/** Build a body GeomRef (Main output) for the combine target list. */
+	function bodyToGeomRef(body) {
+		return {
+			kind: { type: 'Solid' },
+			anchor: {
+				type: 'FeatureOutput',
+				feature_id: body.featureId,
+				output_key: body.outputKey ?? { type: 'Main' }
+			},
+			selector: { type: 'Role', role: { type: 'EndCapPositive' }, index: 0 },
+			policy: { type: 'BestEffort' }
+		};
+	}
+
+	function toggleTarget(bodyId, checked) {
+		if (checked) {
+			if (!selectedTargetIds.includes(bodyId)) selectedTargetIds = [...selectedTargetIds, bodyId];
+		} else {
+			selectedTargetIds = selectedTargetIds.filter((id) => id !== bodyId);
+		}
 	}
 
 	function handleCancel() {
@@ -251,14 +314,48 @@
 				</div>
 			{/if}
 			<div class="field">
-				<label for="extrude-cut">Cut</label>
-				<input
-					id="extrude-cut"
-					data-testid="extrude-cut"
-					type="checkbox"
-					bind:checked={cut}
-				/>
+				<label for="extrude-combine">Combine</label>
+				<select
+					id="extrude-combine"
+					data-testid="extrude-combine"
+					bind:value={combine}
+				>
+					<option value="NewBody">New Body</option>
+					<option value="Add">Add</option>
+					<option value="Cut">Cut</option>
+					<option value="Intersect">Intersect</option>
+				</select>
 			</div>
+			{#if combine !== 'NewBody'}
+				<div class="field">
+					<label for="extrude-target-mode">Targets</label>
+					<select
+						id="extrude-target-mode"
+						data-testid="extrude-target-mode"
+						bind:value={targetMode}
+					>
+						<option value="Auto">Auto (bodies touching sketch)</option>
+						<option value="Choose">Choose bodies…</option>
+					</select>
+				</div>
+				{#if targetMode === 'Choose'}
+					<div class="target-list" data-testid="extrude-target-list">
+						{#each bodies as body}
+							<label class="target-item">
+								<input
+									type="checkbox"
+									checked={selectedTargetIds.includes(body.bodyId)}
+									onchange={(e) => toggleTarget(body.bodyId, e.target.checked)}
+								/>
+								<span>{body.name}</span>
+							</label>
+						{/each}
+						{#if bodies.length === 0}
+							<div class="region-empty">No bodies yet</div>
+						{/if}
+					</div>
+				{/if}
+			{/if}
 			<div class="field">
 				<label for="extrude-second-dir">2nd Direction</label>
 				<select
@@ -448,6 +545,24 @@
 		color: var(--text-muted, #888);
 		font-style: italic;
 		padding: 4px 0;
+	}
+
+	.target-list {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		max-height: 120px;
+		overflow-y: auto;
+		border: 1px solid var(--border, #444);
+		border-radius: 4px;
+		padding: 4px 6px;
+	}
+	.target-item {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 12px;
+		cursor: pointer;
 	}
 
 	.field {

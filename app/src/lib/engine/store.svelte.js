@@ -3335,7 +3335,23 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 			? JSON.parse(JSON.stringify(sameSketchRegions.map((r) => r.region)))
 			: [];
 
-	const { depthMode = 'Blind', secondDir = 'None', secondDepth = 10, flipDirection = false } = opts;
+	const {
+		depthMode = 'Blind',
+		secondDir = 'None',
+		secondDepth = 10,
+		flipDirection = false,
+		// New-style optional-boolean combine (N-mb-*). `combine` is one of
+		// 'NewBody' | 'Add' | 'Cut' | 'Intersect' (or null = legacy). `targets` is
+		// an array of body GeomRefs, [] to force a new body, or null = Auto
+		// (share-a-face). See specs/optional_booleans_multibody_extrude.md.
+		combine = null,
+		targets = null
+	} = opts;
+
+	const combineObj = combine ? { type: combine } : null;
+	// When a combine mode is set the engine ignores cut/merge; keep the legacy
+	// `cut` consistent (drives direction reversal + the ghost preview).
+	const effectiveCut = combineObj ? combine === 'Cut' : !!cut;
 
 	const depth_mode = { type: depthMode };
 
@@ -3354,13 +3370,13 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 		const sketch = tree?.features?.find(f => f.id === effectiveSketchId);
 		const normal = sketch?.operation?.sketch?.plane_normal;
 		if (normal) {
-			if (cut) {
+			if (effectiveCut) {
 				direction = [normal[0], normal[1], normal[2]];
 			} else {
 				direction = [-normal[0], -normal[1], -normal[2]];
 			}
 		} else {
-			direction = cut ? [0, 0, 1] : [0, 0, -1];
+			direction = effectiveCut ? [0, 0, 1] : [0, 0, -1];
 		}
 	}
 
@@ -3372,8 +3388,10 @@ export async function applyExtrude(depth, profileIndex, cut = false, opts = {}) 
 			depth,
 			direction,
 			symmetric: secondDir === 'Symmetric',
-			cut: !!cut,
+			cut: effectiveCut,
 			target_body: null,
+			combine: combineObj,
+			targets,
 			depth_mode,
 			second_direction,
 			region: subRegion,
