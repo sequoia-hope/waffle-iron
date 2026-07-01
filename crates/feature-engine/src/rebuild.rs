@@ -642,8 +642,8 @@ fn execute_feature(
                     }
                 }
 
-                // Subtract / intersect the tool from each target. Multi-target
-                // (N result bodies) is N-mb-3; N-mb-2 handles a single target.
+                // Subtract / intersect the tool from each target INDEPENDENTLY,
+                // yielding one result body per target (feature scope, spec §4.2).
                 CombineMode::Cut | CombineMode::Intersect => {
                     let kind = if is_cut {
                         BooleanKind::Subtract
@@ -661,14 +661,44 @@ fn execute_feature(
                         };
                         return Err(EngineError::ResolutionFailed { reason });
                     }
-                    if combine_targets.len() > 1 {
-                        return Err(EngineError::ResolutionFailed {
-                            reason: "multi-target cut/intersect is not yet implemented (N-mb-3)"
-                                .to_string(),
-                        });
+                    // Fold each target's boolean result into one OpResult, re-keying
+                    // the combined bodies (first Main, rest Body{index}). A single
+                    // target is just the len-1 case.
+                    let mut bodies = Vec::new();
+                    let mut created = Vec::new();
+                    let mut deleted = Vec::new();
+                    let mut role_assignments = Vec::new();
+                    for (_, target) in &combine_targets {
+                        let res = execute_boolean(kb, target, &tool_handle, kind)?;
+                        created.extend(res.provenance.created);
+                        deleted.extend(res.provenance.deleted);
+                        role_assignments.extend(res.provenance.role_assignments);
+                        for (_, body) in res.outputs {
+                            bodies.push(body);
+                        }
                     }
-                    let result = execute_boolean(kb, &combine_targets[0].1, &tool_handle, kind)?;
-                    Ok(result)
+                    let outputs = bodies
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, body)| {
+                            let key = if i == 0 {
+                                OutputKey::Main
+                            } else {
+                                OutputKey::Body { index: i }
+                            };
+                            (key, body)
+                        })
+                        .collect();
+                    Ok(OpResult {
+                        outputs,
+                        provenance: modeling_ops::Provenance {
+                            created,
+                            deleted,
+                            modified: Vec::new(),
+                            role_assignments,
+                        },
+                        diagnostics: modeling_ops::Diagnostics::default(),
+                    })
                 }
             }
         }
