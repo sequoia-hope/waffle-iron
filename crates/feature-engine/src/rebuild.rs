@@ -335,6 +335,7 @@ fn execute_feature(
             // same set. See specs/optional_booleans_multibody_extrude.md.
             let eff = normalize_extrude_combine(params);
             let is_cut = matches!(eff.mode, CombineMode::Cut);
+            let mut combine_warnings: Vec<String> = Vec::new();
             let combine_targets = match eff.mode {
                 CombineMode::NewBody => Vec::new(),
                 _ => match &eff.targets {
@@ -350,7 +351,13 @@ fn execute_feature(
                         already_consumed,
                         Some(kb.as_introspect()),
                     ),
-                    _ => resolve_combine_targets(&eff.targets, feature, feature_results, tree)?,
+                    _ => resolve_combine_targets(
+                        &eff.targets,
+                        feature,
+                        feature_results,
+                        tree,
+                        &mut combine_warnings,
+                    )?,
                 },
             };
 
@@ -590,7 +597,10 @@ fn execute_feature(
 
             // Dispatch the boolean combine per the normalized mode + resolved
             // targets. See specs/optional_booleans_multibody_extrude.md §4.
-            dispatch_combine(kb, &eff, &combine_targets, extrude_result, "extrude")
+            let mut result =
+                dispatch_combine(kb, &eff, &combine_targets, extrude_result, "extrude")?;
+            result.diagnostics.warnings.extend(combine_warnings);
+            Ok(result)
         }
 
         Operation::Revolve { params } => {
@@ -649,6 +659,7 @@ fn execute_feature(
 
             // Dispatch the boolean combine (same model as extrude, spec §4).
             let eff = crate::types::normalize_revolve_combine(params);
+            let mut combine_warnings: Vec<String> = Vec::new();
             let combine_targets = match eff.mode {
                 CombineMode::NewBody => Vec::new(),
                 _ => match &eff.targets {
@@ -663,10 +674,19 @@ fn execute_feature(
                         already_consumed,
                         Some(kb.as_introspect()),
                     ),
-                    _ => resolve_combine_targets(&eff.targets, feature, feature_results, tree)?,
+                    _ => resolve_combine_targets(
+                        &eff.targets,
+                        feature,
+                        feature_results,
+                        tree,
+                        &mut combine_warnings,
+                    )?,
                 },
             };
-            dispatch_combine(kb, &eff, &combine_targets, revolve_result, "revolve")
+            let mut result =
+                dispatch_combine(kb, &eff, &combine_targets, revolve_result, "revolve")?;
+            result.diagnostics.warnings.extend(combine_warnings);
+            Ok(result)
         }
 
         Operation::BooleanCombine { params } => {
@@ -952,8 +972,16 @@ pub(crate) fn find_consumed_feature_ids(
                         TargetStrategy::MostRecentLegacy => {
                             find_most_recent_consumed(feature, feature_results, tree)
                         }
+                        // Only targets that actually RESOLVE are consumed. A
+                        // dropped (deleted/suppressed) BestEffort target is not
+                        // combined, so it must not be marked consumed (which
+                        // would leave the consumed set inconsistent with the
+                        // bodies dispatch actually merged). A failing Strict
+                        // target errors the feature, so its consumption is never
+                        // applied anyway.
                         TargetStrategy::Explicit(list) => list
                             .iter()
+                            .filter(|gr| find_solid_handle(gr, feature_results).is_ok())
                             .filter_map(|gr| match &gr.anchor {
                                 waffle_types::Anchor::FeatureOutput { feature_id, .. } => {
                                     Some(*feature_id)
@@ -991,6 +1019,7 @@ pub(crate) fn find_consumed_feature_ids(
                         }
                         TargetStrategy::Explicit(list) => list
                             .iter()
+                            .filter(|gr| find_solid_handle(gr, feature_results).is_ok())
                             .filter_map(|gr| match &gr.anchor {
                                 waffle_types::Anchor::FeatureOutput { feature_id, .. } => {
                                     Some(*feature_id)
@@ -1482,14 +1511,18 @@ fn body_face_shares_sketch(
 ///
 /// - `MostRecentLegacy` → the single most-recent solid (0 or 1), preserving the
 ///   legacy auto-boolean behavior byte-for-byte.
-/// - `Explicit(list)` → each listed body, resolved via `find_solid_handle`
-///   (empty list ⇒ empty set).
+/// - `Explicit(list)` → each listed body, resolved via `find_solid_handle`.
+///   A target that fails to resolve (deleted / suppressed / rolled-back body)
+///   is handled per its `GeomRef::policy` (spec §9): `Strict` ⇒ a loud
+///   `ResolutionFailed`; `BestEffort` ⇒ drop that target and push a warning so
+///   the remaining live targets still combine. (Empty list ⇒ empty set.)
 /// - `ShareAFace` → **not yet implemented** (sub-increment N-mb-3); a loud STOP.
 fn resolve_combine_targets(
     targets: &TargetStrategy,
     feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
     tree: &FeatureTree,
+    warnings: &mut Vec<String>,
 ) -> Result<Vec<(Uuid, waffle_types::kernel::KernelSolidHandle)>, EngineError> {
     match targets {
         TargetStrategy::ShareAFace => Err(EngineError::ResolutionFailed {
@@ -1522,8 +1555,23 @@ fn resolve_combine_targets(
                         });
                     }
                 };
-                let handle = find_solid_handle(gr, feature_results)?;
-                out.push((feature_id, handle));
+                // Honor the target's ResolvePolicy on failure (spec §9): a Strict
+                // target that no longer resolves stops the feature loudly; a
+                // BestEffort one is dropped with a warning so the surviving live
+                // targets still combine (a valid target must not be lost because
+                // an unrelated one was deleted/suppressed).
+                match find_solid_handle(gr, feature_results) {
+                    Ok(handle) => out.push((feature_id, handle)),
+                    Err(e) => match gr.policy {
+                        waffle_types::ResolvePolicy::Strict => return Err(e),
+                        waffle_types::ResolvePolicy::BestEffort => {
+                            warnings.push(format!(
+                                "combine target {} could not be resolved and was dropped: {}",
+                                feature_id, e
+                            ));
+                        }
+                    },
+                }
             }
             Ok(out)
         }
