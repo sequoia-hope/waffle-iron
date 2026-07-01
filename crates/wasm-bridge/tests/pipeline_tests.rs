@@ -1459,3 +1459,133 @@ fn all_mesh_floats_are_finite() {
         );
     }
 }
+
+// ── N-mb-2 (Inc 2): combine/targets cross the WASM↔JS boundary ──────────────
+
+/// A GeomRef targeting a feature's Main body output.
+fn body_target_ref(feature_id: Uuid) -> GeomRef {
+    GeomRef {
+        kind: TopoKind::Solid,
+        anchor: Anchor::FeatureOutput {
+            feature_id,
+            output_key: OutputKey::Main,
+        },
+        selector: Selector::Role {
+            role: Role::EndCapPositive,
+            index: 0,
+        },
+        policy: ResolvePolicy::BestEffort,
+    }
+}
+
+#[test]
+fn extrude_combine_survives_json_boundary() {
+    // The JS↔WASM path serializes UiToEngine to JSON. Prove combine/targets
+    // round-trip through serde_json so process_message receives them.
+    let op = Operation::Extrude {
+        params: ExtrudeParams {
+            combine: Some(CombineMode::Cut),
+            targets: Some(vec![body_target_ref(Uuid::nil())]),
+            sketch_id: Uuid::nil(),
+            profile_index: 0,
+            depth: 1.0,
+            direction: None,
+            symmetric: false,
+            cut: false,
+            merge: false,
+            target_body: None,
+            depth_mode: DepthMode::Blind,
+            second_direction: None,
+            region: None,
+            regions: Vec::new(),
+        },
+    };
+    let msg = UiToEngine::AddFeature { operation: op };
+    let json = serde_json::to_string(&msg).expect("serialize");
+    assert!(json.contains("\"combine\""), "combine must be in JSON: {json}");
+    assert!(json.contains("Cut"), "combine mode must survive: {json}");
+    let back: UiToEngine = serde_json::from_str(&json).expect("deserialize");
+    match back {
+        UiToEngine::AddFeature {
+            operation: Operation::Extrude { params },
+        } => {
+            assert_eq!(params.combine, Some(CombineMode::Cut));
+            assert_eq!(params.targets.as_ref().map(|t| t.len()), Some(1));
+        }
+        other => panic!("round-trip changed the message: {other:?}"),
+    }
+}
+
+#[test]
+fn extrude_combine_cut_drives_dispatch_and_consumes_target() {
+    // combine=Cut + explicit target, sent through the same dispatch() WASM calls,
+    // must subtract from and consume the chosen body (not the "most recent").
+    let mut state = EngineState::new();
+    let mut kernel = MockKernel::new();
+
+    let sketch_a = create_rect_sketch(&mut state, &mut kernel, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+    // Standalone base body (NewBody so it stays independent).
+    let e0 = {
+        let resp = dispatch(
+            &mut state,
+            UiToEngine::AddFeature {
+                operation: Operation::Extrude {
+                    params: ExtrudeParams {
+                        combine: Some(CombineMode::NewBody),
+                        targets: None,
+                        sketch_id: sketch_a,
+                        profile_index: 0,
+                        depth: 5.0,
+                        direction: None,
+                        symmetric: false,
+                        cut: false,
+                        merge: false,
+                        target_body: None,
+                        depth_mode: DepthMode::Blind,
+                        second_direction: None,
+                        region: None,
+                        regions: Vec::new(),
+                    },
+                },
+            },
+            &mut kernel,
+        );
+        match resp {
+            EngineToUi::ModelUpdated { feature_tree, .. } => {
+                feature_tree.features.last().unwrap().id
+            }
+            other => panic!("expected ModelUpdated, got {other:?}"),
+        }
+    };
+
+    let sketch_b = create_rect_sketch(&mut state, &mut kernel, [0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
+    dispatch(
+        &mut state,
+        UiToEngine::AddFeature {
+            operation: Operation::Extrude {
+                params: ExtrudeParams {
+                    combine: Some(CombineMode::Cut),
+                    targets: Some(vec![body_target_ref(e0)]),
+                    sketch_id: sketch_b,
+                    profile_index: 0,
+                    depth: 5.0,
+                    direction: None,
+                    symmetric: false,
+                    cut: false,
+                    merge: false,
+                    target_body: None,
+                    depth_mode: DepthMode::Blind,
+                    second_direction: None,
+                    region: None,
+                    regions: Vec::new(),
+                },
+            },
+        },
+        &mut kernel,
+    );
+
+    assert!(
+        state.engine.consumed_features.contains(&e0),
+        "explicit Cut target must be consumed through the bridge"
+    );
+}
