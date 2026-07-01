@@ -152,3 +152,41 @@ Do NOT weaken `t1`–`t4`, the yr10 circle/migration tests, or planar `fuzz_boxe
 No `TAU_MODEL` widening, no assertion weakening, no fallback path. If a contained
 config cannot pass honestly, or the guard cannot be cleanly localized to a
 principled signal → **STOP and report** (that is itself the finding). P9/P10.
+
+## 10. GREEN-PHASE FINDING (2026-07-01) — ABORTED per §9 / P10
+
+Instrument-first (§6.1) DISPROVED the guard's premise. The corner guard must NOT
+be implemented; t6 as written cannot be honestly satisfied. Evidence (native +
+stock sidecar, `YR11_PROBE`):
+
+1. **The current `oblique_cylinder()` fixture is `dir=unit([1,0,3])`, NOT the
+   `unit([0.5,0,1])` t6's comment claims** — it was detuned since this spec was
+   written (so t1–t4 test a contained cap ellipse). With `[1,0,3]`, r=0.25, the
+   cylinder's max x-extent within the box `z∈[0,1]` is **0.917 < 1** — it never
+   reaches the `x=1` face. **No side exit, no corner.** t6's output is watertight
+   (`unpaired=0`), on-surface to `8.3e-17`, `vol=1.338`, `vert_ell_junction=0` —
+   structurally identical to the valid *contained* config. The specified detector
+   ("vertex on ≥2 cutting planes") cannot even fire.
+2. **Even the GENUINE side-exit `unit([0.5,0,1])` is handled CORRECTLY.** Retuning
+   the fixture, the cylinder crosses `x=0`/`x=1` and produces `vert_ell_junction=4`
+   (cap×side corners) — but production resolves each via the existing PR-KV11
+   `line(planeA∩planeB)∩cylinder` junction relocation, giving a **watertight,
+   on-surface-to-`2.2e-16`, `vol=1.330`** union. This confirms this spec's own §2
+   ("NOT a production bug").
+
+**Conclusion.** A loud STOP on the side-exit/corner would REGRESS a correct,
+watertight, on-surface union and (via `vert_ell_junction`) break the legitimate
+PR-KV11 box-edge junction path — a P9 violation (Err on a right answer). The real
+fix (migrate `t5` to a contained fixture) is already done and `t5` passes.
+
+**RESOLUTION (implemented 2026-07-01).** t6 was repurposed as a POSITIVE test —
+`t6_e2e_side_exit_corner_resolves_correctly`. A dedicated `side_exit_oblique_cylinder()`
+fixture (`dir=unit([0.5,0,1])`, r=0.25, centered — the wall reaches `x=0` at `z=0`
+and `x=1` at `z=1`, distinct from the contained `oblique_cylinder()` t1–t5 use)
+drives `boolean(cyl ∪ box)` through the NATIVE backend (matching t5) and asserts:
+`Ok` + watertight (`unpaired=0`) + χ=2 + every output vertex on the true cylinder
+lateral/caps or a box face ≤ `TAU_MODEL` + a genuine cap×side corner present
+(a vertex on a cap plane AND a side plane AND the cylinder — non-vacuous) +
+determinism. **No production change**: `IntersectionCornerUnsupported` was NOT
+added (no principled use); `lib.rs` is untouched. yang-rs suite green (424),
+fmt + yr11 clippy clean.

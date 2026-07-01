@@ -482,6 +482,83 @@ fn ellipse_residual(x: [f64; 3], cap_z: f64) -> f64 {
 }
 
 // =========================================================================
+// CONTAINED OBLIQUE config (PR-YR11 finish, spec §5). A *clearly oblique*
+// cylinder (so SSI still returns an Ellipse), but tilted LESS and CENTERED so
+// that BOTH cap ellipses (z=0 and z=1) and the entire lateral wall over
+// z∈[0,1] stay strictly inside the unit box [0,1]² — no side-face exit, no
+// corner / triple-point. This is the in-scope "plane ∩ cylinder → single cap
+// ellipse" configuration. The unit `canonical_box()` is reused unchanged; only
+// the cylinder changes, so the cap planes stay z=0 / z=1.
+//
+// Numbers (verified numerically below in `t5`'s containment asserts):
+//   dir        = unit([0.25, 0, 1])  →  [0.242536, 0, 0.970143]
+//   cos tilt   = dir·ẑ = 0.970143      (≤ 1 − TAU_MODEL by a wide margin ⇒ SSI Ellipse)
+//   radius r   = 0.18                  (semi-minor b)
+//   semi-major a = r/|cos tilt| = 0.18/0.970143 = 0.185540
+//   axis_point = [0.25, 0.5, -0.5]     (chosen so axis ∩ z=0.5 plane = (0.5,0.5))
+//   height h   = 3.0                   (protrudes both caps: z∈[-0.5, 2.4104])
+//
+// Containment arithmetic (x-z tilt only, so dir[1]=0 ⇒ center_y ≡ 0.5):
+//   axis param to reach plane z=c:  s_c = (c + 0.5)/dir[2]
+//   center_x(c) = axis_point[0] + dir[0]·s_c
+//     z=0 → center_x=0.375, x∈[0.189460, 0.560540], y∈[0.320, 0.680]
+//     z=1 → center_x=0.625, x∈[0.439460, 0.810540], y∈[0.320, 0.680]
+//   lateral wall over z∈[0,1]:  x∈[0.189460, 0.810540]  (margin ≈ 0.189 to x=0 and x=1)
+//   y extent is center_y ± b = 0.5 ± 0.18 = [0.32, 0.68] at every z.
+// Every extent lies inside (0,1) with margin ≈ 0.19, so the cylinder is fully
+// contained: a single cap ellipse on each z-plane, no side-face exit.
+// =========================================================================
+
+const CONTAINED_CYL_RADIUS: f64 = 0.18;
+
+/// The contained oblique cylinder's axis direction (unit).
+fn contained_oblique_dir() -> [f64; 3] {
+    unit([0.25, 0.0, 1.0])
+}
+
+/// The contained oblique cylinder's axis_point, chosen so the axis pierces the
+/// plane z=0.5 at exactly (0.5, 0.5) (centered through the box). With
+/// `axis_point[2] = -0.5`, the axis reaches z=0.5 at param `s_mid = 1.0/dir[2]`,
+/// so `axis_point[xy] = 0.5 − dir[xy]·s_mid` lands the section center at (0.5,0.5).
+fn contained_oblique_axis_point() -> [f64; 3] {
+    let dir = contained_oblique_dir();
+    let s_mid = 1.0 / dir[2];
+    [0.5 - dir[0] * s_mid, 0.5 - dir[1] * s_mid, -0.5]
+}
+
+/// The contained oblique cylinder (height 3.0 ⇒ protrudes both caps). Its
+/// section by a z=const plane is an ELLIPSE contained in [0,1]².
+fn contained_oblique_cylinder() -> BRep {
+    cylinder_brep(
+        contained_oblique_axis_point(),
+        contained_oblique_dir(),
+        CONTAINED_CYL_RADIUS,
+        3.0,
+    )
+}
+
+/// The contained oblique cylinder's analytical lateral surface (ssi-rs oracle).
+fn contained_oblique_cylinder_surface() -> Surface {
+    Surface::Cylinder {
+        axis_point: Point3::from(contained_oblique_axis_point()),
+        axis_dir: Vector3::from(contained_oblique_dir()),
+        radius: CONTAINED_CYL_RADIUS,
+    }
+}
+
+/// Cylinder radial residual `|dist(x, contained-axis) − r|`.
+fn contained_cyl_radial_residual(x: [f64; 3]) -> f64 {
+    let r = dist_point_to_line(x, contained_oblique_axis_point(), contained_oblique_dir());
+    (r - CONTAINED_CYL_RADIUS).abs()
+}
+
+/// Plane residual `|n·x + d|` for the cap plane at z=`cap_z` (caps unchanged).
+fn contained_plane_residual(x: [f64; 3], cap_z: f64) -> f64 {
+    let (normal, d) = cap_plane(cap_z);
+    (dot(x, normal.as_array()) + d).abs()
+}
+
+// =========================================================================
 // `ortho_basis` re-implemented in-test (used by the oblique surface sampler;
 // matches lib.rs's basis, the SAME frame the oblique ring fixture uses).
 // =========================================================================
@@ -1230,10 +1307,14 @@ fn t4_oblique_no_inverted_tris_and_tangent_order() {
 }
 
 // =========================================================================
-// E2E (env-gated on CHERCHI2022_BIN) — real-sidecar OBLIQUE cylinder ∪ box.
-// Mirrors yr10 t8. Asserts on-ellipse + watertight + Ellipse edge on the REAL
-// mesh-boolean output. LOUD eprintln skip when the binary is absent (never a
-// silent pass). RED: production STOPs on the Ellipse edge even on the real mesh.
+// E2E (env-gated on CHERCHI2022_BIN) — real-sidecar CONTAINED oblique cylinder
+// ∪ box. PR-YR11 finish (Option 1): migrated from the canonical `oblique_*`
+// fixture (which pokes out the x=1 SIDE face — a side-face-exit/corner case that
+// is OUT OF SCOPE, now LOUD-stopped by t6) to a fully *contained* oblique
+// cylinder. Asserts on-ellipse + watertight + Ellipse edge on the REAL
+// mesh-boolean output, PLUS determinism. Every structural assertion of the old
+// t5 is preserved; only the fixture and the residual oracles (→ CONTAINED) move.
+// LOUD eprintln skip when the binary is absent (never a silent pass).
 // =========================================================================
 
 #[test]
@@ -1242,8 +1323,72 @@ fn t5_e2e_oblique_cylinder_union_box_on_ellipse() {
         eprintln!("[yr11] SKIP: native FFI shim not linked (stub build)");
         return;
     };
-    let cyl = oblique_cylinder();
+    let cyl = contained_oblique_cylinder();
     let bx = canonical_box();
+
+    // --- Containment verification (numeric, in-test). Confirms BOTH cap
+    // ellipses and the entire lateral wall over z∈[0,1] stay strictly inside
+    // the unit box [0,1]² with margin — so this is the in-scope single-cap-
+    // ellipse config (no side-face exit, no corner). ---
+    {
+        let dir = contained_oblique_dir();
+        let ap = contained_oblique_axis_point();
+        let a = CONTAINED_CYL_RADIUS / dir[2].abs(); // semi-major
+        let b = CONTAINED_CYL_RADIUS; // semi-minor (along y; dir[1]=0)
+                                      // Clearly oblique ⇒ SSI returns Ellipse (|cos tilt| ≤ 1 − TAU_MODEL,
+                                      // with a wide margin).
+        assert!(
+            dir[2].abs() <= 1.0 - TAU_MODEL,
+            "fixture must be clearly oblique (|cos tilt|={} ≤ 1 − TAU_MODEL)",
+            dir[2].abs()
+        );
+        assert!(
+            a > b,
+            "oblique ⇒ semi-major a={a} must exceed semi-minor b={b}"
+        );
+        // Sweep z∈[0,1]; the section ellipse on plane z=c has center
+        // (center_x(c), 0.5), x-half-extent a, y-half-extent b.
+        let mut min_x = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        for k in 0..=1000 {
+            let z = k as f64 / 1000.0;
+            let s_c = (z - ap[2]) / dir[2]; // axis param reaching plane z=c
+            let center_x = ap[0] + dir[0] * s_c;
+            min_x = min_x.min(center_x - a);
+            max_x = max_x.max(center_x + a);
+        }
+        let center_y = 0.5;
+        let margin = 0.05; // require ≥ this clearance from every box wall
+        assert!(
+            min_x > margin && max_x < 1.0 - margin,
+            "lateral wall x∈[{min_x}, {max_x}] must stay inside (0,1) with margin {margin}"
+        );
+        assert!(
+            center_y - b > margin && center_y + b < 1.0 - margin,
+            "cap-ellipse y∈[{}, {}] must stay inside (0,1) with margin {margin}",
+            center_y - b,
+            center_y + b
+        );
+    }
+
+    // INDEPENDENT ssi-rs oracle: the CONTAINED oblique cylinder ∩ z=0 plane
+    // really is an Ellipse, so production exercises the ellipse path (mirrors
+    // t2's classification oracle, on the contained surface).
+    {
+        let cyl_q = surface_to_quadric(contained_oblique_cylinder_surface());
+        let plane_q = surface_to_quadric(Surface::Plane {
+            normal: Vector3::new(0.0, 0.0, -1.0),
+            d: 0.0,
+        });
+        let curves = ssi_rs::intersect(&plane_q, &cyl_q)
+            .expect("oracle: contained oblique cap section must intersect");
+        assert!(
+            curves
+                .iter()
+                .any(|c| matches!(c, ssi_rs::SsiCurve::Ellipse { .. })),
+            "oracle: contained oblique cylinder ∩ z-plane must yield an Ellipse, got {curves:?}"
+        );
+    }
 
     let r =
         boolean(&cyl, &bx, BoolOp::Union, &sb).expect("yr11 E2E: oblique cylinder ∪ box must Ok");
@@ -1270,14 +1415,15 @@ fn t5_e2e_oblique_cylinder_union_box_on_ellipse() {
     );
 
     // On-ellipse: every cap-ring intersection-edge vertex is on BOTH the true
-    // cylinder and the cap plane within TAU_MODEL (recomputed independently).
+    // (CONTAINED) cylinder and the cap plane within TAU_MODEL (recomputed
+    // independently from the fixture, NOT via production).
     let mut after_max_dev = 0.0_f64;
     for e in &ellipses {
         let (s, t) = edge_endpoints(&r, e);
         for ep in [s, t] {
             let cap_z = cap_z_of(ep);
-            let radial = cyl_radial_residual(ep);
-            let planar = plane_residual(ep, cap_z);
+            let radial = contained_cyl_radial_residual(ep);
+            let planar = contained_plane_residual(ep, cap_z);
             after_max_dev = after_max_dev.max(radial.max(planar));
             assert!(
                 radial <= TAU_MODEL,
@@ -1292,5 +1438,143 @@ fn t5_e2e_oblique_cylinder_union_box_on_ellipse() {
     assert!(
         after_max_dev <= TAU_MODEL,
         "yr11 E2E: max ellipse deviation after relocate must be ≤ TAU_MODEL, got {after_max_dev}"
+    );
+
+    // Determinism: a second identical run is byte-identical.
+    let r2 =
+        boolean(&cyl, &bx, BoolOp::Union, &sb).expect("yr11 E2E: determinism run 2 must also Ok");
+    assert_eq!(
+        r, r2,
+        "yr11 E2E: identical inputs must produce a byte-identical output BRep"
+    );
+}
+
+// =========================================================================
+// t6 — the SIDE-FACE-EXIT / corner case RESOLVES CORRECTLY (positive test).
+// PR-YR11 finish (repurposed 2026-07-01, spec §10): a GENUINE side-exit oblique
+// cylinder — dir=unit([0.5,0,1]), centered so the wall reaches x=0 at z=0 and
+// x=1 at z=1 within the box — produces cap×side CORNER junctions (§4.5.2 triple
+// points at the box edges, where a cap-plane ellipse meets a side-plane ellipse).
+// Production RESOLVES these via the PR-KV11 `line(planeA∩planeB)∩cylinder`
+// junction relocation into a CORRECT union. Instrument-first (spec §10) proved
+// the output is watertight + on-surface to 2.2e-16 — NOT a defect, so a loud STOP
+// would REGRESS a correct union and the PR-KV11 path (P9). This locks the correct
+// behavior in: Ok + watertight χ=2 + every output vertex on the true cylinder or
+// a box face ≤ TAU_MODEL + a genuine cap×side corner present (non-vacuous) +
+// determinism. Native backend; loud skip when unavailable.
+// =========================================================================
+
+/// A GENUINE side-exit oblique cylinder: dir=unit([0.5,0,1]) (== unit([1,0,2])),
+/// r=0.25, axis centered so it passes (0.5,0.5) at z=0.5. Within the box z∈[0,1]
+/// the wall reaches x=0 (at z=0) and x=1 (at z=1), poking out BOTH side faces →
+/// cap×side corner junctions. Distinct from the SHARED `oblique_cylinder()`
+/// (dir=unit([1,0,3]), fully contained in x) used by t1–t5.
+const SIDE_EXIT_RADIUS: f64 = 0.25;
+fn side_exit_dir() -> [f64; 3] {
+    unit([1.0, 0.0, 2.0])
+}
+fn side_exit_axis_point() -> [f64; 3] {
+    let d = side_exit_dir();
+    [0.5 - 1.5 * d[0], 0.5 - 1.5 * d[1], 0.5 - 1.5 * d[2]]
+}
+fn side_exit_oblique_cylinder() -> BRep {
+    cylinder_brep(
+        side_exit_axis_point(),
+        side_exit_dir(),
+        SIDE_EXIT_RADIUS,
+        3.0,
+    )
+}
+/// Min residual of `x` to any of the side-exit cylinder's surfaces (lateral +
+/// its two end caps) OR any of the 6 unit-box face planes — the "on some input
+/// surface" oracle, recomputed independently of production. The cylinder pokes
+/// out top & bottom, so its CAP planes are output-boundary surfaces too.
+fn side_exit_on_surface_residual(x: [f64; 3]) -> f64 {
+    let d = side_exit_dir();
+    let bottom = side_exit_axis_point();
+    let top = add(bottom, scale(d, 3.0)); // height 3.0
+    let cyl_lateral = (dist_point_to_line(x, bottom, d) - SIDE_EXIT_RADIUS).abs();
+    [
+        // Cylinder end caps (planes ⟂ axis through the two centers).
+        dot(sub(x, bottom), d).abs(),
+        dot(sub(x, top), d).abs(),
+        // 6 unit-box faces: |x|, |x−1|, |y|, |y−1|, |z|, |z−1|.
+        x[0].abs(),
+        (x[0] - 1.0).abs(),
+        x[1].abs(),
+        (x[1] - 1.0).abs(),
+        x[2].abs(),
+        (x[2] - 1.0).abs(),
+    ]
+    .iter()
+    .fold(cyl_lateral, |m, &p| m.min(p))
+}
+
+#[test]
+fn t6_e2e_side_exit_corner_resolves_correctly() {
+    let Some(mb) = yang_rs::native_backend() else {
+        eprintln!("[yr11] SKIP: native FFI shim not linked (stub build)");
+        return;
+    };
+    let cyl = side_exit_oblique_cylinder();
+    let bx = canonical_box();
+
+    let r = boolean(&cyl, &bx, BoolOp::Union, &mb).expect(
+        "yr11 t6: the side-exit corner union must SUCCEED — production resolves cap×side \
+         junctions via PR-KV11 line∩cylinder relocation (spec §10)",
+    );
+    let mesh = r.as_mesh();
+
+    // Watertight, closed, orientable 2-manifold (χ=2 sphere topology).
+    assert_eq!(
+        unpaired_half_edges(mesh),
+        0,
+        "yr11 t6: side-exit union must be watertight"
+    );
+    assert_eq!(
+        euler_characteristic(mesh),
+        2,
+        "yr11 t6: side-exit union must be a genus-0 closed surface (χ=2)"
+    );
+
+    // Every output vertex lies on the true cylinder or a box face ≤ TAU_MODEL —
+    // the corner junctions were relocated onto their EXACT surfaces, not snapped
+    // onto one plane and left off the other.
+    let mut worst = 0.0_f64;
+    for v in r.vertices() {
+        worst = worst.max(side_exit_on_surface_residual(v.point.as_array()));
+    }
+    assert!(
+        worst <= TAU_MODEL,
+        "yr11 t6: every output vertex must lie on the cylinder or a box face ≤ TAU_MODEL, \
+         got worst={worst}"
+    );
+
+    // Non-vacuous: the fixture MUST actually produce a genuine cap×side CORNER — a
+    // vertex on a cap plane (z=0/1) AND a side plane (x=0/1) AND the cylinder,
+    // i.e. the cylinder crossing a box EDGE. (A plain box corner sits on box
+    // planes but NOT the cylinder, so it does not count.) Otherwise the §4.5.2
+    // corner path is not exercised and the test is vacuous.
+    let has_corner = r.vertices().iter().any(|v| {
+        let x = v.point.as_array();
+        let on_cap = x[2].abs() <= TAU_MODEL || (x[2] - 1.0).abs() <= TAU_MODEL;
+        let on_side = x[0].abs() <= TAU_MODEL || (x[0] - 1.0).abs() <= TAU_MODEL;
+        let on_cyl = (dist_point_to_line(x, side_exit_axis_point(), side_exit_dir())
+            - SIDE_EXIT_RADIUS)
+            .abs()
+            <= TAU_MODEL;
+        on_cap && on_side && on_cyl
+    });
+    assert!(
+        has_corner,
+        "yr11 t6: fixture must produce a genuine cap×side corner (cylinder crossing a box edge) \
+         — else the §4.5.2 corner path is not exercised"
+    );
+
+    // Determinism: a second identical run is byte-identical.
+    let r2 = boolean(&cyl, &bx, BoolOp::Union, &mb).expect("yr11 t6: determinism run 2");
+    assert_eq!(
+        r, r2,
+        "yr11 t6: identical inputs must produce a byte-identical BRep"
     );
 }
