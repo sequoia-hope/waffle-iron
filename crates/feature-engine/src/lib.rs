@@ -241,15 +241,27 @@ impl Engine {
                     None
                 }
             }
-            Operation::Extrude { params } if params.merge || params.cut => {
-                rebuild::find_consumed_feature_ids(feature, &self.feature_results, &self.tree)
-                    .first()
-                    .map(|fid| (*fid, FeatureTree::body_id(*fid, &OutputKey::Main)))
+            Operation::Extrude { .. } => {
+                // find_consumed_feature_ids honors the normalized combine
+                // (NewBody ⇒ none; Add/Cut/Intersect ⇒ resolved targets).
+                rebuild::find_consumed_feature_ids(
+                    feature,
+                    &self.feature_results,
+                    &self.tree,
+                    &self.consumed_features,
+                )
+                .first()
+                .map(|fid| (*fid, FeatureTree::body_id(*fid, &OutputKey::Main)))
             }
             Operation::Revolve { params } if params.merge || params.cut => {
-                rebuild::find_consumed_feature_ids(feature, &self.feature_results, &self.tree)
-                    .first()
-                    .map(|fid| (*fid, FeatureTree::body_id(*fid, &OutputKey::Main)))
+                rebuild::find_consumed_feature_ids(
+                    feature,
+                    &self.feature_results,
+                    &self.tree,
+                    &self.consumed_features,
+                )
+                .first()
+                .map(|fid| (*fid, FeatureTree::body_id(*fid, &OutputKey::Main)))
             }
             _ => None,
         }

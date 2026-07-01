@@ -140,7 +140,12 @@ pub fn rebuild(
             // re-compute its consumption tracking from its carried-forward result.
             // Without this, incremental rebuilds lose consumption relationships
             // established by earlier features (e.g., e1 consumed by e2's union).
-            let consumed_ids = find_consumed_feature_ids(feature, &state.feature_results, tree);
+            let consumed_ids = find_consumed_feature_ids(
+                feature,
+                &state.feature_results,
+                tree,
+                &state.consumed_features,
+            );
             if !consumed_ids.is_empty() {
                 if let Some(result) = state.feature_results.get(&feature.id) {
                     let union_failed = result
@@ -162,9 +167,20 @@ pub fn rebuild(
         resolve_feature_refs(feature, &state.feature_results, &mut state.warnings);
 
         // Track which features' solids would be consumed by a successful merge/boolean
-        let consumed_ids = find_consumed_feature_ids(feature, &state.feature_results, tree);
+        let consumed_ids = find_consumed_feature_ids(
+            feature,
+            &state.feature_results,
+            tree,
+            &state.consumed_features,
+        );
 
-        match execute_feature(feature, kb, &state.feature_results, tree) {
+        match execute_feature(
+            feature,
+            kb,
+            &state.feature_results,
+            tree,
+            &state.consumed_features,
+        ) {
             Ok(result) => {
                 for w in &result.diagnostics.warnings {
                     state.warnings.push(format!("{}: {}", feature.name, w));
@@ -243,6 +259,7 @@ fn execute_feature(
     kb: &mut dyn KernelBundle,
     feature_results: &HashMap<Uuid, OpResult>,
     tree: &FeatureTree,
+    already_consumed: &std::collections::HashSet<Uuid>,
 ) -> Result<OpResult, EngineError> {
     match &feature.operation {
         Operation::Sketch { .. } => {
@@ -318,7 +335,16 @@ fn execute_feature(
             let is_cut = matches!(eff.mode, CombineMode::Cut);
             let combine_targets = match eff.mode {
                 CombineMode::NewBody => Vec::new(),
-                _ => resolve_combine_targets(&eff.targets, feature, feature_results, tree)?,
+                _ => match &eff.targets {
+                    // Auto default: bodies that share a face with the sketch.
+                    TargetStrategy::ShareAFace => resolve_share_a_face(
+                        params.sketch_id,
+                        feature_results,
+                        tree,
+                        already_consumed,
+                    ),
+                    _ => resolve_combine_targets(&eff.targets, feature, feature_results, tree)?,
+                },
             };
 
             // Resolve primary depth from depth mode
@@ -1012,6 +1038,7 @@ pub(crate) fn find_consumed_feature_ids(
     feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
     tree: &FeatureTree,
+    already_consumed: &std::collections::HashSet<Uuid>,
 ) -> Vec<Uuid> {
     match &feature.operation {
         Operation::Extrude { params } => {
@@ -1037,7 +1064,15 @@ pub(crate) fn find_consumed_feature_ids(
                                 _ => None,
                             })
                             .collect(),
-                        TargetStrategy::ShareAFace => vec![],
+                        TargetStrategy::ShareAFace => resolve_share_a_face(
+                            params.sketch_id,
+                            feature_results,
+                            tree,
+                            already_consumed,
+                        )
+                        .into_iter()
+                        .map(|(id, _)| id)
+                        .collect(),
                     }
                 }
             }
@@ -1188,6 +1223,42 @@ fn find_solid_handle(
             output_key, feature_id
         ),
     })
+}
+
+/// Compute the "share-a-face" auto target set (spec §4.3).
+///
+/// **N-mb-3a — anchor-ownership path (a):** the body whose face the sketch is
+/// drawn on, read from the sketch's `plane` GeomRef anchor. A sketch drawn on a
+/// datum plane has a `Datum` anchor and yields no target (⇒ a new body). The
+/// geometric plane-coincidence + profile-overlap path (b) and multi-body
+/// coincidence are N-mb-3b. Consumed (non-live) bodies are excluded.
+fn resolve_share_a_face(
+    sketch_id: Uuid,
+    feature_results: &HashMap<Uuid, OpResult>,
+    tree: &FeatureTree,
+    already_consumed: &std::collections::HashSet<Uuid>,
+) -> Vec<(Uuid, waffle_types::kernel::KernelSolidHandle)> {
+    let sketch = match find_sketch_in_tree(sketch_id, tree) {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    if let waffle_types::Anchor::FeatureOutput {
+        feature_id,
+        output_key,
+    } = &sketch.plane.anchor
+    {
+        // The sketch is drawn on a body's face → that body is the auto target,
+        // unless it was already consumed by an earlier feature (not live).
+        if !already_consumed.contains(feature_id) {
+            if let Some(result) = feature_results.get(feature_id) {
+                if let Some((_, body)) = result.outputs.iter().find(|(k, _)| k == output_key) {
+                    out.push((*feature_id, body.handle.clone()));
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Resolve a normalized combine's target strategy into the concrete set of
@@ -1762,6 +1833,7 @@ mod tests {
             &mut waffle_types::kernel::MockKernel::new(),
             &results,
             &tree,
+            &std::collections::HashSet::new(),
         );
         assert!(result.is_ok(), "PointNormal datum plane should succeed");
         assert!(
@@ -1791,6 +1863,7 @@ mod tests {
             &mut waffle_types::kernel::MockKernel::new(),
             &results,
             &tree,
+            &std::collections::HashSet::new(),
         );
         assert!(result.is_ok(), "Offset from built-in should succeed");
 
@@ -2104,6 +2177,7 @@ mod tests {
             &mut waffle_types::kernel::MockKernel::new(),
             &results,
             &tree,
+            &std::collections::HashSet::new(),
         );
         assert!(result.is_err(), "Zero normal should fail");
         let err = result.unwrap_err().to_string();
@@ -2135,6 +2209,7 @@ mod tests {
             &mut waffle_types::kernel::MockKernel::new(),
             &results,
             &tree,
+            &std::collections::HashSet::new(),
         );
         assert!(result.is_err(), "Missing base plane should fail");
         let err = result.unwrap_err().to_string();
@@ -2429,6 +2504,7 @@ mod tests {
             &mut waffle_types::kernel::MockKernel::new(),
             &results,
             &tree,
+            &std::collections::HashSet::new(),
         )
         .unwrap();
         results.insert(first_plane.id, r1);
