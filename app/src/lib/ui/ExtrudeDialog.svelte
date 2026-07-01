@@ -11,7 +11,12 @@
 		setProfilePickMode,
 		getProfilePickMode,
 		getDocumentDisplayUnit,
-		getBodies
+		getBodies,
+		getExtrudeTargetPick,
+		setExtrudeTargetPickActive,
+		setExtrudeTargetIds,
+		toggleExtrudeTargetId,
+		clearExtrudeTargets
 	} from '$lib/engine/store.svelte.js';
 	import { showToast } from '$lib/ui/toast.svelte.js';
 	import { log } from '$lib/engine/logger.js';
@@ -26,7 +31,10 @@
 	let combine = $state('Add');
 	// Target selection: 'Auto' (share-a-face, targets=null) or 'Choose' (explicit).
 	let targetMode = $state('Auto');
-	let selectedTargetIds = $state([]);
+	// Selected target ids + viewport-pick flag live in the store so a body can be
+	// picked either from this list or by clicking it in the 3D viewport.
+	let selectedTargetIds = $derived(getExtrudeTargetPick().ids);
+	let targetPickActive = $derived(getExtrudeTargetPick().active);
 	// Derived legacy cut flag for the ghost preview.
 	let cut = $derived(combine === 'Cut');
 	let bodies = $derived(getBodies());
@@ -38,6 +46,14 @@
 	let showDepthInput = $derived(depthMode === 'Blind');
 	let depthLabel = $derived(secondDir === 'Symmetric' ? 'Depth (each side)' : 'Depth');
 	let showSecondDepthInput = $derived(secondDir === 'Blind');
+
+	// Don't let viewport target-pick linger once we leave "Choose bodies" — else
+	// body clicks would keep hijacking normal face selection.
+	$effect(() => {
+		if ((combine === 'NewBody' || targetMode !== 'Choose') && targetPickActive) {
+			setExtrudeTargetPickActive(false);
+		}
+	});
 
 	let regions = $derived(dialogState?.regions ?? []);
 	let availableSketches = $derived(dialogState?.availableSketches ?? []);
@@ -54,16 +70,18 @@
 				else combine = 'Add';
 				if (Array.isArray(ep.targets)) {
 					targetMode = 'Choose';
-					selectedTargetIds = ep.targets
-						.map((t) =>
-							t?.anchor?.feature_id
-								? `${t.anchor.feature_id}/${t.anchor.output_key?.type ?? 'Main'}`
-								: null
-						)
-						.filter(Boolean);
+					setExtrudeTargetIds(
+						ep.targets
+							.map((t) =>
+								t?.anchor?.feature_id
+									? `${t.anchor.feature_id}/${t.anchor.output_key?.type ?? 'Main'}`
+									: null
+							)
+							.filter(Boolean)
+					);
 				} else {
 					targetMode = 'Auto';
-					selectedTargetIds = [];
+					clearExtrudeTargets();
 				}
 				depthMode = ep.depth_mode?.type ?? 'Blind';
 				if (ep.symmetric) secondDir = 'Symmetric';
@@ -75,7 +93,7 @@
 				depthInput = '10';
 				combine = 'Add';
 				targetMode = 'Auto';
-				selectedTargetIds = [];
+				clearExtrudeTargets();
 				depthMode = 'Blind';
 				secondDir = 'None';
 				secondDepthInput = '10';
@@ -174,15 +192,12 @@
 		};
 	}
 
-	function toggleTarget(bodyId, checked) {
-		if (checked) {
-			if (!selectedTargetIds.includes(bodyId)) selectedTargetIds = [...selectedTargetIds, bodyId];
-		} else {
-			selectedTargetIds = selectedTargetIds.filter((id) => id !== bodyId);
-		}
+	function toggleTarget(bodyId) {
+		toggleExtrudeTargetId(bodyId);
 	}
 
 	function handleCancel() {
+		clearExtrudeTargets();
 		hideExtrudeDialog();
 	}
 
@@ -339,13 +354,25 @@
 					</select>
 				</div>
 				{#if targetMode === 'Choose'}
+					<div class="field">
+						<label for="extrude-target-pick">In viewport</label>
+						<button
+							id="extrude-target-pick"
+							class="btn btn-flip"
+							class:flipped={targetPickActive}
+							data-testid="extrude-target-pick"
+							onclick={() => setExtrudeTargetPickActive(!targetPickActive)}
+						>
+							{targetPickActive ? 'Picking… (click bodies)' : 'Pick in viewport'}
+						</button>
+					</div>
 					<div class="target-list" data-testid="extrude-target-list">
 						{#each bodies as body}
 							<label class="target-item">
 								<input
 									type="checkbox"
 									checked={selectedTargetIds.includes(body.bodyId)}
-									onchange={(e) => toggleTarget(body.bodyId, e.target.checked)}
+									onchange={() => toggleTarget(body.bodyId)}
 								/>
 								<span>{body.name}</span>
 							</label>

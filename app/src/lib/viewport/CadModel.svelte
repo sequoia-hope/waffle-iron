@@ -15,6 +15,8 @@
 		getSelectOtherState,
 		setSelectOtherState,
 		getProfilePickMode,
+		getExtrudeTargetPick,
+		toggleExtrudeTargetId,
 		isProjectToolActive,
 		getSelectedBodyId,
 		getHoveredBodyId,
@@ -422,6 +424,15 @@
 	function handleClick(event, meshIndex) {
 		const mesh = engineMeshes[meshIndex];
 		if (!mesh || !mesh.faceRanges.length) return;
+
+		// Extrude target-body pick mode: clicking a body toggles it in the dialog's
+		// target set instead of selecting a face. Guarded — no effect when inactive.
+		if (getExtrudeTargetPick().active && mesh.bodyId) {
+			event.stopPropagation();
+			toggleExtrudeTargetId(mesh.bodyId);
+			return;
+		}
+
 		const faceIndex = event.faceIndex;
 		if (faceIndex == null) return;
 

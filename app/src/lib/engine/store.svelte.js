@@ -174,6 +174,12 @@ let extrudePreviewParams = $state(null);
 /** @type {{ target: 'extrude' | 'revolve' } | null} */
 let profilePickMode = $state(null);
 
+// Extrude dialog "Choose bodies" target selection, shared between the dialog and
+// the viewport so a body can be picked by clicking it in 3D. `active` gates the
+// viewport click branch; `ids` are the selected body ids (see getBodies()).
+let extrudeTargetPickActive = $state(false);
+let extrudeTargetIds = $state([]);
+
 /** @type {boolean} */
 let axisPickMode = $state(false);
 
@@ -2904,6 +2910,27 @@ export function setProfilePickMode(mode) {
 	// (including sub-regions of overlapping shapes). Fire-and-forget; the
 	// renderer falls back to whole-loop profiles until the regions arrive.
 	if (mode) computeAllSketchRegions();
+}
+
+// -- Extrude target-body picking (shared dialog ↔ viewport) --
+export function getExtrudeTargetPick() {
+	return { active: extrudeTargetPickActive, ids: extrudeTargetIds };
+}
+export function setExtrudeTargetPickActive(v) {
+	extrudeTargetPickActive = !!v;
+}
+export function setExtrudeTargetIds(ids) {
+	extrudeTargetIds = Array.isArray(ids) ? [...ids] : [];
+}
+export function toggleExtrudeTargetId(bodyId) {
+	if (!bodyId) return;
+	extrudeTargetIds = extrudeTargetIds.includes(bodyId)
+		? extrudeTargetIds.filter((id) => id !== bodyId)
+		: [...extrudeTargetIds, bodyId];
+}
+export function clearExtrudeTargets() {
+	extrudeTargetIds = [];
+	extrudeTargetPickActive = false;
 }
 
 /**
