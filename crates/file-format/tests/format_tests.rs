@@ -476,6 +476,40 @@ fn load_old_file_without_body_names() {
 }
 
 #[test]
+fn load_old_file_without_combine() {
+    // A document saved before the optional-boolean fields (N-mb-1) existed has
+    // no `combine`/`targets` on its extrudes. serde default must load them as
+    // None (⇒ the legacy cut/merge path) rather than failing to load. This is
+    // the additive-field back-compat guarantee that lets us skip a
+    // FORMAT_VERSION bump (see specs/optional_booleans_multibody_extrude.md §6).
+    let tree = make_simple_tree();
+    let json = save_project(&tree, &ProjectMetadata::new("Legacy"));
+
+    // Strip combine/targets from the extrude feature's params to emulate a file
+    // written before those fields existed.
+    let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    let features = value["tabs"][0]["kind"]["features"]["features"]
+        .as_array_mut()
+        .expect("features array");
+    for feat in features.iter_mut() {
+        if let Some(params) = feat["operation"]["params"].as_object_mut() {
+            params.remove("combine");
+            params.remove("targets");
+        }
+    }
+    let stripped = serde_json::to_string(&value).unwrap();
+
+    let (loaded_tree, _) = load_project(&stripped).unwrap();
+    match &loaded_tree.features[1].operation {
+        Operation::Extrude { params } => {
+            assert!(params.combine.is_none(), "combine must default to None");
+            assert!(params.targets.is_none(), "targets must default to None");
+        }
+        other => panic!("Expected Extrude, got {:?}", other),
+    }
+}
+
+#[test]
 fn load_preserves_feature_ids() {
     let tree = make_simple_tree();
     let original_ids: Vec<Uuid> = tree.features.iter().map(|f| f.id).collect();

@@ -182,15 +182,19 @@ and lets body-name inheritance propagate custom names from each consumed target.
 
 - **Serde:** `combine` and `targets` are `#[serde(default)]`; old files lack them
   ⇒ `combine = None` ⇒ legacy normalization ⇒ identical behavior. No
-  `FORMAT_VERSION` bump is required for *loading* (additive optional fields), BUT
-  a new `CombineMode` enum written into new files is a variant older binaries
-  can't read — per the file-format agent's note, **bump `FORMAT_VERSION` to 4**
-  when writers start emitting `combine`, and add a `migrate.rs` v3→v4 arm
-  (no-op for content; the compat is purely additive) + a `load.rs` note. New
-  files with `combine=Some(..)` set `version: 4`.
-- **`migrate.rs` v3→v4:** no field rewriting needed (legacy files already load
-  via `combine=None`). The bump exists so a v4 file (which may contain `combine`)
-  is not silently opened by a v3-only reader.
+  `FORMAT_VERSION` bump is required for *loading* (additive optional fields).
+- **DECISION (N-mb-4): the `FORMAT_VERSION` 3→4 bump is DEFERRED, not done.**
+  The bump's only value is letting a strictly-older binary *reject* a file that
+  contains `combine` (rather than silently ignoring the unknown field and
+  treating the extrude as legacy). Weighed against that: (a) the fields are
+  serde-default so every old file loads and every new file loads on this
+  codebase; (b) this is a personal experiment with no released older binaries to
+  protect; (c) bumping breaks existing tests that pin v3 semantics
+  (`migrate_unsupported_version_returns_error` *expects* `migrate(3,4)` to have no
+  path and error; a hardcoded `version == 3` round-trip assertion) for marginal
+  benefit. When a released version needs protecting, bump then (make `migrate(3,4)`
+  a no-op content migration and update those two tests). The back-compat guarantee
+  is instead pinned by the `load_old_file_without_combine` regression test.
 - **Regression test (required):** `load_old_file_without_combine` — a v3 file
   with `cut`/`merge` but no `combine`/`targets` loads and rebuilds to the same
   geometry as before (mirror `load_old_file_without_body_names`,
