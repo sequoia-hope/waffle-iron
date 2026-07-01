@@ -255,17 +255,15 @@ impl Engine {
                 .first()
                 .map(|fid| (*fid, FeatureTree::body_id(*fid, &OutputKey::Main)))
             }
-            Operation::Revolve { params } if params.merge || params.cut => {
-                rebuild::find_consumed_feature_ids(
-                    feature,
-                    &self.feature_results,
-                    &self.tree,
-                    &self.consumed_features,
-                    None,
-                )
-                .first()
-                .map(|fid| (*fid, FeatureTree::body_id(*fid, &OutputKey::Main)))
-            }
+            Operation::Revolve { .. } => rebuild::find_consumed_feature_ids(
+                feature,
+                &self.feature_results,
+                &self.tree,
+                &self.consumed_features,
+                None,
+            )
+            .first()
+            .map(|fid| (*fid, FeatureTree::body_id(*fid, &OutputKey::Main))),
             _ => None,
         }
     }

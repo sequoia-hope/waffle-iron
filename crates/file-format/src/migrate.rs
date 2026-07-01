@@ -400,6 +400,8 @@ mod tests {
                 name: "Revolve1".to_string(),
                 operation: Operation::Revolve {
                     params: feature_engine::types::RevolveParams {
+                        combine: None,
+                        targets: None,
                         sketch_id: Uuid::new_v4(),
                         profile_index: 0,
                         axis_origin: [10.0, 20.0, 30.0],

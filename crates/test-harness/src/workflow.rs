@@ -871,6 +871,8 @@ impl ModelBuilder {
             UiToEngine::AddFeature {
                 operation: Operation::Revolve {
                     params: RevolveParams {
+                        combine: None,
+                        targets: None,
                         sketch_id,
                         profile_index: 0,
                         axis_origin,

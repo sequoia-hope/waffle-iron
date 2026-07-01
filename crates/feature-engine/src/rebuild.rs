@@ -340,7 +340,10 @@ fn execute_feature(
                 _ => match &eff.targets {
                     // Auto default: bodies that share a face with the sketch.
                     TargetStrategy::ShareAFace => resolve_share_a_face(
-                        params,
+                        params.sketch_id,
+                        params.profile_index,
+                        params.region.as_ref(),
+                        &params.regions,
                         feature,
                         feature_results,
                         tree,
@@ -587,120 +590,7 @@ fn execute_feature(
 
             // Dispatch the boolean combine per the normalized mode + resolved
             // targets. See specs/optional_booleans_multibody_extrude.md §4.
-            let tool_handle = extrude_result
-                .outputs
-                .first()
-                .map(|(_, b)| b.handle.clone())
-                .ok_or_else(|| EngineError::ResolutionFailed {
-                    reason: "Extrude produced no solid output".into(),
-                })?;
-
-            match eff.mode {
-                // Standalone body — no boolean.
-                CombineMode::NewBody => Ok(extrude_result),
-
-                // Union the tool into every target, folding them into one body.
-                CombineMode::Add => {
-                    if combine_targets.is_empty() {
-                        // Add-into-nothing is a benign no-op union → standalone.
-                        // Legacy (`merge`) stays silent to preserve byte-identical
-                        // behavior; an explicit Add with no targets warns.
-                        let mut result = extrude_result;
-                        if !matches!(eff.targets, TargetStrategy::MostRecentLegacy) {
-                            result.diagnostics.warnings.push(
-                                "Add: no target body; body created as standalone.".to_string(),
-                            );
-                        }
-                        return Ok(result);
-                    }
-                    // Fold the targets together, then union the tool.
-                    let mut acc = combine_targets[0].1.clone();
-                    for (_, handle) in &combine_targets[1..] {
-                        acc = execute_boolean(kb, &acc, handle, BooleanKind::Union)?
-                            .outputs
-                            .first()
-                            .map(|(_, b)| b.handle.clone())
-                            .ok_or_else(|| EngineError::ResolutionFailed {
-                                reason: "Add: target union produced no solid".into(),
-                            })?;
-                    }
-                    let legacy = matches!(eff.targets, TargetStrategy::MostRecentLegacy);
-                    match execute_boolean(kb, &acc, &tool_handle, BooleanKind::Union) {
-                        Ok(union_result) => Ok(union_result),
-                        // Legacy auto-union degrades to a standalone body on
-                        // failure (byte-identical to the pre-N-mb-2 behavior);
-                        // an explicit Add propagates the typed error (spec §9).
-                        Err(e) if legacy => {
-                            let mut result = extrude_result;
-                            result.diagnostics.warnings.push(format!(
-                                "Auto-union failed: {}. Body created as standalone.",
-                                e
-                            ));
-                            Ok(result)
-                        }
-                        Err(e) => Err(e.into()),
-                    }
-                }
-
-                // Subtract / intersect the tool from each target INDEPENDENTLY,
-                // yielding one result body per target (feature scope, spec §4.2).
-                CombineMode::Cut | CombineMode::Intersect => {
-                    let kind = if is_cut {
-                        BooleanKind::Subtract
-                    } else {
-                        BooleanKind::Intersect
-                    };
-                    if combine_targets.is_empty() {
-                        // Preserve the legacy wording/behavior for a legacy cut
-                        // with no prior body (invariance); explicit-empty gets the
-                        // new message. Either way it is a loud STOP (spec §9).
-                        let reason = if matches!(eff.targets, TargetStrategy::MostRecentLegacy) {
-                            "Cut extrude requires an existing body to subtract from".to_string()
-                        } else {
-                            format!("{:?} requires at least one target body", eff.mode)
-                        };
-                        return Err(EngineError::ResolutionFailed { reason });
-                    }
-                    // Fold each target's boolean result into one OpResult, re-keying
-                    // the combined bodies (first Main, rest Body{index}). A single
-                    // target is just the len-1 case.
-                    let mut bodies = Vec::new();
-                    let mut created = Vec::new();
-                    let mut deleted = Vec::new();
-                    let mut role_assignments = Vec::new();
-                    for (_, target) in &combine_targets {
-                        let res = execute_boolean(kb, target, &tool_handle, kind)?;
-                        created.extend(res.provenance.created);
-                        deleted.extend(res.provenance.deleted);
-                        role_assignments.extend(res.provenance.role_assignments);
-                        for (_, body) in res.outputs {
-                            bodies.push(body);
-                        }
-                    }
-                    let outputs = bodies
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, body)| {
-                            let key = if i == 0 {
-                                OutputKey::Main
-                            } else {
-                                OutputKey::Body { index: i }
-                            };
-                            (key, body)
-                        })
-                        .collect();
-                    Ok(OpResult {
-                        outputs,
-                        provenance: modeling_ops::Provenance {
-                            created,
-                            deleted,
-                            modified: Vec::new(),
-                            role_assignments,
-                        },
-                        diagnostics: modeling_ops::Diagnostics::default(),
-                    })
-                }
-            }
+            dispatch_combine(kb, &eff, &combine_targets, extrude_result, "extrude")
         }
 
         Operation::Revolve { params } => {
@@ -757,54 +647,26 @@ fn execute_feature(
                 None,
             )?;
 
-            if params.cut {
-                // Find the target body to subtract from
-                let target_handle = find_most_recent_solid(feature, feature_results, tree)
-                    .ok_or_else(|| EngineError::ResolutionFailed {
-                        reason: "Cut revolve requires an existing body to subtract from".into(),
-                    })?;
-
-                let tool_handle = revolve_result
-                    .outputs
-                    .first()
-                    .map(|(_, body)| body.handle.clone())
-                    .ok_or_else(|| EngineError::ResolutionFailed {
-                        reason: "Revolve produced no solid output for cut".into(),
-                    })?;
-
-                let boolean_result =
-                    execute_boolean(kb, &target_handle, &tool_handle, BooleanKind::Subtract)?;
-                Ok(boolean_result)
-            } else if params.merge {
-                // Auto-union revolve with existing body
-                if let Some(target_handle) = find_most_recent_solid(feature, feature_results, tree)
-                {
-                    if let Some(tool_handle) = revolve_result
-                        .outputs
-                        .first()
-                        .map(|(_, b)| b.handle.clone())
-                    {
-                        match execute_boolean(kb, &target_handle, &tool_handle, BooleanKind::Union)
-                        {
-                            Ok(union_result) => Ok(union_result),
-                            Err(e) => {
-                                let mut result = revolve_result;
-                                result.diagnostics.warnings.push(format!(
-                                    "Auto-union failed: {}. Body created as standalone.",
-                                    e
-                                ));
-                                Ok(result)
-                            }
-                        }
-                    } else {
-                        Ok(revolve_result)
-                    }
-                } else {
-                    Ok(revolve_result)
-                }
-            } else {
-                Ok(revolve_result)
-            }
+            // Dispatch the boolean combine (same model as extrude, spec §4).
+            let eff = crate::types::normalize_revolve_combine(params);
+            let combine_targets = match eff.mode {
+                CombineMode::NewBody => Vec::new(),
+                _ => match &eff.targets {
+                    TargetStrategy::ShareAFace => resolve_share_a_face(
+                        params.sketch_id,
+                        params.profile_index,
+                        None,
+                        &[],
+                        feature,
+                        feature_results,
+                        tree,
+                        already_consumed,
+                        Some(kb.as_introspect()),
+                    ),
+                    _ => resolve_combine_targets(&eff.targets, feature, feature_results, tree)?,
+                },
+            };
+            dispatch_combine(kb, &eff, &combine_targets, revolve_result, "revolve")
         }
 
         Operation::BooleanCombine { params } => {
@@ -1100,7 +962,10 @@ pub(crate) fn find_consumed_feature_ids(
                             })
                             .collect(),
                         TargetStrategy::ShareAFace => resolve_share_a_face(
-                            params,
+                            params.sketch_id,
+                            params.profile_index,
+                            params.region.as_ref(),
+                            &params.regions,
                             feature,
                             feature_results,
                             tree,
@@ -1114,8 +979,42 @@ pub(crate) fn find_consumed_feature_ids(
                 }
             }
         }
-        Operation::Revolve { params } if params.merge || params.cut => {
-            find_most_recent_consumed(feature, feature_results, tree)
+        Operation::Revolve { params } => {
+            // Mirror the extrude consumption: honor the normalized combine.
+            let eff = crate::types::normalize_revolve_combine(params);
+            match eff.mode {
+                CombineMode::NewBody => vec![],
+                CombineMode::Add | CombineMode::Cut | CombineMode::Intersect => {
+                    match &eff.targets {
+                        TargetStrategy::MostRecentLegacy => {
+                            find_most_recent_consumed(feature, feature_results, tree)
+                        }
+                        TargetStrategy::Explicit(list) => list
+                            .iter()
+                            .filter_map(|gr| match &gr.anchor {
+                                waffle_types::Anchor::FeatureOutput { feature_id, .. } => {
+                                    Some(*feature_id)
+                                }
+                                _ => None,
+                            })
+                            .collect(),
+                        TargetStrategy::ShareAFace => resolve_share_a_face(
+                            params.sketch_id,
+                            params.profile_index,
+                            None,
+                            &[],
+                            feature,
+                            feature_results,
+                            tree,
+                            already_consumed,
+                            introspect,
+                        )
+                        .into_iter()
+                        .map(|(id, _)| id)
+                        .collect(),
+                    }
+                }
+            }
         }
         Operation::BooleanCombine { params } => {
             // Both body_a and body_b are consumed by the boolean result
@@ -1262,6 +1161,129 @@ fn find_solid_handle(
     })
 }
 
+/// Apply a normalized boolean combine (NewBody / Add / Cut / Intersect) of a
+/// freshly-built tool solid against a resolved target set, shared by extrude and
+/// revolve. `op_name` only flavors the legacy empty-Cut error wording.
+/// See `specs/optional_booleans_multibody_extrude.md` §4.
+fn dispatch_combine(
+    kb: &mut dyn KernelBundle,
+    eff: &crate::types::EffectiveCombine,
+    combine_targets: &[(Uuid, waffle_types::kernel::KernelSolidHandle)],
+    tool_result: OpResult,
+    op_name: &str,
+) -> Result<OpResult, EngineError> {
+    let tool_handle = tool_result
+        .outputs
+        .first()
+        .map(|(_, b)| b.handle.clone())
+        .ok_or_else(|| EngineError::ResolutionFailed {
+            reason: format!("{op_name} produced no solid output"),
+        })?;
+
+    match eff.mode {
+        // Standalone body — no boolean.
+        CombineMode::NewBody => Ok(tool_result),
+
+        // Union the tool into every target, folding them into one body.
+        CombineMode::Add => {
+            if combine_targets.is_empty() {
+                // Add-into-nothing is a benign no-op union → standalone. Legacy
+                // (`merge`) stays silent to preserve byte-identical behavior; an
+                // explicit Add with no targets warns.
+                let mut result = tool_result;
+                if !matches!(eff.targets, TargetStrategy::MostRecentLegacy) {
+                    result
+                        .diagnostics
+                        .warnings
+                        .push("Add: no target body; body created as standalone.".to_string());
+                }
+                return Ok(result);
+            }
+            // Fold the targets together, then union the tool.
+            let mut acc = combine_targets[0].1.clone();
+            for (_, handle) in &combine_targets[1..] {
+                acc = execute_boolean(kb, &acc, handle, BooleanKind::Union)?
+                    .outputs
+                    .first()
+                    .map(|(_, b)| b.handle.clone())
+                    .ok_or_else(|| EngineError::ResolutionFailed {
+                        reason: "Add: target union produced no solid".into(),
+                    })?;
+            }
+            let legacy = matches!(eff.targets, TargetStrategy::MostRecentLegacy);
+            match execute_boolean(kb, &acc, &tool_handle, BooleanKind::Union) {
+                Ok(union_result) => Ok(union_result),
+                // Legacy auto-union degrades to a standalone body on failure
+                // (byte-identical to pre-N-mb-2); an explicit Add propagates.
+                Err(e) if legacy => {
+                    let mut result = tool_result;
+                    result.diagnostics.warnings.push(format!(
+                        "Auto-union failed: {}. Body created as standalone.",
+                        e
+                    ));
+                    Ok(result)
+                }
+                Err(e) => Err(e.into()),
+            }
+        }
+
+        // Subtract / intersect the tool from each target INDEPENDENTLY, yielding
+        // one result body per target (feature scope, spec §4.2).
+        CombineMode::Cut | CombineMode::Intersect => {
+            let kind = if matches!(eff.mode, CombineMode::Cut) {
+                BooleanKind::Subtract
+            } else {
+                BooleanKind::Intersect
+            };
+            if combine_targets.is_empty() {
+                // Preserve the legacy wording/behavior for a legacy cut with no
+                // prior body (invariance); explicit-empty gets the new message.
+                let reason = if matches!(eff.targets, TargetStrategy::MostRecentLegacy) {
+                    format!("Cut {op_name} requires an existing body to subtract from")
+                } else {
+                    format!("{:?} requires at least one target body", eff.mode)
+                };
+                return Err(EngineError::ResolutionFailed { reason });
+            }
+            let mut bodies = Vec::new();
+            let mut created = Vec::new();
+            let mut deleted = Vec::new();
+            let mut role_assignments = Vec::new();
+            for (_, target) in combine_targets {
+                let res = execute_boolean(kb, target, &tool_handle, kind)?;
+                created.extend(res.provenance.created);
+                deleted.extend(res.provenance.deleted);
+                role_assignments.extend(res.provenance.role_assignments);
+                for (_, body) in res.outputs {
+                    bodies.push(body);
+                }
+            }
+            let outputs = bodies
+                .into_iter()
+                .enumerate()
+                .map(|(i, body)| {
+                    let key = if i == 0 {
+                        OutputKey::Main
+                    } else {
+                        OutputKey::Body { index: i }
+                    };
+                    (key, body)
+                })
+                .collect();
+            Ok(OpResult {
+                outputs,
+                provenance: modeling_ops::Provenance {
+                    created,
+                    deleted,
+                    modified: Vec::new(),
+                    role_assignments,
+                },
+                diagnostics: modeling_ops::Diagnostics::default(),
+            })
+        }
+    }
+}
+
 /// Compute the "share-a-face" auto target set (spec §4.3).
 ///
 /// **N-mb-3a — anchor-ownership path (a):** the body whose face the sketch is
@@ -1269,15 +1291,19 @@ fn find_solid_handle(
 /// datum plane has a `Datum` anchor and yields no target (⇒ a new body). The
 /// geometric plane-coincidence + profile-overlap path (b) and multi-body
 /// coincidence are N-mb-3b. Consumed (non-live) bodies are excluded.
+#[allow(clippy::too_many_arguments)]
 fn resolve_share_a_face(
-    params: &crate::types::ExtrudeParams,
+    sketch_id: Uuid,
+    profile_index: usize,
+    region: Option<&waffle_types::Region>,
+    regions: &[waffle_types::Region],
     feature: &Feature,
     feature_results: &HashMap<Uuid, OpResult>,
     tree: &FeatureTree,
     already_consumed: &std::collections::HashSet<Uuid>,
     introspect: Option<&dyn KernelIntrospect>,
 ) -> Vec<(Uuid, waffle_types::kernel::KernelSolidHandle)> {
-    let sketch = match find_sketch_in_tree(params.sketch_id, tree) {
+    let sketch = match find_sketch_in_tree(sketch_id, tree) {
         Ok(s) => s.clone(),
         Err(_) => return Vec::new(),
     };
@@ -1307,7 +1333,7 @@ fn resolve_share_a_face(
 
     // (b) Geometric coincidence + profile overlap (needs a kernel to read faces).
     if let Some(intro) = introspect {
-        let profile_pts = profile_footprint_2d(&sketch, params);
+        let profile_pts = profile_footprint_2d(&sketch, profile_index, region, regions);
         if profile_pts.len() >= 3 {
             let profile_hull = crate::share_a_face::convex_hull_2d(&profile_pts);
             let s_o = sketch.plane_origin;
@@ -1361,18 +1387,22 @@ fn resolve_share_a_face(
 /// The extrude profile's 2D footprint (sketch-plane coords) as a point set.
 /// Region-based extrudes carry the exact polygon; profile extrudes use the
 /// profile's ordered vertices (or a circle's bbox). The caller convex-hulls it.
-fn profile_footprint_2d(sketch: &Sketch, params: &crate::types::ExtrudeParams) -> Vec<[f64; 2]> {
-    if let Some(region) = &params.region {
+fn profile_footprint_2d(
+    sketch: &Sketch,
+    profile_index: usize,
+    region: Option<&waffle_types::Region>,
+    regions: &[waffle_types::Region],
+) -> Vec<[f64; 2]> {
+    if let Some(region) = region {
         return region.outer.iter().map(|&(x, y)| [x, y]).collect();
     }
-    if !params.regions.is_empty() {
-        return params
-            .regions
+    if !regions.is_empty() {
+        return regions
             .iter()
             .flat_map(|r| r.outer.iter().map(|&(x, y)| [x, y]))
             .collect();
     }
-    let Some(profile) = sketch.solved_profiles.get(params.profile_index) else {
+    let Some(profile) = sketch.solved_profiles.get(profile_index) else {
         return Vec::new();
     };
     if let Some(circle) = &profile.circle {

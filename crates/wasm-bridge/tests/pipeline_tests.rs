@@ -323,6 +323,8 @@ fn sketch_revolve_produces_mesh() {
         UiToEngine::AddFeature {
             operation: Operation::Revolve {
                 params: RevolveParams {
+                    combine: None,
+                    targets: None,
                     sketch_id,
                     profile_index: 0,
                     axis_origin: [0.0, 0.0, 0.0],
@@ -1286,6 +1288,8 @@ fn revolve_face_ids_in_role_assignments() {
         UiToEngine::AddFeature {
             operation: Operation::Revolve {
                 params: RevolveParams {
+                    combine: None,
+                    targets: None,
                     sketch_id,
                     profile_index: 0,
                     axis_origin: [0.0, 0.0, 0.0],

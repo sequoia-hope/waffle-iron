@@ -3532,8 +3532,14 @@ export function showRevolveDialogForEdit(featureId) {
  * @param {[number,number,number]} axisDir
  * @param {number} profileIndex
  */
-export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex) {
+export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex, opts = {}) {
 	if (!revolveDialogState || !bridge || !engineReady) return;
+
+	// Optional-boolean combine (mirrors extrude). `combine` is a mode string or
+	// null (legacy); `targets` is an array of body GeomRefs, [] for a new body,
+	// or null = Auto (share-a-face).
+	const { combine = null, targets = null } = opts;
+	const combineObj = combine ? { type: combine } : null;
 
 	const operation = {
 		type: 'Revolve',
@@ -3542,7 +3548,9 @@ export async function applyRevolve(angleDeg, axisOrigin, axisDir, profileIndex) 
 			profile_index: profileIndex,
 			axis_origin: axisOrigin,
 			axis_direction: axisDir,
-			angle: angleDeg
+			angle: angleDeg,
+			combine: combineObj,
+			targets
 		}
 	};
 

@@ -7,12 +7,24 @@
 		setProfilePickMode,
 		getProfilePickMode,
 		setAxisPickMode,
-		getAxisPickMode
+		getAxisPickMode,
+		getBodies,
+		getExtrudeTargetPick,
+		setExtrudeTargetPickActive,
+		setExtrudeTargetIds,
+		toggleExtrudeTargetId,
+		clearExtrudeTargets
 	} from '$lib/engine/store.svelte.js';
 	import { log } from '$lib/engine/logger.js';
 
 	let dialogState = $derived(getRevolveDialogState());
 	let angle = $state(360);
+	// Optional-boolean combine (mirrors the extrude dialog).
+	let combine = $state('Add');
+	let targetMode = $state('Auto');
+	let selectedTargetIds = $derived(getExtrudeTargetPick().ids);
+	let targetPickActive = $derived(getExtrudeTargetPick().active);
+	let bodies = $derived(getBodies());
 
 	let selectedAxis = $derived(dialogState?.selectedAxis);
 	let selectedProfile = $derived(dialogState?.selectedProfile);
@@ -29,8 +41,30 @@
 			const ep = dialogState.editParams;
 			if (ep) {
 				angle = ep.angle ?? 360;
+				if (ep.combine?.type) combine = ep.combine.type;
+				else if (ep.cut) combine = 'Cut';
+				else if (ep.merge === false) combine = 'NewBody';
+				else combine = 'Add';
+				if (Array.isArray(ep.targets)) {
+					targetMode = 'Choose';
+					setExtrudeTargetIds(
+						ep.targets
+							.map((t) =>
+								t?.anchor?.feature_id
+									? `${t.anchor.feature_id}/${t.anchor.output_key?.type ?? 'Main'}`
+									: null
+							)
+							.filter(Boolean)
+					);
+				} else {
+					targetMode = 'Auto';
+					clearExtrudeTargets();
+				}
 			} else {
 				angle = 360;
+				combine = 'Add';
+				targetMode = 'Auto';
+				clearExtrudeTargets();
 			}
 			setAxisPickMode(true);
 		} else if (!isOpen && prevDialogOpen) {
@@ -76,15 +110,50 @@
 
 	let hasAxis = $derived(selectedAxis != null);
 
+	// Deactivate viewport target-pick when leaving "Choose bodies".
+	$effect(() => {
+		if ((combine === 'NewBody' || targetMode !== 'Choose') && targetPickActive) {
+			setExtrudeTargetPickActive(false);
+		}
+	});
+
 	function handleApply() {
 		if (!hasAxis || !selectedAxis) return;
 		const profileIndex = selectedProfile?.profileIndex ?? 0;
-		applyRevolve(angle, [...selectedAxis.origin], [...selectedAxis.direction], profileIndex)
-			.catch(err => log('error', `Revolve dialog apply failed: ${err}`));
+		let targets = null;
+		if (combine !== 'NewBody' && targetMode === 'Choose') {
+			const all = getBodies();
+			targets = selectedTargetIds
+				.map((id) => all.find((b) => b.bodyId === id))
+				.filter(Boolean)
+				.map(bodyToGeomRef);
+		}
+		applyRevolve(angle, [...selectedAxis.origin], [...selectedAxis.direction], profileIndex, {
+			combine,
+			targets
+		}).catch(err => log('error', `Revolve dialog apply failed: ${err}`));
+	}
+
+	function bodyToGeomRef(body) {
+		return {
+			kind: { type: 'Solid' },
+			anchor: {
+				type: 'FeatureOutput',
+				feature_id: body.featureId,
+				output_key: body.outputKey ?? { type: 'Main' }
+			},
+			selector: { type: 'Role', role: { type: 'EndCapPositive' }, index: 0 },
+			policy: { type: 'BestEffort' }
+		};
+	}
+
+	function toggleTarget(bodyId) {
+		toggleExtrudeTargetId(bodyId);
 	}
 
 	function handleCancel() {
 		setRevolvePreviewParams(null);
+		clearExtrudeTargets();
 		hideRevolveDialog();
 	}
 
@@ -168,6 +237,43 @@
 					<div class="pick-empty">No profile selected</div>
 				{/if}
 			</div>
+				<div class="field">
+					<label for="revolve-combine">Combine</label>
+					<select id="revolve-combine" data-testid="revolve-combine" bind:value={combine}>
+						<option value="NewBody">New Body</option>
+						<option value="Add">Add</option>
+						<option value="Cut">Cut</option>
+						<option value="Intersect">Intersect</option>
+					</select>
+				</div>
+				{#if combine !== 'NewBody'}
+					<div class="field">
+						<label for="revolve-target-mode">Targets</label>
+						<select id="revolve-target-mode" data-testid="revolve-target-mode" bind:value={targetMode}>
+							<option value="Auto">Auto (bodies touching sketch)</option>
+							<option value="Choose">Choose bodies…</option>
+						</select>
+					</div>
+					{#if targetMode === 'Choose'}
+						<div class="field">
+							<label for="revolve-target-pick">In viewport</label>
+							<button id="revolve-target-pick" class="btn" class:active={targetPickActive} data-testid="revolve-target-pick" onclick={() => setExtrudeTargetPickActive(!targetPickActive)}>
+								{targetPickActive ? 'Picking… (click bodies)' : 'Pick in viewport'}
+							</button>
+						</div>
+						<div class="target-list" data-testid="revolve-target-list">
+							{#each bodies as body}
+								<label class="target-item">
+									<input type="checkbox" checked={selectedTargetIds.includes(body.bodyId)} onchange={() => toggleTarget(body.bodyId)} />
+									<span>{body.name}</span>
+								</label>
+							{/each}
+							{#if bodies.length === 0}
+								<div class="pick-empty">No bodies yet</div>
+							{/if}
+						</div>
+					{/if}
+				{/if}
 		</div>
 		<div class="dialog-footer">
 			<button class="btn btn-cancel" data-testid="revolve-cancel" onclick={handleCancel}>Cancel</button>
@@ -345,6 +451,24 @@
 		color: var(--text-muted, #888);
 		font-style: italic;
 		padding: 4px 0;
+	}
+
+	.target-list {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		max-height: 120px;
+		overflow-y: auto;
+		border: 1px solid var(--border-color, #444);
+		border-radius: 4px;
+		padding: 4px 6px;
+	}
+	.target-item {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 12px;
+		cursor: pointer;
 	}
 
 	.dialog-footer {

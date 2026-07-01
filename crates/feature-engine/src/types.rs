@@ -254,11 +254,30 @@ pub(crate) struct EffectiveCombine {
 ///   preserving today's exact "most recent solid" behavior.
 #[allow(dead_code)] // consumed by rebuild dispatch in N-mb-2
 pub(crate) fn normalize_extrude_combine(params: &ExtrudeParams) -> EffectiveCombine {
-    if let Some(mode) = params.combine {
+    normalize_combine(
+        params.combine,
+        &params.targets,
+        params.cut,
+        params.merge,
+        &params.target_body,
+    )
+}
+
+/// Shared combine normalization for any body-producing feature (extrude,
+/// revolve). See `normalize_extrude_combine` for the rules.
+#[allow(dead_code)] // consumed by rebuild dispatch
+pub(crate) fn normalize_combine(
+    combine: Option<CombineMode>,
+    targets: &Option<Vec<GeomRef>>,
+    cut: bool,
+    merge: bool,
+    target_body: &Option<GeomRef>,
+) -> EffectiveCombine {
+    if let Some(mode) = combine {
         let targets = match mode {
             // NewBody never booleans, so its target set is irrelevant/empty.
             CombineMode::NewBody => TargetStrategy::Explicit(Vec::new()),
-            CombineMode::Add | CombineMode::Cut | CombineMode::Intersect => match &params.targets {
+            CombineMode::Add | CombineMode::Cut | CombineMode::Intersect => match targets {
                 None => TargetStrategy::ShareAFace,
                 Some(list) => TargetStrategy::Explicit(list.clone()),
             },
@@ -267,9 +286,9 @@ pub(crate) fn normalize_extrude_combine(params: &ExtrudeParams) -> EffectiveComb
     }
 
     // Legacy path: derive the mode from the old boolean flags.
-    let mode = if params.cut {
+    let mode = if cut {
         CombineMode::Cut
-    } else if params.merge {
+    } else if merge {
         CombineMode::Add
     } else {
         CombineMode::NewBody
@@ -278,12 +297,24 @@ pub(crate) fn normalize_extrude_combine(params: &ExtrudeParams) -> EffectiveComb
         CombineMode::NewBody => TargetStrategy::Explicit(Vec::new()),
         // Legacy `target_body` override (currently never written by the UI) only
         // applies when a boolean actually happens.
-        CombineMode::Add | CombineMode::Cut | CombineMode::Intersect => match &params.target_body {
+        CombineMode::Add | CombineMode::Cut | CombineMode::Intersect => match target_body {
             Some(gr) => TargetStrategy::Explicit(vec![gr.clone()]),
             None => TargetStrategy::MostRecentLegacy,
         },
     };
     EffectiveCombine { mode, targets }
+}
+
+/// Normalize a revolve's combine choice (RevolveParams has no `target_body`).
+#[allow(dead_code)] // consumed by rebuild dispatch in N-mb-5
+pub(crate) fn normalize_revolve_combine(params: &RevolveParams) -> EffectiveCombine {
+    normalize_combine(
+        params.combine,
+        &params.targets,
+        params.cut,
+        params.merge,
+        &None,
+    )
 }
 
 /// Parameters for a revolve operation.
@@ -300,6 +331,14 @@ pub struct RevolveParams {
     /// If true (and cut=false), auto-union with the most recent body.
     #[serde(default = "default_merge_true")]
     pub merge: bool,
+    /// Explicit boolean-combine mode (see `ExtrudeParams::combine`). `None` ⇒
+    /// legacy file: derive from `cut`/`merge`.
+    #[serde(default)]
+    pub combine: Option<CombineMode>,
+    /// Explicit target bodies (see `ExtrudeParams::targets`). `None` ⇒ Auto
+    /// (share-a-face).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub targets: Option<Vec<GeomRef>>,
 }
 
 fn default_merge_true() -> bool {

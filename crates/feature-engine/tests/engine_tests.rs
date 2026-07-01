@@ -3032,6 +3032,8 @@ fn resolve_with_fallback_best_effort_no_kind_match() {
 fn make_revolve_op(sketch_id: Uuid) -> Operation {
     Operation::Revolve {
         params: RevolveParams {
+            combine: None,
+            targets: None,
             sketch_id,
             profile_index: 0,
             axis_origin: [-1.0, 0.0, 0.0],
@@ -3105,6 +3107,8 @@ fn revolve_profile_index_out_of_range_errors() {
     // Sketch has 1 profile — profile_index=5 is out of range
     let revolve_op = Operation::Revolve {
         params: RevolveParams {
+            combine: None,
+            targets: None,
             sketch_id: s1,
             profile_index: 5,
             axis_origin: [-1.0, 0.0, 0.0],

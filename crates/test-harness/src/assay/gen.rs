@@ -574,6 +574,8 @@ pub fn generate_case(master_seed: u64, index: usize) -> GeneratedCase {
                 name: format!("Revolve {}", i + 1),
                 operation: Operation::Revolve {
                     params: RevolveParams {
+                        combine: None,
+                        targets: None,
                         sketch_id,
                         profile_index: 0,
                         axis_origin: [
@@ -3944,6 +3946,8 @@ fn generate_revolve_self_intersection_cases(output_dir: &std::path::Path) -> Vec
             name: "Revolve Center".to_string(),
             operation: Operation::Revolve {
                 params: RevolveParams {
+                    combine: None,
+                    targets: None,
                     sketch_id,
                     profile_index: 0,
                     axis_origin: [0.0, 0.0, 0.0], // through profile center
@@ -4043,6 +4047,8 @@ fn generate_revolve_self_intersection_cases(output_dir: &std::path::Path) -> Vec
             name: "Revolve Near".to_string(),
             operation: Operation::Revolve {
                 params: RevolveParams {
+                    combine: None,
+                    targets: None,
                     sketch_id,
                     profile_index: 0,
                     axis_origin: [0.0, 0.0, 0.0], // axis through vertex at (0, 0) — first corner
@@ -4142,6 +4148,8 @@ fn generate_revolve_self_intersection_cases(output_dir: &std::path::Path) -> Vec
             name: "Revolve Offset".to_string(),
             operation: Operation::Revolve {
                 params: RevolveParams {
+                    combine: None,
+                    targets: None,
                     sketch_id,
                     profile_index: 0,
                     axis_origin: [1.0, 0.0, 0.0], // well clear of profile (closest vertex at 0.8)
