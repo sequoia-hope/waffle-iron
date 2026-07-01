@@ -86,6 +86,10 @@ use std::fmt;
 // (PR-YR25). NOT yet wired into `boolean()`; that's M8 slice b.
 pub mod coplanar_overlay;
 mod stage0;
+// N2 increment 1: the §4.4.1 mesh-updating primitive (Fig 11 split/merge/insert
+// + interior-constraint CDT). NOT yet wired into `stage4_relocate_and_correct`;
+// that is N2-3. Spec: `specs/n2_stage4_mesh_updating.md`.
+pub mod stage4_update;
 
 pub use cad_primitives::{BoolOp, Point3, Vector3};
 pub use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};

@@ -358,6 +358,26 @@ gates the output.
 doc note (or a loud `YangError`) so the stage list is not mistaken for a running
 CDT. **Sign-off:** pending.
 
+**Increment N2-1 landed (2026-07-01):** the faithful §4.4.1 mesh-updating
+*primitive* now exists, unit-tested in isolation, but is **not yet wired** into
+`stage4_relocate_and_correct` (so the deviation is not yet closed). Two pieces:
+- `cherchi_rs::cdt_with_interior_constraints` — CDT of a planar patch that
+  inserts an intersection polyline as interior constraint edges (Fig 11 `split`:
+  each segment becomes a shared edge on both sides). Deterministic, no interior
+  Steiner points, rejects crossing constraints (no silent Steiner split, P9/P10).
+- `yang_rs::stage4_update::stage4_mesh_update` — the parametric-domain primitive
+  implementing Fig 11 `split` (splice on-boundary points into the loop) / `merge`
+  (fuse a patch vertex within `merge_tol` of a curve point, moving it onto the
+  curve) / `insert` (a closed loop enclosing no patch vertex gets one interior
+  centroid point), then calls the CDT. Invariants I1–I6 (constraint realized, no
+  flips, boundary→boundary, area conservation, merge/insert monotonicity,
+  determinism) are unit-tested.
+Spec: `specs/n2_stage4_mesh_updating.md`. **Remaining for sign-off:** N2-2 (per-
+triangle `d(T)` recompute) and N2-3 (wire the primitive into Stage 4, extracting
+each affected face patch's parametric domain, retiring the
+`LocalRefinementRequired` bailouts one surface-pair family at a time behind
+watertight / reference-parity oracles).
+
 ### N3 — §4.5.3 collinear/degenerate-tangent treated as healthy (logic inversion)
 
 **Code location:** `crates/yang-rs/src/lib.rs:2504-2506` — returns `false` (no
