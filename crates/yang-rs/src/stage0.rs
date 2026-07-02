@@ -3814,3 +3814,217 @@ mod fan_split_tests {
         }
     }
 }
+
+// ════════════════════════════════════════════════════════════════════════
+// M8-earclip: exact ear-clip fallback for non-star subdivided rings
+// (spec `specs/m8_nonstar_ring_earclip.md`, FIP Phase 2, RED).
+//
+// `triangulate_ring` is module-private, so these unit tests call it directly
+// through this in-module test seam. Fixtures are pure geometry: a ring of
+// `Vec<u32>` indices into a `Vec<Point3>` plus a plane normal.
+// ════════════════════════════════════════════════════════════════════════
+#[cfg(test)]
+mod earclip_ring_tests {
+    use super::*;
+
+    /// Project the (already planar) `verts` onto the SAME dominant 2D frame
+    /// `triangulate_ring` uses, so the oracle's exact areas live in the same
+    /// coordinate system the function's coverage certificate does.
+    fn project(verts: &[Point3], normal: [f64; 3]) -> Vec<ExactPoint2> {
+        let nu = normalize3(normal);
+        let (e1, e2) = ortho_basis(cad_primitives::Vector3::new(nu[0], nu[1], nu[2]));
+        let (e1, e2) = (e1.as_array(), e2.as_array());
+        verts
+            .iter()
+            .map(|p| {
+                let a = p.as_array();
+                let u = a[0] * e1[0] + a[1] * e1[1] + a[2] * e1[2];
+                let v = a[0] * e2[0] + a[1] * e2[1] + a[2] * e2[2];
+                ExactPoint2::from_f64(u, v).expect("finite projection")
+            })
+            .collect()
+    }
+
+    /// Exact 2× signed area of the ring (shoelace over its boundary order).
+    fn ring_area2(pts: &[ExactPoint2], ring: &[u32]) -> RBig {
+        let n = ring.len();
+        let mut a = RBig::ZERO;
+        for i in 1..n - 1 {
+            a += cross_r(
+                &pts[ring[0] as usize],
+                &pts[ring[i] as usize],
+                &pts[ring[i + 1] as usize],
+            );
+        }
+        a
+    }
+
+    fn p3(x: f64, y: f64) -> Point3 {
+        Point3::new(x, y, 0.0)
+    }
+
+    /// The full B3 oracle bundle (I1–I4) for a successful ear-clip on `ring`
+    /// (indices 0..ring.len(), verts == ring points in order).
+    fn assert_earclip_invariants(verts_before: &[Point3], ring: &[u32], normal: [f64; 3]) {
+        let mut verts = verts_before.to_vec();
+        let n_before = verts.len();
+        let tris = triangulate_ring(ring, &mut verts, normal)
+            .expect("B3: reflex subdivided ring must triangulate via exact ear-clip");
+
+        // I4 (no new vertices): the ear-clip adds no centroid (unlike B2).
+        assert_eq!(
+            verts.len(),
+            n_before,
+            "I4: ear-clip must not push any new vertex"
+        );
+        let ring_set: std::collections::BTreeSet<u32> = ring.iter().copied().collect();
+        for t in &tris {
+            for &vi in t {
+                assert!(
+                    ring_set.contains(&vi),
+                    "I4: triangle references index {vi} outside the ring"
+                );
+            }
+        }
+
+        // n−2 triangles for a simple polygon with no interior vertex.
+        assert_eq!(
+            tris.len(),
+            ring.len() - 2,
+            "a hole-free ring triangulates into ring.len()−2 triangles"
+        );
+
+        let pts = project(&verts, normal);
+        let area = ring_area2(&pts, ring);
+        assert!(area != RBig::ZERO, "fixture defect: zero-area ring");
+        let ring_positive = area > RBig::ZERO;
+
+        // I2 (strict positivity, ring orientation) + I3 (exact coverage).
+        let mut covered = RBig::ZERO;
+        for t in &tris {
+            let c = cross_r(
+                &pts[t[0] as usize],
+                &pts[t[1] as usize],
+                &pts[t[2] as usize],
+            );
+            assert!(c != RBig::ZERO, "I2: triangle {t:?} has zero exact area");
+            assert_eq!(
+                c > RBig::ZERO,
+                ring_positive,
+                "I2: triangle {t:?} is not strictly positive in the ring's orientation frame"
+            );
+            covered += c;
+        }
+        assert_eq!(
+            covered, area,
+            "I3: Σ clip areas must equal the exact ring area (coverage certificate)"
+        );
+
+        // I1 (no chord over a split point): every consecutive ring boundary
+        // pair is an edge of EXACTLY one output triangle. Interior diagonals
+        // appear in two triangles; boundary segments in one.
+        let mut edge_count: std::collections::BTreeMap<(u32, u32), usize> =
+            std::collections::BTreeMap::new();
+        let undirected = |a: u32, b: u32| if a <= b { (a, b) } else { (b, a) };
+        for t in &tris {
+            for k in 0..3 {
+                *edge_count
+                    .entry(undirected(t[k], t[(k + 1) % 3]))
+                    .or_default() += 1;
+            }
+        }
+        let n = ring.len();
+        for i in 0..n {
+            let e = undirected(ring[i], ring[(i + 1) % n]);
+            assert_eq!(
+                edge_count.get(&e).copied().unwrap_or(0),
+                1,
+                "I1: boundary segment {e:?} must be an edge of exactly one triangle \
+                 (no chord skipping a split point)"
+            );
+        }
+    }
+
+    /// B3 (RED): a deep L-shaped (reflex) ring, subdivided by split points on
+    /// three edges (collinear runs of three), is NOT star-shaped — neither the
+    /// boundary-vertex apex fan (B1) nor the interior-centroid fan (B2) can
+    /// triangulate it. 9 vertices (the R0046 ring-9 signature).
+    ///
+    /// RED today: `triangulate_ring` returns `None` for this ring (both fans
+    /// fail), so `assert_earclip_invariants`'s `.expect(..)` on `Some` fails.
+    #[test]
+    fn reflex_l_ring_with_collinear_splits_earclips() {
+        // Deep L: bottom rect [0,6]×[0,1] ∪ left rect [0,1]×[0,6], reflex at
+        // (1,1). Vertex centroid ≈ (2.0, 2.28) lies OUTSIDE the L, so the
+        // centroid fan cannot see the boundary — genuinely non-star.
+        let verts = vec![
+            p3(0.0, 0.0),
+            p3(3.0, 0.0), // split — bottom edge collinear run (0,0)-(3,0)-(6,0)
+            p3(6.0, 0.0),
+            p3(6.0, 1.0),
+            p3(1.0, 1.0), // reflex corner
+            p3(1.0, 3.5), // split — inner vertical run (1,1)-(1,3.5)-(1,6)
+            p3(1.0, 6.0),
+            p3(0.0, 6.0),
+            p3(0.0, 3.0), // split — left edge collinear run (0,6)-(0,3)-(0,0)
+        ];
+        let ring: Vec<u32> = (0..verts.len() as u32).collect();
+        assert_earclip_invariants(&verts, &ring, [0.0, 0.0, 1.0]);
+    }
+
+    /// I5 guard (B1): a convex ring with one edge split still succeeds via the
+    /// boundary-vertex apex fan and adds NO vertex. Pins the fast-path count so
+    /// a regression that reroutes convex rings through the ear-clip (or the
+    /// centroid fan) is caught. CURRENT behavior verified: B1, `verts.len()`
+    /// unchanged (5).
+    #[test]
+    fn convex_split_ring_uses_boundary_fan_guard() {
+        let verts = vec![
+            p3(0.0, 0.0),
+            p3(2.0, 0.0), // split on the bottom edge
+            p3(4.0, 0.0),
+            p3(4.0, 4.0),
+            p3(0.0, 4.0),
+        ];
+        let ring: Vec<u32> = (0..verts.len() as u32).collect();
+        let mut v = verts.clone();
+        let n_before = v.len();
+        let tris = triangulate_ring(&ring, &mut v, [0.0, 0.0, 1.0])
+            .expect("convex subdivided ring must triangulate (B1/B2)");
+        assert_eq!(
+            v.len(),
+            n_before,
+            "I5: convex ring uses the boundary apex fan (B1) — no interior vertex added"
+        );
+        assert_eq!(tris.len(), ring.len() - 2, "3 triangles for a 5-gon via B1");
+    }
+
+    /// B5 guard: a self-crossing (bowtie) ring has zero exact signed area and
+    /// must return `None` — today AND after the ear-clip lands (the zero-area
+    /// short-circuit precedes B3, so the fix never triangulates a non-simple
+    /// ring).
+    #[test]
+    fn bowtie_ring_returns_none_guard() {
+        // Ordered so edges (4,0)-(0,4) and (4,4)-(0,0) cross; net area = 0.
+        let verts = vec![p3(0.0, 0.0), p3(4.0, 0.0), p3(0.0, 4.0), p3(4.0, 4.0)];
+        let ring: Vec<u32> = (0..verts.len() as u32).collect();
+        let mut v = verts.clone();
+        assert!(
+            triangulate_ring(&ring, &mut v, [0.0, 0.0, 1.0]).is_none(),
+            "B5: a self-crossing / zero-area ring must not triangulate"
+        );
+        assert_eq!(v.len(), verts.len(), "no vertex pushed on the None path");
+    }
+
+    /// B5 guard: a degenerate ring (n < 3) returns `None`.
+    #[test]
+    fn too_few_vertices_returns_none_guard() {
+        let verts = vec![p3(0.0, 0.0), p3(1.0, 0.0)];
+        let ring: Vec<u32> = vec![0, 1];
+        let mut v = verts.clone();
+        assert!(
+            triangulate_ring(&ring, &mut v, [0.0, 0.0, 1.0]).is_none(),
+            "B5: a ring with fewer than 3 vertices must return None"
+        );
+    }
+}
