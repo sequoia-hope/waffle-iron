@@ -158,8 +158,13 @@ pure-polygon pairs only.
 - A vertex genuinely off its faces' intersection (defeatured/tolerant
   geometry) → B4 unchanged + probe; downstream walls stay loud as today.
 - Near-parallel plane triples (thin wedges) → B6 conditioning floor keeps
-  the solve stable or degrades; never adopt a wild solution (band guard is
-  the backstop).
+  the solve stable or degrades. ADVERSARY-MEASURED (aa1de833): the floor is
+  LOAD-BEARING, not a mere backstop — without it an ill-conditioned solve
+  is rejected by the band guard and the vertex stays crooked; with it the
+  triple degrades to B2 and the vertex is correctly straightened onto the
+  well-conditioned pair's line. Also measured: the negated/duplicate plane
+  dedup is structurally redundant with the floor (det ≡ 0 for any dependent
+  triple) — kept for legibility/perf; the correct behavior is pinned.
 - Mixed exact/inexact chains: partial adoption is safe — each vertex's
   adoption is independent and band-bounded; conformality across faces of
   the SAME solid is preserved because all its faces read the same mutated
