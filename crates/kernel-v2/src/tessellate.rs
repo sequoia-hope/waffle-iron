@@ -2452,6 +2452,17 @@ fn tessellate_planar_face(
     };
 
     let outer_pts = sampled_loop_points(arena, face.outer_loop, n_seg)?;
+    if std::env::var("KV2_EARCLIP_PROBE").is_ok() {
+        eprintln!(
+            "KV2_EARCLIP_PROBE face={fid:?} plane_n=({:.6},{:.6},{:.6}) outer={} holes={} pts={:?}",
+            n.x,
+            n.y,
+            n.z,
+            outer_pts.len(),
+            face.inner_loops.len(),
+            outer_pts.iter().map(|p| p.as_array()).collect::<Vec<_>>()
+        );
+    }
     if outer_pts.len() < 3 {
         return Err(KernelV2Error::TessellationFailed {
             face: fid,
@@ -2595,6 +2606,17 @@ fn ear_clip(mut ring: Vec<Node>, fid: FaceId) -> Result<Vec<[u32; 3]>, KernelV2E
             }
             Ordering::Equal => {} // degenerate remainder: zero area, skip
             Ordering::Less => {
+                if std::env::var("KV2_EARCLIP_PROBE").is_ok() {
+                    eprintln!(
+                        "KV2_EARCLIP_PROBE face={fid:?} inverted final ring: {:?}",
+                        ring.iter().map(|n| (n.vid, n.p2)).collect::<Vec<_>>()
+                    );
+                    eprintln!(
+                        "KV2_EARCLIP_PROBE clipped so far: {} tris {:?}",
+                        tris.len(),
+                        tris
+                    );
+                }
                 return Err(KernelV2Error::TessellationFailed {
                     face: fid,
                     reason: "inverted final triangle",
