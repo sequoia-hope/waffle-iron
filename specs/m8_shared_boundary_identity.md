@@ -69,9 +69,15 @@ stay exactly on their curves — cylinder rim bit-sharing is load-bearing).
 - I2 (bounded motion): every adopted displacement ≤ band per component
   (verified exactly); B4 guards the rest.
 - I3 (idempotence): running the pass twice is byte-identical to once.
-- I4 (already-exact inputs byte-identical): a fresh extrude whose vertices
-  already satisfy their planes bit-exactly is untouched (B7) — the
-  fuzz_boxes corpus must be byte-identical through `to_yang_brep`.
+- I4 (already-exact inputs byte-identical; AMENDED pre-RED): a vertex that
+  already satisfies its planes bit-exactly is untouched (B7) — axis-aligned
+  fixtures are byte-identical. An OBLIQUE fresh extrude's non-anchor corners
+  carry ~1e-16 residuals by construction (Newell normal + first-vertex `d`
+  anchoring), so they legitimately move ≤ band onto their own planes'
+  exact intersection — canonicalization inverts derived-plane vs vertex
+  authority by a sub-band amount, which is the point. The behavioral gate
+  for that blast radius is fuzz_boxes 900/900 CORRECT + the full-assay I6,
+  NOT byte-identity of oblique pipelines.
 - I5 (determinism): plane collection in face-index order; first-3
   independent selection deterministic.
 - I6 (regression gates): full assay `SUPPORTED_WRONG == 0`; rewrite tier
