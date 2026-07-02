@@ -1,175 +1,154 @@
-# N2-3a — Stage-4 Fig-11(b) junction-cluster merge onto the relocated point — Spec
+# N2-3a — Stage-0 exact rim placement for overlay vertices (amended) — Spec
 
-Third N2 increment (parents: `specs/n2_stage4_mesh_updating.md`,
+Third N2-track increment (parents: `specs/n2_stage4_mesh_updating.md`,
 `specs/n2_stage4_dt_recompute.md`; design history:
-`specs/yang_n2_stage4_cdt_mesh_updating.md`). Yang 2025 §4.4.1 / Fig 11(b):
-"if an endpoint **p** of the split edge is too close to **q**, we merge p with
-q" — q being the intersection point ON the exact curve
-(`refs/text/yang2025_hybrid_boolean.txt:546-573`).
+`specs/yang_n2_stage4_cdt_mesh_updating.md`). **AMENDED 2026-07-02 after the
+test-phase grounding (§0 items 4–5): the root cause is one layer upstream of
+the original diagnosis** — the fix is Stage-0 mint-time exactness (Yang §4.5.5
+"overlap boundaries become intersection curves", i.e. exact curve geometry on
+the shared-region boundary), with the originally-specified Stage-4 Fig-11(b)
+junction-cluster merge retained only as a CONTINGENT part 2 (§3b).
 
-## 0. Grounding (2026-07-02 diagnostic — what redirected N2-3)
+## 0. Grounding trail (all measured)
 
-Instrumented findings that redefine this increment (all measured, not
-inferred):
-
-1. **The phase-3 STOPs have no live consumer.** Probes at all four Stage-4
-   repair STOPs (`lib.rs` ~9392/9495/9542 `LocalRefinementRequired`, ~9994
-   `DegenerateTriangle`) hit ZERO times across the full yang-rs suite, the
-   whole m8_samenormal campaign, and the 194-case assay. The §5c.5 "full-ring
-   periodic-θ re-mesh" wiring therefore stays **deferred until a consumer
-   exists** (demand-driven rule; the primitives from N2-1/N2-2 are ready for
-   it).
-2. **The live Stage-4 §4.4.1 defect is a merge-target bug.** R0072 (same-normal
-   campaign) fails `VertexOffSurface { FaceId(11) }` at kernel-v2's debug-only
-   loop-vertex tripwire: residual **1.607e-6** off a cylinder of radius
-   2.13e-4. Causal chain (probed): B's side plane is near-tangent to A's
-   cylinder at a cap corner; the exact arrangement legitimately mints **one
-   geometric junction as three vertices** — v11 (on capA∩planeB exactly), v7
-   (on both planes exactly, 1.6e-6 inside the cylinder), v8 (an LPI on a rim
-   chord, 1.5e-6 inside); cluster diameter 4.0e-7. Stage-4 relocates **only
-   v11** (the cyl∩planeB generator-line endpoint) onto the exact triple point
-   q (on generator, cylinder, and pp line to 8.7e-20). The Fig-11(b)-shaped
-   (3c) sub-feature merge then collapses **v8 → v7** (lowest index, an
-   OFF-curve position) instead of merging the cluster **onto q**. v7's
-   off-surface position survives to the output B-Rep. Without (3c) the case
-   STOPs loudly; with it the wrongness flows downstream — and the kernel
-   tripwire that catches it is `#[cfg(debug_assertions)]`-only, so a release/
-   WASM build ships the off-surface vertex silently.
-3. R0021's union portion is oracle-correct except one zero-area render
-   triangle; its blocker is the Stage-1 partial-patch re-entry wall (a
-   different milestone). The campaign's "Mode 2 → R0021, R0072" table is
-   STALE and is corrected alongside this increment.
+1. **The Stage-4 phase-3 STOPs have no live consumer** (probes: 0 hits across
+   yang-rs suites, campaign, 194-case assay). The §5c.5 re-mesh wiring stays
+   deferred until a consumer exists; `stage4_mesh_update`/`d_of_t` remain its
+   ready machinery.
+2. R0072 fails kernel-v2's debug-only `VertexOffSurface` tripwire (release
+   builds would ship the geometry silently) — the acceptance target of this
+   increment.
+3. Original diagnosis: a tangency junction cluster (v7/v8/v11, one geometric
+   junction) merged onto an off-curve neighbor instead of the relocated point
+   q — a real Fig-11(b) violation, but…
+4. **Test-phase finding (spec-scope gap):** enumerating ALL off-band loop
+   vertices of R0072 shows **12**, of which 11 are NOT the cluster: they sit
+   at chord-sagitta positions (5.4e-6..7.3e-6 off the r=2.13e-4 cylinder;
+   worst = r·(1−cos(π/13)), the N=13 chord sagitta exactly).
+5. **Root cause (traced):** the coplanar overlay's trapezoidal decomposition
+   (`coplanar_overlay.rs:394`, cell corners :447-450) splits every rim chord
+   at every event x-coordinate; Stage-0's overlay-vertex resolution closure
+   (`stage0.rs:418-442`) resolves those points through face-corner / rim-ring
+   exact-key / ULP-snap branches, then **falls through to a raw in-plane
+   `frame.lift` (stage0.rs:438)** — minting 3D vertices ON the chord,
+   sagitta-deep off the exact rim circle. The SAME sweep already projects the
+   *opposite* rim's points at exact radius (`opp_radius`, stage0.rs:1048-1055)
+   — the asymmetry is the bug surface. Stage-4 can never repair this: the rim
+   edges are same-input (A-lateral × A-cap) and the
+   `build_intersection_curves` same-input skip (lib.rs:5428) is *semantically
+   correct* per §4.5.5 (a solid's own face boundary is not an A×B intersection
+   curve; emitting it also collapses membrane triangles, lib.rs:5529-5547).
+   The exact circle is one call away at the mint: `disc_circle_edge(a,
+   p.face_a)` (stage0.rs:660) yields the rim `Curve::Circle`.
 
 ## 1. Goal
 
-After the Stage-4 relocation loops, merge each **junction cluster** — the
-near-duplicate arrangement vertices minted for ONE geometric junction — onto
-its relocated on-curve junction vertex q, faithfully to Fig 11(b). Family
-scope for this increment: clusters around a relocated **LineSegment-curve
-endpoint** (the live R0072 class: cyl∩plane generator line ending on a cap /
-pp-line junction). Other curve families keep today's behavior byte-identical.
+Every overlay-derived vertex that lies on a disc-rim chord is minted ON the
+exact rim circle at Stage-0 resolution time, for BOTH kinds:
+
+- **pure subdivision points** (x-event splits of a rim chord; the 11): radial
+  projection onto the exact circle in the cap plane;
+- **rim × other-input-edge crossings** (the overlap-boundary junctions; the
+  tangency corner): the **exact 2D circle∩line intersection** (radial
+  projection would slide them off the other input's edge/plane — fixture
+  invariant I2 pins the exact junction).
+
+Both solids' meshes and the lateral rim overrides consume the SAME `coords`
+resolution, so one projection site keeps cap, lateral, opposite rim, and both
+meshes identical on the shared region (§4.5.5's identical-mesh requirement).
 
 ## 2. Parameters
 
-No new public API and no new tunables. The merge gate reuses two DERIVED
-quantities already in Stage 4:
+No new public API, no new tunables. Inputs in hand at the seam (all existing):
+the resolution closure's `a`/`p.face_a`/`frame`, `disc_circle_edge` (exact
+`Curve::Circle`), the overlay's `exact_verts` (rational 2D positions), and the
+existing exact on-rim-chord collinearity + interior-parameter test
+(`rim_subdivided` / `collect_rim_crossings`, stage0.rs:1008-1027) that already
+identifies exactly these vertices. Classification of "also on another input's
+edge" uses the overlay's exact rational data (a crossing point lies on a B
+input sub-segment) — exact predicates, no tolerance.
 
-- `band(v)` — the relocated line endpoint's propagated band budget
-  (`LineReloc.band_budget`, PR-F3b) **+ `d_eps`** (the Stage-1 chord band from
-  `stage4_chord_band`): the same combined bound the line×circle junction
-  relocation already gates on (`lib.rs:9152`). Not a new tolerance.
-- `MIN_FEATURE_SIZE` / `TAU_WORK` — pre-existing floors, unchanged roles.
+## 3. Branch table (the coords-resolution closure, stage0.rs:418-442)
 
-Inputs in hand at the merge site (all existing): `mesh`, `attribution`,
-`vert_line: BTreeMap<u32, LineReloc>`, the relocated-vertex positions, the
-`processed`/`endpoints` sets, `moved`, `collapse_vertex`.
-
-## 3. Branch table
-
-Insertion point: immediately after the relocation loops complete (after the
-line+circle junction loop and the no-skip audit, before the (3) §4.5.3
-junction-dedup/sweep at `lib.rs:~9330`), so the (3c) sub-feature merge only
-ever sees clusters this step has already resolved.
-
-For each relocated vertex q that is a **LineSegment-curve endpoint**
-(`vert_line` member whose relocation landed it at a curve endpoint /
-junction), examine every mesh-adjacent vertex p (sharing a mesh edge with q):
-
-| Case | Condition on p | Behavior |
+| Case (checked in order) | Today | After |
 |---|---|---|
-| Cluster member | p is NOT itself a relocation endpoint (`!endpoints.contains(p)`), NOT already merged this pass, and `|p − q| ≤ band(q)` | Fig 11(b) merge: `collapse_vertex(victim=p, survivor=q)` — p's incident triangles re-attach to q; degenerate slivers between them drop. Deterministic order: ascending q, then ascending p. |
-| Adjacent but out of band | `|p − q| > band(q)` | Untouched (a real mesh vertex at resolvable distance — never absorbed). |
-| Adjacent relocated vertex | p ∈ `endpoints` (it has its own exact relocation) | Untouched (two relocated vertices are two distinct exact points; if they truly coincide, the existing bit-exact junction dedup at ~9333 handles them). |
-| Non-line families | q relocated by circle/ellipse/cone/torus loops | Untouched this increment (their junction classes exist: PR-F3 line×circle, PR-KV11 ellipse×pp). |
+| Face corner (`corners_a/b` hit) | exact corner | unchanged |
+| Rim-ring vertex (exact-key hit) | exact rim sample | unchanged |
+| ULP-snap (`rim_pts`, ~1e-13) | snapped | unchanged |
+| **NEW: on a rim chord AND on another input's edge (exact rational tests)** | raw `frame.lift` → chord position | exact 2D circle∩line intersection point, lifted to 3D (on circle AND on the other edge) |
+| **NEW: on a rim chord only (x-event subdivision)** | raw `frame.lift` → chord position | radial projection onto the exact circle: `center + radius·normalize(lift(q) − center)` in the cap plane |
+| Not on any rim chord (straight-edge / interior points) | raw `frame.lift` (exact for straight edges) | unchanged |
 
-No new implicit modes; the (3c) merge and (3d) edge-split remain as backstops,
-byte-identical for inputs with no line-endpoint cluster.
+### 3b. CONTINGENT part 2 — Stage-4 Fig-11(b) junction-cluster merge
 
-## 4. Invariants (measurable)
+Implement ONLY if, after part 1 is green at Stage-0, the acceptance oracle I1
+still fails on a residual cluster (measure; do not build speculatively — P10).
+Definition retained from the original spec: for each relocated
+LineSegment-curve endpoint q, mesh-adjacent non-endpoint vertices within the
+derived band (`LineReloc.band_budget + d_eps`) merge onto q via
+`collapse_vertex` (survivor = q), ascending-(q,p) deterministic order;
+ambiguous double-ownership → loud `LocalRefinementRequired`.
 
-- **I1 (on-surface output — the R0072 defect):** after Stage 4, every vertex
-  referenced by a triangle attributed to a face lies on that face's `Surface`
-  within the kernel import band `1e-9·(1+max(r,‖p‖∞))` — in particular the
-  junction survivor sits at q (on the exact curve), and NO vertex sits at a
-  cluster member's old off-curve position.
-- **I2 (merge is onto q, not within the cluster):** the survivor of a cluster
-  merge is the RELOCATED vertex q; asserting the survivor's position equals
-  q's relocated position bitwise.
-- **I3 (watertight preserved):** `check_watertight_2manifold` passes after the
-  merge (collapse_vertex preserves half-edge pairing; the existing gate is the
-  proof).
-- **I4 (locality / no over-eating):** a vertex farther than `band(q)` from
-  every relocated line endpoint is never moved or merged (mesh vertex count
-  decreases by EXACTLY the cluster population).
-- **I5 (no-op guarantee):** inputs with no line-endpoint junction cluster
-  produce byte-identical meshes to today (regression tier + fuzz_boxes pin
-  this).
+## 4. Invariants (measurable — unchanged; the committed red tests assert these)
+
+- **I1 (on-surface output):** every output loop vertex attributed to a face
+  lies on that face's `Surface` within the kernel import band
+  `1e-9·(1+max(r,‖p‖∞))`.
+- **I2 (exact junction survives):** the rim∩plane junction vertex at
+  `(R−δ, +y*, 0)` remains exact (distance 0.0) — the circle∩line branch, not
+  radial projection, must handle crossings.
+- **I3 (watertight preserved):** watertight + Euler χ=2 + plausible volume.
+- **I4 (locality / no-op):** non-Stage-0 pipelines byte-identical (fixture
+  I4 does not traverse Stage-0); straight-edge and interior overlay points
+  unchanged.
 - **I6 (determinism):** repeat runs byte-identical.
 
-## 5. Oracles
+## 5. Oracles (committed at ff3763e7, `crates/yang-rs/tests/n2_junction_cluster.rs` + `crates/test-harness/tests/n2_junction_cluster_campaign.rs`)
 
-- **RED reproduction (bug-fix variant, FIP §8):** a yang-rs integration
-  fixture reproducing the R0072 class — cap plane + near-tangent side plane ×
-  cylinder, hand-built arrangement minting a 3-vertex junction cluster (one
-  on the generator line's endpoint, two near-duplicates off-curve within the
-  amplified band) → TODAY: output contains a vertex ≥1e-6 off the cylinder
-  (assert the defect); AFTER: all cylinder-patch vertices within the import
-  band, single junction vertex at the exact triple point, watertight, Euler
-  χ=2.
-- **Campaign:** `red_r0072` replay — the `VertexOffSurface` failure
-  disappears. If the case then passes the FULL oracle gauntlet, un-`#[ignore]`
-  it; if a different downstream wall surfaces, repoint the `#[ignore]` reason
-  to the new mode (honest-harness rule).
-- **R0096 probe:** the assay's other Stage-4 junction error ("relocation
-  region around vertex 7 is invalid: LocalRefinementRequired") — determine
-  during the test phase whether it is this same class; if yes it becomes a
-  second oracle, if no its mode is documented and left loud.
-- **Locality adversary (I4):** same fixture with the duplicate vertices pushed
-  JUST outside `band(q)` → they must survive unmerged (and the loud
-  DegenerateTriangle/watertight outcome, whatever it is, must not be a silent
-  wrong).
-- **Regression:** `./scripts/test.sh rewrite` green; assay **0
-  SUPPORTED_WRONG and no SUPPORTED_CORRECT lost**; campaign always-on tests
-  green.
-- **Mutation sanity:** survivor flipped to lowest-index (the old (3c)
-  behavior) must fail I1/I2.
+- `i1_cylinder_face_loop_vertices_on_surface` — RED today (11 off-band, worst
+  6.200744e-6 vs band 1.000213e-9).
+- `i2_exact_junction_vertex_survives`, `pins_watertight_euler_volume`,
+  `i4_locality_noncoplanar_tangent_all_on_surface`, `i6_determinism` — GREEN
+  pins.
+- `red_r0072_vertex_off_surface` (`#[ignore]`, campaign replay) — RED today.
+- R0096 verdict: DIFFERENT mode (torus×torus v1-scope STOP) — documented, no
+  test.
+- **Blast-radius regression (from the trace):** R0013/R0024 (now-green
+  same-normal), disc∩polygon crossing suites (PR-M8 classes), non-convex
+  containment, gear-flange chain, full assay: **0 SUPPORTED_WRONG, no
+  SUPPORTED_CORRECT lost.**
 
 ## 6. Failure modes
 
-- Cluster merge produces a triangle that still fails
-  `validate_relocated_triangles` or the watertight gate → existing loud STOPs
-  (unchanged; never silently accepted).
-- A cluster candidate that is mesh-adjacent to TWO different relocated line
-  endpoints within both bands → ambiguous ownership: loud
-  `Stage4RegionInvalid { LocalRefinementRequired }` naming the vertex (never
-  guess; expected never to fire on current corpus — pinned by a constructed
-  adversary fixture if constructible).
+- Circle∩line with no real intersection for a claimed crossing point (exact
+  discriminant < 0) → loud `CoplanarOverlayError`/Stage-0 error naming the
+  vertex (never fall back to the chord position silently).
+- Anything downstream still off-band → the kernel tripwire stays (untouched);
+  the campaign test keeps it observable.
 
 ## 7. Research basis
 
-- **#24 Yang et al. 2025 §4.4.1 Fig 11(b)** — the merge operation this
-  implements: p merged **with q** (the on-curve intersection point), not with
-  an arbitrary neighbor (`refs/text/yang2025_hybrid_boolean.txt:556-560`,
-  "If an endpoint p of the split edge is too close to q, we merge p with q").
-- **Shipped precedents:** PR-F3 line×circle junction relocation
-  (`vert_junction`, the `band_budget + d_eps` gate) and PR-KV11 ellipse×pp
-  triple-point class — same derived-band philosophy, same loud-STOP posture.
-- **P9 note:** the band is derived (tangency amplification of the Stage-1
-  chord sagitta, ≈12.8× on R0072), not tuned; the increment REMOVES a
-  silent-in-release wrongness rather than widening anything.
+- **#24 Yang et al. 2025 §4.5.5** — overlap boundaries become intersection
+  curves; the shared trimmed surface carries exact curve geometry and BOTH
+  models receive identical meshes (`refs/text/yang2025_hybrid_boolean.txt`,
+  §4.5.5). Minting shared-boundary points on the exact circle is that
+  requirement; the chord-position mint was the deviation.
+- **Precedent in-file:** the opposite-rim exact-radius projection
+  (stage0.rs:1048-1055) — the same operation this spec extends to the own-cap
+  rim.
+- **Fig 11(b)** (part 2, contingent) — merge p with q, the on-curve point
+  (`refs/text/yang2025_hybrid_boolean.txt:556-560`).
 
 ### 7a. Analytical vs approximate
 
-Exact. q is the closed-form relocated point (already on the exact curve /
-triple point); the merge changes mesh topology only. No SSI performed here;
-A15 coverage N/A.
+Exact: radial projection and circle∩line are closed-form on the analytic
+`Curve::Circle`; classification uses exact rational predicates. No SSI; A15
+N/A.
 
 ## 8. Scope / non-goals
 
-- No re-mesh wiring (`stage4_mesh_update` / `d_of_t` stay unwired — deferred
-  with cause per §0.1; they remain the machinery for the first future consumer).
-- No changes to (3c)/(3d) logic, to non-line junction classes, or to
-  kernel-v2's tripwire (its debug-only nature is flagged to the kernel-v2
-  sub-project, not fixed here).
-- R0021's re-entry wall and render-triangle blemish: out of scope (different
-  milestones).
+- No re-mesh wiring (deferred with cause, §0 item 1).
+- No change to `build_intersection_curves` same-input semantics (correct per
+  paper), to kernel-v2's tripwire, or to non-Stage-0 paths.
+- R0021's re-entry wall and render-triangle blemish: different milestones.
+- Part 2 (§3b) only on measured need.
