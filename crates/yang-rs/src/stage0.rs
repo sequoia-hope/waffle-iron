@@ -3971,12 +3971,22 @@ mod earclip_ring_tests {
         Point3::new(x, y, 0.0)
     }
 
-    /// The full B3 oracle bundle (I1–I4) for a successful ear-clip on `ring`
-    /// (indices 0..ring.len(), verts == ring points in order).
-    fn assert_earclip_invariants(verts_before: &[Point3], ring: &[u32], normal: [f64; 3]) {
+    /// The full B3 oracle bundle (I1–I4) for a successful ear-clip.
+    ///
+    /// `call_ring` is passed to `triangulate_ring` verbatim (it may carry B6
+    /// consecutive-duplicate / closure-duplicate indices); `oracle_ring` is the
+    /// deduplicated ring the invariants are evaluated against (I1 boundary
+    /// tiling, I3 exact area, triangle count). For the plain B3 case the two are
+    /// identical.
+    fn assert_earclip_invariants(
+        verts_before: &[Point3],
+        call_ring: &[u32],
+        oracle_ring: &[u32],
+        normal: [f64; 3],
+    ) {
         let mut verts = verts_before.to_vec();
         let n_before = verts.len();
-        let tris = triangulate_ring(ring, &mut verts, normal)
+        let tris = triangulate_ring(call_ring, &mut verts, normal)
             .expect("B3: reflex subdivided ring must triangulate via exact ear-clip");
 
         // I4 (no new vertices): the ear-clip adds no centroid (unlike B2).
@@ -3985,7 +3995,7 @@ mod earclip_ring_tests {
             n_before,
             "I4: ear-clip must not push any new vertex"
         );
-        let ring_set: std::collections::BTreeSet<u32> = ring.iter().copied().collect();
+        let ring_set: std::collections::BTreeSet<u32> = oracle_ring.iter().copied().collect();
         for t in &tris {
             for &vi in t {
                 assert!(
@@ -3998,12 +4008,12 @@ mod earclip_ring_tests {
         // n−2 triangles for a simple polygon with no interior vertex.
         assert_eq!(
             tris.len(),
-            ring.len() - 2,
+            oracle_ring.len() - 2,
             "a hole-free ring triangulates into ring.len()−2 triangles"
         );
 
         let pts = project(&verts, normal);
-        let area = ring_area2(&pts, ring);
+        let area = ring_area2(&pts, oracle_ring);
         assert!(area != RBig::ZERO, "fixture defect: zero-area ring");
         let ring_positive = area > RBig::ZERO;
 
@@ -4041,9 +4051,9 @@ mod earclip_ring_tests {
                     .or_default() += 1;
             }
         }
-        let n = ring.len();
+        let n = oracle_ring.len();
         for i in 0..n {
-            let e = undirected(ring[i], ring[(i + 1) % n]);
+            let e = undirected(oracle_ring[i], oracle_ring[(i + 1) % n]);
             assert_eq!(
                 edge_count.get(&e).copied().unwrap_or(0),
                 1,
@@ -4077,7 +4087,46 @@ mod earclip_ring_tests {
             p3(0.0, 3.0), // split — left edge collinear run (0,6)-(0,3)-(0,0)
         ];
         let ring: Vec<u32> = (0..verts.len() as u32).collect();
-        assert_earclip_invariants(&verts, &ring, [0.0, 0.0, 1.0]);
+        assert_earclip_invariants(&verts, &ring, &ring, [0.0, 0.0, 1.0]);
+    }
+
+    /// B6 (spec amendment, RED on parent): the real corpus rings carry
+    /// CONSECUTIVE bit-identical duplicate indices (a split point interned to
+    /// the same mesh vertex as a neighbor → a zero-length ring edge) and a
+    /// first==last closure duplicate — e.g. R0046's ring
+    /// `[2,1,5,27,23,19,14,14,4]` (vertex 14 twice). These must be collapsed by
+    /// EXACT index equality BEFORE strategy selection; the deduplicated ring
+    /// then ear-clips exactly like the plain B3 case.
+    ///
+    /// Fixture: the reflex-L ring with split-point index 1 duplicated in place
+    /// AND index 0 appended as a closure duplicate. The oracle bundle runs
+    /// against the DEDUPED ring (`0..9`); `verts.len()` is unchanged (the
+    /// duplicated vertex survives via its surviving copy — no point is chorded
+    /// over, no vertex is added).
+    ///
+    /// RED on parent `69f3c8a8`: `triangulate_ring` there has neither dedup nor
+    /// ear-clip, so a reflex ring (deduped or not) returns `None` and the
+    /// `.expect(Some)` fails — the identical failure the plain B3 test showed on
+    /// that parent.
+    #[test]
+    fn b6_consecutive_duplicate_indices_collapse() {
+        let verts = vec![
+            p3(0.0, 0.0),
+            p3(3.0, 0.0), // split — bottom edge collinear run (0,0)-(3,0)-(6,0)
+            p3(6.0, 0.0),
+            p3(6.0, 1.0),
+            p3(1.0, 1.0), // reflex corner
+            p3(1.0, 3.5), // split — inner vertical run (1,1)-(1,3.5)-(1,6)
+            p3(1.0, 6.0),
+            p3(0.0, 6.0),
+            p3(0.0, 3.0), // split — left edge collinear run (0,6)-(0,3)-(0,0)
+        ];
+        // Split-point index 1 duplicated consecutively (zero-length edge) and a
+        // closure duplicate (first index 0 appended at the end).
+        let call_ring: Vec<u32> = vec![0, 1, 1, 2, 3, 4, 5, 6, 7, 8, 0];
+        // Exact collapse of consecutive duplicates + first==last closure.
+        let oracle_ring: Vec<u32> = (0..verts.len() as u32).collect();
+        assert_earclip_invariants(&verts, &call_ring, &oracle_ring, [0.0, 0.0, 1.0]);
     }
 
     /// I5 guard (B1): a convex ring with one edge split still succeeds via the
