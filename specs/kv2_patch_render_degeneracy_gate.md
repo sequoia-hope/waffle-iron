@@ -85,6 +85,39 @@ uses, applied producer-side and always-on (NOT debug-gated).
   the LEPP refinement into sub-f32 slivers — the refinement cascade is the
   confirmed sliver source for the root-fix follow-up.
 
+## 6b. Root-fix investigation (2026-07-02, measured — design space for the follow-up)
+
+Full mechanism chain for the F0047-with-canon wreck, measured with
+`KV2_PATCH_MINLEN_PROBE` / `KV2_PATCH_PASS_PROBE`:
+
+1. The failing patch boundary is HEALTHY (27 verts, min edge = min pair =
+   7.2e-3) — no tiny input feature. The unroll is clean (wraps 0, u-extent
+   0.77, w_facet 0.018).
+2. The femto vertex motion flips ONE exact-collinearity knife-edge in the
+   boundary ring: baseline ear-clips 57 triangles (an exactly-collinear 2D
+   corner dropped), canon 56 (the corner kept, femto-off-collinear) — the
+   kept corner spawns a sub-f32-THIN sliver the Delaunay flip pass cannot
+   remove (boundary edges fixed).
+3. The LEPP refinement then propagates it: 796 → 1465 splits, 1576 → 2947
+   triangles, minting 64 degenerate triangles — ALL of class B2 (two
+   f32-identical vertices; zero B3-only).
+4. **B2-drop DISPROVEN as the root fix** (the overlay CoincidentNeedle
+   closure argument does NOT extend to needle CHAINS abutting real
+   triangles): with all 64 B2 triangles dropped, F0047 still leaks 16
+   unpaired render edges (14 boundary, 2 non-manifold; Euler 0). Reverted.
+5. R0064's single degenerate triangle is from a DIFFERENT tessellation
+   path (not the cylinder patch) — a separate small leak, unmeasured.
+6. Canon-side straightening would NOT survive the unroll: exactly-collinear
+   3D points map through the nonlinear (θ·r, h) chart to only
+   near-collinear 2D — the baseline's exact-2D-collinearity was a
+   numerical accident, not a property to restore.
+
+Remaining root-fix candidates (a dedicated cycle): a sliver-robust patch
+triangulation (constrained-Delaunay of the unrolled ring replacing
+ear-clip+flip, or f32-resolution-aware boundary preprocessing with an
+explicit conformality story). Until then the loud gate IS the correct
+boundary: femto-shifted inputs fail typed, never silently.
+
 ## 7. Research basis
 
 Producer-side validation of discretization output (A8.2 explicit healing /
