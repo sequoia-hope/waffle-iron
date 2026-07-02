@@ -1545,6 +1545,52 @@ fn tessellate_cylinder_patch(
         ]
     };
 
+    // TEMP diagnostic (uncommitted): boundary feature-size survey.
+    if std::env::var_os("KV2_PATCH_MINLEN_PROBE").is_some() {
+        let mut min_edge = f64::INFINITY;
+        let mut min_pair = f64::INFINITY;
+        let mut all_pts: Vec<[f64; 3]> = Vec::new();
+        for &lid in &all_loops {
+            if let Ok(hes) = arena.loop_half_edges(lid) {
+                for &h in &hes {
+                    if let Ok(he) = arena.half_edge(h) {
+                        if let (Ok(p), Ok(nx)) = (arena.vertex(he.origin), arena.half_edge(he.next))
+                        {
+                            if let Ok(q) = arena.vertex(nx.origin) {
+                                let d = [
+                                    q.point.x() - p.point.x(),
+                                    q.point.y() - p.point.y(),
+                                    q.point.z() - p.point.z(),
+                                ];
+                                let l = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                                min_edge = min_edge.min(l);
+                                all_pts.push([p.point.x(), p.point.y(), p.point.z()]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for i in 0..all_pts.len() {
+            for j in (i + 1)..all_pts.len() {
+                let d = [
+                    all_pts[i][0] - all_pts[j][0],
+                    all_pts[i][1] - all_pts[j][1],
+                    all_pts[i][2] - all_pts[j][2],
+                ];
+                let l = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                if l < min_pair {
+                    min_pair = l;
+                }
+            }
+        }
+        eprintln!(
+            "[minlen-probe] face={fid:?} boundary_verts={} min_edge={min_edge:.3e} \
+             min_pair={min_pair:.3e}",
+            all_pts.len()
+        );
+    }
+
     // ---- pass 1: per-loop unrolled chains ---------------------------------
     struct Chain {
         /// (node index, kind of the edge to the NEXT chain entry, cyclic).
@@ -1691,6 +1737,19 @@ fn tessellate_cylinder_patch(
             return Err(fail("patch loop's net axis winding is not a valid integer"));
         }
         // Mirror the wrap into the (sense-applied) unrolled frame.
+        if std::env::var_os("KV2_PATCH_PASS_PROBE").is_some() {
+            let us: Vec<f64> = entries.iter().map(|(n, _)| nodes[*n].p2.x()).collect();
+            let (umin, umax) = us
+                .iter()
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &u| {
+                    (lo.min(u), hi.max(u))
+                });
+            eprintln!(
+                "[pass-probe] face={fid:?} loop: entries={} total_theta={total_theta:.6} \
+                 wraps={wraps} u_extent=[{umin:.6},{umax:.6}] w_facet={w_facet:.6}",
+                entries.len()
+            );
+        }
         chains.push(Chain {
             entries,
             wrap: (sense * wraps) as i64,
@@ -2222,6 +2281,16 @@ fn tessellate_cylinder_patch(
         }
         // The seed may still carry an over-limit edge — requeue it.
         work.push_back(seed);
+    }
+
+    if std::env::var_os("KV2_PATCH_PASS_PROBE").is_some() {
+        eprintln!(
+            "[pass-probe] face={fid:?} earclip_tris={} refined_tris={} wnodes={} splits={}",
+            tris_local.len(),
+            wtris.len(),
+            wnodes.len(),
+            split_cache.len()
+        );
     }
 
     // ---- pass 5: emit ------------------------------------------------------
