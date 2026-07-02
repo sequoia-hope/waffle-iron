@@ -2,7 +2,7 @@
   "errored": 21,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 80,
+  "passed": 79,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -77,10 +77,10 @@
       "status": "error"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0013",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(coplanar-boolean)",
@@ -90,7 +90,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: mesh boolean backend failed: native boolean: patch flood-fill failed: LabelMismatch { seed: 0, tri: 26 }\"). Body created as standalone.",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: mesh boolean backend failed: native boolean: patch flood-fill failed: LabelMismatch { seed: 0, tri: 27 }\"). Body created as standalone.",
       "id": "R0015",
       "status": "error"
     },
@@ -377,10 +377,10 @@
       "status": "pass"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(12) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "R0063",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(coplanar-boolean)",
@@ -432,7 +432,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: VertexOffSurface { face: FaceId(11) }. Body created as standalone.",
+      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(19), reason: \"inverted final triangle\" }",
       "id": "R0072",
       "status": "error"
     },

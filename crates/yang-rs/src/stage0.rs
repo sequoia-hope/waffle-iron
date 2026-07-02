@@ -439,7 +439,11 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // `collect_edge_splits` below, so cap, lateral, and opposite rim all
         // see the SAME minted point (§4.5.5 identical-mesh requirement).
         let mut coords: Vec<Point3> = Vec::with_capacity(overlay.verts.len());
-        for i in 0..overlay.verts.len() {
+        // Explicit N2-3a minted-index tracking for the fold-validity gate
+        // below (spec §3 amendment 2: coordinate-comparison inference is
+        // FORBIDDEN — it falsely captures ULP-snapped rim vertices).
+        let mut minted_mark = vec![false; overlay.verts.len()];
+        for (i, mark) in minted_mark.iter_mut().enumerate() {
             let exact = &overlay.exact_verts[i];
             let pt = if let Some(&ai) = corners_a.get(exact) {
                 va[ai as usize]
@@ -504,10 +508,51 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                             }
                         }
                     }
+                    *mark = minted.is_some();
                     minted.unwrap_or_else(|| frame.lift(qx, qy))
                 }
             };
             coords.push(pt);
+        }
+
+        // N2-3a fold-validity gate (spec §3 amendment 2, grounded §0 item 6):
+        // exact minting is only sound where it keeps the PRE-EXISTING overlay
+        // triangulation valid. Where the rim tessellation is coarse, moving a
+        // chord vertex outward by the local sagitta can cross other-input
+        // mesh edges inside the chord↔arc band (measured: R0013's 9-gon rim,
+        // sagitta 0.53 at r=8.73 → an inverted gear-side triangle → cherchi
+        // self-intersection → Stage-6 patch dead-end). Revert any minted
+        // vertex whose incident overlay triangle's 2D signed area goes ≤ 0
+        // back to today's chord lift (byte-identical to the pre-N2-3a path),
+        // iterated to a deterministic fixpoint. This is a validity check,
+        // not a tolerance: reverted vertices stay observable via kernel-v2's
+        // untouched vertex-on-surface tripwire (spec §6) and are the
+        // recorded demand for overlay-level mesh updating (Yang Fig 11 —
+        // repositioned boundary vertices need local re-triangulation).
+        loop {
+            let mut changed = false;
+            for t in &overlay.tris {
+                let p0 = frame.project(coords[t[0] as usize]);
+                let p1 = frame.project(coords[t[1] as usize]);
+                let p2 = frame.project(coords[t[2] as usize]);
+                let area = (p1.0 - p0.0) * (p2.1 - p0.1) - (p1.1 - p0.1) * (p2.0 - p0.0);
+                if area <= 0.0 {
+                    for &v in t {
+                        let vi = v as usize;
+                        if minted_mark[vi] {
+                            let q = overlay.verts[vi];
+                            let lifted = frame.lift(q.x(), q.y());
+                            if coords[vi] != lifted {
+                                coords[vi] = lifted;
+                                changed = true;
+                            }
+                        }
+                    }
+                }
+            }
+            if !changed {
+                break;
+            }
         }
 
         // Per-solid override triangles. Overlay triangles are CCW in the
