@@ -351,6 +351,17 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 "overlay-failed",
                 &format!("pair=({},{}) err={e:?}", p.face_a, p.face_b),
             );
+            if std::env::var_os("YANG_POLY_PROBE").is_some() {
+                eprintln!(
+                    "[poly-probe] pair=({},{}) A outer={:?} holes={} | B outer={:?} holes={}",
+                    p.face_a,
+                    p.face_b,
+                    poly_a.outer,
+                    poly_a.holes.len(),
+                    poly_b.outer,
+                    poly_b.holes.len()
+                );
+            }
             pair_err(p.face_a, p.face_b)
         })?;
 
