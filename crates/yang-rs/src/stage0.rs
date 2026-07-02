@@ -4825,4 +4825,138 @@ mod frame_cluster_tests {
         assert_eq!(a.outer[0].x(), 1.0, "u untouched (independent axis)");
         assert_eq!(a.outer[1].x(), 2.0, "u untouched (independent axis)");
     }
+
+    // ── ADVERSARY (FIP Phase 4, governance/FEATURE_IMPLEMENTATION_PROTOCOL §6) ──
+    // Attacks on cluster_frame_coords: band boundary, first-seen no-drift,
+    // A-first determinism, axis independence, representative-is-member. In-module
+    // (pub(crate)). Purely additive; touches no existing test.
+
+    /// Band boundary: a coordinate 0.9·band from the representative clusters;
+    /// 1.1·band away does NOT (it becomes a new representative). Pins the `<=`
+    /// band edge at realistic scale (not just the 1-2 ULP splits above).
+    #[test]
+    fn adversary_band_boundary_below_clusters_above_new_rep() {
+        let band = 1e-12;
+        let a = 5.0f64;
+        let near = a + 0.9 * band; // within band → clusters
+        let far = a + 1.1 * band; // beyond band → new rep
+        let mut p = poly(&[(a, 0.0), (near, 1.0), (far, 2.0), (9.0, 3.0)]);
+        cluster_frame_coords(&mut [&mut p], band);
+        assert_eq!(p.outer[0].x().to_bits(), a.to_bits(), "rep untouched");
+        assert_eq!(
+            p.outer[1].x().to_bits(),
+            a.to_bits(),
+            "0.9·band coord must snap to the representative"
+        );
+        assert_eq!(
+            p.outer[2].x().to_bits(),
+            far.to_bits(),
+            "1.1·band coord must stay (its own new representative)"
+        );
+    }
+
+    /// No chain drift (first-seen semantics). Values a, a+0.9·band, a+1.8·band:
+    /// the rep list is FIRST-SEEN, so a+1.8·band is measured against rep `a`
+    /// (1.8·band > band) → it becomes its OWN rep and does NOT get pulled into
+    /// a's cluster even though it is only 0.9·band from the (snapped) middle
+    /// value. This is the isolation property that makes greedy clustering safe.
+    #[test]
+    fn adversary_first_seen_prevents_chain_drift() {
+        let band = 1e-12;
+        let a = 5.0f64;
+        let mid = a + 0.9 * band;
+        let outer = a + 1.8 * band;
+        let mut p = poly(&[(a, 0.0), (mid, 1.0), (outer, 2.0), (9.0, 3.0)]);
+        cluster_frame_coords(&mut [&mut p], band);
+        assert_eq!(p.outer[1].x().to_bits(), a.to_bits(), "mid snaps to rep a");
+        assert_eq!(
+            p.outer[2].x().to_bits(),
+            outer.to_bits(),
+            "no drift: the far value stays its own rep (measured against a, not mid)"
+        );
+        assert_no_twin_events(&[&p], band);
+    }
+
+    /// A-first determinism: the representative is the FIRST-SEEN value in slice
+    /// order (A's loop before B's). Two within-band values a1 (A) and a2 (B) both
+    /// resolve to a1 — swapping the slice order would pick a2, so this pins the
+    /// documented deterministic ordering.
+    #[test]
+    fn adversary_a_first_representative_determinism() {
+        let band = 1e-12;
+        let a1 = 5.0f64;
+        let a2 = a1 + 0.5 * band;
+        let mut a = poly(&[(a1, 0.0), (8.0, 0.0), (8.0, 2.0)]);
+        let mut b = poly(&[(a2, 5.0), (8.0, 5.0), (8.0, 4.0)]);
+        cluster_frame_coords(&mut [&mut a, &mut b], band);
+        assert_eq!(
+            a.outer[0].x().to_bits(),
+            a1.to_bits(),
+            "A's value is the rep"
+        );
+        assert_eq!(
+            b.outer[0].x().to_bits(),
+            a1.to_bits(),
+            "B's within-band value adopts A's first-seen representative"
+        );
+    }
+
+    /// MUTATION KILLER (b) — axes must cluster INDEPENDENTLY. A vertex whose v
+    /// coordinate (5.0 + 1 ULP) is within band of a DIFFERENT vertex's u
+    /// coordinate (5.0) must NOT cross-snap: production keeps the u and v
+    /// representative lists separate (fresh per axis), so v = 5.0+ULP stays. A
+    /// SHARED rep list (axes coupled) would pull v onto the u-derived rep 5.0.
+    ///
+    /// Verified: production → v stays 5.0+ULP; shared-rep-list mutant → v snaps
+    /// to 5.0. The existing axis-independence guard does NOT catch this (its v
+    /// values are far from any u value); this is the dedicated killer.
+    #[test]
+    fn adversary_axes_independent_v_near_u_no_cross_snap() {
+        let band = 1e-12;
+        let v_near_u = f64::from_bits(5.0f64.to_bits() + 1); // 5.0 + 1 ULP (~8.9e-16 < band)
+                                                             // u values: 8.0, 8.0, 5.0, 5.0 ; v values: 8.0, v_near_u, 9.0, 9.0.
+                                                             // v_near_u is a lone v value (no other v within band) → must stay.
+        let mut p = poly(&[(8.0, 8.0), (8.0, v_near_u), (5.0, 9.0), (5.0, 8.0)]);
+        cluster_frame_coords(&mut [&mut p], band);
+        assert_eq!(
+            p.outer[1].y().to_bits(),
+            v_near_u.to_bits(),
+            "axis independence: a v value near a u value must NOT snap to the u rep"
+        );
+        // u values are exact and unchanged.
+        assert_eq!(p.outer[0].x().to_bits(), 8.0f64.to_bits());
+        assert_eq!(p.outer[2].x().to_bits(), 5.0f64.to_bits());
+    }
+
+    /// MUTATION KILLER (a) — the representative is an EXACT MEMBER (I8), never an
+    /// average. A femto cluster {a, a+1 ULP, a+2 ULP} collapses so every output
+    /// coordinate is bit-equal to ONE of the original inputs (here the first-seen
+    /// `a`). An averaging representative would emit a value equal to none of the
+    /// three inputs.
+    #[test]
+    fn adversary_representative_is_exact_member_not_average() {
+        let band = 1e-12;
+        let a = 5.0f64;
+        let a1 = f64::from_bits(a.to_bits() + 1);
+        let a2 = f64::from_bits(a.to_bits() + 2);
+        let inputs: std::collections::BTreeSet<u64> =
+            [a, a1, a2].iter().map(|x| x.to_bits()).collect();
+        let mut p = poly(&[(a, 0.0), (a1, 1.0), (a2, 2.0)]);
+        cluster_frame_coords(&mut [&mut p], band);
+        for (i, q) in p.outer.iter().enumerate() {
+            assert!(
+                inputs.contains(&q.x().to_bits()),
+                "I8: clustered u[{i}]={} is not an original member (averaging?)",
+                q.x()
+            );
+        }
+        // And specifically the first-seen member.
+        assert_eq!(
+            p.outer[0].x().to_bits(),
+            a.to_bits(),
+            "first-seen member is the rep"
+        );
+        assert_eq!(p.outer[1].x().to_bits(), a.to_bits());
+        assert_eq!(p.outer[2].x().to_bits(), a.to_bits());
+    }
 }
