@@ -583,14 +583,19 @@ pub fn to_yang_brep_indexed(
 ///
 /// Rule: planar faces whose unit normals agree component-wise within
 /// `TAU_WORK` and whose offsets agree within the scale-relative
-/// `TAU_WORK·(1+|d|)` band adopt the FIRST such face's exact bits
-/// (deterministic; greedy in face order — the band is ~4 orders below the
-/// near-coplanar DETECTION band and ~6 below `MIN_FEATURE_SIZE`, so only
-/// rounding noise collapses and cluster drift is impossible). Opposite-
-/// orientation coplanar faces never match (component-wise test) — sense is
-/// preserved. Vertex coordinates are untouched: the residual between a
-/// loop vertex and the adopted plane stays in the same scale-relative
-/// rounding class the stored plane already had.
+/// `TAU_WORK·(1+|d|)` band — under EITHER sign `s ∈ {+1, −1}` applied to the
+/// representative (spec `m8_intra_opposite_plane_canonicalization` B1/B2) —
+/// adopt the FIRST such face's exact bits times `s` (deterministic; greedy
+/// in face order — the band is ~4 orders below the near-coplanar DETECTION
+/// band and ~6 below `MIN_FEATURE_SIZE`, so only rounding noise collapses
+/// and cluster drift is impossible). The sign keeps each face's outward
+/// sense (I1: `dot(n_before, n_after) > 0`) while an opposite-orientation
+/// step pair (a chained output whose lower-step top and overhang bottom
+/// share one geometric plane) ends up with EXACTLY negated plane bits (I2)
+/// — the form yang-rs's intra-solid gate treats as benign. Vertex
+/// coordinates are untouched: the residual between a loop vertex and the
+/// adopted plane stays in the same scale-relative rounding class the
+/// stored plane already had.
 fn canonicalize_sibling_planes(yfaces: &mut [yang_rs::BRepFace]) {
     // Representatives: (normal, d) of the first face seen in each cluster.
     let mut reps: Vec<([f64; 3], f64)> = Vec::new();
@@ -603,15 +608,22 @@ fn canonicalize_sibling_planes(yfaces: &mut [yang_rs::BRepFace]) {
             continue;
         }
         let eps_n = cad_primitives::TAU_WORK;
-        match reps.iter().find(|(rn, rd)| {
-            (0..3).all(|k| (n[k] - rn[k]).abs() <= eps_n)
-                && (*d - rd).abs() <= cad_primitives::TAU_WORK * (1.0 + rd.abs())
-        }) {
-            Some(&(rn, rd)) => {
-                *normal = Vector3::new(rn[0], rn[1], rn[2]);
-                *d = rd;
+        let dv = *d;
+        let matched = reps.iter().find_map(|&(rn, rd)| {
+            [1.0f64, -1.0f64]
+                .into_iter()
+                .find(|s| {
+                    (0..3).all(|k| (n[k] - s * rn[k]).abs() <= eps_n)
+                        && (dv - s * rd).abs() <= cad_primitives::TAU_WORK * (1.0 + rd.abs())
+                })
+                .map(|s| (rn, rd, s))
+        });
+        match matched {
+            Some((rn, rd, s)) => {
+                *normal = Vector3::new(s * rn[0], s * rn[1], s * rn[2]);
+                *d = s * rd;
             }
-            None => reps.push((n, *d)),
+            None => reps.push((n, dv)),
         }
     }
 }

@@ -6281,6 +6281,21 @@ pub(crate) fn scan_near_coplanar(a: &BRep, b: &BRep) -> CoplanarScan {
                 if pi.raw_bits == pj.raw_bits {
                     continue;
                 }
+                // Spec `m8_intra_opposite_plane_canonicalization` B6: raw
+                // plane values that are EXACTLY negated (f64 VALUE compare,
+                // so `0.0 == -0.0` matches — bit compare would not) are two
+                // orientations of ONE geometric plane. A valid 2-manifold
+                // solid's faces on one plane are disjoint in-plane (a
+                // stepped solid: lower-step top + overhang bottom), so the
+                // arrangement needs no Stage-0 resolution — benign, like
+                // the bit-identical case above. `to_yang_brep`'s sign-aware
+                // sibling canonicalization produces exactly this form for
+                // chained outputs; near-but-NOT-exact negation still walls
+                // loud below (B7).
+                if (0..4).all(|k| f64::from_bits(pi.raw_bits[k]) == -f64::from_bits(pj.raw_bits[k]))
+                {
+                    continue;
+                }
                 if let Some(band) = near_coplanar_band(pi, pj) {
                     // (A PR-KV6b attempt narrowed this to ADJACENT fragments;
                     // it regressed F0017–F0025 from the typed M8 deferral

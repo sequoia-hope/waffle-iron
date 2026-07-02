@@ -2,7 +2,7 @@
   "errored": 21,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 79,
+  "passed": 80,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -77,16 +77,16 @@
       "status": "error"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0013",
-      "status": "error"
+      "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "2 NotSupported boundary(ies); first: df14aa73-8dab-4477-8b79-27b0197bb172: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0014",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "ERROR",
