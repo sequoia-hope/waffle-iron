@@ -99,6 +99,12 @@ pub use cad_primitives::{BoolOp, Point3, Vector3};
 pub use cherchi_rs::labeled_arrangement::{InputId as LaInputId, LabeledArrangement};
 pub use cherchi_rs::{Mesh, MeshBoolean};
 pub use cherchi_rs::{NativeBoolean, NativeBooleanError};
+// The constrained-Delaunay primitive, re-exported for the kernel-v2 render
+// tessellation cores (its `tessellate.rs` patch/planar triangulation). kernel-v2
+// may depend on yang-rs but NOT on cherchi-rs directly, so it consumes the CDT
+// through this seam — the same pattern as `NativeBoolean` above and the torus
+// UV-patch consumer's existing use of this primitive.
+pub use cherchi_rs::triangulation::{cdt_polygon_with_holes, CdtError};
 // `ArrangementError` is re-exported so that kernel-v2 (whose dep rules allow
 // `yang-rs` but NOT `cherchi-rs`) can pattern-match the M8 boundary inside
 // `NativeBooleanError::Arrangement` — specifically
