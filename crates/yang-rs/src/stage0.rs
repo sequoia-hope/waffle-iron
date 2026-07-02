@@ -4520,3 +4520,152 @@ mod earclip_ring_tests {
         // else: loud None stall — the honest measured-residue outcome.
     }
 }
+
+// ════════════════════════════════════════════════════════════════════════
+// M8-vertex-canon §2b: in-frame coordinate clustering
+// (spec `specs/m8_shared_boundary_identity.md` §2b, FIP Phase 2, RED).
+//
+// The world-space vertex pass leaves an OBLIQUE pair's PROJECTED frame
+// coordinates femto-split (the f64 `(p−o)·e1` rounds independently per
+// vertex), so the exact sweep still builds needle cells → `RoundingCollapse`
+// (R0076/R0081). A second layer, where the pair's 2D polygons are built
+// (`stage0_preprocess`, ~line 336, just before `coplanar_overlay`), clusters
+// the projected u (and, independently, v) coordinates of BOTH faces' loop
+// vertices to a first-seen representative.
+//
+// SETTLED SEAM (the implementer matches this; the call site becomes
+// `cluster_frame_coords(&mut [&mut poly_a, &mut poly_b], band)` right before
+// the `coplanar_overlay` call):
+//
+//   fn cluster_frame_coords(polys: &mut [&mut PolygonWithHoles], band: f64)
+//
+// Deterministic order: polys in slice order, each poly's `outer` loop then its
+// `holes`, per vertex; the u axis and v axis cluster INDEPENDENTLY; a
+// representative is an original projected value (no averaging). These tests do
+// NOT compile until that function exists — that IS the RED state.
+// ════════════════════════════════════════════════════════════════════════
+#[cfg(test)]
+mod frame_cluster_tests {
+    use super::*;
+
+    fn poly(outer: &[(f64, f64)]) -> PolygonWithHoles {
+        PolygonWithHoles {
+            outer: outer.iter().map(|&(x, y)| Point2::new(x, y)).collect(),
+            holes: Vec::new(),
+        }
+    }
+
+    /// Every coordinate's bits, in loop order (outer then holes) — for
+    /// byte-identity comparison.
+    fn bits2(p: &PolygonWithHoles) -> Vec<[u64; 2]> {
+        std::iter::once(&p.outer)
+            .chain(p.holes.iter())
+            .flat_map(|lp| lp.iter().map(|pt| [pt.x().to_bits(), pt.y().to_bits()]))
+            .collect()
+    }
+
+    /// I7 audit oracle: after clustering, NO two coordinates on one axis differ
+    /// by a nonzero amount ≤ `band` (twin-free events), across all loops of all
+    /// polygons.
+    fn assert_no_twin_events(polys: &[&PolygonWithHoles], band: f64) {
+        let mut us: Vec<f64> = Vec::new();
+        let mut vs: Vec<f64> = Vec::new();
+        for p in polys {
+            for lp in std::iter::once(&p.outer).chain(p.holes.iter()) {
+                for pt in lp {
+                    us.push(pt.x());
+                    vs.push(pt.y());
+                }
+            }
+        }
+        for (axis_name, mut axis) in [("u", us), ("v", vs)] {
+            axis.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            for w in axis.windows(2) {
+                let d = (w[1] - w[0]).abs();
+                assert!(
+                    d == 0.0 || d > band,
+                    "I7: {axis_name}-axis twin event: {} and {} differ by {d:e} ≤ band {band:e}",
+                    w[0],
+                    w[1]
+                );
+            }
+        }
+    }
+
+    /// C1 / I7 / I8 (RED): two projected coords within band (across A and B)
+    /// snap to the first-seen representative on the u axis; v untouched; the
+    /// far (3.0) cluster untouched (C2); representative is an original member.
+    #[test]
+    fn red_frame_coords_cluster_to_representative() {
+        // u ≈ 1.0 split by 1 and 2 ULPs (~2.2e-16, 4.4e-16) — the measured
+        // R0076 femto-crookedness; band 1e-12.
+        let u1 = f64::from_bits(1.0f64.to_bits() + 1); // 1.0 + 1 ULP (A)
+        let u2 = f64::from_bits(1.0f64.to_bits() + 2); // 1.0 + 2 ULP (B)
+        let band = 1e-12;
+
+        let mut a = poly(&[(1.0, 0.0), (u1, 2.0), (3.0, 2.0), (3.0, 0.0)]);
+        let mut b = poly(&[(u2, 5.0), (3.0, 5.0), (3.0, 4.0)]);
+
+        cluster_frame_coords(&mut [&mut a, &mut b], band);
+
+        // C1 / I8: all three near-1.0 u values are BIT-equal to the first-seen
+        // representative 1.0 (a member — no averaging).
+        let rep = 1.0f64.to_bits();
+        assert_eq!(a.outer[0].x().to_bits(), rep, "A[0].u representative");
+        assert_eq!(a.outer[1].x().to_bits(), rep, "A[1].u (1 ULP) snaps to rep");
+        assert_eq!(b.outer[0].x().to_bits(), rep, "B[0].u (2 ULP) snaps to rep");
+
+        // v is untouched (no femto split on v).
+        assert_eq!(a.outer[1].y(), 2.0, "I8: v coordinate not moved");
+        // C2: the 3.0 cluster (already exact) stays 3.0.
+        assert_eq!(a.outer[2].x(), 3.0, "C2: far cluster untouched");
+
+        // I7: no twin events remain on either axis.
+        assert_no_twin_events(&[&a, &b], band);
+    }
+
+    /// C3 guard: generic polygons whose coordinates are all exactly equal or
+    /// ≫ band apart are byte-identical through the pass.
+    #[test]
+    fn guard_generic_distinct_polygons_byte_identical() {
+        let band = 1e-12;
+        let mut a = poly(&[(0.0, 0.0), (5.0, 0.0), (5.0, 5.0), (0.0, 5.0)]);
+        let mut b = poly(&[(10.0, 10.0), (15.0, 10.0), (12.0, 13.0)]);
+        let (ba, bb) = (bits2(&a), bits2(&b));
+
+        cluster_frame_coords(&mut [&mut a, &mut b], band);
+
+        assert_eq!(
+            bits2(&a),
+            ba,
+            "C3: distinct polygon A must be byte-identical"
+        );
+        assert_eq!(
+            bits2(&b),
+            bb,
+            "C3: distinct polygon B must be byte-identical"
+        );
+    }
+
+    /// Axis-independence guard: a pair split only in v clusters ONLY in v; the
+    /// distinct u values (1.0 vs 2.0, ≫ band apart) are left untouched.
+    #[test]
+    fn guard_v_axis_clusters_independent_of_u() {
+        let band = 1e-12;
+        let v_twin = f64::from_bits(7.0f64.to_bits() + 3); // 7.0 + 3 ULP (~2.7e-15)
+        let mut a = poly(&[(1.0, 7.0), (2.0, v_twin), (2.0, 9.0), (1.0, 9.0)]);
+
+        cluster_frame_coords(&mut [&mut a], band);
+
+        // v: the femto twin snaps to the first-seen representative 7.0.
+        assert_eq!(
+            a.outer[0].y().to_bits(),
+            7.0f64.to_bits(),
+            "v representative"
+        );
+        assert_eq!(a.outer[1].y().to_bits(), 7.0f64.to_bits(), "v twin snaps");
+        // u: distinct values are NOT touched by v clustering.
+        assert_eq!(a.outer[0].x(), 1.0, "u untouched (independent axis)");
+        assert_eq!(a.outer[1].x(), 2.0, "u untouched (independent axis)");
+    }
+}
