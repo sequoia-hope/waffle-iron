@@ -40,11 +40,25 @@ junction-cluster merge retained only as a CONTINGENT part 2 (§3b).
    curve; emitting it also collapses membrane triangles, lib.rs:5529-5547).
    The exact circle is one call away at the mint: `disc_circle_edge(a,
    p.face_a)` (stage0.rs:660) yields the rim `Curve::Circle`.
+6. **Implementation-phase finding (measured, P10 STOP honored):**
+   UNCONDITIONAL exact minting folds the overlay where the rim tessellation is
+   coarse — moving a chord vertex outward by the local sagitta can cross
+   other-input mesh edges inside the chord↔arc band (R0013: 9-gon rim,
+   sagitta 0.53 at r=8.73, 175 mints → 1 inverted triangle → cherchi
+   self-intersection). Measured spec-exact: R0013 SUPPORTED_CORRECT→ERROR,
+   R0024 campaign RED, real-R0072 folds at Stage-0. The folding population is
+   a REAL mesh-updating demand: repositioned boundary vertices need local
+   re-triangulation (Yang Fig 11) — recorded as a live consumer for the
+   deferred overlay-level mesh-updating machinery (general Stage-0 §4.5.5
+   milestone). Until that lands, exact minting is gated on local validity
+   (§3 row 4–5 as amended).
 
 ## 1. Goal
 
 Every overlay-derived vertex that lies on a disc-rim chord is minted ON the
-exact rim circle at Stage-0 resolution time, for BOTH kinds:
+exact rim circle at Stage-0 resolution time **wherever that placement keeps
+the pre-existing overlay triangulation valid (§3 fold gate)**, for BOTH
+kinds:
 
 - **pure subdivision points** (x-event splits of a rim chord; the 11): radial
   projection onto the exact circle in the cap plane;
@@ -78,6 +92,17 @@ input sub-segment) — exact predicates, no tolerance.
 | **NEW: on a rim chord AND on another input's edge (exact rational tests)** | raw `frame.lift` → chord position | exact 2D circle∩line intersection point, lifted to 3D (on circle AND on the other edge) |
 | **NEW: on a rim chord only (x-event subdivision)** | raw `frame.lift` → chord position | radial projection onto the exact circle: `center + radius·normalize(lift(q) − center)` in the cap plane |
 | Not on any rim chord (straight-edge / interior points) | raw `frame.lift` (exact for straight edges) | unchanged |
+
+**Fold-validity gate (amendment 2, per §0 item 6):** after resolution, any
+N2-3a-minted vertex whose incident overlay triangle's 2D signed area becomes
+≤ 0 is REVERTED to today's chord lift, iterated to a deterministic fixpoint
+(minted indices tracked explicitly — coordinate-comparison inference is
+forbidden; it falsely captures ULP-snapped rim vertices). A reverted vertex is
+byte-identical to today's behavior and remains observable via kernel-v2's
+untouched tripwire (§6). This is a validity check, not a tolerance: exact
+placement applies wherever it does not invert the pre-existing overlay
+triangulation; the residual population is the recorded mesh-updating demand
+(§0 item 6), not silently blessed geometry.
 
 ### 3b. CONTINGENT part 2 — Stage-4 Fig-11(b) junction-cluster merge
 
