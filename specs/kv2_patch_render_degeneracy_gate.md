@@ -118,6 +118,11 @@ ear-clip+flip, or f32-resolution-aware boundary preprocessing with an
 explicit conformality story). Until then the loud gate IS the correct
 boundary: femto-shifted inputs fail typed, never silently.
 
+**→ Root-fix cycle opened 2026-07-02: `specs/kv2_cdt_triangulation_core.md`**
+(CDT core for both the cylinder patch and the planar path; item 5's R0064
+leak measured to the planar ear-clip — FaceId(289), one f32-zero-cross
+triangle spanning three near-collinear gear-profile vertices at scale ~572).
+
 ## 7. Research basis
 
 Producer-side validation of discretization output (A8.2 explicit healing /
