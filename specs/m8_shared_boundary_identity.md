@@ -86,6 +86,21 @@ Additional invariants:
 - I8: per-coordinate displacement ≤ band; cluster representatives are
   members (no averaging — a representative is an original projected value).
 
+**Scope limit (measured, GREEN-2):** clustering applies to PURE-POLYGON
+pairs only (`rim_a`/`rim_b` empty). A disc rim's 2D samples are projections
+of exact 3D ring points bit-shared with the cylinder lateral, and a regular
+ring's symmetric samples legitimately carry femto-near-equal coordinates —
+naive clustering welded them and broke the rim-chord ↔ lateral exact
+correspondence (m8_disc_coplanar `cylinder_cap_crossing` regressed to
+cherchi `LabelMismatch`); an immovable-seed variant (rims never move,
+polygon coords snap TO them) regressed three disc fixtures to earlier
+Stage-0 walls instead (the snapped corners violate the disc-pair
+machinery's exact expectations). Per P10 both variants were reverted, not
+iterated blindly: rim-aware clustering is a FOLLOW-UP cycle with its own
+design. Consequence: F0061 (rim-carrying femto-twin case) stays loudly
+walled; its tracker stays RED naming this gap. I7 therefore holds over
+pure-polygon pairs only.
+
 ## 3. Branch table
 
 | # | Vertex configuration | Behavior |

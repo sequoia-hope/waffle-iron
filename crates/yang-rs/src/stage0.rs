@@ -335,16 +335,134 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
 
         // Shared-frame 2D polygons (corner→vertex keys, plus rim→3D for a
         // tessellated disc face).
-        let (poly_a, corners_a, rim_a) = face_polygon_2d_tessellated(a, p.face_a, &va, frame)
+        let (mut poly_a, corners_a, rim_a) = face_polygon_2d_tessellated(a, p.face_a, &va, frame)
             .ok_or_else(|| {
-                probe("polygon2d-a", &format!("pair=({},{})", p.face_a, p.face_b));
-                pair_err(p.face_a, p.face_b)
-            })?;
-        let (poly_b, corners_b, rim_b) = face_polygon_2d_tessellated(b, p.face_b, &vb, frame)
+            probe("polygon2d-a", &format!("pair=({},{})", p.face_a, p.face_b));
+            pair_err(p.face_a, p.face_b)
+        })?;
+        let (mut poly_b, corners_b, rim_b) = face_polygon_2d_tessellated(b, p.face_b, &vb, frame)
             .ok_or_else(|| {
-                probe("polygon2d-b", &format!("pair=({},{})", p.face_a, p.face_b));
-                pair_err(p.face_a, p.face_b)
-            })?;
+            probe("polygon2d-b", &format!("pair=({},{})", p.face_a, p.face_b));
+            pair_err(p.face_a, p.face_b)
+        })?;
+
+        // §2b in-frame coordinate clustering (spec `m8_shared_boundary_identity`
+        // C1-C3/I7-I8): the f64 frame projection mints femto-split coordinates
+        // for OBLIQUE solids (intended-frame-vertical edges land ~1e-16 off
+        // vertical even when the world coordinates are consistent), and the
+        // exact overlay faithfully builds femto sweep slabs → needle cells →
+        // `RoundingCollapse` / femto-twin split points from them. Cluster the
+        // projected u and v values of BOTH polygons within the pair band so
+        // intended-equal frame coordinates are BIT-equal across the pair. The
+        // corner/rim key maps were built from the pre-cluster coordinates —
+        // remap their keys through the same snap so overlay-vertex → 3D corner
+        // resolution stays exact (T-junction-free with the neighbor faces).
+        // Rim-carrying pairs are EXCLUDED from clustering: a disc rim's 2D
+        // samples are projections of exact 3D rim-ring points bit-shared
+        // with the cylinder lateral, and a regular ring's SYMMETRIC samples
+        // legitimately carry femto-near-equal coordinates (±cos30°·r trig
+        // rounding); welding them breaks the rim-chord ↔ lateral exact
+        // correspondence and re-mints the near-duplicate-3D disease inside
+        // cherchi (measured: m8_disc_coplanar cylinder_cap_crossing
+        // LabelMismatch). An immovable-seed variant (polygon coords snap TO
+        // rim coords, rims never move) was TRIED and regressed 3 disc
+        // fixtures to earlier walls (the snapped corners break the
+        // disc-pair machinery's exact expectations) — rim-aware clustering
+        // needs its own designed cycle; until then F0061 (a rim-carrying
+        // femto-twin case) stays loudly walled. The femto-projection
+        // disease this clustering fixes is a pure-polygon phenomenon
+        // (R0076/R0081 quads).
+        let cluster_ok = rim_a.is_empty() && rim_b.is_empty();
+        let (corners_a, corners_b, rim_a, rim_b) = if !cluster_ok {
+            (corners_a, corners_b, rim_a, rim_b)
+        } else {
+            let pre_a = poly_a.clone();
+            let pre_b = poly_b.clone();
+            cluster_frame_coords(&mut [&mut poly_a, &mut poly_b], p.band);
+            if std::env::var_os("YANG_CLUSTER_PROBE").is_some() {
+                for (tag, pre, post) in [("A", &pre_a, &poly_a), ("B", &pre_b, &poly_b)] {
+                    for (lp_pre, lp_post) in std::iter::once(&pre.outer)
+                        .chain(pre.holes.iter())
+                        .zip(std::iter::once(&post.outer).chain(post.holes.iter()))
+                    {
+                        for (i, (q0, q1)) in lp_pre.iter().zip(lp_post.iter()).enumerate() {
+                            if q0 != q1 {
+                                eprintln!(
+                                    "[cluster-probe] moved {tag}[{i}]: ({:?},{:?}) → ({:?},{:?})",
+                                    q0.x(),
+                                    q0.y(),
+                                    q1.x(),
+                                    q1.y()
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            let mut key_map: BTreeMap<(u64, u64), (u64, u64)> = BTreeMap::new();
+            for (pre, post) in [(&pre_a, &poly_a), (&pre_b, &poly_b)] {
+                for (lp_pre, lp_post) in std::iter::once(&pre.outer)
+                    .chain(pre.holes.iter())
+                    .zip(std::iter::once(&post.outer).chain(post.holes.iter()))
+                {
+                    for (q_pre, q_post) in lp_pre.iter().zip(lp_post.iter()) {
+                        key_map.insert(
+                            (q_pre.x().to_bits(), q_pre.y().to_bits()),
+                            (q_post.x().to_bits(), q_post.y().to_bits()),
+                        );
+                    }
+                }
+            }
+            let remap_exact = |ex: ExactPoint2| -> ExactPoint2 {
+                let ux = ex.x.to_f64().value();
+                let vy = ex.y.to_f64().value();
+                match key_map.get(&(ux.to_bits(), vy.to_bits())) {
+                    Some(&(nx, ny)) => {
+                        ExactPoint2::from_f64(f64::from_bits(nx), f64::from_bits(ny)).unwrap_or(ex)
+                    }
+                    None => ex,
+                }
+            };
+            let n_ca = corners_a.len();
+            let n_cb = corners_b.len();
+            let n_ra = rim_a.len();
+            let n_rb = rim_b.len();
+            let ca: BTreeMap<ExactPoint2, u32> = corners_a
+                .into_iter()
+                .map(|(k, v)| (remap_exact(k), v))
+                .collect();
+            let cb: BTreeMap<ExactPoint2, u32> = corners_b
+                .into_iter()
+                .map(|(k, v)| (remap_exact(k), v))
+                .collect();
+            let ra: BTreeMap<ExactPoint2, Point3> = rim_a
+                .into_iter()
+                .map(|(k, pt)| (remap_exact(k), pt))
+                .collect();
+            let rb: BTreeMap<ExactPoint2, Point3> = rim_b
+                .into_iter()
+                .map(|(k, pt)| (remap_exact(k), pt))
+                .collect();
+            if std::env::var_os("YANG_CLUSTER_PROBE").is_some()
+                && (ca.len() != n_ca || cb.len() != n_cb || ra.len() != n_ra || rb.len() != n_rb)
+            {
+                eprintln!(
+                    "[cluster-probe] KEY COLLISION pair=({},{}): corners_a {}→{} corners_b {}→{} \
+                     rim_a {}→{} rim_b {}→{}",
+                    p.face_a,
+                    p.face_b,
+                    n_ca,
+                    ca.len(),
+                    n_cb,
+                    cb.len(),
+                    n_ra,
+                    ra.len(),
+                    n_rb,
+                    rb.len()
+                );
+            }
+            (ca, cb, ra, rb)
+        };
 
         let overlay = coplanar_overlay(&poly_a, &poly_b).map_err(|e| {
             probe(
@@ -1478,6 +1596,45 @@ type TessellatedFacePolygon = (
     BTreeMap<ExactPoint2, u32>,
     BTreeMap<ExactPoint2, Point3>,
 );
+
+/// §2b in-frame coordinate clustering (spec `m8_shared_boundary_identity`
+/// C1-C3, I7/I8): snap projected u values (and, independently, v values)
+/// that agree within `band` — across ALL the pair's polygons — to the
+/// cluster's FIRST-SEEN representative (an original projected value, never
+/// an average). The f64 frame projection rounds each vertex independently,
+/// so an OBLIQUE solid's intended-frame-vertical edge lands ~1e-16 off
+/// vertical even when its world coordinates are consistent; the exact
+/// overlay then faithfully builds femto sweep slabs → needle cells →
+/// `RoundingCollapse` / femto-twin split points. Clustering makes
+/// intended-equal frame coordinates BIT-equal across the pair (§4.5.5
+/// identical boundary sampling in the overlay's own domain).
+///
+/// Deterministic order: `polys` in slice order, each polygon's `outer` then
+/// `holes`, vertices in loop order. Clusters are isolated (real features
+/// are ≥ MIN_FEATURE_SIZE apart, six orders above the band — the KV10
+/// margin), so greedy first-seen matching cannot chain-drift.
+fn cluster_frame_coords(polys: &mut [&mut PolygonWithHoles], band: f64) {
+    for axis in 0..2 {
+        let mut reps: Vec<f64> = Vec::new();
+        for poly in polys.iter_mut() {
+            for lp in std::iter::once(&mut poly.outer).chain(poly.holes.iter_mut()) {
+                for q in lp.iter_mut() {
+                    let c = if axis == 0 { q.x() } else { q.y() };
+                    match reps.iter().find(|r| (**r - c).abs() <= band) {
+                        Some(&r) => {
+                            *q = if axis == 0 {
+                                Point2::new(r, q.y())
+                            } else {
+                                Point2::new(q.x(), r)
+                            };
+                        }
+                        None => reps.push(c),
+                    }
+                }
+            }
+        }
+    }
+}
 
 /// exact Stage-1 rim ring. The third return value maps each rim vertex's exact
 /// 2D key to its bit-identical 3D rim point (for overlay-vertex → 3D
