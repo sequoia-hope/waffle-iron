@@ -185,6 +185,23 @@ coincident; femto-crooked chains violate that upstream of the overlay.
 Exact rational solves/projections, rounded once to f64 per adopted vertex.
 No SSI, no surface approximation.
 
+## 8a. Gate failure + unwiring (P9/P10 record, 2026-07-02)
+
+The full-assay gate with BOTH layers wired flipped **R0064 and F0047 to
+SUPPORTED_WRONG** (F0047: 53 unpaired edges, 45 non-manifold, Euler 42 —
+a silently wrecked mesh; R0064: 1 degenerate render triangle). Bisection:
+the WORLD-SPACE pass (§2) is the trigger for both; the in-frame clustering
+(§2b) alone leaves them fully correct. Tracker matrix: both layers = 6/7
+GREEN but disqualified; clustering-only = R0070/R0076/R0081/R0098 GREEN,
+R0046/R0088 regress to their walls (their femto-twins are world-level),
+F0061 unchanged (rim-aware gap). No static predicate separates the
+population §2 fixes from the one it breaks (both are planar-solid ×
+curved-solid classes), so §2 is UNWIRED — the primitive and its unit suite
+stand (banked, N2-1 pattern) and wiring returns WITH the downstream
+investigation: femto-band input motion must never yield a silent
+non-manifold output — F0047's wrecked-mesh path is a missing loud gate in
+the ellipse-junction pipeline, to be fixed first.
+
 ## 8. History (P10 record)
 
 The 2026-07-02 DRAFT designed a cross-solid near-collinear edge snap

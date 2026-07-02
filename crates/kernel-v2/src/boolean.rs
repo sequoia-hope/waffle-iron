@@ -560,7 +560,18 @@ pub fn to_yang_brep_indexed(
     }
 
     canonicalize_sibling_planes(&mut yfaces);
-    canonicalize_vertices_to_planes(&mut yverts, &yedges, &yfaces);
+    // `canonicalize_vertices_to_planes` is DELIBERATELY UNWIRED (spec
+    // `m8_shared_boundary_identity` §8, gate failure 2026-07-02): wiring it
+    // here made the full assay flip R0064 + F0047 to SUPPORTED_WRONG — the
+    // band-bounded vertex motion exposes a downstream fragility in the
+    // ellipse-junction pipeline that emits a NON-MANIFOLD mesh silently
+    // (F0047: 53 unpaired edges, Euler 42) instead of stopping loudly.
+    // Per P9 a loud error must never become silent-wrong, and no static
+    // predicate separates the population it fixes (R0046/R0088 world-level
+    // femto-twins) from the one it breaks. The primitive + its unit suite
+    // stand (m8_vertex_canon_tests); wiring returns with the downstream
+    // loud-gate investigation. `let _` keeps the primitive compiled.
+    let _ = canonicalize_vertices_to_planes;
 
     let brep = yang_rs::BRep::new(yverts, yedges, yfaces).map_err(|e| {
         KernelV2Error::BooleanFailed(format!("yang-rs rejected the converted input B-Rep: {e}"))
