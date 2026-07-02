@@ -1,24 +1,27 @@
-//! N2-3a campaign delta — RED replay oracle for the Stage-4 Fig-11(b)
-//! junction-cluster merge (spec: `specs/n2_stage4_junction_cluster_merge.md`).
+//! N2-3a campaign delta — replay oracle for the Stage-0 exact rim mint
+//! (spec: `specs/n2_stage4_junction_cluster_merge.md`). GREEN since
+//! 15d00e7f (un-`#[ignore]`d by the validation phase).
 //!
-//! R0072 currently fails Extrude 2's auto-union with kernel-v2
-//! `VertexOffSurface { FaceId(11) }`: the boolean COMPLETES in yang-rs but
-//! its output cylinder face carries boundary-loop vertices off the analytic
-//! cylinder (12 of them measured — 11 coplanar-overlay rim vertices at
-//! chord-sagitta residuals 5.4e-6..7.3e-6 plus the diagnostic's v7
-//! tangency-cluster member at 1.607e-6, all ≫ the import band ≈ 1e-9), and
-//! kernel-v2's debug-tier vertex-on-surface tripwire rejects the import.
-//! The mechanism-level fixture lives in
-//! `crates/yang-rs/tests/n2_junction_cluster.rs` (see its header for the
-//! measured population and the spec-scope note).
+//! R0072 USED to fail Extrude 2's auto-union with kernel-v2
+//! `VertexOffSurface { FaceId(11) }`: the boolean COMPLETED in yang-rs but
+//! its output cylinder face carried boundary-loop vertices off the analytic
+//! cylinder (12 measured — 11 coplanar-overlay rim vertices at chord-sagitta
+//! residuals 5.4e-6..7.3e-6 plus the diagnostic's v7 tangency-cluster member
+//! at 1.607e-6, all ≫ the import band ≈ 1e-9), and kernel-v2's debug-tier
+//! vertex-on-surface tripwire rejected the import. N2-3a's Stage-0 exact rim
+//! mint (radial projection + circle∩line crossings + fold-validity gate)
+//! closed that class. The mechanism-level fixture lives in
+//! `crates/yang-rs/tests/n2_junction_cluster.rs`; the adversarial stress
+//! suite in `crates/yang-rs/tests/n2_rim_mint_adversary.rs`.
 //!
-//! This test pins the CAMPAIGN acceptance (spec §5): after the fix, R0072's
-//! replay must no longer contain a `VertexOffSurface` failure. It does NOT
-//! require full oracle-correctness — if a different downstream wall then
-//! surfaces, this test stays green and the still-RED
+//! This test pins the CAMPAIGN acceptance (spec §5): R0072's replay must not
+//! contain a `VertexOffSurface` failure. It does NOT require full
+//! oracle-correctness — R0072's remaining downstream wall is kernel-v2
+//! `TessellationFailed { face: FaceId(19), reason: "inverted final
+//! triangle" }`, tracked by the still-RED
 //! `red_r0072_stage3_ambiguous_parallel_lines` in
-//! `m8_samenormal_campaign.rs` gets its `#[ignore]` reason repointed
-//! (honest-harness rule). Un-`#[ignore]` this test when the fix lands.
+//! `m8_samenormal_campaign.rs` (its `#[ignore]` reason names that mode —
+//! honest-harness rule).
 //!
 //! The replay helper is a copy of `m8_samenormal_campaign.rs`'s
 //! `replay_failures` boolean-failure arm (that file is not modified per the
@@ -88,16 +91,17 @@ fn replay_boolean_failures(case_id: &str) -> Vec<String> {
     failures
 }
 
-/// **RED today.** R0072's replay must not fail with `VertexOffSurface` —
-/// the Stage-4 output's cylinder-face loop vertices must all lie on the
-/// analytic cylinder within kernel-v2's import band (Yang §4.4.1 Fig 11(b):
-/// junction-cluster members merged onto the relocated on-curve point q, and
-/// coplanar-overlay rim vertices on the exact rim).
+/// **GREEN since N2-3a (15d00e7f).** R0072's replay must not fail with
+/// `VertexOffSurface` — Stage-0 now mints coplanar-overlay rim vertices on
+/// the exact rim circle (spec `n2_stage4_junction_cluster_merge` §3), which
+/// closed the off-surface-vertex class this test pins. R0072 is NOT yet
+/// fully green end-to-end: its remaining downstream mode is kernel-v2
+/// `TessellationFailed { face: FaceId(19), reason: "inverted final
+/// triangle" }` (a different wall, tracked by the still-`#[ignore]`d
+/// `red_r0072_stage3_ambiguous_parallel_lines` in
+/// `m8_samenormal_campaign.rs`) — this test stays green through it because
+/// it asserts only the absence of the `VertexOffSurface` mode.
 #[test]
-#[ignore = "N2-3a RED (Stage-4 junction-cluster / overlay-rim off-surface vertices): \
-            R0072's union output is rejected by kernel-v2 VertexOffSurface — GREEN \
-            when the Fig-11(b) merge onto the relocated point q (spec \
-            n2_stage4_junction_cluster_merge) lands"]
 fn red_r0072_vertex_off_surface() {
     let failures = replay_boolean_failures("R0072");
     assert!(

@@ -72,8 +72,8 @@
 //! oracle is proven too tight). Landing order: fix/triage R0082 FIRST, then the
 //! one-line planar band lands cleanly. Reproduce with `YANG_M8_PROBE=1` on a
 //! Stage-6 band-tier dump.
-//! | Stage-4 relocation `DegenerateTriangle` | R0021, R0072 | §4.5.3 region repair |
-//! | Stage-3 SSI `AmbiguousCurve` (cyl∩plane near-tangency → 2 near-coincident parallel lines; tangent discriminator can't separate parallels) | ~~R0072~~ | **RESOLVED** — `select_disjoint_parallel_line` position tie-break in BOTH Stage-3 selection and Stage-4 line relocation (`specs/yr_r0072_parallel_line_position_tiebreak.md`). R0072 advanced PAST this mode to the Stage-4 `DegenerateTriangle` mode (now grouped with R0021). |
+//! | ~~Stage-4 relocation `DegenerateTriangle`~~ | ~~R0021, R0072~~ | **RESOLVED/OBSOLETE** — the shared mode no longer exists; the two cases diverged. The off-surface-vertex (`VertexOffSurface`) class behind it was CLOSED by N2-3a's Stage-0 exact rim mint (`specs/n2_stage4_junction_cluster_merge.md`; pinned green by `n2_junction_cluster_campaign.rs`). R0021's CURRENT blocker: the Stage-1 partial-patch re-entry wall (`boolean_union: curved partial-patch operand face FaceId(19)` — a previous curved boolean's result cannot re-enter yang-rs Stage 1) plus 1 degenerate render triangle. R0072's CURRENT blocker: kernel-v2 `TessellationFailed { face: FaceId(19), reason: "inverted final triangle" }`. |
+//! | Stage-3 SSI `AmbiguousCurve` (cyl∩plane near-tangency → 2 near-coincident parallel lines; tangent discriminator can't separate parallels) | ~~R0072~~ | **RESOLVED** — `select_disjoint_parallel_line` position tie-break in BOTH Stage-3 selection and Stage-4 line relocation (`specs/yr_r0072_parallel_line_position_tiebreak.md`). |
 //! | kernel-v2 azimuth-merge rims disagree (reassembly) | R0078 | rim-merge robustness |
 //! | cherchi TIMEOUT (loops on the coincident same-winding overlap input) | R0063 | cherchi guard / single-shared-sheet Stage-0 |
 //! | residual 2nd coplanar pair (the env lifts the first pair; a second pair hits a different gate) | R0076, R0088, F0061 | once the above land, re-scope the remaining pair |
@@ -242,10 +242,18 @@ fn red_r0024_stage6_planar_tol() {
     assert_correct("R0024");
 }
 
-// ── Mode 2: Stage-4 relocation DegenerateTriangle ──────────────────────────
+// ── Mode 2 (was: Stage-4 relocation DegenerateTriangle) — superseded ────────
+// The shared DegenerateTriangle/VertexOffSurface mode was closed by N2-3a's
+// Stage-0 exact rim mint (`specs/n2_stage4_junction_cluster_merge.md`); R0021
+// and R0072 now block on DIFFERENT downstream walls (named in each ignore
+// reason below).
 
 #[test]
-#[ignore = "M8 same-normal RED (Stage-4 relocation DegenerateTriangle): GREEN when the §4.5.3 region repair handles the same-normal overlap boundary"]
+#[ignore = "M8 same-normal RED (Stage-1 partial-patch re-entry wall): R0021's Extrude 3 auto-union \
+            fails loudly with `boolean_union: curved partial-patch operand face FaceId(19)` (a \
+            previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch \
+            tessellation yet), plus 1 degenerate render triangle; GREEN when partial-patch \
+            re-entry tessellation lands"]
 fn red_r0021_stage4_relocation() {
     assert_correct("R0021");
 }
@@ -253,15 +261,21 @@ fn red_r0021_stage4_relocation() {
 // ── Mode 3: Stage-3 SSI AmbiguousCurve (cyl∩plane near-tangency) — RESOLVED ──
 // The parallel-line ambiguity is fixed: `select_disjoint_parallel_line` adds a
 // POSITION tie-break (disjoint endpoint-distance intervals) in BOTH the Stage-3
-// curve selection and the Stage-4 line relocation. R0072 now advances PAST the
-// `AmbiguousCurve` and surfaces a Stage-4 `DegenerateTriangle` — i.e. it has
-// become a Mode-2 case. Kept `#[ignore]` until Mode 2 (§4.5.3 region repair)
-// lands; the ignore reason names the NEW blocker so the harness stays honest.
-// The Mode-3 fix has its own dedicated regression test in yang-rs
+// curve selection and the Stage-4 line relocation. R0072 then advanced past
+// `AmbiguousCurve` to a Stage-4 `DegenerateTriangle` / `VertexOffSurface`
+// class, which N2-3a's Stage-0 exact rim mint closed in turn (pinned by
+// `n2_junction_cluster_campaign.rs::red_r0072_vertex_off_surface`, now green).
+// Kept `#[ignore]` because R0072 end-to-end still fails on a THIRD wall; the
+// ignore reason names the current blocker so the harness stays honest. The
+// Mode-3 fix has its own dedicated regression test in yang-rs
 // (`tests::r0072_parallel_line_position_tiebreak`).
 
 #[test]
-#[ignore = "M8 same-normal RED — Mode 3 (Stage-3 AmbiguousCurve) FIXED; R0072 now blocks on Mode 2 (Stage-4 relocation DegenerateTriangle), GREEN when §4.5.3 region repair lands"]
+#[ignore = "M8 same-normal RED (kernel-v2 TessellationFailed): R0072 now builds past Stage-3 \
+            AmbiguousCurve (parallel-line tie-break) and past the VertexOffSurface class \
+            (N2-3a exact rim mint), but render tessellation fails loudly with \
+            `TessellationFailed { face: FaceId(19), reason: \"inverted final triangle\" }`; \
+            GREEN when that face-19 tessellation mode is fixed"]
 fn red_r0072_stage3_ambiguous_parallel_lines() {
     assert_correct("R0072");
 }
