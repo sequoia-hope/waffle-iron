@@ -59,6 +59,22 @@ test.describe('theme switcher', () => {
 		expect(await storedTheme(page)).toBe('retro');
 	});
 
+	test('selecting Witch Hazel applies its violet palette and persists', async ({ waffle }) => {
+		const { page } = waffle;
+
+		await page.click(TRIGGER);
+		const opt = page.locator('[data-testid="theme-option-witchhazel"]');
+		await expect(opt).toBeVisible();
+		await opt.click();
+
+		expect(await dataTheme(page)).toBe('witchhazel');
+		expect(await cssVar(page, '--text-primary')).toBe('#f8f8f2');
+		expect(await cssVar(page, '--accent')).toBe('#c5a3ff');
+		// Accent/success/error fills are light-to-bright, so text on them is dark.
+		expect(await cssVar(page, '--text-on-accent')).toBe('#2b2740');
+		expect(await storedTheme(page)).toBe('witchhazel');
+	});
+
 	test('retro survives a reload (applied before first paint)', async ({ waffle }) => {
 		const { page } = waffle;
 

@@ -23,6 +23,7 @@ const STORAGE_KEY = 'waffle:theme';
 export const THEMES = [
 	{ id: 'default', label: 'Default', description: 'The standard dark editor theme' },
 	{ id: 'retro', label: 'Retro Terminal', description: 'Grey, black, and old-terminal phosphor green' },
+	{ id: 'witchhazel', label: 'Witch Hazel', description: 'Dark violet with lavender, mint, and pink accents' },
 ];
 
 const DEFAULT_THEME = 'default';

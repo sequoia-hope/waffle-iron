@@ -84,6 +84,32 @@
 	--font-ui: var(--font-mono);
 }
 
+/*
+ * Witch Hazel — manual conversion of Thea Flowers' witchhazel.tmTheme
+ * (github.com/theacodes/witchhazel). Dark violet backgrounds, near-white
+ * text, and the theme's signature lavender / mint / pink / cyan accents.
+ * Its accent, success and error fills are all light-to-bright, so
+ * --text-on-accent is a dark violet.
+ */
+:root[data-theme='witchhazel'] {
+	--bg-primary: #3b3651;
+	--bg-secondary: #433e56; /* the Witch Hazel editor background */
+	--bg-tertiary: #4c4663;
+	--bg-hover: #5b5479;     /* near the theme's line-highlight */
+	--text-primary: #f8f8f2; /* foreground */
+	--text-secondary: #b0bec5; /* comment */
+	--text-muted: #8077a8;   /* selection violet */
+	--border-color: #565073;
+	--accent: #c5a3ff;       /* constant/number lavender */
+	--accent-hover: #d7bbff;
+	--success: #c2ffdf;      /* keyword mint */
+	--warning: #fff352;      /* the theme's yellow */
+	--error: #f92672;        /* invalid */
+	--text-on-accent: #2b2740;
+	--viewport-bg: #3a3550;
+	--model-color: #9a90b4;  /* muted lavender-grey machined part */
+}
+
 @media (max-width: 480px) {
 	:root {
 		--toolbar-height: 44px;
