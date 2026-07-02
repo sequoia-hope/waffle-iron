@@ -76,14 +76,27 @@ the roadmap's remaining work:
    >    duplicate collapse in `triangulate_ring`. Spec
    >    `specs/m8_nonstar_ring_earclip.md`; commits 69f3c8a8 (RED) →
    >    18dea32f (GREEN) → f5386e56 (B6 oracle). R0098 clears end to end.
-   > 3. **Femto-twin shared-boundary identity** (~6 cases: R0046, R0070,
-   >    R0076, R0081, F0061, F0063 + R0088's cherchi `LabelMismatch` layer) —
-   >    near-coincident A/B boundary runs enter the exact overlay as TWO
-   >    constraints, so each crossing mints twice (~1e-18..1e-16 apart);
-   >    downstream ear-clip stalls / `RoundingCollapse` needles /
-   >    LabelMismatch are all this one root. Spec DRAFT
-   >    `specs/m8_shared_boundary_identity.md` — the §4.5.5 Fig.-16
-   >    "identical boundary sampling" reconciliation, THE next Stage-0 cycle.
+   > 3. **Femto-twin shared-boundary identity — PARTIALLY SHIPPED
+   >    (2026-07-02, spec `specs/m8_shared_boundary_identity.md`).** Root
+   >    measured as TWO layers, not cross-solid constraints (§8 P10 record):
+   >    (a) chained-output vertices femto-off their canonical planes, and
+   >    (b) the f64 FRAME PROJECTION minting femto-split coordinates for
+   >    OBLIQUE solids even on consistent world coords. **Shipped +
+   >    assay-certified (0 WRONG, quiet box): §2b in-frame coordinate
+   >    clustering for pure-polygon pairs** (04f14094 + adversary bbbcd407)
+   >    — R0070, R0076, R0081 clear the wall (with the earlier ear-clip,
+   >    R0098 too). **Banked, deliberately UNWIRED: the world-space vertex
+   >    canonicalization** (49a373eb primitive + unit suite; unwired
+   >    3cf6f40b) — wiring it flipped R0064/F0047 to SUPPORTED_WRONG (§8a):
+   >    its femto motion drives `tessellate_cylinder_patch` into sub-f32
+   >    slivers. **The F0047 hole is now GATED LOUD** (spec
+   >    `specs/kv2_patch_render_degeneracy_gate.md`, 9eede895→80f3cc73:
+   >    always-on f32 render-precision gate; I2 assay-verified
+   >    category-neutral). Remaining: (i) root-fix WHY the shifted patch
+   >    boundary produces sub-f32 slivers, then re-evaluate wiring the
+   >    world-space pass (would clear R0046/R0088/F0063); (ii) rim-aware
+   >    clustering for F0061 (naive + immovable-seed variants both measured
+   >    and P10-reverted — see spec scope-limit).
    > 4. **Disc rim on a non-cylinder lateral** (`rim-lateral-none`: R0050,
    >    R0025 2nd wall) — `lateral_for_cap` is cylinder-only; R0025's rim
    >    lateral is a TORUS (circle-revolve), so crossing propagation +

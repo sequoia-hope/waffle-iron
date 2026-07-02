@@ -432,7 +432,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(19), reason: \"inverted final triangle\" }",
+      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(11), reason: \"patch triangle collapsed at render precision\" }",
       "id": "R0072",
       "status": "error"
     },
