@@ -1,8 +1,8 @@
 {
-  "errored": 21,
+  "errored": 22,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 80,
+  "passed": 81,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -131,10 +131,10 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: ed7970ff-e031-4fce-b2d6-19bf876b1764: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0022",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "ERROR",
@@ -149,10 +149,10 @@
       "status": "error"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0025",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
@@ -185,10 +185,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: 928dac13-3f25-4663-995b-95e5c33bfcf3: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0031",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(revolve)",
@@ -365,10 +365,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: c032f2e8-9766-4502-9430-29829c8e2a31: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): c032f2e8-9766-4502-9430-29829c8e2a31: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: NonPlanarFace { face: FaceId(468) }",
       "id": "R0061",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -383,10 +383,10 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0064",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(revolve)",
@@ -1061,10 +1061,10 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "2 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "F0077",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "TIMEOUT",
@@ -1097,10 +1097,10 @@
       "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(17) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "F0083",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "TIMEOUT",
