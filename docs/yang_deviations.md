@@ -389,10 +389,24 @@ uses the canonical ẑ axis) that N2-3's patch extraction must share. Unit suite
 incl. a mutation-kill matrix (arc-scale flip / subdivision skip / weight drop
 all caught). Spec: `specs/n2_stage4_dt_recompute.md`.
 
-**Remaining for sign-off:** N2-3 (wire `stage4_mesh_update` + `d_of_t` into
-Stage 4, extracting each affected face patch's parametric domain, retiring the
-`LocalRefinementRequired` bailouts one surface-pair family at a time behind
-watertight / reference-parity oracles).
+**Increment N2-3a landed (2026-07-02) + N2-3 wiring grounding:** instrumenting
+all four Stage-4 repair STOPs showed ZERO live hits (yang-rs suites, campaign,
+194-case assay) — the "Stage 4 hits loud stops" premise is stale, so the
+`stage4_mesh_update`/`d_of_t` wiring is deferred until a consumer exists. The
+grounding trail instead found and fixed the live §4.5.5/§4.4.1-faithfulness
+defect: Stage-0 minted overlay rim-chord subdivision vertices at CHORD
+positions (off the exact circle by the sagitta — R0072's `VertexOffSurface`
+class, silent in release). N2-3a mints them on the exact rim `Curve::Circle`
+(radial projection / exact circle∩line for crossings) behind a fold-validity
+gate; the gate's revert population (coarse rims where exact placement inverts
+overlay triangles) is the first recorded LIVE consumer for overlay-level mesh
+updating — the natural first wiring site for the N2-1/N2-2 primitives. Spec
+(with the full grounding trail in §0): `specs/n2_stage4_junction_cluster_merge.md`.
+
+**Remaining for sign-off:** wire the N2-1/N2-2 primitives into the first
+measured consumer (the Stage-0 fold-gate revert population is the recorded
+candidate; Stage-4 wiring only when a Stage-4 consumer appears), retiring the
+residual chord-position mints behind watertight / reference-parity oracles.
 
 ### N3 — §4.5.3 collinear/degenerate-tangent treated as healthy (logic inversion)
 

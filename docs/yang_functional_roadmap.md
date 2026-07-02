@@ -82,11 +82,32 @@ the roadmap's remaining work:
    control nets (one general constructor for cylinder/cone/sphere/torus; plane
    trivially 0; convex-hull certificate; pinned `eval_uv` parameterization the
    N2-3 patch extraction must share). Unit + adversary suites incl. a
-   mutation-kill matrix (`tests/n2_dt_adversary.rs`). Remaining: **N2-3** wire
-   both primitives in (extract each face patch's parametric domain, retire the
-   `LocalRefinementRequired` bailouts one surface-pair family at a time behind
-   watertight / reference-parity oracles).
-   Specs: `specs/n2_stage4_mesh_updating.md`, `specs/n2_stage4_dt_recompute.md`.
+   mutation-kill matrix (`tests/n2_dt_adversary.rs`). **N2-3 grounding
+   (2026-07-02, instrumented):** the premise above is STALE — probes at all
+   four Stage-4 repair STOPs hit ZERO times across the yang-rs suites, the
+   same-normal campaign, and the 194-case assay, so wiring the primitives has
+   NO live consumer today and stays deferred until one appears (demand-driven;
+   the primitives are ready). The trail instead led to **N2-3a (done
+   2026-07-02):** Stage-0 was minting coplanar-overlay vertices that subdivide
+   a disc-rim chord at CHORD positions (raw `frame.lift` fallback) — off the
+   exact rim circle by the sagitta, the dominant `VertexOffSurface` class
+   (R0072), silent in release builds (the kernel tripwire is debug-only). Fix:
+   mint on the exact rim `Curve::Circle` (radial projection for x-event
+   subdivisions, exact circle∩line for rim×other-input-edge crossings),
+   behind a fold-validity gate (a mint that would invert an incident overlay
+   triangle reverts to the chord lift, deterministic fixpoint) — unconditional
+   exactness folds coarse-rim overlays (R0013's 9-gon, sagitta 0.53). **The
+   gate's revert population is the first recorded LIVE consumer for
+   overlay-level mesh updating** (repositioned boundary vertices need local
+   re-triangulation, Yang Fig 11) — that, not Stage-4, is where the N2-1/N2-2
+   machinery should first wire in. Assay 0 WRONG, no CORRECT lost (60s run:
+   82 CORRECT; R0013 30s-cap TIMEOUT flip is proven timing noise). R0072's
+   blocker moved downstream to kernel-v2 `TessellationFailed { FaceId(19),
+   "inverted final triangle" }`; R0021's is the Stage-1 partial-patch
+   re-entry wall. R0096 = torus×torus v1 wall (different mode).
+   Specs: `specs/n2_stage4_mesh_updating.md`, `specs/n2_stage4_dt_recompute.md`,
+   `specs/n2_stage4_junction_cluster_merge.md` (amended ×2 — the grounding
+   trail is recorded in its §0).
 4. **N5 — Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2
    CDT framework** (per-surface ad-hoc Newell fans / rim rings instead).
 5. **N6 — §4.5.4 illegal-self-intersection detection/removal is absent.**
