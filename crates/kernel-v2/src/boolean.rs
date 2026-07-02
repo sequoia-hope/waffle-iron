@@ -1991,3 +1991,149 @@ fn map_yang_error(e: yang_rs::YangError) -> KernelV2Error {
     }
     KernelV2Error::BooleanFailed(e.to_string())
 }
+
+// ---------------------------------------------------------------------------
+// M8-intra: sign-aware `canonicalize_sibling_planes` (spec
+// `specs/m8_intra_opposite_plane_canonicalization.md`).
+//
+// RED (FIP Phase 2). `canonicalize_sibling_planes` is private to this module,
+// so these unit tests exercise it directly (the seam KV10 pins E2E through the
+// public `to_yang_brep`; the femto-EXACT-negation assertions below need
+// hand-crafted plane bits that a real solid cannot be coaxed into producing).
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod m8_intra_canonicalization_tests {
+    use super::*;
+
+    fn normalize(v: [f64; 3]) -> [f64; 3] {
+        let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+        [v[0] / l, v[1] / l, v[2] / l]
+    }
+
+    /// A planar `yang_rs::BRepFace` carrying exactly `(normal, d)` — the loops
+    /// are irrelevant to `canonicalize_sibling_planes` (it only rewrites
+    /// `surface`), so they stay empty.
+    fn plane_face(n: [f64; 3], d: f64) -> yang_rs::BRepFace {
+        yang_rs::BRepFace {
+            surface: yang_rs::Surface::Plane {
+                normal: Vector3::new(n[0], n[1], n[2]),
+                d,
+            },
+            outer_loop: Vec::new(),
+            inner_loops: Vec::new(),
+            reversed: false,
+        }
+    }
+
+    fn plane_of(f: &yang_rs::BRepFace) -> ([f64; 3], f64) {
+        match f.surface {
+            yang_rs::Surface::Plane { normal, d } => (normal.as_array(), d),
+            _ => panic!("expected a planar face"),
+        }
+    }
+
+    /// Nudge an f64 by `n` ULPs (femto-scale drift ~1e-16 at unit magnitude) —
+    /// the same rounding-noise class PR-KV10 collapses, here on the NEGATED
+    /// sibling.
+    fn bump(x: f64, n: u64) -> f64 {
+        f64::from_bits(x.to_bits().wrapping_add(n))
+    }
+
+    /// Spec B2 + I1 + I2 (RED): a femto-near-negated sibling pair must
+    /// canonicalize so the second face's plane bits are the EXACT negation of
+    /// the first (representative) face's bits, with sense preserved.
+    ///
+    /// RED today: `canonicalize_sibling_planes` matches only same-sign
+    /// component-wise, so the near-negated face never joins the cluster and
+    /// keeps its perturbed bits — the exact-negation assertions fail.
+    #[test]
+    fn femto_negated_sibling_canonicalizes_to_exact_negation() {
+        let n = normalize([0.6026151226794615, -0.3228572568748562, 0.7298069646154802]);
+        let d0 = 23.84180252162639_f64;
+
+        // Face B: the near-EXACT negation of A, drifted a few ULPs per
+        // component (a chained-output rounding artifact).
+        let nb_before = [bump(-n[0], 3), bump(-n[1], 2), bump(-n[2], 5)];
+        let db_before = bump(-d0, 4);
+
+        let mut faces = vec![plane_face(n, d0), plane_face(nb_before, db_before)];
+        canonicalize_sibling_planes(&mut faces);
+
+        let (na_after, da_after) = plane_of(&faces[0]);
+        let (nb_after, db_after) = plane_of(&faces[1]);
+
+        // The representative (first face) is untouched.
+        assert_eq!(na_after, n, "representative normal moved");
+        assert_eq!(da_after, d0, "representative offset moved");
+
+        // I2 (bit-exact negation): B adopts exactly (-n_rep, -d_rep).
+        for k in 0..3 {
+            assert_eq!(
+                nb_after[k], -na_after[k],
+                "component {k}: sibling plane not the exact negation of the representative"
+            );
+        }
+        assert_eq!(db_after, -da_after, "sibling offset not the exact negation");
+
+        // I1 (sense preservation): the adopted normal keeps B's outward sense.
+        let dot: f64 = (0..3).map(|k| nb_before[k] * nb_after[k]).sum();
+        assert!(
+            dot > 0.0,
+            "canonicalization flipped face B's sense (dot = {dot})"
+        );
+    }
+
+    /// Spec B3 (guard): two GENUINELY distinct parallel planes (1e-3 apart —
+    /// six orders above the `TAU_WORK·(1+|d|)` band) must never cluster. Passes
+    /// today and must keep passing (no over-merge).
+    #[test]
+    fn distinct_parallel_planes_stay_unclustered_guard() {
+        let n = normalize([0.6026151226794615, -0.3228572568748562, 0.7298069646154802]);
+        let d0 = 23.84180252162639_f64;
+        let d1 = d0 + 1.0e-3;
+
+        let mut faces = vec![plane_face(n, d0), plane_face(n, d1)];
+        canonicalize_sibling_planes(&mut faces);
+
+        let (_, da) = plane_of(&faces[0]);
+        let (_, db) = plane_of(&faces[1]);
+        assert_eq!(da, d0, "first distinct plane offset must be untouched");
+        assert_eq!(
+            db, d1,
+            "distinct parallel plane wrongly collapsed onto sibling"
+        );
+    }
+
+    // Spec I3 (same-orientation path byte-identical): the same-orientation
+    // sibling-collapse behavior is pinned END-TO-END through the public
+    // `to_yang_brep` path by `tests/kv10_plane_canonicalization.rs`
+    // (`sibling_fragments_emit_bit_identical_planes`,
+    // `chained_boolean_over_split_fragments_succeeds`). Those tests must remain
+    // green after the sign-aware extension; this guard pins the same rule at
+    // the unit boundary so a regression is localized here too.
+    #[test]
+    fn same_orientation_femto_siblings_still_collapse_guard() {
+        let n = normalize([0.6026151226794615, -0.3228572568748562, 0.7298069646154802]);
+        let d0 = 23.84180252162639_f64;
+
+        // A femto-drifted SAME-sign sibling (the KV10 class).
+        let nb = [bump(n[0], 3), bump(n[1], 2), bump(n[2], 5)];
+        let db = bump(d0, 4);
+
+        let mut faces = vec![plane_face(n, d0), plane_face(nb, db)];
+        canonicalize_sibling_planes(&mut faces);
+
+        let (na, da) = plane_of(&faces[0]);
+        let (nb2, db2) = plane_of(&faces[1]);
+        assert_eq!(na, n, "representative normal moved");
+        assert_eq!(
+            nb2, n,
+            "same-orientation sibling did not adopt representative bits"
+        );
+        assert_eq!(da, d0, "representative offset moved");
+        assert_eq!(
+            db2, d0,
+            "same-orientation sibling offset did not adopt representative"
+        );
+    }
+}

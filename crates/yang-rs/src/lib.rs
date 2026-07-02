@@ -13008,4 +13008,172 @@ mod tests {
             "a point outside the rim circle must be rejected"
         );
     }
+
+    // ── M8-intra: exactly-negated intra-solid coplanar exclusion ────────────
+    // Spec `specs/m8_intra_opposite_plane_canonicalization.md` (FIP Phase 2,
+    // RED). `scan_near_coplanar` is `pub(crate)`, so these unit tests reach it
+    // directly.
+
+    /// A minimal planar `BRepFace` with a valid CCW square loop in one plane,
+    /// so `BRep::new`'s Stage-1 tessellation accepts it while `scan` reads the
+    /// DECLARED `(normal, d)`.
+    fn m8_intra_square_a() -> BRep {
+        // Two coplanar squares (z = 3) with EXACTLY-negated plane values — a
+        // stepped solid's shared plane carrying opposite outward normals. The
+        // negation is value-exact AND exercises 0.0 == -0.0 in the normal's x/y
+        // components (spec B6 / §6): F0 = ((0.0, 0.0, 1.0), -3.0),
+        // F1 = ((-0.0, -0.0, -1.0), 3.0).
+        let verts = vec![
+            // F0 corners (CCW viewed from +z).
+            BRepVertex {
+                point: Point3::new(0.0, 0.0, 3.0),
+            },
+            BRepVertex {
+                point: Point3::new(2.0, 0.0, 3.0),
+            },
+            BRepVertex {
+                point: Point3::new(2.0, 2.0, 3.0),
+            },
+            BRepVertex {
+                point: Point3::new(0.0, 2.0, 3.0),
+            },
+            // F1 corners (same coords; wound CCW viewed from −z).
+            BRepVertex {
+                point: Point3::new(0.0, 0.0, 3.0),
+            },
+            BRepVertex {
+                point: Point3::new(2.0, 0.0, 3.0),
+            },
+            BRepVertex {
+                point: Point3::new(2.0, 2.0, 3.0),
+            },
+            BRepVertex {
+                point: Point3::new(0.0, 2.0, 3.0),
+            },
+        ];
+        let seg = |s: u32, e: u32| BRepEdge {
+            start: s,
+            end: e,
+            curve: Curve::LineSegment,
+        };
+        let edges = vec![
+            seg(0, 1),
+            seg(1, 2),
+            seg(2, 3),
+            seg(3, 0), // F0 (+z winding)
+            seg(4, 7),
+            seg(7, 6),
+            seg(6, 5),
+            seg(5, 4), // F1 (−z winding)
+        ];
+        let faces = vec![
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    d: -3.0,
+                },
+                outer_loop: vec![0, 1, 2, 3],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(-0.0, -0.0, -1.0),
+                    d: 3.0,
+                },
+                outer_loop: vec![4, 5, 6, 7],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+        ];
+        BRep::new(verts, edges, faces).expect("intra-A BRep::new")
+    }
+
+    /// Solid B: a single tilted triangle whose AABB overlaps solid A's face
+    /// region (x,y ∈ [0.5,1.5], z ∈ [2.5,3.5]) but shares NO plane with A — the
+    /// "other operand reaches the shared-plane region" contact condition the
+    /// intra gate keys on.
+    fn m8_intra_overlapping_b() -> BRep {
+        let verts = vec![
+            BRepVertex {
+                point: Point3::new(0.5, 0.5, 2.5),
+            },
+            BRepVertex {
+                point: Point3::new(1.5, 0.5, 2.5),
+            },
+            BRepVertex {
+                point: Point3::new(1.0, 1.5, 3.5),
+            },
+        ];
+        let seg = |s: u32, e: u32| BRepEdge {
+            start: s,
+            end: e,
+            curve: Curve::LineSegment,
+        };
+        let edges = vec![seg(0, 1), seg(1, 2), seg(2, 0)];
+        // Tilted plane normal = (v1−v0)×(v2−v0), un-normalized is fine (scan
+        // normalizes); it is not parallel to z, so no coplanar cross pair.
+        let faces = vec![BRepFace {
+            surface: Surface::Plane {
+                normal: Vector3::new(0.0, -1.0, 1.0),
+                d: -2.0,
+            },
+            outer_loop: vec![0, 1, 2],
+            inner_loops: Vec::new(),
+            reversed: false,
+        }];
+        BRep::new(verts, edges, faces).expect("intra-B BRep::new")
+    }
+
+    /// Spec B6 (RED): an intra-solid pair on EXACTLY-negated planes (two
+    /// orientations of ONE plane) is benign and must NOT flag the intra gate,
+    /// even though the other solid overlaps the region.
+    ///
+    /// RED today: the two faces' raw bits differ (n vs −n, d vs −d, and
+    /// 0.0 vs −0.0), so the bit-identity exclusion does not fire and the
+    /// near-coplanar band flags them → `scan.intra == Some(..)`.
+    #[test]
+    fn intra_exactly_negated_pair_is_excluded() {
+        let a = m8_intra_square_a();
+        let b = m8_intra_overlapping_b();
+        let scan = scan_near_coplanar(&a, &b);
+        assert!(
+            scan.intra.is_none(),
+            "exactly-negated intra pair must be benign (B6), got {:?}",
+            scan.intra
+        );
+    }
+
+    /// Spec B7 (guard): a near-but-NOT-exactly-negated intra pair (one normal
+    /// component drifted 1 ULP from exact negation) is the loud residue and
+    /// MUST still flag. Passes today; pins that the B6 exclusion is exact-only.
+    #[test]
+    fn intra_one_ulp_off_negation_still_walls_guard() {
+        let mut a = m8_intra_square_a();
+        // Drift F1's z-normal component 1 ULP off exact negation.
+        {
+            let faces = a.faces();
+            let Surface::Plane { normal, d } = faces[1].surface else {
+                panic!("F1 not planar");
+            };
+            let n = normal.as_array();
+            let drifted = f64::from_bits(n[2].to_bits().wrapping_add(1));
+            // Rebuild A with the drifted F1 normal (BRep faces are not mutable
+            // in place through the accessor).
+            let verts = a.vertices().to_vec();
+            let edges = a.edges().to_vec();
+            let mut new_faces = a.faces().to_vec();
+            new_faces[1].surface = Surface::Plane {
+                normal: Vector3::new(n[0], n[1], drifted),
+                d,
+            };
+            a = BRep::new(verts, edges, new_faces).expect("drifted intra-A BRep::new");
+        }
+        let b = m8_intra_overlapping_b();
+        let scan = scan_near_coplanar(&a, &b);
+        assert!(
+            scan.intra.is_some(),
+            "a 1-ULP-off (not exactly negated) intra pair must still wall loud (B7)"
+        );
+    }
 }
