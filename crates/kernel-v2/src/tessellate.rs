@@ -2252,6 +2252,38 @@ fn tessellate_cylinder_patch(
         // shipping inverted geometry (P9).
         let pnt = |w: usize| nodes[wnodes[w].node].pos;
         let (pa, pb, pc) = (pnt(t[0]), pnt(t[1]), pnt(t[2]));
+        // Render-precision degeneracy gate (spec
+        // `kv2_patch_render_degeneracy_gate`, the F0047 class): geometry
+        // that is valid at f64 but COLLAPSED at f32 render precision must
+        // fail loudly — the f64 ear-clip/refinement can converge while
+        // emitting sub-f32 slivers whose render edges then pair wrong
+        // (silent non-manifold output past every fold tripwire below).
+        // B2: two vertices bitwise-identical after f32 rounding. B3: the
+        // f32 cross product exactly zero (collinear at render precision).
+        // Always-on (I3) — never debug-gated, never a skip/snap (P9).
+        {
+            let k32 = |p: [f64; 3]| {
+                [
+                    (p[0] as f32).to_bits(),
+                    (p[1] as f32).to_bits(),
+                    (p[2] as f32).to_bits(),
+                ]
+            };
+            let (ka, kb, kc) = (k32(pa), k32(pb), k32(pc));
+            if ka == kb || kb == kc || kc == ka {
+                return Err(fail("patch triangle collapsed at render precision"));
+            }
+            let f = |p: [f64; 3]| [p[0] as f32, p[1] as f32, p[2] as f32];
+            let (fa, fb, fc) = (f(pa), f(pb), f(pc));
+            let uu = [fb[0] - fa[0], fb[1] - fa[1], fb[2] - fa[2]];
+            let vv = [fc[0] - fa[0], fc[1] - fa[1], fc[2] - fa[2]];
+            let cx = uu[1] * vv[2] - uu[2] * vv[1];
+            let cy = uu[2] * vv[0] - uu[0] * vv[2];
+            let cz = uu[0] * vv[1] - uu[1] * vv[0];
+            if cx == 0.0 && cy == 0.0 && cz == 0.0 {
+                return Err(fail("patch triangle collapsed at render precision"));
+            }
+        }
         let u = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
         let v = [pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]];
         let n3 = [
