@@ -59,6 +59,38 @@ the roadmap's remaining work:
    specifies ONE general 2D-Boolean-before-discretization with a single shared
    trimmed surface and identical meshes for both models — **no same/opposite
    distinction, any surface type** (§4.5.5; Fig. 16).
+
+   > **M8 wall decomposition (probed 2026-07-02, `YANG_COPLANAR_PROBE` full
+   > corpus): the 22 remaining `UNSUPPORTED(coplanar-boolean)` cases resolve
+   > into exactly FIVE mechanisms**, two of which shipped the same day:
+   > 1. ✅ **Intra-solid opposite-normal femto-negated step pairs** (10 cases)
+   >    — sign-aware sibling-plane canonicalization (kernel-v2) + exactly-
+   >    negated benign intra exclusion (yang-rs scan). Spec
+   >    `specs/m8_intra_opposite_plane_canonicalization.md`; commits
+   >    3dd32340 (RED) → 36d36789 (GREEN) → e0b422fa (adversary). R0064 →
+   >    SUPPORTED_CORRECT; R0022/R0031/R0025/R0061 et al. progress to their
+   >    next honest wall; several become >30s-cap TIMEOUTs (real exact-
+   >    arithmetic compute, the known gear-perf class).
+   > 2. ✅ **Non-star subdivided neighbor rings** (4 walled + 3 TIMEOUT-class)
+   >    — exact closed-containment ear-clip fallback + B6 exact consecutive-
+   >    duplicate collapse in `triangulate_ring`. Spec
+   >    `specs/m8_nonstar_ring_earclip.md`; commits 69f3c8a8 (RED) →
+   >    18dea32f (GREEN) → f5386e56 (B6 oracle). R0098 clears end to end.
+   > 3. **Femto-twin shared-boundary identity** (~6 cases: R0046, R0070,
+   >    R0076, R0081, F0061, F0063 + R0088's cherchi `LabelMismatch` layer) —
+   >    near-coincident A/B boundary runs enter the exact overlay as TWO
+   >    constraints, so each crossing mints twice (~1e-18..1e-16 apart);
+   >    downstream ear-clip stalls / `RoundingCollapse` needles /
+   >    LabelMismatch are all this one root. Spec DRAFT
+   >    `specs/m8_shared_boundary_identity.md` — the §4.5.5 Fig.-16
+   >    "identical boundary sampling" reconciliation, THE next Stage-0 cycle.
+   > 4. **Disc rim on a non-cylinder lateral** (`rim-lateral-none`: R0050,
+   >    R0025 2nd wall) — `lateral_for_cap` is cylinder-only; R0025's rim
+   >    lateral is a TORUS (circle-revolve), so crossing propagation +
+   >    the downstream boolean are KV6d-torus-gated (R0015 ceiling class).
+   > 5. **Swiss-cheese holed discs** (F0086–F0090) — holed-disc overlay
+   >    routing (the reverted 2026-06-24 implementation is re-derivable; its
+   >    old blocker, the same-normal gate, is gone).
 2. **N4 — face provenance by centroid-proximity, not §4.2.3 barycentric
    provenance.** Stage-6 attributes each kept triangle by centroid-in-plane
    distance + a tolerance tier (`tol_for`). The paper maps each point to BOTH
@@ -105,6 +137,14 @@ the roadmap's remaining work:
    blocker moved downstream to kernel-v2 `TessellationFailed { FaceId(19),
    "inverted final triangle" }`; R0021's is the Stage-1 partial-patch
    re-entry wall. R0096 = torus×torus v1 wall (different mode).
+   **R0072 face-19 diagnosed (2026-07-02, `KV2_EARCLIP_PROBE`):** the output
+   face's outer loop carries a collinear direction-REVERSAL micro-spur
+   (p0→p1 4.4e-6 forward, p1→p2 1.4e-6 BACK along the same line, at face
+   extent ~2e-4) — a §4.5.3-class reversed point on a straight boundary run
+   that the exact ear-clip correctly refuses; sibling zigzags on the
+   face-9/10/12–15 plane family. The fix is in yang OUTPUT loop emission
+   (reconstruct_topology boundary-cycle ordering / spur elimination), not in
+   kernel-v2 tessellation.
    Specs: `specs/n2_stage4_mesh_updating.md`, `specs/n2_stage4_dt_recompute.md`,
    `specs/n2_stage4_junction_cluster_merge.md` (amended ×2 — the grounding
    trail is recorded in its §0).
