@@ -2356,3 +2356,362 @@ mod m8_intra_canonicalization_tests {
         assert!(dot > 0.0, "sense flipped on the near-zero-offset sibling");
     }
 }
+
+// ---------------------------------------------------------------------------
+// M8-vertex-canon: chained-output VERTEX canonicalization
+// (spec `specs/m8_shared_boundary_identity.md`, FIP Phase 2, RED).
+//
+// Seam: a direct unit on the new pass `canonicalize_vertices_to_planes`, which
+// `to_yang_brep` will call immediately after `canonicalize_sibling_planes` on
+// the assembled yang arrays. A hand-CROOKED arena cannot be built through the
+// public arena/Euler constructors — `to_yang_brep` anchors each yang plane's
+// `d` at a loop vertex, so a vertex is never inconsistent with its own derived
+// plane; the femto-crooked-vs-canonical divergence only appears mid-`to_yang`,
+// after plane canonicalization. So the invariants are exercised on the yang
+// (verts, edges, faces) shape directly.
+//
+// SETTLED SIGNATURE (the implementer matches this — it is exactly the data
+// `to_yang_brep` holds at that point):
+//
+//   fn canonicalize_vertices_to_planes(
+//       yverts: &mut [yang_rs::BRepVertex],
+//       yedges: &[yang_rs::BRepEdge],
+//       yfaces: &[yang_rs::BRepFace],
+//   )
+//
+// Vertex→incident-plane incidence is recovered from `yedges` (loop edge →
+// vertex pair) over each face's loops. These tests do NOT compile until that
+// function exists — that IS the RED state for the unit oracles.
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod m8_vertex_canon_tests {
+    use super::*;
+    use dashu::float::FBig;
+    use dashu::rational::RBig;
+
+    fn vtx(x: f64, y: f64, z: f64) -> yang_rs::BRepVertex {
+        yang_rs::BRepVertex {
+            point: Point3::new(x, y, z),
+        }
+    }
+
+    fn seg(s: u32, e: u32) -> yang_rs::BRepEdge {
+        yang_rs::BRepEdge {
+            start: s,
+            end: e,
+            curve: yang_rs::Curve::LineSegment,
+        }
+    }
+
+    fn plane_face(n: [f64; 3], d: f64, loop_edges: Vec<u32>) -> yang_rs::BRepFace {
+        yang_rs::BRepFace {
+            surface: yang_rs::Surface::Plane {
+                normal: Vector3::new(n[0], n[1], n[2]),
+                d,
+            },
+            outer_loop: loop_edges,
+            inner_loops: Vec::new(),
+            reversed: false,
+        }
+    }
+
+    fn cyl_face(loop_edges: Vec<u32>) -> yang_rs::BRepFace {
+        yang_rs::BRepFace {
+            surface: yang_rs::Surface::Cylinder {
+                axis_point: Point3::new(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                radius: 1.0,
+            },
+            outer_loop: loop_edges,
+            inner_loops: Vec::new(),
+            reversed: false,
+        }
+    }
+
+    /// Nudge `x` by `k` ULPs (femto drift ~1e-16 at unit magnitude).
+    fn bump(x: f64, k: i64) -> f64 {
+        if k >= 0 {
+            f64::from_bits(x.to_bits().wrapping_add(k as u64))
+        } else {
+            f64::from_bits(x.to_bits().wrapping_sub((-k) as u64))
+        }
+    }
+
+    fn vbits(v: &yang_rs::BRepVertex) -> [u64; 3] {
+        let a = v.point.as_array();
+        [a[0].to_bits(), a[1].to_bits(), a[2].to_bits()]
+    }
+
+    fn rat(x: f64) -> RBig {
+        let fb: FBig = FBig::try_from(x).expect("finite");
+        RBig::try_from(fb).expect("finite")
+    }
+
+    fn round_f64(r: &RBig) -> f64 {
+        r.to_f64().value()
+    }
+
+    /// Box [1,3]³ topology: 6 quad faces, each carrying its own 4 directed
+    /// edges over its corner loop; every corner is incident to exactly its 3
+    /// axis planes. Returns (edges, faces); vertices supplied separately.
+    fn box_topology() -> (Vec<yang_rs::BRepEdge>, Vec<yang_rs::BRepFace>) {
+        // (corner loop, plane normal, plane d) — n·x + d = 0.
+        let faces: [([u32; 4], [f64; 3], f64); 6] = [
+            ([0, 1, 2, 3], [0.0, 0.0, -1.0], 1.0), // z = 1
+            ([4, 5, 6, 7], [0.0, 0.0, 1.0], -3.0), // z = 3
+            ([0, 1, 5, 4], [0.0, -1.0, 0.0], 1.0), // y = 1
+            ([1, 2, 6, 5], [1.0, 0.0, 0.0], -3.0), // x = 3
+            ([2, 3, 7, 6], [0.0, 1.0, 0.0], -3.0), // y = 3
+            ([3, 0, 4, 7], [-1.0, 0.0, 0.0], 1.0), // x = 1
+        ];
+        let mut yedges = Vec::new();
+        let mut yfaces = Vec::new();
+        for (corners, n, d) in faces {
+            let base = yedges.len() as u32;
+            for k in 0..4 {
+                yedges.push(seg(corners[k], corners[(k + 1) % 4]));
+            }
+            yfaces.push(plane_face(n, d, (base..base + 4).collect()));
+        }
+        (yedges, yfaces)
+    }
+
+    const BOX_CORNERS: [[f64; 3]; 8] = [
+        [1.0, 1.0, 1.0],
+        [3.0, 1.0, 1.0],
+        [3.0, 3.0, 1.0],
+        [1.0, 3.0, 1.0],
+        [1.0, 1.0, 3.0],
+        [3.0, 1.0, 3.0],
+        [3.0, 3.0, 3.0],
+        [1.0, 3.0, 3.0],
+    ];
+
+    /// B1 / I1 (RED): a femto-crooked axis-aligned box — planes exact, each
+    /// corner perturbed a few ULPs off its exact tri-plane intersection —
+    /// snaps every corner BIT-equal to the exact integer intersection. I3: a
+    /// second pass is a byte-identical no-op.
+    #[test]
+    fn femto_crooked_box_snaps_corners_to_exact_intersections() {
+        // Distinct per-vertex/per-axis ULP perturbations (all ≪ the band
+        // TAU_WORK·(1+3) = 4e-12, so all adopted).
+        let dk: [[i64; 3]; 8] = [
+            [1, -2, 3],
+            [-1, 2, -3],
+            [2, -1, 1],
+            [-3, 1, -2],
+            [1, 3, -1],
+            [-2, -1, 2],
+            [3, -3, 1],
+            [-1, 2, -2],
+        ];
+        let mut yverts: Vec<_> = (0..8)
+            .map(|i| {
+                vtx(
+                    bump(BOX_CORNERS[i][0], dk[i][0]),
+                    bump(BOX_CORNERS[i][1], dk[i][1]),
+                    bump(BOX_CORNERS[i][2], dk[i][2]),
+                )
+            })
+            .collect();
+        let (yedges, yfaces) = box_topology();
+
+        canonicalize_vertices_to_planes(&mut yverts, &yedges, &yfaces);
+
+        for i in 0..8 {
+            let got = yverts[i].point.as_array();
+            for k in 0..3 {
+                assert_eq!(
+                    got[k].to_bits(),
+                    BOX_CORNERS[i][k].to_bits(),
+                    "B1/I1: corner {i} coord {k} not bit-equal to the exact intersection"
+                );
+            }
+        }
+
+        // I3 idempotence: rerun is byte-identical.
+        let snap: Vec<_> = yverts.iter().map(vbits).collect();
+        canonicalize_vertices_to_planes(&mut yverts, &yedges, &yfaces);
+        for i in 0..8 {
+            assert_eq!(
+                vbits(&yverts[i]),
+                snap[i],
+                "I3: second pass is not byte-identical (vertex {i})"
+            );
+        }
+    }
+
+    /// B2 (RED): a subdivided-edge vertex on exactly 2 (orthogonal) planes,
+    /// perturbed femto off their intersection line, lands BIT-equal to the
+    /// exact rational line projection and both plane residuals collapse to a
+    /// rounding ULP.
+    #[test]
+    fn subdivided_edge_vertex_projects_onto_intersection_line() {
+        // Planes y=1 (n=(0,1,0), d=−1) and z=1 (n=(0,0,1), d=−1); line {(t,1,1)}.
+        let n_a = [0.0, 1.0, 0.0];
+        let d_a = -1.0;
+        let n_b = [0.0, 0.0, 1.0];
+        let d_b = -1.0;
+        // V intended at x=2 on the line, perturbed femto in y and z (x exact).
+        let vx = 2.0;
+        let v = [vx, bump(1.0, 3), bump(1.0, 2)];
+
+        let mut yverts = vec![
+            vtx(v[0], v[1], v[2]), // 0: V — incident to both planes
+            vtx(0.0, 1.0, 0.0),    // 1: on y=1
+            vtx(0.0, 1.0, 3.0),    // 2: on y=1
+            vtx(0.0, 0.0, 1.0),    // 3: on z=1
+            vtx(0.0, 3.0, 1.0),    // 4: on z=1
+        ];
+        let yedges = vec![
+            seg(0, 1),
+            seg(1, 2),
+            seg(2, 0), // face A (y=1): edges 0,1,2
+            seg(0, 3),
+            seg(3, 4),
+            seg(4, 0), // face B (z=1): edges 3,4,5
+        ];
+        let yfaces = vec![
+            plane_face(n_a, d_a, vec![0, 1, 2]),
+            plane_face(n_b, d_b, vec![3, 4, 5]),
+        ];
+
+        // Exact expected: P' = V − (n_a·V+d_a)·n_a − (n_b·V+d_b)·n_b, valid as
+        // the line projection because n_a·n_b = 0 (orthogonal). Computed in
+        // RBig, rounded once — exactly what the pass must produce.
+        let dot = n_a[0] * n_b[0] + n_a[1] * n_b[1] + n_a[2] * n_b[2];
+        assert_eq!(
+            dot, 0.0,
+            "fixture: planes must be orthogonal for this closed form"
+        );
+        let vr = [rat(v[0]), rat(v[1]), rat(v[2])];
+        let nar = [rat(n_a[0]), rat(n_a[1]), rat(n_a[2])];
+        let nbr = [rat(n_b[0]), rat(n_b[1]), rat(n_b[2])];
+        let dot3 = |a: &[RBig; 3], b: &[RBig; 3]| {
+            a[0].clone() * b[0].clone() + a[1].clone() * b[1].clone() + a[2].clone() * b[2].clone()
+        };
+        let ra = dot3(&nar, &vr) + rat(d_a);
+        let rb = dot3(&nbr, &vr) + rat(d_b);
+        let mut expected = [0.0; 3];
+        for k in 0..3 {
+            let pk = vr[k].clone() - ra.clone() * nar[k].clone() - rb.clone() * nbr[k].clone();
+            expected[k] = round_f64(&pk);
+        }
+
+        canonicalize_vertices_to_planes(&mut yverts, &yedges, &yfaces);
+
+        let got = yverts[0].point.as_array();
+        for k in 0..3 {
+            assert_eq!(
+                got[k].to_bits(),
+                expected[k].to_bits(),
+                "B2: vertex coord {k} not bit-equal to the exact line projection"
+            );
+        }
+        let res_a = n_a[0] * got[0] + n_a[1] * got[1] + n_a[2] * got[2] + d_a;
+        let res_b = n_b[0] * got[0] + n_b[1] * got[1] + n_b[2] * got[2] + d_b;
+        let ulp = 4.0 * f64::EPSILON * (1.0 + vx.abs());
+        assert!(
+            res_a.abs() <= ulp && res_b.abs() <= ulp,
+            "B2: plane residuals must collapse to a rounding ULP (a={res_a}, b={res_b})"
+        );
+    }
+
+    /// B4 guard: a vertex 1e-6 off its 3 planes (≫ band) is left UNCHANGED
+    /// (never forced onto an intersection it doesn't belong to).
+    #[test]
+    fn vertex_beyond_band_is_unchanged() {
+        // Planes x=2, y=2, z=2; V is 1e-6 off each (band = 3e-12).
+        let v = [2.0 + 1e-6, 2.0 + 1e-6, 2.0 + 1e-6];
+        let mut yverts = vec![
+            vtx(v[0], v[1], v[2]),
+            vtx(2.0, 0.0, 0.0),
+            vtx(2.0, 0.0, 5.0), // x=2
+            vtx(0.0, 2.0, 0.0),
+            vtx(0.0, 2.0, 5.0), // y=2
+            vtx(0.0, 0.0, 2.0),
+            vtx(5.0, 0.0, 2.0), // z=2
+        ];
+        let yedges = vec![
+            seg(0, 1),
+            seg(1, 2),
+            seg(2, 0),
+            seg(0, 3),
+            seg(3, 4),
+            seg(4, 0),
+            seg(0, 5),
+            seg(5, 6),
+            seg(6, 0),
+        ];
+        let yfaces = vec![
+            plane_face([1.0, 0.0, 0.0], -2.0, vec![0, 1, 2]),
+            plane_face([0.0, 1.0, 0.0], -2.0, vec![3, 4, 5]),
+            plane_face([0.0, 0.0, 1.0], -2.0, vec![6, 7, 8]),
+        ];
+        let before = vbits(&yverts[0]);
+        canonicalize_vertices_to_planes(&mut yverts, &yedges, &yfaces);
+        assert_eq!(
+            vbits(&yverts[0]),
+            before,
+            "B4: a vertex 1e-6 off its planes (≫ band) must be left UNCHANGED"
+        );
+    }
+
+    /// B7 / I4 guard: an already-exact box is byte-identical through the pass.
+    #[test]
+    fn exact_box_is_byte_identical() {
+        let mut yverts: Vec<_> = (0..8)
+            .map(|i| vtx(BOX_CORNERS[i][0], BOX_CORNERS[i][1], BOX_CORNERS[i][2]))
+            .collect();
+        let (yedges, yfaces) = box_topology();
+        let before: Vec<_> = yverts.iter().map(vbits).collect();
+        canonicalize_vertices_to_planes(&mut yverts, &yedges, &yfaces);
+        for i in 0..8 {
+            assert_eq!(
+                vbits(&yverts[i]),
+                before[i],
+                "B7/I4: exact box vertex {i} must be byte-identical"
+            );
+        }
+    }
+
+    /// B5 guard: a vertex that WOULD snap under B2 (femto off two planes) but
+    /// also touches a curved (cylinder) face is left UNCHANGED — curve
+    /// exactness owns the vertex.
+    #[test]
+    fn vertex_with_curved_incident_face_is_unchanged() {
+        let v = [2.0, bump(1.0, 3), bump(1.0, 2)];
+        let mut yverts = vec![
+            vtx(v[0], v[1], v[2]), // 0: V
+            vtx(0.0, 1.0, 0.0),
+            vtx(0.0, 1.0, 3.0), // y=1
+            vtx(0.0, 0.0, 1.0),
+            vtx(0.0, 3.0, 1.0), // z=1
+            vtx(5.0, 0.0, 0.0),
+            vtx(5.0, 5.0, 0.0), // cylinder-face loop mates
+        ];
+        let yedges = vec![
+            seg(0, 1),
+            seg(1, 2),
+            seg(2, 0), // plane A (y=1)
+            seg(0, 3),
+            seg(3, 4),
+            seg(4, 0), // plane B (z=1)
+            seg(0, 5),
+            seg(5, 6),
+            seg(6, 0), // cylinder face touches V
+        ];
+        let yfaces = vec![
+            plane_face([0.0, 1.0, 0.0], -1.0, vec![0, 1, 2]),
+            plane_face([0.0, 0.0, 1.0], -1.0, vec![3, 4, 5]),
+            cyl_face(vec![6, 7, 8]),
+        ];
+        let before = vbits(&yverts[0]);
+        canonicalize_vertices_to_planes(&mut yverts, &yedges, &yfaces);
+        assert_eq!(
+            vbits(&yverts[0]),
+            before,
+            "B5: a vertex with ANY curved incident face must be left UNCHANGED"
+        );
+    }
+}
