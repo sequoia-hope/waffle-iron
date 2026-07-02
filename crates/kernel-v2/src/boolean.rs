@@ -2932,4 +2932,107 @@ mod m8_vertex_canon_tests {
             "B5: a vertex with ANY curved incident face must be left UNCHANGED"
         );
     }
+
+    /// I2 (oblique bounded motion): a rotated-frame crooked box — planes exact
+    /// in an oblique orthonormal frame, corners carrying the sub-band residuals
+    /// an oblique fresh extrude has by construction (§4 I4 amendment) — is
+    /// canonicalized with EVERY adopted per-component displacement ≤ the KV10
+    /// band `TAU_WORK·(1+|coord|)`, and at least one vertex actually moves
+    /// (non-vacuous). This pins the oblique blast radius the amended I4 carved
+    /// out of byte-identity.
+    #[test]
+    fn oblique_crooked_box_moves_within_band() {
+        // Oblique orthonormal frame (u, v, t) — irrational direction cosines.
+        fn norm(a: [f64; 3]) -> [f64; 3] {
+            let l = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt();
+            [a[0] / l, a[1] / l, a[2] / l]
+        }
+        let u = norm([1.0, 2.0, 3.0]);
+        let wref = [0.3, -0.4, 0.5];
+        let du = wref[0] * u[0] + wref[1] * u[1] + wref[2] * u[2];
+        let v = norm([
+            wref[0] - du * u[0],
+            wref[1] - du * u[1],
+            wref[2] - du * u[2],
+        ]);
+        let t = [
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
+        ];
+        let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        let o = [0.1, 0.2, 0.3];
+        let l = 2.0;
+        // Corner (i,j,k) = O + i·L·u + j·L·v + k·L·t (i,j,k ∈ {0,1}); its f64
+        // evaluation carries the ~1e-16 frame residual off the exact 3-plane
+        // intersection. A couple ULPs of extra perturbation guarantees motion.
+        let corner = |i: f64, j: f64, k: f64| {
+            [
+                o[0] + i * l * u[0] + j * l * v[0] + k * l * t[0],
+                o[1] + i * l * u[1] + j * l * v[1] + k * l * t[1],
+                o[2] + i * l * u[2] + j * l * v[2] + k * l * t[2],
+            ]
+        };
+        let ijk = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [0.0, 1.0, 1.0],
+        ];
+        let mut yverts: Vec<_> = ijk
+            .iter()
+            .map(|c| {
+                let p = corner(c[0], c[1], c[2]);
+                // +2 ULPs on x to force a detectable move on adoption.
+                vtx(bump(p[0], 2), p[1], p[2])
+            })
+            .collect();
+
+        // 6 faces: normals u,v,t; offset d = −(axis·O + s·L), s the face's slab.
+        let faces: [([u32; 4], [f64; 3], f64); 6] = [
+            ([0, 1, 2, 3], t, -dot(t, o)),       // t = 0
+            ([4, 5, 6, 7], t, -(dot(t, o) + l)), // t = L
+            ([0, 1, 5, 4], v, -dot(v, o)),       // v = 0
+            ([1, 2, 6, 5], u, -(dot(u, o) + l)), // u = L
+            ([2, 3, 7, 6], v, -(dot(v, o) + l)), // v = L
+            ([3, 0, 4, 7], u, -dot(u, o)),       // u = 0
+        ];
+        let mut yedges = Vec::new();
+        let mut yfaces = Vec::new();
+        for (corners, n, d) in faces {
+            let base = yedges.len() as u32;
+            for k in 0..4 {
+                yedges.push(seg(corners[k], corners[(k + 1) % 4]));
+            }
+            yfaces.push(plane_face(n, d, (base..base + 4).collect()));
+        }
+
+        let before: Vec<[f64; 3]> = yverts.iter().map(|v| v.point.as_array()).collect();
+        canonicalize_vertices_to_planes(&mut yverts, &yedges, &yfaces);
+
+        let mut moved = 0usize;
+        for i in 0..8 {
+            let a = before[i];
+            let b = yverts[i].point.as_array();
+            for k in 0..3 {
+                let disp = (b[k] - a[k]).abs();
+                let band = cad_primitives::TAU_WORK * (1.0 + a[k].abs());
+                assert!(
+                    disp <= band,
+                    "I2: oblique vertex {i} coord {k} moved {disp:e} > band {band:e}"
+                );
+            }
+            if b != a {
+                moved += 1;
+            }
+        }
+        assert!(
+            moved > 0,
+            "non-vacuous: the oblique pass must actually move at least one vertex"
+        );
+    }
 }
