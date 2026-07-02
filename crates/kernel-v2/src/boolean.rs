@@ -3035,4 +3035,170 @@ mod m8_vertex_canon_tests {
             "non-vacuous: the oblique pass must actually move at least one vertex"
         );
     }
+
+    // ── ADVERSARY (FIP Phase 4, governance/FEATURE_IMPLEMENTATION_PROTOCOL §6) ──
+    // Attacks on canonicalize_vertices_to_planes (band edge, DET_FLOOR wedge,
+    // negated/duplicate plane dedup, >3-plane determinism). In-module (the
+    // function is private). Purely additive; touches no existing test.
+
+    /// Build a vertex-0 incident to a list of planes, each face a triangle loop
+    /// (V, a, b) so V is topologically on every plane. `extra_verts` supplies the
+    /// two loop-mate coordinates per face (their positions are irrelevant to the
+    /// pass — only V's planes matter).
+    fn single_vertex_on_planes(
+        v0: [f64; 3],
+        planes: &[([f64; 3], f64)],
+    ) -> (
+        Vec<yang_rs::BRepVertex>,
+        Vec<yang_rs::BRepEdge>,
+        Vec<yang_rs::BRepFace>,
+    ) {
+        let mut yverts = vec![vtx(v0[0], v0[1], v0[2])];
+        let mut yedges = Vec::new();
+        let mut yfaces = Vec::new();
+        for (i, &(n, d)) in planes.iter().enumerate() {
+            // Two throwaway loop mates per face (distinct indices).
+            let a = yverts.len() as u32;
+            yverts.push(vtx(10.0 + i as f64, 0.0, 0.0));
+            let b = yverts.len() as u32;
+            yverts.push(vtx(0.0, 10.0 + i as f64, 0.0));
+            let base = yedges.len() as u32;
+            yedges.push(seg(0, a));
+            yedges.push(seg(a, b));
+            yedges.push(seg(b, 0));
+            yfaces.push(plane_face(n, d, vec![base, base + 1, base + 2]));
+        }
+        (yverts, yedges, yfaces)
+    }
+
+    /// B4 band edge (per component): a vertex off its 3 axis planes by 0.5·band
+    /// on one axis ADOPTS the exact intersection; by 2·band it is left
+    /// UNCHANGED. Tighter than the 1e-6 guard; pins the `<=` boundary and is the
+    /// dedicated killer for dropping the band guard.
+    #[test]
+    fn adversary_band_edge_adopt_below_reject_above() {
+        let planes = [
+            ([1.0, 0.0, 0.0], -2.0),
+            ([0.0, 1.0, 0.0], -2.0),
+            ([0.0, 0.0, 1.0], -2.0),
+        ];
+        let band = cad_primitives::TAU_WORK * (1.0 + 2.0); // 3e-12
+
+        // 0.5·band off on x only → adopts (x snaps to 2.0 exactly).
+        let (mut yv, ye, yf) = single_vertex_on_planes([2.0 + 0.5 * band, 2.0, 2.0], &planes);
+        canonicalize_vertices_to_planes(&mut yv, &ye, &yf);
+        assert_eq!(
+            yv[0].point.x().to_bits(),
+            2.0f64.to_bits(),
+            "0.5·band off must adopt the exact plane intersection"
+        );
+
+        // 2·band off on x → whole vertex unchanged (band guard rejects).
+        let off = 2.0 + 2.0 * band;
+        let (mut yv, ye, yf) = single_vertex_on_planes([off, 2.0, 2.0], &planes);
+        canonicalize_vertices_to_planes(&mut yv, &ye, &yf);
+        assert_eq!(
+            yv[0].point.x().to_bits(),
+            off.to_bits(),
+            "2·band off must leave the vertex UNCHANGED (band guard)"
+        );
+    }
+
+    /// MUTATION KILLER (c) — DET_FLOOR wedge. A vertex on two well-conditioned
+    /// planes (x=2, y=2) plus a THIN-WEDGE plane whose normal (1,0,ε), ε=1e-11,
+    /// is near-parallel to x=2 AND whose offset places the exact 3-plane
+    /// intersection FAR away (z≈1e6). With the DET_FLOOR (production) the
+    /// near-dependent triple is skipped and the vertex degrades to B2 — projected
+    /// exactly onto the x=2,y=2 line, so its femto-off x/y SNAP to 2.0. WITHOUT
+    /// the floor (DET_FLOOR=0) the ill-conditioned 3-plane solve returns the far
+    /// (2,2,≈1e6) point, which the band guard REJECTS → the vertex is left
+    /// crooked (x stays 2+δ). So the floor is load-bearing: it turns a rejected
+    /// wild solve into an adopted B2 straighten.
+    ///
+    /// Verified: production → x bit-equal 2.0; DET_FLOOR=0 mutant → x unchanged.
+    #[test]
+    fn adversary_thin_wedge_floor_degrades_to_b2_straighten() {
+        let eps = 1.0e-11_f64; // < DET_FLOOR=1e-9 → triple skipped in production
+        let d3 = -2.0 - 1.0e-5_f64; // 3-plane intersection z = 1e-5/eps = 1e6
+        let planes = [
+            ([1.0, 0.0, 0.0], -2.0), // x = 2
+            ([0.0, 1.0, 0.0], -2.0), // y = 2
+            ([1.0, 0.0, eps], d3),   // thin wedge, near-parallel to x=2
+        ];
+        let delta = 1.0e-13_f64; // femto off the x=2,y=2 line, ≪ band
+        let (mut yv, ye, yf) = single_vertex_on_planes([2.0 + delta, 2.0 + delta, 5.0], &planes);
+        canonicalize_vertices_to_planes(&mut yv, &ye, &yf);
+        // B2 degrade projects onto the exact x=2,y=2 line.
+        assert_eq!(
+            yv[0].point.x().to_bits(),
+            2.0f64.to_bits(),
+            "B6→B2: x must snap to the exact 2-plane line (DET_FLOOR skipped the wild triple)"
+        );
+        assert_eq!(
+            yv[0].point.y().to_bits(),
+            2.0f64.to_bits(),
+            "B6→B2: y snaps to 2.0"
+        );
+        assert_eq!(yv[0].point.z(), 5.0, "z stays on the free line coordinate");
+    }
+
+    /// Negated + exact-duplicate plane dedup. A vertex incident to x=2 via BOTH
+    /// orientations (n,d)=((1,0,0),−2) AND ((−1,0,0),2) — plus y=2 and z=2 — must
+    /// solve to the exact apex (2,2,2): the negated pair is ONE plane, so three
+    /// DISTINCT planes remain. Pins the dedup's intended semantics.
+    ///
+    /// FINDING (documented, not a killer): dropping the dedup does NOT change the
+    /// result — the exact det floor skips every triple containing a
+    /// negated/duplicate pair (det ≡ 0), so the first INDEPENDENT triple found is
+    /// identical with or without the dedup. The dedup is a
+    /// performance/legibility optimization, structurally redundant with the det
+    /// floor for correctness (analogous to the ear-clip coverage-cert finding).
+    #[test]
+    fn adversary_negated_duplicate_planes_solve_to_apex() {
+        let planes = [
+            ([1.0, 0.0, 0.0], -2.0), // x = 2
+            ([-1.0, 0.0, 0.0], 2.0), // x = 2, opposite orientation (dedup target)
+            ([0.0, 1.0, 0.0], -2.0), // y = 2
+            ([0.0, 0.0, 1.0], -2.0), // z = 2
+        ];
+        let bump = |x: f64, k: i64| bump(x, k);
+        let (mut yv, ye, yf) =
+            single_vertex_on_planes([bump(2.0, 2), bump(2.0, -1), bump(2.0, 3)], &planes);
+        canonicalize_vertices_to_planes(&mut yv, &ye, &yf);
+        for (k, want) in [(0usize, 2.0f64), (1, 2.0), (2, 2.0)] {
+            assert_eq!(
+                yv[0].point.as_array()[k].to_bits(),
+                want.to_bits(),
+                "negated/duplicate planes must solve to the exact apex (coord {k})"
+            );
+        }
+    }
+
+    /// I5 determinism — a vertex where FOUR planes concur at the apex (2,2,2):
+    /// the three axis planes plus a diagonal x+y+z=6. Every face-order
+    /// permutation selects a valid independent triple through the SAME apex, so
+    /// the adopted point is permutation-invariant and bit-exact.
+    #[test]
+    fn adversary_four_concurrent_planes_permutation_invariant() {
+        let base = [
+            ([1.0, 0.0, 0.0], -2.0),
+            ([0.0, 1.0, 0.0], -2.0),
+            ([0.0, 0.0, 1.0], -2.0),
+            ([1.0, 1.0, 1.0], -6.0), // x+y+z=6, through (2,2,2)
+        ];
+        let start = [bump(2.0, 1), bump(2.0, -2), bump(2.0, 2)];
+        // A few representative orderings of the four planes.
+        for perm in [[0, 1, 2, 3], [3, 2, 1, 0], [2, 0, 3, 1], [1, 3, 0, 2]] {
+            let planes: Vec<_> = perm.iter().map(|&i| base[i]).collect();
+            let (mut yv, ye, yf) = single_vertex_on_planes(start, &planes);
+            canonicalize_vertices_to_planes(&mut yv, &ye, &yf);
+            for k in 0..3 {
+                assert_eq!(
+                    yv[0].point.as_array()[k].to_bits(),
+                    2.0f64.to_bits(),
+                    "I5: permutation {perm:?} coord {k} must be the exact apex"
+                );
+            }
+        }
+    }
 }
