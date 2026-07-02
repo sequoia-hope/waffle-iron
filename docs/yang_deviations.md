@@ -372,9 +372,25 @@ CDT. **Sign-off:** pending.
   centroid point), then calls the CDT. Invariants I1–I6 (constraint realized, no
   flips, boundary→boundary, area conservation, merge/insert monotonicity,
   determinism) are unit-tested.
-Spec: `specs/n2_stage4_mesh_updating.md`. **Remaining for sign-off:** N2-2 (per-
-triangle `d(T)` recompute) and N2-3 (wire the primitive into Stage 4, extracting
-each affected face patch's parametric domain, retiring the
+Spec: `specs/n2_stage4_mesh_updating.md`.
+
+**Increment N2-2 landed (2026-07-02):** the §4.1.2/Fig-6 per-triangle `d(T)`
+recompute the §4.4.1 mesh update calls for ("we recalculate d(T) to maintain
+controllable error") — `yang_rs::stage4_dt::{eval_uv, d_of_t}`. The paper's
+control-net bound is implemented exactly, generalized from NURBS to our
+analytic surfaces: every curved `Surface` is a surface of revolution with an
+EXACT rational-Bézier patch representation (Piegl & Tiller ch. 8), so the
+covering rectangle of the triangle's uv corners is subdivided to ≤90° spans
+(positive weights) and `d(T) = max` control-point-to-triangle distance —
+certified by the convex-hull property + convexity of point-to-triangle
+distance. `eval_uv` pins the parametric embedding (ortho_basis frames; sphere
+uses the canonical ẑ axis) that N2-3's patch extraction must share. Unit suite
+(19 tests, I1–I7) + adversary suite (`tests/n2_dt_adversary.rs`, 23 probes)
+incl. a mutation-kill matrix (arc-scale flip / subdivision skip / weight drop
+all caught). Spec: `specs/n2_stage4_dt_recompute.md`.
+
+**Remaining for sign-off:** N2-3 (wire `stage4_mesh_update` + `d_of_t` into
+Stage 4, extracting each affected face patch's parametric domain, retiring the
 `LocalRefinementRequired` bailouts one surface-pair family at a time behind
 watertight / reference-parity oracles).
 

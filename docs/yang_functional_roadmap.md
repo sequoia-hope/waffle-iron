@@ -76,11 +76,17 @@ the roadmap's remaining work:
    `cherchi_rs::cdt_with_interior_constraints` (Fig 11 `split`, interior
    constraint CDT) + `yang_rs::stage4_update::stage4_mesh_update` (Fig 11
    split/merge/insert over the parametric domain). NOT yet wired into
-   `stage4_relocate_and_correct`. Remaining: **N2-2** per-triangle `d(T)`
-   recompute; **N2-3** wire the primitive in (extract each face patch's
-   parametric domain, retire the `LocalRefinementRequired` bailouts one
-   surface-pair family at a time behind watertight / reference-parity oracles).
-   Spec: `specs/n2_stage4_mesh_updating.md`.
+   `stage4_relocate_and_correct`. **N2-2 done (2026-07-02):** per-triangle
+   `d(T)` recompute — `yang_rs::stage4_dt::{eval_uv, d_of_t}` computes the
+   certified Fig-6 bound from exact rational-Bézier surface-of-revolution
+   control nets (one general constructor for cylinder/cone/sphere/torus; plane
+   trivially 0; convex-hull certificate; pinned `eval_uv` parameterization the
+   N2-3 patch extraction must share). Unit + adversary suites incl. a
+   mutation-kill matrix (`tests/n2_dt_adversary.rs`). Remaining: **N2-3** wire
+   both primitives in (extract each face patch's parametric domain, retire the
+   `LocalRefinementRequired` bailouts one surface-pair family at a time behind
+   watertight / reference-parity oracles).
+   Specs: `specs/n2_stage4_mesh_updating.md`, `specs/n2_stage4_dt_recompute.md`.
 4. **N5 — Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2
    CDT framework** (per-surface ad-hoc Newell fans / rim rings instead).
 5. **N6 — §4.5.4 illegal-self-intersection detection/removal is absent.**

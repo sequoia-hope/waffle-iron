@@ -170,7 +170,12 @@ Loud `Result::Err` (P9/P10 — no clamping, no silent legalization):
   covering rectangle is ambiguous; unwrapping is the caller's job).
 - `PolarRangeOutOfBounds` — sphere v-range not within `[−π/2, π/2]`.
 - `NegativeConeAxialRange` — cone with any `v < 0` (behind the apex; the
-  single-nappe solid convention of `Surface::Cone`).
+  single-nappe solid convention of `Surface::Cone`). Clarification (adversary
+  phase): IEEE `-0.0` compares equal to `0.0` and is ACCEPTED — it evaluates
+  exactly to the apex. Torus `v` is periodic and has NO span limit (multi-wrap
+  v-ranges are legal; only the u-span is capped at `2π`). Validation order is
+  finiteness → surface validity → v-range → azimuth span; all three contracts
+  are pinned by `tests/n2_dt_adversary.rs`.
 
 `eval_uv` shares `NonFiniteInput` / `InvalidSurface` / `PolarRangeOutOfBounds`
 / `NegativeConeAxialRange` for its point argument.
