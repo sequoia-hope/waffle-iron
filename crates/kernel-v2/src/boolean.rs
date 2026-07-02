@@ -560,6 +560,7 @@ pub fn to_yang_brep_indexed(
     }
 
     canonicalize_sibling_planes(&mut yfaces);
+    canonicalize_vertices_to_planes(&mut yverts, &yedges, &yfaces);
 
     let brep = yang_rs::BRep::new(yverts, yedges, yfaces).map_err(|e| {
         KernelV2Error::BooleanFailed(format!("yang-rs rejected the converted input B-Rep: {e}"))
@@ -624,6 +625,223 @@ fn canonicalize_sibling_planes(yfaces: &mut [yang_rs::BRepFace]) {
                 *d = s * rd;
             }
             None => reps.push((n, dv)),
+        }
+    }
+}
+
+/// Spec `m8_shared_boundary_identity` — chained-output VERTEX canonicalization
+/// (the KV10 completion: planes above, vertices here).
+///
+/// Each boolean-output vertex carries independent ~1e-16 rounding, so a
+/// re-imported face loop is femto-crooked relative to its (canonicalized)
+/// planes: intended-straight edges are not exactly straight, intended-
+/// plane-constant coordinates are not bit-constant. The Stage-0 exact
+/// overlay faithfully arranges that crookedness into femto-wide sweep
+/// slabs, needle cells (`RoundingCollapse`), femto-twin split vertices
+/// (ear-clip stalls), and near-coincident cross-input vertices inside
+/// cherchi (`LabelMismatch`). Re-deriving each vertex from its incident
+/// canonical planes eliminates the disease at the producer boundary.
+///
+/// Rules (spec §3): a vertex whose incident faces are ALL planar is
+/// re-derived from its distinct incident planes ((n,d) and exactly
+/// (−n,−d) are ONE plane): ≥3 independent → exact rational 3-plane solve
+/// (B1); exactly 2 (or no independent triple, B6) → exact projection onto
+/// the 2-plane intersection line (B2); <2 → unchanged (B3). The result is
+/// rounded to f64 ONCE and adopted only when it moves the vertex by at
+/// most the KV10-scale band `TAU_WORK·(1+|coord|)` per component (B4 —
+/// a vertex genuinely off its planes' intersection is never forced).
+/// Any curved incident face vetoes the vertex (B5 — rim/arc endpoints
+/// must stay exactly on their curves). Deterministic: faces and planes in
+/// push order; first independent triple / first non-degenerate pair wins.
+fn canonicalize_vertices_to_planes(
+    yverts: &mut [yang_rs::BRepVertex],
+    yedges: &[yang_rs::BRepEdge],
+    yfaces: &[yang_rs::BRepFace],
+) {
+    use dashu::rational::RBig;
+
+    // Exact f64 → RBig (f64 is exactly representable; non-finite handled
+    // by the incidence filter below).
+    fn rat(x: f64) -> RBig {
+        let fb: dashu::float::FBig = dashu::float::FBig::try_from(x).expect("finite");
+        RBig::try_from(fb).expect("finite")
+    }
+
+    // ── incidence: vertex → distinct incident canonical planes ──────────
+    // Plane identity key: the raw (n, d) 4-tuple sign-normalized so (n, d)
+    // and exactly (−n, −d) collapse to one geometric plane. Sign flip of an
+    // f64 is exact, so the key is exact.
+    let mut planes: Vec<Vec<([f64; 3], f64)>> = vec![Vec::new(); yverts.len()];
+    let mut plane_keys: Vec<Vec<[u64; 4]>> = vec![Vec::new(); yverts.len()];
+    let mut curved: Vec<bool> = vec![false; yverts.len()];
+    for f in yfaces {
+        let planar = match f.surface {
+            yang_rs::Surface::Plane { normal, d } => {
+                let n = normal.as_array();
+                (n.iter().all(|c| c.is_finite()) && d.is_finite()).then_some((n, d))
+            }
+            _ => None,
+        };
+        for lp in std::iter::once(&f.outer_loop).chain(f.inner_loops.iter()) {
+            for &e in lp {
+                let Some(edge) = yedges.get(e as usize) else {
+                    continue;
+                };
+                for vi in [edge.start as usize, edge.end as usize] {
+                    if vi >= yverts.len() {
+                        continue;
+                    }
+                    match planar {
+                        None => curved[vi] = true,
+                        Some((n, d)) => {
+                            let raw = [n[0], n[1], n[2], d];
+                            // Sign-normalize: flip so the first nonzero
+                            // component is positive (0.0/−0.0 both count
+                            // as zero — skip them for the sign choice).
+                            let s = raw.iter().find(|c| **c != 0.0).map_or(1.0, |c| {
+                                if *c < 0.0 {
+                                    -1.0
+                                } else {
+                                    1.0
+                                }
+                            });
+                            let key = [
+                                (s * raw[0]).to_bits(),
+                                (s * raw[1]).to_bits(),
+                                (s * raw[2]).to_bits(),
+                                (s * raw[3]).to_bits(),
+                            ];
+                            if !plane_keys[vi].contains(&key) {
+                                plane_keys[vi].push(key);
+                                planes[vi].push((n, d));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── per-vertex re-derivation ─────────────────────────────────────────
+    // B6 conditioning floor: skip a plane triple whose exact determinant
+    // satisfies det² ≤ FLOOR²·(|n1|²·|n2|²·|n3|²) — sub-floor dihedrals
+    // amplify femto residuals into large motion the band guard would
+    // reject anyway; the floor keeps the search deterministic and cheap.
+    const DET_FLOOR: f64 = 1.0e-9;
+
+    for (vi, v) in yverts.iter_mut().enumerate() {
+        if curved[vi] || planes[vi].len() < 2 {
+            continue; // B5 / B3
+        }
+        let pls: Vec<([RBig; 3], RBig)> = planes[vi]
+            .iter()
+            .map(|&(n, d)| ([rat(n[0]), rat(n[1]), rat(n[2])], rat(d)))
+            .collect();
+        let norm2 = |n: &[RBig; 3]| &n[0] * &n[0] + &n[1] * &n[1] + &n[2] * &n[2];
+        let det3 = |a: &[RBig; 3], b: &[RBig; 3], c: &[RBig; 3]| -> RBig {
+            &a[0] * (&b[1] * &c[2] - &b[2] * &c[1]) - &a[1] * (&b[0] * &c[2] - &b[2] * &c[0])
+                + &a[2] * (&b[0] * &c[1] - &b[1] * &c[0])
+        };
+        let floor2 = rat(DET_FLOOR) * rat(DET_FLOOR);
+
+        // B1: first independent triple in plane order.
+        let mut exact: Option<[RBig; 3]> = None;
+        'triple: for i in 0..pls.len() {
+            for j in (i + 1)..pls.len() {
+                for k in (j + 1)..pls.len() {
+                    let (na, nb, nc) = (&pls[i].0, &pls[j].0, &pls[k].0);
+                    let det = det3(na, nb, nc);
+                    if &det * &det <= &floor2 * &(norm2(na) * norm2(nb) * norm2(nc)) {
+                        continue;
+                    }
+                    // Cramer: solve n·X = −d for the three planes (replace
+                    // column m of [na; nb; nc] with the rhs).
+                    let rhs = [-pls[i].1.clone(), -pls[j].1.clone(), -pls[k].1.clone()];
+                    let col = |m: usize| -> RBig {
+                        let rep = |r: &[RBig; 3], rv: &RBig| -> [RBig; 3] {
+                            let mut o = r.clone();
+                            o[m] = rv.clone();
+                            o
+                        };
+                        det3(&rep(na, &rhs[0]), &rep(nb, &rhs[1]), &rep(nc, &rhs[2])) / &det
+                    };
+                    exact = Some([col(0), col(1), col(2)]);
+                    break 'triple;
+                }
+            }
+        }
+
+        // B2 (or B6 degrade): exact projection onto the first
+        // non-degenerate pair's intersection line. Solve
+        // [n1; n2; dir] · X = [−d1; −d2; dir·P] with dir = n1×n2.
+        if exact.is_none() {
+            let p = v.point.as_array();
+            let pr = [rat(p[0]), rat(p[1]), rat(p[2])];
+            'pair: for i in 0..pls.len() {
+                for j in (i + 1)..pls.len() {
+                    let (na, nb) = (&pls[i].0, &pls[j].0);
+                    let dir = [
+                        &na[1] * &nb[2] - &na[2] * &nb[1],
+                        &na[2] * &nb[0] - &na[0] * &nb[2],
+                        &na[0] * &nb[1] - &na[1] * &nb[0],
+                    ];
+                    // |dir|² ≤ floor²·|na|²·|nb|² guards near-parallel
+                    // distinct planes (sub-floor sin of the dihedral).
+                    let d2 = norm2(&dir);
+                    if d2 <= &floor2 * &(norm2(na) * norm2(nb)) {
+                        continue;
+                    }
+                    let det = det3(na, nb, &dir);
+                    if det == RBig::ZERO {
+                        continue;
+                    }
+                    let rhs = [
+                        -pls[i].1.clone(),
+                        -pls[j].1.clone(),
+                        &dir[0] * &pr[0] + &dir[1] * &pr[1] + &dir[2] * &pr[2],
+                    ];
+                    let rep = |r: &[RBig; 3], m: usize, rv: &RBig| -> [RBig; 3] {
+                        let mut o = r.clone();
+                        o[m] = rv.clone();
+                        o
+                    };
+                    let col = |m: usize| -> RBig {
+                        det3(
+                            &rep(na, m, &rhs[0]),
+                            &rep(nb, m, &rhs[1]),
+                            &rep(&dir, m, &rhs[2]),
+                        ) / &det
+                    };
+                    exact = Some([col(0), col(1), col(2)]);
+                    break 'pair;
+                }
+            }
+        }
+
+        let Some(exact) = exact else { continue };
+        let p = v.point.as_array();
+        let mut newp = [0.0f64; 3];
+        let mut ok = true;
+        for k in 0..3 {
+            let nf = exact[k].to_f64().value();
+            if !nf.is_finite() {
+                ok = false;
+                break;
+            }
+            // B4 band guard, per component (KV10-scale, A14.3 reuse).
+            if (nf - p[k]).abs() > cad_primitives::TAU_WORK * (1.0 + p[k].abs()) {
+                ok = false;
+                break;
+            }
+            newp[k] = nf;
+        }
+        if ok {
+            v.point = Point3::new(newp[0], newp[1], newp[2]);
+        } else if std::env::var_os("KV2_VERTEX_CANON_PROBE").is_some() {
+            eprintln!(
+                "[vertex-canon-over-band] v{vi} p={p:?} planes={}",
+                planes[vi].len()
+            );
         }
     }
 }

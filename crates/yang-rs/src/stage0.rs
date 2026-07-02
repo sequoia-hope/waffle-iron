@@ -361,6 +361,14 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                     poly_b.outer,
                     poly_b.holes.len()
                 );
+                let world: Vec<[f64; 3]> = face_loop_verts(a, p.face_a)
+                    .into_iter()
+                    .map(|vi| va[vi as usize].as_array())
+                    .collect();
+                eprintln!(
+                    "[poly-probe] A face {} 3D loop verts (snapped): {world:?}",
+                    p.face_a
+                );
             }
             pair_err(p.face_a, p.face_b)
         })?;

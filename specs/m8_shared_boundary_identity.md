@@ -49,6 +49,43 @@ vertices whose incident faces are ALL planar:
 Vertices with any curved incident face are untouched (arc/rim endpoints must
 stay exactly on their curves — cylinder rim bit-sharing is load-bearing).
 
+### 2b. In-frame coordinate clustering (AMENDED mid-GREEN, measured)
+
+The world-space pass alone closed R0070 (axis-aligned) but NOT R0076/R0081:
+their operand quads' WORLD coordinates are already consistent (intended-equal
+z pairs are bitwise equal), yet their pair-frame u coordinates split by
+~4.4e-16 — the femto-crookedness is minted by the f64 FRAME PROJECTION
+(`(p−o)·e1` rounds independently per vertex), so an intended-frame-vertical
+edge of an OBLIQUE solid is femto-off vertical and the exact sweep still
+builds femto slabs → needle cells → `RoundingCollapse` (now at different
+triangle ids — measured).
+
+Second layer, in `stage0.rs` where the pair's 2D polygons are built: cluster
+the PROJECTED u coordinates (and, independently, v) of BOTH faces' loop
+vertices — values within the pair `band` snap to the cluster's first-seen
+representative (greedy in a deterministic vertex order; A's loop first).
+Clusters are isolated (features are ≥ MIN_FEATURE_SIZE apart, six orders
+above band — the KV10 margin argument), so chain drift is impossible. Both
+polygons and every downstream consumer of projected input coordinates
+(corner keys, rim maps) read the SAME clustered values, so intended-equal
+frame coordinates are BIT-equal across the pair — §4.5.5's identical
+boundary sampling in the domain where the overlay actually operates.
+
+Additional branch rows:
+
+| # | Configuration | Behavior |
+|---|---|---|
+| C1 | Two projected coords within band (same or cross polygon) | Snap to first-seen representative (per axis, independent) |
+| C2 | Coords farther than band | Untouched |
+| C3 | All-distinct clusters (generic oblique geometry) | Byte-identical path |
+
+Additional invariants:
+
+- I7: after clustering, no two input-polygon coordinates on one axis differ
+  by a nonzero amount ≤ band (twin-free events).
+- I8: per-coordinate displacement ≤ band; cluster representatives are
+  members (no averaging — a representative is an original projected value).
+
 ## 3. Branch table
 
 | # | Vertex configuration | Behavior |
