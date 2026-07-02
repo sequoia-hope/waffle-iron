@@ -63,7 +63,7 @@ use cad_primitives::Point3;
 use dashu::rational::RBig;
 
 use crate::coplanar_overlay::{
-    coplanar_overlay, cross_r, ClassifiedOverlay, ExactPoint2, PolygonWithHoles, RegionClass,
+    coplanar_overlay, cross_r, rat, ClassifiedOverlay, ExactPoint2, PolygonWithHoles, RegionClass,
 };
 use crate::{
     normalize3, ortho_basis, scan_near_coplanar, stage1_tessellate,
@@ -410,36 +410,105 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             e * e
         };
 
+        // N2-3a (spec `n2_stage4_junction_cluster_merge` §3, [#24 §4.5.5]):
+        // exact rim-chord resolution context per disc face of the pair. The
+        // overlay's trapezoidal decomposition splits every rim chord at every
+        // event x-coordinate; those split vertices must be minted ON the
+        // exact rim `Curve::Circle` (I1: every output loop vertex on its
+        // face's surface), not at their chord positions — §4.5.5's "overlap
+        // boundaries become intersection curves" carries exact curve
+        // geometry. `None` for a non-disc face (zero behavior change).
+        let rim_ctx_a = if rim_a.is_empty() {
+            None
+        } else {
+            rim_chord_ctx(a, p.face_a, &poly_a, &poly_b, frame)
+        };
+        let rim_ctx_b = if rim_b.is_empty() {
+            None
+        } else {
+            rim_chord_ctx(b, p.face_b, &poly_b, &poly_a, frame)
+        };
+
         // Resolve every overlay vertex to ONE solid-independent 3D point:
         // corner of face A → A's (snapped/welded) vertex; corner of face B
-        // → B's; rim point → the exact 3D rim point; otherwise the frame lift
-        // L(u,v) (snapped to a rim point if it lands within ε of one). Shared
-        // between BOTH solids' meshes so the Overlap triangles are bit-identical.
-        let coords: Vec<Point3> = (0..overlay.verts.len())
-            .map(|i| {
-                let exact = &overlay.exact_verts[i];
-                if let Some(&ai) = corners_a.get(exact) {
-                    va[ai as usize]
-                } else if let Some(&bi) = corners_b.get(exact) {
-                    vb[bi as usize]
-                } else if let Some(&pt) = rim_a.get(exact) {
-                    pt
-                } else if let Some(&pt) = rim_b.get(exact) {
+        // → B's; rim point → the exact 3D rim point; a rim-CHORD point →
+        // minted on the exact rim circle (N2-3a, see below); otherwise the
+        // frame lift L(u,v) (snapped to a rim point if it lands within ε of
+        // one). Shared between BOTH solids' meshes so the Overlap triangles
+        // are bit-identical — and consumed by `collect_rim_crossings` /
+        // `collect_edge_splits` below, so cap, lateral, and opposite rim all
+        // see the SAME minted point (§4.5.5 identical-mesh requirement).
+        let mut coords: Vec<Point3> = Vec::with_capacity(overlay.verts.len());
+        for i in 0..overlay.verts.len() {
+            let exact = &overlay.exact_verts[i];
+            let pt = if let Some(&ai) = corners_a.get(exact) {
+                va[ai as usize]
+            } else if let Some(&bi) = corners_b.get(exact) {
+                vb[bi as usize]
+            } else if let Some(&pt) = rim_a.get(exact) {
+                pt
+            } else if let Some(&pt) = rim_b.get(exact) {
+                pt
+            } else {
+                let q = overlay.verts[i];
+                let (qx, qy) = (q.x(), q.y());
+                if let Some(&(_, _, pt)) = rim_pts.iter().find(|(u, v, _)| {
+                    let (du, dv) = (u - qx, v - qy);
+                    du * du + dv * dv <= snap_eps2
+                }) {
                     pt
                 } else {
-                    let q = overlay.verts[i];
-                    let (qx, qy) = (q.x(), q.y());
-                    if let Some(&(_, _, pt)) = rim_pts.iter().find(|(u, v, _)| {
-                        let (du, dv) = (u - qx, v - qy);
-                        du * du + dv * dv <= snap_eps2
-                    }) {
-                        pt
-                    } else {
-                        frame.lift(qx, qy)
+                    // N2-3a: a vertex the overlay minted STRICTLY INTERIOR to
+                    // a disc-rim sub-chord (exact rational collinearity + the
+                    // same interior-parameter predicate as
+                    // `collect_rim_crossings`) lies sagitta-deep off the exact
+                    // rim circle if lifted raw. Mint it on the circle instead:
+                    // - on a rim chord AND transversally on another input's
+                    //   edge sub-segment → the exact 2D circle∩line
+                    //   intersection (I2: the junction stays on BOTH the
+                    //   circle and the other input's edge — radial projection
+                    //   would slide it off that edge);
+                    // - on a rim chord only (an x-event subdivision) → radial
+                    //   projection onto the exact circle in the cap plane
+                    //   (the own-cap analog of the opposite-rim exact-radius
+                    //   projection below).
+                    // All other vertices fall through to the raw lift,
+                    // byte-identical to the pre-N2-3a path (I4).
+                    let mut minted: Option<Point3> = None;
+                    for ctx in [rim_ctx_a.as_ref(), rim_ctx_b.as_ref()]
+                        .into_iter()
+                        .flatten()
+                    {
+                        match resolve_rim_chord_vertex(ctx, exact, qx, qy, frame) {
+                            RimResolve::NotOnChord => {}
+                            RimResolve::OnCircle(p3) => {
+                                minted = Some(p3);
+                                break;
+                            }
+                            RimResolve::NoIntersection => {
+                                // Spec §6: the exact discriminant says the
+                                // other input's edge line misses the circle —
+                                // impossible for a genuine crossing (a chord-
+                                // interior point is strictly inside the
+                                // circle, so any line through it crosses it).
+                                // A loud Stage-0 stop, never a silent fall
+                                // back to the chord position.
+                                probe(
+                                    "rim-circle-line-no-intersection",
+                                    &format!(
+                                        "pair=({},{}) vert={i} uv=({qx},{qy})",
+                                        p.face_a, p.face_b
+                                    ),
+                                );
+                                return Err(pair_err(p.face_a, p.face_b));
+                            }
+                        }
                     }
+                    minted.unwrap_or_else(|| frame.lift(qx, qy))
                 }
-            })
-            .collect();
+            };
+            coords.push(pt);
+        }
 
         // Per-solid override triangles. Overlay triangles are CCW in the
         // (e1, e2) frame ⇒ normal +n̂ (e1×e2 = n̂): face A keeps the order
@@ -880,6 +949,233 @@ fn rim_subdivided(poly: &PolygonWithHoles, overlay: &ClassifiedOverlay) -> bool 
         }
     }
     false
+}
+
+/// N2-3a (spec `n2_stage4_junction_cluster_merge` §3): exact resolution
+/// context for one disc face's rim chords, built once per handled pair.
+/// Carries the disc polygon's rim sub-chords and the OTHER input polygon's
+/// boundary sub-segments as exact rationals (classification is exact — no
+/// tolerance), plus the disc's exact rim `Curve::Circle` geometry
+/// (`disc_circle_edge`) snapped into the pair's canonical cap plane.
+struct RimChordCtx {
+    /// The disc's rim sub-chords (consecutive rim-ring samples), exact 2D.
+    chords: Vec<(ExactPoint2, ExactPoint2)>,
+    /// The OTHER input's boundary sub-segments (outer ring + holes), exact 2D.
+    other_segs: Vec<(ExactPoint2, ExactPoint2)>,
+    /// The exact rim circle's center, snapped onto the pair plane (identity
+    /// for bit-exact coplanar input) so both minting branches stay in the
+    /// cap plane.
+    center: Point3,
+    /// The exact rim circle's radius.
+    radius: f64,
+}
+
+/// Build the [`RimChordCtx`] for disc face `fi` of `brep` (`poly` is its
+/// in-frame rim polygon, `other` the partner face's polygon). `None` if the
+/// face is not a disc or a coordinate is non-finite (→ the caller falls
+/// through to the raw lift, byte-identical to the pre-N2-3a path).
+fn rim_chord_ctx(
+    brep: &BRep,
+    fi: usize,
+    poly: &PolygonWithHoles,
+    other: &PolygonWithHoles,
+    frame: &Frame,
+) -> Option<RimChordCtx> {
+    let circle_e = disc_circle_edge(brep, fi)?;
+    let Curve::Circle { center, radius, .. } = brep.edges()[circle_e as usize].curve else {
+        return None;
+    };
+    let ring_exact = |ring: &[Point2]| -> Option<Vec<(ExactPoint2, ExactPoint2)>> {
+        let n = ring.len();
+        let mut out = Vec::with_capacity(n);
+        for i in 0..n {
+            let s = &ring[i];
+            let e = &ring[(i + 1) % n];
+            out.push((
+                ExactPoint2::from_f64(s.x(), s.y())?,
+                ExactPoint2::from_f64(e.x(), e.y())?,
+            ));
+        }
+        Some(out)
+    };
+    let chords = ring_exact(&poly.outer)?;
+    let mut other_segs = ring_exact(&other.outer)?;
+    for h in &other.holes {
+        other_segs.extend(ring_exact(h)?);
+    }
+    Some(RimChordCtx {
+        chords,
+        other_segs,
+        center: frame.snap(center),
+        radius,
+    })
+}
+
+/// Outcome of [`resolve_rim_chord_vertex`].
+enum RimResolve {
+    /// Not strictly interior to any rim sub-chord — resolve as before.
+    NotOnChord,
+    /// Minted on the exact rim circle (I1), in the cap plane.
+    OnCircle(Point3),
+    /// The exact discriminant of the circle∩line quadratic is negative for a
+    /// claimed rim×other-edge crossing — a loud Stage-0 stop (spec §6).
+    NoIntersection,
+}
+
+/// N2-3a: resolve one overlay vertex that may lie on a disc-rim chord (spec
+/// §3 branch table, [#24 §4.5.5] — overlap boundaries carry exact curve
+/// geometry). Uses the SAME exact on-chord predicate as
+/// `collect_rim_crossings` (exact rational collinearity + strictly-interior
+/// parameter with the 1e-6 endpoint margin — a vertex inside the margin is a
+/// reconstructed rim sample, reconciled by the rim ULP-snap upstream).
+fn resolve_rim_chord_vertex(
+    ctx: &RimChordCtx,
+    q: &ExactPoint2,
+    qx: f64,
+    qy: f64,
+    frame: &Frame,
+) -> RimResolve {
+    // ── On a rim sub-chord? (the `collect_rim_crossings` predicate) ─────
+    let mut on_chord: Option<usize> = None;
+    for (ci, (s2, e2)) in ctx.chords.iter().enumerate() {
+        let dx = &e2.x - &s2.x;
+        let dy = &e2.y - &s2.y;
+        let len2 = &dx * &dx + &dy * &dy;
+        if len2 == RBig::ZERO {
+            continue;
+        }
+        let wx = &q.x - &s2.x;
+        let wy = &q.y - &s2.y;
+        if &dx * &wy - &dy * &wx != RBig::ZERO {
+            continue;
+        }
+        let t = (&dx * &wx + &dy * &wy) / &len2;
+        let tf = t.to_f64().value();
+        if tf > 1.0e-6 && tf < 1.0 - 1.0e-6 {
+            on_chord = Some(ci);
+            break;
+        }
+    }
+    let Some(ci) = on_chord else {
+        return RimResolve::NotOnChord;
+    };
+    let (cs, ce) = &ctx.chords[ci];
+    let cdx = &ce.x - &cs.x;
+    let cdy = &ce.y - &cs.y;
+
+    // ── Also on another input's edge sub-segment (exact, transversal)? ──
+    // A crossing must be minted at the exact circle∩line intersection (I2):
+    // radial projection would slide it off the other input's edge, breaking
+    // that solid's edge-split propagation. An other-edge COLLINEAR with the
+    // chord defines no transversal junction and is skipped (the vertex then
+    // radially projects like a pure subdivision point).
+    let mut crossing: Option<(&ExactPoint2, RBig, RBig)> = None;
+    for (s2, e2) in &ctx.other_segs {
+        let dx = &e2.x - &s2.x;
+        let dy = &e2.y - &s2.y;
+        let len2 = &dx * &dx + &dy * &dy;
+        if len2 == RBig::ZERO {
+            continue;
+        }
+        let wx = &q.x - &s2.x;
+        let wy = &q.y - &s2.y;
+        if &dx * &wy - &dy * &wx != RBig::ZERO {
+            continue;
+        }
+        let t = (&dx * &wx + &dy * &wy) / &len2;
+        if t < RBig::ZERO || t > RBig::ONE {
+            continue;
+        }
+        if &cdx * &dy - &cdy * &dx == RBig::ZERO {
+            continue;
+        }
+        crossing = Some((s2, dx, dy));
+        break;
+    }
+
+    if let Some((s2, dx, dy)) = crossing {
+        // ── Exact 2D circle∩line intersection (spec §3 row 4, I2) ───────
+        // Line p(t) = s + t·d against circle |p − c|² = r²: the quadratic
+        // a·t² + b·t + c₀ = 0 with exact rational coefficients; the
+        // discriminant sign is decided EXACTLY (spec §6), the root itself
+        // via one f64 square root (closed-form, ~ULP accuracy — the same
+        // class as the opposite-rim exact-radius projection).
+        let (cu, cv) = frame.project(ctx.center);
+        let (Some(cc), Ok(rr)) = (ExactPoint2::from_f64(cu, cv), rat(ctx.radius)) else {
+            return RimResolve::NotOnChord;
+        };
+        let fx = &s2.x - &cc.x;
+        let fy = &s2.y - &cc.y;
+        let a_q = &dx * &dx + &dy * &dy;
+        let b_q = (&dx * &fx + &dy * &fy) * RBig::from(2);
+        let c_q = &fx * &fx + &fy * &fy - &rr * &rr;
+        let disc = &b_q * &b_q - RBig::from(4) * (&a_q * &c_q);
+        if disc < RBig::ZERO {
+            return RimResolve::NoIntersection;
+        }
+        let a_f = a_q.to_f64().value();
+        let b_f = b_q.to_f64().value();
+        let c_f = c_q.to_f64().value();
+        let sq = disc.to_f64().value().sqrt();
+        // Numerically stable root pair (no catastrophic −b ± √D cancellation).
+        let qq = if b_f >= 0.0 {
+            -(b_f + sq) / 2.0
+        } else {
+            -(b_f - sq) / 2.0
+        };
+        let (t1, t2) = if qq != 0.0 {
+            (qq / a_f, c_f / qq)
+        } else {
+            (0.0, 0.0)
+        };
+        let (sxf, syf) = (s2.x.to_f64().value(), s2.y.to_f64().value());
+        let (dxf, dyf) = (dx.to_f64().value(), dy.to_f64().value());
+        let p_at = |t: f64| [sxf + t * dxf, syf + t * dyf];
+        // Choose the root on THIS chord's parameter interval (spec §3); if
+        // that is ambiguous (a near-tangent line can put both roots over one
+        // chord), the root nearest the overlay's exact chord crossing — the
+        // two are within a sagitta of each other — disambiguates.
+        let (csx, csy) = (cs.x.to_f64().value(), cs.y.to_f64().value());
+        let (cdxf, cdyf) = (cdx.to_f64().value(), cdy.to_f64().value());
+        let clen2 = cdxf * cdxf + cdyf * cdyf;
+        let t_chord = |pp: [f64; 2]| ((pp[0] - csx) * cdxf + (pp[1] - csy) * cdyf) / clen2;
+        let d2q = |pp: [f64; 2]| (pp[0] - qx) * (pp[0] - qx) + (pp[1] - qy) * (pp[1] - qy);
+        let (p1, p2) = (p_at(t1), p_at(t2));
+        let in1 = (0.0..=1.0).contains(&t_chord(p1));
+        let in2 = (0.0..=1.0).contains(&t_chord(p2));
+        let chosen = match (in1, in2) {
+            (true, false) => p1,
+            (false, true) => p2,
+            _ => {
+                if d2q(p1) <= d2q(p2) {
+                    p1
+                } else {
+                    p2
+                }
+            }
+        };
+        return RimResolve::OnCircle(frame.lift(chosen[0], chosen[1]));
+    }
+
+    // ── Pure x-event subdivision (spec §3 row 5, I1): radial projection ──
+    // onto the exact circle in the cap plane — the own-cap analog of the
+    // opposite-rim exact-radius projection (`opp_radius` below):
+    // center + radius·normalize(lift(q) − center).
+    let c3 = ctx.center.as_array();
+    let l3 = frame.lift(qx, qy).as_array();
+    let w = [l3[0] - c3[0], l3[1] - c3[1], l3[2] - c3[2]];
+    let n = (w[0] * w[0] + w[1] * w[1] + w[2] * w[2]).sqrt();
+    if n == 0.0 {
+        // Degenerate (chord through the exact center — impossible for a
+        // sampled rim): fall through unchanged rather than divide by zero.
+        return RimResolve::NotOnChord;
+    }
+    let s = ctx.radius / n;
+    RimResolve::OnCircle(Point3::new(
+        c3[0] + w[0] * s,
+        c3[1] + w[1] * s,
+        c3[2] + w[2] * s,
+    ))
 }
 
 /// The cylinder lateral incident to a cap's circle edge, the OPPOSITE rim

@@ -605,8 +605,9 @@ pub(crate) fn cross_r(a: &ExactPoint2, b: &ExactPoint2, c: &ExactPoint2) -> RBig
     (&b.x - &a.x) * (&c.y - &a.y) - (&b.y - &a.y) * (&c.x - &a.x)
 }
 
-/// Exact f64 → RBig; fails on NaN / infinity.
-fn rat(x: f64) -> Result<RBig, CoplanarOverlayError> {
+/// Exact f64 → RBig; fails on NaN / infinity. (`pub(crate)` since N2-3a for
+/// the Stage-0 exact rim circle∩line quadratic.)
+pub(crate) fn rat(x: f64) -> Result<RBig, CoplanarOverlayError> {
     let fb: FBig = FBig::try_from(x).map_err(|_| CoplanarOverlayError::NonFiniteInput)?;
     RBig::try_from(fb).map_err(|_| CoplanarOverlayError::NonFiniteInput)
 }
