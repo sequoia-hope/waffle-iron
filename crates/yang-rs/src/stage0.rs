@@ -1274,6 +1274,19 @@ fn lateral_for_cap(brep: &BRep, cap_edge: u32) -> Result<LateralForCap, &'static
             radius,
         ));
     }
+    if std::env::var_os("YANG_RIMLAT_PROBE").is_some() {
+        for (fi, f) in brep.faces().iter().enumerate() {
+            let in_outer = f.outer_loop.contains(&cap_edge);
+            let in_inner = f.inner_loops.iter().any(|l| l.contains(&cap_edge));
+            if in_outer || in_inner {
+                eprintln!(
+                    "[rimlat-probe] cap_edge={cap_edge} face={fi} outer={in_outer} \
+                     inner={in_inner} surface={:?}",
+                    f.surface
+                );
+            }
+        }
+    }
     Err("rim-lateral-none")
 }
 
@@ -2305,6 +2318,16 @@ fn build_stage0_mesh(
                     "build-mesh-triangulate",
                     &format!("f={f_idx} ring_len={}", ring.len()),
                 );
+                if std::env::var_os("YANG_RING_PROBE").is_some() {
+                    eprintln!(
+                        "[ring-probe] f={f_idx} normal={:?} ring={:?} pts={:?}",
+                        normal.as_array(),
+                        ring,
+                        ring.iter()
+                            .map(|&vi| verts[vi as usize].as_array())
+                            .collect::<Vec<_>>()
+                    );
+                }
                 BuildErr::Unsupported
             })?;
         tris.extend(ring_tris);
@@ -2330,27 +2353,60 @@ fn intern_vert(verts: &mut Vec<Point3>, intern: &mut BTreeMap<[u64; 3], u32>, p:
 /// `normal`. Returns mesh-vertex index triples; `None` when no vertex
 /// admits a strictly-positive exact-coverage fan (unsupported residue).
 ///
-/// Why a verified apex-fan and NOT a generic ear-clip: the split points on
-/// a subdivided edge are only NEARLY collinear with its corners in 3D (the
-/// shared-plane lift `o + u·e1 + v·e2` cannot realize exact 2D collinearity
-/// through f64 rounding on an oblique plane — the chain is femto-crooked).
-/// An ear-clip is free to clip a long ear whose closing diagonal SPANS the
-/// crooked chain, leaving a femto-sliver polygon between the diagonal and
-/// the chain; those sliver triangles then femto-interpenetrate the overlay
-/// face across the hinge and the arrangement faithfully builds
-/// unclassifiable sliver patches (`NoExplicitRayOrigin` — the original
-/// PR-YR24 failure mode, reintroduced by the re-tessellation). A fan from a
-/// corner OFF the chain keeps every crooked sub-segment as a real triangle
-/// boundary, so the neighbor and the overlay face stay edge-conforming and
-/// no diagonal sliver can exist. The strict-positivity verification is
-/// exact (rationals over the dominant-frame projection); a candidate that
-/// fails (e.g. a corner whose own edge carries splits — collinear or
-/// reflex fan triangles) is skipped deterministically.
+/// Why a verified apex-fan and NOT a *generic* ear-clip: the split points
+/// on a subdivided edge are only NEARLY collinear with its corners in 3D
+/// (the shared-plane lift `o + u·e1 + v·e2` cannot realize exact 2D
+/// collinearity through f64 rounding on an oblique plane — the chain is
+/// femto-crooked). A generic ear-clip (the kernel-v2 style that DROPS
+/// exactly-collinear corners) is free to clip a long ear whose closing
+/// diagonal SPANS the crooked chain, leaving a femto-sliver polygon
+/// between the diagonal and the chain; those sliver triangles then
+/// femto-interpenetrate the overlay face across the hinge and the
+/// arrangement faithfully builds unclassifiable sliver patches
+/// (`NoExplicitRayOrigin` — the original PR-YR24 failure mode,
+/// reintroduced by the re-tessellation). A fan from a corner OFF the chain
+/// keeps every crooked sub-segment as a real triangle boundary, so the
+/// neighbor and the overlay face stay edge-conforming and no diagonal
+/// sliver can exist. The strict-positivity verification is exact
+/// (rationals over the dominant-frame projection); a candidate that fails
+/// (e.g. a corner whose own edge carries splits — collinear or reflex fan
+/// triangles) is skipped deterministically.
+///
+/// For a REFLEX (non-star) subdivided ring, where neither fan exists, the
+/// B3 fallback (spec `m8_nonstar_ring_earclip`) is a CLOSED-containment
+/// exact ear-clip: an ear is clippable only when its closed exact triangle
+/// contains NO other ring vertex, so a diagonal can never chord over a
+/// split point (every sub-segment remains a triangle edge — the same
+/// edge-conformality the fans guarantee), collinear split points are never
+/// clipped (strict positivity) and never skipped (closed containment
+/// blocks any ear that touches them). Coverage certificate as above.
 fn triangulate_ring(
     ring: &[u32],
     verts: &mut Vec<Point3>,
     normal: [f64; 3],
 ) -> Option<Vec<[u32; 3]>> {
+    // B6 (spec `m8_nonstar_ring_earclip` amendment): collapse CONSECUTIVE
+    // bit-identical duplicate indices (and a duplicated first==last closure)
+    // before strategy selection. A real corpus ring can carry a split point
+    // interned to the SAME mesh vertex as a ring corner (R0046's
+    // [.., 14, 14, ..]) — a zero-length ring edge with no geometry; the
+    // vertex survives via its other copy, so nothing is chorded over. Exact
+    // index identity only — NEVER a tolerance weld: femto-NEAR-duplicate
+    // DISTINCT vertices (the 1-ulp split-point-identity residue) stay in
+    // the ring and stall loudly at B4 (see spec "Measured residue").
+    let dedup: Vec<u32> = {
+        let mut d: Vec<u32> = Vec::with_capacity(ring.len());
+        for &v in ring {
+            if d.last() != Some(&v) {
+                d.push(v);
+            }
+        }
+        while d.len() > 1 && d.first() == d.last() {
+            d.pop();
+        }
+        d
+    };
+    let ring: &[u32] = &dedup;
     let n = ring.len();
     if n < 3 {
         return None;
@@ -2432,37 +2488,89 @@ fn triangulate_ring(
     // (interior to this face, shared with no neighbor). If the face is not
     // star-shaped about its centroid (a genuinely non-convex re-tess face), the
     // exact coverage certificate fails → `None` (unsupported, unchanged).
-    let nr = RBig::from(n as u64);
-    let cx = pts.iter().fold(RBig::ZERO, |a, p| a + &p.x) / &nr;
-    let cy = pts.iter().fold(RBig::ZERO, |a, p| a + &p.y) / &nr;
-    let centroid = ExactPoint2 { x: cx, y: cy };
-    let mut tris: Vec<[u32; 3]> = Vec::with_capacity(n);
-    let mut covered = RBig::ZERO;
-    // 3D interior point: the on-plane average of the ring's 3D vertices.
-    let mut acc = [0.0_f64; 3];
-    for &vi in ring {
-        let p = verts[vi as usize].as_array();
-        acc[0] += p[0];
-        acc[1] += p[1];
-        acc[2] += p[2];
-    }
-    let inv = 1.0 / n as f64;
-    let cpt = Point3::new(acc[0] * inv, acc[1] * inv, acc[2] * inv);
-    let c_idx = verts.len() as u32;
-    for j in 0..n {
-        let (i0, i1) = (order[j], order[(j + 1) % n]);
-        let c = cross_r(&centroid, &pts[i0], &pts[i1]);
-        if c <= RBig::ZERO {
-            return None; // not star-shaped about its centroid (non-convex)
+    'centroid: {
+        let nr = RBig::from(n as u64);
+        let cx = pts.iter().fold(RBig::ZERO, |a, p| a + &p.x) / &nr;
+        let cy = pts.iter().fold(RBig::ZERO, |a, p| a + &p.y) / &nr;
+        let centroid = ExactPoint2 { x: cx, y: cy };
+        let mut tris: Vec<[u32; 3]> = Vec::with_capacity(n);
+        let mut covered = RBig::ZERO;
+        // 3D interior point: the on-plane average of the ring's 3D vertices.
+        let mut acc = [0.0_f64; 3];
+        for &vi in ring {
+            let p = verts[vi as usize].as_array();
+            acc[0] += p[0];
+            acc[1] += p[1];
+            acc[2] += p[2];
         }
-        covered += c;
-        tris.push([c_idx, ring[i0], ring[i1]]);
+        let inv = 1.0 / n as f64;
+        let cpt = Point3::new(acc[0] * inv, acc[1] * inv, acc[2] * inv);
+        let c_idx = verts.len() as u32;
+        for j in 0..n {
+            let (i0, i1) = (order[j], order[(j + 1) % n]);
+            let c = cross_r(&centroid, &pts[i0], &pts[i1]);
+            if c <= RBig::ZERO {
+                break 'centroid; // not star-shaped about its centroid → B3
+            }
+            covered += c;
+            tris.push([c_idx, ring[i0], ring[i1]]);
+        }
+        if covered == area_abs {
+            verts.push(cpt);
+            return Some(tris);
+        }
     }
-    if covered == area_abs {
-        verts.push(cpt);
-        return Some(tris);
+
+    // ── EXACT EAR-CLIP (B3 fallback, spec `m8_nonstar_ring_earclip`) ────
+    // A reflex (non-star) subdivided ring has neither a boundary apex nor a
+    // centroid that sees every sub-segment. Clip strictly-convex ears whose
+    // CLOSED exact triangle contains no other ring vertex: rejecting an ear
+    // that touches ANY vertex (interior or boundary) forbids chording over
+    // a split point (I1 — every sub-segment stays a triangle edge, the same
+    // edge-conformality the fans guarantee), and strict positivity never
+    // clips a collinear split point as an ear (I2). The exact coverage
+    // certificate Σ clip areas == ring area is the P9 gate (I3); a stall
+    // (no clippable ear — e.g. a candidate diagonal passing exactly through
+    // a split point everywhere) stays the loud `None` wall (B4). No new
+    // vertex is minted (I4). Deterministic first-clippable-ear scan (I6).
+    // Two-ears theorem (Meisters 1975); the closed-containment exact analog
+    // of kernel-v2's `ear_clip` [#39 Livesu et al. 2021 family].
+    let mut work: Vec<usize> = order;
+    let mut tris: Vec<[u32; 3]> = Vec::with_capacity(n - 2);
+    let mut covered = RBig::ZERO;
+    'clip: while work.len() > 3 {
+        let m = work.len();
+        for i in 0..m {
+            let (ip, ic, inx) = (work[(i + m - 1) % m], work[i], work[(i + 1) % m]);
+            let c = cross_r(&pts[ip], &pts[ic], &pts[inx]);
+            if c <= RBig::ZERO {
+                continue; // reflex or collinear (a split point) — not an ear
+            }
+            let blocked = work.iter().any(|&j| {
+                j != ip
+                    && j != ic
+                    && j != inx
+                    && cross_r(&pts[ip], &pts[ic], &pts[j]) >= RBig::ZERO
+                    && cross_r(&pts[ic], &pts[inx], &pts[j]) >= RBig::ZERO
+                    && cross_r(&pts[inx], &pts[ip], &pts[j]) >= RBig::ZERO
+            });
+            if blocked {
+                continue;
+            }
+            covered += c;
+            tris.push([ring[ip], ring[ic], ring[inx]]);
+            work.remove(i);
+            continue 'clip;
+        }
+        return None; // B4: no clippable ear — the loud wall persists
     }
-    None
+    let fin = cross_r(&pts[work[0]], &pts[work[1]], &pts[work[2]]);
+    if fin <= RBig::ZERO {
+        return None;
+    }
+    covered += fin;
+    tris.push([ring[work[0]], ring[work[1]], ring[work[2]]]);
+    (covered == area_abs).then_some(tris)
 }
 
 // ════════════════════════════════════════════════════════════════════════

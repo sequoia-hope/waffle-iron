@@ -30,6 +30,20 @@ None user-facing. All arithmetic exact (`RBig` over the existing dominant-frame
 | B3 | NEW: both fans fail (reflex ring) | Exact EAR-CLIP: repeatedly clip a ring-consecutive triple `(a, b, c)` with strictly positive exact cross whose CLOSED triangle contains **no other ring vertex** (exact containment); succeed iff the ring fully clips and the exact coverage certificate `Σ clip areas == ring area` holds |
 | B4 | Ear-clip stalls (no clippable ear — e.g. every candidate diagonal passes exactly through a split point) | `None` — the loud wall persists (honest residue, never a guess) |
 | B5 | Degenerate ring (n < 3, zero exact area, non-finite projection) | Unchanged: `None` |
+| B6 | AMENDMENT (measured on R0046/R0098/F0061, 2026-07-02): the ring carries **consecutive bit-identical duplicate indices** (a split point interned to the same mesh vertex as a ring corner → a zero-length ring edge; also a duplicated ring closure). Collapse consecutive duplicates (and a first==last closure) by EXACT index equality BEFORE strategy selection — a zero-length edge carries no geometry, the vertex itself survives via its other copy, so no point is chorded over. This is exact identity, never a tolerance weld. |
+
+### Measured residue (out of scope, stays B4-loud)
+
+R0046 (f=4) and F0061 (f=2) rings additionally carry **femto-twin runs**:
+consecutive DISTINCT vertices ~1e-16–1e-17 apart — the same geometric split
+point minted twice (once per side of the overlay/edge-split machinery), the
+known 1-ulp §4.5.5 conformality-break class (`kernel_v2_m8_coplanar_landscape`
+memo). The ring zigzags at femto scale, so no strictly-positive ear adjacent
+to the twins survives closed containment → B4 stall, loud. The fix is
+UPSTREAM split-point identity (mint ONE shared point), a separate mechanism —
+a tolerance weld here is prohibited (P9; gear-flange banked lesson). R0088
+additionally blocks on a cherchi `LabelMismatch` (same femto-twin family,
+inside the arrangement).
 
 ## 4. Invariants
 
@@ -65,9 +79,15 @@ None user-facing. All arithmetic exact (`RBig` over the existing dominant-frame
     stays `ring.len()` for B1 or `ring.len()+1` for B2 as today — I5 guard).
   - A ring the ear-clip cannot finish (construct a stall or degenerate case,
     e.g. bowtie/self-touching ring) → `None` (B4/B5 guard).
+- B6 unit: a ring with a consecutive duplicate index (and a duplicated
+  closure) triangulates as if deduplicated; boundary tiling (I1) holds over
+  the DEDUPED ring; `verts.len()` unchanged.
 - E2E RED→GREEN trackers (campaign file `m8_intra_opposite_campaign.rs` or a
   sibling): R0046, R0088, R0098, F0061 — assert the failure set does not
   contain the coplanar wall (success or a different typed error both pass).
+  AMENDMENT: with B6, R0098 goes GREEN; R0046/F0061 stay RED on the
+  femto-twin residue and R0088 on `LabelMismatch` (see "Measured residue") —
+  their trackers stay `#[ignore]`d RED with the blocker named.
 - I7: full assay.
 
 ## 6. Failure modes
