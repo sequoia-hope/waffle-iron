@@ -4184,4 +4184,320 @@ mod earclip_ring_tests {
             "B5: a ring with fewer than 3 vertices must return None"
         );
     }
+
+    // ── ADVERSARY (FIP Phase 4, governance/FEATURE_IMPLEMENTATION_PROTOCOL §6) ──
+    // Attacks on the B3 closed-containment ear-clip + B6 dedup in
+    // `triangulate_ring`, appended to this in-module test seam (the function is
+    // private). Purely additive; touches no existing test. Fixture geometry was
+    // localized with a throwaway probe: each attack notes whether it reaches B3
+    // and, for the mutation killers, the exact production-vs-mutant divergence.
+
+    /// Assert the function returns `Some` and the triangulation is oriented to
+    /// the given `normal` (all triangles strictly positive in the (e1,e2) frame,
+    /// which the function reorients to regardless of input winding), covers the
+    /// ring's exact area, and tiles every deduped boundary segment exactly once
+    /// (I1). Unlike `assert_earclip_invariants`, this does NOT assume the input
+    /// ring's winding matches `normal` — so it can attack CW input rings.
+    fn assert_oriented_triangulation(verts: &[Point3], ring: &[u32], normal: [f64; 3]) {
+        let mut v = verts.to_vec();
+        let n_before = v.len();
+        let tris = triangulate_ring(ring, &mut v, normal).expect("must triangulate");
+        assert_eq!(v.len(), n_before, "no vertex may be pushed (B3, I4)");
+
+        // Deduped ring (mirror of the function's B6 collapse) for the oracle.
+        let mut ded: Vec<u32> = Vec::new();
+        for &x in ring {
+            if ded.last() != Some(&x) {
+                ded.push(x);
+            }
+        }
+        while ded.len() > 1 && ded.first() == ded.last() {
+            ded.pop();
+        }
+        assert_eq!(tris.len(), ded.len() - 2, "n−2 triangles");
+
+        let pts = project(&v, normal);
+        let area = ring_area2(&pts, &ded);
+        let area_abs = if area > RBig::ZERO {
+            area.clone()
+        } else {
+            -area.clone()
+        };
+        let mut covered = RBig::ZERO;
+        for t in &tris {
+            let c = cross_r(
+                &pts[t[0] as usize],
+                &pts[t[1] as usize],
+                &pts[t[2] as usize],
+            );
+            assert!(
+                c > RBig::ZERO,
+                "I2: every triangle must be strictly positive in the normal's frame, got {t:?}"
+            );
+            covered += c;
+        }
+        assert_eq!(covered, area_abs, "I3: exact coverage certificate");
+
+        let undirected = |a: u32, b: u32| if a <= b { (a, b) } else { (b, a) };
+        let mut edge_count: std::collections::BTreeMap<(u32, u32), usize> =
+            std::collections::BTreeMap::new();
+        for t in &tris {
+            for k in 0..3 {
+                *edge_count
+                    .entry(undirected(t[k], t[(k + 1) % 3]))
+                    .or_default() += 1;
+            }
+        }
+        let n = ded.len();
+        for i in 0..n {
+            let e = undirected(ded[i], ded[(i + 1) % n]);
+            assert_eq!(
+                edge_count.get(&e).copied().unwrap_or(0),
+                1,
+                "I1: boundary segment {e:?} must bound exactly one triangle"
+            );
+        }
+    }
+
+    /// MUTATION KILLER (a) — vertex EXACTLY on an ear diagonal. A deep U with a
+    /// rectangular top notch (two reflex corners → non-star, reaches B3), plus a
+    /// split at (3,1) on the notch floor and (3,0) on the base. During the clip,
+    /// a convex ear's closing diagonal passes EXACTLY through split (3,1): closed
+    /// containment (`>=`) rejects that ear (the vertex is on the triangle
+    /// boundary) and the clip routes around it, keeping (3,1) a boundary edge (I1
+    /// holds). An OPEN-containment mutant (`>` instead of `>=`) clips that ear,
+    /// chording over (3,1), which strands a degenerate sub-polygon → the clip
+    /// STALLS and `triangulate_ring` returns `None`.
+    ///
+    /// Verified: production → `Some(8)`, passes all invariants; the `>` mutant →
+    /// `None` (the `.expect` fires). The existing reflex-L test does NOT exercise
+    /// an on-diagonal vertex, so the mutant survives it — this fixture is the
+    /// dedicated killer.
+    #[test]
+    fn adversary_vertex_on_ear_diagonal_forces_closed_containment() {
+        let verts = vec![
+            p3(0.0, 0.0),
+            p3(3.0, 0.0), // split on base (collinear (0,0)-(3,0)-(6,0))
+            p3(6.0, 0.0),
+            p3(6.0, 3.0),
+            p3(4.0, 3.0),
+            p3(4.0, 1.0), // reflex
+            p3(3.0, 1.0), // split on notch floor — lands on ear diagonals
+            p3(2.0, 1.0), // reflex
+            p3(2.0, 3.0),
+            p3(0.0, 3.0),
+        ];
+        let ring: Vec<u32> = (0..verts.len() as u32).collect();
+        assert_earclip_invariants(&verts, &ring, &ring, [0.0, 0.0, 1.0]);
+    }
+
+    /// B4 stall — two squares pinched at a shared corner (2,2) appearing at two
+    /// DISTINCT ring indices (self-touching, net area 8, non-star). No
+    /// strictly-convex empty ear survives closed containment at the pinch, so the
+    /// clip STALLS: loud `None`, never a partial/overlapping triangulation, no
+    /// vertex pushed. (Confirmed a genuine stall: `None` persists even with the
+    /// coverage certificate removed.)
+    #[test]
+    fn adversary_pinched_squares_self_touch_stalls() {
+        let verts = vec![
+            p3(0.0, 0.0),
+            p3(2.0, 0.0),
+            p3(2.0, 2.0),
+            p3(4.0, 2.0),
+            p3(4.0, 4.0),
+            p3(2.0, 4.0),
+            p3(2.0, 2.0), // same coord as index 2, distinct index
+            p3(0.0, 2.0),
+        ];
+        let ring: Vec<u32> = (0..verts.len() as u32).collect();
+        let mut v = verts.clone();
+        assert!(
+            triangulate_ring(&ring, &mut v, [0.0, 0.0, 1.0]).is_none(),
+            "B4: a self-touching (pinched) ring must stall loudly"
+        );
+        assert_eq!(v.len(), verts.len(), "no vertex pushed on the stall path");
+    }
+
+    /// B4 stall — a rectangle with an inward spike whose tip (2,0) lies EXACTLY
+    /// on the opposite base edge (0,0)-(4,0) (weakly simple, net area 24). The
+    /// spike tip touches a non-adjacent edge, so no valid ear survives closed
+    /// containment → loud `None`.
+    #[test]
+    fn adversary_spike_tip_on_opposite_edge_stalls() {
+        let verts = vec![
+            p3(0.0, 0.0),
+            p3(4.0, 0.0),
+            p3(4.0, 4.0),
+            p3(2.0, 4.0),
+            p3(2.0, 0.0), // spike tip on the base edge (0,0)-(4,0)
+            p3(0.0, 4.0),
+        ];
+        let ring: Vec<u32> = (0..verts.len() as u32).collect();
+        let mut v = verts.clone();
+        assert!(
+            triangulate_ring(&ring, &mut v, [0.0, 0.0, 1.0]).is_none(),
+            "B4: a spike tip resting on an opposite edge must stall loudly"
+        );
+    }
+
+    /// I3 coverage on a completing B3 clip — a self-overlapping (winding-2) ring:
+    /// an outer CCW triangle and a smaller CCW triangle traced inside it, joined
+    /// at v0. It reaches B3 and CLIPS TO COMPLETION with exact coverage
+    /// (`Σ = shoelace`, which itself double-counts the winding-2 overlap, so they
+    /// agree). Documents that when the closed-containment clip completes,
+    /// coverage holds — see the mutation-(b) finding.
+    #[test]
+    fn adversary_self_overlap_winding2_has_exact_coverage() {
+        let verts = vec![
+            p3(0.0, 0.0),
+            p3(6.0, 0.0),
+            p3(3.0, 6.0),
+            p3(1.0, 1.0),
+            p3(5.0, 1.0),
+            p3(3.0, 4.0),
+        ];
+        let ring: Vec<u32> = (0..verts.len() as u32).collect();
+        let mut v = verts.clone();
+        let tris = triangulate_ring(&ring, &mut v, [0.0, 0.0, 1.0])
+            .expect("winding-2 ring reaches B3 and clips to completion");
+        let pts = project(&v, [0.0, 0.0, 1.0]);
+        let area = ring_area2(&pts, &ring);
+        let area_abs = if area > RBig::ZERO {
+            area.clone()
+        } else {
+            -area
+        };
+        let mut covered = RBig::ZERO;
+        for t in &tris {
+            let c = cross_r(
+                &pts[t[0] as usize],
+                &pts[t[1] as usize],
+                &pts[t[2] as usize],
+            );
+            assert!(c > RBig::ZERO, "I2: non-positive triangle {t:?}");
+            covered += c;
+        }
+        assert_eq!(
+            covered, area_abs,
+            "I3: coverage must hold on a completing clip"
+        );
+    }
+
+    /// Orientation / I6 — a CW (clockwise) reflex U with `normal = +z`. The
+    /// function detects the negative shoelace and reverses `order`, emitting
+    /// triangles that follow `normal` (all strictly positive in the frame). This
+    /// exercises the `order = (0..n).rev()` branch the CCW fixtures never hit.
+    #[test]
+    fn adversary_cw_reflex_ring_reorients_to_normal() {
+        // CCW U reversed → CW winding.
+        let mut verts = vec![
+            p3(0.0, 0.0),
+            p3(6.0, 0.0),
+            p3(6.0, 3.0),
+            p3(4.0, 3.0),
+            p3(4.0, 1.0),
+            p3(2.0, 1.0),
+            p3(2.0, 3.0),
+            p3(0.0, 3.0),
+        ];
+        verts.reverse();
+        let ring: Vec<u32> = (0..verts.len() as u32).collect();
+        assert_oriented_triangulation(&verts, &ring, [0.0, 0.0, 1.0]);
+    }
+
+    /// B6 / B5 — a ring that collapses to fewer than 3 DISTINCT consecutive
+    /// indices returns `None` and pushes no vertex. `[3,3,3]` → dedup `[3]`;
+    /// `[3,3,7,7,3]` → dedup `[3,7]` (closure `3` popped) — both < 3.
+    #[test]
+    fn adversary_dedup_to_fewer_than_three_returns_none() {
+        let verts = vec![p3(0.0, 0.0), p3(1.0, 0.0), p3(0.5, 1.0), p3(2.0, 2.0)];
+        for ring in [
+            vec![3u32, 3, 3],
+            vec![3u32, 3, 3, 3],
+            vec![3u32, 3, 3, 3, 3],
+        ] {
+            let mut v = verts.clone();
+            assert!(
+                triangulate_ring(&ring, &mut v, [0.0, 0.0, 1.0]).is_none(),
+                "all-duplicate ring {ring:?} must dedup below 3 and return None"
+            );
+            assert_eq!(v.len(), verts.len());
+        }
+        // Two distinct indices after dedup (with a closure duplicate).
+        let mut v = verts.clone();
+        assert!(
+            triangulate_ring(&[3u32, 3, 0, 0, 3], &mut v, [0.0, 0.0, 1.0]).is_none(),
+            "ring deduping to two indices must return None"
+        );
+    }
+
+    /// B5 — an all-collinear ring (every vertex on one line) has zero exact area
+    /// and returns `None` before any strategy runs, never emitting a zero-area
+    /// triangle.
+    #[test]
+    fn adversary_all_collinear_ring_returns_none() {
+        let verts = vec![p3(0.0, 0.0), p3(1.0, 0.0), p3(2.0, 0.0), p3(3.0, 0.0)];
+        let ring: Vec<u32> = (0..verts.len() as u32).collect();
+        let mut v = verts.clone();
+        assert!(
+            triangulate_ring(&ring, &mut v, [0.0, 0.0, 1.0]).is_none(),
+            "B5: a zero-area collinear ring must return None"
+        );
+    }
+
+    /// Femto-thin ear (measured-residue family). A reflex L whose inner-vertical
+    /// split is minted TWICE ~1 ULP apart (a femto-twin — the known §4.5.5
+    /// conformality-break class). The ring zigzags at femto scale, so no
+    /// strictly-positive ear adjacent to the twins survives closed containment.
+    /// The contract (spec "Measured residue"): the result is EITHER a loud stall
+    /// (`None`) OR a fully valid triangulation (all strictly positive + exact
+    /// coverage) — NEVER a non-positive/degenerate triangle, and never a panic.
+    #[test]
+    fn adversary_femto_twin_ring_never_emits_degenerate() {
+        let bump = |x: f64, n: u64| f64::from_bits(x.to_bits().wrapping_add(n));
+        let verts = vec![
+            p3(0.0, 0.0),
+            p3(3.0, 0.0),
+            p3(6.0, 0.0),
+            p3(6.0, 1.0),
+            p3(1.0, 1.0),                   // reflex
+            p3(1.0, 3.5),                   // inner-vertical split
+            p3(bump(1.0, 3), bump(3.5, 2)), // femto-twin ~1 ULP away
+            p3(1.0, 6.0),
+            p3(0.0, 6.0),
+            p3(0.0, 3.0),
+        ];
+        let ring: Vec<u32> = (0..verts.len() as u32).collect();
+        let mut v = verts.clone();
+        let normal = [0.0, 0.0, 1.0];
+        let result = triangulate_ring(&ring, &mut v, normal);
+        if let Some(tris) = result {
+            // If it DID triangulate, every triangle must still be exact-valid.
+            let pts = project(&v, normal);
+            let area = ring_area2(&pts, &ring);
+            let area_abs = if area > RBig::ZERO {
+                area.clone()
+            } else {
+                -area
+            };
+            let mut covered = RBig::ZERO;
+            for t in &tris {
+                let c = cross_r(
+                    &pts[t[0] as usize],
+                    &pts[t[1] as usize],
+                    &pts[t[2] as usize],
+                );
+                assert!(
+                    c > RBig::ZERO,
+                    "I2: femto ring must never emit a non-positive triangle {t:?}"
+                );
+                covered += c;
+            }
+            assert_eq!(
+                covered, area_abs,
+                "I3: coverage must hold if it triangulated"
+            );
+        }
+        // else: loud None stall — the honest measured-residue outcome.
+    }
 }
