@@ -71,6 +71,20 @@ uses, applied producer-side and always-on (NOT debug-gated).
 - The planar/other tessellation paths may share the coverage hole — OUT OF
   SCOPE here (no measured case); noted for a follow-up sweep.
 
+## 6a. Adversary findings (496225b5)
+
+- B3-only degeneracy is REAL and reachable (three distinct f32 positions on
+  one ruling, zero f32 cross) — dedicated witness added; the B3 arm is the
+  correctness-carrying check. B2 is structurally subsumed by B3 (a bitwise
+  pair makes the f32 cross exactly zero) — kept as the cheaper early check.
+- No over-firing at 2×-f32-ulp spacing; bitwise-f32 tracks coordinate scale
+  automatically (pinned at magnitude ~1e3).
+- I3 (always-on) is killed only by RELEASE-mode runs of the existing tests
+  (`cargo test --release` on this module) — a CI-mode decision, recorded.
+- Measured en route: a 2e-7 twin inside a rectangle boundary already drives
+  the LEPP refinement into sub-f32 slivers — the refinement cascade is the
+  confirmed sliver source for the root-fix follow-up.
+
 ## 7. Research basis
 
 Producer-side validation of discretization output (A8.2 explicit healing /
