@@ -2148,4 +2148,211 @@ mod m8_intra_canonicalization_tests {
             "same-orientation sibling offset did not adopt representative"
         );
     }
+
+    // ── ADVERSARY (FIP Phase 4, governance/FEATURE_IMPLEMENTATION_PROTOCOL §6) ──
+    // Attacks on the sign-aware `canonicalize_sibling_planes` at the SAME unit
+    // boundary the RED tests above use. These live in-module (not in a new
+    // `tests/` integration file) because `canonicalize_sibling_planes` is
+    // module-private: the ULP-level band/greedy/zero-component attacks require
+    // hand-crafted plane bits that only a direct call can inject, and the RED
+    // note above already established that "a real solid cannot be coaxed into
+    // producing" them through the public `to_yang_brep` seam. The E2E
+    // over-merge guards that ARE reachable through the public API live in
+    // `tests/m8_intra_adversary.rs`. Purely additive; touches no existing test.
+
+    /// Attack 1 (offset-band boundary, negated arm): a negated sibling whose
+    /// offset drift is 0.5× the `TAU_WORK·(1+|d|)` band clusters; 2× the band
+    /// does not. Pins that the sign-aware match reuses the KV10 offset band
+    /// unchanged (spec §2 — no new tolerance).
+    #[test]
+    fn adversary_negated_offset_band_just_below_and_just_above() {
+        let n = [1.0, 0.0, 0.0];
+        let d0 = 5.0_f64;
+        let band = cad_primitives::TAU_WORK * (1.0 + d0.abs()); // = 6e-12
+
+        // EXACT negation of the normal; offset drifted from -d0.
+        let below = -d0 + 0.5 * band; // |below + d0| = 0.5·band ≤ band → cluster
+        let above = -d0 + 2.0 * band; // 2·band > band → no cluster
+
+        {
+            let mut faces = vec![plane_face(n, d0), plane_face([-1.0, 0.0, 0.0], below)];
+            canonicalize_sibling_planes(&mut faces);
+            let (nb, db) = plane_of(&faces[1]);
+            assert_eq!(
+                nb,
+                [-1.0, 0.0, 0.0],
+                "just-below sibling normal not negated"
+            );
+            assert_eq!(db, -d0, "just-below sibling offset did not adopt −d_rep");
+        }
+        {
+            let mut faces = vec![plane_face(n, d0), plane_face([-1.0, 0.0, 0.0], above)];
+            canonicalize_sibling_planes(&mut faces);
+            let (_, db) = plane_of(&faces[1]);
+            assert_eq!(
+                db, above,
+                "just-above sibling wrongly clustered (over-merge)"
+            );
+        }
+    }
+
+    /// Attack 1 (normal-component band, negated arm): a per-component normal
+    /// drift of 0.5·`TAU_WORK` off exact negation clusters; 2·`TAU_WORK` does
+    /// not. Uses a zero representative component so the drift is injected
+    /// exactly (no cancellation).
+    #[test]
+    fn adversary_negated_normal_component_band_boundary() {
+        let n = [1.0, 0.0, 0.0];
+        let d0 = 5.0_f64;
+        let eps = cad_primitives::TAU_WORK;
+
+        // y-component drift off exact negation (rep y = 0, so |n_y − s·0| = n_y).
+        {
+            let mut faces = vec![plane_face(n, d0), plane_face([-1.0, 0.5 * eps, 0.0], -d0)];
+            canonicalize_sibling_planes(&mut faces);
+            let (nb, db) = plane_of(&faces[1]);
+            assert_eq!(
+                nb,
+                [-1.0, 0.0, 0.0],
+                "0.5·eps drift should cluster to −n_rep"
+            );
+            assert_eq!(db, -d0);
+        }
+        {
+            let drift = [-1.0, 2.0 * eps, 0.0];
+            let mut faces = vec![plane_face(n, d0), plane_face(drift, -d0)];
+            canonicalize_sibling_planes(&mut faces);
+            let (nb, _) = plane_of(&faces[1]);
+            assert_eq!(
+                nb, drift,
+                "2·eps normal drift wrongly clustered (over-merge)"
+            );
+        }
+    }
+
+    /// Attack 3 (greedy / order determinism): three faces — a representative, a
+    /// same-sign femto sibling, and a negated femto sibling — collapse to ONE
+    /// cluster under ALL 6 orderings, every face keeps its outward sense
+    /// (I1: dot(before, after) > 0), and the result is sense-preserving and
+    /// deterministic (each face's plane is exactly ± the first-seen rep's).
+    #[test]
+    fn adversary_three_face_cluster_is_order_invariant_and_sense_preserving() {
+        let n = normalize([0.6026151226794615, -0.3228572568748562, 0.7298069646154802]);
+        let d0 = 23.84180252162639_f64;
+
+        // Same-sign femto sibling and negated femto sibling.
+        let same = ([bump(n[0], 3), bump(n[1], 1), bump(n[2], 2)], bump(d0, 4));
+        let neg = (
+            [bump(-n[0], 2), bump(-n[1], 5), bump(-n[2], 1)],
+            bump(-d0, 3),
+        );
+        let specs = [(n, d0), same, neg];
+
+        for perm in [
+            [0, 1, 2],
+            [0, 2, 1],
+            [1, 0, 2],
+            [1, 2, 0],
+            [2, 0, 1],
+            [2, 1, 0],
+        ] {
+            let before: Vec<([f64; 3], f64)> = perm.iter().map(|&i| specs[i]).collect();
+            let mut faces: Vec<_> = before.iter().map(|&(nn, dd)| plane_face(nn, dd)).collect();
+            canonicalize_sibling_planes(&mut faces);
+
+            let after: Vec<([f64; 3], f64)> = faces.iter().map(plane_of).collect();
+            let (rn, rd) = after[0];
+
+            for (i, (&(nb, _), &(na, da))) in before.iter().zip(after.iter()).enumerate() {
+                // I1: outward sense preserved.
+                let dot: f64 = (0..3).map(|k| nb[k] * na[k]).sum();
+                assert!(
+                    dot > 0.0,
+                    "perm {perm:?} face {i}: sense flipped (dot={dot})"
+                );
+                // Collapsed to exactly ± the first-seen representative.
+                let pos = na == rn && da == rd;
+                let negd = (0..3).all(|k| na[k] == -rn[k]) && da == -rd;
+                assert!(
+                    pos || negd,
+                    "perm {perm:?} face {i}: plane {na:?},{da} is neither +rep nor −rep {rn:?},{rd}"
+                );
+            }
+        }
+    }
+
+    /// Attack 4 (zero normal components): a rep with 0.0 components and a
+    /// femto-near-negated sibling canonicalizes to the value-exact negation,
+    /// with the zero components carried as −0.0 (= s·0.0) — the form the
+    /// yang-rs exclusion's `0.0 == -0.0` value compare treats as benign.
+    #[test]
+    fn adversary_zero_component_negation_is_value_exact() {
+        let n = [0.0, 0.0, 1.0];
+        let d0 = 3.0_f64;
+        let nb_before = [bump(-0.0, 0), bump(-0.0, 0), bump(-1.0, 4)]; // −0.0,−0.0,~−1
+        let mut faces = vec![plane_face(n, d0), plane_face(nb_before, bump(-d0, 2))];
+        canonicalize_sibling_planes(&mut faces);
+
+        let (nb, db) = plane_of(&faces[1]);
+        // Value-exact negation (0.0 == −0.0 holds by value).
+        for k in 0..3 {
+            assert_eq!(
+                nb[k], -n[k],
+                "component {k} not the value-negation of the rep"
+            );
+        }
+        assert_eq!(db, -d0);
+        // s·0.0 = −0.0: the adopted zero components carry the negative sign bit.
+        assert_eq!(
+            nb[0].to_bits(),
+            (-0.0f64).to_bits(),
+            "zero comp lost its −0.0 bit"
+        );
+        assert_eq!(nb[1].to_bits(), (-0.0f64).to_bits());
+    }
+
+    /// Attack 5 (non-unit normals): two faces with normals of different
+    /// magnitude on ONE geometric plane (n vs −2n) must NOT cluster — the
+    /// component band assumes unit normals, so the |−2 − (−1)·1| = 1 gap keeps
+    /// them apart. Documented conservative residue; nothing crashes.
+    #[test]
+    fn adversary_nonunit_opposite_normals_do_not_cluster() {
+        let mut faces = vec![
+            plane_face([0.0, 0.0, 1.0], 3.0),
+            plane_face([0.0, 0.0, -2.0], -6.0),
+        ];
+        canonicalize_sibling_planes(&mut faces);
+        let (nb, db) = plane_of(&faces[1]);
+        assert_eq!(nb, [0.0, 0.0, -2.0], "non-unit sibling wrongly rewritten");
+        assert_eq!(db, -6.0);
+    }
+
+    /// Attack 6 (offset near 0, F0084-class): exactly-negated normals with tiny
+    /// femto-scale offsets (the real probed signature d ≈ −6.9e-18 vs
+    /// ≈ 1.2e-17) cluster — the offset band is ≈ `TAU_WORK`, orders above the
+    /// drift — and the sibling adopts the exact negation −d_rep.
+    #[test]
+    fn adversary_offset_near_zero_negation_clusters() {
+        let n = normalize([0.6026151226794615, -0.3228572568748562, 0.7298069646154802]);
+        let rd = -6.9e-18_f64;
+        let neg_n = [-n[0], -n[1], -n[2]]; // exact negation of the normal
+        let db_before = 1.2e-17_f64; // ≈ −rd, drifted at the femto scale
+
+        let mut faces = vec![plane_face(n, rd), plane_face(neg_n, db_before)];
+        canonicalize_sibling_planes(&mut faces);
+
+        let (nb, db) = plane_of(&faces[1]);
+        for k in 0..3 {
+            assert_eq!(
+                nb[k], -n[k],
+                "near-zero-offset sibling normal not exactly negated"
+            );
+        }
+        assert_eq!(
+            db, -rd,
+            "near-zero-offset sibling did not adopt −d_rep exactly"
+        );
+        let dot: f64 = (0..3).map(|k| neg_n[k] * nb[k]).sum();
+        assert!(dot > 0.0, "sense flipped on the near-zero-offset sibling");
+    }
 }
