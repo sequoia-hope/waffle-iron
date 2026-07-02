@@ -175,7 +175,7 @@
 
 	.stcd-save {
 		background: var(--accent);
-		color: white;
+		color: var(--text-on-accent);
 		border-color: var(--accent);
 	}
 

@@ -313,7 +313,7 @@
 
 	.btn-primary {
 		background: var(--accent, #0078d4);
-		color: white;
+		color: var(--text-on-accent);
 	}
 
 	.btn-cancel {

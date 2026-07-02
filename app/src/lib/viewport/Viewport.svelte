@@ -125,7 +125,7 @@
 	.viewport {
 		width: 100%;
 		height: 100%;
-		background: #1a1a2e;
+		background: var(--viewport-bg);
 		position: relative;
 		touch-action: none;
 	}

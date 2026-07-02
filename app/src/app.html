@@ -9,6 +9,17 @@
 		<link rel="icon" href="data:," />
 		<link rel="manifest" href="%sveltekit.assets%/manifest.json" />
 		<title>Waffle Iron</title>
+		<script>
+			// Apply the saved theme before first paint to avoid a flash of the
+			// default theme. Kept in sync by lib/ui/theme.svelte.js. Inline and
+			// dependency-free on purpose so it runs as early as possible.
+			(function () {
+				try {
+					var t = localStorage.getItem('waffle:theme');
+					if (t) document.documentElement.dataset.theme = t;
+				} catch (e) {}
+			})();
+		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

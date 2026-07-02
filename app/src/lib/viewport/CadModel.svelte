@@ -26,8 +26,29 @@
 	} from '$lib/engine/store.svelte.js';
 	import { SIDE_FACE_GROUP_THRESHOLD } from '$lib/config.js';
 	import { buildSectionClipPlane } from './sectionPlane.js';
+	import { getTheme } from '$lib/ui/theme.svelte.js';
 
-	const DEFAULT_COLOR = new THREE.Color(0x8899aa);
+	/**
+	 * Resolve a CSS custom property on <html> to a THREE.Color. Falls back to
+	 * `fallbackHex` if the var is unset or we're off-DOM (SSR).
+	 * @param {string} name
+	 * @param {number} fallbackHex
+	 */
+	function cssColor(name, fallbackHex) {
+		if (typeof document !== 'undefined') {
+			const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+			if (v) return new THREE.Color(v);
+		}
+		return new THREE.Color(fallbackHex);
+	}
+
+	// Base face color is theme-driven (see --model-color in app.css). Reading
+	// getTheme() makes this recompute on theme change; every material builder
+	// below reads DEFAULT_COLOR, so their reactive derives rebuild too.
+	let DEFAULT_COLOR = $derived.by(() => {
+		getTheme();
+		return cssColor('--model-color', 0x8899aa);
+	});
 	const HOVER_COLOR = new THREE.Color(0xaabbdd);
 	const SELECTED_COLOR = new THREE.Color(0x44aaff);
 	const PICK_HOVER_COLOR = new THREE.Color(0x55cc88);

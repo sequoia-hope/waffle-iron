@@ -114,7 +114,7 @@
 
 	.ctx-item:hover:not(:disabled) {
 		background: var(--accent, #0078d4);
-		color: white;
+		color: var(--text-on-accent);
 	}
 
 	.ctx-item:disabled {

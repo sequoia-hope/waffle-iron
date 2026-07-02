@@ -1,6 +1,7 @@
 <script>
 	import { getAllProviders, getActiveProvider, getActiveProviderId, setActiveProvider } from '$lib/storage/index.js';
 	import GitHubConnectDialog from './GitHubConnectDialog.svelte';
+	import ThemeSwitcher from './ThemeSwitcher.svelte';
 
 	let { oncreate, onproviderchange } = $props();
 
@@ -49,6 +50,7 @@
 	</div>
 
 	<div class="header-actions">
+		<ThemeSwitcher />
 		<div class="provider-dropdown-container" data-testid="provider-dropdown">
 			<button class="provider-trigger" onclick={toggleDropdown}>
 				<span class="provider-label">{activeLabel}</span>
@@ -214,7 +216,7 @@
 
 	.new-doc-btn {
 		background: var(--accent, #0078d4);
-		color: white;
+		color: var(--text-on-accent);
 		border: none;
 		padding: 10px 24px;
 		border-radius: 6px;

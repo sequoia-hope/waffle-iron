@@ -167,7 +167,7 @@
 		width: 100%;
 		padding: 5px 8px;
 		background: var(--accent);
-		color: white;
+		color: var(--text-on-accent);
 		border: none;
 		border-radius: 3px;
 		cursor: pointer;

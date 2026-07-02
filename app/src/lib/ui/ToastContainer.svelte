@@ -33,7 +33,7 @@
 		padding: 8px 12px;
 		border-radius: 4px;
 		font-size: 12px;
-		color: #fff;
+		color: var(--text-on-accent);
 		pointer-events: auto;
 		animation: toast-slide-in 0.25s ease-out;
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
@@ -45,6 +45,8 @@
 
 	.toast-warning {
 		background: #e67e22;
+		/* Fixed dark-orange fill in both themes → keep light text. */
+		color: #fff;
 	}
 
 	.toast-info {
@@ -64,7 +66,8 @@
 	.toast-close {
 		background: none;
 		border: none;
-		color: rgba(255, 255, 255, 0.8);
+		color: inherit;
+		opacity: 0.8;
 		font-size: 16px;
 		cursor: pointer;
 		padding: 0 2px;
@@ -73,7 +76,7 @@
 	}
 
 	.toast-close:hover {
-		color: #fff;
+		opacity: 1;
 	}
 
 	@keyframes toast-slide-in {

@@ -294,7 +294,7 @@
 	.btn { padding: 6px 16px; border-radius: 4px; font-size: 12px; cursor: pointer; border: 1px solid transparent; }
 	.cancel-btn { background: transparent; color: var(--text-secondary, #999); border-color: var(--border-color, #3a3a4e); }
 	.cancel-btn:hover { background: var(--bg-hover, #333); }
-	.apply-btn { background: var(--accent, #0078d4); color: white; border: none; }
+	.apply-btn { background: var(--accent, #0078d4); color: var(--text-on-accent); border: none; }
 	.apply-btn:hover:not(:disabled) { background: #006abc; }
 	.apply-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

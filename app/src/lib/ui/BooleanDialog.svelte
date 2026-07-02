@@ -252,7 +252,7 @@
 
 	.btn-apply {
 		background: var(--accent, #0078d4);
-		color: #fff;
+		color: var(--text-on-accent);
 		border-color: var(--accent, #0078d4);
 	}
 

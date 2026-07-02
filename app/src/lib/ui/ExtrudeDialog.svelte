@@ -646,7 +646,7 @@
 	.btn-flip.flipped {
 		background: var(--accent, #0078d4);
 		border-color: var(--accent, #0078d4);
-		color: #fff;
+		color: var(--text-on-accent);
 	}
 
 	.dialog-footer {
@@ -677,7 +677,7 @@
 
 	.btn-apply {
 		background: var(--accent, #0078d4);
-		color: #fff;
+		color: var(--text-on-accent);
 		border-color: var(--accent, #0078d4);
 	}
 

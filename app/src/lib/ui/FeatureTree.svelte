@@ -755,7 +755,7 @@
 		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.4px;
-		color: #fff;
+		color: var(--text-on-accent);
 		background: var(--accent, #0078d4);
 		padding: 1px 5px;
 		border-radius: 3px;
@@ -960,7 +960,7 @@
 
 	.ctx-item:hover {
 		background: var(--accent);
-		color: white;
+		color: var(--text-on-accent);
 	}
 
 	.ctx-item.danger:hover {

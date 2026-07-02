@@ -17,6 +17,7 @@
 		setDocumentDisplayUnit
 	} from '$lib/engine/store.svelte.js';
 	import { UNIT_ORDER, UNITS, internalToDisplay } from '$lib/units.js';
+	import ThemeSwitcher from '$lib/ui/ThemeSwitcher.svelte';
 
 	let error = $derived(getLastError());
 	let selectedFeature = $derived(getSelectedFeature());
@@ -75,29 +76,29 @@
 	<div class="status-left">
 		<span class="status-text" data-testid="status-message">{getStatusMessage()}</span>
 		{#if modeText}
-			<span class="status-sep">\u2502</span>
+			<span class="status-sep">│</span>
 			<span class="status-mode">{modeText}</span>
 		{/if}
 	</div>
 	<div class="status-right">
 		{#if cursorText}
 			<span class="status-cursor">{cursorText}</span>
-			<span class="status-sep">\u2502</span>
+			<span class="status-sep">│</span>
 		{/if}
 		{#if sketchInfoText}
 			<span class="status-sketch">{sketchInfoText}</span>
-			<span class="status-sep">\u2502</span>
+			<span class="status-sep">│</span>
 		{/if}
 		{#if selectionText}
 			<span class="status-selection">{selectionText}</span>
-			<span class="status-sep">\u2502</span>
+			<span class="status-sep">│</span>
 		{/if}
 		{#if rebuildActive}
 			<span class="status-rebuild rebuilding">Rebuilding...</span>
-			<span class="status-sep">\u2502</span>
+			<span class="status-sep">│</span>
 		{:else if rebuildMs > 0}
 			<span class="status-rebuild">Rebuild: {rebuildMs.toFixed(0)}ms</span>
-			<span class="status-sep">\u2502</span>
+			<span class="status-sep">│</span>
 		{/if}
 		<button
 			class="status-unit-btn"
@@ -105,10 +106,10 @@
 			title="Click to change display unit"
 			data-testid="unit-selector"
 		>{unitLabel}</button>
-		<span class="status-sep">{'\u2502'}</span>
+		<span class="status-sep">│</span>
 		{#if isEngineReady()}
 			<span class="status-engine">WASM Active</span>
-			<span class="status-sep">{'\u2502'}</span>
+			<span class="status-sep">│</span>
 		{/if}
 		<a
 			class="status-dev-link"
@@ -118,6 +119,8 @@
 			title="View screenshot workflow gallery (run: node app/tests/screenshot-workflow.mjs)"
 			data-testid="dev-screenshots-link"
 		>Screenshots</a>
+		<span class="status-sep">│</span>
+		<ThemeSwitcher compact />
 	</div>
 </div>
 
@@ -131,7 +134,7 @@
 		padding: 0 max(8px, env(safe-area-inset-right, 0px)) 0 max(8px, env(safe-area-inset-left, 0px));
 		padding-bottom: env(safe-area-inset-bottom, 0px);
 		font-size: 11px;
-		color: white;
+		color: var(--text-on-accent);
 		gap: 8px;
 	}
 
@@ -173,7 +176,7 @@
 
 	.status-sketch {
 		opacity: 0.85;
-		color: #88bbff;
+		color: var(--text-on-accent);
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
@@ -198,7 +201,7 @@
 	.status-cursor {
 		font-family: monospace;
 		opacity: 0.85;
-		color: #aaddff;
+		color: var(--text-on-accent);
 		font-size: 10px;
 	}
 
@@ -208,10 +211,10 @@
 	}
 
 	.status-unit-btn {
-		background: rgba(255, 255, 255, 0.15);
-		border: 1px solid rgba(255, 255, 255, 0.3);
+		background: color-mix(in srgb, var(--text-on-accent) 15%, transparent);
+		border: 1px solid color-mix(in srgb, var(--text-on-accent) 30%, transparent);
 		border-radius: 3px;
-		color: white;
+		color: var(--text-on-accent);
 		font-size: 10px;
 		font-weight: 600;
 		padding: 1px 6px;
@@ -221,8 +224,8 @@
 	}
 
 	.status-unit-btn:hover {
-		background: rgba(255, 255, 255, 0.25);
-		border-color: rgba(255, 255, 255, 0.5);
+		background: color-mix(in srgb, var(--text-on-accent) 25%, transparent);
+		border-color: color-mix(in srgb, var(--text-on-accent) 50%, transparent);
 	}
 
 	.status-dev-link {
