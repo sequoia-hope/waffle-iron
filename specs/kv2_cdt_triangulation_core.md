@@ -221,6 +221,16 @@ full-assay diff returns to baseline-or-better: the 13 regressions clear,
 F0042 improvement retained, and the round-1 RED suite (F0047/R0064 rings,
 G1 twin) stays green.
 
+## 6c. Phase-4 close-out (2026-07-03, round-3 HEAD 7587d6f0)
+
+Full assay on a quiet box, per-case diff vs the pre-cycle baseline:
+**exactly one difference — F0042 ERROR→SUPPORTED_CORRECT** (improvement).
+82 CORRECT / 0 WRONG / TIMEOUT 34↔34 identical. All 13 round-1 regressions
+cleared by M1 (8f6f44af), M2 (ae9401ae), M3a (22022297), M3b
+(98f5b109 + 7587d6f0). I7 satisfied. The KV9-F3 quarantine (two kv9 unit
+tests, output seam femto-twin) remains open as an m8_shared_boundary_identity
+§8b target — it is an upstream output-identity defect, not a CDT-core issue.
+
 ## 7. Research basis
 
 - Constrained Delaunay triangulation and its max-min-angle optimality:
