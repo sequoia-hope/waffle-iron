@@ -113,9 +113,25 @@ pub fn compute_all_patches(soup: &ArrangementSoup) -> Result<Patches, PatchError
             visited[curr as usize] = true;
             patch.push(curr);
             tri_to_patch[curr as usize] = pid;
-            // C++ `assert(labels.surface[t_id] == ref_l)` — loud here.
-            if canonical(&soup.labels[curr as usize]) != ref_l {
-                return Err(PatchError::LabelMismatch { seed, tri: curr });
+            // Patch-label check (spec `cherchi_patch_label_tolerance` §3).
+            // The C++ `assert(labels.surface[t_id] == ref_l)` (booleans.cpp:449)
+            // is a NDEBUG no-op in the release reference: it floods across the
+            // manifold border between a merged `[A,B]` coplanar-overlap sheet
+            // and the single-input `[A]` region it extends, and the patch takes
+            // the seed's label (booleans.cpp:629). Match that where the labels
+            // are COMPATIBLE — one canonical set ⊆ the other (L2a) — and stay
+            // LOUD for genuinely DISJOINT labels (L2b: a real arrangement
+            // corruption, deliberately stricter than the release reference; see
+            // the deviation note in docs/yang_deviations.md).
+            let cl = canonical(&soup.labels[curr as usize]);
+            if cl != ref_l {
+                let compatible =
+                    cl.iter().all(|x| ref_l.contains(x)) || ref_l.iter().all(|x| cl.contains(x));
+                if !compatible {
+                    return Err(PatchError::LabelMismatch { seed, tri: curr });
+                }
+                // L2a: compatible — continue flooding; the patch keeps ref_l
+                // (the seed's label), matching booleans.cpp:629.
             }
             let tri = soup.tris[curr as usize];
             for k in 0..3 {
@@ -550,12 +566,16 @@ mod tests {
     // triangle's membership in the SEED's patch (whose minimum triangle id, the
     // seed, carries the single `[A]` label).
     //
-    // KNOWN GREEN-PHASE CONFLICT (flagged, NOT modified here — prior cycle):
-    // `adversary_tests::adversary_label_mismatch_across_manifold_edge_is_loud_error`
-    // (adversary_tests.rs:315) asserts `Err(LabelMismatch)` for a mixed-label
-    // MANIFOLD-adjacent pair — exactly the behavior §3 L2 retires. The GREEN
-    // implementer must update it (and Oracle #2 `patches_are_label_constant`,
-    // which the spec relaxes at coplanar borders).
+    // NO GREEN-PHASE CONFLICT (resolved by the L2a/L2b split, spec amendment
+    // 2026-07-03): the pre-amendment note here predicted blind L2 tolerance
+    // would force updating `adversary_label_mismatch_across_manifold_edge_is_loud_error`
+    // (adversary_tests.rs:315) and Oracle #2 `patches_are_label_constant`. It
+    // does NOT: the adversary fixture is DISJOINT `[A]`/`[B]` (L2b — stays a
+    // loud `LabelMismatch`, unchanged), and Oracle #2 uses the non-coplanar
+    // `cut_boxes_soup` (label-homogeneous, L1 — every patch stays label-
+    // constant). Both remain green. Only COMPATIBLE (subset/superset) mixing
+    // at a coplanar-sheet border is tolerated (L2a). See `guard_l2b_*` below
+    // for the disjoint-stays-loud coverage.
     // ════════════════════════════════════════════════════════════════
 
     /// Hand-built soup (pure topology — patch flood never reads coordinates):
@@ -607,15 +627,9 @@ mod tests {
     /// flood crosses into T2 (the seed `[A]`'s patch), partitions all 5 tris,
     /// and still collects the (3,4) non-manifold border.
     ///
-    /// `#[ignore]`d (RED-tracker convention — keeps `cargo test -p cherchi-rs
-    /// --lib` green during the Test-Author→Implementer handoff window); the
-    /// GREEN implementer un-ignores it. Demonstrate RED with:
-    /// `cargo test -p cherchi-rs --lib red_merged_sheet_manifold_adjacent_to_single_label -- --ignored`.
+    /// GREEN (spec §3 L2a): un-ignored by the implementer once
+    /// `compute_all_patches` adopts the C++ release semantics.
     #[test]
-    #[ignore = "cherchi-patch-label RED (spec cherchi_patch_label_tolerance §3 L2): a merged \
-                [A,B] coplanar sheet manifold-adjacent to a single-label [A] region walls on \
-                PatchError::LabelMismatch { seed: 0, tri: 2 }; GREEN when the flood adopts the C++ \
-                release semantics (cross the border, patch takes the seed's label)"]
     fn red_merged_sheet_manifold_adjacent_to_single_label() {
         let soup = hand_soup(
             7,
@@ -707,5 +721,24 @@ mod tests {
             "L1: tri_to_patch pinned"
         );
         assert_eq!(p.border_verts, vec![3, 4], "L1: spine endpoints pinned");
+    }
+
+    /// L2b guard (spec §3 L2b): a DISJOINT label reached across a manifold edge
+    /// stays a loud `LabelMismatch` — deliberately stricter than the release
+    /// reference (which would silently mix). Distinct from
+    /// `adversary_label_mismatch_across_manifold_edge_is_loud_error` (single vs
+    /// single): here the seed is the MULTI-label `[A,B]` and the neighbor is the
+    /// disjoint `[C]` (neither set ⊆ the other), pinning the subset test's
+    /// negative branch. Added by the GREEN implementer as new-branch coverage
+    /// (P4) — a guard for behavior L2b KEEPS, so not a RED-owned oracle.
+    #[test]
+    fn guard_l2b_disjoint_label_across_manifold_edge_stays_loud() {
+        const C: InputId = InputId(2);
+        // Two tris sharing manifold edge (0,1): T0 [A,B] (seed), T1 [C].
+        let soup = hand_soup(4, vec![[0, 1, 2], [1, 0, 3]], vec![vec![A, B], vec![C]]);
+        match compute_all_patches(&soup) {
+            Err(PatchError::LabelMismatch { seed: 0, tri: 1 }) => {}
+            other => panic!("L2b: expected LabelMismatch {{ seed: 0, tri: 1 }}, got {other:?}"),
+        }
     }
 }

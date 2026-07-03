@@ -1309,3 +1309,45 @@ Corpus-improving (F0016/F0024 canon-wired and F0022 unwired flip
 non-2-manifold ERROR → 9-oracle Passed); every non-sliver output is
 byte-identical (A no-ops without a fold sliver; B no-ops without an on-segment
 foreign vertex).
+
+### N23 — Patch-label flood tolerates COMPATIBLE (subset) labels at coplanar-sheet borders; DISJOINT stays loud
+
+Cherchi 2022 `computeSinglePatch` (booleans.cpp:426) floods triangles across
+manifold edges into a patch and, in debug builds, asserts
+`labels.surface[t_id] == ref_l` (seed's surface label). Our port
+(`labeling/patches.rs::compute_all_patches`) hardened that debug `assert` into
+a production `Err(PatchError::LabelMismatch)`. That is STRICTER than the release
+reference: the shipped `mesh_booleans` binary is NDEBUG (assert compiled out),
+so on a coplanar boolean it floods across the manifold border between a merged
+`[A,B]` overlap sheet and the single-input `[A]` region it extends, and the
+patch simply keeps the seed's label (`labels.surface[*patch_tris.begin()]`,
+booleans.cpp:629). This false-rejected the R0046/R0088/F0063 class
+(`specs/cherchi_patch_label_tolerance.md`, task #14) — measured by reference
+parity: C++ SUCCEEDS on R0046's exact post-Stage-0 meshes (same 210-triangle
+arrangement, 5 patches, patch 0 mixes 108 `[A]` + 8 `[A,B]` triangles) where our
+port asserted. The `[A,B]` sheet's border to the `[A]` region is a 2-incident
+MANIFOLD edge because the B-side coincident triangles are dedup'd into the
+sheet, so the flood legitimately crosses it.
+
+Deviation — L2a/L2b split (patch-label check, `patches.rs`):
+
+- **L2a (tolerate compatible):** when a flooded triangle's canonical surface
+  label is COMPATIBLE with the seed's (one set ⊆ the other — the `[A,B]` sheet
+  extending `[A]`, either direction), continue flooding and keep the seed's
+  label. This matches the RELEASE reference exactly on the measured class.
+- **L2b (disjoint stays loud):** when the labels are DISJOINT (neither ⊆ — e.g.
+  `[A]` vs `[B]`), keep the loud `Err(LabelMismatch)`. This is deliberately
+  STRICTER than the release reference (which silently mixes): a disjoint label
+  across a manifold edge is a genuine arrangement corruption, and the safe
+  direction under crate P9 doctrine is to stay loud (the debug-build C++ would
+  assert here too). Documented as a knowing, safe-direction deviation from
+  release C++.
+
+Correctness burden (not a tolerance hack): the mixed patch's label feeds only
+the per-patch ray-cast in/out (BL2); coplanar `[A,B]` keep decisions are made by
+the per-triangle rules (booleans.cpp:1430/1468), independent of the patch label
+(`propagateInnerLabelsOnPatch` writes `inside`, never `surface`). Validated by
+sidecar output parity on the R0046-class fixture (I1) plus the full assay
+(0 WRONG, no SUPPORTED_CORRECT lost). Non-coplanar arrangements are
+label-homogeneous and byte-identical (L1). Precedent: N20 (C++ release-behavior
+analysis); the deviation-policy memo (`cherchi_rs_cpp_deviation_policy`).
