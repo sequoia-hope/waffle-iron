@@ -87,6 +87,11 @@ pub struct NativeInputCheck {
     /// Pairs `classify_pair` deferred (degenerate configuration) — loud,
     /// never silently dropped.
     pub unresolved_pairs: Vec<(u32, u32)>,
+    /// Vertices no triangle references. Not one of the five printed axioms —
+    /// the reference binary CRASHES on them (cinolib segfault, measured on
+    /// the M8 Stage-0 dropped-sliver emission), so they must be reported
+    /// natively and never handed to the reference contract.
+    pub unreferenced_verts: Vec<u32>,
 }
 
 impl NativeInputCheck {
@@ -127,7 +132,8 @@ impl NativeInputCheck {
 
     /// All five axioms hold (vertex twins included: the arrangement keys
     /// exact identity per index, so twins violate the intent of the
-    /// conformality contract even when geometry looks closed).
+    /// conformality contract even when geometry looks closed; unreferenced
+    /// verts included: the reference binary crashes on them).
     pub fn clean(&self) -> bool {
         self.manifold_ok()
             && self.watertight_ok()
@@ -135,6 +141,7 @@ impl NativeInputCheck {
             && self.global_orientation_ok()
             && self.intersection_ok()
             && self.coincident_vert_twins.is_empty()
+            && self.unreferenced_verts.is_empty()
     }
 
     /// Human-readable multi-line report (five-axiom verdicts + counts +
@@ -197,6 +204,11 @@ impl NativeInputCheck {
             self.coincident_vert_twins.len(),
             head(&self.coincident_vert_twins),
         ));
+        s.push_str(&format!(
+            "Unreferenced verts: {} {}\n",
+            self.unreferenced_verts.len(),
+            head(&self.unreferenced_verts),
+        ));
         s
     }
 }
@@ -234,6 +246,22 @@ pub fn census(verts: &[Point3], tris: &[[u32; 3]]) -> NativeInputCheck {
             }
         }
     }
+
+    // ── Tier 2b': unreferenced vertices (reference binary crashes) ──────
+    let mut used = vec![false; verts.len()];
+    for tri in tris {
+        for &v in tri {
+            if let Some(slot) = used.get_mut(v as usize) {
+                *slot = true;
+            }
+        }
+    }
+    r.unreferenced_verts = used
+        .iter()
+        .enumerate()
+        .filter(|(_, &u)| !u)
+        .map(|(v, _)| v as u32)
+        .collect();
 
     // ── Tier 2c: exact collinear (zero-area) triangles ──────────────────
     for (t, tri) in tris.iter().enumerate() {
@@ -591,6 +619,15 @@ mod tests {
         assert_eq!(c.duplicate_tris, vec![(1, 4)]);
         assert_eq!(c.coincident_vert_twins, vec![(0, 4)]);
         assert!(!c.intersection_ok());
+    }
+
+    #[test]
+    fn unreferenced_vertex_reported() {
+        let (mut v, t) = tet();
+        v.push(p(9.0, 9.0, 9.0));
+        let c = census(&v, &t);
+        assert_eq!(c.unreferenced_verts, vec![4]);
+        assert!(!c.clean());
     }
 
     #[test]

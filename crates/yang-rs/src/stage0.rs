@@ -381,7 +381,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             .keys()
             .map(|ex| Point2::new(ex.x.to_f64().value(), ex.y.to_f64().value()))
             .collect();
-        let (corners_a, corners_b, rim_a, rim_b) = {
+        let (corners_a, corners_b, rim_a, rim_b, cluster_map) = {
             let pre_a = poly_a.clone();
             let pre_b = poly_b.clone();
             cluster_frame_coords_rim_aware(
@@ -471,7 +471,14 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                     rb.len()
                 );
             }
-            (ca, cb, ra, rb)
+            // M-A (spec `m8_stage0_inputcheck_clean_emission` §2/E7): the
+            // clustering rewrote the pair's 2D domain; every consumer that
+            // re-derives 2D coordinates from `va`/`vb` must pass its raw
+            // projections through this same pre→post map, or its exact
+            // comparisons against overlay coordinates silently miss at every
+            // moved vertex (`collect_edge_splits` dropped all boundary splits
+            // on moved edges — the R0046/R0088/F0063 hole class).
+            (ca, cb, ra, rb, key_map)
         };
 
         let overlay = coplanar_overlay(&poly_a, &poly_b).map_err(|e| {
@@ -706,21 +713,34 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // (e1, e2) frame ⇒ normal +n̂ (e1×e2 = n̂): face A keeps the order
         // (n̂ IS its outward normal); face B swaps iff its outward opposes.
         let tris_for = |keep: [RegionClass; 2], swap: bool| -> Vec<[Point3; 3]> {
+            let bits = |p: Point3| [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()];
             overlay
                 .tris
                 .iter()
                 .zip(&overlay.class)
                 .filter(|(_, c)| keep.contains(c))
-                .map(|(t, _)| {
+                .filter_map(|(t, _)| {
                     let mut tri = [
                         coords[t[0] as usize],
                         coords[t[1] as usize],
                         coords[t[2] as usize],
                     ];
+                    // M-B (spec `m8_stage0_inputcheck_clean_emission` §2/E8):
+                    // the 2D→3D resolution deliberately identifies femto-split
+                    // overlay vertices to ONE exact point, so a positive-area
+                    // 2D sliver can have a degenerate 3D image. Emitting it
+                    // would intern to a `[u,u,v]` triangle (zero cover → holes
+                    // + pinches). Drop it: the identification makes the
+                    // neighbors' resolved edges pair directly. Bit-identity
+                    // matches the downstream interner's key exactly.
+                    let b = [bits(tri[0]), bits(tri[1]), bits(tri[2])];
+                    if b[0] == b[1] || b[1] == b[2] || b[0] == b[2] {
+                        return None;
+                    }
                     if swap {
                         tri.swap(1, 2);
                     }
-                    tri
+                    Some(tri)
                 })
                 .collect()
         };
@@ -741,6 +761,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             p.face_a,
             &va,
             frame,
+            &cluster_map,
             &overlay,
             [RegionClass::AOnly, RegionClass::Overlap],
             &coords,
@@ -751,6 +772,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             p.face_b,
             &vb,
             frame,
+            &cluster_map,
             &overlay,
             [RegionClass::BOnly, RegionClass::Overlap],
             &coords,
@@ -2223,6 +2245,7 @@ fn collect_edge_splits(
     fi: usize,
     coords: &[Point3],
     frame: &Frame,
+    cluster_map: &BTreeMap<(u64, u64), (u64, u64)>,
     overlay: &ClassifiedOverlay,
     side_classes: [RegionClass; 2],
     resolved: &[Point3],
@@ -2247,8 +2270,26 @@ fn collect_edge_splits(
     {
         let edge = &brep.edges()[e_idx as usize];
         let (lo, hi) = (edge.start.min(edge.end), edge.start.max(edge.end));
-        let (su, sv) = frame.project(coords[lo as usize]);
-        let (eu, ev) = frame.project(coords[hi as usize]);
+        // M-A (spec `m8_stage0_inputcheck_clean_emission` E7): the overlay's
+        // vertices live in the CLUSTERED 2D domain; a raw endpoint projection
+        // disagrees with it at every clustering-moved vertex, so the exact
+        // collinearity test below would silently drop all splits on that
+        // edge. Route each projection through the pair's pre→post map (the
+        // identity for unmoved vertices — byte-identical path).
+        let snap = |u: f64, v: f64| -> (f64, f64) {
+            match cluster_map.get(&(u.to_bits(), v.to_bits())) {
+                Some(&(nu, nv)) => (f64::from_bits(nu), f64::from_bits(nv)),
+                None => (u, v),
+            }
+        };
+        let (su, sv) = {
+            let (u, v) = frame.project(coords[lo as usize]);
+            snap(u, v)
+        };
+        let (eu, ev) = {
+            let (u, v) = frame.project(coords[hi as usize]);
+            snap(u, v)
+        };
         let (Some(s2), Some(e2)) = (ExactPoint2::from_f64(su, sv), ExactPoint2::from_f64(eu, ev))
         else {
             continue;
@@ -2560,6 +2601,35 @@ fn build_stage0_mesh(
     }
 
     debug_assert_eq!(tri_face.len(), tris.len(), "tri_face 1:1 with stage0 tris");
+
+    // Compact unreferenced vertices (spec `m8_stage0_inputcheck_clean_emission`
+    // E8 tail): an M-B-dropped sliver can orphan a vertex that only its
+    // degenerate image referenced, and the reference `mesh_booleans_inputcheck`
+    // binary CRASHES on unreferenced vertices (measured, cinolib segfault).
+    // Order-preserving remap; a no-op (identity) when every vertex is used.
+    let mut used = vec![false; verts.len()];
+    for t in &tris {
+        for &v in t {
+            used[v as usize] = true;
+        }
+    }
+    if used.iter().any(|&u| !u) {
+        let mut remap = vec![u32::MAX; verts.len()];
+        let mut compact: Vec<Point3> = Vec::with_capacity(verts.len());
+        for (i, (&u, p)) in used.iter().zip(&verts).enumerate() {
+            if u {
+                remap[i] = compact.len() as u32;
+                compact.push(*p);
+            }
+        }
+        for t in &mut tris {
+            for v in t.iter_mut() {
+                *v = remap[*v as usize];
+            }
+        }
+        verts = compact;
+    }
+
     Ok((Mesh::new(verts, tris), tri_face))
 }
 
