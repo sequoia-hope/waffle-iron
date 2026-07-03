@@ -316,7 +316,8 @@ pub fn cdt_polygon_with_holes_floodfill(
     outer: &[u32],
     holes: &[Vec<u32>],
 ) -> Result<Vec<[u32; 3]>, CdtError> {
-    // ---- 1-4. Same constrained-CDT setup as `cdt_polygon_with_holes`. ----
+    // ---- 1-4. Same constrained-CDT setup as `cdt_polygon_with_holes`, with
+    // SHARED-VERTEX WELDING (spec §6b M3b) in the vertex-insertion step. ----
     // (Duplicated rather than factored: the sibling boundary-only functions
     // already each carry this setup, and `cdt_polygon_with_holes` is a
     // yang-rs Stage-1 dependency whose behavior must not shift.)
@@ -337,6 +338,13 @@ pub fn cdt_polygon_with_holes_floodfill(
     let mut cdt: ConstrainedDelaunayTriangulation<SpadePoint2<f64>> =
         ConstrainedDelaunayTriangulation::new();
     let mut handle_of: Vec<Option<FixedVertexHandle>> = vec![None; n_verts];
+    // SHARED-VERTEX WELDING (spec §6b M3b, flood-fill variant ONLY): unlike the
+    // plain `cdt_polygon_with_holes`, coincident caller positions are allowed to
+    // weld to the SAME spade handle instead of returning `DuplicateVertex`. A
+    // tangent hole shares exactly one geometric point with the outer ring (the
+    // keyhole pinch); spade supports constraints meeting at a shared vertex. A
+    // constraint whose two endpoints weld to one handle (a consecutive
+    // duplicate) still fails loudly via the `a == b` check in `add_loop` below.
     let insert_vertex = |cdt: &mut ConstrainedDelaunayTriangulation<SpadePoint2<f64>>,
                          handle_of: &mut Vec<Option<FixedVertexHandle>>,
                          idx: u32|
@@ -348,9 +356,6 @@ pub fn cdt_polygon_with_holes_floodfill(
         let h = cdt
             .insert(SpadePoint2::new(p.x(), p.y()))
             .map_err(map_insertion_error)?;
-        if handle_of.contains(&Some(h)) {
-            return Err(CdtError::DuplicateVertex);
-        }
         handle_of[idx as usize] = Some(h);
         Ok(h)
     };
@@ -391,14 +396,23 @@ pub fn cdt_polygon_with_holes_floodfill(
         }
     }
 
-    // No-Steiner guard (a constraint crossing would add a vertex).
-    if cdt.num_vertices() != count_inserted(&handle_of) {
+    // No-Steiner guard: with welding, several caller indices may share one
+    // spade handle, so the guard counts DISTINCT welded handles (not inserted
+    // caller indices). A mismatch means spade added a Steiner/split vertex,
+    // which only happens on a crossing constraint we already reject.
+    let distinct_handles: HashSet<usize> = handle_of.iter().flatten().map(|h| h.index()).collect();
+    if cdt.num_vertices() != distinct_handles.len() {
         return Err(CdtError::TriangulationFailed);
     }
+    // Inverse map: a welded handle has several caller indices — keep the
+    // FIRST-inserted one (first-set-wins in caller-index order) so output
+    // triangles reference a single, deterministic pool index per position.
     let mut caller_of_spade: Vec<u32> = vec![u32::MAX; cdt.num_vertices()];
     for (caller_idx, slot) in handle_of.iter().enumerate() {
         if let Some(h) = slot {
-            caller_of_spade[h.index()] = caller_idx as u32;
+            if caller_of_spade[h.index()] == u32::MAX {
+                caller_of_spade[h.index()] = caller_idx as u32;
+            }
         }
     }
 
