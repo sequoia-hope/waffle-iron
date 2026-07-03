@@ -163,8 +163,10 @@ fn canonical(label: &Label) -> Label {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::arrangements::fast_trimesh::VertexCoords;
     use crate::arrangements::soup::mesh_arrangement;
     use crate::labeled_arrangement::InputId;
+    use cad_primitives::Point3;
     use std::collections::BTreeMap;
 
     const A: InputId = InputId(0);
@@ -520,5 +522,190 @@ mod tests {
         let p = compute_all_patches(&soup).expect("patches");
         assert_eq!(p.patches.len(), 2, "point-touch must not cut either solid");
         assert!(p.border_verts.is_empty());
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // cherchi_patch_label_tolerance — mixed-label patch tolerance at
+    // coplanar-sheet borders (spec `specs/cherchi_patch_label_tolerance.md`,
+    // FIP Phase 2, RED).
+    //
+    // Post-canon wall of R0046/R0088/F0063 (task #14). The E2E RED for this
+    // cycle is ALREADY committed: the test-harness trackers
+    // `m8_rim_clustering_campaign::{red_r0046,red_r0088,red_f0063}` — do NOT
+    // duplicate them here.
+    //
+    // Reference parity (spec §2) showed the C++ RELEASE `mesh_booleans`
+    // SUCCEEDS on R0046's exact post-Stage-0 meshes: its patch flood crosses
+    // the manifold border between a merged `[A,B]` coplanar overlap sheet and
+    // the single-label `[A]` region (the B-side copies were dedup'd into the
+    // sheet, so that border is a 2-incident MANIFOLD edge). The C++ debug
+    // `assert(surface[t] == ref_l)` is a NO-OP under NDEBUG; the patch simply
+    // takes the SEED's label (booleans.cpp:629). Our port hardened that assert
+    // into `PatchError::LabelMismatch` (patches.rs:118) — the wall to retire.
+    //
+    // §3 L2 target: flooding CONTINUES across the label boundary; the mixed
+    // patch carries the seed triangle's label; the production path never
+    // returns `LabelMismatch`. `Patches` exposes no patch-label field, so L2 is
+    // asserted through what IS observable — a full partition and the sheet
+    // triangle's membership in the SEED's patch (whose minimum triangle id, the
+    // seed, carries the single `[A]` label).
+    //
+    // KNOWN GREEN-PHASE CONFLICT (flagged, NOT modified here — prior cycle):
+    // `adversary_tests::adversary_label_mismatch_across_manifold_edge_is_loud_error`
+    // (adversary_tests.rs:315) asserts `Err(LabelMismatch)` for a mixed-label
+    // MANIFOLD-adjacent pair — exactly the behavior §3 L2 retires. The GREEN
+    // implementer must update it (and Oracle #2 `patches_are_label_constant`,
+    // which the spec relaxes at coplanar borders).
+    // ════════════════════════════════════════════════════════════════
+
+    /// Hand-built soup (pure topology — patch flood never reads coordinates):
+    /// dummy explicit verts, caller's tris/labels. Mirrors the
+    /// `adversary_tests` helper of the same name.
+    fn hand_soup(n_verts: u32, tris: Vec<[u32; 3]>, labels: Vec<Label>) -> ArrangementSoup {
+        let verts = (0..n_verts)
+            .map(|i| VertexCoords::Explicit(Point3::new(f64::from(i), 0.0, 0.0)))
+            .collect();
+        ArrangementSoup {
+            verts,
+            tris,
+            labels,
+            source: Vec::new(),
+            jolly_count: 0,
+            in_tris: Vec::new(),
+            in_labels: Vec::new(),
+            multiplier: 1.0,
+        }
+    }
+
+    /// Partition check WITHOUT label-constancy (L2 permits a mixed-label patch —
+    /// relaxing Oracle #2 at coplanar borders is exactly this cycle's change).
+    /// Every triangle in exactly one patch; `tri_to_patch` agrees with membership.
+    fn assert_partition(soup: &ArrangementSoup, p: &Patches) {
+        assert_eq!(p.tri_to_patch.len(), soup.tris.len(), "tri_to_patch length");
+        let mut seen = vec![0u32; soup.tris.len()];
+        for (pi, patch) in p.patches.iter().enumerate() {
+            assert!(!patch.is_empty(), "patch {pi} is empty");
+            for &t in patch {
+                seen[t as usize] += 1;
+                assert_eq!(p.tri_to_patch[t as usize], pi as u32, "tri_to_patch[{t}]");
+            }
+        }
+        assert!(
+            seen.iter().all(|&c| c == 1),
+            "every triangle in exactly one patch (counts: min {:?} max {:?})",
+            seen.iter().min(),
+            seen.iter().max()
+        );
+    }
+
+    /// L2 (RED): a merged `[A,B]` coplanar-sheet triangle (T2) is manifold-
+    /// adjacent (2-incident edge (2,3)) to the single-label `[A]` region
+    /// (T0,T1); the sheet's opposite edge (3,4) is a genuine non-manifold
+    /// intersection edge (3-incident: T2,T3,T4). TODAY `compute_all_patches`
+    /// floods T0→T1→T2 across manifold edges and returns
+    /// `Err(LabelMismatch { seed: 0, tri: 2 })`. TARGET (§3 L2): `Ok` — the
+    /// flood crosses into T2 (the seed `[A]`'s patch), partitions all 5 tris,
+    /// and still collects the (3,4) non-manifold border.
+    ///
+    /// `#[ignore]`d (RED-tracker convention — keeps `cargo test -p cherchi-rs
+    /// --lib` green during the Test-Author→Implementer handoff window); the
+    /// GREEN implementer un-ignores it. Demonstrate RED with:
+    /// `cargo test -p cherchi-rs --lib red_merged_sheet_manifold_adjacent_to_single_label -- --ignored`.
+    #[test]
+    #[ignore = "cherchi-patch-label RED (spec cherchi_patch_label_tolerance §3 L2): a merged \
+                [A,B] coplanar sheet manifold-adjacent to a single-label [A] region walls on \
+                PatchError::LabelMismatch { seed: 0, tri: 2 }; GREEN when the flood adopts the C++ \
+                release semantics (cross the border, patch takes the seed's label)"]
+    fn red_merged_sheet_manifold_adjacent_to_single_label() {
+        let soup = hand_soup(
+            7,
+            vec![
+                [0, 1, 2], // T0  [A]    single-label region
+                [0, 2, 3], // T1  [A]    manifold edge (0,2) with T0
+                [2, 3, 4], // T2  [A,B]  merged sheet; manifold edge (2,3) with T1
+                [3, 4, 5], // T3  [B]    across non-manifold intersection edge (3,4)
+                [3, 4, 6], // T4  [B]
+            ],
+            vec![vec![A], vec![A], vec![A, B], vec![B], vec![B]],
+        );
+
+        // Fixture sanity (independent oracle): (2,3) is the manifold sheet
+        // border (2-incident); (3,4) is the only non-manifold edge (3-incident).
+        let e2t = edge_tri_counts(&soup);
+        assert_eq!(e2t[&(2, 3)].len(), 2, "sheet border (2,3) must be manifold");
+        assert_eq!(
+            e2t[&(3, 4)].len(),
+            3,
+            "intersection edge (3,4) non-manifold"
+        );
+
+        // §3 L2: the production path must NOT wall on LabelMismatch.
+        let p = compute_all_patches(&soup)
+            .expect("L2: flood must cross the coplanar-sheet manifold border, not LabelMismatch");
+
+        assert_partition(&soup, &p);
+
+        // Membership: the merged sheet triangle T2 lands in the SEED's patch
+        // with the single-label region T0,T1 (connected only by manifold edges).
+        assert_eq!(p.tri_to_patch[0], p.tri_to_patch[1], "T0,T1 in one patch");
+        assert_eq!(
+            p.tri_to_patch[1], p.tri_to_patch[2],
+            "merged sheet T2 joins the single-label region's patch (L2 flood)"
+        );
+
+        // "Patch label = seed's": Patches has no label field, so the only
+        // observable is that the mixed patch's seed (its minimum tri id) is T0,
+        // whose label is the single [A].
+        let sheet_patch = &p.patches[p.tri_to_patch[2] as usize];
+        let seed_tri = *sheet_patch.iter().min().expect("non-empty patch");
+        assert_eq!(seed_tri, 0, "seed of the mixed patch is T0");
+        assert_eq!(
+            canonical(&soup.labels[seed_tri as usize]),
+            vec![A],
+            "mixed patch carries the seed's [A] label"
+        );
+
+        // border_verts still collects the genuine non-manifold edge (3,4).
+        assert_eq!(
+            p.border_verts,
+            vec![3, 4],
+            "the intersection edge's vertices must still be marked as border"
+        );
+
+        // Full membership pin (this fixture's expectation, parity-style): the
+        // merged main patch {0,1,2} plus the two [B] tris cut off by (3,4).
+        assert_eq!(p.tri_to_patch, vec![0, 0, 0, 1, 2], "patch membership");
+        assert_eq!(p.patches.len(), 3, "one merged patch + two cut [B] patches");
+    }
+
+    /// L1 guard (PASSES today AND after): a label-homogeneous soup's patches are
+    /// byte-identical — the fix must not perturb the non-coplanar path. Pins the
+    /// full output on a small `[A]`-only fixture exercising both a manifold merge
+    /// (T0,T1) and a non-manifold spine ((3,4), 3-incident: T2,T3,T4).
+    #[test]
+    fn guard_l1_label_homogeneous_patches_pinned() {
+        let soup = hand_soup(
+            8,
+            vec![
+                [0, 1, 2], // T0
+                [0, 2, 3], // T1  manifold edge (0,2) with T0
+                [3, 4, 5], // T2  ┐
+                [3, 4, 6], // T3  ├ spine edge (3,4), 3-incident (non-manifold)
+                [3, 4, 7], // T4  ┘
+            ],
+            vec![vec![A]; 5],
+        );
+        let p = compute_all_patches(&soup).expect("homogeneous soup patches");
+        assert_eq!(
+            p.patches,
+            vec![vec![0, 1], vec![2], vec![3], vec![4]],
+            "L1: merged pair + three spine tris, unchanged"
+        );
+        assert_eq!(
+            p.tri_to_patch,
+            vec![0, 0, 1, 2, 3],
+            "L1: tri_to_patch pinned"
+        );
+        assert_eq!(p.border_verts, vec![3, 4], "L1: spine endpoints pinned");
     }
 }
