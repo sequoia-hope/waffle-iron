@@ -6585,6 +6585,100 @@ fn provenance_face(
     tf.get(local as usize).copied().filter(|&f| f != u32::MAX)
 }
 
+/// M8 Stage-0 operand dump — diagnostic-only observer (spec
+/// `specs/m8_stage0_inputcheck_clean_emission.md` §6). Env-gated on
+/// `YANG_STAGE0_DUMP_DIR`; zero-cost when unset (never set in production or
+/// WASM). Writes, per boolean call, the EXACT operand meshes handed to the
+/// backend — plus, when Stage 0 rewrote them, each solid's pre-Stage-0
+/// Stage-1 mesh (`_pre`) and the `tri_face` provenance maps — so the
+/// five-axiom census can split defects introduced-vs-inherited and join
+/// offenders back to B-Rep faces. Vertex coordinates use f64 `Display`
+/// (shortest round-trip), so the dump is bit-faithful. Write failures are
+/// reported on stderr and never affect the boolean (read-only, spec I6).
+fn stage0_dump(
+    op: BoolOp,
+    stage0: Option<&stage0::Stage0>,
+    cyl_pair_count: usize,
+    mesh_a: &Mesh,
+    mesh_b: &Mesh,
+    pre_a: &Mesh,
+    pre_b: &Mesh,
+) {
+    let Some(dir) = std::env::var_os("YANG_STAGE0_DUMP_DIR") else {
+        return;
+    };
+    use std::sync::atomic::{AtomicU64, Ordering};
+    // Process-global op counter: yang-rs has no case identity; harnesses
+    // namespace by pointing the env var at a per-case directory.
+    static OP_COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = OP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dir = std::path::PathBuf::from(dir);
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        eprintln!(
+            "[stage0-dump] create_dir_all({}) failed: {e}",
+            dir.display()
+        );
+        return;
+    }
+    let op_name = match op {
+        BoolOp::Union => "union",
+        BoolOp::Intersect => "intersect",
+        BoolOp::Subtract => "subtract",
+        BoolOp::Xor => "xor",
+    };
+    let stem = format!("{n:03}_{op_name}");
+    let write_obj = |suffix: &str, m: &Mesh| {
+        let path = dir.join(format!("{stem}_{suffix}.obj"));
+        let mut out = String::new();
+        for v in &m.verts {
+            out.push_str(&format!("v {} {} {}\n", v.x(), v.y(), v.z()));
+        }
+        for t in &m.tris {
+            out.push_str(&format!("f {} {} {}\n", t[0] + 1, t[1] + 1, t[2] + 1));
+        }
+        if let Err(e) = std::fs::write(&path, out) {
+            eprintln!("[stage0-dump] write {} failed: {e}", path.display());
+        }
+    };
+    write_obj("a", mesh_a);
+    write_obj("b", mesh_b);
+    let mut meta = format!(
+        "op: {op_name}\nstage0: {}\ncyl_pairs: {cyl_pair_count}\n\
+         mesh_a: {} verts / {} tris\nmesh_b: {} verts / {} tris\n",
+        stage0.is_some(),
+        mesh_a.verts.len(),
+        mesh_a.tris.len(),
+        mesh_b.verts.len(),
+        mesh_b.tris.len(),
+    );
+    if let Some(s0) = stage0 {
+        write_obj("a_pre", pre_a);
+        write_obj("b_pre", pre_b);
+        let write_csv = |suffix: &str, tf: &[u32]| {
+            let path = dir.join(format!("{stem}_{suffix}.tri_face.csv"));
+            let mut out = String::new();
+            for f in tf {
+                out.push_str(&format!("{f}\n"));
+            }
+            if let Err(e) = std::fs::write(&path, out) {
+                eprintln!("[stage0-dump] write {} failed: {e}", path.display());
+            }
+        };
+        write_csv("a", &s0.tri_face_a);
+        write_csv("b", &s0.tri_face_b);
+        for p in &s0.pairs {
+            meta.push_str(&format!(
+                "pair_plane: face_a={} face_b={} opposite={} n=({},{},{}) d={} band={}\n",
+                p.face_a, p.face_b, p.opposite, p.n[0], p.n[1], p.n[2], p.d, p.band,
+            ));
+        }
+    }
+    let meta_path = dir.join(format!("{stem}_meta.txt"));
+    if let Err(e) = std::fs::write(&meta_path, meta.as_bytes()) {
+        eprintln!("[stage0-dump] write {} failed: {e}", meta_path.display());
+    }
+}
+
 pub fn boolean(
     a: &BRep,
     b: &BRep,
@@ -6631,6 +6725,17 @@ pub fn boolean(
         // the pre-YR26 path.
         None => (a.as_mesh(), b.as_mesh()),
     };
+    // M8 diagnostic operand dump (env-gated, read-only; spec
+    // `m8_stage0_inputcheck_clean_emission` §6).
+    stage0_dump(
+        op,
+        stage0.as_ref(),
+        cyl_pairs.len(),
+        mesh_a,
+        mesh_b,
+        a.as_mesh(),
+        b.as_mesh(),
+    );
 
     // (1) Stage 2: full labeled arrangement.
     let la = backend
