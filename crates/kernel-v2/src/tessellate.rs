@@ -4,43 +4,43 @@
 //!
 //! ONE implementation per surface type:
 //!
-//! - planar faces with polygonal loops — exact-rational ear clipping
-//!   (this module's original KV3 routine, unchanged);
+//! - planar faces with polygonal loops — exact-predicate constrained
+//!   Delaunay triangulation (the shared `cdt_polygon_with_holes` core);
 //! - planar disk caps bounded by one full-circle edge (PR-KV5a) —
 //!   rim sampling at the chord-bound `N` + a convex fan;
 //! - cylinder laterals (PR-KV5a) — `N` quad-pairs between the two rims
 //!   with exact analytic radial normals at the corners.
 //!
-//! The planar routine is exact-rational
-//! ear clipping of the face's outer loop with hole loops bridged in. No
+//! The planar routine constrained-Delaunay triangulates the face's outer
+//! loop with its hole loops passed natively (no bridge corridors). No
 //! `reverse_outer` masking, no `bulk_flip`, no force-aligning: the polygon
 //! walk direction IS the source of truth, and the emitted triangle winding
 //! follows it (triangle normals equal the face's Newell normal by
 //! construction, never by post-hoc correction).
 //!
-//! ## Why ear clipping with exact predicates (documented decision)
+//! ## Why constrained Delaunay (documented decision — spec
+//! `kv2_cdt_triangulation_core` §8)
 //!
-//! The reuse-first check required by the KV3 mandate: yang-rs's Stage-1
-//! tessellation machinery is **not public** — `yang_rs::BRep::new`
-//! tessellates eagerly but exposes neither a per-face triangulation API nor
-//! the CDT it delegates to (`cherchi_rs::cdt_polygon_with_holes` is public
-//! *on cherchi-rs*, which kernel-v2 must not depend on directly, and
-//! yang-rs does not re-export it). Render tessellation is, per yang-rs's
-//! own scope rules, "entirely out of scope [for yang-rs] — render
-//! tessellation is in kernel-v2". So kernel-v2 implements its own planar
-//! routine, following the KV2 pattern: **all orientation decisions are
-//! exact** (`dashu` rationals via [`crate::exact2d`] — every finite `f64`
-//! converts losslessly, so orient2d sign evaluations are decision
-//! procedures, not approximations). Plain f64 ear clipping is exactly the
-//! silent-wrong failure mode this rewrite exists to eliminate (a mis-signed
-//! near-degenerate ear produces an overlapping or inverted triangulation
-//! with no error).
+//! The render cores triangulate exactly-sampled boundary rings for the
+//! render channel. The exact-predicate constrained-Delaunay triangulation
+//! ([`cdt_polygon_with_holes`], the spade `robust` backend) is the
+//! max-min-angle triangulation of the constrained point set: if any
+//! triangulation of the ring avoids a render-degenerate sliver, the CDT
+//! avoids it, and its flip decisions use exact orientation / in-circle
+//! predicates rather than f64. kernel-v2 may depend on yang-rs but not on
+//! cherchi-rs directly, so it consumes the primitive through a yang-rs
+//! re-export — the same seam as `NativeBoolean` and the torus UV consumer.
+//! Hole loops (through-cuts) are first-class and passed NATIVELY: the CDT
+//! inserts each as a hard constraint loop; there are no bridge corridors
+//! (their doubled vertices would be rejected as coincident).
 //!
-//! Boolean results make non-convexity and collinear chain vertices (split
-//! edges) the NORMAL case, and holed faces (through-cuts) are first-class:
-//! holes are bridged into the outer loop with exactly-validated bridge
-//! segments (shortest visible bridge, deterministic tie-break), then the
-//! merged (weakly simple) polygon is ear-clipped.
+//! Historical note: the original KV3/KV5b cores greedily ear-clipped with
+//! exact `orient2d` and a plain-f64 Delaunay flip. That flip's f64 incircle
+//! is catastrophically ill-conditioned exactly on slivers, so it minted
+//! sub-f32 render-degenerate triangles from HEALTHY boundaries (measured on
+//! F0047/R0064, spec §6b); the CDT is the root fix (spec §1). Ear clipping
+//! is also project doctrine as a sliver liability
+//! (`docs/yang_deviations.md` D1).
 //!
 //! ## Algorithm
 //!
@@ -50,22 +50,16 @@
 //!    plane of the face normal, with an axis order chosen so orientation
 //!    is preserved (outer CCW, rings CW — guaranteed by the validated
 //!    Newell/ring-winding invariants).
-//! 2. Bridge each hole into the merged polygon: holes processed
-//!    rightmost-first; the bridge is the exactly-shortest segment from a
-//!    hole vertex to a merged-polygon vertex that no boundary edge blocks
-//!    ([`crate::exact2d::bridge_blocked_by`] — proper crossing, non-shared
-//!    endpoint contact, and collinear overlap all block) and whose exact
-//!    rational midpoint is strictly inside the merged polygon and strictly
-//!    outside every hole. The hole is spliced in with doubled corridor
-//!    vertices (standard weakly-simple-polygon bridging).
-//! 3. Ear-clip the merged polygon: a vertex is an ear iff its corner is
-//!    exactly convex (orient2d `Greater`) and no other polygon vertex lies
-//!    inside or on the closed corner triangle (vertices at coordinates
-//!    equal to the corner's own — bridge duplicates — excluded). Exactly
-//!    collinear corners are dropped without emitting a zero-area triangle
-//!    (area-preserving). If a full scan finds neither, the face fails
-//!    LOUDLY ([`KernelV2Error::TessellationFailed`]) — never an infinite
-//!    loop, never an f64 guess.
+//! 2. Constrained-Delaunay triangulate the projected outer loop with its
+//!    hole loops as native constraint loops ([`cdt_polygon_with_holes`]);
+//!    the returned triangles index the shared boundary vertex pool with CCW
+//!    winding and add no Steiner points (boundary vertex set in = out). A
+//!    ring the CDT cannot triangulate (self-intersecting projection,
+//!    coincident vertices) fails LOUDLY
+//!    ([`KernelV2Error::TessellationFailed`]) — never a fallback.
+//! 3. Gate every emitted triangle at f32 render precision (G1): a triangle
+//!    collapsed to a sub-f32 sliver fails LOUDLY, matching the
+//!    cylinder-patch gate — never a skip, snap, or f64 guess.
 //!
 //! ## Output shape
 //!
@@ -78,9 +72,9 @@
 //!
 //! ## Exactness guarantees (asserted by the KV3 oracles)
 //!
-//! - Triangle area sums to the face area exactly in rational arithmetic
-//!   (ear clipping is an exact partition of the polygon-with-holes); the
-//!   f64 oracle tolerance only absorbs summation rounding.
+//! - Triangle areas sum to the face area (a CDT without Steiner points is
+//!   an exact partition of the polygon-with-holes, same as the ear-clip it
+//!   replaced); the f64 oracle tolerance only absorbs summation rounding.
 //! - Every triangle winds with the face: its normal direction equals the
 //!   face plane normal.
 //! - Mesh signed volume equals the solid's B-Rep signed volume (same
@@ -1452,7 +1446,7 @@ struct PatchNode {
 /// rims, ruled windows, `reversed` cavity walls).
 ///
 /// Algorithm — the developable analog of the planar routine, sharing its
-/// exact-arithmetic bridging and ear-clipping cores:
+/// exact-predicate constrained-Delaunay triangulation core:
 ///
 /// 1. **Unroll** every loop into `(u, v) = (sense·θ·r, h)` coordinates
 ///    (`sense = −1` for `reversed`, mirroring the frame so material still
@@ -1465,8 +1459,11 @@ struct PatchNode {
 ///    the axis (net ±2π) and have no closed unrolled image; they are cut
 ///    open along a bridge pair (the universal-cover seam) chosen
 ///    exactly-unblocked, forming one simple polygon spanning `2πr` in `u`.
-/// 3. **Bridge windows** (zero-wrap hole loops) with the planar routine's
-///    hole-bridging, then **ear-clip** exactly.
+/// 3. **Triangulate** the outer ring with its zero-wrap hole loops passed
+///    natively via [`cdt_polygon_with_holes`] (spec
+///    `kv2_cdt_triangulation_core` §3, branches C1–C4): the max-min-angle
+///    constrained-Delaunay triangulation with exact-predicate flips, so no
+///    sliver an alternative triangulation avoids is minted.
 /// 4. **Refine** to the chord bound: any triangulation edge spanning more
 ///    than one facet width in `u` is bisected (conforming — both incident
 ///    triangles split), interior split points landing exactly on the
@@ -1475,6 +1472,35 @@ struct PatchNode {
 ///    most two facet widths, so the radial sagitta is bounded by the
 ///    documented band at the doubled angle.
 /// 5. **Emit** with exact analytic radial normals (negated for `reversed`).
+///
+/// B2/B3 render-precision degeneracy predicate (spec
+/// `kv2_cdt_triangulation_core` §3 G0/G1): `true` iff the triangle collapses
+/// at f32 render precision — either two vertices are bitwise-equal after f32
+/// rounding (B2) or the f32-arithmetic cross product is exactly zero (B3).
+/// Shared by the cylinder-patch gate (G0) and the planar gate (G1); each
+/// caller supplies its own typed `TessellationFailed` reason string.
+fn f32_render_degenerate(pa: [f64; 3], pb: [f64; 3], pc: [f64; 3]) -> bool {
+    let k32 = |p: [f64; 3]| {
+        [
+            (p[0] as f32).to_bits(),
+            (p[1] as f32).to_bits(),
+            (p[2] as f32).to_bits(),
+        ]
+    };
+    let (ka, kb, kc) = (k32(pa), k32(pb), k32(pc));
+    if ka == kb || kb == kc || kc == ka {
+        return true;
+    }
+    let f = |p: [f64; 3]| [p[0] as f32, p[1] as f32, p[2] as f32];
+    let (fa, fb, fc) = (f(pa), f(pb), f(pc));
+    let uu = [fb[0] - fa[0], fb[1] - fa[1], fb[2] - fa[2]];
+    let vv = [fc[0] - fa[0], fc[1] - fa[1], fc[2] - fa[2]];
+    let cx = uu[1] * vv[2] - uu[2] * vv[1];
+    let cy = uu[2] * vv[0] - uu[0] * vv[2];
+    let cz = uu[0] * vv[1] - uu[1] * vv[0];
+    cx == 0.0 && cy == 0.0 && cz == 0.0
+}
+
 fn tessellate_cylinder_patch(
     arena: &BrepArena,
     fid: FaceId,
@@ -1794,7 +1820,7 @@ fn tessellate_cylinder_patch(
         }
     };
 
-    let (mut poly, mut holes): (Vec<Node>, Vec<Vec<Node>>);
+    let (poly, holes): (Vec<Node>, Vec<Vec<Node>>);
     match wrapping.len() {
         0 => {
             // Bounded patch: outer = the unique CCW loop (validated).
@@ -1995,43 +2021,20 @@ fn tessellate_cylinder_patch(
         _ => return Err(fail("patch must have exactly 0 or 2 axis-wrapping loops")),
     }
 
-    // ---- pass 3: bridge windows + ear-clip --------------------------------
-    while !holes.is_empty() {
-        let pick = holes
-            .iter()
-            .enumerate()
-            .max_by(|(ia, ha), (ib, hb)| {
-                let ax = ha
-                    .iter()
-                    .map(|nd| nd.p2.x())
-                    .fold(f64::NEG_INFINITY, f64::max);
-                let bx = hb
-                    .iter()
-                    .map(|nd| nd.p2.x())
-                    .fold(f64::NEG_INFINITY, f64::max);
-                ax.partial_cmp(&bx)
-                    .unwrap_or(Ordering::Equal)
-                    .then(ib.cmp(ia))
-            })
-            .map(|(i, _)| i)
-            .unwrap_or(0);
-        let hole = holes.remove(pick);
-        bridge_hole(&mut poly, hole, &holes, fid)?;
-        // Register every adjacency; the new ones (the bridge corridor) are
-        // straight 3D segments → Chord kind. Boundary kinds set earlier
-        // (arc samples) are preserved by `or_insert`.
-        let m = poly.len();
-        for i in 0..m {
-            let (a_id, b_id) = (poly[i].vid as usize, poly[(i + 1) % m].vid as usize);
-            if a_id == b_id {
-                continue;
-            }
-            let key = (a_id.min(b_id), a_id.max(b_id));
-            boundary.entry(key).or_insert(PatchEdgeKind::Chord);
-        }
-    }
-    // Make sure every polygon adjacency is registered (covers the no-hole
-    // case and the seam duplicates).
+    // ---- pass 3: constrained-Delaunay triangulation -----------------------
+    // (spec kv2_cdt_triangulation_core §3, branches C1–C4). The greedy exact
+    // ear-clip + f64 flip minted sub-f32 slivers from healthy boundaries
+    // (§6b): the flip's plain-f64 incircle is catastrophically ill-conditioned
+    // exactly on slivers, so it could not remove them and LEPP then propagated
+    // them into dozens of B2 twins. The exact-predicate CDT is the
+    // max-min-angle triangulation of the constrained point set, so if any
+    // triangulation avoids the sliver, the CDT avoids it. Hole loops are
+    // passed NATIVELY (no bridge corridors — corridor-doubled vertices would
+    // be rejected by the CDT as coincident).
+    //
+    // Register every outer-ring adjacency (covers the no-hole case and the
+    // seam duplicates); hole adjacencies were registered by `register_chain`
+    // above. Kinds set earlier (arc samples, seam bridges) survive `or_insert`.
     {
         let m = poly.len();
         for i in 0..m {
@@ -2044,32 +2047,36 @@ fn tessellate_cylinder_patch(
         }
     }
 
-    // Ear-clip on PER-RING u coordinates: the ring carries its own Point2
-    // (seam duplicates differ from the node table), so clip on a local node
-    // list. Map ring entries to fresh local ids, clip, then translate back.
-    let local: Vec<Node> = poly
+    // CDT vertex pool: the outer ring's per-ring Point2 (CUT frame — carrying
+    // the seam-shifted u values and duplicate node ids at DISTINCT 2D
+    // positions, which the CDT accepts), then each hole loop's Point2. Each
+    // pool index keeps its original node-table id so the refinement and emit
+    // keys below stay in node-id space.
+    let mut pool_p2: Vec<Point2> = Vec::with_capacity(poly.len());
+    let mut pool_node: Vec<usize> = Vec::with_capacity(poly.len());
+    let mut outer_cdt: Vec<u32> = Vec::with_capacity(poly.len());
+    for nd in &poly {
+        outer_cdt.push(pool_p2.len() as u32);
+        pool_p2.push(nd.p2);
+        pool_node.push(nd.vid as usize);
+    }
+    let holes_cdt: Vec<Vec<u32>> = holes
         .iter()
-        .enumerate()
-        .map(|(i, n)| Node {
-            p2: n.p2,
-            vid: i as u32,
+        .map(|hole| {
+            hole.iter()
+                .map(|nd| {
+                    let idx = pool_p2.len() as u32;
+                    pool_p2.push(nd.p2);
+                    pool_node.push(nd.vid as usize);
+                    idx
+                })
+                .collect()
         })
         .collect();
-    let ring_vids: Vec<u32> = poly.iter().map(|n| n.vid).collect();
-    let ring_p2: Vec<Point2> = poly.iter().map(|n| n.p2).collect();
-    let mut tris_local = ear_clip(local, fid)?;
-    // Quality pass (see `delaunay_flip`): the cut barrel boundary is
-    // densely sampled, and the slivers ear clipping leaves would seed
-    // sliver cascades in the bisection refinement below.
-    {
-        let fixed: std::collections::BTreeSet<(u32, u32)> = (0..ring_vids.len())
-            .map(|i| {
-                let (a, b) = (i as u32, ((i + 1) % ring_vids.len()) as u32);
-                (a.min(b), a.max(b))
-            })
-            .collect();
-        delaunay_flip(&mut tris_local, |v| ring_p2[v as usize], &fixed);
-    }
+    // Branch C4: any CDT rejection (coincident verts / crossing constraints /
+    // zero area) is a loud typed failure — never a fallback (P9).
+    let cdt_tris = yang_rs::cdt_polygon_with_holes(&pool_p2, &outer_cdt, &holes_cdt)
+        .map_err(|_| fail("patch ring rejected by CDT (degenerate/self-intersecting unroll)"))?;
 
     // ---- pass 4: conforming chord-bound refinement -------------------------
     // Triangles in "work" coordinates: each corner = (p2 in the CUT frame,
@@ -2082,15 +2089,12 @@ fn tessellate_cylinder_patch(
         p2: Point2,
         node: usize,
     }
-    let mut wnodes: Vec<WNode> = ring_vids
+    let mut wnodes: Vec<WNode> = pool_p2
         .iter()
-        .zip(ring_p2.iter())
-        .map(|(&n, &p)| WNode {
-            p2: p,
-            node: n as usize,
-        })
+        .zip(pool_node.iter())
+        .map(|(&p, &n)| WNode { p2: p, node: n })
         .collect();
-    let mut wtris: Vec<[usize; 3]> = tris_local
+    let mut wtris: Vec<[usize; 3]> = cdt_tris
         .iter()
         .map(|t| [t[0] as usize, t[1] as usize, t[2] as usize])
         .collect();
@@ -2285,8 +2289,8 @@ fn tessellate_cylinder_patch(
 
     if std::env::var_os("KV2_PATCH_PASS_PROBE").is_some() {
         eprintln!(
-            "[pass-probe] face={fid:?} earclip_tris={} refined_tris={} wnodes={} splits={}",
-            tris_local.len(),
+            "[pass-probe] face={fid:?} cdt_tris={} refined_tris={} wnodes={} splits={}",
+            cdt_tris.len(),
             wtris.len(),
             wnodes.len(),
             split_cache.len()
@@ -2330,28 +2334,8 @@ fn tessellate_cylinder_patch(
         // B2: two vertices bitwise-identical after f32 rounding. B3: the
         // f32 cross product exactly zero (collinear at render precision).
         // Always-on (I3) — never debug-gated, never a skip/snap (P9).
-        {
-            let k32 = |p: [f64; 3]| {
-                [
-                    (p[0] as f32).to_bits(),
-                    (p[1] as f32).to_bits(),
-                    (p[2] as f32).to_bits(),
-                ]
-            };
-            let (ka, kb, kc) = (k32(pa), k32(pb), k32(pc));
-            if ka == kb || kb == kc || kc == ka {
-                return Err(fail("patch triangle collapsed at render precision"));
-            }
-            let f = |p: [f64; 3]| [p[0] as f32, p[1] as f32, p[2] as f32];
-            let (fa, fb, fc) = (f(pa), f(pb), f(pc));
-            let uu = [fb[0] - fa[0], fb[1] - fa[1], fb[2] - fa[2]];
-            let vv = [fc[0] - fa[0], fc[1] - fa[1], fc[2] - fa[2]];
-            let cx = uu[1] * vv[2] - uu[2] * vv[1];
-            let cy = uu[2] * vv[0] - uu[0] * vv[2];
-            let cz = uu[0] * vv[1] - uu[1] * vv[0];
-            if cx == 0.0 && cy == 0.0 && cz == 0.0 {
-                return Err(fail("patch triangle collapsed at render precision"));
-            }
+        if f32_render_degenerate(pa, pb, pc) {
+            return Err(fail("patch triangle collapsed at render precision"));
         }
         let u = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
         let v = [pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]];
@@ -2436,88 +2420,6 @@ struct Node {
     vid: u32,
 }
 
-/// Deterministic Delaunay edge-flip pass over a 2D triangulation
-/// (PR-KV5b). QUALITY heuristic only — every flip preserves the covered
-/// region exactly, so correctness is untouched; what it removes are the
-/// near-degenerate slivers greedy ear clipping produces on densely-sampled
-/// (arc-bearing) boundaries, which would otherwise survive into the mesh
-/// (and seed sliver cascades in the cylinder-patch refinement). Hence:
-/// VALIDITY decisions (the new pair must be two CCW triangles) use the
-/// exact `orient2d`; the in-circle test is plain f64 (a wrong quality call
-/// flips nothing structural), and the flip budget bounds termination
-/// against f64 co-circular jitter. `fixed` holds undirected vid pairs that
-/// must never flip (boundary + bridge-corridor edges).
-fn delaunay_flip<F: Fn(u32) -> Point2>(
-    tris: &mut [[u32; 3]],
-    p2_of: F,
-    fixed: &std::collections::BTreeSet<(u32, u32)>,
-) {
-    use std::collections::BTreeMap;
-    let incircle = |a: Point2, b: Point2, c: Point2, d: Point2| -> f64 {
-        // > 0 ⇔ d strictly inside the circumcircle of CCW (a, b, c).
-        let (ax, ay) = (a.x() - d.x(), a.y() - d.y());
-        let (bx, by) = (b.x() - d.x(), b.y() - d.y());
-        let (cx, cy) = (c.x() - d.x(), c.y() - d.y());
-        let (a2, b2, c2) = (ax * ax + ay * ay, bx * bx + by * by, cx * cx + cy * cy);
-        ax * (by * c2 - b2 * cy) - ay * (bx * c2 - b2 * cx) + a2 * (bx * cy - by * cx)
-    };
-    let mut budget = 16 * tris.len() + 64;
-    loop {
-        // Rebuild the (undirected vid pair) → incident-triangle map each
-        // sweep; flip the first improvable edge in deterministic order.
-        let mut edge_map: BTreeMap<(u32, u32), Vec<usize>> = BTreeMap::new();
-        for (ti, t) in tris.iter().enumerate() {
-            for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
-                let key = (t[i].min(t[j]), t[i].max(t[j]));
-                edge_map.entry(key).or_default().push(ti);
-            }
-        }
-        let mut flipped = false;
-        'scan: for (&key, owners) in &edge_map {
-            if owners.len() != 2 || fixed.contains(&key) {
-                continue;
-            }
-            let (t1, t2) = (owners[0], owners[1]);
-            // Opposite vertices c (of t1) and d (of t2) across edge (a, b).
-            let (a, b) = key;
-            let opp = |t: [u32; 3]| t.into_iter().find(|&v| v != a && v != b);
-            let (Some(c), Some(d)) = (opp(tris[t1]), opp(tris[t2])) else {
-                continue;
-            };
-            if c == d {
-                continue;
-            }
-            // Orient (a, b, c) CCW for the in-circle sign convention.
-            let (pa, pb, pc, pd) = (p2_of(a), p2_of(b), p2_of(c), p2_of(d));
-            let (a, b, pa, pb) = match exact2d::orient2d(pa, pb, pc) {
-                Ordering::Greater => (a, b, pa, pb),
-                Ordering::Less => (b, a, pb, pa),
-                Ordering::Equal => continue,
-            };
-            if incircle(pa, pb, pc, pd) <= 0.0 {
-                continue; // locally Delaunay (or co-circular) — keep
-            }
-            // Validity: the flipped pair must be two exactly-CCW triangles.
-            if exact2d::orient2d(pa, pd, pc) != Ordering::Greater
-                || exact2d::orient2d(pd, pb, pc) != Ordering::Greater
-            {
-                continue;
-            }
-            tris[t1] = [a, d, c];
-            tris[t2] = [d, b, c];
-            flipped = true;
-            budget -= 1;
-            if budget == 0 {
-                return;
-            }
-            break 'scan;
-        }
-        if !flipped {
-            return;
-        }
-    }
-}
-
 /// The single canonical planar-face routine (module docs, "Algorithm").
 /// PR-KV5b: loops may carry arc edges (boolean outputs — e.g. an annulus
 /// hole rim of exact intersection arcs); they enter the polygon as their
@@ -2570,7 +2472,7 @@ fn tessellate_planar_face(
             reason: "outer loop has fewer than 3 vertices",
         });
     }
-    let mut poly: Vec<Node> = emit_loop(&outer_pts, out);
+    let poly: Vec<Node> = emit_loop(&outer_pts, out);
     let mut holes: Vec<Vec<Node>> = Vec::with_capacity(face.inner_loops.len());
     for &rid in &face.inner_loops {
         let pts = sampled_loop_points(arena, rid, n_seg)?;
@@ -2586,58 +2488,69 @@ fn tessellate_planar_face(
         holes.push(emit_loop(&pts, out));
     }
 
-    // ---- bridge holes in, rightmost hole first ----------------------------
-    // (Deterministic: max-x f64 comparisons are exact; ties broken by the
-    // holes' walk order.)
-    while !holes.is_empty() {
-        let pick = holes
-            .iter()
-            .enumerate()
-            .max_by(|(ia, a), (ib, b)| {
-                let ax = a
-                    .iter()
-                    .map(|nd| nd.p2.x())
-                    .fold(f64::NEG_INFINITY, f64::max);
-                let bx = b
-                    .iter()
-                    .map(|nd| nd.p2.x())
-                    .fold(f64::NEG_INFINITY, f64::max);
-                ax.partial_cmp(&bx)
-                    .unwrap_or(Ordering::Equal)
-                    .then(ib.cmp(ia)) // tie → lower index wins under max_by
-            })
-            .map(|(i, _)| i)
-            .unwrap_or(0);
-        let hole = holes.remove(pick);
-        bridge_hole(&mut poly, hole, &holes, fid)?;
+    // ---- constrained-Delaunay triangulation + G1 gate ---------------------
+    // (spec kv2_cdt_triangulation_core §3, branches P1–P3, G1). The greedy
+    // exact ear-clip emitted a triangle spanning three near-collinear boundary
+    // vertices — a silent sub-f32 sliver on the R0064 gear loop (§6b); the
+    // max-min-angle constrained-Delaunay triangulation avoids it. Hole loops
+    // are passed NATIVELY (no bridge corridors — corridor-doubled vertices
+    // would be rejected by the CDT as coincident).
+    //
+    // CDT vertex pool: the outer loop's projected Point2, then each hole's.
+    // Each pool index keeps its render-vertex id; vertex EMISSION order is the
+    // per-loop order established by `emit_loop` above and is unchanged (only
+    // triangle connectivity comes from the CDT).
+    let mut pool_p2: Vec<Point2> = Vec::with_capacity(poly.len());
+    let mut pool_vid: Vec<u32> = Vec::with_capacity(poly.len());
+    let mut outer_cdt: Vec<u32> = Vec::with_capacity(poly.len());
+    for nd in &poly {
+        outer_cdt.push(pool_p2.len() as u32);
+        pool_p2.push(nd.p2);
+        pool_vid.push(nd.vid);
     }
+    let holes_cdt: Vec<Vec<u32>> = holes
+        .iter()
+        .map(|hole| {
+            hole.iter()
+                .map(|nd| {
+                    let idx = pool_p2.len() as u32;
+                    pool_p2.push(nd.p2);
+                    pool_vid.push(nd.vid);
+                    idx
+                })
+                .collect()
+        })
+        .collect();
+    // Branch P3: any CDT rejection (coincident verts / crossing constraints /
+    // zero area) is a loud typed failure — never a fallback (P9).
+    let cdt_tris =
+        yang_rs::cdt_polygon_with_holes(&pool_p2, &outer_cdt, &holes_cdt).map_err(|_| {
+            KernelV2Error::TessellationFailed {
+                face: fid,
+                reason: "planar ring rejected by CDT (degenerate/self-intersecting projection)",
+            }
+        })?;
 
-    // ---- ear-clip the merged (weakly simple) polygon -----------------------
-    // Arc-bearing faces (PR-KV5b) get the Delaunay flip pass: their densely
-    // sampled boundaries make greedy ear clipping emit slivers. Pure-segment
-    // faces skip it — the KV3 planar output stays byte-identical.
-    let has_arcs = face_has_arc_edge(arena, fid)?;
-    let fixed: std::collections::BTreeSet<(u32, u32)> = if has_arcs {
-        let m = poly.len();
-        (0..m)
-            .map(|i| {
-                let (a, b) = (poly[i].vid, poly[(i + 1) % m].vid);
-                (a.min(b), a.max(b))
-            })
-            .collect()
-    } else {
-        Default::default()
-    };
-    let p2_by_vid: std::collections::BTreeMap<u32, Point2> = if has_arcs {
-        poly.iter().map(|n| (n.vid, n.p2)).collect()
-    } else {
-        Default::default()
-    };
-    let mut tris = ear_clip(poly, fid)?;
-    if has_arcs {
-        delaunay_flip(&mut tris, |v| p2_by_vid[&v], &fixed);
-    }
-    for tri in tris {
+    // Emit, applying the G1 render-precision gate to every triangle: geometry
+    // valid at f64 but COLLAPSED at f32 render precision must fail loudly (§3
+    // G1) — the planar analogue of the cylinder patch's G0 gate, always-on
+    // (I6), never a skip/snap (P9).
+    for t in &cdt_tris {
+        let tri = [
+            pool_vid[t[0] as usize],
+            pool_vid[t[1] as usize],
+            pool_vid[t[2] as usize],
+        ];
+        let pos_of = |vid: u32| -> [f64; 3] {
+            let i = vid as usize * 3;
+            [out.positions[i], out.positions[i + 1], out.positions[i + 2]]
+        };
+        if f32_render_degenerate(pos_of(tri[0]), pos_of(tri[1]), pos_of(tri[2])) {
+            return Err(KernelV2Error::TessellationFailed {
+                face: fid,
+                reason: "planar triangle collapsed at render precision",
+            });
+        }
         out.indices.extend_from_slice(&tri);
     }
 
@@ -2647,85 +2560,6 @@ fn tessellate_planar_face(
         count: out.indices.len() as u32 - range_start,
     });
     Ok(())
-}
-
-/// Does any loop of the face carry a `Curve::Arc` half-edge?
-fn face_has_arc_edge(arena: &BrepArena, fid: FaceId) -> Result<bool, KernelV2Error> {
-    let face = arena.face(fid)?;
-    let mut loops = vec![face.outer_loop];
-    loops.extend(face.inner_loops.iter().copied());
-    for lid in loops {
-        for h in arena.loop_half_edges(lid)? {
-            if matches!(arena.half_edge(h)?.curve, Curve::Arc { .. }) {
-                return Ok(true);
-            }
-        }
-    }
-    Ok(false)
-}
-
-/// Ear-clip a merged (weakly simple) CCW polygon into `vid` triples — the
-/// single canonical exact-arithmetic clipping core (module docs, step 3),
-/// shared by the planar routine and the PR-KV5b cylinder-patch routine
-/// (which runs it in unrolled `(θ·r, h)` coordinates with node-table ids
-/// in `vid`).
-fn ear_clip(mut ring: Vec<Node>, fid: FaceId) -> Result<Vec<[u32; 3]>, KernelV2Error> {
-    let mut tris = Vec::new();
-    'clip: while ring.len() > 3 {
-        let m = ring.len();
-        for i in 0..m {
-            let a = ring[(i + m - 1) % m];
-            let b = ring[i];
-            let c = ring[(i + 1) % m];
-            match exact2d::orient2d(a.p2, b.p2, c.p2) {
-                // Exactly collinear corner (straight chain vertex or a
-                // fully-collapsed bridge-corridor spike): drop it without
-                // emitting a zero-area triangle. Area-preserving.
-                Ordering::Equal => {
-                    ring.remove(i);
-                    continue 'clip;
-                }
-                Ordering::Less => continue, // reflex — not an ear
-                Ordering::Greater => {
-                    if is_ear(&ring, i) {
-                        tris.push([a.vid, b.vid, c.vid]);
-                        ring.remove(i);
-                        continue 'clip;
-                    }
-                }
-            }
-        }
-        return Err(KernelV2Error::TessellationFailed {
-            face: fid,
-            reason: "no clippable ear found",
-        });
-    }
-    if ring.len() == 3 {
-        match exact2d::orient2d(ring[0].p2, ring[1].p2, ring[2].p2) {
-            Ordering::Greater => {
-                tris.push([ring[0].vid, ring[1].vid, ring[2].vid]);
-            }
-            Ordering::Equal => {} // degenerate remainder: zero area, skip
-            Ordering::Less => {
-                if std::env::var("KV2_EARCLIP_PROBE").is_ok() {
-                    eprintln!(
-                        "KV2_EARCLIP_PROBE face={fid:?} inverted final ring: {:?}",
-                        ring.iter().map(|n| (n.vid, n.p2)).collect::<Vec<_>>()
-                    );
-                    eprintln!(
-                        "KV2_EARCLIP_PROBE clipped so far: {} tris {:?}",
-                        tris.len(),
-                        tris
-                    );
-                }
-                return Err(KernelV2Error::TessellationFailed {
-                    face: fid,
-                    reason: "inverted final triangle",
-                });
-            }
-        }
-    }
-    Ok(tris)
 }
 
 /// Orientation-preserving projection onto the dominant-axis coordinate
@@ -2754,110 +2588,6 @@ fn projector(n: UnitVector3) -> impl Fn(Point3) -> Point2 {
             Point2::new(v, u)
         }
     }
-}
-
-/// Bridge one hole into the merged polygon (module docs, step 2): the
-/// exactly-shortest unblocked bridge whose midpoint lies in the face
-/// material; splice with doubled corridor vertices.
-fn bridge_hole(
-    poly: &mut Vec<Node>,
-    hole: Vec<Node>,
-    other_holes: &[Vec<Node>],
-    fid: FaceId,
-) -> Result<(), KernelV2Error> {
-    let mut best: Option<(dashu::rational::RBig, usize, usize)> = None; // (dist², poly j, hole i)
-    for (j, pn) in poly.iter().enumerate() {
-        for (i, hn) in hole.iter().enumerate() {
-            let (p, h) = (pn.p2, hn.p2);
-            if p == h {
-                continue; // zero-length bridge is no bridge
-            }
-            let d2 = exact2d::squared_distance(p, h);
-            if let Some((ref bd, _, _)) = best {
-                if d2 >= *bd {
-                    continue; // not strictly shorter — keep first (deterministic)
-                }
-            }
-            if bridge_is_valid(p, h, poly, &hole, other_holes) {
-                best = Some((d2, j, i));
-            }
-        }
-    }
-    let Some((_, j, i)) = best else {
-        return Err(KernelV2Error::TessellationFailed {
-            face: fid,
-            reason: "no visible hole bridge",
-        });
-    };
-    // Splice: … poly[j], hole[i], hole[i+1], …, hole[i-1], hole[i],
-    // poly[j], poly[j+1] … (corridor edge doubled in both directions).
-    let mut merged = Vec::with_capacity(poly.len() + hole.len() + 2);
-    merged.extend_from_slice(&poly[..=j]);
-    merged.extend(hole[i..].iter().copied());
-    merged.extend(hole[..=i].iter().copied());
-    merged.push(poly[j]);
-    merged.extend_from_slice(&poly[j + 1..]);
-    *poly = merged;
-    Ok(())
-}
-
-/// Is the candidate bridge `p → h` valid? No boundary edge (merged
-/// polygon, the candidate hole itself, or any remaining hole) blocks it,
-/// and its exact midpoint lies strictly inside the merged polygon and
-/// strictly outside every hole (belt-and-suspenders: with no boundary
-/// contact the open segment cannot change region, so the midpoint decides
-/// for the whole segment).
-fn bridge_is_valid(
-    p: Point2,
-    h: Point2,
-    poly: &[Node],
-    hole: &[Node],
-    other_holes: &[Vec<Node>],
-) -> bool {
-    let blocked = |loop_nodes: &[Node]| -> bool {
-        let m = loop_nodes.len();
-        (0..m)
-            .any(|k| exact2d::bridge_blocked_by(p, h, loop_nodes[k].p2, loop_nodes[(k + 1) % m].p2))
-    };
-    if blocked(poly) || blocked(hole) || other_holes.iter().any(|oh| blocked(oh)) {
-        return false;
-    }
-    let mid = exact2d::midpoint(p, h);
-    let pts2 = |nodes: &[Node]| -> Vec<Point2> { nodes.iter().map(|nd| nd.p2).collect() };
-    if !exact2d::point_strictly_inside_rq(&mid, &pts2(poly)) {
-        return false;
-    }
-    if exact2d::point_strictly_inside_rq(&mid, &pts2(hole)) {
-        return false;
-    }
-    other_holes
-        .iter()
-        .all(|oh| !exact2d::point_strictly_inside_rq(&mid, &pts2(oh)))
-}
-
-/// Ear test at position `i` of the ring (corner already known exactly
-/// convex): no OTHER ring vertex lies inside or on the closed corner
-/// triangle. Vertices at coordinates equal to a corner vertex (bridge
-/// corridor duplicates) do not block — they coincide with the triangle's
-/// own corners.
-fn is_ear(ring: &[Node], i: usize) -> bool {
-    let m = ring.len();
-    let a = ring[(i + m - 1) % m].p2;
-    let b = ring[i].p2;
-    let c = ring[(i + 1) % m].p2;
-    for (k, q) in ring.iter().enumerate() {
-        if k == (i + m - 1) % m || k == i || k == (i + 1) % m {
-            continue;
-        }
-        let q = q.p2;
-        if q == a || q == b || q == c {
-            continue;
-        }
-        if exact2d::inside_or_on_triangle(a, b, c, q) {
-            return false;
-        }
-    }
-    true
 }
 
 #[cfg(test)]

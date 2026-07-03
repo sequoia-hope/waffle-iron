@@ -17,23 +17,10 @@ use dashu::float::FBig;
 use dashu::rational::RBig;
 use std::cmp::Ordering;
 
-/// A 2D point with exact rational coordinates (e.g. a bridge midpoint,
-/// which is generally NOT representable in f64).
-pub(crate) type RPoint2 = (RBig, RBig);
-
 /// Lossless f64 → rational. Total for finite input (pre-checked).
 pub(crate) fn r(x: f64) -> RBig {
     let fb: FBig = FBig::try_from(x).expect("finite f64 → FBig is total");
     RBig::try_from(fb).expect("FBig → RBig is total")
-}
-
-/// Exact rational midpoint of two points.
-pub(crate) fn midpoint(a: Point2, b: Point2) -> RPoint2 {
-    let half = RBig::from_parts(1.into(), 2u8.into());
-    (
-        (r(a.x()) + r(b.x())) * half.clone(),
-        (r(a.y()) + r(b.y())) * half,
-    )
 }
 
 /// Shewchuk's static forward-error bound for the 2D orientation
@@ -71,13 +58,6 @@ pub(crate) fn orient2d(a: Point2, b: Point2, c: Point2) -> Ordering {
     }
     let det = (r(b.x()) - r(a.x())) * (r(c.y()) - r(a.y()))
         - (r(b.y()) - r(a.y())) * (r(c.x()) - r(a.x()));
-    det.cmp(&RBig::ZERO)
-}
-
-/// [`orient2d`] with a rational query point `q`.
-pub(crate) fn orient2d_rq(a: Point2, b: Point2, q: &RPoint2) -> Ordering {
-    let det = (r(b.x()) - r(a.x())) * (q.1.clone() - r(a.y()))
-        - (r(b.y()) - r(a.y())) * (q.0.clone() - r(a.x()));
     det.cmp(&RBig::ZERO)
 }
 
@@ -200,46 +180,6 @@ pub(crate) fn point_strictly_inside(q: Point2, pts: &[Point2]) -> bool {
         }
     }
     inside
-}
-
-/// [`point_strictly_inside`] with a rational query point. The caller
-/// guarantees `q` is not on the boundary (the bridge-blocking pass already
-/// rejected any boundary contact). Doubled (corridor) edges traversed once
-/// in each direction toggle twice and cancel — correct, since they are not
-/// an inside/outside boundary.
-pub(crate) fn point_strictly_inside_rq(q: &RPoint2, pts: &[Point2]) -> bool {
-    let mut inside = false;
-    let n = pts.len();
-    for i in 0..n {
-        let (a, b) = (pts[i], pts[(i + 1) % n]);
-        let a_above = r(a.y()) > q.1;
-        let b_above = r(b.y()) > q.1;
-        if a_above == b_above {
-            continue;
-        }
-        let upward = b.y() > a.y();
-        let o = orient2d_rq(a, b, q);
-        if (upward && o == Ordering::Greater) || (!upward && o == Ordering::Less) {
-            inside = !inside;
-        }
-    }
-    inside
-}
-
-/// Is `q` inside or on the CLOSED triangle `a, b, c` (which must be CCW —
-/// the ear-clipping caller checked `orient2d(a, b, c) == Greater`)?
-pub(crate) fn inside_or_on_triangle(a: Point2, b: Point2, c: Point2, q: Point2) -> bool {
-    orient2d(a, b, q) != Ordering::Less
-        && orient2d(b, c, q) != Ordering::Less
-        && orient2d(c, a, q) != Ordering::Less
-}
-
-/// Exact squared distance (for deterministic shortest-first bridge
-/// candidate ordering).
-pub(crate) fn squared_distance(a: Point2, b: Point2) -> RBig {
-    let dx = r(b.x()) - r(a.x());
-    let dy = r(b.y()) - r(a.y());
-    dx.clone() * dx + dy.clone() * dy
 }
 
 // =========================================================================
