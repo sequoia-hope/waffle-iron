@@ -31,6 +31,9 @@
 
 pub mod arrangements;
 pub mod boolean;
+/// Native five-axiom input census (the `mesh_booleans_inputcheck` analog,
+/// localizing) — diagnostic oracle for the M8 Stage-0 operand contract.
+pub mod inputcheck;
 pub mod labeled_arrangement;
 /// Boolean labeling (Cherchi 2022 §5) over the AR3b arrangement soup
 /// (M6 BL* slices). Pure Rust since PR-CR-M7c (clean-room predicates).
@@ -42,6 +45,7 @@ pub mod triangulation;
 
 pub use arrangements::{mesh_arrangement, ArrangementError, ArrangementSoup};
 pub use boolean::MeshBoolean;
+pub use inputcheck::{census, NativeInputCheck};
 pub use labeled_arrangement::{InputId, LabeledArrangement};
 pub use labeling::{native_labeled_arrangement, NativeBoolean, NativeBooleanError};
 pub use mesh::Mesh;
