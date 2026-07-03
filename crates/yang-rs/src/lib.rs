@@ -12915,8 +12915,15 @@ mod tests {
             Vector3::new(-1.0, 0.0, 0.0),
         ];
         // Plane convention n·x + d = 0. For a face on plane n·x = c the
-        // offset is d = -c.
-        let offs = [-z, z + 1.0, -y, x + 1.0, y + 1.0, -x];
+        // offset is d = -c — WITH n the face's OUTWARD normal, so the three
+        // negative-axis faces have c = -coord (e.g. bottom: n=(0,0,-1),
+        // n·p = -z ⇒ d = z). The pre-2026-07-03 array had the sign flipped
+        // on every face with a non-zero plane coordinate; it went unnoticed
+        // because the historical bottom-quad arrangement only ever resolved
+        // attribution against the origin cube's BOTTOM face (d = 0 either
+        // way). The closed-shell fixture (rule-4 gate cycle) exercises all
+        // six planes and unmasked it.
+        let offs = [z, -(z + 1.0), y, -(x + 1.0), -(y + 1.0), x];
         let faces: Vec<BRepFace> = (0..6)
             .map(|i| BRepFace {
                 surface: Surface::Plane {
@@ -13002,32 +13009,60 @@ mod tests {
 
     // ----- Group A.1: full attribution coverage + correctness -----
 
-    /// Hand-built arrangement: a CLOSEABLE 2-triangle quad on cube A's
-    /// bottom face (z=0). The quad's 4 verts are A's exact bottom-face
-    /// corners (0,0,0)(1,0,0)(1,1,0)(0,1,0), so:
-    /// - real-label path: each tri's centroid lies on exactly one A face
-    ///   plane (z=0) → I7 unique-face → full Some(A, face0) attribution;
-    /// - the patch boundary 0→1→2→3→0 closes (single manifold cycle) so
-    ///   `reconstruct_topology` succeeds (no `NonManifoldOutput`);
+    /// Hand-built arrangement: cube A's full closed surface shell. The verts
+    /// are A's exact 8 `BRepVertex` corners, so:
+    /// - real-label path: each tri's centroid lies strictly inside exactly
+    ///   one A face plane → I7 unique-face → full Some(A, face) attribution;
+    /// - every patch boundary closes (per-face manifold cycles) and the
+    ///   whole shell is watertight, matching the closed kept mesh a real
+    ///   boolean produces;
     /// - the verts coincide with A's `BRepVertex`es, so the M4 substitute's
-    ///   spatial matching also resolves to A's bottom face (vertex-face
-    ///   incidence majority → F0), letting the differential oracle agree.
+    ///   spatial matching also resolves each tri to its cube face
+    ///   (vertex-face incidence majority), letting the differential oracle
+    ///   agree.
     ///
-    /// All `inside` all-false ⇒ both tris kept by Union.
-    fn arrangement_a_bottom_quad() -> LabeledArrangement {
+    /// All `inside` all-false ⇒ all 12 tris kept by Union.
+    fn arrangement_a_cube_shell() -> LabeledArrangement {
+        // The full unit-cube SURFACE of `cube_brep([0,0,0])`: 12 outward-wound
+        // tris, 2 per face. Historically this fixture was A's bottom quad only
+        // (an open 2-tri sheet) — a mock shape no real boolean produces. The
+        // 2026-07-03 gate cycle (spec `yang_kept_mesh_manifold_gate`, aborted
+        // per P10 — see its §2b) closed it to model a real kept mesh; the
+        // closed form is kept: it is strictly more faithful and it unmasked
+        // the `cube_brep` plane-offset sign bug below. All consuming
+        // assertions are computed FROM the fixture (keep-set count, geometric
+        // face resolve, majority vote), so their intent is unchanged.
         let verts = vec![
-            p(0.0, 0.0, 0.0), // A vert 0
-            p(1.0, 0.0, 0.0), // A vert 1
-            p(1.0, 1.0, 0.0), // A vert 2
-            p(0.0, 1.0, 0.0), // A vert 3
+            p(0.0, 0.0, 0.0), // 0
+            p(1.0, 0.0, 0.0), // 1
+            p(1.0, 1.0, 0.0), // 2
+            p(0.0, 1.0, 0.0), // 3
+            p(0.0, 0.0, 1.0), // 4
+            p(1.0, 0.0, 1.0), // 5
+            p(1.0, 1.0, 1.0), // 6
+            p(0.0, 1.0, 1.0), // 7
         ];
-        // Two tris forming the quad; boundary 0→1→2→3→0 closes cleanly.
-        let tris = vec![[0u32, 1, 2], [0, 2, 3]];
+        // Outward winding per face (−z, +z, −y, +y, −x, +x); every directed
+        // edge pairs with its reverse ⇒ watertight 2-manifold (χ = 2).
+        let tris = vec![
+            [0u32, 3, 2],
+            [0, 2, 1], // bottom z=0
+            [4, 5, 6],
+            [4, 6, 7], // top z=1
+            [0, 1, 5],
+            [0, 5, 4], // front y=0
+            [2, 3, 7],
+            [2, 7, 6], // back y=1
+            [0, 4, 7],
+            [0, 7, 3], // left x=0
+            [1, 2, 6],
+            [1, 6, 5], // right x=1
+        ];
         let mesh = Mesh::new(verts, tris);
-        // Both on A's surface (solid 0), none on B; inside all-false ⇒ Union keeps.
-        let surface = vec![vec![LaInputId(0)]; 2];
-        let inside = vec![vec![false, false]; 2];
-        let patch = vec![0u32, 0];
+        // All on A's surface (solid 0), none on B; inside all-false ⇒ Union keeps.
+        let surface = vec![vec![LaInputId(0)]; 12];
+        let inside = vec![vec![false, false]; 12];
+        let patch = vec![0u32, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5];
         LabeledArrangement {
             mesh,
             surface,
@@ -13046,7 +13081,7 @@ mod tests {
         // y/z face planes with A (bit-exact coplanar input), which the
         // near-coplanar input gate now rejects BEFORE the (mock) backend.
         let b = cube_brep([0.5, 0.3, 0.4]);
-        let la = arrangement_a_bottom_quad();
+        let la = arrangement_a_cube_shell();
         let backend = LabelMockBackend::new(la);
         let r = boolean(&a, &b, BoolOp::Union, &backend).unwrap();
 
@@ -13068,13 +13103,13 @@ mod tests {
     #[test]
     fn m3_union_attribution_matches_geometric_face() {
         // F1: each kept tri attributes to the unique A-face plane its
-        // centroid lies on (here A's bottom face, z=0).
+        // centroid lies on (one of the cube shell's six faces).
         let a = cube_brep([0.0, 0.0, 0.0]);
         // PR-YR24: B offset on ALL axes — a [0.5,0,0] offset shares the
         // y/z face planes with A (bit-exact coplanar input), which the
         // near-coplanar input gate now rejects BEFORE the (mock) backend.
         let b = cube_brep([0.5, 0.3, 0.4]);
-        let la = arrangement_a_bottom_quad();
+        let la = arrangement_a_cube_shell();
         let mesh = la.mesh.clone();
         let backend = LabelMockBackend::new(la);
         let r = boolean(&a, &b, BoolOp::Union, &backend).unwrap();
@@ -13105,7 +13140,7 @@ mod tests {
         // y/z face planes with A (bit-exact coplanar input), which the
         // near-coplanar input gate now rejects BEFORE the (mock) backend.
         let b = cube_brep([0.5, 0.3, 0.4]);
-        let la = arrangement_a_bottom_quad();
+        let la = arrangement_a_cube_shell();
         let expected_kept = la.keep_set(BoolOp::Union).len();
         let backend = LabelMockBackend::new(la);
         let r = boolean(&a, &b, BoolOp::Union, &backend).unwrap();
@@ -13192,7 +13227,7 @@ mod tests {
         // y/z face planes with A (bit-exact coplanar input), which the
         // near-coplanar input gate now rejects BEFORE the (mock) backend.
         let b = cube_brep([0.5, 0.3, 0.4]);
-        let la = arrangement_a_bottom_quad();
+        let la = arrangement_a_cube_shell();
         let mesh = la.mesh.clone();
         let backend = LabelMockBackend::new(la);
 
