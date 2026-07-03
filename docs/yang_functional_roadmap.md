@@ -92,11 +92,27 @@ the roadmap's remaining work:
    >    slivers. **The F0047 hole is now GATED LOUD** (spec
    >    `specs/kv2_patch_render_degeneracy_gate.md`, 9eede895→80f3cc73:
    >    always-on f32 render-precision gate; I2 assay-verified
-   >    category-neutral). Remaining: (i) root-fix WHY the shifted patch
-   >    boundary produces sub-f32 slivers, then re-evaluate wiring the
-   >    world-space pass (would clear R0046/R0088/F0063); (ii) rim-aware
-   >    clustering for F0061 (naive + immovable-seed variants both measured
-   >    and P10-reverted — see spec scope-limit).
+   >    category-neutral). **Root fix SHIPPED 2026-07-03 (spec
+   >    `specs/kv2_cdt_triangulation_core.md`, 7c4641ba…f8d68ac1): both
+   >    kernel-v2 render cores (cylinder patch + planar) moved from greedy
+   >    exact ear-clip + f64 flip to the exact-predicate CDT (cherchi-rs
+   >    flood-fill variant via a yang-rs re-export) with a grid-degeneracy
+   >    flip pass (M1, cocircular ties), flood-fill interior classification
+   >    (M2), pinch/keyhole ring splitting + shared-vertex welding (M3a/b/c),
+   >    and the planar G1 gate. Full-assay diff vs baseline = F0042
+   >    ERROR→CORRECT only (82 CORRECT / 0 WRONG). Re-wire experiment
+   >    re-run (§8a-ii): NO silent-WRONG remains under the world-space
+   >    pass and the R0046/R0088/F0063 coplanar walls lift into deeper loud
+   >    errors, but F0016/F0024 flip CORRECT→loud Stage-6
+   >    "reassembled output would be non-2-manifold" (net −1 CORRECT) ⇒
+   >    still unwired; the NEXT wiring blocker is that Stage-6 reassembly
+   >    class.** Also new: KV9-F3 output seam femto-twin quarantine
+   >    (spec `kv2_cdt_triangulation_core` §6a — an output-identity defect,
+   >    §8b target). Remaining: (i) F0016/F0024 Stage-6 non-2-manifold
+   >    reassembly under canonicalized vertices; (ii) rim-aware clustering
+   >    for F0061 (naive + immovable-seed variants both measured and
+   >    P10-reverted — see spec scope-limit); (iii) KV9-F3 output vertex
+   >    identity.
    > 4. **Disc rim on a non-cylinder lateral** (`rim-lateral-none`: R0050,
    >    R0025 2nd wall) — `lateral_for_cap` is cylinder-only; R0025's rim
    >    lateral is a TORUS (circle-revolve), so crossing propagation +
