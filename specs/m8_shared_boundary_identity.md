@@ -101,6 +101,48 @@ design. Consequence: F0061 (rim-carrying femto-twin case) stays loudly
 walled; its tracker stays RED naming this gap. I7 therefore holds over
 pure-polygon pairs only.
 
+### 2c. Rim-aware clustering (2026-07-03 — the §2b follow-up, measured)
+
+With canon wired, the post-canon LabelMismatch wall (R0046, R0088,
+F0063) was root-caused to exactly this gap: on rim-carrying pairs the
+overlay's exact 2D input carries femto-split vertices (per-input
+projected corners and edge-subdivision points at ~1e-17…1e-13
+separation, coordinate-scale-dependent — measured cross-mesh twin pairs
+in the post-Stage-0 cherchi inputs at every mismatch site, and each
+mesh even carries BOTH roundings, mirrored). Every downstream mint
+faithfully reproduces the split in 3D — corner resolution (per-input
+`corners_a`/`corners_b`), the raw frame lift, and even the EXACT
+circle∩line rim minting (femto-split polygon edge lines → femto-split
+on-circle mints, `rim_minted`↔`rim_minted` twins at 1.4e-17 measured).
+cherchi's coplanar dedup then keys exact identity, the overlap-sheet
+boundary is only partially non-manifold, and the patch flood leaks →
+`LabelMismatch`.
+
+Mechanism (C4 rows, extending §2b): apply the SAME in-frame per-axis
+band-clustering to rim-carrying pairs, with the cluster DOMAIN
+restricted to POLYGON-CHAIN coordinates (both inputs' `poly_a`/`poly_b`
+u and v). Rim SAMPLE coordinates are excluded from the domain entirely —
+neither cluster members nor seeds — which structurally avoids both
+P10-reverted failure modes (no rim welding; no snapping onto rims).
+
+| # | Configuration | Behavior |
+|---|---|---|
+| C4a | Rim-carrying pair, polygon coords within band | Snap to first-seen representative (per axis; A's loop first — §2b C1 semantics) |
+| C4b | Rim sample coordinate (any) | Untouched, excluded from the cluster domain |
+| C4c | Polygon coord within band OF a rim sample only | Untouched (no cross-domain welding) |
+| C4d | Pure-polygon pair | Byte-identical §2b path (no behavior change) |
+
+Additional invariant I9: after clustering, no two POLYGON-chain
+coordinates on one axis differ by a nonzero amount ≤ band; rim sample
+bits are byte-identical to the unclustered run.
+
+Oracles: E2E trackers red_r0046/red_r0088/red_f0063 (LabelMismatch
+string absent; success or a different loud typed error both pass) +
+re-point the F0061 tracker (this is its named gap); the m8_disc_coplanar
+suite and the disc fixtures that killed the two reverted variants must
+stay green (the structural non-regression witnesses); full assay: 0
+WRONG, no SUPPORTED_CORRECT lost.
+
 ## 3. Branch table
 
 | # | Vertex configuration | Behavior |
