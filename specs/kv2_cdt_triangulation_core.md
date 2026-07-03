@@ -132,6 +132,25 @@ refinement of the patch is untouched).
   still applies (tests are permanent; property-level, not
   implementation-level).
 
+## 6a. GREEN-phase finding (2026-07-03, Manager adjudication): KV9-F3 seam femto-twin
+
+The new G1 planar gate unmasked a pre-existing B-Rep OUTPUT defect: the
+parallel cyl×cyl secant subtract (kv9 fixture r1=0.30, r2=0.22, d=0.35)
+emits a cap loop with TWO adjacent vertices at the tool cylinder's seam
+point — (0.13, 0) exact and (0.13, 5.38844591624835605e-18) — bridged by a
+degenerate 5.4e-18 Arc edge (measured, `KV2_G1_DUMP`). Any triangulation of
+that forced boundary edge is f32-degenerate; the old ungated path emitted
+it silently, the gate now rejects it loudly (correct per I6/P9). The two
+kv9 unit tests are quarantined `#[ignore = "KV9-F3 …"]`; the fix is
+output-side vertex identity (the `m8_shared_boundary_identity` follow-up
+class), NOT a gate exception.
+
+Corpus spot-check vs the pre-cycle baseline (same box): F0041/F0045/F0058
+fail identically at baseline (pre-existing walls), F0043 passes both,
+**F0042 improved** (baseline Errored "no active features with solids" →
+Passed 9 oracles under the CDT core). No corpus regression in the class;
+the Phase-4 full-assay per-case diff is the binding gate.
+
 ## 7. Research basis
 
 - Constrained Delaunay triangulation and its max-min-angle optimality:

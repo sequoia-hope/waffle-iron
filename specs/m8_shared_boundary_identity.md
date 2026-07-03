@@ -202,6 +202,19 @@ investigation: femto-band input motion must never yield a silent
 non-manifold output — F0047's wrecked-mesh path is a missing loud gate in
 the ellipse-junction pipeline, to be fixed first.
 
+### 8b. Output-side identity: measured case KV9-F3 (2026-07-03)
+
+The CDT-core cycle (`kv2_cdt_triangulation_core` §6a) measured an
+OUTPUT-side femto-twin: the parallel cyl×cyl secant subtract's cap loop
+carries two adjacent vertices 5.4e-18 apart at the tool cylinder's SEAM
+point ((0.13, 0) exact vs (0.13, 5.39e-18) — one plausibly the seam-ring
+tessellation vertex, one a Stage-4 relocation product), bridged by a
+degenerate Arc edge. The G1 render gate now walls it loudly
+(kv9_cyl_cyl_special: 2 tests quarantined `KV9-F3`). This is the
+follow-up's first concrete output-identity target alongside the rim-aware
+clustering gap (§2b scope limit): intended-identical output vertices must
+be minted ONCE (bit-shared), not recomputed per incident curve segment.
+
 ## 8. History (P10 record)
 
 The 2026-07-02 DRAFT designed a cross-solid near-collinear edge snap
