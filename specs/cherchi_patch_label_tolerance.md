@@ -38,13 +38,15 @@ input-hygiene cycle disproved the femto-twin hypothesis.
 | # | Configuration | Behavior |
 |---|---|---|
 | L1 | Flood stays label-homogeneous (all non-coplanar booleans) | Byte-identical patches (no behavior change) |
-| L2 | Flood reaches a triangle whose canonical label differs from the seed's | CONTINUE flooding (reference release semantics); patch label = the SEED's label; record nothing silent — count mixed-label patches for the probe |
+| L2a | Flood reaches a triangle whose canonical label is COMPATIBLE with the seed's (one label set ⊆ the other — the coplanar `[A,B]` sheet extending a single-input `[A]` region, either direction) | CONTINUE flooding (reference release semantics on the measured class); patch label = the SEED's label |
+| L2b | Flood reaches a triangle with a DISJOINT label (neither ⊆ — e.g. `[A]` vs `[B]`) | Loud `LabelMismatch` (UNCHANGED) — a genuine arrangement corruption; deliberately STRICTER than the release reference (which would silently mix), per crate P9 doctrine and the deviation policy (safe-direction, documented) |
 | L3 | `labels.len() != tris.len()` | Unchanged loud `InputMismatch` |
 
-`PatchError::LabelMismatch` is REMOVED (with its variant) or retained
-solely for a debug-assertion path mirroring the C++ debug build — decided
-by what keeps the public error surface honest; the production path never
-returns it.
+(2026-07-03 amendment, implementer delta #3: L2 split into L2a/L2b —
+subset-compatibility instead of blind tolerance. The I1 output-parity gate
+validates the choice; the C++ debug assert would fire on BOTH sub-cases,
+release tolerates both; we match release exactly where correctness is
+proven (L2a) and stay loud where it is not (L2b).)
 
 ## 4. Invariants / correctness argument (why tolerance is not a P9 hack)
 
@@ -97,6 +99,21 @@ CORRECT, not merely non-crashing:
   the arrangement's own validation remain; the deviation note must record
   that the debug-build C++ would assert where we now proceed (parity with
   RELEASE reference, documented in `docs/yang_deviations.md`).
+
+## 6a. Parity-fork deltas (implementer, 2026-07-03)
+
+- `mesh_booleans_inputcheck` on the Stage-0 operands reports
+  `Local Orientation: failed` + `Intersection: failed` (Global passes, no
+  loop). Compatible with the primary mechanism (the dedup'd sheet border);
+  flags the ALTERNATIVE, DEEPER fix: a yang-rs Stage-0 emitting
+  inputcheck-clean overlap meshes (AOnly/Overlap border as a shared
+  non-manifold intersection edge on both solids) would remove mixed-label
+  patches at the source. Out of scope here; recorded for the M8 general
+  Stage-0 work.
+- Source-confirmed: `propagateInnerLabelsOnPatch` (booleans.cpp:1336)
+  writes `labels.inside` only, never `labels.surface` — the dumped mixed
+  patch is a genuine patch-time mix, not a post-hoc relabel (strengthens
+  I2's framing).
 
 ## 7. Research basis
 
