@@ -18,7 +18,7 @@
 //! (asserted below — the increment boundary is pinned, not silent).
 
 use cad_primitives::{BoolOp, Point3, Vector3};
-use yang_rs::{boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, Mesh, Surface, YangError};
+use yang_rs::{boolean, BRep, BRepEdge, BRepFace, BRepVertex, Curve, Mesh, Surface};
 
 // ════════════════════════════════════════════════════════════════════
 // fixtures
