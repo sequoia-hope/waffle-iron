@@ -4959,4 +4959,128 @@ mod frame_cluster_tests {
         assert_eq!(p.outer[1].x().to_bits(), a.to_bits());
         assert_eq!(p.outer[2].x().to_bits(), a.to_bits());
     }
+
+    // ════════════════════════════════════════════════════════════════════
+    // M8-vertex-canon §2c: RIM-AWARE in-frame clustering
+    // (spec `specs/m8_shared_boundary_identity.md` §2c, FIP Phase 2, RED).
+    //
+    // §2b's clustering is scope-limited to PURE-POLYGON pairs (the call site's
+    // `cluster_ok = rim_a.is_empty() && rim_b.is_empty()` gate). §2c lifts that:
+    // apply the SAME per-axis band clustering to RIM-CARRYING pairs, but restrict
+    // the cluster DOMAIN to POLYGON-CHAIN coordinates and EXCLUDE rim sample
+    // coordinates entirely — neither cluster members nor seeds (C4a–C4d, I9).
+    // This structurally avoids both P10-reverted failure modes (no rim welding;
+    // no snapping polygon corners onto rims).
+    //
+    // SETTLED SEAM (the implementer provides this; these tests do NOT compile
+    // until it exists — that IS the RED state, per the §2b precedent above):
+    //
+    //   fn cluster_frame_coords_rim_aware(
+    //       polys: &mut [&mut PolygonWithHoles],
+    //       rim_excluded: &[&[Point2]],   // per-poly rim sample coords (u,v),
+    //                                     // excluded from the cluster domain
+    //       band: f64,
+    //   )
+    //
+    // Contract: cluster the polygons' non-rim coordinates exactly as
+    // `cluster_frame_coords` does (per-axis, first-seen representative, A's loop
+    // first); a coordinate bit-equal to a rim sample is NEITHER a member nor a
+    // seed, and a polygon coordinate within band of ONLY a rim sample is left
+    // untouched (C4c). With every `rim_excluded` slice empty the function is
+    // byte-identical to `cluster_frame_coords` (C4d).
+    // ════════════════════════════════════════════════════════════════════
+
+    fn pts(coords: &[(f64, f64)]) -> Vec<Point2> {
+        coords.iter().map(|&(x, y)| Point2::new(x, y)).collect()
+    }
+
+    /// I9 / C4a / C4b / C4c (RED): a rim-carrying pair. Both polygon chains carry
+    /// an intended-equal frame coordinate split ~1e-16 (must weld — C4a/I9); a
+    /// polygon coordinate sits femto-near a RIM sample only (must NOT weld onto it
+    /// — C4c); rim samples stay byte-identical (C4b). RED today because the
+    /// rim-aware seam does not exist (production skips clustering entirely for
+    /// rim-carrying pairs, so the twins would never weld).
+    #[test]
+    fn red_rim_carrying_clusters_polygon_excludes_rim() {
+        let band = 1e-12;
+        // Intended-equal chain twins across A and B (1 ULP / 2 ULP off 1.0) — the
+        // measured femto-crookedness; both must collapse to the first-seen rep.
+        let u1 = f64::from_bits(1.0f64.to_bits() + 1); // A
+        let u2 = f64::from_bits(1.0f64.to_bits() + 2); // B
+                                                       // A rim sample at u = 4.0, and a POLYGON coord 1 ULP from it (C4c).
+        let rho = 4.0f64;
+        let near_rim = f64::from_bits(rho.to_bits() + 1);
+
+        let mut a = poly(&[(1.0, 0.0), (u1, 2.0), (near_rim, 2.0), (3.0, 0.0)]);
+        let mut b = poly(&[(u2, 5.0), (3.0, 5.0), (3.0, 4.0)]);
+
+        // A is the rim-carrying face (a disc-cap ring): its rim samples include
+        // rho on the u axis. B carries no rim.
+        let rim_a = pts(&[(rho, 2.0), (rho, 0.0)]);
+        let rim_b: Vec<Point2> = Vec::new();
+
+        cluster_frame_coords_rim_aware(
+            &mut [&mut a, &mut b],
+            &[rim_a.as_slice(), rim_b.as_slice()],
+            band,
+        );
+
+        // C4a / I9: the intended-equal chain twins are BIT-equal to the first-seen
+        // representative (1.0, A's loop first).
+        let rep = 1.0f64.to_bits();
+        assert_eq!(a.outer[0].x().to_bits(), rep, "A[0].u representative");
+        assert_eq!(a.outer[1].x().to_bits(), rep, "A[1].u (1 ULP) snaps to rep");
+        assert_eq!(b.outer[0].x().to_bits(), rep, "B[0].u (2 ULP) snaps to rep");
+
+        // C4c: the polygon coord femto-near a RIM sample only is UNTOUCHED
+        // (rim excluded from the domain — no cross-domain welding).
+        assert_eq!(
+            a.outer[2].x().to_bits(),
+            near_rim.to_bits(),
+            "C4c: polygon coord within band of a rim sample only must not weld onto it"
+        );
+
+        // C4b: rim samples are byte-identical to their input (never members/seeds;
+        // the pass must never mutate them).
+        assert_eq!(rim_a[0].x().to_bits(), rho.to_bits(), "C4b: rim sample u");
+        assert_eq!(
+            rim_a[0].y().to_bits(),
+            2.0f64.to_bits(),
+            "C4b: rim sample v"
+        );
+
+        // I9 audit: no twin events remain among the POLYGON coordinates on either
+        // axis (the near_rim coord is isolated from other polygon coords, so it is
+        // not itself a twin event).
+        assert_no_twin_events(&[&a, &b], band);
+    }
+
+    /// C4d guard: a PURE-polygon pair (all `rim_excluded` slices empty) through
+    /// the rim-aware path is byte-identical to the §2b `cluster_frame_coords`
+    /// behavior — no behavior change for the pure-polygon population that §2b
+    /// already serves. GREEN once the seam lands (protects §2b byte-identity);
+    /// compile-gated with the RED above until then.
+    #[test]
+    fn guard_c4d_pure_polygon_pair_matches_2b_behavior() {
+        let band = 1e-12;
+        let u1 = f64::from_bits(1.0f64.to_bits() + 1);
+        let u2 = f64::from_bits(1.0f64.to_bits() + 2);
+        let mk = || {
+            (
+                poly(&[(1.0, 0.0), (u1, 2.0), (3.0, 2.0), (3.0, 0.0)]),
+                poly(&[(u2, 5.0), (3.0, 5.0), (3.0, 4.0)]),
+            )
+        };
+
+        // §2b reference path.
+        let (mut ra, mut rb) = mk();
+        cluster_frame_coords(&mut [&mut ra, &mut rb], band);
+
+        // Rim-aware path with empty rim exclusion (C4d).
+        let (mut ca, mut cb) = mk();
+        cluster_frame_coords_rim_aware(&mut [&mut ca, &mut cb], &[&[], &[]], band);
+
+        assert_eq!(bits2(&ca), bits2(&ra), "C4d: A byte-identical to §2b path");
+        assert_eq!(bits2(&cb), bits2(&rb), "C4d: B byte-identical to §2b path");
+    }
 }
