@@ -231,6 +231,21 @@ cleared by M1 (8f6f44af), M2 (ae9401ae), M3a (22022297), M3b
 tests, output seam femto-twin) remains open as an m8_shared_boundary_identity
 §8b target — it is an upstream output-identity defect, not a CDT-core issue.
 
+### 6c-i. Adversary correction to the M1 attribution (682bbd51)
+
+Measured: the M1 flip pass fires ZERO times on the banked F0016/R0040
+rings — that regression class was cleared by the M2 flood-fill variant
+swap, not by M1 (spec §6b's attribution was wrong; recorded here rather
+than rewritten — P10 honesty). M1's reachable arm is COCIRCULAR DELAUNAY
+TIES (4+ concyclic points, spade tie-breaks onto the flat chord — a
+plausible standing hazard for circular-rim cap projections), now pinned by
+`killer_m1_flip_concyclic_tie` (neuter-verified RED once, by the
+adversary) plus a 2000-polygon winding/manifoldness sweep. The flip-pass
+budget error is unreachable (each accepted flip strictly reduces the
+global grid-degenerate count) — defensive only. Residual E2E-only risk:
+per-face vs mesh-wide max_abs in the grid predicate (100× headroom
+argument); the full-assay diff remains its binding gate.
+
 ## 7. Research basis
 
 - Constrained Delaunay triangulation and its max-min-angle optimality:
