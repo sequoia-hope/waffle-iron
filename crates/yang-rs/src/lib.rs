@@ -7418,6 +7418,16 @@ struct PatchInfo {
     /// already-reversed input wall (e.g. a washer's inner tube) must keep
     /// its sense in the output — composed by XOR with the Subtract-B flip.
     input_reversed: bool,
+    /// Spec yang_stage6_sliver_topology §2/§4B: this patch contained ≥1 FOLD
+    /// sliver that §4A excluded from boundary derivation (`patch_fold_slivers`).
+    /// Such a patch may carry a whole shared solid edge as ONE un-subdivided
+    /// chord (the collapsed subdivision the slivers used to represent), so it
+    /// — and ONLY it — is eligible for the §4B loop T-subdivision. Patches
+    /// with no excluded fold sliver keep byte-identical loops (the measured
+    /// chord lives on the fold-bearing side; the other side already
+    /// subdivides), which keeps curved / benign-T-junction output at exact
+    /// reference parity.
+    had_fold_sliver: bool,
 }
 
 /// PR-YR10: the Phase-A structures `reconstruct_topology` derives before the
@@ -7467,12 +7477,14 @@ fn compute_phase_a(
         }
         let inherited = input_brep.faces()[face_idx].surface;
         let input_reversed = input_brep.faces()[face_idx].reversed;
+        let had_fold_sliver = !patch_fold_slivers(patch, mesh).is_empty();
         infos.push(PatchInfo {
             cycles,
             input,
             inherited,
             face_idx,
             input_reversed,
+            had_fold_sliver,
         });
     }
 
@@ -10145,8 +10157,13 @@ fn emit_topology(
     let mut faces: Vec<BRepFace> = Vec::new();
     // PR-KV13 F2: per-output-face attribution, pushed in lockstep with `faces`.
     let mut face_attribution: Vec<TriangleAttribution> = Vec::new();
-    for info in infos {
-        let cycles = &info.cycles;
+    // Spec yang_stage6_sliver_topology §4B: T-subdivide each loop edge at
+    // foreign on-segment output vertices BEFORE emission, so a shared solid
+    // edge subdivided differently on its two sides pairs segment-by-segment.
+    // A strict no-op (byte-identical cycles) for output with no such vertices.
+    let subdivided_cycles = subdivide_loops_at_shared_vertices(infos, mesh);
+    for (info_index, info) in infos.iter().enumerate() {
+        let cycles = &subdivided_cycles[info_index];
         let inherited = info.inherited;
         let face_idx = info.face_idx;
         let info_attr = TriangleAttribution {
@@ -10507,9 +10524,28 @@ fn patch_boundary_cycle(patch: &Patch, mesh: &Mesh) -> Result<Vec<Vec<(u32, u32)
 
     let patch_set: HashSet<u32> = patch.tri_indices.iter().copied().collect();
 
-    // Precompute edge → tris-in-patch count for O(T) total cost
+    // Precompute edge → tris-in-patch count for O(T) total cost.
+    //
+    // Spec yang_stage6_sliver_topology §4A (walk robustness): EXCLUDE the
+    // patch's FOLD slivers (`patch_fold_slivers`) from BOTH the edge-count
+    // preamble and the directed-boundary collection. A fold sliver is a
+    // zero-area triangle whose sign-of-zero winding duplicates a real
+    // triangle's directed edge (the measured F0016 chord fold); its spurious
+    // directed edges would unbalance the walk into a false `NonManifoldOutput`.
+    // The fold slivers keep their attribution and stay in the output mesh; they
+    // simply carry no boundary of their own. NON-fold degenerate slivers (e.g.
+    // a femto-twin membrane welding two coincident vertices, whose edges all
+    // pair anti-parallel with real neighbours) are KEPT — excluding them would
+    // promote a legitimately-interior real edge to a false boundary and diverge
+    // from the reference arrangement. A patch that is ALL fold slivers derives
+    // an empty boundary here → the caller's empty-cycles guard raises the loud
+    // `NonManifoldOutput` (S5), never a silent degenerate face.
+    let excluded_slivers = patch_fold_slivers(patch, mesh);
     let mut patch_edge_count: BTreeMap<(u32, u32), u32> = BTreeMap::new();
     for &t in &patch.tri_indices {
+        if excluded_slivers.contains(&t) {
+            continue;
+        }
         let tri = &mesh.tris[t as usize];
         for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
             let (va, vb) = (tri[i], tri[j]);
@@ -10518,9 +10554,13 @@ fn patch_boundary_cycle(patch: &Patch, mesh: &Mesh) -> Result<Vec<Vec<(u32, u32)
         }
     }
 
-    // Collect directed boundary edges in triangle CCW order
+    // Collect directed boundary edges in triangle CCW order (fold slivers
+    // excluded — see §4A note above).
     let mut directed_boundary: Vec<(u32, u32)> = Vec::new();
     for &t in &patch.tri_indices {
+        if excluded_slivers.contains(&t) {
+            continue;
+        }
         let tri = &mesh.tris[t as usize];
         for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
             let (va, vb) = (tri[i], tri[j]);
@@ -10586,6 +10626,198 @@ fn patch_boundary_cycle(patch: &Patch, mesh: &Mesh) -> Result<Vec<Vec<(u32, u32)
     }
 
     Ok(cycles)
+}
+
+/// A mesh triangle is a degenerate (zero-area) sliver when twice its area
+/// `‖(p1−p0)×(p2−p0)‖` falls below `MIN_FEATURE_SIZE²` — the SAME shared
+/// threshold the Stage-6 attribution degenerate branch uses (governance A14.3,
+/// no ad-hoc epsilon). The exact arrangement keeps such slivers along shared
+/// collinear solid edges for watertightness; spec `yang_stage6_sliver_topology`
+/// §4A excludes them from boundary derivation.
+fn triangle_is_degenerate(mesh: &Mesh, t: u32) -> bool {
+    let tri = &mesh.tris[t as usize];
+    let p0 = mesh.verts[tri[0] as usize].as_array();
+    let p1 = mesh.verts[tri[1] as usize].as_array();
+    let p2 = mesh.verts[tri[2] as usize].as_array();
+    let e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+    let e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+    let cross = [
+        e1[1] * e2[2] - e1[2] * e2[1],
+        e1[2] * e2[0] - e1[0] * e2[2],
+        e1[0] * e2[1] - e1[1] * e2[0],
+    ];
+    let twice_area = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
+    twice_area < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE
+}
+
+/// The patch's FOLD slivers — the degenerate zero-area triangles that spec
+/// `yang_stage6_sliver_topology` §4A excludes from boundary derivation.
+///
+/// A fold sliver has at least one DIRECTED edge `(a→b)` that coincides,
+/// SAME-direction, with a directed edge of another triangle in the patch
+/// (directed multiplicity ≥ 2). That is the measured F0016 signature: a
+/// zero-area shim whose sign-of-zero winding duplicates the real triangle's
+/// chord edge, unbalancing the boundary walk into a false `NonManifoldOutput`.
+///
+/// A degenerate sliver whose edges instead pair ANTI-parallel with their
+/// neighbours — e.g. a femto-twin membrane welding two coincident vertices,
+/// where every directed edge is unique — is NOT a fold. Such a sliver carries a
+/// legitimate (if zero-length) boundary; excluding it would drop a real
+/// neighbour edge from interior to boundary and diverge from the reference
+/// arrangement (curved / twin parity). So it is KEPT.
+fn patch_fold_slivers(patch: &Patch, mesh: &Mesh) -> std::collections::HashSet<u32> {
+    use std::collections::{HashMap, HashSet};
+    // Directed edge multiplicity over ALL patch triangles (real + degenerate).
+    let mut dir_count: HashMap<(u32, u32), u32> = HashMap::new();
+    for &t in &patch.tri_indices {
+        let tri = &mesh.tris[t as usize];
+        for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
+            *dir_count.entry((tri[i], tri[j])).or_insert(0) += 1;
+        }
+    }
+    let mut folds: HashSet<u32> = HashSet::new();
+    for &t in &patch.tri_indices {
+        if !triangle_is_degenerate(mesh, t) {
+            continue;
+        }
+        let tri = &mesh.tris[t as usize];
+        let is_fold = [(0usize, 1usize), (1, 2), (2, 0)]
+            .iter()
+            .any(|&(i, j)| dir_count.get(&(tri[i], tri[j])).copied().unwrap_or(0) >= 2);
+        if is_fold {
+            folds.insert(t);
+        }
+    }
+    folds
+}
+
+/// Exact 3D on-open-segment test for the Stage-6 loop T-subdivision (spec
+/// `yang_stage6_sliver_topology` §4B). Returns `Some(t_num)` — the exact
+/// numerator of the segment parameter `t = ((v−a)·(b−a)) / |b−a|²` — when `v`
+/// lies STRICTLY between `a` and `b` (exactly collinear AND `0 < t < 1`);
+/// `None` otherwise. All candidate vertices on one edge share the `|b−a|²`
+/// denominator, so `t_num` alone orders them. Pure rational (`f64 → RBig` is
+/// lossless); no tolerance — a vertex only ULP-near the segment does NOT split
+/// it (that residue class stays loud downstream, spec §5 S6).
+fn on_open_segment_param(a: [f64; 3], b: [f64; 3], v: [f64; 3]) -> Option<dashu::rational::RBig> {
+    use crate::coplanar_overlay::rat;
+    use dashu::rational::RBig;
+    let r = |x: f64| rat(x).ok();
+    let (ax, ay, az) = (r(a[0])?, r(a[1])?, r(a[2])?);
+    let (bx, by, bz) = (r(b[0])?, r(b[1])?, r(b[2])?);
+    let (vx, vy, vz) = (r(v[0])?, r(v[1])?, r(v[2])?);
+    let (abx, aby, abz) = (&bx - &ax, &by - &ay, &bz - &az);
+    let (dax, day, daz) = (&vx - &ax, &vy - &ay, &vz - &az);
+    // Exactly collinear: cross(ab, da) == 0 in all three components.
+    let cx = &aby * &daz - &abz * &day;
+    let cy = &abz * &dax - &abx * &daz;
+    let cz = &abx * &day - &aby * &dax;
+    if cx != RBig::ZERO || cy != RBig::ZERO || cz != RBig::ZERO {
+        return None;
+    }
+    let t_num = &dax * &abx + &day * &aby + &daz * &abz;
+    let len2 = &abx * &abx + &aby * &aby + &abz * &abz;
+    // Strict betweenness: 0 < t_num < len2 (len2 > 0 for a real edge; a
+    // degenerate zero-length edge yields len2 == 0 and no split).
+    if t_num > RBig::ZERO && t_num < len2 {
+        Some(t_num)
+    } else {
+        None
+    }
+}
+
+/// Stage-6 loop T-subdivision (spec `yang_stage6_sliver_topology` §4B). After
+/// §4A excludes degenerate slivers from boundary derivation, a face whose patch
+/// carried a whole shared solid edge as ONE chord `(a,b)` must split that chord
+/// at every output vertex that (i) lies STRICTLY on segment `a–b` (exact
+/// rational collinearity + betweenness) AND (ii) is used by SOME OTHER output
+/// loop. The other side of the shared edge subdivides it at those same
+/// vertices, so after the split every segment of the solid edge is used by
+/// exactly two directed loop edges — the 2-manifold seam kernel-v2's
+/// edge-pairing check demands. Self-pairs within one weakly-simple loop are
+/// legitimate (matching the existing kernel-v2 self-pair handling).
+///
+/// Returns per-`info` subdivided cycles (same outer shape as `info.cycles`).
+/// Determinism: split vertices ordered by exact segment parameter, ties by
+/// vertex index. A no-op (byte-identical cycles) when no loop edge has an
+/// on-segment foreign vertex (spec §5 S3), so non-sliver output is unaffected.
+fn subdivide_loops_at_shared_vertices(
+    infos: &[PatchInfo],
+    mesh: &Mesh,
+) -> Vec<Vec<Vec<(u32, u32)>>> {
+    use dashu::rational::RBig;
+    use std::collections::BTreeMap;
+
+    // (1) Assign a global loop id to every (info, cycle); record which loop ids
+    // use each vertex. A vertex used repeatedly within ONE loop counts that
+    // loop once (dedup) so the "used by some OTHER loop" test is exact.
+    let mut next_loop = 0usize;
+    let mut cycle_loop_ids: Vec<Vec<usize>> = Vec::with_capacity(infos.len());
+    let mut vertex_loops: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+    for info in infos {
+        let mut ids = Vec::with_capacity(info.cycles.len());
+        for cycle in &info.cycles {
+            for &(s, _e) in cycle {
+                vertex_loops.entry(s).or_default().push(next_loop);
+            }
+            ids.push(next_loop);
+            next_loop += 1;
+        }
+        cycle_loop_ids.push(ids);
+    }
+    for ids in vertex_loops.values_mut() {
+        ids.sort_unstable();
+        ids.dedup();
+    }
+
+    // (2) Split each loop edge at its foreign on-segment vertices — but ONLY
+    // for patches that had a degenerate sliver excluded (spec §2/§4B). A patch
+    // with no excluded sliver keeps byte-identical loops: the measured
+    // un-subdivided chord lives on the sliver-bearing side, and subdividing a
+    // benign T-junction on a clean curved/planar patch would diverge from the
+    // C++ reference arrangement (which does not carry that vertex on the edge),
+    // breaking reference parity. The vertex-loop map above still spans ALL
+    // loops, so the sliver side splits at the foreign (fine-side) vertices.
+    let mut out: Vec<Vec<Vec<(u32, u32)>>> = Vec::with_capacity(infos.len());
+    for (ii, info) in infos.iter().enumerate() {
+        if !info.had_fold_sliver {
+            out.push(info.cycles.clone());
+            continue;
+        }
+        let mut info_cycles: Vec<Vec<(u32, u32)>> = Vec::with_capacity(info.cycles.len());
+        for (ci, cycle) in info.cycles.iter().enumerate() {
+            let lid = cycle_loop_ids[ii][ci];
+            let mut new_cycle: Vec<(u32, u32)> = Vec::with_capacity(cycle.len());
+            for &(s, e) in cycle {
+                let pa = mesh.verts[s as usize].as_array();
+                let pb = mesh.verts[e as usize].as_array();
+                let mut splits: Vec<(RBig, u32)> = Vec::new();
+                for (&v, luse) in &vertex_loops {
+                    if v == s || v == e {
+                        continue;
+                    }
+                    // Must be used by a loop OTHER than this one.
+                    if !luse.iter().any(|&l| l != lid) {
+                        continue;
+                    }
+                    let pv = mesh.verts[v as usize].as_array();
+                    if let Some(t_num) = on_open_segment_param(pa, pb, pv) {
+                        splits.push((t_num, v));
+                    }
+                }
+                splits.sort_by(|x, y| x.0.cmp(&y.0).then(x.1.cmp(&y.1)));
+                let mut prev = s;
+                for (_, v) in splits {
+                    new_cycle.push((prev, v));
+                    prev = v;
+                }
+                new_cycle.push((prev, e));
+            }
+            info_cycles.push(new_cycle);
+        }
+        out.push(info_cycles);
+    }
+    out
 }
 
 // =========================================================================
@@ -12500,10 +12732,6 @@ mod tests {
     /// excluded from boundary derivation (A) and face 0's chord is T-subdivided
     /// at c,d (B) so every shared segment is 2-covered.
     #[test]
-    #[ignore = "Stage-6-sliver RED (spec yang_stage6_sliver_topology): reconstruct_topology \
-                dead-ends at NonManifoldOutput on the duplicated zero-area chord edge; GREEN when \
-                the walk-robustness + loop T-subdivision design lands. Run: \
-                cargo test -p yang-rs --lib stage6_ -- --ignored"]
     fn stage6_sliver_fold_reassembles_with_subdivided_chord() {
         let a = two_face_shared_vertex_brep();
         let b = two_face_shared_vertex_brep();
