@@ -143,6 +143,18 @@ suite and the disc fixtures that killed the two reverted variants must
 stay green (the structural non-regression witnesses); full assay: 0
 WRONG, no SUPPORTED_CORRECT lost.
 
+**§2c OUTCOME (2026-07-03, 781e2e2e SHIPPED — prediction partially
+contradicted, P10 record):** the mechanism landed faithfully (C4a–C4d,
+disc witnesses green, zero corpus regression; full assay 83↔83 CORRECT /
+0 WRONG with F0061 + R0078 lifting UNSUPPORTED(coplanar)→deeper loud
+ERROR — F0061's named wall closed). BUT the headline LabelMismatch trio
+(R0046/R0088/F0063) was measured UNFIXED: their 2D twins resolve to
+shared 3D coords regardless (zero cross-mesh femto-twins at the cherchi
+input at band 1.7e-12), so the twins were incidental. The trio's real
+root was localized by reference parity to the cherchi-rs patch-label
+guard — see `specs/cherchi_patch_label_tolerance.md` (the successor
+cycle).
+
 ## 3. Branch table
 
 | # | Vertex configuration | Behavior |
