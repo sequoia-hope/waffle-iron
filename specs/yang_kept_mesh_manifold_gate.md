@@ -114,6 +114,14 @@ diagnosis fully localized (defective kept set from non-conformal
 Stage-0 overlay input; `m8_shared_boundary_identity` §8c). The named
 fix remains Stage-0 inputcheck-clean overlap emission (general-M8).
 
+> **Follow-up (2026-07-03): the named fix SHIPPED** —
+> `specs/m8_stage0_inputcheck_clean_emission.md` (cluster-domain split
+> propagation + resolution-collapse drop). F0063 → SUPPORTED_CORRECT;
+> R0046's defective-operand op fixed (case progresses to a new loud
+> output-loop wall); R0088 retains one edge-pairing instance (band-scale
+> crossing-vertex residual, that spec's §2 caveat). This gate's abort
+> rationale stands unchanged.
+
 ## 3. Parameters
 
 None. The gate is unconditional and tolerance-free (undirected 2-cover +

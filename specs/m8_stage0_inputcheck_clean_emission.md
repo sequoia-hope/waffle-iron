@@ -112,6 +112,27 @@ over well-formed triangles.
   `r0046_stage0_{a,b}.obj` bank is the patch-label cycle's pinned input
   (pre-§2c emission) and stays untouched.
 
+## 2a. GREEN outcome (2026-07-03, shipped)
+
+Fixes landed exactly on M-A/M-B (rows E7/E8): `collect_edge_splits`
+endpoint projections routed through the pair's pre→post cluster map;
+`tris_for` drops triangles whose resolved corners are bit-identical;
+`build_stage0_mesh` compacts orphaned vertices (measured: the reference
+`mesh_booleans_inputcheck` binary SEGFAULTS on unreferenced vertices —
+census grew an `unreferenced_verts` bucket). All oracles GREEN: banked
+fixtures re-banked from the fixed emission pass native census + sidecar
+all-five (oracle agreement holds); E2E campaign 3/3; witnesses green
+(fuzz_boxes full differential, patch-label parity, pocket parity, all m8
+campaigns — `m8_samenormal::red_f0061_residual_pair` flips GREEN as a
+bonus); full assay 96 SUPPORTED_CORRECT / 0 WRONG / zero lost, **F0063 →
+SUPPORTED_CORRECT** (+F0016/F0024/F0061). Quantified residue (corpus
+sweep TSV, 356 operands / 10 introduced-dirty): **M-C** band-scale
+overlay-crossing-vertex slivers (R0088-a 12 boundary edges + 1 pinch;
+R0070-b 6) and a small fold-pair emission class (F0027/28/29, R0007,
+R0023, R0038, R0089 — misoriented+improper pairs, no boundary edges).
+Both are named follow-up cycles; per P9 no tolerance-based welding was
+attempted for M-C in this cycle.
+
 ## 3. Parameters
 
 None new. No tolerances, no epsilons (A14.3) — the emission fix must be

@@ -121,25 +121,40 @@ the roadmap's remaining work:
    >    (`specs/cherchi_patch_label_tolerance.md`, 0f9e2982: the C++
    >    label-homogeneity assert is debug-only; L2a subset-compatible
    >    floods proceed, L2b disjoint stays loud, deviation N23; assay
-   >    83/0, zero lost).** Remaining: (i) R0046/R0088's next wall —
-   >    **DIAGNOSED 2026-07-03 (m8_shared_boundary_identity §8c): NOT the
-   >    stage6-sliver T-subdivision class (disproven). The kept mesh out
-   >    of the native boolean is defective (open holes + double-covered
-   >    strips, `check_watertight_2manifold` FAILS) — the L2a mixed-label
-   >    flood over the non-conformal Stage-0 overlay operands keeps a
-   >    wrong set, at reference parity with the C++ release. Root folds
-   >    into (v). A yang-side kept-mesh gate was attempted and ABORTED
-   >    per P10 (`specs/yang_kept_mesh_manifold_gate.md` §2b): valid
-   >    N22 fold-sliver output violates EVERY mesh-level watertightness
-   >    form (directed / Euler / undirected 2-cover — F0016 measured
-   >    count=1 on a real edge), because differently-subdivided
-   >    collinear chains only pair after the LOOP-level T-subdivision —
-   >    so kernel-v2's post-subdivision edge pairing IS the honest wall
-   >    location;** (ii) F0063
-   >    chained-input non-2-manifold; (iii) KV9-F3 output vertex identity;
-   >    (iv) R0078 azimuth/coplanar; (v) Stage-0 inputcheck-clean overlap
-   >    emission (the deeper §6a alternative, general-M8) — NOW THE NAMED
-   >    ROOT for R0046/R0088/F0063 (their acceptance cases).
+   >    83/0, zero lost).** **Item (v) SHIPPED 2026-07-03 (spec
+   >    `specs/m8_stage0_inputcheck_clean_emission.md`): Stage-0
+   >    inputcheck-clean overlap emission.** Increment-0 measurement (new
+   >    per-operand diagnosis: `YANG_STAGE0_DUMP_DIR` dump +
+   >    `cherchi_rs::inputcheck` native five-axiom census + sidecar
+   >    oracle) proved ALL violations Stage-0-INTRODUCED (every pre mesh
+   >    clean; the F0063 "chained-inherited" hypothesis disproven) and
+   >    localized TWO mechanisms: **M-A** — the §2b/§2c clustering rewrote
+   >    the overlay's 2D domain while `collect_edge_splits` re-projected
+   >    edge endpoints RAW, so its exact collinearity test silently
+   >    dropped every boundary split on a clustering-moved edge (holes +
+   >    T-junction improper contacts; F0063 op0: 567 boundary edges);
+   >    **M-B** — the many-to-one 2D→3D vertex resolution emitted
+   >    `[u,u,v]` degenerate triangles (+ orphaned vertices that SEGFAULT
+   >    the reference inputcheck binary). Fixes: endpoint projections
+   >    routed through the pair's cluster map; resolved-degenerate
+   >    triangles dropped at emission; unreferenced-vertex compaction.
+   >    **Outcomes: F0063 → SUPPORTED_CORRECT end-to-end; F0016/F0024 +
+   >    F0061 land CORRECT; assay 96 CORRECT / 0 WRONG / zero lost;
+   >    corpus-wide operand sweep
+   >    (`docs/audits/stage0_operand_inputcheck_sweep_2026-07-03.tsv`):
+   >    356 Stage-0 operands, only 10 with introduced defects.**
+   >    Remaining after (v): (i-residual) R0046 progresses to a NEW loud
+   >    kernel-v2 wall (`InvalidBooleanOutput("output loop with fewer
+   >    than 3 edges...")`); R0088 keeps ONE edge-pairing instance —
+   >    measured **M-C**: overlay-minted crossing vertices band-close
+   >    (~1e-7·scale) to input corners emit band-scale slivers
+   >    (12 boundary edges on its A operand; same class R0070-b) — plus
+   >    a small fold-pair emission class (F0027/28/29, R0007, R0023,
+   >    R0038, R0089; see the sweep TSV). (iii) KV9-F3 output vertex
+   >    identity; (iv) R0078 azimuth/coplanar. The P10 records stand:
+   >    no mesh-level kept-set gate (`yang_kept_mesh_manifold_gate.md`
+   >    §2b); kernel-v2's post-subdivision edge pairing stays the honest
+   >    downstream wall.
    > 4. **Disc rim on a non-cylinder lateral** (`rim-lateral-none`: R0050,
    >    R0025 2nd wall) — `lateral_for_cap` is cylinder-only; R0025's rim
    >    lateral is a TORUS (circle-revolve), so crossing propagation +
