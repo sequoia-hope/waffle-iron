@@ -105,14 +105,20 @@ the roadmap's remaining work:
    >    pass and the R0046/R0088/F0063 coplanar walls lift into deeper loud
    >    errors, but F0016/F0024 flip CORRECT→loud Stage-6
    >    "reassembled output would be non-2-manifold" (net −1 CORRECT) ⇒
-   >    still unwired; the NEXT wiring blocker is that Stage-6 reassembly
-   >    class.** Also new: KV9-F3 output seam femto-twin quarantine
-   >    (spec `kv2_cdt_triangulation_core` §6a — an output-identity defect,
-   >    §8b target). Remaining: (i) F0016/F0024 Stage-6 non-2-manifold
-   >    reassembly under canonicalized vertices; (ii) rim-aware clustering
-   >    for F0061 (naive + immovable-seed variants both measured and
-   >    P10-reverted — see spec scope-limit); (iii) KV9-F3 output vertex
-   >    identity.
+   >    unwired at that point.** **THEN (same day): the Stage-6 class was
+   >    root-caused and fixed (spec `specs/yang_stage6_sliver_topology.md`,
+   >    8064537f; deviation N22: fold-sliver exclusion from patch boundary
+   >    walks + loop T-subdivision at on-segment foreign vertices), and the
+   >    world-space pass is now PERMANENTLY WIRED (14bc23ce, m8 §8a-iii):
+   >    re-wire gate 83↔83 CORRECT / 0 WRONG / zero lost; F0022
+   >    ERROR→CORRECT even unwired. Assay now 83 CORRECT.** Also new:
+   >    KV9-F3 output seam femto-twin quarantine (spec
+   >    `kv2_cdt_triangulation_core` §6a — an output-identity defect, §8b
+   >    target). Remaining: (i) rim-aware clustering for F0061 (naive +
+   >    immovable-seed variants both measured and P10-reverted — see spec
+   >    scope-limit); (ii) KV9-F3 output vertex identity; (iii) the lifted
+   >    walls' next classes (R0046/R0088/F0063 now loud cherchi
+   >    LabelMismatch; R0078 azimuth/coplanar).
    > 4. **Disc rim on a non-cylinder lateral** (`rim-lateral-none`: R0050,
    >    R0025 2nd wall) — `lateral_for_cap` is cylinder-only; R0025's rim
    >    lateral is a TORUS (circle-revolve), so crossing propagation +
