@@ -19,14 +19,17 @@
 //! rim-carrying pairs, restricting the cluster DOMAIN to POLYGON-CHAIN
 //! coordinates and EXCLUDING rim sample coordinates (C4a–C4d, invariant I9).
 //!
-//! ## RED target (spec §2c oracles)
+//! ## Status: GREEN — retained as permanent non-regression
 //!
-//! Each tracker replays its corpus case through the full kernel-v2 dispatch and
-//! asserts the boolean-failure set does NOT carry the `LabelMismatch` string.
-//! SUCCESS or a DIFFERENT loud typed error both PASS — layered blockers are
-//! expected (the ear-clip / sliver classes sit downstream of the same cases).
-//! The trackers are RED today (each currently surfaces `LabelMismatch`) and are
-//! `#[ignore]`d so plain `cargo test` stays green. Run with:
+//! The `LabelMismatch` wall these trackers were RED against was retired
+//! 2026-07-03 by TWO stacked cycles: §2c rim-aware clustering (781e2e2e)
+//! plus the cherchi patch-label reference-parity fix
+//! (`specs/cherchi_patch_label_tolerance.md`, 0f9e2982 — L2a
+//! subset-compatible flood). The asserts stay: `LabelMismatch` returning on
+//! these cases would be a regression of both cycles. The cases' LIVE walls
+//! moved downstream (kernel-v2 edge pairing / non-2-manifold re-entry) and
+//! are tracked by `m8_stage0_inputcheck_campaign.rs` (spec
+//! `m8_stage0_inputcheck_clean_emission`). Run with:
 //!
 //! ```text
 //! cargo test -p test-harness --test m8_rim_clustering_campaign -- --ignored --nocapture
@@ -138,26 +141,24 @@ fn assert_no_label_mismatch(case_id: &str) {
 }
 
 #[test]
-#[ignore = "M8-rim-clustering RED (spec m8_shared_boundary_identity §2c): R0046 rim-carrying \
-            pair skips §2b clustering (rim_a/rim_b non-empty), so the overlay's femto-split 2D \
-            input leaks the patch flood → cherchi LabelMismatch; GREEN when rim-aware clustering \
-            lands (success or a different loud error both pass)"]
+#[ignore = "non-regression: R0046 must never re-wall on cherchi LabelMismatch (retired by \
+            §2c rim-aware clustering + cherchi_patch_label_tolerance, 2026-07-03); its LIVE \
+            wall is tracked by m8_stage0_inputcheck_campaign"]
 fn red_r0046() {
     assert_no_label_mismatch("R0046");
 }
 
 #[test]
-#[ignore = "M8-rim-clustering RED (spec m8_shared_boundary_identity §2c): R0088 rim-carrying \
-            pair walls on cherchi LabelMismatch (same femto-split-input class as R0046); GREEN \
-            when rim-aware clustering lands"]
+#[ignore = "non-regression: R0088 must never re-wall on cherchi LabelMismatch (retired \
+            2026-07-03); its LIVE wall is tracked by m8_stage0_inputcheck_campaign"]
 fn red_r0088() {
     assert_no_label_mismatch("R0088");
 }
 
 #[test]
-#[ignore = "M8-rim-clustering RED (spec m8_shared_boundary_identity §2c): F0063 rim-carrying \
-            pair walls on cherchi LabelMismatch (same class; heavier ring — 200s hang guard); \
-            GREEN when rim-aware clustering lands"]
+#[ignore = "non-regression: F0063 must never re-wall on cherchi LabelMismatch (retired \
+            2026-07-03; 200s hang guard); its LIVE wall is tracked by \
+            m8_stage0_inputcheck_campaign"]
 fn red_f0063() {
     assert_no_label_mismatch("F0063");
 }
