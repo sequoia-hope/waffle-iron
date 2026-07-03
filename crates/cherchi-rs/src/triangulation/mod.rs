@@ -1381,3 +1381,159 @@ mod tests {
         0.5 * ((b.x() - a.x()) * (c.y() - a.y()) - (c.x() - a.x()) * (b.y() - a.y()))
     }
 }
+
+#[cfg(test)]
+mod floodfill_red_tests {
+    //! Round-2 M2 contract (spec `kv2_cdt_triangulation_core.md` §6b): the
+    //! boundary-only CDT's interior/exterior classification must switch from
+    //! f64 centroid parity to a flood-fill from the convex hull across
+    //! non-constraint edges (the `_refined` §6a mechanism), KEEPING the
+    //! no-Steiner guard, in a new variant
+    //! `cdt_polygon_with_holes_floodfill(verts, outer, holes)`. This fixes the
+    //! F0047 barrel-cut "parity slitting" regression (95 boundary-unpaired) the
+    //! centroid path introduced.
+    //!
+    //! * The RED test below pins that new variant's contract. It references a
+    //!   function that DOES NOT EXIST yet, so it is left COMMENTED OUT to keep
+    //!   the tree compiling for everyone else; uncomment it with the M2
+    //!   implementation.
+    //! * The compiling GUARD pins the clean-case coverage the flood-fill
+    //!   variant must PRESERVE (a mutation tripwire: flood-fill must not regress
+    //!   the well-conditioned case).
+    //!
+    //! NOTE (Test Author, 2026-07-03): the task also called for a compiling
+    //! *defect-pin* exercising a centroid-parity UNDER-coverage at the
+    //! primitive level. After several tries — the snapped 32-point
+    //! near-collinear ring plus four perturbed near-collinear boundary patterns
+    //! (bulge-up, dip-down, alternating, slanted, ~1e-13 off-line) — the plain
+    //! `cdt_polygon_with_holes` covered every fixture EXACTLY (area to 1e-12,
+    //! boundary edge counts correct, no edge >2). The centroid path is robust
+    //! at these synthetic scales; the F0047 slit needs the specific barrel-cut
+    //! geometry. Per the spec, the E2E full-assay F0047 diff is the binding
+    //! oracle for M2, so the primitive-level defect-pin (5b) is omitted, not
+    //! faked.
+    use super::*;
+    use cad_primitives::Point2 as CadPoint2;
+
+    /// The snapped 32-point near-collinear ring (shared with
+    /// `tests::refine_conditioned_near_collinear_boundary_is_watertight`).
+    fn snapped_near_collinear_32() -> Vec<CadPoint2> {
+        let raw: [(f64, f64); 32] = [
+            (2.00000000000000038858e-1, 1.5e0),
+            (3.25000000000000011102e-1, 1.5e0),
+            (4.50000000000000066613e-1, 1.49999999999999977796e0),
+            (5.75000000000000066613e-1, 1.5e0),
+            (6.99999999999999844569e-1, 1.5e0),
+            (8.24999999999999955591e-1, 1.5e0),
+            (9.49999999999999733546e-1, 1.49999999999999977796e0),
+            (1.07499999999999995559e0, 1.5e0),
+            (1.19999999999999973355e0, 1.49999999999999977796e0),
+            (1.20000000000000017764e0, 1.98749999999999982236e0),
+            (1.20000000000000017764e0, 2.47499999999999964473e0),
+            (1.20000000000000017764e0, 2.96250000000000035527e0),
+            (1.20000000000000017764e0, 3.44999999999999973355e0),
+            (1.20000000000000017764e0, 3.9375e0),
+            (1.20000000000000062172e0, 4.42500000000000071054e0),
+            (1.20000000000000017764e0, 4.91249999999999964473e0),
+            (1.19999999999999973355e0, 5.40000000000000035527e0),
+            (1.07499999999999995559e0, 5.40000000000000035527e0),
+            (9.50000000000000066613e-1, 5.40000000000000035527e0),
+            (8.24999999999999955591e-1, 5.40000000000000035527e0),
+            (6.99999999999999844569e-1, 5.40000000000000035527e0),
+            (5.75000000000000288658e-1, 5.40000000000000035527e0),
+            (4.50000000000000233147e-1, 5.40000000000000035527e0),
+            (3.24999999999999955591e-1, 5.40000000000000035527e0),
+            (2.00000000000000038858e-1, 5.40000000000000035527e0),
+            (2.00000000000000038858e-1, 4.91249999999999964473e0),
+            (2.00000000000000038858e-1, 4.42500000000000071054e0),
+            (2.00000000000000038858e-1, 3.9375e0),
+            (2.00000000000000038858e-1, 3.44999999999999973355e0),
+            (1.99999999999999955591e-1, 2.96250000000000035527e0),
+            (2.00000000000000038858e-1, 2.47499999999999964473e0),
+            (2.00000000000000038858e-1, 1.98750000000000026645e0),
+        ];
+        let round = |v: f64| (v * 1e12).round() / 1e12;
+        raw.iter()
+            .map(|&(x, y)| CadPoint2::new(round(x), round(y)))
+            .collect()
+    }
+
+    fn tri_area(a: CadPoint2, b: CadPoint2, c: CadPoint2) -> f64 {
+        0.5 * ((b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x())).abs()
+    }
+
+    // RED (M2, uncomment with the implementation):
+    // The flood-fill variant must classify interior faces by flood-fill (not
+    // centroid parity) and so keep every interior face on the parity-fragile
+    // F0047-class ring: full area coverage (3.9) and a watertight 32-edge
+    // boundary (every undirected edge count 1 or 2), with no Steiner points.
+    //
+    // #[test]
+    // fn floodfill_variant_keeps_parity_fragile_interior() {
+    //     let verts = snapped_near_collinear_32();
+    //     let outer: Vec<u32> = (0..32).collect();
+    //     let tris = cdt_polygon_with_holes_floodfill(&verts, &outer, &[])
+    //         .expect("M2: flood-fill variant must triangulate the near-collinear ring");
+    //     let area: f64 = tris
+    //         .iter()
+    //         .map(|t| tri_area(verts[t[0] as usize], verts[t[1] as usize], verts[t[2] as usize]))
+    //         .sum();
+    //     assert!((area - 3.9).abs() < 1e-9, "M2: full coverage 3.9, got {area}");
+    //     let mut edges: std::collections::BTreeMap<(u32, u32), u32> =
+    //         std::collections::BTreeMap::new();
+    //     for t in &tris {
+    //         for k in 0..3 {
+    //             let (a, b) = (t[k], t[(k + 1) % 3]);
+    //             *edges.entry((a.min(b), a.max(b))).or_default() += 1;
+    //         }
+    //     }
+    //     assert!(edges.values().all(|&c| c == 1 || c == 2), "M2: watertight");
+    //     assert_eq!(
+    //         edges.values().filter(|&&c| c == 1).count(),
+    //         32,
+    //         "M2: no slits — boundary is the original 32-gon"
+    //     );
+    // }
+
+    /// GUARD (M2 mutation tripwire): the well-conditioned (snapped) near-
+    /// collinear ring already covers EXACTLY under the existing centroid path.
+    /// The M2 flood-fill variant must PRESERVE this — full area 3.9, watertight
+    /// 32-edge boundary, no Steiner points. Passes today; must keep passing
+    /// (re-target at `cdt_polygon_with_holes_floodfill` once it exists).
+    #[test]
+    fn floodfill_variant_must_preserve_clean_coverage() {
+        let verts = snapped_near_collinear_32();
+        let outer: Vec<u32> = (0..32).collect();
+        let tris = cdt_polygon_with_holes(&verts, &outer, &[]).expect("clean ring triangulates");
+        // No Steiner points: an exact partition of the simple 32-gon = 30 tris.
+        assert_eq!(tris.len(), 30, "exact partition of the 32-gon");
+        let area: f64 = tris
+            .iter()
+            .map(|t| {
+                tri_area(
+                    verts[t[0] as usize],
+                    verts[t[1] as usize],
+                    verts[t[2] as usize],
+                )
+            })
+            .sum();
+        assert!((area - 3.9).abs() < 1e-9, "full coverage 3.9, got {area}");
+        let mut edges: std::collections::BTreeMap<(u32, u32), u32> =
+            std::collections::BTreeMap::new();
+        for t in &tris {
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                *edges.entry((a.min(b), a.max(b))).or_default() += 1;
+            }
+        }
+        assert!(
+            edges.values().all(|&c| c == 1 || c == 2),
+            "watertight — no edge shared by >2 triangles"
+        );
+        assert_eq!(
+            edges.values().filter(|&&c| c == 1).count(),
+            32,
+            "boundary is the original 32-gon (no slits)"
+        );
+    }
+}
