@@ -351,23 +351,39 @@ mod tests {
     }
 
     // ════════════════════════════════════════════════════════════════
-    // Oracle #2 — label-constant: all tris of a patch share one label
-    // (set-equality; the C++ asserts bitset equality).
+    // Oracle #2 — label-COMPATIBLE (spec `cherchi_patch_label_tolerance` §3):
+    // a patch's canonical labels form a COMPATIBILITY CHAIN (pairwise
+    // subset-comparable), NOT strict equality. Relaxed from the pre-L2a
+    // set-equality form: L2a admits a merged `[A,B]` coplanar-overlap sheet
+    // into the single-input `[A]` region's patch, so `[A] ⊆ [A,B]` is a valid
+    // in-patch pair. Disjoint labels never share a patch (L2b keeps them a loud
+    // `LabelMismatch`), so the chain invariant holds. (`cut_boxes_soup` is
+    // non-coplanar / label-homogeneous → the chain is trivially all-equal here;
+    // the relaxed assertion encodes the CONTRACT the coplanar path now relies
+    // on, per constitution "tests are permanent — fix it if it's wrong".)
     // ════════════════════════════════════════════════════════════════
     #[test]
-    fn patches_are_label_constant() {
+    fn patches_are_label_compatible() {
         let soup = cut_boxes_soup();
         let p = compute_all_patches(&soup).expect("patches");
         assert!(!p.patches.is_empty(), "stub returned no patches");
 
+        // `a ⊆ b` on canonical (sorted, deduped) label sets.
+        let subset = |a: &Label, b: &Label| a.iter().all(|x| b.contains(x));
+
         for (pi, patch) in p.patches.iter().enumerate() {
-            let ref_l = canonical(&soup.labels[patch[0] as usize]);
-            for &t in patch {
-                assert_eq!(
-                    canonical(&soup.labels[t as usize]),
-                    ref_l,
-                    "patch {pi}: tri {t} label differs from seed label"
-                );
+            let labels: Vec<Label> = patch
+                .iter()
+                .map(|&t| canonical(&soup.labels[t as usize]))
+                .collect();
+            for (i, li) in labels.iter().enumerate() {
+                for lj in &labels[i + 1..] {
+                    assert!(
+                        subset(li, lj) || subset(lj, li),
+                        "patch {pi}: labels {li:?} and {lj:?} are not subset-comparable \
+                         (compatibility chain violated)"
+                    );
+                }
             }
         }
     }
@@ -566,16 +582,19 @@ mod tests {
     // triangle's membership in the SEED's patch (whose minimum triangle id, the
     // seed, carries the single `[A]` label).
     //
-    // NO GREEN-PHASE CONFLICT (resolved by the L2a/L2b split, spec amendment
-    // 2026-07-03): the pre-amendment note here predicted blind L2 tolerance
+    // GREEN-PHASE reconciliation (L2a/L2b split, spec amendment 2026-07-03;
+    // Manager rulings): the pre-amendment note predicted blind L2 tolerance
     // would force updating `adversary_label_mismatch_across_manifold_edge_is_loud_error`
-    // (adversary_tests.rs:315) and Oracle #2 `patches_are_label_constant`. It
-    // does NOT: the adversary fixture is DISJOINT `[A]`/`[B]` (L2b — stays a
-    // loud `LabelMismatch`, unchanged), and Oracle #2 uses the non-coplanar
-    // `cut_boxes_soup` (label-homogeneous, L1 — every patch stays label-
-    // constant). Both remain green. Only COMPATIBLE (subset/superset) mixing
-    // at a coplanar-sheet border is tolerated (L2a). See `guard_l2b_*` below
-    // for the disjoint-stays-loud coverage.
+    // (adversary_tests.rs:315) and Oracle #2. Under the narrower split:
+    // - the adversary fixture is DISJOINT `[A]`/`[B]` (L2b — stays a loud
+    //   `LabelMismatch`), so it is left UNCHANGED (ruling 1); `guard_l2b_*`
+    //   below adds multi-label disjoint coverage.
+    // - Oracle #2 is RELAXED from set-equality to the L2a compatibility-CHAIN
+    //   invariant and renamed `patches_are_label_compatible` (ruling 2) so it
+    //   encodes the contract the coplanar path now relies on, even though its
+    //   non-coplanar `cut_boxes_soup` fixture (L1) makes the chain all-equal.
+    // Only COMPATIBLE (subset/superset) mixing at a coplanar-sheet border is
+    // tolerated (L2a); disjoint labels stay loud (L2b).
     // ════════════════════════════════════════════════════════════════
 
     /// Hand-built soup (pure topology — patch flood never reads coordinates):
