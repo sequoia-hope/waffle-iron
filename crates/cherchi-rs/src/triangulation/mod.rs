@@ -287,6 +287,198 @@ pub fn cdt_polygon_with_holes(
     Ok(tris)
 }
 
+/// Like [`cdt_polygon_with_holes`] but with the OUTER interior/exterior
+/// classification done by a **flood-fill from the convex hull across
+/// non-constraint edges** (the `_refined` §6a mechanism) instead of f64
+/// centroid parity.
+///
+/// Same contract as [`cdt_polygon_with_holes`] in every other respect —
+/// boundary-only (NO Steiner points; the `num_vertices != inserted` guard is
+/// kept), output indexes the caller `verts` pool, canonicalized for
+/// byte-identical determinism, empty result ⇒ [`CdtError::DegenerateInput`].
+/// Hole exclusion stays per-hole centroid parity (a triangle whose centroid
+/// falls inside any hole loop is dropped).
+///
+/// # Why a separate variant
+///
+/// The centroid-parity outer classification drops interior triangles on a
+/// finely-sampled (near-collinear) outer boundary — the F0047 barrel-cut
+/// "parity slitting" regression (spec `kv2_cdt_triangulation_core` §6b, M2):
+/// a thin near-boundary triangle's f64 centroid can land the wrong side of a
+/// near-collinear boundary run, slitting the mesh. The flood-fill classifies
+/// topologically on the CDT dual graph (no coordinates): every inner face NOT
+/// reachable from the convex hull across non-constraint edges lies inside the
+/// outer constraint loop and is kept, slivers included, so the result stays
+/// watertight. For a convex domain whose hull edges are all constraints,
+/// nothing is seeded and every face is kept.
+pub fn cdt_polygon_with_holes_floodfill(
+    verts: &[CadPoint2],
+    outer: &[u32],
+    holes: &[Vec<u32>],
+) -> Result<Vec<[u32; 3]>, CdtError> {
+    // ---- 1-4. Same constrained-CDT setup as `cdt_polygon_with_holes`. ----
+    // (Duplicated rather than factored: the sibling boundary-only functions
+    // already each carry this setup, and `cdt_polygon_with_holes` is a
+    // yang-rs Stage-1 dependency whose behavior must not shift.)
+    let n_verts = verts.len();
+    let in_range = |idx: u32| (idx as usize) < n_verts;
+    if !outer.iter().copied().all(in_range) {
+        return Err(CdtError::LoopIndexOutOfRange);
+    }
+    for hole in holes {
+        if !hole.iter().copied().all(in_range) {
+            return Err(CdtError::LoopIndexOutOfRange);
+        }
+    }
+    if outer.len() < 3 {
+        return Err(CdtError::DegenerateInput);
+    }
+
+    let mut cdt: ConstrainedDelaunayTriangulation<SpadePoint2<f64>> =
+        ConstrainedDelaunayTriangulation::new();
+    let mut handle_of: Vec<Option<FixedVertexHandle>> = vec![None; n_verts];
+    let insert_vertex = |cdt: &mut ConstrainedDelaunayTriangulation<SpadePoint2<f64>>,
+                         handle_of: &mut Vec<Option<FixedVertexHandle>>,
+                         idx: u32|
+     -> Result<FixedVertexHandle, CdtError> {
+        if let Some(h) = handle_of[idx as usize] {
+            return Ok(h);
+        }
+        let p = verts[idx as usize];
+        let h = cdt
+            .insert(SpadePoint2::new(p.x(), p.y()))
+            .map_err(map_insertion_error)?;
+        if handle_of.contains(&Some(h)) {
+            return Err(CdtError::DuplicateVertex);
+        }
+        handle_of[idx as usize] = Some(h);
+        Ok(h)
+    };
+    for &idx in outer {
+        insert_vertex(&mut cdt, &mut handle_of, idx)?;
+    }
+    for hole in holes {
+        for &idx in hole {
+            insert_vertex(&mut cdt, &mut handle_of, idx)?;
+        }
+    }
+    let add_loop = |cdt: &mut ConstrainedDelaunayTriangulation<SpadePoint2<f64>>,
+                    handle_of: &[Option<FixedVertexHandle>],
+                    loop_idx: &[u32]|
+     -> Result<(), CdtError> {
+        let m = loop_idx.len();
+        for i in 0..m {
+            let a = handle_of[loop_idx[i] as usize].ok_or(CdtError::TriangulationFailed)?;
+            let b =
+                handle_of[loop_idx[(i + 1) % m] as usize].ok_or(CdtError::TriangulationFailed)?;
+            if a == b {
+                return Err(CdtError::DegenerateInput);
+            }
+            if cdt.exists_constraint(a, b) {
+                continue;
+            }
+            if !cdt.can_add_constraint(a, b) {
+                return Err(CdtError::TriangulationFailed);
+            }
+            cdt.add_constraint(a, b);
+        }
+        Ok(())
+    };
+    add_loop(&mut cdt, &handle_of, outer)?;
+    for hole in holes {
+        if hole.len() >= 2 {
+            add_loop(&mut cdt, &handle_of, hole)?;
+        }
+    }
+
+    // No-Steiner guard (a constraint crossing would add a vertex).
+    if cdt.num_vertices() != count_inserted(&handle_of) {
+        return Err(CdtError::TriangulationFailed);
+    }
+    let mut caller_of_spade: Vec<u32> = vec![u32::MAX; cdt.num_vertices()];
+    for (caller_idx, slot) in handle_of.iter().enumerate() {
+        if let Some(h) = slot {
+            caller_of_spade[h.index()] = caller_idx as u32;
+        }
+    }
+
+    // ---- 5a. Mark the OUTER exterior region topologically (flood-fill). ---
+    // Flood the dual graph from the infinite face inward, crossing only NON-
+    // constraint edges. Any inner face reached this way lies outside the outer
+    // constraint loop (the convex-hull notch of a non-convex domain, or the
+    // strip between hull and boundary). Robust where the float centroid test
+    // is not (§6b M2): a near-collinear outer boundary makes the centroid test
+    // drop thin near-boundary triangles, slitting the mesh; the flood-fill
+    // keeps every interior face. Copied verbatim from
+    // `cdt_polygon_with_holes_refined`.
+    let mut exterior: HashSet<_> = HashSet::new();
+    let mut queue: VecDeque<_> = VecDeque::new();
+    for hull_edge in cdt.convex_hull() {
+        if hull_edge.is_constraint_edge() {
+            continue;
+        }
+        if let Some(f) = hull_edge.rev().face().as_inner() {
+            if exterior.insert(f.fix()) {
+                queue.push_back(f.fix());
+            }
+        }
+    }
+    while let Some(f) = queue.pop_front() {
+        for edge in cdt.face(f).adjacent_edges() {
+            if edge.is_constraint_edge() {
+                continue;
+            }
+            if let Some(nb) = edge.rev().face().as_inner() {
+                if exterior.insert(nb.fix()) {
+                    queue.push_back(nb.fix());
+                }
+            }
+        }
+    }
+
+    // ---- 5b. Emit kept faces (not outer-exterior, centroid out of holes). -
+    let hole_pts: Vec<Vec<CadPoint2>> = holes
+        .iter()
+        .map(|h| h.iter().map(|&i| verts[i as usize]).collect())
+        .collect();
+    let mut tris: Vec<[u32; 3]> = Vec::new();
+    for face in cdt.inner_faces() {
+        if exterior.contains(&face.fix()) {
+            continue;
+        }
+        let vs = face.vertices();
+        let li = [
+            caller_of_spade[vs[0].index()],
+            caller_of_spade[vs[1].index()],
+            caller_of_spade[vs[2].index()],
+        ];
+        if li.contains(&u32::MAX) {
+            return Err(CdtError::TriangulationFailed);
+        }
+        if !hole_pts.is_empty() {
+            let a = verts[li[0] as usize];
+            let b = verts[li[1] as usize];
+            let c = verts[li[2] as usize];
+            let centroid =
+                CadPoint2::new((a.x() + b.x() + c.x()) / 3.0, (a.y() + b.y() + c.y()) / 3.0);
+            if hole_pts.iter().any(|h| point_in_polygon(centroid, h)) {
+                continue;
+            }
+        }
+        tris.push(li);
+    }
+
+    // ---- 6. Canonicalize for byte-identical determinism. ----------------
+    for t in &mut tris {
+        rotate_min_first(t);
+    }
+    tris.sort_unstable();
+    if tris.is_empty() {
+        return Err(CdtError::DegenerateInput);
+    }
+    Ok(tris)
+}
+
 /// Like [`cdt_polygon_with_holes`] but additionally inserts a caller-provided set
 /// of INTERIOR vertices that are KEPT (triangulated against the boundary, NOT
 /// Steiner-refined and NOT dropped).
@@ -1462,38 +1654,37 @@ mod floodfill_red_tests {
         0.5 * ((b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x())).abs()
     }
 
-    // RED (M2, uncomment with the implementation):
-    // The flood-fill variant must classify interior faces by flood-fill (not
-    // centroid parity) and so keep every interior face on the parity-fragile
-    // F0047-class ring: full area coverage (3.9) and a watertight 32-edge
-    // boundary (every undirected edge count 1 or 2), with no Steiner points.
-    //
-    // #[test]
-    // fn floodfill_variant_keeps_parity_fragile_interior() {
-    //     let verts = snapped_near_collinear_32();
-    //     let outer: Vec<u32> = (0..32).collect();
-    //     let tris = cdt_polygon_with_holes_floodfill(&verts, &outer, &[])
-    //         .expect("M2: flood-fill variant must triangulate the near-collinear ring");
-    //     let area: f64 = tris
-    //         .iter()
-    //         .map(|t| tri_area(verts[t[0] as usize], verts[t[1] as usize], verts[t[2] as usize]))
-    //         .sum();
-    //     assert!((area - 3.9).abs() < 1e-9, "M2: full coverage 3.9, got {area}");
-    //     let mut edges: std::collections::BTreeMap<(u32, u32), u32> =
-    //         std::collections::BTreeMap::new();
-    //     for t in &tris {
-    //         for k in 0..3 {
-    //             let (a, b) = (t[k], t[(k + 1) % 3]);
-    //             *edges.entry((a.min(b), a.max(b))).or_default() += 1;
-    //         }
-    //     }
-    //     assert!(edges.values().all(|&c| c == 1 || c == 2), "M2: watertight");
-    //     assert_eq!(
-    //         edges.values().filter(|&&c| c == 1).count(),
-    //         32,
-    //         "M2: no slits — boundary is the original 32-gon"
-    //     );
-    // }
+    // RED (M2): the flood-fill variant must classify interior faces by
+    // flood-fill (not centroid parity) and so keep every interior face on the
+    // parity-fragile F0047-class ring: full area coverage (3.9) and a
+    // watertight 32-edge boundary (every undirected edge count 1 or 2), with
+    // no Steiner points.
+    #[test]
+    fn floodfill_variant_keeps_parity_fragile_interior() {
+        let verts = snapped_near_collinear_32();
+        let outer: Vec<u32> = (0..32).collect();
+        let tris = cdt_polygon_with_holes_floodfill(&verts, &outer, &[])
+            .expect("M2: flood-fill variant must triangulate the near-collinear ring");
+        let area: f64 = tris
+            .iter()
+            .map(|t| tri_area(verts[t[0] as usize], verts[t[1] as usize], verts[t[2] as usize]))
+            .sum();
+        assert!((area - 3.9).abs() < 1e-9, "M2: full coverage 3.9, got {area}");
+        let mut edges: std::collections::BTreeMap<(u32, u32), u32> =
+            std::collections::BTreeMap::new();
+        for t in &tris {
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                *edges.entry((a.min(b), a.max(b))).or_default() += 1;
+            }
+        }
+        assert!(edges.values().all(|&c| c == 1 || c == 2), "M2: watertight");
+        assert_eq!(
+            edges.values().filter(|&&c| c == 1).count(),
+            32,
+            "M2: no slits — boundary is the original 32-gon"
+        );
+    }
 
     /// GUARD (M2 mutation tripwire): the well-conditioned (snapped) near-
     /// collinear ring already covers EXACTLY under the existing centroid path.
