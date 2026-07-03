@@ -24,6 +24,11 @@ chrono = { version = "0.4", features = ["serde"] }
 [dev-dependencies]
 tempfile = "3"
 libc = "0.2"
+# M8 Stage-0 operand diagnosis (spec m8_stage0_inputcheck_clean_emission §6):
+# the native five-axiom census + the sidecar inputcheck harness. Dev-only —
+# production code must not depend on either from here.
+cherchi-rs = { path = "../cherchi-rs" }
+cherchi-sidecar-rs = { path = "../cherchi-sidecar-rs" }
 
 [[bin]]
 name = "assay_gen"
