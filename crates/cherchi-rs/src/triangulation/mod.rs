@@ -1736,4 +1736,88 @@ mod floodfill_red_tests {
             "boundary is the original 32-gon (no slits)"
         );
     }
+
+    // ── ROUND 3 (M3b shared-vertex welding, spec §6b M3 amendment) ─────────
+
+    /// A tangent-hole fixture: a CCW square whose bottom edge is pinched at
+    /// (0,-2), plus a CW diamond HOLE that shares exactly that one point. The
+    /// pinch position appears TWICE in the pool — once referenced by `outer`
+    /// (index 4), once by the `hole` loop (index 5) — a tangent contact.
+    fn tangent_hole_fixture() -> (Vec<CadPoint2>, Vec<u32>, Vec<u32>) {
+        let verts = vec![
+            CadPoint2::new(2.0, -2.0),  // 0
+            CadPoint2::new(2.0, 2.0),   // 1
+            CadPoint2::new(-2.0, 2.0),  // 2
+            CadPoint2::new(-2.0, -2.0), // 3
+            CadPoint2::new(0.0, -2.0),  // 4  pinch (outer)
+            CadPoint2::new(0.0, -2.0),  // 5  pinch (hole) — SAME position as 4
+            CadPoint2::new(-0.5, -1.2), // 6  ┐ diamond hole, CW
+            CadPoint2::new(0.0, -0.6),  // 7  │
+            CadPoint2::new(0.5, -1.2),  // 8  ┘
+        ];
+        let outer = vec![0u32, 1, 2, 3, 4];
+        let hole = vec![5u32, 6, 7, 8];
+        (verts, outer, hole)
+    }
+
+    /// RED (M3b): the flood-fill variant must WELD the shared tangent-contact
+    /// vertex (coincident caller positions → one spade handle) instead of
+    /// rejecting the ring. TODAY it returns `DuplicateVertex` (welding is the
+    /// M3b GREEN work), so `expect` panics — RED. TARGET: Ok, exact coverage
+    /// square − diamond = 15.3, and the diamond hole excluded (no triangle
+    /// centroid inside it).
+    #[test]
+    fn red_floodfill_welds_tangent_hole() {
+        let (verts, outer, hole) = tangent_hole_fixture();
+        let tris = cdt_polygon_with_holes_floodfill(&verts, &outer, std::slice::from_ref(&hole))
+            .expect(
+                "M3b: the flood-fill variant must weld the tangent-contact vertex \
+             (RED today: coincident outer/hole pinch → DuplicateVertex)",
+            );
+        // Exact coverage: square 16 − diamond 0.7 = 15.3.
+        const KEYHOLE_AREA: f64 = 16.0 - 0.7;
+        let area: f64 = tris
+            .iter()
+            .map(|t| {
+                tri_area(
+                    verts[t[0] as usize],
+                    verts[t[1] as usize],
+                    verts[t[2] as usize],
+                )
+            })
+            .sum();
+        assert!(
+            (area - KEYHOLE_AREA).abs() < 1e-9,
+            "M3b: coverage {area} != square − diamond {KEYHOLE_AREA}"
+        );
+        // Hole exclusion: no triangle centroid inside the diamond lobe.
+        let diamond: Vec<CadPoint2> = hole.iter().map(|&i| verts[i as usize]).collect();
+        for t in &tris {
+            let (a, b, c) = (
+                verts[t[0] as usize],
+                verts[t[1] as usize],
+                verts[t[2] as usize],
+            );
+            let centroid =
+                CadPoint2::new((a.x() + b.x() + c.x()) / 3.0, (a.y() + b.y() + c.y()) / 3.0);
+            assert!(
+                !point_in_polygon(centroid, &diamond),
+                "M3b: triangle {t:?} centroid lies inside the excluded diamond hole"
+            );
+        }
+    }
+
+    /// GUARD: welding is granted to the flood-fill variant ONLY. The plain
+    /// `cdt_polygon_with_holes` keeps its strict contract — the same
+    /// tangent-hole fixture must still return `DuplicateVertex` (yang-rs
+    /// Stage-1 unchanged). Passes today and must keep passing after M3b.
+    #[test]
+    fn plain_cdt_keeps_duplicate_vertex_contract() {
+        let (verts, outer, hole) = tangent_hole_fixture();
+        assert_eq!(
+            cdt_polygon_with_holes(&verts, &outer, &[hole]),
+            Err(CdtError::DuplicateVertex),
+            "the plain variant must keep rejecting coincident pool vertices"
+        );
+    }
 }

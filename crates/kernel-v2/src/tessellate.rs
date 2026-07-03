@@ -4844,4 +4844,140 @@ mod cdt_core_round2_red_tests {
             ),
         }
     }
+
+    // ── ROUND 3 (M3 amendment, spec §6b M3a/M3b/M3c) ───────────────────────
+
+    /// Even-odd point-in-polygon in f64 (orientation-independent). Used to
+    /// assert hole exclusion — no emitted triangle centroid lands inside the
+    /// keyhole's diamond lobe.
+    fn point_in_poly_xy(px: f64, py: f64, poly: &[[f64; 2]]) -> bool {
+        let n = poly.len();
+        let mut inside = false;
+        let mut j = n - 1;
+        for i in 0..n {
+            let (xi, yi) = (poly[i][0], poly[i][1]);
+            let (xj, yj) = (poly[j][0], poly[j][1]);
+            if ((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+                inside = !inside;
+            }
+            j = i;
+        }
+        inside
+    }
+
+    /// RED (M3b, keyhole): a weakly-simple planar ring whose pinch split yields
+    /// ONE CCW sub-ring (the square) and ONE CW sub-ring (a tangent diamond
+    /// lobe → a HOLE touching the outer boundary at the pinch). TODAY round-2's
+    /// both-CCW rule rejects it loudly with `"pinch sub-ring is not CCW"`, so
+    /// `expect` panics — RED. TARGET (spec §6b M3b): outer = the CCW sub-ring,
+    /// hole = the CW sub-ring, triangulated via the flood-fill welding variant;
+    /// area = square − diamond.
+    ///
+    /// Hand-shoelace: square pentagon 16 (the pinch sits collinear on the
+    /// bottom edge), diamond lobe wound CW area 0.7 → full-loop shoelace
+    /// 16 − 0.7 = 15.3.
+    #[test]
+    fn red_m3b_keyhole_ring_tessellates() {
+        // Loop: square (2,-2)(2,2)(-2,2)(-2,-2) CCW → P1(0,-2), then the diamond
+        // detour wound CW: (-0.5,-1.2)(0,-0.6)(0.5,-1.2) → P2(0,-2) → close.
+        // P1 (idx 4) and P2 (idx 8) are two vertex ids at identical coords.
+        let z = 0.0;
+        let pts = [
+            Point3::new(2.0, -2.0, z),  // 0
+            Point3::new(2.0, 2.0, z),   // 1
+            Point3::new(-2.0, 2.0, z),  // 2
+            Point3::new(-2.0, -2.0, z), // 3
+            Point3::new(0.0, -2.0, z),  // 4  P1 (pinch)
+            Point3::new(-0.5, -1.2, z), // 5  ┐ diamond, CW → a HOLE
+            Point3::new(0.0, -0.6, z),  // 6  │
+            Point3::new(0.5, -1.2, z),  // 7  ┘
+            Point3::new(0.0, -2.0, z),  // 8  P2 (pinch twin of P1)
+        ];
+        let (arena, fid) = build_planar_loop(&pts);
+        let mut mesh = RenderMesh::default();
+        tessellate_planar_face(&arena, fid, 32, &mut mesh).expect(
+            "M3b: the keyhole ring must tessellate (RED today: the CW diamond \
+             sub-ring is rejected by the round-2 both-CCW rule)",
+        );
+
+        // Exact partition: triangle areas (f64, xy plane, normal +z) sum to
+        // square 16 − diamond 0.7 = 15.3 (the diamond is a hole).
+        const DIAMOND_AREA: f64 = 0.7;
+        const KEYHOLE_AREA: f64 = 16.0 - DIAMOND_AREA;
+        let pos = |vid: u32| -> [f64; 2] {
+            let i = vid as usize * 3;
+            [mesh.positions[i], mesh.positions[i + 1]]
+        };
+        let signed = |t: &[u32]| -> f64 {
+            let (a, b, c) = (pos(t[0]), pos(t[1]), pos(t[2]));
+            0.5 * ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]))
+        };
+        let mut area_sum = 0.0;
+        for t in mesh.indices.chunks_exact(3) {
+            area_sum += signed(t).abs();
+        }
+        assert!(
+            (area_sum - KEYHOLE_AREA).abs() < 1e-9,
+            "M3b: keyhole area {area_sum} != square − diamond {KEYHOLE_AREA}"
+        );
+
+        // Hole exclusion: no emitted triangle centroid lies inside the diamond.
+        let diamond = [[0.0, -2.0], [-0.5, -1.2], [0.0, -0.6], [0.5, -1.2]];
+        for t in mesh.indices.chunks_exact(3) {
+            let (a, b, c) = (pos(t[0]), pos(t[1]), pos(t[2]));
+            let cx = (a[0] + b[0] + c[0]) / 3.0;
+            let cy = (a[1] + b[1] + c[1]) / 3.0;
+            assert!(
+                !point_in_poly_xy(cx, cy, &diamond),
+                "M3b: a triangle centroid ({cx}, {cy}) lies inside the excluded diamond hole"
+            );
+        }
+
+        // Non-inverted + watertight (the hole boundary and outer share only the
+        // pinch VERTEX, no edge — every undirected index-edge count 1 or 2).
+        let all_pos = mesh.indices.chunks_exact(3).all(|t| signed(t) > 0.0);
+        let all_neg = mesh.indices.chunks_exact(3).all(|t| signed(t) < 0.0);
+        assert!(
+            all_pos || all_neg,
+            "M3b: all triangles must share one winding sign (no inverted triangle)"
+        );
+        assert!(
+            max_edge_incidence(&mesh) <= 2,
+            "M3b: watertight per-face partition — no edge shared by >2 triangles"
+        );
+    }
+
+    /// GUARD (M3c): a pinched ring whose BOTH sub-rings are CW (the round-2
+    /// M3a fixture with the whole loop reversed) is invalid winding and must
+    /// FAIL loudly. Passes TODAY (round-2 both-CCW rule) and must keep passing
+    /// after M3b — a mutation tripwire so the keyhole path (exactly-one-CCW)
+    /// never admits a fully-inverted (CW + CW) ring. Labeled a guard (not RED).
+    #[test]
+    fn guard_m3c_double_cw_stays_loud() {
+        // The M3a both-CCW fixture reversed end-to-end: pinch at (0,-2) again,
+        // but now the diamond sub-ring AND the square sub-ring are both CW.
+        let z = 0.0;
+        let pts = [
+            Point3::new(0.0, -2.0, z),  // 0  P1 (pinch)
+            Point3::new(-0.5, -1.2, z), // 1  ┐ diamond (CW)
+            Point3::new(0.0, -0.6, z),  // 2  │
+            Point3::new(0.5, -1.2, z),  // 3  ┘
+            Point3::new(0.0, -2.0, z),  // 4  P2 (pinch)  → square (CW) follows
+            Point3::new(-2.0, -2.0, z), // 5
+            Point3::new(-2.0, 2.0, z),  // 6
+            Point3::new(2.0, 2.0, z),   // 7
+            Point3::new(2.0, -2.0, z),  // 8
+        ];
+        let (arena, fid) = build_planar_loop(&pts);
+        let mut mesh = RenderMesh::default();
+        match tessellate_planar_face(&arena, fid, 32, &mut mesh) {
+            Err(KernelV2Error::TessellationFailed { face, .. }) => {
+                assert_eq!(face, fid, "the guard must fail THIS planar face");
+            }
+            other => panic!(
+                "a double-CW (invalid-winding) pinch ring must fail loudly with \
+                 TessellationFailed, got {other:?}"
+            ),
+        }
+    }
 }
