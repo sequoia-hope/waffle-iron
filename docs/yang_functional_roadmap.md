@@ -114,11 +114,19 @@ the roadmap's remaining work:
    >    ERROR→CORRECT even unwired. Assay now 83 CORRECT.** Also new:
    >    KV9-F3 output seam femto-twin quarantine (spec
    >    `kv2_cdt_triangulation_core` §6a — an output-identity defect, §8b
-   >    target). Remaining: (i) rim-aware clustering for F0061 (naive +
-   >    immovable-seed variants both measured and P10-reverted — see spec
-   >    scope-limit); (ii) KV9-F3 output vertex identity; (iii) the lifted
-   >    walls' next classes (R0046/R0088/F0063 now loud cherchi
-   >    LabelMismatch; R0078 azimuth/coplanar).
+   >    target). **2026-07-03 (same day, two more cycles): §2c rim-aware
+   >    clustering SHIPPED (781e2e2e — polygon-chain domain, rim samples
+   >    excluded; F0061's Stage-0 coplanar wall closed) and the
+   >    LabelMismatch class RETIRED via reference parity
+   >    (`specs/cherchi_patch_label_tolerance.md`, 0f9e2982: the C++
+   >    label-homogeneity assert is debug-only; L2a subset-compatible
+   >    floods proceed, L2b disjoint stays loud, deviation N23; assay
+   >    83/0, zero lost).** Remaining: (i) R0046/R0088's next wall —
+   >    kernel-v2 `InvalidBooleanOutput` undirected-edge pairing (possibly
+   >    the stage6-sliver T-subdivision class extended); (ii) F0063
+   >    chained-input non-2-manifold; (iii) KV9-F3 output vertex identity;
+   >    (iv) R0078 azimuth/coplanar; (v) Stage-0 inputcheck-clean overlap
+   >    emission (the deeper §6a alternative, general-M8).
    > 4. **Disc rim on a non-cylinder lateral** (`rim-lateral-none`: R0050,
    >    R0025 2nd wall) — `lateral_for_cap` is cylinder-only; R0025's rim
    >    lateral is a TORUS (circle-revolve), so crossing propagation +
