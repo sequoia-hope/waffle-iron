@@ -1835,3 +1835,147 @@ mod floodfill_red_tests {
         );
     }
 }
+
+#[cfg(test)]
+mod floodfill_adversary_tests {
+    //! ADVERSARY block (FIP Phase 4) for the M3b shared-vertex WELDING in
+    //! `cdt_polygon_with_holes_floodfill` (spec `kv2_cdt_triangulation_core.md`
+    //! §6b M3 amendment). Attacks the welding path with pathological tangent
+    //! configurations beyond the round-3 single-tangent-hole fixture. Every case
+    //! either produces a correct partition (verified area + watertight pairing)
+    //! or fails loudly — no silent-wrong output was found.
+    use super::*;
+    use cad_primitives::Point2 as CadPoint2;
+
+    fn tri_area(a: CadPoint2, b: CadPoint2, c: CadPoint2) -> f64 {
+        0.5 * ((b.x() - a.x()) * (c.y() - a.y()) - (b.y() - a.y()) * (c.x() - a.x())).abs()
+    }
+    fn total_area(verts: &[CadPoint2], tris: &[[u32; 3]]) -> f64 {
+        tris.iter()
+            .map(|t| {
+                tri_area(
+                    verts[t[0] as usize],
+                    verts[t[1] as usize],
+                    verts[t[2] as usize],
+                )
+            })
+            .sum()
+    }
+    fn max_incidence(tris: &[[u32; 3]]) -> u32 {
+        let mut m: std::collections::BTreeMap<(u32, u32), u32> = std::collections::BTreeMap::new();
+        for t in tris {
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                *m.entry((a.min(b), a.max(b))).or_insert(0) += 1;
+            }
+        }
+        m.values().copied().max().unwrap_or(0)
+    }
+
+    /// A hole tangent to the OUTER boundary at TWO points, disconnecting the
+    /// interior into a left and a right region. The bar (rhombus) hole shares
+    /// two welded handles with the outer ring. The partition must still cover
+    /// exactly square − bar = 16 − 1.2 = 14.8 with watertight local pairing.
+    #[test]
+    fn adversary_hole_tangent_outer_at_two_points() {
+        let verts = vec![
+            CadPoint2::new(-2.0, -2.0), // 0
+            CadPoint2::new(0.0, -2.0),  // 1 T1 (outer)
+            CadPoint2::new(2.0, -2.0),  // 2
+            CadPoint2::new(2.0, 2.0),   // 3
+            CadPoint2::new(0.0, 2.0),   // 4 T2 (outer)
+            CadPoint2::new(-2.0, 2.0),  // 5
+            CadPoint2::new(0.0, -2.0),  // 6 T1 (hole) — welds with 1
+            CadPoint2::new(-0.3, 0.0),  // 7 ┐ CW rhombus bar
+            CadPoint2::new(0.0, 2.0),   // 8 T2 (hole) — welds with 4
+            CadPoint2::new(0.3, 0.0),   // 9 ┘
+        ];
+        let outer = vec![0u32, 1, 2, 3, 4, 5];
+        let hole = vec![6u32, 7, 8, 9];
+        let tris = cdt_polygon_with_holes_floodfill(&verts, &outer, std::slice::from_ref(&hole))
+            .expect("two-point-tangent hole must weld and triangulate");
+        assert!(
+            (total_area(&verts, &tris) - 14.8).abs() < 1e-9,
+            "square − bar = 14.8"
+        );
+        assert!(max_incidence(&tris) <= 2, "watertight local pairing");
+    }
+
+    /// TWO holes tangent to EACH OTHER (sharing one welded interior vertex), not
+    /// to the outer. Both holes must be excluded: area = 36 − 1 − 1 = 34.
+    #[test]
+    fn adversary_two_holes_tangent_each_other() {
+        let verts = vec![
+            CadPoint2::new(-3.0, -3.0), // 0
+            CadPoint2::new(3.0, -3.0),  // 1
+            CadPoint2::new(3.0, 3.0),   // 2
+            CadPoint2::new(-3.0, 3.0),  // 3
+            CadPoint2::new(0.0, 0.0),   // 4 shared (hole 1)
+            CadPoint2::new(-1.0, 0.5),  // 5 ┐ CW diamond, left
+            CadPoint2::new(-2.0, 0.0),  // 6 │
+            CadPoint2::new(-1.0, -0.5), // 7 ┘
+            CadPoint2::new(0.0, 0.0),   // 8 shared (hole 2) — welds with 4
+            CadPoint2::new(1.0, -0.5),  // 9 ┐ CW diamond, right
+            CadPoint2::new(2.0, 0.0),   // 10 │
+            CadPoint2::new(1.0, 0.5),   // 11 ┘
+        ];
+        let outer = vec![0u32, 1, 2, 3];
+        let h1 = vec![4u32, 5, 6, 7];
+        let h2 = vec![8u32, 9, 10, 11];
+        let tris = cdt_polygon_with_holes_floodfill(&verts, &outer, &[h1, h2])
+            .expect("two mutually-tangent holes must weld and triangulate");
+        assert!(
+            (total_area(&verts, &tris) - 34.0).abs() < 1e-9,
+            "36 − 1 − 1 = 34"
+        );
+        assert!(max_incidence(&tris) <= 2, "watertight local pairing");
+    }
+
+    /// THREE pool indices at ONE position: the outer ring and TWO holes all
+    /// tangent at a single point (a triple weld to one spade handle). Both holes
+    /// excluded: area = 36 − 1.5 − 1.5 = 33.
+    #[test]
+    fn adversary_three_indices_one_position() {
+        let verts = vec![
+            CadPoint2::new(-3.0, -3.0), // 0
+            CadPoint2::new(0.0, -3.0),  // 1 outer touches (0,-3)
+            CadPoint2::new(3.0, -3.0),  // 2
+            CadPoint2::new(3.0, 3.0),   // 3
+            CadPoint2::new(-3.0, 3.0),  // 4
+            CadPoint2::new(0.0, -3.0),  // 5 hole1 — welds with 1
+            CadPoint2::new(-1.0, -1.0), // 6
+            CadPoint2::new(-2.0, -2.0), // 7
+            CadPoint2::new(0.0, -3.0),  // 8 hole2 — welds with 1 & 5 (triple)
+            CadPoint2::new(2.0, -2.0),  // 9
+            CadPoint2::new(1.0, -1.0),  // 10
+        ];
+        let outer = vec![0u32, 1, 2, 3, 4];
+        let h1 = vec![5u32, 6, 7];
+        let h2 = vec![8u32, 9, 10];
+        let tris = cdt_polygon_with_holes_floodfill(&verts, &outer, &[h1, h2])
+            .expect("a triple weld at one position must triangulate");
+        assert!(
+            (total_area(&verts, &tris) - 33.0).abs() < 1e-9,
+            "36 − 1.5 − 1.5 = 33"
+        );
+        assert!(max_incidence(&tris) <= 2, "watertight local pairing");
+    }
+
+    /// GUARD: welding must NOT mask a genuinely self-crossing outer ring — a
+    /// bow-tie boundary must still fail loudly (the no-Steiner / can_add_constraint
+    /// guard), never weld its way to a silent partition.
+    #[test]
+    fn guard_self_crossing_outer_stays_loud() {
+        let verts = vec![
+            CadPoint2::new(0.0, 0.0),
+            CadPoint2::new(2.0, 2.0),
+            CadPoint2::new(2.0, 0.0),
+            CadPoint2::new(0.0, 2.0),
+        ];
+        let outer = vec![0u32, 1, 2, 3]; // bow-tie: edges 0-1 and 2-3 cross
+        assert!(
+            cdt_polygon_with_holes_floodfill(&verts, &outer, &[]).is_err(),
+            "a self-crossing outer ring must fail loudly even with welding enabled"
+        );
+    }
+}
