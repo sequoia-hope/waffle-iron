@@ -357,28 +357,38 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // corner/rim key maps were built from the pre-cluster coordinates —
         // remap their keys through the same snap so overlay-vertex → 3D corner
         // resolution stays exact (T-junction-free with the neighbor faces).
-        // Rim-carrying pairs are EXCLUDED from clustering: a disc rim's 2D
-        // samples are projections of exact 3D rim-ring points bit-shared
-        // with the cylinder lateral, and a regular ring's SYMMETRIC samples
-        // legitimately carry femto-near-equal coordinates (±cos30°·r trig
-        // rounding); welding them breaks the rim-chord ↔ lateral exact
-        // correspondence and re-mints the near-duplicate-3D disease inside
-        // cherchi (measured: m8_disc_coplanar cylinder_cap_crossing
-        // LabelMismatch). An immovable-seed variant (polygon coords snap TO
-        // rim coords, rims never move) was TRIED and regressed 3 disc
-        // fixtures to earlier walls (the snapped corners break the
-        // disc-pair machinery's exact expectations) — rim-aware clustering
-        // needs its own designed cycle; until then F0061 (a rim-carrying
-        // femto-twin case) stays loudly walled. The femto-projection
-        // disease this clustering fixes is a pure-polygon phenomenon
-        // (R0076/R0081 quads).
-        let cluster_ok = rim_a.is_empty() && rim_b.is_empty();
-        let (corners_a, corners_b, rim_a, rim_b) = if !cluster_ok {
-            (corners_a, corners_b, rim_a, rim_b)
-        } else {
+        // §2c rim-aware clustering (spec `m8_shared_boundary_identity` §2c,
+        // C4a-C4d/I9): rim-carrying pairs ALSO cluster now, but the cluster
+        // DOMAIN is the polygon-chain coordinates only — rim sample coordinates
+        // are EXCLUDED entirely (neither members nor seeds). This lifts the §2b
+        // pure-polygon scope limit while structurally avoiding both §2b-reverted
+        // failure modes: a disc rim's 2D samples are projections of exact 3D
+        // rim-ring points bit-shared with the cylinder lateral (welding them
+        // broke the rim-chord ↔ lateral correspondence — m8_disc_coplanar
+        // cylinder_cap_crossing LabelMismatch), and snapping polygon corners ONTO
+        // rims broke the disc-pair machinery's exact expectations (3 disc
+        // fixtures). Excluding the rim domain does neither: rim samples stay
+        // byte-identical (C4b) and a polygon coord femto-near a rim only is left
+        // untouched (C4c). The rim sample 2D coords are the disc face's exact
+        // Stage-1 rim-ring projections (= `rim_a`/`rim_b` map keys, which for a
+        // disc face are exactly its `poly.outer`); for a pure-polygon pair both
+        // are empty and the pass is byte-identical to §2b (C4d).
+        let rim_pts_a: Vec<Point2> = rim_a
+            .keys()
+            .map(|ex| Point2::new(ex.x.to_f64().value(), ex.y.to_f64().value()))
+            .collect();
+        let rim_pts_b: Vec<Point2> = rim_b
+            .keys()
+            .map(|ex| Point2::new(ex.x.to_f64().value(), ex.y.to_f64().value()))
+            .collect();
+        let (corners_a, corners_b, rim_a, rim_b) = {
             let pre_a = poly_a.clone();
             let pre_b = poly_b.clone();
-            cluster_frame_coords(&mut [&mut poly_a, &mut poly_b], p.band);
+            cluster_frame_coords_rim_aware(
+                &mut [&mut poly_a, &mut poly_b],
+                &[rim_pts_a.as_slice(), rim_pts_b.as_slice()],
+                p.band,
+            );
             if std::env::var_os("YANG_CLUSTER_PROBE").is_some() {
                 for (tag, pre, post) in [("A", &pre_a, &poly_a), ("B", &pre_b, &poly_b)] {
                     for (lp_pre, lp_post) in std::iter::once(&pre.outer)
@@ -1613,13 +1623,52 @@ type TessellatedFacePolygon = (
 /// `holes`, vertices in loop order. Clusters are isolated (real features
 /// are ≥ MIN_FEATURE_SIZE apart, six orders above the band — the KV10
 /// margin), so greedy first-seen matching cannot chain-drift.
+///
+/// Test-only since §2c: production wires `cluster_frame_coords_rim_aware`
+/// directly (pure-polygon pairs pass empty `rim_excluded`). This wrapper is
+/// retained as the §2b reference path the C4d guard compares against.
+#[cfg(test)]
 fn cluster_frame_coords(polys: &mut [&mut PolygonWithHoles], band: f64) {
+    // §2b behavior = §2c rim-aware clustering with NO excluded rim coordinates;
+    // delegating keeps the two paths byte-identical for pure-polygon pairs (the
+    // C4d guard is the arbiter).
+    cluster_frame_coords_rim_aware(polys, &[], band);
+}
+
+/// §2c rim-aware variant of `cluster_frame_coords`
+/// (spec `m8_shared_boundary_identity` C4a–C4d, invariant I9). The cluster
+/// DOMAIN is the polygon-chain coordinates only: rim sample coordinates
+/// (`rim_excluded`, per polygon) are neither cluster members nor seeds, and a
+/// polygon coordinate within `band` of a rim sample only is left UNTOUCHED (no
+/// cross-domain welding). This structurally avoids both §2b-reverted failure
+/// modes (welding rim samples; snapping polygon corners onto rims). With every
+/// `rim_excluded` slice empty it is byte-identical to `cluster_frame_coords`.
+fn cluster_frame_coords_rim_aware(
+    polys: &mut [&mut PolygonWithHoles],
+    rim_excluded: &[&[Point2]],
+    band: f64,
+) {
     for axis in 0..2 {
+        // Rim sample coordinate values on this axis — excluded from the cluster
+        // domain (C4b): never members, never seeds. A polygon coord within band
+        // of any of these is left untouched (C4c).
+        let rim_coords: Vec<f64> = rim_excluded
+            .iter()
+            .flat_map(|rim| rim.iter())
+            .map(|pt| if axis == 0 { pt.x() } else { pt.y() })
+            .collect();
+        let near_rim = |c: f64| rim_coords.iter().any(|r| (*r - c).abs() <= band);
+
         let mut reps: Vec<f64> = Vec::new();
         for poly in polys.iter_mut() {
             for lp in std::iter::once(&mut poly.outer).chain(poly.holes.iter_mut()) {
                 for q in lp.iter_mut() {
                     let c = if axis == 0 { q.x() } else { q.y() };
+                    // C4b/C4c: a coordinate within band of a rim sample is
+                    // neither snapped nor a seed — left exactly as-is.
+                    if near_rim(c) {
+                        continue;
+                    }
                     match reps.iter().find(|r| (**r - c).abs() <= band) {
                         Some(&r) => {
                             *q = if axis == 0 {
