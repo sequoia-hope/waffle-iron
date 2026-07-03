@@ -46,22 +46,71 @@ construction. This spec does NOT restructure the emission; it makes each
 emitted operand individually clean so the dedup'd sheet borders come out
 non-manifold and the flood stops there naturally.
 
-## 2. Measured mechanism (TBD — Increment 0)
+## 2. Measured mechanism (2026-07-03, diagnosis harness
+## `test-harness/tests/m8_stage0_operand_diagnosis.rs`)
 
-To be amended from the diagnosis harness
-(`test-harness/tests/m8_stage0_operand_diagnosis.rs`) before any
-implementation: per failing op of R0046/R0088/F0063 —
+**Every violation is INTRODUCED by Stage-0: all six `_pre` Stage-1 meshes of
+the failing ops are five-axiom clean (sidecar + native census agree).** F0063
+is therefore fully IN SCOPE (the "chained-input inherited" descope hypothesis
+is disproven). Two mechanisms, both measured:
 
-- which of the five axioms each operand violates (sidecar verdict + native
-  census counts), split **introduced vs inherited** (post-Stage-0 mesh vs the
-  `_pre` Stage-1 mesh of the same solid);
-- per-offender locations (tri → `tri_face` → B-Rep face) and mechanism
-  attribution: cap overlay override / rim-override lateral re-tessellation /
-  edge-split neighbor re-triangulation / disc-pair builder / fold-revert
-  interaction;
-- whether the operand-side defect signature accounts for the measured
-  kept-mesh defects (41 bad undirected edges on R0046; the lone 2-tri open
-  sheet on R0088).
+**M-A — cluster-domain split drop (the dominant class; R0046 B-side,
+R0088 op(a=718,b=3036), F0063 ops 0-1).** The §2b/§2c in-frame clustering
+(`cluster_frame_coords_rim_aware`) rewrites the pair's 2D polygon
+coordinates and remaps the corner/rim KEY MAPS — but `va`/`vb` (the snapped
+3D vertex arrays) are untouched, and `collect_edge_splits` re-projects each
+B-Rep edge's endpoints RAW (`frame.project(coords[lo])`, stage0.rs) into
+`ExactPoint2`. At every vertex the clustering moved (even 1 ULP), the exact
+collinearity test `dx·wy − dy·wx ≠ 0` fails for every overlay vertex on that
+edge's subdivided chain → ALL splits on the edge are silently dropped → the
+coplanar face's override carries the subdivided chain while each adjacent
+face keeps its original unsplit edge. Census signature (measured): k unpaired
+sub-edges on the coplanar face + exactly 1 unpaired (whole) edge per affected
+neighbor face + improper T-junction contacts between the neighbor's triangles
+and the override's (F0063 op0: 567 boundary edges = 471 on the gear face +
+~96 neighbors × 1; 391 improper pairs; R0088 big op: 1204/292; R0046 B: 8+2).
+Causal verification: `YANG_CLUSTER_PROBE=1` shows R0046's pair moved exactly
+ONE corner (B[3], 1 ULP per axis) and the defects sit precisely on that
+corner's two incident edges (neighbor faces 3 and 4); R0088 moved 219
+coordinates ↔ 1204 holes. The final proof is F-A itself (GREEN increment 1):
+if aligning the domains does not close these holes, P10 STOP.
+
+**M-B — many-to-one 2D→3D resolution collapse emitted as degenerate
+triangles (R0046 both sides).** The overlay-vertex resolution (corners → rim
+maps → `snap_eps2` rim snap → exact rim-chord minting) deliberately
+identifies femto-split 2D vertices to ONE 3D point (the §2c "2D twins resolve
+to shared 3D coords" measurement). `tris_for` then emits triangles whose
+resolved corners coincide: `[u,u,v]` index-degenerate triangles (R0046: 4 on
+A/face 0, 10 on B/face 1, in mirror pairs `[2,7,7]`/`[7,2,2]` — collapsed
+femto-quads), which carry zero area, so the region they should cover is
+missing → holes + a pinch vertex. The N2-3a fold-validity revert loop cannot
+repair these: it only reverts MINTED vertices, and the collapse also arrives
+via the un-minted snap/corner/rim paths.
+
+**Sidecar↔census calibration (measured on all 24 operand meshes):** verdicts
+agree at the clean/dirty level everywhere; Global Orientation sign convention
+confirmed (all-positive component volumes ⇔ sidecar pass). Per-axiom
+differences are explained and intended: cinolib lets degenerate tris corrupt
+its Manifold/LocalOrientation/Intersection verdicts, while the native census
+reports them in their own `index_degenerate` bucket and keeps the edge census
+over well-formed triangles.
+
+**Scoping caveats (measured):**
+- R0088's SECOND failing subtract (a=50/94, b=32/58) emits five-axiom-CLEAN
+  operands yet also walls on kernel-v2 edge pairing — that op's root is NOT
+  operand cleanliness and stays a residual (re-measure after GREEN; I5 for
+  R0088 accordingly means "the defective-operand op's wall falls"; the case
+  may retain a second, separately-diagnosed wall).
+- The dump's process-global op counter produced DIFFERENT op orderings for
+  R0088 between the combined and standalone runs — ops must be identified by
+  content (mesh sizes/meta), not counter; whether this reflects true engine
+  nondeterminism (A4.2) is a separate question, out of scope here.
+- Banked fixtures for the RED census tests:
+  `cherchi-rs/tests/fixtures/{r0046,f0063}_stage0_emission_{a,b}.obj`
+  (R0046 = M-B + small M-A; F0063 op0 = massive M-A; R0088 adds no distinct
+  mechanism and is covered by the E2E tracker). The older
+  `r0046_stage0_{a,b}.obj` bank is the patch-label cycle's pinned input
+  (pre-§2c emission) and stays untouched.
 
 ## 3. Parameters
 
@@ -79,10 +128,14 @@ not a modeling parameter.
 | E4 | Disc-pair direct builder (`build_disc_pair` → `DiscPair::Handled`) | disc×polygon / disc×disc containment | Winding parity with `opposite`; no duplicate cap triangles |
 | E5 | Edge-split neighbor re-triangulation (`collect_edge_splits` → `triangulate_ring` / `edge_split_curved_face`) | overlay subdivides a shared B-Rep boundary edge | Ring tessellation consumes exactly the overlay's boundary points, oriented with the face normal; conformal with the rewritten coplanar face |
 | E6 | Coincident-cylinder membrane (`coincident_cylinder_stage0`) | lateral×lateral coincidence | OUT OF SCOPE this cycle — non-regression only (gear-flange suite green) |
+| E7 | **[M-A fix]** Pair whose clustering moved ≥1 polygon coordinate | `collect_edge_splits` (and any other consumer re-deriving 2D from `va`/`vb`) operates in the CLUSTERED domain — endpoint projections pass through the same pre→post key map as the overlay input, so the exact collinearity test sees one coordinate world and splits propagate. Pairs with zero moved coords: byte-identical path. |
+| E8 | **[M-B fix]** Emission triangle whose resolved 3D corners carry <3 distinct bit-patterns | DROPPED from that mesh's override (never emitted as `[u,u,v]`); the identification means the 2D sliver's 3D image is degenerate, so its neighbors' edges pair directly. Triangles with 3 distinct resolved corners: emitted unchanged. |
 
-(The rows E2–E5 are candidates; §2 measurement selects which are defective.
-Undocumented emission branches discovered during measurement must be added
-here before the fix — no implicit modes.)
+(Measurement selected M-A/M-B (§2); rows E2/E5's rim-lateral and
+ring-retriangulation machinery were NOT implicated beyond consuming the
+outputs of the two roots. GREEN must audit the remaining raw-projection
+consumers (`collect_rim_crossings`, `rim_chord_ctx` inputs) for the same
+M-A domain mismatch and either fix under E7 or record why exempt.)
 
 ## 5. Invariants
 

@@ -233,6 +233,17 @@ fn report_operand(
             );
         }
     }
+    if !c.index_degenerate_tris.is_empty() {
+        println!(
+            "    index-degenerate tris → {}",
+            face_histogram(&c.index_degenerate_tris, tri_face)
+        );
+        for &t in c.index_degenerate_tris.iter().take(10) {
+            let tri = mesh.tris[t as usize];
+            let p = mesh.verts[tri[0] as usize];
+            println!("      tri {t} {:?} @ ({},{},{})", tri, p.x(), p.y(), p.z());
+        }
+    }
     if !c.coincident_vert_twins.is_empty() {
         for &(a, b) in c.coincident_vert_twins.iter().take(8) {
             let p = mesh.verts[a as usize];
