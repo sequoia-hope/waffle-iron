@@ -1268,3 +1268,44 @@ Parity note: no differential target exists for this branch (the reference
 terminates); correctness is carried by the needle-fixture oracles
 (`inside_out.rs` Oracle #6), the orientation-convention pin test, and the
 F0016-family corpus flips (5 cases → SUPPORTED_CORRECT).
+
+### N22 — Stage-6 degenerate-arrangement children: fold-sliver exclusion + loop T-subdivision
+
+Yang 2025 §4.5 topology extraction assumes clean same-face regions. The exact
+mesh arrangement, however, keeps ZERO-AREA shim slivers along shared collinear
+solid-edge chains (they pair their edges into the watertight result, so
+dropping them would break edge pairing). The paper does not treat these
+degenerate children. When `canonicalize_vertices_to_planes` aligns chained-
+output vertices onto exact plane intersections, a parent input triangle's CDT
+can emit such slivers with sign-of-zero winding that DUPLICATES a real
+triangle's directed chord edge, folding the Stage-6 boundary walk into a
+spurious `NonManifoldOutput` (measured F0016 Extrude-3 union; spec
+`specs/yang_stage6_sliver_topology.md`).
+
+Deviation (both parts Stage-6-local, no geometry moved, no tolerance invented):
+
+- **Fold-sliver exclusion** (`patch_fold_slivers`, `patch_boundary_cycle`): a
+  degenerate sliver (2·area < MIN_FEATURE_SIZE², the shared A14.3 threshold)
+  whose sign-of-zero winding duplicates another patch triangle's directed edge
+  (directed multiplicity ≥ 2) carries no information and is excluded from
+  boundary derivation. A degenerate sliver whose edges instead pair
+  anti-parallel with their neighbours — a femto-twin membrane welding two
+  coincident vertices — is NOT a fold and is KEPT (excluding it would promote a
+  legitimately-interior real edge to a false boundary and diverge from the C++
+  reference arrangement, which does carry the membrane). This distinction is
+  what keeps curved / twin output at reference parity.
+
+- **Loop T-subdivision** (`subdivide_loops_at_shared_vertices`): after boundary
+  cycles are built, a fold-sliver-bearing patch's un-subdivided chord (a,b) is
+  split at every output vertex lying STRICTLY on segment a–b (pure rational
+  collinearity + betweenness) that is used by some other output loop, so every
+  segment of the shared solid edge is used by exactly two directed loop edges.
+  This mirrors, at the B-Rep level, the render-side hybrid oracle's T-junction
+  subdivision (`test-harness subdivide_t_junctions`).
+
+Parity note: excluding a zero-area triangle from BOUNDARY derivation is not a
+tolerance decision — the sign-of-zero winding is combinatorially arbitrary.
+Corpus-improving (F0016/F0024 canon-wired and F0022 unwired flip
+non-2-manifold ERROR → 9-oracle Passed); every non-sliver output is
+byte-identical (A no-ops without a fold sliver; B no-ops without an on-segment
+foreign vertex).
