@@ -151,6 +151,52 @@ fail identically at baseline (pre-existing walls), F0043 passes both,
 Passed 9 oracles under the CDT core). No corpus regression in the class;
 the Phase-4 full-assay per-case diff is the binding gate.
 
+## 6b. Phase-4 assay findings (2026-07-03, measured) — AMENDMENT: three follow-up mechanisms
+
+The full-assay per-case diff vs the pre-cycle baseline (same box; TIMEOUT
+34↔34 identical = environment, not a slowdown) measured 13 regressions and
+1 improvement (F0042 ERROR→CORRECT), in exactly three classes:
+
+- **Boundary-chord slivers** (F0016/18/19/24/25/48/49, R0041, F0046
+  CORRECT→WRONG; R0040/R0084 CORRECT→ERROR via the G0 gate): boolean-output
+  rings carry near-collinear boundary runs (subdivided arrangement edges);
+  Delaunay prefers the on-line chord diagonal, minting a triangle flatter
+  than the render weld grid (`max_abs·TAU_TESS_GRID_FACTOR`, the
+  waffle-types constant the watertight oracle welds at — ~100× coarser than
+  f32 ulp, so the bitwise gates cannot see the F0016 class). The old
+  ear-clip tiled the same wedges with off-line thin triangles by accident.
+- **Parity slitting** (F0047 CORRECT→WRONG, 95 boundary-unpaired): the §6
+  documented residual risk fired — `cdt_polygon_with_holes`'s f64
+  centroid-parity interior classification drops interior triangles on the
+  barrel cut ring's near-collinear runs.
+- **Pinch rings** (F0055 CORRECT→ERROR): a weakly-simple ring visiting one
+  geometric point twice (two arena vertices, bitwise-identical positions —
+  tangent contact; measured pool[11]≡pool[16]=(0,−1500)) → spade
+  `DuplicateVertex`. Ear-clip tolerated weakly-simple rings.
+
+Mechanisms (round 2; each is a branch-table extension):
+
+| # | Configuration | Behavior |
+|---|---|---|
+| M1 | Post-CDT triangle flatter than the weld grid whose long edge is an interior diagonal with a flippable neighbor (exact-orient2d-valid flip that reduces the grid-degenerate count) | Flip, deterministic order, budgeted fixpoint — BOTH cores, before LEPP (patch) / before emit (planar) |
+| M1b | Grid-degenerate triangle with no valid reducing flip (input-forced) | Emitted as today (silent, baseline behavior); the bitwise G0/G1 gates remain the loud floor |
+| M2 | Interior/exterior classification of the boundary-only CDT | Flood-fill from the convex hull across non-constraint edges (the `_refined` §6a mechanism) in a new cherchi-rs boundary-only variant KEEPING the no-Steiner guard; both kernel-v2 cores switch to it. Hole classification unchanged (centroid) |
+| M3 | Ring with two indices at bitwise-identical 2D positions, non-consecutive (pinch) | Split the weakly-simple ring at the pinch into two sub-rings, recurse (budgeted); each sub-ring must be exactly CCW (shoelace) else loud `TessellationFailed`. Consecutive duplicates stay loud (zero-length edge) |
+
+The M1 predicate uses the SAME shared constants as the oracle
+(`TAU_TESS_GRID_FACTOR`/`_MIN` from `waffle_types::kernel::units`,
+solid-wide max |coord|), heights computed on the 3D positions — no new
+tolerance is invented (A3.3 single ownership).
+
+Round-2 oracles: banked F0016 FaceId(61) 6-vertex ring (planar, M1) → zero
+grid-degenerate triangles; banked F0055 FaceId(9) 96-vertex pinch ring
+(M3) → tessellates, exact partition, both sub-rings emitted; cherchi-rs
+primitive test for M2 (a ring whose centroid parity misclassifies —
+flood-fill keeps all interior faces, watertight edge pairing); E2E = the
+full-assay diff returns to baseline-or-better: the 13 regressions clear,
+F0042 improvement retained, and the round-1 RED suite (F0047/R0064 rings,
+G1 twin) stays green.
+
 ## 7. Research basis
 
 - Constrained Delaunay triangulation and its max-min-angle optimality:
