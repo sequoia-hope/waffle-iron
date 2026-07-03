@@ -202,6 +202,28 @@ investigation: femto-band input motion must never yield a silent
 non-manifold output — F0047's wrecked-mesh path is a missing loud gate in
 the ellipse-junction pipeline, to be fixed first.
 
+### 8a-ii. Re-wire experiment after the CDT-core cycle (2026-07-03, measured)
+
+With `kv2_cdt_triangulation_core` complete (CDT render cores + G0/G1 gates
++ M1–M3), the §8a experiment was re-run: wire §2, full assay on a quiet
+box, per-case diff vs the same-day unwired run.
+
+- The 2026-07-02 blocker is GONE: **zero silent-WRONG anywhere** — every
+  canon-induced failure is a loud typed error. F0047/R0064 stay CORRECT.
+- m8 trackers red_r0070/red_r0076/red_r0081 all PASS wired (coplanar wall
+  gone). R0046/R0088/F0063's coplanar walls LIFT into deeper loud cherchi
+  `LabelMismatch` errors; R0078 moves sideways (azimuth wall re-tagged
+  coplanar).
+- Gate result: wired 81 CORRECT / 0 WRONG vs unwired 82 / 0. F0022 flips
+  ERROR→CORRECT, but **F0016 and F0024 flip CORRECT→ERROR** — chained
+  oblique-extrude unions now failing loudly at Stage-6:
+  "yang-rs: reassembled output would be non-2-manifold". Net −1 CORRECT ⇒
+  I6's "no SUPPORTED_CORRECT lost" fails ⇒ UNWIRED again (P10).
+
+NEXT concrete target for wiring: the F0016/F0024 Stage-6 reassembly
+non-2-manifold class under canonicalized vertices (a narrower, loud,
+reproducible investigation — no longer a silent-wreck hunt).
+
 ### 8b. Output-side identity: measured case KV9-F3 (2026-07-03)
 
 The CDT-core cycle (`kv2_cdt_triangulation_core` §6a) measured an

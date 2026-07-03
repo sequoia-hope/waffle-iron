@@ -560,17 +560,17 @@ pub fn to_yang_brep_indexed(
     }
 
     canonicalize_sibling_planes(&mut yfaces);
-    // `canonicalize_vertices_to_planes` is DELIBERATELY UNWIRED (spec
-    // `m8_shared_boundary_identity` §8, gate failure 2026-07-02): wiring it
-    // here made the full assay flip R0064 + F0047 to SUPPORTED_WRONG — the
-    // band-bounded vertex motion exposes a downstream fragility in the
-    // ellipse-junction pipeline that emits a NON-MANIFOLD mesh silently
-    // (F0047: 53 unpaired edges, Euler 42) instead of stopping loudly.
-    // Per P9 a loud error must never become silent-wrong, and no static
-    // predicate separates the population it fixes (R0046/R0088 world-level
-    // femto-twins) from the one it breaks. The primitive + its unit suite
-    // stand (m8_vertex_canon_tests); wiring returns with the downstream
-    // loud-gate investigation. `let _` keeps the primitive compiled.
+    // `canonicalize_vertices_to_planes` remains UNWIRED (decision record:
+    // spec `m8_shared_boundary_identity` §8a, re-measured 2026-07-03 after
+    // the CDT-core cycle). The 2026-07-02 blocker is RESOLVED: with the
+    // CDT render cores + gates, wiring no longer produces silent-WRONG
+    // output anywhere (full assay 0 WRONG). The remaining gate failure is
+    // narrower: F0016/F0024 flip SUPPORTED_CORRECT → loud ERROR
+    // ("yang-rs: reassembled output would be non-2-manifold") while F0022
+    // flips ERROR → CORRECT and the R0046/R0088/F0063 coplanar walls lift
+    // into deeper loud errors. Net −1 CORRECT ⇒ "no SUPPORTED_CORRECT
+    // lost" fails; wiring returns with the Stage-6 reassembly
+    // investigation of the F0016/F0024 non-2-manifold class.
     let _ = canonicalize_vertices_to_planes;
 
     let brep = yang_rs::BRep::new(yverts, yedges, yfaces).map_err(|e| {
