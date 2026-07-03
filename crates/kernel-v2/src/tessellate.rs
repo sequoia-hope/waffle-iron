@@ -1691,6 +1691,110 @@ fn triangulate_ring(
     Ok(tris)
 }
 
+/// The first NON-consecutive pair of ring positions whose pool points are
+/// bitwise-identical in 2D (a weakly-simple "pinch": one geometric point
+/// visited twice through two distinct pool indices — spec §6b M3). Returns the
+/// two ring positions `(i, j)` with `i < j`. A CONSECUTIVE duplicate (a
+/// zero-length edge) is intentionally NOT reported — it is left to the CDT
+/// (`DuplicateVertex` → loud).
+fn find_ring_pinch(p2: &[Point2], outer: &[u32]) -> Option<(usize, usize)> {
+    let m = outer.len();
+    let bits = |pos: usize| -> (u64, u64) {
+        let p = p2[outer[pos] as usize];
+        (p.x().to_bits(), p.y().to_bits())
+    };
+    let mut seen: std::collections::BTreeMap<(u64, u64), usize> = std::collections::BTreeMap::new();
+    for pos in 0..m {
+        let key = bits(pos);
+        if let Some(&prev) = seen.get(&key) {
+            let consecutive = pos == prev + 1 || (prev == 0 && pos == m - 1);
+            if !consecutive {
+                return Some((prev, pos));
+            }
+        } else {
+            seen.insert(key, pos);
+        }
+    }
+    None
+}
+
+/// Triangulate a (possibly weakly-simple) ring, splitting it at bitwise-pinch
+/// vertices before CDT (spec `kv2_cdt_triangulation_core` §6b M3). A ring
+/// visiting one geometric point twice through two distinct pool indices would
+/// make spade reject the whole ring (`DuplicateVertex`); instead it is split at
+/// the pinch into two sub-rings (each keeping one copy of the pinch position),
+/// which recurse. No-op when the ring carries no non-consecutive duplicate
+/// (the common case, incl. patch seam duplicates whose 2D positions differ by
+/// `span`). Wired into BOTH cores.
+fn triangulate_with_pinch_split(
+    p2: &[Point2],
+    p3: &[[f64; 3]],
+    outer: &[u32],
+    holes: &[Vec<u32>],
+) -> Result<Vec<[u32; 3]>, &'static str> {
+    let mut budget = 16usize;
+    pinch_split_rec(p2, p3, outer, holes, &mut budget)
+}
+
+fn pinch_split_rec(
+    p2: &[Point2],
+    p3: &[[f64; 3]],
+    outer: &[u32],
+    holes: &[Vec<u32>],
+    budget: &mut usize,
+) -> Result<Vec<[u32; 3]>, &'static str> {
+    let Some((i, j)) = find_ring_pinch(p2, outer) else {
+        return triangulate_ring(p2, p3, outer, holes);
+    };
+    if *budget == 0 {
+        return Err("pinch-ring split budget exhausted");
+    }
+    *budget -= 1;
+
+    // Sub-rings [i..j] and [j..i] (cyclic); each keeps ONE copy of the pinch.
+    let ring_a: Vec<u32> = outer[i..j].to_vec();
+    let mut ring_b: Vec<u32> = outer[j..].to_vec();
+    ring_b.extend_from_slice(&outer[..i]);
+
+    // Each sub-ring must have ≥3 vertices and be exactly CCW (exact shoelace) —
+    // else loud (never a silent partition of a malformed ring).
+    let pts_a: Vec<Point2> = ring_a.iter().map(|&x| p2[x as usize]).collect();
+    let pts_b: Vec<Point2> = ring_b.iter().map(|&x| p2[x as usize]).collect();
+    for pts in [&pts_a, &pts_b] {
+        if pts.len() < 3 {
+            return Err("pinch sub-ring has fewer than 3 vertices");
+        }
+        if exact2d::signed_area_sign(pts) != Ordering::Greater {
+            return Err("pinch sub-ring is not CCW");
+        }
+    }
+
+    // Assign each hole to the sub-ring strictly containing its first vertex
+    // (exact point-in-polygon). A hole in neither (e.g. straddling the pinch)
+    // is out of scope → loud.
+    let mut holes_a: Vec<Vec<u32>> = Vec::new();
+    let mut holes_b: Vec<Vec<u32>> = Vec::new();
+    for h in holes {
+        let Some(&first) = h.first() else {
+            continue;
+        };
+        let q = p2[first as usize];
+        if exact2d::point_strictly_inside(q, &pts_a) {
+            holes_a.push(h.clone());
+        } else if exact2d::point_strictly_inside(q, &pts_b) {
+            holes_b.push(h.clone());
+        } else {
+            return Err("pinch hole not strictly contained in either sub-ring");
+        }
+    }
+
+    // Pool indices are shared, so concatenating the two lists keeps the output
+    // indexing unchanged.
+    let mut tris = pinch_split_rec(p2, p3, &ring_a, &holes_a, budget)?;
+    tris.extend(pinch_split_rec(p2, p3, &ring_b, &holes_b, budget)?);
+    Ok(tris)
+}
+
 fn tessellate_cylinder_patch(
     arena: &BrepArena,
     fid: FaceId,
@@ -2269,7 +2373,8 @@ fn tessellate_cylinder_patch(
     // Branch C4: any CDT rejection (coincident verts / crossing constraints /
     // zero area) is a loud typed failure — never a fallback (P9). The M1
     // grid-degeneracy flip pass (spec §6b) runs BEFORE pass 4 refinement.
-    let cdt_tris = triangulate_ring(&pool_p2, &pool_p3, &outer_cdt, &holes_cdt).map_err(fail)?;
+    let cdt_tris =
+        triangulate_with_pinch_split(&pool_p2, &pool_p3, &outer_cdt, &holes_cdt).map_err(fail)?;
 
     // ---- pass 4: conforming chord-bound refinement -------------------------
     // Triangles in "work" coordinates: each corner = (p2 in the CUT frame,
@@ -2724,7 +2829,7 @@ fn tessellate_planar_face(
             [out.positions[i], out.positions[i + 1], out.positions[i + 2]]
         })
         .collect();
-    let cdt_tris = triangulate_ring(&pool_p2, &pool_p3, &outer_cdt, &holes_cdt)
+    let cdt_tris = triangulate_with_pinch_split(&pool_p2, &pool_p3, &outer_cdt, &holes_cdt)
         .map_err(|reason| KernelV2Error::TessellationFailed { face: fid, reason })?;
 
     // Emit, applying the G1 render-precision gate to every triangle: geometry
