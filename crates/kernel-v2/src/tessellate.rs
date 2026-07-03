@@ -1755,44 +1755,80 @@ fn pinch_split_rec(
     let ring_a: Vec<u32> = outer[i..j].to_vec();
     let mut ring_b: Vec<u32> = outer[j..].to_vec();
     ring_b.extend_from_slice(&outer[..i]);
-
-    // Each sub-ring must have ≥3 vertices and be exactly CCW (exact shoelace) —
-    // else loud (never a silent partition of a malformed ring).
     let pts_a: Vec<Point2> = ring_a.iter().map(|&x| p2[x as usize]).collect();
     let pts_b: Vec<Point2> = ring_b.iter().map(|&x| p2[x as usize]).collect();
     for pts in [&pts_a, &pts_b] {
         if pts.len() < 3 {
             return Err("pinch sub-ring has fewer than 3 vertices");
         }
-        if exact2d::signed_area_sign(pts) != Ordering::Greater {
-            return Err("pinch sub-ring is not CCW");
-        }
     }
 
-    // Assign each hole to the sub-ring strictly containing its first vertex
-    // (exact point-in-polygon). A hole in neither (e.g. straddling the pinch)
-    // is out of scope → loud.
-    let mut holes_a: Vec<Vec<u32>> = Vec::new();
-    let mut holes_b: Vec<Vec<u32>> = Vec::new();
-    for h in holes {
-        let Some(&first) = h.first() else {
-            continue;
-        };
-        let q = p2[first as usize];
-        if exact2d::point_strictly_inside(q, &pts_a) {
-            holes_a.push(h.clone());
-        } else if exact2d::point_strictly_inside(q, &pts_b) {
-            holes_b.push(h.clone());
-        } else {
-            return Err("pinch hole not strictly contained in either sub-ring");
+    // M3 orientation dispatch (spec §6b M3a/M3b/M3c): the exact shoelace sign of
+    // the two sub-rings decides whether the split is two material lobes, a
+    // keyhole (material minus a tangent hole), or an invalid winding.
+    let sign_a = exact2d::signed_area_sign(&pts_a);
+    let sign_b = exact2d::signed_area_sign(&pts_b);
+    match (sign_a, sign_b) {
+        // M3a: CCW + CCW — two material lobes, CDT each separately. Each hole
+        // is assigned to the sub-ring strictly containing its first vertex
+        // (exact point-in-polygon); a hole in neither is out of scope → loud.
+        (Ordering::Greater, Ordering::Greater) => {
+            let mut holes_a: Vec<Vec<u32>> = Vec::new();
+            let mut holes_b: Vec<Vec<u32>> = Vec::new();
+            for h in holes {
+                let Some(&first) = h.first() else {
+                    continue;
+                };
+                let q = p2[first as usize];
+                if exact2d::point_strictly_inside(q, &pts_a) {
+                    holes_a.push(h.clone());
+                } else if exact2d::point_strictly_inside(q, &pts_b) {
+                    holes_b.push(h.clone());
+                } else {
+                    return Err("pinch hole not strictly contained in either sub-ring");
+                }
+            }
+            let mut tris = pinch_split_rec(p2, p3, &ring_a, &holes_a, budget)?;
+            tris.extend(pinch_split_rec(p2, p3, &ring_b, &holes_b, budget)?);
+            Ok(tris)
         }
+        // M3b: CCW + CW — keyhole. The CCW sub-ring is the outer; the CW
+        // sub-ring is a tangent HOLE (touching the outer at the pinch),
+        // passed natively to the flood-fill CDT, which welds the shared
+        // pinch vertex. Triangulated area = outer − hole.
+        (Ordering::Greater, Ordering::Less) | (Ordering::Less, Ordering::Greater) => {
+            let (ccw_ring, ccw_pts, cw_ring) = if sign_a == Ordering::Greater {
+                (ring_a, pts_a, ring_b)
+            } else {
+                (ring_b, pts_b, ring_a)
+            };
+            // A pinch INSIDE the CW hole lobe is out of scope → loud.
+            if find_ring_pinch(p2, &cw_ring).is_some() {
+                return Err("keyhole hole lobe carries a nested pinch (out of scope)");
+            }
+            // Original face holes were interior to the outer ring — reassign
+            // them to the CCW keyhole outer (strict containment); the CW lobe
+            // is appended as an additional native hole.
+            let mut ccw_holes: Vec<Vec<u32>> = Vec::new();
+            for h in holes {
+                let Some(&first) = h.first() else {
+                    continue;
+                };
+                if exact2d::point_strictly_inside(p2[first as usize], &ccw_pts) {
+                    ccw_holes.push(h.clone());
+                } else {
+                    return Err("keyhole outer does not strictly contain a face hole");
+                }
+            }
+            ccw_holes.push(cw_ring);
+            // The CCW outer may itself carry a further pinch — recurse the
+            // split BEFORE the keyhole CDT (budget unchanged); the appended CW
+            // hole rides along as a native hole through the recursion.
+            pinch_split_rec(p2, p3, &ccw_ring, &ccw_holes, budget)
+        }
+        // M3c: CW + CW (or a degenerate zero-area sub-ring) — invalid winding.
+        _ => Err("pinch sub-ring is not CCW"),
     }
-
-    // Pool indices are shared, so concatenating the two lists keeps the output
-    // indexing unchanged.
-    let mut tris = pinch_split_rec(p2, p3, &ring_a, &holes_a, budget)?;
-    tris.extend(pinch_split_rec(p2, p3, &ring_b, &holes_b, budget)?);
-    Ok(tris)
 }
 
 fn tessellate_cylinder_patch(
