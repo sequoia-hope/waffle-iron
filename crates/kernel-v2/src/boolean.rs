@@ -560,28 +560,16 @@ pub fn to_yang_brep_indexed(
     }
 
     canonicalize_sibling_planes(&mut yfaces);
-    // `canonicalize_vertices_to_planes` remains UNWIRED (decision record:
-    // spec `m8_shared_boundary_identity` §8a, re-measured 2026-07-03 after
-    // the CDT-core cycle). The 2026-07-02 blocker is RESOLVED: with the
-    // CDT render cores + gates, wiring no longer produces silent-WRONG
-    // output anywhere (full assay 0 WRONG). The remaining gate failure is
-    // narrower: F0016/F0024 flip SUPPORTED_CORRECT → loud ERROR
-    // ("yang-rs: reassembled output would be non-2-manifold") while F0022
-    // flips ERROR → CORRECT and the R0046/R0088/F0063 coplanar walls lift
-    // into deeper loud errors. Net −1 CORRECT ⇒ "no SUPPORTED_CORRECT
-    // lost" fails; wiring returns with the Stage-6 reassembly
-    // investigation of the F0016/F0024 non-2-manifold class
-    // (spec `yang_stage6_sliver_topology`).
-    //
-    // `KV2_CANON_WIRE=1` wires the pass FOR TEST DRIVERS ONLY (the
-    // stage6-sliver trackers and the m8 §8a-ii re-wire experiment) — the
-    // env-gated-diagnostics convention (KV2_PATCH_* precedent). Production
-    // behavior with the variable unset is byte-identical unwired.
-    if std::env::var_os("KV2_CANON_WIRE").is_some() {
-        canonicalize_vertices_to_planes(&mut yverts, &yedges, &yfaces);
-    } else {
-        let _ = canonicalize_vertices_to_planes;
-    }
+    // World-space vertex canonicalization (spec `m8_shared_boundary_identity`
+    // §2): re-derive each all-planar-incident vertex from its canonical
+    // planes, band-guarded. WIRED 2026-07-03 after two prerequisite cycles
+    // removed its blockers (full decision record: m8 spec §8a):
+    // `kv2_cdt_triangulation_core` (no silent-WRONG remains — canon failure
+    // modes are loud) and `yang_stage6_sliver_topology` (the F0016/F0024
+    // fold-sliver Stage-6 class). Re-wire gate measured on the full assay:
+    // wired vs unwired = 83↔83 SUPPORTED_CORRECT, 0 WRONG, no CORRECT lost;
+    // coplanar walls R0046/R0088/F0063 lift to their next honest wall.
+    canonicalize_vertices_to_planes(&mut yverts, &yedges, &yfaces);
 
     let brep = yang_rs::BRep::new(yverts, yedges, yfaces).map_err(|e| {
         KernelV2Error::BooleanFailed(format!("yang-rs rejected the converted input B-Rep: {e}"))

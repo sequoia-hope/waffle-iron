@@ -224,6 +224,18 @@ NEXT concrete target for wiring: the F0016/F0024 Stage-6 reassembly
 non-2-manifold class under canonicalized vertices (a narrower, loud,
 reproducible investigation — no longer a silent-wreck hunt).
 
+### 8a-iii. WIRED (2026-07-03, final)
+
+The F0016/F0024 class was root-caused and fixed by
+`specs/yang_stage6_sliver_topology.md` (fold-sliver exclusion from patch
+boundary walks + loop T-subdivision; deviation N22). Re-wire gate re-run
+on the full assay: **wired vs unwired = 83↔83 SUPPORTED_CORRECT, 0 WRONG,
+zero CORRECT lost** — the §2 world-space pass is PERMANENTLY WIRED in
+`to_yang_brep` (commit trail: 73f2ccff knob → 8064537f fix → wire).
+Bonus: F0022 ERROR→CORRECT even unwired (same fold-sliver class landing
+by femto-luck). Residual §2b scope limits (rim-aware clustering, F0061)
+and the KV9-F3 output-identity target (§8b) remain open.
+
 ### 8b. Output-side identity: measured case KV9-F3 (2026-07-03)
 
 The CDT-core cycle (`kv2_cdt_triangulation_core` §6a) measured an
