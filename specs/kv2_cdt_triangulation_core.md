@@ -188,6 +188,30 @@ The M1 predicate uses the SAME shared constants as the oracle
 solid-wide max |coord|), heights computed on the 3D positions — no new
 tolerance is invented (A3.3 single ownership).
 
+**M3 amendment (2026-07-03, measured after round-2 GREEN):** F0055's pinch
+ring is a KEYHOLE — the split yields one CCW sub-ring (the square) and one
+CW sub-ring (a tangent disc-lobe, i.e. a HOLE touching the outer boundary
+at the pinch; verified from the banked pool walk). Round-2's both-CCW rule
+correctly rejected it loudly ("pinch sub-ring is not CCW"); the complete
+dispatch is:
+
+| # | Sub-ring orientations after a pinch split | Behavior |
+|---|---|---|
+| M3a | CCW + CCW | Two material lobes: CDT each separately (round-2 behavior) |
+| M3b | CCW + CW | Keyhole: outer = the CCW sub-ring, hole = the CW sub-ring; CDT via the flood-fill variant with SHARED-VERTEX WELDING (below). Triangulated area = outer − hole |
+| M3c | CW + CW | Invalid winding → loud `TessellationFailed` (unchanged reason) |
+
+Shared-vertex welding (cherchi-rs, flood-fill variant ONLY): coincident
+caller positions weld to one spade handle instead of `DuplicateVertex`; a
+constraint whose endpoints weld to the same handle (consecutive
+duplicates) stays `DegenerateInput` (the loud guard); the no-Steiner guard
+counts DISTINCT welded handles. Rationale: a tangent hole shares exactly
+one geometric point with the outer ring; spade supports meeting-at-a-vertex
+constraints, and hole exclusion stays centroid-parity per hole (the
+flood-fill cannot see into a constraint-enclosed lobe). The plain
+`cdt_polygon_with_holes` keeps its strict `DuplicateVertex` contract
+(yang-rs Stage-1 unchanged).
+
 Round-2 oracles: banked F0016 FaceId(61) 6-vertex ring (planar, M1) → zero
 grid-degenerate triangles; banked F0055 FaceId(9) 96-vertex pinch ring
 (M3) → tessellates, exact partition, both sub-rings emitted; cherchi-rs
