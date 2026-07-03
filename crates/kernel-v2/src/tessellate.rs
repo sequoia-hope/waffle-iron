@@ -86,6 +86,7 @@ use crate::arena::{BrepArena, Curve, FaceId, SolidId, Surface, UnitVector3};
 use crate::error::KernelV2Error;
 use crate::exact2d;
 use cad_primitives::{Point2, Point3, Vector3};
+use waffle_types::kernel::units::{TAU_TESS_GRID_FACTOR, TAU_TESS_GRID_MIN};
 
 /// Flat-array triangle mesh for rendering, with per-face index ranges.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -1501,6 +1502,195 @@ fn f32_render_degenerate(pa: [f64; 3], pb: [f64; 3], pc: [f64; 3]) -> bool {
     cx == 0.0 && cy == 0.0 && cz == 0.0
 }
 
+/// M1 grid-degeneracy predicate (spec `kv2_cdt_triangulation_core` §6b): is the
+/// triangle's f32-rounded height below the render weld `grid`? The height is
+/// computed in the SAME shape as `oracle::check_no_degenerate_triangles`
+/// (`height = 2·area / longest_side`, all f32 arithmetic on f32-rounded 3D
+/// positions), so a triangle flatter than the grid the watertight oracle welds
+/// at is caught here — ~100× coarser than f32 ulp, which is why the bitwise
+/// `f32_render_degenerate` (G0/G1) cannot see it.
+fn tri_height_below_grid(pa: [f64; 3], pb: [f64; 3], pc: [f64; 3], grid: f64) -> bool {
+    let f = |p: [f64; 3]| [p[0] as f32, p[1] as f32, p[2] as f32];
+    let (fa, fb, fc) = (f(pa), f(pb), f(pc));
+    let ax = fb[0] - fa[0];
+    let ay = fb[1] - fa[1];
+    let az = fb[2] - fa[2];
+    let bx = fc[0] - fa[0];
+    let by = fc[1] - fa[1];
+    let bz = fc[2] - fa[2];
+    let cx = ay * bz - az * by;
+    let cy = az * bx - ax * bz;
+    let cz = ax * by - ay * bx;
+    let area = (cx * cx + cy * cy + cz * cz).sqrt() / 2.0;
+    let max_side2 = (ax * ax + ay * ay + az * az)
+        .max(bx * bx + by * by + bz * bz)
+        .max((bx - ax) * (bx - ax) + (by - ay) * (by - ay) + (bz - az) * (bz - az));
+    let height = if max_side2 > 0.0 {
+        2.0 * area / max_side2.sqrt()
+    } else {
+        0.0
+    };
+    (height as f64) < grid
+}
+
+/// Register the undirected index-edges of one ring loop into `set` (skipping a
+/// self-pair). Used to build the constraint-edge set the M1 flip pass must not
+/// flip (boundary/hole edges are hard constraints, M1b).
+fn add_ring_edges(set: &mut std::collections::HashSet<(u32, u32)>, ring: &[u32]) {
+    let m = ring.len();
+    for i in 0..m {
+        let (a, b) = (ring[i], ring[(i + 1) % m]);
+        if a != b {
+            set.insert((a.min(b), a.max(b)));
+        }
+    }
+}
+
+/// The other triangle sharing the undirected edge `{p, q}` with `tris[ti]`, if
+/// any (an interior manifold edge has exactly one such neighbor).
+fn other_tri_on_edge(tris: &[[u32; 3]], ti: usize, p: u32, q: u32) -> Option<usize> {
+    tris.iter()
+        .enumerate()
+        .position(|(k, t)| k != ti && t.contains(&p) && t.contains(&q))
+}
+
+/// M1 GRID-DEGENERACY TARGETED FLIP PASS (spec `kv2_cdt_triangulation_core`
+/// §6b, mechanisms M1/M1b): applied to a CDT output triangle list (indexing the
+/// shared 2D/3D pools) BEFORE downstream refinement/emit.
+///
+/// For each triangle flatter than the render weld grid (`tri_height_below_grid`
+/// OR the bitwise `f32_render_degenerate` floor), find its LONGEST 2D edge; if
+/// that edge is a boundary/constraint edge, leave it (M1b — input-forced, the
+/// bitwise G0/G1 gates remain the loud floor). Otherwise it is an interior
+/// diagonal with a neighbor: flip to the other diagonal iff the two triangles
+/// form a STRICTLY convex quad (exact orient2d, all four turns strict — this
+/// also guarantees both replacements are strictly CCW, so winding is preserved,
+/// I4) AND the flip STRICTLY reduces the grid-degenerate count among the two.
+/// Each accepted flip strictly lowers the global grid-degenerate count, so the
+/// fixpoint terminates in ≤ n flips; the `4·n` budget is a loud tripwire, never
+/// a silent loop.
+///
+/// `p2` / `p3` are the 2D triangulation-frame coordinates and 3D positions
+/// indexed by pool index; `is_constraint` reports whether an undirected pool
+/// index-edge is a boundary/hole constraint.
+fn grid_degeneracy_flip_pass(
+    tris: &mut [[u32; 3]],
+    p2: &[Point2],
+    p3: &[[f64; 3]],
+    is_constraint: &dyn Fn(u32, u32) -> bool,
+) -> Result<(), &'static str> {
+    if tris.is_empty() {
+        return Ok(());
+    }
+    // Invariant: the M1 grid reuses the render weld grid the watertight oracle
+    // owns (A3.3 single ownership): grid = (max_abs·FACTOR).max(MIN), max_abs
+    // over the FACE'S OWN 3D pool (per-face ≤ mesh-wide; 100× headroom to f32).
+    let max_abs = p3
+        .iter()
+        .flat_map(|p| p.iter())
+        .map(|&c| (c as f32).abs())
+        .fold(0.0_f32, f32::max) as f64;
+    let grid = (max_abs * TAU_TESS_GRID_FACTOR).max(TAU_TESS_GRID_MIN);
+    let degen = |t: &[u32; 3]| -> bool {
+        let (pa, pb, pc) = (p3[t[0] as usize], p3[t[1] as usize], p3[t[2] as usize]);
+        f32_render_degenerate(pa, pb, pc) || tri_height_below_grid(pa, pb, pc, grid)
+    };
+    let len2 = |a: u32, b: u32| -> f64 {
+        let (pa, pb) = (p2[a as usize], p2[b as usize]);
+        let (dx, dy) = (pa.x() - pb.x(), pa.y() - pb.y());
+        dx * dx + dy * dy
+    };
+    let ccw = |a: u32, b: u32, c: u32| -> bool {
+        exact2d::orient2d(p2[a as usize], p2[b as usize], p2[c as usize]) == Ordering::Greater
+    };
+    let budget = 4 * tris.len();
+    let mut flips = 0usize;
+    loop {
+        let mut applied = false;
+        for ti in 0..tris.len() {
+            let t = tris[ti];
+            if !degen(&t) {
+                continue;
+            }
+            // Longest edge, directed p→q as it appears in the CCW triangle
+            // (apex r on its CCW-left).
+            let dirs = [(t[0], t[1], t[2]), (t[1], t[2], t[0]), (t[2], t[0], t[1])];
+            let (mut p, mut q, mut r) = dirs[0];
+            let mut best_l = len2(p, q);
+            for &(dp, dq, dr) in &dirs[1..] {
+                let l = len2(dp, dq);
+                if l > best_l {
+                    best_l = l;
+                    p = dp;
+                    q = dq;
+                    r = dr;
+                }
+            }
+            // M1b: longest edge is a boundary/constraint edge — leave it.
+            if is_constraint(p, q) {
+                continue;
+            }
+            let Some(tj) = other_tri_on_edge(tris, ti, p, q) else {
+                continue;
+            };
+            let Some(s) = tris[tj].iter().copied().find(|&v| v != p && v != q) else {
+                continue;
+            };
+            // Strictly convex quad [p, s, q, r]: the diagonal p–q flips to r–s.
+            if !(ccw(p, s, q) && ccw(s, q, r) && ccw(q, r, p) && ccw(r, p, s)) {
+                continue;
+            }
+            let new1 = [p, s, r];
+            let new2 = [s, q, r];
+            let before = degen(&t) as usize + degen(&tris[tj]) as usize;
+            let after = degen(&new1) as usize + degen(&new2) as usize;
+            if after >= before {
+                continue;
+            }
+            // Winding preserved: the convex-quad test above already forces both
+            // replacements strictly CCW.
+            debug_assert!(ccw(new1[0], new1[1], new1[2]) && ccw(new2[0], new2[1], new2[2]));
+            tris[ti] = new1;
+            tris[tj] = new2;
+            flips += 1;
+            if flips > budget {
+                return Err("degeneracy flip pass did not converge");
+            }
+            applied = true;
+            break;
+        }
+        if !applied {
+            break;
+        }
+    }
+    Ok(())
+}
+
+/// Triangulate one simple ring (with native holes) for the render channel:
+/// the exact-predicate flood-fill CDT ([`yang_rs::cdt_polygon_with_holes_floodfill`],
+/// spec `kv2_cdt_triangulation_core` §6b M2) followed by the M1 grid-degeneracy
+/// flip pass. `p2` / `p3` are the shared 2D/3D pools; `outer` / `holes` index
+/// them. Output triangles index the same pool (no new points). A CDT rejection
+/// or a non-converging flip pass is a loud typed reason string (never a
+/// fallback — P9).
+fn triangulate_ring(
+    p2: &[Point2],
+    p3: &[[f64; 3]],
+    outer: &[u32],
+    holes: &[Vec<u32>],
+) -> Result<Vec<[u32; 3]>, &'static str> {
+    let mut tris = yang_rs::cdt_polygon_with_holes_floodfill(p2, outer, holes)
+        .map_err(|_| "ring rejected by CDT (degenerate/self-intersecting)")?;
+    let mut cset: std::collections::HashSet<(u32, u32)> = std::collections::HashSet::new();
+    add_ring_edges(&mut cset, outer);
+    for h in holes {
+        add_ring_edges(&mut cset, h);
+    }
+    let is_constraint = |i: u32, j: u32| cset.contains(&(i.min(j), i.max(j)));
+    grid_degeneracy_flip_pass(&mut tris, p2, p3, &is_constraint)?;
+    Ok(tris)
+}
+
 fn tessellate_cylinder_patch(
     arena: &BrepArena,
     fid: FaceId,
@@ -2022,15 +2212,16 @@ fn tessellate_cylinder_patch(
     }
 
     // ---- pass 3: constrained-Delaunay triangulation -----------------------
-    // (spec kv2_cdt_triangulation_core §3, branches C1–C4). The greedy exact
-    // ear-clip + f64 flip minted sub-f32 slivers from healthy boundaries
-    // (§6b): the flip's plain-f64 incircle is catastrophically ill-conditioned
-    // exactly on slivers, so it could not remove them and LEPP then propagated
-    // them into dozens of B2 twins. The exact-predicate CDT is the
-    // max-min-angle triangulation of the constrained point set, so if any
-    // triangulation avoids the sliver, the CDT avoids it. Hole loops are
-    // passed NATIVELY (no bridge corridors — corridor-doubled vertices would
-    // be rejected by the CDT as coincident).
+    // (spec kv2_cdt_triangulation_core §3, branches C1–C4; §6b M1/M2/M3). The
+    // greedy exact ear-clip + f64 flip minted sub-f32 slivers from healthy
+    // boundaries: the flip's plain-f64 incircle is catastrophically
+    // ill-conditioned exactly on slivers, so it could not remove them and LEPP
+    // then propagated them into dozens of B2 twins. `triangulate_ring` runs the
+    // flood-fill CDT (M2, topological interior classification) + the M1
+    // grid-degeneracy flip pass, so if any triangulation avoids the sliver, the
+    // CDT avoids it and the flip pass repairs the residual grid-flat wedges.
+    // Hole loops are passed NATIVELY (no bridge corridors — corridor-doubled
+    // vertices would be rejected by the CDT as coincident).
     //
     // Register every outer-ring adjacency (covers the no-hole case and the
     // seam duplicates); hole adjacencies were registered by `register_chain`
@@ -2073,10 +2264,12 @@ fn tessellate_cylinder_patch(
                 .collect()
         })
         .collect();
+    // 3D positions per pool index (for the M1 grid-degeneracy flip pass).
+    let pool_p3: Vec<[f64; 3]> = pool_node.iter().map(|&nd| nodes[nd].pos).collect();
     // Branch C4: any CDT rejection (coincident verts / crossing constraints /
-    // zero area) is a loud typed failure — never a fallback (P9).
-    let cdt_tris = yang_rs::cdt_polygon_with_holes(&pool_p2, &outer_cdt, &holes_cdt)
-        .map_err(|_| fail("patch ring rejected by CDT (degenerate/self-intersecting unroll)"))?;
+    // zero area) is a loud typed failure — never a fallback (P9). The M1
+    // grid-degeneracy flip pass (spec §6b) runs BEFORE pass 4 refinement.
+    let cdt_tris = triangulate_ring(&pool_p2, &pool_p3, &outer_cdt, &holes_cdt).map_err(fail)?;
 
     // ---- pass 4: conforming chord-bound refinement -------------------------
     // Triangles in "work" coordinates: each corner = (p2 in the CUT frame,
@@ -2489,12 +2682,12 @@ fn tessellate_planar_face(
     }
 
     // ---- constrained-Delaunay triangulation + G1 gate ---------------------
-    // (spec kv2_cdt_triangulation_core §3, branches P1–P3, G1). The greedy
-    // exact ear-clip emitted a triangle spanning three near-collinear boundary
-    // vertices — a silent sub-f32 sliver on the R0064 gear loop (§6b); the
-    // max-min-angle constrained-Delaunay triangulation avoids it. Hole loops
-    // are passed NATIVELY (no bridge corridors — corridor-doubled vertices
-    // would be rejected by the CDT as coincident).
+    // (spec kv2_cdt_triangulation_core §3, branches P1–P3, G1; §6b M1/M2/M3).
+    // The greedy exact ear-clip emitted a triangle spanning three near-collinear
+    // boundary vertices — a silent sub-f32 sliver on the R0064 gear loop; the
+    // `triangulate_ring` flood-fill CDT (M2) + M1 grid-degeneracy flip pass
+    // avoids it. Hole loops are passed NATIVELY (no bridge corridors —
+    // corridor-doubled vertices would be rejected by the CDT as coincident).
     //
     // CDT vertex pool: the outer loop's projected Point2, then each hole's.
     // Each pool index keeps its render-vertex id; vertex EMISSION order is the
@@ -2522,14 +2715,17 @@ fn tessellate_planar_face(
         })
         .collect();
     // Branch P3: any CDT rejection (coincident verts / crossing constraints /
-    // zero area) is a loud typed failure — never a fallback (P9).
-    let cdt_tris =
-        yang_rs::cdt_polygon_with_holes(&pool_p2, &outer_cdt, &holes_cdt).map_err(|_| {
-            KernelV2Error::TessellationFailed {
-                face: fid,
-                reason: "planar ring rejected by CDT (degenerate/self-intersecting projection)",
-            }
-        })?;
+    // zero area) is a loud typed failure — never a fallback (P9). The M1
+    // grid-degeneracy flip pass (spec §6b) runs BEFORE the emit loop.
+    let pool_p3: Vec<[f64; 3]> = pool_vid
+        .iter()
+        .map(|&vid| {
+            let i = vid as usize * 3;
+            [out.positions[i], out.positions[i + 1], out.positions[i + 2]]
+        })
+        .collect();
+    let cdt_tris = triangulate_ring(&pool_p2, &pool_p3, &outer_cdt, &holes_cdt)
+        .map_err(|reason| KernelV2Error::TessellationFailed { face: fid, reason })?;
 
     // Emit, applying the G1 render-precision gate to every triangle: geometry
     // valid at f64 but COLLAPSED at f32 render precision must fail loudly (§3
