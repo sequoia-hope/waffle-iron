@@ -570,8 +570,18 @@ pub fn to_yang_brep_indexed(
     // flips ERROR → CORRECT and the R0046/R0088/F0063 coplanar walls lift
     // into deeper loud errors. Net −1 CORRECT ⇒ "no SUPPORTED_CORRECT
     // lost" fails; wiring returns with the Stage-6 reassembly
-    // investigation of the F0016/F0024 non-2-manifold class.
-    let _ = canonicalize_vertices_to_planes;
+    // investigation of the F0016/F0024 non-2-manifold class
+    // (spec `yang_stage6_sliver_topology`).
+    //
+    // `KV2_CANON_WIRE=1` wires the pass FOR TEST DRIVERS ONLY (the
+    // stage6-sliver trackers and the m8 §8a-ii re-wire experiment) — the
+    // env-gated-diagnostics convention (KV2_PATCH_* precedent). Production
+    // behavior with the variable unset is byte-identical unwired.
+    if std::env::var_os("KV2_CANON_WIRE").is_some() {
+        canonicalize_vertices_to_planes(&mut yverts, &yedges, &yfaces);
+    } else {
+        let _ = canonicalize_vertices_to_planes;
+    }
 
     let brep = yang_rs::BRep::new(yverts, yedges, yfaces).map_err(|e| {
         KernelV2Error::BooleanFailed(format!("yang-rs rejected the converted input B-Rep: {e}"))
