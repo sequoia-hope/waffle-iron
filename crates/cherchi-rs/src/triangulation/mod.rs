@@ -1667,9 +1667,18 @@ mod floodfill_red_tests {
             .expect("M2: flood-fill variant must triangulate the near-collinear ring");
         let area: f64 = tris
             .iter()
-            .map(|t| tri_area(verts[t[0] as usize], verts[t[1] as usize], verts[t[2] as usize]))
+            .map(|t| {
+                tri_area(
+                    verts[t[0] as usize],
+                    verts[t[1] as usize],
+                    verts[t[2] as usize],
+                )
+            })
             .sum();
-        assert!((area - 3.9).abs() < 1e-9, "M2: full coverage 3.9, got {area}");
+        assert!(
+            (area - 3.9).abs() < 1e-9,
+            "M2: full coverage 3.9, got {area}"
+        );
         let mut edges: std::collections::BTreeMap<(u32, u32), u32> =
             std::collections::BTreeMap::new();
         for t in &tris {
