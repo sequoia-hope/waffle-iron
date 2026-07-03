@@ -122,11 +122,24 @@ the roadmap's remaining work:
    >    label-homogeneity assert is debug-only; L2a subset-compatible
    >    floods proceed, L2b disjoint stays loud, deviation N23; assay
    >    83/0, zero lost).** Remaining: (i) R0046/R0088's next wall —
-   >    kernel-v2 `InvalidBooleanOutput` undirected-edge pairing (possibly
-   >    the stage6-sliver T-subdivision class extended); (ii) F0063
+   >    **DIAGNOSED 2026-07-03 (m8_shared_boundary_identity §8c): NOT the
+   >    stage6-sliver T-subdivision class (disproven). The kept mesh out
+   >    of the native boolean is defective (open holes + double-covered
+   >    strips, `check_watertight_2manifold` FAILS) — the L2a mixed-label
+   >    flood over the non-conformal Stage-0 overlay operands keeps a
+   >    wrong set, at reference parity with the C++ release. Root folds
+   >    into (v). A yang-side kept-mesh gate was attempted and ABORTED
+   >    per P10 (`specs/yang_kept_mesh_manifold_gate.md` §2b): valid
+   >    N22 fold-sliver output violates EVERY mesh-level watertightness
+   >    form (directed / Euler / undirected 2-cover — F0016 measured
+   >    count=1 on a real edge), because differently-subdivided
+   >    collinear chains only pair after the LOOP-level T-subdivision —
+   >    so kernel-v2's post-subdivision edge pairing IS the honest wall
+   >    location;** (ii) F0063
    >    chained-input non-2-manifold; (iii) KV9-F3 output vertex identity;
    >    (iv) R0078 azimuth/coplanar; (v) Stage-0 inputcheck-clean overlap
-   >    emission (the deeper §6a alternative, general-M8).
+   >    emission (the deeper §6a alternative, general-M8) — NOW THE NAMED
+   >    ROOT for R0046/R0088/F0063 (their acceptance cases).
    > 4. **Disc rim on a non-cylinder lateral** (`rim-lateral-none`: R0050,
    >    R0025 2nd wall) — `lateral_for_cap` is cylinder-only; R0025's rim
    >    lateral is a TORUS (circle-revolve), so crossing propagation +

@@ -303,6 +303,42 @@ follow-up's first concrete output-identity target alongside the rim-aware
 clustering gap (§2b scope limit): intended-identical output vertices must
 be minted ONCE (bit-shared), not recomputed per incident curve segment.
 
+### 8c. R0046/R0088 post-LabelMismatch wall — measured (2026-07-03)
+
+The "kernel-v2 `InvalidBooleanOutput` undirected-edge pairing" wall that
+R0046/R0088 lifted into after the `cherchi_patch_label_tolerance` cycle
+is NOT an output-identity or T-subdivision defect (the "stage6-sliver
+class extended" hypothesis is DISPROVEN — P10 record). Measured with
+`KV2_EDGE_PAIR_PROBE` + `YANG_PHASE_A_PROBE` + `CHERCHI_L2A_PROBE`:
+
+- The kept mesh out of the native boolean is itself defective for the
+  failing subtracts: `check_watertight_2manifold` FAILS (R0046: 41 bad
+  undirected edges — `tris=1` open holes along the A-cylinder risers and
+  `tris=3` strips where two A-cylinder triangles double-cover against one
+  B triangle; R0088: both ops, one kept mesh a lone 2-tri open sheet).
+  Stage-6 attribution is complete (`none_count=0`) — the defect is the
+  kept SET, upstream of all Stage-6/kernel-v2 machinery. The unpaired
+  output edges decompose into one benign T-triangle + two closed rings
+  bounding the kept-mesh holes; no loop repair can fix a hole.
+- The wall reaches kernel-v2 because `has_conic == false` for these ops
+  skips Stage 4 and with it the §4.4.3 gate. An unconditional yang-side
+  kept-mesh gate was attempted and ABORTED per P10
+  (`specs/yang_kept_mesh_manifold_gate.md` §2b): valid N22 fold-sliver
+  output violates every mesh-level watertightness form (directed /
+  Euler / undirected 2-cover — F0016 measured count=1 on a real edge);
+  differently-subdivided collinear chains pair only after the
+  loop-level T-subdivision, so kernel-v2's post-subdivision edge
+  pairing is the honest wall location for this class.
+- Root: the L2a mixed-label flood fires on these ops (8× R0046, 6008×
+  R0088) over the non-conformal Stage-0 coplanar overlay operands
+  (`mesh_booleans_inputcheck`: Local Orientation + Intersection failed —
+  `cherchi_patch_label_tolerance` §6a), and the patch-level in/out
+  verdict keeps a wrong set. Reference parity (I1 there) shows the C++
+  release does the same on the same meshes — the port is faithful; the
+  INPUT contract is what is violated. The fix is Stage-0
+  inputcheck-clean overlap emission (the general-M8 keystone, remaining
+  item (v)) — R0046/R0088/F0063 are its acceptance cases.
+
 ## 8. History (P10 record)
 
 The 2026-07-02 DRAFT designed a cross-solid near-collinear edge snap
