@@ -1,14 +1,14 @@
 {
-  "errored": 54,
+  "errored": 17,
   "failed": 0,
-  "generated": "2026-07-04",
-  "passed": 89,
+  "generated": "kernel-v2 (assay_kv2 categorized run)",
+  "passed": 86,
   "results": [
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0001",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(revolve)",
@@ -77,10 +77,10 @@
       "status": "error"
     },
     {
-      "category": "pass-boss-only",
-      "detail": "9 oracles passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0013",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "TIMEOUT",
@@ -335,10 +335,10 @@
       "status": "unsupported"
     },
     {
-      "category": "pass-genuine",
-      "detail": "9 oracles passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0056",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -948,7 +948,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): 559e354e-a36a-4c6a-b998-fe93a4590c52: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 30 is invalid: OffCurveBeyondChordBand\")",
+      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(8), reason: \"no unblocked seam bridge for the wrapping patch loops\" }",
       "id": "F0058",
       "status": "error"
     },

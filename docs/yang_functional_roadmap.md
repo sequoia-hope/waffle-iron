@@ -187,7 +187,25 @@ the roadmap's remaining work:
    >    progresses to a LOUD Stage-4 OffCurveBeyondChordBand at a
    >    tangency-adjacent vertex — the ellipse-junction relocation at
    >    tangency grade is the named next increment (kv9 quarantine tags
-   >    updated).** Still open:
+   >    updated).** **KV9-F1 Increment 0c SHIPPED 2026-07-04 (spec §2c):
+   >    a `vert_ell_junction` whose two ellipses name the SAME unordered
+   >    cylinder pair is always the pair's surface-tangency point; the
+   >    pinch vertex's standoff is second-order (√(2rB)+B derived band,
+   >    B = combined chord budget) — gate converted from the
+   >    inapplicable first-order 2·d_ε/|d̂·r̂| line metric (which stays
+   >    byte-identical for the KV11 box-edge class). Steinmetz SUBTRACT
+   >    now clears yang-rs with the exact-volume oracle
+   >    (yang-rs kv9f1_tangency_junction trio green). Named next walls
+   >    (kv9 tags updated): (a) UNION stops at Stage-6
+   >    s6-curved-degenerate-loop — extract_boundary_cycles interleaves
+   >    the top/bottom lens cycles at the now-4-valent tangency junction
+   >    into a Newell-cancelling figure-eight; junction-aware
+   >    continuation pairing needed. (b) SUBTRACT walls at kernel-v2
+   >    import NonManifoldVertex — FOUR elliptical arcs share both
+   >    endpoints (two per ellipse), defeating vertex-pair edge keying
+   >    (the M8 disc∩disc CurveKey lesson, now same-curve bigons). New
+   >    kept probes: KV9_JUNCTION_PROBE, NONMANIFOLD_SITE_PROBE
+   >    (self-localizing NonManifoldOutput gates).** Still open:
    >    (iv) R0078 azimuth/coplanar. The P10 records stand:
    >    no mesh-level kept-set gate (`yang_kept_mesh_manifold_gate.md`
    >    §2b); kernel-v2's post-subdivision edge pairing stays the honest
