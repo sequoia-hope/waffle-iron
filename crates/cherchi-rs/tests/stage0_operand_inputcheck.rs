@@ -90,6 +90,23 @@ fn native_census_mc_band_scale_operands() {
     assert_operand_clean(name, &c);
 }
 
+/// Fold-pair emission class (spec `m8_stage0_fold_pair_emission` §2). RED:
+/// the disc-pair builders' angle-only annulus merge fans inner chords to
+/// angularly-far outer corners that lie on the CENTER side of the chord's
+/// supporting line, double-covering pockets of the disc — F0027-a carries
+/// 6 misoriented pairs + 2 improper contacts, R0038-a 7 + 2 (no boundary
+/// edges; the pleat preserves watertightness). GREEN when the exact
+/// half-plane visibility guard + coverage certificate land (E-F1..E-F4)
+/// and these fixtures are re-banked from the fixed emission.
+#[test]
+fn native_census_foldpair_operands() {
+    for name in ["f0027_foldpair_a.obj", "r0038_foldpair_a.obj"] {
+        let m = fixture(name);
+        let c = census(&m.verts, &m.tris);
+        assert_operand_clean(name, &c);
+    }
+}
+
 /// Oracle-vs-oracle (spec §2 calibration, binding reference): the sidecar
 /// `mesh_booleans_inputcheck` verdict must agree with the native census at
 /// the clean/dirty level on every banked operand — and after GREEN, both
@@ -105,6 +122,8 @@ fn sidecar_inputcheck_agrees_on_banked_operands() {
         "f0063_stage0_emission_a.obj",
         "f0063_stage0_emission_b.obj",
         "r0088_mc_stage0_a.obj",
+        "f0027_foldpair_a.obj",
+        "r0038_foldpair_a.obj",
     ] {
         let m = fixture(name);
         let native = census(&m.verts, &m.tris);

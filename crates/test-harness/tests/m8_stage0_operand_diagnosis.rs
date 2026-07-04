@@ -359,3 +359,31 @@ fn diagnose_f0063() {
 fn diagnose_r0070() {
     diagnose("R0070");
 }
+
+// Fold-pair emission class drivers (the misoriented+improper / no-boundary
+// residue quantified by the 2026-07-04 sweep). F0027 is the
+// SUPPORTED_CORRECT-despite-dirty member (no-regression sentinel); the
+// others are ERROR-class.
+#[test]
+#[ignore = "M8 Stage-0 diagnosis driver (fold-pair emission cycle)"]
+fn diagnose_f0027() {
+    diagnose("F0027");
+}
+
+#[test]
+#[ignore = "M8 Stage-0 diagnosis driver (fold-pair emission cycle)"]
+fn diagnose_f0029() {
+    diagnose("F0029");
+}
+
+#[test]
+#[ignore = "M8 Stage-0 diagnosis driver (fold-pair emission cycle)"]
+fn diagnose_r0038() {
+    diagnose("R0038");
+}
+
+#[test]
+#[ignore = "M8 Stage-0 diagnosis driver (fold-pair emission cycle)"]
+fn diagnose_r0089() {
+    diagnose("R0089");
+}

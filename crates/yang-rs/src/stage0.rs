@@ -4092,6 +4092,118 @@ fn orient_band_tri(verts: &[Point3], tri: &mut [u32; 3], target: [f64; 3]) {
 }
 
 #[cfg(test)]
+mod annulus_tests {
+    //! Fold-pair emission RED oracle (spec `m8_stage0_fold_pair_emission`
+    //! §6): F0027's measured configuration — a square outer ring whose
+    //! corners fall on the CENTER side of distant inner chords' supporting
+    //! lines. The angle-only merge fans those chords to invisible corners,
+    //! double-covering part of the disc (the misoriented+improper census
+    //! class). The exact coverage certificate (I2/E-F4) is the assertion:
+    //! Σ triangle areas == area(outer) − area(inner), rational shoelace.
+
+    use super::{annulus_tris, V2};
+    use crate::coplanar_overlay::ExactPoint2;
+    use cad_primitives::Point3;
+    use dashu::rational::RBig;
+
+    const Z: f64 = 0.236530362945883;
+
+    fn v2(u: f64, v: f64) -> V2 {
+        V2 {
+            e: ExactPoint2::from_f64(u, v).expect("finite"),
+            u,
+            v,
+            p: Point3::new(u, v, Z),
+        }
+    }
+
+    /// The F0027 rings, verbatim from the dumped defective operand
+    /// (square corners CCW; 11-gon rim CCW by ascending azimuth).
+    fn f0027_rings() -> (Vec<V2>, Vec<V2>) {
+        let outer = [
+            (0.24933140012920343, -0.18511094772209571),
+            (0.24933140012920343, 0.18511094772209571),
+            (-0.24933140012920343, 0.18511094772209571),
+            (-0.24933140012920343, -0.18511094772209571),
+        ];
+        let inner = [
+            (-0.10624127713105047, -0.048518765551481664),
+            (-0.06314462464930325, -0.09825495384444957),
+            (0.0, -0.11679588852813404),
+            (0.06314462464930323, -0.09825495384444959),
+            (0.10624127713105048, -0.04851876555148163),
+            (0.11560707478868232, 0.016621787986866053),
+            (0.08826844304146464, 0.07648504128332562),
+            (0.032905204303597765, 0.1120648343898067),
+            (-0.032905204303597814, 0.11206483438980669),
+            (-0.08826844304146471, 0.07648504128332555),
+            (-0.11560707478868233, 0.016621787986866008),
+        ];
+        (
+            outer.iter().map(|&(u, v)| v2(u, v)).collect(),
+            inner.iter().map(|&(u, v)| v2(u, v)).collect(),
+        )
+    }
+
+    /// Exact CCW shoelace area (×2) of a ring.
+    fn ring_area2(ring: &[V2]) -> RBig {
+        let n = ring.len();
+        let mut a = RBig::ZERO;
+        for i in 0..n {
+            let p = &ring[i].e;
+            let q = &ring[(i + 1) % n].e;
+            a += &p.x * &q.y - &q.x * &p.y;
+        }
+        a
+    }
+
+    /// Exact area (×2) of an emitted triangle, from its (u,v) = (x,y)
+    /// in-plane coordinates (the test plane is z=const with normal +z).
+    fn tri_area2(t: &[Point3; 3]) -> RBig {
+        let e: Vec<ExactPoint2> = t
+            .iter()
+            .map(|p| ExactPoint2::from_f64(p.x(), p.y()).expect("finite"))
+            .collect();
+        let dx1 = &e[1].x - &e[0].x;
+        let dy1 = &e[1].y - &e[0].y;
+        let dx2 = &e[2].x - &e[0].x;
+        let dy2 = &e[2].y - &e[0].y;
+        &dx1 * &dy2 - &dy1 * &dx2
+    }
+
+    /// RED (spec §6): the F0027 annulus must cover EXACTLY the region
+    /// between the rings. Today the angle-only merge double-covers two
+    /// pockets (fold pairs at corners 1 and 3), so Σ areas exceeds the
+    /// annulus area and this certificate fails.
+    #[test]
+    fn f0027_annulus_coverage_certificate() {
+        let (outer, inner) = f0027_rings();
+        let tris = annulus_tris(&outer, &inner).expect("annulus must build");
+        let annulus2 = ring_area2(&outer) - ring_area2(&inner);
+        let mut covered2 = RBig::ZERO;
+        let mut folded = 0usize;
+        for t in &tris {
+            let a2 = tri_area2(t);
+            if a2 <= RBig::ZERO {
+                folded += 1;
+            }
+            covered2 += a2;
+        }
+        assert_eq!(folded, 0, "annulus emitted non-positive-area triangles");
+        assert_eq!(
+            covered2,
+            annulus2,
+            "fold-pair RED — annulus triangulation does not cover the region \
+             between the rings exactly (spec m8_stage0_fold_pair_emission I2): \
+             covered {} vs annulus {} (×2, exact); the surplus is the measured \
+             double-cover pleat at the invisible corners",
+            covered2.to_f64().value(),
+            annulus2.to_f64().value()
+        );
+    }
+}
+
+#[cfg(test)]
 mod cylinder_pair_tests {
     use super::*;
     use crate::{BRepEdge, BRepFace, BRepVertex, Curve};
