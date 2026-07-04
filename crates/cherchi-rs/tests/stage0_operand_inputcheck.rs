@@ -72,19 +72,22 @@ fn native_census_f0063_emission_operands() {
 }
 
 /// M-C band-scale crossing pair (spec `m8_stage0_band_scale_crossing_verts`
-/// §2, the follow-up cycle). RED: the rim-override insertion's angular
-/// merge_tol dedup drops the second of each band-close override twin pair —
-/// R0088-a carries 12 boundary edges (4 sliver T-junction holes) + 1
-/// improper pair; R0070-b carries 6 boundary edges (2 holes, ULP twins).
-/// GREEN when the exact-bit-identity dedup lands and these fixtures are
-/// re-banked from the fixed emission.
+/// §2). RED history: the rim-override insertion's angular merge_tol dedup
+/// dropped the second of each band-close override twin pair — R0088-a
+/// carried 12 boundary edges (4 sliver T-junction holes) + 1 improper pair.
+/// GREEN: the exact-bit-identity dedup (E-C1) landed and this fixture is
+/// re-banked from the fixed emission. R0070-b (the ULP-twin member of the
+/// class) no longer EMITS: with both twins inserted its op stops LOUDLY
+/// pre-backend (`azimuth-merge rims have mismatched samples` — the opposite
+/// -rim f64 azimuth projection collapses ULP twins; spec §2b/§7 recorded
+/// residue), so the I1 operand contract holds vacuously and its RED fixture
+/// is retired with the measurement recorded in the spec.
 #[test]
 fn native_census_mc_band_scale_operands() {
-    for name in ["r0088_mc_stage0_a.obj", "r0070_mc_stage0_b.obj"] {
-        let m = fixture(name);
-        let c = census(&m.verts, &m.tris);
-        assert_operand_clean(name, &c);
-    }
+    let name = "r0088_mc_stage0_a.obj";
+    let m = fixture(name);
+    let c = census(&m.verts, &m.tris);
+    assert_operand_clean(name, &c);
 }
 
 /// Oracle-vs-oracle (spec §2 calibration, binding reference): the sidecar
@@ -102,7 +105,6 @@ fn sidecar_inputcheck_agrees_on_banked_operands() {
         "f0063_stage0_emission_a.obj",
         "f0063_stage0_emission_b.obj",
         "r0088_mc_stage0_a.obj",
-        "r0070_mc_stage0_b.obj",
     ] {
         let m = fixture(name);
         let native = census(&m.verts, &m.tris);

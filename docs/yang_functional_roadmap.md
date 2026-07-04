@@ -145,11 +145,19 @@ the roadmap's remaining work:
    >    356 Stage-0 operands, only 10 with introduced defects.**
    >    Remaining after (v): (i-residual) R0046 progresses to a NEW loud
    >    kernel-v2 wall (`InvalidBooleanOutput("output loop with fewer
-   >    than 3 edges...")`); R0088 keeps ONE edge-pairing instance —
-   >    measured **M-C**: overlay-minted crossing vertices band-close
-   >    (~1e-7·scale) to input corners emit band-scale slivers
-   >    (12 boundary edges on its A operand; same class R0070-b) — plus
-   >    a small fold-pair emission class (F0027/28/29, R0007, R0023,
+   >    than 3 edges...")`); ~~R0088 keeps ONE edge-pairing instance —
+   >    measured **M-C**~~ **M-C SHIPPED 2026-07-04 (spec
+   >    `specs/m8_stage0_band_scale_crossing_verts.md`): the root was the
+   >    rim-override insertion's ANGULAR merge_tol dedup silently dropping
+   >    the second of each band-close override twin pair (R0088-a: 4+4
+   >    drops = the 12 boundary edges + pinch; R0070-b: 2 ULP-twin drops).
+   >    Fix = exact bit-identity dedup (a tolerance REMOVAL). R0088's
+   >    edge-pairing wall GONE (operands five-axiom clean; op now stops
+   >    loudly at `EmptyBooleanResult`); R0070's defective op stops loudly
+   >    pre-backend (`azimuth-merge rims have mismatched samples` — the
+   >    opposite-rim f64 azimuth projection collapses ULP twins; named
+   >    follow-up: exact opposite-rim projection).** Still open: the
+   >    fold-pair emission class (F0027/28/29, R0007, R0023,
    >    R0038, R0089; see the sweep TSV). (iii) KV9-F3 output vertex
    >    identity; (iv) R0078 azimuth/coplanar. The P10 records stand:
    >    no mesh-level kept-set gate (`yang_kept_mesh_manifold_gate.md`

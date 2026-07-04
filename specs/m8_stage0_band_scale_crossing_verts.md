@@ -89,6 +89,33 @@ play. R0070 currently walls LOUDLY end-to-end regardless (Stage-4
 class), so its E2E outcome is out of scope here; its acceptance is
 operand-level (census on the re-banked fixture).
 
+### 2c. GREEN outcome (2026-07-04, measured)
+
+The E-C1 fix (exact bit-identity dedup replaces the angular merge_tol scan;
+the uniform-coincidence loud check and the off-rim radial validation are
+untouched):
+
+- **R0088:** ALL emitted operands five-axiom clean (native census, both
+  ops, both sides; operand-a 717→721 verts — the 4 opposite-rim twin
+  projections now insert). The edge-pairing wall is GONE; the
+  previously-defective op now stops loudly at kernel-v2
+  `EmptyBooleanResult`, and the second op keeps its pre-existing
+  "output loop with fewer than 3 edges" wall (the R0046-class output-loop
+  residual). `red_r0088` GREEN per the campaign convention.
+- **R0070:** the previously-defective op now stops LOUDLY pre-backend:
+  `MalformedTopology("face 2: azimuth-merge rims have mismatched /
+  too-few samples (24 vs 22)")` — the cap rim carries both ULP twins but
+  the OPPOSITE-rim projection (f64 azimuth + grid search) collapses them
+  bit-identically, so the lateral refuses the mismatched rings. This is
+  the §7 "downstream band-scale intolerance" residue, measured: loud,
+  typed, pre-backend (no dirty operand is emitted — I1 holds vacuously);
+  the case's first op keeps its unrelated Stage-4 `LocalRefinementRequired`
+  wall (M5/N2 class). Its RED fixture is retired (no emission to re-bank);
+  named follow-up: an exact opposite-rim projection that preserves
+  ULP-distinct azimuths (or a structural share of the cap twins' azimuth
+  keys) would let this op proceed to its next honest wall.
+- **R0046 (witness):** operands stay clean; its output-loop wall unchanged.
+
 ## 3. Parameters
 
 None new. No tolerances, no epsilons (A14.3) — the fix REMOVES a tolerance

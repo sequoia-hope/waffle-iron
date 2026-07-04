@@ -915,7 +915,7 @@ fn stage1_tessellate_inner(
                     // overlap (we never silently merge into a uniform sample).
                     let uni_step = two_pi / (n_seg as f64);
                     let merge_tol = uni_step * 1.0e-6;
-                    let mut inserted_offsets: Vec<f64> = Vec::new();
+                    let mut inserted_keys: Vec<[u64; 3]> = Vec::new();
                     for &pt in extra {
                         // Resolve the point's seam-relative angle + validate it
                         // lies on the rim circle.
@@ -956,26 +956,22 @@ fn stage1_tessellate_inner(
                                  coincides with uniform sample k={k_near} (silent merge refused)"
                             )));
                         }
-                        // Coincides with an already-inserted override? dedup/skip.
-                        if inserted_offsets
-                            .iter()
-                            .any(|&o| (o - off).abs() <= merge_tol)
-                        {
-                            // M-C diagnosis probe (read-only, env-gated).
-                            if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
-                                eprintln!(
-                                    "[rim-insert-probe] circle edge {e_idx}: override \
-                                     ({},{},{}) offset {off} DROPPED by merge_tol \
-                                     {merge_tol} dedup",
-                                    sp[0], sp[1], sp[2]
-                                );
-                            }
+                        // Bit-identical to an already-inserted override? dedup
+                        // (the SAME point re-arriving from adjacent sub-chords).
+                        // M-C fix (spec `m8_stage0_band_scale_crossing_verts`
+                        // E-C1/E-C1b): identity is EXACT coordinate bits — never
+                        // an angular tolerance. Genuinely distinct band-close
+                        // crossings (the R0088/R0070 twin population) must BOTH
+                        // enter the ring, or it desynchronizes from the cap
+                        // override that carries both points (T-junction holes).
+                        let key = [sp[0].to_bits(), sp[1].to_bits(), sp[2].to_bits()];
+                        if inserted_keys.contains(&key) {
                             continue;
                         }
-                        inserted_offsets.push(off);
+                        inserted_keys.push(key);
                         slots.push((off, RimSlot::Override(pt)));
                     }
-                    if !inserted_offsets.is_empty() {
+                    if !inserted_keys.is_empty() {
                         inserted_rims.insert(e_idx as u32);
                     }
                 }
