@@ -4949,6 +4949,16 @@ fn ellipse_residual(pt: Point3, er: &EllipseReloc) -> f64 {
 /// `χ = V − E + F = 2 − 2g` for genus `g ≥ 0` (χ even and ≤ 2); odd χ or
 /// χ > 2 is impossible for such a shell and is rejected. Returns
 /// `Err(NonManifoldOutput)` on failure.
+/// KV9-F1 Increment 0c probe (kept env-gated, like the Stage-4 probes): name
+/// the specific non-manifold gate that fired via `NONMANIFOLD_SITE_PROBE` so a
+/// `NonManifoldOutput` wall self-localizes, then construct the error.
+fn non_manifold_at(site: &str, detail: std::fmt::Arguments<'_>) -> YangError {
+    if std::env::var("NONMANIFOLD_SITE_PROBE").is_ok() {
+        eprintln!("NONMANIFOLD_SITE_PROBE {site}: {detail}");
+    }
+    YangError::NonManifoldOutput
+}
+
 fn check_watertight_2manifold(mesh: &Mesh) -> Result<(), YangError> {
     use std::collections::{BTreeMap, BTreeSet};
     // Directed half-edge multiset: every (a,b) must be paired by one (b,a).
@@ -4961,7 +4971,10 @@ fn check_watertight_2manifold(mesh: &Mesh) -> Result<(), YangError> {
     for (&(s, e), &fwd) in &dir {
         let rev = dir.get(&(e, s)).copied().unwrap_or(0);
         if fwd != rev {
-            return Err(YangError::NonManifoldOutput);
+            return Err(non_manifold_at(
+                "s4-halfedge-pairing",
+                format_args!("edge ({s},{e}) fwd={fwd} rev={rev}"),
+            ));
         }
     }
 
@@ -5027,7 +5040,10 @@ fn check_watertight_2manifold(mesh: &Mesh) -> Result<(), YangError> {
         // closed orientable manifold → a real defect (NOT a tolerance/fallback
         // relaxation; P9/P10).
         if chi > 2 || chi.rem_euclid(2) != 0 {
-            return Err(YangError::NonManifoldOutput);
+            return Err(non_manifold_at(
+                "s4-shell-euler",
+                format_args!("shell root {root} chi={chi} v={v} e={e} f={f}"),
+            ));
         }
     }
     Ok(())
@@ -9068,6 +9084,23 @@ fn stage4_relocate_and_correct(
         } else {
             f64::INFINITY
         };
+        // KV9-F1 Increment 0c census: per-junction second_cyl provenance +
+        // first-order gate state (kept env-gated, like the other Stage-4 probes).
+        if std::env::var("KV9_JUNCTION_PROBE").is_ok() {
+            eprintln!(
+                "KV9_JUNCTION_PROBE v={v} p={p:?} j={j:?} rho={rho:.4e} grad={grad:.4e} \
+                 gate={gate:.4e} d_eps={d_eps:.4e} \
+                 a_axis=({:?},{:?}) a_second={:?} b_axis=({:?},{:?}) b_second={:?}",
+                e_a.axis_point.as_array(),
+                e_a.axis_dir.as_array(),
+                e_a.second_cyl
+                    .map(|(sp, sd, bud)| (sp.as_array(), sd.as_array(), bud)),
+                e_b.axis_point.as_array(),
+                e_b.axis_dir.as_array(),
+                e_b.second_cyl
+                    .map(|(sp, sd, bud)| (sp.as_array(), sd.as_array(), bud)),
+            );
+        }
         if rho > gate {
             if std::env::var("KV11_PROBE").is_ok() {
                 eprintln!(
@@ -9637,6 +9670,31 @@ fn stage4_relocate_and_correct(
             }
         }
         attribution.attributions = attr_vec;
+    }
+
+    // KV9-F1 Increment 0c census: post-merge junction-twin state — coincident
+    // junction vertices that SURVIVED the §4.4.1(b) merge, and whether the
+    // survivors are edge-adjacent in the current mesh (kept env-gated).
+    if std::env::var("KV9_JUNCTION_PROBE").is_ok() {
+        let keys: Vec<u32> = vert_ell_junction.keys().copied().collect();
+        for (i, &u) in keys.iter().enumerate() {
+            for &w in &keys[i + 1..] {
+                let (pu, pw) = (mesh.verts[u as usize], mesh.verts[w as usize]);
+                if pu.as_array() != pw.as_array() {
+                    continue;
+                }
+                let adjacent = mesh.tris.iter().any(|t| t.contains(&u) && t.contains(&w));
+                let (du, dw) = (
+                    mesh.tris.iter().filter(|t| t.contains(&u)).count(),
+                    mesh.tris.iter().filter(|t| t.contains(&w)).count(),
+                );
+                eprintln!(
+                    "KV9_JUNCTION_PROBE post-merge coincident twins: v{u} v{w} at {:?} \
+                     edge_adjacent={adjacent} deg({u})={du} deg({w})={dw}",
+                    pu.as_array()
+                );
+            }
+        }
     }
 
     // (3d) §4.4.1(a) edge-split (Yang Fig. 11(a): "locate the constrained edge
@@ -10467,7 +10525,13 @@ fn emit_topology(
                 }
                 let nrm_mag = (nx * nx + ny * ny + nz * nz).sqrt();
                 if nrm_mag < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE {
-                    return Err(YangError::NonManifoldOutput);
+                    return Err(non_manifold_at(
+                        "s6-curved-degenerate-loop",
+                        format_args!(
+                            "face {face_idx} cycle len {} |N|={nrm_mag:.3e}",
+                            cycle.len()
+                        ),
+                    ));
                 }
             }
 
@@ -10479,7 +10543,10 @@ fn emit_topology(
             // mirroring the E2/E3 degenerate-reassembly guards. Without this, the
             // `cycles[outer_idx]` index below panics on the empty set.
             if cycles.is_empty() {
-                return Err(YangError::NonManifoldOutput);
+                return Err(non_manifold_at(
+                    "s6-curved-empty-cycles",
+                    format_args!("face {face_idx}"),
+                ));
             }
 
             // Deterministic loop assignment: outer = the cycle with the MOST
@@ -10563,7 +10630,13 @@ fn emit_topology(
             // minimum feature area (MIN_FEATURE_SIZE²; A14.3 shared constant).
             let nrm_mag = (nx * nx + ny * ny + nz * nz).sqrt();
             if nrm_mag < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE {
-                return Err(YangError::NonManifoldOutput);
+                return Err(non_manifold_at(
+                    "s6-planar-degenerate-loop",
+                    format_args!(
+                        "face {face_idx} cycle len {} |N|={nrm_mag:.3e}",
+                        cycle.len()
+                    ),
+                ));
             }
             signed_areas.push(nx * n[0] + ny * n[1] + nz * n[2]);
         }
@@ -10575,7 +10648,10 @@ fn emit_topology(
         // `signed_areas[outer_idx]` / `cycles[outer_idx]` index below would
         // panic on the empty set. Mirrors the E2/E3 degenerate guards.
         if cycles.is_empty() {
-            return Err(YangError::NonManifoldOutput);
+            return Err(non_manifold_at(
+                "s6-planar-empty-cycles",
+                format_args!("face {face_idx}"),
+            ));
         }
 
         // Outer boundary = the largest-|area| cycle. Its sign (relative to
@@ -10604,7 +10680,10 @@ fn emit_topology(
         let orient = if flip { -1.0 } else { 1.0 };
         let positive_count = signed_areas.iter().filter(|&&s| s * orient > 0.0).count();
         if positive_count != 1 {
-            return Err(YangError::NonManifoldOutput);
+            return Err(non_manifold_at(
+                "s6-planar-positive-count",
+                format_args!("face {face_idx} positive_count={positive_count}"),
+            ));
         }
         let outer_cycle = &cycles[outer_idx];
         let inner_cycles: Vec<&Vec<(u32, u32)>> = cycles
@@ -10846,12 +10925,18 @@ fn patch_boundary_cycle(patch: &Patch, mesh: &Mesh) -> Result<Vec<Vec<(u32, u32)
         let mut cycle: Vec<(u32, u32)> = Vec::new();
         loop {
             let next = {
-                let next_vec = by_start
-                    .get_mut(&current)
-                    .ok_or(YangError::NonManifoldOutput)?;
+                let next_vec = by_start.get_mut(&current).ok_or_else(|| {
+                    non_manifold_at(
+                        "s6-boundary-walk-no-start",
+                        format_args!("vertex {current}"),
+                    )
+                })?;
                 if next_vec.is_empty() {
                     // Dead-end / T-junction: a genuine non-manifold patch.
-                    return Err(YangError::NonManifoldOutput);
+                    return Err(non_manifold_at(
+                        "s6-boundary-walk-deadend",
+                        format_args!("vertex {current} cycle so far {}", cycle.len()),
+                    ));
                 }
                 next_vec.remove(0)
             };
@@ -10864,7 +10949,10 @@ fn patch_boundary_cycle(patch: &Patch, mesh: &Mesh) -> Result<Vec<Vec<(u32, u32)
             // Per-cycle safety: a single cycle cannot be longer than the
             // edges that remained when it started (else the walk escaped).
             if cycle.len() > budget {
-                return Err(YangError::NonManifoldOutput);
+                return Err(non_manifold_at(
+                    "s6-boundary-walk-escaped",
+                    format_args!("start {start} budget {budget}"),
+                ));
             }
         }
         cycles.push(cycle);

@@ -1,10 +1,11 @@
 # KV9-F1 — tangency-grade in/out labeling divergence (cherchi-rs)
 
-**Status:** spec (FIP Phase 1) — §2 Measured mechanism: causal chain
-COMPLETE through the label layer; the ray-cast-level root is the next
-measurement (Increment 0b). **Change class:** bug fix. **Crate:**
-`cherchi-rs` (labeling — BL2 ray-cast in/out or BL3 propagation);
-`yang-rs`/`kernel-v2` carry only diagnostic probes.
+**Status:** spec (FIP Phase 1) — layer 1 (labels, N24) SHIPPED §2b;
+Increment 0c (Stage-4 tangency ellipse-junction band) MEASURED §2c,
+fix E-L2 in flight. **Change class:** bug fix. **Crate:** layer 1
+`cherchi-rs` (N24 predicates); Increment 0c `yang-rs` (Stage-4
+`vert_ell_junction` gate); named next walls in yang-rs Stage 6 and
+kernel-v2 import (§2c.5).
 
 ## 1. Goal
 
@@ -116,6 +117,62 @@ layer — the `vert_ell_junction` machinery's tangency case). The kv9
 quarantine tags are updated to this wall; measuring that vertex's
 curve-assignment state is Increment 0c.
 
+### 2c. Increment 0c — tangency ellipse-junction MEASURED
+### (KV9_JUNCTION_PROBE + NONMANIFOLD_SITE_PROBE, 2026-07-04)
+
+1. **Junction census:** the steinmetz union carries FOUR
+   `vert_ell_junction` vertices in two twin pairs — v41/v44 at
+   (±0.00698, 0.28532, ∓0.04519) and v79/v82 (mirror at y<0). For every
+   one, `e_a` and `e_b` reference the SAME unordered cylinder pair
+   (bit-identical `axis_point`/`axis_dir`/`second_cyl`, deterministic
+   from the InputId-sorted cyl×cyl insert) with combined budget
+   B = ε_A + ε_B = 2.9394e-2 (ε = d_ε = 1.4697e-2 each), and the
+   closed-form junction `(plane₁ ∩ plane₂) ∩ cylinder` is EXACTLY the
+   surface-tangency point (0, ±r, 0), with line-metric grad
+   |d̂·r̂| = 1.0.
+2. **Why the first-order gate is the wrong metric here:** a junction of
+   two sections of the same cyl×cyl pair is ALWAYS the pair's
+   surface-tangency point (the decomposition planes z = ±x intersect in
+   the line through both tangency points; that line meets the cylinder
+   where the radial gradients align). The mesh vertex there is the
+   PINCH of the two faceted-surface intersection polylines, and its
+   standoff from the exact crossing is SECOND-order-controlled: in
+   tangent-plane coordinates at the junction the cylinders are the
+   graphs y = r − x²/2r and y = r − z²/2r; facet displacements
+   a ∈ [0, ε_A], b ∈ [0, ε_B] perturb the intersection to the hyperbola
+   x² − z² = 2r(b−a), whose standoff from the exact crossing is
+   √(2r·|b−a|) ≤ √(2r·B), plus ≤ B normal-direction offset. Measured:
+   ρ = 4.8026e-2 vs derived band √(2·0.3·2.9394e-2) + 2.9394e-2
+   = 1.622e-1 (and vs the inapplicable first-order gate
+   2·d_ε/1.0 = 2.9394e-2 — the RED wall). The first-order
+   2·d_ε/|d̂·r̂| metric presumes a vertex ON the junction line off the
+   cylinder (the KV11 box-edge class) and remains correct there.
+3. **Fix (E-L2):** in the `vert_ell_junction` relocation loop, when
+   BOTH ellipses carry `second_cyl` naming the same unordered cylinder
+   pair, gate ρ against the derived tangency band
+   `√(2·r·B) + B` (B = max of the two carried combined budgets —
+   identical by construction). Everything else about the arm is
+   unchanged: the relocation target stays the EXACT junction point,
+   and every non-cyl×cyl junction keeps the first-order gate
+   byte-identical. This is a derived metric conversion (the
+   single-ellipse arm's 1/sin α analog at tangency grade), NOT
+   tolerance widening (A14.3 / P9).
+4. **Twin collapse is already handled:** after relocation both twins of
+   a pair land on the identical exact junction; the §4.4.1(b)
+   sub-feature merge collapses them (post-merge census: v44/v82
+   unreferenced, v41/v79 degree 9 — the KV9-F3 machinery, no new code).
+5. **Named NEXT walls (measured, NOT this increment):** with Stage 4
+   passed, (a) the UNION stops loudly at Stage-6
+   `s6-curved-degenerate-loop` — `extract_boundary_cycles` at the now
+   4-valent tangency junction interleaves the top-lens and bottom-lens
+   boundary cycles into one 76-edge figure-eight whose Newell vector
+   cancels (~2.3e-16); the walk needs junction-aware continuation
+   pairing. (b) The SUBTRACT clears yang-rs and walls at kernel-v2
+   import `NonManifoldVertex(43)` — four elliptical arcs sharing BOTH
+   endpoints (two per ellipse) defeat the vertex-pair(+curve) edge
+   keying, the same class as the M8 disc∩disc lens BIGON keys. The kv9
+   quarantine tags move to these walls.
+
 ## 3. Parameters
 
 None new. No tolerances (A14.3): whatever the root, the fix must be an
@@ -132,6 +189,8 @@ Fixed rows already known:
 |---|------|--------------|
 | L1 | Non-tangent configurations (the entire passing corpus + fuzz populations) | Byte-identical labels (I2) |
 | L2 | Steinmetz tangency (kv9 fixtures) | B's outside patch labels `inside=[false,false]` → kept for union/kept-complement rules per op |
+| J1 | Ellipse junction, both `second_cyl` naming the same unordered cylinder pair (Steinmetz tangency pinch) | Gate ρ ≤ √(2·r·B) + B; relocate to the exact `(plane₁∩plane₂)∩cyl` junction (nearest root); twins collapse via §4.4.1(b) |
+| J2 | Every other ellipse junction (mixed pair, any `second_cyl` = None — the KV11 box-edge class) | First-order gate 2·d_ε/&#124;d̂·r̂&#124; byte-identical |
 
 ## 5. Invariants
 
@@ -148,9 +207,19 @@ Fixed rows already known:
 
 - **E2E RED (already red):** the 2 `#[ignore = "KV9-F1 …"]` steinmetz
   tests (union + subtract).
+- **Increment-0c RED unit pair** (`yang-rs/tests/kv9f1_tangency_junction.rs`):
+  (a) steinmetz SUBTRACT through yang-rs `boolean()` — RED at
+  `Stage4RegionInvalid { vertex: 41, OffCurveBeyondChordBand }`, GREEN =
+  Ok + watertight + signed volume ≈ πr²h − 16r³/3 (the full yang-level
+  numeric oracle; the remaining subtract wall is kernel-v2 import, not
+  yang); (b) steinmetz UNION — RED at the same Stage-4 stop, GREEN =
+  progression past Stage 4 (the op must NOT fail `Stage4RegionInvalid`;
+  its own next wall is the named Stage-6 boundary-walk item, §2c.5a).
 - **Label census probes (kept):** `YANG_KEEP_PROBE` (per-surface/inside/
   kept rows + patch census), `YANG_S6_PATCH_PROBE`, `KV2_OUT_TWIN_PROBE`
-  (violation + loop dumps, `KV2_OUT_ALL_LOOPS`).
+  (violation + loop dumps, `KV2_OUT_ALL_LOOPS`), `KV9_JUNCTION_PROBE`
+  (junction census + post-merge twin state), `NONMANIFOLD_SITE_PROBE`
+  (self-localizing NonManifoldOutput gates).
 - **Reference parity:** C++ union/subtract on the banked steinmetz
   operand meshes (this cycle banks them as cherchi-rs parity fixtures).
 - **Full assay** vs `baseline-kv9f3` (88 CORRECT / 0 WRONG).
