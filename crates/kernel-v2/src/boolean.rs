@@ -907,7 +907,7 @@ enum EdgeKind {
 /// twins always share exact `(center, radius)` (the curve-agreement check below
 /// requires it), so this never splits a genuine twin — it only distinguishes
 /// arcs on DIFFERENT circles.
-#[derive(PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
 enum CurveKey {
     Seg,
     Circle {
@@ -1271,6 +1271,83 @@ pub fn from_yang_brep_indexed(
     }
     // Per (loop, pos) directional normal for full-circle uses.
     let mut full_normals: BTreeMap<(usize, usize), UnitVector3> = BTreeMap::new();
+    // KV9-F1 diagnosis probe (read-only, env-gated): report EVERY pairing
+    // violation with curve identity + owning loops/faces, and every other
+    // use touching the offending vertices, before the loud reject.
+    if std::env::var_os("KV2_OUT_TWIN_PROBE").is_some() && pair_uses.values().any(|u| u.len() != 2)
+    {
+        let mut bad_verts: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
+        for (&(a, b, ref ck), uses) in &pair_uses {
+            if uses.len() != 2 {
+                let pa = yverts[a as usize].point.as_array();
+                let pb = yverts[b as usize].point.as_array();
+                eprintln!(
+                    "[edge-pair-probe] key ({a},{b}) uses={} curve={ck:?}\n  a: ({},{},{})\n  b: ({},{},{})",
+                    uses.len(),
+                    pa[0],
+                    pa[1],
+                    pa[2],
+                    pb[0],
+                    pb[1],
+                    pb[2]
+                );
+                for u in uses {
+                    eprintln!(
+                        "    use: yang face {} loop_idx {} pos {} forward {}",
+                        loops[u.loop_idx].face, u.loop_idx, u.pos, u.forward
+                    );
+                }
+                bad_verts.insert(a);
+                bad_verts.insert(b);
+            }
+        }
+        for (&(a, b, ref ck), uses) in &pair_uses {
+            if uses.len() == 2 && (bad_verts.contains(&a) || bad_verts.contains(&b)) {
+                eprintln!(
+                    "[edge-pair-probe]   context edge ({a},{b}) curve={ck:?} faces {:?}",
+                    uses.iter()
+                        .map(|u| loops[u.loop_idx].face)
+                        .collect::<Vec<_>>()
+                );
+            }
+        }
+        // Full loop dumps for every face touching a bad vertex.
+        let bad_faces: std::collections::BTreeSet<usize> =
+            if std::env::var_os("KV2_OUT_ALL_LOOPS").is_some() {
+                loops.iter().map(|s| s.face).collect()
+            } else {
+                loops
+                    .iter()
+                    .filter(|s| s.cycle.iter().any(|v| bad_verts.contains(v)))
+                    .map(|s| s.face)
+                    .collect()
+            };
+        for spec in &loops {
+            if !bad_faces.contains(&spec.face) {
+                continue;
+            }
+            eprintln!(
+                "[edge-pair-probe] FACE {} loop ({} edges):",
+                spec.face,
+                spec.cycle.len()
+            );
+            let m = spec.cycle.len();
+            for k in 0..m {
+                let (va, vb) = (spec.cycle[k], spec.cycle[(k + 1) % m]);
+                let tag = match &spec.edges[k] {
+                    EdgeKind::Seg => "Seg",
+                    EdgeKind::Full { .. } => "Full",
+                    EdgeKind::Arc { .. } => "Arc",
+                    EdgeKind::EllipseArc { .. } => "EllArc",
+                };
+                let p = yverts[va as usize].point.as_array();
+                eprintln!(
+                    "    [{k}] {va}->{vb} {tag} from ({:.6},{:.6},{:.6})",
+                    p[0], p[1], p[2]
+                );
+            }
+        }
+    }
     for (&(a, b, ref _ck), uses) in &pair_uses {
         if uses.len() != 2 {
             return Err(KernelV2Error::InvalidBooleanOutput(

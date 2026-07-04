@@ -6969,6 +6969,39 @@ pub fn boolean(
     // (3) Stage 4: which arrangement tris survive `op`.
     let kept = la.keep_set(op);
 
+    // KV9-F1 diagnosis probe (read-only, env-gated): per-input label + keep
+    // census over the labeled arrangement.
+    if std::env::var_os("YANG_KEEP_PROBE").is_some() {
+        let kept_set: std::collections::BTreeSet<usize> = kept.iter().copied().collect();
+        let mut rows: std::collections::BTreeMap<(String, Vec<bool>, bool), usize> =
+            std::collections::BTreeMap::new();
+        for t in 0..la.mesh.tris.len() {
+            let surf = format!("{:?}", la.surface[t]);
+            *rows
+                .entry((surf, la.inside[t].clone(), kept_set.contains(&t)))
+                .or_insert(0) += 1;
+        }
+        eprintln!(
+            "[keep-probe] la tris {} kept {} (op {op:?})",
+            la.mesh.tris.len(),
+            kept.len()
+        );
+        for ((surf, inside, k), n) in rows {
+            eprintln!("[keep-probe]   surface {surf} inside {inside:?} kept={k}: {n}");
+        }
+        let mut patches: std::collections::BTreeMap<u32, (String, usize)> =
+            std::collections::BTreeMap::new();
+        for t in 0..la.mesh.tris.len() {
+            let e = patches
+                .entry(la.patch[t])
+                .or_insert_with(|| (format!("{:?}", la.surface[t]), 0));
+            e.1 += 1;
+        }
+        for (pid, (surf, n)) in patches {
+            eprintln!("[keep-probe]   patch {pid}: surface {surf} tris {n}");
+        }
+    }
+
     // (3a) XOR deferred (spec §Scope): its symmetric-difference result is
     // multi-shell / has a void that `reconstruct_topology` cannot reassemble
     // yet. Error LOUDLY (`UnsupportedOp`) rather than emitting a generic
@@ -10250,6 +10283,36 @@ fn reconstruct_topology_stage4(
     // (4) Phase A: per-patch ordered loops + inherited surface (`infos`), and the
     // exact per-edge intersection `Curve` map.
     let (mut infos, incidence, mut intersection_curves) = compute_phase_a(mesh, attribution, a, b)?;
+
+    // KV9-F1 diagnosis probe (read-only, env-gated): kept-set attribution
+    // census + per-patch summary at Stage-6 entry.
+    if std::env::var_os("YANG_S6_PATCH_PROBE").is_some() {
+        let (mut na, mut nb, mut none) = (0usize, 0usize, 0usize);
+        for att in &attribution.attributions {
+            match att {
+                Some(TriangleAttribution {
+                    input: InputId::A, ..
+                }) => na += 1,
+                Some(TriangleAttribution {
+                    input: InputId::B, ..
+                }) => nb += 1,
+                None => none += 1,
+            }
+        }
+        eprintln!(
+            "[s6-patch-probe] kept tris: A={na} B={nb} none={none} (mesh tris {})",
+            mesh.tris.len()
+        );
+        for (i, info) in infos.iter().enumerate() {
+            eprintln!(
+                "[s6-patch-probe] patch {i}: input {:?} face {} cycles {:?} fold_sliver {}",
+                info.input,
+                info.face_idx,
+                info.cycles.iter().map(|c| c.len()).collect::<Vec<_>>(),
+                info.had_fold_sliver
+            );
+        }
+    }
 
     // (4a) Stage 4 (seam A1): relocate onto the exact analytical curves
     // (Yang §4.4.1) + §4.5.3 reversal correction. Entered on ANY analytic conic
