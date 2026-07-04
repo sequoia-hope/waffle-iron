@@ -2212,6 +2212,12 @@ fn annulus_tris(outer: &[V2], inner: &[V2]) -> Option<Vec<[Point3; 3]>> {
     let (io, ia) = chain(inner);
     let (oo, oa) = chain(outer);
 
+    // Exact centroid for the half-plane visibility guards (spec
+    // `m8_stage0_fold_pair_emission` E-F1..E-F3): strictly interior to the
+    // convex inner ring, so it decides which side of a chord's supporting
+    // line is "inner". Exact sign tests only — no tolerances (A14.3).
+    let o_exact = ExactPoint2::from_f64(ox, oy)?;
+
     // Merge the two monotone chains into a strip triangulation.
     let tri = |a: &V2, b: &V2, c: &V2| -> [Point3; 3] {
         if cross_r(&a.e, &b.e, &c.e) >= RBig::ZERO {
@@ -2220,7 +2226,42 @@ fn annulus_tris(outer: &[V2], inner: &[V2]) -> Option<Vec<[Point3; 3]>> {
             [a.p, c.p, b.p]
         }
     };
+    // E-F1/E-F2: an inner-advance triangle (chord c1→c2 fanned to outer P)
+    // is valid iff P lies STRICTLY on the opposite side of the chord's
+    // supporting line from O. Angular monotonicity alone does not imply
+    // this (measured, F0027: a far square corner falls on the CENTER side
+    // of a distant chord's line → the fan double-covers the disc pocket —
+    // the fold-pair census class). Returns the triangle's exact area (×2)
+    // for the E-F4 certificate.
+    let inner_valid = |i: usize, j: usize| -> Option<RBig> {
+        let (c1, c2) = (&inner[io[i]], &inner[io[i + 1]]);
+        let s_p = cross_r(&c1.e, &c2.e, &outer[oo[j]].e);
+        let s_o = cross_r(&c1.e, &c2.e, &o_exact);
+        if s_p == RBig::ZERO || s_o == RBig::ZERO {
+            return None;
+        }
+        if (s_p > RBig::ZERO) == (s_o > RBig::ZERO) {
+            return None;
+        }
+        Some(if s_p > RBig::ZERO { s_p } else { -s_p })
+    };
+    // E-F3: an outer-advance triangle (outer edge o1→o2 with inner apex Q)
+    // is valid iff Q lies STRICTLY on O's side of the outer edge's line
+    // (guaranteed by convex nesting; a violation is a loud E-F5).
+    let outer_valid = |i: usize, j: usize| -> Option<RBig> {
+        let (o1, o2) = (&outer[oo[j]], &outer[oo[j + 1]]);
+        let s_q = cross_r(&o1.e, &o2.e, &inner[io[i]].e);
+        let s_o = cross_r(&o1.e, &o2.e, &o_exact);
+        if s_q == RBig::ZERO || s_o == RBig::ZERO {
+            return None;
+        }
+        if (s_q > RBig::ZERO) != (s_o > RBig::ZERO) {
+            return None;
+        }
+        Some(if s_q > RBig::ZERO { s_q } else { -s_q })
+    };
     let mut out: Vec<[Point3; 3]> = Vec::with_capacity(ni + no);
+    let mut covered2 = RBig::ZERO;
     let (mut i, mut j) = (0usize, 0usize);
     let mut guard = 0usize;
     while i < ni || j < no {
@@ -2228,26 +2269,79 @@ fn annulus_tris(outer: &[V2], inner: &[V2]) -> Option<Vec<[Point3; 3]>> {
         if guard > ni + no + 8 {
             return None;
         }
-        let advance_inner = if i >= ni {
+        // Angle preference as before; validity redirects an invalid
+        // preferred advance to the other chain (E-F2), and a step where
+        // NEITHER advance is valid is a loud `None` (E-F5) — never a
+        // silently-flipped or invisible fan.
+        let prefer_inner = if i >= ni {
             false
         } else if j >= no {
             true
         } else {
             ia[i + 1] <= oa[j + 1]
         };
+        let inner_ok = if i < ni && j < no {
+            inner_valid(i, j)
+        } else if i < ni && j >= no {
+            // Outer chain exhausted: the closing outer vertex is oo[no]
+            // (== oo[0]); the guard still applies against it.
+            inner_valid(i, no)
+        } else {
+            None
+        };
+        let outer_ok = if j < no && i < ni {
+            outer_valid(i, j)
+        } else if j < no && i >= ni {
+            outer_valid(ni, j)
+        } else {
+            None
+        };
+        let advance_inner = match (prefer_inner, &inner_ok, &outer_ok) {
+            (true, Some(_), _) => true,
+            (true, None, Some(_)) => false,
+            (false, _, Some(_)) => false,
+            (false, Some(_), None) => true,
+            (_, None, None) => return None,
+        };
         if advance_inner {
-            let t = tri(&inner[io[i]], &inner[io[i + 1]], &outer[oo[j]]);
+            let jj = if j < no { j } else { no };
+            let t = tri(&inner[io[i]], &inner[io[i + 1]], &outer[oo[jj]]);
+            covered2 += inner_ok.expect("validated");
             if !degenerate(&t) {
                 out.push(t);
             }
             i += 1;
         } else {
-            let t = tri(&outer[oo[j]], &outer[oo[j + 1]], &inner[io[i]]);
+            let ii = if i < ni { i } else { ni };
+            let t = tri(&outer[oo[j]], &outer[oo[j + 1]], &inner[io[ii]]);
+            covered2 += outer_ok.expect("validated");
             if !degenerate(&t) {
                 out.push(t);
             }
             j += 1;
         }
+    }
+
+    // E-F4 coverage certificate (I2, the `triangulate_ring` P9-gate
+    // pattern): the emitted strip covers EXACTLY the region between the
+    // rings — no pleat, no gap. Exact shoelace over the same coordinates
+    // the triangles use.
+    let shoelace2 = |ring: &[V2]| -> RBig {
+        let n = ring.len();
+        let mut a = RBig::ZERO;
+        for k in 0..n {
+            let p = &ring[k].e;
+            let q = &ring[(k + 1) % n].e;
+            a += &p.x * &q.y - &q.x * &p.y;
+        }
+        if a > RBig::ZERO {
+            a
+        } else {
+            -a
+        }
+    };
+    if covered2 != shoelace2(outer) - shoelace2(inner) {
+        return None;
     }
     Some(out)
 }
