@@ -9079,7 +9079,39 @@ fn stage4_relocate_and_correct(
         } else {
             0.0
         };
-        let gate = if grad > 0.0 {
+        // KV9-F1 E-L2 (spec §2c, branch row J1): a junction of two sections of
+        // the SAME unordered cylinder pair is ALWAYS the pair's surface-tangency
+        // point (the two decomposition planes intersect in the line through both
+        // tangency points; that line meets the cylinder exactly where the two
+        // radial gradients align). There the vertex is the PINCH of the two
+        // faceted-surface intersection polylines, whose standoff from the exact
+        // crossing is SECOND-order-controlled: in tangent-plane coordinates the
+        // cylinders are the graphs y = r − x²/2r and y = r − z²/2r; facet
+        // displacements a ∈ [0, ε_A], b ∈ [0, ε_B] perturb the intersection to
+        // the hyperbola x² − z² = 2r(b−a), standoff √(2r·|b−a|) ≤ √(2r·B) with
+        // B the combined chord budget carried by `second_cyl`, plus ≤ B
+        // normal-direction offset. A derived metric conversion (the
+        // single-ellipse arm's 1/sin α analog at tangency grade), NOT tolerance
+        // widening — the relocation target stays the EXACT junction. Every
+        // other junction (row J2 — the KV11 box-edge class) keeps the
+        // first-order 2·d_ε/|d̂·r̂| line metric byte-identical.
+        let same_pair_budget = match (e_a.second_cyl, e_b.second_cyl) {
+            (Some((sa_p, sa_d, ba)), Some((sb_p, sb_d, bb))) => {
+                let same = e_a.axis_point.as_array() == e_b.axis_point.as_array()
+                    && e_a.axis_dir.as_array() == e_b.axis_dir.as_array()
+                    && sa_p.as_array() == sb_p.as_array()
+                    && sa_d.as_array() == sb_d.as_array();
+                if same {
+                    Some(ba.max(bb))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+        let gate = if let Some(budget) = same_pair_budget {
+            (2.0 * e_a.radius * budget).sqrt() + budget
+        } else if grad > 0.0 {
             2.0 * d_eps / grad
         } else {
             f64::INFINITY

@@ -168,11 +168,12 @@ fn parallel_cyl_union_exact_volume() {
 /// the Steinmetz configuration; UNION. Exact: V = V1 + V2 − 16r³/3
 /// (the bicylinder common volume), with both axes crossing mid-solid.
 #[test]
-#[ignore = "KV9-F1 (spec kv9_f1_tangency_inout_labels): layer 1 FIXED (N24 predicate \
-            underflow zero-certification — B's patches are now correctly labeled and \
-            kept); the case progresses to a LOUD Stage-4 stop, OffCurveBeyondChordBand \
-            at a tangency-adjacent vertex — the ellipse-junction relocation at tangency \
-            grade is the cycle's next increment (spec §2b)"]
+#[ignore = "KV9-F1 (spec kv9_f1_tangency_inout_labels): layers 1+2 FIXED (N24 predicate \
+            zero-certification; Increment 0c Stage-4 tangency-junction band). The union \
+            now stops LOUDLY at Stage-6 s6-curved-degenerate-loop: extract_boundary_cycles \
+            interleaves the top/bottom lens cycles at the 4-valent tangency junction into \
+            a Newell-cancelling figure-eight — junction-aware boundary-walk continuation \
+            is the next increment (spec §2c.5a)"]
 fn steinmetz_union_exact_volume() {
     let mut a = BrepArena::new();
     let r = 0.3;
@@ -214,11 +215,13 @@ fn steinmetz_union_exact_volume() {
 /// F0058-class: equal-radius perpendicular SUBTRACT — body minus the
 /// crossing rod removes exactly the bicylinder volume.
 #[test]
-#[ignore = "KV9-F1 (spec kv9_f1_tangency_inout_labels): layer 1 FIXED (N24 predicate \
-            underflow zero-certification — B's patches are now correctly labeled and \
-            kept); the case progresses to a LOUD Stage-4 stop, OffCurveBeyondChordBand \
-            at a tangency-adjacent vertex — the ellipse-junction relocation at tangency \
-            grade is the cycle's next increment (spec §2b)"]
+#[ignore = "KV9-F1 (spec kv9_f1_tangency_inout_labels): layers 1+2 FIXED (N24 predicate \
+            zero-certification; Increment 0c Stage-4 tangency-junction band). The subtract \
+            now CLEARS yang-rs (exact-volume oracle green in yang-rs \
+            kv9f1_tangency_junction) and walls at kernel-v2 import NonManifoldVertex: four \
+            elliptical arcs sharing BOTH endpoints (two per ellipse) defeat the \
+            vertex-pair edge keying — the same-ellipse-bigon arc-keying increment \
+            (spec §2c.5b, the M8 disc∩disc CurveKey lesson)"]
 fn steinmetz_subtract_exact_volume() {
     let mut a = BrepArena::new();
     let r = 0.2;
