@@ -105,6 +105,55 @@ pub fn orient2d(a: Point2, b: Point2, c: Point2) -> Sign {
 mod tests {
     use super::*;
 
+    // ── Group 0: KV9-F1 underflow zero-certification (deviation N24) ──
+    //
+    // Shewchuk's adaptive predicates are exact only when no underflow
+    // occurs; a determinant whose true magnitude is below the subnormal
+    // floor collapses to exactly 0.0 and the wrapper certified a FALSE
+    // Zero. Only exact arithmetic may certify Zero (spec
+    // `kv9_f1_tangency_inout_labels` §2a E-L1). The 3D fixture is the
+    // MEASURED steinmetz entry-graze: A's femto-skewed azimuth-π edge ×
+    // the subnormally-perturbed in/out ray.
+
+    #[test]
+    fn orient3d_underflow_magnitude_is_not_zero() {
+        let a = Point3::new(-0.3, -3.6739403974420595e-17, -0.6);
+        let b = Point3::new(-0.3, 3.6739403974420595e-17, 0.6);
+        let c = Point3::new(-0.6, 0.0, 0.0);
+        // The +y ULP-perturbed ray far endpoint: true plane value
+        // ≈ −0.36·5e-324 ≠ 0, magnitude far below the subnormal floor.
+        let d = Point3::new(1.1, 5e-324, 0.0);
+        assert_ne!(
+            orient3d(a, b, c, d),
+            Sign::Zero,
+            "non-coplanar points must never certify Zero (N24 underflow hole)"
+        );
+    }
+
+    #[test]
+    fn orient3d_true_coplanar_stays_zero() {
+        let a = Point3::new(-0.3, -3.6739403974420595e-17, -0.6);
+        let b = Point3::new(-0.3, 3.6739403974420595e-17, 0.6);
+        let c = Point3::new(-0.6, 0.0, 0.0);
+        // The UNPERTURBED far endpoint lies exactly in the abc plane
+        // (the plane's x-normal-component is exactly zero).
+        let d = Point3::new(1.1, 0.0, 0.0);
+        assert_eq!(orient3d(a, b, c, d), Sign::Zero);
+    }
+
+    #[test]
+    fn orient2d_underflow_magnitude_is_not_zero() {
+        // det = 1e-200·1e-200 = 1e-400: underflows in f64, nonzero in ℚ.
+        let a = Point2::new(0.0, 0.0);
+        let b = Point2::new(1e-200, 0.0);
+        let c = Point2::new(0.0, 1e-200);
+        assert_ne!(
+            orient2d(a, b, c),
+            Sign::Zero,
+            "non-collinear points must never certify Zero (N24 underflow hole)"
+        );
+    }
+
     // ── Group 1: Sign::from_f64 truth table ───────────────────────────
 
     #[test]

@@ -48,14 +48,45 @@ wrong:
    watertightness gate are SKIPPED (the R0046 §8c bypass, again) ⇒ the
    A-only mesh with open rings walls at kernel-v2 edge pairing.
 
-### 2a. Increment 0b (next): ray-cast-level measurement
+### 2a. Increment 0b — ray-cast root MEASURED (CHERCHI_INOUT_PROBE +
+### CHERCHI_PERTURB_PROBE)
 
-Localize inside cherchi-rs: for the B 120-patch, which triangle seeds the
-ray, what the ray direction/crossing count against A is, whether the
-rational fallback fires, and whether the verdict comes from a direct cast
-or BL3 propagation across an intersection edge at the tangency. Compare
-against the C++ ray-cast structure (`InteractiveAndRobustMeshBooleans`
-ray code) — the port must match the reference decision path.
+1. Patch 3 (B's 120-tri outside patch) rays from B's cap centre
+   (−0.6, 0, 0) along +X — straight down B's own axis, THROUGH A. It
+   should cross A twice (entry ≈ x=−0.3, exit ≈ x=+0.3); only the exit
+   registered (`hits 1`) → odd parity → "inside A".
+2. Both crossings are grazes on A's azimuth-0/π edge chains. The exit
+   graze resolves correctly (perturbation winner tri 21 at offset 0). The
+   ENTRY graze hits edge (6,17) — A's azimuth-π lateral edge whose
+   endpoints carry y = ∓3.6739e-17 (the `r·sin(π)` rounding, opposite
+   signs at the two rings): a femto-SKEWED edge whose midpoint
+   (−0.3, 0, 0) lies EXACTLY on the ray line (codimension-2).
+3. `perturb_ray_and_find_inters_tri` tried all 8 v1 ULP-perturbations;
+   the edge-side orient3d **stayed Zero for every offset** (tri 28
+   P/Zero/P, tri 31 P/P/Zero) → no strict winner → the C++
+   `winner_tri == -1` semantics classified the entry as tangential →
+   crossing dropped.
+4. The Zero is FALSE: the plane through (v6, v17, v0) has exactly zero
+   x-normal-component, so a +y-subnormal bump of v1 gives a true plane
+   value ≈ −0.36·5e-324 ≠ 0 — but that magnitude UNDERFLOWS f64.
+   `orient3d` wraps `geometry_predicates` (Shewchuk adaptive), whose
+   exactness guarantee excludes underflow: the expansion collapses to
+   exactly 0.0 and the wrapper certifies `Sign::Zero`. **A filtered/
+   adaptive tier may certify NONZERO signs; only exact arithmetic may
+   certify Zero** (the M7 cascade philosophy) — the wrapper violates
+   this, and the graze resolver turns the unsound Zero into a dropped
+   crossing.
+
+Fix (E-L1): on a 0.0 result from the adaptive predicate, re-certify with
+an exact rational determinant (dashu; same formula orientation as
+Shewchuk's `orient3d` = det[a−d, b−d, c−d], preserving the sign
+convention — the "absolute-sign sites are the hazard" M7 mirror lesson).
+Truly-coplanar inputs stay Zero (the rational confirms); underflow zeros
+get their true sign. Nonzero adaptive results are untouched (they are
+already sound), so the entire currently-passing population is
+byte-identical (I2). `orient2d` gets the same zero-certification (same
+underflow hole, same wrapper). Recorded as a port deviation (exactness
+STRENGTHENING) in `docs/yang_deviations.md`.
 
 ## 3. Parameters
 

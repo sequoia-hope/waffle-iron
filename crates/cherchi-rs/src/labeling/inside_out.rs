@@ -175,7 +175,35 @@ where
                     patch_surface_label,
                     &candidates,
                 )?;
-                inner_labels.push(analyze_sorted_intersections(soup, &ray, &sorted, pi)?);
+                let label = analyze_sorted_intersections(soup, &ray, &sorted, pi)?;
+                // KV9-F1 diagnosis probe (read-only, env-gated): per-patch
+                // ray + sorted-hit + verdict census.
+                if std::env::var_os("CHERCHI_INOUT_PROBE").is_some() {
+                    eprintln!(
+                        "[inout-probe] patch {pi} ({} tris, surface {:?}): ray {:?} \
+                         from ({},{},{}) hits {} -> inner {:?}",
+                        patch.len(),
+                        patch_surface_label,
+                        ray.dir,
+                        ray.v0.x(),
+                        ray.v0.y(),
+                        ray.v0.z(),
+                        sorted.len(),
+                        label
+                    );
+                    for &ht in sorted.iter().take(8) {
+                        let t = &soup.in_tris[ht as usize];
+                        let l = &soup.in_labels[ht as usize];
+                        let p0 = explicit_or_unreachable(&soup.verts[t[0] as usize]);
+                        eprintln!(
+                            "    hit in_tri {ht} label {l:?} v0 ({},{},{})",
+                            p0.x(),
+                            p0.y(),
+                            p0.z()
+                        );
+                    }
+                }
+                inner_labels.push(label);
             }
             // KV4-F1: both f64 origin strategies failed (a fully-implicit
             // or sub-f64-resolution needle patch) — classify in exact
@@ -769,6 +797,15 @@ fn perturb_ray_and_find_inters_tri(
 ) -> Option<u32> {
     for offset in 0..8u8 {
         let p_ray = perturb_ray(ray, offset);
+        if std::env::var_os("CHERCHI_PERTURB_PROBE").is_some() {
+            for &t in tris_to_test {
+                let tv = in_tri_verts(soup, t);
+                let or01 = orient3d(tv[0], tv[1], p_ray.v0, p_ray.v1);
+                let or12 = orient3d(tv[1], tv[2], p_ray.v0, p_ray.v1);
+                let or20 = orient3d(tv[2], tv[0], p_ray.v0, p_ray.v1);
+                eprintln!("[perturb-probe] offset {offset} tri {t}: {or01:?}/{or12:?}/{or20:?}");
+            }
+        }
         let hits: Vec<u32> = tris_to_test
             .iter()
             .copied()
@@ -957,7 +994,18 @@ fn prune_intersections_and_sort_along_ray(
         }
 
         let tv = in_tri_verts(soup, t);
-        match fast_2d_check_intersection_on_ray(ray, tv) {
+        let info = fast_2d_check_intersection_on_ray(ray, tv);
+        // KV9-F1 diagnosis probe (read-only, env-gated): per-event trace.
+        if std::env::var_os("CHERCHI_INOUT_PROBE").is_some() && !matches!(info, IntersInfo::NoInt) {
+            eprintln!(
+                "[inout-prune] tri {t} label {:?} event {info:?} v0 ({},{},{})",
+                tested_label,
+                tv[0].x(),
+                tv[0].y(),
+                tv[0].z()
+            );
+        }
+        match info {
             IntersInfo::Discard | IntersInfo::NoInt => {}
             IntersInfo::IntInTri => inters.push(t),
             IntersInfo::IntInV(k) => {
@@ -1001,7 +1049,16 @@ fn prune_intersections_and_sort_along_ray(
                     visited[t2 as usize] = true;
                 }
                 // Same winner-skip semantics as the vertex case above.
-                if let Some(winner) = perturb_ray_and_find_inters_tri(soup, ray, &edge_tris) {
+                let winner = perturb_ray_and_find_inters_tri(soup, ray, &edge_tris);
+                if std::env::var_os("CHERCHI_INOUT_PROBE").is_some() {
+                    let pa = explicit_or_unreachable(&soup.verts[a as usize]);
+                    let pb = explicit_or_unreachable(&soup.verts[b as usize]);
+                    eprintln!(
+                        "[inout-prune]   edge ({a},{b}) = ({},{},{})-({},{},{}) edge_tris {edge_tris:?} winner {winner:?}",
+                        pa.x(), pa.y(), pa.z(), pb.x(), pb.y(), pb.z()
+                    );
+                }
+                if let Some(winner) = winner {
                     inters.push(winner);
                 }
             }
