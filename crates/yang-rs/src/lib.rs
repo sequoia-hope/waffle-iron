@@ -9729,6 +9729,55 @@ fn stage4_relocate_and_correct(
         attribution.attributions = attr_vec;
     }
 
+    // KV9-F3 diagnosis probe (read-only, env-gated): census near-twin mesh
+    // vertex pairs at Stage-4 exit with their merge-eligibility context —
+    // `moved` membership, shared-triangle adjacency, curve assignments.
+    if std::env::var_os("YANG_S4_TWIN_PROBE").is_some() {
+        let n = mesh.verts.len();
+        let scale = mesh
+            .verts
+            .iter()
+            .flat_map(|p| p.as_array())
+            .fold(1.0_f64, |m, c| m.max(c.abs()));
+        let band = 1.0e-9 * scale;
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let (p, q) = (mesh.verts[i].as_array(), mesh.verts[j].as_array());
+                let d2 = (p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2);
+                if d2 > band * band || d2 == 0.0 {
+                    continue;
+                }
+                let (iu, ju) = (i as u32, j as u32);
+                let shared_tri = mesh.tris.iter().position(|t| {
+                    t.contains(&iu) && t.contains(&ju)
+                });
+                eprintln!(
+                    "[s4-twin-probe] verts {i}/{j} dist={:e} moved=({},{}) shared_tri={:?}\n  \
+                     circle=({},{}) line=({},{}) ell=({},{}) junction=({},{})\n  \
+                     {i}: ({},{},{})\n  {j}: ({},{},{})",
+                    d2.sqrt(),
+                    moved.contains(&iu),
+                    moved.contains(&ju),
+                    shared_tri,
+                    vert_circle.contains_key(&iu),
+                    vert_circle.contains_key(&ju),
+                    vert_line.contains_key(&iu),
+                    vert_line.contains_key(&ju),
+                    vert_ellipse.contains_key(&iu),
+                    vert_ellipse.contains_key(&ju),
+                    vert_ell_junction.contains_key(&iu),
+                    vert_ell_junction.contains_key(&ju),
+                    p[0],
+                    p[1],
+                    p[2],
+                    q[0],
+                    q[1],
+                    q[2]
+                );
+            }
+        }
+    }
+
     // (4) Validate every RELOCATED triangle (one touching a moved vertex) for
     // non-degeneracy (Yang §4.5 step 4). Reversed intersections are handled by
     // the §4.5.3 sweep above; watertightness by the global gate below (§4.4.3).

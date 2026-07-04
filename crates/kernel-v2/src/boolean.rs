@@ -2028,6 +2028,49 @@ pub fn boolean_op(
         ));
     };
     let out = yang_rs::boolean(&ya, &yb, op, &backend).map_err(map_yang_error)?;
+    // KV9-F3 diagnosis probe (read-only, env-gated): census near-twin
+    // vertex pairs in yang's OUTPUT B-Rep, with incident-edge context —
+    // localizes output-identity defects to the yang side vs the assembler.
+    if std::env::var_os("KV2_OUT_TWIN_PROBE").is_some() {
+        let vs: Vec<_> = out.vertices().iter().map(|v| v.point).collect();
+        let scale = vs
+            .iter()
+            .flat_map(|p| p.as_array())
+            .fold(1.0_f64, |m, c| m.max(c.abs()));
+        let band = 1.0e-9 * scale;
+        for i in 0..vs.len() {
+            for j in (i + 1)..vs.len() {
+                let (p, q) = (vs[i].as_array(), vs[j].as_array());
+                let d2 = (p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2) + (p[2] - q[2]).powi(2);
+                if d2 <= band * band {
+                    eprintln!(
+                        "[out-twin-probe] verts {i}/{j} dist={:e}\n  {i}: ({},{},{})\n  {j}: ({},{},{})",
+                        d2.sqrt(),
+                        p[0],
+                        p[1],
+                        p[2],
+                        q[0],
+                        q[1],
+                        q[2]
+                    );
+                    for (ei, e) in out.edges().iter().enumerate() {
+                        if e.start == i as u32
+                            || e.end == i as u32
+                            || e.start == j as u32
+                            || e.end == j as u32
+                        {
+                            eprintln!(
+                                "    edge {ei}: {} -> {} curve {:?}",
+                                e.start,
+                                e.end,
+                                std::mem::discriminant(&e.curve)
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
     let (out_solid, out_face_ids) = from_yang_brep_indexed(arena, &out)?;
     // KV13 F2: record the boolean's per-face lineage in the journal.
     record_boolean_evolution(arena, op, &out, &out_face_ids, &a_faces, &b_faces);
