@@ -168,10 +168,11 @@ fn parallel_cyl_union_exact_volume() {
 /// the Steinmetz configuration; UNION. Exact: V = V1 + V2 − 16r³/3
 /// (the bicylinder common volume), with both axes crossing mid-solid.
 #[test]
-#[ignore = "KV9-F1: tangency-junction crack — the two Steinmetz ellipses meet where the \
-            cylinders are TANGENT; the arrangement's patch cycles disagree across the \
-            junction (an output edge used once). Stage-3/4 plumbing for cyl×cyl ellipses \
-            is in place; the emit-topology seam at tangency grade needs its own cycle"]
+#[ignore = "KV9-F1 (spec kv9_f1_tangency_inout_labels): layer 1 FIXED (N24 predicate \
+            underflow zero-certification — B's patches are now correctly labeled and \
+            kept); the case progresses to a LOUD Stage-4 stop, OffCurveBeyondChordBand \
+            at a tangency-adjacent vertex — the ellipse-junction relocation at tangency \
+            grade is the cycle's next increment (spec §2b)"]
 fn steinmetz_union_exact_volume() {
     let mut a = BrepArena::new();
     let r = 0.3;
@@ -213,10 +214,11 @@ fn steinmetz_union_exact_volume() {
 /// F0058-class: equal-radius perpendicular SUBTRACT — body minus the
 /// crossing rod removes exactly the bicylinder volume.
 #[test]
-#[ignore = "KV9-F1: tangency-junction crack — the two Steinmetz ellipses meet where the \
-            cylinders are TANGENT; the arrangement's patch cycles disagree across the \
-            junction (an output edge used once). Stage-3/4 plumbing for cyl×cyl ellipses \
-            is in place; the emit-topology seam at tangency grade needs its own cycle"]
+#[ignore = "KV9-F1 (spec kv9_f1_tangency_inout_labels): layer 1 FIXED (N24 predicate \
+            underflow zero-certification — B's patches are now correctly labeled and \
+            kept); the case progresses to a LOUD Stage-4 stop, OffCurveBeyondChordBand \
+            at a tangency-adjacent vertex — the ellipse-junction relocation at tangency \
+            grade is the cycle's next increment (spec §2b)"]
 fn steinmetz_subtract_exact_volume() {
     let mut a = BrepArena::new();
     let r = 0.2;

@@ -1351,3 +1351,30 @@ sidecar output parity on the R0046-class fixture (I1) plus the full assay
 (0 WRONG, no SUPPORTED_CORRECT lost). Non-coplanar arrangements are
 label-homogeneous and byte-identical (L1). Precedent: N20 (C++ release-behavior
 analysis); the deviation-policy memo (`cherchi_rs_cpp_deviation_policy`).
+
+### N24 — orient2d/orient3d: exact-rational zero-certification (Shewchuk underflow hole)
+
+**Where:** `cherchi-rs/src/predicates/orient.rs` (`orient3d`, `orient2d`).
+**C++ behavior:** the reference (and our former wrapper) trusts the
+Shewchuk-style adaptive predicate's 0.0 as a certified Zero. Shewchuk's
+exactness guarantee explicitly excludes UNDERFLOW: a determinant whose true
+magnitude lies below the subnormal floor collapses to exactly 0.0 in the
+expansion arithmetic.
+**Measured trigger (KV9-F1, spec `kv9_f1_tangency_inout_labels` §2a):** the
+steinmetz in/out ray's entry graze on a femto-skewed azimuth-π lateral edge.
+All 8 ULP-perturbed rays produced true determinants ≈ 0.36·5e-324 —
+underflowing to a FALSE Zero — so the graze resolver dropped a real
+crossing, flipped the patch parity, and the boolean silently discarded ALL
+of input B (the C++ escapes on this fixture only by making different
+ray/vertex choices; the hole is present there too).
+**Port behavior:** an adaptive tier may certify NONZERO signs; only exact
+arithmetic certifies Zero. A 0.0 adaptive result is re-derived in dashu
+rationals (identical formula orientation — `det[a−d, b−d, c−d]` /
+`(b−a)×(c−a)` — preserving the Shewchuk sign conventions). Nonzero adaptive
+results are returned untouched, so every non-degenerate call is
+byte-identical; truly-degenerate inputs still certify Zero (now soundly).
+**Exactness direction:** STRENGTHENING (never diverges from the true sign;
+diverges from the C++ only where the C++ is unsound under underflow).
+**Oracles:** `orient.rs` group-0 unit tests (measured 4-point fixture +
+2D analog + true-coplanar guard); full cherchi suite + 18/18 sidecar
+arrangement parity + fuzz differentials + full assay unchanged.

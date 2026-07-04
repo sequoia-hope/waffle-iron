@@ -88,6 +88,25 @@ byte-identical (I2). `orient2d` gets the same zero-certification (same
 underflow hole, same wrapper). Recorded as a port deviation (exactness
 STRENGTHENING) in `docs/yang_deviations.md`.
 
+### 2b. Layer-1 GREEN outcome + next increment (2026-07-04, measured)
+
+The N24 fix (exact-rational zero-certification in `orient3d`/`orient2d`)
+lands exactly on the measured root: the steinmetz patch-3 ray now
+registers BOTH crossings (`hits 2 → inner []`), every patch verdict is
+correct, and B's patches are kept. RED unit trio GREEN; full cherchi-rs
+suite (556) + 18/18 sidecar arrangement parity + yang-rs + kernel-v2
+suites green.
+
+**Next increment (measured):** with B kept the pipeline reaches Stage 4
+(previously bypassed via `has_conic=false`) and stops LOUDLY at
+`Stage4RegionInvalid { vertex: 41, OffCurveBeyondChordBand }` — a
+tangency-adjacent intersection vertex sits off its assigned Steinmetz
+ellipse beyond the chord band (the two ellipses CROSS at the tangency
+points; assignment/junction handling at tangency grade is the remaining
+layer — the `vert_ell_junction` machinery's tangency case). The kv9
+quarantine tags are updated to this wall; measuring that vertex's
+curve-assignment state is Increment 0c.
+
 ## 3. Parameters
 
 None new. No tolerances (A14.3): whatever the root, the fix must be an

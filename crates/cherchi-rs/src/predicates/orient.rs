@@ -77,7 +77,52 @@ impl Sign {
 /// NaN / infinite inputs produce undefined behavior. Caller's responsibility.
 pub fn orient3d(a: Point3, b: Point3, c: Point3, d: Point3) -> Sign {
     let det = geometry_predicates::orient3d(a.as_array(), b.as_array(), c.as_array(), d.as_array());
-    Sign::from_f64(det)
+    match Sign::from_f64(det) {
+        // N24 (spec `kv9_f1_tangency_inout_labels` §2a E-L1): Shewchuk's
+        // adaptive exactness guarantee excludes UNDERFLOW — a determinant
+        // whose true magnitude is below the subnormal floor collapses to
+        // exactly 0.0 (measured: the steinmetz entry graze's subnormally-
+        // perturbed ray). An adaptive tier may certify NONZERO signs;
+        // only exact arithmetic certifies Zero, so a 0.0 result is
+        // re-derived in rationals (same formula orientation as Shewchuk's
+        // `orient3d` — det[a−d, b−d, c−d] — preserving the sign
+        // convention). Nonzero adaptive results are returned untouched,
+        // keeping the entire non-degenerate population byte-identical.
+        Sign::Zero => orient3d_exact_rational(a, b, c, d),
+        s => s,
+    }
+}
+
+/// Exact rational `orient3d` (N24 zero-certification tier). Same value as
+/// Shewchuk's determinant `det[a−d, b−d, c−d]`; used ONLY to certify or
+/// refute an adaptive-tier 0.0.
+fn orient3d_exact_rational(a: Point3, b: Point3, c: Point3, d: Point3) -> Sign {
+    use dashu::float::FBig;
+    use dashu::rational::RBig;
+    let to_r = |x: f64| -> RBig {
+        let fb: FBig = FBig::try_from(x).expect("finite f64 → FBig is total");
+        RBig::try_from(fb).expect("FBig → RBig is total")
+    };
+    let sub = |p: Point3, q: Point3| -> [RBig; 3] {
+        [
+            to_r(p.x()) - to_r(q.x()),
+            to_r(p.y()) - to_r(q.y()),
+            to_r(p.z()) - to_r(q.z()),
+        ]
+    };
+    let ad = sub(a, d);
+    let bd = sub(b, d);
+    let cd = sub(c, d);
+    let det = &ad[0] * (&bd[1] * &cd[2] - &bd[2] * &cd[1])
+        + &ad[1] * (&bd[2] * &cd[0] - &bd[0] * &cd[2])
+        + &ad[2] * (&bd[0] * &cd[1] - &bd[1] * &cd[0]);
+    if det > RBig::ZERO {
+        Sign::Positive
+    } else if det < RBig::ZERO {
+        Sign::Negative
+    } else {
+        Sign::Zero
+    }
 }
 
 /// 2D orientation predicate: returns the sign of the orientation
@@ -98,7 +143,32 @@ pub fn orient3d(a: Point3, b: Point3, c: Point3, d: Point3) -> Sign {
 /// NaN / infinite inputs produce undefined behavior. Caller's responsibility.
 pub fn orient2d(a: Point2, b: Point2, c: Point2) -> Sign {
     let det = geometry_predicates::orient2d(a.as_array(), b.as_array(), c.as_array());
-    Sign::from_f64(det)
+    match Sign::from_f64(det) {
+        // N24: same underflow zero-certification as `orient3d` (2D analog).
+        Sign::Zero => orient2d_exact_rational(a, b, c),
+        s => s,
+    }
+}
+
+/// Exact rational `orient2d` (N24 zero-certification tier). Same value as
+/// Shewchuk's `(b−a)×(c−a)`; used ONLY to certify or refute an
+/// adaptive-tier 0.0.
+fn orient2d_exact_rational(a: Point2, b: Point2, c: Point2) -> Sign {
+    use dashu::float::FBig;
+    use dashu::rational::RBig;
+    let to_r = |x: f64| -> RBig {
+        let fb: FBig = FBig::try_from(x).expect("finite f64 → FBig is total");
+        RBig::try_from(fb).expect("FBig → RBig is total")
+    };
+    let det = (to_r(b.x()) - to_r(a.x())) * (to_r(c.y()) - to_r(a.y()))
+        - (to_r(b.y()) - to_r(a.y())) * (to_r(c.x()) - to_r(a.x()));
+    if det > RBig::ZERO {
+        Sign::Positive
+    } else if det < RBig::ZERO {
+        Sign::Negative
+    } else {
+        Sign::Zero
+    }
 }
 
 #[cfg(test)]
