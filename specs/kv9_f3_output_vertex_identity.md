@@ -58,6 +58,17 @@ DISTINCT curves (`curve_key` inequality — combinatorial, no tolerance);
 same-curve pairs and segments remain rejected. The CurveKey manifold
 pairing downstream already distinguishes the lens's two arcs.
 
+### 2b. GREEN outcome (2026-07-04, measured)
+
+Both quarantined kv9 tests pass end-to-end (exact-volume oracles) and are
+un-quarantined; the KV9-F1 tangency pair stays (separate cycle). Twin
+probes show zero sub-floor twins on the fixture. Witnesses green: rewrite
+tier, fuzz_boxes (940s) + fuzz_curved (324s) differentials, full
+kernel-v2 + yang-rs suites. Full assay: **88 SUPPORTED_CORRECT / 0
+WRONG / zero lost vs `baseline-m8foldpair`, +2 gained — F0041 and F0057
+ERROR→CORRECT** (corpus parallel-cyl×cyl members blocked on the same
+walls). Report banked as `assay_kv2_report.baseline-kv9f3.json`.
+
 ## 3. Parameters
 
 None new. No new tolerances (A14.3): the merge criterion stays the

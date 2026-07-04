@@ -166,9 +166,18 @@ the roadmap's remaining work:
    >    exact shoelace coverage certificate, loud
    >    Wall("disc-annulus-tri") on deadlock. F0029 + R0089 lose their
    >    E2E ERRORs outright; R0038 drops to an M5-class Stage-3 SSI wall;
-   >    all sweep introduced-dirty operands now emit clean.** Still open:
-   >    (iii) KV9-F3 output vertex
-   >    identity; (iv) R0078 azimuth/coplanar. The P10 records stand:
+   >    all sweep introduced-dirty operands now emit clean.**
+   >    **(iii) KV9-F3 output vertex identity SHIPPED 2026-07-04 (spec
+   >    `specs/kv9_f3_output_vertex_identity.md`): unmoved junction
+   >    duplicates (both twins already on-curve within TAU_WORK) escaped
+   >    the §4.4.1(b) sub-feature merge's moved-only scan — eligibility
+   >    extended to conic-endpoint-touching triangles (criterion stays the
+   >    MIN_FEATURE_SIZE floor); plus from_yang_brep now accepts genuine
+   >    2-arc LENS BIGONS on distinct curves (the twin artifact had been
+   >    masking them; CurveKey pairing already supported them). Both KV9-F3
+   >    kv9 quarantines un-quarantined; F0041 + F0057 ERROR→CORRECT;
+   >    assay 88/0 zero lost.** Still open:
+   >    (iv) R0078 azimuth/coplanar. The P10 records stand:
    >    no mesh-level kept-set gate (`yang_kept_mesh_manifold_gate.md`
    >    §2b); kernel-v2's post-subdivision edge pairing stays the honest
    >    downstream wall.
