@@ -115,6 +115,16 @@ untouched):
   ULP-distinct azimuths (or a structural share of the cap twins' azimuth
   keys) would let this op proceed to its next honest wall.
 - **R0046 (witness):** operands stay clean; its output-loop wall unchanged.
+- **Full assay (I4):** 84 SUPPORTED_CORRECT / 0 SUPPORTED_WRONG; per-case
+  diff vs the banked baseline (`assay_kv2_report.baseline-m8stage0.json`,
+  the load-noisy 81-correct copy): **zero CORRECT lost, +3 gained**
+  (F0016/F0024/F0061 — baseline load-noise ERRORs, known-CORRECT), R0070
+  TIMEOUT→ERROR (the new loud stop lands inside the 30s cap). Timeout
+  class ~equal (35 vs 36; the box was not fully quiet — the parent
+  cycle's 96-CORRECT quiet-box figure was not re-measured this cycle, and
+  the timeout population is the known load-sensitive gear-perf class, so
+  the binding gate is the per-case non-negative diff above). New report
+  banked as `assay_kv2_report.baseline-m8mc.json`.
 
 ## 3. Parameters
 
