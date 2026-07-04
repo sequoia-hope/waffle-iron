@@ -176,7 +176,18 @@ the roadmap's remaining work:
    >    2-arc LENS BIGONS on distinct curves (the twin artifact had been
    >    masking them; CurveKey pairing already supported them). Both KV9-F3
    >    kv9 quarantines un-quarantined; F0041 + F0057 ERROR→CORRECT;
-   >    assay 88/0 zero lost.** Still open:
+   >    assay 88/0 zero lost.** **KV9-F1 layer 1 SHIPPED 2026-07-04
+   >    (spec `specs/kv9_f1_tangency_inout_labels.md`, deviation N24):
+   >    the steinmetz "tangency crack" was measured down to a PREDICATE
+   >    soundness hole — Shewchuk adaptive orient3d/orient2d certify a
+   >    FALSE Zero under subnormal UNDERFLOW (the in/out ray's graze on a
+   >    femto-skewed seam edge), silently discarding ALL of input B. Fix
+   >    = exact-rational zero-certification in the wrappers (only exact
+   >    arithmetic certifies Zero). F0056 ERROR→CORRECT; steinmetz
+   >    progresses to a LOUD Stage-4 OffCurveBeyondChordBand at a
+   >    tangency-adjacent vertex — the ellipse-junction relocation at
+   >    tangency grade is the named next increment (kv9 quarantine tags
+   >    updated).** Still open:
    >    (iv) R0078 azimuth/coplanar. The P10 records stand:
    >    no mesh-level kept-set gate (`yang_kept_mesh_manifold_gate.md`
    >    §2b); kernel-v2's post-subdivision edge pairing stays the honest

@@ -97,6 +97,15 @@ correct, and B's patches are kept. RED unit trio GREEN; full cherchi-rs
 suite (556) + 18/18 sidecar arrangement parity + yang-rs + kernel-v2
 suites green.
 
+**Assay (I2 gate):** 86 CORRECT / 0 WRONG vs `baseline-kv9f3` (88):
+**+1 genuine gain — F0056 ERROR→CORRECT** (the corpus Steinmetz union,
+N24's direct payoff); −3 flips to the documented load-sensitive TIMEOUT
+class (R0001 — the known 29s-borderline noise case — R0013, R0056; run
+8% slower overall, timeout class 35→38). Discrimination (recorded, not
+assumed): all three pass individually on the quiet box
+(`n24_single_case_timing` example: 1.3s / 5.2s / 1.5s release) — load
+wobble, not N24 cost. Report banked as `baseline-n24.json`.
+
 **Next increment (measured):** with B kept the pipeline reaches Stage 4
 (previously bypassed via `has_conic=false`) and stops LOUDLY at
 `Stage4RegionInvalid { vertex: 41, OffCurveBeyondChordBand }` — a
