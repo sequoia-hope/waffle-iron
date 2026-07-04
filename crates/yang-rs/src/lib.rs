@@ -961,6 +961,15 @@ fn stage1_tessellate_inner(
                             .iter()
                             .any(|&o| (o - off).abs() <= merge_tol)
                         {
+                            // M-C diagnosis probe (read-only, env-gated).
+                            if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                                eprintln!(
+                                    "[rim-insert-probe] circle edge {e_idx}: override \
+                                     ({},{},{}) offset {off} DROPPED by merge_tol \
+                                     {merge_tol} dedup",
+                                    sp[0], sp[1], sp[2]
+                                );
+                            }
                             continue;
                         }
                         inserted_offsets.push(off);
@@ -13496,6 +13505,72 @@ mod tests {
         assert!(
             counts.values().all(|&c| c == 2),
             "dual-rim override must keep the cylinder a closed 2-manifold"
+        );
+    }
+
+    /// M-C RED (spec `m8_stage0_band_scale_crossing_verts` §4 E-C1): two
+    /// DISTINCT override points whose angular separation is far below the
+    /// legacy merge_tol (band-close genuine crossings — the R0088/R0070
+    /// twin population) must BOTH be inserted into the rim ring. Silently
+    /// keeping only one desynchronizes the ring from the cap override that
+    /// carries both points (T-junction holes, the measured M-C class). A
+    /// bit-identical duplicate must still be deduplicated (E-C1b).
+    #[test]
+    fn rim_override_band_close_distinct_points_both_inserted() {
+        let (verts, edges, faces) = rt_cylinder(0.0, 1.0, 0.5);
+        let r = 0.5_f64;
+        let mk = |az: f64, z: f64| {
+            let (s, c) = az.sin_cos();
+            Point3::new(r * c, r * s, z)
+        };
+        // Two on-circle points ~2e-13 rad apart (distinct f64 coordinates,
+        // far below uni_step·1e-6), on both rims for lateral balance.
+        let (az1, az2) = (0.3_f64, 0.3_f64 + 2.0e-13);
+        let (b1, b2) = (mk(az1, 0.0), mk(az2, 0.0));
+        let (t1, t2) = (mk(az1, 1.0), mk(az2, 1.0));
+        assert_ne!(b1.as_array(), b2.as_array(), "twin construction degenerate");
+        let mut ov: std::collections::BTreeMap<u32, Vec<Point3>> =
+            std::collections::BTreeMap::new();
+        ov.insert(0, vec![b1, b2]);
+        ov.insert(1, vec![t1, t2]);
+        let t = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &ov)
+            .expect("band-close distinct overrides must be accepted");
+        for (name, p) in [("b1", b1), ("b2", b2), ("t1", t1), ("t2", t2)] {
+            assert!(
+                t.verts.iter().any(|q| q.as_array() == p.as_array()),
+                "M-C RED — distinct band-close override {name} missing from the \
+                 rim ring (silent merge_tol drop, spec §2)"
+            );
+        }
+        // Ring stays a closed 2-manifold with the band-thin segments present.
+        let mut counts: std::collections::BTreeMap<(u32, u32), u32> =
+            std::collections::BTreeMap::new();
+        for tri in &t.tris {
+            for k in 0..3 {
+                let (a, b) = (tri[k], tri[(k + 1) % 3]);
+                *counts.entry((a.min(b), a.max(b))).or_insert(0) += 1;
+            }
+        }
+        assert!(
+            counts.values().all(|&c| c == 2),
+            "band-close override insertion must keep the cylinder closed"
+        );
+
+        // E-C1b: a bit-identical duplicate is still dropped (no double vertex).
+        // Balanced across both rims (the lateral azimuth-merge expectation).
+        let mut dup: std::collections::BTreeMap<u32, Vec<Point3>> =
+            std::collections::BTreeMap::new();
+        dup.insert(0, vec![b1, b1]);
+        dup.insert(1, vec![t1, t1]);
+        let td = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &dup)
+            .expect("bit-identical duplicate override must be accepted");
+        assert_eq!(
+            td.verts
+                .iter()
+                .filter(|q| q.as_array() == t1.as_array())
+                .count(),
+            1,
+            "bit-identical duplicate override must be deduplicated exactly once"
         );
     }
 

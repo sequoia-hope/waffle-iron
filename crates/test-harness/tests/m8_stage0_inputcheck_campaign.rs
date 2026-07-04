@@ -121,16 +121,17 @@ fn red_r0046() {
 }
 
 #[test]
-#[ignore = "M8 Stage-0 emission RED (spec m8_stage0_inputcheck_clean_emission I5 + §2 caveat): \
-            R0088 carries TWO instances of the edge-pairing wall; the defective-operand op's \
-            instance must fall (count < 2). The clean-operand op's instance is a separately- \
-            diagnosed residual (full absence = follow-up)"]
+#[ignore = "M-C band-scale RED (spec m8_stage0_band_scale_crossing_verts I4): the parent \
+            cycle's fix dropped R0088 to ONE edge-pairing wall instance (the band-scale \
+            operand op); this cycle's exact-dedup rim insertion must clear it — GREEN when \
+            the wall string is fully absent (success or a different loud error pass)"]
 fn red_r0088() {
     let (n, failures) = wall_count("R0088", EDGE_PAIRING_WALL);
-    assert!(
-        n < 2,
-        "M8 Stage-0 RED — R0088 still carries {n} instances of the kernel-v2 edge-pairing \
-         wall (defective-operand op unfixed):\n  {}",
+    assert_eq!(
+        n,
+        0,
+        "M-C RED — R0088 still carries {n} instance(s) of the kernel-v2 edge-pairing wall \
+         (band-scale rim-override drop unfixed):\n  {}",
         failures.join("\n  ")
     );
 }

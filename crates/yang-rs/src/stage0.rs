@@ -809,6 +809,28 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 return Err(pair_err(p.face_a, p.face_b));
             }
         }
+
+        // M-C diagnosis (read-only observer, spec I6 pattern): with
+        // `YANG_STAGE0_DUMP_DIR` set, dump this pair's classified overlay —
+        // per-vertex resolution provenance + resolved 3D, per-triangle class
+        // and per-side emission verdict (incl. the E8 resolved-degenerate
+        // drop), and the split maps as collected so far — so census
+        // offenders on the emitted operands join back to overlay entities.
+        dump_pair_overlay(
+            (p.face_a, p.face_b, p.band, opposite),
+            &overlay,
+            &corners_a,
+            &corners_b,
+            &rim_a,
+            &rim_b,
+            &rim_pts,
+            snap_eps2,
+            &minted_mark,
+            &coords,
+            frame,
+            &splits_a,
+            &splits_b,
+        );
     }
 
     // ── Stage-1 re-tessellation with overrides + propagated splits ──────
@@ -1528,6 +1550,7 @@ fn collect_rim_crossings(
         if len2 == RBig::ZERO {
             continue;
         }
+        let rim_probe = std::env::var_os("YANG_SPLIT_PROBE").is_some();
         for (vi, q) in overlay.exact_verts.iter().enumerate() {
             let wx = &q.x - &s2.x;
             let wy = &q.y - &s2.y;
@@ -1539,12 +1562,29 @@ fn collect_rim_crossings(
             let t = (&dx * &wx + &dy * &wy) / &len2;
             let tf = t.to_f64().value();
             if !(tf > 1.0e-6 && tf < 1.0 - 1.0e-6) {
+                // M-C diagnosis probe (read-only, env-gated): report the
+                // exactly-collinear chord vertices the endpoint window skips.
+                if rim_probe && tf > 0.0 && tf < 1.0 {
+                    eprintln!(
+                        "[rim-cross-probe] f={fi} chord {i} vert {vi} t={tf} \
+                         SKIPPED (endpoint window)"
+                    );
+                }
                 continue;
             }
             // The BIT-EXACT shared point (the cap override uses the same one).
             let pt = coords[vi];
             if cap_pts.contains(&pt) {
+                if rim_probe {
+                    eprintln!(
+                        "[rim-cross-probe] f={fi} chord {i} vert {vi} t={tf} \
+                         SKIPPED (duplicate pt)"
+                    );
+                }
                 continue;
+            }
+            if rim_probe {
+                eprintln!("[rim-cross-probe] f={fi} chord {i} vert {vi} t={tf} KEPT");
             }
             cap_pts.push(pt);
         }
@@ -2235,6 +2275,122 @@ type SplitMap = BTreeMap<(u32, u32), Vec<(RBig, Point3)>>;
 /// and the opposite cap all share the SAME subdivided rim (no T-junction).
 type RimSplitMap = BTreeMap<u32, Vec<Point3>>;
 
+/// M-C diagnosis dump (read-only observer; fires only with
+/// `YANG_STAGE0_DUMP_DIR` set — never in production/WASM). One file per
+/// processed overlay pair: per-vertex resolution provenance (which map the
+/// 2D→3D resolution hit) + resolved 3D coordinate, per-triangle region
+/// class and per-side emission verdict including the E8 resolved-degenerate
+/// drop, and the split maps as collected after this pair. Joins the operand
+/// census's offender vertices back to overlay entities.
+#[allow(clippy::too_many_arguments)]
+fn dump_pair_overlay(
+    pair: (usize, usize, f64, bool),
+    overlay: &ClassifiedOverlay,
+    corners_a: &BTreeMap<ExactPoint2, u32>,
+    corners_b: &BTreeMap<ExactPoint2, u32>,
+    rim_a: &BTreeMap<ExactPoint2, Point3>,
+    rim_b: &BTreeMap<ExactPoint2, Point3>,
+    rim_pts: &[(f64, f64, Point3)],
+    snap_eps2: f64,
+    minted_mark: &[bool],
+    coords: &[Point3],
+    frame: &Frame,
+    splits_a: &SplitMap,
+    splits_b: &SplitMap,
+) {
+    let Some(dir) = std::env::var_os("YANG_STAGE0_DUMP_DIR") else {
+        return;
+    };
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static PAIR_COUNTER: AtomicU64 = AtomicU64::new(0);
+    let seq = PAIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let (face_a, face_b, band, opposite) = pair;
+    let mut out = format!(
+        "pair: face_a={face_a} face_b={face_b} band={band} opposite={opposite}\n\
+         verts: {}\n",
+        overlay.verts.len()
+    );
+    for (i, exact) in overlay.exact_verts.iter().enumerate() {
+        let tag = if let Some(ai) = corners_a.get(exact) {
+            format!("corner_a({ai})")
+        } else if let Some(bi) = corners_b.get(exact) {
+            format!("corner_b({bi})")
+        } else if rim_a.contains_key(exact) {
+            "rim_a".into()
+        } else if rim_b.contains_key(exact) {
+            "rim_b".into()
+        } else {
+            let q = overlay.verts[i];
+            let (qx, qy) = (q.x(), q.y());
+            let near_rim = rim_pts.iter().any(|(u, v, _)| {
+                let (du, dv) = (u - qx, v - qy);
+                du * du + dv * dv <= snap_eps2
+            });
+            if near_rim {
+                "rimsnap".into()
+            } else if minted_mark[i] {
+                let q = overlay.verts[i];
+                if coords[i] == frame.lift(q.x(), q.y()) {
+                    "mint(rev)".into()
+                } else {
+                    "mint".into()
+                }
+            } else {
+                "lift".into()
+            }
+        };
+        let p3 = coords[i];
+        let q = overlay.verts[i];
+        out.push_str(&format!(
+            "v {i} u={} v={} tag={tag} xyz=({},{},{})\n",
+            q.x(),
+            q.y(),
+            p3.x(),
+            p3.y(),
+            p3.z()
+        ));
+    }
+    out.push_str(&format!("tris: {}\n", overlay.tris.len()));
+    let bits = |p: Point3| [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()];
+    for (ti, (t, c)) in overlay.tris.iter().zip(&overlay.class).enumerate() {
+        let b = [
+            bits(coords[t[0] as usize]),
+            bits(coords[t[1] as usize]),
+            bits(coords[t[2] as usize]),
+        ];
+        let e8 = b[0] == b[1] || b[1] == b[2] || b[0] == b[2];
+        let kept_a = matches!(c, RegionClass::AOnly | RegionClass::Overlap) && !e8;
+        let kept_b = matches!(c, RegionClass::BOnly | RegionClass::Overlap) && !e8;
+        out.push_str(&format!(
+            "t {ti} [{},{},{}] class={c:?} e8drop={e8} kept_a={kept_a} kept_b={kept_b}\n",
+            t[0], t[1], t[2]
+        ));
+    }
+    for (name, splits) in [("splits_a", splits_a), ("splits_b", splits_b)] {
+        out.push_str(&format!("{name}: {}\n", splits.len()));
+        for ((lo, hi), pts) in splits {
+            let items: Vec<String> = pts
+                .iter()
+                .map(|(t, p)| {
+                    format!(
+                        "t={} xyz=({},{},{})",
+                        t.to_f64().value(),
+                        p.x(),
+                        p.y(),
+                        p.z()
+                    )
+                })
+                .collect();
+            out.push_str(&format!("  edge ({lo},{hi}): [{}]\n", items.join(", ")));
+        }
+    }
+    let path =
+        std::path::PathBuf::from(dir).join(format!("overlay_{seq:03}_pair{face_a}_{face_b}.txt"));
+    if let Err(e) = std::fs::write(&path, out) {
+        eprintln!("[overlay-dump] write {} failed: {e}", path.display());
+    }
+}
+
 /// Find overlay vertices lying strictly inside one of the face's loop
 /// edges (exact 2D on-open-segment test over the overlay's rational
 /// coordinates) and record them, with the SAME resolved 3D coordinates the
@@ -2308,11 +2464,34 @@ fn collect_edge_splits(
             let wx = &q.x - &s2.x;
             let wy = &q.y - &s2.y;
             // Exact collinearity + strictly-interior parameter.
-            if &dx * &wy - &dy * &wx != RBig::ZERO {
+            let cross = &dx * &wy - &dy * &wx;
+            if cross != RBig::ZERO {
+                // M-C diagnosis probe (read-only, env-gated): report exact
+                // NON-collinear vertices whose perpendicular miss distance is
+                // tiny — the band-scale near-miss population the split
+                // collector silently skips.
+                if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                    let len = len2.to_f64().value().sqrt();
+                    let miss = (cross.to_f64().value() / len).abs();
+                    if miss < 1.0e-3 * len {
+                        let t = ((&dx * &wx + &dy * &wy) / &len2).to_f64().value();
+                        eprintln!(
+                            "[split-probe] f={fi} edge ({lo},{hi}) vert {i} NEAR-MISS \
+                             dist={miss:e} t={t}"
+                        );
+                    }
+                }
                 continue;
             }
             let t = (&dx * &wx + &dy * &wy) / &len2;
             if t <= RBig::ZERO || t >= RBig::ONE {
+                if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                    eprintln!(
+                        "[split-probe] f={fi} edge ({lo},{hi}) vert {i} ON-LINE but t={} \
+                         out of (0,1)",
+                        t.to_f64().value()
+                    );
+                }
                 continue;
             }
             let entry = splits.entry((lo, hi)).or_default();

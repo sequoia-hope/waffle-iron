@@ -351,3 +351,11 @@ fn diagnose_r0088() {
 fn diagnose_f0063() {
     diagnose("F0063");
 }
+
+#[test]
+#[ignore = "M8 Stage-0 diagnosis driver (assertion-free measurement; M-C band-scale \
+            crossing-vertex follow-up cycle — R0070 op358 operand-b is the second \
+            member of the class the 2026-07-03 sweep quantified)"]
+fn diagnose_r0070() {
+    diagnose("R0070");
+}
