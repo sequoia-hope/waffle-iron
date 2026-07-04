@@ -9525,6 +9525,25 @@ fn stage4_relocate_and_correct(
     {
         let floor = cad_primitives::MIN_FEATURE_SIZE;
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
+        // KV9-F3 (spec `kv9_f3_output_vertex_identity` E-V2): junction
+        // duplicates that are ALREADY on their exact curve (rho ≤ TAU_WORK)
+        // are never `moved`, yet they are precisely the population the I6
+        // weld delegates to Stage-4 ("Stage-4 owns junction-duplicate
+        // collapse" — curved inputs weld bit-exact only). Scan eligibility
+        // therefore includes triangles touching any CONIC-ENDPOINT vertex;
+        // the merge criterion below is unchanged (the governance
+        // MIN_FEATURE_SIZE floor, A14.2 — never a tuned tolerance).
+        let conic_endpoint: std::collections::BTreeSet<u32> = vert_circle
+            .keys()
+            .chain(vert_line.keys())
+            .chain(vert_ellipse.keys())
+            .chain(vert_cone_ellipse.keys())
+            .chain(vert_parabola.keys())
+            .chain(vert_cone_hyperbola.keys())
+            .chain(vert_ell_junction.keys())
+            .chain(vert_circle_junction.keys())
+            .copied()
+            .collect();
         // Each pass collapses ≤1 sub-feature edge; bounded by the triangle count.
         let max_merge_passes = mesh.tris.len() + 1;
         let mut merge_passes = 0usize;
@@ -9539,7 +9558,10 @@ fn stage4_relocate_and_correct(
             }
             let mut to_merge: Option<(u32, u32)> = None;
             for tri in &mesh.tris {
-                if !tri.iter().any(|v| moved.contains(v)) {
+                if !tri
+                    .iter()
+                    .any(|v| moved.contains(v) || conic_endpoint.contains(v))
+                {
                     continue;
                 }
                 let p0 = mesh.verts[tri[0] as usize].as_array();
@@ -9748,9 +9770,10 @@ fn stage4_relocate_and_correct(
                     continue;
                 }
                 let (iu, ju) = (i as u32, j as u32);
-                let shared_tri = mesh.tris.iter().position(|t| {
-                    t.contains(&iu) && t.contains(&ju)
-                });
+                let shared_tri = mesh
+                    .tris
+                    .iter()
+                    .position(|t| t.contains(&iu) && t.contains(&ju));
                 eprintln!(
                     "[s4-twin-probe] verts {i}/{j} dist={:e} moved=({},{}) shared_tri={:?}\n  \
                      circle=({},{}) line=({},{}) ell=({},{}) junction=({},{})\n  \

@@ -87,7 +87,6 @@ fn lens_area(r1: f64, r2: f64, d: f64) -> f64 {
 /// F0042-class: two parallel z-axis cylinders, unequal radii, overlapping
 /// laterally; SUBTRACT. Exact volume: π·r1²·h − lens·overlap_height.
 #[test]
-#[ignore = "KV9-F3: boolean output carries a seam femto-twin (two cap-loop vertices 5.4e-18 apart at the tool cylinder's seam point, bridged by a degenerate Arc edge); the always-on G1 render gate now rejects it loudly instead of silently emitting a collapsed triangle. Un-quarantine with the m8_shared_boundary_identity output-side identity fix"]
 fn parallel_cyl_subtract_exact_volume() {
     let mut a = BrepArena::new();
     let (r1, r2, d) = (0.30, 0.22, 0.35); // secant: |r1−r2| < d < r1+r2
@@ -290,7 +289,6 @@ fn unequal_perpendicular_stays_walled() {
 
 /// Determinism across identical builds.
 #[test]
-#[ignore = "KV9-F3: boolean output carries a seam femto-twin (two cap-loop vertices 5.4e-18 apart at the tool cylinder's seam point, bridged by a degenerate Arc edge); the always-on G1 render gate now rejects it loudly instead of silently emitting a collapsed triangle. Un-quarantine with the m8_shared_boundary_identity output-side identity fix"]
 fn cyl_cyl_special_deterministic() {
     let build = || {
         let mut a = BrepArena::new();

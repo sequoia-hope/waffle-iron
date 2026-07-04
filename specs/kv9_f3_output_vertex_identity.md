@@ -41,6 +41,23 @@ Arc edge that the always-on G1 render gate rejects loudly
    at step 2 collapsed lens-tip seam edges). The delegation contract has a
    hole: Stage-4 only collapses duplicates it happened to move.
 
+### 2a. Second measured layer (GREEN-phase re-measurement, per §7)
+
+With the twins merged, the kv9 subtract progressed to a NEW loud wall:
+`InvalidBooleanOutput("output loop with fewer than 3 edges…")` on the
+bite's cap face at z=0.4 — a TWO-edge loop of one body-circle arc + one
+tool-circle arc meeting at the two ruling points (probe: cycle
+[(0.2344…, ±0.1872…, 0.4)], exactly the radical-line x). Measurement
+verdict: this is a **genuine lens bigon** that the femto-twin artifact
+used to subdivide spuriously (the seam vertex is NOT an output junction —
+the body-lateral seam is patch-interior; its appearance in the loop was
+the twin defect itself). The `from_yang_brep` entrance check predates the
+M8 disc∩disc CurveKey bigon support and rejected all <3-edge loops.
+Amendment (E-V5): accept a 2-edge loop iff both edges are conic arcs on
+DISTINCT curves (`curve_key` inequality — combinatorial, no tolerance);
+same-curve pairs and segments remain rejected. The CurveKey manifold
+pairing downstream already distinguishes the lens's two arcs.
+
 ## 3. Parameters
 
 None new. No new tolerances (A14.3): the merge criterion stays the
@@ -56,6 +73,7 @@ is SCAN ELIGIBILITY only.
 | E-V2 | **[fix]** Triangle touching a CONIC-ENDPOINT vertex (any member of the Stage-4 curve-assignment maps: circle / line / ellipse / cone-conic / junction) that is NOT `moved` | Also scanned: a degenerate triangle whose shortest edge < MIN_FEATURE_SIZE merges that edge (same criterion, same watertight-preserving `collapse_vertex`) |
 | E-V3 | Triangle touching neither | UNCHANGED — never scanned (planar-only populations remain the step-(2) I6 near-weld's territory) |
 | E-V4 | Degenerate scanned triangle whose shortest edge ≥ floor | UNCHANGED — left for `validate_relocated_triangles` / loud stops |
+| E-V5 | **[fix, §2a]** `from_yang_brep` loop with exactly 2 edges, both non-Seg conic arcs with UNEQUAL `curve_key`s | Accepted (lens bigon; CurveKey pairing handles it); any other <3-edge non-full loop stays the loud reject |
 
 ## 5. Invariants
 

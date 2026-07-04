@@ -1190,9 +1190,36 @@ pub fn from_yang_brep_indexed(
                 ));
             }
             if !has_full && cycle.len() < 3 {
-                return Err(KernelV2Error::InvalidBooleanOutput(
-                    "output loop with fewer than 3 edges and no full-circle edge",
-                ));
+                // KV9-F3 (spec `kv9_f3_output_vertex_identity` §2 amendment,
+                // E-V5): a TWO-edge loop whose edges are conic arcs on
+                // DISTINCT curves is a genuine LENS BIGON — e.g. the
+                // parallel cyl×cyl bite's cap, bounded by one arc of each
+                // cylinder's section circle meeting at the two ruling
+                // points. The femto-twin artifact used to subdivide these
+                // loops spuriously; with output identity fixed they arrive
+                // as true bigons, which the CurveKey manifold pairing (the
+                // M8 disc∩disc lens machinery) supports downstream. Two
+                // edges on the SAME curve (or any line segment) remain a
+                // degenerate reject.
+                let lens_bigon = cycle.len() == 2
+                    && kinds.iter().all(|k| !matches!(k, EdgeKind::Seg))
+                    && curve_key(&kinds[0]) != curve_key(&kinds[1]);
+                if !lens_bigon {
+                    // KV9-F3 diagnosis probe (read-only, env-gated).
+                    if std::env::var_os("KV2_OUT_TWIN_PROBE").is_some() {
+                        eprintln!(
+                            "[out-loop-probe] face {fi} loop {li} degenerate: \
+                             edges {loop_edges:?} cycle {cycle:?}"
+                        );
+                        for &v in &cycle {
+                            let p = yverts[v as usize].point.as_array();
+                            eprintln!("    v{v}: ({},{},{})", p[0], p[1], p[2]);
+                        }
+                    }
+                    return Err(KernelV2Error::InvalidBooleanOutput(
+                        "output loop with fewer than 3 edges and no full-circle edge",
+                    ));
+                }
             }
             if has_full && cycle.len() != 1 && cycle.len() != 4 {
                 // Full circles occur only in the canonical vocabulary: a
