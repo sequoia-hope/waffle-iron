@@ -156,9 +156,18 @@ the roadmap's remaining work:
    >    loudly at `EmptyBooleanResult`); R0070's defective op stops loudly
    >    pre-backend (`azimuth-merge rims have mismatched samples` — the
    >    opposite-rim f64 azimuth projection collapses ULP twins; named
-   >    follow-up: exact opposite-rim projection).** Still open: the
-   >    fold-pair emission class (F0027/28/29, R0007, R0023,
-   >    R0038, R0089; see the sweep TSV). (iii) KV9-F3 output vertex
+   >    follow-up: exact opposite-rim projection).** **Fold-pair emission
+   >    class SHIPPED 2026-07-04 (spec
+   >    `specs/m8_stage0_fold_pair_emission.md`): the disc-pair builders'
+   >    angle-only annulus merge fanned inner chords to outer corners on
+   >    the CENTER side of the chord's line (silently orientation-flipped
+   >    into same-side overlap pleats — F0027/28/29, R0007, R0023, R0038,
+   >    R0089). Fix = exact half-plane visibility guard on each advance +
+   >    exact shoelace coverage certificate, loud
+   >    Wall("disc-annulus-tri") on deadlock. F0029 + R0089 lose their
+   >    E2E ERRORs outright; R0038 drops to an M5-class Stage-3 SSI wall;
+   >    all sweep introduced-dirty operands now emit clean.** Still open:
+   >    (iii) KV9-F3 output vertex
    >    identity; (iv) R0078 azimuth/coplanar. The P10 records stand:
    >    no mesh-level kept-set gate (`yang_kept_mesh_manifold_gate.md`
    >    §2b); kernel-v2's post-subdivision edge pairing stays the honest

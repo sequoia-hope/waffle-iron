@@ -1,8 +1,8 @@
 {
-  "errored": 22,
+  "errored": 20,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 84,
+  "passed": 86,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -138,7 +138,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): f68e125b-a408-428b-b7b3-348dbd7aa467: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
+      "detail": "1 engine error(s): f68e125b-a408-428b-b7b3-348dbd7aa467: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: EmptyBooleanResult",
       "id": "R0023",
       "status": "error"
     },
@@ -228,7 +228,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "2 engine error(s): b184cc49-01cb-4d27-8984-d4c87b1362cd: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (32, 38): AmbiguousCurve { candidates: 0, matched: 0 }\"); c399daad-a0c2-485c-930d-ece364b19523: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
+      "detail": "1 engine error(s): b184cc49-01cb-4d27-8984-d4c87b1362cd: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (32, 38): AmbiguousCurve { candidates: 0, matched: 0 }\")",
       "id": "R0038",
       "status": "error"
     },
@@ -533,10 +533,10 @@
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0089",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",
@@ -773,10 +773,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0029",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
