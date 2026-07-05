@@ -40,6 +40,7 @@ hint — unlike `Dragged`'s 1/20).
 | B3 | `Pinned` + genuinely conflicting constraint (e.g. second `Pinned` elsewhere on same point) | standard `OverConstrained` classification — no silent override |
 | B4 | JS mapping: `WhereDragged` with `_isDrag` flag | still lowers to `Dragged {point}` (live drag semantics unchanged) |
 | B5 | JS mapping: `WhereDragged` without `_isDrag` (origin / reference-point snap pins) | lowers to `Pinned {point, x, y}` |
+| B6 | FinishSketch persistence (added 2026-07-05) | persistent pins are SAVED into the feature as `Pinned {point,x,y}` (previously ALL WhereDragged were filtered out — pins silently vanished on re-edit, observed in the user's repro document). Transient `_isDrag` pins and targetless legacy entries are still dropped. Re-edit upconverts stored `Pinned` → in-session `WhereDragged {point,x,y}` so badges/snap/deletion operate on the single JS-side pin format; round-trips are idempotent (no duplication, no loss). Pre-`Pinned` documents load unchanged. |
 
 ## 4. Invariants
 

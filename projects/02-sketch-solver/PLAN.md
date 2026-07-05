@@ -112,10 +112,13 @@ sketch-drag-autofit-feedback.spec.js (real pointer, reproduction document in
 tests/gui/fixtures/) + waffle_repro.rs solver-robustness hunts.
 
 Follow-ups (discovered, not blocking):
-- [ ] **Pin persistence**: FinishSketch filters ALL WhereDragged out of
-      persisted features (store.svelte.js ~4240) — pins are lost across
-      sketch re-edits (pre-existing). Persist as Pinned once re-edit import +
-      badge rendering handle the Rust-format variant.
+- [x] **Pin persistence** (2026-07-05): FinishSketch now lowers persistent
+      WhereDragged → Pinned{point,x,y} into the feature (both edit + new
+      paths); enterSketchEditMode upconverts Pinned → WhereDragged so the
+      in-session format stays uniform (badges/snap/deletion untouched).
+      Spec B6; GUI sketch-pin-persistence.spec.js (finish→re-edit→lock still
+      holds, double round-trip idempotent, pin-less docs unchanged); both
+      boundary branches mutation-verified.
 - [ ] **Conflict index mapping**: solver.rs find_conflict_constraints returns
       residual ROW indices; the UI consumes them as CONSTRAINT indices →
       wrong over-constraint badges when multi-row constraints precede the

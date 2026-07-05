@@ -4269,6 +4269,17 @@ export async function finishSketch() {
 
 	log('action', 'Finish sketch', { entityCount: sketchEntities.length, profileCount, editing: !!editingSketchFeatureId });
 
+	// Constraints for the persisted feature (Rust format). Persistent pins
+	// (origin/reference snaps, Fix modal — non-_isDrag WhereDragged with a
+	// stored target) lower to Pinned{point,x,y} so they SURVIVE re-edit;
+	// dropping them here is how saved sketches silently lost their origin
+	// locks (specs/pinned_constraint.md B6). Transient drag pins and
+	// targetless legacy entries are still filtered out.
+	const persistedConstraints = sketchConstraints
+		.filter((c) => !(c.type === 'WhereDragged' && (c._isDrag || c.x == null || c.y == null)))
+		.map((c) => mapConstraintForBridge(c))
+		.filter(Boolean);
+
 	// Edit path: update existing sketch feature via EditFeature
 	if (editingSketchFeatureId) {
 		const editId = editingSketchFeatureId;
@@ -4288,7 +4299,7 @@ export async function finishSketch() {
 					plane_origin: planeOrigin,
 					plane_normal: planeNormal,
 					entities: sketchEntities,
-					constraints: sketchConstraints.filter(c => c.type !== 'WhereDragged'),
+					constraints: persistedConstraints,
 					solve_status: origSketch?.solve_status || { type: 'UnderConstrained', dof: 0 },
 					solved_positions: posObj,
 					solved_profiles: profiles,
@@ -4317,9 +4328,7 @@ export async function finishSketch() {
 			plane_origin: planeOrigin,
 			plane_normal: planeNormal,
 			entities: JSON.parse(JSON.stringify(sketchEntities)),
-			constraints: JSON.parse(JSON.stringify(
-				sketchConstraints.filter(c => c.type !== 'WhereDragged')
-			)),
+			constraints: JSON.parse(JSON.stringify(persistedConstraints)),
 			projected: JSON.parse(JSON.stringify(projectedBindings)),
 		});
 		// Only clear sketch state after successful commit
@@ -4826,9 +4835,14 @@ export async function enterSketchEditMode(featureId) {
 	beginEditRollback(featureId);
 	resetSketchState();
 
-	// Repopulate sketch state from saved data
+	// Repopulate sketch state from saved data. Stored Pinned constraints
+	// upconvert to the in-session WhereDragged form so badges, snap logic and
+	// deletion keep working on the single JS-side pin representation (the
+	// bridge lowers them back to Pinned on every solve/save).
 	sketchEntities = JSON.parse(JSON.stringify(sketch.entities || []));
-	sketchConstraints = JSON.parse(JSON.stringify(sketch.constraints || []));
+	sketchConstraints = JSON.parse(JSON.stringify(sketch.constraints || [])).map((c) =>
+		c.type === 'Pinned' ? { type: 'WhereDragged', point: c.point, x: c.x, y: c.y } : c
+	);
 
 	// Parse solved_positions: { "id": [x, y] } -> Map<Number, {x, y}>
 	const savedPos = sketch.solved_positions || {};
