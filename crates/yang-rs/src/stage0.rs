@@ -308,8 +308,15 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // overlap is a shared rim/boundary triangulation and the remainder an
         // angular-merge annulus. Crossing / non-convex / disc∩disc stay the
         // loud residue.
-        let disc_pair =
-            disc_circle_edge(a, p.face_a).is_some() || disc_circle_edge(b, p.face_b).is_some();
+        // An ANNULAR face in the pair is NOT eligible for the direct disc-pair
+        // builder (it segments a hole-free disc); it must go through the general
+        // `PolygonWithHoles` overlay below. So the disc fast-path applies only
+        // when NEITHER face is annular (M8 holed-disc, spec
+        // `m8_holed_disc_coplanar_overlay`).
+        let disc_pair = (disc_circle_edge(a, p.face_a).is_some()
+            || disc_circle_edge(b, p.face_b).is_some())
+            && annular_disc_face(a, p.face_a).is_none()
+            && annular_disc_face(b, p.face_b).is_none();
         if disc_pair {
             match build_disc_pair(a, b, p.face_a, p.face_b, &va, &vb, frame, opposite) {
                 DiscPair::Handled { tris_a, tris_b } => {
@@ -953,6 +960,13 @@ fn overlay_face_supported(brep: &BRep, fi: usize) -> bool {
     if disc_circle_edge(brep, fi).is_some() {
         return true;
     }
+    // M8 holed-disc (spec `m8_holed_disc_coplanar_overlay`): a planar ANNULAR
+    // face — single-circle outer loop + each inner loop a single closed circle
+    // — is overlay-eligible (its outer + hole rims sample into the exact
+    // `PolygonWithHoles` the overlay already consumes).
+    if annular_disc_face(brep, fi).is_some() {
+        return true;
+    }
     std::iter::once(&f.outer_loop)
         .chain(f.inner_loops.iter())
         .flatten()
@@ -973,6 +987,32 @@ fn disc_circle_edge(brep: &BRep, fi: usize) -> Option<u32> {
     let e = f.outer_loop[0];
     let edge = &brep.edges()[e as usize];
     matches!(edge.curve, Curve::Circle { .. } if edge.start == edge.end).then_some(e)
+}
+
+/// If `fi` is a flat ANNULAR disc — planar surface, a single closed-`Curve::Circle`
+/// outer loop, and ≥1 inner loop each a single closed `Curve::Circle` (a bore /
+/// swiss-cheese hole) — return `(outer_circle_edge, [hole_circle_edges])`. Else
+/// `None`. The holes need not be concentric (each is classified by its own
+/// circle geometry downstream). Spec `m8_holed_disc_coplanar_overlay` §1.
+fn annular_disc_face(brep: &BRep, fi: usize) -> Option<(u32, Vec<u32>)> {
+    let f = &brep.faces()[fi];
+    if !matches!(f.surface, Surface::Plane { .. }) || f.inner_loops.is_empty() {
+        return None;
+    }
+    let is_full_circle = |loop_edges: &[u32]| -> Option<u32> {
+        if loop_edges.len() != 1 {
+            return None;
+        }
+        let e = loop_edges[0];
+        let edge = &brep.edges()[e as usize];
+        matches!(edge.curve, Curve::Circle { .. } if edge.start == edge.end).then_some(e)
+    };
+    let outer = is_full_circle(&f.outer_loop)?;
+    let mut holes = Vec::with_capacity(f.inner_loops.len());
+    for lp in &f.inner_loops {
+        holes.push(is_full_circle(lp)?);
+    }
+    Some((outer, holes))
 }
 
 /// Extract a disc face's rim ring (ordered CCW in the pair `frame`) by
@@ -1036,6 +1076,100 @@ fn disc_rim_ring(brep: &BRep, fi: usize, coords: &[Point3], frame: &Frame) -> Op
 
 fn dist2(a: [f64; 3], b: [f64; 3]) -> f64 {
     (a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)
+}
+
+/// Extract the outer rim ring AND each hole rim ring of an ANNULAR disc face
+/// (spec `m8_holed_disc_coplanar_overlay`). Like [`disc_rim_ring`], pulls the
+/// rings from Stage 1's OWN output so the overlay mesh is bit-identical to the
+/// cap/lateral tessellation (§4.5.5 conformality). The planar-curved CDT emits
+/// NO interior Steiner points, so every unique face-triangle vertex lies on the
+/// outer circle or one hole circle; each vertex is classified to the ring whose
+/// circle it lies on (`||p − centerᵢ| − rᵢ|` minimal — robust for off-centre
+/// holes). Outer ring ordered CCW, holes ordered CW (opposite sense) in the
+/// pair `frame`. Returns `(outer_ring, [hole_rings])`.
+fn annular_rim_rings(
+    brep: &BRep,
+    fi: usize,
+    coords: &[Point3],
+    frame: &Frame,
+) -> Option<(Vec<Point3>, Vec<Vec<Point3>>)> {
+    let (outer_e, hole_es) = annular_disc_face(brep, fi)?;
+    let circle_geo = |e: u32| -> Option<([f64; 3], f64)> {
+        match brep.edges()[e as usize].curve {
+            Curve::Circle { center, radius, .. } => Some((center.as_array(), radius)),
+            _ => None,
+        }
+    };
+    let (oc, or) = circle_geo(outer_e)?;
+    let mut holes_geo: Vec<([f64; 3], f64)> = Vec::with_capacity(hole_es.len());
+    for &e in &hole_es {
+        holes_geo.push(circle_geo(e)?);
+    }
+
+    let verts: Vec<BRepVertex> = coords.iter().map(|&p| BRepVertex { point: p }).collect();
+    let tess = stage1_tessellate(&verts, brep.edges(), brep.faces()).ok()?;
+    let range = tess.face_tri_ranges.get(fi)?.clone();
+
+    // Unique face-triangle vertices (all on a rim — no Steiner center here).
+    let mut seen = std::collections::BTreeSet::new();
+    let mut pts: Vec<Point3> = Vec::new();
+    for tri in &tess.tris[range] {
+        for &v in tri {
+            if seen.insert(v) {
+                pts.push(tess.verts[v as usize]);
+            }
+        }
+    }
+
+    // In-frame radial residual of a point against a circle (center, r).
+    let residual = |p: &Point3, center: &[f64; 3], r: f64| -> f64 {
+        let (pu, pv) = frame.project(*p);
+        let (cu, cv) = frame.project(Point3::new(center[0], center[1], center[2]));
+        (((pu - cu).powi(2) + (pv - cv).powi(2)).sqrt() - r).abs()
+    };
+
+    // Classify each vertex to the ring (outer=0, hole k → k+1) it lies on.
+    let mut outer: Vec<Point3> = Vec::new();
+    let mut holes: Vec<Vec<Point3>> = vec![Vec::new(); holes_geo.len()];
+    for p in &pts {
+        let mut best = (residual(p, &oc, or), 0usize);
+        for (k, (hc, hr)) in holes_geo.iter().enumerate() {
+            let d = residual(p, hc, *hr);
+            if d < best.0 {
+                best = (d, k + 1);
+            }
+        }
+        if best.1 == 0 {
+            outer.push(*p);
+        } else {
+            holes[best.1 - 1].push(*p);
+        }
+    }
+    if outer.len() < 3 || holes.iter().any(|h| h.len() < 3) {
+        return None;
+    }
+
+    // Order a ring by in-frame angle about `center`; `ccw` selects the sense.
+    let order = |ring: &mut Vec<Point3>, center: &[f64; 3], ccw: bool| {
+        let (cu, cv) = frame.project(Point3::new(center[0], center[1], center[2]));
+        ring.sort_by(|p, q| {
+            let ang = |x: &Point3| {
+                let (u, v) = frame.project(*x);
+                (v - cv).atan2(u - cu)
+            };
+            let (ap, aq) = (ang(p), ang(q));
+            if ccw {
+                ap.partial_cmp(&aq).unwrap()
+            } else {
+                aq.partial_cmp(&ap).unwrap()
+            }
+        });
+    };
+    order(&mut outer, &oc, true);
+    for (k, h) in holes.iter_mut().enumerate() {
+        order(h, &holes_geo[k].0, false);
+    }
+    Some((outer, holes))
 }
 
 /// Diagnostic-only: histogram of a face's loop-edge curve types + structure,
@@ -1496,7 +1630,37 @@ fn collect_rim_crossings(
     coords: &[Point3],
     rim_overrides: &mut RimSplitMap,
 ) -> Result<(), &'static str> {
-    let cap_edge = disc_circle_edge(brep, fi).ok_or("rim-not-disc")?;
+    // Disc: one rim (the outer circle). Annular (M8 holed-disc): the outer rim
+    // PLUS each hole rim — each propagated into ITS OWN cylinder lateral +
+    // opposite rim via `lateral_for_cap(rim_edge)`. `poly.holes[k]` corresponds
+    // to `annular_disc_face`'s hole-edge `k` (both follow `f.inner_loops` order;
+    // `face_polygon_2d_tessellated` builds the hole rings in that order).
+    if let Some(cap_edge) = disc_circle_edge(brep, fi) {
+        return collect_ring_crossings(brep, cap_edge, &poly.outer, overlay, coords, rim_overrides);
+    }
+    if let Some((outer_edge, hole_edges)) = annular_disc_face(brep, fi) {
+        collect_ring_crossings(brep, outer_edge, &poly.outer, overlay, coords, rim_overrides)?;
+        for (k, &he) in hole_edges.iter().enumerate() {
+            let ring = poly.holes.get(k).ok_or("rim-hole-count-mismatch")?;
+            collect_ring_crossings(brep, he, ring, overlay, coords, rim_overrides)?;
+        }
+        return Ok(());
+    }
+    Err("rim-not-disc")
+}
+
+/// Propagate the overlay's rim-chord split points for ONE circular rim
+/// (`cap_edge`) into that rim's override AND its cylinder's opposite rim (so the
+/// shared lateral stays conformal). Called once per rim by
+/// [`collect_rim_crossings`] (outer + each hole for an annular cap).
+fn collect_ring_crossings(
+    brep: &BRep,
+    cap_edge: u32,
+    ring: &[Point2],
+    overlay: &ClassifiedOverlay,
+    coords: &[Point3],
+    rim_overrides: &mut RimSplitMap,
+) -> Result<(), &'static str> {
     // The cap circle's own geometry is not needed (crossing points come from
     // the resolved `coords`); only the OPPOSITE rim + the cylinder axis are.
     let (_lat_fi, opp_edge, axis_point, axis_dir, _r) = lateral_for_cap(brep, cap_edge)?;
@@ -1509,26 +1673,6 @@ fn collect_rim_crossings(
         return Err("rim-opp-not-circle");
     };
 
-    // Shared azimuth basis (same `ortho_basis(axis)` for both rims → a global
-    // azimuth, exactly what the lateral azimuth-merge uses).
-    let (a1, a2) = ortho_basis(cad_primitives::Vector3::new(
-        axis_dir[0],
-        axis_dir[1],
-        axis_dir[2],
-    ));
-    let (a1, a2) = (a1.as_array(), a2.as_array());
-    let azimuth = |p: [f64; 3]| -> f64 {
-        let w = [
-            p[0] - axis_point[0],
-            p[1] - axis_point[1],
-            p[2] - axis_point[2],
-        ];
-        let x = w[0] * a1[0] + w[1] * a1[1] + w[2] * a1[2];
-        let y = w[0] * a2[0] + w[1] * a2[1] + w[2] * a2[2];
-        y.atan2(x)
-    };
-
-    let ring = &poly.outer;
     let n = ring.len();
     if n < 2 {
         return Err("rim-poly-degenerate");
@@ -1566,7 +1710,7 @@ fn collect_rim_crossings(
                 // exactly-collinear chord vertices the endpoint window skips.
                 if rim_probe && tf > 0.0 && tf < 1.0 {
                     eprintln!(
-                        "[rim-cross-probe] f={fi} chord {i} vert {vi} t={tf} \
+                        "[rim-cross-probe] edge={cap_edge} chord {i} vert {vi} t={tf} \
                          SKIPPED (endpoint window)"
                     );
                 }
@@ -1577,14 +1721,14 @@ fn collect_rim_crossings(
             if cap_pts.contains(&pt) {
                 if rim_probe {
                     eprintln!(
-                        "[rim-cross-probe] f={fi} chord {i} vert {vi} t={tf} \
+                        "[rim-cross-probe] edge={cap_edge} chord {i} vert {vi} t={tf} \
                          SKIPPED (duplicate pt)"
                     );
                 }
                 continue;
             }
             if rim_probe {
-                eprintln!("[rim-cross-probe] f={fi} chord {i} vert {vi} t={tf} KEPT");
+                eprintln!("[rim-cross-probe] edge={cap_edge} chord {i} vert {vi} t={tf} KEPT");
             }
             cap_pts.push(pt);
         }
@@ -1595,66 +1739,55 @@ fn collect_rim_crossings(
         }
     }
 
-    // Project each crossing's azimuth onto the OPPOSITE rim circle (exact
-    // radius, on the opposite cap's plane). The opposite rim's `ortho_basis`
-    // frame differs from the axis frame; place the point by world geometry so
-    // it lands at the SAME global azimuth as the cap crossing.
-    let (o1, o2) = ortho_basis(opp_normal);
-    let (o1, o2) = (o1.as_array(), o2.as_array());
+    // Place each cap crossing onto the OPPOSITE rim by EXACT AXIAL PROJECTION:
+    // strip the point's axial component and re-attach the radial offset at the
+    // opposite rim's plane/radius. This is a direct 1:1 map (NO azimuth grid
+    // search) — so it preserves the cap set's cardinality EXACTLY, including
+    // femto-close split pairs, giving the two rims of the shared lateral matched
+    // sample counts (the azimuth-merge conformality requirement). The old
+    // 720-step f64 grid search collapsed femto-close azimuths to a single theta,
+    // desynchronising the rims (18 cap → 12 opp — the M8 holed-disc `24 vs 30`
+    // azimuth-merge wall). Radial magnitude is renormalised to `opp_radius`, so
+    // this is exact for equal AND unequal cap/opposite radii.
     let oc = opp_center.as_array();
+    let _ = opp_normal; // opposite plane is fixed by `oc`; normal no longer used
     let opp_entry = rim_overrides.entry(opp_edge).or_default();
     for &pt in &cap_pts {
-        let az = azimuth(pt.as_array());
-        // Build the opposite-rim point at global azimuth `az`: choose the angle
-        // in the opposite circle's own frame whose world azimuth equals `az`.
-        // Try both senses of the opposite frame's e2 relative to the axis.
-        let cand = |theta: f64| -> [f64; 3] {
-            let (ct, st) = theta.sin_cos();
-            [
-                oc[0] + opp_radius * (st * o1[0] + ct * o2[0]),
-                oc[1] + opp_radius * (st * o1[1] + ct * o2[1]),
-                oc[2] + opp_radius * (st * o1[2] + ct * o2[2]),
-            ]
-        };
-        // Solve for theta so that azimuth(cand(theta)) == az. The opposite
-        // circle's frame maps theta→world; azimuth is a fixed rotation/flip of
-        // theta, so a 1D search over a fine grid + refine is robust and avoids
-        // sign-convention pitfalls (deterministic, no trig inversion guesswork).
-        let mut best_theta = 0.0;
-        let mut best_err = f64::INFINITY;
-        let steps = 720usize;
-        for k in 0..steps {
-            let theta = std::f64::consts::TAU * (k as f64) / (steps as f64);
-            let mut d = (azimuth(cand(theta)) - az).abs();
-            d = d.min(std::f64::consts::TAU - d);
-            if d < best_err {
-                best_err = d;
-                best_theta = theta;
-            }
+        let p = pt.as_array();
+        let w = [
+            p[0] - axis_point[0],
+            p[1] - axis_point[1],
+            p[2] - axis_point[2],
+        ];
+        let axial = w[0] * axis_dir[0] + w[1] * axis_dir[1] + w[2] * axis_dir[2];
+        let radial = [
+            w[0] - axial * axis_dir[0],
+            w[1] - axial * axis_dir[1],
+            w[2] - axial * axis_dir[2],
+        ];
+        let rlen = (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
+        if rlen < cad_primitives::TAU_WORK {
+            // A rim point should never sit on the axis; if it does the geometry
+            // is degenerate — skip rather than mint a NaN (P9: no silent bad pt).
+            continue;
         }
-        // Refine by bisection-free local sampling around best_theta.
-        let mut span = std::f64::consts::TAU / steps as f64;
-        for _ in 0..40 {
-            let mut local_best = best_theta;
-            let mut local_err = best_err;
-            for s in [-1.0_f64, 1.0] {
-                let theta = best_theta + s * span;
-                let mut d = (azimuth(cand(theta)) - az).abs();
-                d = d.min(std::f64::consts::TAU - d);
-                if d < local_err {
-                    local_err = d;
-                    local_best = theta;
-                }
-            }
-            best_theta = local_best;
-            best_err = local_err;
-            span *= 0.5;
-        }
-        let opp_pt3 = cand(best_theta);
-        let opp_pt = Point3::new(opp_pt3[0], opp_pt3[1], opp_pt3[2]);
+        let scale = opp_radius / rlen;
+        let opp_pt = Point3::new(
+            oc[0] + radial[0] * scale,
+            oc[1] + radial[1] * scale,
+            oc[2] + radial[2] * scale,
+        );
         if !opp_entry.contains(&opp_pt) {
             opp_entry.push(opp_pt);
         }
+    }
+    if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+        eprintln!(
+            "[rim-count] cap_edge={cap_edge} cap_pts={} cap_entry={} opp_edge={opp_edge} opp_entry={}",
+            cap_pts.len(),
+            rim_overrides.get(&cap_edge).map(|v| v.len()).unwrap_or(0),
+            rim_overrides.get(&opp_edge).map(|v| v.len()).unwrap_or(0),
+        );
     }
     Ok(())
 }
@@ -1775,6 +1908,30 @@ fn face_polygon_2d_tessellated(
             BTreeMap::new(),
             rim_map,
         ));
+    }
+    // M8 holed-disc (spec `m8_holed_disc_coplanar_overlay`): an ANNULAR cap —
+    // outer + hole rims sampled from Stage 1's own tessellation into a
+    // `PolygonWithHoles`, with every rim point registered in `rim_map` so the
+    // overlay-vertex → exact 3D rim point resolution is T-junction-free.
+    if annular_disc_face(brep, fi).is_some() {
+        let (outer_ring, hole_rings) = annular_rim_rings(brep, fi, coords, frame)?;
+        let mut rim_map: BTreeMap<ExactPoint2, Point3> = BTreeMap::new();
+        let mut project_ring = |ring: &[Point3]| -> Option<Vec<Point2>> {
+            let mut out = Vec::with_capacity(ring.len());
+            for &pt in ring {
+                let (u, v) = frame.project(pt);
+                let ex = ExactPoint2::from_f64(u, v)?;
+                rim_map.insert(ex, pt);
+                out.push(Point2::new(u, v));
+            }
+            Some(out)
+        };
+        let outer = project_ring(&outer_ring)?;
+        let mut holes = Vec::with_capacity(hole_rings.len());
+        for hr in &hole_rings {
+            holes.push(project_ring(hr)?);
+        }
+        return Some((PolygonWithHoles { outer, holes }, BTreeMap::new(), rim_map));
     }
     let (poly, corners) = face_polygon_2d(brep, fi, coords, frame)?;
     Some((poly, corners, BTreeMap::new()))
