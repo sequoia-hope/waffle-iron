@@ -381,6 +381,15 @@ pub enum SketchConstraint {
     Dragged {
         point: u32,
     },
+    /// Pin a point at an explicit target position (weight 1.0 — a real lock,
+    /// unlike `Dragged`'s 1/20 interaction hint which snapshots the point's
+    /// current position). Emitted by the bridge for origin/reference-point
+    /// snap pins. See specs/pinned_constraint.md.
+    Pinned {
+        point: u32,
+        x: f64,
+        y: f64,
+    },
     EqualAngle {
         line_a: u32,
         line_b: u32,

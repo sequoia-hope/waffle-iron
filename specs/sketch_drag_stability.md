@@ -31,6 +31,8 @@ unconditionally. Nothing in the cost prefers the nearby solution.
 |---|---|---|---|
 | `PROXIMAL_WEIGHT` | `1e-5` | 1/length (weight on residual rows `ε·(xᵢ−x₀ᵢ)`) | The proximal pull biases a w-weighted anchor by `(ε/w)²·D` (D = correction distance); the binding case is the weakest anchor, `Dragged` at w=1/20. ε=1e-5 → bias `4e-8·D`, below `SOLVE_TOL=1e-6` for D up to 25 length units (units are meters, A14.1 — far beyond any real sketch correction). ε=1e-4 was tried first and measurably displaced Dragged anchors (2e-5 at D=5; 9 pre-existing suite tests caught it — tests were NOT weakened, the parameter was re-derived). Empirical sweep (ε ∈ [1e-6, 1e-2], mm & m scale): all values suppress the runaway; 1e-5 keeps ≥1 decade of margin above the validated floor for *near*-null valleys. |
 
+| LM `xtol` | `1e-12` (was `SOLVE_TOL`) | relative step-size stop | xtol halts LM when `delta ≤ xtol·‖x‖`. At `SOLVE_TOL=1e-6` and post-drag norms `‖x‖≈80`, LM stopped at absolute steps ~8e-5 — BEFORE the residual reached `SOLVE_TOL` — misclassifying a satisfiable release solve as `SolveFailed` (observed `‖r‖∞=8e-6, xtol:true`). ftol and the patience cap govern convergence; xtol remains only as a numerical-dawdle backstop. |
+
 No new user-facing inputs. No configuration surface.
 
 ## 3. Branch table

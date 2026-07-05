@@ -203,9 +203,16 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
     let problem = SketchProblem::new(&layout, compiled);
     let n_constraint_rows = problem.n_constraint_rows;
     let n_params = problem.n_params;
+    // xtol is a RELATIVE step-size stop (delta ≤ xtol·‖x‖). At SOLVE_TOL it
+    // halts a sketch with ‖x‖≈80 once steps shrink below 8e-5 — before the
+    // residual reaches SOLVE_TOL — misclassifying a satisfiable solve as
+    // SolveFailed (observed: release solve after a long drag stopped at
+    // ‖r‖∞ = 8e-6, xtol:true). Keep xtol as a numerical-dawdle backstop only,
+    // well below any step that could still move a residual past SOLVE_TOL;
+    // ftol and patience govern convergence.
     let lm = LevenbergMarquardt::new()
         .with_ftol(SOLVE_TOL)
-        .with_xtol(SOLVE_TOL)
+        .with_xtol(1e-12)
         .with_gtol(SOLVE_TOL)
         .with_patience(50); // Cap at 50*(n_params+1) evals; default is 200
 

@@ -143,6 +143,14 @@ pub enum CompiledConstraint {
         px: usize, py: usize,
         fixed_x: f64, fixed_y: f64,
     },
+    /// Point locked at an EXPLICIT target, weight 1.0 (a real constraint,
+    /// unlike Dragged's current-position snapshot at 1/20). Residual form is
+    /// identical to Dragged; only the target source and weight differ.
+    /// See specs/pinned_constraint.md.
+    Pinned {
+        px: usize, py: usize,
+        tx: f64, ty: f64,
+    },
     // ── PR-SS2 constraints ──────────────────────────────────────────────
     /// Two points symmetric about a line: midpoint on line + AB ⊥ line
     Symmetric {
@@ -195,6 +203,7 @@ pub fn residual_count(cc: &CompiledConstraint) -> usize {
         CompiledConstraint::Coincident { .. } => 2,
         CompiledConstraint::Midpoint { .. } => 2,
         CompiledConstraint::Dragged { .. } => 2,
+        CompiledConstraint::Pinned { .. } => 2,
         CompiledConstraint::Symmetric { .. } => 2,
         CompiledConstraint::SymmetricH { .. } => 2,
         CompiledConstraint::SymmetricV { .. } => 2,
@@ -508,6 +517,16 @@ impl CompiledConstraint {
                 Ok(CompiledConstraint::Dragged { px, py, fixed_x, fixed_y })
             }
 
+            SketchConstraint::Pinned { point, x, y } => {
+                let (px, py) = pt(*point)?;
+                // Invariant I1 (specs/pinned_constraint.md): the stored
+                // target is authoritative — never the current position.
+                if !x.is_finite() || !y.is_finite() {
+                    return Err(format!("pinned target for point {point} is not finite"));
+                }
+                Ok(CompiledConstraint::Pinned { px, py, tx: *x, ty: *y })
+            }
+
             // ── PR-SS2 constraints ──────────────────────────────────────
 
             SketchConstraint::Symmetric { entity_a, entity_b, symmetry_line } => {
@@ -756,6 +775,12 @@ impl CompiledConstraint {
                 let mut r = DVector::zeros(2);
                 r[0] = p[*px] - fixed_x;
                 r[1] = p[*py] - fixed_y;
+                r
+            }
+            CompiledConstraint::Pinned { px, py, tx, ty } => {
+                let mut r = DVector::zeros(2);
+                r[0] = p[*px] - tx;
+                r[1] = p[*py] - ty;
                 r
             }
 
@@ -1289,6 +1314,14 @@ impl CompiledConstraint {
 
             // ── Dragged: r = [P.x - fixed_x, P.y - fixed_y] ─────────────
             CompiledConstraint::Dragged { px, py, .. } => {
+                let mut j = DMatrix::zeros(2, n_params);
+                j[(0, *px)] = 1.0;
+                j[(1, *py)] = 1.0;
+                j
+            }
+
+            // ── Pinned: r = [P.x - tx, P.y - ty] ────────────────────────
+            CompiledConstraint::Pinned { px, py, .. } => {
                 let mut j = DMatrix::zeros(2, n_params);
                 j[(0, *px)] = 1.0;
                 j[(1, *py)] = 1.0;

@@ -1764,7 +1764,16 @@ export function projectFace(faceGeomRef) {
  */
 function mapConstraintForBridge(c) {
 	if (c.type === 'WhereDragged') {
-		return { type: 'Dragged', point: c.point };
+		// Live drag pins keep Dragged semantics (weight 1/20, target = the
+		// point's current position, refreshed per pointermove). Persistent
+		// pins (origin/reference snaps, the Fix modal) lower to Pinned so the
+		// stored (x, y) target survives every solve at full constraint weight
+		// — Dragged would re-anchor to the drifted position and let the lock
+		// walk away. See specs/pinned_constraint.md.
+		if (c._isDrag || c.x == null || c.y == null) {
+			return { type: 'Dragged', point: c.point };
+		}
+		return { type: 'Pinned', point: c.point, x: c.x, y: c.y };
 	}
 	return c;
 }
