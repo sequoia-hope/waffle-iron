@@ -477,7 +477,26 @@ export async function initEngine() {
 		const positions = solved.positions || msg.positions;
 		const failed = statusObj.conflicts || msg.failed || [];
 
-		if (positions && statusStr !== 'not_ready' && statusStr !== 'solver_not_ready') {
+		// Apply-gate: a SolveFailed result is not a solution — the solver echoes
+		// its input positions for that status (sketch_drag_stability.md B3/I4),
+		// so applying would only clobber fresher local drag state with a stale
+		// round-trip. Non-finite coordinates (any future divergence class) are
+		// equally barred from becoming sketch state: they poison hit-testing
+		// and drive the auto-fit camera to infinity.
+		const applyPositions =
+			positions &&
+			statusStr !== 'not_ready' &&
+			statusStr !== 'solver_not_ready' &&
+			statusStr !== 'SolveFailed' &&
+			Object.values(positions).every((pos) => {
+				const x = pos.x !== undefined ? pos.x : pos[0];
+				const y = pos.y !== undefined ? pos.y : pos[1];
+				return Number.isFinite(x) && Number.isFinite(y);
+			});
+		if (positions && !applyPositions) {
+			log('warning', `Solve result not applied (status=${statusStr})`);
+		}
+		if (applyPositions) {
 			const newPositions = new Map();
 			for (const [id, pos] of Object.entries(positions)) {
 				const p = pos.x !== undefined ? pos : { x: pos[0], y: pos[1] };

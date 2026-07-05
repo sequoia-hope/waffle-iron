@@ -1026,7 +1026,9 @@
 		const extentX = maxX - minX;
 		const extentY = maxY - minY;
 		const maxExtent = Math.max(extentX, extentY);
-		if (maxExtent < 0.00001) return;
+		// Non-finite extents (a diverged solve leaking Infinity/NaN) must never
+		// drive the camera; same guard family as zoomTowardScreenPoint above.
+		if (!Number.isFinite(maxExtent) || maxExtent < 0.00001) return;
 
 		// Only fit when the geometry actually grew. A re-run triggered by the
 		// user's zoom (frustumHalf change) sees no growth and bails, so zoom-in
@@ -1042,7 +1044,9 @@
 			// In ortho, visible height = 2 * frustumHalf
 			const visibleHeight = 2 * frustumHalf;
 			if (maxExtent > visibleHeight * 0.8) {
-				frustumHalf = maxExtent * 1.2 / 2;
+				// Clamp like the interactive zoom path (line ~275): runaway sketch
+				// extents may not zoom the camera out past the scene bound.
+				frustumHalf = Math.max(0.0001, Math.min(maxDistance * 2, maxExtent * 1.2 / 2));
 				updateOrthoFrustum();
 				controlsRef.update();
 			}
@@ -1052,7 +1056,8 @@
 
 			// If sketch fills >80% of view, zoom out to fit with 20% padding
 			if (maxExtent > visibleHeight * 0.8) {
-				const newDist = (maxExtent * 1.2) / (2 * Math.tan(fov / 2));
+				// Same runaway clamp as the ortho branch above.
+				const newDist = Math.min(maxDistance, (maxExtent * 1.2) / (2 * Math.tan(fov / 2)));
 				const direction = new THREE.Vector3()
 					.subVectors(cameraRef.position, controlsRef.target)
 					.normalize();
