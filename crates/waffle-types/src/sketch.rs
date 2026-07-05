@@ -420,7 +420,12 @@ pub enum SolveStatus {
     FullyConstrained,
     /// All constraints satisfied, but geometry can still move.
     UnderConstrained { dof: u32 },
-    /// Constraints are contradictory.
+    /// Constraints are contradictory. `conflicts` holds INDICES INTO THE
+    /// SOLVED SKETCH'S CONSTRAINT LIST (not residual row indices; multi-row
+    /// constraints own several rows), deduplicated, ordered by the owning
+    /// constraint's largest residual magnitude descending. The UI maps them
+    /// back through any filtering it applied before solving (e.g. reference
+    /// dimensions are excluded from the driving list).
     OverConstrained { conflicts: Vec<u32> },
     /// Solver failed to converge.
     SolveFailed { reason: String },

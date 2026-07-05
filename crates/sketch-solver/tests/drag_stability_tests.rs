@@ -389,3 +389,52 @@ fn subtolerance_drag_is_a_noop() {
         "sub-tolerance drag moved the free rectangle: {outer:?}"
     );
 }
+
+/// OverConstrained.conflicts must be CONSTRAINT indices, not residual ROW
+/// indices. A 2-row constraint (Midpoint) precedes two conflicting Distance
+/// constraints: their rows are 2 and 3, but their constraint indices are 1
+/// and 2 — the row-index bug reported index 3 (out of range) and highlighted
+/// the wrong badge for index 2.
+#[test]
+fn conflicts_are_constraint_indices_not_row_indices() {
+    let entities = vec![
+        pt(1, 0.0, 0.0, false),
+        pt(2, 5.0, 0.0, false),
+        pt(3, 2.0, 1.0, false),
+        line(10, 1, 2),
+    ];
+    let constraints = vec![
+        SketchConstraint::Midpoint { point: 3, line: 10 }, // [0], 2 rows
+        SketchConstraint::Distance {
+            entity_a: 1,
+            entity_b: 2,
+            value: 10.0,
+        }, // [1], row 2
+        SketchConstraint::Distance {
+            entity_a: 1,
+            entity_b: 2,
+            value: 20.0,
+        }, // [2], row 3
+    ];
+    let n_constraints = constraints.len() as u32;
+    let solved = solve_sketch(&make_sketch(entities, constraints));
+    let SolveStatus::OverConstrained { conflicts } = &solved.status else {
+        panic!("expected OverConstrained, got {:?}", solved.status);
+    };
+    assert!(!conflicts.is_empty(), "conflicting distances must be reported");
+    for &idx in conflicts {
+        assert!(
+            idx < n_constraints,
+            "conflict index {idx} out of range — row index leaked (constraints: {n_constraints})"
+        );
+    }
+    // Both irreconcilable Distance constraints — and only they — conflict.
+    let mut sorted = conflicts.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(
+        sorted,
+        vec![1, 2],
+        "conflicts must identify the two Distance constraints (indices 1,2), got {conflicts:?}"
+    );
+}

@@ -199,6 +199,16 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
 
     let _n_params = layout.n_params();
 
+    // Row → owning-constraint map for conflict reporting: constraint i owns
+    // residual_count(i) consecutive rows. Built before `compiled` moves into
+    // the problem.
+    let mut row_owner: Vec<u32> = Vec::new();
+    for (i, cc) in compiled.iter().enumerate() {
+        for _ in 0..residual_count(cc) {
+            row_owner.push(i as u32);
+        }
+    }
+
     // Build and run LM.
     let problem = SketchProblem::new(&layout, compiled);
     let n_constraint_rows = problem.n_constraint_rows;
@@ -236,6 +246,7 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
         &final_jacobian,
         n_constraint_rows,
         n_params,
+        &row_owner,
         &report,
     );
 
@@ -295,6 +306,7 @@ fn classify_status(
     jacobian: &DMatrix<f64>,
     n_residuals: usize,
     n_params: usize,
+    row_owner: &[u32],
     report: &MinimizationReport<f64>,
 ) -> SolveStatus {
     let residual_inf = residuals.abs().max();
@@ -314,9 +326,8 @@ fn classify_status(
         // Constraints unsatisfiable — decision tree per G2.
         if rank < n_residuals {
             // Redundant/conflicting direction exists.
-            // Find constraint indices with largest residual contribution.
-            // We map residual rows back to constraint indices.
-            let conflicts = find_conflict_constraints(residuals, jacobian);
+            // Map offending residual rows to their owning CONSTRAINT indices.
+            let conflicts = find_conflict_constraints(residuals, row_owner);
             SolveStatus::OverConstrained { conflicts }
         } else {
             // Independent constraints but LM couldn't satisfy them.
@@ -361,22 +372,31 @@ fn matrix_rank(m: &DMatrix<f64>, tol: f64) -> usize {
     rank
 }
 
-/// Find constraint indices with residuals exceeding the tolerance.
-/// Maps residual rows back to constraint indices using the row layout
-/// (Coincident/Midpoint/Dragged = 2 rows, others = 1 row).
-fn find_conflict_constraints(residuals: &DVector<f64>, _jacobian: &DMatrix<f64>) -> Vec<u32> {
-    // We don't have the constraint list here, so we return row indices
-    // where the residual exceeds tolerance. The caller (test harness) can
-    // map these to constraint indices. For now, return the residual row
-    // indices with magnitude > SOLVE_TOL, sorted by descending magnitude.
-    let mut indexed: Vec<(usize, f64)> = residuals
-        .iter()
-        .enumerate()
-        .filter(|(_, &v)| v.abs() > SOLVE_TOL)
-        .map(|(i, &v)| (i, v.abs()))
-        .collect();
-    indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    indexed.iter().map(|(i, _)| *i as u32).collect()
+/// Find CONSTRAINT indices whose residuals exceed the tolerance, using the
+/// row → owning-constraint map (multi-row constraints like Coincident /
+/// Midpoint / Dragged / Pinned own 2 rows each). Deduplicated per
+/// constraint, ordered by that constraint's largest |residual| descending —
+/// these index the sketch's driving constraint list and feed the UI's
+/// over-constraint badge highlighting.
+fn find_conflict_constraints(residuals: &DVector<f64>, row_owner: &[u32]) -> Vec<u32> {
+    // Aggregate the worst offending residual per owning constraint.
+    let mut worst: std::collections::HashMap<u32, f64> = std::collections::HashMap::new();
+    for (row, &v) in residuals.iter().enumerate() {
+        if v.abs() > SOLVE_TOL {
+            let owner = row_owner[row];
+            let entry = worst.entry(owner).or_insert(0.0);
+            if v.abs() > *entry {
+                *entry = v.abs();
+            }
+        }
+    }
+    let mut indexed: Vec<(u32, f64)> = worst.into_iter().collect();
+    indexed.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then(a.0.cmp(&b.0))
+    });
+    indexed.into_iter().map(|(i, _)| i).collect()
 }
 
 /// Build a SolveFailed result with initial positions.

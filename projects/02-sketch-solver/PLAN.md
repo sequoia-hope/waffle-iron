@@ -119,10 +119,15 @@ Follow-ups (discovered, not blocking):
       Spec B6; GUI sketch-pin-persistence.spec.js (finish→re-edit→lock still
       holds, double round-trip idempotent, pin-less docs unchanged); both
       boundary branches mutation-verified.
-- [ ] **Conflict index mapping**: solver.rs find_conflict_constraints returns
-      residual ROW indices; the UI consumes them as CONSTRAINT indices →
-      wrong over-constraint badges when multi-row constraints precede the
-      conflict.
+- [x] **Conflict index mapping** (2026-07-05): OverConstrained.conflicts now
+      returns CONSTRAINT indices (row→owner map in solve_sketch, per-
+      constraint max-|r| ordering, deduped; contract documented on
+      SolveStatus). Store additionally translates driving-list indices back
+      through the reference-dim filter to sketchConstraints indices. Rust
+      RED test (Midpoint's 2 rows shifted a Distance conflict to an
+      out-of-range index) + GUI sketch-overconstraint-badges.spec.js
+      (reference dim + Midpoint + contradictory distances → failed = exactly
+      the two Distances); both layers mutation-verified.
 - [ ] **Hard pin elimination**: remove pinned coords from the parameter
       vector for exactly-zero sag during drags (soft weight-1.0 pin sags
       (w_drag/w_pin)²·offset ≈ 0.25% of drag offset — invisible, deferred).

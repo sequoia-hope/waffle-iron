@@ -475,7 +475,19 @@ export async function initEngine() {
 		const statusStr = statusObj.type || (typeof statusObj === 'string' ? statusObj : 'unknown');
 		const dof = statusObj.dof ?? msg.dof ?? -1;
 		const positions = solved.positions || msg.positions;
-		const failed = statusObj.conflicts || msg.failed || [];
+		// `conflicts` are indices into the DRIVING constraint list the solver
+		// saw — triggerSolve excludes reference dimensions — so translate them
+		// back to sketchConstraints indices with the same filter, or badge
+		// highlighting shifts onto the wrong constraints whenever a reference
+		// dim precedes a conflict.
+		const failedDriving = statusObj.conflicts || msg.failed || [];
+		const drivingToLocal = [];
+		sketchConstraints.forEach((c, i) => {
+			if (!c.reference) drivingToLocal.push(i);
+		});
+		const failed = failedDriving
+			.map((j) => drivingToLocal[j])
+			.filter((i) => i != null);
 
 		// Apply-gate: a SolveFailed result is not a solution — the solver echoes
 		// its input positions for that status (sketch_drag_stability.md B3/I4),
