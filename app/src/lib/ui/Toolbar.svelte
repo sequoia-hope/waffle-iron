@@ -29,6 +29,7 @@
 		exportStl,
 		exportStep,
 		getSelectedRefs,
+		clearSelection,
 		computeFacePlane,
 		enterSketchPlaneSelection,
 		exitSketchPlaneSelection,
@@ -57,7 +58,7 @@
 	import { base } from '$app/paths';
 	import { showToast } from '$lib/ui/toast.svelte.js';
 	import { getApplicableConstraints } from '$lib/sketch/constraintLogic.js';
-	import { resetTool } from '$lib/sketch/tools.js';
+	import { resetTool, projectRef, isProjectableRef } from '$lib/sketch/tools.js';
 	import { onMount } from 'svelte';
 
 	let ready = $derived(isEngineReady());
@@ -250,6 +251,31 @@
 		}
 	}
 
+	/**
+	 * Proj button / J shortcut. Cycle-2 select-first: only when the Select tool is
+	 * active AND body geometry is already selected do we project it all now and
+	 * stay in Select. Under any drawing tool (or with nothing selected) we fall
+	 * through to activating the Project tool — a stale body selection left over
+	 * from Select must NOT silently project once a drawing tool is active (branch
+	 * table row "Any drawing tool → activate project tool"). See the Cycle-2
+	 * branch table in specs/projected_sketch_geometry.md.
+	 */
+	function activateOrRunProject() {
+		if (inSketch && getActiveTool() === 'select') {
+			const all = getSelectedRefs();
+			const projectable = all.filter(isProjectableRef);
+			if (projectable.length > 0) {
+				for (const r of projectable) projectRef(r);
+				if (projectable.length < all.length) {
+					showToast('info', 'Some selected items cannot be projected');
+				}
+				clearSelection();
+				return;
+			}
+		}
+		setActiveTool('project');
+	}
+
 	async function handleFinishSketch() {
 		try {
 			await finishSketch();
@@ -322,7 +348,7 @@
 				case 'c': if (inSketch) setActiveTool('circle'); break;
 				case 'a': if (inSketch) setActiveTool('arc'); break;
 				case 'x': if (inSketch) handleToggleConstruction(); break;
-				case 'j': if (inSketch) setActiveTool('project'); break;
+				case 'j': if (inSketch) activateOrRunProject(); break;
 				case 't': if (inSketch) setActiveTool('slot'); break;
 				case 'f': if (inSketch) setActiveTool('sketch-fillet'); break;
 				case 'd': if (inSketch) setActiveTool('dimension'); break;
@@ -416,7 +442,7 @@
 								disabled={!ready}
 								title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
 								data-testid="toolbar-btn-{t.id}"
-								onclick={() => { t.id === 'construction' ? handleToggleConstruction() : setActiveTool(t.id); showSketchTools = false; }}
+								onclick={() => { t.id === 'construction' ? handleToggleConstruction() : t.id === 'project' ? activateOrRunProject() : setActiveTool(t.id); showSketchTools = false; }}
 							>{t.label}</button>
 							{#if t.id === 'rectangle'}
 								<!-- Center-rectangle variant as its own entry on mobile. -->
@@ -481,7 +507,7 @@
 							disabled={!ready}
 							title="{t.label}{t.shortcut ? ` (${t.shortcut})` : ''}"
 							data-testid="toolbar-btn-{t.id}"
-							onclick={() => t.id === 'construction' ? handleToggleConstruction() : setActiveTool(t.id)}
+							onclick={() => t.id === 'construction' ? handleToggleConstruction() : t.id === 'project' ? activateOrRunProject() : setActiveTool(t.id)}
 						>{t.label}</button>
 					{/if}
 				{/each}

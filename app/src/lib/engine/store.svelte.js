@@ -750,6 +750,7 @@ export async function initEngine() {
 			applyBoolean: (op, target, tool) => applyBoolean(op, target, tool),
 			getSelectedRefs: () => [...selectedRefs],
 			getHoveredRef: () => hoveredRef,
+			getSketchHover: () => getSketchHover(),
 			selectRef: (ref, additive) => selectRef(ref, additive),
 			clearSelection: () => clearSelection(),
 			setHoveredRef: (ref) => setHoveredRef(ref),
@@ -1223,6 +1224,81 @@ export function setHoveredRef(ref) {
 		bridge.send({ type: 'HoverEntity', geom_ref: JSON.parse(JSON.stringify(ref)) });
 	}
 }
+
+/**
+ * Whether body geometry (faces/edges/vertices) is pickable right now.
+ * Outside sketch mode: always (normal modeling picking). In sketch mode: only
+ * under the Select or Project tool (Cycle-2 select-first flow); every drawing
+ * tool keeps body picking fully gated off (invariant I5).
+ * @returns {boolean}
+ */
+export function isBodyPickingEnabled() {
+	if (!sketchMode?.active) return true;
+	return activeTool === 'select' || activeTool === 'project';
+}
+
+// Invariant I3: deterministic hover/selection priority Vertex ≻ Edge ≻ Face at
+// a single pointer pixel, independent of which listener (mesh / edge overlay /
+// vertex overlay) fires first. Each source PROPOSES its hit for the current
+// pixel with a priority; the highest priority wins. Moving to a new pixel
+// resets the arbitration so a fresh set of proposals competes cleanly.
+const HOVER_PRIORITY = { Vertex: 3, Edge: 2, Face: 1 };
+let _hoverArb = { x: null, y: null, priority: 0 };
+
+/**
+ * Propose a hovered ref for the pointer pixel (clientX, clientY). Applies the
+ * highest-priority proposal for that pixel (Invariant I3). Pixel-keyed because
+ * hover fires continuously — each distinct pixel is a fresh arbitration.
+ * @param {any} ref
+ * @param {number} clientX
+ * @param {number} clientY
+ */
+export function proposeHoverRef(ref, clientX, clientY) {
+	const priority = HOVER_PRIORITY[ref?.kind?.type] ?? 0;
+	if (clientX !== _hoverArb.x || clientY !== _hoverArb.y) {
+		_hoverArb = { x: clientX, y: clientY, priority: 0 };
+	}
+	if (priority < _hoverArb.priority) return;
+	_hoverArb.priority = priority;
+	setHoveredRef(ref);
+}
+
+// Last pointer pixel seen by the sketch interaction layer. Used to tell whether
+// `hoveredRef` was arbitrated at the pixel a click is happening on, or is stale.
+let _lastPointerClient = { x: null, y: null };
+/** Screen-pixel tolerance for treating a hover as "at the current pointer". */
+const HOVER_FRESH_TOL_PX = 4;
+
+/** Record the current pointer pixel (called by the sketch interaction handler). */
+export function setLastPointerClient(x, y) {
+	_lastPointerClient = { x, y };
+}
+
+/**
+ * `hoveredRef`, but ONLY when it was arbitrated at (approximately) the current
+ * pointer pixel — otherwise null. This guards the click-selection paths against
+ * a STALE Vertex/Edge hover: moving onto a face-interior pixel produces no
+ * synchronous edge/vertex proposal, and the face hover is frame-deferred
+ * (Threlte raycasts on rAF), so a click landing before that frame would
+ * otherwise read a leftover Vertex/Edge from the previous pixel and mis-resolve.
+ * Falls back to `hoveredRef` when no pixel info is available.
+ * @returns {any | null}
+ */
+export function getFreshHoveredRef() {
+	if (_hoverArb.x == null || _lastPointerClient.x == null) return hoveredRef;
+	const dx = _hoverArb.x - _lastPointerClient.x;
+	const dy = _hoverArb.y - _lastPointerClient.y;
+	if (Math.abs(dx) <= HOVER_FRESH_TOL_PX && Math.abs(dy) <= HOVER_FRESH_TOL_PX) return hoveredRef;
+	return null;
+}
+
+// Selection priority (Invariant I3) is driven off the ALREADY-ARBITRATED hover
+// rather than a second race: a click selects whatever the hover arbitration
+// chose for this pixel. The overlays (Edge/Vertex) select only when the hovered
+// ref equals their own pick; the Face handler (CadModel) defers when a
+// Vertex/Edge is hovered. This is timing-independent (no dependence on which
+// click listener fires first, or on matching client coordinates across the
+// Threlte and DOM events).
 
 /**
  * Select a geometry reference. Supports multi-select with additive flag.
@@ -5724,6 +5800,13 @@ function undoSketchAction() {
 
 	// Remove entities
 	sketchEntities = sketchEntities.filter(e => !idSet.has(e.id));
+	// Revert the projected-binding side-table for any projected points this action
+	// removed (a projected point carries a binding created alongside it); keep the
+	// removed bindings so redo can restore them.
+	const removedBindings = projectedBindings.filter(b => idSet.has(b.point_id));
+	if (removedBindings.length) {
+		projectedBindings = projectedBindings.filter(b => !idSet.has(b.point_id));
+	}
 	// Restore the pre-action geometry as the base (so solver-driven movement from
 	// the undone constraint/entity is reverted), then drop any points this action
 	// added. Falls back to current positions for legacy entries without a snapshot.
@@ -5749,6 +5832,7 @@ function undoSketchAction() {
 		entities: action.entities,
 		constraints: action.constraints,
 		cascadedConstraints,
+		projectedBindings: removedBindings,
 		positionsAfter: action.positionsAfter ?? null,
 		camera: getCameraState()
 	}];
@@ -5792,6 +5876,12 @@ function redoSketchAction() {
 	const allConstraints = [...action.constraints, ...(action.cascadedConstraints || [])];
 	for (const c of allConstraints) {
 		sketchConstraints = [...sketchConstraints, JSON.parse(JSON.stringify(c))];
+	}
+
+	// Restore any projected bindings that undo pruned with these entities.
+	const restoredBindings = action.projectedBindings ?? [];
+	if (restoredBindings.length) {
+		projectedBindings = [...projectedBindings, ...restoredBindings];
 	}
 
 	// Positions-only actions (drag repositions) re-apply their end state.

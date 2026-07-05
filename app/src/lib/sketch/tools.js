@@ -18,6 +18,7 @@ import {
 	getSketchSelection,
 	setSketchSelection,
 	setSketchHover,
+	setHoveredRef,
 	findLineNear,
 	findCircleNear,
 	findSplineNear,
@@ -37,6 +38,8 @@ import {
 	finalizeDrag,
 	getDragState,
 	getHoveredRef,
+	getFreshHoveredRef,
+	selectRef,
 	getMeshes,
 	geomRefEquals,
 	getSketchMode,
@@ -1131,6 +1134,11 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 		let hitId = hitTest(x, y, screenPixelSize);
 		if (hitId == null) hitId = hitTestGear(x, y);
 		setSketchHover(hitId);
+		// Invariant I1: a sketch entity under the pointer wins over the body
+		// behind it. This handler runs last for a pointer move (window listener,
+		// after the canvas overlays), so clearing the body hover here is
+		// authoritative for the same event.
+		if (hitId != null) setHoveredRef(null);
 
 		// Profile hover detection (only when no entity is hovered)
 		if (hitId == null) {
@@ -1165,6 +1173,26 @@ function handleSelectTool(eventType, x, y, screenPixelSize, shiftKey) {
 		setSelectedConstraintIndex(null);
 
 		if (hitId == null) {
+			// Cycle-2 select-first: no sketch entity under the pointer — if a body
+			// VERTEX or EDGE is hovered, select it here. The body overlays' DOM
+			// `click` is suppressed by the orbit pointer capture in sketch mode, so
+			// vertex/edge selection is driven off this window pointerdown, reading
+			// their synchronous-DOM-listener hover (ready at pointerdown). FACE
+			// selection is intentionally NOT handled here: the Threlte face hover
+			// only settles by click time, so CadModel.handleClick owns faces (a
+			// single authoritative path per kind — no double-toggle on shift-click).
+			// Invariant I6: plain selectRef, never the extrude/revolve/plane
+			// intercepts (those modes are inactive during sketch editing).
+			// getFreshHoveredRef (not getHoveredRef) so a stale Vertex/Edge hover
+			// carried from a previous pixel isn't selected on a click that actually
+			// landed on a face-interior pixel (the frame-deferred face hover race).
+			const bodyRef = getFreshHoveredRef();
+			if (bodyRef && (bodyRef.kind?.type === 'Vertex' || bodyRef.kind?.type === 'Edge')) {
+				selectRef(bodyRef, shiftKey);
+				setSketchSelection(new Set());
+				return;
+			}
+
 			// Check if clicking inside a profile region
 			const profileIdx = hitTestProfile(x, y);
 			if (profileIdx != null) {
@@ -1525,31 +1553,52 @@ function handleProjectTool(eventType, x, y, screenPixelSize) {
 
 	if (eventType !== 'pointerdown') return;
 
-	const hovered = getHoveredRef();
-	if (!hovered) return;
+	projectRef(getHoveredRef());
+}
 
-	const meshData = getMeshes();
-	if (!meshData) return;
+/**
+ * Whether a GeomRef kind can be projected into the sketch (Vertex/Edge/Face).
+ * @param {any} ref
+ * @returns {boolean}
+ */
+export function isProjectableRef(ref) {
+	const k = ref?.kind?.type;
+	return k === 'Vertex' || k === 'Edge' || k === 'Face';
+}
 
-	// Build sketch plane from current sketch mode
+/**
+ * Project a single body GeomRef into the active sketch, dispatching by kind.
+ * This is the shared entry point for BOTH the tool-first Project tool click and
+ * the select-first Proj button, so bindings are byte-identical either way
+ * (invariant I4). Vertex → one bound point; straight edge → two bound endpoints
+ * + a line; curved edge → static construction snapshot; face → its in-plane
+ * straight boundary edges as bound construction lines.
+ * @param {any} ref - Vertex/Edge/Face GeomRef.
+ */
+export function projectRef(ref) {
+	if (!ref) return;
+
 	const sm = getSketchMode();
 	if (!sm?.active) return;
 
 	// A picked vertex projects to a single construction point that stays
 	// coincident with its source across rebuilds (see store.projectVertex).
-	if (hovered.kind?.type === 'Vertex') {
-		projectVertex(hovered);
+	if (ref.kind?.type === 'Vertex') {
+		projectVertex(ref);
 		return;
 	}
 
+	const meshData = getMeshes();
+	if (!meshData) return;
+
 	const sketchPlane = buildSketchPlane(sm.origin, sm.normal);
 
-	if (hovered.kind?.type === 'Edge') {
+	if (ref.kind?.type === 'Edge') {
 		for (const mesh of meshData) {
 			if (!mesh.edges || !mesh.edges.ranges) continue;
 			const verts = mesh.edges.vertices;
 			for (const range of mesh.edges.ranges) {
-				if (!geomRefEquals(range.geom_ref, hovered)) continue;
+				if (!geomRefEquals(range.geom_ref, ref)) continue;
 
 				const si = range.start_index;
 				const ei = range.end_index;
@@ -1557,7 +1606,7 @@ function handleProjectTool(eventType, x, y, screenPixelSize) {
 					// Straight edge → live binding: two endpoint vertices + a line.
 					const p0 = [verts[si * 3], verts[si * 3 + 1], verts[si * 3 + 2]];
 					const p1 = [verts[(ei - 1) * 3], verts[(ei - 1) * 3 + 1], verts[(ei - 1) * 3 + 2]];
-					projectEdge(hovered.anchor, p0, p1);
+					projectEdge(ref.anchor, p0, p1);
 					log('sketch', 'Projected straight edge (live)');
 				} else {
 					// Curved edge → static construction snapshot (interior points
@@ -1576,8 +1625,8 @@ function handleProjectTool(eventType, x, y, screenPixelSize) {
 		}
 	}
 
-	if (hovered.kind?.type === 'Face') {
-		const n = projectFace(hovered);
+	if (ref.kind?.type === 'Face') {
+		const n = projectFace(ref);
 		log('sketch', 'Projected face boundary edges', { lines: n });
 	}
 }

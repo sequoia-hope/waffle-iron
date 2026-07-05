@@ -22,7 +22,11 @@
 		getHoveredBodyId,
 		getSelectedFeatureId,
 		getSectionState,
-		isBodyVisible
+		isBodyVisible,
+		isBodyPickingEnabled,
+		proposeHoverRef,
+		getSketchHover,
+		getFreshHoveredRef
 	} from '$lib/engine/store.svelte.js';
 	import { SIDE_FACE_GROUP_THRESHOLD } from '$lib/config.js';
 	import { buildSectionClipPlane } from './sectionPlane.js';
@@ -308,7 +312,6 @@
 	});
 
 	let showTestBox = $derived(engineMeshes.length === 0);
-	let inSketchMode = $derived(getSketchMode()?.active ?? false);
 
 	// Capped section view: derive the clip plane from section state and apply it
 	// to the solid body materials only. Cleared (set to []) when inactive so the
@@ -344,6 +347,9 @@
 	 * Handle pointer move on mesh for hover highlighting.
 	 */
 	function handlePointerMove(event, meshIndex) {
+		// Invariant I1: a sketch entity under the pointer wins over the body behind
+		// it — never hover the body when a sketch entity is hovered.
+		if (getSketchMode()?.active && getSketchHover() != null) return;
 		const mesh = engineMeshes[meshIndex];
 		if (!mesh || !mesh.faceRanges.length) return;
 		const faceIndex = event.faceIndex;
@@ -359,7 +365,10 @@
 			ref = canonicalizeSideFaceRef(ref, mesh.faceRanges);
 		}
 
-		setHoveredRef(ref);
+		// Invariant I3: Face is the lowest hover priority — propose it for this
+		// pixel; a Vertex/Edge proposal for the same pixel supersedes it.
+		const ne = event.nativeEvent;
+		proposeHoverRef(ref, ne?.clientX ?? 0, ne?.clientY ?? 0);
 	}
 
 	/**
@@ -443,6 +452,13 @@
 	 * advance cycle index to select the next face behind.
 	 */
 	function handleClick(event, meshIndex) {
+		// Invariant I1: a sketch entity under the pointer wins — never select the
+		// body face behind a hovered sketch entity. In sketch mode CadModel owns
+		// FACE selection only (Vertex/Edge are selected by the sketch pointerdown
+		// path off their synchronous DOM-listener hover, which is ready at
+		// pointerdown; the Threlte face hover only settles by click time). The
+		// defer-to-hovered-Vertex/Edge below prevents any double-handling.
+		if (getSketchMode()?.active && getSketchHover() != null) return;
 		const mesh = engineMeshes[meshIndex];
 		if (!mesh || !mesh.faceRanges.length) return;
 
@@ -453,6 +469,15 @@
 			toggleExtrudeTargetId(mesh.bodyId);
 			return;
 		}
+
+		// Invariant I3: Face is the lowest priority — defer selection to a hovered
+		// Vertex/Edge (the overlays select those). Face still wins when nothing
+		// higher-priority is hovered (preserving Select-Other face cycling). In
+		// sketch mode use the pixel-fresh hover so a STALE Vertex/Edge (carried from
+		// a previous pixel, before the frame-deferred face hover refreshes) does not
+		// wrongly suppress a genuine face click.
+		const hov = getSketchMode()?.active ? getFreshHoveredRef() : getHoveredRef();
+		if (hov?.kind?.type === 'Vertex' || hov?.kind?.type === 'Edge') return;
 
 		const faceIndex = event.faceIndex;
 		if (faceIndex == null) return;
@@ -529,7 +554,7 @@
 
 {#if !showTestBox}
 	{#each engineMeshes as mesh, i (mesh.bodyId)}
-		{#if inSketchMode && !isProjectToolActive()}
+		{#if !isBodyPickingEnabled()}
 			<T.Mesh
 				geometry={mesh.geometry}
 				material={meshMaterials[i]?.length > 1 ? meshMaterials[i] : meshMaterials[i]?.[0]}

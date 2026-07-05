@@ -168,3 +168,139 @@ CAD projected/converted geometry (Onshape "Use", SolidWorks "Convert Entities").
 5. **Bridge** message + dispatch; **WASM rebuild**.
 6. **UI**: live `project` tool for vertex/edge/face; GUI oracle.
 7. **Validation/adversarial**: dangling source, non-planar face, cyclic ref.
+
+---
+
+# Cycle 2 (2026-07-05): Picking & flow fixes — select-first projection
+
+> STATUS: IMPLEMENTED (2026-07-05). Full FIP cycle: red tests
+> (`projection-select-first.spec.js`, 5/8 red on baseline) → implementation →
+> adversarial validation (`projection-select-first-adversarial.spec.js`, 11
+> guards). User report: while sketching with a body in view, no hover or
+> selection of body geometry occurs, and the Project entry point is
+> undiscoverable. Real-pointer diagnosis (Playwright, real mouse events)
+> confirmed the projection *engine* path works (vertex + face project and bind
+> correctly under the `project` tool) but found the flow/picking layer has one
+> design gap and two genuine bugs. UI-only change: no modeling crates are
+> touched; the projection bindings machinery from Cycle 1 is reused unchanged.
+>
+> VALIDATION FINDINGS (fixed in-cycle, each with a regression guard):
+> - Scale regression caught by the Test Author: the first occlusion fix used a
+>   distance-relative margin while the edge pick threshold was 0.06 absolute
+>   world units — faces of default-drawn bodies (~0.01–0.02 world) were
+>   unpickable everywhere (0/540 pixel grid scan). Root fix: screen-space
+>   calibration in `app/src/lib/viewport/picking.js` (6px edge threshold,
+>   1.5px occlusion margin, per-frame `worldPerPixel`). Also exposed that
+>   `face-select.spec.js`'s `kind==='Face'` assertion is satisfied by datum
+>   planes — SR1/SR2 assert the picked face's `FeatureOutput` anchor instead.
+> - Adversary: additive face selection double-toggled (two click paths);
+>   stale selection under a drawing tool projected on `J`; undo left stale
+>   `projectedBindings`. All fixed.
+> - Implementer: bare click with no prior pointermove read a stale hover
+>   (12/12 wrong-selection repro) — user-reachable, fixed with a pixel-
+>   freshness guard (`getFreshHoveredRef`, 4px) rather than trusting the last
+>   arbitrated hover.
+> - Out-of-scope finding (filed in `projects/04-3d-viewport/PLAN.md`
+>   Blockers): auto-fit frames high-aspect "needle" bodies with the camera
+>   inside the solid (sketch-XY vs extrude-Z unit-scale mismatch, ~14×);
+>   NOT a picking defect.
+> - Known pre-existing reds, baseline-verified untouched by this cycle:
+>   dimension-tool.spec.js:241 (mm/m), snap-preview-candidates.spec.js:143,
+>   extrude-regions.spec.js:41/:167, sketch-on-face-workflow.spec.js:96.
+
+## Goal
+
+While a sketch is active with the **Select** tool, body vertices / edges /
+faces are hoverable and click-selectable; pressing the **Proj** toolbar button
+(or `J`) projects the selected body entities into the sketch (live-bound, as in
+Cycle 1). The existing tool-first flow (activate Proj, then hover+click) keeps
+working unchanged. Additionally fix the two picking bugs found in diagnosis.
+
+## Findings being fixed
+
+- **F1 (design gap / discoverability)**: body picking is gated OFF in sketch
+  mode unless `activeTool === 'project'` (`CadModel.svelte:532` no-op raycast;
+  `EdgeOverlay.svelte:191,213` and `VertexOverlay.svelte:178,187` early
+  returns). With the default tool nothing highlights, which reads as "feature
+  missing".
+- **F2 (bug)**: edge hover is unreachable in the straight-on sketch view.
+  `EdgeOverlay.handleEdgePointerMove` / `handleEdgeClick` early-return whenever
+  `isFaceHitAtPosition()` is true (`EdgeOverlay.svelte:199,220`); looking down
+  the sketch normal, a face is *always* hit behind every boundary edge, so no
+  edge ever highlights. Root cause: the face test checks *existence* of a face
+  hit, not *occlusion* (is the face strictly in front of the edge?).
+- **F3 (bug, minor)**: hover priority at corners is last-writer-wins between
+  `CadModel.handlePointerMove` (Face) and `VertexOverlay.handlePointerMove`
+  (Vertex) — the highlight flickers by mouse-approach path.
+
+## Branch Table
+
+| Sketch-mode tool | Body hover/click | Proj button click | J shortcut |
+|---|---|---|---|
+| Select, body entities selected | enabled | project ALL selected body refs now; clear that selection; stay in Select | same as button |
+| Select, nothing selected | enabled (hover highlight + click selects) | activate `project` tool (existing flow) | same |
+| `project` tool | enabled (existing) | no-op (already active) | no-op |
+| Any drawing tool (line/rect/circle/arc/…) | **disabled** (unchanged gate) | activate `project` tool | same |
+| Not in sketch mode | unchanged (normal modeling picking) | n/a (button hidden) | n/a |
+
+Selection kinds accepted for projection: Vertex, Edge, Face (mixed multi-select
+allowed; each dispatches to the Cycle 1 `projectVertex` / `projectEdge` /
+`projectFace` store path — curved edges keep Cycle 1's static-snapshot
+behavior).
+
+## Invariants
+
+- **I1 — Sketch entities win**: with Select active in sketch mode, if a sketch
+  entity is under the pointer (`sketchHover` non-null), body hover is
+  suppressed and a click selects the sketch entity, never the body ref behind
+  it. Body picking must not regress sketch selection, dragging, or
+  `sketch-drawing-regression.spec.js`.
+- **I2 — Occlusion, not existence**: an edge (or vertex) is hoverable iff no
+  face hit is *strictly closer to the camera* than the edge/vertex hit point
+  (beyond a small depth epsilon). A face coplanar-behind or containing the
+  edge never suppresses it. This fixes F2 in all camera orientations, not just
+  the sketch view.
+- **I3 — Deterministic hover priority**: at the same pointer position,
+  Vertex ≻ Edge ≻ Face, independent of mouse-approach path (fixes F3).
+- **I4 — Same bindings**: entities projected via select-first are byte-identical
+  in `projectedBindings` to the same entities projected tool-first (both funnel
+  through the same store functions).
+- **I5 — Drawing tools unaffected**: with any drawing tool active, body
+  hover/click remains fully gated off (no raycast hits, no highlight).
+- **I6 — Selection intercepts unaffected**: `selectRef` intercepts
+  (extrude profile pick, revolve axis pick, sketch-plane selection) do not
+  trigger from sketch-mode Select-tool body clicks.
+
+## Oracles (GUI, real pointer events only — no `__waffle.projectX` shortcuts)
+
+- **O1**: box body → sketch on its front face → Select tool → real-hover body
+  vertex/edge/face → `getHoveredRef()` returns the matching kind for each
+  (I2, I3 checked at a corner and at an edge midpoint in the straight-on view).
+- **O2**: real-click a body edge → ref selected; click Proj →
+  `getProjectedBindings()` grows by the edge's endpoint bindings; entity count
+  grows by 2 points + 1 line; selection cleared; tool still `select`.
+- **O3**: same for a face (4 corner bindings + 4 construction lines) and a
+  vertex (1 binding, 1 point).
+- **O4**: with Line tool active, real-hover over the body → `getHoveredRef()`
+  stays null (I5).
+- **O5**: draw a sketch line crossing in front of a body face; hover the line →
+  `sketchHover` set and `getHoveredRef()` null; click selects the line (I1).
+- **O6**: tool-first flow regression: activate Proj, hover+click a body edge in
+  the straight-on view → edge projects (F2 fix, previously impossible).
+- **O7**: `sketch-drawing-regression.spec.js` and `projection.spec.js` stay
+  green.
+
+## Failure modes
+
+- Selected ref kind not projectable (e.g. whole-body selection): Proj click
+  ignores it with a toast, projects the projectable remainder.
+- Mixed selection with duplicates (edge + its endpoint): project both; the
+  binding side-table dedup (Cycle 1 corner dedup) applies within a face only —
+  duplicate points across picks are acceptable (same as tool-first behavior).
+
+## Research Basis
+
+No new geometry. Select-then-command mirrors mainstream parametric CAD
+(Onshape "Use"/"Project", SolidWorks "Convert Entities" — both accept
+pre-selection). Occlusion-aware picking (I2) is standard raycast hit-depth
+comparison; no published-algorithm citation applicable.

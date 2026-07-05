@@ -86,10 +86,34 @@ The following tools have handler scaffolding in `tools.js` but are not yet cover
 
 - **Polyline tool** — multi-segment connected line drawing (handler: `handlePolylineTool`)
 - **Dimension tool** — interactive dimension placement on entities (handler: `handleDimensionTool`)
-- **Project tool** — project 3D edge geometry onto sketch plane (handler: `handleProjectTool`, logic in `projectGeometry.js`)
+- **Project tool** — ✅ COMPLETE (see M13): live-bound vertex/edge/face projection (handler: `handleProjectTool`, shared dispatch `projectRef`, logic in `projectGeometry.js`)
 - **Slot tool** — two-center slot shape (handler: `handleSlotTool`, state vars: `slotFirstCenter*`, `slotSecondCenter*`)
 - **Trim tool** — trim/extend entities at intersections (handler: `handleTrimTool`, state: `trimHighlight`)
 - **Sketch fillet tool** — fillet corners between sketch entities (handler: `handleSketchFilletTool`, state: `filletCorner`). Note: this is a 2D sketch-level fillet, distinct from the deferred 3D fillet feature operation.
+
+### M13: Select-First Projection ✅ (2026-07-05)
+
+Spec: `specs/projected_sketch_geometry.md` Cycle 2. FIP cycle with role-separated
+Test Author / Implementer / Adversary; real-pointer GUI oracles only.
+
+- [x] Body vertex/edge/face hover + click-select in sketch mode under the
+      **Select** tool (was gated to the `project` tool only — the "feature
+      looks missing" report). Drawing tools stay fully gated.
+- [x] Proj button / `J`: with body entities selected → project them all
+      immediately (same live bindings as tool-first, shared `projectRef`),
+      clear selection, stay in Select; empty selection → activate project tool.
+      Stale selection under a drawing tool activates the tool, never projects.
+- [x] Sketch entities always win hover/click priority over body geometry.
+- [x] Additive (shift) face multi-select double-toggle fixed (ownership by
+      kind: pointerdown path owns Vertex/Edge, CadModel click owns Face).
+- [x] Undo/redo now prune/restore `projectedBindings` for removed points.
+- [x] Stale-hover click race fixed (`getFreshHoveredRef` pixel-freshness guard).
+- Tests: `projection-select-first.spec.js` (8),
+  `projection-select-first-adversarial.spec.js` (11), helper
+  `helpers/worldToScreen.js`. Viewport-side picking fixes tracked in
+  `projects/04-3d-viewport/PLAN.md` M11.
+- Still open (unchanged from Cycle 1): live binding of curved-edge interiors
+  (static construction snapshot for now).
 
 ## Implementation Summary
 

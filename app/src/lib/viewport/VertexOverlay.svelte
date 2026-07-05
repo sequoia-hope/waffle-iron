@@ -6,7 +6,6 @@
 		getMeshes,
 		getHoveredRef,
 		getSelectedRefs,
-		setHoveredRef,
 		selectRef,
 		geomRefEquals,
 		getCameraObject,
@@ -14,7 +13,9 @@
 		getSectionState,
 		isBodyVisible,
 		setRenderedVertexCount,
-		isProjectToolActive
+		isBodyPickingEnabled,
+		proposeHoverRef,
+		getSketchHover
 	} from '$lib/engine/store.svelte.js';
 	import { buildSectionClipPlane } from './sectionPlane.js';
 
@@ -174,20 +175,26 @@
 	export { pickVertexAtScreen };
 
 	function handlePointerMove(e) {
-		// In sketch mode, only the project tool needs to hover model vertices.
-		if (getSketchMode()?.active && !isProjectToolActive()) return;
+		if (!isBodyPickingEnabled()) return;
+		// Invariant I1: a sketch entity under the pointer wins over the body.
+		if (getSketchMode()?.active && getSketchHover() != null) return;
 
 		const hit = pickVertexAtScreen(e.clientX, e.clientY);
 		if (hit) {
-			setHoveredRef(hit.ref);
+			// Invariant I3: Vertex is the highest hover priority.
+			proposeHoverRef(hit.ref, e.clientX, e.clientY);
 		}
 	}
 
 	function handleClick(e) {
-		if (getSketchMode()?.active && !isProjectToolActive()) return;
+		if (!isBodyPickingEnabled()) return;
+		// Invariant I1: a sketch entity under the pointer wins over the body.
+		if (getSketchMode()?.active && getSketchHover() != null) return;
 
 		const hit = pickVertexAtScreen(e.clientX, e.clientY);
 		if (hit) {
+			// Invariant I3: Vertex is the highest selection priority, so a picked
+			// vertex always wins (the Face/Edge handlers defer to a hovered vertex).
 			selectRef(hit.ref, e.shiftKey);
 		}
 	}

@@ -65,10 +65,37 @@
 - [x] Shows camera orientation (gizmo rotation synced with main camera)
 - [x] Click to snap to standard views (Front/Back/Top/Bottom/Left/Right/Iso)
 
+### M11: Scale-Aware Picking + Hover Arbitration ✅ (2026-07-05)
+
+Spec: `specs/projected_sketch_geometry.md` Cycle 2 (invariants I2/I3). New
+shared module `app/src/lib/viewport/picking.js`.
+
+- [x] Edge pick threshold was absolute world units (0.06 — ~5× a default-drawn
+      part!), making faces of default-scale bodies unpickable everywhere.
+      Now screen-calibrated: 6px × `worldPerPixel(camera, canvasH)` per frame.
+- [x] Edge-vs-face occlusion is a depth comparison (face suppresses edge only
+      if strictly closer beyond 1.5px-equivalent), replacing the existence
+      check that made edges unhoverable in the straight-on sketch view.
+- [x] Deterministic hover priority Vertex ≻ Edge ≻ Face via pixel-keyed
+      arbitration (`proposeHoverRef`), replacing last-writer-wins listeners.
+- [x] Click reads hover only if arbitrated within 4px of the click pixel
+      (`getFreshHoveredRef`) — kills the stale-edge-selected-on-bare-click race.
+- Guards: `projection-select-first-adversarial.spec.js` SR1–SR3 (small default
+  box modeling + sketch picking, proportioned large body).
+
 ## Blockers
 
 - ~~Depends on kernel-fork for tessellation output format (RenderMesh)~~ Resolved
 - ~~Depends on wasm-bridge for mesh transfer protocol~~ Resolved
+- **Follow-up (2026-07-05, not picking): auto-fit degenerates on high-aspect
+  "needle" bodies.** Sketch-XY and extrude-Z resolve at different world-unit
+  scales (~14× apart; likely same family as the known dimension-tool mm/m
+  red), so a large extrude depth on a default-drawn sketch yields a ~1700:1
+  needle, and auto-fit parks the camera INSIDE the body looking down its long
+  axis — the center ray misses all faces (looks like a picking bug; is not).
+  Repro + analysis in `specs/projected_sketch_geometry.md` Cycle 2 validation
+  notes. Owner: viewport auto-fit + sketch/extrude unit handling; needs its
+  own cycle.
 
 ## Interface Change Requests
 

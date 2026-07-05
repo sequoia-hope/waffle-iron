@@ -6,17 +6,19 @@
 		getMeshes,
 		getHoveredRef,
 		getSelectedRefs,
-		setHoveredRef,
 		selectRef,
 		geomRefEquals,
 		getCameraObject,
 		getSketchMode,
-		isProjectToolActive,
 		getSectionState,
 		isBodyVisible,
-		setRenderedEdgeBodyCount
+		setRenderedEdgeBodyCount,
+		isBodyPickingEnabled,
+		proposeHoverRef,
+		getSketchHover
 	} from '$lib/engine/store.svelte.js';
 	import { buildSectionClipPlane } from './sectionPlane.js';
+	import { worldPerPixel, faceOccludes, OCCLUSION_DEPTH_EPS_PX } from './picking.js';
 
 	const { renderer } = useThrelte();
 
@@ -37,8 +39,9 @@
 		...baseMaterialProps
 	});
 
-	/** Pixel threshold for edge picking (how close cursor needs to be to an edge) */
-	const EDGE_PICK_THRESHOLD = 6;
+	/** Screen-pixel threshold for edge picking (how close the cursor must be to an
+	 *  edge's projection). Converted to world units per frame — see worldPerPixel. */
+	const EDGE_PICK_THRESHOLD_PX = 6;
 
 	// Reusable raycaster for edge picking
 	const _edgeRaycaster = new THREE.Raycaster();
@@ -106,8 +109,13 @@
 		_edgeMouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
 
 		_edgeRaycaster.setFromCamera(_edgeMouse, camera);
-		// Set line precision in pixels (approx conversion from world to screen)
-		_edgeRaycaster.params.Line = { threshold: EDGE_PICK_THRESHOLD * 0.01 };
+		// Line precision is a world-space distance; calibrate it from the screen
+		// pixel threshold for the current camera/zoom so an edge is hover-eligible
+		// only within a few px of its projection at ANY part scale (root-cause fix
+		// for the absolute-world 0.06 threshold that made every pixel "near" an
+		// edge on small parts).
+		const wpp = worldPerPixel(camera, rect.height, camera.position?.length?.());
+		_edgeRaycaster.params.Line = { threshold: EDGE_PICK_THRESHOLD_PX * wpp };
 
 		// Collect LineSegments from the scene
 		const lineObjects = [];
@@ -149,37 +157,15 @@
 	}
 
 	/**
-	 * Check if a face is hit at the same screen position (face picks take priority).
+	 * True when a face is strictly closer than the edge hit (invariant I2) — the
+	 * shared, screen-calibrated occlusion rule (see picking.js).
 	 * @param {number} clientX
 	 * @param {number} clientY
+	 * @param {number} edgeDist
 	 * @returns {boolean}
 	 */
-	function isFaceHitAtPosition(clientX, clientY) {
-		const camera = getCameraObject();
-		if (!camera || !renderer) return false;
-
-		const canvas = renderer.domElement;
-		const rect = canvas.getBoundingClientRect();
-		const mouse = new THREE.Vector2(
-			((clientX - rect.left) / rect.width) * 2 - 1,
-			-((clientY - rect.top) / rect.height) * 2 + 1
-		);
-
-		const raycaster = new THREE.Raycaster();
-		raycaster.setFromCamera(mouse, camera);
-
-		const meshObjects = [];
-		const scene = camera.parent;
-		if (scene) {
-			scene.traverse((obj) => {
-				if (/** @type {any} */ (obj).isMesh && obj.visible) {
-					meshObjects.push(obj);
-				}
-			});
-		}
-
-		const intersections = raycaster.intersectObjects(meshObjects, false);
-		return intersections.length > 0;
+	function edgeOccludedByFace(clientX, clientY, edgeDist) {
+		return faceOccludes(getCameraObject(), renderer, clientX, clientY, edgeDist, OCCLUSION_DEPTH_EPS_PX);
 	}
 
 	/**
@@ -188,20 +174,20 @@
 	 * @param {MouseEvent} e
 	 */
 	function handleEdgePointerMove(e) {
-		if (getSketchMode()?.active && !isProjectToolActive()) return;
-
-		// Vertex picks take priority — if a vertex is already hovered, skip edge
-		const currentRef = getHoveredRef();
-		if (currentRef?.kind?.type === 'Vertex') return;
-
-		// Only highlight edges if no face is currently hovered by CadModel
-		// We check if a face is intersected — if so, CadModel handles hover
-		if (isFaceHitAtPosition(e.clientX, e.clientY)) return;
+		if (!isBodyPickingEnabled()) return;
+		// Invariant I1: a sketch entity under the pointer wins over the body.
+		if (getSketchMode()?.active && getSketchHover() != null) return;
 
 		const edgeHit = pickEdgeAtScreen(e.clientX, e.clientY);
-		if (edgeHit && edgeHit.ref) {
-			setHoveredRef(edgeHit.ref);
-		}
+		if (!edgeHit || !edgeHit.ref) return;
+
+		// Invariant I2: occlusion, not existence — only a face strictly nearer
+		// than the edge suppresses it.
+		if (edgeOccludedByFace(e.clientX, e.clientY, edgeHit.distance)) return;
+
+		// Invariant I3: propose the edge for this pixel; a Vertex proposal for the
+		// same pixel supersedes it, a Face proposal does not.
+		proposeHoverRef(edgeHit.ref, e.clientX, e.clientY);
 	}
 
 	/**
@@ -210,20 +196,20 @@
 	 * @param {MouseEvent} e
 	 */
 	function handleEdgeClick(e) {
-		if (getSketchMode()?.active && !isProjectToolActive()) return;
+		if (!isBodyPickingEnabled()) return;
+		// Invariant I1: a sketch entity under the pointer wins over the body.
+		if (getSketchMode()?.active && getSketchHover() != null) return;
 
-		// Vertex clicks take priority
-		const currentRef = getHoveredRef();
-		if (currentRef?.kind?.type === 'Vertex') return;
-
-		// Face clicks take priority — only select edge if no face hit
-		if (isFaceHitAtPosition(e.clientX, e.clientY)) return;
+		// Invariant I3: a hovered Vertex outranks the edge — defer to it.
+		if (getHoveredRef()?.kind?.type === 'Vertex') return;
 
 		const edgeHit = pickEdgeAtScreen(e.clientX, e.clientY);
-		if (edgeHit && edgeHit.ref) {
-			const additive = e.shiftKey;
-			selectRef(edgeHit.ref, additive);
-		}
+		if (!edgeHit || !edgeHit.ref) return;
+
+		// Invariant I2: an edge occluded by a nearer face is not selectable.
+		if (edgeOccludedByFace(e.clientX, e.clientY, edgeHit.distance)) return;
+
+		selectRef(edgeHit.ref, e.shiftKey);
 	}
 
 	// Derive edge geometries from mesh state

@@ -9,7 +9,8 @@
 		isTwoFingerGestureActive,
 		setSketchPixelSize,
 		getConstraintModal,
-		closeConstraintModal
+		closeConstraintModal,
+		setLastPointerClient
 	} from '$lib/engine/store.svelte.js';
 	import { buildSketchPlane, screenToSketchCoords } from './sketchCoords.js';
 	import { handleToolEvent, resetTool } from './tools.js';
@@ -64,6 +65,10 @@
 
 			const sm = getSketchMode();
 			if (!sm?.active) return;
+
+			// Record the raw pointer pixel so the click-selection paths can tell a
+			// fresh body hover from a stale one (see getFreshHoveredRef).
+			setLastPointerClient(e.clientX, e.clientY);
 
 			const cam = camera.current;
 			if (!cam) return;
