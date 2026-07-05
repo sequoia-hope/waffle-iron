@@ -885,8 +885,34 @@
 			}
 		}
 
+		/**
+		 * Restore a serialized camera snapshot (getCameraState() shape). Used by
+		 * sketch undo/redo so reverting geometry also reverts any auto-fit zoom
+		 * the undone action caused. @param {CustomEvent} e
+		 */
+		function onRestoreCamera(e) {
+			const snap = e.detail;
+			if (!snap || !cameraRef || !controlsRef) return;
+			if (![...snap.position, ...snap.up, ...snap.target].every(Number.isFinite)) return;
+			cameraRef.position.set(snap.position[0], snap.position[1], snap.position[2]);
+			cameraRef.up.set(snap.up[0], snap.up[1], snap.up[2]);
+			controlsRef.target.set(snap.target[0], snap.target[1], snap.target[2]);
+			if (isOrtho() && Number.isFinite(snap.frustumTop) && snap.frustumTop > 0) {
+				frustumHalf = snap.frustumTop;
+				updateOrthoFrustum();
+			}
+			cameraRef.lookAt(controlsRef.target);
+			cameraRef.updateProjectionMatrix();
+			controlsRef.update();
+			// Re-arm the sketch auto-fit growth gate: without this it stays pinned
+			// at the largest (possibly runaway) extent ever seen and suppresses
+			// all future fits until geometry exceeds it again.
+			lastAutoFitExtent = 0;
+		}
+
 		window.addEventListener('keydown', onKeyDown);
 		window.addEventListener('waffle-save-camera', onSaveCamera);
+		window.addEventListener('waffle-restore-camera', /** @type {EventListener} */ (onRestoreCamera));
 		window.addEventListener('waffle-snap-view', /** @type {EventListener} */ (onSnapView));
 		window.addEventListener('waffle-snap-view-and-fit', /** @type {EventListener} */ (onSnapViewAndFit));
 		window.addEventListener('waffle-align-to-plane', /** @type {EventListener} */ (onAlignToPlane));
@@ -915,6 +941,7 @@
 			ro.disconnect();
 			window.removeEventListener('keydown', onKeyDown);
 			window.removeEventListener('waffle-save-camera', onSaveCamera);
+			window.removeEventListener('waffle-restore-camera', /** @type {EventListener} */ (onRestoreCamera));
 			window.removeEventListener('waffle-snap-view', /** @type {EventListener} */ (onSnapView));
 			window.removeEventListener('waffle-snap-view-and-fit', /** @type {EventListener} */ (onSnapViewAndFit));
 			window.removeEventListener('waffle-align-to-plane', /** @type {EventListener} */ (onAlignToPlane));

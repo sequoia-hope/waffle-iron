@@ -1558,11 +1558,29 @@ function snapshotPositions() {
 }
 
 /**
+ * Dispatch a camera snapshot (getCameraState() shape) for CameraControls to
+ * apply. Sketch undo/redo records carry one so reverting geometry also
+ * reverts any auto-fit zoom the reverted action caused — without it, an
+ * exploding solve that zoomed the view way out left the user stranded there
+ * after undo (the growth-gated auto-fit never zooms back in).
+ * @param {object | null} snap
+ */
+function restoreCameraState(snap) {
+	if (!snap || typeof window === 'undefined') return;
+	window.dispatchEvent(new CustomEvent('waffle-restore-camera', { detail: snap }));
+}
+
+/**
  * Begin recording a sketch action (for undo grouping).
  * Call before a tool creates entities/constraints.
  */
 export function beginSketchAction() {
-	pendingSketchAction = { entities: [], constraints: [], positionsBefore: snapshotPositions() };
+	pendingSketchAction = {
+		entities: [],
+		constraints: [],
+		positionsBefore: snapshotPositions(),
+		camera: getCameraState()
+	};
 }
 
 /**
@@ -1602,7 +1620,7 @@ export function addLocalEntity(entity) {
 		// added point) so geometry reverts to its pre-action state.
 		const positionsBefore = snapshotPositions();
 		if (cloned.type === 'Point') positionsBefore.delete(cloned.id);
-		sketchUndoStack = [...sketchUndoStack, { entities: [cloned], constraints: [], positionsBefore }];
+		sketchUndoStack = [...sketchUndoStack, { entities: [cloned], constraints: [], positionsBefore, camera: getCameraState() }];
 		sketchRedoStack = [];
 	}
 
@@ -1813,7 +1831,7 @@ export function addLocalConstraint(constraint) {
 	} else if (sketchMode.active) {
 		// Snapshot BEFORE the constraint's solve (triggerSolve runs below) so undo
 		// can revert any point movement the new constraint induces.
-		sketchUndoStack = [...sketchUndoStack, { entities: [], constraints: [cloned], positionsBefore: snapshotPositions() }];
+		sketchUndoStack = [...sketchUndoStack, { entities: [], constraints: [cloned], positionsBefore: snapshotPositions(), camera: getCameraState() }];
 		sketchRedoStack = [];
 	}
 
@@ -2166,7 +2184,8 @@ export function removeSketchEntities(entityIds) {
 		sketchUndoStack = [...sketchUndoStack, {
 			entities: removedEntities,
 			constraints: removedConstraints,
-			_isDeletion: true
+			_isDeletion: true,
+			camera: getCameraState()
 		}];
 		sketchRedoStack = [];
 	}
@@ -2218,7 +2237,8 @@ export function removeSketchConstraint(index) {
 	sketchUndoStack = [...sketchUndoStack, {
 		entities: [],
 		constraints: [removed],
-		_isDeletion: true
+		_isDeletion: true,
+		camera: getCameraState()
 	}];
 	sketchRedoStack = [];
 
@@ -2584,10 +2604,17 @@ let dragState = null;
  */
 export function dragSketchPoint(pointId, newX, newY) {
 	if (!dragState) {
-		// First drag move — record original position
+		// First drag move — record original position, plus a full position +
+		// camera snapshot so finalizeDrag can push a real undo record.
 		const pos = sketchPositions.get(pointId);
 		if (!pos) return;
-		dragState = { pointId, originalX: pos.x, originalY: pos.y };
+		dragState = {
+			pointId,
+			originalX: pos.x,
+			originalY: pos.y,
+			positionsBefore: snapshotPositions(),
+			camera: getCameraState()
+		};
 	}
 
 	// Update position locally
@@ -2620,6 +2647,25 @@ export function finalizeDrag() {
 	triggerSolve();
 	reExtractProfiles();
 
+	// Push an undo record for the reposition (positions-only action: no
+	// entities/constraints to remove, just geometry + camera to restore).
+	if (dragState.positionsBefore) {
+		const moved = [...dragState.positionsBefore].some(([id, p]) => {
+			const cur = sketchPositions.get(id);
+			return cur && (Math.abs(cur.x - p.x) > 1e-12 || Math.abs(cur.y - p.y) > 1e-12);
+		});
+		if (moved) {
+			sketchUndoStack = [...sketchUndoStack, {
+				entities: [],
+				constraints: [],
+				positionsBefore: dragState.positionsBefore,
+				positionsAfter: snapshotPositions(),
+				camera: dragState.camera
+			}];
+			sketchRedoStack = [];
+		}
+	}
+
 	dragState = null;
 }
 
@@ -2646,6 +2692,8 @@ export function dragSketchLine(lineId, dx, dy) {
 				{ pointId: line.start_id, originalX: sp.x, originalY: sp.y },
 				{ pointId: line.end_id, originalX: ep.x, originalY: ep.y },
 			],
+			positionsBefore: snapshotPositions(),
+			camera: getCameraState(),
 		};
 	}
 
@@ -5654,12 +5702,21 @@ function undoSketchAction() {
 	]);
 	sketchConstraints = sketchConstraints.filter(c => !allRemovedJsons.has(JSON.stringify(c)));
 
-	// Push to redo stack with cascaded info for restore
+	// Push to redo stack with cascaded info for restore. Capture the camera
+	// being left so redo can return to it; carry positionsAfter through for
+	// positions-only (drag) actions.
 	sketchRedoStack = [...sketchRedoStack, {
 		entities: action.entities,
 		constraints: action.constraints,
-		cascadedConstraints
+		cascadedConstraints,
+		positionsAfter: action.positionsAfter ?? null,
+		camera: getCameraState()
 	}];
+
+	// Restore the viewport the action was performed in — undoing geometry
+	// while leaving an auto-fit zoom-out in place strands the user far from
+	// the restored sketch.
+	restoreCameraState(action.camera);
 
 	recomputeOverConstrained();
 	reExtractProfiles();
@@ -5675,8 +5732,10 @@ function redoSketchAction() {
 	const action = sketchRedoStack[sketchRedoStack.length - 1];
 	sketchRedoStack = sketchRedoStack.slice(0, -1);
 
-	// Pre-redo geometry, so a later undo of this re-application reverts movement.
+	// Pre-redo geometry + camera, so a later undo of this re-application
+	// reverts movement and viewport alike.
 	const positionsBefore = snapshotPositions();
+	const cameraBefore = getCameraState();
 
 	// Re-add entities
 	for (const e of action.entities) {
@@ -5695,12 +5754,24 @@ function redoSketchAction() {
 		sketchConstraints = [...sketchConstraints, JSON.parse(JSON.stringify(c))];
 	}
 
+	// Positions-only actions (drag repositions) re-apply their end state.
+	if (action.positionsAfter) {
+		sketchPositions = new Map(
+			[...action.positionsAfter].map(([k, v]) => [k, { x: v.x, y: v.y }])
+		);
+	}
+
 	// Push to undo stack (merge cascaded into constraints so undo removes them all)
 	sketchUndoStack = [...sketchUndoStack, {
 		entities: action.entities,
 		constraints: allConstraints,
-		positionsBefore
+		positionsBefore,
+		positionsAfter: action.positionsAfter ?? null,
+		camera: cameraBefore
 	}];
+
+	// Return to the viewport the user was in before they undid this action.
+	restoreCameraState(action.camera);
 
 	recomputeOverConstrained();
 	reExtractProfiles();
