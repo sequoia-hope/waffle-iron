@@ -6575,7 +6575,7 @@ fn cylinders_are_coincident(surf0: Surface, surf1: Surface, tol: f64) -> bool {
 /// triangle is attributed DIRECTLY from cherchi's per-triangle provenance
 /// (`LabeledArrangement.source` → the parent input triangle → its B-Rep face via
 /// the Stage-1 `tri_face` map) whenever that is unambiguous. The geometric path
-/// remains the fallback. See [`provenance_face`].
+/// remains the fallback. See [`provenance_face_reason`].
 ///
 /// N4 helper: resolve a kept arrangement triangle's B-Rep face from cherchi's
 /// per-triangle provenance (`§4.2.3`), not geometric centroid-proximity.
@@ -6592,19 +6592,49 @@ fn cylinders_are_coincident(surf0: Surface, surf1: Surface, tol: f64) -> bool {
 /// sentinel (a producer that emitted a map but could not attribute THAT
 /// triangle — e.g. a coincident-cylinder band-strip column with no covering
 /// arc-patch face). Never a wrong face.
-fn provenance_face(
+/// Why N4 provenance attribution could not name a face for a kept triangle —
+/// the exact reason the Stage-6 geometric fallback is still reached. Used by the
+/// `YANG_N4_FALLBACK_PROBE` measurement (N4 retirement: prove the geometric path
+/// is dead in production, or name the producers that still leave a triangle
+/// un-provenanced).
+#[derive(Debug, Clone, Copy)]
+enum ProvMiss {
+    /// The kept triangle's `source` has no parent triangle from this input
+    /// (e.g. a cut/arrangement triangle with only the OTHER input's lineage).
+    NoSourceEntry,
+    /// The parent-triangle index is outside this input's `tri_face` map — the
+    /// producer emitted no (or a too-short) provenance map for this input.
+    NoMap,
+    /// The producer minted this triangle but could not attribute it to a face
+    /// (`u32::MAX` sentinel — e.g. the coincident-cylinder band strip with no
+    /// covering arc column).
+    Sentinel,
+}
+
+/// N4 (§4.2.3): map a kept triangle to its owning B-Rep face via the
+/// arrangement's per-triangle provenance. `Ok(face)` on a hit; `Err(reason)`
+/// records WHY it missed, so the caller can measure fallback reachability.
+fn provenance_face_reason(
     source: &[(LaInputId, u32)],
     surface_input: InputId,
     tri_face_a: &[u32],
     tri_face_b: &[u32],
-) -> Option<u32> {
+) -> Result<u32, ProvMiss> {
     let (want_k, tf): (u32, &[u32]) = match surface_input {
         InputId::A => (0, tri_face_a),
         InputId::B => (1, tri_face_b),
     };
-    let &(_, local) = source.iter().find(|&&(LaInputId(k), _)| k == want_k)?;
-    tf.get(local as usize).copied().filter(|&f| f != u32::MAX)
+    let &(_, local) = source
+        .iter()
+        .find(|&&(LaInputId(k), _)| k == want_k)
+        .ok_or(ProvMiss::NoSourceEntry)?;
+    match tf.get(local as usize).copied() {
+        None => Err(ProvMiss::NoMap),
+        Some(f) if f == u32::MAX => Err(ProvMiss::Sentinel),
+        Some(f) => Ok(f),
+    }
 }
+
 
 /// M8 Stage-0 operand dump — diagnostic-only observer (spec
 /// `specs/m8_stage0_inputcheck_clean_emission.md` §6). Env-gated on
@@ -7214,9 +7244,28 @@ pub fn boolean(
         // unavailable: an empty `source` (a producer without provenance, e.g. the
         // sidecar oracle), or a Stage-0 path / input that did not emit `tri_face`.
         if !la.source.is_empty() {
-            if let Some(face) = provenance_face(&la.source[orig_t], input, tri_face_a, tri_face_b) {
-                attributions.push(Some(TriangleAttribution { input, face }));
-                continue;
+            match provenance_face_reason(&la.source[orig_t], input, tri_face_a, tri_face_b) {
+                Ok(face) => {
+                    attributions.push(Some(TriangleAttribution { input, face }));
+                    continue;
+                }
+                // N4 retirement measurement (`YANG_N4_FALLBACK_PROBE`): a
+                // native-backend triangle whose provenance MISSED, so the
+                // geometric fallback below is genuinely reached. The reason names
+                // which producer still leaves a triangle un-provenanced. Zero-cost
+                // when the env is unset; never changes behavior (the fallback runs
+                // exactly as before).
+                Err(reason) => {
+                    if std::env::var_os("YANG_N4_FALLBACK_PROBE").is_some() {
+                        eprintln!(
+                            "[n4-fallback] input={input:?} orig_t={orig_t} reason={reason:?} \
+                             stage0={} tf_a_len={} tf_b_len={}",
+                            stage0.is_some(),
+                            tri_face_a.len(),
+                            tri_face_b.len(),
+                        );
+                    }
+                }
             }
         }
 
