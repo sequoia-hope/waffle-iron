@@ -1,0 +1,49 @@
+{
+  "id": "C0077",
+  "description": "1 ops, scale=1.00e0, extrude(gear,boss) — gear/CDT tail: 40-tooth gear single extrude (pure non-convex CDT stress) [CDT-40t]",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 1.0,
+  "log_scale": 0.0,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "gear",
+      "profile_size": 1.0,
+      "depth_or_angle": 0.3,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 4.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase"
+    ],
+    "expect_rebuild_error": false
+  },
+  "generator_version": 4,
+  "featured": true
+}

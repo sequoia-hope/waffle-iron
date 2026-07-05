@@ -18,6 +18,7 @@ pub mod corpus;
 pub mod coverage;
 pub mod determinism;
 pub mod gen;
+pub mod gen_complexity;
 pub mod properties;
 pub mod properties_v2;
 pub mod randomized_runner;

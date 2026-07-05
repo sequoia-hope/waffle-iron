@@ -1,0 +1,41 @@
+{
+  "id": "C0097",
+  "description": "1 ops, scale=1.00e0, extrude(circle,boss) — region extrude: annulus sub-region between concentric circles (g=1, chi=0)",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 1.0,
+  "log_scale": 0.0,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "circle",
+      "profile_size": 1.0,
+      "depth_or_angle": 0.5,
+      "is_cut": false
+    }
+  ],
+  "oracles": {
+    "euler_target": 0,
+    "expect_watertight": true,
+    "max_bbox_extent": 4.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase"
+    ],
+    "expect_rebuild_error": false,
+    "expected_volume": 1.25271007061893,
+    "expected_volume_tol_rel": 0.05
+  },
+  "generator_version": 4,
+  "featured": true
+}

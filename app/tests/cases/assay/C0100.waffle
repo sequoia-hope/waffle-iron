@@ -1,0 +1,351 @@
+{
+  "format": "waffle-iron",
+  "version": 3,
+  "document": {
+    "name": "Assay C0100",
+    "created": "2026-07-05T20:21:54.922798003Z",
+    "modified": "2026-07-05T20:21:54.922798003Z"
+  },
+  "tabs": [
+    {
+      "id": "b4fa9c63-c712-48a7-a179-3d15d0245b59",
+      "name": "Part 1",
+      "kind": {
+        "type": "Part",
+        "features": {
+          "features": [
+            {
+              "id": "881d5c59-a16e-48dc-a74e-1f359c57fe86",
+              "name": "Sketch 1",
+              "operation": {
+                "type": "Sketch",
+                "sketch": {
+                  "id": "881d5c59-a16e-48dc-a74e-1f359c57fe86",
+                  "plane": {
+                    "kind": {
+                      "type": "Face"
+                    },
+                    "anchor": {
+                      "type": "Datum",
+                      "datum_id": "89df7264-4a14-49e2-ba9b-6c20f6137c02"
+                    },
+                    "selector": {
+                      "type": "Role",
+                      "role": {
+                        "type": "EndCapPositive"
+                      },
+                      "index": 0
+                    },
+                    "policy": {
+                      "type": "Strict"
+                    }
+                  },
+                  "plane_origin": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "plane_normal": [
+                    0.0,
+                    0.0,
+                    1.0
+                  ],
+                  "entities": [
+                    {
+                      "type": "Point",
+                      "id": 1,
+                      "x": -1.0,
+                      "y": -0.5,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 2,
+                      "x": 1.0,
+                      "y": -0.5,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 3,
+                      "x": 1.0,
+                      "y": 0.5,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 4,
+                      "x": -1.0,
+                      "y": 0.5,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 5,
+                      "start_id": 1,
+                      "end_id": 2,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 6,
+                      "start_id": 2,
+                      "end_id": 3,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 7,
+                      "start_id": 3,
+                      "end_id": 4,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 8,
+                      "start_id": 4,
+                      "end_id": 1,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 30,
+                      "x": 0.0,
+                      "y": -0.5,
+                      "construction": false
+                    },
+                    {
+                      "type": "Point",
+                      "id": 31,
+                      "x": 0.0,
+                      "y": 0.5,
+                      "construction": false
+                    },
+                    {
+                      "type": "Line",
+                      "id": 32,
+                      "start_id": 30,
+                      "end_id": 31,
+                      "construction": false
+                    }
+                  ],
+                  "constraints": [],
+                  "solve_status": {
+                    "type": "FullyConstrained"
+                  },
+                  "solved_positions": {
+                    "2": [
+                      1.0,
+                      -0.5
+                    ],
+                    "4": [
+                      -1.0,
+                      0.5
+                    ],
+                    "30": [
+                      0.0,
+                      -0.5
+                    ],
+                    "3": [
+                      1.0,
+                      0.5
+                    ],
+                    "31": [
+                      0.0,
+                      0.5
+                    ],
+                    "1": [
+                      -1.0,
+                      -0.5
+                    ]
+                  },
+                  "solved_profiles": [
+                    {
+                      "entity_ids": [
+                        5,
+                        6,
+                        7,
+                        8
+                      ],
+                      "is_outer": true,
+                      "vertex_ids": [
+                        1,
+                        2,
+                        3,
+                        4
+                      ]
+                    }
+                  ]
+                }
+              },
+              "suppressed": false,
+              "references": []
+            },
+            {
+              "id": "bc897a51-c154-441e-98f8-6872c05eb6a9",
+              "name": "Extrude 1",
+              "operation": {
+                "type": "Extrude",
+                "params": {
+                  "sketch_id": "881d5c59-a16e-48dc-a74e-1f359c57fe86",
+                  "profile_index": 0,
+                  "depth": 0.5,
+                  "direction": null,
+                  "symmetric": false,
+                  "cut": false,
+                  "merge": true,
+                  "target_body": null,
+                  "depth_mode": {
+                    "type": "Blind"
+                  },
+                  "second_direction": null,
+                  "regions": [
+                    {
+                      "outer": [
+                        [
+                          0.0,
+                          -0.5
+                        ],
+                        [
+                          0.0,
+                          0.5
+                        ],
+                        [
+                          -1.0,
+                          0.5
+                        ],
+                        [
+                          -1.0,
+                          -0.5
+                        ]
+                      ],
+                      "area": 1.0,
+                      "outer_edges": [
+                        {
+                          "kind": "Line",
+                          "a": [
+                            0.0,
+                            -0.5
+                          ],
+                          "b": [
+                            0.0,
+                            0.5
+                          ]
+                        },
+                        {
+                          "kind": "Line",
+                          "a": [
+                            0.0,
+                            0.5
+                          ],
+                          "b": [
+                            -1.0,
+                            0.5
+                          ]
+                        },
+                        {
+                          "kind": "Line",
+                          "a": [
+                            -1.0,
+                            0.5
+                          ],
+                          "b": [
+                            -1.0,
+                            -0.5
+                          ]
+                        },
+                        {
+                          "kind": "Line",
+                          "a": [
+                            -1.0,
+                            -0.5
+                          ],
+                          "b": [
+                            0.0,
+                            -0.5
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "outer": [
+                        [
+                          1.0,
+                          -0.5
+                        ],
+                        [
+                          1.0,
+                          0.5
+                        ],
+                        [
+                          0.0,
+                          0.5
+                        ],
+                        [
+                          0.0,
+                          -0.5
+                        ]
+                      ],
+                      "area": 1.0,
+                      "outer_edges": [
+                        {
+                          "kind": "Line",
+                          "a": [
+                            1.0,
+                            -0.5
+                          ],
+                          "b": [
+                            1.0,
+                            0.5
+                          ]
+                        },
+                        {
+                          "kind": "Line",
+                          "a": [
+                            1.0,
+                            0.5
+                          ],
+                          "b": [
+                            0.0,
+                            0.5
+                          ]
+                        },
+                        {
+                          "kind": "Line",
+                          "a": [
+                            0.0,
+                            0.5
+                          ],
+                          "b": [
+                            0.0,
+                            -0.5
+                          ]
+                        },
+                        {
+                          "kind": "Line",
+                          "a": [
+                            0.0,
+                            -0.5
+                          ],
+                          "b": [
+                            1.0,
+                            -0.5
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "combine": null
+                }
+              },
+              "suppressed": false,
+              "references": []
+            }
+          ],
+          "active_index": null
+        }
+      }
+    }
+  ],
+  "active_tab": "b4fa9c63-c712-48a7-a179-3d15d0245b59"
+}

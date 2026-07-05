@@ -311,7 +311,7 @@ pub fn random_sketch_primitive(rng: &mut impl Rng, scale: f64) -> (ProfileData, 
 /// Build a true circle profile (not a polygon approximation).
 ///
 /// Creates a center Point (construction) and a Circle entity.
-fn true_circle_profile(cx: f64, cy: f64, radius: f64) -> ProfileData {
+pub(crate) fn true_circle_profile(cx: f64, cy: f64, radius: f64) -> ProfileData {
     let center_id = 1u32;
     let circle_id = 2u32;
 

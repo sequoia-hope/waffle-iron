@@ -1,0 +1,176 @@
+{
+  "id": "C0014",
+  "description": "8 ops, scale=1.00e0, extrude(rectangle,boss)+…+extrude(rectangle,boss) [8 ops] — interleaved chain: 8 alternating boss/cut ops, y-major diagonal staircase, exact chain volume",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 1.0,
+  "log_scale": 0.0,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 2.0,
+      "depth_or_angle": 1.0,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 1.3,
+      "depth_or_angle": 0.9,
+      "is_cut": false,
+      "plane_origin": [
+        0.18,
+        0.45,
+        0.85
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.3,
+      "depth_or_angle": 1.3,
+      "is_cut": true,
+      "plane_origin": [
+        0.18,
+        0.0,
+        2.75
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 1.3,
+      "depth_or_angle": 0.97,
+      "is_cut": false,
+      "plane_origin": [
+        0.36,
+        0.9,
+        1.59
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.3,
+      "depth_or_angle": 1.35,
+      "is_cut": true,
+      "plane_origin": [
+        0.36,
+        0.45,
+        3.56
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 1.3,
+      "depth_or_angle": 1.04,
+      "is_cut": false,
+      "plane_origin": [
+        0.54,
+        1.35,
+        2.39
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.3,
+      "depth_or_angle": 1.3,
+      "is_cut": true,
+      "plane_origin": [
+        0.54,
+        0.9000000000000001,
+        4.43
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 1.3,
+      "depth_or_angle": 0.9,
+      "is_cut": false,
+      "plane_origin": [
+        0.72,
+        1.8,
+        3.2500000000000004
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 30.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "increase",
+      "decrease",
+      "increase",
+      "decrease",
+      "increase",
+      "decrease",
+      "increase"
+    ],
+    "expect_rebuild_error": false,
+    "expected_volume": 9.633880000000005
+  },
+  "generator_version": 4,
+  "featured": true
+}

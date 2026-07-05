@@ -1,0 +1,86 @@
+{
+  "id": "C0007",
+  "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut) — genus-N tunnels: crossing orthogonal tunnels, offset sections (g=3, chi=-4)",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 1.0,
+  "log_scale": 0.0,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 2.0,
+      "depth_or_angle": 2.0,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.6,
+      "depth_or_angle": 3.5,
+      "is_cut": true,
+      "plane_origin": [
+        2.0,
+        0.0,
+        0.9
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.6,
+      "depth_or_angle": 3.5,
+      "is_cut": true,
+      "plane_origin": [
+        0.0,
+        2.0,
+        1.1
+      ],
+      "plane_normal": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    }
+  ],
+  "oracles": {
+    "euler_target": -4,
+    "expect_watertight": true,
+    "max_bbox_extent": 6.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "decrease",
+      "decrease"
+    ],
+    "expect_rebuild_error": false,
+    "expected_volume": 6.703999999999996
+  },
+  "generator_version": 4,
+  "featured": true
+}

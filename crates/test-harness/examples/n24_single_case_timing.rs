@@ -16,7 +16,11 @@ fn main() {
         let r = run_single_case(&dir, id, true);
         let dt = t0.elapsed().as_secs_f64();
         match r {
-            Some(r) => println!("{id}: {:?} in {dt:.1}s | {}", r.status, &r.detail[..r.detail.len().min(80)]),
+            Some(r) => println!(
+                "{id}: {:?} in {dt:.1}s | {}",
+                r.status,
+                &r.detail[..r.detail.len().min(80)]
+            ),
             None => println!("{id}: not found"),
         }
     }

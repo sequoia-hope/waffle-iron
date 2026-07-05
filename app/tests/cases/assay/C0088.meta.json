@@ -1,0 +1,86 @@
+{
+  "id": "C0088",
+  "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,cut) — depth modes: ThroughAll cut pierces the whole 2-level stack (chi=0)",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 1.0,
+  "log_scale": 0.0,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 2.0,
+      "depth_or_angle": 1.0,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 1.2,
+      "depth_or_angle": 1.0,
+      "is_cut": false,
+      "plane_origin": [
+        0.4,
+        0.0,
+        0.8
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.3,
+      "depth_or_angle": 4.0,
+      "is_cut": true,
+      "plane_origin": [
+        0.4,
+        0.0,
+        3.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  ],
+  "oracles": {
+    "euler_target": 0,
+    "expect_watertight": true,
+    "max_bbox_extent": 8.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "increase",
+      "decrease"
+    ],
+    "expect_rebuild_error": false,
+    "expected_volume": 4.99
+  },
+  "generator_version": 4,
+  "featured": true
+}

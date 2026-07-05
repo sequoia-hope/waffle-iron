@@ -765,10 +765,13 @@ fn smoke_corpus_boundary_categories() {
         // now succeeds end-to-end. F0086 stays the M8 residue (a coplanar
         // sub-case Increment 1 does not yet cover — crossing / multi-pair).
         ("F0030", Category::SupportedCorrect),
-        (
-            "F0086",
-            Category::Unsupported(UnsupportedReason::CoplanarBoolean),
-        ),
+        // Stale-pin reconciliation (2026-07-05, C-series session): the M8
+        // holed-disc Stage-0 overlay work (3aea953b) moved F0086 PAST the
+        // coplanar gate — it now fails downstream (non-2-manifold reassembly
+        // + cylinder axis-wrapping loops), matching the committed
+        // results.json baseline. Progress marker for task #54 (chained
+        // swiss-cheese), not a regression from this session.
+        ("F0086", Category::Error),
         // PR-TH2 (KV5b-F2 resolved): the enclosed-cavity families
         // F0031–F0035 (box-minus-cyl) and F0036–F0040 (cyl-minus-box)
         // succeed end-to-end: 2 closed genus-0 shells (outer + cavity),
@@ -800,9 +803,12 @@ fn smoke_corpus_boundary_categories() {
         // at junctions). PR-KV11: junction relocation + the hybrid
         // exact/quantized mesh oracles take it end-to-end.
         ("F0046", Category::SupportedCorrect),
-        // F0041: cylinder×cylinder lateral∩lateral is degree-4 — yang's
-        // Stage-3 SSI wall (AmbiguousCurve), surfaced loudly.
-        ("F0041", Category::Error),
+        // F0041: cylinder×cylinder lateral∩lateral (degree-4). Stale-pin
+        // reconciliation (2026-07-05): the case passes end-to-end on main and
+        // the committed results.json agrees — the KV9 tangency/junction work
+        // took this class past the old Stage-3 AmbiguousCurve wall. Pinned
+        // green so a regression is loud.
+        ("F0041", Category::SupportedCorrect),
         // R0067: was a yang Stage-5 NoExplicitRayOrigin wall on a curved patch;
         // that path has since been resolved and the case now replays correctly
         // (all mesh oracles pass). Stale-pin reconciliation — pre-existing
@@ -854,7 +860,11 @@ fn smoke_corpus_boundary_categories() {
 fn full_corpus_categorized() {
     let dir = assay_dir();
     let cases = discover_cases(&dir);
-    assert_eq!(cases.len(), 194, "expected the 194-case assay corpus");
+    assert_eq!(
+        cases.len(),
+        294,
+        "expected the 294-case assay corpus (194 legacy + 100 C-series)"
+    );
 
     // Per-case timeout (default 30s, env-overridable) so no single case can
     // wedge the run. ASSAY_FAST=1 skips cases on the auto slow-list for a quick

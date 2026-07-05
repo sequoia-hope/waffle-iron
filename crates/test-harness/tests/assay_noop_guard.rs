@@ -187,6 +187,15 @@ fn scan() {
                         continue;
                     }
                     let p = &op["params"];
+                    // Multi-profile extrudes (profile_index > 0, C-series
+                    // 3c) are undecidable: the frame above is the WHOLE
+                    // sketch's bbox, so two same-sketch extrudes always read
+                    // as mutually contained. Same treatment as revolve.
+                    if p["profile_index"].as_u64().unwrap_or(0) > 0 {
+                        bosses.clear();
+                        flags.push(format!("op{op_i}:undecidable"));
+                        continue;
+                    }
                     let depth = p["depth"].as_f64().unwrap();
                     let cut = p["cut"].as_bool().unwrap_or(false);
                     // honor an explicit flipped direction

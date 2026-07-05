@@ -69,9 +69,12 @@ fn zr2_circle_boss_cut_from_top_face_explicit_down() {
 
 /// ZR3: Circle boss + polygon (rect) cut at z=20, full depth.
 ///
-/// Uses a rectangle cut instead of circle cut. This goes through the
-/// cyl_minus_box boolean path. Currently "cylinder minus box" is not
-/// supported by the kernel — this test documents that limitation.
+/// Uses a rectangle cut instead of circle cut (the cyl-minus-box boolean
+/// path). This test originally documented cyl-minus-box as UNSUPPORTED; the
+/// capability landed with the KV5b/TH2 cylinder work (the F0036–F0040
+/// corpus family is pinned SUPPORTED_CORRECT), so the expectation flips:
+/// the cut must now SUCCEED with the exact through-hole volume. Stale-
+/// expectation reconciliation — the file lagged the capability.
 #[test]
 fn zr3_circle_boss_polygon_cut() {
     let mut m = ModelBuilder::kernel_v2();
@@ -80,17 +83,19 @@ fn zr3_circle_boss_polygon_cut() {
         .unwrap();
     m.extrude("boss", "boss_sk", 20.0).unwrap();
 
-    // Rectangle cut at z=20 — would go through cyl_minus_box path
+    // Rectangle cut at z=20, full depth — square through-hole.
     m.rect_sketch("cut_sk", [0., 0., 20.], [0., 0., 1.], -2., -2., 4., 4.)
         .unwrap();
     m.extrude_cut("hole", "cut_sk", 20.0).unwrap();
 
-    // Currently unsupported: "cylinder minus box" path
-    // This test documents the expected error.
-    let has_errors = m.assert_has_errors();
+    m.assert_no_errors()
+        .expect("ZR3: cylinder minus box is supported (KV5b/TH2)");
+    let mesh = m.tessellate_last().expect("ZR3: tessellates");
+    let vol = test_harness::helpers::mesh_signed_volume(&mesh);
+    let expected = std::f64::consts::PI * 25.0 * 20.0 - 4.0 * 4.0 * 20.0;
     assert!(
-        has_errors.is_ok(),
-        "ZR3: Cylinder minus box should produce an error (unsupported operation)"
+        (vol - expected).abs() / expected < 0.05,
+        "ZR3: through-hole volume {vol} (expected ≈ {expected})"
     );
 }
 

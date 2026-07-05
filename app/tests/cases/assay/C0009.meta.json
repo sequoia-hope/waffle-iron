@@ -1,0 +1,104 @@
+{
+  "id": "C0009",
+  "description": "4 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut)+extrude(rectangle,cut) — genus-N tunnels: U-tunnel: 2 bores + lateral connector, 3 openings (chi=-2)",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 1.0,
+  "log_scale": 0.0,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 2.0,
+      "depth_or_angle": 2.0,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.4,
+      "depth_or_angle": 2.6,
+      "is_cut": true,
+      "plane_origin": [
+        -0.5,
+        0.0,
+        3.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.4,
+      "depth_or_angle": 2.6,
+      "is_cut": true,
+      "plane_origin": [
+        0.5,
+        0.0,
+        3.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.5,
+      "depth_or_angle": 2.75,
+      "is_cut": true,
+      "plane_origin": [
+        2.0,
+        0.0,
+        0.55
+      ],
+      "plane_normal": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "oracles": {
+    "euler_target": -2,
+    "expect_watertight": true,
+    "max_bbox_extent": 6.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "decrease",
+      "decrease",
+      "decrease"
+    ],
+    "expect_rebuild_error": false,
+    "expected_volume": 7.1785
+  },
+  "generator_version": 4,
+  "featured": true
+}

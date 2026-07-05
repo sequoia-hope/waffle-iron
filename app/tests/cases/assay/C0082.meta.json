@@ -1,0 +1,87 @@
+{
+  "id": "C0082",
+  "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) — combine modes: Add with explicit non-most-recent target (boss lands on body A; 2 bodies)",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 1.0,
+  "log_scale": 0.0,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 1.0,
+      "depth_or_angle": 1.0,
+      "is_cut": false,
+      "plane_origin": [
+        -1.5,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 1.0,
+      "depth_or_angle": 1.0,
+      "is_cut": false,
+      "plane_origin": [
+        1.5,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 0.6,
+      "depth_or_angle": 0.7,
+      "is_cut": false,
+      "plane_origin": [
+        -1.5,
+        0.0,
+        0.8
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 8.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "increase",
+      "increase"
+    ],
+    "expect_rebuild_error": false,
+    "expected_volume": 2.18,
+    "expected_solid_count": 2
+  },
+  "generator_version": 4,
+  "featured": true
+}

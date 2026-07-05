@@ -1,6 +1,6 @@
 {
   "master_seed": 42,
-  "count": 194,
+  "count": 294,
   "generator_version": 4,
   "cases": [
     {
@@ -1359,6 +1359,706 @@
       "filename": "F0094.waffle",
       "meta_filename": "F0094.meta.json",
       "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) — disc∩disc coplanar CROSSING (opposite normal, M8)",
+      "featured": true
+    },
+    {
+      "id": "C0001",
+      "filename": "C0001.waffle",
+      "meta_filename": "C0001.meta.json",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut) — genus-N plate: 2 through-holes (g=2, chi=-2)",
+      "featured": true
+    },
+    {
+      "id": "C0002",
+      "filename": "C0002.waffle",
+      "meta_filename": "C0002.meta.json",
+      "description": "4 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut)+extrude(rectangle,cut) — genus-N plate: 3 through-holes in a row (g=3, chi=-4)",
+      "featured": true
+    },
+    {
+      "id": "C0003",
+      "filename": "C0003.waffle",
+      "meta_filename": "C0003.meta.json",
+      "description": "5 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut)+extrude(rectangle,cut)+extrude(rectangle,cut) — genus-N plate: 4 through-holes in a row (g=4, chi=-6)",
+      "featured": true
+    },
+    {
+      "id": "C0004",
+      "filename": "C0004.waffle",
+      "meta_filename": "C0004.meta.json",
+      "description": "6 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut)+extrude(rectangle,cut)+extrude(rectangle,cut)+extrude(rectangle,cut) — genus-N plate: 5 through-holes in a row (g=5, chi=-8)",
+      "featured": true
+    },
+    {
+      "id": "C0005",
+      "filename": "C0005.waffle",
+      "meta_filename": "C0005.meta.json",
+      "description": "5 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut)+extrude(rectangle,cut)+extrude(rectangle,cut) — genus-N plate: 2x2 hole grid (g=4, chi=-6)",
+      "featured": true
+    },
+    {
+      "id": "C0006",
+      "filename": "C0006.waffle",
+      "meta_filename": "C0006.meta.json",
+      "description": "10 ops, scale=1.00e0, extrude(rectangle,boss)+…+extrude(rectangle,cut) [10 ops] — genus-N plate: 3x3 hole grid (g=9, chi=-16)",
+      "featured": true
+    },
+    {
+      "id": "C0007",
+      "filename": "C0007.waffle",
+      "meta_filename": "C0007.meta.json",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut) — genus-N tunnels: crossing orthogonal tunnels, offset sections (g=3, chi=-4)",
+      "featured": true
+    },
+    {
+      "id": "C0008",
+      "filename": "C0008.waffle",
+      "meta_filename": "C0008.meta.json",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut) — genus-N tunnels: blind pocket + lateral through-hole below it (g=1, chi=0)",
+      "featured": true
+    },
+    {
+      "id": "C0009",
+      "filename": "C0009.waffle",
+      "meta_filename": "C0009.meta.json",
+      "description": "4 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut)+extrude(rectangle,cut) — genus-N tunnels: U-tunnel: 2 bores + lateral connector, 3 openings (chi=-2)",
+      "featured": true
+    },
+    {
+      "id": "C0010",
+      "filename": "C0010.waffle",
+      "meta_filename": "C0010.meta.json",
+      "description": "6 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut)+extrude(rectangle,cut) — genus-N tower: 3-level offset tower, one through-hole per level (g=3, chi=-4)",
+      "featured": true
+    },
+    {
+      "id": "C0011",
+      "filename": "C0011.waffle",
+      "meta_filename": "C0011.meta.json",
+      "description": "4 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut)+extrude(rectangle,boss) — genus-N plate: 2 holes then arch boss caps one shaft (g=1, chi=0)",
+      "featured": true
+    },
+    {
+      "id": "C0012",
+      "filename": "C0012.waffle",
+      "meta_filename": "C0012.meta.json",
+      "description": "6 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut)+extrude(rectangle,cut)+extrude(rectangle,cut)+extrude(rectangle,cut) — genus-N plate: 5 staggered through-holes (g=5, chi=-8)",
+      "featured": true
+    },
+    {
+      "id": "C0013",
+      "filename": "C0013.waffle",
+      "meta_filename": "C0013.meta.json",
+      "description": "8 ops, scale=1.00e0, extrude(rectangle,boss)+…+extrude(rectangle,boss) [8 ops] — interleaved chain: 8 alternating boss/cut ops, x-major diagonal staircase, exact chain volume",
+      "featured": true
+    },
+    {
+      "id": "C0014",
+      "filename": "C0014.waffle",
+      "meta_filename": "C0014.meta.json",
+      "description": "8 ops, scale=1.00e0, extrude(rectangle,boss)+…+extrude(rectangle,boss) [8 ops] — interleaved chain: 8 alternating boss/cut ops, y-major diagonal staircase, exact chain volume",
+      "featured": true
+    },
+    {
+      "id": "C0015",
+      "filename": "C0015.waffle",
+      "meta_filename": "C0015.meta.json",
+      "description": "10 ops, scale=1.00e0, extrude(rectangle,boss)+…+extrude(rectangle,boss) [10 ops] — interleaved chain: 10 alternating boss/cut ops, x-major diagonal staircase, exact chain volume",
+      "featured": true
+    },
+    {
+      "id": "C0016",
+      "filename": "C0016.waffle",
+      "meta_filename": "C0016.meta.json",
+      "description": "10 ops, scale=1.00e0, extrude(rectangle,boss)+…+extrude(rectangle,boss) [10 ops] — interleaved chain: 10 alternating boss/cut ops, y-major diagonal staircase, exact chain volume",
+      "featured": true
+    },
+    {
+      "id": "C0017",
+      "filename": "C0017.waffle",
+      "meta_filename": "C0017.meta.json",
+      "description": "12 ops, scale=1.00e0, extrude(rectangle,boss)+…+extrude(rectangle,boss) [12 ops] — interleaved chain: 12 alternating boss/cut ops, x-major diagonal staircase, exact chain volume",
+      "featured": true
+    },
+    {
+      "id": "C0018",
+      "filename": "C0018.waffle",
+      "meta_filename": "C0018.meta.json",
+      "description": "12 ops, scale=1.00e0, extrude(rectangle,boss)+…+extrude(rectangle,boss) [12 ops] — interleaved chain: 12 alternating boss/cut ops, y-major diagonal staircase, exact chain volume",
+      "featured": true
+    },
+    {
+      "id": "C0019",
+      "filename": "C0019.waffle",
+      "meta_filename": "C0019.meta.json",
+      "description": "16 ops, scale=1.00e0, extrude(rectangle,boss)+…+extrude(rectangle,boss) [16 ops] — interleaved chain: 16 alternating boss/cut ops, x-major diagonal staircase, exact chain volume",
+      "featured": true
+    },
+    {
+      "id": "C0020",
+      "filename": "C0020.waffle",
+      "meta_filename": "C0020.meta.json",
+      "description": "16 ops, scale=1.00e0, extrude(rectangle,boss)+…+extrude(rectangle,boss) [16 ops] — interleaved chain: 16 alternating boss/cut ops, y-major diagonal staircase, exact chain volume",
+      "featured": true
+    },
+    {
+      "id": "C0021",
+      "filename": "C0021.waffle",
+      "meta_filename": "C0021.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(polygon,boss)+extrude(rectangle,cut) — non-convex boolean: 5-point star boss + centered square through-cut (chi=0)",
+      "featured": true
+    },
+    {
+      "id": "C0022",
+      "filename": "C0022.waffle",
+      "meta_filename": "C0022.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(polygon,boss)+extrude(rectangle,cut) — non-convex boolean: 7-point star boss + centered square through-cut (chi=0)",
+      "featured": true
+    },
+    {
+      "id": "C0023",
+      "filename": "C0023.waffle",
+      "meta_filename": "C0023.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(polygon,boss)+extrude(rectangle,cut) — non-convex boolean: 10-tooth comb boss + through-slot in the base strip (chi=0)",
+      "featured": true
+    },
+    {
+      "id": "C0024",
+      "filename": "C0024.waffle",
+      "meta_filename": "C0024.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(polygon,boss)+extrude(rectangle,cut) — non-convex boolean: keyhole boss (rect + narrow slot) + through-cut in the body (chi=0)",
+      "featured": true
+    },
+    {
+      "id": "C0025",
+      "filename": "C0025.waffle",
+      "meta_filename": "C0025.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(polygon,boss)+extrude(rectangle,cut) — non-convex boolean: C-ring boss (slit square annulus) + blind pocket in the far wall (chi=2)",
+      "featured": true
+    },
+    {
+      "id": "C0026",
+      "filename": "C0026.waffle",
+      "meta_filename": "C0026.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(polygon,boss)+extrude(rectangle,cut) — non-convex boolean: 8-segment zigzag ribbon + small through-cut in one chevron (chi=0)",
+      "featured": true
+    },
+    {
+      "id": "C0027",
+      "filename": "C0027.waffle",
+      "meta_filename": "C0027.meta.json",
+      "description": "6 ops, scale=1.00e0, extrude(polygon,boss)+extrude(rectangle,cut)+extrude(rectangle,cut)+extrude(rectangle,cut)+extrude(rectangle,cut)+extrude(rectangle,cut) — non-convex boolean: plus-shaped boss + 5 through-holes, one per arm + center (g=5, chi=-8)",
+      "featured": true
+    },
+    {
+      "id": "C0028",
+      "filename": "C0028.waffle",
+      "meta_filename": "C0028.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(polygon,boss)+extrude(polygon,cut) — non-convex boolean: 5-star boss + rotated 5-star through-cut (star hole, chi=0)",
+      "featured": true
+    },
+    {
+      "id": "C0029",
+      "filename": "C0029.waffle",
+      "meta_filename": "C0029.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut) — near-degenerate sliver: through-cut leaves 1e-3 m wall at the side face (chi=0)",
+      "featured": true
+    },
+    {
+      "id": "C0030",
+      "filename": "C0030.waffle",
+      "meta_filename": "C0030.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut) — near-degenerate sliver: through-cut leaves 1e-5 m wall at the side face (chi=0)",
+      "featured": true
+    },
+    {
+      "id": "C0031",
+      "filename": "C0031.waffle",
+      "meta_filename": "C0031.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut) — near-degenerate sliver: through-cut leaves 2e-6 m wall at the side face (chi=0)",
+      "featured": true
+    },
+    {
+      "id": "C0032",
+      "filename": "C0032.waffle",
+      "meta_filename": "C0032.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — near-degenerate sliver: 1e-4 m needle rib boss standing proud of a slab (chi=2)",
+      "featured": true
+    },
+    {
+      "id": "C0033",
+      "filename": "C0033.waffle",
+      "meta_filename": "C0033.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut) — near-degenerate sliver: 1e-4 m through-slit inside a slab (slit hole, chi=0)",
+      "featured": true
+    },
+    {
+      "id": "C0034",
+      "filename": "C0034.waffle",
+      "meta_filename": "C0034.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut) — near-degenerate thin wall: square tube, 1e-4 m walls (chi=0)",
+      "featured": true
+    },
+    {
+      "id": "C0035",
+      "filename": "C0035.waffle",
+      "meta_filename": "C0035.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut) — near-degenerate thin wall: blind pocket leaves a 1e-4 m floor (chi=2)",
+      "featured": true
+    },
+    {
+      "id": "C0036",
+      "filename": "C0036.waffle",
+      "meta_filename": "C0036.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — near-coplanar tilt: boss tilted 0.001° off the top plane, 1e-3 interpenetration (gate must not fire)",
+      "featured": true
+    },
+    {
+      "id": "C0037",
+      "filename": "C0037.waffle",
+      "meta_filename": "C0037.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — near-coplanar tilt: boss tilted 0.0001° off the top plane, 1e-3 interpenetration (gate must not fire)",
+      "featured": true
+    },
+    {
+      "id": "C0038",
+      "filename": "C0038.waffle",
+      "meta_filename": "C0038.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut) — mixed scale: 1 m cube with a 10 µm square through-hole (chi=0 is the oracle)",
+      "featured": true
+    },
+    {
+      "id": "C0039",
+      "filename": "C0039.waffle",
+      "meta_filename": "C0039.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — mixed scale: 20 µm rib boss on a 1 m slab (survival/validity probe, chi=2)",
+      "featured": true
+    },
+    {
+      "id": "C0040",
+      "filename": "C0040.waffle",
+      "meta_filename": "C0040.meta.json",
+      "description": "2 ops, scale=1.00e2, extrude(rectangle,boss)+extrude(rectangle,cut) — mixed scale: 100 m slab with a 1 mm square through-hole (chi=0 is the oracle)",
+      "featured": true
+    },
+    {
+      "id": "C0041",
+      "filename": "C0041.waffle",
+      "meta_filename": "C0041.meta.json",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut) — M8 coplanar: crossing tunnels, IDENTICAL sections — coplanar tunnel walls (g=3) [M8]",
+      "featured": true
+    },
+    {
+      "id": "C0042",
+      "filename": "C0042.waffle",
+      "meta_filename": "C0042.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) — M8 coplanar: externally rim-tangent discs, coplanar caps (tangent line contact — loud rejection acceptable) [M8/tangency]",
+      "featured": true
+    },
+    {
+      "id": "C0043",
+      "filename": "C0043.waffle",
+      "meta_filename": "C0043.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) — M8 coplanar: internally rim-tangent discs, coplanar caps (union equals operand A by design) [M8/tangency]",
+      "featured": true
+    },
+    {
+      "id": "C0044",
+      "filename": "C0044.waffle",
+      "meta_filename": "C0044.meta.json",
+      "description": "3 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss)+extrude(circle,cut) — M8 coplanar: flush cap-to-cap cylinder stack + axial bore through both (tube, chi=0) [M8-annular]",
+      "featured": true
+    },
+    {
+      "id": "C0045",
+      "filename": "C0045.waffle",
+      "meta_filename": "C0045.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — M8 coplanar: boxes sharing exactly one edge (1D contact — legitimately non-manifold, loud rejection acceptable) [M8-edge]",
+      "featured": true
+    },
+    {
+      "id": "C0046",
+      "filename": "C0046.waffle",
+      "meta_filename": "C0046.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — M8 coplanar: boxes sharing exactly one vertex (0D contact — legitimately non-manifold, loud rejection acceptable) [M8-corner]",
+      "featured": true
+    },
+    {
+      "id": "C0047",
+      "filename": "C0047.waffle",
+      "meta_filename": "C0047.meta.json",
+      "description": "3 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut)+extrude(circle,boss) — M8 coplanar: flush disc caps a bored tube's annular top off-center (hole becomes pocket, chi=2) [M8 holed-disc]",
+      "featured": true
+    },
+    {
+      "id": "C0048",
+      "filename": "C0048.waffle",
+      "meta_filename": "C0048.meta.json",
+      "description": "8 ops, scale=1.00e0, extrude(circle,boss)+…+extrude(circle,cut) [8 ops] — M8 coplanar: two flush swiss-cheese plates, offset hole rings (all pockets, chi=2) [M8 chained F0086-90]",
+      "featured": true
+    },
+    {
+      "id": "C0049",
+      "filename": "C0049.waffle",
+      "meta_filename": "C0049.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut) — M8 coplanar: through-cut whose tool wall is flush with the body side face (notch, chi=2) [M8 flush-cut]",
+      "featured": true
+    },
+    {
+      "id": "C0050",
+      "filename": "C0050.waffle",
+      "meta_filename": "C0050.meta.json",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) — M8 coplanar: 3-box staircase, each flush-stacked with partial top overlap (chi=2) [M8 partial-overlap chain]",
+      "featured": true
+    },
+    {
+      "id": "C0051",
+      "filename": "C0051.waffle",
+      "meta_filename": "C0051.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) — degree-4 cyl×cyl: unequal radii (0.5 vs 0.3), perpendicular axes, union (chi=2) [M5]",
+      "featured": true
+    },
+    {
+      "id": "C0052",
+      "filename": "C0052.waffle",
+      "meta_filename": "C0052.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut) — degree-4 cyl×cyl: unequal radii (0.5 vs 0.3), perpendicular axes, through-cut (chi=0) [M5]",
+      "featured": true
+    },
+    {
+      "id": "C0053",
+      "filename": "C0053.waffle",
+      "meta_filename": "C0053.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut) — degree-4 cyl×cyl: unequal radii, axes at 45°, through-cut (chi=0) [M5-oblique]",
+      "featured": true
+    },
+    {
+      "id": "C0054",
+      "filename": "C0054.waffle",
+      "meta_filename": "C0054.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut) — degree-4 cyl×cyl: skew axes (0.15 offset), through-cut (chi=0) [M5-skew]",
+      "featured": true
+    },
+    {
+      "id": "C0055",
+      "filename": "C0055.waffle",
+      "meta_filename": "C0055.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) — degree-4 cyl×cyl: parallel cylinders, external lateral tangency line (loud rejection acceptable) [KV9-tangency]",
+      "featured": true
+    },
+    {
+      "id": "C0056",
+      "filename": "C0056.waffle",
+      "meta_filename": "C0056.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut) — degree-4 cyl×cyl: internal lateral tangency, cut (wall thins to zero at the tangent line) [KV9-tangency]",
+      "featured": true
+    },
+    {
+      "id": "C0057",
+      "filename": "C0057.waffle",
+      "meta_filename": "C0057.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) — degree-4 cyl×cyl: parallel cylinders overlapping by 1e-6 (sliver lens union) [M5 near-tangent]",
+      "featured": true
+    },
+    {
+      "id": "C0058",
+      "filename": "C0058.waffle",
+      "meta_filename": "C0058.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,boss) — degree-4 cyl×cyl: EQUAL radii at 30° oblique crossing, union (dual-ellipse probe, Steinmetz volume) [M5-probe]",
+      "featured": true
+    },
+    {
+      "id": "C0059",
+      "filename": "C0059.waffle",
+      "meta_filename": "C0059.meta.json",
+      "description": "2 ops, scale=1.00e0, revolve(rectangle,boss)+extrude(rectangle,cut) — revolve composition: 90° partial revolve arm + vertical bore at the start azimuth [KV6b partial+boolean]",
+      "featured": true
+    },
+    {
+      "id": "C0060",
+      "filename": "C0060.waffle",
+      "meta_filename": "C0060.meta.json",
+      "description": "2 ops, scale=1.00e0, revolve(rectangle,boss)+extrude(rectangle,cut) — revolve composition: square-section ring + through-notch severs the band (C-ring, chi=2) [KV6 ring+cut]",
+      "featured": true
+    },
+    {
+      "id": "C0061",
+      "filename": "C0061.waffle",
+      "meta_filename": "C0061.meta.json",
+      "description": "2 ops, scale=1.00e0, revolve(rectangle,boss)+revolve(rectangle,cut) — revolve composition: cylindrical shaft + full-turn rectangular groove ring (revolve cut, chi=2) [KV6 groove]",
+      "featured": true
+    },
+    {
+      "id": "C0062",
+      "filename": "C0062.waffle",
+      "meta_filename": "C0062.meta.json",
+      "description": "2 ops, scale=1.00e0, revolve(rectangle,boss)+revolve(rectangle,boss) — revolve composition: coaxial revolve-on-revolve union, interpenetrating (chi=2) [KV6 revolve-on-revolve]",
+      "featured": true
+    },
+    {
+      "id": "C0063",
+      "filename": "C0063.waffle",
+      "meta_filename": "C0063.meta.json",
+      "description": "2 ops, scale=1.00e0, revolve(polygon,boss)+extrude(rectangle,cut) — revolve composition: full cone + oblique slab cut (conic-bounded patch) [KV6c-oblique]",
+      "featured": true
+    },
+    {
+      "id": "C0064",
+      "filename": "C0064.waffle",
+      "meta_filename": "C0064.meta.json",
+      "description": "3 ops, scale=1.00e0, revolve(polygon,boss)+revolve(polygon,boss)+revolve(polygon,boss) — revolve composition: 3 coaxial stacked frusta, interpenetrating unions (chi=2) [KV6c frusta chain]",
+      "featured": true
+    },
+    {
+      "id": "C0065",
+      "filename": "C0065.waffle",
+      "meta_filename": "C0065.meta.json",
+      "description": "2 ops, scale=1.00e0, revolve(circle,boss)+extrude(rectangle,cut) — revolve composition: full torus + through-notch severs the ring (chi=2) [KV6d torus boolean]",
+      "featured": true
+    },
+    {
+      "id": "C0066",
+      "filename": "C0066.waffle",
+      "meta_filename": "C0066.meta.json",
+      "description": "2 ops, scale=1.00e0, revolve(circle,boss)+extrude(rectangle,cut) — revolve composition: 90° partial torus + vertical bore at the start azimuth [KV6d partial+boolean]",
+      "featured": true
+    },
+    {
+      "id": "C0067",
+      "filename": "C0067.waffle",
+      "meta_filename": "C0067.meta.json",
+      "description": "2 ops, scale=1.00e0, revolve(circle,boss)+extrude(rectangle,cut) — revolve composition: sphere via on-axis circle revolve + polar notch (axis-through-profile probe) [KV6 sphere]",
+      "featured": true
+    },
+    {
+      "id": "C0068",
+      "filename": "C0068.waffle",
+      "meta_filename": "C0068.meta.json",
+      "description": "5 ops, scale=1.00e0, revolve(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut)+extrude(rectangle,cut)+extrude(rectangle,cut) — revolve composition: washer + 4 square through-bores in the band (g=5, chi=-8) [KV6 flange genus]",
+      "featured": true
+    },
+    {
+      "id": "C0069",
+      "filename": "C0069.waffle",
+      "meta_filename": "C0069.meta.json",
+      "description": "4 ops, scale=1.00e0, revolve(rectangle,boss)+revolve(rectangle,cut)+revolve(rectangle,cut)+revolve(rectangle,cut) — revolve composition: lathe shaft with 3 full-turn groove rings (chi=2) [KV6 lathe chain]",
+      "featured": true
+    },
+    {
+      "id": "C0070",
+      "filename": "C0070.waffle",
+      "meta_filename": "C0070.meta.json",
+      "description": "1 ops, scale=1.00e0, revolve(rectangle,boss) — revolve composition: full revolve about the tilted axis (1,1,1)/√3 (axis-alignment probe) [KV6a-tilted]",
+      "featured": true
+    },
+    {
+      "id": "C0071",
+      "filename": "C0071.waffle",
+      "meta_filename": "C0071.meta.json",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut) — multi-shell re-entry: internal-void body, then a cut breaches the cavity (chi=2 after breach) [KV7]",
+      "featured": true
+    },
+    {
+      "id": "C0072",
+      "filename": "C0072.waffle",
+      "meta_filename": "C0072.meta.json",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,boss) — multi-shell re-entry: internal-void body + external boss union (2 shells, chi=4) [KV7]",
+      "featured": true
+    },
+    {
+      "id": "C0073",
+      "filename": "C0073.waffle",
+      "meta_filename": "C0073.meta.json",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,cut) — multi-shell re-entry: two internal-void cavities side by side (3 shells, chi=6) [KV7]",
+      "featured": true
+    },
+    {
+      "id": "C0074",
+      "filename": "C0074.waffle",
+      "meta_filename": "C0074.meta.json",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut)+extrude(rectangle,boss) — multi-shell re-entry: internal-void body intersected with a half-slab, cavity kept (2 shells, chi=4) [KV7 intersect]",
+      "featured": true
+    },
+    {
+      "id": "C0075",
+      "filename": "C0075.waffle",
+      "meta_filename": "C0075.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(gear,boss)+extrude(gear,boss) — gear/CDT tail: two 12-tooth gears overlapping, union at scale 1 [CDT gear×gear]",
+      "featured": true
+    },
+    {
+      "id": "C0076",
+      "filename": "C0076.waffle",
+      "meta_filename": "C0076.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(gear,boss)+extrude(gear,cut) — gear/CDT tail: 20-tooth gear minus coaxial 10-tooth gear through-cut (ring gear, chi=0) [CDT ring-gear]",
+      "featured": true
+    },
+    {
+      "id": "C0077",
+      "filename": "C0077.waffle",
+      "meta_filename": "C0077.meta.json",
+      "description": "1 ops, scale=1.00e0, extrude(gear,boss) — gear/CDT tail: 40-tooth gear single extrude (pure non-convex CDT stress) [CDT-40t]",
+      "featured": true
+    },
+    {
+      "id": "C0078",
+      "filename": "C0078.waffle",
+      "meta_filename": "C0078.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(gear,boss)+extrude(rectangle,cut) — gear/CDT tail: 12-tooth gear + square through-cut at scale 1 (chi=0) [CDT gear+cut]",
+      "featured": true
+    },
+    {
+      "id": "C0079",
+      "filename": "C0079.waffle",
+      "meta_filename": "C0079.meta.json",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) — combine modes: NewBody pair bridged by an Add extrude with explicit targets [A,B] (dumbbell, 1 body)",
+      "featured": true
+    },
+    {
+      "id": "C0080",
+      "filename": "C0080.waffle",
+      "meta_filename": "C0080.meta.json",
+      "description": "4 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,cut) — combine modes: three bodies; blind Cut with explicit target pockets body B only (3 bodies)",
+      "featured": true
+    },
+    {
+      "id": "C0081",
+      "filename": "C0081.waffle",
+      "meta_filename": "C0081.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — combine modes: Intersect combine-mode extrude — result is the overlap block (chi=2)",
+      "featured": true
+    },
+    {
+      "id": "C0082",
+      "filename": "C0082.waffle",
+      "meta_filename": "C0082.meta.json",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,boss) — combine modes: Add with explicit non-most-recent target (boss lands on body A; 2 bodies)",
+      "featured": true
+    },
+    {
+      "id": "C0083",
+      "filename": "C0083.waffle",
+      "meta_filename": "C0083.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — combine modes: NewBody overlapping the existing body (2 independent bodies, summed volume)",
+      "featured": true
+    },
+    {
+      "id": "C0084",
+      "filename": "C0084.waffle",
+      "meta_filename": "C0084.meta.json",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+boolean(rectangle,cut) — combine modes: explicit BooleanCombine subtract: through-bar tool notches a channel across the slab (chi=2)",
+      "featured": true
+    },
+    {
+      "id": "C0085",
+      "filename": "C0085.waffle",
+      "meta_filename": "C0085.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — depth modes: symmetric rib boss spanning both sides of the slab (chi=2)",
+      "featured": true
+    },
+    {
+      "id": "C0086",
+      "filename": "C0086.waffle",
+      "meta_filename": "C0086.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,cut) — depth modes: symmetric through-cut (chi=0)",
+      "featured": true
+    },
+    {
+      "id": "C0087",
+      "filename": "C0087.waffle",
+      "meta_filename": "C0087.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — depth modes: bidirectional boss, Blind second direction (0.3 up / 0.5 down, chi=2)",
+      "featured": true
+    },
+    {
+      "id": "C0088",
+      "filename": "C0088.waffle",
+      "meta_filename": "C0088.meta.json",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,cut) — depth modes: ThroughAll cut pierces the whole 2-level stack (chi=0)",
+      "featured": true
+    },
+    {
+      "id": "C0089",
+      "filename": "C0089.waffle",
+      "meta_filename": "C0089.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — depth modes: boss with explicit reversed direction (−normal) reaching down into the slab (chi=2)",
+      "featured": true
+    },
+    {
+      "id": "C0090",
+      "filename": "C0090.waffle",
+      "meta_filename": "C0090.meta.json",
+      "description": "3 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss)+extrude(rectangle,cut) — depth modes: symmetric rib + ThroughAll cut through rib and slab (chi=0)",
+      "featured": true
+    },
+    {
+      "id": "C0091",
+      "filename": "C0091.waffle",
+      "meta_filename": "C0091.meta.json",
+      "description": "1 ops, scale=1.00e0, extrude(polygon,boss) — holed profile: one-op annular square extrude (KV14 holed profile, g=1, chi=0)",
+      "featured": true
+    },
+    {
+      "id": "C0092",
+      "filename": "C0092.waffle",
+      "meta_filename": "C0092.meta.json",
+      "description": "1 ops, scale=1.00e0, extrude(polygon,boss) — holed profile: one-op rectangle with 3 holes (g=3, chi=-4)",
+      "featured": true
+    },
+    {
+      "id": "C0093",
+      "filename": "C0093.waffle",
+      "meta_filename": "C0093.meta.json",
+      "description": "1 ops, scale=1.00e0, extrude(rectangle,boss) — holed profile: two disjoint profiles in one sketch; extrude profile_index=1 only (chi=2)",
+      "featured": true
+    },
+    {
+      "id": "C0094",
+      "filename": "C0094.waffle",
+      "meta_filename": "C0094.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — holed profile: one sketch, two extrudes (profile_index 0 and 1, NewBody — 2 bodies)",
+      "featured": true
+    },
+    {
+      "id": "C0095",
+      "filename": "C0095.waffle",
+      "meta_filename": "C0095.meta.json",
+      "description": "2 ops, scale=1.00e0, extrude(polygon,boss)+extrude(rectangle,cut) — holed profile: annular-square boss + through-cut in the band (g=2, chi=-2)",
+      "featured": true
+    },
+    {
+      "id": "C0096",
+      "filename": "C0096.waffle",
+      "meta_filename": "C0096.meta.json",
+      "description": "1 ops, scale=1.00e0, extrude(polygon,boss) — holed profile: L-shaped outer with a square hole, one op (g=1, chi=0)",
+      "featured": true
+    },
+    {
+      "id": "C0097",
+      "filename": "C0097.waffle",
+      "meta_filename": "C0097.meta.json",
+      "description": "1 ops, scale=1.00e0, extrude(circle,boss) — region extrude: annulus sub-region between concentric circles (g=1, chi=0)",
+      "featured": true
+    },
+    {
+      "id": "C0098",
+      "filename": "C0098.waffle",
+      "meta_filename": "C0098.meta.json",
+      "description": "1 ops, scale=1.00e0, extrude(circle,boss) — region extrude: lens sub-region of two crossing circles (chi=2)",
+      "featured": true
+    },
+    {
+      "id": "C0099",
+      "filename": "C0099.waffle",
+      "meta_filename": "C0099.meta.json",
+      "description": "1 ops, scale=1.00e0, extrude(circle,boss) — region extrude: crescent sub-region of two crossing circles (chi=2)",
+      "featured": true
+    },
+    {
+      "id": "C0100",
+      "filename": "C0100.waffle",
+      "meta_filename": "C0100.meta.json",
+      "description": "1 ops, scale=1.00e0, extrude(rectangle,boss) — region extrude: two adjacent sub-regions extruded as ONE body (2D-union regions path, chi=2)",
       "featured": true
     }
   ]

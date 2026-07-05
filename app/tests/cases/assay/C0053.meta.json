@@ -1,0 +1,67 @@
+{
+  "id": "C0053",
+  "description": "2 ops, scale=1.00e0, extrude(circle,boss)+extrude(circle,cut) — degree-4 cyl×cyl: unequal radii, axes at 45°, through-cut (chi=0) [M5-oblique]",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 1.0,
+  "log_scale": 0.0,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "circle",
+      "profile_size": 0.5,
+      "depth_or_angle": 2.0,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "circle",
+      "profile_size": 0.3,
+      "depth_or_angle": 4.0,
+      "is_cut": true,
+      "plane_origin": [
+        1.4142135623730951,
+        0.0,
+        2.414213562373095
+      ],
+      "plane_normal": [
+        0.7071067811865476,
+        0.0,
+        0.7071067811865476
+      ]
+    }
+  ],
+  "oracles": {
+    "euler_target": 0,
+    "expect_watertight": true,
+    "max_bbox_extent": 6.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "decrease"
+    ],
+    "expect_rebuild_error": false
+  },
+  "generator_version": 4,
+  "featured": true
+}

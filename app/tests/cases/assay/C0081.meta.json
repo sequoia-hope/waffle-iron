@@ -1,0 +1,68 @@
+{
+  "id": "C0081",
+  "description": "2 ops, scale=1.00e0, extrude(rectangle,boss)+extrude(rectangle,boss) — combine modes: Intersect combine-mode extrude — result is the overlap block (chi=2)",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 1.0,
+  "log_scale": 0.0,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 1.0,
+      "depth_or_angle": 1.0,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "rectangle",
+      "profile_size": 1.0,
+      "depth_or_angle": 1.0,
+      "is_cut": false,
+      "plane_origin": [
+        0.3,
+        0.2,
+        0.4
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 4.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "increase"
+    ],
+    "expect_rebuild_error": false,
+    "expected_volume": 0.33599999999999997
+  },
+  "generator_version": 4,
+  "featured": true
+}

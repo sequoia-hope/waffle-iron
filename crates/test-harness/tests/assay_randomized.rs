@@ -279,7 +279,12 @@ fn spotlight_f0094_disc_disc_crossing() {
     }
     let r = run_single_case(dir, "F0094", true).expect("F0094 not found in corpus");
     println!("F0094 status={:?} detail={}", r.status, r.detail);
-    assert_eq!(r.status, AssayStatus::Passed, "F0094 must pass: {}", r.detail);
+    assert_eq!(
+        r.status,
+        AssayStatus::Passed,
+        "F0094 must pass: {}",
+        r.detail
+    );
 }
 
 /// Generate the full catalog markdown and write to ASSAY_CATALOG.md.

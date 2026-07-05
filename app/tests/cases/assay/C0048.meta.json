@@ -1,0 +1,177 @@
+{
+  "id": "C0048",
+  "description": "8 ops, scale=1.00e0, extrude(circle,boss)+…+extrude(circle,cut) [8 ops] — M8 coplanar: two flush swiss-cheese plates, offset hole rings (all pockets, chi=2) [M8 chained F0086-90]",
+  "master_seed": 0,
+  "test_seed": 0,
+  "scale": 1.0,
+  "log_scale": 0.0,
+  "plane_origin": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "plane_normal": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "operations": [
+    {
+      "kind": "extrude",
+      "profile_type": "circle",
+      "profile_size": 1.5,
+      "depth_or_angle": 0.4,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "circle",
+      "profile_size": 0.2,
+      "depth_or_angle": 2.0,
+      "is_cut": true,
+      "plane_origin": [
+        0.8,
+        0.0,
+        1.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "circle",
+      "profile_size": 0.2,
+      "depth_or_angle": 2.0,
+      "is_cut": true,
+      "plane_origin": [
+        -0.39999999999999986,
+        0.692820323027551,
+        1.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "circle",
+      "profile_size": 0.2,
+      "depth_or_angle": 2.0,
+      "is_cut": true,
+      "plane_origin": [
+        -0.40000000000000036,
+        -0.6928203230275507,
+        1.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "circle",
+      "profile_size": 1.5,
+      "depth_or_angle": 0.4,
+      "is_cut": false,
+      "plane_origin": [
+        0.0,
+        0.0,
+        0.4
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "circle",
+      "profile_size": 0.2,
+      "depth_or_angle": 1.7,
+      "is_cut": true,
+      "plane_origin": [
+        0.40000000000000013,
+        0.6928203230275509,
+        2.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "circle",
+      "profile_size": 0.2,
+      "depth_or_angle": 1.7,
+      "is_cut": true,
+      "plane_origin": [
+        -0.8,
+        9.797174393178826e-17,
+        2.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "kind": "extrude",
+      "profile_type": "circle",
+      "profile_size": 0.2,
+      "depth_or_angle": 1.7,
+      "is_cut": true,
+      "plane_origin": [
+        0.40000000000000013,
+        -0.6928203230275509,
+        2.0
+      ],
+      "plane_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  ],
+  "oracles": {
+    "euler_target": 2,
+    "expect_watertight": true,
+    "max_bbox_extent": 7.0,
+    "expect_positive_volume": true,
+    "volume_monotonicity": [
+      "increase",
+      "decrease",
+      "decrease",
+      "decrease",
+      "increase",
+      "decrease",
+      "decrease",
+      "decrease"
+    ],
+    "expect_rebuild_error": false,
+    "expected_volume": 5.31557476987393,
+    "expected_volume_tol_rel": 0.05
+  },
+  "generator_version": 4,
+  "featured": true
+}
