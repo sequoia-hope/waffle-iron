@@ -38,6 +38,13 @@ that override older phrasing in this document:
   and ships; a score-chasing special case that papers over a structural deviation
   does not. (This reframes the per-slice "assay N→M" framing throughout §4/§4b:
   those numbers are history, not the objective.)
+  *(2026-07-05: the corpus grew 194 → 294 with the curated C-series complexity
+  cases — genus-N topology, long interleaved chains, near-degeneracy, and named
+  milestone trackers per family: [M8] C0041–C0050, [M5/KV9] C0051–C0058,
+  [KV6] C0059–C0070, [KV7] C0071–C0074. Trackers flip green when their
+  milestone lands — un-pin them in the same PR. Group 1/3 cases carry EXACT
+  volume oracles (`expected_volume` in the meta). Spec:
+  `specs/assay_complexity_corpus.md`.)*
 - **General over piecemeal.** Where the paper gives one algorithm for a family of
   cases (coplanarity, face provenance, mesh updating), we implement that one
   algorithm — not a lattice of shape-specific handlers (planar-only,

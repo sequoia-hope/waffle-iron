@@ -835,6 +835,46 @@ fn smoke_corpus_boundary_categories() {
         ("F0075", Category::Unsupported(UnsupportedReason::Revolve)),
         // R0008 stays walled (circle-profile revolve → torus, KV6d).
         ("R0008", Category::Unsupported(UnsupportedReason::Revolve)),
+        // ── C-series complexity corpus (2026-07-05 baseline) ─────────────
+        // Representative pins per family; see specs/assay_complexity_corpus.md.
+        // Group 1/3 (in-boundary bug hunters) — green, with two NAMED
+        // findings pinned RED honestly:
+        ("C0001", Category::SupportedCorrect), // 1a genus-2 plate
+        ("C0021", Category::SupportedCorrect), // 1c star + through-cut
+        // FINDING C0035-F1: a 100 µm pocket floor (100× the 1 µm feature
+        // floor, A14.2) is welded away — the blind pocket becomes a
+        // through-hole (chi 0, expected 2). The volume oracle cannot see
+        // 6.4e-5 m³; the chi oracle caught it. Real thin-wall defect.
+        ("C0035", Category::SupportedWrong),
+        ("C0038", Category::SupportedCorrect), // 1d 10 µm hole in 1 m cube
+        // FINDING C0079-F1: multi-target Add with DISJOINT explicit targets
+        // silently drops body B (no error/warning; volume 1.625 vs 2.5).
+        ("C0079", Category::SupportedWrong),
+        ("C0083", Category::SupportedCorrect), // 3a NewBody overlap, 2 bodies
+        ("C0091", Category::SupportedCorrect), // 3c one-op holed profile
+        ("C0100", Category::SupportedCorrect), // 3d plural-regions extrude
+        // Group 2 trackers — the 2026-07-05 boundary. Several designed
+        // trackers turned out SUPPORTED (capability better than documented);
+        // they are pinned green so regressions are loud:
+        ("C0041", Category::SupportedCorrect), // same-section crossing tunnels (M8 class!)
+        ("C0042", Category::SupportedCorrect), // external rim tangency
+        ("C0047", Category::SupportedCorrect), // holed-disc partner (task #54 class)
+        ("C0057", Category::SupportedCorrect), // near-tangent 1e-6 lens union
+        ("C0066", Category::SupportedCorrect), // partial torus + bore
+        ("C0077", Category::SupportedCorrect), // 40-tooth gear CDT
+        // Still-walled trackers (flip these when the milestone lands):
+        (
+            "C0048",
+            Category::Unsupported(UnsupportedReason::CoplanarBoolean),
+        ), // [M8] chained swiss-cheese plates
+        ("C0052", Category::Error), // [M5] unequal-R perpendicular CUT
+        ("C0058", Category::Error), // [M5] equal-R 30° oblique union
+        ("C0063", Category::Error), // [KV6c] oblique cone cut
+        ("C0065", Category::Unsupported(UnsupportedReason::Revolve)), // [KV6d] torus boolean
+        (
+            "C0071",
+            Category::Unsupported(UnsupportedReason::MultiShell),
+        ), // [KV7] void breach
     ];
     for (id, expect) in expected {
         let case = cases

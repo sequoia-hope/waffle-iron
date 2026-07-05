@@ -3,31 +3,31 @@
   "version": 3,
   "document": {
     "name": "Assay C0096",
-    "created": "2026-07-05T20:21:54.922431066Z",
-    "modified": "2026-07-05T20:21:54.922431066Z"
+    "created": "2026-07-05T20:52:55.181416368Z",
+    "modified": "2026-07-05T20:52:55.181416368Z"
   },
   "tabs": [
     {
-      "id": "4ec73c65-eabb-40a1-adda-d07fa3f7f092",
+      "id": "44fd214f-25d8-41fb-954e-e5626d6d0993",
       "name": "Part 1",
       "kind": {
         "type": "Part",
         "features": {
           "features": [
             {
-              "id": "8fdf52a2-78c1-4ed2-9086-301cfcd98bd3",
+              "id": "039157f1-dfde-44e6-8e64-8e85bfa51f96",
               "name": "Sketch 1",
               "operation": {
                 "type": "Sketch",
                 "sketch": {
-                  "id": "8fdf52a2-78c1-4ed2-9086-301cfcd98bd3",
+                  "id": "039157f1-dfde-44e6-8e64-8e85bfa51f96",
                   "plane": {
                     "kind": {
                       "type": "Face"
                     },
                     "anchor": {
                       "type": "Datum",
-                      "datum_id": "93f1b861-6ee7-4dc6-84f3-f906d3286d5e"
+                      "datum_id": "039156f1-dfde-4333-8e64-8d85bfa51de3"
                     },
                     "selector": {
                       "type": "Role",
@@ -197,45 +197,45 @@
                     "type": "FullyConstrained"
                   },
                   "solved_positions": {
-                    "3": [
-                      1.5,
-                      0.0
+                    "1": [
+                      -1.5,
+                      -1.5
                     ],
-                    "44": [
-                      -1.15,
-                      -1.15
+                    "42": [
+                      -0.34999999999999987,
+                      -0.34999999999999987
                     ],
                     "43": [
                       -0.34999999999999987,
                       -1.15
                     ],
-                    "4": [
-                      0.0,
+                    "2": [
+                      1.5,
+                      -1.5
+                    ],
+                    "6": [
+                      -1.5,
+                      1.5
+                    ],
+                    "3": [
+                      1.5,
                       0.0
                     ],
                     "5": [
                       0.0,
                       1.5
                     ],
-                    "42": [
-                      -0.34999999999999987,
-                      -0.34999999999999987
+                    "44": [
+                      -1.15,
+                      -1.15
                     ],
-                    "2": [
-                      1.5,
-                      -1.5
-                    ],
-                    "1": [
-                      -1.5,
-                      -1.5
+                    "4": [
+                      0.0,
+                      0.0
                     ],
                     "41": [
                       -1.15,
                       -0.34999999999999987
-                    ],
-                    "6": [
-                      -1.5,
-                      1.5
                     ]
                   },
                   "solved_profiles": [
@@ -280,12 +280,12 @@
               "references": []
             },
             {
-              "id": "fdd29e66-83ad-4e5f-bb38-158faf2d28c1",
+              "id": "039155f1-dfde-4180-8e64-8c85bfa51c30",
               "name": "Extrude 1",
               "operation": {
                 "type": "Extrude",
                 "params": {
-                  "sketch_id": "8fdf52a2-78c1-4ed2-9086-301cfcd98bd3",
+                  "sketch_id": "039157f1-dfde-44e6-8e64-8e85bfa51f96",
                   "profile_index": 0,
                   "depth": 0.4,
                   "direction": null,
@@ -309,5 +309,5 @@
       }
     }
   ],
-  "active_tab": "4ec73c65-eabb-40a1-adda-d07fa3f7f092"
+  "active_tab": "44fd214f-25d8-41fb-954e-e5626d6d0993"
 }

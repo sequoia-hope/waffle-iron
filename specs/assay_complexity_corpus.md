@@ -185,6 +185,38 @@ body (`regions` plural path). Curved regions use tol_rel 0.05.
   expected geometry; the category table shows the miss). It must NOT be
   re-authored to dodge the bug, and must NOT block landing the corpus.
 
+## Baseline findings (2026-07-05, first full run)
+
+The corpus found three real defects on its first run:
+
+- **C0079-F1** — multi-target `Add` with DISJOINT explicit targets `[A, B]`
+  silently drops body B: no error, no warning, one output solid, volume
+  1.625 (= A∪tool) instead of 2.5 (= A∪B∪tool). Silent material loss in the
+  optional-booleans multi-target path. Repro: `C0079`.
+- **C0035-F1** — a 100 µm blind-pocket floor (100× the A14.2 feature floor)
+  is welded away: the pocket becomes a through-hole (χ = 0, expected 2).
+  The volume delta (6.4e-5 m³) is below the volume oracle's resolution; the
+  pinned Euler characteristic caught it. Repro: `C0035`.
+- Boundary corrections — several designed trackers are SUPPORTED today
+  (capability better than documented): same-section crossing coplanar
+  tunnel walls (C0041), external rim tangency (C0042), edge-only box
+  contact (C0045), holed-disc partner (C0047, the task-#54 class), flush
+  cuts and partial-overlap chains (C0049/C0050), parallel lateral tangency
+  and 1e-6 near-tangency (C0055/C0057), partial revolve/torus + bore
+  (C0059/C0060/C0066), washer flange genus-5 (C0068), all four gear/CDT
+  cases including the 40-tooth CDT stress (C0075 is coplanar-walled;
+  C0076–C0078 pass). The M5/KV6 walls that remain: unequal-R and oblique
+  degree-4 CUTS (C0052–C0054, C0056), equal-R oblique union (C0058),
+  revolve-cut grooves and revolve-on-revolve (C0061/C0062/C0069), oblique
+  cone cut (C0063), frusta chain (C0064), torus/sphere booleans
+  (C0065/C0067 — typed revolve walls), tilted-axis revolve (C0070), and
+  KV7 multi-shell re-entry (C0071–C0074).
+
+Two authoring errors found by the same run were fixed in-generator (C0051
+bbox bound; C0074 missing explicit Intersect target — cf. C0081) and the
+corpus regenerated; generator UUIDs are deterministic (FNV-based) so
+regeneration is byte-stable.
+
 ## Runtime budget
 
 Designed for ≤ ~5 s/case typical (scale ≈ 1, modest profiles; no microscale

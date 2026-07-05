@@ -175,6 +175,7 @@ struct CCase {
     /// Only maintained by the AABB-based families.
     vops: Vec<VOp>,
     op_counter: usize,
+    uid_counter: usize,
 }
 
 impl CCase {
@@ -186,11 +187,37 @@ impl CCase {
             ops: Vec::new(),
             vops: Vec::new(),
             op_counter: 0,
+            uid_counter: 0,
         }
     }
 
+    /// Deterministic UUID ("case-id:counter" hashed via FNV-1a into a
+    /// version-4-shaped id) — regenerating the corpus is byte-stable, so
+    /// `--complexity-only` reruns produce no spurious churn in the
+    /// committed files.
+    fn uid(&mut self) -> Uuid {
+        self.uid_counter += 1;
+        let key = format!("waffle-assay-{}:{}", self.id, self.uid_counter);
+        let mut bytes = [0u8; 16];
+        // Two independent FNV-1a streams (offset-basis tweaked for the
+        // second half) fill the 16 bytes deterministically.
+        for (half, seed) in [(0usize, 0xcbf2_9ce4_8422_2325u64), (1, 0x9e37_79b9_7f4a_7c15)] {
+            let mut h = seed;
+            for b in key.bytes() {
+                h ^= u64::from(b);
+                h = h.wrapping_mul(0x0000_0100_0000_01B3);
+            }
+            bytes[half * 8..half * 8 + 8].copy_from_slice(&h.to_be_bytes());
+        }
+        // RFC 4122 version + variant bits so the id parses as a v4 UUID.
+        bytes[6] = (bytes[6] & 0x0F) | 0x40;
+        bytes[8] = (bytes[8] & 0x3F) | 0x80;
+        Uuid::from_bytes(bytes)
+    }
+
     fn push_sketch(&mut self, origin: [f64; 3], normal: [f64; 3], profile: ProfileData) -> Uuid {
-        let sketch_id = Uuid::new_v4();
+        let sketch_id = self.uid();
+        let plane_uid = self.uid();
         let (entities, positions, profiles) = profile;
         self.features.push(Feature {
             id: sketch_id,
@@ -198,7 +225,7 @@ impl CCase {
             operation: Operation::Sketch {
                 sketch: Sketch {
                     id: sketch_id,
-                    plane: datum_plane_ref(Uuid::new_v4()),
+                    plane: datum_plane_ref(plane_uid),
                     plane_origin: origin,
                     plane_normal: normal,
                     entities,
@@ -252,7 +279,7 @@ impl CCase {
         let mut params = Self::default_extrude_params(sketch_id, depth, cut);
         tweak(&mut params);
         self.op_counter += 1;
-        let fid = Uuid::new_v4();
+        let fid = self.uid();
         self.features.push(Feature {
             id: fid,
             name: format!("Extrude {}", self.op_counter),
@@ -312,7 +339,7 @@ impl CCase {
         params.profile_index = profile_index;
         tweak(&mut params);
         self.op_counter += 1;
-        let fid = Uuid::new_v4();
+        let fid = self.uid();
         self.features.push(Feature {
             id: fid,
             name: format!("Extrude {}", self.op_counter),
@@ -430,7 +457,7 @@ impl CCase {
     ) -> Uuid {
         let sketch_id = self.push_sketch(origin, normal, profile);
         self.op_counter += 1;
-        let fid = Uuid::new_v4();
+        let fid = self.uid();
         self.features.push(Feature {
             id: fid,
             name: format!("Revolve {}", self.op_counter),
@@ -464,7 +491,7 @@ impl CCase {
 
     fn boolean(&mut self, a: Uuid, b: Uuid, op: BooleanOp) -> Uuid {
         self.op_counter += 1;
-        let fid = Uuid::new_v4();
+        let fid = self.uid();
         self.features.push(Feature {
             id: fid,
             name: format!("Boolean {}", self.op_counter),
@@ -1587,7 +1614,10 @@ fn family_cyl_degree4(dir: &Path) -> Vec<ManifestEntry> {
             dir,
             c,
             d,
-            Knobs::tracker(if cut { 0 } else { 2 }, 6.0),
+            // 8.0: the horizontal tool cylinder spans x ∈ [−1.5, 2], so the
+            // union's bbox diagonal is ≈ 6.4 (measured; the union WORKS —
+            // an M5 boundary correction).
+            Knobs::tracker(if cut { 0 } else { 2 }, 8.0),
         ));
     }
     // C0053: unequal radii at 45°.
@@ -2245,7 +2275,7 @@ fn family_multishell(dir: &Path) -> Vec<ManifestEntry> {
     {
         let mut c = CCase::new("C0074");
         c.vboss([0.0, 0.0, 0.0], Z, 2.0, 2.0, 1.0);
-        c.vcut([-0.5, 0.0, 0.65], Z, 0.6, 0.6, 0.3);
+        let void_cut = c.vcut([-0.5, 0.0, 0.65], Z, 0.6, 0.6, 0.3);
         c.extrude_with(
             [-0.75, 0.0, -0.5],
             Z,
@@ -2254,7 +2284,12 @@ fn family_multishell(dir: &Path) -> Vec<ManifestEntry> {
             1.5,
             2.5,
             false,
-            |p| p.combine = Some(CombineMode::Intersect),
+            |p| {
+                p.combine = Some(CombineMode::Intersect);
+                // Explicit target: an interpenetrating slab shares no face,
+                // so Auto (share-a-face) would resolve nothing (cf. C0081).
+                p.targets = Some(vec![body_ref(void_cut)]);
+            },
         );
         c.vops.push(VOp::Int(tool_box(
             [-0.75, 0.0, -0.5],
