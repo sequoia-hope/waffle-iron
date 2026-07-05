@@ -101,6 +101,16 @@ c3939caa, 085ee94e, 1e723cdb, 9a8d3a22.
 - [x] Tests: 14 new Rust (drag_stability_tests, pinned_constraint_tests) + 5
       new GUI tests; key branches mutation-verified
 
+**M11b (2026-07-05): second explosion mechanism — drag ↔ auto-fit camera
+feedback loop.** User's sketch.waffle still exploded intermittently after the
+solver fix: mid-drag auto-fit rescaled the pointer→sketch mapping →
+drag target teleported outward → geometry grew → fit again (exponential,
+26mm → 4.4m in one gesture, solver healthy throughout). Fix: sketch auto-fit
+gated on the new `sketchDragActive` store flag (I6 pointer-mapping
+stability, spec §4b); fit runs on release. Regression:
+sketch-drag-autofit-feedback.spec.js (real pointer, reproduction document in
+tests/gui/fixtures/) + waffle_repro.rs solver-robustness hunts.
+
 Follow-ups (discovered, not blocking):
 - [ ] **Pin persistence**: FinishSketch filters ALL WhereDragged out of
       persisted features (store.svelte.js ~4240) — pins are lost across

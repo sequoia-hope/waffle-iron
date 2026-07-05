@@ -77,6 +77,30 @@ There is no mode/toggle: proximal regularization is unconditional (Constitution
   `solver.rs`) → I3, I5. No test may be weakened.
 - `SolveFailed` case with impossible constraints → positions echo input (I4).
 
+### 4b. Second explosion mechanism: drag ↔ auto-fit camera feedback (2026-07-05)
+
+Found via the user-supplied reproduction document (two origin-centered
+centerpoint rects, Equal on inner top+left edges, no pin — the pin was
+stripped by FinishSketch on save). With the solver fixed and provably
+bounded on this fixture (waffle_repro.rs hunts), the app still exploded
+intermittently: dragging the corner outward grows the sketch legitimately;
+when the extent crosses 80% of the view, the growth-gated auto-fit zooms out
+MID-DRAG; the pointer→sketch mapping rescales; the unchanged mouse pixel now
+maps ~1.2× farther out; the drag target teleports outward; the sketch grows
+again → exponential runaway through the VIEWPORT, ~1.2×/frame (26mm → 4.4m
+observed in one gesture), with the solver reporting healthy UnderConstrained
+throughout. Intermittency = whether the first fit trips while the button is
+still down.
+
+- I6 (**pointer-mapping stability**): the camera — and therefore the
+  pointer→sketch mapping — must not change while a drag gesture is active.
+  The sketch auto-fit is gated on `sketchDragActive` (store flag set on drag
+  start, cleared in finalizeDrag); the fit runs on release instead.
+- Oracle: `sketch-drag-autofit-feedback.spec.js` — full-canvas whip of the
+  corner in ONE gesture on the reproduction document; asserts frustumTop
+  constant for the whole gesture and final extent < 2× the drag-start
+  visible half-range (pre-fix: blows past 1 m).
+
 ## 6. Failure modes
 
 - Unsatisfiable constraint sets: unchanged — `OverConstrained` /

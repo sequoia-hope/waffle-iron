@@ -5,7 +5,8 @@
 	import * as THREE from 'three';
 	import {
 		getSketchMode, setCameraRefs, getSketchPositions, getMeshes,
-		getCameraProjection, setViewCubeTransform, setTwoFingerActive
+		getCameraProjection, setViewCubeTransform, setTwoFingerActive,
+		getSketchDragActive
 	} from '$lib/engine/store.svelte.js';
 	import { buildSketchPlane } from '$lib/sketch/sketchCoords.js';
 
@@ -1039,6 +1040,12 @@
 		if (!sketchActive) { lastAutoFitExtent = 0; return; }
 		if (!cameraRef || !controlsRef) return;
 		const positions = getSketchPositions();
+		// NEVER fit during an active drag gesture: a mid-drag zoom rescales the
+		// pointer→sketch mapping, teleporting the drag target outward and
+		// re-growing the geometry — an exponential feedback loop that blew a
+		// 26mm sketch past 4m in one gesture. Reading the reactive flag here
+		// also re-runs this effect on release, so the fit happens then.
+		if (getSketchDragActive()) return;
 		const hasMeshes = getMeshes().length > 0;
 		if (hasMeshes || positions.size < 2) return;
 

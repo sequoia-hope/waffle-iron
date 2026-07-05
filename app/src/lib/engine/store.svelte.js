@@ -2596,6 +2596,17 @@ export function deleteGear(gearId) {
 let dragState = null;
 
 /**
+ * Reactive flag: a sketch drag gesture is in progress. The sketch auto-fit
+ * in CameraControls must NOT run while this is true — a mid-drag fit
+ * rescales the pointer→sketch mapping, which teleports the drag target
+ * outward, which grows the geometry, which re-triggers the fit: an
+ * exponential feedback loop (observed blowing a 26mm sketch past 4 meters
+ * within a single gesture; see sketch-drag-autofit-feedback.spec.js).
+ */
+let sketchDragActive = $state(false);
+export function getSketchDragActive() { return sketchDragActive; }
+
+/**
  * Begin dragging a sketch point. Adds a temporary WhereDragged constraint
  * and updates the point position, triggering a solve.
  * @param {number} pointId
@@ -2615,6 +2626,7 @@ export function dragSketchPoint(pointId, newX, newY) {
 			positionsBefore: snapshotPositions(),
 			camera: getCameraState()
 		};
+		sketchDragActive = true;
 	}
 
 	// Update position locally
@@ -2667,6 +2679,7 @@ export function finalizeDrag() {
 	}
 
 	dragState = null;
+	sketchDragActive = false;
 }
 
 /**
@@ -2695,6 +2708,7 @@ export function dragSketchLine(lineId, dx, dy) {
 			positionsBefore: snapshotPositions(),
 			camera: getCameraState(),
 		};
+		sketchDragActive = true;
 	}
 
 	const nextPos = new Map(sketchPositions);
