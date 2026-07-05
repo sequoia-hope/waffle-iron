@@ -140,6 +140,15 @@ test.describe('snap preview candidates', () => {
 		expect(candidates.length).toBe(0);
 	});
 
+	// O8 (adjudicated repair — specs/snap_inference_and_priority.md §"Candidate-
+	// dedup + spec:143 repair"). The original used a 0.5 sketch-unit tolerance,
+	// ~300× the whole drawing, so it flagged every candidate as the active
+	// marker. Intent preserved with PIXEL-DERIVED tolerances (CANDIDATE_DEDUP_PX
+	// = 4px, via getSketchPixelSize): the active snap's own marker is absent from
+	// the candidates, while DISTINCT nearby candidates (a point 6px away, plus
+	// origin and midpoint) are retained. RED on current code: the hardcoded
+	// 0.001-sketch-unit filter (~10.5px at this zoom) OVER-filters, wrongly
+	// discarding the distinct 6px point.
 	test('active snap filtered from candidates', async ({ waffle }) => {
 		const page = waffle.page;
 		await clickSketch(page);
@@ -147,35 +156,55 @@ test.describe('snap preview candidates', () => {
 		// Increase preview radius
 		await page.evaluate(() => window.__waffle.updateSnapSettings({ previewPx: 100 }));
 
-		// Draw a horizontal line to create endpoints
+		// Draw a horizontal line to create endpoints (fixes the sketch zoom).
 		await drawLine(page, -80, 0, 80, 0);
 		await waitForEntityCount(page, 3, 3000);
 
-		// Start a new line far away
+		// A DISTINCT snap target 6px to the right of the left endpoint — beyond the
+		// 4px dedup radius, so it must be retained. (Inside the line's bbox → no
+		// re-fit, so the zoom/pixel size is unchanged.)
+		const ps = await page.evaluate(() => window.__waffle.getSketchPixelSize());
+		const leftX = -80 * ps;
+		const nearbyX = leftX + 6 * ps;
+		await page.evaluate((x) => {
+			window.__waffle.addSketchEntity({ type: 'Point', id: 90001, x, y: 0, construction: false });
+		}, nearbyX);
+		await page.waitForTimeout(150);
+
+		// Start a new line far away, then move onto the left endpoint → active snap.
 		await clickAt(page, 0, -150);
 		await page.waitForTimeout(200);
-
-		// Move directly to the left endpoint — should trigger active snap
 		await moveTo(page, -80, 0);
 		await page.waitForTimeout(300);
 
-		const indicator = await page.evaluate(() =>
-			window.__waffle.getSnapIndicator()
-		);
-		const candidates = await page.evaluate(() =>
-			window.__waffle.getSnapCandidates()
-		);
+		const { indicator, candidates, pxSize } = await page.evaluate(() => ({
+			indicator: window.__waffle.getSnapIndicator(),
+			candidates: window.__waffle.getSnapCandidates(),
+			pxSize: window.__waffle.getSketchPixelSize(),
+		}));
 
-		// Should have an active snap indicator
-		expect(indicator).not.toBeNull();
-		expect(indicator.type).toBeTruthy();
-
-		// Candidates should NOT contain an entry at the exact active snap coords
+		expect(indicator, 'an active snap is shown at the left endpoint').not.toBeNull();
+		expect(indicator.type).toBe('coincident');
 		expect(Array.isArray(candidates)).toBe(true);
-		const activeAtSameCoord = candidates.some(
-			c => Math.abs(c.x - indicator.x) < 0.5 && Math.abs(c.y - indicator.y) < 0.5
+
+		// Pixel-derived dedup radius (CANDIDATE_DEDUP_PX = 4).
+		const dedupTol = 4 * pxSize;
+
+		// (1) The active snap's OWN marker is absent (deduped).
+		const activeMarkerPresent = candidates.some(
+			(c) => Math.hypot(c.x - indicator.x, c.y - indicator.y) < dedupTol
 		);
-		expect(activeAtSameCoord).toBe(false);
+		expect(activeMarkerPresent, "active snap's own marker is not duplicated in candidates").toBe(false);
+
+		// (2) The DISTINCT 6px-away point is retained (it is not the active marker).
+		const nearbyRetained = candidates.some(
+			(c) => c.type === 'point' && Math.hypot(c.x - nearbyX, c.y - 0) < dedupTol
+		);
+		expect(nearbyRetained, 'a distinct candidate 6px from the active snap is retained').toBe(true);
+
+		// (3) The origin and the line midpoint remain candidates.
+		expect(candidates.some((c) => c.type === 'origin'), 'origin candidate retained').toBe(true);
+		expect(candidates.some((c) => c.type === 'midpoint'), 'midpoint candidate retained').toBe(true);
 	});
 
 	test('multiple candidate types simultaneously', async ({ waffle }) => {
