@@ -34,6 +34,30 @@ const SOLVE_TOL: f64 = 1e-6;
 /// Scaled relative to the problem size to handle varying parameter magnitudes.
 const RANK_TOL: f64 = 1e-8;
 
+/// Proximal regularization weight (specs/sketch_drag_stability.md §2).
+///
+/// Every solve appends residual rows `ε·(xᵢ − x₀ᵢ)` anchoring each parameter
+/// to its pre-solve value. LM's own damping regularizes the *step*, not the
+/// *problem* (Ref #43 Moré 1978, #44 Nocedal-Wright ch. 10): along null
+/// directions of the constraint Jacobian (e.g. a rectangle whose size is
+/// unconstrained) the cost is flat and accepted iterates can drift
+/// unboundedly — observed as sketch geometry exploding to 1e8 during drags.
+/// The proximal rows make the Gauss-Newton system full-rank and select the
+/// solution NEAREST the current configuration — Bouma et al.'s
+/// solution-redirecting rule (Ref #40): return the solution intuitive to the
+/// user, i.e. the one closest to what they are looking at.
+///
+/// Weight bound derivation: the proximal pull biases a w-weighted anchor
+/// (worst case: Dragged, w = 1/20) by (ε/w)²·D where D is the solve's
+/// correction distance. That bias must stay below SOLVE_TOL (1e-6):
+/// ε = 1e-5 gives 4e-8·D — safe for D up to 25 length units, far beyond any
+/// realistic sketch correction (units are meters, A14.1). Larger ε (1e-4)
+/// measurably displaces Dragged anchors (2e-5 at D=5, observed in the
+/// pre-existing suite); smaller ε still suppresses the runaway (validated
+/// down to 1e-6 in the spec's sweep) but with less margin on NEAR-null
+/// valleys, so 1e-5 is the balance point.
+const PROXIMAL_WEIGHT: f64 = 1e-5;
+
 /// The least-squares problem: weighted residuals + analytic Jacobian.
 struct SketchProblem {
     /// Current parameter vector.
@@ -42,7 +66,12 @@ struct SketchProblem {
     constraints: Vec<CompiledConstraint>,
     /// Per-constraint weight (applied to all residual rows of that constraint).
     weights: Vec<f64>,
-    /// Total number of residual rows (precomputed from constraints).
+    /// Pre-solve parameter vector — the proximal anchor x₀.
+    initial_params: DVector<f64>,
+    /// Constraint residual rows (excludes the proximal rows appended after).
+    n_constraint_rows: usize,
+    /// Total number of residual rows (constraint rows + one proximal row per
+    /// parameter).
     n_residuals: usize,
     /// Number of parameters.
     n_params: usize,
@@ -56,13 +85,17 @@ impl SketchProblem {
     fn new(layout: &ParamLayout, compiled: Vec<CompiledConstraint>) -> Self {
         let n_params = layout.n_params();
         let weights: Vec<f64> = compiled.iter().map(|c| weight(c)).collect();
-        let n_residuals: usize = compiled.iter().map(|c| residual_count(c)).sum();
+        let n_constraint_rows: usize = compiled.iter().map(|c| residual_count(c)).sum();
 
         let mut problem = SketchProblem {
             params: DVector::from_vec(layout.params.clone()),
             constraints: compiled,
             weights,
-            n_residuals,
+            initial_params: DVector::from_vec(layout.params.clone()),
+            n_constraint_rows,
+            // Invariant B1 (specs/sketch_drag_stability.md §3): proximal rows
+            // are unconditional — one per parameter, after the constraint rows.
+            n_residuals: n_constraint_rows + n_params,
             n_params,
             cached_residuals: None,
             cached_jacobian: None,
@@ -73,7 +106,8 @@ impl SketchProblem {
         problem
     }
 
-    /// Assemble the weighted residual vector and weighted Jacobian.
+    /// Assemble the weighted residual vector and weighted Jacobian:
+    /// constraint rows first, then the proximal rows ε·(xᵢ − x₀ᵢ).
     fn compute(&mut self) {
         let p = self.params.as_slice();
         let mut residuals = DVector::zeros(self.n_residuals);
@@ -93,6 +127,12 @@ impl SketchProblem {
                 }
             }
             row += nr;
+        }
+
+        // Proximal rows: diagonal ε block anchoring x to x₀ (spec §2).
+        for i in 0..self.n_params {
+            residuals[row + i] = PROXIMAL_WEIGHT * (p[i] - self.initial_params[i]);
+            jacobian[(row + i, i)] = PROXIMAL_WEIGHT;
         }
 
         self.cached_residuals = Some(residuals);
@@ -161,7 +201,7 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
 
     // Build and run LM.
     let problem = SketchProblem::new(&layout, compiled);
-    let n_residuals = problem.n_residuals;
+    let n_constraint_rows = problem.n_constraint_rows;
     let n_params = problem.n_params;
     let lm = LevenbergMarquardt::new()
         .with_ftol(SOLVE_TOL)
@@ -171,22 +211,37 @@ pub fn solve_sketch(sketch: &Sketch) -> SolvedSketch {
 
     let (solved, report) = lm.minimize(problem);
 
-    // Extract final residuals and Jacobian for classification.
-    let final_residuals = solved.residuals().unwrap_or_else(|| DVector::zeros(0));
+    // Extract final residuals and Jacobian for classification, sliced to the
+    // CONSTRAINT rows only — the proximal rows are a solver-internal
+    // tie-breaker and must not affect satisfiability or dof counting
+    // (invariant B2/I3, specs/sketch_drag_stability.md).
+    let final_residuals = solved
+        .residuals()
+        .map(|r| r.rows(0, n_constraint_rows).into_owned())
+        .unwrap_or_else(|| DVector::zeros(0));
     let final_jacobian = solved
         .jacobian()
+        .map(|j| j.rows(0, n_constraint_rows).into_owned())
         .unwrap_or_else(|| DMatrix::zeros(0, n_params));
 
     let status = classify_status(
         &final_residuals,
         &final_jacobian,
-        n_residuals,
+        n_constraint_rows,
         n_params,
         &report,
     );
 
-    let positions = layout.extract_positions(solved.params().as_slice());
-    let radii = layout.extract_radii(solved.params().as_slice());
+    // Invariant I4 (spec §4): a failed solve is inert — echo the input
+    // positions rather than the solver's non-solution iterate.
+    let solved_params = solved.params();
+    let final_params: &[f64] = if matches!(status, SolveStatus::SolveFailed { .. }) {
+        &layout.params
+    } else {
+        solved_params.as_slice()
+    };
+    let positions = layout.extract_positions(final_params);
+    let radii = layout.extract_radii(final_params);
 
     let mut profiles = if matches!(
         status,
