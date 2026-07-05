@@ -276,6 +276,26 @@ fn replay_case(case: &DiscoveredCase) -> CaseOutcome {
         if !v.passed {
             failures.push(format!("volume_magnitude: {}", v.detail));
         }
+        // C-series exact-volume oracle: the meta carries an analytic volume
+        // computed at generation time from kernel-independent arithmetic.
+        // Multi-body cases must sum ALL bodies, so tessellate the whole model.
+        if let Some(expected) = meta.oracles.expected_volume {
+            let tol_rel = meta.oracles.expected_volume_tol_rel.unwrap_or(1e-3);
+            let vol = builder
+                .tessellate_live_with_tol(tess_tol)
+                .map(|meshes| {
+                    meshes
+                        .iter()
+                        .map(test_harness::helpers::mesh_signed_volume)
+                        .sum::<f64>()
+                })
+                .unwrap_or_else(|_| test_harness::helpers::mesh_signed_volume(&mesh));
+            if (vol - expected).abs() > tol_rel * expected.abs() {
+                failures.push(format!(
+                    "expected_volume: {vol:.9e} vs expected {expected:.9e} (rel tol {tol_rel:.1e})"
+                ));
+            }
+        }
         let v = oracle::check_mesh_euler_characteristic(&mesh, meta.oracles.euler_target);
         if !v.passed {
             failures.push(format!("mesh_euler_characteristic: {}", v.detail));
@@ -292,8 +312,16 @@ fn replay_case(case: &DiscoveredCase) -> CaseOutcome {
             ));
         }
     }
-    // Multi-op cases must end as a single merged body (legacy runner check).
-    if meta.operations.len() > 1 {
+    // Multi-op cases must end as a single merged body (legacy runner check) —
+    // unless the meta declares a deliberate multi-body count (C-series 3a).
+    if let Some(expected_solids) = meta.oracles.expected_solid_count {
+        let solid_count = builder.distinct_solid_count();
+        if solid_count != expected_solids {
+            failures.push(format!(
+                "solid count: {solid_count} bodies (meta expects {expected_solids})"
+            ));
+        }
+    } else if meta.operations.len() > 1 {
         let solid_count = builder.distinct_solid_count();
         if solid_count > 1 {
             failures.push(format!(

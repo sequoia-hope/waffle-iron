@@ -1347,6 +1347,43 @@ impl ModelBuilder {
         count
     }
 
+    /// Tessellate every LIVE body in the model (the same walk as
+    /// [`Self::distinct_solid_count`]: unsuppressed, unconsumed, solid-bearing
+    /// features), one mesh per output body. Deliberate multi-body cases sum
+    /// volumes over this set — `tessellate_last_with_tol` only covers the
+    /// LAST feature's bodies.
+    pub fn tessellate_live_with_tol(&mut self, tol: f64) -> Result<Vec<RenderMesh>, HarnessError> {
+        let tree = &self.state.engine.tree;
+        let limit = tree.active_index.unwrap_or(tree.features.len());
+        let mut handles = Vec::new();
+        for feature in &tree.features[..limit] {
+            if feature.suppressed {
+                continue;
+            }
+            if matches!(
+                &feature.operation,
+                Operation::Sketch { .. } | Operation::DatumPlane { .. }
+            ) {
+                continue;
+            }
+            if self.state.engine.consumed_features.contains(&feature.id) {
+                continue;
+            }
+            if let Some(result) = self.state.engine.get_result(feature.id) {
+                handles.extend(result.outputs.iter().map(|(_, b)| b.handle.clone()));
+            }
+        }
+        let mut meshes = Vec::with_capacity(handles.len());
+        for handle in handles {
+            meshes.push(
+                self.kernel
+                    .tessellate(&handle, tol)
+                    .map_err(|e| HarnessError::Engine(e.to_string()))?,
+            );
+        }
+        Ok(meshes)
+    }
+
     /// Get the dispatch history log.
     pub fn history(&self) -> &[(String, String)] {
         &self.history
