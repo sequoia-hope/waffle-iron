@@ -465,7 +465,9 @@
 		'midpoint': 'Midpoint',
 		'quadrant': 'Quadrant',
 		'origin': 'Origin',
-		'reference': 'Reference'
+		'reference': 'Reference',
+		'align-h': 'Align H',
+		'align-v': 'Align V'
 	};
 
 	let snapGeo = $derived.by(() => {
@@ -480,6 +482,22 @@
 			const w1 = sketchToWorld(snap.fromX, snap.fromY, plane);
 			const w2 = sketchToWorld(snap.x, snap.y, plane);
 			return { type: 'dashed-line', geometry: new THREE.BufferGeometry().setFromPoints([w1, w2]) };
+		}
+
+		// Alignment inference: one dashed line per armed axis, anchored at the
+		// SOURCE point (not fromPos), plus the snapped cursor marker (I5).
+		if (snap.type === 'align-h' || snap.type === 'align-v') {
+			const cursor = sketchToWorld(snap.x, snap.y, plane);
+			const geometries = [];
+			if (snap.hSource) {
+				geometries.push(new THREE.BufferGeometry().setFromPoints(
+					[sketchToWorld(snap.hSource.x, snap.hSource.y, plane), cursor]));
+			}
+			if (snap.vSource) {
+				geometries.push(new THREE.BufferGeometry().setFromPoints(
+					[sketchToWorld(snap.vSource.x, snap.vSource.y, plane), cursor]));
+			}
+			return { type: 'align', world: cursor, geometries };
 		}
 
 		if (snap.type === 'on-entity' || snap.type === 'tangent' || snap.type === 'perpendicular') {
@@ -824,6 +842,13 @@
 				raycast={() => {}} />
 		{:else if snapGeo.type === 'dashed-line'}
 			<T.Line geometry={snapGeo.geometry} material={snapDashedMaterial} renderOrder={11} />
+		{:else if snapGeo.type === 'align'}
+			<T.Mesh geometry={snapPointGeometry} material={snapPointMaterial}
+				position={[snapGeo.world.x, snapGeo.world.y, snapGeo.world.z]} renderOrder={11}
+				raycast={() => {}} />
+			{#each snapGeo.geometries as g}
+				<T.Line geometry={g} material={snapDashedMaterial} renderOrder={11} oncreate={computeDashes} />
+			{/each}
 		{/if}
 	{/if}
 

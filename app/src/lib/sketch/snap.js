@@ -5,8 +5,12 @@
  * and returns snapped coordinates + snap indicators for visual feedback.
  */
 
-import { findPointNear, findLineNear, findCircleNear, getSketchPositions, getSketchEntities, getSnapSettings, getReferenceSnapPoints } from '$lib/engine/store.svelte.js';
-import { COINCIDENT_SNAP_PX, ON_ENTITY_SNAP_PX, HV_ANGLE_DEG } from '$lib/config.js';
+import { findPointNear, findLineNear, findCircleNear, getSketchPositions, getSketchEntities, getSnapSettings, getReferenceSnapPoints, armInferenceSource, getInferenceSources, getActiveTool } from '$lib/engine/store.svelte.js';
+import { COINCIDENT_SNAP_PX, ON_ENTITY_SNAP_PX, HV_ANGLE_DEG, INFERENCE_ALIGN_PX } from '$lib/config.js';
+
+/** Tools that place points and benefit from alignment inference (and may arm
+ *  sources). Select/dimension/etc. do not arm, so inference never appears there. */
+const ARMING_TOOLS = new Set(['line', 'polyline', 'point', 'rectangle', 'rectangle-center', 'circle', 'arc', 'slot']);
 
 /**
  * @typedef {{ type: 'coincident', x: number, y: number, pointId: number }} CoincidentSnap
@@ -33,17 +37,25 @@ import { COINCIDENT_SNAP_PX, ON_ENTITY_SNAP_PX, HV_ANGLE_DEG } from '$lib/config
  * @param {number} y - Cursor sketch Y
  * @param {number | null} fromPointId - The point we're drawing from (for H/V detection)
  * @param {number} screenPixelSize - Sketch units per pixel (for adaptive thresholds)
+ * @param {boolean} [armOnHover=false] - When true (a hover/pointermove), a
+ *   coincident hit on a real point arms it as an alignment-inference source.
+ *   False for pointerdown/up so placing a new point does not self-arm.
  * @returns {SnapResult}
  */
-export function detectSnaps(x, y, fromPointId, screenPixelSize) {
+export function detectSnaps(x, y, fromPointId, screenPixelSize, armOnHover = false) {
 	const settings = getSnapSettings();
 	const coincidentThreshold = (settings.coincidentPx ?? COINCIDENT_SNAP_PX) * screenPixelSize;
 	const onEntityThreshold = (settings.onEntityPx ?? ON_ENTITY_SNAP_PX) * screenPixelSize;
 	const hvAngleDeg = settings.hvAngleDeg ?? HV_ANGLE_DEG;
 
-	// 1. Coincident snap — highest priority
+	// 1. Coincident snap — highest priority. A coincident hit on a real point
+	//    ALSO arms it as an alignment-inference source (deliberate-hover arming,
+	//    placement tools only). Origin/reference/midpoint/quadrant do NOT arm.
 	const nearPoint = findPointNear(x, y, coincidentThreshold);
 	if (nearPoint && nearPoint.id !== fromPointId) {
+		if (armOnHover && ARMING_TOOLS.has(getActiveTool())) {
+			armInferenceSource(nearPoint.id, nearPoint.x, nearPoint.y);
+		}
 		return {
 			x: nearPoint.x,
 			y: nearPoint.y,
@@ -160,37 +172,9 @@ export function detectSnaps(x, y, fromPointId, screenPixelSize) {
 		}
 	}
 
-	// 2. Horizontal / Vertical snap — when drawing from a known point
-	if (fromPointId != null) {
-		const positions = getSketchPositions();
-		const fromPos = positions.get(fromPointId);
-		if (fromPos) {
-			const dx = x - fromPos.x;
-			const dy = y - fromPos.y;
-			const len = Math.sqrt(dx * dx + dy * dy);
-			if (len > 0.000001) {
-				const angleDeg = Math.abs(Math.atan2(dy, dx)) * (180 / Math.PI);
-				// Near horizontal (angle near 0 or 180)
-				if (angleDeg < hvAngleDeg || angleDeg > (180 - hvAngleDeg)) {
-					return {
-						x, y: fromPos.y,
-						constraints: [{ type: 'Horizontal' }],
-						indicator: { type: 'horizontal', x, y: fromPos.y, fromX: fromPos.x, fromY: fromPos.y }
-					};
-				}
-				// Near vertical (angle near 90)
-				if (Math.abs(angleDeg - 90) < hvAngleDeg) {
-					return {
-						x: fromPos.x, y,
-						constraints: [{ type: 'Vertical' }],
-						indicator: { type: 'vertical', x: fromPos.x, y, fromX: fromPos.x, fromY: fromPos.y }
-					};
-				}
-			}
-		}
-	}
-
-	// 3. On-entity snap — snap to nearest point on a line or circle
+	// 2. On-entity snap — snap to nearest point on a line or circle. Moved ABOVE
+	//    segment-H/V (was priority 3): being on an entity is a more specific
+	//    intent than a free-direction axis alignment (Invariant I1).
 	const nearLine = findLineNear(x, y, onEntityThreshold);
 	if (nearLine) {
 		const entities = getSketchEntities();
@@ -236,13 +220,77 @@ export function detectSnaps(x, y, fromPointId, screenPixelSize) {
 		}
 	}
 
-	// 4. Tangent snap — when drawing from a point, check if the cursor forms a tangent to a circle/arc
+	// 3. Alignment inference — snap onto an armed source's horizontal/vertical
+	//    axis (Invariant I3/I4). A source equal to `fromPointId` is skipped —
+	//    segment-H/V already covers that pair (avoids duplicate H + HorizontalPoints).
+	{
+		const alignBand = INFERENCE_ALIGN_PX * screenPixelSize;
+		let hSource = null; // its horizontal axis (shared y) is aligned to
+		let vSource = null; // its vertical axis (shared x) is aligned to
+		for (const s of getInferenceSources()) {
+			if (s.id === fromPointId) continue;
+			if (hSource == null && Math.abs(y - s.y) <= alignBand) hSource = s;
+			if (vSource == null && Math.abs(x - s.x) <= alignBand) vSource = s;
+			if (hSource && vSource) break;
+		}
+		if (hSource || vSource) {
+			const sx = vSource ? vSource.x : x;
+			const sy = hSource ? hSource.y : y;
+			const constraints = [];
+			if (hSource) constraints.push({ type: 'HorizontalPoints', point_a: hSource.id });
+			if (vSource) constraints.push({ type: 'VerticalPoints', point_a: vSource.id });
+			return {
+				x: sx, y: sy,
+				constraints,
+				indicator: {
+					// 'align-h' when a horizontal axis is aligned, else 'align-v';
+					// both anchors are carried for the dashed-line rendering (I5).
+					type: hSource ? 'align-h' : 'align-v',
+					x: sx, y: sy,
+					hSource: hSource ? { id: hSource.id, x: hSource.x, y: hSource.y } : null,
+					vSource: vSource ? { id: vSource.id, x: vSource.x, y: vSource.y } : null
+				}
+			};
+		}
+	}
+
+	// 4. Horizontal / Vertical snap — segment direction, when drawing from a point.
+	if (fromPointId != null) {
+		const positions = getSketchPositions();
+		const fromPos = positions.get(fromPointId);
+		if (fromPos) {
+			const dx = x - fromPos.x;
+			const dy = y - fromPos.y;
+			const len = Math.sqrt(dx * dx + dy * dy);
+			if (len > 0.000001) {
+				const angleDeg = Math.abs(Math.atan2(dy, dx)) * (180 / Math.PI);
+				// Near horizontal (angle near 0 or 180)
+				if (angleDeg < hvAngleDeg || angleDeg > (180 - hvAngleDeg)) {
+					return {
+						x, y: fromPos.y,
+						constraints: [{ type: 'Horizontal' }],
+						indicator: { type: 'horizontal', x, y: fromPos.y, fromX: fromPos.x, fromY: fromPos.y }
+					};
+				}
+				// Near vertical (angle near 90)
+				if (Math.abs(angleDeg - 90) < hvAngleDeg) {
+					return {
+						x: fromPos.x, y,
+						constraints: [{ type: 'Vertical' }],
+						indicator: { type: 'vertical', x: fromPos.x, y, fromX: fromPos.x, fromY: fromPos.y }
+					};
+				}
+			}
+		}
+	}
+
+	// 5. Tangent snap — when drawing from a point, check if the cursor forms a tangent to a circle/arc
 	if (fromPointId != null) {
 		const tangent = detectTangentSnap(x, y, fromPointId, onEntityThreshold);
 		if (tangent) return tangent;
 	}
 
-	// 5. Perpendicular snap — when drawing from a point, check if cursor forms perpendicular to a line
+	// 6. Perpendicular snap — when drawing from a point, check if cursor forms perpendicular to a line
 	if (fromPointId != null) {
 		const perp = detectPerpendicularSnap(x, y, fromPointId, onEntityThreshold);
 		if (perp) return perp;

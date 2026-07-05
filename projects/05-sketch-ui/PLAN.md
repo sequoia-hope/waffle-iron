@@ -115,6 +115,37 @@ Test Author / Implementer / Adversary; real-pointer GUI oracles only.
 - Still open (unchanged from Cycle 1): live binding of curved-edge interiors
   (static construction snapshot for now).
 
+### M14: Snap Priority Rework + Point-Alignment Inference ✅ (2026-07-05)
+
+Spec: `specs/snap_inference_and_priority.md` (IMPLEMENTED). FIP cycle with
+role-separated Test Author / Implementer / Adversary.
+
+- [x] Cascade reordered: point-class ≻ **on-entity** ≻ **align** ≻
+      segment-H/V ≻ tangent ≻ perpendicular (on-entity no longer loses to the
+      3° H/V wedge when the cursor is on an entity).
+- [x] On-entity snap is parametric: emits `OnEntity{point,entity}` (template
+      existed but was dropped at every emission site). Verified on lines AND
+      circles with drag-tracking oracles.
+- [x] Alignment inference: hovering a sketch point arms it (LRU of 3,
+      hover-only arming, cleared on tool switch/sketch exit, dead-id safe);
+      within a 6px screen band of an armed point's axis the cursor snaps,
+      a dashed line renders from the source, and click emits
+      `HorizontalPoints`/`VerticalPoints{source, new}`. Both-band emits both.
+      Drawing FROM the armed point self-suppresses (segment-H/V covers it).
+- [x] ALL cursor-placed points route snap constraints through ONE normalizer
+      (`applyPointSnapConstraints`) — rect/center-rect finalizing corner,
+      slot centers, arc center/start/end were silently dropping them.
+- [x] Preview-candidate dedup filter px-derived (`CANDIDATE_DEDUP_PX=4`, was
+      0.001 sketch units ≈ 10.5px over-filter at default zoom);
+      `snap-preview-candidates.spec.js:143` repaired + FIXED (off the
+      known-red list).
+- Tests: `snap-inference.spec.js` (8), `snap-inference-adversarial.spec.js`
+  (12). New hooks: `__waffle.getSketchPixelSize`, `getInferenceSources`.
+- Known follow-up (pre-existing, NOT this cycle): quadrant-click red cluster —
+  `snap-click-quadrant.spec.js:46/:169/:200`, `sketch-snap-click-bug.spec.js:35`,
+  `sketch-snap-click-regression.spec.js:292` (DOM layer-stack class,
+  "Canvas not found in elements at point"). Needs its own cycle.
+
 ## Implementation Summary
 
 ### New files created

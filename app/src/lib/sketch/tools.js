@@ -73,7 +73,7 @@ import { setPreview, setSnapIndicator, setSnapCandidates, getPreview as _getPrev
 import { buildSketchPlane } from './sketchCoords.js';
 import { projectEdgeToSketch, simplifyPolyline } from './projectGeometry.js';
 import { classifyDimension, isDimensionComplete, dimensionPreviewPolyline } from './dimensionHeuristic.js';
-import { DRAG_THRESHOLD_PX, DRAG_MIN_DURATION_MS, DRAG_COMMIT_PX, GEAR_PREVIEW_MODULE_M, DEFAULT_GEAR_TOOTH_COUNT, DEFAULT_GEAR_PRESSURE_ANGLE } from '$lib/config.js';
+import { DRAG_THRESHOLD_PX, DRAG_MIN_DURATION_MS, DRAG_COMMIT_PX, CANDIDATE_DEDUP_PX, GEAR_PREVIEW_MODULE_M, DEFAULT_GEAR_TOOTH_COUNT, DEFAULT_GEAR_PRESSURE_ANGLE } from '$lib/config.js';
 
 // -- Module state --
 
@@ -303,6 +303,15 @@ function applyPointSnapConstraints(pointId, snap) {
 		} else if (c.type === 'Midpoint') {
 			// Pin this point to the midpoint of the snapped line.
 			addLocalConstraint({ type: 'Midpoint', point: pointId, line: c.line });
+		} else if (c.type === 'OnEntity') {
+			// Placing via on-entity snap makes the point parametric on the host.
+			addLocalConstraint({ type: 'OnEntity', point: pointId, entity: c.entity });
+		} else if (c.type === 'HorizontalPoints') {
+			// Alignment inference: the new point shares its source's Y.
+			addLocalConstraint({ type: 'HorizontalPoints', point_a: c.point_a, point_b: pointId });
+		} else if (c.type === 'VerticalPoints') {
+			// Alignment inference: the new point shares its source's X.
+			addLocalConstraint({ type: 'VerticalPoints', point_a: c.point_a, point_b: pointId });
 		}
 	}
 }
@@ -409,13 +418,17 @@ function updateSnapCandidates(snap, screenPixelSize) {
 	const previewRadius = (settings.previewPx ?? 30) * screenPixelSize;
 	const raw = collectSnapCandidates(snap.x, snap.y, previewRadius);
 
-	// Filter out the active snap point to avoid double-rendering
+	// Filter out the active snap point to avoid double-rendering. The dedup
+	// radius is screen-px derived (CANDIDATE_DEDUP_PX) so it is correct at any
+	// zoom — the old hardcoded 0.001 sketch units was ~300× the whole drawing at
+	// default zoom and over-filtered distinct nearby candidates.
 	if (snap.indicator) {
 		const sx = snap.x;
 		const sy = snap.y;
+		const dedupRadius = CANDIDATE_DEDUP_PX * screenPixelSize;
 		setSnapCandidates(raw.filter(c => {
 			const dist = Math.sqrt((c.x - sx) ** 2 + (c.y - sy) ** 2);
-			return dist > 0.001;
+			return dist > dedupRadius;
 		}));
 	} else {
 		setSnapCandidates(raw);
@@ -430,7 +443,7 @@ function updateSnapCandidates(snap, screenPixelSize) {
  * snapping onto a line midpoint adds a Midpoint constraint.
  */
 function handlePointTool(eventType, x, y, screenPixelSize) {
-	const snap = detectSnaps(x, y, null, screenPixelSize);
+	const snap = detectSnaps(x, y, null, screenPixelSize, eventType === 'pointermove');
 	setSnapIndicator(snap.indicator);
 
 	if (eventType === 'pointermove') {
@@ -454,7 +467,7 @@ function handlePointTool(eventType, x, y, screenPixelSize) {
 // ---- Line Tool ----
 
 function handleLineTool(eventType, x, y, screenPixelSize) {
-	const snap = detectSnaps(x, y, startPointId, screenPixelSize);
+	const snap = detectSnaps(x, y, startPointId, screenPixelSize, eventType === 'pointermove');
 	setSnapIndicator(snap.indicator);
 
 	if (eventType === 'pointermove') {
@@ -523,7 +536,7 @@ function finalizeLine(snap, screenPixelSize) {
 	});
 	log('sketch', 'Line created', { lineId, startId: startPointId, endId: endPt.id });
 
-	// Auto-apply constraints from snap (H/V/Tangent/Perpendicular/WhereDragged)
+	// Line-level constraints from the snap bind to the new line entity.
 	for (const c of snap.constraints) {
 		if (c.type === 'Horizontal') {
 			addLocalConstraint({ type: 'Horizontal', entity: lineId });
@@ -533,12 +546,11 @@ function finalizeLine(snap, screenPixelSize) {
 			addLocalConstraint({ type: 'Tangent', line: lineId, curve: c.entity_b });
 		} else if (c.type === 'Perpendicular' && c.entity_b != null) {
 			addLocalConstraint({ type: 'Perpendicular', line_a: lineId, line_b: c.entity_b });
-		} else if (c.type === 'WhereDragged') {
-			addLocalConstraint({ type: 'WhereDragged', point: endPt.id, x: c.x, y: c.y });
-		} else if (c.type === 'Midpoint') {
-			addLocalConstraint({ type: 'Midpoint', point: endPt.id, line: c.line });
 		}
 	}
+	// Point-level constraints (WhereDragged / Midpoint / OnEntity / point-pair
+	// alignment) bind to the endpoint — one shared normalizer (Constitution §7).
+	applyPointSnapConstraints(endPt.id, snap);
 
 	endSketchAction();
 
@@ -561,7 +573,7 @@ function finalizeLine(snap, screenPixelSize) {
 // ---- Rectangle Tool ----
 
 function handleRectangleTool(eventType, x, y, screenPixelSize) {
-	const snap = detectSnaps(x, y, null, screenPixelSize);
+	const snap = detectSnaps(x, y, null, screenPixelSize, eventType === 'pointermove');
 	setSnapIndicator(snap.indicator);
 
 	if (eventType === 'pointermove') {
@@ -658,7 +670,12 @@ function finalizeRectangle(snap, screenPixelSize) {
 		{ x: x1, y: y1 }, { x: x2, y: y1 },
 		{ x: x2, y: y2 }, { x: x1, y: y2 },
 	];
-	const { lines } = createRectangleEdges(corners, screenPixelSize, startPointId);
+	const { points, lines } = createRectangleEdges(corners, screenPixelSize, startPointId);
+	// The finalizing corner (index 2, at snap.x/snap.y) is the one under the
+	// cursor — route its snap through the shared normalizer so an align/on-entity
+	// on it emits its constraint. The two DERIVED corners (1,3) and the reused
+	// start corner (0) must NOT collect the cursor snap's constraints.
+	applyPointSnapConstraints(points[2].id, snap);
 	log('sketch', 'Rectangle created', { lineIds: lines });
 
 	endSketchAction();
@@ -714,6 +731,9 @@ function finalizeCenterRectangle(snap, screenPixelSize) {
 	const cx = startPos.x, cy = startPos.y;
 	const result = emitCenterRectangle(startPointId, cx, cy, snap.x, snap.y, screenPixelSize);
 	// `result === null` ⇒ degenerate; just reset without creating geometry.
+	// The dragged corner (corners[2], at snap.x/snap.y) is under the cursor —
+	// route its snap through the shared normalizer. Derived corners must not.
+	if (result) applyPointSnapConstraints(result.corners[2].id, snap);
 
 	endSketchAction();
 	toolState = 'idle';
@@ -726,7 +746,7 @@ function finalizeCenterRectangle(snap, screenPixelSize) {
 // ---- Center Rectangle Tool ----
 
 function handleRectangleCenterTool(eventType, x, y, screenPixelSize) {
-	const snap = detectSnaps(x, y, startPointId, screenPixelSize);
+	const snap = detectSnaps(x, y, startPointId, screenPixelSize, eventType === 'pointermove');
 	setSnapIndicator(snap.indicator);
 
 	if (eventType === 'pointermove') {
@@ -779,7 +799,7 @@ function handleRectangleCenterTool(eventType, x, y, screenPixelSize) {
 // ---- Circle Tool ----
 
 function handleCircleTool(eventType, x, y, screenPixelSize) {
-	const snap = detectSnaps(x, y, centerPointId, screenPixelSize);
+	const snap = detectSnaps(x, y, centerPointId, screenPixelSize, eventType === 'pointermove');
 	setSnapIndicator(snap.indicator);
 
 	if (eventType === 'pointermove') {
@@ -860,7 +880,7 @@ function finalizeCircle(snap) {
 // ---- Arc Tool ----
 
 function handleArcTool(eventType, x, y, screenPixelSize) {
-	const snap = detectSnaps(x, y, arcStartPointId ?? centerPointId, screenPixelSize);
+	const snap = detectSnaps(x, y, arcStartPointId ?? centerPointId, screenPixelSize, eventType === 'pointermove');
 	setSnapIndicator(snap.indicator);
 
 	if (eventType === 'pointermove') {
@@ -898,17 +918,20 @@ function handleArcTool(eventType, x, y, screenPixelSize) {
 		if (toolState === 'idle') {
 			beginSketchAction();
 			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
+			applyPointSnapConstraints(pt.id, snap);
 			centerPointId = pt.id;
 			centerPos = { x: pt.x, y: pt.y };
 			pointerDownPos = { x: snap.x, y: snap.y };
 			toolState = 'centerPlaced';
 		} else if (toolState === 'centerPlaced') {
 			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
+			applyPointSnapConstraints(pt.id, snap);
 			arcStartPointId = pt.id;
 			arcStartPos = { x: pt.x, y: pt.y };
 			toolState = 'arcStartPlaced';
 		} else if (toolState === 'arcStartPlaced') {
 			const endPt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
+			applyPointSnapConstraints(endPt.id, snap);
 			const arcId = allocEntityId();
 			addLocalEntity({
 				type: 'Arc', id: arcId,
@@ -934,6 +957,7 @@ function handleArcTool(eventType, x, y, screenPixelSize) {
 		if (isClickDragRelease({ x: snap.x, y: snap.y }, screenPixelSize) && toolState === 'centerPlaced') {
 			// Drag release from center sets the start point of the arc
 			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
+			applyPointSnapConstraints(pt.id, snap);
 			arcStartPointId = pt.id;
 			arcStartPos = { x: pt.x, y: pt.y };
 			toolState = 'arcStartPlaced';
@@ -952,7 +976,7 @@ function handleArcTool(eventType, x, y, screenPixelSize) {
 let polyFirstPointId = null;
 
 function handlePolylineTool(eventType, x, y, screenPixelSize) {
-	const snap = detectSnaps(x, y, startPointId, screenPixelSize);
+	const snap = detectSnaps(x, y, startPointId, screenPixelSize, eventType === 'pointermove');
 	setSnapIndicator(snap.indicator);
 
 	if (eventType === 'pointermove') {
@@ -1660,7 +1684,7 @@ function createConstructionLinesFromPoints(points, closed) {
 // ---- Slot Tool ----
 
 function handleSlotTool(eventType, x, y, screenPixelSize) {
-	const snap = detectSnaps(x, y, slotFirstCenterId, screenPixelSize);
+	const snap = detectSnaps(x, y, slotFirstCenterId, screenPixelSize, eventType === 'pointermove');
 	setSnapIndicator(snap.indicator);
 
 	if (eventType === 'pointermove') {
@@ -1683,6 +1707,7 @@ function handleSlotTool(eventType, x, y, screenPixelSize) {
 		if (toolState === 'idle') {
 			beginSketchAction();
 			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
+			applyPointSnapConstraints(pt.id, snap);
 			slotFirstCenterId = pt.id;
 			slotFirstCenterPos = { x: pt.x, y: pt.y };
 			toolState = 'slotFirstCenter';
@@ -1690,6 +1715,7 @@ function handleSlotTool(eventType, x, y, screenPixelSize) {
 		} else if (toolState === 'slotFirstCenter') {
 			const pt = findOrCreatePoint(snap.x, snap.y, screenPixelSize, snap.snapPointId);
 			if (pt.id === slotFirstCenterId) return; // same point
+			applyPointSnapConstraints(pt.id, snap);
 
 			slotSecondCenterId = pt.id;
 			slotSecondCenterPos = { x: pt.x, y: pt.y };

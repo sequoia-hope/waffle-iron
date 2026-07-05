@@ -6,6 +6,7 @@
  */
 
 import { base } from '$app/paths';
+import { INFERENCE_SOURCES_MAX } from '$lib/config.js';
 import { EngineBridge } from './bridge.js';
 import { log, getLogs, exportLogs, clearLogs } from './logger.js';
 import { showToast, getToasts, dismissToast, initLoggerToasts } from '$lib/ui/toast.svelte.js';
@@ -278,6 +279,13 @@ let snapSettings = $state({
 	hvAngleDeg: 3,
 	previewPx: 30
 });
+
+// Point-alignment inference sources: sketch points recently hovered (armed) so
+// their horizontal/vertical axes can be inferred while placing a new point.
+// Most-recent first, LRU-capped at INFERENCE_SOURCES_MAX, deduped by point id.
+// Cleared on sketch exit and tool switch. See specs/snap_inference_and_priority.md.
+/** @type {Array<{ id: number, x: number, y: number }>} */
+let inferenceSources = $state([]);
 
 // -- Camera state refs (set by CameraControls) --
 
@@ -767,8 +775,10 @@ export async function initEngine() {
 			applyDimensionFromPopup: (value) => applyDimensionFromPopup(value),
 			getSnapIndicator: () => getSnapIndicator(),
 			getSnapCandidates: () => _getSnapCandidates(),
+			getSketchPixelSize: () => getSketchPixelSize(),
 			getSnapSettings: () => getSnapSettings(),
 			updateSnapSettings: (updates) => updateSnapSettings(updates),
+			getInferenceSources: () => getInferenceSources().map((s) => ({ ...s })),
 			sketchToScreenOffset: (sx, sy) => {
 				const sm = sketchMode;
 				if (!sm?.active) return null;
@@ -1604,6 +1614,9 @@ export function getActiveTool() {
  */
 export function setActiveTool(tool) {
 	log('ui', 'Set active tool', { tool });
+	// Switching tools clears armed alignment-inference sources (branch table:
+	// "tool switched → inference sources cleared").
+	if (tool !== activeTool) clearInferenceSources();
 	activeTool = tool;
 	// Remember which rectangle variant the split button last selected, so the
 	// button face + the `R` shortcut re-activate the same mode.
@@ -2913,6 +2926,7 @@ export function resetSketchState() {
 	sketchRedoStack = [];
 	pendingSketchAction = null;
 	referenceSnapPoints = [];
+	inferenceSources = [];
 	// Gears belong to a specific sketch; clear and rebuild per sketch (see
 	// rebuildGearsFromEntities, called on sketch-edit load).
 	gearRegistry = new Map();
@@ -4650,6 +4664,33 @@ export function getSnapSettings() { return snapSettings; }
  */
 export function updateSnapSettings(updates) {
 	snapSettings = { ...snapSettings, ...updates };
+}
+
+/**
+ * Arm a sketch point as an alignment-inference source (most-recent first, LRU
+ * capped, deduped by id). Called when a coincident snap lands on a real point.
+ * @param {number} id
+ * @param {number} x
+ * @param {number} y
+ */
+export function armInferenceSource(id, x, y) {
+	if (id == null) return;
+	const rest = inferenceSources.filter((s) => s.id !== id);
+	inferenceSources = [{ id, x, y }, ...rest].slice(0, INFERENCE_SOURCES_MAX);
+}
+
+/**
+ * Armed inference sources, most-recent first, with any whose point no longer
+ * exists (undo/delete) dropped so no dangling-id constraint can be emitted.
+ * @returns {Array<{ id: number, x: number, y: number }>}
+ */
+export function getInferenceSources() {
+	return inferenceSources.filter((s) => sketchPositions.has(s.id));
+}
+
+/** Clear all armed inference sources (sketch exit / tool switch). */
+export function clearInferenceSources() {
+	if (inferenceSources.length) inferenceSources = [];
 }
 
 // -- Sketch plane dialog --
