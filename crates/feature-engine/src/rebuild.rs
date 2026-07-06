@@ -1228,32 +1228,119 @@ fn dispatch_combine(
                 }
                 return Ok(result);
             }
-            // Fold the targets together, then union the tool.
-            let mut acc = combine_targets[0].1.clone();
-            for (_, handle) in &combine_targets[1..] {
-                acc = execute_boolean(kb, &acc, handle, BooleanKind::Union)?
-                    .outputs
-                    .first()
-                    .map(|(_, b)| b.handle.clone())
-                    .ok_or_else(|| EngineError::ResolutionFailed {
-                        reason: "Add: target union produced no solid".into(),
-                    })?;
-            }
+            // Spec §4.2: the result is the SET union `(b0 ∪ b1 ∪ …) ∪ tool`,
+            // order-independent, with every resulting body emitted. A pairwise
+            // union of DISJOINT operands legitimately returns MULTIPLE lumps
+            // (kernel `boolean_union_multi`), so a fold that keeps only
+            // `.outputs.first()` silently loses target material (C0079-F1).
+            // Fold connected components instead:
+            //  1. targets → pairwise-disjoint lumps (a multi-lump union step
+            //     proves the pair disjoint; keep the original operands);
+            //  2. sweep the tool through the lumps, merging every lump it
+            //     touches (this is what bridges disjoint targets);
+            //  3. lumps still disjoint from the tool survive as their own
+            //     output bodies, with a warning — never dropped.
             let legacy = matches!(eff.targets, TargetStrategy::MostRecentLegacy);
-            match execute_boolean(kb, &acc, &tool_handle, BooleanKind::Union) {
-                Ok(union_result) => Ok(union_result),
-                // Legacy auto-union degrades to a standalone body on failure
-                // (byte-identical to pre-N-mb-2); an explicit Add propagates.
-                Err(e) if legacy => {
-                    let mut result = tool_result;
-                    result.diagnostics.warnings.push(format!(
-                        "Auto-union failed: {}. Body created as standalone.",
-                        e
-                    ));
-                    Ok(result)
+
+            // 1. Fold the targets into pairwise-disjoint lumps. An incoming
+            //    target merges with every existing lump it touches (merging
+            //    cannot connect two existing lumps to each other: those are
+            //    already pairwise disjoint, so only the incoming material
+            //    bridges — a forward scan suffices).
+            let mut lumps: Vec<(Vec<Uuid>, waffle_types::kernel::KernelSolidHandle)> = Vec::new();
+            for (fid, handle) in combine_targets {
+                let mut lump = (vec![*fid], handle.clone());
+                let mut i = 0;
+                while i < lumps.len() {
+                    let res = execute_boolean(kb, &lumps[i].1, &lump.1, BooleanKind::Union)?;
+                    match res.outputs.len() {
+                        0 => {
+                            return Err(EngineError::ResolutionFailed {
+                                reason: "Add: target union produced no solid".into(),
+                            });
+                        }
+                        1 => {
+                            let merged = res.outputs.into_iter().next().unwrap().1.handle;
+                            let (mut ids, _) = lumps.remove(i);
+                            ids.append(&mut lump.0);
+                            lump = (ids, merged);
+                            // continue at the same index (next un-scanned lump)
+                        }
+                        // Disjoint: the split result duplicates the operands —
+                        // discard it and keep the originals.
+                        _ => i += 1,
+                    }
                 }
-                Err(e) => Err(e.into()),
+                lumps.push(lump);
             }
+
+            // 2. Sweep the tool through the lumps. Operand order (target,
+            //    tool) matches the pre-existing single-target fold so the
+            //    legacy path stays byte-identical.
+            let mut acc = tool_handle.clone();
+            let mut merged_result: Option<OpResult> = None;
+            let mut leftovers: Vec<(Vec<Uuid>, waffle_types::kernel::KernelSolidHandle)> =
+                Vec::new();
+            for (ids, handle) in lumps {
+                match execute_boolean(kb, &handle, &acc, BooleanKind::Union) {
+                    Ok(res) => match res.outputs.len() {
+                        0 => {
+                            return Err(EngineError::ResolutionFailed {
+                                reason: "Add: tool union produced no solid".into(),
+                            });
+                        }
+                        1 => {
+                            acc = res.outputs[0].1.handle.clone();
+                            merged_result = Some(res);
+                        }
+                        // Tool-disjoint lump: keep the ORIGINAL operand.
+                        _ => leftovers.push((ids, handle)),
+                    },
+                    // Legacy auto-union degrades to a standalone body on failure
+                    // (byte-identical to pre-N-mb-2); an explicit Add propagates.
+                    Err(e) if legacy => {
+                        let mut result = tool_result;
+                        result.diagnostics.warnings.push(format!(
+                            "Auto-union failed: {}. Body created as standalone.",
+                            e
+                        ));
+                        return Ok(result);
+                    }
+                    Err(e) => return Err(e.into()),
+                }
+            }
+
+            // 3. Assemble: the tool's connected component is the base result;
+            //    tool-disjoint lumps follow as Body{index} outputs + warning.
+            let mut result = match merged_result {
+                Some(res) => res,
+                // Every lump was disjoint from the tool: the tool itself is a
+                // standalone component.
+                None => tool_result,
+            };
+            if !leftovers.is_empty() {
+                let names: Vec<String> = leftovers
+                    .iter()
+                    .flat_map(|(ids, _)| ids.iter().map(|id| id.to_string()))
+                    .collect();
+                result.diagnostics.warnings.push(format!(
+                    "Add: target body(ies) [{}] remain disjoint from the tool; \
+                     kept as separate bodies.",
+                    names.join(", ")
+                ));
+                let base = result.outputs.len();
+                for (i, (_, handle)) in leftovers.into_iter().enumerate() {
+                    result.outputs.push((
+                        OutputKey::Body { index: base + i },
+                        modeling_ops::BodyOutput {
+                            handle,
+                            mesh: None,
+                            edges: None,
+                        },
+                    ));
+                }
+            }
+            Ok(result)
         }
 
         // Subtract / intersect the tool from each target INDEPENDENTLY, yielding

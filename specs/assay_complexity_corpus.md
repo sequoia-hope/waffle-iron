@@ -189,10 +189,18 @@ body (`regions` plural path). Curved regions use tol_rel 0.05.
 
 The corpus found three real defects on its first run:
 
-- **C0079-F1** — multi-target `Add` with DISJOINT explicit targets `[A, B]`
-  silently drops body B: no error, no warning, one output solid, volume
-  1.625 (= A∪tool) instead of 2.5 (= A∪B∪tool). Silent material loss in the
-  optional-booleans multi-target path. Repro: `C0079`.
+- **C0079-F1** — *FIXED 2026-07-06.* Multi-target `Add` with DISJOINT
+  explicit targets `[A, B]` silently dropped body B: no error, no warning,
+  one output solid, volume 1.625 (= A∪tool) instead of 2.5 (= A∪B∪tool).
+  Root cause: `dispatch_combine`'s Add arm folded the targets together
+  first — a disjoint union, which kernel-v2 legitimately returns as TWO
+  lumps through `boolean_union_multi` — then kept only `.outputs.first()`.
+  Fix (feature-engine): the fold is now a connected-component sweep per
+  spec §4.2 set-union semantics (targets → pairwise-disjoint lumps; tool
+  merges every lump it touches; a lump the tool never reaches survives as
+  its own output body with a loud warning). Regression suite:
+  `test-harness/tests/combine_add_disjoint_targets.rs` (bridging, reversed
+  order, unreachable target); pin flipped to `SUPPORTED_CORRECT`.
 - **C0035-F1** — *reclassified 2026-07-06: AUTHORING ERROR, not a kernel
   defect.* The cut depth was written `3.0 − 1e-4` (copying C0034's
   through-depth) but the cut sketch sits at z=2 over a z∈[0,1] body, so

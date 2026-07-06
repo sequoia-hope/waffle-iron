@@ -118,6 +118,14 @@ For a resolved target set `{b0, b1, …}` with `n ≥ 1`:
 - **Add:** fold the tool into the targets by successive union. Result: the union
   `((b0 ∪ b1 ∪ … ) ∪ tool)`. The targets are **consumed** (they merge into one
   body). Order-independent for a valid union.
+  **Disjoint operands (amended 2026-07-06, C0079-F1):** this is a SET union.
+  A pairwise union of disjoint operands legitimately yields multiple lumps
+  (kernel `boolean_union_multi`); the fold must carry every lump, never
+  `.first()`. Implementation: targets fold into pairwise-disjoint lumps, then
+  the tool sweeps the lump list, merging every lump it touches (a tool that
+  bridges disjoint targets merges them all into one body). A target lump the
+  tool never reaches survives as its own output body (`Body{index}`) with a
+  warning naming it — silent material loss is prohibited.
 - **Cut:** `b_i' = b_i − tool` for each `i`, independently. Result: `n` bodies
   (each target minus the tool). Targets are **replaced** by their cut versions;
   the tool is consumed (not emitted).

@@ -851,9 +851,12 @@ fn smoke_corpus_boundary_categories() {
         // intended depth 2.0−1e-4, which the case now carries. A14.2 holds.
         ("C0035", Category::SupportedCorrect),
         ("C0038", Category::SupportedCorrect), // 1d 10 µm hole in 1 m cube
-        // FINDING C0079-F1: multi-target Add with DISJOINT explicit targets
-        // silently drops body B (no error/warning; volume 1.625 vs 2.5).
-        ("C0079", Category::SupportedWrong),
+        // C0079-F1 FIXED (2026-07-06): the Add fold in dispatch_combine took
+        // `.outputs.first()` of a disjoint target union (which kernel-v2
+        // legitimately splits into two lumps), silently dropping body B. The
+        // fold is now a connected-component sweep (spec §4.2 set-union
+        // semantics); see tests/combine_add_disjoint_targets.rs.
+        ("C0079", Category::SupportedCorrect),
         ("C0083", Category::SupportedCorrect), // 3a NewBody overlap, 2 bodies
         ("C0091", Category::SupportedCorrect), // 3c one-op holed profile
         ("C0100", Category::SupportedCorrect), // 3d plural-regions extrude
