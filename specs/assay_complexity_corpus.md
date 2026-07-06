@@ -193,10 +193,19 @@ The corpus found three real defects on its first run:
   silently drops body B: no error, no warning, one output solid, volume
   1.625 (= A∪tool) instead of 2.5 (= A∪B∪tool). Silent material loss in the
   optional-booleans multi-target path. Repro: `C0079`.
-- **C0035-F1** — a 100 µm blind-pocket floor (100× the A14.2 feature floor)
-  is welded away: the pocket becomes a through-hole (χ = 0, expected 2).
-  The volume delta (6.4e-5 m³) is below the volume oracle's resolution; the
-  pinned Euler characteristic caught it. Repro: `C0035`.
+- **C0035-F1** — *reclassified 2026-07-06: AUTHORING ERROR, not a kernel
+  defect.* The cut depth was written `3.0 − 1e-4` (copying C0034's
+  through-depth) but the cut sketch sits at z=2 over a z∈[0,1] body, so
+  that depth reaches z=−0.9999 — a geometric through-cut. The meta was
+  self-contradictory: its exact-volume field (0.36) encoded the through-cut
+  while its χ pin (2) encoded the floor; the kernel matched the authored
+  coordinates exactly (χ=0, vol 0.36). Replaying the *intended* geometry
+  (depth `2.0 − 1e-4`) shows the kernel preserves the 100 µm floor
+  correctly (χ=2, vol 0.360064 exact) — A14.2 holds. The case was
+  regenerated with the intended depth and its pin flipped to
+  `SUPPORTED_CORRECT` (the meta's volume/χ oracles now agree). Lesson: a
+  Group-1 finding must be validated against the *authored coordinates*
+  (chain-volume vs χ consistency) before being attributed to the kernel.
 - Boundary corrections — several designed trackers are SUPPORTED today
   (capability better than documented): same-section crossing coplanar
   tunnel walls (C0041), external rim tangency (C0042), edge-only box

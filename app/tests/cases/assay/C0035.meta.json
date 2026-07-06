@@ -37,7 +37,7 @@
       "kind": "extrude",
       "profile_type": "rectangle",
       "profile_size": 0.8,
-      "depth_or_angle": 2.9999,
+      "depth_or_angle": 1.9999,
       "is_cut": true,
       "plane_origin": [
         0.0,
@@ -61,7 +61,7 @@
       "decrease"
     ],
     "expect_rebuild_error": false,
-    "expected_volume": 0.36
+    "expected_volume": 0.3600639999999999
   },
   "generator_version": 4,
   "featured": true

@@ -3,12 +3,12 @@
   "version": 3,
   "document": {
     "name": "Assay C0035",
-    "created": "2026-07-05T20:52:55.178871399Z",
-    "modified": "2026-07-05T20:52:55.178871399Z"
+    "created": "2026-07-06T07:13:36.257786770Z",
+    "modified": "2026-07-06T07:13:36.257786770Z"
   },
   "tabs": [
     {
-      "id": "410572c1-b78f-483f-acd7-a515cdd69b29",
+      "id": "fdb21d98-2e43-4b13-9466-e5bbdaf341bc",
       "name": "Part 1",
       "kind": {
         "type": "Part",
@@ -275,21 +275,21 @@
                     "type": "FullyConstrained"
                   },
                   "solved_positions": {
-                    "1": [
+                    "4": [
                       -0.4,
-                      -0.4
-                    ],
-                    "2": [
-                      0.4,
-                      -0.4
+                      0.4
                     ],
                     "3": [
                       0.4,
                       0.4
                     ],
-                    "4": [
+                    "2": [
+                      0.4,
+                      -0.4
+                    ],
+                    "1": [
                       -0.4,
-                      0.4
+                      -0.4
                     ]
                   },
                   "solved_profiles": [
@@ -322,7 +322,7 @@
                 "params": {
                   "sketch_id": "4d596045-4400-4826-9679-96d922559e56",
                   "profile_index": 0,
-                  "depth": 2.9999,
+                  "depth": 1.9999,
                   "direction": null,
                   "symmetric": false,
                   "cut": true,
@@ -344,5 +344,5 @@
       }
     }
   ],
-  "active_tab": "410572c1-b78f-483f-acd7-a515cdd69b29"
+  "active_tab": "fdb21d98-2e43-4b13-9466-e5bbdaf341bc"
 }

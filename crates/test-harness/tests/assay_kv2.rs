@@ -841,11 +841,15 @@ fn smoke_corpus_boundary_categories() {
         // findings pinned RED honestly:
         ("C0001", Category::SupportedCorrect), // 1a genus-2 plate
         ("C0021", Category::SupportedCorrect), // 1c star + through-cut
-        // FINDING C0035-F1: a 100 µm pocket floor (100× the 1 µm feature
-        // floor, A14.2) is welded away — the blind pocket becomes a
-        // through-hole (chi 0, expected 2). The volume oracle cannot see
-        // 6.4e-5 m³; the chi oracle caught it. Real thin-wall defect.
-        ("C0035", Category::SupportedWrong),
+        // C0035-F1 RECLASSIFIED (2026-07-06): an authoring error, not a
+        // kernel defect. The original cut depth 3.0−1e-4 from the z=2 sketch
+        // reached z=−0.9999 — a geometric through-cut (the meta was
+        // self-contradictory: expected_volume 0.36 encoded the through-cut
+        // while euler_target 2 encoded the floor). The kernel was correct on
+        // BOTH geometries: through-hole for the authored coords, and the
+        // 100 µm floor preserved (chi 2, volume 0.360064 exact) for the
+        // intended depth 2.0−1e-4, which the case now carries. A14.2 holds.
+        ("C0035", Category::SupportedCorrect),
         ("C0038", Category::SupportedCorrect), // 1d 10 µm hole in 1 m cube
         // FINDING C0079-F1: multi-target Add with DISJOINT explicit targets
         // silently drops body B (no error/warning; volume 1.625 vs 2.5).

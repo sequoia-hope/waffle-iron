@@ -1205,11 +1205,15 @@ fn family_near_degenerate(dir: &Path) -> Vec<ManifestEntry> {
         );
         e.push(write_c_case(dir, c, d, Knobs::solid(0, vol, 4.0)));
     }
-    // C0035: U-channel with a 1e-4 floor.
+    // C0035: U-channel with a 1e-4 floor. The cut sketch sits at z=2 over a
+    // body spanning z∈[0,1], so the floor thickness is 2.0 − depth (NOT
+    // 3.0 − depth, which was the original authoring error C0035-F1: depth
+    // 3.0−1e-4 reached z=−0.9999, a geometric through-cut that contradicted
+    // the χ=2 pin; the kernel handled both geometries correctly).
     {
         let mut c = CCase::new("C0035");
         c.vboss([0.0, 0.0, 0.0], Z, 1.0, 1.0, 1.0);
-        c.vcut([0.0, 0.0, 2.0], Z, 0.8, 0.8, 3.0 - 1e-4);
+        c.vcut([0.0, 0.0, 2.0], Z, 0.8, 0.8, 2.0 - 1e-4);
         let vol = c.chain_vol();
         let d = desc(
             &c,
