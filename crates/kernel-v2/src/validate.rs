@@ -1259,6 +1259,31 @@ fn validate_cylinder_patch(
             }
         }
         _ => {
+            // Diagnostic probe (env-gated, zero-cost off): dump the per-loop
+            // wrap/height/area measures so a wrapping-count wall
+            // self-localizes (which loop is unexpected, and where).
+            if std::env::var_os("KV2_CYLPATCH_PROBE").is_some() {
+                eprintln!(
+                    "[cylpatch-probe] face {f:?} radius={radius} axis_point={ap:?} axis={a:?} \
+                     wrapping={} loops={}",
+                    wrapping.len(),
+                    measures.len()
+                );
+                for mm in &measures {
+                    eprintln!(
+                        "  loop {:?} wrap={} mean_h={} area2={}",
+                        mm.loop_id, mm.wrap, mm.mean_h, mm.area2
+                    );
+                    if let Ok(hes) = arena.loop_half_edges(mm.loop_id) {
+                        for &h in &hes {
+                            if let Ok(he) = arena.half_edge(h) {
+                                let p = arena.vertex(he.origin).map(|v| v.point);
+                                eprintln!("    he {h:?} curve={:?} origin={p:?}", he.curve);
+                            }
+                        }
+                    }
+                }
+            }
             return Err(mismatch(
                 "cylinder patch must have exactly 0 or 2 axis-wrapping loops",
             ));

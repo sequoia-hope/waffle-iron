@@ -1,14 +1,14 @@
 {
-  "errored": 41,
-  "failed": 2,
+  "errored": 33,
+  "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 175,
+  "passed": 165,
   "results": [
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0001",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(revolve)",
@@ -71,22 +71,22 @@
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(1023), reason: \"planar triangle collapsed at render precision\" }",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0012",
       "status": "error"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0013",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0014",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "ERROR",
@@ -95,10 +95,10 @@
       "status": "error"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 9019b316-6a4a-4ae9-9240-e61a4e650e51: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0016",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(revolve)",
@@ -131,10 +131,10 @@
       "status": "unsupported"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0022",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "ERROR",
@@ -143,16 +143,16 @@
       "status": "error"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0024",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: aa386512-2ca8-4946-88e7-831532802329: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0025",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
@@ -161,8 +161,8 @@
       "status": "unsupported"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 8492418f-aba5-4982-893d-b463f23ca0a3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: EmptyBooleanResult",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0027",
       "status": "error"
     },
@@ -215,10 +215,10 @@
       "status": "unsupported"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0036",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(revolve)",
@@ -335,10 +335,10 @@
       "status": "unsupported"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0056",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -365,10 +365,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(455) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "category": "ERROR",
+      "detail": "1 engine error(s): c032f2e8-9766-4502-9430-29829c8e2a31: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: NonPlanarFace { face: FaceId(468) }",
       "id": "R0061",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -395,10 +395,10 @@
       "status": "unsupported"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0066",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -449,16 +449,16 @@
       "status": "unsupported"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0075",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(multi-shell)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: multi-shell operand (3 shells — an internal void or                      disjoint bodies cannot re-enter yang-rs reassembly yet). Body created as standalone.",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0076",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "ERROR",
@@ -467,10 +467,10 @@
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 15f16cc9-bee8-49fa-80fb-1516f33eccc8: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: malformed B-Rep topology: face 2: azimuth-merge rims disagree at index 0 (bottom 0.0000000000000003382427268954177 vs top 0.5235987755982989, tol 0.09817477042468103)\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0078",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -485,10 +485,10 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 4ce8979e-fe59-4d13-9562-f1d0b53eafd9: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0081",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -521,14 +521,14 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 0c06204f-dc26-4e79-8f85-d1f73bae3406: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(427) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0087",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "2 engine error(s): d1d97c73-794c-42de-90bf-3a044a05ac9d: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: EmptyBooleanResult; f2076600-1597-4345-98d9-a609f15f25cf: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: InvalidBooleanOutput(\"output loop with fewer than 3 edges and no full-circle edge\")",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0088",
       "status": "error"
     },
@@ -539,16 +539,16 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (15, 28): IntersectFailed(AnalyticalSolutionNotAvailable)\"). Body created as standalone.",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0090",
-      "status": "error"
+      "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: 54951200-f264-44c0-8474-d20e8739e654: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(11) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): 54951200-f264-44c0-8474-d20e8739e654: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: InvalidBooleanOutput(\"output ellipse-arc endpoint does not lie on its ellipse\")",
       "id": "R0091",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -569,10 +569,10 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: ac392209-5719-4ea0-9e48-3d2680bc2542: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(287) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0095",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "ERROR",
@@ -587,8 +587,8 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(599), reason: \"planar triangle collapsed at render precision\" }",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "R0098",
       "status": "error"
     },
@@ -977,14 +977,14 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "F0063",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "2 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"output face plane normal disagrees with its outer-loop Newell normal\"). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"output loop with fewer than 3 edges and no full-circle edge\"). Body created as standalone.",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "F0064",
       "status": "error"
     },
@@ -1001,10 +1001,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 10: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "F0067",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "TIMEOUT",
@@ -1025,10 +1025,10 @@
       "status": "error"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "F0071",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "TIMEOUT",
@@ -1061,52 +1061,52 @@
       "status": "unsupported"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "F0077",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(2997), reason: \"planar triangle collapsed at render precision\" }",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "F0078",
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 8: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\"). Body created as standalone.",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "F0079",
       "status": "error"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "F0080",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(11) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "F0081",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: Extrude 7: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(1875) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "F0082",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(17) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "F0083",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 15: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(2420) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "F0084",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "TIMEOUT",
@@ -1115,20 +1115,20 @@
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "3 engine error(s): 5f972110-a034-443e-ac83-67c10803dd1d: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 515c09a8-b9fd-42ef-8f73-d2e3b039f2a1: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: CurvedGeometryMismatch { face: FaceId(18), reason: \"cylinder patch must have exactly 0 or 2 axis-wrapping loops\" }; 6b500242-98e3-4108-875b-289135532aa0: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: CurvedGeometryMismatch { face: FaceId(26), reason: \"cylinder patch must have exactly 0 or 2 axis-wrapping loops\" }",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "2 NotSupported boundary(ies); first: 6b500242-98e3-4108-875b-289135532aa0: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(23) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "F0086",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "ERROR",
-      "detail": "9 engine error(s): f370c601-6173-4fa0-bcdb-a384c23e2e12: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); ad3107ef-71da-464c-9883-b17e8601c6fb: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 1fce12cd-06a2-46fa-a773-3372196e63a2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 1e857e68-b413-4ddc-ab4f-18be396a5030: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 0e34effc-5173-4a86-86ac-f7697c434bb2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 959d490e-56d0-468d-a685-f787822d9eb3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 5a5d97c0-6c53-4c58-adc6-2b3076f28261: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"); 8177419b-a800-45e5-aa21-8dbfb551cedd: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); cff4b068-f798-465e-b66f-9c0d8c2d49ac: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
+      "detail": "9 engine error(s): f370c601-6173-4fa0-bcdb-a384c23e2e12: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(15) }; ad3107ef-71da-464c-9883-b17e8601c6fb: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(23) }; 1fce12cd-06a2-46fa-a773-3372196e63a2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(31) }; 1e857e68-b413-4ddc-ab4f-18be396a5030: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(39) }; 0e34effc-5173-4a86-86ac-f7697c434bb2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(47) }; 959d490e-56d0-468d-a685-f787822d9eb3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(56) }; 5a5d97c0-6c53-4c58-adc6-2b3076f28261: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(65) }; 8177419b-a800-45e5-aa21-8dbfb551cedd: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(74) }; cff4b068-f798-465e-b66f-9c0d8c2d49ac: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(83) }",
       "id": "F0087",
       "status": "error"
     },
     {
       "category": "ERROR",
-      "detail": "14 engine error(s): 8c108f30-0855-43ac-bc9f-3332064fb031: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"); 2e368bb6-7488-46b1-997f-b03bf14bbab0: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"); ddd8a54b-7ef1-4ef9-8f15-ae211886b7dd: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"); 774634cf-e563-4ef6-978f-213b98317311: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"); 491b74f0-5d81-44ff-9ed4-51a0dccd58db: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"); 53e5d13d-c8d4-41b4-b5b6-0553164eed3d: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"); 65997bcd-8cce-4955-a5fa-4007c36a485b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"); 1ff19d8e-50e8-4fd7-99ea-044622eacb70: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"); 39562d75-57bf-424f-8553-f9fface8d3ef: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"); 8c2f0277-43bf-460f-ac7d-881d6fa0fda3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"); f4419909-683a-4567-a004-1132367e5063: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"); ec22ad34-47f6-433d-a85e-f0b0ac8600af: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"); c413d083-e5da-4259-966a-7596541bfc1b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\"); ea9a7ea4-7533-4ae6-b36c-91b4d152fb2d: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: input B-Rep is not 2-manifold\")",
+      "detail": "14 engine error(s): 8c108f30-0855-43ac-bc9f-3332064fb031: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(15) }; 2e368bb6-7488-46b1-997f-b03bf14bbab0: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(23) }; ddd8a54b-7ef1-4ef9-8f15-ae211886b7dd: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (2, 142): AmbiguousCurve { candidates: 0, matched: 0 }\"); 774634cf-e563-4ef6-978f-213b98317311: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(34) }; 491b74f0-5d81-44ff-9ed4-51a0dccd58db: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(42) }; 53e5d13d-c8d4-41b4-b5b6-0553164eed3d: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(50) }; 65997bcd-8cce-4955-a5fa-4007c36a485b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(58) }; 1ff19d8e-50e8-4fd7-99ea-044622eacb70: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(66) }; 39562d75-57bf-424f-8553-f9fface8d3ef: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(75) }; 8c2f0277-43bf-460f-ac7d-881d6fa0fda3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(84) }; f4419909-683a-4567-a004-1132367e5063: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(93) }; ec22ad34-47f6-433d-a85e-f0b0ac8600af: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(102) }; c413d083-e5da-4259-966a-7596541bfc1b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(111) }; ea9a7ea4-7533-4ae6-b36c-91b4d152fb2d: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(120) }",
       "id": "F0088",
       "status": "error"
     },
@@ -1140,7 +1140,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "29 engine error(s): 46f44c9a-34aa-4b56-a77e-c2c57128f7d5: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 3615f278-0e3f-487f-8310-b72ffe9028f8: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); e096d8bc-7bc4-44bb-b112-9ee91b623d9a: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); fb01851b-4b11-4099-bb58-918a783f2c66: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 29715837-ab98-4953-b9d7-6bdf4e1e5d7b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); fdfd7e9a-1c85-4a18-8c5b-1f29497a4cf3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 485890bb-27b6-4eec-9cdf-b45ca7ab511e: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 0c9b36e3-ff84-4968-b2e7-77c978b5f301: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); d62b3b66-a4ff-4c5e-80b8-5fc049dc41f1: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 781a278e-7b28-4177-8a5d-0da524aa13ee: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); c894b663-bf1a-467c-977d-f819030a6fce: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 39df4b93-47a9-4169-8799-cd5078301f05: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 6379063d-ec0d-472a-84b5-4a7844f75093: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 670cd229-1738-4d8b-a75e-43ecd4c677c2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); cb47a826-970a-4098-8f85-1cff362422d0: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 0ca92907-cdf3-4715-8cc2-cf958790df53: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 129db7f9-c1ca-4959-92b0-9d1c9173f43e: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); f5f54959-b1cf-49b9-bc59-b5db7971471b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); d3650c80-b7d6-43c2-81c1-415a4c2255ba: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); d7855346-989a-4a11-94c6-340fc47ac58f: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 3cd86634-ee93-47c2-bdc4-31c9d3256e0c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 78806cea-a9ac-40a6-a206-a4b88ff8d54c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); c8c56c89-89b1-4c67-8f8e-fbbbf1f5614f: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); e6cdf8b5-4c4e-4d1f-bf04-b1112272bacf: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 43306642-d7d5-46e3-abb9-03b05b46bbf2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); bb939f98-6086-44ac-aaf0-506810bcf56e: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 7537b9a5-6a67-4464-acc1-633a832906e2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 5197e397-351d-46b4-b80f-c2a0c90d891b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); b40378ad-3947-4b02-a651-ec3270051d9b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
+      "detail": "29 engine error(s): 46f44c9a-34aa-4b56-a77e-c2c57128f7d5: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(15) }; 3615f278-0e3f-487f-8310-b72ffe9028f8: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(23) }; e096d8bc-7bc4-44bb-b112-9ee91b623d9a: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(31) }; fb01851b-4b11-4099-bb58-918a783f2c66: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(39) }; 29715837-ab98-4953-b9d7-6bdf4e1e5d7b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(47) }; fdfd7e9a-1c85-4a18-8c5b-1f29497a4cf3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(55) }; 485890bb-27b6-4eec-9cdf-b45ca7ab511e: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(63) }; 0c9b36e3-ff84-4968-b2e7-77c978b5f301: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(71) }; d62b3b66-a4ff-4c5e-80b8-5fc049dc41f1: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(79) }; 781a278e-7b28-4177-8a5d-0da524aa13ee: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(87) }; c894b663-bf1a-467c-977d-f819030a6fce: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(95) }; 39df4b93-47a9-4169-8799-cd5078301f05: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(103) }; 6379063d-ec0d-472a-84b5-4a7844f75093: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(111) }; 670cd229-1738-4d8b-a75e-43ecd4c677c2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(119) }; cb47a826-970a-4098-8f85-1cff362422d0: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(127) }; 0ca92907-cdf3-4715-8cc2-cf958790df53: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(136) }; 129db7f9-c1ca-4959-92b0-9d1c9173f43e: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(145) }; f5f54959-b1cf-49b9-bc59-b5db7971471b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(154) }; d3650c80-b7d6-43c2-81c1-415a4c2255ba: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(163) }; d7855346-989a-4a11-94c6-340fc47ac58f: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(172) }; 3cd86634-ee93-47c2-bdc4-31c9d3256e0c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(181) }; 78806cea-a9ac-40a6-a206-a4b88ff8d54c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(190) }; c8c56c89-89b1-4c67-8f8e-fbbbf1f5614f: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(199) }; e6cdf8b5-4c4e-4d1f-bf04-b1112272bacf: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(208) }; 43306642-d7d5-46e3-abb9-03b05b46bbf2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(217) }; bb939f98-6086-44ac-aaf0-506810bcf56e: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(226) }; 7537b9a5-6a67-4464-acc1-633a832906e2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(235) }; 5197e397-351d-46b4-b80f-c2a0c90d891b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(244) }; b40378ad-3947-4b02-a651-ec3270051d9b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(253) }",
       "id": "F0090",
       "status": "error"
     },
@@ -1373,10 +1373,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "mesh_euler_characteristic: V(16) - E(48) + F(32) = 0 (expected 2 for 1 shell(s), exact bits)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0035",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1613,22 +1613,22 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(coplanar-boolean)",
-      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "C0075",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "C0076",
-      "status": "pass"
+      "status": "error"
     },
     {
-      "category": "SUPPORTED_CORRECT",
-      "detail": "all checks passed",
+      "category": "TIMEOUT",
+      "detail": "timeout after 30s",
       "id": "C0077",
-      "status": "pass"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1637,10 +1637,10 @@
       "status": "pass"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "expected_volume: 1.625000000e0 vs expected 2.500000000e0 (rel tol 1.0e-3)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0079",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",

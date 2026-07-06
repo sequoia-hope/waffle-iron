@@ -144,6 +144,39 @@ struct Chain {
 pub(crate) fn recover_output_curves(
     brep: &yang_rs::BRep,
 ) -> (Vec<BRepVertex>, Vec<BRepEdge>, Vec<BRepFace>) {
+    // Diagnostic probe (env-gated, zero-cost off): dump the RAW yang output
+    // faces + loop edges (pre-recovery), with azimuth-around-z for each
+    // endpoint, so a mangled boundary self-localizes before fuse/canonicalize.
+    if std::env::var_os("KV2_RECOVER_PROBE").is_some() {
+        let az = |p: Point3| p.y().atan2(p.x());
+        for (fi, f) in brep.faces().iter().enumerate() {
+            eprintln!("[recover-probe] face {fi} surface={:?}", f.surface);
+            for (li, lp) in std::iter::once(&f.outer_loop)
+                .chain(f.inner_loops.iter())
+                .enumerate()
+            {
+                eprintln!("  loop {li}: {} edges", lp.len());
+                for &ei in lp.iter() {
+                    let e = &brep.edges()[ei as usize];
+                    let ps = brep.vertices()[e.start as usize].point;
+                    let pe = brep.vertices()[e.end as usize].point;
+                    let r = |p: Point3| (p.x() * p.x() + p.y() * p.y()).sqrt();
+                    eprintln!(
+                        "    e{ei} {:?} v{}(az {:.4}, r {:.6}, z {:.4}) -> v{}(az {:.4}, r {:.6}, z {:.4})",
+                        std::mem::discriminant(&e.curve),
+                        e.start,
+                        az(ps),
+                        r(ps),
+                        ps.z(),
+                        e.end,
+                        az(pe),
+                        r(pe),
+                        pe.z(),
+                    );
+                }
+            }
+        }
+    }
     let orig = || {
         (
             brep.vertices().to_vec(),
@@ -457,6 +490,15 @@ fn try_recover(brep: &yang_rs::BRep) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, 
             entry.push(single);
         }
         for (&fi, loop_chains) in &face_loop_chains {
+            // Diagnostic probe (env-gated): per-face loop→chain resolution, so
+            // a canonicalization miss self-localizes (which loop failed to be
+            // a single closed chain, and what its chains look like).
+            if std::env::var_os("KV2_RECOVER_PROBE").is_some() {
+                eprintln!(
+                    "[recover-probe] canonicalize face {fi} surface={:?} loop_chains={loop_chains:?}",
+                    yfaces[fi].surface
+                );
+            }
             // Cylinder OR cone laterals canonicalize identically: two closed
             // rims joined by one azimuth-aligned seam ruling (axis-parallel for
             // a cylinder, a slant generator for a cone — both connect equal
@@ -584,25 +626,67 @@ fn try_recover(brep: &yang_rs::BRep) -> Option<(Vec<BRepVertex>, Vec<BRepEdge>, 
         pieces.push((start, *chain.verts.last().unwrap()));
         Some(pieces)
     };
-    // For a CLOSED chain with no canonical anchor: 3 sub-π arcs split at
-    // evenly-spaced retained vertices (chain.verts.len() >= 3 because a
-    // closed 2-vert chain would be two coincident chords).
+    // For a CLOSED chain with no canonical anchor: sub-π arc pieces split by
+    // ACCUMULATED SWEEP, exactly like the open-chain builder (task #62, the
+    // F0086 chained swiss-cheese wall). The former vertex-count-thirds split
+    // was wrong for NON-UNIFORM chord spacing (coplanar rim-override
+    // clusters pack dozens of femto-spaced vertices into a fraction of a
+    // radian): a count-third can subtend MORE than π, and the downstream
+    // minor-side arc classification then reconstructs the wrong side — the
+    // rim loop walks out-and-back with net winding 0 ("cylinder patch must
+    // have exactly 0 or 2 axis-wrapping loops"). Sweep-based cuts guarantee
+    // every piece < MAX_ARC_PIECE_SWEEP < π, and ≥ 3 pieces fall out of
+    // 2π / MAX_ARC_PIECE_SWEEP > 2 (loop arity + distinct endpoint pairs).
     let closed_fallback_pieces = |chain: &Chain| -> Option<Vec<(u32, u32)>> {
+        let EffCurve::Circle { center, normal, .. } = chain.curve else {
+            return None;
+        };
         let n = chain.verts.len();
         if n < 3 {
             return None;
         }
-        let i0 = 0;
-        let i1 = n / 3;
-        let i2 = (2 * n) / 3;
-        if i1 == i0 || i2 == i1 {
-            return None;
+        let (e1, e2) = ortho_basis(normal);
+        let theta = |v: u32| -> f64 {
+            let w = sub(yverts[v as usize].point, center);
+            dot3(w, e2).atan2(dot3(w, e1))
+        };
+        let tau = 2.0 * std::f64::consts::PI;
+        // Per-chord CCW deltas INCLUDING the implicit wrap edge vk → v0.
+        let mut deltas: Vec<f64> = chain
+            .verts
+            .windows(2)
+            .map(|w| (theta(w[1]) - theta(w[0])).rem_euclid(tau))
+            .collect();
+        deltas.push((theta(chain.verts[0]) - theta(*chain.verts.last().unwrap())).rem_euclid(tau));
+        // March direction normalization (same rule as the open builder).
+        let cw = deltas.iter().filter(|&&d| d > std::f64::consts::PI).count();
+        let deltas: Vec<f64> = if cw * 2 > deltas.len() {
+            deltas.iter().map(|d| tau - d).collect()
+        } else {
+            deltas
+        };
+        if deltas
+            .iter()
+            .any(|&d| !(d > 0.0 && d < MAX_ARC_PIECE_SWEEP))
+        {
+            return None; // degenerate / zigzag / absurd chord — bail
         }
-        Some(vec![
-            (chain.verts[i0], chain.verts[i1]),
-            (chain.verts[i1], chain.verts[i2]),
-            (chain.verts[i2], chain.verts[i0]),
-        ])
+        let mut pieces: Vec<(u32, u32)> = Vec::new();
+        let mut start = chain.verts[0];
+        let mut acc = 0.0;
+        for (i, &d) in deltas.iter().enumerate() {
+            if acc > 0.0 && acc + d > MAX_ARC_PIECE_SWEEP {
+                pieces.push((start, chain.verts[i]));
+                start = chain.verts[i];
+                acc = 0.0;
+            }
+            acc += d;
+        }
+        pieces.push((start, chain.verts[0])); // close the cycle
+        if pieces.len() < 3 {
+            return None; // cannot happen for a true 2π cycle — bail loudly
+        }
+        Some(pieces)
     };
 
     // Pre-compute each chain's replacement endpoint list (in chain order).

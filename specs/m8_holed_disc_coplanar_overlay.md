@@ -277,3 +277,42 @@ fold and the twin before the arrangement. P9 note: the new exact ordering
 is provably more correct at its layer (unit + fixture oracles above); the
 quarantine documents a latent Stage-0 mint-gate/Stage-4 assignment gap the
 old ordering masked by luck, not a new wrongness.
+
+**Increment 5 (2026-07-06) — chained swiss-cheese (task #62): two chain walls
+fixed; family bottleneck now = on-chord rim points (increment 4's root).**
+The F0086 chain (disc plate + 5 same-plane cut-cylinders) walled at cut 2.
+Two independent defects, both in the recovered-B-Rep re-entry path:
+
+1. **Azimuth-merge wrap split (yang lib.rs, `tessellate_lateral_azimuth_merge`):**
+   a RECOVERED rim can carry its seam vertex at y = −ε, which
+   `rem_euclid(2π)` maps to 2π−ε — sorted LAST while the other rim's
+   bit-zero seam sorts FIRST, shifting the positional pairing by one slot
+   ("rims disagree at index 0 (bottom 0 vs top 0.4488)"). The two sorted
+   rings are CIRCULAR sequences: the pairing (and the multiset check) now
+   aligns them by cyclic shift (top[shift] circularly nearest bot[0]).
+   Unit oracle: `rim_override_wrap_seam_cyclic_alignment`.
+2. **Closed-rim fallback split by vertex count (kernel-v2 `recover.rs`,
+   `closed_fallback_pieces`):** with the coplanar overlay's femto-spaced
+   crossing clusters, a vertex-count "third" of a closed rim can subtend
+   MORE than π; the downstream minor-side arc derivation then reconstructs
+   the wrong side and the reassembled rim loop walks out-and-back (net
+   winding 0 — the engine's "cylinder patch must have exactly 0 or 2
+   axis-wrapping loops" wall). The fallback now splits by ACCUMULATED
+   sweep (every piece < MAX_ARC_PIECE_SWEEP < π), mirroring the open-chain
+   builder. e2e oracle: `kernel-v2/tests/m8_swiss_cheese_chain.rs`
+   `two_through_holes_chain` (F0086's bit-exact parameters, volume band).
+
+Result: chained swiss-cheese cut 2 GREEN end-to-end; F0086/F0089 move
+ERROR → UNSUPPORTED(curved-profile) (typed boundary); F0086 assay pin
+updated. Cut 3+ walls at the TYPED to_yang re-entry boundary: the cut-2
+output's z=0 rim is a MIXED chain — on-circle posts + on-chord overlay
+cluster points (off-circle by up to the Stage-1 sagitta) — so recover
+cannot circle-fuse it, the lateral loses its canonical anchor, and the
+multi-piece rim cannot re-enter Stage 1 (pinned loud:
+`third_cut_stays_loud_typed_reentry_wall`; 5-hole chain `#[ignore]`d on the
+milestone). F0087/F0088/F0090's residual ERRORs are `VertexOffSurface` —
+the same on-chord population reaching loops. **The whole family now
+bottlenecks on ONE root: Stage-0 mints rim-polygon crossing points ON
+CHORDS instead of on the exact circle — increment 4's shared on-circle
+mint design (task #61) is the next lever, and would also restore the
+canonical-anchor path in recover.**

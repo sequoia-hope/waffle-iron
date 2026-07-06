@@ -2500,16 +2500,54 @@ fn tessellate_lateral_azimuth_merge(
     let bot = sort_by_az(bottom_ring);
     let top = sort_by_az(top_ring);
 
+    // The two sorted rings are CIRCULAR sequences: the 0/2π cut can split
+    // geometrically-identical azimuths across the wrap (a RECOVERED rim's
+    // seam vertex at y = −ε maps to 2π−ε under `rem_euclid` while the other
+    // rim's sits at exactly 0), shifting one sorted array by a slot — the
+    // F0086 chained swiss-cheese wall (task #62). Align cyclically: pair
+    // bot[k] ↔ top[(k+shift) % n], with the shift chosen so top[shift] is
+    // circularly nearest bot[0]. The multiset check below is unchanged in
+    // strength (pairwise within tol, no silent fudge) — it just compares the
+    // cyclically aligned pairs.
+    let two_pi = 2.0 * std::f64::consts::PI;
+    let circ = |x: f64, y: f64| {
+        let d = (x - y).abs();
+        d.min(two_pi - d)
+    };
+    let mut shift = 0usize;
+    let mut best = f64::INFINITY;
+    for (j, t) in top.iter().enumerate() {
+        let d = circ(bot[0].0, t.0);
+        if d < best {
+            best = d;
+            shift = j;
+        }
+    }
+    if std::env::var_os("YANG_SHIFT_NEUTER").is_some() {
+        shift = 0;
+    }
+
     // Verify the SAME azimuth multiset (no silent fudge): pairwise within tol.
-    let tol = (2.0 * std::f64::consts::PI / n as f64) * 0.25;
+    let tol = (two_pi / n as f64) * 0.25;
     for k in 0..n {
-        let mut d = (bot[k].0 - top[k].0).abs();
-        d = d.min(2.0 * std::f64::consts::PI - d);
+        let d = circ(bot[k].0, top[(k + shift) % n].0);
         if d > tol {
+            // Diagnostic probe (env-gated): dump both sorted rings so a
+            // multiset mismatch self-localizes (phase shift vs count skew vs
+            // stray point).
+            if std::env::var_os("YANG_AZMERGE_PROBE").is_some() {
+                eprintln!(
+                    "[azmerge-probe] face {f_idx}: n={n} tol={tol} shift={shift}\n  \
+                     bottom: {:?}\n  top:    {:?}",
+                    bot.iter().map(|(az, _)| *az).collect::<Vec<_>>(),
+                    top.iter().map(|(az, _)| *az).collect::<Vec<_>>(),
+                );
+            }
             return Err(YangError::MalformedTopology(format!(
                 "face {f_idx}: azimuth-merge rims disagree at index {k} (bottom {} vs top {}, \
-                 tol {tol})",
-                bot[k].0, top[k].0
+                 shift {shift}, tol {tol})",
+                bot[k].0,
+                top[(k + shift) % n].0
             )));
         }
     }
@@ -2526,8 +2564,8 @@ fn tessellate_lateral_azimuth_merge(
 
     for k in 0..n {
         let kn = (k + 1) % n;
-        let t0 = top[k].1;
-        let t1 = top[kn].1;
+        let t0 = top[(k + shift) % n].1;
+        let t1 = top[(kn + shift) % n].1;
         let b0 = bot[k].1;
         let b1 = bot[kn].1;
         for mut tri in [[b0, b1, t1], [b0, t1, t0]] {
@@ -8208,7 +8246,6 @@ fn compact_unreferenced_verts(mesh: &mut Mesh, relocations: &mut Vec<(u32, f64)>
 /// No-skip audit (anti-disproven-attempt): a `processed` set tracks EVERY conic
 /// edge endpoint; it must equal the relocation-key set at the end. The function
 /// NEVER `continue`s past a `Circle` edge endpoint.
-
 fn stage4_relocate_and_correct(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
@@ -13998,6 +14035,111 @@ mod tests {
                 .count(),
             1,
             "bit-identical duplicate override must be deduplicated exactly once"
+        );
+    }
+
+    /// Chained swiss-cheese wall 1 RED (task #62, spec
+    /// `m8_holed_disc_coplanar_overlay` §8 increment 5): the azimuth-merge
+    /// lateral pairing must be WRAP-AWARE. A RECOVERED B-Rep (boolean output
+    /// re-entering a boolean) can carry one rim's seam vertex at azimuth
+    /// exactly 0 while the other rim's sits a femto BELOW the +x axis
+    /// (y = −ε): `atan2(…).rem_euclid(2π)` maps the latter to 2π−ε, sorting
+    /// it LAST instead of FIRST, and the positional `bot[k] ↔ top[k]` pairing
+    /// shifts by one slot — the F0086 step-2 wall
+    /// (`azimuth-merge rims disagree at index 0 (bottom 0 vs top 0.4488)`).
+    /// The two sorted rings are CIRCULAR sequences: pairing must align them
+    /// by cyclic shift, not by absolute sort position.
+    ///
+    /// Fixture: rt-style cylinder whose TOP seam vertex is rotated a femto
+    /// below the +x axis (y = −r·5e−16, on-circle within band), with one
+    /// same-azimuth override pair on both rims to force the azimuth-merge
+    /// path. Oracle: tessellation SUCCEEDS and stays a closed 2-manifold.
+    /// RED today: MalformedTopology "rims disagree at index 0".
+    #[test]
+    fn rim_override_wrap_seam_cyclic_alignment() {
+        let r = 0.5_f64;
+        let eps_y = -r * 5.0e-16; // top seam vertex a femto BELOW the +x axis
+        let v0 = Point3::new(r, 0.0, 0.0);
+        let v1 = Point3::new(r, eps_y, 1.0);
+        let verts = vec![BRepVertex { point: v0 }, BRepVertex { point: v1 }];
+        let edges = vec![
+            BRepEdge {
+                start: 0,
+                end: 0,
+                curve: Curve::Circle {
+                    center: Point3::new(0.0, 0.0, 0.0),
+                    normal: Vector3::new(0.0, 0.0, -1.0),
+                    radius: r,
+                },
+            },
+            BRepEdge {
+                start: 1,
+                end: 1,
+                curve: Curve::Circle {
+                    center: Point3::new(0.0, 0.0, 1.0),
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    radius: r,
+                },
+            },
+            BRepEdge {
+                start: 0,
+                end: 1,
+                curve: Curve::LineSegment,
+            },
+        ];
+        let faces = vec![
+            BRepFace {
+                surface: Surface::Cylinder {
+                    axis_point: Point3::new(0.0, 0.0, 0.0),
+                    axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                    radius: r,
+                },
+                outer_loop: vec![0, 2, 1, 2],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(0.0, 0.0, -1.0),
+                    d: 0.0,
+                },
+                outer_loop: vec![0],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    d: -1.0,
+                },
+                outer_loop: vec![1],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+        ];
+        // One override pair at the same geometric azimuth on both rims (not
+        // near a uniform sample) — forces the azimuth-merge lateral path.
+        let az = 0.3_f64;
+        let (s, c) = az.sin_cos();
+        let mut ov: std::collections::BTreeMap<u32, Vec<Point3>> =
+            std::collections::BTreeMap::new();
+        ov.insert(0, vec![Point3::new(r * c, r * s, 0.0)]);
+        ov.insert(1, vec![Point3::new(r * c, r * s, 1.0)]);
+        let t = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &ov).expect(
+            "wrap-seam cylinder must tessellate — the azimuth-merge pairing \
+             must align the rings cyclically, not by absolute sort position",
+        );
+        let mut counts: std::collections::BTreeMap<(u32, u32), u32> =
+            std::collections::BTreeMap::new();
+        for tri in &t.tris {
+            for k in 0..3 {
+                let (a, b) = (tri[k], tri[(k + 1) % 3]);
+                *counts.entry((a.min(b), a.max(b))).or_insert(0) += 1;
+            }
+        }
+        assert!(
+            !counts.is_empty() && counts.values().all(|&c| c == 2),
+            "wrap-seam cylinder must stay a closed 2-manifold"
         );
     }
 

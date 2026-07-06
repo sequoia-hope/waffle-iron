@@ -233,6 +233,15 @@ the roadmap's remaining work:
    >    Remaining for this row: the CHAINED F0086–F0090 corpus cases and
    >    increment 4 (Stage-0 shared-mint collapse for sub-floor twin pairs —
    >    un-quarantines `crossing_one_ulp_inside_rim_sample`, task #61).
+   >    **Increment 5 (2026-07-06, task #62): chained cut 2 GREEN** — wrap-
+   >    aware cyclic azimuth-merge pairing (yang) + sweep-aware closed-rim
+   >    arc fallback (kernel-v2 recover). F0086/F0089 ERROR→UNSUPPORTED
+   >    (typed re-entry boundary at cut 3). The WHOLE family now bottlenecks
+   >    on one root: Stage-0 mints rim crossings ON CHORDS (off-circle by
+   >    the sagitta) → mixed chains defeat recover's canonical anchor +
+   >    VertexOffSurface residues (F0087/88/90). Increment 4's on-circle
+   >    shared-mint design clears both. Boundary pinned:
+   >    `kernel-v2/tests/m8_swiss_cheese_chain.rs`.
 2. **N4 — face provenance by centroid-proximity, not §4.2.3 barycentric
    provenance.** Stage-6 attributes each kept triangle by centroid-in-plane
    distance + a tolerance tier (`tol_for`). The paper maps each point to BOTH
