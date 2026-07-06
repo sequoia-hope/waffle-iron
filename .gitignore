@@ -39,3 +39,4 @@ app/tests/*.png
 # auto-waffle session logs (large, ephemeral)
 scripts/auto-waffle/logs/
 app/static/assay/
+crates/kernel-v2/target/

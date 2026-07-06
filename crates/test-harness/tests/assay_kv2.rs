@@ -765,13 +765,17 @@ fn smoke_corpus_boundary_categories() {
         // now succeeds end-to-end. F0086 stays the M8 residue (a coplanar
         // sub-case Increment 1 does not yet cover — crossing / multi-pair).
         ("F0030", Category::SupportedCorrect),
-        // Stale-pin reconciliation (2026-07-05, C-series session): the M8
-        // holed-disc Stage-0 overlay work (3aea953b) moved F0086 PAST the
-        // coplanar gate — it now fails downstream (non-2-manifold reassembly
-        // + cylinder axis-wrapping loops), matching the committed
-        // results.json baseline. Progress marker for task #54 (chained
-        // swiss-cheese), not a regression from this session.
-        ("F0086", Category::Error),
+        // Task #62 (2026-07-06, chained swiss-cheese session): the wrap-aware
+        // azimuth-merge pairing + sweep-aware closed-rim arc fallback let the
+        // FIRST TWO chained cuts succeed (was: axis-wrapping-loop ERROR at
+        // cut 2). Cuts 3+ hit the TYPED re-entry boundary (to_yang
+        // UnsupportedCurvedBoolean: the cut-2 output's z=0 rim is a mixed
+        // on-circle/on-chord chain recover cannot canonicalize) → the case
+        // categorizes UNSUPPORTED(curved-profile). Next lever = Stage-0
+        // on-circle rim minting (increment 4, task #61); un-pin to
+        // SupportedCorrect when the chain clears
+        // (`kernel-v2/tests/m8_swiss_cheese_chain.rs` pins the boundary).
+        ("F0086", Category::Unsupported(UnsupportedReason::CurvedProfile)),
         // PR-TH2 (KV5b-F2 resolved): the enclosed-cavity families
         // F0031–F0035 (box-minus-cyl) and F0036–F0040 (cyl-minus-box)
         // succeed end-to-end: 2 closed genus-0 shells (outer + cavity),
