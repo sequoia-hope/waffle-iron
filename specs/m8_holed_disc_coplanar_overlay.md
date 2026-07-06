@@ -180,9 +180,100 @@ existing disc rim-crossing cases the projection also serves). Corpus P9 gate
 grid search). F0086–F0090 stay ERROR/UNSUPPORTED (chained swiss-cheese →
 increment 3).
 
-**Increment 3 (next) — disc partner, disc rim interior to the annulus.**
-`annular_cap_under_disc` (partner disc r=1.2 strictly between bore 0.5 and outer
-1.5) walls in cherchi with `DeepRecursionRequired/SegmentNotLocatable`: the
-overlap is a sub-annulus whose outer boundary is a NEW circle inside the annulus.
-Separate cherchi-arrangement-robustness frontier. Then the chained swiss-cheese
-corpus cases F0086–F0090.
+**Increment 3 (2026-07-06) — diagnosis: NOT cherchi robustness; Stage-0 emits a
+self-intersecting, non-conformal mesh at ULP-twin rim splits.** Instrumented
+(new `CHERCHI_ENFORCE_PROBE` in cherchi-rs soup.rs + `YANG_STAGE0_DUMP_DIR`
+mesh dump): the failing base_tri 546 is a CAP-cylinder lateral triangle whose
+submesh holds 3 same-point Lpi vertices on one edge plus a 1-ULP-twin Lpi pair —
+mesh B genuinely self-intersects there. Root cause chain:
+
+1. The exact trapezoidal overlay legitimately mints **femto-twin split pairs**
+   (two sweep-event columns 1 ULP apart in `u`, from two distinct rim samples
+   whose mirrored x-coordinates differ by 1 ULP) on every chord they cross.
+   The twins are exact, distinct, and consistent inside the overlay.
+2. `collect_ring_crossings` pushes them into `rim_overrides` in overlay-vertex
+   INDEX order (not exact chord order).
+3. The Stage-1 rim-ring slot sort (`lib.rs` rim construction) keys on **f64
+   seam-relative angle** — the twins' angles collide (Δθ ≈ 4e-17 < ULP(θ) ≈
+   2e-16) — so their ring order degrades to insertion order, independently per
+   rim, in per-rim frames of OPPOSITE orientation.
+4. `tessellate_lateral_azimuth_merge` re-sorts both rings by shared-frame f64
+   azimuth (ties again) and pairs positionally → the strip quad between the
+   twins TWISTS (observed: bottom ring `…605` before `…496`, top ring the
+   projections in the opposite order; wall tri `(7,100,8)` orientation-flipped)
+   and the cap-boundary walk disagrees with the lateral rim walk (`6→7→8→9`
+   vs `6→8→7→10`).
+
+Cherchi then correctly explodes on the tangle
+(`DeepRecursionRequired/SegmentNotLocatable`). Fix plan (exact ordering, no
+tolerances — P9):
+- **F1 (stage0):** `collect_ring_crossings` sorts crossings by (chord index,
+  exact `t`) before pushing — insertion order becomes the exact boundary order
+  (also makes probes deterministic).
+- **F2 (lib.rs ring build):** the rim-ring slot sort breaks Override-vs-Override
+  f64-angle TIES with the exact sign of the 2D cross product of the two points'
+  frame coordinates (RBig over the raw f64 inputs — exact). Uniform-vs-override
+  ties are impossible (merge_tol guard is 1e-6·step ≫ ULP).
+- **F3 (lib.rs lateral pairing):** the azimuth-merge per-ring sort gets the same
+  exact tie-break in the SHARED frame, so tied clusters pair by true angular
+  order on both rims.
+
+Residual accepted risk (documented): a 1-ULP f64 atan2 inversion (strict
+misorder, not a tie) or an azimuth-order inversion introduced by the f64
+opposite-rim radial renormalisation would still mispair — both remain LOUD
+(cherchi wall), never silent-wrong. Oracle: new lib.rs unit test pins exact
+twin order on both rings + untwisted wall pairing (RED on tie-order today);
+e2e `annular_cap_under_disc_union_succeeds` un-ignored; then the chained
+swiss-cheese corpus cases F0086–F0090.
+
+**Increment 3 (2026-07-06) — SHIPPED (F1+F2+F3 + two CDT fixes + §4.4.1(b)
+merge extension); `annular_cap_under_disc` GREEN end-to-end.** What landed
+beyond the plan above:
+
+- **F2/F3** as planned (`exact_rim_ccw_tiebreak` in yang-rs lib.rs, used by
+  the rim-ring slot sort and the lateral azimuth-merge per-ring sort);
+  **F1** as planned (`collect_ring_crossings` sorts by (chord, exact t)).
+  Unit oracle `rim_override_ulp_twins_exact_order_both_rims` (RED→GREEN,
+  mutation-checked: neutering the tie-break flips it RED).
+- **CDT fix 1 (cherchi-rs):** after the ordering fixes the wall moved to the
+  Stage-1 annular-cap CDT: the plain `cdt_polygon_with_holes` classifies
+  interior faces by f64 CENTROID PARITY, which misclassifies ULP-twin femto
+  slivers along boundary chords (the F0047 "parity slitting" class) — the
+  cap emitted constraint edges used 0×/2×. yang-rs's
+  `tessellate_planar_curved_cdt_face` now uses the topological
+  `cdt_polygon_with_holes_floodfill` (the same migration kernel-v2's render
+  cores made).
+- **CDT fix 2 (cherchi-rs):** the floodfill variant's HOLE exclusion was
+  still f64 centroid parity → bore-rim twin slivers misclassified. Hole
+  parity is now EXACT (`centroid_in_polygon_exact`, pure `RBig` over the
+  raw f64 inputs). Regression fixture: `tests/ulp_twin_cdt.rs` (the real
+  annular-cap CDT input captured bit-exactly; full boundary-conformality
+  oracle: every constraint edge used exactly once, every interior edge
+  exactly twice).
+- **§4.4.1(b) merge widening TRIED AND REVERTED (P10):** a global scan +
+  Stage-4 ENTRY pass was implemented to merge the twins before Phase-A
+  curve assignment, and REVERTED after the corpus P9 gate flipped R0091
+  (micro scale 1.6e-4) to SUPPORTED_WRONG (Euler −4): the ABSOLUTE
+  `MIN_FEATURE_SIZE` floor collapses legitimately-distinct arrangement
+  geometry at micro model scale. The (3c) relocation/conic-adjacent
+  eligibility is LOAD-BEARING (documented at the block); any future twin
+  merge must be scale-aware or happen at Stage-0 with full provenance
+  (increment 4).
+
+**Known residual (quarantined, follow-up task #61):** the R0072-class micro
+fixture `n2_rim_mint_adversary::crossing_one_ulp_inside_rim_sample`
+regresses from accidentally-green to off-band-Ok: its box side sits 1 ULP
+inside a rim sample, the twin split pair's on-circle mints were FOLD-GATE
+REVERTED at Stage 0 (the twin wedge folds), and the chord-position twins
+carry no conic assignment at Stage 4 (YANG_S4_TWIN_PROBE: moved=false,
+circle/line=false), so nothing relocates them to the rim circle and one
+lands in a B-Rep loop (residual = the chord sagitta, 6e-6). The old twin
+ORDER happened to thread the boundary elsewhere. Root fix (increment 4 direction): collapse
+sub-floor mint pairs consistently AT STAGE-0 EMISSION (mint both twins to
+ONE shared on-circle target; the existing 3D-duplicate weld already handles
+the resulting 2D-distinct/3D-identical boundary pair — measured working in
+the same fixture at the box↔circle junctions v19/v23), dissolving both the
+fold and the twin before the arrangement. P9 note: the new exact ordering
+is provably more correct at its layer (unit + fixture oracles above); the
+quarantine documents a latent Stage-0 mint-gate/Stage-4 assignment gap the
+old ordering masked by luck, not a new wrongness.

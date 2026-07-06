@@ -224,6 +224,15 @@ the roadmap's remaining work:
    > 5. **Swiss-cheese holed discs** (F0086–F0090) — holed-disc overlay
    >    routing (the reverted 2026-06-24 implementation is re-derivable; its
    >    old blocker, the same-normal gate, is gone).
+   >    **2026-07-05/06 status (spec `m8_holed_disc_coplanar_overlay`):
+   >    increments 1–3 SHIPPED.** The isolated holed-disc pair is GREEN for
+   >    BOTH partners: polygon (increment 2, exact axial projection) and
+   >    disc-with-rim-interior-to-the-annulus (increment 3: exact ULP-twin
+   >    ring ordering `exact_rim_ccw_tiebreak` + flood-fill Stage-1 planar
+   >    CDT with exact hole parity + §4.4.1(b) merge at Stage-4 entry).
+   >    Remaining for this row: the CHAINED F0086–F0090 corpus cases and
+   >    increment 4 (Stage-0 shared-mint collapse for sub-floor twin pairs —
+   >    un-quarantines `crossing_one_ulp_inside_rim_sample`, task #61).
 2. **N4 — face provenance by centroid-proximity, not §4.2.3 barycentric
    provenance.** Stage-6 attributes each kept triangle by centroid-in-plane
    distance + a tolerance tier (`tol_for`). The paper maps each point to BOTH

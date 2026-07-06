@@ -900,6 +900,32 @@ fn smoke_corpus_boundary_categories() {
     }
 }
 
+// ── Single-case run (manual / diagnosis) ───────────────────────────────────
+
+/// Replay ONE corpus case by id (env `ASSAY_CASE`), generous 300s budget,
+/// printing the outcome + wall time. Diagnosis tooling for timing/timeout
+/// investigations (the full run's per-case timeout cascades via abandoned
+/// worker threads, so isolated timing needs an isolated runner).
+#[test]
+#[ignore] // manual: ASSAY_CASE=R0001 cargo test ... single_case -- --ignored --nocapture
+fn single_case() {
+    let id = std::env::var("ASSAY_CASE").expect("set ASSAY_CASE=<case id>");
+    let dir = assay_dir();
+    let cases = discover_cases(&dir);
+    let case = cases
+        .iter()
+        .find(|c| c.id == id)
+        .unwrap_or_else(|| panic!("case {id} not in corpus"));
+    let t0 = std::time::Instant::now();
+    let outcome = replay_case_with_timeout(case, Duration::from_secs(300));
+    println!(
+        "{id}: {} ({:.1}s) — {}",
+        outcome.category.label(),
+        t0.elapsed().as_secs_f64(),
+        outcome.detail
+    );
+}
+
 // ── Full corpus run (manual / driver) ──────────────────────────────────────
 
 #[test]

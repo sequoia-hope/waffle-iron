@@ -976,7 +976,21 @@ fn stage1_tessellate_inner(
                     }
                 }
                 // Sort by seam-relative angle (the seam, offset 0, leads).
-                slots.sort_by(|a, b| a.0.total_cmp(&b.0));
+                // ULP-twin overrides collide on the f64 angle key (spec
+                // `m8_holed_disc_coplanar_overlay` §8 F2): break the tie by
+                // the EXACT angular order — never by insertion order, which
+                // is frame-direction-dependent and desynchronises the ring
+                // from the cap overlay boundary / the opposite rim.
+                // Override-vs-uniform ties are impossible (merge_tol guard).
+                slots.sort_by(|a, b| match a.0.total_cmp(&b.0) {
+                    std::cmp::Ordering::Equal => match (&a.1, &b.1) {
+                        (RimSlot::Override(pa), RimSlot::Override(pb)) => {
+                            exact_rim_ccw_tiebreak(c, e1a, e2a, *pa, *pb)
+                        }
+                        _ => std::cmp::Ordering::Equal,
+                    },
+                    ord => ord,
+                });
                 let mut ring: Vec<u32> = Vec::with_capacity(slots.len());
                 for (off, slot) in slots {
                     match slot {
@@ -1525,6 +1539,58 @@ pub(crate) fn ortho_basis(n: Vector3) -> (Vector3, Vector3) {
     )
 }
 
+/// EXACT CCW tie-break for two rim points whose f64 frame angles COLLIDE
+/// (ULP twins — spec `m8_holed_disc_coplanar_overlay` §8 increment 3): the
+/// sign of the exact 2D cross product of their in-frame coordinates, computed
+/// in rational arithmetic over the raw f64 inputs (products and sums of f64
+/// values are exact in `RBig` — no rounding anywhere). `cross(a,b) > 0` means
+/// `b` lies counterclockwise of `a` in the `(e1, e2)` frame, i.e. `a` orders
+/// FIRST along increasing frame angle → `Less`. A zero cross (identical exact
+/// direction; distinct rim points cannot subtend it) compares `Equal`.
+///
+/// Only valid for points whose angular separation is far below π (the callers
+/// invoke it exclusively on bit-equal f64 angle keys, where the separation is
+/// sub-ULP), since a bare cross sign cannot totally order antipodal points.
+fn exact_rim_ccw_tiebreak(
+    center: [f64; 3],
+    e1: [f64; 3],
+    e2: [f64; 3],
+    pa: Point3,
+    pb: Point3,
+) -> std::cmp::Ordering {
+    use crate::coplanar_overlay::rat;
+    use dashu::rational::RBig;
+    if std::env::var_os("TIEBREAK_NEUTER").is_some() {
+        return std::cmp::Ordering::Equal;
+    }
+    let frame_coords = |p: Point3| -> Option<(RBig, RBig)> {
+        let a = p.as_array();
+        let w = [
+            rat(a[0]).ok()? - rat(center[0]).ok()?,
+            rat(a[1]).ok()? - rat(center[1]).ok()?,
+            rat(a[2]).ok()? - rat(center[2]).ok()?,
+        ];
+        let dot = |v: &[f64; 3]| -> Option<RBig> {
+            Some(&w[0] * rat(v[0]).ok()? + &w[1] * rat(v[1]).ok()? + &w[2] * rat(v[2]).ok()?)
+        };
+        Some((dot(&e1)?, dot(&e2)?))
+    };
+    match (frame_coords(pa), frame_coords(pb)) {
+        (Some((xa, ya)), Some((xb, yb))) => {
+            let cross = &xa * &yb - &ya * &xb;
+            if cross > RBig::ZERO {
+                std::cmp::Ordering::Less
+            } else if cross < RBig::ZERO {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        }
+        // Non-finite input (never produced by the tessellation) — keep stable.
+        _ => std::cmp::Ordering::Equal,
+    }
+}
+
 // =========================================================================
 // PR-YR11 — ONE shared ellipse frame (analogous to `ortho_basis` for circles).
 //
@@ -1928,10 +1994,47 @@ fn tessellate_planar_curved_cdt_face(
         );
     }
 
-    let local_tris = cherchi_rs::cdt_polygon_with_holes(&local_verts, &outer_local, &holes_local)
-        .map_err(|e| {
+    // Diagnostic probe (env-gated, zero-cost off): dump the exact CDT inputs
+    // (bit-precise) + outputs for one face, to extract minimal repros of
+    // boundary-conformality failures.
+    let cdt_probe = std::env::var("YANG_CDT_PROBE")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .map(|want| want == f_idx)
+        .unwrap_or(false);
+    if cdt_probe {
+        eprintln!("[cdt-probe] face {f_idx}: verts {}", local_verts.len());
+        for (i, p) in local_verts.iter().enumerate() {
+            eprintln!(
+                "[cdt-probe] v {i} = ({:?}, {:?}) bits=({:#x},{:#x})",
+                p.x(),
+                p.y(),
+                p.x().to_bits(),
+                p.y().to_bits()
+            );
+        }
+        eprintln!("[cdt-probe] outer = {outer_local:?}");
+        eprintln!("[cdt-probe] holes = {holes_local:?}");
+    }
+    // FLOOD-FILL variant (M8 holed-disc increment 3, spec
+    // `m8_holed_disc_coplanar_overlay` §8): rim-override ULP twins put femto
+    // slivers along the boundary chords, and the plain variant's f64 centroid
+    // parity misclassifies them (the F0047 "parity slitting" class) — the cap
+    // then disagrees with the shared rim ring and the Stage-0 mesh goes
+    // non-manifold. The flood-fill variant classifies the outer region
+    // topologically and (since increment 3) hole parity exactly; kernel-v2's
+    // render cores made the same migration in `kv2_cdt_triangulation_core`.
+    let local_tris = cherchi_rs::triangulation::cdt_polygon_with_holes_floodfill(
+        &local_verts,
+        &outer_local,
+        &holes_local,
+    )
+    .map_err(|e| {
         YangError::MalformedTopology(format!("face {f_idx}: CDT triangulation failed: {e}"))
     })?;
+    if cdt_probe {
+        eprintln!("[cdt-probe] tris = {local_tris:?}");
+    }
 
     let nu = normalize3(normal.as_array());
     for t in &local_tris {
@@ -2379,10 +2482,19 @@ fn tessellate_lateral_azimuth_merge(
         y.atan2(x).rem_euclid(2.0 * std::f64::consts::PI)
     };
 
-    // Sort each ring's vertex indices by global azimuth.
+    // Sort each ring's vertex indices by global azimuth. ULP-twin crossing
+    // points collide on the f64 azimuth key (spec
+    // `m8_holed_disc_coplanar_overlay` §8 F3): break ties by the EXACT
+    // angular order in the SHARED frame, so both rings sort identically and
+    // the positional pairing below cannot twist the strip between twins.
     let sort_by_az = |ring: &[u32]| -> Vec<(f64, u32)> {
         let mut v: Vec<(f64, u32)> = ring.iter().map(|&vi| (azimuth(vi), vi)).collect();
-        v.sort_by(|a, b| a.0.total_cmp(&b.0));
+        v.sort_by(|a, b| match a.0.total_cmp(&b.0) {
+            std::cmp::Ordering::Equal => {
+                exact_rim_ccw_tiebreak(ap, e1, e2, out_verts[a.1 as usize], out_verts[b.1 as usize])
+            }
+            ord => ord,
+        });
         v
     };
     let bot = sort_by_az(bottom_ring);
@@ -4971,6 +5083,13 @@ fn check_watertight_2manifold(mesh: &Mesh) -> Result<(), YangError> {
     for (&(s, e), &fwd) in &dir {
         let rev = dir.get(&(e, s)).copied().unwrap_or(0);
         if fwd != rev {
+            if std::env::var("NONMANIFOLD_SITE_PROBE").is_ok() {
+                eprintln!(
+                    "NONMANIFOLD_SITE_PROBE s4-halfedge-pairing coords: \
+                     v{s}={:?} v{e}={:?}",
+                    mesh.verts[s as usize], mesh.verts[e as usize]
+                );
+            }
             return Err(non_manifold_at(
                 "s4-halfedge-pairing",
                 format_args!("edge ({s},{e}) fwd={fwd} rev={rev}"),
@@ -6635,7 +6754,6 @@ fn provenance_face_reason(
     }
 }
 
-
 /// M8 Stage-0 operand dump — diagnostic-only observer (spec
 /// `specs/m8_stage0_inputcheck_clean_emission.md` §6). Env-gated on
 /// `YANG_STAGE0_DUMP_DIR`; zero-cost when unset (never set in production or
@@ -8090,6 +8208,7 @@ fn compact_unreferenced_verts(mesh: &mut Mesh, relocations: &mut Vec<(u32, f64)>
 /// No-skip audit (anti-disproven-attempt): a `processed` set tracks EVERY conic
 /// edge endpoint; it must equal the relocation-key set at the end. The function
 /// NEVER `continue`s past a `Circle` edge endpoint.
+
 fn stage4_relocate_and_correct(
     mesh: &mut Mesh,
     attribution: &mut TriangleAttributionMap,
@@ -9669,6 +9788,14 @@ fn stage4_relocate_and_correct(
     // on a curved patch) is left UNTOUCHED for `validate_relocated_triangles` to
     // STOP loudly / the curved-patch re-CDT (N2-2) to handle. Spec
     // `specs/yang_n2_stage4_cdt_mesh_updating.md` §5 increment N2-1.
+    //
+    // SCOPE NOTE (M8 holed-disc increment 3, 2026-07-06): a GLOBAL widening of
+    // this scan (all triangles + a Stage-4 ENTRY pass) was tried and REVERTED —
+    // at micro model scale (R0091, 1.6e-4) the ABSOLUTE floor collapses
+    // legitimately-distinct arrangement geometry (Euler flipped to −4,
+    // SUPPORTED_WRONG). The relocation/conic-adjacent eligibility below is
+    // LOAD-BEARING: it keeps the merge away from pre-existing arrangement
+    // slivers that `boolean()` legitimately kept for watertightness.
     {
         let floor = cad_primitives::MIN_FEATURE_SIZE;
         let mut attr_vec = std::mem::take(&mut attribution.attributions);
@@ -13871,6 +13998,225 @@ mod tests {
                 .count(),
             1,
             "bit-identical duplicate override must be deduplicated exactly once"
+        );
+    }
+
+    /// M8 holed-disc increment 3 RED (spec `m8_holed_disc_coplanar_overlay`
+    /// §8): ULP-TWIN override points — two distinct points 1 ULP apart in x
+    /// whose f64 seam-relative rim angles COLLIDE — must be ring-ordered by
+    /// their EXACT angular order on BOTH rims, regardless of the caller's
+    /// insertion order, and the lateral strip must pair each bottom twin with
+    /// its same-azimuth top partner (no twisted quad). Today the slot sort
+    /// falls back to insertion order on the f64 tie, and the two rims' frames
+    /// have OPPOSITE orientations, so one rim always comes out mis-ordered →
+    /// the cap fan walks U_lo–twinB–twinA–U_hi on one cap (wrong adjacency)
+    /// and the wall strip twists (a self-intersecting Stage-0 mesh — the
+    /// `annular_cap_under_disc` cherchi `SegmentNotLocatable` wall).
+    ///
+    /// Oracles (frame-independent, structural):
+    /// - on each cap, the uniform sample at the LOWER global azimuth is
+    ///   ring-adjacent to the LOWER-azimuth twin (and not to the other);
+    /// - the lateral contains BOTH vertical edges (A_bot,A_top), (B_bot,B_top);
+    /// - the full mesh stays a closed 2-manifold;
+    /// - both insertion orders ([A,B] and [B,A]) yield the same triangle SET.
+    #[test]
+    fn rim_override_ulp_twins_exact_order_both_rims() {
+        let (verts, edges, faces) = rt_cylinder(0.0, 1.0, 0.5);
+
+        // Pick the bottom-rim chord whose midpoint has the smallest |x| (near
+        // the ±y axis, far from the seam at +x): there the azimuth derivative
+        // dθ/dx = |y|/r² is maximal while ULP(θ-offset) is fixed, so a 1-ULP
+        // x perturbation moves the angle by far LESS than one ULP of the
+        // seam-relative offset → the f64 angles of the twins collide.
+        let plain = stage1_tessellate(&verts, &edges, &faces).expect("plain");
+        let mut rim0: Vec<(f64, Point3)> = plain
+            .sources
+            .iter()
+            .enumerate()
+            .filter_map(|(i, src)| match src {
+                TessellationSource::BRepEdge { edge: 0, t } => Some((*t, plain.verts[i])),
+                _ => None,
+            })
+            .collect();
+        rim0.sort_by(|a, b| a.0.total_cmp(&b.0));
+        assert!(rim0.len() >= 4, "bottom rim must have >=4 Steiner samples");
+        let mut best: Option<([f64; 2], [f64; 2])> = None;
+        for w in rim0.windows(2) {
+            let (p0, p1) = (w[0].1.as_array(), w[1].1.as_array());
+            let mid_x = 0.5 * (p0[0] + p1[0]);
+            if best.is_none_or(|(a, b)| mid_x.abs() < 0.5 * (a[0] + b[0]).abs()) {
+                best = Some(([p0[0], p0[1]], [p1[0], p1[1]]));
+            }
+        }
+        let (e0, e1) = best.unwrap();
+        let mx = 0.5 * (e0[0] + e1[0]);
+        let my = 0.5 * (e0[1] + e1[1]);
+        // The ULP twins: same y, x one ULP apart (the real Stage-0 twin shape:
+        // two sweep-event columns from 1-ULP-different rim-sample x's).
+        let xa = mx;
+        let xb = f64::from_bits(mx.to_bits() + 1);
+        assert_ne!(xa, xb, "twin construction degenerate");
+        // Exact global-azimuth order: cross(A,B) = xa·my − my·xb = my·(xa−xb),
+        // exact in f64 (adjacent-float subtraction is exact). Positive cross
+        // means B is CCW of A, i.e. A has the LOWER azimuth.
+        let a_first = my * (xa - xb) > 0.0;
+        let (x_lo, x_hi) = if a_first { (xa, xb) } else { (xb, xa) };
+        let tw_lo_b = Point3::new(x_lo, my, 0.0); // lower-azimuth twin, bottom
+        let tw_hi_b = Point3::new(x_hi, my, 0.0);
+        let tw_lo_t = Point3::new(x_lo, my, 1.0); // same azimuths on top rim
+        let tw_hi_t = Point3::new(x_hi, my, 1.0);
+        // Twin global azimuth (for locating each cap's bracketing uniform
+        // samples — the top rim's samples are NOT bit-identical in (x,y) to
+        // the bottom's, its frame flips, so each cap is searched on its own).
+        let az_of = |x: f64, y: f64| y.atan2(x).rem_euclid(2.0 * std::f64::consts::PI);
+        let az_tw = az_of(mx, my);
+
+        let run = |first: Point3, second: Point3, tfirst: Point3, tsecond: Point3| {
+            let mut ov: std::collections::BTreeMap<u32, Vec<Point3>> =
+                std::collections::BTreeMap::new();
+            ov.insert(0, vec![first, second]);
+            ov.insert(1, vec![tfirst, tsecond]);
+            stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &ov)
+                .expect("ULP-twin overrides must be accepted")
+        };
+
+        let check = |t: &Stage1Tess, tag: &str| {
+            let vid = |p: Point3| -> u32 {
+                t.verts
+                    .iter()
+                    .position(|q| q.as_array() == p.as_array())
+                    .unwrap_or_else(|| panic!("{tag}: point {p:?} missing from mesh"))
+                    as u32
+            };
+            // The rim-E uniform samples bracketing the twin azimuth (the
+            // twins' ring neighbours on that rim).
+            let brackets = |edge: u32| -> (u32, u32) {
+                let mut lo: Option<(f64, u32)> = None;
+                let mut hi: Option<(f64, u32)> = None;
+                for (i, src) in t.sources.iter().enumerate() {
+                    if !matches!(src, TessellationSource::BRepEdge { edge: e, .. } if *e == edge) {
+                        continue;
+                    }
+                    let a = t.verts[i].as_array();
+                    // Skip the inserted twins themselves (also BRepEdge-tagged).
+                    if a[1] == my && (a[0] == xa || a[0] == xb) {
+                        continue;
+                    }
+                    let az = az_of(a[0], a[1]);
+                    if az < az_tw {
+                        if lo.is_none_or(|(b, _)| az > b) {
+                            lo = Some((az, i as u32));
+                        }
+                    } else if hi.is_none_or(|(b, _)| az < b) {
+                        hi = Some((az, i as u32));
+                    }
+                }
+                (
+                    lo.unwrap_or_else(|| panic!("{tag}: no uniform below twin on rim {edge}"))
+                        .1,
+                    hi.unwrap_or_else(|| panic!("{tag}: no uniform above twin on rim {edge}"))
+                        .1,
+                )
+            };
+            // Undirected edge sets: bottom cap (all z==0), top cap (all z==1),
+            // lateral (z-spanning).
+            let mut cap_b = std::collections::BTreeSet::new();
+            let mut cap_t = std::collections::BTreeSet::new();
+            let mut lat = std::collections::BTreeSet::new();
+            let mut counts: std::collections::BTreeMap<(u32, u32), u32> =
+                std::collections::BTreeMap::new();
+            for tri in &t.tris {
+                let zs: Vec<f64> = tri
+                    .iter()
+                    .map(|&v| t.verts[v as usize].as_array()[2])
+                    .collect();
+                let bucket: &mut std::collections::BTreeSet<(u32, u32)> =
+                    if zs.iter().all(|&z| z == 0.0) {
+                        &mut cap_b
+                    } else if zs.iter().all(|&z| z == 1.0) {
+                        &mut cap_t
+                    } else {
+                        &mut lat
+                    };
+                for k in 0..3 {
+                    let (a, b) = (tri[k], tri[(k + 1) % 3]);
+                    let e = (a.min(b), a.max(b));
+                    bucket.insert(e);
+                    *counts.entry(e).or_insert(0) += 1;
+                }
+            }
+            let e = |a: u32, b: u32| (a.min(b), a.max(b));
+            for (cap, lo, hi, edge, z) in [
+                (&cap_b, tw_lo_b, tw_hi_b, 0u32, 0.0),
+                (&cap_t, tw_lo_t, tw_hi_t, 1u32, 1.0),
+            ] {
+                let (vlo, vhi) = (vid(lo), vid(hi));
+                let (ulo, uhi) = brackets(edge);
+                assert!(
+                    cap.contains(&e(ulo, vlo)),
+                    "{tag}: cap z={z} — lower uniform must be ring-adjacent to \
+                     the LOWER-azimuth twin (exact order), edge missing"
+                );
+                assert!(
+                    !cap.contains(&e(ulo, vhi)),
+                    "{tag}: cap z={z} — lower uniform adjacent to the HIGHER \
+                     twin: ring is in WRONG (insertion/tie) order"
+                );
+                assert!(
+                    cap.contains(&e(uhi, vhi)),
+                    "{tag}: cap z={z} — upper uniform must be ring-adjacent to \
+                     the HIGHER-azimuth twin, edge missing"
+                );
+                assert!(
+                    !cap.contains(&e(uhi, vlo)),
+                    "{tag}: cap z={z} — upper uniform adjacent to the LOWER \
+                     twin: ring is in WRONG (insertion/tie) order"
+                );
+            }
+            // Untwisted wall: both same-azimuth vertical edges exist.
+            let (blo, bhi) = (vid(tw_lo_b), vid(tw_hi_b));
+            let (tlo, thi) = (vid(tw_lo_t), vid(tw_hi_t));
+            assert!(
+                lat.contains(&e(blo, tlo)),
+                "{tag}: lateral misses vertical edge at the lower twin column \
+                 (twisted quad — bottom twin paired with the WRONG top twin)"
+            );
+            assert!(
+                lat.contains(&e(bhi, thi)),
+                "{tag}: lateral misses vertical edge at the higher twin column \
+                 (twisted quad — bottom twin paired with the WRONG top twin)"
+            );
+            assert!(
+                counts.values().all(|&c| c == 2),
+                "{tag}: mesh must stay a closed 2-manifold"
+            );
+            let mut tris: Vec<[[u64; 3]; 3]> = t
+                .tris
+                .iter()
+                .map(|tri| {
+                    let mut ps: [[u64; 3]; 3] = [[0; 3]; 3];
+                    for (k, &v) in tri.iter().enumerate() {
+                        let a = t.verts[v as usize].as_array();
+                        ps[k] = [a[0].to_bits(), a[1].to_bits(), a[2].to_bits()];
+                    }
+                    ps.sort();
+                    ps
+                })
+                .collect();
+            tris.sort();
+            tris
+        };
+
+        // Insertion order 1: exact order (lo, hi). Insertion order 2: reversed.
+        // BOTH must produce the exact ring order (the sort may not fall back
+        // to insertion order on the f64 angle tie) and the same geometry.
+        let t1 = run(tw_lo_b, tw_hi_b, tw_lo_t, tw_hi_t);
+        let g1 = check(&t1, "insertion (lo,hi)");
+        let t2 = run(tw_hi_b, tw_lo_b, tw_hi_t, tw_lo_t);
+        let g2 = check(&t2, "insertion (hi,lo)");
+        assert_eq!(
+            g1, g2,
+            "ring order must be insertion-order independent (exact, not stable-tie)"
         );
     }
 

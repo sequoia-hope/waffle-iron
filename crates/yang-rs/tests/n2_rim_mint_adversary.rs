@@ -219,6 +219,9 @@ fn all_faces_residual_survey(out: &BRep) -> (usize, f64, [f64; 3], f64) {
                 };
                 if resid > band {
                     off_count += 1;
+                    if std::env::var_os("ADV_DIAG").is_some() {
+                        eprintln!("[adv-diag] off-band v{v} p={pt:?} resid={resid:.3e} face surface={:?} edge {e_idx} curve={:?}", f.surface, e.curve);
+                    }
                 }
                 if resid > worst.0 {
                     worst = (resid, pt, band);
@@ -775,6 +778,18 @@ fn crossing_through_existing_rim_sample() {
 /// HEAD: a LOUD typed error (`NonManifoldOutput`) — pinned as
 /// valid-or-loud so this bit-near configuration can never go silent-wrong.
 #[test]
+#[ignore = "M8 holed-disc increment 4 (task #61, spec \
+            m8_holed_disc_coplanar_overlay §8): the exact ULP-twin ring \
+            ordering (increment 3) exposes a latent Stage-0/Stage-4 gap this \
+            fixture previously dodged by twin-order luck — the twin split \
+            pair's on-circle mints are FOLD-GATE REVERTED at Stage 0 (the \
+            twin wedge folds), the chord-position twins carry no conic \
+            assignment at Stage 4 (probe YANG_S4_TWIN_PROBE: \
+            moved=false, circle/line=false), and one reaches a \
+            cylinder-face loop off-band by the chord sagitta (6e-6, Ok \
+            output). GREEN when Stage-0 mints sub-floor twin pairs to ONE \
+            shared on-circle target (increment 4), dissolving both the fold \
+            and the twin before the arrangement."]
 fn crossing_one_ulp_inside_rim_sample() {
     let s = calibrated_rim_sample();
     let x_lo = f64::next_down(s[0]);

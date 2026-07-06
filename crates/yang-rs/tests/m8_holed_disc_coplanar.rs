@@ -162,10 +162,18 @@ fn z_cylinder(cx: f64, cy: f64, base_z: f64, radius: f64, height: f64) -> BRep {
 /// `m8cyl_plug_in_bore::tube` topology.
 fn tube(ro: f64, ri: f64, z0: f64, z1: f64) -> BRep {
     let verts = vec![
-        BRepVertex { point: p(ro, 0.0, z0) }, // 0 outer bottom
-        BRepVertex { point: p(ro, 0.0, z1) }, // 1 outer top
-        BRepVertex { point: p(ri, 0.0, z0) }, // 2 bore bottom
-        BRepVertex { point: p(ri, 0.0, z1) }, // 3 bore top
+        BRepVertex {
+            point: p(ro, 0.0, z0),
+        }, // 0 outer bottom
+        BRepVertex {
+            point: p(ro, 0.0, z1),
+        }, // 1 outer top
+        BRepVertex {
+            point: p(ri, 0.0, z0),
+        }, // 2 bore bottom
+        BRepVertex {
+            point: p(ri, 0.0, z1),
+        }, // 3 bore top
     ];
     let mut edges: Vec<BRepEdge> = Vec::new();
     let outer_rim_b = edges.len() as u32;
@@ -331,7 +339,10 @@ fn annular_cap_in_polygon_union_succeeds() {
     let out = boolean(&t, &lid, BoolOp::Union, &nb())
         .expect("annular-cap coplanar overlay (containment) must be handled by Stage 0");
     let mesh = out.as_mesh();
-    assert!(is_watertight(mesh), "union output must be a closed 2-manifold");
+    assert!(
+        is_watertight(mesh),
+        "union output must be a closed 2-manifold"
+    );
     assert!(
         is_outward_solid(mesh),
         "union must be consistently outward-oriented (no flipped patch)"
@@ -357,22 +368,22 @@ fn annular_cap_in_polygon_union_succeeds() {
 /// tube's annular top cap (ro=1.5, bore 0.5) at z=2; the disc strictly contains
 /// the bore hole and lies inside the outer rim (annular overlap, no crossing).
 /// Exercises the disc-partner overlay arm symmetric to the polygon partner.
+/// GREEN since increment 3 (2026-07-06): the wall was never the sub-annulus
+/// arrangement itself — Stage 0 emitted a self-intersecting mesh at ULP-twin
+/// rim splits (f64 angle-tie ordering) and the Stage-1 cap CDT misclassified
+/// twin femto-slivers (f64 centroid parity). Exact ring ordering + flood-fill
+/// CDT with exact hole parity fixed it; see spec §8 increment 3.
 #[test]
-#[ignore = "M8 holed-disc increment 3 (disc-rim interior to the annulus): Stage 0 \
-            builds the overlay, but the partner disc rim (r=1.2) lies strictly \
-            BETWEEN the bore (0.5) and outer (1.5) rims, so the overlap is a \
-            sub-annulus whose outer boundary is a NEW circle inside the annulus — \
-            cherchi walls with DeepRecursionRequired/SegmentNotLocatable on that \
-            arrangement. Separate from the clean-containment increment-2 win \
-            (annular_cap_in_polygon, GREEN). GREEN when the sub-annulus disc-rim \
-            arrangement is robust (cherchi) or Stage 0 routes it as a rim crossing."]
 fn annular_cap_under_disc_union_succeeds() {
     let t = tube(1.5, 0.5, 0.0, 2.0);
     let cap = z_cylinder(0.0, 0.0, 2.0, 1.2, 1.0); // bottom disc at z=2
     let out = boolean(&t, &cap, BoolOp::Union, &nb())
         .expect("annular-cap ∩ disc coplanar overlay (containment) must be handled by Stage 0");
     let mesh = out.as_mesh();
-    assert!(is_watertight(mesh), "union output must be a closed 2-manifold");
+    assert!(
+        is_watertight(mesh),
+        "union output must be a closed 2-manifold"
+    );
     assert!(is_outward_solid(mesh), "union must be outward-oriented");
 }
 

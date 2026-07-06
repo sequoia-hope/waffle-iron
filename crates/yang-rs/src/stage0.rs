@@ -1639,7 +1639,14 @@ fn collect_rim_crossings(
         return collect_ring_crossings(brep, cap_edge, &poly.outer, overlay, coords, rim_overrides);
     }
     if let Some((outer_edge, hole_edges)) = annular_disc_face(brep, fi) {
-        collect_ring_crossings(brep, outer_edge, &poly.outer, overlay, coords, rim_overrides)?;
+        collect_ring_crossings(
+            brep,
+            outer_edge,
+            &poly.outer,
+            overlay,
+            coords,
+            rim_overrides,
+        )?;
         for (k, &he) in hole_edges.iter().enumerate() {
             let ring = poly.holes.get(k).ok_or("rim-hole-count-mismatch")?;
             collect_ring_crossings(brep, he, ring, overlay, coords, rim_overrides)?;
@@ -1678,7 +1685,13 @@ fn collect_ring_crossings(
         return Err("rim-poly-degenerate");
     }
     let cap_entry = rim_overrides.entry(cap_edge).or_default();
-    let mut cap_pts: Vec<Point3> = Vec::new();
+    // Collected as (chord index, exact chord parameter, point) and sorted
+    // before pushing (spec `m8_holed_disc_coplanar_overlay` §8 F1): the
+    // override insertion order is then the EXACT boundary order along the rim
+    // polygon, not the overlay-vertex enumeration order. Ring correctness no
+    // longer depends on it (the ring sort has an exact tie-break), but the
+    // deterministic order keeps probes readable and future consumers safe.
+    let mut found: Vec<(usize, RBig, Point3)> = Vec::new();
     for i in 0..n {
         let s = &ring[i];
         let e = &ring[(i + 1) % n];
@@ -1718,7 +1731,7 @@ fn collect_ring_crossings(
             }
             // The BIT-EXACT shared point (the cap override uses the same one).
             let pt = coords[vi];
-            if cap_pts.contains(&pt) {
+            if found.iter().any(|(_, _, p)| *p == pt) {
                 if rim_probe {
                     eprintln!(
                         "[rim-cross-probe] edge={cap_edge} chord {i} vert {vi} t={tf} \
@@ -1730,9 +1743,11 @@ fn collect_ring_crossings(
             if rim_probe {
                 eprintln!("[rim-cross-probe] edge={cap_edge} chord {i} vert {vi} t={tf} KEPT");
             }
-            cap_pts.push(pt);
+            found.push((i, t, pt));
         }
     }
+    found.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    let cap_pts: Vec<Point3> = found.into_iter().map(|(_, _, p)| p).collect();
     for &pt in &cap_pts {
         if !cap_entry.contains(&pt) {
             cap_entry.push(pt);
