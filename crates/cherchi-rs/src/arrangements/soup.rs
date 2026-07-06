@@ -864,9 +864,36 @@ pub fn mesh_arrangement(
         // post-split coords filter is vacuous and was removed in AR3c —
         // matches the C++ which never emits a point-segment).
         enforce_constraints(&mut subm, &segments_per_tri[t as usize], &points).map_err(
-            |detail| ArrangementError::DeepRecursionRequired {
-                base_tri: t,
-                detail,
+            |detail| {
+                // Diagnostic probe (env-gated, zero-cost off): dump the failing
+                // base triangle, its submesh vertices, and the pending
+                // constraint segments so an enforcement wall is localizable
+                // without a debugger.
+                if std::env::var_os("CHERCHI_ENFORCE_PROBE").is_some() {
+                    eprintln!("[enforce-probe] base_tri={t} corners:");
+                    eprintln!("  c0={c0:?}\n  c1={c1:?}\n  c2={c2:?}");
+                    eprintln!("[enforce-probe] submesh verts ({}):", subm.num_verts());
+                    for v in 0..subm.num_verts() {
+                        eprintln!("  v{v}: {:?} ~ {:?}", subm.vert_coords(v), subm.vert(v));
+                    }
+                    eprintln!(
+                        "[enforce-probe] segments ({}):",
+                        segments_per_tri[t as usize].len()
+                    );
+                    for s in &segments_per_tri[t as usize] {
+                        eprintln!(
+                            "  seg endpoints=({},{}) coords=({:?}, {:?})",
+                            s.endpoints.0,
+                            s.endpoints.1,
+                            points[s.endpoints.0 as usize].coords,
+                            points[s.endpoints.1 as usize].coords,
+                        );
+                    }
+                }
+                ArrangementError::DeepRecursionRequired {
+                    base_tri: t,
+                    detail,
+                }
             },
         )?;
 

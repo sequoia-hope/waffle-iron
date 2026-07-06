@@ -473,9 +473,14 @@ pub fn cdt_polygon_with_holes_floodfill(
             let a = verts[li[0] as usize];
             let b = verts[li[1] as usize];
             let c = verts[li[2] as usize];
-            let centroid =
-                CadPoint2::new((a.x() + b.x() + c.x()) / 3.0, (a.y() + b.y() + c.y()) / 3.0);
-            if hole_pts.iter().any(|h| point_in_polygon(centroid, h)) {
+            // EXACT hole parity (M8 holed-disc increment 3): the f64 centroid
+            // test misclassifies ULP-twin femto slivers along a hole chord
+            // (kept inside the hole → the constraint edge is used twice and
+            // the cap self-overlaps). Rational parity is decision-exact.
+            if hole_pts
+                .iter()
+                .any(|h| centroid_in_polygon_exact(a, b, c, h))
+            {
                 continue;
             }
         }
@@ -1089,6 +1094,141 @@ fn point_in_polygon(p: CadPoint2, poly: &[CadPoint2]) -> bool {
             inside = !inside;
         }
         j = i;
+    }
+    inside
+}
+
+/// EXACT even-odd point-in-polygon parity for a TRIANGLE CENTROID, in pure
+/// rational arithmetic (dashu `RBig`; every f64 is an exact rational, so the
+/// decision is exact — no femto-sliver misclassification).
+///
+/// M8 holed-disc increment 3 (spec `m8_holed_disc_coplanar_overlay` §8): the
+/// f64 [`point_in_polygon`] misclassifies the centroid of a ULP-twin femto
+/// sliver lying along a boundary chord — the same "parity slitting" class as
+/// F0047 on the outer loop, but on a HOLE loop, where the flood-fill cannot
+/// help (hole interiors are decided geometrically, not topologically). The
+/// query point is passed as the triangle's three corners; the centroid
+/// `(Σx/3, Σy/3)` is formed exactly. Crossing test per edge `(p, q)`:
+/// `(p.y > cy) != (q.y > cy)` (half-open rule, exact) and the edge's x at
+/// `cy` exceeds `cx`, evaluated division-free as
+/// `sign((p.x−cx)·dy + (cy−p.y)·(q.x−p.x)) == sign(dy)` with `dy = q.y−p.y`.
+fn centroid_in_polygon_exact(a: CadPoint2, b: CadPoint2, c: CadPoint2, poly: &[CadPoint2]) -> bool {
+    // Filtered fast path (the PR-CR4 filtered+exact cascade house pattern):
+    // evaluate every edge decision in f64 with a conservative forward error
+    // bound; only when SOME decision falls inside its uncertainty band does
+    // the call pay for the rational tier. The exact tier is the sole decision
+    // authority in the uncertain band — the filter never changes an answer,
+    // it only skips provably-safe work (hole loops are hot in the kernel-v2
+    // render channel; unconditional per-triangle RBig parity is not viable).
+    if let Some(inside) = centroid_in_polygon_filtered(a, b, c, poly) {
+        return inside;
+    }
+    centroid_in_polygon_rational(a, b, c, poly)
+}
+
+/// f64 tier of [`centroid_in_polygon_exact`]. Returns `None` when any edge
+/// decision is within its rounding-error band (→ caller uses the exact tier).
+fn centroid_in_polygon_filtered(
+    a: CadPoint2,
+    b: CadPoint2,
+    c: CadPoint2,
+    poly: &[CadPoint2],
+) -> Option<bool> {
+    let n = poly.len();
+    if n < 3 {
+        return Some(false);
+    }
+    let eps = f64::EPSILON;
+    // Centroid with a conservative absolute error bound per coordinate
+    // (two adds + one divide → ≤ 3 roundings on magnitudes ≤ the term sum).
+    let sx = a.x().abs() + b.x().abs() + c.x().abs();
+    let sy = a.y().abs() + b.y().abs() + c.y().abs();
+    let cx = (a.x() + b.x() + c.x()) / 3.0;
+    let cy = (a.y() + b.y() + c.y()) / 3.0;
+    let ecx = 2.0 * eps * sx;
+    let ecy = 2.0 * eps * sy;
+
+    let mut inside = false;
+    let mut j = n - 1;
+    for i in 0..n {
+        let (px, py) = (poly[j].x(), poly[j].y());
+        let (qx, qy) = (poly[i].x(), poly[i].y());
+        j = i;
+        // Straddle test: strict comparisons against cy — uncertain when an
+        // endpoint is within the centroid's y error band.
+        if (py - cy).abs() <= ecy || (qy - cy).abs() <= ecy {
+            return None;
+        }
+        if (py > cy) == (qy > cy) {
+            continue;
+        }
+        // Crossing side: sign of D = (px−cx)·dy + (cy−py)·(qx−px) vs sign of
+        // dy. Conservative first-order bound on D's rounding error, with the
+        // centroid error bounds propagated through their factors.
+        let dy = qy - py;
+        let d = (px - cx) * dy + (cy - py) * (qx - px);
+        let e_d = ecx * dy.abs()
+            + ecy * (qx - px).abs()
+            + 8.0
+                * eps
+                * ((px.abs() + cx.abs()) * dy.abs()
+                    + (cy.abs() + py.abs()) * (qx.abs() + px.abs()));
+        if d.abs() <= e_d {
+            return None;
+        }
+        let crosses = if dy > 0.0 { d > 0.0 } else { d < 0.0 };
+        if crosses {
+            inside = !inside;
+        }
+    }
+    Some(inside)
+}
+
+/// Exact (rational) tier of [`centroid_in_polygon_exact`] — the decision
+/// authority when the f64 filter is uncertain.
+fn centroid_in_polygon_rational(
+    a: CadPoint2,
+    b: CadPoint2,
+    c: CadPoint2,
+    poly: &[CadPoint2],
+) -> bool {
+    use dashu::rational::RBig;
+    let n = poly.len();
+    if n < 3 {
+        return false;
+    }
+    let rat = |x: f64| -> RBig {
+        // Finite f64 → exact rational; tessellation coordinates are finite.
+        RBig::try_from(
+            dashu::float::FBig::<dashu::float::round::mode::Zero>::try_from(x)
+                .expect("finite f64 -> FBig is total on tessellation coordinates"),
+        )
+        .expect("FBig -> RBig is total")
+    };
+    let three = RBig::from(3);
+    let cx = (rat(a.x()) + rat(b.x()) + rat(c.x())) / &three;
+    let cy = (rat(a.y()) + rat(b.y()) + rat(c.y())) / &three;
+    let mut inside = false;
+    let mut j = n - 1;
+    for i in 0..n {
+        let (pxf, pyf) = (poly[j].x(), poly[j].y());
+        let (qxf, qyf) = (poly[i].x(), poly[i].y());
+        j = i;
+        let py = rat(pyf);
+        let qy = rat(qyf);
+        if (py > cy) == (qy > cy) {
+            continue;
+        }
+        let dy = &qy - &py;
+        let num = (rat(pxf) - &cx) * &dy + (&cy - &py) * (rat(qxf) - rat(pxf));
+        let crosses = if dy > RBig::ZERO {
+            num > RBig::ZERO
+        } else {
+            num < RBig::ZERO
+        };
+        if crosses {
+            inside = !inside;
+        }
     }
     inside
 }
