@@ -399,6 +399,28 @@ the roadmap's remaining work:
    >    clears the gap (F0088 needs N ≥ 24; terminating criterion is
    >    ANALYTIC, unlike the rejected global NSEG floor for the
    >    column-hop class). RED = F0088 cut-4 direct-chain pin.
+   >    **Increment 15 (2026-07-07, task #72): SHIPPED** — the Case-IV
+   >    phantom guard. `phantom_min_rim_segments(a, b)` derives the
+   >    minimal N with `sag(r_a,N)+sag(r_b,N) ≤ gap/2` over all disjoint
+   >    cyl×cyl pairs (external + nested + skew; self-limiting natural-N
+   >    gate; 4096 cap → the loud stop stays for true near-tangency);
+   >    `boolean()` rebuilds both operands at that N, and the forced N is
+   >    a BRep property (`forced_rim_n`) honored by ALL of Stage-0's
+   >    internal re-tessellations (`disc_rim_ring`, `build_stage0_mesh`,
+   >    the coincident-cylinder shared-N path) — plumbing WITHOUT which
+   >    the boost was silently discarded (measured: identical edge ids at
+   >    N=34). Pin retired → `f0088_cut4_phantom_intersection_filtered`
+   >    (thin wall survives, volume oracle); the 15-cut F0088 direct
+   >    chain green with NO AmbiguousCurve and NO VertexOffSurface.
+   >    yang-rs 558/0 (4 new guard unit tests + mutation caught), chain
+   >    suite 15/0, F0086/F0087/F0089 corpus ✓ unchanged. **Corpus F0088
+   >    residual (measured): ops 7/15 `face 0: CDT triangulation failed`**
+   >    — the corpus-path (sketch-extrude + auto-union) chained re-entry
+   >    feeds a recovered cap whose CDT fails at the boosted rim density;
+   >    a distinct pre-existing wall the coarser N never reached (the
+   >    direct chain does NOT reproduce it). Next lever: measure that CDT
+   >    input (dump the failing polygon; recover.rs vs
+   >    cdt_polygon_with_holes at dense rims).
 2. **N4 — face provenance by centroid-proximity, not §4.2.3 barycentric
    provenance.** Stage-6 attributes each kept triangle by centroid-in-plane
    distance + a tolerance tier (`tol_for`). The paper maps each point to BOTH

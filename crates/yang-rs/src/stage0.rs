@@ -1313,7 +1313,13 @@ fn disc_rim_ring(brep: &BRep, fi: usize, coords: &[Point3], frame: &Frame) -> Op
         return None;
     };
     let verts: Vec<BRepVertex> = coords.iter().map(|&p| BRepVertex { point: p }).collect();
-    let tess = stage1_tessellate(&verts, brep.edges(), brep.faces()).ok()?;
+    let tess = crate::stage1_tessellate_min_segments(
+        &verts,
+        brep.edges(),
+        brep.faces(),
+        brep.forced_rim_n(),
+    )
+    .ok()?;
     let range = tess.face_tri_ranges.get(fi)?.clone();
 
     // Unique vertices of the cap fan = the rim ring + the one center Steiner
@@ -1391,7 +1397,13 @@ fn annular_rim_rings(
     }
 
     let verts: Vec<BRepVertex> = coords.iter().map(|&p| BRepVertex { point: p }).collect();
-    let tess = stage1_tessellate(&verts, brep.edges(), brep.faces()).ok()?;
+    let tess = crate::stage1_tessellate_min_segments(
+        &verts,
+        brep.edges(),
+        brep.faces(),
+        brep.forced_rim_n(),
+    )
+    .ok()?;
     let range = tess.face_tri_ranges.get(fi)?.clone();
 
     // Unique face-triangle vertices (all on a rim — no Steiner center here).
@@ -4150,6 +4162,7 @@ fn build_stage0_mesh(
         brep.edges(),
         brep.faces(),
         rim_overrides,
+        brep.forced_rim_n(),
     )?;
 
     // Bit-exact coordinate interner seeded with the base tessellation's
@@ -5034,7 +5047,12 @@ pub(crate) fn coincident_cylinder_stage0(a: &BRep, b: &BRep) -> Result<Option<St
     let n_b = cluster_rim_rings(&probe0_b, &g.faces_b, g.axis_point, g.axis_dir)
         .and_then(|r| r.first().map(|ring| ring.ids.len()));
     let shared_n = match (n_a, n_b) {
-        (Some(na), Some(nb)) => na.max(nb),
+        // Case-IV phantom guard: a forced rim N on either operand folds into
+        // the shared N (a finer N is always chord-valid).
+        (Some(na), Some(nb)) => na
+            .max(nb)
+            .max(a.forced_rim_n().unwrap_or(0))
+            .max(b.forced_rim_n().unwrap_or(0)),
         _ => {
             if probe {
                 eprintln!("[cylst0] could not extract cluster ring N (na={n_a:?} nb={n_b:?})");

@@ -464,6 +464,12 @@ pub struct BRep {
     /// `from_mesh` and boolean-output BReps (no Stage-1 face lineage) — those
     /// fall back to the geometric attribution path.
     tri_face: Vec<u32>,
+    /// Case-IV phantom guard (spec `yang_case_iv_phantom_guard`): the forced
+    /// minimum rim segment count this B-Rep was (re)tessellated at. Stage-0's
+    /// internal re-tessellations (`disc_rim_ring`, `build_stage0_mesh`, split
+    /// re-triangulation) MUST honor it so their rims stay conformal with
+    /// `as_mesh()`. `None` = the solid's own Stage-1 chord bound (the default).
+    forced_rim_n: Option<usize>,
 }
 
 impl BRep {
@@ -543,7 +549,21 @@ impl BRep {
         // Stage 1 tessellation — extracted to `stage1_tessellate` (PR-YR26)
         // so the Stage-0 coplanar overlay can re-tessellate with snapped
         // vertices + per-face overrides. Byte-for-byte the pre-YR26 output.
-        let tess = stage1_tessellate(&verts, &edges, &faces)?;
+        Self::from_topology(verts, edges, faces, None)
+    }
+
+    /// Shared constructor body: Stage-1 tessellation with an optional forced
+    /// minimum rim segment count (`None` = byte-identical to [`BRep::new`]).
+    /// The Case-IV phantom guard (spec `yang_case_iv_phantom_guard`) rebuilds
+    /// both boolean operands through this path when their analytic gap
+    /// demands a finer sampling than each solid's own chord bound chose.
+    fn from_topology(
+        verts: Vec<BRepVertex>,
+        edges: Vec<BRepEdge>,
+        faces: Vec<BRepFace>,
+        min_n_seg: Option<usize>,
+    ) -> Result<Self, YangError> {
+        let tess = stage1_tessellate_min_segments(&verts, &edges, &faces, min_n_seg)?;
         // N4: invert face_tri_ranges into a per-triangle owning-face map (1:1
         // with the mesh triangles), so kept arrangement triangles can be
         // attributed via cherchi provenance instead of geometric proximity.
@@ -567,7 +587,22 @@ impl BRep {
             triangle_attribution: TriangleAttributionMap::empty(),
             face_attribution: Vec::new(),
             tri_face,
+            forced_rim_n: min_n_seg,
         })
+    }
+
+    /// Case-IV phantom guard (spec `yang_case_iv_phantom_guard`): rebuild
+    /// this B-Rep's Stage-1 mesh forcing the rim segment count to at least
+    /// `n`. Topology (vertices/edges/faces) is unchanged — only the
+    /// tessellation density rises, which is always chord-valid (a finer N
+    /// only shrinks the sagitta; governance A14.3).
+    fn rebuilt_with_min_rim_segments(&self, n: usize) -> Result<Self, YangError> {
+        Self::from_topology(
+            self.vertices.clone(),
+            self.edges.clone(),
+            self.faces.clone(),
+            Some(n),
+        )
     }
 
     /// Construct from a pre-tessellated mesh (no topology).
@@ -585,6 +620,7 @@ impl BRep {
             triangle_attribution: TriangleAttributionMap::empty(),
             face_attribution: Vec::new(),
             tri_face: Vec::new(),
+            forced_rim_n: None,
         }
     }
 
@@ -594,6 +630,14 @@ impl BRep {
     /// attribution.
     pub(crate) fn tri_face(&self) -> &[u32] {
         &self.tri_face
+    }
+
+    /// Case-IV phantom guard: the forced minimum rim segment count this
+    /// B-Rep was (re)tessellated at (`None` = the solid's own chord bound).
+    /// Stage-0's internal re-tessellations must pass this through so their
+    /// rims stay conformal with `as_mesh()`.
+    pub(crate) fn forced_rim_n(&self) -> Option<usize> {
+        self.forced_rim_n
     }
 }
 
@@ -624,7 +668,13 @@ pub(crate) fn stage1_tessellate(
     edges: &[BRepEdge],
     faces: &[BRepFace],
 ) -> Result<Stage1Tess, YangError> {
-    stage1_tessellate_with_rim_overrides(verts, edges, faces, &std::collections::BTreeMap::new())
+    stage1_tessellate_with_rim_overrides(
+        verts,
+        edges,
+        faces,
+        &std::collections::BTreeMap::new(),
+        None,
+    )
 }
 
 /// Stage 1 tessellation with optional per-circle-edge RIM CROSSING points
@@ -653,8 +703,9 @@ pub(crate) fn stage1_tessellate_with_rim_overrides(
     edges: &[BRepEdge],
     faces: &[BRepFace],
     rim_overrides: &std::collections::BTreeMap<u32, Vec<Point3>>,
+    min_n_seg: Option<usize>,
 ) -> Result<Stage1Tess, YangError> {
-    stage1_tessellate_inner(verts, edges, faces, rim_overrides, None).map(|(t, _)| t)
+    stage1_tessellate_inner(verts, edges, faces, rim_overrides, min_n_seg).map(|(t, _)| t)
 }
 
 /// Stage 1 tessellation forcing the circle-rim segment count to AT LEAST
@@ -6915,12 +6966,162 @@ fn stage0_dump(
     }
 }
 
+/// Case-IV phantom guard analysis (spec `yang_case_iv_phantom_guard`,
+/// M8 increment 15): the forced minimum rim segment count over all
+/// ANALYTICALLY DISJOINT cylinder-face pairs (A×B) whose Stage-1 chord
+/// bands could otherwise overlap the gap between the surfaces (Yang Fig. 8
+/// Case IV — the meshes would intersect where the surfaces do not,
+/// manufacturing a phantom intersection curve; measured F0088 op 4).
+///
+/// For each pair: the axis-line distance gives the analytic gap (external
+/// `d − r_a − r_b` for any axis pose; nested `r_large − d − r_small` for
+/// parallel axes). A positive gap demands the smallest `N` with
+/// `sag(r_a, N) + sag(r_b, N) ≤ gap/2` (`sag(r, N) = r(1 − cos(π/N))` —
+/// the Stage-1 sagitta, A14.3 single source; the factor-2 margin keeps the
+/// combined band strictly clear, and a finer N is always chord-valid). Far
+/// pairs derive a tiny N that the natural Stage-1 `max()` absorbs — the
+/// guard is self-limiting, no mode branch. True near-tangency (N would
+/// exceed 4096) yields no requirement: the loud Stage-3 `AmbiguousCurve`
+/// remains the tripwire (P9 — never silently proceed with phantom
+/// topology).
+fn phantom_min_rim_segments(a: &BRep, b: &BRep) -> Option<usize> {
+    let mut req: Option<usize> = None;
+    for fa in a.faces() {
+        let Surface::Cylinder {
+            axis_point: pa,
+            axis_dir: da,
+            radius: ra,
+        } = fa.surface
+        else {
+            continue;
+        };
+        for fb in b.faces() {
+            let Surface::Cylinder {
+                axis_point: pb,
+                axis_dir: db,
+                radius: rb,
+            } = fb.surface
+            else {
+                continue;
+            };
+            let ua = normalize3(da.as_array());
+            let ub = normalize3(db.as_array());
+            let w = [pb.x() - pa.x(), pb.y() - pa.y(), pb.z() - pa.z()];
+            let cx = [
+                ua[1] * ub[2] - ua[2] * ub[1],
+                ua[2] * ub[0] - ua[0] * ub[2],
+                ua[0] * ub[1] - ua[1] * ub[0],
+            ];
+            let cross_norm = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
+            // Axis-line distance: skew/crossing axes project the offset onto
+            // the common normal; parallel axes take the perpendicular
+            // point-line distance.
+            let (parallel, d_axes) = if cross_norm > 1e-12 {
+                let d = (w[0] * cx[0] + w[1] * cx[1] + w[2] * cx[2]).abs() / cross_norm;
+                (false, d)
+            } else {
+                let t = w[0] * ua[0] + w[1] * ua[1] + w[2] * ua[2];
+                let perp = [w[0] - t * ua[0], w[1] - t * ua[1], w[2] - t * ua[2]];
+                let d = (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt();
+                (true, d)
+            };
+            let external = d_axes - (ra + rb);
+            let nested = if parallel {
+                ra.max(rb) - d_axes - ra.min(rb)
+            } else {
+                f64::NEG_INFINITY
+            };
+            let gap = external.max(nested);
+            if gap.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+                continue; // surfaces intersect / NaN (degenerate input): real curve or no-op
+            }
+            let sag = |r: f64, n: usize| r * (1.0 - (std::f64::consts::PI / n as f64).cos());
+            let mut n = 3usize;
+            while sag(ra, n) + sag(rb, n) > gap / 2.0 {
+                n += 1;
+                if n > 4096 {
+                    // True near-tangency: no finite practical N — leave the
+                    // loud Stage-3 stop as the tripwire.
+                    n = 0;
+                    break;
+                }
+            }
+            if n > 0 {
+                req = Some(req.map_or(n, |r: usize| r.max(n)));
+            }
+        }
+    }
+    // Self-limiting gate: a requirement BOTH solids' natural Stage-1 N
+    // already satisfies is dropped, keeping the common path byte-identical
+    // (and rebuild-free). `natural_rim_n` mirrors the Stage-1 N derivation
+    // (chord bound over all rim circles, N from the max radius).
+    let natural_rim_n = |brep: &BRep| -> usize {
+        let Some(d_eps) = curved_chord_bound(brep.edges()) else {
+            return usize::MAX; // no circles: nothing to boost
+        };
+        let max_r = brep
+            .edges()
+            .iter()
+            .filter_map(|e| match e.curve {
+                Curve::Circle { radius, .. } => Some(radius),
+                _ => None,
+            })
+            .fold(0.0f64, f64::max);
+        let mut n = 3usize;
+        if d_eps > 0.0 {
+            while max_r * (1.0 - (std::f64::consts::PI / n as f64).cos()) > d_eps {
+                n += 1;
+            }
+        }
+        n
+    };
+    let gated = match req {
+        Some(n) if n > natural_rim_n(a) || n > natural_rim_n(b) => Some(n),
+        _ => None,
+    };
+    if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+        eprintln!(
+            "[phantom-guard] req={req:?} natural=({},{}) gated={gated:?} \
+             cyl_faces=({},{})",
+            natural_rim_n(a),
+            natural_rim_n(b),
+            a.faces()
+                .iter()
+                .filter(|f| matches!(f.surface, Surface::Cylinder { .. }))
+                .count(),
+            b.faces()
+                .iter()
+                .filter(|f| matches!(f.surface, Surface::Cylinder { .. }))
+                .count(),
+        );
+    }
+    gated
+}
+
 pub fn boolean(
     a: &BRep,
     b: &BRep,
     op: BoolOp,
     backend: &dyn MeshBoolean,
 ) -> Result<BRep, YangError> {
+    // Case-IV phantom guard (spec `yang_case_iv_phantom_guard`): rebuild
+    // both operands at the pair-derived rim density BEFORE any Stage-0/1
+    // machinery samples their meshes, so analytically-disjoint cylinder
+    // pairs cannot mesh-intersect. `None` (no cylinder faces, e.g. the
+    // `from_mesh` chained-output operand, or no disjoint pair demanding
+    // more than each solid's own N) leaves both operands byte-identical.
+    let boosted: Option<(BRep, BRep)> = match phantom_min_rim_segments(a, b) {
+        Some(n) => Some((
+            a.rebuilt_with_min_rim_segments(n)?,
+            b.rebuilt_with_min_rim_segments(n)?,
+        )),
+        None => None,
+    };
+    let (a, b): (&BRep, &BRep) = match &boosted {
+        Some((ba, bb)) => (ba, bb),
+        None => (a, b),
+    };
+
     // (0) Stage 0 — §4.5.5 coplanar preprocessing (PR-YR26, M8 slice b).
     // Near-coplanar planar A×B face pairs are HANDLED: both faces snapped
     // onto one canonical shared plane, segmented by the exact 2D overlay,
@@ -7778,6 +7979,7 @@ pub fn boolean(
         // provenance map empty so a CHAINED boolean falls back to geometric
         // attribution (until the output reconstruction also emits a tri→face map).
         tri_face: Vec::new(),
+        forced_rim_n: None,
     })
 }
 
@@ -11443,6 +11645,125 @@ fn subdivide_loops_at_shared_vertices(
 mod tests {
     use super::*;
 
+    // ── Case-IV phantom guard (spec `yang_case_iv_phantom_guard`) ────────
+
+    /// Minimal solid cylinder B-Rep (two rims + seam) for the guard tests.
+    fn guard_cyl(cx: f64, cy: f64, r: f64, h: f64) -> BRep {
+        let verts = vec![
+            BRepVertex {
+                point: Point3::new(cx + r, cy, 0.0),
+            },
+            BRepVertex {
+                point: Point3::new(cx + r, cy, h),
+            },
+        ];
+        let edges = vec![
+            BRepEdge {
+                start: 0,
+                end: 0,
+                curve: Curve::Circle {
+                    center: Point3::new(cx, cy, 0.0),
+                    normal: Vector3::new(0.0, 0.0, -1.0),
+                    radius: r,
+                },
+            },
+            BRepEdge {
+                start: 1,
+                end: 1,
+                curve: Curve::Circle {
+                    center: Point3::new(cx, cy, h),
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    radius: r,
+                },
+            },
+            BRepEdge {
+                start: 0,
+                end: 1,
+                curve: Curve::LineSegment,
+            },
+        ];
+        let faces = vec![
+            BRepFace {
+                surface: Surface::Cylinder {
+                    axis_point: Point3::new(cx, cy, 0.0),
+                    axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                    radius: r,
+                },
+                outer_loop: vec![0, 2, 1, 2],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(0.0, 0.0, -1.0),
+                    d: 0.0,
+                },
+                outer_loop: vec![0],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+            BRepFace {
+                surface: Surface::Plane {
+                    normal: Vector3::new(0.0, 0.0, 1.0),
+                    d: -h,
+                },
+                outer_loop: vec![1],
+                inner_loops: Vec::new(),
+                reversed: false,
+            },
+        ];
+        BRep::new(verts, edges, faces).expect("guard cylinder")
+    }
+
+    /// The measured F0088 pair: a nested-disjoint tool inside the plate
+    /// cylinder with gap 0.0115 < the natural N=14 sagitta — the guard must
+    /// demand a finer N (34 at these radii: the smallest N with
+    /// sag(R,N)+sag(r,N) ≤ gap/2).
+    #[test]
+    fn phantom_guard_nested_disjoint_demands_finer_n() {
+        let plate = guard_cyl(0.0, 0.0, 1.2787008340600021, 0.23);
+        let tool = guard_cyl(1.2243, 0.0, 0.042871795720997065, 0.23);
+        let n = phantom_min_rim_segments(&plate, &tool).expect("guard must fire");
+        let gap = 1.2787008340600021 - 1.2243 - 0.042871795720997065;
+        let sag = |r: f64, n: usize| r * (1.0 - (std::f64::consts::PI / n as f64).cos());
+        assert!(
+            sag(1.2787008340600021, n) + sag(0.042871795720997065, n) <= gap / 2.0,
+            "derived N={n} must clear the analytic gap with the factor-2 margin"
+        );
+        assert!(
+            sag(1.2787008340600021, n - 1) + sag(0.042871795720997065, n - 1) > gap / 2.0,
+            "derived N={n} must be MINIMAL (no over-refinement)"
+        );
+    }
+
+    /// A crossing pair (the tool overlaps the plate wall) has no analytic
+    /// gap — a real intersection curve exists and SSI refines it. No boost.
+    #[test]
+    fn phantom_guard_crossing_pair_is_silent() {
+        let plate = guard_cyl(0.0, 0.0, 1.2787008340600021, 0.23);
+        let tool = guard_cyl(1.26, 0.0, 0.042871795720997065, 0.23);
+        assert_eq!(phantom_min_rim_segments(&plate, &tool), None);
+    }
+
+    /// A far-disjoint pair derives a tiny N that both solids' natural
+    /// Stage-1 N already satisfies — the self-limiting gate drops it.
+    #[test]
+    fn phantom_guard_far_pair_is_silent() {
+        let plate = guard_cyl(0.0, 0.0, 1.2787008340600021, 0.23);
+        let tool = guard_cyl(0.3, 0.1, 0.042871795720997065, 0.23);
+        assert_eq!(phantom_min_rim_segments(&plate, &tool), None);
+    }
+
+    /// An operand without B-Rep faces (the `from_mesh` chained-output
+    /// degenerate) has no cylinder faces to scan — byte-identical path.
+    #[test]
+    fn phantom_guard_faceless_operand_is_silent() {
+        let plate = guard_cyl(0.0, 0.0, 1.2787008340600021, 0.23);
+        let raw = BRep::from_mesh(plate.as_mesh().clone());
+        assert_eq!(phantom_min_rim_segments(&plate, &raw), None);
+        assert_eq!(phantom_min_rim_segments(&raw, &plate), None);
+    }
+
     // R0072: position tie-break for near-coincident PARALLEL line candidates
     // (`select_disjoint_parallel_line`). Mirrors the instrumented R0072 edge
     // (2,143): two parallel generators whose endpoint-distance intervals are
@@ -14012,8 +14333,8 @@ mod tests {
         let (verts, edges, faces) = rt_cylinder(0.0, 1.0, 0.5);
         let plain = stage1_tessellate(&verts, &edges, &faces).expect("plain");
         let empty: std::collections::BTreeMap<u32, Vec<Point3>> = std::collections::BTreeMap::new();
-        let overridden =
-            stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &empty).expect("empty");
+        let overridden = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &empty, None)
+            .expect("empty");
         assert_eq!(
             plain.verts.len(),
             overridden.verts.len(),
@@ -14041,7 +14362,7 @@ mod tests {
             std::collections::BTreeMap::new();
         ov.insert(0, vec![bottom_pt]); // bottom rim = circle edge 0
         ov.insert(1, vec![top_pt]); // top rim = circle edge 1
-        let t = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &ov)
+        let t = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &ov, None)
             .expect("dual-rim override");
 
         // Both inserted points present bit-exactly in the vertex pool.
@@ -14091,7 +14412,7 @@ mod tests {
             std::collections::BTreeMap::new();
         ov.insert(0, vec![b1, b2]);
         ov.insert(1, vec![t1, t2]);
-        let t = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &ov)
+        let t = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &ov, None)
             .expect("band-close distinct overrides must be accepted");
         for (name, p) in [("b1", b1), ("b2", b2), ("t1", t1), ("t2", t2)] {
             assert!(
@@ -14120,7 +14441,7 @@ mod tests {
             std::collections::BTreeMap::new();
         dup.insert(0, vec![b1, b1]);
         dup.insert(1, vec![t1, t1]);
-        let td = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &dup)
+        let td = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &dup, None)
             .expect("bit-identical duplicate override must be accepted");
         assert_eq!(
             td.verts
@@ -14219,7 +14540,7 @@ mod tests {
             std::collections::BTreeMap::new();
         ov.insert(0, vec![Point3::new(r * c, r * s, 0.0)]);
         ov.insert(1, vec![Point3::new(r * c, r * s, 1.0)]);
-        let t = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &ov).expect(
+        let t = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &ov, None).expect(
             "wrap-seam cylinder must tessellate — the azimuth-merge pairing \
              must align the rings cyclically, not by absolute sort position",
         );
@@ -14312,7 +14633,7 @@ mod tests {
                 std::collections::BTreeMap::new();
             ov.insert(0, vec![first, second]);
             ov.insert(1, vec![tfirst, tsecond]);
-            stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &ov)
+            stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &ov, None)
                 .expect("ULP-twin overrides must be accepted")
         };
 
@@ -14505,7 +14826,7 @@ mod tests {
             std::collections::BTreeMap::new();
         both.insert(0, vec![bot_chord]);
         both.insert(1, vec![top_chord]);
-        let t = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &both)
+        let t = stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &both, None)
             .expect("a rim point on the tessellated chord must be accepted");
         assert!(
             t.verts.iter().any(|q| q.as_array() == top_chord.as_array()),
@@ -14517,7 +14838,13 @@ mod tests {
         let too_deep = Point3::new((r - 0.1) * c, (r - 0.1) * s, 1.0);
         assert!(
             matches!(
-                stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &single(1, too_deep)),
+                stage1_tessellate_with_rim_overrides(
+                    &verts,
+                    &edges,
+                    &faces,
+                    &single(1, too_deep),
+                    None
+                ),
                 Err(YangError::MalformedTopology(_))
             ),
             "a point far inside the rim circle must be rejected (off-rim fault)"
@@ -14527,7 +14854,13 @@ mod tests {
         let outside = Point3::new((r + 0.01) * c, (r + 0.01) * s, 1.0);
         assert!(
             matches!(
-                stage1_tessellate_with_rim_overrides(&verts, &edges, &faces, &single(1, outside)),
+                stage1_tessellate_with_rim_overrides(
+                    &verts,
+                    &edges,
+                    &faces,
+                    &single(1, outside),
+                    None
+                ),
                 Err(YangError::MalformedTopology(_))
             ),
             "a point outside the rim circle must be rejected"

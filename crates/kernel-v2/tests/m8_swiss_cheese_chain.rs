@@ -571,6 +571,11 @@ fn f0088_engine_frame_chain_no_offsurface_residue() {
         !errors.iter().any(|e| e.contains("VertexOffSurface")),
         "no cut may leak chord-position vertices (the increment-14 wall): {errors:?}"
     );
+    assert!(
+        !errors.iter().any(|e| e.contains("AmbiguousCurve")),
+        "no cut may die at a Case-IV phantom intersection (the increment-15 \
+         wall): {errors:?}"
+    );
     let mesh = tessellate(&a, body).expect("tessellate");
     let vol = mesh_signed_volume(&mesh);
     let mut analytic = std::f64::consts::PI * F88_R * F88_R * F88_T;
@@ -582,5 +587,40 @@ fn f0088_engine_frame_chain_no_offsurface_residue() {
         "F0088 plate volume {vol} outside band of analytic {analytic} \
          ({} of 15 cuts succeeded)",
         cut_holes.len()
+    );
+}
+
+/// Regression for the retired increment-15 wall (was: the pin
+/// `f0088_cut4_stays_loud_phantom_intersection_wall`, which asserted the
+/// loud Stage-3 `AmbiguousCurve { candidates: 0 }` until the Case-IV
+/// phantom guard landed): hole 4's tool cylinder is ANALYTICALLY disjoint
+/// from the plate's outer cylinder (internal gap = R − d_axes − r =
+/// 0.0115) but at the natural N=14 the plate's chord facets dipped inward
+/// past the gap, so the MESHES intersected where the surfaces do not —
+/// Yang Fig-8 Case IV. The guard (spec `yang_case_iv_phantom_guard`) now
+/// rebuilds both operands at the pair-derived rim density, the phantom
+/// never reaches the arrangement, and cut 4 succeeds with a valid output
+/// — the thin wall between hole 4 and the plate rim SURVIVES.
+#[test]
+fn f0088_cut4_phantom_intersection_filtered() {
+    let mut a = BrepArena::new();
+    let mut body = cyl_engine_frame(&mut a, 0.0, 0.0, F88_R, 0.0, F88_T);
+    for &(hx, hy, d) in F88_HOLES.iter().take(4) {
+        let tool = cyl_engine_frame(&mut a, hx, hy, F88_HR, 0.0, d);
+        body = boolean_op(&mut a, body, tool, BoolOp::Subtract)
+            .expect("cut 4 (Case-IV phantom pair) regressed to an error");
+    }
+    validate_solid(&a, body).expect("cut 4 succeeded but output is invalid");
+    // The thin wall survives: volume equals the 4-hole analytic value (a
+    // phantom notch through the rim wall would siphon volume).
+    let mesh = tessellate(&a, body).expect("tessellate");
+    let vol = mesh_signed_volume(&mesh);
+    let mut analytic = std::f64::consts::PI * F88_R * F88_R * F88_T;
+    for &(_, _, d) in F88_HOLES.iter().take(4) {
+        analytic -= std::f64::consts::PI * F88_HR * F88_HR * d.min(F88_T);
+    }
+    assert!(
+        (vol - analytic).abs() / analytic < 0.03,
+        "4-hole F0088 plate volume {vol} outside band of analytic {analytic}"
     );
 }
