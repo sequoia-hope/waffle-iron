@@ -288,6 +288,27 @@ the roadmap's remaining work:
    >    of this row: F0088/F0089/F0090 (VertexOffSurface + one Stage-3
    >    AmbiguousCurve on F0088 — deeper strips/next mechanism, measure
    >    before designing) and C0048.
+   >    **Increment 10 (2026-07-07, task #67): SHIPPED** — amendment 7
+   >    CLASS-PARTITIONED joint region relocation. Probe census of the
+   >    F0088/89/90 tail found the dominant wall: rim mints are minted
+   >    exactly ON the intersection curve, so the amendment-6 star-union
+   >    straddles the class boundary and its single-class guard rejected
+   >    wholesale (`multi-class region` — F0089's only error, most of
+   >    F0090's 18). The star-union is now partitioned by `RegionClass`;
+   >    each FOLDED sub-region is relocated independently (valid-only
+   >    sub-regions skipped — termination), and class-boundary edges become
+   >    sub-region boundary by construction, so the intersection curve is
+   >    never re-triangulated across. `f0089_cut11` pin retired → positive
+   >    regression; 11-hole F0089 chain green with volume oracle; **corpus
+   >    F0089 flips ERROR → SUPPORTED_CORRECT** (F0086/F0087 unchanged ✓).
+   >    Residual tail, measured: F0090 (18× VertexOffSurface — each cut
+   >    also folds a SECOND triangle whose per-vertex relocations all
+   >    reject `interior vertex with constraint-blocked fan`, so the joint
+   >    path never triggers; plus one `region polygon not simple`), F0088
+   >    (2× VertexOffSurface via non-simple rings whose joint seeds stay
+   >    SINGLETON + one `cavity polygon not CCW`, and one Stage-3
+   >    `AmbiguousCurve{candidates:0}` SSI wall — a different subsystem),
+   >    and C0048.
 2. **N4 — face provenance by centroid-proximity, not §4.2.3 barycentric
    provenance.** Stage-6 attributes each kept triangle by centroid-in-plane
    distance + a tolerance tier (`tol_for`). The paper maps each point to BOTH

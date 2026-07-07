@@ -318,3 +318,93 @@ fn f0087_engine_frame_full_ten_hole_chain() {
         "10-hole F0087 plate volume {vol} outside band of analytic {analytic}"
     );
 }
+
+// ── F0089 fixture (seed 30004): the increment-10 wall ─────────────────────
+// Probe census (2026-07-07): cut 11 — the chain's FIRST blind hole — folds
+// a strip whose rim-mint seeds sit exactly ON the intersection curve, so
+// the amendment-6 joint region (13 seeds' star union) straddles the class
+// boundary and its single-class guard rejects the whole region
+// (`[reloc-region-reject] … multi-class region`). The amendment-2 revert
+// then leaks chord-position vertices — `VertexOffSurface(FaceId 123)`.
+// Increment 10's scope (spec `n2_stage4_junction_cluster_merge` §3
+// amendment 7): partition the star-union BY CLASS and relocate each folded
+// class sub-region independently; class-boundary edges become sub-region
+// boundary by construction, so the intersection curve is preserved.
+
+const F89_R: f64 = 1.7036011398273958;
+const F89_T: f64 = 0.2563259121685504;
+const F89_HR: f64 = 0.03532679244631051;
+/// The first 11 of F0089's 20 holes (bit-exact corpus parameters): holes
+/// 1–10 are through (depth > T), hole 11 is the first BLIND hole and the
+/// measured multi-class-region wall.
+const F89_HOLES: [(f64, f64, f64); 11] = [
+    (-0.4415405126836073, 0.28324289523755014, 0.6233098920507019),
+    (
+        -0.1186870273729144,
+        -0.29380724758512716,
+        0.3954886846857477,
+    ),
+    (-0.49316876321318814, -0.28001346410600897, 0.63455954558122),
+    (0.10947154595842823, -0.3304457202030231, 0.5183574005461733),
+    (0.0581669605049443, -0.4654028183771426, 0.5102860724088583),
+    (0.02909947211365144, 0.19418873266955566, 0.591612482380818),
+    (0.9173432735859929, -0.18383118684803995, 0.6827686064194173),
+    (
+        0.16002074019974233,
+        -0.23282417642069592,
+        0.6170312196510624,
+    ),
+    (0.4313327877972431, 0.048280993764627425, 0.615042240625649),
+    (0.3572766402935755, 0.08889730865519277, 0.6902193404958872),
+    (
+        -0.3858712880603707,
+        -0.22348296867823247,
+        0.16489426956369788,
+    ),
+];
+
+fn run_f0089_chain(
+    n_holes: usize,
+) -> Result<(BrepArena, kernel_v2::SolidId), kernel_v2::KernelV2Error> {
+    let mut a = BrepArena::new();
+    let mut body = cyl_engine_frame(&mut a, 0.0, 0.0, F89_R, 0.0, F89_T);
+    for &(hx, hy, d) in F89_HOLES.iter().take(n_holes) {
+        let tool = cyl_engine_frame(&mut a, hx, hy, F89_HR, 0.0, d);
+        body = boolean_op(&mut a, body, tool, BoolOp::Subtract)?;
+        validate_solid(&a, body)?;
+    }
+    Ok((a, body))
+}
+
+/// Regression for the retired increment-10 wall (was: the pin
+/// `f0089_cut11_stays_loud_offsurface_wall`, which asserted the TYPED
+/// `VertexOffSurface` boundary until amendment 7's class-partitioned joint
+/// region relocation landed): cut 11 — the chain's first BLIND hole, whose
+/// rim-mint strip straddles the intersection-curve class boundary — must
+/// succeed with a fully valid output. Each folded class sub-region is
+/// re-triangulated independently; the class-boundary edges survive as
+/// sub-region boundary.
+#[test]
+fn f0089_cut11_multiclass_strip_relocates_partitioned() {
+    let (a, s) =
+        run_f0089_chain(11).expect("cut 11 (multi-class rim-mint strip) regressed to an error");
+    validate_solid(&a, s).expect("cut 11 succeeded but output is invalid");
+}
+
+/// Increment 10 green target: the 11-cut F0089 chain end-to-end.
+#[test]
+fn f0089_engine_frame_eleven_hole_chain() {
+    let (a, s) = run_f0089_chain(11).expect("chain");
+    let mesh = tessellate(&a, s).expect("tessellate");
+    let vol = mesh_signed_volume(&mesh);
+    let mut analytic = std::f64::consts::PI * F89_R * F89_R * F89_T;
+    for &(_, _, d) in F89_HOLES.iter() {
+        analytic -= std::f64::consts::PI * F89_HR * F89_HR * d.min(F89_T);
+    }
+    // N≈16 on the plate rim ⇒ ~0.8% polygon deficit; 3% band still rejects
+    // a dropped cap / missing hole.
+    assert!(
+        (vol - analytic).abs() / analytic < 0.03,
+        "11-hole F0089 plate volume {vol} outside band of analytic {analytic}"
+    );
+}

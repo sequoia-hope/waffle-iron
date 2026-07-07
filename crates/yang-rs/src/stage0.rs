@@ -2158,7 +2158,6 @@ fn relocate_minted_region(
     frame: &Frame,
     probe: bool,
 ) -> bool {
-    let edge_key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
     let reject = |why: &str| {
         if probe {
             eprintln!("  [reloc-region-reject] seeds {seeds:?} {why}");
@@ -2166,26 +2165,80 @@ fn relocate_minted_region(
         false
     };
 
-    // ── 1. Region = union of the seeds' stars; single class ──────────────
-    let region: std::collections::BTreeSet<usize> = tris
-        .iter()
-        .enumerate()
-        .filter(|(_, t)| t.iter().any(|v| seeds.contains(v)))
-        .map(|(i, _)| i)
-        .collect();
+    // ── 1. Region = union of the seeds' stars, PARTITIONED by class ──────
+    // Amendment 7 (M8 increment 10): rim mints are minted exactly ON the
+    // intersection curve — that is what a rim crossing is — so the star
+    // union routinely straddles the class boundary. Each class sub-region
+    // is relocated independently: a class-boundary edge's reverse lives in
+    // the OTHER class's triangle (outside the sub-region), so the
+    // intersection curve becomes sub-region boundary by construction and
+    // is never re-triangulated across. A single-class region makes the
+    // partition the identity (amendment-6 behavior, unchanged).
+    let mut by_class: BTreeMap<RegionClass, std::collections::BTreeSet<usize>> = BTreeMap::new();
+    for (ti, t) in tris.iter().enumerate() {
+        if t.iter().any(|v| seeds.contains(v)) {
+            by_class.entry(class[ti]).or_default().insert(ti);
+        }
+    }
+    let mut committed_any = false;
+    for (cls0, region) in by_class {
+        // Termination contract: only a sub-region carrying at least one
+        // FOLDED triangle is attempted — its commit strictly decreases the
+        // gate's folded count (replacement ears are gate-valid by
+        // construction). A valid-only sub-region is SKIPPED:
+        // re-triangulating it could churn the mesh without progress.
+        let folded = region.iter().any(|&ti| {
+            !gate_tri_degenerate(&tris[ti], coords)
+                && gate_tri_area(&tris[ti], coords, frame) <= 0.0
+        });
+        if !folded {
+            continue;
+        }
+        if relocate_region_single_class(
+            tris, class, edge_map, seeds, &region, cls0, coords, frame, probe,
+        ) {
+            committed_any = true;
+        }
+    }
+    if !committed_any {
+        return reject("every folded class sub-region rejected");
+    }
+    true
+}
+
+/// One class sub-region of the amendment-6/7 joint relocation: oriented
+/// boundary cycle, no interior vertex, exact simplicity + CCW, shared
+/// constrained exact ear-clip, in-place commit. Build-then-commit: a
+/// reject leaves NO mutation of this sub-region (other sub-regions'
+/// commits are independent — each is separately valid and fold-reducing).
+#[allow(clippy::too_many_arguments)]
+fn relocate_region_single_class(
+    tris: &mut [[u32; 3]],
+    class: &mut [RegionClass],
+    edge_map: &mut BTreeMap<[u32; 2], Vec<usize>>,
+    seeds: &[u32],
+    region: &std::collections::BTreeSet<usize>,
+    cls0: RegionClass,
+    coords: &[Point3],
+    frame: &Frame,
+    probe: bool,
+) -> bool {
+    let edge_key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
+    let reject = |why: &str| {
+        if probe {
+            eprintln!("  [reloc-region-reject] seeds {seeds:?} class {cls0:?} {why}");
+        }
+        false
+    };
     if region.len() < 2 {
         return reject("region too small");
-    }
-    let cls0 = class[*region.iter().next().unwrap()];
-    if region.iter().any(|&ti| class[ti] != cls0) {
-        return reject("multi-class region");
     }
 
     // ── 2. Oriented boundary cycle ────────────────────────────────────────
     // A consistent-CCW mesh: an oriented edge (a,b) of a region triangle is
     // boundary iff no region triangle carries (b,a).
     let mut oriented: std::collections::BTreeSet<(u32, u32)> = std::collections::BTreeSet::new();
-    for &ti in &region {
+    for &ti in region {
         let t = tris[ti];
         for k in 0..3 {
             if !oriented.insert((t[k], t[(k + 1) % 3])) {
@@ -2222,7 +2275,7 @@ fn relocate_minted_region(
 
     // ── 3. No interior vertex (a polygon triangulation would orphan it) ──
     let on_cycle: std::collections::BTreeSet<u32> = poly.iter().copied().collect();
-    for &ti in &region {
+    for &ti in region {
         for &vv in &tris[ti] {
             if !on_cycle.contains(&vv) {
                 return reject("region has an interior vertex");
@@ -2233,7 +2286,7 @@ fn relocate_minted_region(
     // ── 4. Shared constrained exact ear-clip ──────────────────────────────
     let ears = match earclip_cavity_polygon(
         &poly,
-        &region,
+        region,
         cls0,
         coords,
         frame,
@@ -2250,7 +2303,7 @@ fn relocate_minted_region(
     }
 
     // ── 5. Commit: overwrite the region slots in place ────────────────────
-    let region: Vec<usize> = region.into_iter().collect();
+    let region: Vec<usize> = region.iter().copied().collect();
     for &ti in &region {
         let t = tris[ti];
         for k in 0..3 {
@@ -7072,9 +7125,12 @@ mod reloc_tests {
         assert_eq!(em, em0, "reject must not mutate the edge map");
     }
 
-    /// Region reject: a multi-class region (the strip touches the
-    /// intersection curve) is never re-triangulated across — the class
-    /// boundary IS the constraint.
+    /// Amendment 7 boundary: a multi-class region whose folded class
+    /// sub-region is a SINGLE triangle still rejects without mutation —
+    /// the partition never re-triangulates across the class boundary, and
+    /// a one-triangle sub-region has no alternative triangulation
+    /// (`region too small`). The caller's amendment-2 revert stays the
+    /// loud fallback.
     #[test]
     fn region_multiclass_rejects_without_mutation() {
         let (mut tris, mut class, coords) = base();
@@ -7096,5 +7152,141 @@ mod reloc_tests {
         assert_eq!(tris, tris0, "reject must not mutate triangles");
         assert_eq!(class, class0, "reject must not mutate classes");
         assert_eq!(em, em0, "reject must not mutate the edge map");
+    }
+
+    // ── Amendment 7: class-partitioned joint region (M8 increment 10) ────
+
+    /// A multi-class star union (the F0089/F0090 signature: the mint sits
+    /// ON the intersection curve, so its star straddles the class
+    /// boundary): the FOLDED class sub-region is re-triangulated
+    /// independently while the valid sub-region across the curve is left
+    /// untouched, and the class-boundary edge survives as sub-region
+    /// boundary.
+    #[test]
+    fn region_multiclass_folded_subregion_relocates_partitioned() {
+        // The star-union fixture with the (w0, v, tl) star triangle moved
+        // across the intersection curve (Overlap). At v's minted position
+        // that triangle is VALID; the fold lives in the AOnly sub-region
+        // {(v,a,tl), (v,b,a), (v,w3,b)}.
+        let mut tris = vec![
+            [1, 0, 2], // (w0, v, tl) — Overlap, valid, must stay untouched
+            [0, 3, 2], // (v, a, tl)
+            [0, 4, 3], // (v, b, a) — folded at the minted position
+            [0, 5, 4], // (v, w3, b)
+            [4, 5, 6], // (b, w3, tr) — non-region
+            [3, 4, 6], // (a, b, tr) — non-region
+            [2, 3, 6], // (tl, a, tr) — non-region
+        ];
+        let mut class = vec![RegionClass::AOnly; 7];
+        class[0] = RegionClass::Overlap;
+        let coords = vec![
+            p(2.2, -0.3), // v (minted)
+            p(0.0, 0.0),  // w0
+            p(0.0, 2.0),  // tl
+            p(2.0, 1.5),  // a
+            p(2.0, 0.5),  // b
+            p(4.0, 0.0),  // w3
+            p(4.0, 2.0),  // tr
+        ];
+        let mut em = edge_map_of(&tris);
+        let frame = frame_z0();
+        assert!(
+            !gate_tri_valid(&[0, 4, 3], &coords, &frame),
+            "fixture must start folded in the AOnly sub-region"
+        );
+        assert!(
+            gate_tri_valid(&[1, 0, 2], &coords, &frame),
+            "the Overlap sub-region must start valid (it is skipped)"
+        );
+        assert!(relocate_minted_region(
+            &mut tris,
+            &mut class,
+            &mut em,
+            &[0],
+            &coords,
+            &frame,
+            false
+        ));
+        // The Overlap sub-region and the non-region slots are untouched.
+        assert_eq!(tris[0], [1, 0, 2]);
+        assert_eq!(class[0], RegionClass::Overlap);
+        assert_eq!(tris[4], [4, 5, 6]);
+        assert_eq!(tris[5], [3, 4, 6]);
+        assert_eq!(tris[6], [2, 3, 6]);
+        // The AOnly sub-region slots (1..=3) are re-triangulated valid.
+        for ti in 1..=3 {
+            assert!(
+                gate_tri_valid(&tris[ti], &coords, &frame),
+                "{:?} invalid after partitioned relocation",
+                tris[ti]
+            );
+            assert_eq!(class[ti], RegionClass::AOnly);
+        }
+        // The class-boundary edge (v, tl) — the intersection curve — is
+        // preserved with both sides intact.
+        assert_eq!(
+            em.get(&[0, 2]).map(|e| e.len()),
+            Some(2),
+            "class-boundary edge (v,tl) must survive the partition"
+        );
+        assert_eq!(
+            canon(&em),
+            canon(&edge_map_of(&tris)),
+            "edge map must be maintained incrementally"
+        );
+        // Exact cover unchanged (same total domain as the star-union
+        // fixture: rect 8.0 + the boundary-V dip 0.6).
+        let area = |t: &[u32; 3]| {
+            let q = |i: u32| frame.project(coords[i as usize]);
+            let (p0, p1, p2) = (q(t[0]), q(t[1]), q(t[2]));
+            ((p1.0 - p0.0) * (p2.1 - p0.1) - (p1.1 - p0.1) * (p2.0 - p0.0)) / 2.0
+        };
+        let total: f64 = tris.iter().map(|t| area(t)).sum();
+        assert!((total - 8.6).abs() < 1e-12, "cover area {total} != 8.6");
+    }
+
+    /// Amendment 7 termination gate: a VALID-ONLY class sub-region is
+    /// skipped even when another sub-region commits — re-triangulating a
+    /// fold-free sub-region could churn the mesh without reducing the
+    /// gate's folded count.
+    #[test]
+    fn region_validonly_subregion_is_skipped() {
+        let mut tris = vec![
+            [1, 0, 2], // (w0, v, tl) — Overlap, valid
+            [0, 3, 2], // (v, a, tl)
+            [0, 4, 3], // (v, b, a) — folded
+            [0, 5, 4], // (v, w3, b)
+        ];
+        let mut class = vec![
+            RegionClass::Overlap,
+            RegionClass::AOnly,
+            RegionClass::AOnly,
+            RegionClass::AOnly,
+        ];
+        let coords = vec![
+            p(2.2, -0.3),
+            p(0.0, 0.0),
+            p(0.0, 2.0),
+            p(2.0, 1.5),
+            p(2.0, 0.5),
+            p(4.0, 0.0),
+        ];
+        let mut em = edge_map_of(&tris);
+        let frame = frame_z0();
+        let overlap_before = (tris[0], class[0]);
+        assert!(relocate_minted_region(
+            &mut tris,
+            &mut class,
+            &mut em,
+            &[0],
+            &coords,
+            &frame,
+            false
+        ));
+        assert_eq!(
+            (tris[0], class[0]),
+            overlap_before,
+            "valid-only Overlap sub-region must be skipped, not re-triangulated"
+        );
     }
 }

@@ -346,6 +346,67 @@ on the joint fn (interlocking-pair fixture, reject-no-mutation, mutation
 checks); F0086–F0090 family; full yang-rs/kernel-v2 suites; corpus P9
 gate (0 WRONG, zero CORRECT lost).
 
+**Class-partitioned joint region relocation (amendment 7, 2026-07-07 — M8
+increment 10, task #67):** the measured F0089/F0090 residual. Probe census
+(2026-07-07, `YANG_SPLIT_PROBE` single-case runs): F0089's ONE remaining
+error and the bulk of F0090's 18 all die at `[reloc-region-reject] …
+multi-class region` — a rim mint is minted exactly ON the intersection
+curve (that is what a rim crossing IS), so the seeds' star union straddles
+the class boundary and amendment 6's single-class guard rejects the whole
+region (F0089 cut 11, seeds `[334…391]`, 13 seeds; F0090 repeats the same
+strip once per chained cut). The amendment-2 revert then leaks
+chord-position vertices → `VertexOffSurface` (F0089: FaceId(123); F0090:
+18×).
+
+Amendment 7 partitions the star-union region BY CLASS and relocates each
+class sub-region independently — the intersection curve is never
+re-triangulated across, by construction:
+
+- **Partition:** region triangles grouped by `RegionClass` (deterministic:
+  ascending class order). Each sub-region is attempted separately.
+- **Folded-triangle gate (termination):** only sub-regions containing at
+  least one FOLDED triangle (2D signed area ≤ 0, not 3D-bit-degenerate)
+  are attempted; a committed sub-region therefore strictly decreases the
+  gate's folded count (its replacement ears are gate-valid by
+  construction), preserving the amendment-4/5/6 termination contract. A
+  valid-only sub-region is SKIPPED (re-triangulating it could churn
+  without progress).
+- **Boundary:** each sub-region's oriented boundary is built exactly as
+  amendment 6 — edges whose reverse no sub-region triangle carries. A
+  class-boundary edge qualifies automatically (its reverse lives in the
+  OTHER class's triangle, outside this sub-region), so the intersection
+  curve becomes sub-region boundary and survives the re-triangulation
+  verbatim.
+- **Guards per sub-region (each rejects that sub-region only, loud):**
+  single closed cycle; every sub-region-triangle vertex on the cycle (no
+  interior vertex); deduplicated position ring exactly simple + CCW (same
+  rational predicates); shared constrained exact ear-clip
+  (`earclip_cavity_polygon`, unchanged). Build-then-commit per sub-region:
+  a rejecting sub-region leaves NO mutation of its own; other sub-regions'
+  commits stand (each is independently valid and fold-reducing).
+- **Result:** the joint relocation reports success iff ≥1 folded
+  sub-region committed. If the triggering triangle's own sub-region
+  rejected, the gate loop re-scans (folded count decreased elsewhere) and
+  the surviving fold falls through per amendments 5/6 → amendment-2
+  revert, still loud — nothing is silently blessed.
+
+| Gate case (amendment 7) | Behavior |
+|---|---|
+| joint region multi-class; ≥1 folded class sub-region passes guards + ear-clip | mints KEPT in committed sub-regions; intersection-curve edges preserved as sub-region boundary |
+| every folded class sub-region rejects (interior vertex / multiple cycles / non-simple / no ear) | amendment-2 revert (unchanged, loud) |
+| single-class region | unchanged (amendment 6 — the partition is the identity) |
+
+Research basis: [#24] Yang 2025 §4.4.1 Fig 11 (delete-and-reinsert mesh
+updating; the constraint that intersection-curve segments are preserved
+during updating is §4.4.1's own requirement — partitioning at the class
+boundary is the region form of "never cross a constraint edge" that
+amendments 4/5 already enforce edge-wise). Oracles:
+`f0089_cut11_stays_loud_offsurface_wall` (pinned boundary; retire signal
+converts it to a positive regression) + the `#[ignore]`d
+`f0089_engine_frame_eleven_hole_chain` green target; stage0 unit tests on
+the partitioned fn; F0086–F0090 family; full yang-rs/kernel-v2 suites;
+corpus P9 gate (0 WRONG, zero CORRECT lost).
+
 ### 3b. CONTINGENT part 2 — Stage-4 Fig-11(b) junction-cluster merge
 
 Implement ONLY if, after part 1 is green at Stage-0, the acceptance oracle I1
