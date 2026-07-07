@@ -29,9 +29,23 @@
 //!   section comment), plus representative corpus cases pinned to their
 //!   expected categories (UNSUPPORTED boundaries, the PR-TH1 oracle-fix
 //!   movers, and the one known-WRONG case).
-//! - `full_corpus_categorized` (`#[ignore]`) — the full 193-case run; prints
+//! - `full_corpus_categorized` (`#[ignore]`) — the full corpus run; prints
 //!   the category table and writes `target/assay_kv2_report.json`. Run with:
 //!   `cargo test -p test-harness --test assay_kv2 -- --ignored --nocapture`
+//!   By default cases run as parallel killable subprocesses (`ASSAY_JOBS` =
+//!   physical cores − 2; each re-invokes this binary's `single_case`);
+//!   `ASSAY_JOBS=1` selects the historical in-process serial path. Verdicts
+//!   are per-case deterministic; only TIMEOUT is load-sensitive. Env-gated
+//!   stage probes print to the child's nulled stderr under parallel runs —
+//!   use `ASSAY_JOBS=1` or a manual `ASSAY_CASE=<id> ... single_case` run
+//!   when probing.
+//!
+//!   A/B measured 2026-07-07 (24-core box, 120s cap): serial 76.5 min /
+//!   parallel(22) 5.8 min, categories identical except 8 borderline-slow
+//!   cases flipping X→TIMEOUT under sibling contention. For runs that
+//!   COMMIT the baseline results.json, raise the cap to absorb contention
+//!   (`ASSAY_CASE_TIMEOUT_SECS=240` parallel ≈ 10 min ≪ any serial run) so
+//!   near-cap cases keep real verdicts; quick P9 gates can use the default.
 
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
@@ -68,6 +82,19 @@ impl UnsupportedReason {
             Self::Other => "other",
         }
     }
+
+    /// Inverse of [`label`] — the subprocess outcome-line codec (ASSAY_JOBS).
+    fn from_label(s: &str) -> Option<Self> {
+        Some(match s {
+            "revolve" => Self::Revolve,
+            "curved-profile" => Self::CurvedProfile,
+            "coplanar-boolean" => Self::CoplanarBoolean,
+            "fillet-chamfer-shell" => Self::FilletChamferShell,
+            "multi-shell" => Self::MultiShell,
+            "other" => Self::Other,
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -101,6 +128,22 @@ impl Category {
             Self::Timeout => "TIMEOUT".to_string(),
             Self::SkippedSlow => "SKIPPED_SLOW".to_string(),
         }
+    }
+
+    /// Inverse of [`label`] — the subprocess outcome-line codec (ASSAY_JOBS).
+    fn from_label(s: &str) -> Option<Self> {
+        Some(match s {
+            "SUPPORTED_CORRECT" => Self::SupportedCorrect,
+            "SUPPORTED_WRONG" => Self::SupportedWrong,
+            "EXPECTED_ERROR" => Self::ExpectedError,
+            "ERROR" => Self::Error,
+            "TIMEOUT" => Self::Timeout,
+            "SKIPPED_SLOW" => Self::SkippedSlow,
+            other => {
+                let inner = other.strip_prefix("UNSUPPORTED(")?.strip_suffix(')')?;
+                Self::Unsupported(UnsupportedReason::from_label(inner)?)
+            }
+        })
     }
 }
 
@@ -374,6 +417,101 @@ fn replay_case_with_timeout(case: &DiscoveredCase, timeout: Duration) -> CaseOut
             detail: format!("timeout after {}s", timeout.as_secs()),
         },
     }
+}
+
+/// ASSAY_JOBS driver: replay one case in a KILLABLE subprocess — this test
+/// binary re-invoked with `--exact single_case` + `ASSAY_CASE=<id>` — and
+/// parse its `ASSAY_OUTCOME {json}` line. On deadline the child is KILLED:
+/// a real kill, unlike the in-process path's abandoned worker thread, so a
+/// parallel run cannot accumulate orphan CPU load (the timeout-cascade trap
+/// documented in `full_corpus_categorized`). Child stderr goes to null —
+/// env-gated probes need the serial path or a manual `single_case` run.
+fn replay_case_subprocess(id: &str, timeout: Duration) -> CaseOutcome {
+    use std::io::Read as _;
+    use std::process::{Command, Stdio};
+    let err_outcome = |detail: String| CaseOutcome {
+        id: id.to_string(),
+        category: Category::Error,
+        detail,
+    };
+    let exe = std::env::current_exe().expect("current_exe of the test binary");
+    let mut child = match Command::new(&exe)
+        .args(["--exact", "single_case", "--ignored", "--nocapture"])
+        .env("ASSAY_CASE", id)
+        // The parent kill below is the real deadline; keep the child's own
+        // in-process guard strictly behind it (fallback only).
+        .env(
+            "ASSAY_CASE_TIMEOUT_SECS",
+            (timeout.as_secs() + 60).to_string(),
+        )
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => return err_outcome(format!("driver: cannot spawn subprocess: {e}")),
+    };
+    // Drain stdout concurrently (an undrained full pipe would wedge the child).
+    let mut stdout = child.stdout.take().expect("piped child stdout");
+    let reader = std::thread::spawn(move || {
+        let mut buf = String::new();
+        let _ = stdout.read_to_string(&mut buf);
+        buf
+    });
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Ok(status),
+            Ok(None) if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break Err(format!(
+                    "timeout after {}s (subprocess killed)",
+                    timeout.as_secs()
+                ));
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break Err(format!("driver: wait failed: {e} (subprocess killed)"));
+            }
+        }
+    };
+    let out = reader.join().unwrap_or_default();
+    let status = match status {
+        Ok(s) => s,
+        Err(timeout_detail) => {
+            return CaseOutcome {
+                id: id.to_string(),
+                category: Category::Timeout,
+                detail: timeout_detail,
+            }
+        }
+    };
+    if let Some(line) = out.lines().rev().find(|l| l.starts_with("ASSAY_OUTCOME ")) {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line["ASSAY_OUTCOME ".len()..]) {
+            if let (Some(cid), Some(category), Some(detail)) = (
+                v["id"].as_str(),
+                v["category"].as_str().and_then(Category::from_label),
+                v["detail"].as_str(),
+            ) {
+                if cid == id {
+                    return CaseOutcome {
+                        id: cid.to_string(),
+                        category,
+                        detail: detail.to_string(),
+                    };
+                }
+            }
+        }
+    }
+    // No parseable outcome line: the child crashed (panic/abort/OOM) — a
+    // loud ERROR with the exit status, never a silent drop.
+    err_outcome(format!(
+        "driver: subprocess exited ({status}) without a parseable ASSAY_OUTCOME line"
+    ))
 }
 
 /// Auto slow-list: the set of case ids that timed out or ran slow in a prior
@@ -775,7 +913,10 @@ fn smoke_corpus_boundary_categories() {
         // on-circle rim minting (increment 4, task #61); un-pin to
         // SupportedCorrect when the chain clears
         // (`kernel-v2/tests/m8_swiss_cheese_chain.rs` pins the boundary).
-        ("F0086", Category::Unsupported(UnsupportedReason::CurvedProfile)),
+        (
+            "F0086",
+            Category::Unsupported(UnsupportedReason::CurvedProfile),
+        ),
         // PR-TH2 (KV5b-F2 resolved): the enclosed-cavity families
         // F0031–F0035 (box-minus-cyl) and F0036–F0040 (cyl-minus-box)
         // succeed end-to-end: 2 closed genus-0 shells (outer + cavity),
@@ -906,14 +1047,29 @@ fn smoke_corpus_boundary_categories() {
 
 // ── Single-case run (manual / diagnosis) ───────────────────────────────────
 
-/// Replay ONE corpus case by id (env `ASSAY_CASE`), generous 300s budget,
-/// printing the outcome + wall time. Diagnosis tooling for timing/timeout
-/// investigations (the full run's per-case timeout cascades via abandoned
-/// worker threads, so isolated timing needs an isolated runner).
+/// Replay ONE corpus case by id (env `ASSAY_CASE`), generous budget (300s
+/// default, `ASSAY_CASE_TIMEOUT_SECS` override), printing the outcome + wall
+/// time. Two consumers:
+/// - manual diagnosis for timing/timeout investigations (isolated runner —
+///   no sibling contention);
+/// - the `ASSAY_JOBS` parallel driver in `full_corpus_categorized`, which
+///   re-invokes this test as a KILLABLE subprocess per case and parses the
+///   `ASSAY_OUTCOME {json}` line below.
+///
+/// Without `ASSAY_CASE` set this SKIPS (prints a note and returns) rather
+/// than panicking — a bare `--ignored` sweep otherwise reports exit 101 even
+/// when the full corpus run passed.
 #[test]
 #[ignore] // manual: ASSAY_CASE=R0001 cargo test ... single_case -- --ignored --nocapture
 fn single_case() {
-    let id = std::env::var("ASSAY_CASE").expect("set ASSAY_CASE=<case id>");
+    let Ok(id) = std::env::var("ASSAY_CASE") else {
+        println!("single_case: ASSAY_CASE not set — nothing to do (manual/driver runner)");
+        return;
+    };
+    let timeout_secs: u64 = std::env::var("ASSAY_CASE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(300);
     let dir = assay_dir();
     let cases = discover_cases(&dir);
     let case = cases
@@ -921,12 +1077,22 @@ fn single_case() {
         .find(|c| c.id == id)
         .unwrap_or_else(|| panic!("case {id} not in corpus"));
     let t0 = std::time::Instant::now();
-    let outcome = replay_case_with_timeout(case, Duration::from_secs(300));
+    let outcome = replay_case_with_timeout(case, Duration::from_secs(timeout_secs));
     println!(
         "{id}: {} ({:.1}s) — {}",
         outcome.category.label(),
         t0.elapsed().as_secs_f64(),
         outcome.detail
+    );
+    // Machine-readable line for the ASSAY_JOBS driver (must stay one line;
+    // serde_json escapes any newlines inside `detail`).
+    println!(
+        "ASSAY_OUTCOME {}",
+        serde_json::json!({
+            "id": outcome.id,
+            "category": outcome.category.label(),
+            "detail": outcome.detail,
+        })
     );
 }
 
@@ -957,22 +1123,39 @@ fn full_corpus_categorized() {
     // slowly) is judged and counted, so FAST must not skip it — skipping would
     // lose a verdict. FAST skips only the un-judgeable (timed-out) cases.
     //
-    // Caveat (thread model): a timed-out case's worker thread is abandoned, not
-    // killed (heavy exact arithmetic can't be cancelled in-process), so it keeps
-    // burning a core. With a tight cap + many heavy cases the orphans contend
-    // and can push otherwise-fast cases over the cap (cascading false timeouts).
-    // Mitigations: (1) the default cap is generous (30s) so genuine-fast cases
-    // clear it even under moderate contention; (2) FAST mode skips the slow-list
-    // and runs only fast cases, so steady-state baselines have no orphans. The
-    // clean fix (subprocess-per-case with kill-on-timeout) is the roadmap's
-    // Phase-A "later" item.
+    // Dispatch model (ASSAY_JOBS): cases are independent and the pipeline is
+    // deliberately single-threaded PER CASE, so the corpus parallelizes
+    // cleanly across cases. ASSAY_JOBS > 1 (the default: physical cores − 2)
+    // runs each case as a KILLABLE subprocess (`replay_case_subprocess`) —
+    // kill-on-timeout leaves NO orphans, so parallel runs cannot cascade
+    // false timeouts the way the in-process thread model can. ASSAY_JOBS=1
+    // keeps the historical in-process serial path (byte-identical), whose
+    // caveat stands: a timed-out case's worker thread is abandoned, not
+    // killed (heavy exact arithmetic can't be cancelled in-process), so it
+    // keeps burning a core and contending with later cases. Verdicts are
+    // per-case deterministic either way; only TIMEOUT is load-sensitive
+    // (already the documented environmental-noise category).
+    let jobs: usize = std::env::var("ASSAY_JOBS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get().saturating_sub(2))
+                .unwrap_or(1)
+                .max(1)
+        });
     let slow_path = slow_cases_path();
     let prior_slow = read_slow_cases(&slow_path);
     let mut slow_now: BTreeSet<String> = prior_slow.clone();
 
     eprintln!(
-        "per-case timeout {}s{}",
+        "per-case timeout {}s, {}{}",
         timeout_secs,
+        if jobs <= 1 {
+            "serial (in-process)".to_string()
+        } else {
+            format!("{jobs} parallel subprocess jobs")
+        },
         if fast {
             format!(", FAST (skipping {} slow-listed)", prior_slow.len())
         } else {
@@ -980,27 +1163,78 @@ fn full_corpus_categorized() {
         }
     );
 
-    let mut outcomes = Vec::with_capacity(cases.len());
-    for (i, case) in cases.iter().enumerate() {
-        eprint!("  [{}/{}] {} ... ", i + 1, cases.len(), case.id);
-        if fast && prior_slow.contains(&case.id) {
-            eprintln!("SKIPPED_SLOW");
-            outcomes.push(CaseOutcome {
-                id: case.id.clone(),
-                category: Category::SkippedSlow,
-                detail: "on slow-list; skipped (ASSAY_FAST)".to_string(),
-            });
-            continue;
+    let mut outcomes: Vec<CaseOutcome>;
+    if jobs <= 1 {
+        outcomes = Vec::with_capacity(cases.len());
+        for (i, case) in cases.iter().enumerate() {
+            eprint!("  [{}/{}] {} ... ", i + 1, cases.len(), case.id);
+            if fast && prior_slow.contains(&case.id) {
+                eprintln!("SKIPPED_SLOW");
+                outcomes.push(CaseOutcome {
+                    id: case.id.clone(),
+                    category: Category::SkippedSlow,
+                    detail: "on slow-list; skipped (ASSAY_FAST)".to_string(),
+                });
+                continue;
+            }
+            let case_start = std::time::Instant::now();
+            let o = replay_case_with_timeout(case, timeout);
+            let elapsed = case_start.elapsed();
+            eprintln!("{} ({:.1}s)", o.category.label(), elapsed.as_secs_f64());
+            if o.category == Category::Timeout {
+                slow_now.insert(case.id.clone());
+            }
+            outcomes.push(o);
         }
-        let case_start = std::time::Instant::now();
-        let o = replay_case_with_timeout(case, timeout);
-        let elapsed = case_start.elapsed();
-        eprintln!("{} ({:.1}s)", o.category.label(), elapsed.as_secs_f64());
-        if o.category == Category::Timeout {
-            slow_now.insert(case.id.clone());
+    } else {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Mutex;
+        let total = cases.len();
+        let next = AtomicUsize::new(0);
+        let done = AtomicUsize::new(0);
+        let collected: Mutex<Vec<(usize, CaseOutcome)>> = Mutex::new(Vec::with_capacity(total));
+        std::thread::scope(|s| {
+            for _ in 0..jobs.min(total) {
+                s.spawn(|| loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    if i >= total {
+                        break;
+                    }
+                    let case = &cases[i];
+                    let o = if fast && prior_slow.contains(&case.id) {
+                        CaseOutcome {
+                            id: case.id.clone(),
+                            category: Category::SkippedSlow,
+                            detail: "on slow-list; skipped (ASSAY_FAST)".to_string(),
+                        }
+                    } else {
+                        let case_start = std::time::Instant::now();
+                        let o = replay_case_subprocess(&case.id, timeout);
+                        let k = done.fetch_add(1, Ordering::Relaxed) + 1;
+                        eprintln!(
+                            "  [{k}/{total} done] {} ... {} ({:.1}s)",
+                            case.id,
+                            o.category.label(),
+                            case_start.elapsed().as_secs_f64()
+                        );
+                        o
+                    };
+                    collected.lock().unwrap().push((i, o));
+                });
+            }
+        });
+        let mut v = collected.into_inner().unwrap();
+        // Completion order is scheduling-dependent; corpus order is not —
+        // restore it so the summary/report/results.json stay deterministic.
+        v.sort_by_key(|&(i, _)| i);
+        outcomes = v.into_iter().map(|(_, o)| o).collect();
+        for o in &outcomes {
+            if o.category == Category::Timeout {
+                slow_now.insert(o.id.clone());
+            }
         }
-        outcomes.push(o);
     }
+    assert_eq!(outcomes.len(), cases.len(), "driver lost a case outcome");
 
     // Persist the slow-list (union with prior — a FAST run leaves skipped
     // entries in place) so subsequent ASSAY_FAST runs stay quick.
