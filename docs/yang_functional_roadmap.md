@@ -345,6 +345,24 @@ the roadmap's remaining work:
    >    then either narrow the amendment-6 seed set to crossing-edge
    >    endpoints (keep the region a strip) or bridge-edge annular
    >    ear-clip. F0086/F0087/F0089 unchanged ✓; chain suite 13/0.
+   >    **Increment 13 (2026-07-07, task #70): SHIPPED** — amendment 10
+   >    CROSSING-ENDPOINT SEED NARROWING. The cycle probe confirmed the
+   >    annular structure (2 cycles [32, 20]); root = the amendment-6
+   >    trigger seeded EVERY minted vertex on the non-simple ring (~30 on
+   >    vert 151's hole-encircling ring). `EarclipErr::NotSimple` now
+   >    carries the crossing pair's endpoint positions; ring_mints narrows
+   >    to mints ON the crossing (the interacting set — Fig-11 locality).
+   >    The joint region stays a strip. **F0090 probe: 0 reverts, 0
+   >    annular rejects in the container window (chain reaches 60-circle
+   >    overlays)** — the family's fold-gate is clean as far as the
+   >    container can run; F0090 corpus stays TIMEOUT on legit chain
+   >    weight only. All 13 chain pins green (F0087 cut-9 interacting-pair
+   >    semantics preserved). **The F0086–F0090 family's remaining
+   >    pipeline walls are now F0088-only:** singleton non-simple seeds,
+   >    `cavity polygon not CCW` (vert 674), and the Stage-3
+   >    `AmbiguousCurve{candidates:0}` SSI wall (different subsystem) —
+   >    re-measure F0088 on the current binary before designing. Plus
+   >    C0048 (coplanar auto-union, separate row).
 2. **N4 — face provenance by centroid-proximity, not §4.2.3 barycentric
    provenance.** Stage-6 attributes each kept triangle by centroid-in-plane
    distance + a tolerance tier (`tol_for`). The paper maps each point to BOTH

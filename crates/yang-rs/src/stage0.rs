@@ -1660,14 +1660,20 @@ enum RelocOutcome {
     /// Amendment 6: the cavity polygon was exactly NON-SIMPLE — the classic
     /// interacting-mints signature (another minted vertex's collapsed spokes
     /// cross the ring). `ring_mints` are the OTHER minted vertices on the
-    /// polygon: the joint-relocation seed candidates. No mutation.
+    /// CROSSING edges (amendment 10: the interacting set per Fig-11
+    /// locality — NOT every mint on the ring; a hole-encircling ring lists
+    /// dozens of mints and seeding them all inflates the joint region into
+    /// an annulus). No mutation.
     NonSimple { ring_mints: Vec<u32> },
 }
 
 /// Reject reason of [`earclip_cavity_polygon`]: exact non-simplicity is
 /// distinguished because it is the amendment-6 joint-relocation trigger.
+/// `crossing` carries the first crossing pair's endpoint POSITIONS (in the
+/// caller's frame projection — bit-identical to `frame.project` of the
+/// poly vertices), so the caller can identify the interacting mints.
 enum EarclipErr {
-    NotSimple,
+    NotSimple { crossing: [(f64, f64); 4] },
     Other(&'static str),
 }
 
@@ -1780,7 +1786,9 @@ fn earclip_cavity_polygon(
                          o=({o1},{o2},{o3},{o4}) ring={ring:?}"
                     );
                 }
-                return Err(EarclipErr::NotSimple);
+                return Err(EarclipErr::NotSimple {
+                    crossing: [p1, p2, q1, q2],
+                });
             }
         }
     }
@@ -2071,17 +2079,24 @@ fn relocate_minted_vertex(
             &format!("vert {v}"),
         ) {
             Ok(ears) => ears,
-            Err(EarclipErr::NotSimple) => {
+            Err(EarclipErr::NotSimple { crossing }) => {
                 if probe {
                     eprintln!("  [reloc-reject] vert {v} cavity polygon not simple");
                 }
-                // Amendment 6 trigger: hand the caller the joint seeds —
-                // the OTHER minted vertices on the non-simple polygon.
+                // Amendment 6 trigger, amendment-10 narrowed: the joint
+                // seeds are the minted vertices ON the crossing edges (the
+                // interacting set — Fig-11 locality), identified by exact
+                // position match against the same frame projection the
+                // ear-clip used.
                 return RelocOutcome::NonSimple {
                     ring_mints: poly
                         .iter()
                         .copied()
-                        .filter(|&pi| pi != v && minted_mark[pi as usize])
+                        .filter(|&pi| {
+                            pi != v
+                                && minted_mark[pi as usize]
+                                && crossing.contains(&frame.project(coords[pi as usize]))
+                        })
                         .collect(),
                 };
             }
@@ -2404,7 +2419,7 @@ fn relocate_region_single_class(
         &format!("region {seeds:?}"),
     ) {
         Ok(ears) => ears,
-        Err(EarclipErr::NotSimple) => return reject("region polygon not simple"),
+        Err(EarclipErr::NotSimple { .. }) => return reject("region polygon not simple"),
         Err(EarclipErr::Other(why)) => return reject(why),
     };
     if ears.len() != region.len() {
@@ -7501,6 +7516,51 @@ mod reloc_tests {
             (tris[0], class[0]),
             overlap_before,
             "valid-only Overlap sub-region must be skipped, not re-triangulated"
+        );
+    }
+
+    /// Amendment 10 (M8 increment 13): the joint seeds surfaced by a
+    /// NON-SIMPLE cavity polygon are the mints on the CROSSING edges only —
+    /// the interacting set per Fig-11 locality — not every mint on the
+    /// ring. A 40+-edge ring around a hole lists ~30 mints; seeding them
+    /// all inflates the star union into an ANNULUS (measured F0090 ~cut
+    /// 22: 2 boundary cycles [32, 20]) that no single boundary walk can
+    /// triangulate. Here: the ring [v, w2, w1, w1b, w0] has its (first)
+    /// exact crossing at v→w2 × w1b→w0; the minted vertex w1 sits on the
+    /// ring but NOT on the crossing — it must not become a joint seed.
+    #[test]
+    fn nonsimple_ring_mints_narrow_to_crossing_endpoints() {
+        // v(=0) minted; star of three triangles, no external neighbors
+        // (every link edge is domain boundary ⇒ growth defers), single
+        // class, open chain. Fan tri (v,w1b,w0) is invalid at the minted
+        // position and the polygon crosses exactly at v→w2 × w1b→w0.
+        let mut tris = vec![[0, 2, 3], [0, 3, 4], [0, 4, 1]];
+        let mut class = vec![RegionClass::AOnly; 3];
+        let coords = vec![
+            p(0.8, 0.4), // v (minted)
+            p(0.0, 0.0), // w0
+            p(4.0, 0.0), // w2
+            p(2.0, 0.6), // w1 (minted, NOT on the crossing)
+            p(1.2, 0.5), // w1b (minted, crossing endpoint)
+        ];
+        let mut em = edge_map_of(&tris);
+        let frame = frame_z0();
+        assert!(
+            !gate_tri_valid(&[0, 4, 1], &coords, &frame),
+            "fixture must start folded at (v,w1b,w0)"
+        );
+        let minted = vec![true, false, false, true, true];
+        let out = relocate_minted_vertex(
+            &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false,
+        );
+        let RelocOutcome::NonSimple { ring_mints } = out else {
+            panic!("fixture must reach the non-simple cavity polygon");
+        };
+        assert_eq!(
+            ring_mints,
+            vec![4],
+            "joint seeds must be the crossing-edge mints only (w1b), not \
+             every ring mint (w1 excluded)"
         );
     }
 

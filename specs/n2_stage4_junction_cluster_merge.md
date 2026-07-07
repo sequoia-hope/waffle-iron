@@ -474,6 +474,42 @@ strip, vs. a bridge-edge annular ear-clip).
 | a folded component rejects | that component only (loud); others' commits stand |
 | connected sub-region | unchanged (amendments 7–8 — the split is the identity) |
 
+**Crossing-endpoint seed narrowing (amendment 10, 2026-07-07 — M8
+increment 13, task #70):** the measured F0090 annular tail. The
+`[reloc-region-cycles]` probe confirmed the 33-seed site: ONE connected
+sub-region with TWO boundary cycles (lengths [32, 20]) — a band
+encircling a hole rim (the inner cycle is a tool-rim class boundary:
+ungrowable, and filling it would orphan its vertices). Root: the
+amendment-6 trigger surfaced EVERY minted vertex on the non-simple
+cavity ring as a joint seed; vert 151's 40+-edge ring lists ~30 mints,
+and their star union is the annulus.
+
+Amendment 10 narrows the surfaced seeds to the mints ON the crossing
+edges — the interacting set. Fig-11 mesh updating is local to the
+repositioned vertices' neighborhood; two mints interact exactly when one
+appears on the edges that make the other's cavity polygon non-simple
+(that is what the crossing IS — increment 9's measured F0087 cut-9
+signature). `EarclipErr::NotSimple` now carries the first crossing
+pair's endpoint positions (bit-identical frame projections); the
+per-vertex caller filters the ring mints by exact position match. The
+narrowed seed set keeps the joint region a strip: single boundary cycle,
+repairable by the amendment-7/8/9 machinery.
+
+| Gate case (amendment 10) | Behavior |
+|---|---|
+| non-simple cavity ring, minted verts on the crossing edges | surfaced as joint seeds (unchanged semantics, narrower set) |
+| minted verts elsewhere on the ring | NOT seeded — their own folds get their own gate iteration |
+| no minted vert on the crossing | `ring_mints` empty → singleton seed set → joint path skipped (amendment-6 trigger unchanged) |
+
+Research basis: [#24] Yang 2025 §4.4.1 Fig 11 (mesh updating is local to
+the repositioned vertex's neighborhood). Oracles:
+`nonsimple_ring_mints_narrow_to_crossing_endpoints` (RED→GREEN: a ring
+mint off the crossing is excluded); the F0087 cut-9 / F0089 cut-11 /
+F0090 cut-7 positive regressions (the interacting-pair semantics are
+preserved — all 13 chain pins green); the F0090 probe re-run (annular
+reject gone / revert count 0 in the container window); full
+yang-rs/kernel-v2 suites.
+
 Research basis: [#24] Yang 2025 §4.4.1 Fig 11 — mesh updating is local to
 each repositioned vertex's neighborhood; disconnected neighborhoods are
 independent Fig-11 instances. Oracles: stage0 unit tests (two disjoint
