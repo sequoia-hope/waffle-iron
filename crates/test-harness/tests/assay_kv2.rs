@@ -32,8 +32,8 @@
 //! - `full_corpus_categorized` (`#[ignore]`) — the full corpus run; prints
 //!   the category table and writes `target/assay_kv2_report.json`. Run with:
 //!   `cargo test -p test-harness --test assay_kv2 -- --ignored --nocapture`
-//!   By default cases run as parallel killable subprocesses (`ASSAY_JOBS` =
-//!   physical cores − 2; each re-invokes this binary's `single_case`);
+//!   By default cases run as parallel killable subprocesses (`ASSAY_JOBS`,
+//!   default 4; each re-invokes this binary's `single_case`);
 //!   `ASSAY_JOBS=1` selects the historical in-process serial path. Verdicts
 //!   are per-case deterministic; only TIMEOUT is load-sensitive. Env-gated
 //!   stage probes print to the child's nulled stderr under parallel runs —
@@ -1125,25 +1125,31 @@ fn full_corpus_categorized() {
     //
     // Dispatch model (ASSAY_JOBS): cases are independent and the pipeline is
     // deliberately single-threaded PER CASE, so the corpus parallelizes
-    // cleanly across cases. ASSAY_JOBS > 1 (the default: physical cores − 2)
-    // runs each case as a KILLABLE subprocess (`replay_case_subprocess`) —
-    // kill-on-timeout leaves NO orphans, so parallel runs cannot cascade
-    // false timeouts the way the in-process thread model can. ASSAY_JOBS=1
-    // keeps the historical in-process serial path (byte-identical), whose
-    // caveat stands: a timed-out case's worker thread is abandoned, not
-    // killed (heavy exact arithmetic can't be cancelled in-process), so it
-    // keeps burning a core and contending with later cases. Verdicts are
-    // per-case deterministic either way; only TIMEOUT is load-sensitive
-    // (already the documented environmental-noise category).
+    // cleanly across cases. ASSAY_JOBS > 1 (default 4, capped at the box's
+    // parallelism — a deliberately conservative default: measured at 22
+    // jobs, sibling contention flips ~8 borderline-slow cases X→TIMEOUT;
+    // 4 keeps near-cap verdicts stable while still cutting the wall clock
+    // several-fold; raise explicitly for quick gates) runs each case as a
+    // KILLABLE subprocess (`replay_case_subprocess`) — kill-on-timeout
+    // leaves NO orphans, so parallel runs cannot cascade false timeouts the
+    // way the in-process thread model can. ASSAY_JOBS=1 keeps the
+    // historical in-process serial path (byte-identical), whose caveat
+    // stands: a timed-out case's worker thread is abandoned, not killed
+    // (heavy exact arithmetic can't be cancelled in-process), so it keeps
+    // burning a core and contending with later cases. Verdicts are per-case
+    // deterministic either way; only TIMEOUT is load-sensitive (already the
+    // documented environmental-noise category).
     let jobs: usize = std::env::var("ASSAY_JOBS")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or_else(|| {
-            std::thread::available_parallelism()
-                .map(|n| n.get().saturating_sub(2))
-                .unwrap_or(1)
-                .max(1)
-        });
+            4.min(
+                std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(1),
+            )
+        })
+        .max(1);
     let slow_path = slow_cases_path();
     let prior_slow = read_slow_cases(&slow_path);
     let mut slow_now: BTreeSet<String> = prior_slow.clone();
