@@ -309,6 +309,29 @@ the roadmap's remaining work:
    >    SINGLETON + one `cavity polygon not CCW`, and one Stage-3
    >    `AmbiguousCurve{candidates:0}` SSI wall — a different subsystem),
    >    and C0048.
+   >    **Increment 11 (2026-07-07, task #68): SHIPPED** — amendment 8
+   >    REGION GROWTH TO SIMPLICITY. The post-amendment-7 census showed
+   >    the dominant residual was `class … region polygon not simple`: a
+   >    femto-strip sub-region's boundary is a BOW-TIE under the minted
+   >    positions (the strip's two long sides cross exactly). The region
+   >    form now grows across a crossing edge's single external same-class
+   >    neighbor (constraint edges never crossed, apex-pinch guard) and
+   >    rebuilds the boundary until the ring is exactly simple — the
+   >    region analog of amendment 5's constrained visibility growth.
+   >    `f0090_cut7` pin retired → positive regression; 7-hole F0090
+   >    chain green with volume oracle; F0086/F0087/F0089 corpus ✓
+   >    unchanged. F0090's 30-cut corpus chain now repairs all but ONE
+   >    fold (24 reverts → 1; 93 growth events, 28+ cuts succeed vs 12
+   >    before) — the corpus case flips ERROR(18) → TIMEOUT in the
+   >    container because each newly-succeeding cut adds rim circles
+   >    (overlay reaches 58 circles; the known heavy-chain container
+   >    limit, not a hang — per-op timing curve verified monotone and
+   >    finite). Remaining measured tail: ONE F0090 revert (a 33-seed
+   >    star-union whose class sub-region boundary is NOT a single closed
+   >    cycle — disconnected sub-region; needs per-connected-component
+   >    boundaries), F0088's three walls (singleton non-simple seeds,
+   >    `cavity polygon not CCW`, Stage-3 `AmbiguousCurve{candidates:0}`),
+   >    and C0048.
 2. **N4 — face provenance by centroid-proximity, not §4.2.3 barycentric
    provenance.** Stage-6 attributes each kept triangle by centroid-in-plane
    distance + a tolerance tier (`tol_for`). The paper maps each point to BOTH

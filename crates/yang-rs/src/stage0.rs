@@ -2234,59 +2234,116 @@ fn relocate_region_single_class(
         return reject("region too small");
     }
 
-    // ── 2. Oriented boundary cycle ────────────────────────────────────────
-    // A consistent-CCW mesh: an oriented edge (a,b) of a region triangle is
-    // boundary iff no region triangle carries (b,a).
-    let mut oriented: std::collections::BTreeSet<(u32, u32)> = std::collections::BTreeSet::new();
-    for &ti in region {
-        let t = tris[ti];
-        for k in 0..3 {
-            if !oriented.insert((t[k], t[(k + 1) % 3])) {
-                return reject("duplicate oriented edge (non-manifold region)");
+    // Amendment 8 (M8 increment 11): the sub-region may GROW across a
+    // crossing boundary edge (below), so the boundary cycle and its guards
+    // are recomputed per growth step.
+    let mut region: std::collections::BTreeSet<usize> = region.clone();
+    let poly = loop {
+        // ── 2. Oriented boundary cycle ────────────────────────────────────
+        // A consistent-CCW mesh: an oriented edge (a,b) of a region triangle
+        // is boundary iff no region triangle carries (b,a).
+        let mut oriented: std::collections::BTreeSet<(u32, u32)> =
+            std::collections::BTreeSet::new();
+        for &ti in &region {
+            let t = tris[ti];
+            for k in 0..3 {
+                if !oriented.insert((t[k], t[(k + 1) % 3])) {
+                    return reject("duplicate oriented edge (non-manifold region)");
+                }
             }
         }
-    }
-    let mut nxt: BTreeMap<u32, u32> = BTreeMap::new();
-    let mut boundary_edges = 0usize;
-    for &(a, b) in &oriented {
-        if !oriented.contains(&(b, a)) {
-            if nxt.insert(a, b).is_some() {
-                return reject("non-manifold region boundary (duplicate tail)");
+        let mut nxt: BTreeMap<u32, u32> = BTreeMap::new();
+        let mut boundary_edges = 0usize;
+        for &(a, b) in &oriented {
+            if !oriented.contains(&(b, a)) {
+                if nxt.insert(a, b).is_some() {
+                    return reject("non-manifold region boundary (duplicate tail)");
+                }
+                boundary_edges += 1;
             }
-            boundary_edges += 1;
         }
-    }
-    if boundary_edges < 3 {
-        return reject("degenerate region boundary");
-    }
-    let start = *nxt.keys().next().unwrap();
-    let mut poly: Vec<u32> = Vec::with_capacity(boundary_edges);
-    let mut cur = start;
-    for _ in 0..boundary_edges {
-        poly.push(cur);
-        let Some(&next) = nxt.get(&cur) else {
-            return reject("broken region boundary chain");
-        };
-        cur = next;
-    }
-    if cur != start || poly.len() != boundary_edges {
-        return reject("region boundary is not a single closed cycle");
-    }
+        if boundary_edges < 3 {
+            return reject("degenerate region boundary");
+        }
+        let start = *nxt.keys().next().unwrap();
+        let mut poly: Vec<u32> = Vec::with_capacity(boundary_edges);
+        let mut cur = start;
+        for _ in 0..boundary_edges {
+            poly.push(cur);
+            let Some(&next) = nxt.get(&cur) else {
+                return reject("broken region boundary chain");
+            };
+            cur = next;
+        }
+        if cur != start || poly.len() != boundary_edges {
+            return reject("region boundary is not a single closed cycle");
+        }
 
-    // ── 3. No interior vertex (a polygon triangulation would orphan it) ──
-    let on_cycle: std::collections::BTreeSet<u32> = poly.iter().copied().collect();
-    for &ti in region {
-        for &vv in &tris[ti] {
-            if !on_cycle.contains(&vv) {
-                return reject("region has an interior vertex");
+        // ── 3. No interior vertex (a triangulation would orphan it) ───────
+        let on_cycle: std::collections::BTreeSet<u32> = poly.iter().copied().collect();
+        for &ti in &region {
+            for &vv in &tris[ti] {
+                if !on_cycle.contains(&vv) {
+                    return reject("region has an interior vertex");
+                }
             }
         }
-    }
+
+        // ── 3b. Amendment 8: growth to simplicity ─────────────────────────
+        // A femto-strip sub-region's boundary can be a BOW-TIE under the
+        // minted positions (the strip's two long sides cross exactly — the
+        // F0090 class). The region form of amendment 5's constrained
+        // visibility growth: absorb the single external same-class neighbor
+        // of a crossing edge and rebuild the boundary, until the ring is
+        // exactly simple. Constraint edges (domain boundary, intersection
+        // curve) are never crossed; an apex already on the cycle would
+        // pinch the ring (both defer to the partner edge, else reject).
+        let Some((ei, ej)) = first_ring_crossing(&poly, coords, frame) else {
+            break poly;
+        };
+        let mut grew = false;
+        for e in [ei, ej] {
+            let (a, b) = (poly[e], poly[(e + 1) % poly.len()]);
+            let Some(inc) = edge_map.get(&edge_key(a, b)) else {
+                continue;
+            };
+            let ext: Vec<usize> = inc
+                .iter()
+                .copied()
+                .filter(|t| !region.contains(t))
+                .collect();
+            if ext.len() != 1 {
+                continue; // domain boundary (or pinched): uncrossable
+            }
+            let tj = ext[0];
+            if class[tj] != cls0 {
+                continue; // class boundary IS the intersection curve
+            }
+            let Some(x) = tris[tj].iter().copied().find(|&v| v != a && v != b) else {
+                continue;
+            };
+            if on_cycle.contains(&x) {
+                continue; // absorbing would pinch the ring
+            }
+            if probe {
+                eprintln!(
+                    "  [reloc-region-grow] seeds {seeds:?} class {cls0:?} \
+                     edge ({a},{b}) absorbs tri {tj} (apex {x})"
+                );
+            }
+            region.insert(tj);
+            grew = true;
+            break;
+        }
+        if !grew {
+            return reject("crossing edges ungrowable (region polygon not simple)");
+        }
+    };
 
     // ── 4. Shared constrained exact ear-clip ──────────────────────────────
     let ears = match earclip_cavity_polygon(
         &poly,
-        region,
+        &region,
         cls0,
         coords,
         frame,
@@ -2327,6 +2384,61 @@ fn relocate_region_single_class(
         }
     }
     true
+}
+
+/// Amendment 8 (spec `n2_stage4_junction_cluster_merge` §3, M8 increment
+/// 11): first exact crossing of a boundary polygon's edges under the
+/// CURRENT resolved coordinates — a proper crossing or an endpoint strictly
+/// interior to the other segment (the same predicate as
+/// [`earclip_cavity_polygon`]'s simplicity guard, `EarclipErr::NotSimple`
+/// class). Returns the two poly edge indices, first pair in boundary-order
+/// scan (deterministic — I6); `None` = simple. Zero-length edges (collapsed
+/// sub-floor twins) and edge pairs sharing a POSITION are skipped — shared
+/// positions are the pinch class, terminal in the ear-clip, not grown.
+fn first_ring_crossing(poly: &[u32], coords: &[Point3], frame: &Frame) -> Option<(usize, usize)> {
+    let n = poly.len();
+    let pos = |i: usize| frame.project(coords[poly[i] as usize]);
+    for a in 0..n {
+        let (p1, p2) = (pos(a), pos((a + 1) % n));
+        if p1 == p2 {
+            continue; // zero-length (collapsed twins) cannot cross
+        }
+        for b in (a + 1)..n {
+            let (q1, q2) = (pos(b), pos((b + 1) % n));
+            if q1 == q2 {
+                continue;
+            }
+            // Edges sharing a position are adjacent (or a pinch — the
+            // ear-clip's terminal class): never a growth trigger.
+            if p1 == q1 || p1 == q2 || p2 == q1 || p2 == q2 {
+                continue;
+            }
+            let (Some(o1), Some(o2), Some(o3), Some(o4)) = (
+                orient_sign_exact(p1, p2, q1),
+                orient_sign_exact(p1, p2, q2),
+                orient_sign_exact(q1, q2, p1),
+                orient_sign_exact(q1, q2, p2),
+            ) else {
+                return None; // non-finite: leave for the ear-clip to reject
+            };
+            let within = |o: i8, e1: (f64, f64), e2: (f64, f64), q: (f64, f64)| {
+                o == 0
+                    && q.0 >= e1.0.min(e2.0)
+                    && q.0 <= e1.0.max(e2.0)
+                    && q.1 >= e1.1.min(e2.1)
+                    && q.1 <= e1.1.max(e2.1)
+            };
+            if (o1 * o2 < 0 && o3 * o4 < 0)
+                || within(o1, p1, p2, q1)
+                || within(o2, p1, p2, q2)
+                || within(o3, q1, q2, p1)
+                || within(o4, q1, q2, p2)
+            {
+                return Some((a, b));
+            }
+        }
+    }
+    None
 }
 
 /// N2-3a (spec `n2_stage4_junction_cluster_merge` §3): exact resolution
@@ -7098,14 +7210,64 @@ mod reloc_tests {
         assert!((total - 8.6).abs() < 1e-12, "cover area {total} != 8.6");
     }
 
-    /// Region reject, no mutation: the base fixture's single-seed region
-    /// boundary cycle [v, w2, w1, w0] is exactly NON-SIMPLE at the minted
-    /// position (edge v→w2 crosses edge w1→w0) — the region form rejects
-    /// and leaves everything untouched (the caller's amendment-2 revert
-    /// stays the loud fallback).
+    /// Amendment 8 (was: `region_nonsimple_cycle_rejects_without_mutation`,
+    /// which pinned the amendment-6 limitation this amendment removes): the
+    /// base fixture's single-seed region boundary [v, w2, w1, w0] is
+    /// exactly NON-SIMPLE at the minted position (edge v→w2 crosses edge
+    /// w1→w0) — the region now GROWS across the crossing edge into its
+    /// same-class neighbor and commits, all replacement triangles
+    /// gate-valid with the exact cover preserved.
     #[test]
-    fn region_nonsimple_cycle_rejects_without_mutation() {
+    fn region_nonsimple_cycle_grows_to_simplicity() {
         let (mut tris, mut class, coords) = base();
+        let mut em = edge_map_of(&tris);
+        let frame = frame_z0();
+        assert!(relocate_minted_region(
+            &mut tris,
+            &mut class,
+            &mut em,
+            &[0],
+            &coords,
+            &frame,
+            false
+        ));
+        for t in &tris {
+            assert!(
+                gate_tri_valid(t, &coords, &frame),
+                "{t:?} invalid after grown region relocation"
+            );
+        }
+        assert!(class.iter().all(|&c| c == RegionClass::AOnly));
+        assert_eq!(
+            canon(&em),
+            canon(&edge_map_of(&tris)),
+            "edge map must be maintained incrementally"
+        );
+        // Exact cover: the domain polygon w0(0,0) → v(0.8,0.4) → w2(4,0) →
+        // far(2,2) has area 3.2, and every replacement triangle is
+        // positive, so the sum doubles as a no-overlap certificate.
+        let area = |t: &[u32; 3]| {
+            let q = |i: u32| frame.project(coords[i as usize]);
+            let (p0, p1, p2) = (q(t[0]), q(t[1]), q(t[2]));
+            ((p1.0 - p0.0) * (p2.1 - p0.1) - (p1.1 - p0.1) * (p2.0 - p0.0)) / 2.0
+        };
+        let total: f64 = tris.iter().map(|t| area(t)).sum();
+        assert!((total - 3.2).abs() < 1e-12, "cover area {total} != 3.2");
+    }
+
+    /// Amendment 8 reject, no mutation: the same non-simple boundary, but
+    /// every neighbor beyond the crossing edges is across the intersection
+    /// curve (class boundary) — growth is blocked on both sides, the
+    /// sub-region rejects, and nothing is mutated (the caller's
+    /// amendment-2 revert stays the loud fallback).
+    #[test]
+    fn region_nonsimple_ungrowable_rejects_without_mutation() {
+        let (mut tris, mut class, coords) = base();
+        // Both non-star triangles across the curve: the folded AOnly
+        // sub-region is the star {0,1}; its crossing edges' external
+        // neighbors (tris 2 and 3) are Overlap — ungrowable.
+        class[2] = RegionClass::Overlap;
+        class[3] = RegionClass::Overlap;
         let tris0 = tris.clone();
         let class0 = class.clone();
         let mut em = edge_map_of(&tris);

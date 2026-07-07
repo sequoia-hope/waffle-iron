@@ -396,6 +396,57 @@ re-triangulated across, by construction:
 | every folded class sub-region rejects (interior vertex / multiple cycles / non-simple / no ear) | amendment-2 revert (unchanged, loud) |
 | single-class region | unchanged (amendment 6 — the partition is the identity) |
 
+**Region growth to simplicity (amendment 8, 2026-07-07 — M8 increment 11,
+task #68):** the measured F0090 residual after amendment 7. Probe census
+(`probe2_F0090`, new binary): 22 joint relocations now COMMIT, but the
+dominant remaining reject is `class AOnly region polygon not simple` — the
+folded sub-region is a long femto-strip whose boundary is a BOW-TIE under
+the minted positions (e.g. seeds `[183,189,190,195,196]`: the two long
+sides of the strip cross, `[reloc-ring] edges 0 × 4`). The region form
+froze the region at the seeds' star union; the per-vertex form (amendment
+5) has constrained visibility GROWTH for exactly this situation, the
+region form had none.
+
+Amendment 8 grows the sub-region across a crossing edge until its boundary
+is exactly simple:
+
+- **Trigger:** the sub-region's boundary cycle exists (single closed
+  cycle, no interior vertex) but the position ring has an exact proper
+  crossing / interior endpoint touch (the `EarclipErr::NotSimple` class;
+  pinches — repeated non-adjacent positions — stay terminal rejects,
+  unchanged).
+- **Growth step (deterministic):** take the FIRST crossing pair in
+  boundary order; try its two mesh edges in order. An edge is growable iff
+  it has exactly ONE incident triangle outside the region (single-incidence
+  = domain boundary — uncrossable), that triangle's class equals the
+  sub-region class (a class-boundary edge IS the intersection curve —
+  never crossed), and its apex does not already lie on the boundary cycle
+  (a repeat would pinch the ring). The external triangle joins the region;
+  the boundary cycle and no-interior-vertex guard are recomputed; repeat.
+- **Reject (loud, no mutation):** neither edge of the crossing growable,
+  or a recomputed guard fails. The amendment-2 revert stays the fallback.
+- **Termination:** the region strictly grows and is bounded by the class
+  component; every committed relocation still replaces ≥1 folded triangle
+  with gate-valid ears (the amendment-4/5/6/7 contract — absorbing VALID
+  triangles into a fold-carrying region is exactly what amendment 5's
+  visibility growth already does per-vertex).
+
+| Gate case (amendment 8) | Behavior |
+|---|---|
+| sub-region polygon non-simple; growth across crossing edges reaches a simple ring | mints KEPT; grown region re-triangulated by the shared ear-clip |
+| crossing edge ungrowable both sides (domain/class boundary, apex pinch) or guard fails after growth | that sub-region rejects (loud); amendment-2 revert unchanged |
+| sub-region polygon already simple | unchanged (amendment 7) |
+
+Research basis: [#24] Yang 2025 §4.4.1 Fig 11 (`refs/text/
+yang2025_hybrid_boolean.txt:556-560`); the growth rule is the region-form
+of amendment 5's constrained visibility growth (Bowyer–Watson cavity
+carving, deferring at constraints). Oracles:
+`f0090_cut7_stays_loud_offsurface_wall` (pinned boundary; retire signal →
+positive regression) + the `#[ignore]`d `f0090_engine_frame_seven_hole_
+chain` green target; stage0 unit tests (bow-tie growth commit,
+ungrowable reject-no-mutation); F0086–F0090 family; full yang-rs/kernel-v2
+suites; corpus P9 gate (0 WRONG, zero CORRECT lost).
+
 Research basis: [#24] Yang 2025 §4.4.1 Fig 11 (delete-and-reinsert mesh
 updating; the constraint that intersection-curve segments are preserved
 during updating is §4.4.1's own requirement — partitioning at the class

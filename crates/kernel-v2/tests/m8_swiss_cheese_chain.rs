@@ -408,3 +408,79 @@ fn f0089_engine_frame_eleven_hole_chain() {
         "11-hole F0089 plate volume {vol} outside band of analytic {analytic}"
     );
 }
+
+// ── F0090 fixture (seed 30005): the increment-11 wall ─────────────────────
+// Probe census post-amendment-7 (2026-07-07): cut 7's second femto-strip
+// (seeds [183,189,190,195,196]) passes the class partition, but the folded
+// AOnly sub-region's boundary is a BOW-TIE under the minted positions —
+// the strip's two long sides cross exactly ([reloc-ring] edges 0 × 4) —
+// so the shared ear-clip's simplicity guard rejects
+// (`class AOnly region polygon not simple`) and the amendment-2 revert
+// leaks chord vertices as VertexOffSurface. Increment 11's scope (spec
+// `n2_stage4_junction_cluster_merge` §3 amendment 8): grow the sub-region
+// across a crossing edge's single external same-class neighbor until the
+// boundary ring is exactly simple (the region form of amendment 5's
+// constrained visibility growth).
+
+const F90_R: f64 = 1.949952676445734;
+const F90_T: f64 = 0.4640981207724759;
+const F90_HR: f64 = 0.024226758979155424;
+/// The first 7 of F0090's 30 holes (bit-exact corpus parameters, all
+/// through: depth > T). Cut 7 is the measured bow-tie sub-region wall.
+const F90_HOLES: [(f64, f64, f64); 7] = [
+    (0.27316509614628137, 0.27144718566612946, 1.0152352850121833),
+    (-0.53673080264824, -1.4341425308476503, 1.1387439874959013),
+    (-1.3291095975787688, 0.2274569468070904, 1.2789422323321724),
+    (-0.3971281771685192, 1.8292424007626322, 1.0460475747493216),
+    (0.09378079689674315, 0.6628791953622455, 1.3057819201236136),
+    (
+        -0.005707830499044367,
+        0.061132734513484076,
+        1.3203995259758554,
+    ),
+    (1.5425033160829418, 0.2390890943567454, 1.292075306693227),
+];
+
+fn run_f0090_chain(
+    n_holes: usize,
+) -> Result<(BrepArena, kernel_v2::SolidId), kernel_v2::KernelV2Error> {
+    let mut a = BrepArena::new();
+    let mut body = cyl_engine_frame(&mut a, 0.0, 0.0, F90_R, 0.0, F90_T);
+    for &(hx, hy, d) in F90_HOLES.iter().take(n_holes) {
+        let tool = cyl_engine_frame(&mut a, hx, hy, F90_HR, 0.0, d);
+        body = boolean_op(&mut a, body, tool, BoolOp::Subtract)?;
+        validate_solid(&a, body)?;
+    }
+    Ok((a, body))
+}
+
+/// Regression for the retired increment-11 wall (was: the pin
+/// `f0090_cut7_stays_loud_offsurface_wall`, which asserted the TYPED
+/// `VertexOffSurface` boundary until amendment 8's region growth to
+/// simplicity landed): cut 7 — whose folded sub-region boundary is a
+/// bow-tie under the minted positions — must succeed with a fully valid
+/// output. The sub-region grows across the crossing edge's same-class
+/// neighbor until the ring is exactly simple, then ear-clips.
+#[test]
+fn f0090_cut7_bowtie_region_grows_to_simplicity() {
+    let (a, s) = run_f0090_chain(7).expect("cut 7 (bow-tie sub-region) regressed to an error");
+    validate_solid(&a, s).expect("cut 7 succeeded but output is invalid");
+}
+
+/// Increment 11 green target: the 7-cut F0090 chain end-to-end.
+#[test]
+fn f0090_engine_frame_seven_hole_chain() {
+    let (a, s) = run_f0090_chain(7).expect("chain");
+    let mesh = tessellate(&a, s).expect("tessellate");
+    let vol = mesh_signed_volume(&mesh);
+    let mut analytic = std::f64::consts::PI * F90_R * F90_R * F90_T;
+    for &(_, _, d) in F90_HOLES.iter() {
+        analytic -= std::f64::consts::PI * F90_HR * F90_HR * d.min(F90_T);
+    }
+    // N=14 on the plate rim ⇒ ~1.1% polygon deficit; 3% band still rejects
+    // a dropped cap / missing hole.
+    assert!(
+        (vol - analytic).abs() / analytic < 0.03,
+        "7-hole F0090 plate volume {vol} outside band of analytic {analytic}"
+    );
+}
