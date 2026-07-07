@@ -489,3 +489,36 @@ scope: the ENTIRE residual family F0087/F0088/F0089/F0090 now sits on
 ONE typed wall — `boolean: curved partial-patch operand` (a previous
 cut's partial cylindrical patch cannot re-enter to_yang) — the
 partial-patch re-entry boundary, next increment's lever.**
+
+**Increment 9 diagnosis (2026-07-07, task #64) — per-vertex relocation is
+EXHAUSTED; the F0087 tail is a femto-strip MULTI-COLUMN hop.** The full
+10-hole F0087 chain added to `m8_swiss_cheese_chain.rs` (all holes
+disjoint + interior — no real trimmed geometry anywhere). Direct chain
+walls at CUT 9 with `VertexOffSurface(FaceId 98)`; the corpus replay of
+the same recipe walls at op 10 with the typed partial-patch re-entry
+boundary instead (the corpus-path cut-9 output degrades to arc pieces
+where the direct chain's stays clean — path divergence, both loud).
+Measured mechanism (probes `[reloc-spokes]`/`[reloc-ring]` +
+`YANG_STAGE0_DUMP_DIR`): the plate rim chord is split by two sweep-event
+columns **1 ULP apart in u** (mirrored ring samples under the engine
+frame); the femto-strip between them carries slivers connecting the OUTER
+rim to hole-8's rim, so the rim-mint vertex's star spans the whole strip;
+the cut-9 mint hops THREE populated columns and its cavity polygon is
+GENUINELY non-simple (the moved boundary spoke sweeps across its own link
+vertices — verified exact crossing). Relocation rejects (correctly); the
+amendment-2 revert then SPLITS the increment-4 shared-mint twin pair
+(v182 stays minted on-circle, v186 reverts to its chord) and the chord
+vertex escapes into the output rims. Also fixed in this increment: the
+amendment-5 simplicity check rejected ANY collinear pair (`o == 0`) —
+sweep columns legitimately align many ring vertices exactly, so
+collinearity now rejects only when the endpoint lies WITHIN the other
+segment (exact; unit suite + corpus gate green). Boundary pinned:
+`f0087_cut9_stays_loud_offsurface_wall` (cuts 1–8 green) + `#[ignore]`d
+`f0087_engine_frame_full_ten_hole_chain`. **Increment 9 design space
+(pick after measuring): (a) fold-REGION constrained re-CDT (generalizes
+flips + relocation: re-triangulate the union of folded stars under
+resolved coords with class/domain constraint edges), or (b) input-level
+sub-floor twin WELD (collapse 1-ULP event columns / ring samples at
+Stage-0 admission — kills the femto-strip at the source, A14.2
+principle). The corpus-path partial-patch degradation at cut 9 needs its
+own localization (recover.rs, separate from the direct-chain wall).**

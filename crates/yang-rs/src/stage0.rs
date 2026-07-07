@@ -1811,6 +1811,15 @@ fn relocate_minted_vertex(
         for &(_, b, _) in &link {
             poly.push(b);
         }
+        if probe {
+            let w0 = link[0].0;
+            let wk = link[link.len() - 1].1;
+            eprintln!(
+                "  [reloc-spokes] v={v} w0={w0} inc={:?} wk={wk} inc={:?}",
+                edge_map.get(&edge_key(v, w0)).map(|x| x.len()),
+                edge_map.get(&edge_key(v, wk)).map(|x| x.len()),
+            );
+        }
 
         // Exact simplicity + CCW on the DEDUPLICATED position ring
         // (collapsed sub-floor twins share one resolved position; their
@@ -1868,8 +1877,34 @@ fn relocate_minted_vertex(
                     return reject("non-finite cavity polygon");
                 };
                 // Proper crossing, or an endpoint on the other segment's
-                // interior (any collinear touch is conservatively rejected).
-                if (o1 * o2 < 0 && o3 * o4 < 0) || o1 == 0 || o2 == 0 || o3 == 0 || o4 == 0 {
+                // INTERIOR. Bare collinearity (o == 0 with the point outside
+                // the segment) is NOT an intersection — sweep-event columns
+                // legitimately put many ring vertices on one exact vertical
+                // line, so rejecting all collinear pairs falsely rejects
+                // repairable cavities (measured: F0087 cut 10, vert 186).
+                // Endpoint coincidence was excluded above, so on-segment
+                // here means strictly interior; collinear-overlapping
+                // segments have an endpoint interior to the other and are
+                // caught by the same test.
+                let within = |o: i8, e1: (f64, f64), e2: (f64, f64), q: (f64, f64)| {
+                    o == 0
+                        && q.0 >= e1.0.min(e2.0)
+                        && q.0 <= e1.0.max(e2.0)
+                        && q.1 >= e1.1.min(e2.1)
+                        && q.1 <= e1.1.max(e2.1)
+                };
+                if (o1 * o2 < 0 && o3 * o4 < 0)
+                    || within(o1, p1, p2, q1)
+                    || within(o2, p1, p2, q2)
+                    || within(o3, q1, q2, p1)
+                    || within(o4, q1, q2, p2)
+                {
+                    if probe {
+                        eprintln!(
+                            "  [reloc-ring] edges {a}:({p1:?}->{p2:?}) x {b}:({q1:?}->{q2:?}) \
+                             o=({o1},{o2},{o3},{o4}) ring={ring:?}"
+                        );
+                    }
                     return reject("cavity polygon not simple");
                 }
             }

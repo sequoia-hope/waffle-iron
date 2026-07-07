@@ -221,9 +221,11 @@ fn third_cut_reenters_multi_hole_plate() {
 const F87_R: f64 = 1.980614275128782;
 const F87_T: f64 = 0.2957032583668985;
 const F87_HR: f64 = 0.06795332546654638;
-/// First 7 of F0087's 10 holes — cut 7 (the first blind hole whose tool
-/// x-extreme column lands inside a rim-chord mint's displacement) walls.
-const F87_HOLES: [(f64, f64, f64); 7] = [
+/// All 10 of F0087's holes (3 through, 7 blind; every hole disjoint and
+/// strictly interior to the plate — no hole-hole overlap, no rim contact).
+/// Cut 7 was the increment-8 wall (rim-mint column hop); cut 10 is the
+/// increment-9 wall (partial-patch operand re-entry).
+const F87_HOLES: [(f64, f64, f64); 10] = [
     (1.2057456832734317, -0.7407823118143758, 0.8793439139633998),
     (1.3247776006386347, 0.32932385946597764, 0.5419497090202422),
     (0.01070787823164016, 0.47572151833582316, 0.6340016327568604),
@@ -231,6 +233,17 @@ const F87_HOLES: [(f64, f64, f64); 7] = [
     (-0.3405596239373243, 0.6167097868169978, 0.5008573650944282),
     (-1.393454312371825, -1.1027644265256487, 0.18704715810097103),
     (1.2093902365320994, 0.6573884082549064, 0.1703244805285629),
+    (0.47998012577504184, 0.2760199907593817, 0.14035120129048992),
+    (
+        0.3512852634623234,
+        -0.27379194464433526,
+        0.19645927988861972,
+    ),
+    (
+        -0.6561340162470487,
+        -0.4773169472712928,
+        0.21998259626864872,
+    ),
 ];
 
 fn run_f0087_chain(
@@ -273,5 +286,55 @@ fn f0087_engine_frame_seven_hole_chain() {
     assert!(
         (vol - analytic).abs() / analytic < 0.03,
         "7-hole F0087 plate volume {vol} outside band of analytic {analytic}"
+    );
+}
+
+/// Stays-loud pin for the increment-9 wall (task #64): cut 10 of the full
+/// F0087 chain fails with the TYPED off-surface tripwire. Measured
+/// mechanism (2026-07-07, `[reloc-ring]`/`[reloc-spokes]` probes + Stage-0
+/// dump): the plate rim chord is split by two sweep-event columns 1 ULP
+/// apart in u (mirrored ring samples under the engine frame), whose
+/// femto-strip of slivers connects the OUTER rim to hole-8's rim; the rim
+/// mint at cut 10 hops THREE populated columns, its star cavity polygon is
+/// GENUINELY non-simple (the moved boundary spoke sweeps across link
+/// vertices), so per-vertex Fig-11 relocation provably cannot repair it;
+/// the amendment-2 revert then splits the increment-4 shared-mint twin
+/// pair (182 stays minted, 186 reverts) and the chord vertex escapes at
+/// CUT 9 (the first cut whose overlay builds that strip).
+/// Increment 9 needs fold-REGION re-triangulation or input-level twin
+/// welding — per-vertex repair is exhausted. NOTE: the CORPUS replay of
+/// F0087 fails at the same op with a DIFFERENT typed wall (curved
+/// partial-patch operand re-entry — the corpus-path cut-9 output degrades
+/// where the direct chain's stays clean); both walls are loud. When
+/// increment 9 lands, convert this pin to a positive regression and
+/// un-ignore `f0087_engine_frame_full_ten_hole_chain`.
+#[test]
+fn f0087_cut9_stays_loud_offsurface_wall() {
+    let err = run_f0087_chain(9).expect_err(
+        "F0087 cut 9 unexpectedly succeeded — increment 9 landed? Retire \
+         this pin and un-ignore f0087_engine_frame_full_ten_hole_chain",
+    );
+    assert!(
+        matches!(err, kernel_v2::KernelV2Error::VertexOffSurface { .. }),
+        "F0087 cut 9 wall changed class (expected VertexOffSurface): {err:?}"
+    );
+    // Cuts 1-8 must stay green — the wall is cut 9 specifically.
+    run_f0087_chain(8).expect("F0087 cuts 1-8 regressed");
+}
+
+/// Increment 9 green target: the full 10-cut F0087 chain end-to-end.
+#[test]
+#[ignore = "M8 increment 9: partial-patch operand re-entry (task #64)"]
+fn f0087_engine_frame_full_ten_hole_chain() {
+    let (a, s) = run_f0087_chain(10).expect("chain");
+    let mesh = tessellate(&a, s).expect("tessellate");
+    let vol = mesh_signed_volume(&mesh);
+    let mut analytic = std::f64::consts::PI * F87_R * F87_R * F87_T;
+    for &(_, _, d) in F87_HOLES.iter() {
+        analytic -= std::f64::consts::PI * F87_HR * F87_HR * d.min(F87_T);
+    }
+    assert!(
+        (vol - analytic).abs() / analytic < 0.03,
+        "10-hole F0087 plate volume {vol} outside band of analytic {analytic}"
     );
 }
