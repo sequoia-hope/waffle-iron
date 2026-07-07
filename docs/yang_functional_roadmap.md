@@ -382,6 +382,23 @@ the roadmap's remaining work:
    >    (Stage 3/4), not Stage-0/mesh-updating. Next: measure that edge's
    >    geometry (what curve should refine it, why zero candidates), plus
    >    C0048 (separate row).
+   >    **AmbiguousCurve{0,0} DIAGNOSED (2026-07-07, task #72 — increment
+   >    15 pending):** `ssi_rs::intersect` returns EMPTY — the plate outer
+   >    cylinder and F0088 hole-4's tool cylinder are ANALYTICALLY
+   >    DISJOINT (internal gap = R − d_axes − r = 0.0115) but the plate's
+   >    N=14 chord facets dip inward by the sagitta ≈ 0.032 > gap, so the
+   >    MESHES intersect. This is Yang Fig. 8 **Case IV** ("the meshes
+   >    detect intersections that do not exist in surfaces",
+   >    `refs/text/yang2025_hybrid_boolean.txt:436-447`) — the paper
+   >    FILTERS it; the output topology follows analytic truth (the thin
+   >    wall SURVIVES; it is 100× MIN_FEATURE_SIZE, a real feature).
+   >    Planned fix: Stage-1 phantom guard — for each analytically
+   >    disjoint cyl×cyl face pair whose chord bands overlap (gap <
+   >    sagitta_A + sagitta_B), raise the affected circles' `min_n_seg`
+   >    (the Stage-1 hook already exists) until the combined sagitta
+   >    clears the gap (F0088 needs N ≥ 24; terminating criterion is
+   >    ANALYTIC, unlike the rejected global NSEG floor for the
+   >    column-hop class). RED = F0088 cut-4 direct-chain pin.
 2. **N4 — face provenance by centroid-proximity, not §4.2.3 barycentric
    provenance.** Stage-6 attributes each kept triangle by centroid-in-plane
    distance + a tolerance tier (`tol_for`). The paper maps each point to BOTH
