@@ -39,11 +39,19 @@ const HOLES: [(f64, f64, f64); 5] = [
     (0.5668457676559464, 1.0744567510873022, 0.300221),
 ];
 
-fn cyl(a: &mut BrepArena, cx: f64, cy: f64, r: f64, z0: f64, z1: f64) -> kernel_v2::SolidId {
+fn cyl_in_frame(
+    a: &mut BrepArena,
+    frame: (Vector3, Vector3),
+    cx: f64,
+    cy: f64,
+    r: f64,
+    z0: f64,
+    z1: f64,
+) -> kernel_v2::SolidId {
     let p = Profile::circle(
         Point3::new(0.0, 0.0, z0),
-        Vector3::new(1.0, 0.0, 0.0),
-        Vector3::new(0.0, 1.0, 0.0),
+        frame.0,
+        frame.1,
         Point2::new(cx, cy),
         r,
     )
@@ -51,6 +59,31 @@ fn cyl(a: &mut BrepArena, cx: f64, cy: f64, r: f64, z0: f64, z1: f64) -> kernel_
     extrude(a, &p, Vector3::new(0.0, 0.0, 1.0), z1 - z0)
         .unwrap()
         .solid
+}
+
+fn cyl(a: &mut BrepArena, cx: f64, cy: f64, r: f64, z0: f64, z1: f64) -> kernel_v2::SolidId {
+    let frame = (Vector3::new(1.0, 0.0, 0.0), Vector3::new(0.0, 1.0, 0.0));
+    cyl_in_frame(a, frame, cx, cy, r, z0, z1)
+}
+
+/// The PRODUCTION sketch frame for a z=0 / +z-normal plane:
+/// `tangent_x_from_normal([0,0,1])` = X×n̂ = (0,−1,0), y = n̂×x = (1,0,0)
+/// (feature-engine `rebuild.rs`, mirroring the JS `buildSketchPlane`). The
+/// corpus replay (sketch-extrude + auto-union) builds every profile in THIS
+/// frame — the whole scene is the canonical-frame scene rotated −90° about
+/// z (bit-exact swap/negate), but the Stage-0 overlay's sweep-event ORDER
+/// differs under the rotation, reaching mint/fold configurations the
+/// canonical frame never exercises.
+fn cyl_engine_frame(
+    a: &mut BrepArena,
+    cx: f64,
+    cy: f64,
+    r: f64,
+    z0: f64,
+    z1: f64,
+) -> kernel_v2::SolidId {
+    let frame = (Vector3::new(0.0, -1.0, 0.0), Vector3::new(1.0, 0.0, 0.0));
+    cyl_in_frame(a, frame, cx, cy, r, z0, z1)
 }
 
 fn mesh_signed_volume(mesh: &RenderMesh) -> f64 {
@@ -72,16 +105,23 @@ fn mesh_signed_volume(mesh: &RenderMesh) -> f64 {
     six_v / 6.0
 }
 
-fn run_chain(n_holes: usize) -> (BrepArena, kernel_v2::SolidId) {
+fn run_chain_with(
+    build: fn(&mut BrepArena, f64, f64, f64, f64, f64) -> kernel_v2::SolidId,
+    n_holes: usize,
+) -> (BrepArena, kernel_v2::SolidId) {
     let mut a = BrepArena::new();
-    let mut body = cyl(&mut a, 0.0, 0.0, R, 0.0, T);
+    let mut body = build(&mut a, 0.0, 0.0, R, 0.0, T);
     for (i, &(hx, hy, d)) in HOLES.iter().take(n_holes).enumerate() {
-        let tool = cyl(&mut a, hx, hy, HR, 0.0, d);
+        let tool = build(&mut a, hx, hy, HR, 0.0, d);
         body = boolean_op(&mut a, body, tool, BoolOp::Subtract)
             .unwrap_or_else(|e| panic!("swiss-cheese cut {} failed: {e:?}", i + 1));
         validate_solid(&a, body).unwrap_or_else(|e| panic!("cut {} output invalid: {e:?}", i + 1));
     }
     (a, body)
+}
+
+fn run_chain(n_holes: usize) -> (BrepArena, kernel_v2::SolidId) {
+    run_chain_with(cyl, n_holes)
 }
 
 /// Analytic volume with each circle discounted to its inscribed chord
@@ -117,6 +157,30 @@ fn two_through_holes_chain() {
 #[test]
 fn full_f0086_five_hole_chain() {
     let (a, s) = run_chain(5);
+    assert_volume(&a, s, 5);
+}
+
+/// M8 increment 7 (task #62, spec `n2_stage4_junction_cluster_merge` §3
+/// amendment 4): the CORPUS-path residual, reproduced directly. In the
+/// production sketch frame, cut 2's Stage-0 overlay carries a femto-strip
+/// (two sweep-event columns ULPs apart in u) whose diagonal sliver spans
+/// from a rim-chord vertex up to the overlap boundary; ANY on-circle mint
+/// of that rim vertex inverts the sliver, the fold gate reverted the mint,
+/// and the chord-position vertex escaped into the output rims —
+/// `VertexOffSurface(FaceId 15)`, residual 3.4e-3 (the Stage-1 sagitta) vs
+/// the 2.5e-9 import band. RED before amendment 4's constrained flip
+/// repair; GREEN with the mint kept and the sliver locally re-triangulated.
+#[test]
+fn engine_frame_two_hole_chain() {
+    let (a, s) = run_chain_with(cyl_engine_frame, 2);
+    assert_volume(&a, s, 2);
+}
+
+/// The full F0086 recipe in the production sketch frame — the corpus
+/// replay's exact geometry (see `engine_frame_two_hole_chain`).
+#[test]
+fn engine_frame_five_hole_chain() {
+    let (a, s) = run_chain_with(cyl_engine_frame, 5);
     assert_volume(&a, s, 5);
 }
 

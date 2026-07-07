@@ -903,19 +903,20 @@ fn smoke_corpus_boundary_categories() {
         // now succeeds end-to-end. F0086 stays the M8 residue (a coplanar
         // sub-case Increment 1 does not yet cover — crossing / multi-pair).
         ("F0030", Category::SupportedCorrect),
-        // Task #62 increment 6 (2026-07-07): annular rim-mint contexts
-        // (`rim_chord_ctxs`) lifted the cut-3 typed re-entry wall — the
-        // DIRECT 5-hole chain is GREEN (`m8_swiss_cheese_chain.rs`,
-        // F0086's bit-exact parameters) and 5 of the corpus case's 6 ops
-        // now replay. The corpus path (sketch-extrude + auto-union) still
-        // trips ONE loud `VertexOffSurface { FaceId(15) }` — a residual
-        // off-surface population unique to that path, NOT exhibited by the
-        // direct chain; localizing it is the next increment (spec
-        // `m8_holed_disc_coplanar_overlay` §8 increment 6 residual). Was
-        // UNSUPPORTED(curved-profile) — the wall moved DOWNSTREAM of the
-        // typed boundary, always loud, never silent-wrong. Un-pin to
-        // SupportedCorrect when the corpus replay clears.
-        ("F0086", Category::Error),
+        // Task #62 increment 7 (2026-07-07): the corpus-path residual was
+        // the PRODUCTION SKETCH FRAME (x=(0,−1,0)) reaching a Stage-0
+        // configuration the canonical frame never hits — a femto-strip
+        // sliver inverted by its rim vertex's on-circle mint, which the
+        // fold gate then REVERTED to a chord position that escaped into
+        // the output rims (`VertexOffSurface { FaceId(15) }`). Amendment 4
+        // (spec `n2_stage4_junction_cluster_merge` §3) repairs repairable
+        // folds with constrained Lawson edge flips instead of reverting;
+        // the engine-frame chain (`m8_swiss_cheese_chain.rs::engine_frame_*`)
+        // pins the mechanism at the kernel level. F0086 replays
+        // end-to-end. (F0087/F0089/F0090 carry a SECOND fold class —
+        // contiguous rim-mint clusters whose displacement exceeds the
+        // hole-to-rim clearance, no legal flip — still loud ERROR.)
+        ("F0086", Category::SupportedCorrect),
         // PR-TH2 (KV5b-F2 resolved): the enclosed-cavity families
         // F0031–F0035 (box-minus-cyl) and F0036–F0040 (cyl-minus-box)
         // succeed end-to-end: 2 closed genus-0 shells (outer + cavity),

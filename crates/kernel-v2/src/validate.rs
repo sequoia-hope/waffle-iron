@@ -93,6 +93,32 @@ pub const NORMAL_AGREEMENT_TOLERANCE: f64 = 1e-9;
 /// twin pairing, rim count, rim normal direction, radius agreement.
 pub const CURVED_SURFACE_DEBUG_TOLERANCE: f64 = 1e-12;
 
+/// Construct a [`KernelV2Error::VertexOffSurface`], first dumping the
+/// failing site when `KV2_OFFSURF_PROBE` is set (env-gated, zero-cost
+/// off): which check tripped, the offending point, the residual, the band
+/// it exceeded, and the surface being validated. An off-surface wall in a
+/// chained boolean then self-localizes without a debugger — the tripwire
+/// only names the face, and nine distinct checks share the variant.
+fn vertex_off_surface(
+    f: FaceId,
+    site: &str,
+    p: Point3,
+    residual: f64,
+    band: f64,
+    surface: &str,
+) -> KernelV2Error {
+    if std::env::var_os("KV2_OFFSURF_PROBE").is_some() {
+        eprintln!(
+            "[offsurf-probe] face {f:?} site={site} p=({:.17e}, {:.17e}, {:.17e}) \
+             residual={residual:.3e} band={band:.3e} surface={surface}",
+            p.x(),
+            p.y(),
+            p.z()
+        );
+    }
+    KernelV2Error::VertexOffSurface { face: f }
+}
+
 /// Element counts and bookkeeping for a validated solid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TopologyReport {
@@ -607,8 +633,23 @@ fn validate_planar_face(
                         let dv = [p.x() - center.x(), p.y() - center.y(), p.z() - center.z()];
                         let u = (dv[0] * mr[0] + dv[1] * mr[1] + dv[2] * mr[2]) / major_radius;
                         let v = (dv[0] * w[0] + dv[1] * w[1] + dv[2] * w[2]) / minor_radius;
-                        if (u.hypot(v) - 1.0).abs() * minor_radius > import_band(major_radius, p) {
-                            return Err(KernelV2Error::VertexOffSurface { face: f });
+                        let band = import_band(major_radius, p);
+                        let residual = (u.hypot(v) - 1.0).abs() * minor_radius;
+                        if residual > band {
+                            return Err(vertex_off_surface(
+                                f,
+                                "planar-ellipse-arc-endpoint",
+                                p,
+                                residual,
+                                band,
+                                &format!(
+                                    "plane; ellipse center=({:.17e},{:.17e},{:.17e}) \
+                                     major_r={major_radius:.17e} minor_r={minor_radius:.17e}",
+                                    center.x(),
+                                    center.y(),
+                                    center.z()
+                                ),
+                            ));
                         }
                     }
                     continue;
@@ -645,7 +686,23 @@ fn validate_planar_face(
                         + (p.z() - center.z()).powi(2))
                     .sqrt();
                     if (dr - radius).abs() > band {
-                        return Err(KernelV2Error::VertexOffSurface { face: f });
+                        return Err(vertex_off_surface(
+                            f,
+                            if is_arc {
+                                "planar-arc-endpoint"
+                            } else {
+                                "planar-circle-anchor"
+                            },
+                            p,
+                            (dr - radius).abs(),
+                            band,
+                            &format!(
+                                "plane; circle center=({:.17e},{:.17e},{:.17e}) r={radius:.17e}",
+                                center.x(),
+                                center.y(),
+                                center.z()
+                            ),
+                        ));
                     }
                 }
             }
@@ -776,14 +833,40 @@ fn validate_cylinder_face(
             ];
             (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt()
         };
+        let cyl_desc = || {
+            format!(
+                "cylinder axis_point=({:.17e},{:.17e},{:.17e}) \
+                 axis=({:.17e},{:.17e},{:.17e}) r={radius:.17e}",
+                axis_point.x(),
+                axis_point.y(),
+                axis_point.z(),
+                axis_dir.x,
+                axis_dir.y,
+                axis_dir.z
+            )
+        };
         for p in arena.loop_points(face.outer_loop)? {
             if (dist_to_axis(p) - radius).abs() > CURVED_SURFACE_DEBUG_TOLERANCE {
-                return Err(KernelV2Error::VertexOffSurface { face: f });
+                return Err(vertex_off_surface(
+                    f,
+                    "cyl-canonical-vertex",
+                    p,
+                    (dist_to_axis(p) - radius).abs(),
+                    CURVED_SURFACE_DEBUG_TOLERANCE,
+                    &cyl_desc(),
+                ));
             }
         }
         for &(c, _, _) in &rims {
             if dist_to_axis(c) > CURVED_SURFACE_DEBUG_TOLERANCE {
-                return Err(KernelV2Error::VertexOffSurface { face: f });
+                return Err(vertex_off_surface(
+                    f,
+                    "cyl-rim-center-off-axis",
+                    c,
+                    dist_to_axis(c),
+                    CURVED_SURFACE_DEBUG_TOLERANCE,
+                    &cyl_desc(),
+                ));
             }
         }
         // Seam segments must be rulings (parallel to the axis).
@@ -801,7 +884,14 @@ fn validate_cylinder_face(
                 let len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
                 let off = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
                 if off > CURVED_SURFACE_DEBUG_TOLERANCE * len.max(1.0) {
-                    return Err(KernelV2Error::VertexOffSurface { face: f });
+                    return Err(vertex_off_surface(
+                        f,
+                        "cyl-seam-not-ruling",
+                        p0,
+                        off,
+                        CURVED_SURFACE_DEBUG_TOLERANCE * len.max(1.0),
+                        &cyl_desc(),
+                    ));
                 }
             }
         }
@@ -909,7 +999,19 @@ fn validate_cone_face(
         };
         for p in arena.loop_points(face.outer_loop)? {
             if on_cone_residual(p) > CURVED_SURFACE_DEBUG_TOLERANCE {
-                return Err(KernelV2Error::VertexOffSurface { face: f });
+                return Err(vertex_off_surface(
+                    f,
+                    "cone-vertex",
+                    p,
+                    on_cone_residual(p),
+                    CURVED_SURFACE_DEBUG_TOLERANCE,
+                    &format!(
+                        "cone apex=({:.17e},{:.17e},{:.17e}) half_angle={half_angle:.17e}",
+                        apex.x(),
+                        apex.y(),
+                        apex.z()
+                    ),
+                ));
             }
         }
     }
@@ -970,7 +1072,20 @@ fn validate_torus_face(
                 // The residual is in length², so compare against a band scaled
                 // by the minor radius (a length·length tolerance).
                 if on_torus_residual(p) > CURVED_SURFACE_DEBUG_TOLERANCE * minor_radius.max(1.0) {
-                    return Err(KernelV2Error::VertexOffSurface { face: f });
+                    return Err(vertex_off_surface(
+                        f,
+                        "torus-vertex",
+                        p,
+                        on_torus_residual(p),
+                        CURVED_SURFACE_DEBUG_TOLERANCE * minor_radius.max(1.0),
+                        &format!(
+                            "torus center=({:.17e},{:.17e},{:.17e}) \
+                             major_r={major_radius:.17e} minor_r={minor_radius:.17e}",
+                            center.x(),
+                            center.y(),
+                            center.z()
+                        ),
+                    ));
                 }
             }
         }
@@ -1108,7 +1223,18 @@ fn validate_cylinder_patch(
                         let rc = [dc[0] - hc * a[0], dc[1] - hc * a[1], dc[2] - hc * a[2]];
                         let off = (rc[0] * rc[0] + rc[1] * rc[1] + rc[2] * rc[2]).sqrt();
                         if off > import_band(radius, center) {
-                            return Err(KernelV2Error::VertexOffSurface { face: f });
+                            return Err(vertex_off_surface(
+                                f,
+                                "cylpatch-arc-center-off-axis",
+                                center,
+                                off,
+                                import_band(radius, center),
+                                &format!(
+                                    "cylinder axis_point=({:.17e},{:.17e},{:.17e}) \
+                                     axis=({:.17e},{:.17e},{:.17e}) r={radius:.17e}",
+                                    ap[0], ap[1], ap[2], a[0], a[1], a[2]
+                                ),
+                            ));
                         }
                     }
                     let n_arr = [normal.x, normal.y, normal.z];
@@ -1300,7 +1426,18 @@ fn validate_cylinder_patch(
                 let r = [d[0] - h * a[0], d[1] - h * a[1], d[2] - h * a[2]];
                 let rl = (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
                 if (rl - radius).abs() > import_band(radius, p) {
-                    return Err(KernelV2Error::VertexOffSurface { face: f });
+                    return Err(vertex_off_surface(
+                        f,
+                        "cylpatch-vertex",
+                        p,
+                        (rl - radius).abs(),
+                        import_band(radius, p),
+                        &format!(
+                            "cylinder axis_point=({:.17e},{:.17e},{:.17e}) \
+                             axis=({:.17e},{:.17e},{:.17e}) r={radius:.17e}",
+                            ap[0], ap[1], ap[2], a[0], a[1], a[2]
+                        ),
+                    ));
                 }
             }
         }

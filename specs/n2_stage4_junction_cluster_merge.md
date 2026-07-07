@@ -132,6 +132,59 @@ collapsed twin wedge projects to area exactly 0) must not revert mints.
 Scoped strictly to never-emitted triangles: the gate's judgment on every
 emitted triangle is unchanged.
 
+**Constrained flip repair (amendment 4, 2026-07-07 — M8 holed-disc
+increment 7, task #62, spec `m8_holed_disc_coplanar_overlay` §8):** the
+measured F0086–F0090 corpus-path residual. The production sketch frame
+(`tangent_x_from_normal([0,0,1])` → x=(0,−1,0)) rotates the overlay's 2D
+coordinates relative to the direct-constructor chain, and under that
+alignment a femto-strip (two sweep-event columns ULPs apart in `u`) can
+intersect BOTH a rim chord and the overlap boundary. The strip-diagonal
+sliver triangle (rim-chord vertex at the bottom, two intersection-curve
+vertices at the top) is inverted by ANY on-circle mint of its rim vertex —
+the radial-projection displacement (~sagitta, 1e-5–1e-3) dwarfs the strip
+width (~1e-17) — so amendment 2's gate reverted the mint and the chord-
+position vertex escaped into the output rims (kernel-v2 `VertexOffSurface`,
+F0086 FaceId 15 class; measured fold area −2.4e-6 at cut 2 of the
+engine-frame chain). Reverting is the WRONG remedy when the fold is
+repairable: the recorded demand is overlay-level mesh updating ([#24 Yang
+§4.4.1 Fig 11] — a repositioned boundary vertex needs local
+re-triangulation). Amendment 4 wires the minimal deterministic form,
+Lawson edge flips constrained to region interiors:
+
+- Before reverting a folded emitted triangle that has ≥1 minted vertex, try
+  flipping each of its three edges in fixed order. A flip is **legal** iff
+  the edge is shared with exactly ONE other triangle, of the SAME
+  `RegionClass` (a class-boundary edge IS the intersection curve and a
+  single-incidence edge is the domain boundary — both immovable), the
+  neighbor's resolved 3D image is non-degenerate, and the replacement
+  diagonal does not already exist in the mesh. A flip is **accepted** iff
+  both replacement triangles are valid under the CURRENT resolved
+  coordinates: signed 2D area > 0, or 3D-bit-degenerate (the M-B
+  emission-drop class). The first legal+accepted flip is applied (the two
+  triangles are rewritten in place, classes unchanged).
+- Only when NO edge admits a legal+accepted flip does the amendment-2
+  revert run — the R0013-class folds that cross another input's edges keep
+  their loud/revert behavior; nothing is silently blessed.
+- Termination: with coordinates fixed, every accepted flip strictly reduces
+  the folded-triangle count (both replacements are valid by acceptance and
+  only the two rewritten triangles change); reverts are one-way (a vertex
+  reverts at most once). The combined gate loop is a deterministic fixpoint
+  (triangle-index order, fixed edge order — I6).
+
+| Gate case (amendment 4) | Behavior |
+|---|---|
+| folded emitted tri, ≥1 minted vert, legal+accepted flip exists | mint KEPT; local re-triangulation (first accepted flip in fixed order) |
+| folded emitted tri, ≥1 minted vert, no legal/accepted flip | amendment-2 revert to chord lift (unchanged) |
+| folded tri, no minted vert / 3D-degenerate tri | ignored (unchanged) |
+
+Research basis: [#24] Yang 2025 §4.4.1 Fig 11 (mesh updating for repositioned
+boundary vertices); Lawson 1977 local edge flips (the classical constrained
+flip repair). Oracles: the engine-frame chained fixture
+(`kernel-v2/tests/m8_swiss_cheese_chain.rs::engine_frame_*` — RED before this
+amendment at cut 2, exactly the corpus replay's failure), the F0086–F0090
+corpus family, full yang-rs/kernel-v2 suites, corpus P9 gate (0 WRONG, zero
+CORRECT lost).
+
 ### 3b. CONTINGENT part 2 — Stage-4 Fig-11(b) junction-cluster merge
 
 Implement ONLY if, after part 1 is green at Stage-0, the acceptance oracle I1

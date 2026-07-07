@@ -392,3 +392,36 @@ instrument the kernel-v2 VertexOffSurface tripwires (no env-gated dump
 exists there today), diff the corpus recipe (hole layout/order, blind
 holes, auto-union) against the green direct chain, and fix at the
 producing layer.**
+
+**Increment 7 (2026-07-07, task #62) — corpus-path residual localized +
+constrained flip repair SHIPPED.** Instrumentation first: the kernel-v2
+`VertexOffSurface` tripwires got an env-gated dump (`KV2_OFFSURF_PROBE` —
+site, point, residual, band, surface; nine checks share the variant). It
+localized F0086's FaceId 15 to `cylpatch-vertex`: a z=0 vertex 3.4e-3 (the
+Stage-1 sagitta) inside the plate's OUTER rim. The corpus-vs-direct diff
+was NONE of the suspected recipe deltas — it is the PRODUCTION SKETCH
+FRAME: `tangent_x_from_normal([0,0,1])` = (0,−1,0) (feature-engine
+`rebuild.rs`), so every corpus profile lives in a frame rotated −90° from
+the direct chain's canonical (1,0,0)/(0,1,0). The rotation is bit-exact
+(swap/negate) but the Stage-0 overlay's sweep-event ORDER differs, and at
+cut 2 the rotated alignment builds a femto-strip (two event columns ULPs
+apart in u) whose diagonal sliver spans from a rim-chord vertex to the
+overlap boundary. ANY on-circle mint of that rim vertex (displacement =
+sagitta ≫ strip width) inverts the sliver; the amendment-2 fold gate
+reverted the mint; the chord vertex escaped into the output rims. Fix (spec
+`n2_stage4_junction_cluster_merge` §3 **amendment 4**): constrained Lawson
+edge-flip repair in the fold gate — before reverting, flip an edge of the
+folded triangle shared with a SAME-class neighbor (class boundaries are
+intersection curves, never flipped) when both replacement triangles are
+valid; revert stays the fallback. Oracles: engine-frame chain tests
+(`m8_swiss_cheese_chain.rs::engine_frame_{two,five}_hole_chain`, RED at
+cut 2 before / GREEN after), mutation checks (inverted replacement winding
+and broken flip legality both caught), yang-rs + kernel-v2 suites green.
+**F0086 corpus replay → SUPPORTED_CORRECT (pin flipped); F0089 6→2, F0090
+27→22 errors; F0087 3 (unchanged); F0088 unchanged typed UNSUPPORTED
+(partial-patch re-entry, separate wall). REMAINING family residual = a
+SECOND fold class: contiguous rim-mint clusters displaced ~4.6e-2 — an
+order beyond the sagitta and beyond the hole-to-rim clearance — with no
+legal flip (constraint-bounded folds). Diagnose why those chords are that
+deep (coarse recovered-rim sampling?) before choosing between Stage-0
+strip refinement and the full Fig-11 cavity update.**

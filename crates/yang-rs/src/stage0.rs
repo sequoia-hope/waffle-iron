@@ -488,7 +488,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             (ca, cb, ra, rb, key_map)
         };
 
-        let overlay = coplanar_overlay(&poly_a, &poly_b).map_err(|e| {
+        let mut overlay = coplanar_overlay(&poly_a, &poly_b).map_err(|e| {
             probe(
                 "overlay-failed",
                 &format!("pair=({},{}) err={e:?}", p.face_a, p.face_b),
@@ -754,38 +754,164 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // untouched vertex-on-surface tripwire (spec §6) and are the
         // recorded demand for overlay-level mesh updating (Yang Fig 11 —
         // repositioned boundary vertices need local re-triangulation).
+        // Increment 4: a triangle whose RESOLVED 3D image is degenerate
+        // (bit-duplicate vertices) is dropped at emission by the M-B filter
+        // below — it is never part of the emitted mesh, so its 2D fold
+        // state must not revert mints. Without this skip the collapsed twin
+        // wedge (projected area exactly 0) would un-collapse its own shared
+        // mint.
+        let tri_degenerate = |t: &[u32; 3], coords: &[Point3]| {
+            let bits = |p: Point3| [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()];
+            let b = [
+                bits(coords[t[0] as usize]),
+                bits(coords[t[1] as usize]),
+                bits(coords[t[2] as usize]),
+            ];
+            b[0] == b[1] || b[1] == b[2] || b[0] == b[2]
+        };
+        let tri_area = |t: &[u32; 3], coords: &[Point3]| {
+            let p0 = frame.project(coords[t[0] as usize]);
+            let p1 = frame.project(coords[t[1] as usize]);
+            let p2 = frame.project(coords[t[2] as usize]);
+            (p1.0 - p0.0) * (p2.1 - p0.1) - (p1.1 - p0.1) * (p2.0 - p0.0)
+        };
+        // A replacement triangle is valid under the current resolved
+        // coordinates if it winds material-CCW (positive area) or its 3D
+        // image is bit-degenerate (the M-B emission-drop class).
+        let tri_valid = |t: &[u32; 3], coords: &[Point3]| {
+            tri_degenerate(t, coords) || tri_area(t, coords) > 0.0
+        };
+
+        // Amendment 4 (spec `n2_stage4_junction_cluster_merge` §3, M8
+        // increment 7): edge → incident-triangle map for the constrained
+        // flip repair, maintained incrementally across flips. An edge is
+        // flippable only if it is shared by exactly two SAME-class
+        // triangles: a class-boundary edge IS the intersection curve and a
+        // single-incidence edge is the domain boundary — both immovable.
+        let edge_key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
+        let mut edge_map: BTreeMap<[u32; 2], Vec<usize>> = BTreeMap::new();
+        for (ti, t) in overlay.tris.iter().enumerate() {
+            for k in 0..3 {
+                edge_map
+                    .entry(edge_key(t[k], t[(k + 1) % 3]))
+                    .or_default()
+                    .push(ti);
+            }
+        }
+
         loop {
             let mut changed = false;
-            for t in &overlay.tris {
-                // Increment 4: a triangle whose RESOLVED 3D image is
-                // degenerate (bit-duplicate vertices) is dropped at emission
-                // by the M-B filter below — it is never part of the emitted
-                // mesh, so its 2D fold state must not revert mints. Without
-                // this skip the collapsed twin wedge (projected area exactly
-                // 0) would un-collapse its own shared mint.
-                let bits = |p: Point3| [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()];
-                let b = [
-                    bits(coords[t[0] as usize]),
-                    bits(coords[t[1] as usize]),
-                    bits(coords[t[2] as usize]),
-                ];
-                if b[0] == b[1] || b[1] == b[2] || b[0] == b[2] {
+            for ti in 0..overlay.tris.len() {
+                let t = overlay.tris[ti];
+                if tri_degenerate(&t, &coords) || tri_area(&t, &coords) > 0.0 {
                     continue;
                 }
-                let p0 = frame.project(coords[t[0] as usize]);
-                let p1 = frame.project(coords[t[1] as usize]);
-                let p2 = frame.project(coords[t[2] as usize]);
-                let area = (p1.0 - p0.0) * (p2.1 - p0.1) - (p1.1 - p0.1) * (p2.0 - p0.0);
-                if area <= 0.0 {
-                    for &v in t {
-                        let vi = v as usize;
-                        if minted_mark[vi] {
-                            let q = overlay.verts[vi];
-                            let lifted = frame.lift(q.x(), q.y());
-                            if coords[vi] != lifted {
-                                coords[vi] = lifted;
-                                changed = true;
+                if !t.iter().any(|&v| minted_mark[v as usize]) {
+                    continue;
+                }
+
+                // ── Amendment 4: constrained flip repair (Lawson; [#24 Yang
+                // §4.4.1 Fig 11] — a repositioned boundary vertex demands
+                // local re-triangulation). An on-circle mint whose
+                // displacement dwarfs a femto-strip's width inverts the
+                // strip-diagonal sliver; reverting the mint (amendment 2)
+                // would leak a chord-position vertex into the output rims.
+                // Repair the triangulation instead where a legal flip
+                // exists; the revert below stays the fallback (R0013-class
+                // folds crossing another input's edges are NOT flippable —
+                // their edges are class boundaries).
+                let mut flipped = false;
+                for k in 0..3 {
+                    let (ea, eb) = (t[k], t[(k + 1) % 3]);
+                    let c = t[(k + 2) % 3];
+                    let Some(inc) = edge_map.get(&edge_key(ea, eb)) else {
+                        continue;
+                    };
+                    if inc.len() != 2 {
+                        continue;
+                    }
+                    let tj = if inc[0] == ti { inc[1] } else { inc[0] };
+                    if overlay.class[tj] != overlay.class[ti] {
+                        continue;
+                    }
+                    let tn = overlay.tris[tj];
+                    if tri_degenerate(&tn, &coords) {
+                        continue;
+                    }
+                    let Some(d) = tn.iter().copied().find(|&v| v != ea && v != eb) else {
+                        continue;
+                    };
+                    // The replacement diagonal must be NEW — an existing
+                    // (c,d) edge would go non-manifold in 2D.
+                    if edge_map.contains_key(&edge_key(c, d)) {
+                        continue;
+                    }
+                    // Consistent-CCW mesh: the neighbor traverses (eb, ea).
+                    // Flip (ea,eb,c)+(eb,ea,d) → (ea,d,c)+(d,eb,c); both
+                    // replacements must be valid for acceptance (each
+                    // accepted flip strictly reduces the folded count —
+                    // termination).
+                    let n1 = [ea, d, c];
+                    let n2 = [d, eb, c];
+                    if !tri_valid(&n1, &coords) || !tri_valid(&n2, &coords) {
+                        continue;
+                    }
+                    for (idx, old) in [(ti, t), (tj, tn)] {
+                        for k2 in 0..3 {
+                            let kk = edge_key(old[k2], old[(k2 + 1) % 3]);
+                            if let Some(v) = edge_map.get_mut(&kk) {
+                                v.retain(|&x| x != idx);
+                                if v.is_empty() {
+                                    edge_map.remove(&kk);
+                                }
                             }
+                        }
+                    }
+                    overlay.tris[ti] = n1;
+                    overlay.tris[tj] = n2;
+                    for (idx, newt) in [(ti, n1), (tj, n2)] {
+                        for k2 in 0..3 {
+                            edge_map
+                                .entry(edge_key(newt[k2], newt[(k2 + 1) % 3]))
+                                .or_default()
+                                .push(idx);
+                        }
+                    }
+                    if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                        eprintln!(
+                            "[fold-flip] pair=({},{}) tri {ti}+{tj} edge ({ea},{eb}) -> \
+                             diagonal ({c},{d})",
+                            p.face_a, p.face_b
+                        );
+                    }
+                    flipped = true;
+                    changed = true;
+                    break;
+                }
+                if flipped {
+                    continue;
+                }
+
+                // ── Amendment 2 fallback: revert the fold's minted
+                // vertices to today's chord lift (still observable via
+                // kernel-v2's vertex-on-surface tripwire — never silently
+                // blessed).
+                let area = tri_area(&t, &coords);
+                for &v in &t {
+                    let vi = v as usize;
+                    if minted_mark[vi] {
+                        let q = overlay.verts[vi];
+                        let lifted = frame.lift(q.x(), q.y());
+                        if coords[vi] != lifted {
+                            if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                                eprintln!(
+                                    "[fold-revert] pair=({},{}) vert={vi} area={area:e} \
+                                     minted={:?} -> chord {lifted:?}",
+                                    p.face_a, p.face_b, coords[vi]
+                                );
+                            }
+                            coords[vi] = lifted;
+                            changed = true;
                         }
                     }
                 }

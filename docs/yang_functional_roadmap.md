@@ -249,6 +249,18 @@ the roadmap's remaining work:
    >    re-measure on top of this) is now unblocked. Spec:
    >    `n2_stage4_junction_cluster_merge` §3 amendment 3 +
    >    `m8_holed_disc_coplanar_overlay` §8.
+   >    **Increments 6+7 (2026-07-07, task #62): SHIPPED** — annular
+   >    rim-mint contexts (one `RimChordCtx` per rim circle; cut-3 typed
+   >    re-entry wall LIFTED, direct 5-hole chain GREEN) + constrained
+   >    Lawson flip repair in the fold gate (amendment 4: the production
+   >    sketch frame's rotated sweep order builds femto-strip slivers any
+   >    on-circle rim mint inverts; repairable folds now re-triangulate
+   >    locally instead of reverting to chord positions). **F0086 corpus
+   >    replay SUPPORTED_CORRECT**; F0089 6→2 / F0090 27→22 errors; family
+   >    residual = a second, constraint-bounded fold class (rim-mint
+   >    clusters displaced ~4.6e-2, no legal flip) + F0088's typed
+   >    partial-patch re-entry. Oracles: `m8_swiss_cheese_chain.rs`
+   >    `engine_frame_*` (the corpus geometry, direct constructors).
 2. **N4 — face provenance by centroid-proximity, not §4.2.3 barycentric
    provenance.** Stage-6 attributes each kept triangle by centroid-in-plane
    distance + a tolerance tier (`tol_for`). The paper maps each point to BOTH
