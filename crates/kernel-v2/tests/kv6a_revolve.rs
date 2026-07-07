@@ -43,10 +43,10 @@
 
 use std::f64::consts::PI;
 
-use cad_primitives::{Point2, Point3, Vector3};
+use cad_primitives::{BoolOp, Point2, Point3, Vector3};
 use kernel_v2::{
-    geom, revolve, tessellate, tessellate_with_chord_tolerance, to_yang_brep, validate_solid,
-    BrepArena, Curve, KernelV2Error, Profile, RenderMesh, RevolveResult, Surface,
+    boolean_op, extrude, geom, revolve, tessellate, tessellate_with_chord_tolerance, to_yang_brep,
+    validate_solid, BrepArena, Curve, KernelV2Error, Profile, RenderMesh, RevolveResult, Surface,
 };
 
 // =========================================================================
@@ -1019,12 +1019,16 @@ fn full_turn_crossing_profile_stays_rejected() {
     assert_eq!(arena, BrepArena::new(), "arena untouched");
 }
 
-/// Adversarial: an on-axis 4-gon whose off-axis edge is OBLIQUE (the
-/// C0064 solid-frustum class — two different radii) is not the slice-1
-/// shape; typed, pre-mutation.
-#[test]
-fn on_axis_oblique_quad_full_turn_stays_rejected() {
-    let frustum = Profile::new(
+// =========================================================================
+// KV6 on-axis slice 2 (spec `specs/kv6_on_axis_revolve_oblique.md`,
+// task #66): on-axis profiles with an OBLIQUE edge.
+// =========================================================================
+
+/// On-axis frustum profile (the C0064 class): on-axis edge (0,0)→(H,0),
+/// perpendicular caps at both ends, oblique off-axis edge from radius R1
+/// at t=H down to radius R2 at t=0.
+fn on_axis_frustum_profile() -> Profile {
+    Profile::new(
         Point3::new(0.0, 0.0, 0.0),
         Vector3::new(1.0, 0.0, 0.0),
         Vector3::new(0.0, 1.0, 0.0),
@@ -1036,10 +1040,202 @@ fn on_axis_oblique_quad_full_turn_stays_rejected() {
         ],
         vec![],
     )
-    .expect("on-axis frustum profile");
+    .expect("on-axis frustum profile")
+}
+
+/// Slice 2 increment A (I1–I2): full-turn revolve of the on-axis oblique
+/// quad = the SOLID FRUSTUM — solid-cylinder census with a `Surface::Cone`
+/// lateral, exact analytic volume `(π·H/3)(r₀² + r₀r₁ + r₁²)`, watertight
+/// mesh. (Replaces the slice-boundary pin
+/// `on_axis_oblique_quad_full_turn_stays_rejected` — the boundary moved.)
+#[test]
+fn on_axis_oblique_quad_full_turn_builds_solid_frustum() {
     let mut arena = BrepArena::new();
-    let err = revolve(&mut arena, &frustum, AXIS_O, AXIS_D, 2.0 * PI)
-        .expect_err("on-axis frustum is KV6c slice 2");
+    let profile = on_axis_frustum_profile();
+    let r = revolve(&mut arena, &profile, AXIS_O, AXIS_D, 2.0 * PI)
+        .expect("on-axis full-turn frustum revolve");
+
+    let report = validate_solid(&arena, r.solid).expect("frustum validates");
+    assert_eq!(report.vertices, 2, "one seam vertex per rim circle");
+    assert_eq!(report.edges, 3, "2 rim circles + 1 seam ruling");
+    assert_eq!(report.faces, 3, "2 disc caps + 1 cone lateral");
+    assert_eq!(report.shells, 1);
+    assert_eq!(report.genus, 0, "a solid frustum is a ball topologically");
+
+    // I1: the lateral is the analytic cone from the slant. The slant runs
+    // from (t=0, s=R2) to (t=H, s=R1): extended it meets the axis at
+    // t_apex = 0 − R2·H/(R1−R2) = 6; radius shrinks with t, so axis_dir
+    // (apex → rims, τ > 0) is −x̂; half_angle = atan((R2−R1)/H).
+    assert_eq!(r.walls.len(), 1, "one cone lateral");
+    let apex_t = -R2 * H / (R1 - R2);
+    let want_half_angle = ((R2 - R1) / H).atan();
+    match arena.face(r.walls[0]).expect("lateral").surface {
+        Some(Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+            reversed,
+        }) => {
+            assert!(!reversed, "outer solid lateral");
+            assert!(
+                (apex.x() - apex_t).abs() <= 1e-12 * apex_t
+                    && apex.y().abs() <= 1e-15
+                    && apex.z().abs() <= 1e-15,
+                "apex {apex:?} != ({apex_t}, 0, 0)"
+            );
+            assert!(
+                (axis_dir.x + 1.0).abs() <= 1e-15
+                    && axis_dir.y.abs() <= 1e-15
+                    && axis_dir.z.abs() <= 1e-15,
+                "axis_dir {axis_dir:?} != -x̂"
+            );
+            assert!(
+                (half_angle - want_half_angle).abs() <= 1e-15,
+                "half_angle {half_angle} != {want_half_angle}"
+            );
+        }
+        s => panic!("lateral surface {s:?}"),
+    }
+
+    // I2: exact analytic volume (π·H/3)(R2² + R2·R1 + R1²) = 7π.
+    let vol = geom::signed_volume(&arena, r.solid).expect("analytic frustum volume");
+    let want = PI * H / 3.0 * (R2 * R2 + R2 * R1 + R1 * R1);
+    assert!(
+        (vol - want).abs() <= 1e-12 * want,
+        "frustum volume {vol} != (πH/3)(r₀²+r₀r₁+r₁²) {want}"
+    );
+
+    // Mesh oracles: watertight, positive volume within the chord band.
+    let mesh = tessellate(&arena, r.solid).expect("tessellate frustum");
+    assert_mesh_sane(&mesh, "frustum mesh");
+    assert_watertight(&mesh, "frustum mesh");
+    let mv = mesh_signed_volume(&mesh);
+    assert!(
+        mv > 0.0 && mv <= want + 1e-9 && mv >= 0.98 * want,
+        "frustum mesh volume {mv} outside chord band of {want}"
+    );
+}
+
+/// Slice 2 I7 (chain): the revolve-built frustum is a working boolean
+/// operand for the PR-KV6c 5c supported class (flat ⊥-axis cut). Subtract
+/// a slab covering t ∈ [2.5, 4]: the surviving solid is the frustum
+/// truncated at t = 2.5, volume (π·2.5/3)(r(0)² + r(0)r(2.5) + r(2.5)²)
+/// with r(t) = (6 − t)/3.
+#[test]
+fn on_axis_frustum_boolean_chain() {
+    let mut arena = BrepArena::new();
+    let profile = on_axis_frustum_profile();
+    let r = revolve(&mut arena, &profile, AXIS_O, AXIS_D, 2.0 * PI).expect("frustum");
+    let slab_profile = Profile::new(
+        Point3::new(2.5, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        vec![
+            Point2::new(-5.0, -5.0),
+            Point2::new(5.0, -5.0),
+            Point2::new(5.0, 5.0),
+            Point2::new(-5.0, 5.0),
+        ],
+        vec![],
+    )
+    .expect("slab profile");
+    let slab = extrude(&mut arena, &slab_profile, Vector3::new(1.0, 0.0, 0.0), 1.5).expect("slab");
+
+    let out = boolean_op(&mut arena, r.solid, slab.solid, BoolOp::Subtract)
+        .expect("frustum − ⊥ slab (the 5c supported class)");
+    validate_solid(&arena, out).expect("truncated frustum validates");
+    let has_cone = arena.solid(out).expect("solid").shells.iter().any(|&sh| {
+        arena.shell(sh).expect("shell").faces.iter().any(|&fc| {
+            matches!(
+                arena.face(fc).expect("face").surface,
+                Some(Surface::Cone { .. })
+            )
+        })
+    });
+    assert!(has_cone, "a cone lateral survives the cut");
+    let mesh = tessellate(&arena, out).expect("truncated frustum tessellates");
+    assert_watertight(&mesh, "truncated frustum mesh");
+    let rt = |t: f64| (6.0 - t) / 3.0;
+    let (ra, rb) = (rt(0.0), rt(2.5));
+    let want = PI * 2.5 / 3.0 * (ra * ra + ra * rb + rb * rb);
+    let mv = mesh_signed_volume(&mesh);
+    assert!(
+        mv > 0.0 && mv <= want + 1e-9 && mv >= 0.98 * want,
+        "truncated frustum mesh volume {mv} outside chord band of {want}"
+    );
+}
+
+/// Slice 2 I8: determinism — two identical frustum revolves produce
+/// bit-identical arenas.
+#[test]
+fn on_axis_frustum_deterministic() {
+    let build = || {
+        let mut arena = BrepArena::new();
+        let profile = on_axis_frustum_profile();
+        revolve(&mut arena, &profile, AXIS_O, AXIS_D, 2.0 * PI).expect("frustum");
+        arena
+    };
+    assert_eq!(build(), build(), "frustum revolve must be deterministic");
+}
+
+/// Branch row: the PENCIL quad (on-axis edge, one oblique CAP edge whose
+/// on-axis endpoint would be an apex, one parallel lateral) is NOT a
+/// slice-2 shape — it needs the mixed lateral+apex vocabulary. Typed,
+/// pre-mutation.
+#[test]
+fn on_axis_pencil_quad_stays_rejected() {
+    let pencil = Profile::new(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(H, 0.0),
+            Point2::new(2.0, R1),
+            Point2::new(0.0, R1),
+        ],
+        vec![],
+    )
+    .expect("pencil profile");
+    let mut arena = BrepArena::new();
+    let err = revolve(&mut arena, &pencil, AXIS_O, AXIS_D, 2.0 * PI)
+        .expect_err("pencil quad is outside slice 2");
+    assert_eq!(err, KernelV2Error::RevolveAxisIntersectsProfile);
+    assert_eq!(arena, BrepArena::new(), "arena untouched");
+}
+
+/// Adversarial: a mixed-sign oblique quad (one off-axis vertex on EACH
+/// radial side) cannot reach the frustum assembler AT ALL — with both cap
+/// edges axis-perpendicular, the oblique edge must cross the on-axis edge,
+/// so `Profile::new` already rejects the polygon as non-simple (typed,
+/// loud, upstream). Pins that geometric argument; the assembler's radii
+/// positivity gate is defense-in-depth, same as slice 1's clearance gate.
+#[test]
+fn crossing_oblique_quad_rejected_upstream_not_simple() {
+    let err = Profile::new(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(H, 0.0),
+            Point2::new(H, -R1),
+            Point2::new(0.0, R2),
+        ],
+        vec![],
+    )
+    .expect_err("mixed-sign quad with perpendicular caps self-intersects");
+    assert_eq!(err, KernelV2Error::ProfileNotSimple { loop_index: 0 });
+}
+
+/// Branch row: a PARTIAL-angle on-axis oblique quad stays on the typed
+/// boundary (only full-turn recovery exists).
+#[test]
+fn on_axis_partial_oblique_quad_stays_rejected() {
+    let mut arena = BrepArena::new();
+    let profile = on_axis_frustum_profile();
+    let err = revolve(&mut arena, &profile, AXIS_O, AXIS_D, PI)
+        .expect_err("partial on-axis frustum stays rejected");
     assert_eq!(err, KernelV2Error::RevolveAxisIntersectsProfile);
     assert_eq!(arena, BrepArena::new(), "arena untouched");
 }

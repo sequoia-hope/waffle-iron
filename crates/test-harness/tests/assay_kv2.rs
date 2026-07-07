@@ -1016,6 +1016,12 @@ fn smoke_corpus_boundary_categories() {
         ("C0057", Category::SupportedCorrect), // near-tangent 1e-6 lens union
         ("C0066", Category::SupportedCorrect), // partial torus + bore
         ("C0077", Category::SupportedCorrect), // 40-tooth gear CDT
+        // KV6 on-axis slice 2 increment A (task #66,
+        // specs/kv6_on_axis_revolve_oblique.md): on-axis oblique-quad
+        // revolve builds SOLID FRUSTA; the three coaxial interpenetrating
+        // unions (cone×cone coaxial-circle SSI) pass the exact-volume
+        // oracle end-to-end.
+        ("C0064", Category::SupportedCorrect), // [KV6c] stacked solid frusta chain
         // Still-walled trackers (flip these when the milestone lands):
         (
             "C0048",

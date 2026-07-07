@@ -2412,6 +2412,32 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   apex or on-axis edge + oblique) stay on the typed boundary = KV6c
   slice 2's vocabulary.
 
+- **KV6 on-axis slice 2 increment A — solid frustum (oblique off-axis
+  edge). ✅ SHIPPED (2026-07-07, task #66, spec
+  `specs/kv6_on_axis_revolve_oblique.md`).** The on-axis recovery
+  classifier dispatches on the off-axis edge class: axis-parallel keeps
+  the slice-1 extrude-of-circle delegation; OBLIQUE builds the SOLID
+  FRUSTUM via a direct assembler mirroring `extrude_circle` (same Stroud
+  §3.1.4 single-fake-edge census — 2 seam vertices, 2 rims + 1 seam
+  ruling, 3 faces) with the analytic `Surface::Cone` from the slant
+  (EdgeClass::Oblique formulas). Everything downstream is the existing
+  KV6c vocabulary: `validate_cone_face`, exact `(πH/3)(r₀²+r₀r₁+r₁²)`
+  flux volume, `tessellate_cone_lateral`, and the 5c boolean path —
+  frustum − ⊥ slab chains end-to-end in the oracle suite. **C0064 (three
+  coaxial stacked frusta, interpenetrating unions through cone×cone
+  coaxial-circle SSI) flips ERROR → SUPPORTED_CORRECT on its exact-volume
+  oracle**, pinned green in `named_case_categories`. Adversary findings:
+  a mixed-sign oblique quad passing the perpendicular-cap gates always
+  self-intersects the on-axis edge (rejected upstream as
+  `ProfileNotSimple`, pinned); pencil quads (oblique CAP edge) and
+  partial-angle on-axis profiles stay on the typed boundary. Remaining
+  slice-2 shape: the on-axis APEX TRIANGLE (C0063 primary — solid cone,
+  apex an interior singular point of the lateral) = increment B: 1-rim
+  apex branches in `validate_cone_face` / `signed_volume` / the cone
+  tessellator; apex-cone boolean operands stay typed
+  (`UnsupportedCurvedBoolean` — the 1-half-edge lateral loop fails
+  `to_yang`'s 4-edge pattern loudly).
+
 - **KV6b-F3 — plane∥axis × cylinder line case. ✅ RESOLVED (2026-06-12,
   PR-F3 + PR-F3b).** ssi-rs pair #2's C3a/C3b line branches were already
   correct; the defects were ALL in yang Stage 4: (1) `LineSegment`
