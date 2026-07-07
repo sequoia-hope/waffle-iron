@@ -1,14 +1,14 @@
 {
-  "errored": 33,
+  "errored": 36,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 165,
+  "passed": 175,
   "results": [
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0001",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(revolve)",
@@ -72,21 +72,21 @@
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "R0012",
       "status": "error"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0013",
-      "status": "error"
+      "status": "pass"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0014",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",
@@ -95,10 +95,10 @@
       "status": "error"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: 9019b316-6a4a-4ae9-9240-e61a4e650e51: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
       "id": "R0016",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(revolve)",
@@ -131,10 +131,10 @@
       "status": "unsupported"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0022",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",
@@ -143,16 +143,16 @@
       "status": "error"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0024",
-      "status": "error"
+      "status": "pass"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: aa386512-2ca8-4946-88e7-831532802329: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0025",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
@@ -161,8 +161,8 @@
       "status": "unsupported"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "ERROR",
+      "detail": "2 engine error(s): 8492418f-aba5-4982-893d-b463f23ca0a3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: EmptyBooleanResult; ee06ff04-16c2-4c2f-9202-1443c15f41ab: operation error: kernel error: kernel error: kernel-v2 revolve failed: VertexOffSurface { face: FaceId(654) }",
       "id": "R0027",
       "status": "error"
     },
@@ -186,7 +186,7 @@
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "R0031",
       "status": "error"
     },
@@ -216,7 +216,7 @@
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "R0036",
       "status": "error"
     },
@@ -335,10 +335,10 @@
       "status": "unsupported"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0056",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -348,7 +348,7 @@
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "R0058",
       "status": "error"
     },
@@ -395,10 +395,10 @@
       "status": "unsupported"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0066",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -450,13 +450,13 @@
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "R0075",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "R0076",
       "status": "error"
     },
@@ -486,7 +486,7 @@
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "R0081",
       "status": "error"
     },
@@ -527,8 +527,8 @@
       "status": "pass"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "ERROR",
+      "detail": "2 engine error(s): d1d97c73-794c-42de-90bf-3a044a05ac9d: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: EmptyBooleanResult; f2076600-1597-4345-98d9-a609f15f25cf: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: InvalidBooleanOutput(\"output loop with fewer than 3 edges and no full-circle edge\")",
       "id": "R0088",
       "status": "error"
     },
@@ -569,10 +569,10 @@
       "status": "unsupported"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: ac392209-5719-4ea0-9e48-3d2680bc2542: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(287) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "R0095",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "ERROR",
@@ -587,8 +587,8 @@
       "status": "pass"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "ERROR",
+      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(599), reason: \"planar triangle collapsed at render precision\" }",
       "id": "R0098",
       "status": "error"
     },
@@ -977,20 +977,20 @@
       "status": "pass"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0063",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "F0064",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "F0065",
       "status": "error"
     },
@@ -1002,37 +1002,37 @@
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "F0067",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "F0068",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "F0069",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "F0070",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "F0071",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "F0072",
       "status": "error"
     },
@@ -1061,56 +1061,56 @@
       "status": "unsupported"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0077",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "F0078",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "F0079",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "F0080",
       "status": "error"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(11) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "F0081",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "F0082",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "F0083",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "F0084",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "F0085",
       "status": "error"
     },
@@ -1613,20 +1613,20 @@
       "status": "unsupported"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "C0075",
-      "status": "error"
+      "status": "unsupported"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0076",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 30s",
+      "detail": "timeout after 120s",
       "id": "C0077",
       "status": "error"
     },

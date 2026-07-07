@@ -604,6 +604,12 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // below (spec §3 amendment 2: coordinate-comparison inference is
         // FORBIDDEN — it falsely captures ULP-snapped rim vertices).
         let mut minted_mark = vec![false; overlay.verts.len()];
+        // Increment 4 (spec `m8_holed_disc_coplanar_overlay` §8): per-mint
+        // record (overlay vertex, rim-ctx slot, crossing-branch flag) for the
+        // sub-floor shared-mint collapse below. Slot-scoped so a collapse
+        // never merges mints of two DIFFERENT rim circles (a shared target
+        // cannot lie on both).
+        let mut minted_info: Vec<(usize, usize, bool)> = Vec::new();
         for (i, mark) in minted_mark.iter_mut().enumerate() {
             let exact = &overlay.exact_verts[i];
             let pt = if let Some(&ai) = corners_a.get(exact) {
@@ -640,14 +646,16 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                     // All other vertices fall through to the raw lift,
                     // byte-identical to the pre-N2-3a path (I4).
                     let mut minted: Option<Point3> = None;
-                    for ctx in [rim_ctx_a.as_ref(), rim_ctx_b.as_ref()]
+                    for (slot, ctx) in [rim_ctx_a.as_ref(), rim_ctx_b.as_ref()]
                         .into_iter()
-                        .flatten()
+                        .enumerate()
                     {
+                        let Some(ctx) = ctx else { continue };
                         match resolve_rim_chord_vertex(ctx, exact, qx, qy, frame) {
                             RimResolve::NotOnChord => {}
-                            RimResolve::OnCircle(p3) => {
-                                minted = Some(p3);
+                            RimResolve::OnCircle { point, crossing } => {
+                                minted = Some(point);
+                                minted_info.push((i, slot, crossing));
                                 break;
                             }
                             RimResolve::NoIntersection => {
@@ -676,6 +684,60 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
             coords.push(pt);
         }
 
+        // ── Increment 4: sub-floor shared-mint collapse (spec
+        // `m8_holed_disc_coplanar_overlay` §8, task #61; A14.2) ──────────
+        // The trapezoidal overlay legitimately mints femto-twin split pairs
+        // (two sweep-event columns ULPs apart in u crossing the same rim
+        // chord). Resolved independently, the twins become two distinct
+        // on-circle points closer than MIN_FEATURE_SIZE — BELOW the kernel's
+        // supported feature floor, so they cannot be two real features. Left
+        // distinct, the wedge between them folds under the gate below,
+        // reverting BOTH mints to chord positions where Stage 4 cannot
+        // relocate them (no conic assignment — the R0072 micro class).
+        // Collapse each sub-floor group to ONE shared on-circle target: a
+        // crossing-branch member if the group has one (I2 — the junction
+        // stays on the other input's edge), else the first member; never an
+        // average. The resulting 2D-distinct/3D-identical boundary pair is
+        // the M-B emission-identification class: the degenerate wedge drops
+        // at emission and neighbors' resolved edges pair directly. Groups
+        // are per rim-ctx slot (a shared target cannot lie on two circles)
+        // and isolated (real crossings are ≥ MIN_FEATURE_SIZE apart), so
+        // greedy first-seen grouping cannot chain-drift.
+        for slot in 0..2 {
+            let members: Vec<(usize, bool)> = minted_info
+                .iter()
+                .filter(|&&(_, s, _)| s == slot)
+                .map(|&(vi, _, crossing)| (vi, crossing))
+                .collect();
+            let mut groups: Vec<Vec<(usize, bool)>> = Vec::new();
+            for &(vi, crossing) in &members {
+                let p = coords[vi].as_array();
+                let group = groups.iter_mut().find(|g| {
+                    let q = coords[g[0].0].as_array();
+                    let d = [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
+                    d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
+                        < cad_primitives::MIN_FEATURE_SIZE * cad_primitives::MIN_FEATURE_SIZE
+                });
+                match group {
+                    Some(g) => g.push((vi, crossing)),
+                    None => groups.push(vec![(vi, crossing)]),
+                }
+            }
+            for g in groups.iter().filter(|g| g.len() > 1) {
+                let target_vi = g.iter().find(|&&(_, c)| c).map_or(g[0].0, |&(vi, _)| vi);
+                let target = coords[target_vi];
+                if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                    eprintln!(
+                        "[mint-collapse] slot={slot} group={:?} -> vert {target_vi} {target:?}",
+                        g.iter().map(|&(vi, c)| (vi, c)).collect::<Vec<_>>(),
+                    );
+                }
+                for &(vi, _) in g {
+                    coords[vi] = target;
+                }
+            }
+        }
+
         // N2-3a fold-validity gate (spec §3 amendment 2, grounded §0 item 6):
         // exact minting is only sound where it keeps the PRE-EXISTING overlay
         // triangulation valid. Where the rim tessellation is coarse, moving a
@@ -693,6 +755,21 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         loop {
             let mut changed = false;
             for t in &overlay.tris {
+                // Increment 4: a triangle whose RESOLVED 3D image is
+                // degenerate (bit-duplicate vertices) is dropped at emission
+                // by the M-B filter below — it is never part of the emitted
+                // mesh, so its 2D fold state must not revert mints. Without
+                // this skip the collapsed twin wedge (projected area exactly
+                // 0) would un-collapse its own shared mint.
+                let bits = |p: Point3| [p.x().to_bits(), p.y().to_bits(), p.z().to_bits()];
+                let b = [
+                    bits(coords[t[0] as usize]),
+                    bits(coords[t[1] as usize]),
+                    bits(coords[t[2] as usize]),
+                ];
+                if b[0] == b[1] || b[1] == b[2] || b[0] == b[2] {
+                    continue;
+                }
                 let p0 = frame.project(coords[t[0] as usize]);
                 let p1 = frame.project(coords[t[1] as usize]);
                 let p2 = frame.project(coords[t[2] as usize]);
@@ -1385,8 +1462,12 @@ fn rim_chord_ctx(
 enum RimResolve {
     /// Not strictly interior to any rim sub-chord — resolve as before.
     NotOnChord,
-    /// Minted on the exact rim circle (I1), in the cap plane.
-    OnCircle(Point3),
+    /// Minted on the exact rim circle (I1), in the cap plane. `crossing` is
+    /// true for the circle∩line branch (the point is a transversal junction
+    /// with another input's edge — I2 pins it to that edge, so a sub-floor
+    /// shared-mint group prefers it as the collapse target) and false for a
+    /// pure x-event radial projection.
+    OnCircle { point: Point3, crossing: bool },
     /// The exact discriminant of the circle∩line quadratic is negative for a
     /// claimed rim×other-edge crossing — a loud Stage-0 stop (spec §6).
     NoIntersection,
@@ -1524,7 +1605,10 @@ fn resolve_rim_chord_vertex(
                 }
             }
         };
-        return RimResolve::OnCircle(frame.lift(chosen[0], chosen[1]));
+        return RimResolve::OnCircle {
+            point: frame.lift(chosen[0], chosen[1]),
+            crossing: true,
+        };
     }
 
     // ── Pure x-event subdivision (spec §3 row 5, I1): radial projection ──
@@ -1541,11 +1625,10 @@ fn resolve_rim_chord_vertex(
         return RimResolve::NotOnChord;
     }
     let s = ctx.radius / n;
-    RimResolve::OnCircle(Point3::new(
-        c3[0] + w[0] * s,
-        c3[1] + w[1] * s,
-        c3[2] + w[2] * s,
-    ))
+    RimResolve::OnCircle {
+        point: Point3::new(c3[0] + w[0] * s, c3[1] + w[1] * s, c3[2] + w[2] * s),
+        crossing: false,
+    }
 }
 
 /// The cylinder lateral incident to a cap's circle edge, the OPPOSITE rim

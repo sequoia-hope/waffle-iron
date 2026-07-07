@@ -774,22 +774,15 @@ fn crossing_through_existing_rim_sample() {
 }
 
 /// The same plane 1 ULP inside the sample: the crossing points land within
-/// ULPs of the ring sample (the ULP-snap branch's home turf). Measured at
-/// HEAD: a LOUD typed error (`NonManifoldOutput`) — pinned as
-/// valid-or-loud so this bit-near configuration can never go silent-wrong.
+/// ULPs of the ring sample. The overlay mints femto-twin split pairs on
+/// every chord both event columns cross; Stage-0's sub-floor shared-mint
+/// collapse (increment 4, spec m8_holed_disc_coplanar_overlay §8) resolves
+/// both twins to ONE shared on-circle target, dissolving the fold and the
+/// twin before the arrangement. Measured: single body, χ = 2, fully
+/// on-band. (Before increment 4 this was quarantined: the twin wedge was
+/// fold-gate reverted and a chord-position vertex reached a cylinder-face
+/// loop off-band by the chord sagitta, 6e-6.)
 #[test]
-#[ignore = "M8 holed-disc increment 4 (task #61, spec \
-            m8_holed_disc_coplanar_overlay §8): the exact ULP-twin ring \
-            ordering (increment 3) exposes a latent Stage-0/Stage-4 gap this \
-            fixture previously dodged by twin-order luck — the twin split \
-            pair's on-circle mints are FOLD-GATE REVERTED at Stage 0 (the \
-            twin wedge folds), the chord-position twins carry no conic \
-            assignment at Stage 4 (probe YANG_S4_TWIN_PROBE: \
-            moved=false, circle/line=false), and one reaches a \
-            cylinder-face loop off-band by the chord sagitta (6e-6, Ok \
-            output). GREEN when Stage-0 mints sub-floor twin pairs to ONE \
-            shared on-circle target (increment 4), dissolving both the fold \
-            and the twin before the arrangement."]
 fn crossing_one_ulp_inside_rim_sample() {
     let s = calibrated_rim_sample();
     let x_lo = f64::next_down(s[0]);

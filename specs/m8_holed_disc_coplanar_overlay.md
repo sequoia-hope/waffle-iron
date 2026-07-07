@@ -316,3 +316,39 @@ bottlenecks on ONE root: Stage-0 mints rim-polygon crossing points ON
 CHORDS instead of on the exact circle — increment 4's shared on-circle
 mint design (task #61) is the next lever, and would also restore the
 canonical-anchor path in recover.**
+
+**Increment 4 (2026-07-06) — sub-floor shared-mint collapse SHIPPED (task
+#61); `crossing_one_ulp_inside_rim_sample` un-quarantined GREEN.** Two
+changes in `stage0.rs`, both scoped to the N2-3a mint path (full design:
+spec `n2_stage4_junction_cluster_merge` §3 amendment 3):
+
+1. **Shared-mint collapse:** after coords resolution and BEFORE the fold
+   gate, minted on-circle vertices are grouped per rim-ctx slot by 3D
+   distance < `MIN_FEATURE_SIZE` (greedy first-seen — sub-floor groups are
+   isolated, real crossings sit ≥ the floor apart) and each multi-member
+   group collapses to ONE shared on-circle target (a crossing-branch member
+   if present — I2 keeps the junction on the other input's edge — else the
+   first member; never an average). `RimResolve::OnCircle` now carries the
+   `crossing` provenance flag for that preference.
+2. **Gate degeneracy skip:** the fold gate ignores triangles whose resolved
+   3D image is bit-degenerate (the M-B emission-drop class) — the collapsed
+   twin wedge projects to 2D area exactly 0 and would otherwise revert its
+   own shared mint. Judgment on every EMITTED triangle is unchanged.
+
+The collapse dissolves both the fold and the twin before the arrangement:
+`collect_ring_crossings` dedups the identified pair to one rim override, the
+M-B filter drops the degenerate wedge at emission, and the existing weld
+pairs the 2D-distinct/3D-identical boundary (as measured at v19/v23).
+Oracles: the increment-3 quarantined R0072-class adversary
+`n2_rim_mint_adversary::crossing_one_ulp_inside_rim_sample` un-ignored →
+GREEN (single body, watertight, fully on-band; RED before the fix: Ok output
+with 2 loop vertices off-band by the 6.006e-6 chord sagitta); the full
+9-probe adversary suite (fold-gate containment probe 4, determinism sweep
+probe 7) unchanged-green; yang-rs 540/0; rewrite tier green. Corpus P9 gate
+(294 cases, 120s cap, quiet box): **0 SUPPORTED_WRONG, 175 CORRECT, zero
+CORRECT lost**; vs the checked-in baseline the run is strictly quieter — 18
+baseline TIMEOUTs resolved to real verdicts (10 → CORRECT incl. R0001/R0013/
+F0063, 4 → UNSUPPORTED, 3 → known-wall ERROR, 1 → EXPECTED) and no case
+flipped toward TIMEOUT/WRONG (baseline results.json refreshed in the same
+commit). F0087/F0088/F0090 remain ERROR (chained on-chord population —
+task #62 re-measures the family on top of this increment).

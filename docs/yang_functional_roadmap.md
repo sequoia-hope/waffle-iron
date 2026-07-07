@@ -230,18 +230,25 @@ the roadmap's remaining work:
    >    disc-with-rim-interior-to-the-annulus (increment 3: exact ULP-twin
    >    ring ordering `exact_rim_ccw_tiebreak` + flood-fill Stage-1 planar
    >    CDT with exact hole parity + §4.4.1(b) merge at Stage-4 entry).
-   >    Remaining for this row: the CHAINED F0086–F0090 corpus cases and
-   >    increment 4 (Stage-0 shared-mint collapse for sub-floor twin pairs —
-   >    un-quarantines `crossing_one_ulp_inside_rim_sample`, task #61).
+   >    Remaining for this row: the CHAINED F0086–F0090 corpus cases.
    >    **Increment 5 (2026-07-06, task #62): chained cut 2 GREEN** — wrap-
    >    aware cyclic azimuth-merge pairing (yang) + sweep-aware closed-rim
    >    arc fallback (kernel-v2 recover). F0086/F0089 ERROR→UNSUPPORTED
    >    (typed re-entry boundary at cut 3). The WHOLE family now bottlenecks
    >    on one root: Stage-0 mints rim crossings ON CHORDS (off-circle by
    >    the sagitta) → mixed chains defeat recover's canonical anchor +
-   >    VertexOffSurface residues (F0087/88/90). Increment 4's on-circle
-   >    shared-mint design clears both. Boundary pinned:
+   >    VertexOffSurface residues (F0087/88/90). Boundary pinned:
    >    `kernel-v2/tests/m8_swiss_cheese_chain.rs`.
+   >    **Increment 4 (2026-07-06/07, task #61): SHIPPED** — Stage-0
+   >    sub-floor shared-mint collapse (minted on-circle vertices closer
+   >    than MIN_FEATURE_SIZE collapse per rim circle to ONE shared target,
+   >    crossing-branch preferred) + fold-gate skip of never-emitted
+   >    3D-degenerate triangles. R0072-class adversary
+   >    `crossing_one_ulp_inside_rim_sample` un-quarantined GREEN; assay
+   >    175 CORRECT / 0 WRONG / zero lost. Task #62 (chained family
+   >    re-measure on top of this) is now unblocked. Spec:
+   >    `n2_stage4_junction_cluster_merge` §3 amendment 3 +
+   >    `m8_holed_disc_coplanar_overlay` §8.
 2. **N4 — face provenance by centroid-proximity, not §4.2.3 barycentric
    provenance.** Stage-6 attributes each kept triangle by centroid-in-plane
    distance + a tolerance tier (`tol_for`). The paper maps each point to BOTH

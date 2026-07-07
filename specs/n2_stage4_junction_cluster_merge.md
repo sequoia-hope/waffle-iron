@@ -104,6 +104,34 @@ placement applies wherever it does not invert the pre-existing overlay
 triangulation; the residual population is the recorded mesh-updating demand
 (§0 item 6), not silently blessed geometry.
 
+**Sub-floor shared-mint collapse (amendment 3, 2026-07-06 — M8 holed-disc
+increment 4, task #61, spec `m8_holed_disc_coplanar_overlay` §8):** the exact
+trapezoidal overlay legitimately mints femto-twin split pairs (two sweep-event
+columns ULPs apart in `u` crossing the same rim chord). Resolved
+independently, the twins become two distinct on-circle points closer than
+`MIN_FEATURE_SIZE` (A14.2) — below the kernel's supported feature floor, so
+they cannot be two real features; left distinct, the wedge between them folds
+under amendment 2's gate, reverting BOTH mints to chord positions that
+Stage 4 cannot relocate (no conic assignment — the R0072 micro class,
+increment-3 quarantine). After resolution and BEFORE the fold gate, minted
+vertices are grouped per rim-ctx slot (a shared target cannot lie on two
+circles) by 3D distance < `MIN_FEATURE_SIZE` (greedy first-seen; real
+crossings are ≥ the floor apart, so groups are isolated and cannot
+chain-drift), and every multi-member group is collapsed to ONE shared
+on-circle target: a crossing-branch member if the group has one (I2 — the
+junction stays on the other input's edge), else the first member — never an
+average. The resulting 2D-distinct/3D-identical boundary pair is the
+established M-B emission-identification class (degenerate wedge dropped at
+emission, neighbors' resolved edges pair directly; the weld measured working
+at the same fixture's box↔circle junctions v19/v23).
+
+**Gate degeneracy skip (part of amendment 3):** the fold gate ignores
+triangles whose RESOLVED 3D image is degenerate (bit-duplicate vertices, the
+M-B drop class) — they are never emitted, so their 2D fold state (the
+collapsed twin wedge projects to area exactly 0) must not revert mints.
+Scoped strictly to never-emitted triangles: the gate's judgment on every
+emitted triangle is unchanged.
+
 ### 3b. CONTINGENT part 2 — Stage-4 Fig-11(b) junction-cluster merge
 
 Implement ONLY if, after part 1 is green at Stage-0, the acceptance oracle I1
