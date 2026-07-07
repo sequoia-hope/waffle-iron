@@ -328,10 +328,23 @@ the roadmap's remaining work:
    >    limit, not a hang — per-op timing curve verified monotone and
    >    finite). Remaining measured tail: ONE F0090 revert (a 33-seed
    >    star-union whose class sub-region boundary is NOT a single closed
-   >    cycle — disconnected sub-region; needs per-connected-component
-   >    boundaries), F0088's three walls (singleton non-simple seeds,
+   >    cycle), F0088's three walls (singleton non-simple seeds,
    >    `cavity polygon not CCW`, Stage-3 `AmbiguousCurve{candidates:0}`),
    >    and C0048.
+   >    **Increment 12 (2026-07-07, task #69): SHIPPED** — amendment 9
+   >    CONNECTED-COMPONENT SPLIT of class sub-regions (deterministic BFS
+   >    through shared edges; each folded component is its own Fig-11
+   >    instance). Unit-proven (two disjoint folded stars under one seed
+   >    set both commit); required coverage for multi-strip joint
+   >    triggers. **Post-ship measurement: the F0090 33-seed site is
+   >    CONNECTED and ANNULAR** (vert 151's per-vertex ring alone has 40+
+   >    edges; the ~30 ring mints inflate the joint region into a band
+   >    encircling a hole — multiple boundary cycles on one component,
+   >    still the loud `not a single closed cycle` reject). Next lever
+   >    for the F0090 tail: measure the annular region's cycle structure,
+   >    then either narrow the amendment-6 seed set to crossing-edge
+   >    endpoints (keep the region a strip) or bridge-edge annular
+   >    ear-clip. F0086/F0087/F0089 unchanged ✓; chain suite 13/0.
 2. **N4 — face provenance by centroid-proximity, not §4.2.3 barycentric
    provenance.** Stage-6 attributes each kept triangle by centroid-in-plane
    distance + a tolerance tier (`tol_for`). The paper maps each point to BOTH

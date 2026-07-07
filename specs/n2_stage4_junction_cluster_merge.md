@@ -437,6 +437,51 @@ is exactly simple:
 | crossing edge ungrowable both sides (domain/class boundary, apex pinch) or guard fails after growth | that sub-region rejects (loud); amendment-2 revert unchanged |
 | sub-region polygon already simple | unchanged (amendment 7) |
 
+**Connected-component split (amendment 9, 2026-07-07 — M8 increment 12,
+task #69):** the last measured F0090 fold-gate revert (timestamped probe,
+t≈131s, ~cut 22): a 33-seed joint trigger whose class sub-region rejects
+`region boundary is not a single closed cycle`. The seeds accumulate from
+MANY non-simple per-vertex rings across one folded triangle's attempt, and
+their star union's class sub-region is DISCONNECTED — several separate
+strips. One boundary walk cannot cover two components; the whole
+sub-region rejected wholesale.
+
+Amendment 9 splits each class sub-region into edge-connected components
+(triangles connected through shared edges; deterministic ascending-index
+BFS) before the boundary build. Each component is attempted independently
+under the amendment-7 folded-triangle gate (a fold-free component is
+skipped — termination unchanged) and the amendment-8 growth loop (growth
+stays inside the component's class; an absorbed triangle joins that
+component). A genuinely ANNULAR component — one component, multiple
+boundary cycles — still rejects loud (`region boundary is not a single
+closed cycle`).
+
+**Post-ship measurement (same day):** the F0090 33-seed corpus site
+survived the split — its sub-region is CONNECTED and ANNULAR (the probe
+re-run still shows the same single revert; vert 151's per-vertex ring
+alone has 40+ edges, and the ~30 ring mints inflate the joint region
+into a band that encircles a hole). The component split is retained as
+required coverage for multi-strip joint triggers (unit-proven; the
+disconnected shape is reachable whenever seeds accumulate from separate
+strips), but the F0090 tail is the ANNULAR class — next lever, measure
+the region's cycle structure before designing (candidates: narrow the
+amendment-6 seed set to crossing-edge endpoints so the region stays a
+strip, vs. a bridge-edge annular ear-clip).
+
+| Gate case (amendment 9) | Behavior |
+|---|---|
+| class sub-region disconnected; ≥1 folded component passes guards + ear-clip | mints KEPT per committed component |
+| a folded component rejects | that component only (loud); others' commits stand |
+| connected sub-region | unchanged (amendments 7–8 — the split is the identity) |
+
+Research basis: [#24] Yang 2025 §4.4.1 Fig 11 — mesh updating is local to
+each repositioned vertex's neighborhood; disconnected neighborhoods are
+independent Fig-11 instances. Oracles: stage0 unit tests (two disjoint
+folded stars under one seed set: both commit; one-component identity
+regression), the F0090 probe re-run (fold-revert count 1 → 0 inside the
+container's 300s window), F0086–F0090 family chain suite, full
+yang-rs/kernel-v2 suites.
+
 Research basis: [#24] Yang 2025 §4.4.1 Fig 11 (`refs/text/
 yang2025_hybrid_boolean.txt:556-560`); the growth rule is the region-form
 of amendment 5's constrained visibility growth (Bowyer–Watson cavity

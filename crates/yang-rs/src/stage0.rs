@@ -2182,22 +2182,49 @@ fn relocate_minted_region(
     }
     let mut committed_any = false;
     for (cls0, region) in by_class {
-        // Termination contract: only a sub-region carrying at least one
-        // FOLDED triangle is attempted — its commit strictly decreases the
-        // gate's folded count (replacement ears are gate-valid by
-        // construction). A valid-only sub-region is SKIPPED:
-        // re-triangulating it could churn the mesh without progress.
-        let folded = region.iter().any(|&ti| {
-            !gate_tri_degenerate(&tris[ti], coords)
-                && gate_tri_area(&tris[ti], coords, frame) <= 0.0
-        });
-        if !folded {
-            continue;
-        }
-        if relocate_region_single_class(
-            tris, class, edge_map, seeds, &region, cls0, coords, frame, probe,
-        ) {
-            committed_any = true;
+        // Amendment 9 (M8 increment 12): a class sub-region may be
+        // DISCONNECTED — the joint trigger accumulates seeds from several
+        // separate strips, and one boundary walk cannot cover two
+        // components. Split into edge-connected components (deterministic
+        // ascending-index BFS through shared edges); each is its own
+        // Fig-11 instance, attempted independently.
+        let edge_key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
+        let mut unvisited = region.clone();
+        while let Some(&comp_seed) = unvisited.iter().next() {
+            let mut component: std::collections::BTreeSet<usize> =
+                std::collections::BTreeSet::new();
+            let mut queue = vec![comp_seed];
+            unvisited.remove(&comp_seed);
+            while let Some(ti) = queue.pop() {
+                component.insert(ti);
+                let t = tris[ti];
+                for k in 0..3 {
+                    if let Some(inc) = edge_map.get(&edge_key(t[k], t[(k + 1) % 3])) {
+                        for &tj in inc {
+                            if unvisited.remove(&tj) {
+                                queue.push(tj);
+                            }
+                        }
+                    }
+                }
+            }
+            // Termination contract: only a component carrying at least one
+            // FOLDED triangle is attempted — its commit strictly decreases
+            // the gate's folded count (replacement ears are gate-valid by
+            // construction). A valid-only component is SKIPPED:
+            // re-triangulating it could churn the mesh without progress.
+            let folded = component.iter().any(|&ti| {
+                !gate_tri_degenerate(&tris[ti], coords)
+                    && gate_tri_area(&tris[ti], coords, frame) <= 0.0
+            });
+            if !folded {
+                continue;
+            }
+            if relocate_region_single_class(
+                tris, class, edge_map, seeds, &component, cls0, coords, frame, probe,
+            ) {
+                committed_any = true;
+            }
         }
     }
     if !committed_any {
@@ -2276,6 +2303,31 @@ fn relocate_region_single_class(
             cur = next;
         }
         if cur != start || poly.len() != boundary_edges {
+            // Increment-13 measurement probe: enumerate ALL boundary
+            // cycles (count + lengths) so the annular class's structure is
+            // observable at the reject site (one component with several
+            // cycles = a region encircling a hole).
+            if probe {
+                let mut rest = nxt.clone();
+                let mut cycles: Vec<usize> = Vec::new();
+                while let Some((&s0, _)) = rest.iter().next() {
+                    let mut c = s0;
+                    let mut len = 0usize;
+                    while let Some(n) = rest.remove(&c) {
+                        len += 1;
+                        c = n;
+                        if c == s0 {
+                            break;
+                        }
+                    }
+                    cycles.push(len);
+                }
+                eprintln!(
+                    "  [reloc-region-cycles] seeds {seeds:?} class {cls0:?} \
+                     {} boundary cycles, lengths {cycles:?}",
+                    cycles.len()
+                );
+            }
             return reject("region boundary is not a single closed cycle");
         }
 
@@ -7450,5 +7502,65 @@ mod reloc_tests {
             overlap_before,
             "valid-only Overlap sub-region must be skipped, not re-triangulated"
         );
+    }
+
+    // ── Amendment 9: connected-component split (M8 increment 12) ─────────
+
+    /// A DISCONNECTED class sub-region (the F0090 33-seed signature: the
+    /// joint trigger accumulates seeds from several separate strips): each
+    /// edge-connected component is relocated independently — one boundary
+    /// walk per component, not one for the union.
+    #[test]
+    fn region_disconnected_components_relocate_independently() {
+        // Two disjoint copies of the base fixture (the second offset by
+        // +10 in u), both folded, seeds one vertex from each.
+        let (t1, c1, p1) = base();
+        let mut tris = t1.clone();
+        let mut class = c1.clone();
+        let mut coords = p1.clone();
+        let off = p1.len() as u32;
+        for t in &t1 {
+            tris.push([t[0] + off, t[1] + off, t[2] + off]);
+        }
+        class.extend(c1.iter().copied());
+        for q in &p1 {
+            coords.push(p(frame_z0().project(*q).0 + 10.0, frame_z0().project(*q).1));
+        }
+        let mut em = edge_map_of(&tris);
+        let frame = frame_z0();
+        assert!(
+            !gate_tri_valid(&tris[1], &coords, &frame)
+                && !gate_tri_valid(&tris[4 + 1], &coords, &frame),
+            "both copies must start folded"
+        );
+        assert!(relocate_minted_region(
+            &mut tris,
+            &mut class,
+            &mut em,
+            &[0, off],
+            &coords,
+            &frame,
+            false
+        ));
+        for t in &tris {
+            assert!(
+                gate_tri_valid(t, &coords, &frame),
+                "{t:?} invalid after component-split relocation"
+            );
+        }
+        assert_eq!(
+            canon(&em),
+            canon(&edge_map_of(&tris)),
+            "edge map must be maintained incrementally"
+        );
+        // Exact cover per copy (boundary-determined 3.2 each, all ears
+        // positive ⇒ no overlap).
+        let area = |t: &[u32; 3]| {
+            let q = |i: u32| frame.project(coords[i as usize]);
+            let (q0, q1, q2) = (q(t[0]), q(t[1]), q(t[2]));
+            ((q1.0 - q0.0) * (q2.1 - q0.1) - (q1.1 - q0.1) * (q2.0 - q0.0)) / 2.0
+        };
+        let total: f64 = tris.iter().map(|t| area(t)).sum();
+        assert!((total - 6.4).abs() < 1e-12, "cover area {total} != 6.4");
     }
 }
