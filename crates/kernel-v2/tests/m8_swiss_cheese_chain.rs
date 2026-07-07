@@ -110,28 +110,23 @@ fn two_through_holes_chain() {
     assert_volume(&a, s, 2);
 }
 
-/// The full F0086 recipe: 3 through + 2 blind holes, all chained.
+/// The full F0086 recipe: 3 through + 2 blind holes, all chained. GREEN
+/// since M8 increment 6 (task #62): `rim_chord_ctxs` mints crossing points
+/// on an ANNULAR face's rim circles (outer + per-hole), so chained outputs
+/// carry pure on-circle z=0 rims that recover can circle-fuse and re-enter.
 #[test]
-#[ignore = "M8 swiss-cheese re-entry (task #62 / increment 4): cut 3 walls at \
-            to_yang UnsupportedCurvedBoolean — the cut-2 output's z=0 rim is a \
-            MIXED chain (on-circle posts + on-chord overlay cluster points, \
-            off-circle by up to the Stage-1 sagitta), so recover cannot \
-            circle-fuse it, the lateral loses its canonical anchor, and the \
-            multi-piece rim vocabulary cannot re-enter yang Stage 1. Root fix \
-            = Stage-0 minting rim crossings ON the exact circle (the \
-            increment-4 shared-mint design, task #61); alternative = \
-            generalized two-ring lateral band tessellation in yang Stage 1. \
-            GREEN when a third chained cut survives."]
 fn full_f0086_five_hole_chain() {
     let (a, s) = run_chain(5);
     assert_volume(&a, s, 5);
 }
 
-/// Pin the CURRENT chain depth boundary loudly: cut 3 must fail with the
-/// TYPED re-entry wall (never silent-wrong output). Flip this pin when the
-/// re-entry wall lifts (then un-ignore `full_f0086_five_hole_chain`).
+/// Regression for the retired cut-3 re-entry wall (was: the pin
+/// `third_cut_stays_loud_typed_reentry_wall`, which asserted the TYPED
+/// `UnsupportedCurvedBoolean` boundary until M8 increment 6 lifted it):
+/// the third chained cut — the first to re-enter a MULTI-hole recovered
+/// plate — must succeed with a fully valid output.
 #[test]
-fn third_cut_stays_loud_typed_reentry_wall() {
+fn third_cut_reenters_multi_hole_plate() {
     let mut a = BrepArena::new();
     let mut body = cyl(&mut a, 0.0, 0.0, R, 0.0, T);
     for &(hx, hy, d) in HOLES.iter().take(2) {
@@ -140,17 +135,7 @@ fn third_cut_stays_loud_typed_reentry_wall() {
     }
     let (hx, hy, d) = HOLES[2];
     let tool = cyl(&mut a, hx, hy, HR, 0.0, d);
-    match boolean_op(&mut a, body, tool, BoolOp::Subtract) {
-        Err(kernel_v2::KernelV2Error::UnsupportedCurvedBoolean { .. }) => {}
-        Err(other) => panic!("cut 3 wall moved: expected UnsupportedCurvedBoolean, got {other:?}"),
-        Ok(s) => {
-            // If the wall lifted, the output must be fully valid — then this
-            // pin should be retired and the 5-hole chain un-ignored.
-            validate_solid(&a, s).expect("cut 3 succeeded but output is invalid");
-            panic!(
-                "cut 3 now SUCCEEDS with a valid output — retire this pin and \
-                 un-ignore full_f0086_five_hole_chain"
-            );
-        }
-    }
+    let s = boolean_op(&mut a, body, tool, BoolOp::Subtract)
+        .expect("cut 3 re-entry (multi-hole plate) regressed to an error");
+    validate_solid(&a, s).expect("cut 3 succeeded but output is invalid");
 }

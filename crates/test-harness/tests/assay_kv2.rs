@@ -903,20 +903,19 @@ fn smoke_corpus_boundary_categories() {
         // now succeeds end-to-end. F0086 stays the M8 residue (a coplanar
         // sub-case Increment 1 does not yet cover — crossing / multi-pair).
         ("F0030", Category::SupportedCorrect),
-        // Task #62 (2026-07-06, chained swiss-cheese session): the wrap-aware
-        // azimuth-merge pairing + sweep-aware closed-rim arc fallback let the
-        // FIRST TWO chained cuts succeed (was: axis-wrapping-loop ERROR at
-        // cut 2). Cuts 3+ hit the TYPED re-entry boundary (to_yang
-        // UnsupportedCurvedBoolean: the cut-2 output's z=0 rim is a mixed
-        // on-circle/on-chord chain recover cannot canonicalize) → the case
-        // categorizes UNSUPPORTED(curved-profile). Next lever = Stage-0
-        // on-circle rim minting (increment 4, task #61); un-pin to
-        // SupportedCorrect when the chain clears
-        // (`kernel-v2/tests/m8_swiss_cheese_chain.rs` pins the boundary).
-        (
-            "F0086",
-            Category::Unsupported(UnsupportedReason::CurvedProfile),
-        ),
+        // Task #62 increment 6 (2026-07-07): annular rim-mint contexts
+        // (`rim_chord_ctxs`) lifted the cut-3 typed re-entry wall — the
+        // DIRECT 5-hole chain is GREEN (`m8_swiss_cheese_chain.rs`,
+        // F0086's bit-exact parameters) and 5 of the corpus case's 6 ops
+        // now replay. The corpus path (sketch-extrude + auto-union) still
+        // trips ONE loud `VertexOffSurface { FaceId(15) }` — a residual
+        // off-surface population unique to that path, NOT exhibited by the
+        // direct chain; localizing it is the next increment (spec
+        // `m8_holed_disc_coplanar_overlay` §8 increment 6 residual). Was
+        // UNSUPPORTED(curved-profile) — the wall moved DOWNSTREAM of the
+        // typed boundary, always loud, never silent-wrong. Un-pin to
+        // SupportedCorrect when the corpus replay clears.
+        ("F0086", Category::Error),
         // PR-TH2 (KV5b-F2 resolved): the enclosed-cavity families
         // F0031–F0035 (box-minus-cyl) and F0036–F0040 (cyl-minus-box)
         // succeed end-to-end: 2 closed genus-0 shells (outer + cavity),

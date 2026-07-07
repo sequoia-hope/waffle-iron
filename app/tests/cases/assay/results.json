@@ -1,8 +1,8 @@
 {
-  "errored": 36,
+  "errored": 37,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 175,
+  "passed": 176,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -72,7 +72,7 @@
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "R0012",
       "status": "error"
     },
@@ -186,7 +186,7 @@
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "R0031",
       "status": "error"
     },
@@ -216,7 +216,7 @@
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "R0036",
       "status": "error"
     },
@@ -348,7 +348,7 @@
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "R0058",
       "status": "error"
     },
@@ -450,13 +450,13 @@
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "R0075",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "R0076",
       "status": "error"
     },
@@ -486,7 +486,7 @@
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "R0081",
       "status": "error"
     },
@@ -984,13 +984,13 @@
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "F0064",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "F0065",
       "status": "error"
     },
@@ -1002,37 +1002,37 @@
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "F0067",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "F0068",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "F0069",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "F0070",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "F0071",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "F0072",
       "status": "error"
     },
@@ -1068,19 +1068,19 @@
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "F0078",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "F0079",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "F0080",
       "status": "error"
     },
@@ -1092,55 +1092,55 @@
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "F0082",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "F0083",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "F0084",
       "status": "error"
     },
     {
       "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "detail": "timeout after 120s (subprocess killed)",
       "id": "F0085",
       "status": "error"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "2 NotSupported boundary(ies); first: 6b500242-98e3-4108-875b-289135532aa0: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(23) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): 5f972110-a034-443e-ac83-67c10803dd1d: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(15) }",
       "id": "F0086",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "ERROR",
-      "detail": "9 engine error(s): f370c601-6173-4fa0-bcdb-a384c23e2e12: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(15) }; ad3107ef-71da-464c-9883-b17e8601c6fb: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(23) }; 1fce12cd-06a2-46fa-a773-3372196e63a2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(31) }; 1e857e68-b413-4ddc-ab4f-18be396a5030: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(39) }; 0e34effc-5173-4a86-86ac-f7697c434bb2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(47) }; 959d490e-56d0-468d-a685-f787822d9eb3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(56) }; 5a5d97c0-6c53-4c58-adc6-2b3076f28261: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(65) }; 8177419b-a800-45e5-aa21-8dbfb551cedd: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(74) }; cff4b068-f798-465e-b66f-9c0d8c2d49ac: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(83) }",
+      "detail": "3 engine error(s): 959d490e-56d0-468d-a685-f787822d9eb3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(66) }; 8177419b-a800-45e5-aa21-8dbfb551cedd: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(96) }; cff4b068-f798-465e-b66f-9c0d8c2d49ac: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(113) }",
       "id": "F0087",
       "status": "error"
     },
     {
-      "category": "ERROR",
-      "detail": "14 engine error(s): 8c108f30-0855-43ac-bc9f-3332064fb031: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(15) }; 2e368bb6-7488-46b1-997f-b03bf14bbab0: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(23) }; ddd8a54b-7ef1-4ef9-8f15-ae211886b7dd: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (2, 142): AmbiguousCurve { candidates: 0, matched: 0 }\"); 774634cf-e563-4ef6-978f-213b98317311: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(34) }; 491b74f0-5d81-44ff-9ed4-51a0dccd58db: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(42) }; 53e5d13d-c8d4-41b4-b5b6-0553164eed3d: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(50) }; 65997bcd-8cce-4955-a5fa-4007c36a485b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(58) }; 1ff19d8e-50e8-4fd7-99ea-044622eacb70: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(66) }; 39562d75-57bf-424f-8553-f9fface8d3ef: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(75) }; 8c2f0277-43bf-460f-ac7d-881d6fa0fda3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(84) }; f4419909-683a-4567-a004-1132367e5063: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(93) }; ec22ad34-47f6-433d-a85e-f0b0ac8600af: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(102) }; c413d083-e5da-4259-966a-7596541bfc1b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(111) }; ea9a7ea4-7533-4ae6-b36c-91b4d152fb2d: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(120) }",
-      "id": "F0088",
-      "status": "error"
-    },
-    {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "18 NotSupported boundary(ies); first: 98a39c03-d381-4fc6-9f6b-de96077387df: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(15) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
-      "id": "F0089",
+      "detail": "6 NotSupported boundary(ies); first: 39562d75-57bf-424f-8553-f9fface8d3ef: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(80) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "id": "F0088",
       "status": "unsupported"
     },
     {
       "category": "ERROR",
-      "detail": "29 engine error(s): 46f44c9a-34aa-4b56-a77e-c2c57128f7d5: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(15) }; 3615f278-0e3f-487f-8310-b72ffe9028f8: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(23) }; e096d8bc-7bc4-44bb-b112-9ee91b623d9a: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(31) }; fb01851b-4b11-4099-bb58-918a783f2c66: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(39) }; 29715837-ab98-4953-b9d7-6bdf4e1e5d7b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(47) }; fdfd7e9a-1c85-4a18-8c5b-1f29497a4cf3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(55) }; 485890bb-27b6-4eec-9cdf-b45ca7ab511e: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(63) }; 0c9b36e3-ff84-4968-b2e7-77c978b5f301: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(71) }; d62b3b66-a4ff-4c5e-80b8-5fc049dc41f1: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(79) }; 781a278e-7b28-4177-8a5d-0da524aa13ee: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(87) }; c894b663-bf1a-467c-977d-f819030a6fce: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(95) }; 39df4b93-47a9-4169-8799-cd5078301f05: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(103) }; 6379063d-ec0d-472a-84b5-4a7844f75093: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(111) }; 670cd229-1738-4d8b-a75e-43ecd4c677c2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(119) }; cb47a826-970a-4098-8f85-1cff362422d0: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(127) }; 0ca92907-cdf3-4715-8cc2-cf958790df53: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(136) }; 129db7f9-c1ca-4959-92b0-9d1c9173f43e: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(145) }; f5f54959-b1cf-49b9-bc59-b5db7971471b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(154) }; d3650c80-b7d6-43c2-81c1-415a4c2255ba: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(163) }; d7855346-989a-4a11-94c6-340fc47ac58f: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(172) }; 3cd86634-ee93-47c2-bdc4-31c9d3256e0c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(181) }; 78806cea-a9ac-40a6-a206-a4b88ff8d54c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(190) }; c8c56c89-89b1-4c67-8f8e-fbbbf1f5614f: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(199) }; e6cdf8b5-4c4e-4d1f-bf04-b1112272bacf: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(208) }; 43306642-d7d5-46e3-abb9-03b05b46bbf2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(217) }; bb939f98-6086-44ac-aaf0-506810bcf56e: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(226) }; 7537b9a5-6a67-4464-acc1-633a832906e2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(235) }; 5197e397-351d-46b4-b80f-c2a0c90d891b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(244) }; b40378ad-3947-4b02-a651-ec3270051d9b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(253) }",
+      "detail": "6 engine error(s): 6162aeff-da32-4283-9c9b-c919d15b354c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(34) }; b8dc061b-23be-4cc8-bd38-852945c3b1ed: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(42) }; 62b2bc64-0ac7-427b-9c49-3617bbd5eaed: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(52) }; d408b545-8073-45b8-9dea-dcc53f9d1ebf: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(72) }; 4ba184ed-da21-478b-8f45-9327a3a2f667: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); 50feefd7-0d6c-477b-9198-17942abb96f3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(100) }",
+      "id": "F0089",
+      "status": "error"
+    },
+    {
+      "category": "ERROR",
+      "detail": "27 engine error(s): e096d8bc-7bc4-44bb-b112-9ee91b623d9a: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(32) }; fb01851b-4b11-4099-bb58-918a783f2c66: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(42) }; 29715837-ab98-4953-b9d7-6bdf4e1e5d7b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(52) }; fdfd7e9a-1c85-4a18-8c5b-1f29497a4cf3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(62) }; 485890bb-27b6-4eec-9cdf-b45ca7ab511e: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(72) }; 0c9b36e3-ff84-4968-b2e7-77c978b5f301: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(82) }; d62b3b66-a4ff-4c5e-80b8-5fc049dc41f1: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(92) }; 781a278e-7b28-4177-8a5d-0da524aa13ee: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(102) }; c894b663-bf1a-467c-977d-f819030a6fce: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(112) }; 39df4b93-47a9-4169-8799-cd5078301f05: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(122) }; 6379063d-ec0d-472a-84b5-4a7844f75093: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(132) }; 670cd229-1738-4d8b-a75e-43ecd4c677c2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(142) }; cb47a826-970a-4098-8f85-1cff362422d0: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(152) }; 0ca92907-cdf3-4715-8cc2-cf958790df53: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(163) }; 129db7f9-c1ca-4959-92b0-9d1c9173f43e: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(174) }; f5f54959-b1cf-49b9-bc59-b5db7971471b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(185) }; d3650c80-b7d6-43c2-81c1-415a4c2255ba: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(196) }; d7855346-989a-4a11-94c6-340fc47ac58f: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(207) }; 3cd86634-ee93-47c2-bdc4-31c9d3256e0c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(218) }; 78806cea-a9ac-40a6-a206-a4b88ff8d54c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"); c8c56c89-89b1-4c67-8f8e-fbbbf1f5614f: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(232) }; e6cdf8b5-4c4e-4d1f-bf04-b1112272bacf: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(243) }; 43306642-d7d5-46e3-abb9-03b05b46bbf2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(254) }; bb939f98-6086-44ac-aaf0-506810bcf56e: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(265) }; 7537b9a5-6a67-4464-acc1-633a832906e2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(276) }; 5197e397-351d-46b4-b80f-c2a0c90d891b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(287) }; b40378ad-3947-4b02-a651-ec3270051d9b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(298) }",
       "id": "F0090",
       "status": "error"
     },
@@ -1625,10 +1625,10 @@
       "status": "pass"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 120s",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0077",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",

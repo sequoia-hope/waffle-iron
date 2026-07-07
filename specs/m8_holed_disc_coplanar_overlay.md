@@ -352,3 +352,43 @@ F0063, 4 → UNSUPPORTED, 3 → known-wall ERROR, 1 → EXPECTED) and no case
 flipped toward TIMEOUT/WRONG (baseline results.json refreshed in the same
 commit). F0087/F0088/F0090 remain ERROR (chained on-chord population —
 task #62 re-measures the family on top of this increment).
+
+**Increment 6 (2026-07-07, task #62) — annular rim-mint contexts.**
+Re-measure after increment 4: cut 3 still walls
+(`UnsupportedCurvedBoolean(FaceId 15)`, `full_f0086_five_hole_chain` RED;
+`third_cut_stays_loud` pin holds). Diagnosis confirmed: the N2-3a mint
+context (`rim_chord_ctx`) is DISC-ONLY — an annular face admitted by the
+increment-1 overlay gets NO mint context, so crossing/subdivision vertices
+on ITS rim chords resolve to raw chord lifts (off-circle by the Stage-1
+sagitta). Those on-chord points populate the annular face's rim overrides
+(`collect_rim_crossings` pushes resolved `coords`), reach the cut-2
+output's z=0 rims as a MIXED on-circle/on-chord chain, defeat recover's
+canonical circle-fuse anchor at cut-3 re-entry, and surface as the
+F0087/F0088/F0090 `VertexOffSurface` residues. Fix: `rim_chord_ctxs`
+(plural) builds ONE `RimChordCtx` per rim circle — a disc keeps exactly
+today's single ctx (byte-identical); an annular face gets outer + one per
+hole, each with its own chord ring and exact circle, sharing the partner
+polygon's boundary sub-segments. The coords-resolution slot enumeration
+and the increment-4 sub-floor collapse become per-circle across the
+concatenated ctx list (the collapse was designed slot-per-circle for
+exactly this).
+
+**Increment 6 outcome (measured):** the cut-3 typed re-entry wall is
+LIFTED — `full_f0086_five_hole_chain` (F0086's bit-exact parameters,
+direct kernel-v2 constructors) RED→GREEN; the `third_cut_stays_loud` pin
+fired its designed retire signal and was converted to the positive
+regression `third_cut_reenters_multi_hole_plate` (cut 3 succeeds,
+`validate_solid` clean). yang-rs 540/0, kernel-v2 251/0 (I6: no
+regression). The CORPUS family however relocated to a deeper frontier
+rather than clearing: the sketch-extrude + auto-union replay path trips a
+residual loud `VertexOffSurface` population the direct chain does NOT
+exhibit — F0086 1 error (FaceId 15; 5 of 6 ops now replay, vs the whole
+chain walling before), F0087 3, F0089 6 (plus one reassembly
+non-2-manifold), F0090 27; F0088 unchanged UNSUPPORTED (typed partial-
+patch re-entry). F0086's smoke pin updated UNSUPPORTED(curved-profile) →
+ERROR (wall moved DOWNSTREAM of the typed boundary, always loud). **Next
+increment (the remaining #62 scope): localize the corpus-path residual —
+instrument the kernel-v2 VertexOffSurface tripwires (no env-gated dump
+exists there today), diff the corpus recipe (hole layout/order, blind
+holes, auto-union) against the green direct chain, and fix at the
+producing layer.**

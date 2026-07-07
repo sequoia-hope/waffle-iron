@@ -572,23 +572,28 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         };
 
         // N2-3a (spec `n2_stage4_junction_cluster_merge` §3, [#24 §4.5.5]):
-        // exact rim-chord resolution context per disc face of the pair. The
-        // overlay's trapezoidal decomposition splits every rim chord at every
-        // event x-coordinate; those split vertices must be minted ON the
-        // exact rim `Curve::Circle` (I1: every output loop vertex on its
-        // face's surface), not at their chord positions — §4.5.5's "overlap
-        // boundaries become intersection curves" carries exact curve
-        // geometry. `None` for a non-disc face (zero behavior change).
-        let rim_ctx_a = if rim_a.is_empty() {
-            None
+        // exact rim-chord resolution contexts per disc/annular face of the
+        // pair — ONE per rim circle (increment 6: an annular face carries
+        // outer + one per hole). The overlay's trapezoidal decomposition
+        // splits every rim chord at every event x-coordinate; those split
+        // vertices must be minted ON the exact rim `Curve::Circle` (I1:
+        // every output loop vertex on its face's surface), not at their
+        // chord positions — §4.5.5's "overlap boundaries become intersection
+        // curves" carries exact curve geometry. Empty for a non-disc/
+        // non-annular face (zero behavior change).
+        let rim_ctxs_a = if rim_a.is_empty() {
+            Vec::new()
         } else {
-            rim_chord_ctx(a, p.face_a, &poly_a, &poly_b, frame)
+            rim_chord_ctxs(a, p.face_a, &poly_a, &poly_b, frame)
         };
-        let rim_ctx_b = if rim_b.is_empty() {
-            None
+        let rim_ctxs_b = if rim_b.is_empty() {
+            Vec::new()
         } else {
-            rim_chord_ctx(b, p.face_b, &poly_b, &poly_a, frame)
+            rim_chord_ctxs(b, p.face_b, &poly_b, &poly_a, frame)
         };
+        // Mint-collapse slot space: one slot per rim circle across the pair
+        // (a shared collapse target cannot lie on two circles).
+        let n_mint_slots = rim_ctxs_a.len() + rim_ctxs_b.len();
 
         // Resolve every overlay vertex to ONE solid-independent 3D point:
         // corner of face A → A's (snapped/welded) vertex; corner of face B
@@ -646,11 +651,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                     // All other vertices fall through to the raw lift,
                     // byte-identical to the pre-N2-3a path (I4).
                     let mut minted: Option<Point3> = None;
-                    for (slot, ctx) in [rim_ctx_a.as_ref(), rim_ctx_b.as_ref()]
-                        .into_iter()
-                        .enumerate()
-                    {
-                        let Some(ctx) = ctx else { continue };
+                    for (slot, ctx) in rim_ctxs_a.iter().chain(rim_ctxs_b.iter()).enumerate() {
                         match resolve_rim_chord_vertex(ctx, exact, qx, qy, frame) {
                             RimResolve::NotOnChord => {}
                             RimResolve::OnCircle { point, crossing } => {
@@ -700,10 +701,11 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // average. The resulting 2D-distinct/3D-identical boundary pair is
         // the M-B emission-identification class: the degenerate wedge drops
         // at emission and neighbors' resolved edges pair directly. Groups
-        // are per rim-ctx slot (a shared target cannot lie on two circles)
-        // and isolated (real crossings are ≥ MIN_FEATURE_SIZE apart), so
-        // greedy first-seen grouping cannot chain-drift.
-        for slot in 0..2 {
+        // are per rim-ctx slot — one slot per rim CIRCLE across the pair
+        // (a shared target cannot lie on two circles) — and isolated (real
+        // crossings are ≥ MIN_FEATURE_SIZE apart), so greedy first-seen
+        // grouping cannot chain-drift.
+        for slot in 0..n_mint_slots {
             let members: Vec<(usize, bool)> = minted_info
                 .iter()
                 .filter(|&&(_, s, _)| s == slot)
@@ -1417,21 +1419,26 @@ struct RimChordCtx {
     radius: f64,
 }
 
-/// Build the [`RimChordCtx`] for disc face `fi` of `brep` (`poly` is its
-/// in-frame rim polygon, `other` the partner face's polygon). `None` if the
-/// face is not a disc or a coordinate is non-finite (→ the caller falls
-/// through to the raw lift, byte-identical to the pre-N2-3a path).
-fn rim_chord_ctx(
+/// Build the N2-3a mint contexts for face `fi` of `brep` — ONE
+/// [`RimChordCtx`] per rim circle (`poly` is the face's in-frame polygon,
+/// `other` the partner face's). A plain disc yields exactly one (the outer
+/// rim — byte-identical to the historical single-ctx path); an annular face
+/// (M8 holed-disc increment 6, task #62) yields outer + one PER HOLE rim,
+/// each with its own chord ring and exact circle, sharing the partner
+/// polygon's boundary sub-segments. Empty for a non-disc/non-annular face
+/// or a non-finite coordinate (→ the caller falls through to the raw lift,
+/// byte-identical to the pre-N2-3a path). Without the annular arm, crossing
+/// vertices on an annular face's rim chords resolved to raw CHORD lifts —
+/// off-circle by the Stage-1 sagitta — populating its rim overrides with
+/// on-chord points that reach chained outputs as mixed on-circle/on-chord
+/// rims (the cut-3 re-entry wall + F0087/88/90 VertexOffSurface class).
+fn rim_chord_ctxs(
     brep: &BRep,
     fi: usize,
     poly: &PolygonWithHoles,
     other: &PolygonWithHoles,
     frame: &Frame,
-) -> Option<RimChordCtx> {
-    let circle_e = disc_circle_edge(brep, fi)?;
-    let Curve::Circle { center, radius, .. } = brep.edges()[circle_e as usize].curve else {
-        return None;
-    };
+) -> Vec<RimChordCtx> {
     let ring_exact = |ring: &[Point2]| -> Option<Vec<(ExactPoint2, ExactPoint2)>> {
         let n = ring.len();
         let mut out = Vec::with_capacity(n);
@@ -1445,17 +1452,49 @@ fn rim_chord_ctx(
         }
         Some(out)
     };
-    let chords = ring_exact(&poly.outer)?;
-    let mut other_segs = ring_exact(&other.outer)?;
-    for h in &other.holes {
-        other_segs.extend(ring_exact(h)?);
+    // (ring, circle edge) per rim of the face, in loop order (outer first).
+    let mut rims: Vec<(&[Point2], u32)> = Vec::new();
+    if let Some(e) = disc_circle_edge(brep, fi) {
+        rims.push((poly.outer.as_slice(), e));
+    } else if let Some((outer_e, hole_es)) = annular_disc_face(brep, fi) {
+        rims.push((poly.outer.as_slice(), outer_e));
+        for (k, &he) in hole_es.iter().enumerate() {
+            let Some(h) = poly.holes.get(k) else {
+                return Vec::new();
+            };
+            rims.push((h.as_slice(), he));
+        }
+    } else {
+        return Vec::new();
     }
-    Some(RimChordCtx {
-        chords,
-        other_segs,
-        center: frame.snap(center),
-        radius,
-    })
+    let other_segs = {
+        let Some(mut segs) = ring_exact(&other.outer) else {
+            return Vec::new();
+        };
+        for h in &other.holes {
+            let Some(hs) = ring_exact(h) else {
+                return Vec::new();
+            };
+            segs.extend(hs);
+        }
+        segs
+    };
+    let mut out = Vec::with_capacity(rims.len());
+    for (ring, e) in rims {
+        let Curve::Circle { center, radius, .. } = brep.edges()[e as usize].curve else {
+            return Vec::new();
+        };
+        let Some(chords) = ring_exact(ring) else {
+            return Vec::new();
+        };
+        out.push(RimChordCtx {
+            chords,
+            other_segs: other_segs.clone(),
+            center: frame.snap(center),
+            radius,
+        });
+    }
+    out
 }
 
 /// Outcome of [`resolve_rim_chord_vertex`].
