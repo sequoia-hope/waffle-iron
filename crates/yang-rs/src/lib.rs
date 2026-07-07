@@ -803,6 +803,17 @@ fn stage1_tessellate_inner(
             if let Some(force) = min_n_seg {
                 n_seg = n_seg.max(force);
             }
+            // Diagnostic experiment knob (M8 increment-8 spec phase, task
+            // #62): force a global rim-N floor to measure whether/where the
+            // mint-displacement fold class is a pure sampling artifact and
+            // what finer N costs. Dev-only, like TIEBREAK_NEUTER /
+            // YANG_SHIFT_NEUTER — never set in production or tests.
+            if let Some(floor) = std::env::var("YANG_NSEG_FLOOR")
+                .ok()
+                .and_then(|s| s.parse::<usize>().ok())
+            {
+                n_seg = n_seg.max(floor);
+            }
             if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
                 eprintln!(
                     "[stage1-nseg] n_seg={n_seg} d_eps={d_eps:e} max_r={max_r} \

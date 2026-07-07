@@ -447,10 +447,17 @@ inside a rim mint's displacement (F0087 holes 7/9/10). **Increment 8
 scope: boundary-vertex RELOCATION — Yang §4.4.1 Fig 11 delete-and-
 reinsert (remove the minted vertex's star, re-insert at the on-circle
 position with constrained point location + cavity carve), the first full
-mesh-updating consumer at Stage-0. Alternative/complementary knob: a
-principled Stage-1 sampling criterion for coplanar pairs (sagitta ≤
-fraction of the pair's min inter-feature clearance) via the existing
-`min_n_seg` machinery — decide in increment 8's spec phase.** Boundary
-pinned: `m8_swiss_cheese_chain.rs::f0087_cut7_stays_loud_offsurface_wall`
+mesh-updating consumer at Stage-0.** Boundary pinned:
+`m8_swiss_cheese_chain.rs::f0087_cut7_stays_loud_offsurface_wall`
 (cuts 1–6 green, cut 7 typed VertexOffSurface) + `#[ignore]`d green
 target `f0087_engine_frame_seven_hole_chain`.
+
+**Sampling-floor alternative MEASURED AND REJECTED (same session,
+`YANG_NSEG_FLOOR` dev knob):** forcing the global rim N to 28 (sagitta
+1.25e-2) still walls the F0087 chain — finer sampling shrinks the hop
+threshold but tool sweep columns can still land inside the (smaller)
+mint displacement, so the mechanism survives at every finite N (P9: a
+frequency reducer, not a fix). N=56 (sagitta 3.1e-3) happens to clear
+this chain but costs 61s vs ~12s (5×) on the 7-cut chain alone —
+corpus-prohibitive under exact arithmetic. Increment 8's design is
+therefore fixed on VERTEX RELOCATION, not sampling.
