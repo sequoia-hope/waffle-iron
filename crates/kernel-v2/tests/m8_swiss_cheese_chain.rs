@@ -289,42 +289,22 @@ fn f0087_engine_frame_seven_hole_chain() {
     );
 }
 
-/// Stays-loud pin for the increment-9 wall (task #64): cut 10 of the full
-/// F0087 chain fails with the TYPED off-surface tripwire. Measured
-/// mechanism (2026-07-07, `[reloc-ring]`/`[reloc-spokes]` probes + Stage-0
-/// dump): the plate rim chord is split by two sweep-event columns 1 ULP
-/// apart in u (mirrored ring samples under the engine frame), whose
-/// femto-strip of slivers connects the OUTER rim to hole-8's rim; the rim
-/// mint at cut 10 hops THREE populated columns, its star cavity polygon is
-/// GENUINELY non-simple (the moved boundary spoke sweeps across link
-/// vertices), so per-vertex Fig-11 relocation provably cannot repair it;
-/// the amendment-2 revert then splits the increment-4 shared-mint twin
-/// pair (182 stays minted, 186 reverts) and the chord vertex escapes at
-/// CUT 9 (the first cut whose overlay builds that strip).
-/// Increment 9 needs fold-REGION re-triangulation or input-level twin
-/// welding — per-vertex repair is exhausted. NOTE: the CORPUS replay of
-/// F0087 fails at the same op with a DIFFERENT typed wall (curved
-/// partial-patch operand re-entry — the corpus-path cut-9 output degrades
-/// where the direct chain's stays clean); both walls are loud. When
-/// increment 9 lands, convert this pin to a positive regression and
-/// un-ignore `f0087_engine_frame_full_ten_hole_chain`.
+/// Regression for the retired increment-9 wall (was: the pin
+/// `f0087_cut9_stays_loud_offsurface_wall`, which asserted the TYPED
+/// `VertexOffSurface` boundary until amendment 6's JOINT region relocation
+/// landed): cut 9 — where the plate-rim mint and a hole-rim mint interact
+/// across one multi-column strip (each vertex on the OTHER's cavity
+/// polygon, both per-vertex cavities exactly non-simple) — must succeed
+/// with a fully valid output. The seeds' star-union region is
+/// re-triangulated jointly by the shared constrained exact ear-clip.
 #[test]
-fn f0087_cut9_stays_loud_offsurface_wall() {
-    let err = run_f0087_chain(9).expect_err(
-        "F0087 cut 9 unexpectedly succeeded — increment 9 landed? Retire \
-         this pin and un-ignore f0087_engine_frame_full_ten_hole_chain",
-    );
-    assert!(
-        matches!(err, kernel_v2::KernelV2Error::VertexOffSurface { .. }),
-        "F0087 cut 9 wall changed class (expected VertexOffSurface): {err:?}"
-    );
-    // Cuts 1-8 must stay green — the wall is cut 9 specifically.
-    run_f0087_chain(8).expect("F0087 cuts 1-8 regressed");
+fn f0087_cut9_column_strip_relocates_jointly() {
+    let (a, s) = run_f0087_chain(9).expect("cut 9 (interacting rim mints) regressed to an error");
+    validate_solid(&a, s).expect("cut 9 succeeded but output is invalid");
 }
 
 /// Increment 9 green target: the full 10-cut F0087 chain end-to-end.
 #[test]
-#[ignore = "M8 increment 9: partial-patch operand re-entry (task #64)"]
 fn f0087_engine_frame_full_ten_hole_chain() {
     let (a, s) = run_f0087_chain(10).expect("chain");
     let mesh = tessellate(&a, s).expect("tessellate");

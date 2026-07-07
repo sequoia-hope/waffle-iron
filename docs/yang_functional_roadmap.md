@@ -271,6 +271,23 @@ the roadmap's remaining work:
    >    ERROR→typed UNSUPPORTED. **The whole residual family
    >    F0087–F0090 now sits on ONE wall: curved partial-patch operand
    >    re-entry (to_yang) — the next lever for this row.**
+   >    **Increment 9 (2026-07-07, task #64): SHIPPED** — amendment 6
+   >    JOINT region relocation: when per-vertex Fig-11 cavities are
+   >    exactly NON-SIMPLE because two (or more) rim mints interact
+   >    across one multi-column strip (F0087 cut 9: the plate-rim mint
+   >    and a hole-rim mint each appear on the OTHER's cavity polygon,
+   >    whose collapsed spokes cross), the seeds' star-UNION region is
+   >    re-triangulated jointly: single closed boundary cycle, no
+   >    interior vertex, single class, then the SAME shared constrained
+   >    exact ear-clip (`earclip_cavity_polygon`, factored from
+   >    amendment 5 byte-identically). `f0087_cut9` pin retired →
+   >    positive regression; the full TEN-hole F0087 chain green with
+   >    its volume oracle; **corpus F0087 flips ERROR →
+   >    SUPPORTED_CORRECT** (the corpus-path partial-patch degradation
+   >    disappeared with the strip repaired at Stage 0). Remaining tail
+   >    of this row: F0088/F0089/F0090 (VertexOffSurface + one Stage-3
+   >    AmbiguousCurve on F0088 — deeper strips/next mechanism, measure
+   >    before designing) and C0048.
 2. **N4 — face provenance by centroid-proximity, not §4.2.3 barycentric
    provenance.** Stage-6 attributes each kept triangle by centroid-in-plane
    distance + a tolerance tier (`tol_for`). The paper maps each point to BOTH

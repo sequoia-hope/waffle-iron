@@ -901,29 +901,70 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 // crossed — an uncarvable cavity rejects and falls through
                 // to the revert below (loud, never silently blessed).
                 let mut relocated = false;
+                // Amendment 6: per-vertex rejections with a NON-SIMPLE
+                // cavity polygon accumulate joint-relocation seeds — the
+                // folded triangle's minted vertices plus the OTHER minted
+                // vertices found on each non-simple ring (the interacting
+                // multi-column strip class; F0087 cut 9).
+                let mut joint_seeds: std::collections::BTreeSet<u32> =
+                    std::collections::BTreeSet::new();
+                let mut saw_nonsimple = false;
                 for &vv in &t {
                     if !minted_mark[vv as usize] {
                         continue;
                     }
-                    if relocate_minted_vertex(
+                    match relocate_minted_vertex(
                         &mut overlay.tris,
                         &mut overlay.class,
                         &mut edge_map,
                         vv,
                         &coords,
                         frame,
+                        &minted_mark,
+                        probe_flip,
+                    ) {
+                        RelocOutcome::Committed => {
+                            if probe_flip {
+                                eprintln!(
+                                    "[fold-reloc] pair=({},{}) tri {ti} vert {vv} \
+                                     star re-fanned at minted position",
+                                    p.face_a, p.face_b
+                                );
+                            }
+                            relocated = true;
+                            changed = true;
+                            break;
+                        }
+                        RelocOutcome::NonSimple { ring_mints } => {
+                            saw_nonsimple = true;
+                            joint_seeds.insert(vv);
+                            joint_seeds.extend(ring_mints);
+                        }
+                        RelocOutcome::Rejected => {
+                            joint_seeds.insert(vv);
+                        }
+                    }
+                }
+                if !relocated && saw_nonsimple && joint_seeds.len() >= 2 {
+                    let seeds: Vec<u32> = joint_seeds.into_iter().collect();
+                    if relocate_minted_region(
+                        &mut overlay.tris,
+                        &mut overlay.class,
+                        &mut edge_map,
+                        &seeds,
+                        &coords,
+                        frame,
                         probe_flip,
                     ) {
                         if probe_flip {
                             eprintln!(
-                                "[fold-reloc] pair=({},{}) tri {ti} vert {vv} \
-                                 star re-fanned at minted position",
+                                "[fold-reloc-region] pair=({},{}) tri {ti} seeds {seeds:?} \
+                                 region re-triangulated at minted positions",
                                 p.face_a, p.face_b
                             );
                         }
                         relocated = true;
                         changed = true;
-                        break;
                     }
                 }
                 if relocated {
@@ -1610,6 +1651,205 @@ fn orient_sign_exact(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> Option<i8> 
     })
 }
 
+/// Outcome of a per-vertex cavity relocation attempt (amendments 5/6).
+enum RelocOutcome {
+    /// The cavity was re-triangulated and committed.
+    Committed,
+    /// Rejected for a reason joint relocation cannot help with; no mutation.
+    Rejected,
+    /// Amendment 6: the cavity polygon was exactly NON-SIMPLE — the classic
+    /// interacting-mints signature (another minted vertex's collapsed spokes
+    /// cross the ring). `ring_mints` are the OTHER minted vertices on the
+    /// polygon: the joint-relocation seed candidates. No mutation.
+    NonSimple { ring_mints: Vec<u32> },
+}
+
+/// Reject reason of [`earclip_cavity_polygon`]: exact non-simplicity is
+/// distinguished because it is the amendment-6 joint-relocation trigger.
+enum EarclipErr {
+    NotSimple,
+    Other(&'static str),
+}
+
+/// Shared amendment-5/6 re-triangulation core: exact simplicity + CCW
+/// verification on the DEDUPLICATED position ring of `poly`, then
+/// constrained exact ear-clipping of the polygon (ears exact-CCW,
+/// gate-valid, empty, and a NEW diagonal — one not already carried by a
+/// triangle outside `cavity`; ears whose 3D image is bit-degenerate clip
+/// freely, the M-B emission-drop class). Pure — mutates nothing; the
+/// caller commits. `poly` is the cavity boundary cycle (per-vertex form:
+/// `[v, w₀, …, w_k]`; joint form: the region boundary), all positions at
+/// their CURRENT resolved coordinates.
+#[allow(clippy::too_many_arguments)]
+fn earclip_cavity_polygon(
+    poly: &[u32],
+    cavity: &std::collections::BTreeSet<usize>,
+    cls0: RegionClass,
+    coords: &[Point3],
+    frame: &Frame,
+    edge_map: &BTreeMap<[u32; 2], Vec<usize>>,
+    probe: bool,
+    probe_who: &str,
+) -> Result<Vec<([u32; 3], RegionClass)>, EarclipErr> {
+    let edge_key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
+    let pos = |i: u32| frame.project(coords[i as usize]);
+
+    // Exact simplicity + CCW on the DEDUPLICATED position ring (collapsed
+    // sub-floor twins share one resolved position; their zero-length edges
+    // cannot cross anything).
+    let ring: Vec<(f64, f64)> = {
+        let mut r: Vec<(f64, f64)> = Vec::with_capacity(poly.len());
+        for &pi in poly {
+            let q = pos(pi);
+            if r.last() != Some(&q) {
+                r.push(q);
+            }
+        }
+        while r.len() > 1 && r.first() == r.last() {
+            r.pop();
+        }
+        r
+    };
+    if ring.len() < 3 {
+        return Err(EarclipErr::Other("degenerate cavity polygon"));
+    }
+    {
+        use crate::coplanar_overlay::rat;
+        let mut two_area = RBig::ZERO;
+        for k in 0..ring.len() {
+            let (ax, ay) = ring[k];
+            let (bx, by) = ring[(k + 1) % ring.len()];
+            let Ok(t) = rat(ax).and_then(|axr| Ok(axr * rat(by)? - rat(bx)? * rat(ay)?)) else {
+                return Err(EarclipErr::Other("non-finite cavity polygon"));
+            };
+            two_area += t;
+        }
+        if two_area <= RBig::ZERO {
+            return Err(EarclipErr::Other("cavity polygon not CCW"));
+        }
+    }
+    let n = ring.len();
+    for a in 0..n {
+        for b in (a + 1)..n {
+            // Adjacent ring edges share exactly one endpoint — allowed.
+            if b == a + 1 || (a == 0 && b == n - 1) {
+                continue;
+            }
+            let (p1, p2) = (ring[a], ring[(a + 1) % n]);
+            let (q1, q2) = (ring[b], ring[(b + 1) % n]);
+            // Non-adjacent shared position = a pinch.
+            if p1 == q1 || p1 == q2 || p2 == q1 || p2 == q2 {
+                return Err(EarclipErr::Other(
+                    "cavity polygon pinched (repeated position)",
+                ));
+            }
+            let (Some(o1), Some(o2), Some(o3), Some(o4)) = (
+                orient_sign_exact(p1, p2, q1),
+                orient_sign_exact(p1, p2, q2),
+                orient_sign_exact(q1, q2, p1),
+                orient_sign_exact(q1, q2, p2),
+            ) else {
+                return Err(EarclipErr::Other("non-finite cavity polygon"));
+            };
+            // Proper crossing, or an endpoint on the other segment's
+            // INTERIOR. Bare collinearity (o == 0 with the point outside
+            // the segment) is NOT an intersection — sweep-event columns
+            // legitimately put many ring vertices on one exact vertical
+            // line, so rejecting all collinear pairs falsely rejects
+            // repairable cavities (measured: F0087 cut 10, vert 186).
+            // Endpoint coincidence was excluded above, so on-segment
+            // here means strictly interior; collinear-overlapping
+            // segments have an endpoint interior to the other and are
+            // caught by the same test.
+            let within = |o: i8, e1: (f64, f64), e2: (f64, f64), q: (f64, f64)| {
+                o == 0
+                    && q.0 >= e1.0.min(e2.0)
+                    && q.0 <= e1.0.max(e2.0)
+                    && q.1 >= e1.1.min(e2.1)
+                    && q.1 <= e1.1.max(e2.1)
+            };
+            if (o1 * o2 < 0 && o3 * o4 < 0)
+                || within(o1, p1, p2, q1)
+                || within(o2, p1, p2, q2)
+                || within(o3, q1, q2, p1)
+                || within(o4, q1, q2, p2)
+            {
+                if probe {
+                    eprintln!(
+                        "  [reloc-ring] edges {a}:({p1:?}->{p2:?}) x {b}:({q1:?}->{q2:?}) \
+                         o=({o1},{o2},{o3},{o4}) ring={ring:?}"
+                    );
+                }
+                return Err(EarclipErr::NotSimple);
+            }
+        }
+    }
+
+    // Constrained ear-clip: deterministic first-clippable-ear order.
+    let mut work: Vec<u32> = poly.to_vec();
+    let mut ears: Vec<([u32; 3], RegionClass)> = Vec::with_capacity(poly.len());
+    while work.len() > 3 {
+        let m = work.len();
+        let mut clipped = false;
+        'ear: for k in 0..m {
+            let (ia, ib, ic) = (work[(k + m - 1) % m], work[k], work[(k + 1) % m]);
+            let ear = [ia, ib, ic];
+            if !gate_tri_degenerate(&ear, coords) {
+                // Convex, gate-valid, empty, and a NEW diagonal.
+                if !gate_tri_valid(&ear, coords, frame) {
+                    continue;
+                }
+                let (pa, pb, pc) = (pos(ia), pos(ib), pos(ic));
+                if orient_sign_exact(pa, pb, pc) != Some(1) {
+                    continue;
+                }
+                for &other in work.iter() {
+                    if other == ia || other == ib || other == ic {
+                        continue;
+                    }
+                    let q = pos(other);
+                    // Coincident with a corner (a collapsed twin) never
+                    // blocks; its own zero-area ear clips it.
+                    if q == pa || q == pb || q == pc {
+                        continue;
+                    }
+                    let (Some(s1), Some(s2), Some(s3)) = (
+                        orient_sign_exact(pa, pb, q),
+                        orient_sign_exact(pb, pc, q),
+                        orient_sign_exact(pc, pa, q),
+                    ) else {
+                        return Err(EarclipErr::Other("non-finite cavity polygon"));
+                    };
+                    if s1 >= 0 && s2 >= 0 && s3 >= 0 {
+                        continue 'ear; // inside or on the ear
+                    }
+                }
+                if let Some(inc) = edge_map.get(&edge_key(ia, ic)) {
+                    if inc.iter().any(|t| !cavity.contains(t)) {
+                        continue; // diagonal exists outside the cavity
+                    }
+                }
+            }
+            ears.push((ear, cls0));
+            work.remove(k);
+            clipped = true;
+            break;
+        }
+        if !clipped {
+            return Err(EarclipErr::Other("no clippable ear"));
+        }
+    }
+    let last = [work[0], work[1], work[2]];
+    if !gate_tri_valid(&last, coords, frame) {
+        return Err(EarclipErr::Other("final ear invalid"));
+    }
+    ears.push((last, cls0));
+    if probe {
+        eprintln!("  [reloc-earclip] {probe_who} cavity={} tris", cavity.len());
+    }
+    Ok(ears)
+}
+
 /// Amendment 5 (spec `n2_stage4_junction_cluster_merge` §3, M8 increment 8):
 /// delete-and-reinsert cavity relocation of one minted vertex — the full
 /// [#24 Yang §4.4.1 Fig 11] mesh-updating form, for folds a single Lawson
@@ -1666,16 +1906,16 @@ fn relocate_minted_vertex(
     v: u32,
     coords: &[Point3],
     frame: &Frame,
+    minted_mark: &[bool],
     probe: bool,
-) -> bool {
+) -> RelocOutcome {
     let edge_key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
     let reject = |why: &str| {
         if probe {
             eprintln!("  [reloc-reject] vert {v} {why}");
         }
-        false
+        RelocOutcome::Rejected
     };
-    let pos = |i: u32| frame.project(coords[i as usize]);
 
     // ── 1. Star + oriented link chain ────────────────────────────────────
     let star: Vec<usize> = tris
@@ -1820,159 +2060,33 @@ fn relocate_minted_vertex(
                 edge_map.get(&edge_key(v, wk)).map(|x| x.len()),
             );
         }
-
-        // Exact simplicity + CCW on the DEDUPLICATED position ring
-        // (collapsed sub-floor twins share one resolved position; their
-        // zero-length edges cannot cross anything).
-        let ring: Vec<(f64, f64)> = {
-            let mut r: Vec<(f64, f64)> = Vec::with_capacity(poly.len());
-            for &pi in &poly {
-                let q = pos(pi);
-                if r.last() != Some(&q) {
-                    r.push(q);
+        match earclip_cavity_polygon(
+            &poly,
+            &cavity,
+            cls0,
+            coords,
+            frame,
+            edge_map,
+            probe,
+            &format!("vert {v}"),
+        ) {
+            Ok(ears) => ears,
+            Err(EarclipErr::NotSimple) => {
+                if probe {
+                    eprintln!("  [reloc-reject] vert {v} cavity polygon not simple");
                 }
-            }
-            while r.len() > 1 && r.first() == r.last() {
-                r.pop();
-            }
-            r
-        };
-        if ring.len() < 3 {
-            return reject("degenerate cavity polygon");
-        }
-        {
-            use crate::coplanar_overlay::rat;
-            let mut two_area = RBig::ZERO;
-            for k in 0..ring.len() {
-                let (ax, ay) = ring[k];
-                let (bx, by) = ring[(k + 1) % ring.len()];
-                let Ok(t) = rat(ax).and_then(|axr| Ok(axr * rat(by)? - rat(bx)? * rat(ay)?)) else {
-                    return reject("non-finite cavity polygon");
+                // Amendment 6 trigger: hand the caller the joint seeds —
+                // the OTHER minted vertices on the non-simple polygon.
+                return RelocOutcome::NonSimple {
+                    ring_mints: poly
+                        .iter()
+                        .copied()
+                        .filter(|&pi| pi != v && minted_mark[pi as usize])
+                        .collect(),
                 };
-                two_area += t;
             }
-            if two_area <= RBig::ZERO {
-                return reject("cavity polygon not CCW");
-            }
+            Err(EarclipErr::Other(why)) => return reject(why),
         }
-        let n = ring.len();
-        for a in 0..n {
-            for b in (a + 1)..n {
-                // Adjacent ring edges share exactly one endpoint — allowed.
-                if b == a + 1 || (a == 0 && b == n - 1) {
-                    continue;
-                }
-                let (p1, p2) = (ring[a], ring[(a + 1) % n]);
-                let (q1, q2) = (ring[b], ring[(b + 1) % n]);
-                // Non-adjacent shared position = a pinch.
-                if p1 == q1 || p1 == q2 || p2 == q1 || p2 == q2 {
-                    return reject("cavity polygon pinched (repeated position)");
-                }
-                let (Some(o1), Some(o2), Some(o3), Some(o4)) = (
-                    orient_sign_exact(p1, p2, q1),
-                    orient_sign_exact(p1, p2, q2),
-                    orient_sign_exact(q1, q2, p1),
-                    orient_sign_exact(q1, q2, p2),
-                ) else {
-                    return reject("non-finite cavity polygon");
-                };
-                // Proper crossing, or an endpoint on the other segment's
-                // INTERIOR. Bare collinearity (o == 0 with the point outside
-                // the segment) is NOT an intersection — sweep-event columns
-                // legitimately put many ring vertices on one exact vertical
-                // line, so rejecting all collinear pairs falsely rejects
-                // repairable cavities (measured: F0087 cut 10, vert 186).
-                // Endpoint coincidence was excluded above, so on-segment
-                // here means strictly interior; collinear-overlapping
-                // segments have an endpoint interior to the other and are
-                // caught by the same test.
-                let within = |o: i8, e1: (f64, f64), e2: (f64, f64), q: (f64, f64)| {
-                    o == 0
-                        && q.0 >= e1.0.min(e2.0)
-                        && q.0 <= e1.0.max(e2.0)
-                        && q.1 >= e1.1.min(e2.1)
-                        && q.1 <= e1.1.max(e2.1)
-                };
-                if (o1 * o2 < 0 && o3 * o4 < 0)
-                    || within(o1, p1, p2, q1)
-                    || within(o2, p1, p2, q2)
-                    || within(o3, q1, q2, p1)
-                    || within(o4, q1, q2, p2)
-                {
-                    if probe {
-                        eprintln!(
-                            "  [reloc-ring] edges {a}:({p1:?}->{p2:?}) x {b}:({q1:?}->{q2:?}) \
-                             o=({o1},{o2},{o3},{o4}) ring={ring:?}"
-                        );
-                    }
-                    return reject("cavity polygon not simple");
-                }
-            }
-        }
-
-        // Constrained ear-clip: deterministic first-clippable-ear order.
-        let mut work = poly.clone();
-        let mut ears: Vec<([u32; 3], RegionClass)> = Vec::with_capacity(link.len());
-        while work.len() > 3 {
-            let m = work.len();
-            let mut clipped = false;
-            'ear: for k in 0..m {
-                let (ia, ib, ic) = (work[(k + m - 1) % m], work[k], work[(k + 1) % m]);
-                let ear = [ia, ib, ic];
-                if !gate_tri_degenerate(&ear, coords) {
-                    // Convex, gate-valid, empty, and a NEW diagonal.
-                    if !gate_tri_valid(&ear, coords, frame) {
-                        continue;
-                    }
-                    let (pa, pb, pc) = (pos(ia), pos(ib), pos(ic));
-                    if orient_sign_exact(pa, pb, pc) != Some(1) {
-                        continue;
-                    }
-                    for &other in work.iter() {
-                        if other == ia || other == ib || other == ic {
-                            continue;
-                        }
-                        let q = pos(other);
-                        // Coincident with a corner (a collapsed twin) never
-                        // blocks; its own zero-area ear clips it.
-                        if q == pa || q == pb || q == pc {
-                            continue;
-                        }
-                        let (Some(s1), Some(s2), Some(s3)) = (
-                            orient_sign_exact(pa, pb, q),
-                            orient_sign_exact(pb, pc, q),
-                            orient_sign_exact(pc, pa, q),
-                        ) else {
-                            return reject("non-finite cavity polygon");
-                        };
-                        if s1 >= 0 && s2 >= 0 && s3 >= 0 {
-                            continue 'ear; // inside or on the ear
-                        }
-                    }
-                    if let Some(inc) = edge_map.get(&edge_key(ia, ic)) {
-                        if inc.iter().any(|t| !cavity.contains(t)) {
-                            continue; // diagonal exists outside the cavity
-                        }
-                    }
-                }
-                ears.push((ear, cls0));
-                work.remove(k);
-                clipped = true;
-                break;
-            }
-            if !clipped {
-                return reject("no clippable ear");
-            }
-        }
-        let last = [work[0], work[1], work[2]];
-        if !gate_tri_valid(&last, coords, frame) {
-            return reject("final ear invalid");
-        }
-        ears.push((last, cls0));
-        if probe {
-            eprintln!("  [reloc-earclip] vert {v} cavity={} tris", cavity.len());
-        }
-        ears
     };
     if new_tris.len() != cavity.len() {
         return reject("replacement/cavity size mismatch");
@@ -1993,6 +2107,163 @@ fn relocate_minted_vertex(
         }
     }
     for (&ti, &(t, cls)) in cavity.iter().zip(&new_tris) {
+        tris[ti] = t;
+        class[ti] = cls;
+        for k in 0..3 {
+            edge_map
+                .entry(edge_key(t[k], t[(k + 1) % 3]))
+                .or_default()
+                .push(ti);
+        }
+    }
+    RelocOutcome::Committed
+}
+
+/// Amendment 6 (spec `n2_stage4_junction_cluster_merge` §3, M8 increment 9,
+/// task #64): JOINT delete-and-reinsert relocation of an interacting set of
+/// minted vertices — the [#24 Yang §4.4.1 Fig 11] mesh-updating form
+/// generalized from one vertex's star to the UNION of the seeds' stars, for
+/// the multi-column strip class where each per-vertex cavity polygon is
+/// exactly NON-SIMPLE because it contains the OTHER minted vertex's
+/// collapsed spokes (measured F0087 cut 9: the plate-rim mint and a
+/// hole-rim mint at the two ends of one strip of long CDT triangles).
+///
+/// The region = the union of the seeds' vertex stars. Its oriented
+/// boundary (edges whose reverse no region triangle carries — domain
+/// boundaries qualify by construction) must chain into exactly ONE closed
+/// cycle passing through every region-triangle vertex; the cycle is then
+/// re-triangulated by the shared constrained exact ear-clip
+/// ([`earclip_cavity_polygon`]) with all seeds at their minted positions.
+/// Guards, each a reject (the caller's amendment-2 revert stays the loud
+/// fallback): single class across the region (class-boundary edges — the
+/// intersection curve — are then automatically ON the cycle, never
+/// re-triangulated across); no interior vertex (seed or not — a polygon
+/// triangulation would orphan it); one cycle; exact simplicity + CCW.
+///
+/// Build-then-commit: a reject leaves NO mutation. Purely combinatorial
+/// (`coords` fixed, the amendment-4/5 termination contract): a committed
+/// joint relocation replaces ≥1 folded triangle with all-valid triangles
+/// and no fold can be created, so the gate's folded count strictly
+/// decreases. Deterministic: ascending seeds, smallest-tail cycle start,
+/// first-clippable-ear order (I6). A triangulated simple polygon with no
+/// interior vertices has exactly (cycle length − 2) triangles, so the
+/// replacement count equals the region size and the region's slots are
+/// overwritten in place.
+fn relocate_minted_region(
+    tris: &mut [[u32; 3]],
+    class: &mut [RegionClass],
+    edge_map: &mut BTreeMap<[u32; 2], Vec<usize>>,
+    seeds: &[u32],
+    coords: &[Point3],
+    frame: &Frame,
+    probe: bool,
+) -> bool {
+    let edge_key = |a: u32, b: u32| if a < b { [a, b] } else { [b, a] };
+    let reject = |why: &str| {
+        if probe {
+            eprintln!("  [reloc-region-reject] seeds {seeds:?} {why}");
+        }
+        false
+    };
+
+    // ── 1. Region = union of the seeds' stars; single class ──────────────
+    let region: std::collections::BTreeSet<usize> = tris
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| t.iter().any(|v| seeds.contains(v)))
+        .map(|(i, _)| i)
+        .collect();
+    if region.len() < 2 {
+        return reject("region too small");
+    }
+    let cls0 = class[*region.iter().next().unwrap()];
+    if region.iter().any(|&ti| class[ti] != cls0) {
+        return reject("multi-class region");
+    }
+
+    // ── 2. Oriented boundary cycle ────────────────────────────────────────
+    // A consistent-CCW mesh: an oriented edge (a,b) of a region triangle is
+    // boundary iff no region triangle carries (b,a).
+    let mut oriented: std::collections::BTreeSet<(u32, u32)> = std::collections::BTreeSet::new();
+    for &ti in &region {
+        let t = tris[ti];
+        for k in 0..3 {
+            if !oriented.insert((t[k], t[(k + 1) % 3])) {
+                return reject("duplicate oriented edge (non-manifold region)");
+            }
+        }
+    }
+    let mut nxt: BTreeMap<u32, u32> = BTreeMap::new();
+    let mut boundary_edges = 0usize;
+    for &(a, b) in &oriented {
+        if !oriented.contains(&(b, a)) {
+            if nxt.insert(a, b).is_some() {
+                return reject("non-manifold region boundary (duplicate tail)");
+            }
+            boundary_edges += 1;
+        }
+    }
+    if boundary_edges < 3 {
+        return reject("degenerate region boundary");
+    }
+    let start = *nxt.keys().next().unwrap();
+    let mut poly: Vec<u32> = Vec::with_capacity(boundary_edges);
+    let mut cur = start;
+    for _ in 0..boundary_edges {
+        poly.push(cur);
+        let Some(&next) = nxt.get(&cur) else {
+            return reject("broken region boundary chain");
+        };
+        cur = next;
+    }
+    if cur != start || poly.len() != boundary_edges {
+        return reject("region boundary is not a single closed cycle");
+    }
+
+    // ── 3. No interior vertex (a polygon triangulation would orphan it) ──
+    let on_cycle: std::collections::BTreeSet<u32> = poly.iter().copied().collect();
+    for &ti in &region {
+        for &vv in &tris[ti] {
+            if !on_cycle.contains(&vv) {
+                return reject("region has an interior vertex");
+            }
+        }
+    }
+
+    // ── 4. Shared constrained exact ear-clip ──────────────────────────────
+    let ears = match earclip_cavity_polygon(
+        &poly,
+        &region,
+        cls0,
+        coords,
+        frame,
+        edge_map,
+        probe,
+        &format!("region {seeds:?}"),
+    ) {
+        Ok(ears) => ears,
+        Err(EarclipErr::NotSimple) => return reject("region polygon not simple"),
+        Err(EarclipErr::Other(why)) => return reject(why),
+    };
+    if ears.len() != region.len() {
+        return reject("replacement/region size mismatch");
+    }
+
+    // ── 5. Commit: overwrite the region slots in place ────────────────────
+    let region: Vec<usize> = region.into_iter().collect();
+    for &ti in &region {
+        let t = tris[ti];
+        for k in 0..3 {
+            let kk = edge_key(t[k], t[(k + 1) % 3]);
+            if let Some(e) = edge_map.get_mut(&kk) {
+                e.retain(|&x| x != ti);
+                if e.is_empty() {
+                    edge_map.remove(&kk);
+                }
+            }
+        }
+    }
+    for (&ti, &(t, cls)) in region.iter().zip(&ears) {
         tris[ti] = t;
         class[ti] = cls;
         for k in 0..3 {
@@ -6499,7 +6770,8 @@ mod reloc_tests {
     //! mutation. All fixtures live on the z=0 plane with the identity
     //! frame, so the resolved 3D coords ARE the 2D positions.
 
-    use super::{gate_tri_valid, relocate_minted_vertex, Frame};
+    use super::RelocOutcome;
+    use super::{gate_tri_valid, relocate_minted_region, relocate_minted_vertex, Frame};
     use crate::coplanar_overlay::RegionClass;
     use cad_primitives::Point3;
     use std::collections::BTreeMap;
@@ -6575,8 +6847,12 @@ mod reloc_tests {
             !gate_tri_valid(&[0, 3, 1], &coords, &frame),
             "fixture must start folded"
         );
-        assert!(relocate_minted_vertex(
-            &mut tris, &mut class, &mut em, 0, &coords, &frame, false
+        let minted = vec![true, false, false, false, false];
+        assert!(matches!(
+            relocate_minted_vertex(
+                &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false
+            ),
+            RelocOutcome::Committed
         ));
         // Cavity slots (0,1,2 — star + grown neighbor) fan from v over the
         // final link w2→w1→far→w0; slot 3 untouched.
@@ -6609,8 +6885,12 @@ mod reloc_tests {
         let mut em = edge_map_of(&tris);
         let em0 = em.clone();
         let frame = frame_z0();
-        assert!(!relocate_minted_vertex(
-            &mut tris, &mut class, &mut em, 0, &coords, &frame, false
+        let minted = vec![true, false, false, false, false];
+        assert!(matches!(
+            relocate_minted_vertex(
+                &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false
+            ),
+            RelocOutcome::NonSimple { .. }
         ));
         assert_eq!(tris, tris0, "reject must not mutate triangles");
         assert_eq!(class, class0, "reject must not mutate classes");
@@ -6653,8 +6933,12 @@ mod reloc_tests {
             !gate_tri_valid(&[0, 4, 3], &coords, &frame),
             "fixture must start folded"
         );
-        assert!(relocate_minted_vertex(
-            &mut tris, &mut class, &mut em, 0, &coords, &frame, false
+        let minted = vec![true, false, false, false, false, false, false];
+        assert!(matches!(
+            relocate_minted_vertex(
+                &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false
+            ),
+            RelocOutcome::Committed
         ));
         // Cavity = star (4) + absorbed (a,b,tr) = 5 tris, ear-clipped over
         // the polygon [v, w3, b, tr, a, tl, w0]. Slot 6 untouched.
@@ -6690,5 +6974,127 @@ mod reloc_tests {
         // Rect 8.0 plus the dip of the boundary V at v below y=0:
         // triangle (w0, v, w3) area = 0.5·base(4)·depth(0.3) = 0.6.
         assert!((total - 8.6).abs() < 1e-12, "cover area {total} != 8.6");
+    }
+
+    // ── Amendment 6: joint region relocation (M8 increment 9) ────────────
+
+    /// Region success: the pinch fixture's star-union region (single seed —
+    /// the region form must subsume the per-vertex scope) has the closed
+    /// boundary cycle [v, w3, b, a, tl, w0], simple and CCW at the minted
+    /// position, and ear-clips into exactly region-size triangles with the
+    /// edge map maintained. Non-region slots untouched.
+    #[test]
+    fn region_relocation_retriangulates_star_union() {
+        let mut tris = vec![
+            [1, 0, 2], // (w0, v, tl)
+            [0, 3, 2], // (v, a, tl)
+            [0, 4, 3], // (v, b, a)
+            [0, 5, 4], // (v, w3, b)
+            [4, 5, 6], // (b, w3, tr)
+            [3, 4, 6], // (a, b, tr)
+            [2, 3, 6], // (tl, a, tr)
+        ];
+        let mut class = vec![RegionClass::AOnly; 7];
+        let coords = vec![
+            p(2.2, -0.3), // v (minted)
+            p(0.0, 0.0),  // w0
+            p(0.0, 2.0),  // tl
+            p(2.0, 1.5),  // a
+            p(2.0, 0.5),  // b
+            p(4.0, 0.0),  // w3
+            p(4.0, 2.0),  // tr
+        ];
+        let mut em = edge_map_of(&tris);
+        let frame = frame_z0();
+        assert!(
+            !gate_tri_valid(&[0, 4, 3], &coords, &frame),
+            "fixture must start folded"
+        );
+        assert!(relocate_minted_region(
+            &mut tris,
+            &mut class,
+            &mut em,
+            &[0],
+            &coords,
+            &frame,
+            false
+        ));
+        // Non-region slots untouched.
+        assert_eq!(tris[4], [4, 5, 6]);
+        assert_eq!(tris[5], [3, 4, 6]);
+        assert_eq!(tris[6], [2, 3, 6]);
+        for t in &tris {
+            assert!(
+                gate_tri_valid(t, &coords, &frame),
+                "{t:?} invalid after region relocation"
+            );
+        }
+        assert!(class.iter().all(|&c| c == RegionClass::AOnly));
+        assert_eq!(
+            canon(&em),
+            canon(&edge_map_of(&tris)),
+            "edge map must be maintained incrementally"
+        );
+        // Exact cover unchanged (same domain as the per-vertex fixture).
+        let area = |t: &[u32; 3]| {
+            let q = |i: u32| frame.project(coords[i as usize]);
+            let (p0, p1, p2) = (q(t[0]), q(t[1]), q(t[2]));
+            ((p1.0 - p0.0) * (p2.1 - p0.1) - (p1.1 - p0.1) * (p2.0 - p0.0)) / 2.0
+        };
+        let total: f64 = tris.iter().map(|t| area(t)).sum();
+        assert!((total - 8.6).abs() < 1e-12, "cover area {total} != 8.6");
+    }
+
+    /// Region reject, no mutation: the base fixture's single-seed region
+    /// boundary cycle [v, w2, w1, w0] is exactly NON-SIMPLE at the minted
+    /// position (edge v→w2 crosses edge w1→w0) — the region form rejects
+    /// and leaves everything untouched (the caller's amendment-2 revert
+    /// stays the loud fallback).
+    #[test]
+    fn region_nonsimple_cycle_rejects_without_mutation() {
+        let (mut tris, mut class, coords) = base();
+        let tris0 = tris.clone();
+        let class0 = class.clone();
+        let mut em = edge_map_of(&tris);
+        let em0 = em.clone();
+        let frame = frame_z0();
+        assert!(!relocate_minted_region(
+            &mut tris,
+            &mut class,
+            &mut em,
+            &[0],
+            &coords,
+            &frame,
+            false
+        ));
+        assert_eq!(tris, tris0, "reject must not mutate triangles");
+        assert_eq!(class, class0, "reject must not mutate classes");
+        assert_eq!(em, em0, "reject must not mutate the edge map");
+    }
+
+    /// Region reject: a multi-class region (the strip touches the
+    /// intersection curve) is never re-triangulated across — the class
+    /// boundary IS the constraint.
+    #[test]
+    fn region_multiclass_rejects_without_mutation() {
+        let (mut tris, mut class, coords) = base();
+        class[1] = RegionClass::Overlap; // second star triangle across the curve
+        let tris0 = tris.clone();
+        let class0 = class.clone();
+        let mut em = edge_map_of(&tris);
+        let em0 = em.clone();
+        let frame = frame_z0();
+        assert!(!relocate_minted_region(
+            &mut tris,
+            &mut class,
+            &mut em,
+            &[0],
+            &coords,
+            &frame,
+            false
+        ));
+        assert_eq!(tris, tris0, "reject must not mutate triangles");
+        assert_eq!(class, class0, "reject must not mutate classes");
+        assert_eq!(em, em0, "reject must not mutate the edge map");
     }
 }

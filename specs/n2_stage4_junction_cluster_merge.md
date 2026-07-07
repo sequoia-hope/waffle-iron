@@ -282,6 +282,70 @@ boundary whose retire signal converts it to a positive regression), the
 F0086–F0090 corpus family, full yang-rs/kernel-v2 suites, corpus P9 gate
 (0 WRONG, zero CORRECT lost).
 
+**Joint region relocation (amendment 6, 2026-07-07 — M8 increment 9,
+task #64):** the measured F0087 cut-9 residual — TWO (or more) interacting
+rim mints in one multi-column strip. The plate-rim mint (sagitta ~4.2e-2)
+and a hole-rim mint sit at the two ends of the strip of long CDT triangles
+joining the outer rim to hole-8's rim; each vertex appears on the OTHER's
+cavity polygon, whose long collapsed-spoke edges cross (probe:
+`[reloc-ring] edges 0 x 6` for vert 186, `edges 1 x 7` for vert 189 — the
+polygons are GENUINELY non-simple, so per-vertex Fig-11 relocation is
+exhausted; the amendment-2 revert then leaves chord-position vertices that
+escape as `VertexOffSurface`). The 1-ULP twin columns are NOT the cause
+(increment 4's shared-mint collapse already handles them — `[mint-collapse]`
+fires); the hopped columns are genuine ~5e-3 geometry, so input-level
+welding does not apply (A14.2 protects real features).
+
+Amendment 6 relocates the interacting set JOINTLY — the Fig-11
+delete-and-reinsert generalized from one vertex's star to the UNION of the
+set's stars:
+
+- **Trigger:** a folded emitted triangle whose per-vertex relocations
+  (amendment 5) all reject, at least one with an exactly NON-SIMPLE cavity
+  polygon. The seed set `S` = the folded triangle's minted vertices ∪ the
+  minted vertices found on each non-simple cavity ring (ascending order,
+  deduplicated).
+- **Region:** the union of `S`'s vertex stars. Oriented boundary = the
+  region triangles' edges whose reverse is carried by no region triangle
+  (domain-boundary edges qualify by construction); chained head-to-tail
+  into exactly ONE closed cycle, else reject.
+- **Guards (each rejects → amendment-2 revert, loud):** single class
+  across the region (class-boundary edges are then automatically on the
+  region boundary — the intersection curve is never re-triangulated
+  across); every region-triangle vertex lies ON the boundary cycle (an
+  interior vertex — seed or not — would be orphaned by a polygon
+  triangulation; measured F0087 cut 9 has none); one cycle only; the
+  deduplicated position ring exactly simple and CCW (same rational
+  predicates as amendment 5).
+- **Re-triangulation:** the boundary cycle is re-triangulated by the SAME
+  constrained exact ear-clip as amendment 5 (ears exact-CCW, gate-valid,
+  empty, NEW diagonal; bit-degenerate ears clip freely). A triangulated
+  simple polygon with no interior vertices has exactly `m − 2` triangles
+  (`m` = deduplicated cycle length), so the replacement count equals the
+  region size and the region's triangle slots are overwritten in place;
+  `edge_map` is maintained incrementally (build-then-commit; any reject
+  leaves NO mutation).
+- Purely combinatorial (coords fixed — same termination contract as
+  amendments 4/5: every committed joint relocation replaces ≥1 folded
+  triangle with all-valid triangles, folds cannot be created, the folded
+  count strictly decreases). Deterministic: ascending seed collection,
+  smallest-tail cycle start, first-clippable-ear order (I6).
+
+| Gate case (amendment 6) | Behavior |
+|---|---|
+| per-vertex relocations reject, ≥1 non-simple ring; joint region passes guards + ear-clip | mints KEPT; region re-triangulated jointly |
+| joint region rejects (multi-class / interior vertex / multiple cycles / non-simple / no ear) | amendment-2 revert (unchanged, loud) |
+| per-vertex relocation succeeds | unchanged (amendment 5) |
+
+Research basis: [#24] Yang 2025 §4.4.1 Fig 11 (delete-and-reinsert mesh
+updating — the region form; `refs/text/yang2025_hybrid_boolean.txt:556-560`).
+Oracles: `f0087_cut9_stays_loud_offsurface_wall` (pinned boundary; its
+retire signal converts it to a positive regression) + the `#[ignore]`d
+`f0087_engine_frame_full_ten_hole_chain` green target; stage0 unit tests
+on the joint fn (interlocking-pair fixture, reject-no-mutation, mutation
+checks); F0086–F0090 family; full yang-rs/kernel-v2 suites; corpus P9
+gate (0 WRONG, zero CORRECT lost).
+
 ### 3b. CONTINGENT part 2 — Stage-4 Fig-11(b) junction-cluster merge
 
 Implement ONLY if, after part 1 is green at Stage-0, the acceptance oracle I1
