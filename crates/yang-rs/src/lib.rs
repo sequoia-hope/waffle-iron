@@ -6776,19 +6776,27 @@ fn cylinders_are_coincident(surf0: Surface, surf1: Surface, tol: f64) -> bool {
 enum ProvMiss {
     /// The kept triangle's `source` has no parent triangle from this input
     /// (e.g. a cut/arrangement triangle with only the OTHER input's lineage).
+    /// On a lineage-carrying input this is a producer FAULT (loud).
     NoSourceEntry,
-    /// The parent-triangle index is outside this input's `tri_face` map — the
-    /// producer emitted no (or a too-short) provenance map for this input.
+    /// This input emitted NO provenance map at all (empty `tri_face`) — a
+    /// LINEAGE-LESS input: a yang boolean OUTPUT chained directly back in,
+    /// or a `from_mesh` B-Rep. This is the documented geometric-resolution
+    /// path (task #53), NOT a fault.
+    NoLineage,
+    /// The map is present but the parent-triangle index lies beyond it —
+    /// the producer emitted a TOO-SHORT provenance map (fault, loud).
     NoMap,
     /// The producer minted this triangle but could not attribute it to a face
     /// (`u32::MAX` sentinel — e.g. the coincident-cylinder band strip with no
-    /// covering arc column).
+    /// covering arc column). Fault, loud.
     Sentinel,
 }
 
 /// N4 (§4.2.3): map a kept triangle to its owning B-Rep face via the
 /// arrangement's per-triangle provenance. `Ok(face)` on a hit; `Err(reason)`
-/// records WHY it missed, so the caller can measure fallback reachability.
+/// records WHY it missed — `NoLineage` is the one non-fault reason (the
+/// input never had a provenance map), everything else is loud at the caller
+/// (task #53, spec `specs/n4_retire_stage6_fallback.md`).
 fn provenance_face_reason(
     source: &[(LaInputId, u32)],
     surface_input: InputId,
@@ -6799,6 +6807,9 @@ fn provenance_face_reason(
         InputId::A => (0, tri_face_a),
         InputId::B => (1, tri_face_b),
     };
+    if tf.is_empty() {
+        return Err(ProvMiss::NoLineage);
+    }
     let &(_, local) = source
         .iter()
         .find(|&&(LaInputId(k), _)| k == want_k)
@@ -7414,22 +7425,29 @@ pub fn boolean(
         // DIRECTLY from its parent input triangle (cherchi `source` → `tri_face`)
         // — exact, no geometry, no tolerance. Works for non-coplanar AND coplanar
         // overlaps (the latter via the Stage-0 re-tessellated meshes' face maps).
-        // Falls through to the geometric resolution below only where provenance is
-        // unavailable: an empty `source` (a producer without provenance, e.g. the
-        // sidecar oracle), or a Stage-0 path / input that did not emit `tri_face`.
+        //
+        // N4 RETIREMENT (task #53, spec `specs/n4_retire_stage6_fallback.md`):
+        // on a lineage-CARRYING input, a provenance MISS is a producer fault
+        // and fails LOUDLY — the `YANG_N4_FALLBACK_PROBE` measurement proved
+        // zero misses across the full corpus, and a silent geometric guess can
+        // misattribute (the failure class N4 eliminated) while masking
+        // provenance regressions. The geometric resolution below remains ONLY
+        // for LINEAGE-LESS attribution: an arrangement without `source` (the
+        // dev-only C++ sidecar oracle and the in-crate mock-label fixtures;
+        // reference parity depends on it) or an input without a provenance
+        // map (`ProvMiss::NoLineage` — a yang boolean OUTPUT chained directly
+        // back in, or a `from_mesh` B-Rep).
         if !la.source.is_empty() {
             match provenance_face_reason(&la.source[orig_t], input, tri_face_a, tri_face_b) {
                 Ok(face) => {
                     attributions.push(Some(TriangleAttribution { input, face }));
                     continue;
                 }
-                // N4 retirement measurement (`YANG_N4_FALLBACK_PROBE`): a
-                // native-backend triangle whose provenance MISSED, so the
-                // geometric fallback below is genuinely reached. The reason names
-                // which producer still leaves a triangle un-provenanced. Zero-cost
-                // when the env is unset; never changes behavior (the fallback runs
-                // exactly as before).
+                // Lineage-less input: the documented geometric path below.
+                Err(ProvMiss::NoLineage) => {}
                 Err(reason) => {
+                    // Env-gated diagnostic naming the miss reason; the error
+                    // itself is unconditional.
                     if std::env::var_os("YANG_N4_FALLBACK_PROBE").is_some() {
                         eprintln!(
                             "[n4-fallback] input={input:?} orig_t={orig_t} reason={reason:?} \
@@ -7439,6 +7457,7 @@ pub fn boolean(
                             tri_face_b.len(),
                         );
                     }
+                    return Err(YangError::FaceResolutionFailed { tri: compact_t });
                 }
             }
         }
@@ -13805,6 +13824,63 @@ mod tests {
                 assert_eq!(tri, 0, "F3 should name the offending tri index");
             }
             other => panic!("expected FaceResolutionFailed (F3), got {other:?}"),
+        }
+    }
+
+    /// N4 retirement (task #53, spec `specs/n4_retire_stage6_fallback.md`):
+    /// on a provenance-CARRYING arrangement, a triangle whose provenance
+    /// MISSES must fail loudly — never a silent geometric guess. The
+    /// triangle lies ON A's bottom face plane, so the old geometric
+    /// fallback would happily (mis)attribute it; the miss is a
+    /// `NoSourceEntry` (its source names only input B while the surface
+    /// label says A).
+    #[test]
+    fn n4_provenance_miss_errors_loudly() {
+        let a = cube_brep([0.0, 0.0, 0.0]);
+        let b = cube_brep([0.5, 0.3, 0.4]);
+        let verts = vec![p(0.1, 0.1, 0.0), p(0.4, 0.1, 0.0), p(0.1, 0.4, 0.0)];
+        let mesh = Mesh::new(verts, vec![[0u32, 1, 2]]);
+        let la = LabeledArrangement {
+            mesh,
+            surface: vec![vec![LaInputId(0)]], // claims solid A's surface…
+            inside: vec![vec![false, false]],  // kept by Union
+            patch: vec![0],
+            // …but provenance names only input B: a NoSourceEntry miss.
+            source: vec![vec![(LaInputId(1), 0)]],
+            num_inputs: 2,
+        };
+        let backend = LabelMockBackend::new(la);
+        match boolean(&a, &b, BoolOp::Union, &backend) {
+            Err(YangError::FaceResolutionFailed { tri }) => {
+                assert_eq!(tri, 0, "the miss should name the offending tri");
+            }
+            other => panic!("provenance miss must be loud (FaceResolutionFailed), got {other:?}"),
+        }
+    }
+
+    /// N4 retirement: the `NoMap` miss reason (parent index beyond the
+    /// input's `tri_face` map) is equally loud.
+    #[test]
+    fn n4_provenance_out_of_range_parent_errors_loudly() {
+        let a = cube_brep([0.0, 0.0, 0.0]);
+        let b = cube_brep([0.5, 0.3, 0.4]);
+        let verts = vec![p(0.1, 0.1, 0.0), p(0.4, 0.1, 0.0), p(0.1, 0.4, 0.0)];
+        let mesh = Mesh::new(verts, vec![[0u32, 1, 2]]);
+        let la = LabeledArrangement {
+            mesh,
+            surface: vec![vec![LaInputId(0)]],
+            inside: vec![vec![false, false]],
+            patch: vec![0],
+            // Parent index far beyond A's 12-triangle Stage-1 map: NoMap.
+            source: vec![vec![(LaInputId(0), 9999)]],
+            num_inputs: 2,
+        };
+        let backend = LabelMockBackend::new(la);
+        match boolean(&a, &b, BoolOp::Union, &backend) {
+            Err(YangError::FaceResolutionFailed { tri }) => {
+                assert_eq!(tri, 0, "the miss should name the offending tri");
+            }
+            other => panic!("provenance miss must be loud (FaceResolutionFailed), got {other:?}"),
         }
     }
 

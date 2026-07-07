@@ -462,7 +462,18 @@ membrane path (band-strip triangles attributed by azimuth to their arc-patch
 face; `u32::MAX` sentinel → geometric fallback where a column has no covering
 arc). Geometric attribution remains only for lineage-less / sidecar-backend
 inputs; it can be RETIRED once those are the sole remaining consumers.
-**Sign-off:** pending (retire geometric path).
+**RETIRED (2026-07-07, task #53, spec `specs/n4_retire_stage6_fallback.md`):**
+the `YANG_N4_FALLBACK_PROBE` measurement proved ZERO fallback hits across the
+full corpus on the native backend. A provenance MISS on a lineage-carrying
+input (NoSourceEntry / too-short map / `u32::MAX` sentinel) is now a LOUD
+`FaceResolutionFailed` — never a silent geometric guess. The geometric path
+survives solely for LINEAGE-LESS attribution (documented contract): an
+arrangement without `source` (the dev-only C++ sidecar oracle,
+`tests/backend_parity.rs`; the in-crate mock-label fixtures) or an input
+without a `tri_face` map (a yang boolean OUTPUT chained directly back in —
+the yr27/F0066 pattern — or a `from_mesh` B-Rep).
+**Sign-off:** resolved (provenance is the sole production path; geometric =
+oracle/lineage-less contract only).
 
 ### N5 — Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2 CDT framework
 
