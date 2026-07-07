@@ -404,7 +404,18 @@ pub fn revolve(
         );
     }
 
-    let frame = validate_revolve_geometry(profile, axis_origin, axis_direction)?;
+    let frame = match validate_revolve_geometry(profile, axis_origin, axis_direction) {
+        // KV6 on-axis slice 1 (spec `specs/kv6_on_axis_revolve_rectangle.md`,
+        // task #65): the clearance rejection conflates CROSSING (invalid
+        // input) with TOUCHING (a legitimate solid of revolution). Recover
+        // the full-turn single-on-axis-edge rectangle — the lathe shaft —
+        // as the canonical solid cylinder; every other on-axis shape keeps
+        // the typed error (C0063/C0064 cones/frusta are KV6c slice 2).
+        Err(KernelV2Error::RevolveAxisIntersectsProfile) if full_turn => {
+            return on_axis_rectangle_revolve(arena, profile, axis_origin, axis_direction);
+        }
+        f => f?,
+    };
 
     if full_turn {
         build_full_revolve(arena, &frame)
@@ -860,6 +871,157 @@ fn build_partial_revolve(
         start_cap: f_start,
         end_cap: f_end,
         walls,
+    })
+}
+
+/// KV6 on-axis slice 1 (spec `specs/kv6_on_axis_revolve_rectangle.md`,
+/// task #65): full-turn revolve of a 4-gon with exactly ONE on-axis edge —
+/// the lathe shaft. The on-axis edge sweeps the rotation's fixed line
+/// (degenerate, interior to the solid); its adjacent perpendicular edges
+/// sweep full DISCS; the off-axis parallel edge sweeps the lateral. The
+/// result is EXACTLY the canonical KV5a cylinder, so the construction
+/// DELEGATES to `extrude` of a synthesized cap-plane circle profile —
+/// bit-canonical with extrude-of-circle, no new topology code.
+///
+/// Reached only where `validate_revolve_geometry` returned
+/// `RevolveAxisIntersectsProfile` (axis finite + in-plane and the region a
+/// hole-free polygon are already verified — the clearance check is the
+/// LAST rejection in that function). Everything that is not this slice's
+/// shape — crossing profiles, on-axis cones/frusta (C0063/C0064, KV6c),
+/// degenerate rectangles — returns the ORIGINAL typed error, pre-mutation.
+fn on_axis_rectangle_revolve(
+    arena: &mut BrepArena,
+    profile: &Profile,
+    axis_origin: Point3,
+    axis_direction: Vector3,
+) -> Result<RevolveResult, KernelV2Error> {
+    const REJECT: KernelV2Error = KernelV2Error::RevolveAxisIntersectsProfile;
+    // Axis frame — the same formulas and constants as
+    // `validate_revolve_geometry` (â verified finite/in-plane there).
+    let d = [axis_direction.x(), axis_direction.y(), axis_direction.z()];
+    let d_len = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    let a = UnitVector3 {
+        x: d[0] / d_len,
+        y: d[1] / d_len,
+        z: d[2] / d_len,
+    };
+    let n = profile.unit_normal();
+    let wx = [
+        n.y * a.z - n.z * a.y,
+        n.z * a.x - n.x * a.z,
+        n.x * a.y - n.y * a.x,
+    ];
+    let w_len = (wx[0] * wx[0] + wx[1] * wx[1] + wx[2] * wx[2]).sqrt();
+    let mut w = UnitVector3 {
+        x: wx[0] / w_len,
+        y: wx[1] / w_len,
+        z: wx[2] / w_len,
+    };
+    let outer = match profile.region() {
+        ProfileRegion::Polygon { outer, holes } if holes.is_empty() => outer,
+        _ => return Err(REJECT),
+    };
+    let embedded: Vec<Point3> = outer.iter().map(|&p| profile.embed(p)).collect();
+    let radial = |p: &Point3, w: &UnitVector3| {
+        (p.x() - axis_origin.x()) * w.x
+            + (p.y() - axis_origin.y()) * w.y
+            + (p.z() - axis_origin.z()) * w.z
+    };
+    // Same radial sign rule as the validator: ŵ points to the material side.
+    if embedded.iter().map(|p| radial(p, &w)).sum::<f64>() < 0.0 {
+        w = UnitVector3 {
+            x: -w.x,
+            y: -w.y,
+            z: -w.z,
+        };
+    }
+    let mut t = Vec::with_capacity(embedded.len());
+    let mut s = Vec::with_capacity(embedded.len());
+    let mut scale = 0.0f64;
+    for p in &embedded {
+        let dx = [
+            p.x() - axis_origin.x(),
+            p.y() - axis_origin.y(),
+            p.z() - axis_origin.z(),
+        ];
+        t.push(dx[0] * a.x + dx[1] * a.y + dx[2] * a.z);
+        s.push(radial(p, &w));
+        scale = scale.max(dx[0].abs()).max(dx[1].abs()).max(dx[2].abs());
+    }
+    let clearance = REVOLVE_MIN_AXIS_CLEARANCE_REL * (1.0 + scale);
+    // No explicit crossing branch: the ŵ sign rule normalizes an
+    // all-negative profile to positive, and a genuinely mixed-sign
+    // (crossing) profile cannot present 2 on-axis + 2 equal-radius
+    // vertices below, so every crossing input falls out of the shape
+    // gates with the same typed error (branch-minimal per Constitution §7;
+    // `full_turn_crossing_profile_stays_rejected` pins it).
+
+    // ---- slice-1 shape: 4-gon, exactly one on-axis edge -------------------
+    if embedded.len() != 4 {
+        return Err(REJECT);
+    }
+    let on = |i: usize| s[i].abs() <= clearance;
+    let on_idx: Vec<usize> = (0..4).filter(|&i| on(i)).collect();
+    if on_idx.len() != 2 {
+        return Err(REJECT);
+    }
+    let adjacent = on_idx[1] == on_idx[0] + 1 || (on_idx[0] == 0 && on_idx[1] == 3);
+    if !adjacent {
+        return Err(REJECT);
+    }
+    let off_idx: Vec<usize> = (0..4).filter(|&i| !on(i)).collect();
+    let band = REVOLVE_EDGE_ALIGNMENT_TOLERANCE * (1.0 + scale);
+    // The off-axis edge must be axis-parallel (one lateral radius)…
+    if (s[off_idx[0]] - s[off_idx[1]]).abs() > band {
+        return Err(REJECT);
+    }
+    // …and each cap edge axis-perpendicular (on-axis vertex and its
+    // off-axis ring neighbor at the same axial coordinate).
+    for &i in &on_idx {
+        for j in [(i + 3) % 4, (i + 1) % 4] {
+            if !on(j) && (t[i] - t[j]).abs() > band {
+                return Err(REJECT);
+            }
+        }
+    }
+
+    // ---- canonical cylinder via the extrude-of-circle construction --------
+    let (o0, o1) = (off_idx[0], off_idx[1]);
+    let (bot, top) = if t[o0] <= t[o1] { (o0, o1) } else { (o1, o0) };
+    let radius = s[bot];
+    let height = t[top] - t[bot];
+    if radius <= clearance || height <= band {
+        return Err(REJECT); // degenerate rectangle — never a silent sliver
+    }
+    // Cap-plane frame: (ŵ, m̂ = â × ŵ) spans the plane ⊥ â with
+    // ŵ × m̂ = â, so the synthesized profile's normal IS the axis and the
+    // extrude direction is exactly normal (cosine 1).
+    let m = UnitVector3 {
+        x: a.y * w.z - a.z * w.y,
+        y: a.z * w.x - a.x * w.z,
+        z: a.x * w.y - a.y * w.x,
+    };
+    let origin = Point3::new(
+        axis_origin.x() + t[bot] * a.x,
+        axis_origin.y() + t[bot] * a.y,
+        axis_origin.z() + t[bot] * a.z,
+    );
+    let circle = Profile::circle(
+        origin,
+        Vector3::new(w.x, w.y, w.z),
+        Vector3::new(m.x, m.y, m.z),
+        Point2::new(0.0, 0.0),
+        radius,
+    )?;
+    let ex = extrude(arena, &circle, Vector3::new(a.x, a.y, a.z), height)?;
+    // I3: same 360° result convention as the washer branch — start cap at
+    // the axial minimum (outward −â), end cap at the maximum (+â).
+    Ok(RevolveResult {
+        solid: ex.solid,
+        shell: ex.shell,
+        start_cap: ex.base,
+        end_cap: ex.top,
+        walls: ex.walls,
     })
 }
 

@@ -1,8 +1,8 @@
 {
-  "errored": 40,
+  "errored": 37,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 183,
+  "passed": 186,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -1529,16 +1529,16 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "2 engine error(s): 6093ab1b-b1ab-4c52-ab66-e1af91722702: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile; 6093a81b-b1ab-4739-ab66-deaf917221e9: GeomRef resolution failed: Cut revolve requires an existing body to subtract from",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0061",
-      "status": "error"
+      "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "2 engine error(s): 473a381b-a37e-4e3b-920d-6eaf834488eb: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile; 473a3b1b-a37e-4354-920d-71af83448e04: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0062",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",
@@ -1577,10 +1577,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "4 engine error(s): 1beaf31b-8af6-4eaa-a6be-29af6abcc95a: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile; 1beaf01b-8af6-4991-a6be-26af6abcc441: GeomRef resolution failed: Cut revolve requires an existing body to subtract from; 1beae91b-8af6-4dac-a6be-1faf6abcb85c: GeomRef resolution failed: Cut revolve requires an existing body to subtract from; 669327cd-209d-4982-91e3-35125ec40f72: GeomRef resolution failed: Cut revolve requires an existing body to subtract from",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0069",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "ERROR",

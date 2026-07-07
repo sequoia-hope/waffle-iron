@@ -883,3 +883,163 @@ fn kv6d_partial_torus_revolve_validates() {
         "partial torus mesh volume {vol} vs analytic {exact} (5% facet band)"
     );
 }
+
+// =========================================================================
+// 8. KV6 on-axis slice 1: rectangle → solid cylinder (task #65, spec
+//    `specs/kv6_on_axis_revolve_rectangle.md`)
+// =========================================================================
+
+/// Rectangle x∈[0,H], y∈[0,R2] — the y=0 edge lies ON the revolve axis
+/// (the lathe-shaft profile, C0061/C0062/C0069's primary op).
+fn on_axis_rect_profile() -> Profile {
+    Profile::new(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(H, 0.0),
+            Point2::new(H, R2),
+            Point2::new(0.0, R2),
+        ],
+        vec![],
+    )
+    .expect("on-axis rect profile")
+}
+
+/// Full-turn revolve of the on-axis rectangle = the canonical solid
+/// cylinder (I1–I3): KV5a census, analytic π·r²·h volume, watertight mesh.
+#[test]
+fn on_axis_rectangle_full_turn_builds_solid_cylinder() {
+    let mut arena = BrepArena::new();
+    let profile = on_axis_rect_profile();
+    let r = revolve(&mut arena, &profile, AXIS_O, AXIS_D, 2.0 * PI)
+        .expect("on-axis full-turn revolve (the lathe shaft)");
+
+    let report = validate_solid(&arena, r.solid).expect("shaft validates");
+    assert_eq!(report.vertices, 2, "one seam vertex per rim circle");
+    assert_eq!(report.edges, 3, "2 rim circles + 1 seam ruling");
+    assert_eq!(report.faces, 3, "2 disc caps + 1 lateral");
+    assert_eq!(report.shells, 1);
+    assert_eq!(report.genus, 0, "a solid cylinder is a ball topologically");
+
+    // I3: caps at the axial extremes, walls = the single lateral.
+    assert_eq!(r.walls.len(), 1, "one lateral cylinder");
+    let (planes, cyls, rev) = surface_census(&arena, all_faces(&arena, &r));
+    assert_eq!(
+        (planes, cyls, rev),
+        (2, 1, 0),
+        "2 disc caps + outer lateral"
+    );
+    match arena.face(r.walls[0]).expect("lateral").surface {
+        Some(Surface::Cylinder { radius, .. }) => {
+            assert!((radius - R2).abs() <= 1e-12 * R2, "lateral radius {radius}")
+        }
+        s => panic!("lateral surface {s:?}"),
+    }
+
+    // I2: analytic volume π·R2²·H (tessellation-independent).
+    let vol = geom::signed_volume(&arena, r.solid).expect("analytic shaft volume");
+    let want = PI * R2 * R2 * H;
+    assert!(
+        (vol - want).abs() <= 1e-12 * want,
+        "shaft volume {vol} != π·r²·h {want}"
+    );
+
+    // Mesh oracles: watertight, positive volume within the chord band.
+    let mesh = tessellate(&arena, r.solid).expect("tessellate shaft");
+    assert_mesh_sane(&mesh, "shaft mesh");
+    assert_watertight(&mesh, "shaft mesh");
+    let mv = mesh_signed_volume(&mesh);
+    assert!(
+        mv > 0.0 && mv <= want + 1e-9 && mv >= 0.98 * want,
+        "shaft mesh volume {mv} outside chord band of {want}"
+    );
+}
+
+/// Branch row: an on-axis profile that is NOT the single-on-axis-edge
+/// rectangle (the C0063 cone class — apex ON the axis) keeps today's
+/// typed rejection, pre-mutation.
+#[test]
+fn on_axis_triangle_full_turn_stays_rejected() {
+    let triangle = Profile::new(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(H, 0.0),
+            Point2::new(0.0, R2),
+        ],
+        vec![],
+    )
+    .expect("on-axis triangle profile");
+    let mut arena = BrepArena::new();
+    let err = revolve(&mut arena, &triangle, AXIS_O, AXIS_D, 2.0 * PI)
+        .expect_err("on-axis cone is KV6c slice 2");
+    assert_eq!(err, KernelV2Error::RevolveAxisIntersectsProfile);
+    assert_eq!(arena, BrepArena::new(), "arena untouched");
+}
+
+/// Branch row: determinism — two identical on-axis shaft revolves produce
+/// bit-identical arenas.
+#[test]
+fn on_axis_shaft_deterministic() {
+    let build = || {
+        let mut arena = BrepArena::new();
+        let profile = on_axis_rect_profile();
+        revolve(&mut arena, &profile, AXIS_O, AXIS_D, 2.0 * PI).expect("shaft");
+        arena
+    };
+    assert_eq!(build(), build(), "on-axis revolve must be deterministic");
+}
+
+/// Adversarial: a full-turn CROSSING profile (material on both radial
+/// sides) must stay invalid input — the recovery branch splits touching
+/// from crossing.
+#[test]
+fn full_turn_crossing_profile_stays_rejected() {
+    let crossing = Profile::new(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(0.0, -1.0),
+            Point2::new(H, -1.0),
+            Point2::new(H, R2),
+            Point2::new(0.0, R2),
+        ],
+        vec![],
+    )
+    .expect("crossing profile");
+    let mut arena = BrepArena::new();
+    let err = revolve(&mut arena, &crossing, AXIS_O, AXIS_D, 2.0 * PI)
+        .expect_err("full-turn crossing profile");
+    assert_eq!(err, KernelV2Error::RevolveAxisIntersectsProfile);
+    assert_eq!(arena, BrepArena::new(), "arena untouched");
+}
+
+/// Adversarial: an on-axis 4-gon whose off-axis edge is OBLIQUE (the
+/// C0064 solid-frustum class — two different radii) is not the slice-1
+/// shape; typed, pre-mutation.
+#[test]
+fn on_axis_oblique_quad_full_turn_stays_rejected() {
+    let frustum = Profile::new(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(H, 0.0),
+            Point2::new(H, R1),
+            Point2::new(0.0, R2),
+        ],
+        vec![],
+    )
+    .expect("on-axis frustum profile");
+    let mut arena = BrepArena::new();
+    let err = revolve(&mut arena, &frustum, AXIS_O, AXIS_D, 2.0 * PI)
+        .expect_err("on-axis frustum is KV6c slice 2");
+    assert_eq!(err, KernelV2Error::RevolveAxisIntersectsProfile);
+    assert_eq!(arena, BrepArena::new(), "arena untouched");
+}

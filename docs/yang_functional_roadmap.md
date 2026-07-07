@@ -2399,6 +2399,19 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   relocates intersection points off-surface, caught loudly by the output
   Newell check / AmbiguousCurve.
 
+- **KV6 on-axis slice 1 — lathe shaft (rectangle touching the axis). ✅
+  SHIPPED (2026-07-07, task #65, spec
+  `specs/kv6_on_axis_revolve_rectangle.md`).** `revolve` no longer
+  conflates axis-CROSSING (invalid input) with axis-TOUCHING: a full-turn
+  4-gon with exactly one on-axis edge — the most common lathe op — now
+  builds the canonical KV5a solid cylinder by DELEGATING to the
+  extrude-of-circle construction (no new topology code; analytic π·r²·h
+  volume bitwise-adjacent). C0061/C0062/C0069 ERROR→SUPPORTED_CORRECT
+  including their chained groove-cut booleans; corpus 183→186 CORRECT /
+  0 WRONG. Remaining on-axis shapes (C0063/C0064 solid cones/frusta —
+  apex or on-axis edge + oblique) stay on the typed boundary = KV6c
+  slice 2's vocabulary.
+
 - **KV6b-F3 — plane∥axis × cylinder line case. ✅ RESOLVED (2026-06-12,
   PR-F3 + PR-F3b).** ssi-rs pair #2's C3a/C3b line branches were already
   correct; the defects were ALL in yang Stage 4: (1) `LineSegment`
