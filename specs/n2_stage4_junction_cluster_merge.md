@@ -185,6 +185,103 @@ amendment at cut 2, exactly the corpus replay's failure), the F0086–F0090
 corpus family, full yang-rs/kernel-v2 suites, corpus P9 gate (0 WRONG, zero
 CORRECT lost).
 
+**Cavity relocation (amendment 5, 2026-07-07 — M8 holed-disc increment 8,
+task #62, spec `m8_holed_disc_coplanar_overlay` §8):** the measured
+F0087/F0089/F0090 residual — the rim-mint COLUMN HOP. Stage 1's global chord
+bound (`d_ε = 1e-2·AABB-diag`) gives a large plate a coarse uniform rim
+(F0087: N=14, sagitta 4.9e-2), so a rim mint's in-plane u-displacement can
+exceed the gap to a POPULATED sweep-event column (F0087 cut 7: displacement
+1.3e-2 vs gap 8.9e-3 to the tool's leftmost-x column). Every long CDT
+triangle in the strip between the two columns folds together; amendment 4's
+single flips provably cannot repair it (each folded tri's rim edge is domain
+boundary, its side edges neighbor other FOLDED tris), and the folded set's
+boundary polygon is NON-SIMPLE under the moved vertex (it pokes past the
+hopped column), so fan/ear re-triangulation of the folded set alone cannot
+either. Sampling floors measured and rejected (`YANG_NSEG_FLOOR`, 9f37aa5c):
+the hop survives at every finite N; N=56 clears this chain at 5× runtime.
+Amendment 5 wires the full Fig-11 form — delete-and-reinsert vertex
+relocation, a constrained star-cavity re-triangulation around the minted
+position:
+
+- When a folded emitted triangle with ≥1 minted vertex admits NO
+  legal+accepted flip, each of its minted vertices `v` is tried in fixed
+  vertex-slot order for **cavity relocation**:
+  1. **Star collection:** all triangles incident to `v`. The link chain is
+     assembled from the star triangles' oriented opposite edges (consistent-
+     CCW mesh ⇒ head-to-tail chaining); open chain for a domain-boundary
+     vertex, closed for an interior one. A non-manifold or non-chainable
+     star rejects (revert fallback).
+  2. **Cavity carve (constrained visibility growth, deferring at
+     constraints):** the cavity starts as the star; each link edge carries
+     the class of the cavity triangle that exposed it. The candidate fan
+     triangle over a link edge is `(v, wᵢ, wᵢ₊₁)` under the CURRENT
+     resolved coordinates. While some fan triangle is invalid (2D signed
+     area ≤ 0 and not 3D-bit-degenerate), the cavity grows across that link
+     edge into its one external neighbor — growable iff the edge has
+     exactly one external incident triangle (a single-incidence edge is the
+     domain boundary), the neighbor's class equals the link edge's class (a
+     class-boundary edge IS the intersection curve — never crossed), and
+     the neighbor's apex is not already a link vertex nor `v` (a repeat
+     pinches the cavity non-simple). An UNGROWABLE invalid edge is
+     DEFERRED, not fatal. Growth strictly enlarges the cavity (termination)
+     and blocked edges can never become growable (fan validity is
+     coordinate-determined; externals only shrink), so one forward scan
+     with in-place re-checks is a fixpoint.
+  3. **Re-triangulation:** if no edge was deferred, the fan
+     `(v, wᵢ, wᵢ₊₁)` IS the re-triangulation (each member valid by
+     construction, carrying its link edge's class). Otherwise the cavity is
+     not star-shaped from `v`'s minted position — measured F0087 cut 7: the
+     mint crosses the LINE of a tool chord whose constraint segment lies
+     elsewhere, so the fan over that chord inverts and growth may not cross
+     it — and the cavity polygon `[v, w₀, …, w_k]` is re-triangulated by
+     **constrained exact ear-clipping** instead: the constraint edge stays
+     a cavity BOUNDARY, connected to other link vertices rather than `v`.
+     Guards, each a reject: single-class cavity and open chain only (no
+     constraint spokes to preserve); the polygon must be exactly simple and
+     CCW on its deduplicated position ring (rational predicates over the
+     raw f64 frame projections — P9, no tolerance); an ear needs exact-CCW
+     orientation, gate validity, no other polygon vertex strictly inside or
+     on it, and a diagonal that does not already exist outside the cavity.
+     Ears whose 3D image is bit-degenerate (collapsed sub-floor twins) clip
+     freely — they are dropped at emission (M-B class).
+  4. **Commit:** cavity triangle count equals replacement count (a
+     boundary star of k triangles has a k-edge open chain; each growth step
+     adds one triangle and one link edge; a (k+2)-gon ear-clips to k
+     triangles), so the replacement overwrites the cavity triangles in
+     place; the edge map is updated incrementally. Constraint edges are
+     never removed, so region-interface and domain-boundary polylines are
+     preserved.
+- The amendment-2 revert remains the fallback when every minted vertex of
+  the folded triangle rejects (build-then-commit: a rejected relocation
+  leaves NO mutation). Nothing is silently blessed: the loud tripwire path
+  stays intact.
+- Termination of the combined gate: coordinates are fixed during a
+  relocation (pure combinatorial rewrite, same contract as amendment 4's
+  flips); every committed relocation replaces ≥1 folded triangle with
+  all-valid triangles and folds cannot be created (no coordinates move), so
+  the folded count strictly decreases; flips strictly decrease it; reverts
+  are one-way. The fixpoint loop is deterministic (triangle-index order,
+  vertex-slot order, first-invalid-link-edge growth order — I6).
+
+| Gate case (amendment 5) | Behavior |
+|---|---|
+| folded emitted tri, ≥1 minted vert, no flip, all fan triangles valid after growth | mint KEPT; cavity re-fanned from the minted position |
+| …deferred constraint edge remains, single-class open-chain cavity, simple CCW polygon, ear-clip completes | mint KEPT; cavity ear-clipped (constraint edges stay cavity boundaries) |
+| …all relocations reject (multi-class / interior vertex / non-simple polygon / no clippable ear / non-manifold star) | amendment-2 revert to chord lift (unchanged) |
+| all other gate cases | unchanged (amendments 2–4) |
+
+Research basis: [#24] Yang 2025 §4.4.1 Fig 11 (delete-and-reinsert mesh
+updating for repositioned boundary vertices; `refs/text/
+yang2025_hybrid_boolean.txt:556-560`); Bowyer–Watson cavity insertion
+(visibility-carved star-shaped cavity, fanned from the inserted point) as
+the classical constrained realization. Oracles: the F0087 engine-frame
+chain (`kernel-v2/tests/m8_swiss_cheese_chain.rs::
+f0087_engine_frame_seven_hole_chain`, `#[ignore]`d green target committed
+RED at f5e49bc8; `f0087_cut7_stays_loud_offsurface_wall` is the pinned
+boundary whose retire signal converts it to a positive regression), the
+F0086–F0090 corpus family, full yang-rs/kernel-v2 suites, corpus P9 gate
+(0 WRONG, zero CORRECT lost).
+
 ### 3b. CONTINGENT part 2 — Stage-4 Fig-11(b) junction-cluster merge
 
 Implement ONLY if, after part 1 is green at Stage-0, the acceptance oracle I1

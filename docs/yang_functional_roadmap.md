@@ -261,6 +261,16 @@ the roadmap's remaining work:
    >    clusters displaced ~4.6e-2, no legal flip) + F0088's typed
    >    partial-patch re-entry. Oracles: `m8_swiss_cheese_chain.rs`
    >    `engine_frame_*` (the corpus geometry, direct constructors).
+   >    **Increment 8 (2026-07-07, task #62): SHIPPED** — Fig-11
+   >    delete-and-reinsert cavity relocation in the fold gate (amendment
+   >    5: star carve + constrained visibility growth deferring at
+   >    intersection-curve/domain-boundary edges + constrained exact
+   >    ear-clip when the cavity is not star-shaped from the mint). The
+   >    rim-mint COLUMN-HOP class is repaired; F0087 cut 7 GREEN. Corpus:
+   >    0 WRONG / 183 CORRECT (+5) / zero lost; F0087/F0089/F0090
+   >    ERROR→typed UNSUPPORTED. **The whole residual family
+   >    F0087–F0090 now sits on ONE wall: curved partial-patch operand
+   >    re-entry (to_yang) — the next lever for this row.**
 2. **N4 — face provenance by centroid-proximity, not §4.2.3 barycentric
    provenance.** Stage-6 attributes each kept triangle by centroid-in-plane
    distance + a tolerance tier (`tol_for`). The paper maps each point to BOTH

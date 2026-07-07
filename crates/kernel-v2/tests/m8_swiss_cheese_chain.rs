@@ -246,28 +246,20 @@ fn run_f0087_chain(
     Ok((a, body))
 }
 
-/// Stays-loud pin for the increment-8 wall: cut 7 of the F0087 chain fails
-/// with the TYPED off-surface tripwire (never a silent wrong result). When
-/// increment 8 (fold-cavity re-triangulation) lands, this pin fires its
-/// retire signal — convert it to a positive regression and un-ignore
-/// `f0087_engine_frame_seven_hole_chain`.
+/// Regression for the retired increment-8 wall (was: the pin
+/// `f0087_cut7_stays_loud_offsurface_wall`, which asserted the TYPED
+/// `VertexOffSurface` boundary until amendment 5's cavity relocation
+/// landed): cut 7 — the first cut whose tool x-extreme sweep column lands
+/// inside a rim-chord mint's displacement (the COLUMN HOP) — must succeed
+/// with a fully valid output.
 #[test]
-fn f0087_cut7_stays_loud_offsurface_wall() {
-    let err = run_f0087_chain(7).expect_err(
-        "F0087 cut 7 unexpectedly succeeded — increment 8 landed? Retire this \
-         pin and un-ignore f0087_engine_frame_seven_hole_chain",
-    );
-    assert!(
-        matches!(err, kernel_v2::KernelV2Error::VertexOffSurface { .. }),
-        "F0087 cut 7 wall changed class (expected VertexOffSurface): {err:?}"
-    );
-    // Cuts 1–6 must stay green — the wall is cut 7 specifically.
-    run_f0087_chain(6).expect("F0087 cuts 1-6 regressed");
+fn f0087_cut7_column_hop_relocates() {
+    let (a, s) = run_f0087_chain(7).expect("cut 7 (rim-mint column hop) regressed to an error");
+    validate_solid(&a, s).expect("cut 7 succeeded but output is invalid");
 }
 
 /// Increment 8 green target: the 7-cut F0087 chain end-to-end.
 #[test]
-#[ignore = "M8 increment 8: fold-cavity re-triangulation (rim-mint column hop, spec n2_stage4_junction_cluster_merge §3)"]
 fn f0087_engine_frame_seven_hole_chain() {
     let (a, s) = run_f0087_chain(7).expect("chain");
     let mesh = tessellate(&a, s).expect("tessellate");

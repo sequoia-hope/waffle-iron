@@ -461,3 +461,31 @@ frequency reducer, not a fix). N=56 (sagitta 3.1e-3) happens to clear
 this chain but costs 61s vs ~12s (5×) on the 7-cut chain alone —
 corpus-prohibitive under exact arithmetic. Increment 8's design is
 therefore fixed on VERTEX RELOCATION, not sampling.
+
+**Increment 8 (2026-07-07, task #62) — cavity relocation SHIPPED (spec
+`n2_stage4_junction_cluster_merge` §3 amendment 5).** The Fig-11
+delete-and-reinsert form in the Stage-0 fold gate: when no single flip
+repairs a fold, the minted vertex's star is carved out and
+re-triangulated around its resolved position — constrained visibility
+growth (Bowyer–Watson) that DEFERS at uncrossable edges (class boundary
+= intersection curve; domain boundary; pinch), then, if any deferral
+remains (the cavity is not star-shaped from the mint: F0087 cut 7's
+mint crosses the LINE of a tool chord whose segment lies elsewhere), a
+constrained exact ear-clip of the cavity polygon — the constraint edge
+stays a cavity BOUNDARY connected to other link vertices instead of
+`v`. Build-then-commit; every reject falls back to the amendment-2
+revert (loud). Oracles: `f0087_engine_frame_seven_hole_chain`
+RED→GREEN (pin `f0087_cut7_stays_loud_offsurface_wall` fired its retire
+signal → converted to `f0087_cut7_column_hop_relocates`); 3 unit
+oracles on `relocate_minted_vertex` (fan-with-growth / pinch-defer→
+ear-clip / reject-without-mutation), 2 mutation checks caught (inverted
+ear orientation; neutered class-boundary constraint). The F0087 chain
+needs exactly ONE ear-clip relocation (8-tri cavity). Corpus P9 gate
+(294, parallel 240s cap): **0 SUPPORTED_WRONG, 183 CORRECT (+5: F0065,
+F0071, F0080, R0031, R0075), zero CORRECT lost, 0 TIMEOUT; 10 cases
+ERROR→typed UNSUPPORTED** (F0087, F0089, F0090, F0067, F0069,
+F0082–F0085, R0061); results.json refreshed in-commit. **REMAINING #62
+scope: the ENTIRE residual family F0087/F0088/F0089/F0090 now sits on
+ONE typed wall — `boolean: curved partial-patch operand` (a previous
+cut's partial cylindrical patch cannot re-enter to_yang) — the
+partial-patch re-entry boundary, next increment's lever.**

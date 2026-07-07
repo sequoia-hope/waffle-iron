@@ -913,9 +913,11 @@ fn smoke_corpus_boundary_categories() {
         // folds with constrained Lawson edge flips instead of reverting;
         // the engine-frame chain (`m8_swiss_cheese_chain.rs::engine_frame_*`)
         // pins the mechanism at the kernel level. F0086 replays
-        // end-to-end. (F0087/F0089/F0090 carry a SECOND fold class —
-        // contiguous rim-mint clusters whose displacement exceeds the
-        // hole-to-rim clearance, no legal flip — still loud ERROR.)
+        // end-to-end. Increment 8 (amendment 5, Fig-11 cavity relocation)
+        // repaired the second fold class — the rim-mint COLUMN HOP — so
+        // F0087/F0089/F0090 moved ERROR → the typed curved partial-patch
+        // re-entry boundary they share with F0088 (the family's next
+        // lever).
         ("F0086", Category::SupportedCorrect),
         // PR-TH2 (KV5b-F2 resolved): the enclosed-cavity families
         // F0031–F0035 (box-minus-cyl) and F0036–F0040 (cyl-minus-box)

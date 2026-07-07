@@ -1,8 +1,8 @@
 {
-  "errored": 37,
+  "errored": 40,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 178,
+  "passed": 183,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -71,8 +71,8 @@
       "status": "error"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 240s (subprocess killed)",
+      "category": "ERROR",
+      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(1023), reason: \"planar triangle collapsed at render precision\" }",
       "id": "R0012",
       "status": "error"
     },
@@ -162,7 +162,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "2 engine error(s): 8492418f-aba5-4982-893d-b463f23ca0a3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: EmptyBooleanResult; ee06ff04-16c2-4c2f-9202-1443c15f41ab: operation error: kernel error: kernel error: kernel-v2 revolve failed: VertexOffSurface { face: FaceId(654) }",
+      "detail": "1 engine error(s): 8492418f-aba5-4982-893d-b463f23ca0a3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: EmptyBooleanResult",
       "id": "R0027",
       "status": "error"
     },
@@ -185,10 +185,10 @@
       "status": "pass"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 240s (subprocess killed)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0031",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(revolve)",
@@ -347,8 +347,8 @@
       "status": "pass"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 240s (subprocess killed)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): 14c8d47a-d667-435e-902f-c7745c307a90: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: EmptyBooleanResult",
       "id": "R0058",
       "status": "error"
     },
@@ -365,10 +365,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): c032f2e8-9766-4502-9430-29829c8e2a31: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: NonPlanarFace { face: FaceId(468) }",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(455) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "R0061",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -449,10 +449,10 @@
       "status": "unsupported"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 240s (subprocess killed)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0075",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(multi-shell)",
@@ -989,10 +989,10 @@
       "status": "error"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 240s (subprocess killed)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0065",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1001,38 +1001,38 @@
       "status": "pass"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 240s (subprocess killed)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 10: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0067",
-      "status": "error"
+      "status": "unsupported"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 240s (subprocess killed)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 11: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\"). Body created as standalone.",
       "id": "F0068",
       "status": "error"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 240s (subprocess killed)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 10: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0069",
-      "status": "error"
+      "status": "unsupported"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 240s (subprocess killed)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 12: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\"). Body created as standalone.",
       "id": "F0070",
       "status": "error"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 240s (subprocess killed)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0071",
-      "status": "error"
+      "status": "pass"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 240s (subprocess killed)",
+      "category": "ERROR",
+      "detail": "2 auto-union failure(s): Extrude 9: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\"). Body created as standalone.; Extrude 11: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: malformed B-Rep topology: face 4: azimuth-merge rims have mismatched / too-few samples (229 vs 230)\"). Body created as standalone.",
       "id": "F0072",
       "status": "error"
     },
@@ -1067,22 +1067,22 @@
       "status": "pass"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 240s (subprocess killed)",
+      "category": "ERROR",
+      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(2997), reason: \"planar triangle collapsed at render precision\" }",
       "id": "F0078",
       "status": "error"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 240s (subprocess killed)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 8: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\"). Body created as standalone.",
       "id": "F0079",
       "status": "error"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 240s (subprocess killed)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0080",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
@@ -1091,28 +1091,28 @@
       "status": "unsupported"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 240s (subprocess killed)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: Extrude 7: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(1875) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "F0082",
-      "status": "error"
+      "status": "unsupported"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 240s (subprocess killed)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(17) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "F0083",
-      "status": "error"
+      "status": "unsupported"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 240s (subprocess killed)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 15: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(2420) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "F0084",
-      "status": "error"
+      "status": "unsupported"
     },
     {
-      "category": "TIMEOUT",
-      "detail": "timeout after 240s (subprocess killed)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "3 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(13) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "F0085",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1121,28 +1121,28 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "3 engine error(s): 959d490e-56d0-468d-a685-f787822d9eb3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(66) }; 8177419b-a800-45e5-aa21-8dbfb551cedd: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(96) }; cff4b068-f798-465e-b66f-9c0d8c2d49ac: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(113) }",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: cff4b068-f798-465e-b66f-9c0d8c2d49ac: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(98) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "F0087",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
-      "detail": "6 NotSupported boundary(ies); first: 39562d75-57bf-424f-8553-f9fface8d3ef: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(85) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "detail": "3 NotSupported boundary(ies); first: ec22ad34-47f6-433d-a85e-f0b0ac8600af: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(132) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "F0088",
       "status": "unsupported"
     },
     {
-      "category": "ERROR",
-      "detail": "2 engine error(s): 5c486a6a-5f02-4342-9858-edafe6c11dc8: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(107) }; 50feefd7-0d6c-477b-9198-17942abb96f3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(123) }",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "9 NotSupported boundary(ies); first: d1f95069-ee42-483b-ac04-30d0b02241d6: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(123) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "F0089",
-      "status": "error"
+      "status": "unsupported"
     },
     {
-      "category": "ERROR",
-      "detail": "22 engine error(s): fdfd7e9a-1c85-4a18-8c5b-1f29497a4cf3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(65) }; d62b3b66-a4ff-4c5e-80b8-5fc049dc41f1: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(105) }; 781a278e-7b28-4177-8a5d-0da524aa13ee: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(120) }; c894b663-bf1a-467c-977d-f819030a6fce: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(135) }; 39df4b93-47a9-4169-8799-cd5078301f05: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(150) }; 6379063d-ec0d-472a-84b5-4a7844f75093: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(165) }; 670cd229-1738-4d8b-a75e-43ecd4c677c2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(180) }; cb47a826-970a-4098-8f85-1cff362422d0: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(195) }; 0ca92907-cdf3-4715-8cc2-cf958790df53: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(211) }; 129db7f9-c1ca-4959-92b0-9d1c9173f43e: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(227) }; f5f54959-b1cf-49b9-bc59-b5db7971471b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(243) }; d3650c80-b7d6-43c2-81c1-415a4c2255ba: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(259) }; d7855346-989a-4a11-94c6-340fc47ac58f: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(275) }; 3cd86634-ee93-47c2-bdc4-31c9d3256e0c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(291) }; 78806cea-a9ac-40a6-a206-a4b88ff8d54c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(307) }; c8c56c89-89b1-4c67-8f8e-fbbbf1f5614f: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(323) }; e6cdf8b5-4c4e-4d1f-bf04-b1112272bacf: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(339) }; 43306642-d7d5-46e3-abb9-03b05b46bbf2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(355) }; bb939f98-6086-44ac-aaf0-506810bcf56e: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(371) }; 7537b9a5-6a67-4464-acc1-633a832906e2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(387) }; 5197e397-351d-46b4-b80f-c2a0c90d891b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(403) }; b40378ad-3947-4b02-a651-ec3270051d9b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: VertexOffSurface { face: FaceId(419) }",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "23 NotSupported boundary(ies); first: 485890bb-27b6-4eec-9cdf-b45ca7ab511e: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(65) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "F0090",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "SUPPORTED_CORRECT",
