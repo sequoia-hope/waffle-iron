@@ -203,3 +203,83 @@ fn third_cut_reenters_multi_hole_plate() {
         .expect("cut 3 re-entry (multi-hole plate) regressed to an error");
     validate_solid(&a, s).expect("cut 3 succeeded but output is invalid");
 }
+
+// ── F0087 fixture (seed 30002): the increment-8 wall ──────────────────────
+// A LARGER plate (r≈1.98) tessellates at the same global N=14 (Stage-1
+// chord bound d_ε = 1e-2·AABB-diag), so its rim-chord mints displace by up
+// to ~5.6e-2 — enough to HOP a populated sweep-event column (e.g. the
+// current tool's leftmost-x extreme, gap 8.9e-3 at cut 7). The whole strip
+// of long CDT triangles between the columns folds together; amendment 4's
+// single edge flips cannot repair a multi-column hop (each folded tri's rim
+// edge is domain boundary, its side edges neighbor other FOLDED tris), the
+// gate reverts, and the chord vertices escape — `VertexOffSurface`.
+// Increment 8's scope: boundary-vertex relocation with cavity
+// re-triangulation ([#24 Yang §4.4.1 Fig 11] delete-and-reinsert; the fold
+// cavity's boundary polygon is non-simple under the moved vertex, so flips
+// and fan re-triangulation both provably cannot fix it).
+
+const F87_R: f64 = 1.980614275128782;
+const F87_T: f64 = 0.2957032583668985;
+const F87_HR: f64 = 0.06795332546654638;
+/// First 7 of F0087's 10 holes — cut 7 (the first blind hole whose tool
+/// x-extreme column lands inside a rim-chord mint's displacement) walls.
+const F87_HOLES: [(f64, f64, f64); 7] = [
+    (1.2057456832734317, -0.7407823118143758, 0.8793439139633998),
+    (1.3247776006386347, 0.32932385946597764, 0.5419497090202422),
+    (0.01070787823164016, 0.47572151833582316, 0.6340016327568604),
+    (1.1071210367136741, -1.4684405095030146, 0.8405076970234028),
+    (-0.3405596239373243, 0.6167097868169978, 0.5008573650944282),
+    (-1.393454312371825, -1.1027644265256487, 0.18704715810097103),
+    (1.2093902365320994, 0.6573884082549064, 0.1703244805285629),
+];
+
+fn run_f0087_chain(
+    n_holes: usize,
+) -> Result<(BrepArena, kernel_v2::SolidId), kernel_v2::KernelV2Error> {
+    let mut a = BrepArena::new();
+    let mut body = cyl_engine_frame(&mut a, 0.0, 0.0, F87_R, 0.0, F87_T);
+    for &(hx, hy, d) in F87_HOLES.iter().take(n_holes) {
+        let tool = cyl_engine_frame(&mut a, hx, hy, F87_HR, 0.0, d);
+        body = boolean_op(&mut a, body, tool, BoolOp::Subtract)?;
+        validate_solid(&a, body)?;
+    }
+    Ok((a, body))
+}
+
+/// Stays-loud pin for the increment-8 wall: cut 7 of the F0087 chain fails
+/// with the TYPED off-surface tripwire (never a silent wrong result). When
+/// increment 8 (fold-cavity re-triangulation) lands, this pin fires its
+/// retire signal — convert it to a positive regression and un-ignore
+/// `f0087_engine_frame_seven_hole_chain`.
+#[test]
+fn f0087_cut7_stays_loud_offsurface_wall() {
+    let err = run_f0087_chain(7).expect_err(
+        "F0087 cut 7 unexpectedly succeeded — increment 8 landed? Retire this \
+         pin and un-ignore f0087_engine_frame_seven_hole_chain",
+    );
+    assert!(
+        matches!(err, kernel_v2::KernelV2Error::VertexOffSurface { .. }),
+        "F0087 cut 7 wall changed class (expected VertexOffSurface): {err:?}"
+    );
+    // Cuts 1–6 must stay green — the wall is cut 7 specifically.
+    run_f0087_chain(6).expect("F0087 cuts 1-6 regressed");
+}
+
+/// Increment 8 green target: the 7-cut F0087 chain end-to-end.
+#[test]
+#[ignore = "M8 increment 8: fold-cavity re-triangulation (rim-mint column hop, spec n2_stage4_junction_cluster_merge §3)"]
+fn f0087_engine_frame_seven_hole_chain() {
+    let (a, s) = run_f0087_chain(7).expect("chain");
+    let mesh = tessellate(&a, s).expect("tessellate");
+    let vol = mesh_signed_volume(&mesh);
+    let mut analytic = std::f64::consts::PI * F87_R * F87_R * F87_T;
+    for &(_, _, d) in F87_HOLES.iter() {
+        analytic -= std::f64::consts::PI * F87_HR * F87_HR * d.min(F87_T);
+    }
+    // N=14 on the plate rim ⇒ ~1.1% polygon deficit; 3% band still rejects
+    // a dropped cap / missing hole.
+    assert!(
+        (vol - analytic).abs() / analytic < 0.03,
+        "7-hole F0087 plate volume {vol} outside band of analytic {analytic}"
+    );
+}

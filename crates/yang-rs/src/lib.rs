@@ -803,6 +803,13 @@ fn stage1_tessellate_inner(
             if let Some(force) = min_n_seg {
                 n_seg = n_seg.max(force);
             }
+            if std::env::var_os("YANG_SPLIT_PROBE").is_some() {
+                eprintln!(
+                    "[stage1-nseg] n_seg={n_seg} d_eps={d_eps:e} max_r={max_r} \
+                     min_n_seg={min_n_seg:?} circles={}",
+                    circle_edges.len()
+                );
+            }
 
             // Build the shared sample CHAIN for each circle edge (PR-KV6b-1):
             // a full circle (`start == end`) gets the closed seam-anchored

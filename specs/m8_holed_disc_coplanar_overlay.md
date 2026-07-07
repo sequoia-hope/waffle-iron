@@ -425,3 +425,32 @@ order beyond the sagitta and beyond the hole-to-rim clearance — with no
 legal flip (constraint-bounded folds). Diagnose why those chords are that
 deep (coarse recovered-rim sampling?) before choosing between Stage-0
 strip refinement and the full Fig-11 cavity update.**
+
+**Increment 8 diagnosis (2026-07-07, task #62) — rim-mint COLUMN HOP,
+measured end-to-end.** NOT recovered-rim degradation: the F0087 plate's
+rim is a FRESH Stage-1 uniform 14-gon. The Stage-1 chord bound is global
+(`d_ε = 1e-2·AABB-diag`, `n_seg` smallest with sagitta ≤ d_ε), so the
+r≈1.98 plate gets N=14 with sagitta ≈ 4.9e-2 — mint displacements are ~1%
+of model size by construction. At F0087 cut 7 (probe `[fold-tri]` +
+`[ring-density]` + `[stage1-nseg]`, since removed/kept-tiny), a rim-chord
+mint's u-component (1.3e-2) exceeds the gap (8.9e-3) to the CURRENT
+tool's leftmost-x sweep column — the mint HOPS a populated event column.
+Every long CDT triangle in the strip between the two columns folds
+together; amendment 4's single flips provably cannot repair it (each
+folded tri's rim edge is domain boundary; its side edges neighbor other
+FOLDED tris — `[flip-reject]` shows only `domain-boundary` +
+`replacements invalid`), and the fold-cavity's boundary polygon is
+NON-SIMPLE under the moved vertex (it pokes past the hopped column), so
+cavity fan/ear re-triangulation of the folded set alone also cannot fix
+it. Failing ops are exactly the cuts whose tool x-extreme column lands
+inside a rim mint's displacement (F0087 holes 7/9/10). **Increment 8
+scope: boundary-vertex RELOCATION — Yang §4.4.1 Fig 11 delete-and-
+reinsert (remove the minted vertex's star, re-insert at the on-circle
+position with constrained point location + cavity carve), the first full
+mesh-updating consumer at Stage-0. Alternative/complementary knob: a
+principled Stage-1 sampling criterion for coplanar pairs (sagitta ≤
+fraction of the pair's min inter-feature clearance) via the existing
+`min_n_seg` machinery — decide in increment 8's spec phase.** Boundary
+pinned: `m8_swiss_cheese_chain.rs::f0087_cut7_stays_loud_offsurface_wall`
+(cuts 1–6 green, cut 7 typed VertexOffSurface) + `#[ignore]`d green
+target `f0087_engine_frame_seven_hole_chain`.

@@ -821,21 +821,30 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                 // folds crossing another input's edges are NOT flippable —
                 // their edges are class boundaries).
                 let mut flipped = false;
+                let probe_flip = std::env::var_os("YANG_SPLIT_PROBE").is_some();
                 for k in 0..3 {
                     let (ea, eb) = (t[k], t[(k + 1) % 3]);
                     let c = t[(k + 2) % 3];
+                    let reject = |why: &str| {
+                        if probe_flip {
+                            eprintln!("  [flip-reject] tri {ti} edge ({ea},{eb}) {why}");
+                        }
+                    };
                     let Some(inc) = edge_map.get(&edge_key(ea, eb)) else {
                         continue;
                     };
                     if inc.len() != 2 {
+                        reject("domain-boundary (1 incident tri)");
                         continue;
                     }
                     let tj = if inc[0] == ti { inc[1] } else { inc[0] };
                     if overlay.class[tj] != overlay.class[ti] {
+                        reject("class-boundary (constraint)");
                         continue;
                     }
                     let tn = overlay.tris[tj];
                     if tri_degenerate(&tn, &coords) {
+                        reject("neighbor 3D-degenerate");
                         continue;
                     }
                     let Some(d) = tn.iter().copied().find(|&v| v != ea && v != eb) else {
@@ -844,6 +853,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                     // The replacement diagonal must be NEW — an existing
                     // (c,d) edge would go non-manifold in 2D.
                     if edge_map.contains_key(&edge_key(c, d)) {
+                        reject("diagonal exists");
                         continue;
                     }
                     // Consistent-CCW mesh: the neighbor traverses (eb, ea).
@@ -854,6 +864,7 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
                     let n1 = [ea, d, c];
                     let n2 = [d, eb, c];
                     if !tri_valid(&n1, &coords) || !tri_valid(&n2, &coords) {
+                        reject("replacements invalid");
                         continue;
                     }
                     for (idx, old) in [(ti, t), (tj, tn)] {
