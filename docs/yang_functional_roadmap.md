@@ -2438,6 +2438,30 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   (`UnsupportedCurvedBoolean` — the 1-half-edge lateral loop fails
   `to_yang`'s 4-edge pattern loudly).
 
+- **KV6 on-axis slice 2 increment B — solid apex cone (C0063 primary). ✅
+  SHIPPED (2026-07-07, task #66, same spec).** The on-axis APEX TRIANGLE
+  (one perpendicular cap edge + one oblique edge reaching the axis) builds
+  the SOLID CONE: 1 seam vertex, 1 edge (base rim), 2 faces — the apex is
+  an INTERIOR SINGULAR POINT of the lateral (yang's own cone model), not a
+  topological vertex; V−E+F = 2 holds and the vertex-fan orbit closes at
+  arity 2. New 1-rim apex branches in `validate_cone_face` (outward sense
+  = rim traversal axis toward the apex; `reversed` apex cavities rejected
+  typed — no producer), `signed_volume` (same frustum flux with ρ_lo = 0 —
+  exact π·r²·h/3), and `tessellate_cone_lateral` (base ring in the cap's
+  bitwise frame + apex fan reusing the 2-rim strip's orientation
+  transform; watertight against the disc cap). Apex-cone boolean OPERANDS
+  stay typed (`UnsupportedCurvedBoolean` → adapter NotSupported — the
+  1-half-edge lateral loop fails `to_yang`'s 4-edge pattern). **C0063
+  moves ERROR → UNSUPPORTED(curved-profile)**: the primary cone builds;
+  the case's real boundary is its OBLIQUE slab cut (conic-bounded cone
+  patch — the genuine cone-patch vocabulary, still future work with
+  KV6c 5c's oblique-cut note). Adversary: fan-winding and lateral-rim-
+  sense mutations both caught; bicone triangles pinned typed;
+  reversed-apex fixture pinned typed. Remaining KV6 revolve gaps after
+  this slice: KV6d torus boolean-output recovery, C0070 non-alternating
+  profiles, oblique cone cuts (conic-bounded patches), partial-angle
+  on-axis profiles.
+
 - **KV6b-F3 — plane∥axis × cylinder line case. ✅ RESOLVED (2026-06-12,
   PR-F3 + PR-F3b).** ssi-rs pair #2's C3a/C3b line branches were already
   correct; the defects were ALL in yang Stage 4: (1) `LineSegment`

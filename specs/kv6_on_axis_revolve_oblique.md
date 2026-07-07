@@ -2,7 +2,9 @@
 
 Status: increment A **SHIPPED** (2026-07-07, task #66 — C0064 flips
 ERROR → SUPPORTED_CORRECT on its exact-volume oracle, pinned green);
-increment B IN PROGRESS. Corpus drivers: C0064 (three stacked solid
+increment B **SHIPPED** (2026-07-07 — C0063 moves ERROR →
+UNSUPPORTED(curved-profile): the solid cone builds, the oblique slab cut
+lands on the typed curved re-entry wall, pinned). Corpus drivers: C0064 (three stacked solid
 frusta, exact-volume oracle) and C0063 (solid cone + oblique slab cut —
 tracker case; the cut stays on the conic-patch typed boundary, but the
 PRIMARY solid must build). Slice 1 (`kv6_on_axis_revolve_rectangle.md`)

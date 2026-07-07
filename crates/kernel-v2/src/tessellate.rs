@@ -953,13 +953,13 @@ fn tessellate_cone_lateral(
     out: &mut RenderMesh,
 ) -> Result<(), KernelV2Error> {
     let face = arena.face(fid)?;
-    let (half_angle, axis_dir, reversed) = match face.surface {
+    let (apex, half_angle, axis_dir, reversed) = match face.surface {
         Some(Surface::Cone {
+            apex,
             half_angle,
             axis_dir,
             reversed,
-            ..
-        }) => (half_angle, axis_dir, reversed),
+        }) => (apex, half_angle, axis_dir, reversed),
         _ => {
             return Err(KernelV2Error::TessellationFailed {
                 face: fid,
@@ -981,6 +981,96 @@ fn tessellate_cone_lateral(
             rims.push((center, normal, radius, arena.vertex(he.origin)?.point));
         }
     }
+
+    // KV6 slice 2B: the APEX form — a single base rim, the apex an interior
+    // singular point. The base ring is sampled with the cap's bitwise frame
+    // (watertight against the disc cap, the PR-KV7 scheme); the "top row" is
+    // n_seg copies of the apex point carrying per-azimuth cone normals, and
+    // the same bottom-row index transform as the 2-rim strip is applied so
+    // each fan triangle winds outward exactly as the strip's first triangle
+    // does. Only the outward solid sense has a producer; a reversed apex
+    // cavity is rejected typed (matching `validate_cone_face`).
+    if let [rim] = rims[..] {
+        if reversed {
+            return Err(KernelV2Error::TessellationFailed {
+                face: fid,
+                reason: "apex-cone cavity (reversed) is outside the KV6c vocabulary",
+            });
+        }
+        let (c0, nu, r, anc) = rim;
+        let range_start = out.indices.len() as u32;
+        let base = out.num_vertices() as u32;
+        let n = n_seg;
+        // Base ring: identical sampling to `sample_row` (cap frame).
+        let cap_nu = UnitVector3 {
+            x: -nu.x,
+            y: -nu.y,
+            z: -nu.z,
+        };
+        let Some((e1, e2)) = circle_frame(c0, cap_nu, anc) else {
+            return Err(KernelV2Error::TessellationFailed {
+                face: fid,
+                reason: "degenerate circle frame (anchor does not span a radial direction)",
+            });
+        };
+        let radial_at = |k: u32| {
+            let theta = 2.0 * std::f64::consts::PI * (k as f64) / (n as f64);
+            let (s, c) = theta.sin_cos();
+            [
+                c * e1[0] + s * e2[0],
+                c * e1[1] + s * e2[1],
+                c * e1[2] + s * e2[2],
+            ]
+        };
+        for k in 0..n {
+            let radial = radial_at(k);
+            out.positions.extend_from_slice(&[
+                c0.x() + r * radial[0],
+                c0.y() + r * radial[1],
+                c0.z() + r * radial[2],
+            ]);
+            out.normals.extend_from_slice(&[
+                ca * radial[0] - sa * axis_dir.x,
+                ca * radial[1] - sa * axis_dir.y,
+                ca * radial[2] - sa * axis_dir.z,
+            ]);
+        }
+        // Apex row: bit-identical apex positions, per-azimuth normals.
+        for k in 0..n {
+            let radial = radial_at(k);
+            out.positions
+                .extend_from_slice(&[apex.x(), apex.y(), apex.z()]);
+            out.normals.extend_from_slice(&[
+                ca * radial[0] - sa * axis_dir.x,
+                ca * radial[1] - sa * axis_dir.y,
+                ca * radial[2] - sa * axis_dir.z,
+            ]);
+        }
+        // Same orientation logic as the 2-rim strip with axis_up = apex − c0:
+        // the fan triangle [bk, bk1, apex(k)] is the strip's [bk, bk1, tk1]
+        // with the degenerate second triangle dropped.
+        let axis_up = [apex.x() - c0.x(), apex.y() - c0.y(), apex.z() - c0.z()];
+        let along = cap_nu.x * axis_up[0] + cap_nu.y * axis_up[1] + cap_nu.z * axis_up[2];
+        let idx = |k: u32| -> u32 {
+            if along >= 0.0 {
+                k % n
+            } else {
+                (n - (k % n)) % n
+            }
+        };
+        for k in 0..n {
+            let (bk, bk1) = (base + idx(k), base + idx(k + 1));
+            let ak = base + n + idx(k);
+            out.indices.extend_from_slice(&[bk, bk1, ak]);
+        }
+        out.face_ranges.push(FaceRange {
+            face: fid,
+            start: range_start,
+            count: out.indices.len() as u32 - range_start,
+        });
+        return Ok(());
+    }
+
     let [rim_a, rim_b] = rims[..] else {
         return Err(KernelV2Error::TessellationFailed {
             face: fid,

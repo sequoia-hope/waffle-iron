@@ -957,12 +957,11 @@ fn on_axis_rectangle_full_turn_builds_solid_cylinder() {
     );
 }
 
-/// Branch row: an on-axis profile that is NOT the single-on-axis-edge
-/// rectangle (the C0063 cone class — apex ON the axis) keeps today's
-/// typed rejection, pre-mutation.
-#[test]
-fn on_axis_triangle_full_turn_stays_rejected() {
-    let triangle = Profile::new(
+/// On-axis apex-triangle profile (the C0063 primary): on-axis edge
+/// (0,0)→(H,0), oblique edge from the apex at (H,0) out to radius R2 at
+/// t=0, perpendicular cap edge back to the axis at t=0.
+fn on_axis_triangle_profile() -> Profile {
+    Profile::new(
         Point3::new(0.0, 0.0, 0.0),
         Vector3::new(1.0, 0.0, 0.0),
         Vector3::new(0.0, 1.0, 0.0),
@@ -973,12 +972,149 @@ fn on_axis_triangle_full_turn_stays_rejected() {
         ],
         vec![],
     )
-    .expect("on-axis triangle profile");
+    .expect("on-axis triangle profile")
+}
+
+/// Slice 2 increment B (I3, I5, I6): full-turn revolve of the on-axis
+/// apex triangle = the SOLID CONE — 1 seam vertex, 1 edge (the base rim),
+/// 2 faces (disc cap + apex lateral, the apex an interior singular point,
+/// yang's own cone model), exact volume π·r²·h/3, watertight mesh.
+/// (Replaces the slice-boundary pin
+/// `on_axis_triangle_full_turn_stays_rejected` — the boundary moved.)
+#[test]
+fn on_axis_triangle_full_turn_builds_solid_cone() {
     let mut arena = BrepArena::new();
-    let err = revolve(&mut arena, &triangle, AXIS_O, AXIS_D, 2.0 * PI)
-        .expect_err("on-axis cone is KV6c slice 2");
+    let profile = on_axis_triangle_profile();
+    let r = revolve(&mut arena, &profile, AXIS_O, AXIS_D, 2.0 * PI)
+        .expect("on-axis full-turn apex-cone revolve");
+
+    let report = validate_solid(&arena, r.solid).expect("apex cone validates");
+    assert_eq!(report.vertices, 1, "one seam vertex on the base rim");
+    assert_eq!(report.edges, 1, "the base rim circle");
+    assert_eq!(report.faces, 2, "disc cap + apex lateral");
+    assert_eq!(report.shells, 1);
+    assert_eq!(report.genus, 0);
+
+    // I3: the lateral is the analytic apex cone — apex at (H, 0, 0) on
+    // the axis, axis_dir from the apex toward the base rim (−x̂),
+    // half_angle = atan(R2/H).
+    assert_eq!(r.walls.len(), 1, "one apex-cone lateral");
+    let want_half_angle = (R2 / H).atan();
+    match arena.face(r.walls[0]).expect("lateral").surface {
+        Some(Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+            reversed,
+        }) => {
+            assert!(!reversed, "outer solid lateral");
+            assert!(
+                (apex.x() - H).abs() <= 1e-12 * H
+                    && apex.y().abs() <= 1e-15
+                    && apex.z().abs() <= 1e-15,
+                "apex {apex:?} != ({H}, 0, 0)"
+            );
+            assert!(
+                (axis_dir.x + 1.0).abs() <= 1e-15
+                    && axis_dir.y.abs() <= 1e-15
+                    && axis_dir.z.abs() <= 1e-15,
+                "axis_dir {axis_dir:?} != -x̂"
+            );
+            assert!(
+                (half_angle - want_half_angle).abs() <= 1e-15,
+                "half_angle {half_angle} != {want_half_angle}"
+            );
+        }
+        s => panic!("lateral surface {s:?}"),
+    }
+
+    // I6: the single disc cap fills both result fields.
+    assert_eq!(r.start_cap, r.end_cap, "one cap names both extremes");
+
+    // I5: exact analytic volume π·R2²·H/3 = 4π.
+    let vol = geom::signed_volume(&arena, r.solid).expect("analytic cone volume");
+    let want = PI * R2 * R2 * H / 3.0;
+    assert!(
+        (vol - want).abs() <= 1e-12 * want,
+        "cone volume {vol} != π·r²·h/3 {want}"
+    );
+
+    // Mesh oracles: watertight, positive volume within the chord band.
+    let mesh = tessellate(&arena, r.solid).expect("tessellate apex cone");
+    assert_mesh_sane(&mesh, "apex cone mesh");
+    assert_watertight(&mesh, "apex cone mesh");
+    let mv = mesh_signed_volume(&mesh);
+    assert!(
+        mv > 0.0 && mv <= want + 1e-9 && mv >= 0.97 * want,
+        "apex cone mesh volume {mv} outside chord band of {want}"
+    );
+}
+
+/// Slice 2 I8: determinism — two identical apex-cone revolves produce
+/// bit-identical arenas.
+#[test]
+fn on_axis_apex_cone_deterministic() {
+    let build = || {
+        let mut arena = BrepArena::new();
+        let profile = on_axis_triangle_profile();
+        revolve(&mut arena, &profile, AXIS_O, AXIS_D, 2.0 * PI).expect("apex cone");
+        arena
+    };
+    assert_eq!(build(), build(), "apex-cone revolve must be deterministic");
+}
+
+/// Branch row: the BICONE triangle (both connector edges oblique — apex
+/// at BOTH on-axis vertices, no perpendicular cap) is outside slice 2;
+/// typed, pre-mutation.
+#[test]
+fn on_axis_bicone_triangle_stays_rejected() {
+    let bicone = Profile::new(
+        Point3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        vec![
+            Point2::new(0.0, 0.0),
+            Point2::new(H, 0.0),
+            Point2::new(H / 2.0, R2),
+        ],
+        vec![],
+    )
+    .expect("bicone profile");
+    let mut arena = BrepArena::new();
+    let err = revolve(&mut arena, &bicone, AXIS_O, AXIS_D, 2.0 * PI)
+        .expect_err("bicone is outside slice 2");
     assert_eq!(err, KernelV2Error::RevolveAxisIntersectsProfile);
     assert_eq!(arena, BrepArena::new(), "arena untouched");
+}
+
+/// Slice 2 I7: an apex-cone boolean OPERAND stays on the typed boundary —
+/// the 1-half-edge lateral loop fails to_yang's 4-edge pattern loudly
+/// (UnsupportedCurvedBoolean), never a silent wrong answer.
+#[test]
+fn apex_cone_boolean_operand_stays_walled_typed() {
+    let mut arena = BrepArena::new();
+    let profile = on_axis_triangle_profile();
+    let r = revolve(&mut arena, &profile, AXIS_O, AXIS_D, 2.0 * PI).expect("apex cone");
+    let slab_profile = Profile::new(
+        Point3::new(1.0, 0.0, 0.0),
+        Vector3::new(0.0, 1.0, 0.0),
+        Vector3::new(0.0, 0.0, 1.0),
+        vec![
+            Point2::new(-5.0, -5.0),
+            Point2::new(5.0, -5.0),
+            Point2::new(5.0, 5.0),
+            Point2::new(-5.0, 5.0),
+        ],
+        vec![],
+    )
+    .expect("slab profile");
+    let slab = extrude(&mut arena, &slab_profile, Vector3::new(1.0, 0.0, 0.0), 1.0).expect("slab");
+    let err = boolean_op(&mut arena, r.solid, slab.solid, BoolOp::Subtract)
+        .expect_err("apex-cone operand is walled (KV6c apex vocabulary has no yang re-entry)");
+    assert!(
+        matches!(err, KernelV2Error::UnsupportedCurvedBoolean { .. }),
+        "typed re-entry wall, got {err:?}"
+    );
 }
 
 /// Branch row: determinism — two identical on-axis shaft revolves produce

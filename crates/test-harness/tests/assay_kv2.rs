@@ -1029,7 +1029,14 @@ fn smoke_corpus_boundary_categories() {
         ), // [M8] chained swiss-cheese plates
         ("C0052", Category::Error), // [M5] unequal-R perpendicular CUT
         ("C0058", Category::Error), // [M5] equal-R 30° oblique union
-        ("C0063", Category::Error), // [KV6c] oblique cone cut
+        // KV6 on-axis slice 2 increment B (task #66): the apex triangle now
+        // BUILDS the solid cone; the case's real boundary is the OBLIQUE
+        // slab cut (conic-bounded cone patch), which lands on the typed
+        // curved re-entry wall instead of a revolve ERROR.
+        (
+            "C0063",
+            Category::Unsupported(UnsupportedReason::CurvedProfile),
+        ), // [KV6c] oblique cone cut
         ("C0065", Category::Unsupported(UnsupportedReason::Revolve)), // [KV6d] torus boolean
         (
             "C0071",

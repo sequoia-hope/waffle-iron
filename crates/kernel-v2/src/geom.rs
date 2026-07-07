@@ -295,23 +295,29 @@ pub fn signed_volume(
                     .iter()
                     .flat_map(|(_, _, c)| c.iter().copied())
                     .collect();
-                if rims.len() != 2 {
-                    return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
-                        face: f,
-                        reason: "signed_volume: cone face without exactly two rims",
-                    });
-                }
                 let tau = |c: Point3| {
                     (c.x() - apex.x()) * axis_dir.x
                         + (c.y() - apex.y()) * axis_dir.y
                         + (c.z() - apex.z()) * axis_dir.z
                 };
-                let (c0, _, r0) = rims[0];
-                let (c1, _, r1) = rims[1];
-                let (rlo, rhi) = if tau(c0) <= tau(c1) {
-                    (r0, r1)
-                } else {
-                    (r1, r0)
+                // KV6 slice 2B: the APEX form has a single base rim — the
+                // apex is the ρ = 0 end (τ = 0), so the same flux formula
+                // applies with ρ_lo = 0.
+                let (rlo, rhi) = match rims[..] {
+                    [(c0, _, r0), (c1, _, r1)] => {
+                        if tau(c0) <= tau(c1) {
+                            (r0, r1)
+                        } else {
+                            (r1, r0)
+                        }
+                    }
+                    [(_, _, r0)] => (0.0, r0),
+                    _ => {
+                        return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
+                            face: f,
+                            reason: "signed_volume: cone face without one or two rims",
+                        });
+                    }
                 };
                 let a_dot = rq(apex.x()) * rq(axis_dir.x)
                     + rq(apex.y()) * rq(axis_dir.y)

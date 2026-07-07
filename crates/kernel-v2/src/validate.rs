@@ -901,13 +901,15 @@ fn validate_cylinder_face(
 
 /// Validate a [`Surface::Cone`] face (KV6c increment 1).
 ///
-/// Structurally the curved analog of [`validate_cylinder_face`], but the two
+/// Structurally the curved analog of [`validate_cylinder_face`], but the
 /// full-circle rims sit at DIFFERENT radii — each rim radius must equal
 /// `τ · tan(half_angle)` for its axial coordinate `τ = (center − apex) ·
-/// axis_dir` (the on-cone relation, [`geom::cone_radius_at`]). Increment 1
-/// covers only the canonical frustum band: exactly two full-circle rims, no
-/// inner loops, no arc edges. Arc-patch cones (boolean output) reject loudly
-/// here and land in a later increment.
+/// axis_dir` (the on-cone relation, [`geom::cone_radius_at`]). Two accepted
+/// forms: the canonical FRUSTUM band (exactly two full-circle rims) and the
+/// KV6-slice-2B APEX form (a single closed base rim; the apex is an interior
+/// singular point, and only the outward solid sense has a producer). No
+/// inner loops, no arc edges — arc-patch cones (boolean output) reject
+/// loudly here and land in a later increment.
 ///
 /// Orientation: rim circle normals run along the axis, and each rim's
 /// traversal axis points TOWARD the opposite rim for an outward (solid)
@@ -944,11 +946,6 @@ fn validate_cone_face(
         return Err(mismatch("cone face mixes full-circle rims with arc edges"));
     }
     let rims = loop_circles(arena, &hes)?;
-    if rims.len() != 2 {
-        return Err(mismatch(
-            "cone face must be bounded by exactly two full-circle rims (KV6c)",
-        ));
-    }
 
     // Axial coordinate τ = (center − apex) · axis_dir.
     let tau = |c: Point3| {
@@ -956,6 +953,23 @@ fn validate_cone_face(
             + (c.y() - apex.y()) * axis_dir.y
             + (c.z() - apex.z()) * axis_dir.z
     };
+
+    // KV6 slice 2B: the APEX form — a single closed base rim, the apex an
+    // interior singular point (yang's own cone model). Only the outward
+    // solid sense has a producer (`build_on_axis_apex_cone`); a `reversed`
+    // apex cavity is outside the vocabulary, typed.
+    let apex_form = rims.len() == 1 && hes.len() == 1;
+    if apex_form {
+        if reversed {
+            return Err(mismatch(
+                "apex-cone cavity (reversed) is outside the KV6c vocabulary",
+            ));
+        }
+    } else if rims.len() != 2 {
+        return Err(mismatch(
+            "cone face must be bounded by exactly two full-circle rims (KV6c)",
+        ));
+    }
     for (i, &(c, nu, r)) in rims.iter().enumerate() {
         let t = tau(c);
         if !t.is_finite() || t <= 0.0 {
@@ -969,6 +983,17 @@ fn validate_cone_face(
         }
         if geom::dot(nu, axis_dir).abs() < 1.0 - NORMAL_AGREEMENT_TOLERANCE {
             return Err(mismatch("rim circle normal must be along the cone axis"));
+        }
+        if apex_form {
+            // Material sense: the base rim's traversal axis points TOWARD
+            // the apex (τ decreasing) — the apex analog of "toward the
+            // opposite rim".
+            if geom::dot(nu, axis_dir) >= 0.0 {
+                return Err(mismatch(
+                    "rim traversal axis disagrees with the apex cone's material sense",
+                ));
+            }
+            continue;
         }
         let other = rims[1 - i].0;
         let toward =
@@ -1608,6 +1633,51 @@ mod cone_tests {
             FRAC_PI_3,
         );
         let err = validate_solid(&arena, solid).expect_err("mismatched half-angle must fail");
+        assert!(
+            matches!(err, KernelV2Error::CurvedGeometryMismatch { .. }),
+            "expected CurvedGeometryMismatch, got {err:?}"
+        );
+    }
+
+    /// KV6 slice 2B: a `reversed` APEX cone (a conical cavity mouth) has no
+    /// producer and is outside the vocabulary — typed rejection, never a
+    /// silently-accepted inverted solid.
+    #[test]
+    fn reversed_apex_cone_is_rejected() {
+        use crate::arena::Surface;
+        use crate::construct::revolve;
+        use crate::profile::Profile;
+        use cad_primitives::{Point2, Vector3};
+
+        let triangle = Profile::new(
+            Point3::new(0.0, 0.0, 0.0),
+            Vector3::new(1.0, 0.0, 0.0),
+            Vector3::new(0.0, 1.0, 0.0),
+            vec![
+                Point2::new(0.0, 0.0),
+                Point2::new(3.0, 0.0),
+                Point2::new(0.0, 2.0),
+            ],
+            vec![],
+        )
+        .expect("apex triangle");
+        let mut arena = crate::arena::BrepArena::new();
+        let r = revolve(
+            &mut arena,
+            &triangle,
+            Point3::new(0.0, 0.0, 0.0),
+            Vector3::new(1.0, 0.0, 0.0),
+            2.0 * std::f64::consts::PI,
+        )
+        .expect("apex cone builds");
+        // Flip the stored material sense: the arena now claims a cavity.
+        let lat = r.walls[0];
+        if let Some(face) = arena.faces[lat.0 as usize].as_mut() {
+            if let Some(Surface::Cone { reversed, .. }) = face.surface.as_mut() {
+                *reversed = true;
+            }
+        }
+        let err = validate_solid(&arena, r.solid).expect_err("reversed apex cone must fail");
         assert!(
             matches!(err, KernelV2Error::CurvedGeometryMismatch { .. }),
             "expected CurvedGeometryMismatch, got {err:?}"

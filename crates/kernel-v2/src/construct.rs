@@ -876,25 +876,29 @@ fn build_partial_revolve(
 
 /// KV6 on-axis recovery (slice 1 `specs/kv6_on_axis_revolve_rectangle.md`,
 /// task #65; slice 2 `specs/kv6_on_axis_revolve_oblique.md`, task #66):
-/// full-turn revolve of a 4-gon with exactly ONE on-axis edge — the lathe
-/// shaft family. The on-axis edge sweeps the rotation's fixed line
-/// (degenerate, interior to the solid); its adjacent perpendicular edges
-/// sweep full DISCS; the off-axis edge sweeps the lateral:
+/// full-turn revolve of a 3/4-gon with exactly ONE on-axis edge — the
+/// lathe family. The on-axis edge sweeps the rotation's fixed line
+/// (degenerate, interior to the solid); perpendicular edges sweep full
+/// DISCS; the remaining edges sweep the lateral:
 ///
-/// - axis-PARALLEL off-axis edge (slice 1): EXACTLY the canonical KV5a
-///   cylinder — DELEGATES to `extrude` of a synthesized cap-plane circle
-///   profile, bit-canonical with extrude-of-circle, no new topology code.
-/// - OBLIQUE off-axis edge (slice 2 increment A, the C0064 class): the
-///   SOLID FRUSTUM — same census with a `Surface::Cone` lateral, built by
+/// - 4-gon, axis-PARALLEL off-axis edge (slice 1): EXACTLY the canonical
+///   KV5a cylinder — DELEGATES to `extrude` of a synthesized cap-plane
+///   circle profile, bit-canonical with extrude-of-circle, no new
+///   topology code.
+/// - 4-gon, OBLIQUE off-axis edge (slice 2A, the C0064 class): the SOLID
+///   FRUSTUM — same census with a `Surface::Cone` lateral, built by
 ///   [`build_on_axis_frustum`].
+/// - 3-gon, one perpendicular cap + one oblique edge reaching the axis
+///   (slice 2B, the C0063 primary): the SOLID CONE, built by
+///   [`build_on_axis_apex_cone`] — the apex an interior singular point of
+///   the lateral.
 ///
 /// Reached only where `validate_revolve_geometry` returned
 /// `RevolveAxisIntersectsProfile` (axis finite + in-plane and the region a
 /// hole-free polygon are already verified — the clearance check is the
 /// LAST rejection in that function). Everything that is not a slice-1/2
-/// shape — crossing profiles, the on-axis apex triangle (C0063, slice 2
-/// increment B), pencil quads, degenerate rectangles — returns the
-/// ORIGINAL typed error, pre-mutation.
+/// shape — crossing profiles, bicones, pencil quads, degenerate
+/// rectangles — returns the ORIGINAL typed error, pre-mutation.
 fn on_axis_revolve(
     arena: &mut BrepArena,
     profile: &Profile,
@@ -962,21 +966,54 @@ fn on_axis_revolve(
     // gates with the same typed error (branch-minimal per Constitution §7;
     // `full_turn_crossing_profile_stays_rejected` pins it).
 
-    // ---- slice-1 shape: 4-gon, exactly one on-axis edge -------------------
-    if embedded.len() != 4 {
+    // ---- shared shape gates: 3/4-gon with exactly one on-axis edge --------
+    let k = embedded.len();
+    if k != 3 && k != 4 {
         return Err(REJECT);
     }
     let on = |i: usize| s[i].abs() <= clearance;
-    let on_idx: Vec<usize> = (0..4).filter(|&i| on(i)).collect();
+    let on_idx: Vec<usize> = (0..k).filter(|&i| on(i)).collect();
     if on_idx.len() != 2 {
         return Err(REJECT);
     }
-    let adjacent = on_idx[1] == on_idx[0] + 1 || (on_idx[0] == 0 && on_idx[1] == 3);
+    let adjacent = on_idx[1] == on_idx[0] + 1 || (on_idx[0] == 0 && on_idx[1] == k - 1);
     if !adjacent {
         return Err(REJECT);
     }
-    let off_idx: Vec<usize> = (0..4).filter(|&i| !on(i)).collect();
+    let off_idx: Vec<usize> = (0..k).filter(|&i| !on(i)).collect();
     let band = REVOLVE_EDGE_ALIGNMENT_TOLERANCE * (1.0 + scale);
+
+    // ---- slice 2 increment B: apex triangle → solid cone ------------------
+    // The single off-axis vertex has one connector edge to each on-axis
+    // vertex: exactly ONE must be axis-perpendicular (it sweeps the disc
+    // cap); the other is oblique and its on-axis endpoint is the APEX.
+    // Both perpendicular is geometrically impossible (the on-axis vertices
+    // are axially distinct simple-polygon vertices); both oblique is the
+    // BICONE, outside the slice (typed, pre-mutation).
+    if k == 3 {
+        let c = off_idx[0];
+        let radius = s[c];
+        let perp: Vec<usize> = on_idx
+            .iter()
+            .copied()
+            .filter(|&i| (t[i] - t[c]).abs() <= band)
+            .collect();
+        if perp.len() != 1 || radius <= clearance {
+            return Err(REJECT); // bicone or degenerate — never a silent sliver
+        }
+        let cap_i = perp[0];
+        let apex_i = if on_idx[0] == cap_i {
+            on_idx[1]
+        } else {
+            on_idx[0]
+        };
+        if (t[apex_i] - t[cap_i]).abs() <= band {
+            return Err(REJECT); // flat triangle — degenerate
+        }
+        return build_on_axis_apex_cone(arena, a, w, axis_origin, t[cap_i], t[apex_i], radius);
+    }
+
+    // ---- slice-1/2A shapes: the 4-gon lathe family -------------------------
     // Each cap edge must be axis-perpendicular (on-axis vertex and its
     // off-axis ring neighbor at the same axial coordinate) — an oblique
     // CAP edge would sweep an apex cone glued to a lateral (the "pencil"),
@@ -1223,6 +1260,149 @@ fn build_on_axis_frustum(
         shell,
         start_cap: f_base,
         end_cap: f_top,
+        walls: vec![f_lat],
+    })
+}
+
+/// KV6 on-axis slice 2 increment B (spec
+/// `specs/kv6_on_axis_revolve_oblique.md`, task #66): direct assembler for
+/// the SOLID CONE swept full-turn by an on-axis apex triangle (the C0063
+/// primary). The apex is an INTERIOR SINGULAR POINT of the lateral, not a
+/// topological vertex — yang-rs's own cone model ([#24] Yang tessellates
+/// the apex-pointed cone as a disk with a single base rim). Topology:
+/// 1 seam vertex on the base rim, 1 edge (the rim circle — a twin pair of
+/// closed half-edges, the PR-KV5a disc-cap form), 2 faces (disc cap +
+/// apex lateral); V − E + F = 1 − 1 + 2 = 2, a ball. Orientation: the cap
+/// rim is CCW around the cap's outward normal (away from the apex); the
+/// lateral rim's traversal axis points TOWARD the apex — the apex analog
+/// of the frustum's "toward the opposite rim" material-sense rule.
+/// Safety obligation discharged by `finalize_solid` at exit.
+///
+/// Caller guarantees: `radius` strictly positive, `|t_apex − t_cap|`
+/// above the alignment band.
+fn build_on_axis_apex_cone(
+    arena: &mut BrepArena,
+    a: UnitVector3,
+    w: UnitVector3,
+    a0: Point3,
+    t_cap: f64,
+    t_apex: f64,
+    radius: f64,
+) -> Result<RevolveResult, KernelV2Error> {
+    let at = |t: f64| Point3::new(a0.x() + t * a.x, a0.y() + t * a.y, a0.z() + t * a.z);
+    let (c_cap, apex) = (at(t_cap), at(t_apex));
+    // Outward cap normal points AWAY from the apex; the cone's axis_dir
+    // (apex → rim, τ > 0) is the SAME direction.
+    let n_cap = if t_cap < t_apex {
+        UnitVector3 {
+            x: -a.x,
+            y: -a.y,
+            z: -a.z,
+        }
+    } else {
+        a
+    };
+    let toward_apex = UnitVector3 {
+        x: -n_cap.x,
+        y: -n_cap.y,
+        z: -n_cap.z,
+    };
+    let height = (t_apex - t_cap).abs();
+    let half_angle = (radius / height).atan();
+    // Seam anchor: radially along ŵ (θ = 0), same azimuth as the other
+    // on-axis constructions.
+    let v0 = Point3::new(
+        c_cap.x() + radius * w.x,
+        c_cap.y() + radius * w.y,
+        c_cap.z() + radius * w.z,
+    );
+
+    // ---- direct assembly ----------------------------------------------------
+    let vid0 = VertexId(arena.vertices.len() as u32);
+    arena.vertices.push(Some(Vertex { point: v0 }));
+
+    let hb = arena.half_edges.len() as u32;
+    let (cap_rim, lat_rim) = (HalfEdgeId(hb), HalfEdgeId(hb + 1));
+    let lb = arena.loops.len() as u32;
+    let (loop_cap, loop_lat) = (LoopId(lb), LoopId(lb + 1));
+    let fb = arena.faces.len() as u32;
+    let (f_cap, f_lat) = (FaceId(fb), FaceId(fb + 1));
+    let shell = ShellId(arena.shells.len() as u32);
+    let solid = SolidId(arena.solids.len() as u32);
+
+    // Cap boundary: one closed circle half-edge, CCW around the cap's
+    // outward normal.
+    arena.half_edges.push(Some(HalfEdge {
+        twin: lat_rim,
+        next: cap_rim,
+        prev: cap_rim,
+        origin: vid0,
+        loop_id: loop_cap,
+        curve: Curve::Circle {
+            center: c_cap,
+            normal: n_cap,
+            radius,
+        },
+    }));
+    // Lateral boundary: the twin — traversal axis toward the apex.
+    arena.half_edges.push(Some(HalfEdge {
+        twin: cap_rim,
+        next: lat_rim,
+        prev: lat_rim,
+        origin: vid0,
+        loop_id: loop_lat,
+        curve: Curve::Circle {
+            center: c_cap,
+            normal: toward_apex,
+            radius,
+        },
+    }));
+
+    for (face, boundary) in [(f_cap, cap_rim), (f_lat, lat_rim)] {
+        arena.loops.push(Some(Loop {
+            face,
+            boundary: LoopBoundary::Edges(boundary),
+            kind: LoopKind::Outer,
+        }));
+    }
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Plane(Plane {
+            point: c_cap,
+            normal: n_cap,
+        })),
+        outer_loop: loop_cap,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    arena.faces.push(Some(Face {
+        surface: Some(Surface::Cone {
+            apex,
+            axis_dir: n_cap,
+            half_angle,
+            reversed: false,
+        }),
+        outer_loop: loop_lat,
+        inner_loops: Vec::new(),
+        shell,
+    }));
+    arena.shells.push(Some(Shell {
+        solid,
+        faces: vec![f_cap, f_lat],
+        genus: 0,
+    }));
+    arena.solids.push(Some(Solid {
+        shells: vec![shell],
+    }));
+
+    // ---- full production validation (defense in depth) --------------------
+    finalize_solid(arena, solid)?;
+    // I6: the apex end has no planar face to name — the single disc cap
+    // fills both result fields; `walls` = the lateral.
+    Ok(RevolveResult {
+        solid,
+        shell,
+        start_cap: f_cap,
+        end_cap: f_cap,
         walls: vec![f_lat],
     })
 }
