@@ -363,6 +363,25 @@ the roadmap's remaining work:
    >    `AmbiguousCurve{candidates:0}` SSI wall (different subsystem) —
    >    re-measure F0088 on the current binary before designing. Plus
    >    C0048 (coplanar auto-union, separate row).
+   >    **Increment 14 (2026-07-07, task #71): SHIPPED** — amendment 11
+   >    SIMPLICITY BEFORE ORIENTATION. F0088's two VertexOffSurface
+   >    errors (ops 14/15) both reverted at vert 674: a hair-thin
+   >    full-height NET-CW BOW-TIE cavity (return edge crosses the
+   >    up-chain, net 2A = −4.2e-3) died at the ear-clip's CCW guard
+   >    BEFORE the crossing scan ran — a self-intersecting cycle's
+   >    shoelace sign is not an orientation. Guard order swapped; the
+   >    bow-tie now surfaces `NotSimple` → joint path (commits with seeds
+   >    [672,674,677]). Singleton-trigger relaxation prototyped and
+   >    REVERTED (3 seeds — untested branch, no measured case). **Corpus
+   >    F0088: 3 errors → 1.** New chain regression
+   >    `f0088_engine_frame_chain_no_offsurface_residue` (15 cuts,
+   >    skip-on-error, volume oracle). **The ENTIRE F0086–F0090 fold-gate
+   >    campaign is now closed** — the family's sole remaining pipeline
+   >    wall is F0088's Stage-3 `AmbiguousCurve{candidates:0, matched:0}`
+   >    for intersection edge (2,344): the SSI-refinement subsystem
+   >    (Stage 3/4), not Stage-0/mesh-updating. Next: measure that edge's
+   >    geometry (what curve should refine it, why zero candidates), plus
+   >    C0048 (separate row).
 2. **N4 — face provenance by centroid-proximity, not §4.2.3 barycentric
    provenance.** Stage-6 attributes each kept triangle by centroid-in-plane
    distance + a tolerance tier (`tol_for`). The paper maps each point to BOTH

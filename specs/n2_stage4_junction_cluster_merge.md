@@ -510,6 +510,43 @@ preserved — all 13 chain pins green); the F0090 probe re-run (annular
 reject gone / revert count 0 in the container window); full
 yang-rs/kernel-v2 suites.
 
+**Simplicity before orientation (amendment 11, 2026-07-07 — M8
+increment 14, task #71):** the measured F0088 residual. Ops 14/15's
+`VertexOffSurface` both reverted at vert 674, whose cavity polygon is a
+hair-thin full-height NET-CW BOW-TIE (the strip's long return edge
+crosses the up-chain; ring dump: net 2A = −4.2e-3 from lobes +1.53 /
+−1.54). `earclip_cavity_polygon` checked the exact CCW guard BEFORE the
+crossing scan, so the ring died as a terminal `cavity polygon not CCW`
+(`EarclipErr::Other`) and never surfaced the `NotSimple` joint trigger.
+
+Amendment 11 swaps the guard order: the exact crossing scan runs first —
+a non-simple ring's signed area is lobe-balance noise, so orientation is
+meaningful only for a SIMPLE ring. A net-CW bow-tie now surfaces
+`NotSimple { crossing }` → joint seeds → the amendment-6/7/8/9 region
+machinery (measured F0088: the vert-674 strip commits jointly with seeds
+[672, 674, 677]). A ring that is simple AND CW remains the terminal
+inside-out reject, unchanged.
+
+A singleton joint trigger (`joint_seeds.len() >= 1`) was prototyped and
+REVERTED: the measured site produces 3 seeds, so the ≥2 trigger fires
+without it — the relaxation would have been an untested branch (P4)
+covering no measured case.
+
+| Gate case (amendment 11) | Behavior |
+|---|---|
+| cavity ring with an exact crossing, any net winding | `NotSimple` — joint trigger (was: terminal not-CCW when net ≤ 0) |
+| SIMPLE ring, CCW | ear-clip proceeds (unchanged) |
+| SIMPLE ring, CW/zero | terminal `cavity polygon not CCW` (unchanged) |
+
+Research basis: [#24] Yang 2025 §4.4.1 Fig 11; the guard-order argument
+is elementary — the shoelace sign of a self-intersecting cycle is not an
+orientation. Oracles: `net_cw_bowtie_cavity_triggers_joint_path`
+(RED→GREEN); `f0088_engine_frame_chain_no_offsurface_residue` (15-cut
+skip-on-error chain, no `VertexOffSurface`, volume oracle over succeeded
+cuts); corpus F0088 3 errors → 1 (only the Stage-3
+`AmbiguousCurve{candidates:0}` SSI wall remains — a different
+subsystem); F0086–F0090 family pins; full yang-rs/kernel-v2 suites.
+
 Research basis: [#24] Yang 2025 §4.4.1 Fig 11 — mesh updating is local to
 each repositioned vertex's neighborhood; disconnected neighborhoods are
 independent Fig-11 instances. Oracles: stage0 unit tests (two disjoint

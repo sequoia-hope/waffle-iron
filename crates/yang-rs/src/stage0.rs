@@ -1719,21 +1719,12 @@ fn earclip_cavity_polygon(
     if ring.len() < 3 {
         return Err(EarclipErr::Other("degenerate cavity polygon"));
     }
-    {
-        use crate::coplanar_overlay::rat;
-        let mut two_area = RBig::ZERO;
-        for k in 0..ring.len() {
-            let (ax, ay) = ring[k];
-            let (bx, by) = ring[(k + 1) % ring.len()];
-            let Ok(t) = rat(ax).and_then(|axr| Ok(axr * rat(by)? - rat(bx)? * rat(ay)?)) else {
-                return Err(EarclipErr::Other("non-finite cavity polygon"));
-            };
-            two_area += t;
-        }
-        if two_area <= RBig::ZERO {
-            return Err(EarclipErr::Other("cavity polygon not CCW"));
-        }
-    }
+    // Simplicity BEFORE orientation (amendment 11, M8 increment 14): a
+    // bow-tie's signed area is lobe-balance noise — a net-CW non-simple
+    // ring (measured F0088 vert 674: hair-thin full-height strip whose
+    // return edge crosses the up-chain, net 2A = −4.2e-3) must surface as
+    // `NotSimple` (the joint-relocation trigger), not die at the
+    // orientation guard. Only a SIMPLE ring has a meaningful winding.
     let n = ring.len();
     for a in 0..n {
         for b in (a + 1)..n {
@@ -1790,6 +1781,33 @@ fn earclip_cavity_polygon(
                     crossing: [p1, p2, q1, q2],
                 });
             }
+        }
+    }
+    {
+        use crate::coplanar_overlay::rat;
+        let mut two_area = RBig::ZERO;
+        for k in 0..ring.len() {
+            let (ax, ay) = ring[k];
+            let (bx, by) = ring[(k + 1) % ring.len()];
+            let Ok(t) = rat(ax).and_then(|axr| Ok(axr * rat(by)? - rat(bx)? * rat(ay)?)) else {
+                return Err(EarclipErr::Other("non-finite cavity polygon"));
+            };
+            two_area += t;
+        }
+        if two_area <= RBig::ZERO {
+            // The ring is SIMPLE (checked above) yet winds CW or is
+            // degenerate: a genuinely inside-out cavity — terminal.
+            if probe {
+                eprintln!(
+                    "  [reloc-ccw] {probe_who} two_area {} ring={ring:?}",
+                    if two_area == RBig::ZERO {
+                        "ZERO"
+                    } else {
+                        "NEG"
+                    }
+                );
+            }
+            return Err(EarclipErr::Other("cavity polygon not CCW"));
         }
     }
 
@@ -7561,6 +7579,48 @@ mod reloc_tests {
             vec![4],
             "joint seeds must be the crossing-edge mints only (w1b), not \
              every ring mint (w1 excluded)"
+        );
+    }
+
+    /// Amendment 11 (M8 increment 14): a NET-CW BOW-TIE cavity polygon —
+    /// non-simple with the inverted lobe dominating the signed area
+    /// (measured F0088 vert 674: a hair-thin full-height strip whose long
+    /// return edge crosses the up-chain; net 2A = −4.2e-3) — must surface
+    /// as `NonSimple` (the joint trigger), not die at the orientation
+    /// guard. Simplicity is checked BEFORE orientation: a crossing makes
+    /// the signed area lobe-balance noise.
+    #[test]
+    fn net_cw_bowtie_cavity_triggers_joint_path() {
+        // Star of v: link chain [a, b, c]; polygon [v, a, b, c] has edge
+        // v→a crossing edge b→c at (0.75, 0.375) and net 2A = −1.5 (CW).
+        let mut tris = vec![[0, 1, 2], [0, 2, 3]];
+        let mut class = vec![RegionClass::AOnly; 2];
+        let coords = vec![
+            p(0.0, 0.0), // v (minted)
+            p(2.0, 1.0), // a (minted, crossing endpoint)
+            p(3.0, 0.0), // b
+            p(0.0, 0.5), // c
+        ];
+        let mut em = edge_map_of(&tris);
+        let frame = frame_z0();
+        assert!(
+            !gate_tri_valid(&[0, 1, 2], &coords, &frame),
+            "fixture must start folded at (v,a,b)"
+        );
+        let minted = vec![true, true, false, false];
+        let out = relocate_minted_vertex(
+            &mut tris, &mut class, &mut em, 0, &coords, &frame, &minted, false,
+        );
+        let RelocOutcome::NonSimple { ring_mints } = out else {
+            panic!(
+                "net-CW bow-tie must surface NonSimple (joint trigger), \
+                 not a terminal orientation reject"
+            );
+        };
+        assert_eq!(
+            ring_mints,
+            vec![1],
+            "the crossing-endpoint mint must be surfaced as a joint seed"
         );
     }
 

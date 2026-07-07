@@ -484,3 +484,103 @@ fn f0090_engine_frame_seven_hole_chain() {
         "7-hole F0090 plate volume {vol} outside band of analytic {analytic}"
     );
 }
+
+// ── F0088 fixture (seed 30003): the increment-14 wall ─────────────────────
+// Probe census (2026-07-07, post-amendment-10 binary): ops 14/15's
+// VertexOffSurface both revert at vert 674, whose cavity polygon is a
+// hair-thin full-height NET-CW BOW-TIE (the strip's long return edge
+// crosses the up-chain; net 2A = −4.2e-3). The ear-clip checked
+// orientation BEFORE simplicity, so the ring died as a terminal
+// `cavity polygon not CCW` and never reached the joint trigger.
+// Increment 14's scope (spec `n2_stage4_junction_cluster_merge` §3
+// amendment 11): simplicity before orientation + the joint trigger
+// accepts singleton seed sets.
+
+const F88_R: f64 = 1.2787008340600021;
+const F88_T: f64 = 0.23050816593474505;
+const F88_HR: f64 = 0.042871795720997065;
+/// All 15 of F0088's holes (bit-exact corpus parameters). The corpus
+/// runner SKIPS a failed cut and continues on the previous body — op 4
+/// dies at a Stage-3 `AmbiguousCurve` wall (a different subsystem,
+/// tracked separately), so this chain mirrors that skip semantics.
+const F88_HOLES: [(f64, f64, f64); 15] = [
+    (0.35984134497173503, 0.6749467831423721, 0.4901131898241702),
+    (-0.548323773177785, 0.3554838533489517, 0.4353355653710682),
+    (
+        0.17464227358983425,
+        -0.24105075339392248,
+        0.6561329732945973,
+    ),
+    (-0.4154488532002217, -1.1516293867047513, 0.5924691092311544),
+    (0.31920170622438815, 0.0935413256306473, 0.5374632722273324),
+    (
+        -0.09556733294481233,
+        0.03710031540398218,
+        0.5095865515769602,
+    ),
+    (1.194241514087986, 0.11670234703039814, 0.6882093144428375),
+    (
+        -0.49847312830244883,
+        -0.10087950048927558,
+        0.3993679024339291,
+    ),
+    (
+        -0.3366088617002614,
+        -0.043944800192486075,
+        0.15232104308175012,
+    ),
+    (0.06224055198227289, 0.7729276663879899, 0.11667821141075961),
+    (0.6540402265145715, -0.39587922592983693, 0.0840440240772048),
+    (
+        -0.10971753284914543,
+        -0.6315325036761213,
+        0.15175473053216826,
+    ),
+    (
+        0.41299838691941887,
+        -1.0454508662036808,
+        0.14413098426090762,
+    ),
+    (-0.6984094063469715, 0.8016496195445787, 0.12740098855159063),
+    (0.4263661298949291, 1.115532507075303, 0.15186646332483356),
+];
+
+/// Regression for the retired increment-14 wall: the full 15-cut F0088
+/// chain with the corpus runner's skip-on-error semantics must produce NO
+/// `VertexOffSurface` (the vert-674 net-CW bow-tie is repaired by the
+/// joint path), and every succeeded cut's output stays valid with the
+/// volume oracle over the holes that actually cut.
+#[test]
+fn f0088_engine_frame_chain_no_offsurface_residue() {
+    let mut a = BrepArena::new();
+    let mut body = cyl_engine_frame(&mut a, 0.0, 0.0, F88_R, 0.0, F88_T);
+    let mut errors: Vec<String> = Vec::new();
+    let mut cut_holes: Vec<f64> = Vec::new();
+    for &(hx, hy, d) in F88_HOLES.iter() {
+        let tool = cyl_engine_frame(&mut a, hx, hy, F88_HR, 0.0, d);
+        match boolean_op(&mut a, body, tool, BoolOp::Subtract) {
+            Ok(next) => {
+                validate_solid(&a, next).expect("succeeded cut output must be valid");
+                body = next;
+                cut_holes.push(d);
+            }
+            Err(e) => errors.push(format!("{e:?}")),
+        }
+    }
+    assert!(
+        !errors.iter().any(|e| e.contains("VertexOffSurface")),
+        "no cut may leak chord-position vertices (the increment-14 wall): {errors:?}"
+    );
+    let mesh = tessellate(&a, body).expect("tessellate");
+    let vol = mesh_signed_volume(&mesh);
+    let mut analytic = std::f64::consts::PI * F88_R * F88_R * F88_T;
+    for &d in &cut_holes {
+        analytic -= std::f64::consts::PI * F88_HR * F88_HR * d.min(F88_T);
+    }
+    assert!(
+        (vol - analytic).abs() / analytic < 0.03,
+        "F0088 plate volume {vol} outside band of analytic {analytic} \
+         ({} of 15 cuts succeeded)",
+        cut_holes.len()
+    );
+}
