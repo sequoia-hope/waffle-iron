@@ -421,6 +421,25 @@ the roadmap's remaining work:
    >    direct chain does NOT reproduce it). Next lever: measure that CDT
    >    input (dump the failing polygon; recover.rs vs
    >    cdt_polygon_with_holes at dense rims).
+   >    **Increment 16 (2026-07-07, task #73): SHIPPED — the F0086–F0090
+   >    CAMPAIGN IS COMPLETE.** The corpus CDT failures were the
+   >    INTRA-solid form of the Case-IV criterion: the chained body's own
+   >    hole-4-lateral sits 0.0115 from its plate wall, so ANY
+   >    tessellation at natural N=14 puts the cap's outer-rim chords
+   >    (dip 0.032) across the hole rim → crossing CDT constraints. A
+   >    `boolean()`-level intra scan was tried and REVERTED (it made the
+   >    corpus worse — 10 conversion-time failures: boosted outputs
+   >    re-entered `BRep::new` at natural N, and the guard cannot reach
+   >    conversion). The fold lives in **Stage 1's own N selection**
+   >    (`stage1_tessellate_inner`; shared `cyl_pair_phantom_n` with the
+   >    cross guard), where conversion, Stage-0 rebuilds, and guard
+   >    rebuilds all pick it up natively. **Corpus: F0086 ✓ F0087 ✓
+   >    F0088 ✓ (SUPPORTED_CORRECT, 289s solo — heavy-chain band)
+   >    F0089 ✓; F0090 fold-clean (container-TIMEOUT only).** Family
+   >    campaign closed end-to-end. Residual bookkeeping: F0088 runs
+   >    ~290s solo in the container (the parallel 240s cap will class it
+   >    TIMEOUT there — same band as F0090; the user's box decides the
+   >    committed baseline).
 2. **N4 — face provenance by centroid-proximity, not §4.2.3 barycentric
    provenance.** Stage-6 attributes each kept triangle by centroid-in-plane
    distance + a tolerance tier (`tol_for`). The paper maps each point to BOTH

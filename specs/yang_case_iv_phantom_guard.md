@@ -42,6 +42,7 @@ surfaces do not and the phantom never reaches the arrangement.
 | far disjoint pair (large gap) | derived N ≤ the natural Stage-1 N → `max()` no-op (self-limiting; no mode branch) |
 | non-cylinder curved pairs (sphere/cone/torus), cylinder × plane | out of scope this increment — unmeasured (P10); the loud `AmbiguousCurve` stop remains their tripwire |
 | operand without B-Rep faces (`from_mesh`, chained boolean output) | scan finds no cylinder faces → `None` → byte-identical path |
+| **INTRA-solid disjoint pair (M8 increment 16)** — two of ONE solid's own cylinders closer than the chord bands (the chained F0088 output: hole 4's lateral 0.0115 from the plate wall) | folded into **Stage 1's own N selection** (`stage1_tessellate_inner`), so EVERY tessellation of the solid — input conversion, Stage-0 rebuilds, the guard's rebuilds — picks it up natively. Without it the cap's outer-rim chords dip across the hole rim and the planar CDT gets CROSSING constraints (`CDT triangulation failed`, measured corpus F0088 ops 7/15 at conversion time). The `boolean()` guard stays CROSS-only. |
 
 ## 4. Invariants
 
@@ -75,6 +76,15 @@ surfaces do not and the phantom never reaches the arrangement.
   → `2× CdtFailed` (2 errors, new mechanism, loud). The guard is
   retained (topology now follows analytic truth; the family's direct
   chain is fully green); the CDT wall is the next measured lever.
+  **Increment 16 (same day, task #73) closed it:** the CDT crossings are
+  the INTRA-solid form of the same criterion — the chained body's own
+  hole-near-wall pair. A `boolean()`-level intra scan was tried first
+  and made the corpus WORSE (10 conversion-time failures: the boosted
+  outputs' recovered rims re-entered `BRep::new` at natural N and the
+  cap CDT crossed there — the guard cannot reach conversion). Moved to
+  Stage 1's N selection (the single place every tessellation flows
+  through). **Corpus F0088 → SUPPORTED_CORRECT (289s solo — the
+  heavy-chain container band).** F0086/F0087/F0089 unchanged CORRECT.
 - Unit: `phantom_min_rim_segments` — nested-disjoint pair yields the
   derived N (F0088 numbers: N ≥ 24); crossing pair yields none; far
   pair yields a no-op N; empty-faces operand yields none.

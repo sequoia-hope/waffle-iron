@@ -854,6 +854,35 @@ fn stage1_tessellate_inner(
             if let Some(force) = min_n_seg {
                 n_seg = n_seg.max(force);
             }
+            // Case-IV INTRA-solid phantom fold (spec
+            // `yang_case_iv_phantom_guard`, M8 increment 16): two of THIS
+            // solid's own analytically-disjoint cylinders closer than the
+            // chord bands (a hole lateral 0.0115 from the plate wall — the
+            // chained F0088 output) would make the cap's outer-rim chords
+            // dip across the hole rim, so the planar CDT gets CROSSING
+            // constraints and fails loud at CONSTRUCTION time. Fold each
+            // disjoint pair's derived N in here, where every tessellation
+            // (conversion, Stage-0 rebuilds, the guard's cross-pair rebuild)
+            // picks it up natively. Far pairs derive a tiny N the natural
+            // bound absorbs — self-limiting, no mode branch.
+            let cyls: Vec<(Point3, Vector3, f64)> = faces
+                .iter()
+                .filter_map(|f| match f.surface {
+                    Surface::Cylinder {
+                        axis_point,
+                        axis_dir,
+                        radius,
+                    } => Some((axis_point, axis_dir, radius)),
+                    _ => None,
+                })
+                .collect();
+            for i in 0..cyls.len() {
+                for j in (i + 1)..cyls.len() {
+                    if let Some(n) = cyl_pair_phantom_n(cyls[i], cyls[j]) {
+                        n_seg = n_seg.max(n);
+                    }
+                }
+            }
             // Diagnostic experiment knob (M8 increment-8 spec phase, task
             // #62): force a global rim-N floor to measure whether/where the
             // mint-displacement fold class is a pure sampling artifact and
@@ -6984,69 +7013,86 @@ fn stage0_dump(
 /// exceed 4096) yields no requirement: the loud Stage-3 `AmbiguousCurve`
 /// remains the tripwire (P9 — never silently proceed with phantom
 /// topology).
+/// The Case-IV pairwise requirement of two cylinder surfaces (spec
+/// `yang_case_iv_phantom_guard`): `None` unless the pair is analytically
+/// disjoint with a practical derived N — the smallest `N` with
+/// `sag(r_a, N) + sag(r_b, N) ≤ gap/2` (`sag(r, N) = r(1 − cos(π/N))`, the
+/// Stage-1 sagitta; the factor-2 margin keeps the combined chord band
+/// strictly clear of the gap, and a finer N is always chord-valid). Shared
+/// by the `boolean()` cross-pair guard AND Stage 1's intra-solid fold.
+fn cyl_pair_phantom_n(
+    (pa, da, ra): (Point3, Vector3, f64),
+    (pb, db, rb): (Point3, Vector3, f64),
+) -> Option<usize> {
+    let ua = normalize3(da.as_array());
+    let ub = normalize3(db.as_array());
+    let w = [pb.x() - pa.x(), pb.y() - pa.y(), pb.z() - pa.z()];
+    let cx = [
+        ua[1] * ub[2] - ua[2] * ub[1],
+        ua[2] * ub[0] - ua[0] * ub[2],
+        ua[0] * ub[1] - ua[1] * ub[0],
+    ];
+    let cross_norm = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
+    // Axis-line distance: skew/crossing axes project the offset onto the
+    // common normal; parallel axes take the perpendicular point-line
+    // distance.
+    let (parallel, d_axes) = if cross_norm > 1e-12 {
+        let d = (w[0] * cx[0] + w[1] * cx[1] + w[2] * cx[2]).abs() / cross_norm;
+        (false, d)
+    } else {
+        let t = w[0] * ua[0] + w[1] * ua[1] + w[2] * ua[2];
+        let perp = [w[0] - t * ua[0], w[1] - t * ua[1], w[2] - t * ua[2]];
+        let d = (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt();
+        (true, d)
+    };
+    let external = d_axes - (ra + rb);
+    let nested = if parallel {
+        ra.max(rb) - d_axes - ra.min(rb)
+    } else {
+        f64::NEG_INFINITY
+    };
+    let gap = external.max(nested);
+    if gap.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+        return None; // surfaces intersect / NaN (degenerate input): real curve or no-op
+    }
+    let sag = |r: f64, n: usize| r * (1.0 - (std::f64::consts::PI / n as f64).cos());
+    let mut n = 3usize;
+    while sag(ra, n) + sag(rb, n) > gap / 2.0 {
+        n += 1;
+        if n > 4096 {
+            // True near-tangency: no finite practical N — leave the loud
+            // Stage-3 stop as the tripwire.
+            return None;
+        }
+    }
+    Some(n)
+}
+
 fn phantom_min_rim_segments(a: &BRep, b: &BRep) -> Option<usize> {
+    let cyls = |brep: &BRep| -> Vec<(Point3, Vector3, f64)> {
+        brep.faces()
+            .iter()
+            .filter_map(|f| match f.surface {
+                Surface::Cylinder {
+                    axis_point,
+                    axis_dir,
+                    radius,
+                } => Some((axis_point, axis_dir, radius)),
+                _ => None,
+            })
+            .collect()
+    };
+    let (ca, cb) = (cyls(a), cyls(b));
     let mut req: Option<usize> = None;
-    for fa in a.faces() {
-        let Surface::Cylinder {
-            axis_point: pa,
-            axis_dir: da,
-            radius: ra,
-        } = fa.surface
-        else {
-            continue;
-        };
-        for fb in b.faces() {
-            let Surface::Cylinder {
-                axis_point: pb,
-                axis_dir: db,
-                radius: rb,
-            } = fb.surface
-            else {
-                continue;
-            };
-            let ua = normalize3(da.as_array());
-            let ub = normalize3(db.as_array());
-            let w = [pb.x() - pa.x(), pb.y() - pa.y(), pb.z() - pa.z()];
-            let cx = [
-                ua[1] * ub[2] - ua[2] * ub[1],
-                ua[2] * ub[0] - ua[0] * ub[2],
-                ua[0] * ub[1] - ua[1] * ub[0],
-            ];
-            let cross_norm = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
-            // Axis-line distance: skew/crossing axes project the offset onto
-            // the common normal; parallel axes take the perpendicular
-            // point-line distance.
-            let (parallel, d_axes) = if cross_norm > 1e-12 {
-                let d = (w[0] * cx[0] + w[1] * cx[1] + w[2] * cx[2]).abs() / cross_norm;
-                (false, d)
-            } else {
-                let t = w[0] * ua[0] + w[1] * ua[1] + w[2] * ua[2];
-                let perp = [w[0] - t * ua[0], w[1] - t * ua[1], w[2] - t * ua[2]];
-                let d = (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt();
-                (true, d)
-            };
-            let external = d_axes - (ra + rb);
-            let nested = if parallel {
-                ra.max(rb) - d_axes - ra.min(rb)
-            } else {
-                f64::NEG_INFINITY
-            };
-            let gap = external.max(nested);
-            if gap.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
-                continue; // surfaces intersect / NaN (degenerate input): real curve or no-op
-            }
-            let sag = |r: f64, n: usize| r * (1.0 - (std::f64::consts::PI / n as f64).cos());
-            let mut n = 3usize;
-            while sag(ra, n) + sag(rb, n) > gap / 2.0 {
-                n += 1;
-                if n > 4096 {
-                    // True near-tangency: no finite practical N — leave the
-                    // loud Stage-3 stop as the tripwire.
-                    n = 0;
-                    break;
-                }
-            }
-            if n > 0 {
+    // CROSS pairs only (A×B): the two operands' meshes must not intersect
+    // where their surfaces do not (the measured F0088 cut-4 class).
+    // INTRA-solid pairs are folded into Stage 1's own N selection
+    // (`stage1_tessellate_inner` — M8 increment 16), where EVERY
+    // tessellation of the solid picks them up (conversion, Stage-0 rebuilds,
+    // this guard's rebuilds), so they need no handling here.
+    for &sa in &ca {
+        for &sb in &cb {
+            if let Some(n) = cyl_pair_phantom_n(sa, sb) {
                 req = Some(req.map_or(n, |r: usize| r.max(n)));
             }
         }
@@ -11752,6 +11798,58 @@ mod tests {
         let plate = guard_cyl(0.0, 0.0, 1.2787008340600021, 0.23);
         let tool = guard_cyl(0.3, 0.1, 0.042871795720997065, 0.23);
         assert_eq!(phantom_min_rim_segments(&plate, &tool), None);
+    }
+
+    /// Build one B-Rep carrying TWO cylinders (a plate wall + a hole at
+    /// `(hx, hy)` with radius `hr`).
+    fn two_cyl_brep(hx: f64, hy: f64, hr: f64) -> BRep {
+        let plate = guard_cyl(0.0, 0.0, 1.2787008340600021, 0.23);
+        let tool = guard_cyl(hx, hy, hr, 0.23);
+        let mut verts = plate.vertices.clone();
+        let mut edges = plate.edges.clone();
+        let mut faces = plate.faces.clone();
+        let (vo, eo) = (verts.len() as u32, edges.len() as u32);
+        verts.extend(tool.vertices.iter().cloned());
+        for e in &tool.edges {
+            edges.push(BRepEdge {
+                start: e.start + vo,
+                end: e.end + vo,
+                curve: e.curve,
+            });
+        }
+        for f in &tool.faces {
+            faces.push(BRepFace {
+                surface: f.surface,
+                outer_loop: f.outer_loop.iter().map(|&e| e + eo).collect(),
+                inner_loops: Vec::new(),
+                reversed: f.reversed,
+            });
+        }
+        BRep::new(verts, edges, faces).expect("combined solid")
+    }
+
+    /// INTRA-solid pair (the chained F0088 output: hole 4's lateral 0.0115
+    /// from the plate wall inside ONE solid): STAGE 1's own N selection must
+    /// fold the pair's derived N in — otherwise ANY tessellation of the
+    /// solid (input conversion included) puts the cap's outer-rim chords
+    /// across the hole rim and the planar CDT gets crossing constraints
+    /// (measured corpus F0088 ops 7/15, `CDT triangulation failed`). The
+    /// near-rim solid must tessellate strictly denser than the same solid
+    /// with its hole far from the wall.
+    #[test]
+    fn stage1_intra_solid_phantom_fold_densifies_rims() {
+        let near = two_cyl_brep(1.2243, 0.0, 0.042871795720997065);
+        let far = two_cyl_brep(0.3, 0.1, 0.042871795720997065);
+        assert!(
+            near.as_mesh().num_verts() > far.as_mesh().num_verts(),
+            "near-rim solid must tessellate denser (near {} verts vs far {})",
+            near.as_mesh().num_verts(),
+            far.as_mesh().num_verts()
+        );
+        // And the cross-pair guard is silent for it — the intra fold lives
+        // in Stage 1, not in the pair analysis.
+        let partner = guard_cyl(10.0, 10.0, 0.1, 0.23);
+        assert_eq!(phantom_min_rim_segments(&near, &partner), None);
     }
 
     /// An operand without B-Rep faces (the `from_mesh` chained-output
