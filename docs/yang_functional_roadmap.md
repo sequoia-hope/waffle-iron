@@ -2745,6 +2745,23 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   the `#[ignore]`d boundary probe in `kv6c_partial_cone_boolean.rs`),
   boolean-output partial-patch re-entry (R0051 class), C0070
   non-alternating profiles.
+  **Post-slice ERROR census (the 15 new loud stops), by mechanism:**
+  4× Stage-4 `LocalRefinementRequired` (R0017/32/47/49); 2× Stage-3
+  `IntersectFailed(AnalyticalSolutionNotAvailable)` (R0019/44 — missing
+  SSI solver, M5); 2× Stage-3 `AmbiguousCurve` (R0008 {2,2}, R0003
+  {1,0}); 3× render KV9-F2 fold tripwire on boolean-output cone patches
+  (R0034/54/65 — DIAGNOSED via the new `KV2_PATCH_FOLD_PROBE`: the
+  trimmed cone face's boundary is a conic-section CHORD polyline at
+  yang's coarser d_ε (~1.1 off-surface at r≈519) interleaved with
+  render-tolerance on-surface interior points at ~0.2 triangle height →
+  inherent fold; the exact-arc retag in recover.rs only covers ⊥-plane
+  circle sections, and these cuts are oblique box faces → conics. The
+  honest fix is the cone conic-arc vocabulary (ellipse/hyperbola
+  sections — see R0100's explicit `UnsupportedBooleanOutputCurve
+  ("Hyperbola")` wall), not tolerance games); 1× CDT ring rejection
+  (R0016, likely same family); 1× `VertexOffSurface` (R0099); 1×
+  R0004 partial on-axis revolve (a KV6 gap: the on-axis recovery is
+  full-turn-only) behind a second boolean failure.
 
 - **KV6b-F3 — plane∥axis × cylinder line case. ✅ RESOLVED (2026-06-12,
   PR-F3 + PR-F3b).** ssi-rs pair #2's C3a/C3b line branches were already

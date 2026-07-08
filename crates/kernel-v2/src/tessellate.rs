@@ -2907,6 +2907,29 @@ fn tessellate_developable_patch(
             if let Some(ow) = outward_at(cen) {
                 let dot = (n3[0] * ow[0] + n3[1] * ow[1] + n3[2] * ow[2]) / nl;
                 if dot < -0.1 {
+                    // Diagnostic probe (env-gated, zero-cost off): dump the
+                    // folded triangle's work/3D coordinates so a fold class
+                    // self-localizes (which region of the development, which
+                    // edge kinds, boundary or interior split points).
+                    if std::env::var_os("KV2_PATCH_FOLD_PROBE").is_some() {
+                        eprintln!(
+                            "[fold-probe] face={fid:?} dot={dot:.4} sense={sense} \
+                             tan_a={tan_a:.6e} r_unroll={r_unroll:.6e}"
+                        );
+                        for (label, w) in [("a", t[0]), ("b", t[1]), ("c", t[2])] {
+                            let wn = &wnodes[w];
+                            let p = nodes[wn.node].pos;
+                            eprintln!(
+                                "  {label}: p2=({:.6},{:.6}) node={} pos=({:.9e},{:.9e},{:.9e})",
+                                wn.p2.x(),
+                                wn.p2.y(),
+                                wn.node,
+                                p[0],
+                                p[1],
+                                p[2]
+                            );
+                        }
+                    }
                     return Err(fail(
                         "patch triangulation folded (inverted triangle) — KV9-F2: the                          unrolled ear-clip/refinement produced inward-facing geometry;                          loud instead of silently-wrong render output",
                     ));
