@@ -187,4 +187,3 @@ fn r0058_engulfing_cut_not_an_error() {
 fn r0088_engulfing_cut_not_an_error() {
     assert_no_empty_result_error("R0088");
 }
-

@@ -85,6 +85,7 @@ is SCAN ELIGIBILITY only.
 | E-V3 | Triangle touching neither | UNCHANGED — never scanned (planar-only populations remain the step-(2) I6 near-weld's territory) |
 | E-V4 | Degenerate scanned triangle whose shortest edge ≥ floor | UNCHANGED — left for `validate_relocated_triangles` / loud stops |
 | E-V5 | **[fix, §2a]** `from_yang_brep` loop with exactly 2 edges, both non-Seg conic arcs with UNEQUAL `curve_key`s | Accepted (lens bigon; CurveKey pairing handles it); any other <3-edge non-full loop stays the loud reject |
+| E-V6 | **[fix, 2026-07-08 — ERROR-census campaign 4]** `from_yang_brep` loop with exactly 2 edges, exactly ONE `Seg` and one conic arc | Accepted (D-FACE bigon — a circular/elliptic SEGMENT face bounded by a chord and its arc; R0046's face 0: chord 0.197 between two vertices exactly on the arc's r=0.130 circle, ~99° sweep). `classify_edge` has already validated the arc's endpoint membership; the chord's endpoints are the same two vertices by loop closure. Two `Seg`s (zero-area) and same-curve arc pairs remain the loud reject |
 
 ## 5. Invariants
 

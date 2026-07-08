@@ -869,7 +869,7 @@ fn edge_kind_tag(e: &EdgeKind) -> &'static str {
 }
 
 /// The curve vocabulary of one directed yang loop edge, KV5b-classified.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 enum EdgeKind {
     Seg,
     /// Full circle (`start == end`), canonical-cylinder vocabulary.
@@ -1204,12 +1204,22 @@ pub fn from_yang_brep_indexed(
                 let lens_bigon = cycle.len() == 2
                     && kinds.iter().all(|k| !matches!(k, EdgeKind::Seg))
                     && curve_key(&kinds[0]) != curve_key(&kinds[1]);
-                if !lens_bigon {
+                // Spec kv9_f3 §4 row E-V6 (ERROR-census campaign 4): a
+                // 2-edge loop with exactly ONE `Seg` and one conic arc is a
+                // genuine D-FACE — a circular/elliptic SEGMENT bounded by a
+                // chord and its arc (R0046's plane∩cylinder cap fragment).
+                // `classify_edge` already validated the arc's endpoints on
+                // its conic; the chord shares those vertices by loop
+                // closure. Two `Seg`s (a zero-area double edge) and
+                // same-curve arc pairs remain the loud reject.
+                let dface_bigon = cycle.len() == 2
+                    && kinds.iter().filter(|k| matches!(k, EdgeKind::Seg)).count() == 1;
+                if !(lens_bigon || dface_bigon) {
                     // KV9-F3 diagnosis probe (read-only, env-gated).
                     if std::env::var_os("KV2_OUT_TWIN_PROBE").is_some() {
                         eprintln!(
                             "[out-loop-probe] face {fi} loop {li} degenerate: \
-                             edges {loop_edges:?} cycle {cycle:?}"
+                             edges {loop_edges:?} cycle {cycle:?} kinds {kinds:?}"
                         );
                         for &v in &cycle {
                             let p = yverts[v as usize].point.as_array();
