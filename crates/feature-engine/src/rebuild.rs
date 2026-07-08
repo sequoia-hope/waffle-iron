@@ -1365,11 +1365,17 @@ fn dispatch_combine(
             let mut created = Vec::new();
             let mut deleted = Vec::new();
             let mut role_assignments = Vec::new();
+            // Spec `cut_consumes_body` I2: per-target warnings (e.g. the
+            // consumed-body notice for a legitimately EMPTY subtract) must
+            // reach the feature's diagnostics — the rebuild loop forwards
+            // `OpResult.diagnostics.warnings` into `engine_warnings`.
+            let mut warnings = Vec::new();
             for (_, target) in combine_targets {
                 let res = execute_boolean(kb, target, &tool_handle, kind)?;
                 created.extend(res.provenance.created);
                 deleted.extend(res.provenance.deleted);
                 role_assignments.extend(res.provenance.role_assignments);
+                warnings.extend(res.diagnostics.warnings);
                 for (_, body) in res.outputs {
                     bodies.push(body);
                 }
@@ -1394,7 +1400,10 @@ fn dispatch_combine(
                     modified: Vec::new(),
                     role_assignments,
                 },
-                diagnostics: modeling_ops::Diagnostics::default(),
+                diagnostics: modeling_ops::Diagnostics {
+                    warnings,
+                    ..modeling_ops::Diagnostics::default()
+                },
             })
         }
     }

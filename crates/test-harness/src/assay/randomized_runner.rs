@@ -452,8 +452,18 @@ fn replay_and_validate(case: &DiscoveredCase, use_kernel: bool) -> AssayResult {
     // in run_all_mesh_checks(). The meta.oracles.expect_positive_volume field is vestigial
     // and always true — no separate inline check needed.
 
-    // Minimum triangle count oracle
-    {
+    // Minimum triangle count oracle. Spec `cut_consumes_body`: when the
+    // engine explicitly reports a boolean that CONSUMED a body (an engulfing
+    // cut / empty intersect), the ops that built that body contribute no
+    // final triangles, so the op-derived minimum is not a valid expectation
+    // — the volume/euler/watertight oracles still validate the survivors.
+    // Only the engine's typed consumption warning skips the check; it is
+    // never relaxed on error paths.
+    let body_consumed = builder
+        .engine_warnings()
+        .iter()
+        .any(|w| w.contains("consumed the entire target body") || w.contains("no material"));
+    if !body_consumed {
         let ops: Vec<(String, String)> = meta
             .operations
             .iter()

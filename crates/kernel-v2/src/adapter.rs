@@ -360,6 +360,11 @@ impl KernelV2Adapter {
                     "{op_name}: multi-shell operand ({shells} shells — an internal void or                      disjoint bodies cannot re-enter yang-rs reassembly yet)"
                 )))
             }
+            // Spec `cut_consumes_body`: an empty result is a CORRECT boolean
+            // conclusion (the tool consumed all material), surfaced typed so
+            // the engine can apply body-lifetime policy instead of recording
+            // an operation error. kernel-v2 itself still has no empty solid.
+            Err(KernelV2Error::EmptyBooleanResult) => Err(KernelError::BooleanEmptyResult),
             Err(e) => Err(KernelError::BooleanFailed {
                 reason: format!("kernel-v2 {op_name} failed: {e}"),
             }),

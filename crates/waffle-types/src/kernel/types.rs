@@ -80,6 +80,15 @@ pub enum KernelError {
     #[error("boolean operation failed: {reason}")]
     BooleanFailed { reason: String },
 
+    /// The boolean ran to a correct conclusion and the result contains NO
+    /// material (e.g. a subtract whose tool engulfs the entire target). The
+    /// kernel has no empty solid, so this is surfaced as a TYPED outcome the
+    /// engine can turn into body-lifetime policy (consume the target) rather
+    /// than string-match an operation error. Spec `specs/cut_consumes_body.md`
+    /// (A6.2: structured errors across the boundary).
+    #[error("boolean produced an empty result (no material remains)")]
+    BooleanEmptyResult,
+
     #[error("fillet failed: {reason}")]
     FilletFailed { reason: String },
 

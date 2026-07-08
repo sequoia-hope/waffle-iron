@@ -545,6 +545,20 @@ the roadmap's remaining work:
    `s453_line_run_reversal.rs`: R0072/F0045 documented `#[ignore]` RED
    (F0045 = MACRO self-intersection at FaceId(9), a different mechanism).
    New probes kept: `YANG_S6_CYCLE_DUMP`, `annular-hole-rim-crossing`.
+   **ERROR-census campaign 3 SHIPPED 2026-07-08 (spec
+   `specs/cut_consumes_body.md`):** the EmptyBooleanResult cluster
+   (R0023/R0027/R0058/R0088) is ONE mechanism — a cut whose tool ENGULFS
+   the whole target; yang's all-inside classification and kernel-v2's
+   typed `EmptyBooleanResult` are both CORRECT, but the engine recorded an
+   operation ERROR instead of applying body-lifetime policy. Fix: new
+   typed `KernelError::BooleanEmptyResult` (waffle-types, A6.2) mapped by
+   the adapter; `modeling_ops::execute_boolean` turns Subtract/Intersect
+   empties into zero-output OpResults with a consumed-body warning
+   (Union-empty stays loud — a kernel defect must not masquerade as
+   consumption; mutation-killed); the engine's Cut/Intersect arm forwards
+   per-target diagnostics into engine_warnings. Campaign suite
+   `test-harness/tests/cut_consumes_body_campaign.rs` (engine fixture +
+   disjoint-volume intersect adversary + 4 corpus trackers) 6/6 GREEN.
 4. **N5 — Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2
    CDT framework** (per-surface ad-hoc Newell fans / rim rings instead).
 5. **N6 — §4.5.4 illegal-self-intersection detection/removal is absent.**

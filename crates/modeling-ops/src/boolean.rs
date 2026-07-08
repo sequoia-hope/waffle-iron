@@ -38,10 +38,49 @@ pub fn execute_boolean(
     };
 
     // Execute boolean (multi-body aware)
-    let handles = match kind {
-        BooleanKind::Union => kb.boolean_union_multi(body_a, body_b)?,
-        BooleanKind::Subtract => kb.boolean_subtract_multi(body_a, body_b)?,
-        BooleanKind::Intersect => kb.boolean_intersect_multi(body_a, body_b)?,
+    let raw = match kind {
+        BooleanKind::Union => kb.boolean_union_multi(body_a, body_b),
+        BooleanKind::Subtract => kb.boolean_subtract_multi(body_a, body_b),
+        BooleanKind::Intersect => kb.boolean_intersect_multi(body_a, body_b),
+    };
+    let handles = match raw {
+        Ok(h) => h,
+        // Spec `cut_consumes_body` §3 branches 2–3: a Subtract or Intersect
+        // whose result is legitimately EMPTY consumed the entire target —
+        // return zero output bodies + a warning (body-lifetime policy), with
+        // the target's whole topology recorded as deleted. A Union of
+        // non-empty operands cannot be empty, so branch 4 keeps the typed
+        // error loud (a kernel defect must not masquerade as consumption).
+        Err(waffle_types::kernel::KernelError::BooleanEmptyResult)
+            if matches!(kind, BooleanKind::Subtract | BooleanKind::Intersect) =>
+        {
+            let empty = TopoSnapshot {
+                faces: Vec::new(),
+                edges: Vec::new(),
+                vertices: Vec::new(),
+            };
+            let diff_result = diff::diff(&before, &empty);
+            let warning = match kind {
+                BooleanKind::Subtract => {
+                    "cut consumed the entire target body (no material remains)"
+                }
+                _ => "intersect produced no material (target body consumed)",
+            };
+            return Ok(OpResult {
+                outputs: Vec::new(),
+                provenance: Provenance {
+                    created: Vec::new(),
+                    deleted: diff_result.deleted,
+                    modified: Vec::new(),
+                    role_assignments: Vec::new(),
+                },
+                diagnostics: Diagnostics {
+                    warnings: vec![warning.to_string()],
+                    ..Diagnostics::default()
+                },
+            });
+        }
+        Err(e) => return Err(e.into()),
     };
 
     // Build outputs: first handle is Main, rest are Body { index }
