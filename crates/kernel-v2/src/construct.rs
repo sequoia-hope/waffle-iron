@@ -405,14 +405,15 @@ pub fn revolve(
     }
 
     let frame = match validate_revolve_geometry(profile, axis_origin, axis_direction) {
-        // KV6 on-axis slice 1 (spec `specs/kv6_on_axis_revolve_rectangle.md`,
-        // task #65): the clearance rejection conflates CROSSING (invalid
+        // KV6 on-axis slices 1–3 (specs `kv6_on_axis_revolve_rectangle.md`,
+        // `kv6_on_axis_revolve_oblique.md`, `kv6_on_axis_revolve_partial_
+        // wedge.md`): the clearance rejection conflates CROSSING (invalid
         // input) with TOUCHING (a legitimate solid of revolution). Recover
-        // the full-turn single-on-axis-edge rectangle — the lathe shaft —
-        // as the canonical solid cylinder; every other on-axis shape keeps
-        // the typed error (C0063/C0064 cones/frusta are KV6c slice 2).
-        Err(KernelV2Error::RevolveAxisIntersectsProfile) if full_turn => {
-            return on_axis_revolve(arena, profile, axis_origin, axis_direction);
+        // the single-on-axis-edge lathe family — full-turn cylinder /
+        // frustum / apex cone, and the partial-angle WEDGE (slice 3);
+        // every other on-axis shape keeps the typed error.
+        Err(KernelV2Error::RevolveAxisIntersectsProfile) => {
+            return on_axis_revolve(arena, profile, axis_origin, axis_direction, angle_rad);
         }
         f => f?,
     };
@@ -906,8 +907,12 @@ fn on_axis_revolve(
     profile: &Profile,
     axis_origin: Point3,
     axis_direction: Vector3,
+    angle_rad: f64,
 ) -> Result<RevolveResult, KernelV2Error> {
     const REJECT: KernelV2Error = KernelV2Error::RevolveAxisIntersectsProfile;
+    // Slice-3 dispatch: the caller validated `angle_rad ∈ (0, 2π]`; the
+    // full-turn band is the same constant `revolve` classified with.
+    let full_turn = (angle_rad - 2.0 * std::f64::consts::PI).abs() <= REVOLVE_FULL_TURN_TOLERANCE;
     // Axis frame — the same formulas and constants as
     // `validate_revolve_geometry` (â verified finite/in-plane there).
     let d = [axis_direction.x(), axis_direction.y(), axis_direction.z()];
@@ -993,6 +998,12 @@ fn on_axis_revolve(
     // are axially distinct simple-polygon vertices); both oblique is the
     // BICONE, outside the slice (typed, pre-mutation).
     if k == 3 {
+        // The partial-angle apex-triangle wedge (a cone wedge whose apex
+        // sits ON the boundary between the two pie sectors) is a distinct
+        // vocabulary with no corpus driver — typed (slice-3 spec §2).
+        if !full_turn {
+            return Err(REJECT);
+        }
         let c = off_idx[0];
         let radius = s[c];
         let perp: Vec<usize> = on_idx
@@ -1040,6 +1051,22 @@ fn on_axis_revolve(
     let height = t[top] - t[bot];
     if r_bot <= clearance || r_top <= clearance || height <= band {
         return Err(REJECT); // crossing or degenerate — never a silent sliver
+    }
+
+    // ---- slice 3: PARTIAL angle → the wedge (cylinder or frustum wall) ----
+    if !full_turn {
+        return build_on_axis_wedge(
+            arena,
+            a,
+            w,
+            axis_origin,
+            t[bot],
+            t[top],
+            r_bot,
+            r_top,
+            band,
+            angle_rad,
+        );
     }
 
     // ---- slice 2 increment A: oblique off-axis edge → solid frustum -------
@@ -1263,6 +1290,224 @@ fn build_on_axis_frustum(
         start_cap: f_base,
         end_cap: f_top,
         walls: vec![f_lat],
+    })
+}
+
+/// KV6 on-axis slice 3 (spec `specs/kv6_on_axis_revolve_partial_wedge.md`,
+/// task #85): direct assembler for the WEDGE — the single-on-axis-edge
+/// lathe 4-gon swept a PARTIAL angle. The two on-axis vertices are fixed
+/// by the rotation, so the θ=0 and θ=α caps SHARE the on-axis edge
+/// directly (the swept face of the on-axis edge is degenerate and is not
+/// emitted). Census: V=6, E=9 (7 cap segments + 2 sweep arcs), F=5
+/// (2 caps + 2 planar pie sectors + 1 curved wall), χ=2. Every face is
+/// existing vocabulary — planar-with-arcs sectors, the KV5b/KV6c-5
+/// [seg, arc, seg, arc] wall — only the construction is new.
+///
+/// Vertex/loop conventions mirror [`build_partial_revolve`]: the start cap's
+/// outward normal opposes the sweep velocity (−m̂), the end cap carries the
+/// rotated +m̂; arcs carry axis-directional traversal normals; trig snapped
+/// at the quadrant angles ([`snap_trig`]).
+///
+/// Caller guarantees: `0 < angle < 2π` (not the full-turn band), radii
+/// strictly positive, `t_top − t_bot` above the band; equal radii (within
+/// `band`) → cylinder wall, else the frustum-wedge `Surface::Cone` from the
+/// slice-2A slant formulas.
+#[allow(clippy::too_many_arguments)]
+fn build_on_axis_wedge(
+    arena: &mut BrepArena,
+    a: UnitVector3,
+    w: UnitVector3,
+    a0: Point3,
+    t_bot: f64,
+    t_top: f64,
+    r_bot: f64,
+    r_top: f64,
+    band: f64,
+    angle: f64,
+) -> Result<RevolveResult, KernelV2Error> {
+    let neg = |u: UnitVector3| UnitVector3 {
+        x: -u.x,
+        y: -u.y,
+        z: -u.z,
+    };
+    // m̂ = â × ŵ — the sweep-velocity direction at θ = 0.
+    let m = UnitVector3 {
+        x: a.y * w.z - a.z * w.y,
+        y: a.z * w.x - a.x * w.z,
+        z: a.x * w.y - a.y * w.x,
+    };
+    let (ca, sa) = (snap_trig(angle.cos()), snap_trig(angle.sin()));
+    // Rotated radial ŵ_α and the end cap's outward normal m̂_α.
+    let w_a = UnitVector3 {
+        x: ca * w.x + sa * m.x,
+        y: ca * w.y + sa * m.y,
+        z: ca * w.z + sa * m.z,
+    };
+    let m_a = UnitVector3 {
+        x: ca * m.x - sa * w.x,
+        y: ca * m.y - sa * w.y,
+        z: ca * m.z - sa * w.z,
+    };
+    let at = |t: f64| Point3::new(a0.x() + t * a.x, a0.y() + t * a.y, a0.z() + t * a.z);
+    let radial = |c: Point3, u: UnitVector3, r: f64| {
+        Point3::new(c.x() + r * u.x, c.y() + r * u.y, c.z() + r * u.z)
+    };
+    // A/B on the axis; C/D the off-axis ring at θ=0 (suffix 0) and θ=α (1).
+    let (pa, pb) = (at(t_bot), at(t_top));
+    let (c0, d0) = (radial(pa, w, r_bot), radial(pb, w, r_top));
+    let (c1, d1) = (radial(pa, w_a, r_bot), radial(pb, w_a, r_top));
+
+    // Wall surface: cylinder for equal radii, else the slice-2A cone.
+    let wall_surface = if (r_bot - r_top).abs() <= band {
+        Surface::Cylinder {
+            axis_point: a0,
+            axis_dir: a,
+            radius: r_bot,
+            reversed: false,
+        }
+    } else {
+        let dt = t_top - t_bot;
+        let ds = r_top - r_bot;
+        Surface::Cone {
+            apex: at(t_bot - r_bot * dt / ds),
+            axis_dir: if ds > 0.0 { a } else { neg(a) },
+            half_angle: (ds / dt).abs().atan(),
+            reversed: false,
+        }
+    };
+
+    // ---- direct assembly ---------------------------------------------------
+    let vb = arena.vertices.len() as u32;
+    let (va, vbx, vc0, vd0, vc1, vd1) = (
+        VertexId(vb),
+        VertexId(vb + 1),
+        VertexId(vb + 2),
+        VertexId(vb + 3),
+        VertexId(vb + 4),
+        VertexId(vb + 5),
+    );
+    for p in [pa, pb, c0, d0, c1, d1] {
+        arena.vertices.push(Some(Vertex { point: p }));
+    }
+
+    // 18 half-edges. Naming: cap0 = start cap (θ=0, outward −m̂), cap1 =
+    // end cap (θ=α, outward m̂_α), sb/st = bottom/top pie sectors (outward
+    // ∓â), wl = the curved wall (outward radial).
+    let hb = arena.half_edges.len() as u32;
+    let h = |i: u32| HalfEdgeId(hb + i);
+    // cap0 cycle: A→C0 (0), C0→D0 (1), D0→B (2), B→A (3)
+    // cap1 cycle: A→B (4), B→D1 (5), D1→C1 (6), C1→A (7)
+    // sector_bot cycle: A→C1 (8), arc C1→C0 (9), C0→A (10)
+    // sector_top cycle: B→D0 (11), arc D0→D1 (12), D1→B (13)
+    // wall cycle: arc C0→C1 (14), C1→D1 (15), arc D1→D0 (16), D0→C0 (17)
+    let lb = arena.loops.len() as u32;
+    let (l_cap0, l_cap1, l_sb, l_st, l_wl) = (
+        LoopId(lb),
+        LoopId(lb + 1),
+        LoopId(lb + 2),
+        LoopId(lb + 3),
+        LoopId(lb + 4),
+    );
+    let fb = arena.faces.len() as u32;
+    let (f_cap0, f_cap1, f_sb, f_st, f_wl) = (
+        FaceId(fb),
+        FaceId(fb + 1),
+        FaceId(fb + 2),
+        FaceId(fb + 3),
+        FaceId(fb + 4),
+    );
+    let shell = ShellId(arena.shells.len() as u32);
+    let solid = SolidId(arena.solids.len() as u32);
+
+    let seg = Curve::LineSegment;
+    let arc = |center: Point3, normal: UnitVector3, radius: f64| Curve::Arc {
+        center,
+        normal,
+        radius,
+    };
+    // (id, twin, next, prev, origin, loop, curve)
+    let hes: [(u32, u32, u32, u32, VertexId, LoopId, Curve); 18] = [
+        // cap0: A→C0→D0→B→A, CCW around −m̂.
+        (0, 10, 1, 3, va, l_cap0, seg),
+        (1, 17, 2, 0, vc0, l_cap0, seg),
+        (2, 11, 3, 1, vd0, l_cap0, seg),
+        (3, 4, 0, 2, vbx, l_cap0, seg),
+        // cap1: A→B→D1→C1→A, CCW around m̂_α.
+        (4, 3, 5, 7, va, l_cap1, seg),
+        (5, 13, 6, 4, vbx, l_cap1, seg),
+        (6, 15, 7, 5, vd1, l_cap1, seg),
+        (7, 8, 4, 6, vc1, l_cap1, seg),
+        // sector_bot: A→C1, arc C1→C0 (CCW around −â), C0→A.
+        (8, 7, 9, 10, va, l_sb, seg),
+        (9, 14, 10, 8, vc1, l_sb, arc(pa, neg(a), r_bot)),
+        (10, 0, 8, 9, vc0, l_sb, seg),
+        // sector_top: B→D0, arc D0→D1 (CCW around +â), D1→B.
+        (11, 2, 12, 13, vbx, l_st, seg),
+        (12, 16, 13, 11, vd0, l_st, arc(pb, a, r_top)),
+        (13, 5, 11, 12, vd1, l_st, seg),
+        // wall: arc C0→C1 (+â), C1→D1, arc D1→D0 (−â), D0→C0.
+        (14, 9, 15, 17, vc0, l_wl, arc(pa, a, r_bot)),
+        (15, 6, 16, 14, vc1, l_wl, seg),
+        (16, 12, 17, 15, vd1, l_wl, arc(pb, neg(a), r_top)),
+        (17, 1, 14, 16, vd0, l_wl, seg),
+    ];
+    for &(_, twin, next, prev, origin, loop_id, curve) in &hes {
+        arena.half_edges.push(Some(HalfEdge {
+            twin: h(twin),
+            next: h(next),
+            prev: h(prev),
+            origin,
+            loop_id,
+            curve,
+        }));
+    }
+
+    for (face, boundary) in [
+        (f_cap0, h(0)),
+        (f_cap1, h(4)),
+        (f_sb, h(8)),
+        (f_st, h(11)),
+        (f_wl, h(14)),
+    ] {
+        arena.loops.push(Some(Loop {
+            face,
+            boundary: LoopBoundary::Edges(boundary),
+            kind: LoopKind::Outer,
+        }));
+    }
+    let plane = |point: Point3, normal: UnitVector3| Some(Surface::Plane(Plane { point, normal }));
+    for (surface, outer_loop) in [
+        (plane(c0, neg(m)), l_cap0),
+        (plane(c1, m_a), l_cap1),
+        (plane(pa, neg(a)), l_sb),
+        (plane(pb, a), l_st),
+        (Some(wall_surface), l_wl),
+    ] {
+        arena.faces.push(Some(Face {
+            surface,
+            outer_loop,
+            inner_loops: Vec::new(),
+            shell,
+        }));
+    }
+    arena.shells.push(Some(Shell {
+        solid,
+        faces: vec![f_cap0, f_cap1, f_sb, f_st, f_wl],
+        genus: 0,
+    }));
+    arena.solids.push(Some(Solid {
+        shells: vec![shell],
+    }));
+
+    finalize_solid(arena, solid)?;
+    // Result contract: start/end caps per the partial-revolve convention;
+    // walls in profile order = [curved wall, bottom sector, top sector].
+    Ok(RevolveResult {
+        solid,
+        shell,
+        start_cap: f_cap0,
+        end_cap: f_cap1,
+        walls: vec![f_wl, f_sb, f_st],
     })
 }
 

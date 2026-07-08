@@ -503,9 +503,13 @@ fn axis_crossing_or_touching_profile_rejected_as_error() {
     let err = revolve(&mut arena, &crossing, AXIS_O, AXIS_D, PI)
         .expect_err("axis through the profile interior");
     assert_eq!(err, KernelV2Error::RevolveAxisIntersectsProfile);
+    assert_eq!(arena, BrepArena::new(), "arena untouched");
 
-    // Touching: bottom edge exactly on the axis (KV6a requires strict
-    // clearance; the on-axis solid-of-revolution is a later capability).
+    // PIN FLIPPED at KV6 slice 3 (spec `kv6_on_axis_revolve_partial_wedge.md`):
+    // a partial-angle TOUCHING lathe rectangle is the on-axis WEDGE, no
+    // longer a rejection — the 180° half-cylinder builds with the exact
+    // (α/2)·r²·h volume. (The full wedge contract lives in
+    // `tests/kv6_on_axis_wedge.rs`.)
     let touching = Profile::new(
         Point3::new(0.0, 0.0, 0.0),
         Vector3::new(1.0, 0.0, 0.0),
@@ -519,10 +523,14 @@ fn axis_crossing_or_touching_profile_rejected_as_error() {
         vec![],
     )
     .expect("touching profile");
-    let err = revolve(&mut arena, &touching, AXIS_O, AXIS_D, PI)
-        .expect_err("axis touching the profile boundary");
-    assert_eq!(err, KernelV2Error::RevolveAxisIntersectsProfile);
-    assert_eq!(arena, BrepArena::new(), "arena untouched");
+    let r = revolve(&mut arena, &touching, AXIS_O, AXIS_D, PI)
+        .expect("touching lathe rectangle builds the 180° wedge (slice 3)");
+    let vol = kernel_v2::geom::signed_volume(&arena, r.solid).expect("wedge volume");
+    let expect = (PI / 2.0) * 1.0 * 3.0;
+    assert!(
+        ((vol - expect) / expect).abs() < 1e-9,
+        "half-cylinder wedge volume {vol} vs {expect}"
+    );
 }
 
 /// KV6c increment 5 (spec `specs/kv6c_partial_revolve_cone_patch.md`): a
@@ -1380,14 +1388,21 @@ fn crossing_oblique_quad_rejected_upstream_not_simple() {
     assert_eq!(err, KernelV2Error::ProfileNotSimple { loop_index: 0 });
 }
 
-/// Branch row: a PARTIAL-angle on-axis oblique quad stays on the typed
-/// boundary (only full-turn recovery exists).
+/// PIN FLIPPED at KV6 slice 3 (spec `kv6_on_axis_revolve_partial_wedge.md`):
+/// a PARTIAL-angle on-axis oblique quad now builds the FRUSTUM WEDGE (the
+/// full contract lives in `tests/kv6_on_axis_wedge.rs`; this pin keeps the
+/// kv6a-local fixture on the green side of the moved boundary).
 #[test]
-fn on_axis_partial_oblique_quad_stays_rejected() {
+fn on_axis_partial_oblique_quad_builds_frustum_wedge() {
     let mut arena = BrepArena::new();
     let profile = on_axis_frustum_profile();
-    let err = revolve(&mut arena, &profile, AXIS_O, AXIS_D, PI)
-        .expect_err("partial on-axis frustum stays rejected");
-    assert_eq!(err, KernelV2Error::RevolveAxisIntersectsProfile);
-    assert_eq!(arena, BrepArena::new(), "arena untouched");
+    let r = revolve(&mut arena, &profile, AXIS_O, AXIS_D, PI)
+        .expect("partial on-axis frustum builds the wedge (slice 3)");
+    let has_cone = r.walls.iter().any(|&f| {
+        matches!(
+            arena.face(f).expect("wall").surface,
+            Some(Surface::Cone { .. })
+        )
+    });
+    assert!(has_cone, "the frustum wedge carries a Surface::Cone wall");
 }
