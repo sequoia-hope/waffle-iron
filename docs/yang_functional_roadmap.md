@@ -2704,6 +2704,48 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   profiles, oblique cone cuts (conic-bounded patches), partial-angle
   on-axis profiles.
 
+- **KV6c increment 5 — partial revolve of oblique edges: the arc-bounded
+  cone patch. ✅ SHIPPED (2026-07-08, tasks #81/#82, spec
+  `specs/kv6c_partial_revolve_cone_patch.md`, commits 710a783b + 92f21d15).**
+  The single largest capability wall in the corpus: 34 of the 38
+  UNSUPPORTED(revolve) cases were this one mechanism (2026-07-08 census).
+  Increment 1 (kernel-v2): `build_partial_revolve` passes the
+  `EdgeClass::Oblique` params through as the `Surface::Cone` wall (the
+  [seg, arc, seg, arc] loop was already class-generic); new
+  `validate_cone_patch` (the cylinder unrolled-winding analysis in the
+  cone's (θ, τ) development, per-arc on-cone agreement `r = τ·tan α`);
+  new `cone_arc_patch_flux` (per-arc Green's-theorem closed form — on a
+  cone `x·n̂` is τ-independent, so each arc contributes
+  `−(τ²/2)·(apex·(t̂s−t̂e) − tanα·(apex·â)·Δθ)`; reproduces the shipped
+  full-band form at ±2π); render tessellation via ONE shared
+  developable-patch engine (the cylinder patch unroll+CDT machinery
+  parameterized by a `DevSurface` chart — radius-at-v and normal tilt are
+  the only differences; `r_unroll` = max boundary radial distance).
+  Increment 2 (yang): the partial cone STRIP arm in `tessellate_cone_face`
+  (arc chains sample by sweep fraction of the shared n_seg —
+  radius-independent, so a wall's two chains always pair), rims/arcs split
+  explicitly (an open chain in the frustum-band arm would phantom-wrap
+  silent-wrong geometry — now impossible); the kernel-v2 conversion gate
+  removed. The FULL chain (cherchi, Stage-3/4 cone sections, output
+  recovery into the new patch vocabulary) worked with no further changes —
+  exact truncation volumes through the wall-crossing subtract.
+  **Corpus: +9 SUPPORTED_CORRECT (R0002/10/18/33/37/55/68/69/80), 0 WRONG,
+  zero lost.** The remaining 27 of the group's 36 cases moved to their
+  next honest boundaries: 15 loud downstream ERRORs (several Stage-3
+  `AmbiguousCurve{2,2}` cone-pair matching stops — M5-family — plus
+  boolean/tessellation failures to census), 10 deeper typed UNSUPPORTED
+  walls (curved re-entry, multi-shell, coplanar), 2 container TIMEOUTs
+  (R0052/R0094). R0008's pin reconciled to ERROR (Stage-3 AmbiguousCurve).
+  Adversary: flux-sign / reversed-sense / tolerance-widening mutations all
+  caught (the third needed a new negative test, added); finding —
+  near-cylindrical cones (apex ~1e9 away) lose ~8 digits to f64
+  cancellation in the flux (~7 sig figs retained, documented, not a
+  defect). Remaining KV6 revolve stock after this slice: KV6d closed
+  torus (C0065/C0067), oblique cone sections (ellipse-arc vocabulary —
+  the `#[ignore]`d boundary probe in `kv6c_partial_cone_boolean.rs`),
+  boolean-output partial-patch re-entry (R0051 class), C0070
+  non-alternating profiles.
+
 - **KV6b-F3 — plane∥axis × cylinder line case. ✅ RESOLVED (2026-06-12,
   PR-F3 + PR-F3b).** ssi-rs pair #2's C3a/C3b line branches were already
   correct; the defects were ALL in yang Stage 4: (1) `LineSegment`
