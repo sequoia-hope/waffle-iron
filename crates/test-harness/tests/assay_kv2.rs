@@ -990,8 +990,13 @@ fn smoke_corpus_boundary_categories() {
         // the feature name "Revolve Offset", so the reason classifier reads
         // it as the revolve label).
         ("F0075", Category::Unsupported(UnsupportedReason::Revolve)),
-        // R0008 stays walled (circle-profile revolve → torus, KV6d).
-        ("R0008", Category::Unsupported(UnsupportedReason::Revolve)),
+        // R0008 marched past the partial-cone revolve wall (KV6c increment 5,
+        // spec kv6c_partial_revolve_cone_patch.md) to its next honest
+        // boundary: an auto-union whose Stage-3 SSI refinement stops loud at
+        // AmbiguousCurve { candidates: 2, matched: 2 } (a cone-pair curve
+        // matching ambiguity — M5-family). ERROR is the typed downstream
+        // state, not a regression; re-pin when the SSI class lands.
+        ("R0008", Category::Error),
         // ── C-series complexity corpus (2026-07-05 baseline) ─────────────
         // Representative pins per family; see specs/assay_complexity_corpus.md.
         // Group 1/3 (in-boundary bug hunters) — green, with two NAMED

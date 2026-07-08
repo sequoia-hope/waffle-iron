@@ -2906,15 +2906,96 @@ fn tessellate_cone_face(
             matches!(ed.curve, Curve::Circle { .. }) && ed.start != ed.end
         })
         .collect();
-    // KV6c increment 5 boundary (task #82): the partial cone STRIP (2 sweep
-    // arcs + slant ruling segments — the ruled analog of the partial
-    // cylinder patch). Typed and loud until the strip arm lands; NEVER the
+    // KV6c increment 5 (task #82): the partial cone STRIP — 2 sweep arcs at
+    // the wall's two radii + slant ruling segments, the ruled analog of
+    // `tessellate_lateral_face`'s partial cylinder arm. Arc chains are
+    // sampled by SWEEP fraction of the shared n_seg (radius-independent), so
+    // the two chains of one wall always carry identical counts. NEVER the
     // frustum-band arm below (whose % nseg wrap assumes closed rings).
+    if arc_edges.len() == 2
+        && circle_edges.is_empty()
+        && f.outer_loop.iter().all(|&e| {
+            matches!(
+                edges[e as usize].curve,
+                Curve::Circle { .. } | Curve::LineSegment
+            )
+        })
+    {
+        let au = normalize3(axis_dir.as_array());
+        let ap = apex.as_array();
+        // Axial coordinate (from the apex) and stored-normal sense of an arc.
+        let rim_param = |e: u32| -> f64 {
+            if let Curve::Circle { center, .. } = edges[e as usize].curve {
+                let c = center.as_array();
+                (c[0] - ap[0]) * au[0] + (c[1] - ap[1]) * au[1] + (c[2] - ap[2]) * au[2]
+            } else {
+                0.0
+            }
+        };
+        let rim_sense = |e: u32| -> f64 {
+            if let Curve::Circle { normal, .. } = edges[e as usize].curve {
+                let n = normalize3(normal.as_array());
+                (n[0] * au[0] + n[1] * au[1] + n[2] * au[2]).signum()
+            } else {
+                1.0
+            }
+        };
+        let (mut bottom_e, mut top_e) = (arc_edges[0], arc_edges[1]);
+        if rim_param(bottom_e) > rim_param(top_e) {
+            std::mem::swap(&mut bottom_e, &mut top_e);
+        }
+        let bottom = rim_rings.get(&bottom_e).ok_or_else(|| {
+            YangError::MalformedTopology(format!(
+                "face {f_idx}: cone arc chain {bottom_e} not built"
+            ))
+        })?;
+        let top = rim_rings.get(&top_e).ok_or_else(|| {
+            YangError::MalformedTopology(format!("face {f_idx}: cone arc chain {top_e} not built"))
+        })?;
+        if bottom.len() != top.len() || bottom.len() < 2 {
+            return Err(YangError::MalformedTopology(format!(
+                "face {f_idx}: partial-cone arc chains have mismatched sample counts \
+                 ({} vs {})",
+                bottom.len(),
+                top.len()
+            )));
+        }
+        // Chains are open polylines [start … end]; with agreeing stored
+        // senses they are azimuth-aligned index-for-index, with mirrored
+        // senses index k pairs with (M−k) — the cylinder partial-arm rule.
+        let m = bottom.len() - 1;
+        let co_rotating = rim_sense(bottom_e) * rim_sense(top_e) > 0.0;
+        let b_index = |k: usize| -> usize {
+            if co_rotating {
+                k
+            } else {
+                m - k
+            }
+        };
+        for k in 0..m {
+            let t0 = top[k];
+            let t1 = top[k + 1];
+            let b0 = bottom[b_index(k)];
+            let b1 = bottom[b_index(k + 1)];
+            for mut tri in [[b0, b1, t1], [b0, t1, t0]] {
+                let mut n = cone_outward_normal(out_verts, &tri, apex, axis_dir, half_angle);
+                if f.reversed {
+                    n = [-n[0], -n[1], -n[2]];
+                }
+                orient_tri(out_verts, &mut tri, n);
+                out_tris.push(tri);
+            }
+        }
+        return Ok(());
+    }
+    // Any other arc-bearing cone boundary (mixed arcs+rims, a single arc, a
+    // trim-loop patch) is outside the strip vocabulary — typed and loud.
     if !arc_edges.is_empty() {
         return Err(YangError::MalformedTopology(format!(
-            "face {f_idx}: partial (arc-bounded) cone patch tessellation is not \
-             implemented yet (KV6c increment 5 yang side; {} arc edges)",
-            arc_edges.len()
+            "face {f_idx}: arc-bounded cone face outside the partial-strip vocabulary \
+             (KV6c increment 5; {} arc edges, {} closed rims)",
+            arc_edges.len(),
+            circle_edges.len()
         )));
     }
     // A cone face is bounded by EITHER one base rim (an apex-pointed cone — a

@@ -480,14 +480,22 @@ fn mixed_edge_classes_census_volume_and_watertight() {
 }
 
 // =========================================================================
-// 5. Boolean gate: partial-cone operand → typed NotSupported, never a panic
+// 5. Boolean contract: partial-cone operands boolean in BOTH positions ×
+//    all three ops. PIN FLIPPED at KV6c increment 5 yang side (task #82):
+//    this pinned the typed UnsupportedCurvedBoolean conversion gate while
+//    yang Stage 1 lacked the partial cone STRIP arm; the strip landed and
+//    the gate was removed, so the contract is now SUCCESS with a validated,
+//    watertight, volume-correct output (never a panic, never silent-wrong).
 // =========================================================================
 
-/// A box solid via extrude, positioned anywhere (the partial-cone conversion
-/// trips before any geometry work, so placement is irrelevant).
+/// A box wholly INTERIOR to the 180° trapezoid solid: x∈[0.4,0.8],
+/// y∈[1.2,1.7], z∈[0.05,0.55] — radial ∈ [1.2, 1.79] ⊂ (1, 3−x ≥ 2.2),
+/// azimuth atan2(z,y) ∈ [1.7°, 24.7°] ⊂ (0°, 180°), clear of both cap
+/// planes. Contained ⇒ union is identity, subtract leaves a void shell,
+/// intersect is the box itself.
 fn box_solid(arena: &mut BrepArena) -> SolidId {
     let profile = Profile::new(
-        Point3::new(0.0, 0.0, 0.0),
+        Point3::new(0.0, 0.0, 0.05),
         Vector3::new(1.0, 0.0, 0.0),
         Vector3::new(0.0, 1.0, 0.0),
         vec![
@@ -505,32 +513,52 @@ fn box_solid(arena: &mut BrepArena) -> SolidId {
 }
 
 #[test]
-fn partial_cone_operand_is_typed_boolean_wall_both_positions_both_ops() {
+fn partial_cone_operand_booleans_succeed_both_positions_all_ops() {
+    const BOX_VOL: f64 = 0.4 * 0.5 * 0.5;
+    let solid_a = |angle: f64| angle / (2.0 * PI) * (16.0 * PI / 3.0);
     for op in [BoolOp::Union, BoolOp::Subtract, BoolOp::Intersect] {
-        // Cone as operand A.
-        {
+        // The box is interior, so both operand orders have closed-form
+        // volumes; A−B/B−A differ, the others are symmetric.
+        let cases: [(&str, bool); 2] = [("cone as A", true), ("cone as B", false)];
+        for (what, cone_first) in cases {
             let mut arena = BrepArena::new();
             let r = revolve(&mut arena, &trapezoid_profile(), AXIS_O, AXIS_D, PI)
                 .expect("partial cone builds");
             let b = box_solid(&mut arena);
-            let err = boolean_op(&mut arena, r.solid, b, op)
-                .expect_err("partial-cone operand A must stay a typed wall");
+            let (lhs, rhs) = if cone_first {
+                (r.solid, b)
+            } else {
+                (b, r.solid)
+            };
+            let expect = match (op, cone_first) {
+                (BoolOp::Union, _) => solid_a(PI),
+                (BoolOp::Intersect, _) => BOX_VOL,
+                (BoolOp::Subtract, true) => solid_a(PI) - BOX_VOL,
+                // box − containing-cone-region = nothing… the box is wholly
+                // interior, so B − A is EMPTY: expect the typed empty-result
+                // conclusion, not a solid.
+                (BoolOp::Subtract, false) => f64::NAN, // handled below
+                (BoolOp::Xor, _) => unreachable!("Xor not exercised"),
+            };
+            let result = boolean_op(&mut arena, lhs, rhs, op);
+            if op == BoolOp::Subtract && !cone_first {
+                assert!(
+                    matches!(result, Err(KernelV2Error::EmptyBooleanResult)),
+                    "{what} {op:?}: interior box minus cone must conclude EMPTY, got {result:?}"
+                );
+                continue;
+            }
+            let out = result.unwrap_or_else(|e| panic!("{what} {op:?} succeeds: {e:?}"));
+            validate_solid(&arena, out)
+                .unwrap_or_else(|e| panic!("{what} {op:?} output validates: {e:?}"));
+            let mesh =
+                tessellate(&arena, out).unwrap_or_else(|e| panic!("{what} {op:?} mesh: {e:?}"));
+            assert_mesh_sane(&mesh, what);
+            assert_watertight(&mesh, what);
+            let vol = mesh_signed_volume(&mesh);
             assert!(
-                matches!(err, KernelV2Error::UnsupportedCurvedBoolean { .. }),
-                "operand A {op:?}: expected UnsupportedCurvedBoolean, got {err:?}"
-            );
-        }
-        // Cone as operand B.
-        {
-            let mut arena = BrepArena::new();
-            let b = box_solid(&mut arena);
-            let r = revolve(&mut arena, &trapezoid_profile(), AXIS_O, AXIS_D, PI)
-                .expect("partial cone builds");
-            let err = boolean_op(&mut arena, b, r.solid, op)
-                .expect_err("partial-cone operand B must stay a typed wall");
-            assert!(
-                matches!(err, KernelV2Error::UnsupportedCurvedBoolean { .. }),
-                "operand B {op:?}: expected UnsupportedCurvedBoolean, got {err:?}"
+                vol <= expect * 1.001 && vol >= 0.94 * expect,
+                "{what} {op:?}: mesh volume {vol} vs expected {expect} (chord band)"
             );
         }
     }
