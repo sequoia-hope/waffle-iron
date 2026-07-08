@@ -525,10 +525,14 @@ fn axis_crossing_or_touching_profile_rejected_as_error() {
     assert_eq!(arena, BrepArena::new(), "arena untouched");
 }
 
+/// KV6c increment 5 (spec `specs/kv6c_partial_revolve_cone_patch.md`): a
+/// partial revolve of an off-axis polygon with an OBLIQUE edge now builds an
+/// arc-bounded `Surface::Cone` patch. (Split out of the former
+/// `oblique_edges_circle_profiles_and_holes_rejected_typed` — the oblique arm
+/// flipped from a typed rejection to a green build; the full contract lives in
+/// `tests/kv6c_partial_cone_patch.rs`.)
 #[test]
-fn oblique_edges_circle_profiles_and_holes_rejected_typed() {
-    let mut arena = BrepArena::new();
-
+fn partial_oblique_edge_builds_cone_patch() {
     // Oblique edge (3,1)→(4,2): neither parallel nor perpendicular to x̂.
     let oblique = Profile::new(
         Point3::new(0.0, 0.0, 0.0),
@@ -543,9 +547,21 @@ fn oblique_edges_circle_profiles_and_holes_rejected_typed() {
         vec![],
     )
     .expect("oblique profile");
-    let err =
-        revolve(&mut arena, &oblique, AXIS_O, AXIS_D, PI).expect_err("oblique edge → cone (KV6c)");
-    assert_eq!(err, KernelV2Error::RevolveObliqueEdgeUnsupported);
+    let mut arena = BrepArena::new();
+    let r = revolve(&mut arena, &oblique, AXIS_O, AXIS_D, PI)
+        .expect("oblique edge → partial cone patch (KV6c increment 5)");
+    let cone_walls = r
+        .walls
+        .iter()
+        .filter(|&&w| matches!(arena.face(w).unwrap().surface, Some(Surface::Cone { .. })))
+        .count();
+    assert_eq!(cone_walls, 1, "exactly one partial cone patch wall");
+    validate_solid(&arena, r.solid).expect("partial cone patch validates");
+}
+
+#[test]
+fn circle_profiles_and_holes_rejected_typed() {
+    let mut arena = BrepArena::new();
 
     // FULL-turn circle profile → closed torus (KV6d full-turn, still walled;
     // partial-turn circle revolve → torus is supported, tested separately).

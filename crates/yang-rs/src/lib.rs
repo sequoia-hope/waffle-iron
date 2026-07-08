@@ -2883,15 +2883,40 @@ fn tessellate_cone_face(
     _sources: &mut [TessellationSource],
     out_tris: &mut Vec<[u32; 3]>,
 ) -> Result<(), YangError> {
-    // ---- Find the single base-rim Circle edge. A cone face on a triangle (no
-    // base rim Circle in its loop) is MalformedTopology (loud), mirroring the
-    // cylinder/sphere "wrong boundary" rejection.
+    // ---- Find the base-rim Circle edges, split CLOSED rims (start == end)
+    // from ARCS (start != end — a partial cone patch boundary, KV6c
+    // increment 5). Treating an open arc chain as a closed rim would
+    // phantom-wrap the strip into silent wrong geometry, so the split is
+    // load-bearing, mirroring the cylinder's canonical-vs-partial dispatch.
     let circle_edges: Vec<u32> = f
         .outer_loop
         .iter()
         .copied()
-        .filter(|&e| matches!(edges[e as usize].curve, Curve::Circle { .. }))
+        .filter(|&e| {
+            let ed = &edges[e as usize];
+            matches!(ed.curve, Curve::Circle { .. }) && ed.start == ed.end
+        })
         .collect();
+    let arc_edges: Vec<u32> = f
+        .outer_loop
+        .iter()
+        .copied()
+        .filter(|&e| {
+            let ed = &edges[e as usize];
+            matches!(ed.curve, Curve::Circle { .. }) && ed.start != ed.end
+        })
+        .collect();
+    // KV6c increment 5 boundary (task #82): the partial cone STRIP (2 sweep
+    // arcs + slant ruling segments — the ruled analog of the partial
+    // cylinder patch). Typed and loud until the strip arm lands; NEVER the
+    // frustum-band arm below (whose % nseg wrap assumes closed rings).
+    if !arc_edges.is_empty() {
+        return Err(YangError::MalformedTopology(format!(
+            "face {f_idx}: partial (arc-bounded) cone patch tessellation is not \
+             implemented yet (KV6c increment 5 yang side; {} arc edges)",
+            arc_edges.len()
+        )));
+    }
     // A cone face is bounded by EITHER one base rim (an apex-pointed cone — a
     // topological disk fanned from the apex, PR-YR16) OR two rims at different
     // radii (a FRUSTUM band — the ruled analog of the cylinder tube, KV6c 5b;

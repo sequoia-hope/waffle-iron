@@ -420,16 +420,6 @@ pub fn revolve(
     if full_turn {
         build_full_revolve(arena, &frame)
     } else {
-        // A partial revolve of an oblique edge sweeps an ARC-bounded cone
-        // patch, which neither the cone tessellation nor `validate_cone_face`
-        // handles yet (KV6c increment 5). Reject before any mutation.
-        if frame
-            .edges
-            .iter()
-            .any(|e| matches!(e, EdgeClass::Oblique { .. }))
-        {
-            return Err(KernelV2Error::RevolveObliqueEdgeUnsupported);
-        }
         build_partial_revolve(arena, &frame, angle_rad)
     }
 }
@@ -840,9 +830,21 @@ fn build_partial_revolve(
                 point: fr.ring0[i],
                 normal: if outward_plus_axis { fr.a } else { neg(fr.a) },
             }),
-            // Oblique edges are rejected before `build_partial_revolve` is
-            // called (see `revolve`); this arm keeps the match exhaustive.
-            EdgeClass::Oblique { .. } => return Err(KernelV2Error::RevolveObliqueEdgeUnsupported),
+            // KV6c increment 5 (spec `kv6c_partial_revolve_cone_patch.md`):
+            // an oblique edge sweeps an arc-bounded CONE patch — the same
+            // [seg, arc, seg, arc] wall loop as `Parallel`, only the surface
+            // differs. Parameters pass through from the classification.
+            EdgeClass::Oblique {
+                apex,
+                axis_dir,
+                half_angle,
+                reversed,
+            } => Surface::Cone {
+                apex,
+                axis_dir,
+                half_angle,
+                reversed,
+            },
         };
         arena.faces.push(Some(Face {
             surface: Some(surface),

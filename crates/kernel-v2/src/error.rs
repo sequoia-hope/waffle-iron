@@ -172,12 +172,6 @@ pub enum KernelV2Error {
     /// `expect_rebuild_error`), never `NotSupported`.
     RevolveAxisIntersectsProfile,
 
-    /// A profile edge is neither parallel nor perpendicular to the revolve
-    /// axis (beyond `construct::REVOLVE_EDGE_ALIGNMENT_TOLERANCE`).
-    /// Sweeping an oblique edge produces a CONE — out of the KV6a surface
-    /// vocabulary (roadmap KV6c).
-    RevolveObliqueEdgeUnsupported,
-
     /// Revolving a circle profile produces a TORUS — out of the KV6a
     /// surface vocabulary (roadmap KV6d).
     RevolveCircleProfileUnsupported,

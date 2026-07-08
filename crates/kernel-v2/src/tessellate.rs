@@ -217,14 +217,13 @@ pub fn tessellate_with_chord_tolerance(
                     }
                 }
                 Some(Surface::Cone { .. }) => {
+                    // Canonical full lateral (full-circle rims, KV6c) vs a
+                    // partial arc-bounded patch (the partial-revolve oblique
+                    // wall / boolean outputs — KV6c increment 5).
                     if face_has_circle_edge(arena, f)? {
                         tessellate_cone_lateral(arena, f, n_seg, &mut mesh)?
                     } else {
-                        // Partial cone patch (boolean output) — KV6c increment 5.
-                        return Err(KernelV2Error::CurvedGeometryMismatch {
-                            face: f,
-                            reason: "tessellation: partial Surface::Cone patch not yet implemented (KV6c increment 5)",
-                        });
+                        tessellate_cone_patch(arena, f, n_seg, &mut mesh)?
                     }
                 }
                 Some(Surface::Torus { .. }) => {
@@ -1921,15 +1920,23 @@ fn pinch_split_rec(
     }
 }
 
+/// Which developable surface the shared patch engine is developing (KV6c
+/// increment 5, spec `kv6c_partial_revolve_cone_patch.md` §8 / I5 — ONE
+/// engine, per-surface parameterization; crate hard rule 5). The engine's
+/// (u, v) chart is `u = sense·θ·r_unroll`, `v` = the axial coordinate from
+/// the anchor (`axis_point` height for cylinders, τ from the apex for
+/// cones); only the on-surface radius at `v` differs.
+enum DevSurface {
+    Cylinder { radius: f64 },
+    Cone { tan_half_angle: f64 },
+}
+
 fn tessellate_cylinder_patch(
     arena: &BrepArena,
     fid: FaceId,
     n_seg: u32,
     out: &mut RenderMesh,
 ) -> Result<(), KernelV2Error> {
-    use std::f64::consts::PI;
-    let fail = |reason: &'static str| KernelV2Error::TessellationFailed { face: fid, reason };
-
     let face = arena.face(fid)?;
     let Some(Surface::Cylinder {
         axis_point,
@@ -1940,10 +1947,104 @@ fn tessellate_cylinder_patch(
     else {
         return Err(KernelV2Error::FaceWithoutSurface { face: fid });
     };
+    tessellate_developable_patch(
+        arena,
+        fid,
+        n_seg,
+        out,
+        [axis_point.x(), axis_point.y(), axis_point.z()],
+        [axis_dir.x, axis_dir.y, axis_dir.z],
+        reversed,
+        radius,
+        DevSurface::Cylinder { radius },
+    )
+}
+
+/// KV6c increment 5: the arc-bounded partial cone patch (the partial-revolve
+/// oblique wall; boolean-output cone patches ride the same engine). The
+/// unroll scale `r_unroll` is the face's maximum boundary radial distance —
+/// deterministic and positive; the (θ, τ) chart is bijective on the single
+/// nappe regardless of the u-scale, and CDT correctness needs bijectivity,
+/// not isometry.
+fn tessellate_cone_patch(
+    arena: &BrepArena,
+    fid: FaceId,
+    n_seg: u32,
+    out: &mut RenderMesh,
+) -> Result<(), KernelV2Error> {
+    let face = arena.face(fid)?;
+    let Some(Surface::Cone {
+        apex,
+        axis_dir,
+        half_angle,
+        reversed,
+    }) = face.surface
+    else {
+        return Err(KernelV2Error::FaceWithoutSurface { face: fid });
+    };
+    let ap = [apex.x(), apex.y(), apex.z()];
     let a = [axis_dir.x, axis_dir.y, axis_dir.z];
-    let ap = [axis_point.x(), axis_point.y(), axis_point.z()];
+    let mut r_max = 0.0f64;
+    let mut loops = vec![face.outer_loop];
+    loops.extend(face.inner_loops.iter().copied());
+    for lid in loops {
+        for p in arena.loop_points(lid)? {
+            let d = [p.x() - ap[0], p.y() - ap[1], p.z() - ap[2]];
+            let t = d[0] * a[0] + d[1] * a[1] + d[2] * a[2];
+            let r = [d[0] - t * a[0], d[1] - t * a[1], d[2] - t * a[2]];
+            r_max = r_max.max((r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt());
+        }
+    }
+    if !(r_max.is_finite() && r_max > 0.0) {
+        return Err(KernelV2Error::TessellationFailed {
+            face: fid,
+            reason: "cone patch has no off-axis boundary vertex",
+        });
+    }
+    tessellate_developable_patch(
+        arena,
+        fid,
+        n_seg,
+        out,
+        ap,
+        a,
+        reversed,
+        r_max,
+        DevSurface::Cone {
+            tan_half_angle: half_angle.tan(),
+        },
+    )
+}
+
+/// The shared developable-patch engine: unroll the boundary loops into the
+/// surface's (u, v) development, CDT, chord-bound refinement, emit. See the
+/// wrappers above for the per-surface charts. Body unchanged from the
+/// original cylinder implementation except for the `DevSurface` chart
+/// parameterization (spec `kv6c_partial_revolve_cone_patch.md` §8).
+#[allow(clippy::too_many_arguments)]
+fn tessellate_developable_patch(
+    arena: &BrepArena,
+    fid: FaceId,
+    n_seg: u32,
+    out: &mut RenderMesh,
+    ap: [f64; 3],
+    a: [f64; 3],
+    reversed: bool,
+    r_unroll: f64,
+    dev: DevSurface,
+) -> Result<(), KernelV2Error> {
+    use std::f64::consts::PI;
+    let fail = |reason: &'static str| KernelV2Error::TessellationFailed { face: fid, reason };
+
+    let face = arena.face(fid)?;
     let sense = if reversed { -1.0 } else { 1.0 };
-    let w_facet = 2.0 * PI * radius / f64::from(n_seg);
+    // The outward-normal tilt: 0 for cylinders (pure radial), tan α for
+    // cones (`n̂ ∝ r̂ − tan α·â`, ⊥ the generator).
+    let tan_a = match dev {
+        DevSurface::Cylinder { .. } => 0.0,
+        DevSurface::Cone { tan_half_angle } => tan_half_angle,
+    };
+    let w_facet = 2.0 * PI * r_unroll / f64::from(n_seg);
 
     let mut all_loops = vec![face.outer_loop];
     all_loops.extend(face.inner_loops.iter().copied());
@@ -1979,15 +2080,20 @@ fn tessellate_cylinder_patch(
         a[2] * e1[0] - a[0] * e1[2],
         a[0] * e1[1] - a[1] * e1[0],
     ];
-    // (u, v) ← 3D, and 3D ← (u, v) for on-surface points.
-    let unroll_u = |theta: f64| sense * theta * radius;
+    // (u, v) ← 3D, and 3D ← (u, v) for on-surface points. The on-surface
+    // radius at v is the chart's only per-surface difference.
+    let unroll_u = |theta: f64| sense * theta * r_unroll;
     let surface_point = |u: f64, v: f64| -> [f64; 3] {
-        let theta = sense * u / radius;
+        let theta = sense * u / r_unroll;
         let (s, c) = theta.sin_cos();
+        let rr = match dev {
+            DevSurface::Cylinder { radius } => radius,
+            DevSurface::Cone { tan_half_angle } => v * tan_half_angle,
+        };
         [
-            ap[0] + v * a[0] + radius * (c * e1[0] + s * e2[0]),
-            ap[1] + v * a[1] + radius * (c * e1[1] + s * e2[1]),
-            ap[2] + v * a[2] + radius * (c * e1[2] + s * e2[2]),
+            ap[0] + v * a[0] + rr * (c * e1[0] + s * e2[0]),
+            ap[1] + v * a[1] + rr * (c * e1[1] + s * e2[1]),
+            ap[2] + v * a[2] + rr * (c * e1[2] + s * e2[2]),
         ]
     };
 
@@ -2071,7 +2177,7 @@ fn tessellate_cylinder_patch(
                     let (theta_q, _) = theta_h(q, e1, e2)?;
                     let delta = crate::geom::wrap_to_pi(theta_q - theta_p);
                     entries.push((origin_node, PatchEdgeKind::Chord));
-                    u_cur += sense * delta * radius;
+                    u_cur += sense * delta * r_unroll;
                     total_theta += delta;
                 }
                 Curve::Arc {
@@ -2093,7 +2199,7 @@ fn tessellate_cylinder_patch(
                     entries.push((origin_node, PatchEdgeKind::ArcSample));
                     for (j, sp) in samples.iter().enumerate() {
                         let frac = (j + 1) as f64 / k as f64;
-                        let su = u_cur + sense * dir * sweep * frac * radius;
+                        let su = u_cur + sense * dir * sweep * frac * r_unroll;
                         let (_, sh) = theta_h(*sp, e1, e2)?;
                         entries.push((nodes.len(), PatchEdgeKind::ArcSample));
                         nodes.push(PatchNode {
@@ -2101,7 +2207,7 @@ fn tessellate_cylinder_patch(
                             pos: [sp.x(), sp.y(), sp.z()],
                         });
                     }
-                    u_cur += sense * dir * sweep * radius;
+                    u_cur += sense * dir * sweep * r_unroll;
                     total_theta += dir * sweep;
                 }
                 Curve::EllipseArc {
@@ -2111,11 +2217,20 @@ fn tessellate_cylinder_patch(
                     major_radius,
                     minor_radius,
                 } => {
-                    // PR-KV9: oblique-section arc on this cylinder. The
+                    // PR-KV9: oblique-section arc on this CYLINDER. The
                     // azimuth advance equals the SIGNED parametric sweep
                     // (the axis-⊥ projection of a cylinder-section ellipse
                     // is the radius-r circle: Δθ = s_w·Δt, s_w the frame
                     // handedness sign — see geom::cylinder_arc_patch_flux).
+                    // A cone-section ellipse has NO such constant-radius
+                    // projection — the oblique conic-cut vocabulary is a
+                    // later slice, typed and loud.
+                    if matches!(dev, DevSurface::Cone { .. }) {
+                        return Err(fail(
+                            "cone patch ellipse arcs (oblique cone sections) are outside \
+                             the KV6c increment-5 vocabulary",
+                        ));
+                    }
                     let nu = [normal.x, normal.y, normal.z];
                     let mr = [major_axis.x, major_axis.y, major_axis.z];
                     let m_dot_a = mr[0] * a[0] + mr[1] * a[1] + mr[2] * a[2];
@@ -2161,7 +2276,7 @@ fn tessellate_cylinder_patch(
                     entries.push((origin_node, PatchEdgeKind::ArcSample));
                     for (j, sp) in samples.iter().enumerate() {
                         let frac = (j + 1) as f64 / k as f64;
-                        let su = u_cur + sense * s_w * sweep * frac * radius;
+                        let su = u_cur + sense * s_w * sweep * frac * r_unroll;
                         let (_, sh) = theta_h(*sp, e1, e2)?;
                         entries.push((nodes.len(), PatchEdgeKind::ArcSample));
                         nodes.push(PatchNode {
@@ -2169,7 +2284,7 @@ fn tessellate_cylinder_patch(
                             pos: [sp.x(), sp.y(), sp.z()],
                         });
                     }
-                    u_cur += sense * s_w * sweep * radius;
+                    u_cur += sense * s_w * sweep * r_unroll;
                     total_theta += s_w * sweep;
                 }
                 Curve::Circle { .. } => {
@@ -2203,7 +2318,7 @@ fn tessellate_cylinder_patch(
     }
 
     // ---- pass 2: assemble one simple polygon + holes ----------------------
-    let span = 2.0 * PI * radius; // |u| span of one full wrap (sense-free)
+    let span = 2.0 * PI * r_unroll; // |u| span of one full wrap (sense-free)
     fn mid_u(c: &Chain, nodes: &[PatchNode]) -> f64 {
         let (mut lo, mut hi) = (f64::INFINITY, f64::NEG_INFINITY);
         for &(n, _) in &c.entries {
@@ -2722,22 +2837,36 @@ fn tessellate_cylinder_patch(
     }
 
     // ---- pass 5: emit ------------------------------------------------------
+    // Sense-adjusted outward normal at a surface point: `unit(r̂ − tan α·â)`
+    // — the generator-perpendicular cone normal, reducing EXACTLY to the
+    // pure radial `r̂` for cylinders (tan α = 0). `None` on the axis.
+    let outward_at = |pos: [f64; 3]| -> Option<[f64; 3]> {
+        let d = [pos[0] - ap[0], pos[1] - ap[1], pos[2] - ap[2]];
+        let h = d[0] * a[0] + d[1] * a[1] + d[2] * a[2];
+        let r = [d[0] - h * a[0], d[1] - h * a[1], d[2] - h * a[2]];
+        let rl = (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
+        if !(rl.is_finite() && rl > 0.0) {
+            return None;
+        }
+        let raw = [
+            r[0] / rl - tan_a * a[0],
+            r[1] / rl - tan_a * a[1],
+            r[2] / rl - tan_a * a[2],
+        ];
+        let m = (raw[0] * raw[0] + raw[1] * raw[1] + raw[2] * raw[2]).sqrt();
+        Some([sense * raw[0] / m, sense * raw[1] / m, sense * raw[2] / m])
+    };
     let range_start = out.indices.len() as u32;
     let base = out.num_vertices() as u32;
     // One render vertex per WORK node (seam duplicates emit twice at the
     // same position — per-face vertices are never shared anyway).
     for wn in &wnodes {
         let pos = nodes[wn.node].pos;
-        let d = [pos[0] - ap[0], pos[1] - ap[1], pos[2] - ap[2]];
-        let h = d[0] * a[0] + d[1] * a[1] + d[2] * a[2];
-        let r = [d[0] - h * a[0], d[1] - h * a[1], d[2] - h * a[2]];
-        let rl = (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
-        if !(rl.is_finite() && rl > 0.0) {
+        let Some(nrm) = outward_at(pos) else {
             return Err(fail("patch render vertex has no radial direction"));
-        }
+        };
         out.positions.extend_from_slice(&pos);
-        out.normals
-            .extend_from_slice(&[sense * r[0] / rl, sense * r[1] / rl, sense * r[2] / rl]);
+        out.normals.extend_from_slice(&nrm);
     }
     for t in &wtris {
         // PR-KV9 fold tripwire (KV7-F1 class): a folded unrolled
@@ -2769,19 +2898,15 @@ fn tessellate_cylinder_patch(
             u[0] * v[1] - u[1] * v[0],
         ];
         let nl = (n3[0] * n3[0] + n3[1] * n3[1] + n3[2] * n3[2]).sqrt();
-        if nl > 1e-12 * (1.0 + radius * radius) {
+        if nl > 1e-12 * (1.0 + r_unroll * r_unroll) {
             let cen = [
                 (pa[0] + pb[0] + pc[0]) / 3.0,
                 (pa[1] + pb[1] + pc[1]) / 3.0,
                 (pa[2] + pb[2] + pc[2]) / 3.0,
             ];
-            let dch = [cen[0] - ap[0], cen[1] - ap[1], cen[2] - ap[2]];
-            let hh = dch[0] * a[0] + dch[1] * a[1] + dch[2] * a[2];
-            let rr = [dch[0] - hh * a[0], dch[1] - hh * a[1], dch[2] - hh * a[2]];
-            let rrl = (rr[0] * rr[0] + rr[1] * rr[1] + rr[2] * rr[2]).sqrt();
-            if rrl > 0.0 {
-                let dot = (n3[0] * rr[0] + n3[1] * rr[1] + n3[2] * rr[2]) / (nl * rrl);
-                if sense * dot < -0.1 {
+            if let Some(ow) = outward_at(cen) {
+                let dot = (n3[0] * ow[0] + n3[1] * ow[1] + n3[2] * ow[2]) / nl;
+                if dot < -0.1 {
                     return Err(fail(
                         "patch triangulation folded (inverted triangle) — KV9-F2: the                          unrolled ear-clip/refinement produced inward-facing geometry;                          loud instead of silently-wrong render output",
                     ));

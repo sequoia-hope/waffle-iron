@@ -407,6 +407,14 @@ pub fn to_yang_brep_indexed(
                     if !(canonical || partial || torus) {
                         return Err(KernelV2Error::UnsupportedCurvedBoolean { face: f });
                     }
+                    // KV6c increment 5 (task #82): a PARTIAL CONE wall
+                    // converts fine, but yang Stage 1 has no partial cone
+                    // STRIP tessellation yet — gate here so the boundary
+                    // stays a typed NotSupported (never a downstream yang
+                    // MalformedTopology surfacing as a plain error).
+                    if partial && matches!(face.surface, Some(Surface::Cone { .. })) {
+                        return Err(KernelV2Error::UnsupportedCurvedBoolean { face: f });
+                    }
                     // Canonical: the two segments must be the seam twin pair.
                     // Partial: two DISTINCT rulings (each twins with a cap edge).
                     // Torus: the two seam ARCS (positions 1, 3) are the twin pair.
