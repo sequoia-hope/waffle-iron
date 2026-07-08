@@ -92,9 +92,24 @@ Ad-hoc algorithmic invention is not acceptable when a published, peer-reviewed s
 
 **Analytical primacy corollary**: When a closed-form algorithm exists for a geometric
 computation on analytical surfaces, using a mesh approximation as the *final
-representation* is a violation of P8. Closed-form SSI solutions exist for all
-quadric surface pairs (plane, cylinder, cone, sphere, torus) [#1 Patrikalakis Ch.5,
-#25 Yang et al.]. The kernel must implement these solvers.
+representation* is a violation of P8. Closed-form (conic) SSI solutions exist for
+the DEGENERATE quadric pair configurations — plane×quadric sections and special
+positions that decompose into lines/circles/conics (coaxial, equal-radius,
+tangent) [#1 Patrikalakis Ch.5]. The kernel must implement these solvers.
+
+**Degree-4 procedural-curve clarification** (amended 2026-07-08, user-approved;
+see `specs/kv6c_partial_revolve_cone_patch.md`-era M5 planning): general-position
+quadric pairs (unequal-radius cylinder×cylinder, general cone pairs, …) intersect
+in degree-4 space curves with NO conic closed form. The paper-faithful exact
+representation [#24 Yang et al. 2025 §4.1.2, §4.3] is the **procedural
+surface-pair curve**: the curve is defined implicitly and exactly by its two
+analytic surfaces, carried with a certified refined point sequence in which every
+point is exact to the projection tolerance `d_p` by Newton projection onto BOTH
+surfaces. A procedural curve whose defining surfaces are exact IS an analytical
+representation. The P8 prohibition on "mesh as final representation" refers to
+replacing the SURFACES with facets (surface type loss, A15.3), not to certified
+curve sampling. Levin-style pencil parameterizations are NOT required — the paper
+deliberately avoids them, and the paper is the spec.
 
 **Hybrid boolean corollary**: Using meshes as an *exact computational intermediate*
 to derive correct B-Rep topology is NOT a violation of P8 — it is the recommended

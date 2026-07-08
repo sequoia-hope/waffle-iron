@@ -392,6 +392,17 @@ path exists solely for freeform surfaces (NURBS/BSpline) that lack closed-form S
 When a solver for a specific quadric pair is missing, implement it. Do not route
 through the mesh/polygon fallback as a substitute.
 
+**Exact ≠ closed-form conic** (amended 2026-07-08, user-approved): for
+general-position quadric pairs whose intersection is a degree-4 space curve
+(unequal-radius cylinder×cylinder, general cone pairs, …) no conic closed form
+exists. The exact representation for these — per the pipeline's own spec
+[#24 Yang 2025 §4.1.2/§4.3] — is the **procedural surface-pair curve**: defined
+implicitly by the two analytic surfaces, carried with a certified point sequence
+where each point is Newton-projected onto BOTH surfaces to the projection
+tolerance `d_p`. This satisfies A15.1: the defining surfaces are exact, any point
+of the curve is recoverable to `d_p` on demand, and no surface is ever replaced
+by facets. Levin-style pencil parameterizations are not required.
+
 ### A15.2 No mesh fallback for quadric pairs
 
 If a boolean operation encounters a quadric surface pair for which no SSI solver
@@ -449,6 +460,14 @@ The 15 quadric surface pairs ordered by CAD frequency, with implementation statu
 Detailed sub-case enumeration and acceptance criteria in `/specs/ssi_solver_matrix.md`.
 Status `partial` indicates coaxial sub-cases are analytical but general position
 returns `NotSupported` per A15.2; analytical degree-8 solver required.
+
+**Table provenance note (2026-07-08):** the `Degree4*` parametric statuses above
+describe the LEGACY `crates/kernel/` solvers, deleted at the Phase-6 migration.
+The live `crates/ssi-rs` matrix is behind this table — its general-position
+degree-4 arms return `AnalyticalSolutionNotAvailable` today. The M5 milestone
+(plan of record: Option B, the procedural surface-pair curve per the A15.1
+amendment above) closes pair #5 first; the table should be re-audited against
+`ssi-rs` as M5 lands.
 
 ### A15.5 Surface tier preservation
 
