@@ -395,13 +395,14 @@ fn x2_oblique_off_origin() {
 }
 
 // ---------------------------------------------------------------------------
-// NC (a) — non-coaxial: cylinder axis_point OFF the cone axis line → ASNA
-// (staged). cone apex=origin/+z, cyl axis_point=(1,0,0) ⇒ d_ax=1 ≥ TAU_MODEL.
-// Both argument orders.
+// NC (a) — non-coaxial: cylinder axis_point OFF the cone axis line → the M5
+// procedural surface-pair curve (cylinder first, cone second). cone
+// apex=origin/+z, cyl axis_point=(1,0,0) ⇒ d_ax=1 ≥ TAU_MODEL. Both argument
+// orders return the SAME cylinder-first descriptor (canonical).
 // ---------------------------------------------------------------------------
 
 #[test]
-fn nc_off_axis_axis_point_yields_not_available() {
+fn nc_off_axis_axis_point_yields_surface_pair() {
     let alpha = std::f64::consts::FRAC_PI_4;
     let cylinder = QuadricSurface::Cylinder {
         axis_point: Point3::new(1.0, 0.0, 0.0), // off the z-axis ⇒ d_ax = 1
@@ -413,25 +414,24 @@ fn nc_off_axis_axis_point_yields_not_available() {
         axis_dir: Vector3::new(0.0, 0.0, 1.0),
         half_angle: alpha,
     };
-    assert_eq!(
-        intersect(&cylinder, &cone),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
-    );
-    // Symmetric order also ASNA.
-    assert_eq!(
-        intersect(&cone, &cylinder),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
-    );
+    let expected = Ok(vec![SsiCurve::SurfacePair {
+        a: cylinder,
+        b: cone,
+    }]);
+    assert_eq!(intersect(&cylinder, &cone), expected);
+    // Symmetric order returns the SAME cylinder-first descriptor (the dispatch
+    // canonicalizes `cylinder_cone` argument order).
+    assert_eq!(intersect(&cone, &cylinder), expected);
 }
 
 // ---------------------------------------------------------------------------
-// NC (b) — non-parallel cylinder axis → ASNA (staged). cone axis=+z,
-// cyl axis_dir=(1,0,0) (axes not parallel, |ĉ × â| = 1). axis_point=origin.
-// Both argument orders.
+// NC (b) — non-parallel cylinder axis → the M5 procedural surface-pair curve.
+// cone axis=+z, cyl axis_dir=(1,0,0) (axes not parallel, |ĉ × â| = 1).
+// axis_point=origin. Both argument orders return the cylinder-first descriptor.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn nc_non_parallel_axis_yields_not_available() {
+fn nc_non_parallel_axis_yields_surface_pair() {
     let alpha = std::f64::consts::FRAC_PI_4;
     let cylinder = QuadricSurface::Cylinder {
         axis_point: Point3::new(0.0, 0.0, 0.0),
@@ -443,15 +443,12 @@ fn nc_non_parallel_axis_yields_not_available() {
         axis_dir: Vector3::new(0.0, 0.0, 1.0),
         half_angle: alpha,
     };
-    assert_eq!(
-        intersect(&cylinder, &cone),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
-    );
-    // Symmetric order also ASNA.
-    assert_eq!(
-        intersect(&cone, &cylinder),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
-    );
+    let expected = Ok(vec![SsiCurve::SurfacePair {
+        a: cylinder,
+        b: cone,
+    }]);
+    assert_eq!(intersect(&cylinder, &cone), expected);
+    assert_eq!(intersect(&cone, &cylinder), expected);
 }
 
 // ---------------------------------------------------------------------------

@@ -261,8 +261,8 @@ fn attack1_parallelism_gate_boundary() {
         }
     }
 
-    // Just OUTSIDE the band (tilt sine = 1.001·TAU ≥ TAU) ⇒ NC ⇒ ASNA, no
-    // spurious circle.
+    // Just OUTSIDE the band (tilt sine = 1.001·TAU ≥ TAU) ⇒ NC ⇒ the M5
+    // procedural surface-pair curve, no spurious circle.
     {
         let theta = (1.001 * TAU_MODEL).asin();
         let ad2 = [theta.sin(), 0.0, theta.cos()];
@@ -270,8 +270,8 @@ fn attack1_parallelism_gate_boundary() {
         let c2 = cone([0.0, 0.0, 2.0], ad2, alpha2);
         assert_eq!(
             intersect(&c1, &c2),
-            Err(SsiError::AnalyticalSolutionNotAvailable),
-            "just-outside parallelism band ⇒ ASNA, not a circle"
+            Ok(vec![SsiCurve::SurfacePair { a: c1, b: c2 }]),
+            "just-outside parallelism band ⇒ surface-pair, not a circle"
         );
     }
 }
@@ -304,15 +304,16 @@ fn attack2_on_axis_gate_boundary() {
         }
     }
 
-    // Just OVER along +x and along +y (each off the axis) ⇒ NC ⇒ ASNA.
+    // Just OVER along +x and along +y (each off the axis) ⇒ NC ⇒ the M5
+    // procedural surface-pair curve, not a spurious circle.
     for &dir in &[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]] {
         let off = 1.001 * TAU_MODEL;
         let apex2 = add(scale(dir, off), [0.0, 0.0, 2.0]);
         let c2 = cone(apex2, [0.0, 0.0, 1.0], alpha2);
         assert_eq!(
             intersect(&c1, &c2),
-            Err(SsiError::AnalyticalSolutionNotAvailable),
-            "just-over d_ax band ({dir:?}) ⇒ ASNA, not a circle"
+            Ok(vec![SsiCurve::SurfacePair { a: c1, b: c2 }]),
+            "just-over d_ax band ({dir:?}) ⇒ surface-pair, not a circle"
         );
     }
 }
@@ -718,10 +719,9 @@ fn attack9_absolute_scale_ceiling_characterization() {
         let delta = 1e9_f64;
         let (c1, c2) = build(delta);
         match intersect(&c1, &c2) {
-            Ok(curves) => {
-                assert_eq!(curves.len(), 2);
+            Ok(ref curves) if curves.len() == 2 => {
                 let mut broke = false;
-                for cc in &curves {
+                for cc in curves {
                     assert_curve_finite(cc);
                     let m = max_residual_on_both(cc, &c1, &c2, 256);
                     if m >= TAU_MODEL {
@@ -739,11 +739,12 @@ fn attack9_absolute_scale_ceiling_characterization() {
                     "δ=1e9: absolute oracle unexpectedly HELD; breakpoint moved"
                 );
             }
-            Err(SsiError::AnalyticalSolutionNotAvailable) => {
-                // The absolute coaxial band flipped a truly-coaxial config to NC.
-                // Documented loud ceiling, accepted.
+            Ok(ref curves) if matches!(curves.as_slice(), [SsiCurve::SurfacePair { .. }]) => {
+                // The absolute coaxial band flipped a truly-coaxial config to NC
+                // ⇒ the procedural surface-pair curve. Documented loud ceiling,
+                // accepted (was ASNA before the cone-pair producer).
             }
-            Err(other) => panic!("δ=1e9: unexpected error {other:?}"),
+            other => panic!("δ=1e9: unexpected result {other:?}"),
         }
     }
 
@@ -755,9 +756,8 @@ fn attack9_absolute_scale_ceiling_characterization() {
         let delta = 1e12_f64;
         let (c1, c2) = build(delta);
         match intersect(&c1, &c2) {
-            Ok(curves) => {
-                assert_eq!(curves.len(), 2, "δ=1e12: must still be two circles if Ok");
-                for cc in &curves {
+            Ok(ref curves) if curves.len() == 2 => {
+                for cc in curves {
                     assert_curve_finite(cc);
                     let m = max_residual_on_both(cc, &c1, &c2, 64);
                     assert!(
@@ -767,10 +767,11 @@ fn attack9_absolute_scale_ceiling_characterization() {
                     );
                 }
             }
-            Err(SsiError::AnalyticalSolutionNotAvailable) => {
-                // Documented absolute-band scale flip — loud ASNA, accepted.
+            Ok(ref curves) if matches!(curves.as_slice(), [SsiCurve::SurfacePair { .. }]) => {
+                // Documented absolute-band scale flip — the coaxial config read
+                // as NC ⇒ the procedural surface-pair curve, accepted.
             }
-            Err(other) => panic!("δ=1e12: unexpected error {other:?}"),
+            other => panic!("δ=1e12: unexpected result {other:?}"),
         }
     }
 }

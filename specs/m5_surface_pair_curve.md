@@ -36,7 +36,7 @@ carried on any curve variant — consecutive output vertices ARE the samples.
 |---|---|---|
 | ssi-rs | `SsiCurve::SurfacePair` | `a: QuadricSurface, b: QuadricSurface` (Copy) |
 | yang-rs | `Curve::SurfacePair` | `a: Surface, b: Surface` (yang's unsigned Copy surface descriptors) |
-| kernel-v2 | `arena::Curve::SurfacePair` | `a: PairSurface, b: PairSurface` — new Copy `PairSurface` enum in arena.rs, initially `Cylinder { axis_point: Point3, axis_dir: UnitVector3, radius: f64 }` only (`#[non_exhaustive]`; Cone added when the cone-pair producer lands) |
+| kernel-v2 | `arena::Curve::SurfacePair` | `a: PairSurface, b: PairSurface` — Copy `PairSurface` enum in arena.rs (`#[non_exhaustive]`): `Cylinder { axis_point, axis_dir, radius }` (cyl×cyl) and `Cone { apex, axis_dir, half_angle }` (cone-pair producer, landed 2026-07-08) |
 
 No `reversed`/cavity flags anywhere on the pair descriptors — the curve is a
 point set; orientation comes from the half-edge traversal (origin → dest),
@@ -149,5 +149,31 @@ simply never matches it (no intersection mesh edges exist for that pair).
    emission).
 4. **kernel-v2 from_yang**: K1–K4 acceptance; corpus measure (C0052/53/54,
    R0019/R0044) + assay gate.
+5. **Cone-pair producer (landed 2026-07-08).** Extends the SurfacePair
+   vocabulary from cyl×cyl to the cone-pair arms (cyl×cone, cone×cone):
+   - ssi-rs: `cylinder_cone`/`cone_cone` NC (non-coaxial) arms return
+     `SurfacePair` instead of ASNA (ssi8/ssi9 NC tests + adversary gate-boundary
+     assertions flipped RED→GREEN; cylinder-first canonical order for cyl×cone,
+     argument order preserved for the symmetric cone×cone).
+   - yang-rs: `quadric_to_surface` Cone arm; Y2 membership + Y3 tangent
+     generalized to Cone operands (`radial − |h|·tanα` residual; unit gradient
+     `cosα·r̂ − sign(h)·sinα·â`). Y4 relocation already generic
+     (`relocate_onto_implicit_pair`/`surface_value_and_normal` handle Cone).
+   - kernel-v2: `PairSurface::Cone`; `pair_surface_residual_gradient` uses the
+     TRUE signed-distance form `radial·cosα − |h|·sinα` (unit gradient ⇒ the
+     shared Gauss-Newton step is exact, matching the cylinder's radial form);
+     `pair_surface_scale` returns 0 for a cone (no constant radius; the point's
+     own magnitude tracks local scale); `PairSurfaceKey`/`pair_surface_key` and
+     `yang_surface_to_pair_surface` Cone arms.
+   - Unit tests: ssi8/ssi9 flips, yang `m5_cone_pair_*` (Y1/Y2/Y3/Y4), kernel-v2
+     `surface_pair_sampler_cone_cylinder`. All green; no regression on
+     C0052/R0002. **Corpus note:** the R0008/R0003/R0019 cases previously
+     tagged "cone-pair AmbiguousCurve class" were re-measured and are NOT
+     cone-pair NC edges — R0003/R0008 are cone∩PLANE conic-selection walls
+     (ellipse chord-band / apex-crossing generator-line pair) and R0019 is a
+     Stage-4 `LocalRefinementRequired` (N2) wall — all orthogonal to the
+     producer. The cone-pair NC producer ships as capability closure (per the
+     roadmap "a faithful stage that lights up zero corpus cases still ships");
+     a corpus case that exercises it end-to-end is not yet identified.
 
 *Created: 2026-07-08*

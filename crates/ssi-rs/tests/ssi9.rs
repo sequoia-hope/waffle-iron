@@ -473,13 +473,14 @@ fn co_coincident_double_cone_is_degenerate() {
 }
 
 // ---------------------------------------------------------------------------
-// NC (a) — non-coaxial: cone₂ apex OFF the cone₁ axis line → ASNA (staged).
-// cone₁ apex=origin/+z, cone₂ apex=(1,0,0) ⇒ d_ax=1 ≥ TAU_MODEL. Axes still ∥.
-// Both argument orders.
+// NC (a) — non-coaxial: cone₂ apex OFF the cone₁ axis line → the M5 procedural
+// surface-pair curve. cone₁ apex=origin/+z, cone₂ apex=(1,0,0) ⇒ d_ax=1 ≥
+// TAU_MODEL. Axes still ∥. The descriptor preserves argument order (unlike the
+// cylinder-first cyl∩cone canonicalization, cone∩cone is a symmetric pair).
 // ---------------------------------------------------------------------------
 
 #[test]
-fn nc_off_axis_apex_yields_not_available() {
+fn nc_off_axis_apex_yields_surface_pair() {
     let alpha = std::f64::consts::FRAC_PI_4;
     let cone1 = QuadricSurface::Cone {
         apex: Point3::new(0.0, 0.0, 0.0),
@@ -493,22 +494,22 @@ fn nc_off_axis_apex_yields_not_available() {
     };
     assert_eq!(
         intersect(&cone1, &cone2),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
+        Ok(vec![SsiCurve::SurfacePair { a: cone1, b: cone2 }])
     );
-    // Symmetric order also ASNA.
+    // Symmetric order preserves argument order in the descriptor.
     assert_eq!(
         intersect(&cone2, &cone1),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
+        Ok(vec![SsiCurve::SurfacePair { a: cone2, b: cone1 }])
     );
 }
 
 // ---------------------------------------------------------------------------
-// NC (b) — non-parallel axes → ASNA (staged). cone₁ axis=+z, cone₂ axis=+x
-// (|â₂ × â₁| = 1). Both argument orders.
+// NC (b) — non-parallel axes → the M5 procedural surface-pair curve. cone₁
+// axis=+z, cone₂ axis=+x (|â₂ × â₁| = 1). Descriptor preserves argument order.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn nc_non_parallel_axis_yields_not_available() {
+fn nc_non_parallel_axis_yields_surface_pair() {
     let alpha = std::f64::consts::FRAC_PI_4;
     let cone1 = QuadricSurface::Cone {
         apex: Point3::new(0.0, 0.0, 0.0),
@@ -522,12 +523,11 @@ fn nc_non_parallel_axis_yields_not_available() {
     };
     assert_eq!(
         intersect(&cone1, &cone2),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
+        Ok(vec![SsiCurve::SurfacePair { a: cone1, b: cone2 }])
     );
-    // Symmetric order also ASNA.
     assert_eq!(
         intersect(&cone2, &cone1),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
+        Ok(vec![SsiCurve::SurfacePair { a: cone2, b: cone1 }])
     );
 }
 

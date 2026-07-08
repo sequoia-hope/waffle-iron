@@ -282,7 +282,9 @@ fn attack1_parallelism_gate_boundary() {
         }
     }
 
-    // Just OUTSIDE the band (sine = 1.001·TAU ≥ TAU) ⇒ ASNA, no spurious circle.
+    // Just OUTSIDE the band (sine = 1.001·TAU ≥ TAU) ⇒ the M5 procedural
+    // surface-pair curve, NOT a spurious circle. (Was ASNA before the cone-pair
+    // producer landed.)
     {
         let theta = (1.001 * TAU_MODEL).asin();
         let cd = [theta.sin(), 0.0, theta.cos()];
@@ -290,8 +292,8 @@ fn attack1_parallelism_gate_boundary() {
         let c = cyl([0.0, 0.0, 0.0], cd, r_c);
         assert_eq!(
             intersect(&c, &cone),
-            Err(SsiError::AnalyticalSolutionNotAvailable),
-            "just-outside parallelism band ⇒ ASNA, not a circle"
+            Ok(vec![SsiCurve::SurfacePair { a: c, b: cone }]),
+            "just-outside parallelism band ⇒ surface-pair, not a circle"
         );
     }
 }
@@ -324,14 +326,15 @@ fn attack2_on_axis_gate_boundary() {
         }
     }
 
-    // Just OVER along +x, and just over along +y (non-axis-aligned) ⇒ ASNA.
+    // Just OVER along +x, and just over along +y (non-axis-aligned) ⇒ the M5
+    // procedural surface-pair curve, not a spurious circle.
     for &dir in &[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]] {
         let off = 1.001 * TAU_MODEL;
         let c = cyl(scale(dir, off), [0.0, 0.0, 1.0], r_c);
         assert_eq!(
             intersect(&c, &cone),
-            Err(SsiError::AnalyticalSolutionNotAvailable),
-            "just-over d_ax band ({dir:?}) ⇒ ASNA, not a circle"
+            Ok(vec![SsiCurve::SurfacePair { a: c, b: cone }]),
+            "just-over d_ax band ({dir:?}) ⇒ surface-pair, not a circle"
         );
     }
 }
@@ -569,22 +572,23 @@ fn attack5_dax_band_is_absolute_scale_sensitive() {
         }
     }
 
-    // At 1e9 (past the measured flip) a truly-coaxial config reads as ASNA. We
-    // accept either Ok(2) or ASNA (both clean Results, no panic / NaN); ASNA is
-    // the documented absolute-band noise, NOT a logic bug. Empirically: ASNA.
+    // At 1e9 (past the measured flip) a truly-coaxial config's d_ax noise
+    // exceeds the absolute TAU_MODEL and reads as NC. We accept either Ok(2
+    // circles) or Ok(1 surface-pair) — both clean Results, no panic / NaN. The
+    // surface-pair (was ASNA before the cone-pair producer) is the documented
+    // absolute-band scale-sensitivity, NOT a logic bug.
     match probe(1e9) {
-        Ok(ref v) => {
-            assert_eq!(v.len(), 2, "scale=1e9: unexpected circle count");
+        Ok(ref v) if v.len() == 2 => {
             for cc in v {
                 assert_curve_finite(cc);
             }
         }
-        Err(SsiError::AnalyticalSolutionNotAvailable) => {
+        Ok(ref v) if matches!(v.as_slice(), [SsiCurve::SurfacePair { .. }]) => {
             // EXPECTED-POSSIBLE: fp noise in d_ax exceeded the absolute
-            // TAU_MODEL ⇒ a truly-coaxial config read as NC. Documented
-            // absolute-band scale-sensitivity, not a logic bug.
+            // TAU_MODEL ⇒ a truly-coaxial config read as NC ⇒ the procedural
+            // surface-pair curve. Documented absolute-band scale-sensitivity.
         }
-        Err(other) => panic!("scale=1e9: unexpected error {other:?}"),
+        other => panic!("scale=1e9: unexpected result {other:?}"),
     }
 }
 
@@ -592,8 +596,8 @@ fn attack5_dax_band_is_absolute_scale_sensitive() {
 // Attack 6: Near-parallel-but-not axes (tilt clearly above TAU) MUST read NC.
 //
 // A cyl axis tilted by 1e-3 rad off the cone axis (|ĉ × â| ≈ 1e-3 ≫ TAU=1e-7)
-// must be Err(ASNA), NOT a spurious pair of circles. This guards against a
-// too-loose parallelism gate.
+// must be the M5 surface-pair curve, NOT a spurious pair of circles. This guards
+// against a too-loose parallelism gate.
 // ===========================================================================
 
 #[test]
@@ -606,8 +610,8 @@ fn attack6_supra_tau_tilt_is_nc_not_circles() {
         let c = cyl([0.0, 0.0, 0.0], cd, 2.0);
         assert_eq!(
             intersect(&c, &cone),
-            Err(SsiError::AnalyticalSolutionNotAvailable),
-            "tilt θ={theta} (≫ TAU) ⇒ NC (ASNA), not circles"
+            Ok(vec![SsiCurve::SurfacePair { a: c, b: cone }]),
+            "tilt θ={theta} (≫ TAU) ⇒ NC (surface-pair), not circles"
         );
     }
 }
@@ -895,16 +899,15 @@ fn attack10_symmetry_and_determinism() {
         "swapped call not deterministic"
     );
 
-    // NC verdict is symmetric both ways.
+    // NC verdict is symmetric both ways — the same cylinder-first surface-pair
+    // descriptor regardless of argument order.
     let off_axis = cyl([0.5, 0.0, 0.0], [0.0, 0.0, 1.0], r_c);
-    assert_eq!(
-        intersect(&off_axis, &cone),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
-    );
-    assert_eq!(
-        intersect(&cone, &off_axis),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
-    );
+    let nc_expected = Ok(vec![SsiCurve::SurfacePair {
+        a: off_axis,
+        b: cone,
+    }]);
+    assert_eq!(intersect(&off_axis, &cone), nc_expected);
+    assert_eq!(intersect(&cone, &off_axis), nc_expected);
 }
 
 // ===========================================================================

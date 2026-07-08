@@ -4954,7 +4954,7 @@ fn curve_tangent_at(curve: &ssi_rs::SsiCurve, x: Point3) -> Option<[f64; 3]> {
         // normals (tangency) → no finite tangent → `None`, so the candidate
         // stays non-tie-breakable and the loud `AmbiguousCurve` stop stands.
         ssi_rs::SsiCurve::SurfacePair { a, b } => {
-            let cyl_normal = |q: &ssi_rs::QuadricSurface| -> Option<[f64; 3]> {
+            let quadric_normal = |q: &ssi_rs::QuadricSurface| -> Option<[f64; 3]> {
                 match q {
                     ssi_rs::QuadricSurface::Cylinder {
                         axis_point,
@@ -4976,10 +4976,35 @@ fn curve_tangent_at(curve: &ssi_rs::SsiCurve, x: Point3) -> Option<[f64; 3]> {
                         (rl > cad_primitives::MIN_FEATURE_SIZE)
                             .then(|| [radial[0] / rl, radial[1] / rl, radial[2] / rl])
                     }
+                    // Cone normal: cosα·r̂ − sign(h)·sinα·â (the unit gradient of
+                    // `radial − |h|·tanα`; matches `surface_value_and_normal`).
+                    ssi_rs::QuadricSurface::Cone {
+                        apex,
+                        axis_dir,
+                        half_angle,
+                    } => {
+                        let ap = apex.as_array();
+                        let ad = normalize3(axis_dir.as_array());
+                        let w = [x.x() - ap[0], x.y() - ap[1], x.z() - ap[2]];
+                        let h = w[0] * ad[0] + w[1] * ad[1] + w[2] * ad[2];
+                        let radial = [w[0] - h * ad[0], w[1] - h * ad[1], w[2] - h * ad[2]];
+                        let rl =
+                            (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2])
+                                .sqrt();
+                        (rl > cad_primitives::MIN_FEATURE_SIZE).then(|| {
+                            let sgn = if h >= 0.0 { 1.0 } else { -1.0 };
+                            let (sa, ca) = half_angle.sin_cos();
+                            normalize3([
+                                ca * radial[0] / rl - sgn * sa * ad[0],
+                                ca * radial[1] / rl - sgn * sa * ad[1],
+                                ca * radial[2] / rl - sgn * sa * ad[2],
+                            ])
+                        })
+                    }
                     _ => None,
                 }
             };
-            let (na, nb) = (cyl_normal(a)?, cyl_normal(b)?);
+            let (na, nb) = (quadric_normal(a)?, quadric_normal(b)?);
             let cx = [
                 na[1] * nb[2] - na[2] * nb[1],
                 na[2] * nb[0] - na[0] * nb[2],
@@ -5722,9 +5747,10 @@ fn surface_to_quadric(s: Surface) -> Result<ssi_rs::QuadricSurface, SsiRefinemen
 
 /// M5 (Y1): map an `ssi_rs::QuadricSurface` back to a yang `Surface`, the
 /// inverse of `surface_to_quadric` for the operands of a `SurfacePair` curve.
-/// Only `Cylinder` is a producer today (the M5 cyl×cyl arm); the other quadric
-/// kinds cannot appear as a surface-pair operand yet and reject loudly (P9 —
-/// a `Plane`/`Sphere`/`Cone` here would be a producer fault, not a curve).
+/// The M5 producers are cyl×cyl and the cone-pair arms (cyl×cone, cone×cone), so
+/// `Cylinder` and `Cone` operands map field-for-field. `Plane`/`Sphere` cannot
+/// appear as a surface-pair operand (no producer emits them) and reject loudly
+/// (P9 — a `Plane`/`Sphere` here would be a producer fault, not a curve).
 fn quadric_to_surface(q: ssi_rs::QuadricSurface) -> Result<Surface, SsiRefinementError> {
     match q {
         ssi_rs::QuadricSurface::Cylinder {
@@ -5736,10 +5762,19 @@ fn quadric_to_surface(q: ssi_rs::QuadricSurface) -> Result<Surface, SsiRefinemen
             axis_dir,
             radius,
         }),
-        // No surface-pair producer emits these operands yet (M5 = cyl×cyl).
-        ssi_rs::QuadricSurface::Plane { .. }
-        | ssi_rs::QuadricSurface::Sphere { .. }
-        | ssi_rs::QuadricSurface::Cone { .. } => Err(SsiRefinementError::UnsupportedSurfaceForSsi),
+        ssi_rs::QuadricSurface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => Ok(Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        }),
+        // No surface-pair producer emits these operands (M5 = cyl×cyl + cone-pair).
+        ssi_rs::QuadricSurface::Plane { .. } | ssi_rs::QuadricSurface::Sphere { .. } => {
+            Err(SsiRefinementError::UnsupportedSurfaceForSsi)
+        }
     }
 }
 
@@ -5984,10 +6019,11 @@ fn curve_contains_point(
         // M5 (Y2): membership on a procedural surface-pair curve is the
         // per-point on-BOTH-surfaces test — the point lies within `tol` of the
         // implicit residual of EACH defining surface (the curve IS the common
-        // zero set). A non-cylinder operand cannot arise from the M5 producer
-        // and fails closed (defensive; there is no curve to be on).
+        // zero set). The producers are cyl×cyl and the cone-pair arms; a
+        // Plane/Sphere operand cannot arise and fails closed (defensive; there
+        // is no curve to be on).
         ssi_rs::SsiCurve::SurfacePair { a, b } => {
-            let cyl_residual = |q: &ssi_rs::QuadricSurface| -> Option<f64> {
+            let quadric_residual = |q: &ssi_rs::QuadricSurface| -> Option<f64> {
                 match q {
                     ssi_rs::QuadricSurface::Cylinder {
                         axis_point,
@@ -6006,10 +6042,25 @@ fn curve_contains_point(
                         let r = (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt();
                         Some((r - radius).abs())
                     }
+                    // Cone: |radial − |h|·tanα| (the signed_distance_to_surface
+                    // form; the double-nappe implicit whose zero set is the cone).
+                    ssi_rs::QuadricSurface::Cone {
+                        apex,
+                        axis_dir,
+                        half_angle,
+                    } => {
+                        let ap = apex.as_array();
+                        let ad = normalize3(axis_dir.as_array());
+                        let w = [x[0] - ap[0], x[1] - ap[1], x[2] - ap[2]];
+                        let h = w[0] * ad[0] + w[1] * ad[1] + w[2] * ad[2];
+                        let perp = [w[0] - h * ad[0], w[1] - h * ad[1], w[2] - h * ad[2]];
+                        let r = (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt();
+                        Some((r - h.abs() * half_angle.tan()).abs())
+                    }
                     _ => None,
                 }
             };
-            match (cyl_residual(a), cyl_residual(b)) {
+            match (quadric_residual(a), quadric_residual(b)) {
                 (Some(ra), Some(rb)) => ra <= tol && rb <= tol,
                 _ => false,
             }
@@ -12739,6 +12790,120 @@ mod tests {
         let b = qcyl([2.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0);
         let sp = ssi_rs::SsiCurve::SurfacePair { a, b };
         assert!(curve_tangent_at(&sp, Point3::new(1.0, 0.0, 0.0)).is_none());
+    }
+
+    // ── M5 cone-pair producer (Y1–Y3 with Cone operands) ─────────────────
+
+    fn qcone(apex: [f64; 3], ad: [f64; 3], alpha: f64) -> ssi_rs::QuadricSurface {
+        ssi_rs::QuadricSurface::Cone {
+            apex: Point3::new(apex[0], apex[1], apex[2]),
+            axis_dir: Vector3::new(ad[0], ad[1], ad[2]),
+            half_angle: alpha,
+        }
+    }
+
+    /// Y1: a cone-pair `SsiCurve::SurfacePair` maps to `Curve::SurfacePair`
+    /// carrying both `Surface::Cone` operands field-for-field (cone-pair
+    /// producer). A cyl×cone mixed pair maps too.
+    #[test]
+    fn m5_cone_pair_maps_to_curve_surface_pair() {
+        let a = qcone(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            std::f64::consts::FRAC_PI_4,
+        );
+        let b = qcone([1.0, 0.0, 0.0], [0.0, 0.0, 1.0], 3.0_f64.atan());
+        match ssi_curve_to_curve(ssi_rs::SsiCurve::SurfacePair { a, b })
+            .expect("cone×cone surface pair maps")
+        {
+            Curve::SurfacePair {
+                a: Surface::Cone { half_angle: ha, .. },
+                b: Surface::Cone { half_angle: hb, .. },
+            } => {
+                assert_eq!(ha, std::f64::consts::FRAC_PI_4);
+                assert_eq!(hb, 3.0_f64.atan());
+            }
+            other => panic!("expected Curve::SurfacePair of two cones, got {other:?}"),
+        }
+        // Mixed cyl×cone also maps (both operand kinds supported).
+        let cyl = qcyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0);
+        let cone = qcone(
+            [0.0, 0.0, 5.0],
+            [0.0, 0.0, 1.0],
+            std::f64::consts::FRAC_PI_4,
+        );
+        assert!(matches!(
+            ssi_curve_to_curve(ssi_rs::SsiCurve::SurfacePair { a: cyl, b: cone }),
+            Ok(Curve::SurfacePair {
+                a: Surface::Cylinder { .. },
+                b: Surface::Cone { .. }
+            })
+        ));
+    }
+
+    /// Y2: on-both-surfaces membership for a cone∩cylinder curve. The z-axis
+    /// cone `radial = |h|·tan(π/4) = |h|` meets the z-axis cylinder `radial = 1`
+    /// on the circle `radial = 1, h = ±1`; the point (1, 0, 1) lies on both.
+    #[test]
+    fn m5_cone_pair_membership() {
+        let cone = qcone(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            std::f64::consts::FRAC_PI_4,
+        );
+        let cyl = qcyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0);
+        let sp = ssi_rs::SsiCurve::SurfacePair { a: cone, b: cyl };
+        assert!(curve_contains_point(
+            &sp,
+            Point3::new(1.0, 0.0, 1.0),
+            1e-9,
+            None
+        ));
+        // Off the cone (h=1 needs radial=1, but radial here is 1.2) by ≫ tol.
+        assert!(!curve_contains_point(
+            &sp,
+            Point3::new(1.2, 0.0, 1.0),
+            1e-9,
+            None
+        ));
+    }
+
+    /// Y3: the cone-pair tangent at a transversal point is `n̂_a × n̂_b`. At
+    /// (1, 0, 1) the π/4 cone normal is `(x̂ − ẑ)/√2` and the cylinder radial
+    /// normal is `x̂`; their cross is ∓ŷ.
+    #[test]
+    fn m5_cone_pair_tangent_is_normal_cross() {
+        let cone = qcone(
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            std::f64::consts::FRAC_PI_4,
+        );
+        let cyl = qcyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0);
+        let sp = ssi_rs::SsiCurve::SurfacePair { a: cone, b: cyl };
+        let t = curve_tangent_at(&sp, Point3::new(1.0, 0.0, 1.0)).expect("transversal ⇒ tangent");
+        assert!(t[1].abs() > 0.999, "tangent should be ±ŷ, got {t:?}");
+        assert!(t[0].abs() < 1e-9 && t[2].abs() < 1e-9);
+    }
+
+    /// Y4: a perturbed near-curve point relocates onto both surfaces of a
+    /// cone∩cylinder pair (the generic Newton engine handles Cone operands).
+    #[test]
+    fn m5_cone_pair_relocation_onto_both() {
+        let cone = Surface::Cone {
+            apex: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            half_angle: std::f64::consts::FRAC_PI_4,
+        };
+        let cyl = Surface::Cylinder {
+            axis_point: Point3::new(0.0, 0.0, 0.0),
+            axis_dir: Vector3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        };
+        // Perturb the true curve point (1,0,1) off both surfaces.
+        let p = relocate_onto_implicit_pair(Point3::new(1.02, 0.03, 0.98), cone, cyl)
+            .expect("near-curve point relocates");
+        assert!(signed_distance_to_surface(cone, p).unwrap().abs() < 1e-9);
+        assert!(signed_distance_to_surface(cyl, p).unwrap().abs() < 1e-9);
     }
 
     // ── Case-IV phantom guard (spec `yang_case_iv_phantom_guard`) ────────

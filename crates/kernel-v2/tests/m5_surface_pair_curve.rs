@@ -442,6 +442,45 @@ fn surface_pair_sampler_perpendicular_unequal_cylinders() {
     }
 }
 
+/// K9 with a CONE operand (M5 cone-pair producer): the sampler's Newton
+/// projector drives the `PairSurface::Cone` residual/gradient. A π/4 cone about
+/// +z (`x²+y² = z²`) meets a z-parallel unit cylinder centred at (2,0,·) in a
+/// degree-4 arc. Sampled from (1,0,1) [x=1, y=0] to (2,1,√5) [x=2, y=1] — a
+/// quarter of the y-bulge, whose chord clears both axes. Every sample must
+/// satisfy BOTH implicit residuals tightly, and the bulging arc needs interior
+/// refinement.
+#[test]
+fn surface_pair_sampler_cone_cylinder() {
+    let cone = PairSurface::Cone {
+        apex: Point3::new(0.0, 0.0, 0.0),
+        axis_dir: up(),
+        half_angle: PI / 4.0,
+    };
+    let cyl = PairSurface::Cylinder {
+        axis_point: Point3::new(2.0, 0.0, 0.0),
+        axis_dir: up(),
+        radius: 1.0,
+    };
+    let start = Point3::new(1.0, 0.0, 1.0); // x=1,y=0: cone 1=1, cyl (1−2)²=1
+    let end = Point3::new(2.0, 1.0, 5.0_f64.sqrt()); // x=2,y=1: cone 5=5, cyl 0+1=1
+    let tol = 1e-4;
+    let samples =
+        surface_pair_interior_samples(&cone, &cyl, start, end, tol).expect("sampler converges");
+    assert!(
+        !samples.is_empty(),
+        "the y-bulging cone∩cyl arc needs interior refinement at tol {tol}"
+    );
+    for s in &samples {
+        let radial = (s.x() * s.x() + s.y() * s.y()).sqrt();
+        let cone_res = (radial - s.z().abs()).abs(); // tan(π/4) = 1
+        let cyl_res = (((s.x() - 2.0).powi(2) + s.y() * s.y()).sqrt() - 1.0).abs();
+        assert!(
+            cone_res < 1e-9 && cyl_res < 1e-9,
+            "sample {s:?} on both surfaces (cone_res={cone_res}, cyl_res={cyl_res})"
+        );
+    }
+}
+
 /// K9 failure mode: a tangent pair (parallel normals along the contact
 /// line) cannot be Newton-refined — typed, loud, no chord fallback.
 #[test]

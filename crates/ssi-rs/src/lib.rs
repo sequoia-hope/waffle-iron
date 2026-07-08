@@ -1232,9 +1232,9 @@ fn sphere_cone(sphere: &QuadricSurface, cone: &QuadricSurface) -> Result<Vec<Ssi
 /// implicit/implicit quadric pair). The general cylinder∩cone intersection is a
 /// degree-4 space curve, but the **coaxial** configuration — the two axis
 /// *lines* coincide — reduces to **exactly two circles**, exact, reusing
-/// `SsiCurve::Circle`. The general (non-coaxial) degree-4 curve is staged behind
-/// `Err(AnalyticalSolutionNotAvailable)` (a later increment adds the degree-4
-/// variant); this is a deliberate limitation, never a fallback (A15.2).
+/// `SsiCurve::Circle`. The general (non-coaxial) degree-4 curve is returned as a
+/// procedural `SsiCurve::SurfacePair` (M5 cone-pair producer); exact, certified
+/// pointwise by yang-rs Newton projection, never a mesh fallback (A15.2).
 ///
 /// Math: cone apex `P`, unit axis `â`, half-angle `α`; cylinder axis point `A`,
 /// unit axis `ĉ`, radius `r_c`. **Coaxial** ::= the axis lines coincide:
@@ -1262,8 +1262,10 @@ fn sphere_cone(sphere: &QuadricSurface, cone: &QuadricSurface) -> Result<Vec<Ssi
 ///   `α ≤ TAU_MODEL` / `α ≥ π/2 − TAU_MODEL`; OR zero / non-finite cone or
 ///   cylinder `axis_dir` ⇒ `Err(DegenerateInput)`.
 /// - **NC** (non-coaxial general degree-4): NOT (`|ĉ × â| < TAU_MODEL` AND
-///   `d_ax < TAU_MODEL`) ⇒ `Err(AnalyticalSolutionNotAvailable)` — staged, never
-///   a fallback (A15.2).
+///   `d_ax < TAU_MODEL`) ⇒ `Ok([SurfacePair { a: cylinder, b: cone }])` — the
+///   M5 procedural surface-pair curve (both quadrics verbatim); yang-rs
+///   certifies each point by Newton projection onto both. Exact, loud on
+///   tangency downstream, never a mesh fallback (A15.2).
 /// - **X2** (two circles): coaxial (always, for valid input) ⇒ two `Circle`s at
 ///   `h = ± r_c·cotα`, `center = P ± h·â`, `normal = â`, `radius = r_c`; **h>0
 ///   nappe first** (determinism, I5).
@@ -1311,9 +1313,18 @@ fn cylinder_cone(
     let d_ax = norm(sub(rel, scale(ahat, dot(rel, ahat))));
     let on_axis = d_ax < TAU_MODEL;
 
-    // NC — non-coaxial general degree-4: staged (loud Err, no fallback).
+    // NC — non-coaxial general degree-4: the cylinder∩cone intersection is a
+    // degree-4 space curve with no conic closed form. Return the procedural
+    // surface-pair descriptor (both quadrics verbatim, cylinder first) — the
+    // M5 cone-pair producer (specs/m5_surface_pair_curve.md; Constitution P8
+    // degree-4 clarification). Still exact, still loud-on-failure: yang-rs
+    // certifies each concrete point by Newton projection onto both surfaces.
+    // Supersedes the staged ASNA.
     if !(axes_parallel && on_axis) {
-        return Err(SsiError::AnalyticalSolutionNotAvailable);
+        return Ok(vec![SsiCurve::SurfacePair {
+            a: *cylinder,
+            b: *cone,
+        }]);
     }
 
     // X2 — two circles at h = ± r_c·cotα (always, for valid coaxial input).
@@ -1377,9 +1388,10 @@ fn cylinder_cone(
 /// - CO (coaxial, equal α, `|δ| ≤ TAU_MODEL`): `Err(DegenerateInput)`
 ///   (identical double cone — the overlap is a 2D surface, not a curve).
 /// - NC (non-coaxial: apex₂ off axis₁ OR non-parallel axes):
-///   `Err(AnalyticalSolutionNotAvailable)` — a **staged** limitation (the
-///   general degree-4 curve + its new `SsiCurve` variant is a later increment).
-///   Loud, never a mesh/grid fallback (A15.2).
+///   `Ok([SurfacePair { a, b }])` — the M5 procedural surface-pair curve (both
+///   cones verbatim, argument order preserved); yang-rs certifies each point by
+///   Newton projection onto both. Exact, loud on tangency downstream, never a
+///   mesh/grid fallback (A15.2).
 /// - E1 (invalid α non-finite / `≤ TAU_MODEL` / `≥ π/2 − TAU_MODEL` either cone;
 ///   zero / non-finite axis either cone): `Err(DegenerateInput)`.
 fn cone_cone(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCurve>, SsiError> {
@@ -1428,9 +1440,15 @@ fn cone_cone(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCurve>, Ss
     let d_ax = norm(sub(rel, scale(ahat, delta)));
     let on_axis = d_ax < TAU_MODEL;
 
-    // NC — non-coaxial general degree-4: staged (loud Err, no fallback; A15.2).
+    // NC — non-coaxial general degree-4: the cone∩cone intersection is a
+    // degree-4 space curve with no conic closed form. Return the procedural
+    // surface-pair descriptor (both cones verbatim, argument order preserved) —
+    // the M5 cone-pair producer (specs/m5_surface_pair_curve.md; Constitution
+    // P8 degree-4 clarification). Still exact, still loud-on-failure: yang-rs
+    // certifies each concrete point by Newton projection onto both surfaces.
+    // Supersedes the staged ASNA.
     if !(axes_parallel && on_axis) {
-        return Err(SsiError::AnalyticalSolutionNotAvailable);
+        return Ok(vec![SsiCurve::SurfacePair { a: *a, b: *b }]);
     }
 
     // Gate on the LINEAR geometric quantities: `|α₁−α₂|` for the equal/unequal

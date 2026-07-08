@@ -952,6 +952,11 @@ enum PairSurfaceKey {
         axis_dir: [u64; 3],
         radius: u64,
     },
+    Cone {
+        apex: [u64; 3],
+        axis_dir: [u64; 3],
+        half_angle: u64,
+    },
 }
 
 fn pair_surface_key(s: &crate::arena::PairSurface) -> PairSurfaceKey {
@@ -972,6 +977,19 @@ fn pair_surface_key(s: &crate::arena::PairSurface) -> PairSurfaceKey {
                 axis_dir.z.to_bits(),
             ],
             radius: radius.to_bits(),
+        },
+        crate::arena::PairSurface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => PairSurfaceKey::Cone {
+            apex: [apex.x().to_bits(), apex.y().to_bits(), apex.z().to_bits()],
+            axis_dir: [
+                axis_dir.x.to_bits(),
+                axis_dir.y.to_bits(),
+                axis_dir.z.to_bits(),
+            ],
+            half_angle: half_angle.to_bits(),
         },
     }
 }
@@ -2138,11 +2156,11 @@ fn classify_edge(
         yang_rs::Curve::Hyperbola { .. } => {
             Err(KernelV2Error::UnsupportedBooleanOutputCurve { curve: "Hyperbola" })
         }
-        // M5 (K1–K3): the procedural surface-pair curve. Both operands must be
-        // cylinders (the only producer today); K2 rejects a closed single-edge
-        // loop; K3 requires each endpoint on BOTH defining surfaces within the
-        // import band (the per-point certification contract, mirroring the
-        // circle/ellipse endpoint checks).
+        // M5 (K1–K3): the procedural surface-pair curve. Operands are cylinders
+        // and/or cones (the cyl×cyl and cone-pair producers); K2 rejects a
+        // closed single-edge loop; K3 requires each endpoint on BOTH defining
+        // surfaces within the import band (the per-point certification contract,
+        // mirroring the circle/ellipse endpoint checks).
         yang_rs::Curve::SurfacePair { a, b } => {
             let pa = yang_surface_to_pair_surface(a)?;
             let pb = yang_surface_to_pair_surface(b)?;
@@ -2176,9 +2194,10 @@ fn classify_edge(
     }
 }
 
-/// M5 (K1): map a yang output `Surface` to a kernel-v2 [`PairSurface`]. Only
-/// `Cylinder` is a producer today (the general cyl×cyl curve); any other kind
-/// is a typed wall until the cone-pair producer lands (`#[non_exhaustive]`).
+/// M5 (K1): map a yang output `Surface` to a kernel-v2 [`PairSurface`]. The
+/// producers are `Cylinder` (cyl×cyl) and `Cone` (the cone-pair arms: cyl×cone,
+/// cone×cone); a `Plane`/`Sphere`/`Torus` operand is a typed wall (no producer
+/// emits them onto a surface-pair curve).
 fn yang_surface_to_pair_surface(s: yang_rs::Surface) -> Result<PairSurface, KernelV2Error> {
     match s {
         yang_rs::Surface::Cylinder {
@@ -2202,8 +2221,33 @@ fn yang_surface_to_pair_surface(s: yang_rs::Surface) -> Result<PairSurface, Kern
                 radius,
             })
         }
+        yang_rs::Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => {
+            // α ∈ (0, π/2): a line at α→0, a plane at α→π/2 — both reject.
+            if !(half_angle.is_finite()
+                && half_angle > 0.0
+                && half_angle < std::f64::consts::FRAC_PI_2)
+            {
+                return Err(KernelV2Error::InvalidBooleanOutput(
+                    "surface-pair cone operand has a half-angle outside (0, π/2)",
+                ));
+            }
+            let ad = normalize3_arr(axis_dir.as_array());
+            Ok(PairSurface::Cone {
+                apex,
+                axis_dir: UnitVector3 {
+                    x: ad[0],
+                    y: ad[1],
+                    z: ad[2],
+                },
+                half_angle,
+            })
+        }
         _ => Err(KernelV2Error::UnsupportedBooleanOutputCurve {
-            curve: "surface-pair with a non-cylinder operand (only cyl×cyl is produced in M5)",
+            curve: "surface-pair with a plane/sphere/torus operand (only cyl/cone are produced)",
         }),
     }
 }

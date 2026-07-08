@@ -978,14 +978,49 @@ pub(crate) fn pair_surface_residual_gradient(
             }
             Some((rl - radius, [r[0] / rl, r[1] / rl, r[2] / rl]))
         }
+        // Cone (M5 cone-pair): the TRUE signed distance to the nearest
+        // generator, `f = radial·cosα − |h|·sinα` (zero on both nappes), whose
+        // gradient `cosα·r̂ − sign(h)·sinα·â` is ALREADY unit — so the shared
+        // Gauss-Newton step (`x -= f·ĝ`, which assumes `f` is a distance along
+        // the unit gradient) is exact, exactly as for the cylinder's radial
+        // form. `None` on the apex/axis (radial direction undefined).
+        crate::arena::PairSurface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => {
+            let a = [axis_dir.x, axis_dir.y, axis_dir.z];
+            let d = [p[0] - apex.x(), p[1] - apex.y(), p[2] - apex.z()];
+            let h = d[0] * a[0] + d[1] * a[1] + d[2] * a[2];
+            let r = [d[0] - h * a[0], d[1] - h * a[1], d[2] - h * a[2]];
+            let rl = (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
+            if !(rl.is_finite() && rl > 0.0) {
+                return None;
+            }
+            let sgn = if h >= 0.0 { 1.0 } else { -1.0 };
+            let (sa, ca) = half_angle.sin_cos();
+            let residual = rl * ca - h.abs() * sa;
+            // Unit gradient cosα·r̂ − sign(h)·sinα·â (|·| = √(cos²+sin²) = 1).
+            let g = [
+                ca * r[0] / rl - sgn * sa * a[0],
+                ca * r[1] / rl - sgn * sa * a[1],
+                ca * r[2] / rl - sgn * sa * a[2],
+            ];
+            Some((residual, g))
+        }
     }
 }
 
-/// The characteristic length of a [`PairSurface`] (its radius) — the scale
-/// that enters residual bands, mirroring the circle/ellipse import bands.
+/// The characteristic length of a [`PairSurface`] — the scale that enters
+/// residual bands, mirroring the circle/ellipse import bands. A cylinder's is
+/// its radius; a cone has no constant radius (its local radius grows with axial
+/// distance), so it contributes no fixed length and the band is left to the
+/// point's own coordinate magnitude (`m` in [`import_band`]), which tracks the
+/// cone's local scale.
 pub(crate) fn pair_surface_scale(s: &crate::arena::PairSurface) -> f64 {
     match *s {
         crate::arena::PairSurface::Cylinder { radius, .. } => radius,
+        crate::arena::PairSurface::Cone { .. } => 0.0,
     }
 }
 

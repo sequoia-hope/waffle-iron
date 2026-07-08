@@ -368,9 +368,10 @@ pub enum Curve {
 /// curve is a point set, so unlike [`Surface`] there is NO `reversed`
 /// cavity flag (orientation lives on faces, traversal on half-edges).
 ///
-/// `#[non_exhaustive]`: `Cone` joins when the cone-pair producer lands
-/// (the R0008/R0003 `AmbiguousCurve` class); the first producer is
-/// general-position cylinder×cylinder (M5).
+/// `#[non_exhaustive]`: both producers ship — general-position
+/// cylinder×cylinder (M5) and the cone-pair arms (cyl×cone, cone×cone; the
+/// R0008/R0003/R0019 `AmbiguousCurve` class). Sphere/torus operands are not
+/// yet surface-pair producers.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub enum PairSurface {
@@ -382,6 +383,17 @@ pub enum PairSurface {
         axis_dir: UnitVector3,
         /// Cylinder radius (meters, > 0).
         radius: f64,
+    },
+    /// Infinite right-circular double cone with `apex`, axis `axis_dir`, and
+    /// `half_angle` α ∈ (0, π/2): the zero set of `radial − |h|·tanα` (both
+    /// nappes), where `h = (x − apex)·â` and `radial = |x − apex − h·â|`.
+    Cone {
+        /// Cone apex.
+        apex: Point3,
+        /// Unit axis direction.
+        axis_dir: UnitVector3,
+        /// Half-angle (radians, ∈ (0, π/2)).
+        half_angle: f64,
     },
 }
 
