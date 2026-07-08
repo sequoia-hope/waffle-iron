@@ -408,6 +408,51 @@ measured consumer (the Stage-0 fold-gate revert population is the recorded
 candidate; Stage-4 wiring only when a Stage-4 consumer appears), retiring the
 residual chord-position mints behind watertight / reference-parity oracles.
 
+**A live STAGE-4 consumer population now EXISTS (2026-07-08 diagnosis).** The
+`Stage-4 relocation region … LocalRefinementRequired` STOP is the single dominant
+assay ERROR mechanism — **12 of 41 ERROR cases** in the current baseline
+(`target/assay_kv2_report.json`): R0004, R0015, R0017, R0019, R0032, R0044,
+R0047, R0049, R0070, R0077, R0096, F0059. Per-site census (env-probe on the
+`Stage4RegionInvalid` sites in `stage4_relocate_and_correct`) decomposes them:
+
+- **Over-determined conic JUNCTION audits** (sites ~9801/9817/9832/9849/9867 —
+  "a vertex shared by BOTH a circle and an ellipse edge … loud STOP"): the
+  largest sub-family. F0059 (ellipse × circle), R0004/R0017/R0019 (cone-conic ×
+  conic). These are **NOT genuine ambiguities** — the vertex's exact position is
+  the transversal common point of the DISTINCT surfaces incident at it (proven:
+  F0059 v5 → {plane y=−0.25, cyl A, cyl B}; R0019 v25 → {plane, cone₁, cone₂}).
+  The torus block (~10560) already solves the identical problem for degree-4
+  torus junctions via `relocate_onto_implicit_triple`; the conic side just lacks
+  the equivalent handler. Design spec: `specs/yang_stage4_conic_triple_junction.md`.
+- **Line+circle junction, line ∥ circle-plane** (site 10435): R0015 — degenerate
+  (no transversal junction); genuinely hard.
+- **torus∩torus** (site 10546, `tori.len() != 1`): R0096 — out of v1 scope.
+- **Projection / solve failure** in a per-curve relocation helper: R0077.
+
+**KEY FINDING (prototyped + reverted 2026-07-08):** a general conic
+triple-surface junction handler (mirror the torus block: aggregate the ≤3
+distinct incident surfaces from `inc0`, `relocate_onto_implicit_triple`, derived
+1/sinθ displacement gate) is CORRECT and safe — it cleanly relocates the F0059
+and R0019 junction vertices onto all three surfaces, holds **0 WRONG** and loses
+no CORRECT across 78/294 assay cases, and only fires on mixed-curve junctions
+(all currently ERROR ⇒ structurally zero-regression). **BUT it converts ZERO
+cases on its own:** resolving the junction advances every target to a *deeper*
+wall — F0059 → Stage-6 `NonManifoldOutput` (a T-junction, exactly the N2 CDT
+gap), R0019 → a second junction, others unchanged. Moving a relocated vertex
+without the Fig-11 CDT re-triangulation of its incident patch just relocates the
+failure downstream. The prototype was therefore reverted (per P4/DoD: a
+behavior-changing branch with no green reproduction test and 0 conversions is
+not landable standalone).
+
+**Conclusion — the junction handler and the N2 CDT mesh-update must land
+TOGETHER.** The concrete next increment: (1) reinstate the general conic
+triple-junction relocation (spec above), (2) wire `stage4_update::stage4_mesh_update`
+(the built, unit-tested Fig-11 primitive) to locally re-CDT each moved vertex's
+incident patch in the parametric domain so Stage 6 sees T-junction-free topology,
+(3) recompute `d(T)` via `stage4_dt::d_of_t` for the new boundary triangles.
+F0059 (cyl×cyl 90° union, ~0.4s, single clean junction family) is the canonical
+red→green target. Oracle: assay 0 WRONG + F0059/R0019 ERROR→CORRECT.
+
 ### N3 — §4.5.3 collinear/degenerate-tangent treated as healthy (logic inversion)
 
 **Code location:** `crates/yang-rs/src/lib.rs:2504-2506` — returns `false` (no
