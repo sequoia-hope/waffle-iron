@@ -126,6 +126,125 @@ incident plane∩plane `LineSegment` edges have no positional membership check
   orders exercised).
 - Corpus: R0091 tracker (spec §5) is the RED for this mechanism.
 
+## 3c. Third mechanism (R0072/F0045 + R0011's deeper wall): straight-run reversals are never swept
+
+Measured on R0072 (`YANG_S6_CYCLE_DUMP` + `YANG_V_PROBE` + `KV2_EARCLIP_PROBE`,
+2026-07-08): the §4.5.3 sweep's loop eligibility requires EVERY cycle edge to
+carry a conic (`all_conic`, Circle|Ellipse) — a reversal on a **straight
+intersection run** (`Curve::LineSegment` seam) is never corrected. R0072's
+A-face-0/B-face-5 seam carries Stage-0 mint vertices v197/v198 at chord-crossing
+positions; their neighbor v6 is a seam × ruling-line triple point whose Stage-4
+`vert_line` relocation lands EXACTLY on the true junction — at seam parameter
+−2.95e-6, BEHIND the stale mints (t = 0, +1.44e-6). The output loop then runs
+forward 1.44e-6 and doubles back 4.39e-6 along the exact same line (cos = −1.0,
+cross = 4e-26): a self-intersecting ring that kernel-v2's exact CDT correctly
+refuses (`TessellationFailed { "ring rejected by CDT" }`). This is verbatim
+Yang §4.5.3 ("the surface intersection may exhibit a reverse sequence of
+points after convergence") on a line instead of a conic.
+
+### Design (extends §3's sweep, same victim rule)
+
+1. **Eligibility is PER-SITE, not per-cycle** (amended after RED measurement:
+   R0072's face-0 boundary MIXES solid edges with seam runs, so whole-cycle
+   eligibility never fires on real mixed boundaries). Every patch cycle is
+   scanned; a position `p_r` is a §4.5.3 site iff BOTH incident edges carry a
+   Stage-3 `curves` entry (conic or `LineSegment`). A vertex where an
+   intersection run meets a curve-less edge (solid edge, torus chain,
+   gate-skipped seam) is a run BOUNDARY: never tested as `p_r`, and as `p_n`
+   it is junction-protected (the run's exact endpoint — collapse `p_r` onto
+   it). All-conic cycles behave byte-identically to the pre-§3c sweep; conic
+   runs inside MIXED cycles become sweepable (previously skipped wholesale) —
+   the same paper logic at newly reachable sites.
+2. **Exact tangent for line edges** (paper Fig. 15: t_pr = n_A,pr × n_B,pr):
+   from the edge's incidence surface pair via `surface_normal_at`. Cross
+   magnitude ≈ 0 (tangent/parallel surfaces — e.g. §4.5.5 coplanar seams) →
+   cannot diagnose → healthy skip.
+3. **Junction guard for line edges**: `Curve::LineSegment` carries no payload,
+   so run identity uses the edge's UNORDERED incidence surface pair. At `p_r`:
+   both edges LineSegment with different pairs → corner, skip test (the
+   PR-KV11 conic guard's analog). Conic edges keep the curve-equality guard
+   byte-identically.
+4. **Victim selection**: `reversal_collapse_direction` extended with the same
+   pair test — a `p_n` where the surface pair changes is a junction (exact
+   endpoint) and survives; the out-of-order `p_r` collapses onto it.
+
+### Branch table additions
+
+| # | Edge kinds at `p_r` | Pair/curve state | Action |
+|---|---|---|---|
+| 4 | both LineSegment | pairs differ | healthy (corner) — no test |
+| 5 | both LineSegment | pairs equal, normals cross ≈ 0 | healthy (cannot diagnose) |
+| 6 | both LineSegment | pairs equal, reversal detected, `p_n` pair changes ahead | collapse `p_r` onto junction `p_n` |
+| 7 | both LineSegment | pairs equal, reversal detected, same pair ahead | collapse `p_n` onto `p_r` (paper default) |
+| 8 | mixed conic/LineSegment at `p_r` | curves differ | healthy (existing conic guard, now reachable) |
+
+### Additional oracles
+
+- Unit: `surface_normal_at` (plane/cylinder/sphere/cone canonical points);
+  line-run reversal branch table (4–7) on synthetic curve+incidence maps.
+- Corpus trackers (RED → GREEN): R0072 and F0045 replays must reach
+  tessellation with NO `"ring rejected by CDT"` and NO relocation of the wall
+  into `"collapsed at render precision"` / `"inverted final triangle"`.
+- Regression: full yang-rs suite (fuzz_boxes planar byte-identity), chain
+  suite, F0086/F0087 + planar-heavy corpus spot checks.
+
+### Status (2026-07-08, post-implementation measurement)
+
+- **R0072: ERROR → SUPPORTED_CORRECT** (38 sweep collapses on the replay; the
+  reversed seam mints are removed and the exact junction survives).
+- **F0045 is a DIFFERENT mechanism** — its FaceId(9) 16-gon ring
+  self-intersects at MACRO scale (segment 10→11 × 12→13, excursion ~5e-2 at
+  model scale ~0.4), far above any MIN_FEATURE_SIZE reversal; the §4.5.3
+  sweep correctly does not touch it. Its tracker stays `#[ignore]` RED as the
+  pin for a future output-loop macro-ordering campaign.
+
+### Final shipped design (after two RED adversary cycles)
+
+Two pre-existing pins caught wider scopes converting loud walls into silent
+or broken geometry: `annular_cap_hole_crossing_stays_loud` (unsupported
+Stage-0 hole-rim crossing repaired into Ok(non-watertight)) and
+`corner_in_band_reverts_keep_true_junction` (coarse 7-gon conic chords in a
+mixed cycle false-positive the 45° reversal band — 2π/7 ≈ 51° corners — and a
+cascade eats a genuine arc). Shipped scope:
+
+1. **All-conic cycles: byte-identical pre-§3c semantics** (every position a
+   site, curve-identity junction guard).
+2. **Mixed cycles: straight-run sites ONLY** (both incident edges
+   `LineSegment`), with the §3c guards: run identity by unordered incidence
+   pair (branch 4), tangent availability n_A × n_B ≥ TAU_WORK checked BEFORE
+   the U-turn arm (branch 5 — §4.5.5 coincident-pair seams are undiagnosable),
+   junction/run-end-protected victim selection (branches 6–7 + run-end), and
+   the resolution gate |victim − survivor| ≤ 2·d_ε (a §4.5.3 correction is a
+   resolution artifact by definition; both points sit within their own chord
+   band — derived, not widening).
+3. **Stage-0 admission wall (the hole-rim pin's documented intent)**: an
+   annular face whose HOLE rim circle is STRICTLY CROSSED by a partner disc
+   rim (|r1−r2| < d < r1+r2 in the shared plane) walls loudly
+   (`CoplanarFacesUnsupported`, probe tag `annular-hole-rim-crossing`) BEFORE
+   any overlay build — arc∩arc crossing + bore-lateral split propagation is
+   out of increment scope, and the general overlay otherwise emits doubled
+   sheets whose symptoms surface only downstream.
+
+**Corpus outcome**: R0072's FaceId(9) straight-run spur is repaired (wall
+moves to FaceId(11), whose reversal sits on conic sites in a mixed cycle —
+the disproven class below); its tracker stays `#[ignore]` RED as the pin for
+a stable coarse-N conic-site criterion.
+
+**P10 records (disproven alternatives — do not retry):**
+- CONIC sites inside mixed cycles, under ANY of the tried eligibility rules
+  (unrestricted; transversal incidence pair; coincident-seam cycle
+  exclusion): the 45° band false-positives on coarse conic chords
+  (`corner_in_band`, N=7 → 51° corners, and 2·d_ε ≈ 0.19 cannot gate 0.15
+  excursions at that coarseness), and overlay-adjacent conic runs repair
+  unsupported Stage-0 crossings into silent geometry (the hole-rim pin's
+  bore-rim sites are cylinder×plane TRANSVERSAL, so transversality does not
+  separate them).
+- Tightening `check_watertight_2manifold` to reject `fwd == rev > 1` double
+  covers false-positives on the Steinmetz subtract (its kept mesh is
+  LEGITIMATELY edge-doubled along the surface-tangency seam; re-confirms
+  `yang_kept_mesh_manifold_gate` §2b: no mesh-level manifold invariant
+  survives the kept set).
+
 ## 6. Failure modes
 
 - Branch 2 with `collapse_vertex` dropping zero triangles → existing loud

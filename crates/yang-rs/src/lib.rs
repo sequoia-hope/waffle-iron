@@ -4208,6 +4208,83 @@ pub fn signed_distance_to_surface(surface: Surface, point: Point3) -> Result<f64
     }
 }
 
+/// Unit outward normal of `surface` at (or near) `point` — the gradient of the
+/// signed-distance forms in [`signed_distance_to_surface`]. Used by the §4.5.3
+/// straight-run reversal test (spec `yang_453_junction_protected_collapse`
+/// §3c): the exact intersection-curve tangent at p_r is `n_A × n_B` (Yang
+/// Fig. 15). `None` at gradient singularities (cylinder/cone axis, sphere
+/// center, torus spine, cone apex) where the direction is undefined.
+fn surface_normal_at(surface: Surface, point: Point3) -> Option<[f64; 3]> {
+    let x = point.as_array();
+    let unit = |v: [f64; 3]| -> Option<[f64; 3]> {
+        let n = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+        if n > 0.0 {
+            Some([v[0] / n, v[1] / n, v[2] / n])
+        } else {
+            None
+        }
+    };
+    match surface {
+        Surface::Plane { normal, .. } => unit(normal.as_array()),
+        Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            ..
+        } => {
+            let au = normalize3(axis_dir.as_array());
+            let ap = axis_point.as_array();
+            let w = [x[0] - ap[0], x[1] - ap[1], x[2] - ap[2]];
+            let along = w[0] * au[0] + w[1] * au[1] + w[2] * au[2];
+            unit([
+                w[0] - along * au[0],
+                w[1] - along * au[1],
+                w[2] - along * au[2],
+            ])
+        }
+        Surface::Sphere { center, .. } => {
+            let c = center.as_array();
+            unit([x[0] - c[0], x[1] - c[1], x[2] - c[2]])
+        }
+        Surface::Cone {
+            apex,
+            axis_dir,
+            half_angle,
+        } => {
+            // Gradient of `|radial| − |h|·tan(α)`: radial_unit − sign(h)·tanα·axis.
+            let au = normalize3(axis_dir.as_array());
+            let a = apex.as_array();
+            let w = [x[0] - a[0], x[1] - a[1], x[2] - a[2]];
+            let h = w[0] * au[0] + w[1] * au[1] + w[2] * au[2];
+            let radial = [w[0] - h * au[0], w[1] - h * au[1], w[2] - h * au[2]];
+            let ru = unit(radial)?;
+            let s = h.signum() * half_angle.tan();
+            unit([ru[0] - s * au[0], ru[1] - s * au[1], ru[2] - s * au[2]])
+        }
+        Surface::Torus {
+            center,
+            axis_dir,
+            major_radius,
+            ..
+        } => {
+            // Gradient of `√((ρ−R)² + τ²) − r`: ((ρ−R)·radial_unit + τ·axis).
+            let au = normalize3(axis_dir.as_array());
+            let c = center.as_array();
+            let w = [x[0] - c[0], x[1] - c[1], x[2] - c[2]];
+            let tau = w[0] * au[0] + w[1] * au[1] + w[2] * au[2];
+            let radial = [w[0] - tau * au[0], w[1] - tau * au[1], w[2] - tau * au[2]];
+            let rho =
+                (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2]).sqrt();
+            let ru = unit(radial)?;
+            let d = rho - major_radius;
+            unit([
+                d * ru[0] + tau * au[0],
+                d * ru[1] + tau * au[1],
+                d * ru[2] + tau * au[2],
+            ])
+        }
+    }
+}
+
 // =========================================================================
 // PR-YR10 — Stage 4: relocate mesh intersection points onto exact curves
 // (Yang §4.4.1 mesh updating) + §4.5.3 reversed-intersection correction.
@@ -5231,6 +5308,13 @@ fn check_watertight_2manifold(mesh: &Mesh) -> Result<(), YangError> {
                 format_args!("edge ({s},{e}) fwd={fwd} rev={rev}"),
             ));
         }
+        // NOTE (P10 record, re-confirmed 2026-07-08): do NOT tighten this
+        // gate to reject `fwd == rev > 1` double covers — the kept set is
+        // LEGITIMATELY edge-doubled at surface-tangency seams (the Steinmetz
+        // subtract carries fwd=rev=2 along the tangency line and is a
+        // CORRECT solid). This re-measures the standing
+        // `yang_kept_mesh_manifold_gate` §2b record: no mesh-level
+        // watertight/manifold invariant survives the kept set.
     }
 
     // Euler χ = 2 − 2g per connected shell (g ≥ 0). Connectivity via undirected
@@ -10536,7 +10620,7 @@ fn sweep_reversed_intersections(
     attribution: &mut Vec<Option<TriangleAttribution>>,
     a: &BRep,
     b: &BRep,
-    _d_eps: f64,
+    d_eps: f64,
 ) -> Result<bool, YangError> {
     use std::collections::HashSet;
     const ANG_TOL: f64 = 1e-6; // radians (Yang §5).
@@ -10565,20 +10649,44 @@ fn sweep_reversed_intersections(
         };
         let phase_a = compute_phase_a(mesh, &map, a, b);
         *attribution = map.attributions;
-        let (infos, _inc, curves) = phase_a?;
+        let (infos, incidence, curves) = phase_a?;
 
-        // Collect the ordered intersection loops: a patch boundary cycle whose
-        // every edge carries a `Circle` curve. Dedup by sorted vertex set so the
-        // cylinder-side and cap-side copies of the same ring are swept once.
+        // Collect the ordered intersection loops. Dedup by sorted vertex set so
+        // the cylinder-side and cap-side copies of the same ring are swept once.
         let mut seen: HashSet<Vec<u32>> = HashSet::new();
-        let mut loops: Vec<Vec<(u32, u32)>> = Vec::new();
+        let mut loops: Vec<(Vec<(u32, u32)>, bool)> = Vec::new();
         for info in &infos {
             for cycle in &info.cycles {
                 if cycle.len() < 3 {
                     continue;
                 }
-                // PR-YR11: widen to `all_conic` — every edge is a Circle OR an
-                // Ellipse (the oblique cap sections), still EXCLUDING LineSegment.
+                // PR-YR11 widened Circle-only to `all_conic`; spec §3c widens
+                // again to PER-SITE eligibility: any cycle containing at
+                // least one intersection edge is scanned, and `is_reversed`
+                // skips every position whose incident edges are not BOTH
+                // intersection edges (real face boundaries mix solid edges
+                // with seam runs — whole-cycle gates never fire on them).
+                let any_intersection = cycle.iter().any(|&(s, e)| {
+                    let key = if s < e { (s, e) } else { (e, s) };
+                    matches!(
+                        curves.get(&key),
+                        Some(Curve::Circle { .. })
+                            | Some(Curve::Ellipse { .. })
+                            | Some(Curve::LineSegment)
+                    )
+                });
+                if !any_intersection {
+                    continue;
+                }
+                // Spec §3c final scope: ALL-CONIC cycles keep the pre-§3c
+                // semantics byte-identically; in MIXED cycles only
+                // straight-run sites (both incident edges LineSegment) are
+                // swept. Conic sites inside mixed cycles are DISPROVEN twice
+                // (spec §3c P10 records): the reversal angle test
+                // false-positives on coarse conic chords (a 7-gon's 51°
+                // corners exceed the 45° band — `corner_in_band` adversary),
+                // and overlay-adjacent conic runs repair unsupported Stage-0
+                // crossings into silent geometry (the hole-rim pin).
                 let all_conic = cycle.iter().all(|&(s, e)| {
                     let key = if s < e { (s, e) } else { (e, s) };
                     matches!(
@@ -10586,13 +10694,10 @@ fn sweep_reversed_intersections(
                         Some(Curve::Circle { .. }) | Some(Curve::Ellipse { .. })
                     )
                 });
-                if !all_conic {
-                    continue;
-                }
                 let mut sorted: Vec<u32> = cycle.iter().map(|&(s, _)| s).collect();
                 sorted.sort_unstable();
                 if seen.insert(sorted) {
-                    loops.push(cycle.clone());
+                    loops.push((cycle.clone(), all_conic));
                 }
             }
         }
@@ -10601,7 +10706,7 @@ fn sweep_reversed_intersections(
         // whole sweep (re-deriving loops). Deterministic: loops are in the
         // deterministic patch/cycle order; within a loop we scan in order.
         let mut acted = false;
-        'outer: for cycle in &loops {
+        'outer: for (cycle, all_conic) in &loops {
             let m = cycle.len();
             if m < 3 {
                 return Err(YangError::Stage4RegionInvalid {
@@ -10615,15 +10720,51 @@ fn sweep_reversed_intersections(
                 let p_b = verts[(i + m - 1) % m];
                 let p_r = verts[i];
                 let p_n = verts[(i + 1) % m];
-                if is_reversed(mesh, &curves, p_b, p_r, p_n, lo, hi) {
+                // Spec §3c site rule: in a MIXED cycle only straight-run
+                // sites (both incident edges LineSegment) are eligible;
+                // `is_reversed` additionally enforces the per-site guards.
+                if !all_conic {
+                    let key_n = if p_r < p_n { (p_r, p_n) } else { (p_n, p_r) };
+                    let key_b = if p_b < p_r { (p_b, p_r) } else { (p_r, p_b) };
+                    let both_line = matches!(curves.get(&key_n), Some(Curve::LineSegment))
+                        && matches!(curves.get(&key_b), Some(Curve::LineSegment));
+                    if !both_line {
+                        continue;
+                    }
+                }
+                if is_reversed(mesh, &curves, &incidence, p_b, p_r, p_n, lo, hi) {
                     // Spec `yang_453_junction_protected_collapse` §3: pick the
                     // collapse victim so a curve-junction vertex (the exact
-                    // endpoint shared by two different conic sections) always
+                    // endpoint shared by two different conic sections, or the
+                    // §3c surface-pair change on a straight run) always
                     // survives — Yang §4.5.3 removes points progressing along
                     // ONE curve C, never C's endpoints.
                     let p_after = verts[(i + 2) % m];
                     let (victim, survivor) =
-                        reversal_collapse_direction(&curves, p_r, p_n, p_after);
+                        reversal_collapse_direction(&curves, &incidence, p_r, p_n, p_after);
+                    // Spec §3c resolution gate: §4.5.3 corrects RESOLUTION
+                    // artifacts ("the mesh resolution is not sufficient to
+                    // maintain a one-to-one mapping") — both the reversed
+                    // point and its survivor sit within their own Stage-1
+                    // chord band of the true curve position, so a legitimate
+                    // correction moves at most 2·d_ε (the sum of the two
+                    // bands — derived, not widening; same derivation as the
+                    // line+circle junction gate). A LARGER excursion is not a
+                    // resolution artifact but wrong topology (e.g. an
+                    // unsupported Stage-0 crossing) — leave the reversal for
+                    // the downstream validation to reject loudly (P9: the
+                    // sweep must never repair unsupported configurations
+                    // into silent geometry; pinned by
+                    // `annular_cap_hole_crossing_stays_loud`).
+                    {
+                        let pv = mesh.verts[victim as usize].as_array();
+                        let ps = mesh.verts[survivor as usize].as_array();
+                        let d = [pv[0] - ps[0], pv[1] - ps[1], pv[2] - ps[2]];
+                        let dist = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                        if dist > 2.0 * d_eps {
+                            continue;
+                        }
+                    }
                     if std::env::var_os("YANG_V_PROBE").is_some() {
                         eprintln!(
                             "YANG_V_PROBE reversal collapse: p_b={p_b} p_r={p_r} p_n={p_n} \
@@ -10655,6 +10796,42 @@ fn sweep_reversed_intersections(
     }
 }
 
+/// Spec §3c: the UNORDERED incidence surface-pair equality that stands in for
+/// curve identity on `Curve::LineSegment` intersection edges (the payload-less
+/// variant cannot distinguish two different straight seams).
+fn surface_pairs_equal(a: &[(InputId, Surface)], b: &[(InputId, Surface)]) -> bool {
+    match (a, b) {
+        ([a0, a1], [b0, b1]) => (a0 == b0 && a1 == b1) || (a0 == b1 && a1 == b0),
+        _ => false,
+    }
+}
+
+/// Spec §3c: are loop edges `(x,y)` and `(y,z)` on the SAME straight
+/// intersection run? True only when BOTH carry `Curve::LineSegment` and their
+/// unordered incidence surface pairs match. Conic edges are handled by curve
+/// identity instead (byte-identical to the PR-KV11 guard).
+fn same_line_run(
+    curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    incidence: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
+    x: u32,
+    y: u32,
+    z: u32,
+) -> Option<bool> {
+    let key_a = if x < y { (x, y) } else { (y, x) };
+    let key_b = if y < z { (y, z) } else { (z, y) };
+    match (curves.get(&key_a), curves.get(&key_b)) {
+        (Some(Curve::LineSegment), Some(Curve::LineSegment)) => {
+            match (incidence.get(&key_a), incidence.get(&key_b)) {
+                (Some(a), Some(b)) => Some(surface_pairs_equal(a, b)),
+                // Missing incidence — cannot establish run identity.
+                _ => Some(false),
+            }
+        }
+        // Not a double-LineSegment adjacency — line-run identity not applicable.
+        _ => None,
+    }
+}
+
 /// §4.5.3 collapse direction (spec `yang_453_junction_protected_collapse` §3):
 /// which loop vertex is REMOVED for a reversal detected at `p_r` with next
 /// point `p_n` (whose own next point is `p_after`)? Returns
@@ -10671,10 +10848,17 @@ fn sweep_reversed_intersections(
 /// here, and the victim always lies on the survivor's curve (spec I3).
 fn reversal_collapse_direction(
     curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    incidence: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
     p_r: u32,
     p_n: u32,
     p_after: u32,
 ) -> (u32, u32) {
+    // Spec §3c branch 6: on a straight run, a surface-pair change at p_n is
+    // the junction (LineSegment payloads compare equal, so curve identity
+    // alone cannot see it).
+    if same_line_run(curves, incidence, p_r, p_n, p_after) == Some(false) {
+        return (p_r, p_n);
+    }
     let key_n = if p_r < p_n { (p_r, p_n) } else { (p_n, p_r) };
     let key_after = if p_n < p_after {
         (p_n, p_after)
@@ -10683,6 +10867,10 @@ fn reversal_collapse_direction(
     };
     match (curves.get(&key_n), curves.get(&key_after)) {
         (Some(cn), Some(ca)) if cn != ca => (p_r, p_n),
+        // Spec §3c: the run ENDS at p_n (its far edge is not an intersection
+        // edge — a solid edge or curve-less seam). p_n is the run's exact
+        // endpoint and must survive; the overshooting p_r is the victim.
+        (Some(_), None) => (p_r, p_n),
         _ => (p_n, p_r),
     }
 }
@@ -10735,6 +10923,7 @@ fn sub_feature_merge_direction(
 fn is_reversed(
     mesh: &Mesh,
     curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    incidence: &std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>>,
     p_b: u32,
     p_r: u32,
     p_n: u32,
@@ -10752,11 +10941,57 @@ fn is_reversed(
     {
         let key_n = if p_r < p_n { (p_r, p_n) } else { (p_n, p_r) };
         let key_b = if p_b < p_r { (p_b, p_r) } else { (p_r, p_b) };
-        if let (Some(cn), Some(cb)) = (curves.get(&key_n), curves.get(&key_b)) {
-            if cn != cb {
+        match (curves.get(&key_n), curves.get(&key_b)) {
+            (Some(cn), Some(cb)) => {
+                if cn != cb {
+                    return false;
+                }
+            }
+            // Spec §3c: PER-SITE eligibility — p_r is a §4.5.3 site only when
+            // BOTH incident edges are intersection edges. A run boundary
+            // (intersection meets solid edge) is a genuine topology corner.
+            _ => return false,
+        }
+    }
+    // Spec §3c branch 4: two straight seam edges compare curve-equal
+    // (`LineSegment` carries no payload), so run identity uses the unordered
+    // incidence surface pair — a pair change at p_r is a genuine corner
+    // (including near-180° thin-wedge corners the U-turn test below would
+    // otherwise misread as reversals).
+    match same_line_run(curves, incidence, p_b, p_r, p_n) {
+        Some(false) => return false,
+        Some(true) => {
+            // Spec §3c branch 5, checked BEFORE the U-turn arm: the §4.5.3
+            // test needs the exact tangent t_pr = n_A × n_B (Yang Fig. 15).
+            // A COINCIDENT/parallel pair (the §4.5.5 overlay seams — both
+            // incident faces on the same two planes) has no cross-product
+            // tangent, so NO reversal can be diagnosed there at all — the
+            // overlay boundary legitimately turns corners (including 180°
+            // crossing artifacts that must stay loud downstream; pinned by
+            // `annular_cap_hole_crossing_stays_loud`).
+            let key = if p_r < p_n { (p_r, p_n) } else { (p_n, p_r) };
+            let tangent_defined = incidence.get(&key).is_some_and(|entries| {
+                if let [(_, s0), (_, s1)] = entries[..] {
+                    let p_r_pt = mesh.verts[p_r as usize];
+                    if let (Some(n0), Some(n1)) =
+                        (surface_normal_at(s0, p_r_pt), surface_normal_at(s1, p_r_pt))
+                    {
+                        let cr = [
+                            n0[1] * n1[2] - n0[2] * n1[1],
+                            n0[2] * n1[0] - n0[0] * n1[2],
+                            n0[0] * n1[1] - n0[1] * n1[0],
+                        ];
+                        return (cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]).sqrt()
+                            >= cad_primitives::TAU_WORK;
+                    }
+                }
+                false
+            });
+            if !tangent_defined {
                 return false;
             }
         }
+        None => {}
     }
     let pb = mesh.verts[p_b as usize].as_array();
     let pr = mesh.verts[p_r as usize].as_array();
@@ -10788,12 +11023,46 @@ fn is_reversed(
             _ => None,
         },
     };
+    let p_r_pt = mesh.verts[p_r as usize];
     let Some(conic) = conic else {
+        // Spec §3c: straight-run arm. When BOTH edges are `LineSegment` on the
+        // SAME run (the branch-4 guard above already returned for pair
+        // changes), the exact intersection-curve tangent at p_r is
+        // `n_A × n_B` of the run's surface pair (Yang Fig. 15,
+        // refs/text/yang2025_hybrid_boolean.txt:736-742).
+        if same_line_run(curves, incidence, p_b, p_r, p_n) == Some(true) {
+            if let Some(entries) = incidence.get(&key) {
+                if let [(_, s0), (_, s1)] = entries[..] {
+                    if let (Some(n0), Some(n1)) =
+                        (surface_normal_at(s0, p_r_pt), surface_normal_at(s1, p_r_pt))
+                    {
+                        let cr = [
+                            n0[1] * n1[2] - n0[2] * n1[1],
+                            n0[2] * n1[0] - n0[0] * n1[2],
+                            n0[0] * n1[1] - n0[1] * n1[0],
+                        ];
+                        let m = (cr[0] * cr[0] + cr[1] * cr[1] + cr[2] * cr[2]).sqrt();
+                        // Spec §3c branch 5: tangent/parallel surface pair
+                        // (|n_A × n_B| = sin ∠ ≈ 0, e.g. §4.5.5 coplanar
+                        // seams) — the curve direction is undefined; healthy.
+                        if m >= cad_primitives::TAU_WORK {
+                            let tan_c = [cr[0] / m, cr[1] / m, cr[2] / m];
+                            let t_tilde_u = normalize3(t_tilde);
+                            let dotv = (t_tilde_u[0] * tan_c[0]
+                                + t_tilde_u[1] * tan_c[1]
+                                + t_tilde_u[2] * tan_c[2])
+                                .clamp(-1.0, 1.0);
+                            let angle = dotv.abs().acos();
+                            return angle > lo && angle < hi;
+                        }
+                    }
+                }
+            }
+        }
         // No exact tangent available — cannot diagnose; treat as healthy
         // (the validation pass still guards inverted/degenerate triangles).
         return false;
     };
-    let p_r_pt = mesh.verts[p_r as usize];
     let tan_c = match conic {
         Curve::Parabola {
             vertex,
@@ -11077,6 +11346,24 @@ fn reconstruct_topology_stage4(
                 info.cycles.iter().map(|c| c.len()).collect::<Vec<_>>(),
                 info.had_fold_sliver
             );
+            if std::env::var_os("YANG_S6_CYCLE_DUMP").is_some() {
+                for (ci, cycle) in info.cycles.iter().enumerate() {
+                    eprintln!(
+                        "[s6-cycle-dump] patch {i} cycle {ci}: {:?}",
+                        cycle.iter().map(|&(s, _)| s).collect::<Vec<_>>()
+                    );
+                    let dump_sel = std::env::var("YANG_S6_CYCLE_DUMP");
+                    if dump_sel.as_deref() == Ok("all") || dump_sel.as_deref() == Ok(&i.to_string())
+                    {
+                        for &(s, _) in cycle {
+                            eprintln!(
+                                "[s6-cycle-pos] patch {i} cycle {ci} v{s} {:?}",
+                                mesh.verts.get(s as usize)
+                            );
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -12186,8 +12473,10 @@ mod tests {
             std::collections::BTreeMap::new();
         curves.insert((1, 2), circle);
         curves.insert((2, 3), circle);
+        let inc: std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>> =
+            std::collections::BTreeMap::new();
         assert_eq!(
-            reversal_collapse_direction(&curves, 1, 2, 3),
+            reversal_collapse_direction(&curves, &inc, 1, 2, 3),
             (2, 1),
             "same curve beyond p_n ⇒ paper default: p_n is the victim"
         );
@@ -12209,8 +12498,10 @@ mod tests {
             std::collections::BTreeMap::new();
         curves.insert((1, 2), circle);
         curves.insert((2, 3), other);
+        let inc: std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>> =
+            std::collections::BTreeMap::new();
         assert_eq!(
-            reversal_collapse_direction(&curves, 1, 2, 3),
+            reversal_collapse_direction(&curves, &inc, 1, 2, 3),
             (1, 2),
             "curve changes at p_n ⇒ p_n is an exact curve-junction endpoint \
              and must survive; the overshooting p_r is the victim"
@@ -12221,10 +12512,168 @@ mod tests {
         curves_rev.insert((7, 9), circle);
         curves_rev.insert((3, 7), other);
         assert_eq!(
-            reversal_collapse_direction(&curves_rev, 9, 7, 3),
+            reversal_collapse_direction(&curves_rev, &inc, 9, 7, 3),
             (9, 7),
             "junction protection must hold under canonical (min,max) edge keys"
         );
+    }
+
+    // Spec §3c: straight-run reversal — branch table 4–7 on synthetic
+    // curve + incidence maps. The seam runs along +x; vertex 1 (p_r) doubles
+    // back to vertex 2 (p_n) at 0.5 (a U-turn on the run).
+    #[test]
+    fn s453c_line_run_reversal_branches() {
+        use std::collections::BTreeMap;
+        let mesh = Mesh::new(
+            vec![
+                p(0.0, 0.0, 0.0),
+                p(1.0, 0.0, 0.0),
+                p(0.5, 0.0, 0.0),
+                p(2.0, 0.0, 0.0),
+            ],
+            vec![],
+        );
+        let lo = std::f64::consts::FRAC_PI_4;
+        let hi = 3.0 * std::f64::consts::FRAC_PI_4;
+        let plane_a = Surface::Plane {
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            d: 0.0,
+        };
+        let plane_b = Surface::Plane {
+            normal: Vector3::new(0.0, 1.0, 0.0),
+            d: 0.0,
+        };
+        let plane_c = Surface::Plane {
+            normal: Vector3::new(0.0, 1.0, 1.0),
+            d: 0.0,
+        };
+        let mut curves: BTreeMap<(u32, u32), Curve> = BTreeMap::new();
+        curves.insert((0, 1), Curve::LineSegment);
+        curves.insert((1, 2), Curve::LineSegment);
+        curves.insert((2, 3), Curve::LineSegment);
+        let pair = vec![(InputId::A, plane_a), (InputId::B, plane_b)];
+        let pair_swapped = vec![(InputId::B, plane_b), (InputId::A, plane_a)];
+        let pair_other = vec![(InputId::A, plane_a), (InputId::B, plane_c)];
+
+        // Branch 7/6 precondition: same run through p_r (pair equality is
+        // unordered), U-turn detected.
+        let mut inc: BTreeMap<(u32, u32), Vec<(InputId, Surface)>> = BTreeMap::new();
+        inc.insert((0, 1), pair.clone());
+        inc.insert((1, 2), pair_swapped.clone());
+        inc.insert((2, 3), pair.clone());
+        assert!(
+            is_reversed(&mesh, &curves, &inc, 0, 1, 2, lo, hi),
+            "a U-turn on ONE straight seam run (unordered-equal pairs) is a \
+             §4.5.3 reversal"
+        );
+        // Branch 7: same pair continues past p_n → paper default victim p_n.
+        assert_eq!(reversal_collapse_direction(&curves, &inc, 1, 2, 3), (2, 1));
+        // Branch 6: pair changes at p_n → p_n is the run junction; p_r is
+        // the victim.
+        inc.insert((2, 3), pair_other.clone());
+        assert_eq!(reversal_collapse_direction(&curves, &inc, 1, 2, 3), (1, 2));
+
+        // Branch 4: pair changes AT p_r → corner, never tested as a reversal
+        // (even though the polyline doubles back).
+        let mut inc4: BTreeMap<(u32, u32), Vec<(InputId, Surface)>> = BTreeMap::new();
+        inc4.insert((0, 1), pair.clone());
+        inc4.insert((1, 2), pair_other.clone());
+        assert!(
+            !is_reversed(&mesh, &curves, &inc4, 0, 1, 2, lo, hi),
+            "a surface-pair change at p_r is a genuine corner, not a reversal"
+        );
+
+        // Branch 5: tangent/parallel pair (n_A × n_B ≈ 0) — cannot diagnose.
+        // Use NON-doubling geometry so the U-turn arm doesn't fire first.
+        let mesh5 = Mesh::new(
+            vec![p(0.0, 0.0, 0.0), p(1.0, 0.0, 0.0), p(1.0, 1.0, 0.0)],
+            vec![],
+        );
+        let coincident = vec![(InputId::A, plane_a), (InputId::B, plane_a)];
+        let mut inc5: BTreeMap<(u32, u32), Vec<(InputId, Surface)>> = BTreeMap::new();
+        inc5.insert((0, 1), coincident.clone());
+        inc5.insert((1, 2), coincident.clone());
+        assert!(
+            !is_reversed(&mesh5, &curves, &inc5, 0, 1, 2, lo, hi),
+            "a coincident-plane seam (§4.5.5) has no cross-product tangent — \
+             healthy skip"
+        );
+
+        // Per-site eligibility: a run boundary (missing curve entry on one
+        // side) is never a reversal site.
+        let mut curves_gap: BTreeMap<(u32, u32), Curve> = BTreeMap::new();
+        curves_gap.insert((1, 2), Curve::LineSegment);
+        assert!(
+            !is_reversed(&mesh, &curves_gap, &inc, 0, 1, 2, lo, hi),
+            "p_r with a curve-less incident edge is a run boundary, not a site"
+        );
+        // Run END at p_n: curve(p_r,p_n) exists, curve(p_n,p_after) doesn't —
+        // p_n survives, p_r is the victim.
+        assert_eq!(
+            reversal_collapse_direction(&curves_gap, &inc, 1, 2, 3),
+            (1, 2),
+            "the run's exact endpoint (no intersection edge beyond) survives"
+        );
+    }
+
+    #[test]
+    fn s453c_surface_normal_at_canonical() {
+        let n = surface_normal_at(
+            Surface::Plane {
+                normal: Vector3::new(0.0, 0.0, 2.0),
+                d: 1.0,
+            },
+            p(5.0, 5.0, 5.0),
+        )
+        .expect("plane normal");
+        assert!((n[2] - 1.0).abs() < 1e-15, "plane normal unit-normalized");
+
+        let n = surface_normal_at(
+            Surface::Cylinder {
+                axis_point: p(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                radius: 2.0,
+            },
+            p(2.0, 0.0, 7.0),
+        )
+        .expect("cylinder normal");
+        assert!((n[0] - 1.0).abs() < 1e-15 && n[2].abs() < 1e-15);
+        assert!(
+            surface_normal_at(
+                Surface::Cylinder {
+                    axis_point: p(0.0, 0.0, 0.0),
+                    axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                    radius: 2.0,
+                },
+                p(0.0, 0.0, 3.0),
+            )
+            .is_none(),
+            "on-axis point has no radial direction"
+        );
+
+        let n = surface_normal_at(
+            Surface::Sphere {
+                center: p(1.0, 0.0, 0.0),
+                radius: 5.0,
+            },
+            p(1.0, 3.0, 0.0),
+        )
+        .expect("sphere normal");
+        assert!((n[1] - 1.0).abs() < 1e-15);
+
+        // 45° cone: at a lateral point the normal is perpendicular to the
+        // ruling direction and tilted 45° from the axis.
+        let n = surface_normal_at(
+            Surface::Cone {
+                apex: p(0.0, 0.0, 0.0),
+                axis_dir: Vector3::new(0.0, 0.0, 1.0),
+                half_angle: std::f64::consts::FRAC_PI_4,
+            },
+            p(1.0, 0.0, 1.0),
+        )
+        .expect("cone normal");
+        let s = std::f64::consts::FRAC_1_SQRT_2;
+        assert!((n[0] - s).abs() < 1e-12 && (n[2] + s).abs() < 1e-12);
     }
 
     // Spec §3b: §4.4.1(b) merge survivor ranking — junction > conic endpoint
@@ -12268,12 +12717,24 @@ mod tests {
             vec![p(0.0, 0.0, 0.0), p(1.0, 0.0, 0.0), p(0.5, 0.0, 0.0)],
             vec![],
         );
-        let curves: std::collections::BTreeMap<(u32, u32), Curve> =
+        // Spec §3c per-site eligibility: p_r is a §4.5.3 site only when both
+        // incident edges are intersection edges — give both a Circle entry on
+        // the SAME curve (the original N3 fixture predates the site guard).
+        let circle = Curve::Circle {
+            center: p(0.0, 0.0, 0.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        };
+        let mut curves: std::collections::BTreeMap<(u32, u32), Curve> =
             std::collections::BTreeMap::new();
+        curves.insert((0, 1), circle);
+        curves.insert((1, 2), circle);
         let lo = std::f64::consts::FRAC_PI_4;
         let hi = 3.0 * std::f64::consts::FRAC_PI_4;
+        let inc: std::collections::BTreeMap<(u32, u32), Vec<(InputId, Surface)>> =
+            std::collections::BTreeMap::new();
         assert!(
-            is_reversed(&mesh, &curves, 0, 1, 2, lo, hi),
+            is_reversed(&mesh, &curves, &inc, 0, 1, 2, lo, hi),
             "a 180° U-turn (degenerate t̃, Yang §4.5.3 collinear case) must be \
              detected as a reversal, not treated as healthy"
         );

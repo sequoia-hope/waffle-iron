@@ -522,6 +522,29 @@ the roadmap's remaining work:
    output, or refute the meta χ). Trackers
    `test-harness/tests/s453_junction_collapse_campaign.rs`: R0011 GREEN;
    R0009/R0091 documented `#[ignore]` RED (un-ignore when §3b wires).
+   **(c) §3c straight-run reversal sweep SHIPPED 2026-07-08 (same spec):**
+   the sweep's `all_conic` loop gate never corrected reversed sequences on
+   STRAIGHT intersection runs — R0072's seam mints (chord-crossing
+   positions) become out-of-order when their neighbor triple point is
+   exactly relocated (Yang Fig. 15 verbatim, on a line), and the output
+   loop doubles back → kernel-v2 `"ring rejected by CDT"`. Shipped scope:
+   mixed cycles sweep straight-run (LineSegment-pair) sites ONLY, with run
+   identity via unordered incidence surface pairs, the n_A×n_B tangent
+   (paper Fig. 15; §4.5.5 coincident pairs undiagnosable — checked before
+   the U-turn arm), junction/run-end-protected victims, and a 2·d_ε
+   resolution gate. PLUS a Stage-0 admission wall: partner disc rim
+   STRICTLY CROSSING an annular face's HOLE rim → typed
+   `CoplanarFacesUnsupported` (probe `annular-hole-rim-crossing`) — the
+   `annular_cap_hole_crossing_stays_loud` pin's documented boundary, which
+   previously held only via an accidental downstream NonManifoldOutput.
+   R0072's FaceId(9) spur is repaired (wall→FaceId(11), a conic-site
+   mixed-cycle reversal — DISPROVEN sweep class, see spec §3c P10 records:
+   coarse 7-gon chords false-positive the 45° band per the corner_in_band
+   adversary; no mesh-level manifold gate can backstop it per the standing
+   §2b record, re-confirmed on the Steinmetz tangency seam). Trackers
+   `s453_line_run_reversal.rs`: R0072/F0045 documented `#[ignore]` RED
+   (F0045 = MACRO self-intersection at FaceId(9), a different mechanism).
+   New probes kept: `YANG_S6_CYCLE_DUMP`, `annular-hole-rim-crossing`.
 4. **N5 — Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2
    CDT framework** (per-surface ad-hoc Newell fans / rim rings instead).
 5. **N6 — §4.5.4 illegal-self-intersection detection/removal is absent.**

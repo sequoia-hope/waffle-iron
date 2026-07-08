@@ -313,6 +313,61 @@ pub(crate) fn stage0_preprocess(a: &BRep, b: &BRep) -> Result<Option<Stage0>, Ya
         // `PolygonWithHoles` overlay below. So the disc fast-path applies only
         // when NEITHER face is annular (M8 holed-disc, spec
         // `m8_holed_disc_coplanar_overlay`).
+        // M8 holed-disc increment boundary (spec
+        // `m8_holed_disc_coplanar_overlay`; pinned by
+        // `annular_cap_hole_crossing_stays_loud`): a partner DISC rim that
+        // CROSSES a hole rim of an annular face needs arc∩arc crossing +
+        // hole-rim split propagation into the bore lateral — out of scope.
+        // Without this wall the general overlay emits non-conformal doubled
+        // sheets whose NonManifold symptoms surface only downstream (and any
+        // downstream repair machinery risks converting them into silent
+        // geometry). Two coplanar circles (both in the pair plane) cross iff
+        // |r1 − r2| < d(centers) < r1 + r2 strictly.
+        {
+            let rim_circle = |brep: &BRep, fi: usize, e: u32| -> Option<([f64; 3], f64)> {
+                match brep.edges()[e as usize].curve {
+                    Curve::Circle { center, radius, .. } => {
+                        let _ = fi;
+                        Some((center.as_array(), radius))
+                    }
+                    _ => None,
+                }
+            };
+            let wall_on_hole_crossing =
+                |ann: &BRep, ann_fi: usize, disc: &BRep, disc_fi: usize| -> bool {
+                    let Some((_, holes)) = annular_disc_face(ann, ann_fi) else {
+                        return false;
+                    };
+                    let Some(rim_e) = disc_circle_edge(disc, disc_fi) else {
+                        return false;
+                    };
+                    let Some((rc, rr)) = rim_circle(disc, disc_fi, rim_e) else {
+                        return false;
+                    };
+                    for &he in &holes {
+                        let Some((hc, hr)) = rim_circle(ann, ann_fi, he) else {
+                            continue;
+                        };
+                        let d = ((rc[0] - hc[0]).powi(2)
+                            + (rc[1] - hc[1]).powi(2)
+                            + (rc[2] - hc[2]).powi(2))
+                        .sqrt();
+                        if (rr - hr).abs() < d && d < rr + hr {
+                            return true;
+                        }
+                    }
+                    false
+                };
+            if wall_on_hole_crossing(a, p.face_a, b, p.face_b)
+                || wall_on_hole_crossing(b, p.face_b, a, p.face_a)
+            {
+                probe(
+                    "annular-hole-rim-crossing",
+                    &format!("pair=({},{})", p.face_a, p.face_b),
+                );
+                return Err(pair_err(p.face_a, p.face_b));
+            }
+        }
         let disc_pair = (disc_circle_edge(a, p.face_a).is_some()
             || disc_circle_edge(b, p.face_b).is_some())
             && annular_disc_face(a, p.face_a).is_none()
