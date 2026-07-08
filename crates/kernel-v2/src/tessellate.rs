@@ -1925,8 +1925,29 @@ fn triangulate_ring(
     outer: &[u32],
     holes: &[Vec<u32>],
 ) -> Result<Vec<[u32; 3]>, &'static str> {
-    let mut tris = yang_rs::cdt_polygon_with_holes_floodfill(p2, outer, holes)
-        .map_err(|_| "ring rejected by CDT (degenerate/self-intersecting)")?;
+    let mut tris = yang_rs::cdt_polygon_with_holes_floodfill(p2, outer, holes).map_err(|e| {
+        if std::env::var_os("KV2_RING_REJECT_PROBE").is_some() {
+            eprintln!(
+                "KV2_RING_REJECT_PROBE cdt_err={e:?} outer_len={} holes={} npts={}",
+                outer.len(),
+                holes.len(),
+                p2.len()
+            );
+            let pts: Vec<(f64, f64)> = outer
+                .iter()
+                .map(|&i| (p2[i as usize].x(), p2[i as usize].y()))
+                .collect();
+            eprintln!("KV2_RING_REJECT_PROBE outer_pts={pts:?}");
+            for (hi, h) in holes.iter().enumerate() {
+                let hp: Vec<(f64, f64)> = h
+                    .iter()
+                    .map(|&i| (p2[i as usize].x(), p2[i as usize].y()))
+                    .collect();
+                eprintln!("KV2_RING_REJECT_PROBE hole[{hi}]={hp:?}");
+            }
+        }
+        "ring rejected by CDT (degenerate/self-intersecting)"
+    })?;
     let mut cset: std::collections::HashSet<(u32, u32)> = std::collections::HashSet::new();
     add_ring_edges(&mut cset, outer);
     for h in holes {
