@@ -2786,19 +2786,23 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   Adversary: split-disable and both guard mutations caught (two needed
   new in-src unit tests — open-fan no-split pin, bowtie two-cycle walk
   pin); noted guard-then-assume coupling on the closed-fan precondition
-  (pinned). **C0058 corpus-path residual (still ERROR, honest):** the
-  kernel-v2 tessellation route produces ULP-SEPARATED junction vertex
-  pairs whose arcs CROSS-CONNECT the two ellipse lobes into a single
-  64-edge figure-eight cycle — its zero Newell is geometric truth, and
-  the s6-curved-degenerate-loop E2 guard rejects it; behind that,
-  kernel-v2's unrolled-winding rules would wall the same loop (net wrap
-  0 + zero area, or ±2). The honest fix is junction-pair normalization
-  (weld the ULP pair at the exact tangent point, then the pinch split
-  re-separates per sheet with correct connectivity) — tolerance-flavored,
-  needs its own planned cycle (P10). Sibling class also named: the
-  PERPENDICULAR equal-R union welds tangency along a shared mesh EDGE
-  (2 four-valent edges, Ok + χ=0 today) — the EDGE-pinch analog, separate
-  follow-up.
+  (pinned). **C0058 corpus-path residual (still ERROR, honest; diagnosis
+  REFINED by probes):** on the kernel-v2 tessellation route there is NO
+  mesh vertex at the tangency at all (`YANG_S4_TWIN_PROBE` finds zero
+  sub-1e-9·scale twins at Stage-4 exit) — the two removed lobes connect
+  through a RESOLUTION-SCALE NECK the mesh cannot separate, so the kept
+  face's boundary is genuinely ONE 64-edge figure-eight cycle whose
+  Newell cancels; the s6-curved-degenerate-loop E2 guard rejects it (and
+  kernel-v2's unrolled-winding rules would wall the same loop next: net
+  wrap 0 with zero area, or ±2). The honest fix is Yang §4.3.3
+  TANGENT-POINT INSERTION — detect the collinear-normal tangent point
+  during intersection optimization and insert it as an explicit
+  arrangement point, splitting the neck exactly (the shipped pinch split
+  + wedge walk then finish the topology). That is a paper-faithfulness
+  milestone needing its own planned cycle (P10 stop recorded here).
+  Sibling class also named: the PERPENDICULAR equal-R union welds
+  tangency along a shared mesh EDGE (2 four-valent edges, Ok + χ=0
+  today) — the EDGE-pinch analog, separate follow-up.
 
 - **KV6b-F3 — plane∥axis × cylinder line case. ✅ RESOLVED (2026-06-12,
   PR-F3 + PR-F3b).** ssi-rs pair #2's C3a/C3b line branches were already
