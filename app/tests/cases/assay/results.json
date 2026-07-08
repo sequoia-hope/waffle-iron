@@ -1,8 +1,8 @@
 {
-  "errored": 37,
+  "errored": 30,
   "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 186,
+  "passed": 194,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -66,7 +66,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"output ellipse-arc endpoint does not lie on its ellipse\"). Body created as standalone.",
+      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(407), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
       "id": "R0011",
       "status": "error"
     },
@@ -137,10 +137,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): f68e125b-a408-428b-b7b3-348dbd7aa467: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: EmptyBooleanResult",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0023",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -161,10 +161,10 @@
       "status": "unsupported"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 8492418f-aba5-4982-893d-b463f23ca0a3: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: EmptyBooleanResult",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0027",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
@@ -228,7 +228,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "1 engine error(s): b184cc49-01cb-4d27-8984-d4c87b1362cd: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (32, 38): AmbiguousCurve { candidates: 0, matched: 0 }\")",
+      "detail": "1 engine error(s): b184cc49-01cb-4d27-8984-d4c87b1362cd: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
       "id": "R0038",
       "status": "error"
     },
@@ -275,10 +275,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 3071deb9-4fab-4209-b01c-9bc4bd7aae35: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: InvalidBooleanOutput(\"output loop with fewer than 3 edges and no full-circle edge\")",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 81386d33-9388-425f-b09f-5dc1c63a818b: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(12) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "R0046",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(revolve)",
@@ -347,10 +347,10 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 14c8d47a-d667-435e-902f-c7745c307a90: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: EmptyBooleanResult",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0058",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(curved-profile)",
@@ -432,7 +432,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(9), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
+      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(11), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
       "id": "R0072",
       "status": "error"
     },
@@ -528,7 +528,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "2 engine error(s): d1d97c73-794c-42de-90bf-3a044a05ac9d: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: EmptyBooleanResult; f2076600-1597-4345-98d9-a609f15f25cf: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: InvalidBooleanOutput(\"output loop with fewer than 3 edges and no full-circle edge\")",
+      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(492), reason: \"patch triangle collapsed at render precision\" }",
       "id": "R0088",
       "status": "error"
     },
@@ -984,7 +984,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "2 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"output face plane normal disagrees with its outer-loop Newell normal\"). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"output loop with fewer than 3 edges and no full-circle edge\"). Body created as standalone.",
+      "detail": "2 auto-union failure(s): Extrude 3: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"output face plane normal disagrees with its outer-loop Newell normal\"). Body created as standalone.; Extrude 4: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"output face plane normal disagrees with its outer-loop Newell normal\"). Body created as standalone.",
       "id": "F0064",
       "status": "error"
     },
@@ -1007,10 +1007,10 @@
       "status": "unsupported"
     },
     {
-      "category": "ERROR",
-      "detail": "1 auto-union failure(s): Extrude 11: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: InvalidBooleanOutput(\"an undirected output edge is not used by exactly two directed edges\"). Body created as standalone.",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 6: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0068",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "UNSUPPORTED(coplanar-boolean)",
@@ -1121,28 +1121,28 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "1 NotSupported boundary(ies); first: cff4b068-f798-465e-b66f-9c0d8c2d49ac: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(98) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0087",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "3 NotSupported boundary(ies); first: ec22ad34-47f6-433d-a85e-f0b0ac8600af: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(132) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0088",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "9 NotSupported boundary(ies); first: d1f95069-ee42-483b-ac04-30d0b02241d6: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(123) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0089",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(curved-profile)",
-      "detail": "23 NotSupported boundary(ies); first: 485890bb-27b6-4eec-9cdf-b45ca7ab511e: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(65) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "F0090",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -1541,16 +1541,16 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "2 engine error(s): 5042d91b-a8b6-41fc-9963-0faf870bc82c: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile; 5042d61b-a8b6-4ce3-9963-0caf870bc313: GeomRef resolution failed: Cut extrude requires an existing body to subtract from",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 5042d61b-a8b6-4ce3-9963-0caf870bc313: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(1) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "C0063",
-      "status": "error"
+      "status": "unsupported"
     },
     {
-      "category": "ERROR",
-      "detail": "3 engine error(s): 35366e1b-9917-4cfd-8009-a4af78de37ad: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile; 3536691b-9917-447e-8009-9faf78de2f2e: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile; 3536641b-9917-4bff-8009-9aaf78de26af: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0064",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(revolve)",
