@@ -2763,6 +2763,43 @@ Phase 5 (native arrangement + WASM) ──────┘   [parallel track, joi
   R0004 partial on-axis revolve (a KV6 gap: the on-axis recovery is
   full-turn-only) behind a second boolean failure.
 
+- **Tangency pinch-vertex split + figure-eight wedge walk (the KV9-F1
+  union follow-up). ✅ SHIPPED at yang unit level (2026-07-08, task #86,
+  spec `specs/yang_tangency_pinch_split.md`); C0058 corpus residual
+  DIAGNOSED and banked.** Two mechanisms landed: (1)
+  `split_pinch_vertices` at the Stage-4 exit — a mesh vertex whose star is
+  ≥ 2 edge-connected CLOSED fans (the weld of a tangency pinch) splits
+  into one vertex per sheet (identical position bits, relocation tags
+  duplicated), riding the §4.5.3 Phase-A recompute path. Red-phase
+  discovery (Test Author): the SYMMETRIC weld read χ=0 and SILENTLY
+  passed the even-χ shell gate as genus-1 — a pinched sphere masquerading
+  as a torus — so this fixes a silent-wrong-topology class, not just the
+  corpus path's loud χ=1 asymmetric weld. (2) The `patch_boundary_cycle`
+  figure-eight WEDGE WALK: at a boundary vertex with out-degree > 1 (a
+  patch pinched at a mesh-manifold vertex), the continuation is the
+  wedge-consistent edge found by rotating the patch's triangle fan from
+  the incoming edge's owning triangle — naive lowest-first could chain
+  two lobes into one self-crossing cycle. Byte-identical at out-degree-1
+  vertices. Direct 30°/C0058-geometry unions now complete end-to-end with
+  χ=2, per-sheet coincident vertex pairs at the exact tangencies, and
+  band-exact Steinmetz-family volumes (`tests/tangency_pinch_split.rs`).
+  Adversary: split-disable and both guard mutations caught (two needed
+  new in-src unit tests — open-fan no-split pin, bowtie two-cycle walk
+  pin); noted guard-then-assume coupling on the closed-fan precondition
+  (pinned). **C0058 corpus-path residual (still ERROR, honest):** the
+  kernel-v2 tessellation route produces ULP-SEPARATED junction vertex
+  pairs whose arcs CROSS-CONNECT the two ellipse lobes into a single
+  64-edge figure-eight cycle — its zero Newell is geometric truth, and
+  the s6-curved-degenerate-loop E2 guard rejects it; behind that,
+  kernel-v2's unrolled-winding rules would wall the same loop (net wrap
+  0 + zero area, or ±2). The honest fix is junction-pair normalization
+  (weld the ULP pair at the exact tangent point, then the pinch split
+  re-separates per sheet with correct connectivity) — tolerance-flavored,
+  needs its own planned cycle (P10). Sibling class also named: the
+  PERPENDICULAR equal-R union welds tangency along a shared mesh EDGE
+  (2 four-valent edges, Ok + χ=0 today) — the EDGE-pinch analog, separate
+  follow-up.
+
 - **KV6b-F3 — plane∥axis × cylinder line case. ✅ RESOLVED (2026-06-12,
   PR-F3 + PR-F3b).** ssi-rs pair #2's C3a/C3b line branches were already
   correct; the defects were ALL in yang Stage 4: (1) `LineSegment`

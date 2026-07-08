@@ -5390,6 +5390,113 @@ fn non_manifold_at(site: &str, detail: std::fmt::Arguments<'_>) -> YangError {
     YangError::NonManifoldOutput
 }
 
+/// Tangency PINCH-VERTEX split (spec `yang_tangency_pinch_split.md`, task
+/// #86): a vertex whose triangle star decomposes into ≥ 2 edge-connected
+/// components, EACH a closed fan, is the mesh weld of a tangency pinch —
+/// the union of two tangentially-touching solids (C0058's equal-R 30°
+/// cylinders) self-touches at isolated points, and the standard manifold
+/// B-Rep representation is one vertex PER SHEET at the same position
+/// (Mäntylä [#23]). Without the split the shell-Euler accounting is a
+/// bit-level lottery: an asymmetric weld reads the impossible χ=1 (loud
+/// stop), a symmetric one reads χ=0 and SILENTLY masquerades as genus-1.
+///
+/// Split rule (I1, P9): a vertex splits ONLY when every v-incident edge of
+/// its star has exactly 2 incident star triangles (so each component is a
+/// closed disk). Open fans, isolated triangles, and non-manifold EDGES
+/// (≠ 2 incident triangles — the perpendicular-Steinmetz EDGE-pinch class)
+/// leave the vertex untouched and today's gates stay in charge. Split
+/// copies carry IDENTICAL position bits (I2) and duplicate the vertex's
+/// Stage-4 relocation tags (same curve parameter — the copies sit at the
+/// same on-curve point). Deterministic: vertices, triangles, and fan
+/// components in index order (I7).
+fn split_pinch_vertices(mesh: &mut Mesh, relocations: &mut Vec<(u32, f64)>) -> usize {
+    use std::collections::BTreeMap;
+    let n = mesh.verts.len();
+    let mut incident: Vec<Vec<u32>> = vec![Vec::new(); n];
+    for (ti, tri) in mesh.tris.iter().enumerate() {
+        for &v in tri {
+            incident[v as usize].push(ti as u32);
+        }
+    }
+    fn find(parent: &mut [usize], x: usize) -> usize {
+        let mut r = x;
+        while parent[r] != r {
+            r = parent[r];
+        }
+        let mut cur = x;
+        while parent[cur] != r {
+            let next = parent[cur];
+            parent[cur] = r;
+            cur = next;
+        }
+        r
+    }
+    let mut splits = 0usize;
+    for v in 0..n as u32 {
+        let star = &incident[v as usize];
+        if star.len() < 2 {
+            continue;
+        }
+        // Star triangles connect when they share a v-incident edge (v, u).
+        let mut by_u: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+        for (li, &ti) in star.iter().enumerate() {
+            for &u in &mesh.tris[ti as usize] {
+                if u != v {
+                    by_u.entry(u).or_default().push(li);
+                }
+            }
+        }
+        // Closed-fan precondition over the WHOLE star: every v-incident
+        // edge has exactly 2 star triangles. Anything else (boundary fan,
+        // non-manifold edge) → leave the vertex alone, loud gates unchanged.
+        if by_u.values().any(|l| l.len() != 2) {
+            continue;
+        }
+        let mut parent: Vec<usize> = (0..star.len()).collect();
+        for l in by_u.values() {
+            let (ra, rb) = (find(&mut parent, l[0]), find(&mut parent, l[1]));
+            if ra != rb {
+                parent[ra] = rb;
+            }
+        }
+        let mut comps: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+        for li in 0..star.len() {
+            let r = find(&mut parent, li);
+            comps.entry(r).or_default().push(li);
+        }
+        if comps.len() < 2 {
+            continue;
+        }
+        // Every component is a closed fan (its v-edges are 2-valent and both
+        // incident triangles landed in the same component by the union).
+        // Component containing the lowest triangle index keeps v; each
+        // further component gets a fresh vertex with v's position bits.
+        let mut comp_list: Vec<Vec<usize>> = comps.into_values().collect();
+        comp_list.sort_by_key(|c| c.iter().map(|&li| star[li]).min());
+        for comp in comp_list.into_iter().skip(1) {
+            let nv = mesh.verts.len() as u32;
+            let pos = mesh.verts[v as usize];
+            mesh.verts.push(pos);
+            for &li in &comp {
+                let ti = star[li] as usize;
+                for slot in mesh.tris[ti].iter_mut() {
+                    if *slot == v {
+                        *slot = nv;
+                    }
+                }
+            }
+            let dup: Vec<(u32, f64)> = relocations
+                .iter()
+                .filter(|&&(rv, _)| rv == v)
+                .map(|&(_, t)| (nv, t))
+                .collect();
+            relocations.extend(dup);
+            splits += 1;
+        }
+    }
+    splits
+}
+
 fn check_watertight_2manifold(mesh: &Mesh) -> Result<(), YangError> {
     use std::collections::{BTreeMap, BTreeSet};
     // Directed half-edge multiset: every (a,b) must be paired by one (b,a).
@@ -10708,6 +10815,15 @@ fn stage4_relocate_and_correct(
     // non-degeneracy (Yang §4.5 step 4). Reversed intersections are handled by
     // the §4.5.3 sweep above; watertightness by the global gate below (§4.4.3).
     validate_relocated_triangles(mesh, attribution, &moved)?;
+    // (4a2) Tangency pinch-vertex split (spec `yang_tangency_pinch_split.md`):
+    // uniform per-sheet representation of self-touching union boundaries
+    // BEFORE the shell gate reads χ. Splitting appends vertices (a topology
+    // change), so it rides the same Phase-A recompute path as a §4.5.3
+    // collapse via the returned flag.
+    let pinch_splits = split_pinch_vertices(mesh, &mut relocations);
+    if pinch_splits > 0 {
+        collapsed_any = true;
+    }
     // (4b) Explicit Stage-4 watertightness gate (§4.4.3).
     check_watertight_2manifold(mesh)?;
 
@@ -11980,8 +12096,12 @@ fn patch_boundary_cycle(patch: &Patch, mesh: &Mesh) -> Result<Vec<Vec<(u32, u32)
     }
 
     // Collect directed boundary edges in triangle CCW order (fold slivers
-    // excluded — see §4A note above).
+    // excluded — see §4A note above). Also record each directed boundary
+    // edge's OWNING triangle and the patch's undirected edge→triangle
+    // adjacency — the figure-eight wedge walk below needs both.
     let mut directed_boundary: Vec<(u32, u32)> = Vec::new();
+    let mut dir_tri: BTreeMap<(u32, u32), u32> = BTreeMap::new();
+    let mut edge_tris: BTreeMap<(u32, u32), Vec<u32>> = BTreeMap::new();
     for &t in &patch.tri_indices {
         if excluded_slivers.contains(&t) {
             continue;
@@ -11990,8 +12110,10 @@ fn patch_boundary_cycle(patch: &Patch, mesh: &Mesh) -> Result<Vec<Vec<(u32, u32)
         for (i, j) in [(0usize, 1usize), (1, 2), (2, 0)] {
             let (va, vb) = (tri[i], tri[j]);
             let key = if va < vb { (va, vb) } else { (vb, va) };
+            edge_tris.entry(key).or_default().push(t);
             if patch_edge_count.get(&key).copied().unwrap_or(0) == 1 {
                 directed_boundary.push((va, vb));
+                dir_tri.insert((va, vb), t);
             }
         }
     }
@@ -12015,6 +12137,69 @@ fn patch_boundary_cycle(patch: &Patch, mesh: &Mesh) -> Result<Vec<Vec<(u32, u32)
     let mut remaining = directed_boundary.len();
     let mut cycles: Vec<Vec<(u32, u32)>> = Vec::new();
 
+    // Figure-eight wedge walk (spec `yang_tangency_pinch_split.md` I4, the
+    // KV9-F1 union follow-up): at a boundary vertex with SEVERAL outgoing
+    // boundary edges (a patch pinched at a mesh-manifold vertex — e.g. the
+    // tangency point of C0058's union, where the patch touches the vertex
+    // in two opposite wedges), naive lowest-first chaining can join the
+    // two lobes into one self-crossing cycle whose Newell cancels. The
+    // wedge-correct continuation of an incoming boundary edge is found by
+    // rotating through the patch's triangle fan at `current`, starting at
+    // the incoming edge's triangle and crossing interior edges, until the
+    // wedge's far boundary edge appears. Engaged ONLY at ambiguous vertices
+    // (out-degree > 1) — everywhere else the walk is byte-identical.
+    let wedge_continuation = |current: u32, prev: u32| -> Result<u32, YangError> {
+        let mut t = *dir_tri.get(&(prev, current)).ok_or_else(|| {
+            non_manifold_at(
+                "s6-wedge-walk-no-owner",
+                format_args!("incoming boundary edge ({prev}, {current}) has no owning triangle"),
+            )
+        })?;
+        let mut via = prev;
+        let mut hops = 0usize;
+        loop {
+            hops += 1;
+            if hops > patch.tri_indices.len() + 1 {
+                return Err(non_manifold_at(
+                    "s6-wedge-walk-diverged",
+                    format_args!("vertex {current} wedge walk did not terminate"),
+                ));
+            }
+            // The triangle's OTHER current-incident edge (current, x).
+            let tri = &mesh.tris[t as usize];
+            let Some(&x) = tri.iter().find(|&&u| u != current && u != via) else {
+                return Err(non_manifold_at(
+                    "s6-wedge-walk-degenerate",
+                    format_args!("triangle {t} degenerate at vertex {current}"),
+                ));
+            };
+            let key = if current < x {
+                (current, x)
+            } else {
+                (x, current)
+            };
+            if patch_edge_count.get(&key).copied().unwrap_or(0) == 1 {
+                // The wedge's far boundary edge — the continuation.
+                return Ok(x);
+            }
+            // Interior edge: cross to the wedge's next triangle.
+            let Some(pair) = edge_tris.get(&key) else {
+                return Err(non_manifold_at(
+                    "s6-wedge-walk-missing-edge",
+                    format_args!("edge ({current}, {x}) has no adjacency"),
+                ));
+            };
+            let Some(&other) = pair.iter().find(|&&tj| tj != t) else {
+                return Err(non_manifold_at(
+                    "s6-wedge-walk-open-fan",
+                    format_args!("interior edge ({current}, {x}) has one triangle"),
+                ));
+            };
+            t = other;
+            via = x;
+        }
+    };
+
     // Extract every cycle: while any start vertex still has an outgoing edge,
     // begin a new cycle at the LOWEST such start vertex and walk it with the
     // per-cycle start→end chain logic (consuming edges as we go).
@@ -12023,6 +12208,7 @@ fn patch_boundary_cycle(patch: &Patch, mesh: &Mesh) -> Result<Vec<Vec<(u32, u32)
         // Edges available when this cycle starts: it cannot exceed this.
         let budget = remaining;
         let mut current = start;
+        let mut prev: Option<u32> = None;
         let mut cycle: Vec<(u32, u32)> = Vec::new();
         loop {
             let next = {
@@ -12039,10 +12225,31 @@ fn patch_boundary_cycle(patch: &Patch, mesh: &Mesh) -> Result<Vec<Vec<(u32, u32)
                         format_args!("vertex {current} cycle so far {}", cycle.len()),
                     ));
                 }
-                next_vec.remove(0)
+                if next_vec.len() == 1 {
+                    next_vec.remove(0)
+                } else if let Some(p) = prev {
+                    // Ambiguous crossing: take the wedge-consistent edge.
+                    let cont = wedge_continuation(current, p)?;
+                    let Some(pos) = next_vec.iter().position(|&e| e == cont) else {
+                        return Err(non_manifold_at(
+                            "s6-wedge-walk-not-outgoing",
+                            format_args!(
+                                "vertex {current}: wedge continuation {cont} is not an \
+                                 available outgoing boundary edge"
+                            ),
+                        ));
+                    };
+                    next_vec.remove(pos)
+                } else {
+                    // Cycle START at a crossing: no incoming edge yet — take
+                    // the lowest (deterministic); the wedge rule takes over
+                    // from the second step and closes this lobe correctly.
+                    next_vec.remove(0)
+                }
             };
             cycle.push((current, next));
             remaining -= 1;
+            prev = Some(current);
             current = next;
             if current == start {
                 break;
@@ -13006,6 +13213,94 @@ mod tests {
             vec![p(0.0, 0.0, 0.0), p(1.0, 0.0, 0.0), p(0.0, 1.0, 0.0)],
             vec![[0, 1, 2]],
         )
+    }
+
+    /// ADVERSARY (spec §2/I1, task #86): a vertex shared by ONE closed
+    /// 3-triangle fan and ONE OPEN 2-triangle fan must NOT be split. The
+    /// open fan's boundary edges (each incident to a single triangle) mean
+    /// the star is not a union of closed disks, so the honest-split guard
+    /// (`I1`) must leave the vertex — and the whole mesh — untouched, keeping
+    /// the loud downstream gates in charge. This pins the closed-fan guard:
+    /// the existing corpus/canonical union oracles cannot catch a weakened
+    /// guard because their real pinch meshes have only closed fans.
+    #[test]
+    fn split_pinch_vertices_leaves_open_fan_untouched() {
+        // Vertex 0 is the shared apex. Closed fan: (0,1,2),(0,2,3),(0,3,1)
+        // — every 0-incident edge is 2-valent. Open fan: (0,4,5),(0,5,6) —
+        // edges (0,4) and (0,6) are 1-valent (boundary). The two fans share
+        // no vertex besides 0, so they are separate star components; a
+        // guardless split would wrongly cut them into per-fan copies.
+        let mut mesh = Mesh::new(
+            vec![
+                p(0.0, 0.0, 0.0),  // 0 apex
+                p(1.0, 0.0, 0.0),  // 1
+                p(0.0, 1.0, 0.0),  // 2
+                p(-1.0, 0.0, 0.0), // 3
+                p(0.0, 0.0, 1.0),  // 4
+                p(0.0, 0.0, 2.0),  // 5
+                p(0.0, 0.0, 3.0),  // 6
+            ],
+            vec![[0, 1, 2], [0, 2, 3], [0, 3, 1], [0, 4, 5], [0, 5, 6]],
+        );
+        let before_verts = mesh.verts.len();
+        let before_tris = mesh.tris.clone();
+        let mut relocations: Vec<(u32, f64)> = Vec::new();
+        let splits = split_pinch_vertices(&mut mesh, &mut relocations);
+        assert_eq!(splits, 0, "open-fan vertex must not be split (I1 guard)");
+        assert_eq!(
+            mesh.verts.len(),
+            before_verts,
+            "open-fan split must not append vertices"
+        );
+        assert_eq!(
+            mesh.tris, before_tris,
+            "open-fan split must not rewrite triangle indices"
+        );
+    }
+
+    /// ADVERSARY (spec §8/I4, task #86): a bowtie patch — two triangle lobes
+    /// meeting at ONE mesh-manifold pinch vertex — must walk into TWO
+    /// separate boundary cycles, one per lobe, NOT one chained self-crossing
+    /// cycle. The pinch (vertex 3) is entered MID-walk with out-degree 2, and
+    /// the wedge-correct continuation (stay in the incoming lobe) is
+    /// deliberately the HIGHER-indexed outgoing edge, so lowest-first would
+    /// cross into the other lobe and chain both loops into one cycle. This
+    /// pins the wedge walk; the union oracles cannot catch a lowest-first
+    /// regression because their post-split walks never hit a mid-walk pinch.
+    #[test]
+    fn patch_boundary_cycle_splits_bowtie_into_two_cycles() {
+        // Lobe A = tri[3,6,0], Lobe B = tri[3,1,2], sharing pinch vertex 3.
+        // Verts 4,5 are unused filler so index 6 is addressable.
+        let mesh = Mesh::new(
+            vec![
+                p(1.0, 1.0, 0.0),  // 0
+                p(-1.0, 0.0, 0.0), // 1
+                p(-1.0, 1.0, 0.0), // 2
+                p(0.0, 0.0, 0.0),  // 3 = pinch
+                p(5.0, 5.0, 5.0),  // 4 filler
+                p(6.0, 6.0, 6.0),  // 5 filler
+                p(1.0, 0.0, 0.0),  // 6
+            ],
+            vec![[3, 6, 0], [3, 1, 2]],
+        );
+        let patch = Patch {
+            attribution: TriangleAttribution {
+                input: InputId::A,
+                face: 0,
+            },
+            tri_indices: vec![0, 1],
+        };
+        let cycles =
+            patch_boundary_cycle(&patch, &mesh).expect("bowtie patch boundary walk must succeed");
+        assert_eq!(
+            cycles.len(),
+            2,
+            "bowtie patch must split into 2 per-lobe cycles, not chain into \
+             one; got {cycles:?}"
+        );
+        for c in &cycles {
+            assert_eq!(c.len(), 3, "each lobe is a 3-edge triangle boundary");
+        }
     }
 
     /// Backend whose `boolean()` always errors and which does NOT override
