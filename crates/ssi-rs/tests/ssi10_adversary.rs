@@ -119,6 +119,9 @@ fn assert_on_both_surfaces(curve: &SsiCurve, a: &QuadricSurface, b: &QuadricSurf
 /// Every field of a returned Line must be finite, and `dir` must be unit.
 fn assert_line_finite(c: &SsiCurve) {
     match c {
+        SsiCurve::SurfacePair { .. } => unreachable!(
+            "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+        ),
         SsiCurve::Line { point, dir } => {
             for v in point.as_array().iter().chain(dir.as_array().iter()) {
                 assert!(v.is_finite(), "Line field non-finite: {c:?}");
@@ -134,6 +137,9 @@ fn assert_line_finite(c: &SsiCurve) {
 
 fn line_fields(c: &SsiCurve) -> ([f64; 3], [f64; 3]) {
     match c {
+        SsiCurve::SurfacePair { .. } => unreachable!(
+            "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+        ),
         SsiCurve::Line { point, dir } => (point.as_array(), dir.as_array()),
         other => panic!("expected Line, got {other:?}"),
     }
@@ -257,50 +263,50 @@ fn attack1_parallelism_gate_boundary() {
         }
     }
 
-    // Just OUTSIDE the band (tilt sine = 1.001·TAU ≥ TAU) ⇒ ASNA.
+    // Just OUTSIDE the band (tilt sine = 1.001·TAU ≥ TAU) ⇒ non-parallel.
     {
         let theta = (1.001 * TAU_MODEL).asin();
-        // Contract migration (PR-SSI11): a y–z tilt makes the non-parallel axes
-        // SKEW (not coplanar), which PR-SSI11 stages as ASNA — preserving this
-        // gate's "past the band ⇒ not parallel→lines ⇒ ASNA" intent without
-        // colliding with SSI11's equal-R coplanar-intersecting → ellipses path
-        // (the original x–z tilt was coplanar-intersecting, now solved).
+        // A y–z tilt makes the non-parallel axes SKEW (not coplanar). Post-M5
+        // that is the procedural surface-pair descriptor (S3), preserving this
+        // gate's "past the band ⇒ not parallel→lines" intent: the parallel
+        // secant-line path is NOT taken, the degree-4 surface-pair path is.
         let cd = [0.0, theta.sin(), theta.cos()];
         assert!(norm(cross(unit(cd), [0.0, 0.0, 1.0])) >= TAU_MODEL);
         let c2 = cyl([8.0, 0.0, 0.0], cd, r);
         assert_eq!(
             intersect(&c1, &c2),
-            Err(SsiError::AnalyticalSolutionNotAvailable),
-            "just-outside parallelism band ⇒ ASNA"
+            Ok(vec![SsiCurve::SurfacePair { a: c1, b: c2 }]),
+            "just-outside parallelism band ⇒ surface-pair, not lines"
         );
     }
 }
 
 // ===========================================================================
-// Attack 2: Supra-TAU tilt MUST read NP/ASNA, never a spurious pair. Guards a
-// too-loose parallelism gate. A cyl axis tilted 1e-3 .. 0.1 rad off +z gives
-// |û₁ × û₂| ≫ TAU ⇒ Err(ASNA).
+// Attack 2: Supra-TAU tilt MUST read non-parallel (surface-pair), never a
+// spurious parallel pair-of-lines. Guards a too-loose parallelism gate. A cyl
+// axis tilted 1e-3 .. 0.1 rad off +z gives |û₁ × û₂| ≫ TAU ⇒ SurfacePair.
 // ===========================================================================
 
 #[test]
-fn attack2_supra_tau_tilt_is_asna() {
+fn attack2_supra_tau_tilt_is_surface_pair() {
     let c1 = zcyl([0.0, 0.0, 0.0], 5.0);
     for &theta in &[1e-3_f64, 1e-2, 0.1, std::f64::consts::FRAC_PI_2] {
-        // y–z tilt ⇒ skew non-parallel axes ⇒ ASNA post-SSI11 (the equal-R
-        // coplanar-intersecting case is now solved → ellipses; see attack1).
+        // y–z tilt ⇒ skew non-parallel axes ⇒ procedural surface-pair (S3):
+        // the equal-R coplanar-intersecting case would be ellipses (see
+        // attack1); a skew tilt is the degree-4 surface-pair descriptor.
         let cd = [0.0, theta.sin(), theta.cos()];
         assert!(norm(cross(unit(cd), [0.0, 0.0, 1.0])) > 10.0 * TAU_MODEL);
         let c2 = cyl([8.0, 0.0, 0.0], cd, 5.0);
         assert_eq!(
             intersect(&c1, &c2),
-            Err(SsiError::AnalyticalSolutionNotAvailable),
-            "tilt θ={theta} (≫ TAU) ⇒ ASNA, not lines"
+            Ok(vec![SsiCurve::SurfacePair { a: c1, b: c2 }]),
+            "tilt θ={theta} (≫ TAU) ⇒ surface-pair, not lines"
         );
-        // Symmetric the other way too.
+        // Symmetric the other way too (operands swap with the argument order).
         assert_eq!(
             intersect(&c2, &c1),
-            Err(SsiError::AnalyticalSolutionNotAvailable),
-            "tilt θ={theta} reversed ⇒ ASNA"
+            Ok(vec![SsiCurve::SurfacePair { a: c2, b: c1 }]),
+            "tilt θ={theta} reversed ⇒ surface-pair"
         );
     }
 }

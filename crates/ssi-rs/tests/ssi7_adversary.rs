@@ -73,6 +73,9 @@ fn assert_curve_finite_allow_zero(c: &SsiCurve) {
 
 fn assert_curve_finite_inner(c: &SsiCurve, allow_zero_radius: bool) {
     match c {
+        SsiCurve::SurfacePair { .. } => unreachable!(
+            "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+        ),
         SsiCurve::Circle {
             center,
             normal,
@@ -157,6 +160,9 @@ fn parallel_up_to_sign(a: [f64; 3], b: [f64; 3]) {
 
 fn circle_fields(c: &SsiCurve) -> ([f64; 3], [f64; 3], f64) {
     match c {
+        SsiCurve::SurfacePair { .. } => unreachable!(
+            "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+        ),
         SsiCurve::Circle {
             center,
             normal,

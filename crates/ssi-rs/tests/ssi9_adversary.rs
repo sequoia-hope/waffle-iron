@@ -83,6 +83,9 @@ fn unit(a: [f64; 3]) -> [f64; 3] {
 /// the X0 apex case, which is represented as `Ok(vec![])` and so never emitted).
 fn assert_curve_finite(c: &SsiCurve) {
     match c {
+        SsiCurve::SurfacePair { .. } => unreachable!(
+            "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+        ),
         SsiCurve::Circle {
             center,
             normal,
@@ -155,6 +158,9 @@ fn assert_on_both_surfaces(curve: &SsiCurve, a: &QuadricSurface, b: &QuadricSurf
 
 fn circle_fields(c: &SsiCurve) -> ([f64; 3], [f64; 3], f64) {
     match c {
+        SsiCurve::SurfacePair { .. } => unreachable!(
+            "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+        ),
         SsiCurve::Circle {
             center,
             normal,

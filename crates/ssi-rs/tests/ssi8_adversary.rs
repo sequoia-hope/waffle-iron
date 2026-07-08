@@ -79,6 +79,9 @@ fn unit(a: [f64; 3]) -> [f64; 3] {
 /// sphere∩cone apex-grazing case), so radius > 0 always.
 fn assert_curve_finite(c: &SsiCurve) {
     match c {
+        SsiCurve::SurfacePair { .. } => unreachable!(
+            "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+        ),
         SsiCurve::Circle {
             center,
             normal,
@@ -160,6 +163,9 @@ fn parallel_up_to_sign(a: [f64; 3], b: [f64; 3]) {
 
 fn circle_fields(c: &SsiCurve) -> ([f64; 3], [f64; 3], f64) {
     match c {
+        SsiCurve::SurfacePair { .. } => unreachable!(
+            "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+        ),
         SsiCurve::Circle {
             center,
             normal,

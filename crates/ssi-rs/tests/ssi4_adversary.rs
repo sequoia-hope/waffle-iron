@@ -90,6 +90,9 @@ fn implicit_residual(surf: &QuadricSurface, x: [f64; 3]) -> f64 {
 fn assert_curve_finite(c: &SsiCurve) {
     let finite = |a: [f64; 3]| a.iter().all(|v| v.is_finite());
     match c {
+        SsiCurve::SurfacePair { .. } => unreachable!(
+            "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+        ),
         SsiCurve::Line { point, dir } => {
             assert!(
                 finite(point.as_array()) && finite(dir.as_array()),
@@ -702,6 +705,9 @@ fn attack5a_narrow_cone_hyperbola() {
     // Coords are O(1/tanα) ≈ 1e4 (huge transverse), so use relative oracle.
     for c in &curves {
         let scale_ref = match c {
+            SsiCurve::SurfacePair { .. } => unreachable!(
+                "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+            ),
             SsiCurve::Hyperbola {
                 semi_transverse, ..
             } => semi_transverse.max(1.0),

@@ -164,6 +164,9 @@ fn expect_two_circles(curves: &[SsiCurve]) -> [(Point3, Vector3, f64); 2] {
     let mut out = [(Point3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 0.0), 0.0); 2];
     for (i, c) in curves.iter().enumerate() {
         match c {
+            SsiCurve::SurfacePair { .. } => unreachable!(
+                "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+            ),
             SsiCurve::Circle {
                 center,
                 normal,

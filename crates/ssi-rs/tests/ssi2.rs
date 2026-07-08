@@ -105,6 +105,9 @@ fn assert_on_both_surfaces(curve: &SsiCurve, a: &QuadricSurface, b: &QuadricSurf
     const N: usize = 64;
     for i in 0..N {
         let t = match curve {
+            SsiCurve::SurfacePair { .. } => unreachable!(
+                "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+            ),
             SsiCurve::Circle { .. } | SsiCurve::Ellipse { .. } => {
                 // [0, 2π)
                 (i as f64) / (N as f64) * std::f64::consts::TAU
@@ -159,6 +162,9 @@ fn expect_two_lines(curves: &[SsiCurve]) -> [(Point3, Vector3); 2] {
     let mut out = [(Point3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 0.0)); 2];
     for (i, c) in curves.iter().enumerate() {
         match c {
+            SsiCurve::SurfacePair { .. } => unreachable!(
+                "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+            ),
             SsiCurve::Line { point, dir } => out[i] = (*point, *dir),
             other => panic!("expected Line, got {other:?}"),
         }

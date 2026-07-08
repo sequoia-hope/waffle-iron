@@ -198,6 +198,25 @@ pub enum SsiCurve {
         /// Semi-conjugate length `b`.
         semi_conjugate: f64,
     },
+    /// Procedural surface-pair curve (M5, `specs/m5_surface_pair_curve.md`):
+    /// the general-position quadric-pair intersection — a degree-4 space
+    /// curve with NO conic closed form ([#1] Patrikalakis Ch.5). Per the
+    /// Constitution P8 degree-4 clarification and [#24] Yang et al. 2025
+    /// §4.1.2/§4.3, it is represented IMPLICITLY and exactly by its two
+    /// analytic surfaces — a procedural curve whose defining surfaces are
+    /// exact IS an analytical representation. First producer: non-parallel
+    /// unequal-radius / skew cylinder×cylinder (`cylinder_cylinder`, S2/S3).
+    ///
+    /// `a`/`b` are the intersect-call operands in argument order, preserved
+    /// verbatim. There is NO closed-form parameterization: concrete points
+    /// are certified downstream by Newton projection onto both surfaces
+    /// (yang-rs `relocate_onto_implicit_pair`), never carried here.
+    SurfacePair {
+        /// First defining surface (ssi call order, preserved verbatim).
+        a: QuadricSurface,
+        /// Second defining surface.
+        b: QuadricSurface,
+    },
 }
 
 /// Error categories for SSI. Both variants are part of the public API.
@@ -309,6 +328,13 @@ impl SsiCurve {
                 );
                 Point3::from(p)
             }
+            // A procedural surface-pair curve has NO closed-form parametric
+            // evaluation — that is precisely why it is represented implicitly
+            // by its two surfaces (concrete points come from downstream
+            // Newton projection, not from `eval`). Return a NaN point so a
+            // caller that reaches here gets a LOUD wrong answer, never a
+            // plausible-but-wrong one (P9).
+            SsiCurve::SurfacePair { .. } => Point3::new(f64::NAN, f64::NAN, f64::NAN),
         }
     }
 }
@@ -1542,7 +1568,14 @@ fn cylinder_cylinder(a: &QuadricSurface, b: &QuadricSurface) -> Result<Vec<SsiCu
         if equal_r && line_gap < TAU_MODEL {
             return cyl_cyl_equal_radius_ellipses(q1a, q2a, uhat, uhat2, r1);
         }
-        return Err(SsiError::AnalyticalSolutionNotAvailable);
+        // M5 (S2 unequal-R / S3 equal-R skew): the general non-parallel
+        // cyl×cyl intersection is a degree-4 space curve with no conic closed
+        // form — return the procedural surface-pair descriptor (the two
+        // cylinders verbatim). Supersedes the staged ASNA
+        // (specs/m5_surface_pair_curve.md; Constitution P8 degree-4
+        // clarification). Still exact, still loud-on-failure: yang-rs
+        // certifies each concrete point by Newton projection onto both.
+        return Ok(vec![SsiCurve::SurfacePair { a: *a, b: *b }]);
     }
 
     // Parallel: circle∩circle in the plane ⟂ û. Gate on the LINEAR inter-axis

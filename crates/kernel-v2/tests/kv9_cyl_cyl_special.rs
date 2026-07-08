@@ -258,11 +258,17 @@ fn steinmetz_subtract_exact_volume() {
     );
 }
 
-/// The IRREDUCIBLE quartic stays loudly walled: unequal radii at 90° has no
-/// analytic conic decomposition — never a silent approximation.
+/// M5 (`specs/m5_surface_pair_curve.md`): the irreducible quartic is now
+/// SUPPORTED via the procedural surface-pair curve — the general unequal-radius
+/// 90° cyl×cyl union produces a valid, watertight solid whose degree-4 seam is
+/// carried exactly by its two defining cylinders (no conic approximation).
+/// Volume oracle: the union lies strictly between the larger cylinder alone
+/// (they overlap, so more than `V1`) and the disjoint sum `V1 + V2` (they DO
+/// overlap, so strictly less). Was `unequal_perpendicular_stays_walled`.
 #[test]
-fn unequal_perpendicular_stays_walled() {
+fn unequal_perpendicular_now_supported() {
     let mut a = BrepArena::new();
+    let (r1, r2) = (0.3_f64, 0.18_f64);
     let c1 = cyl(
         &mut a,
         [0.0, 0.0, -0.5],
@@ -270,7 +276,7 @@ fn unequal_perpendicular_stays_walled() {
         [0.0, 1.0, 0.0],
         [0.0, 0.0, 1.0],
         (0.0, 0.0),
-        0.3,
+        r1,
         1.0,
     );
     let c2 = cyl(
@@ -280,15 +286,26 @@ fn unequal_perpendicular_stays_walled() {
         [0.0, 0.0, 1.0],
         [1.0, 0.0, 0.0],
         (0.0, 0.0),
-        0.18,
+        r2,
         1.0,
     );
-    let err = boolean_op(&mut a, c1, c2, BoolOp::Union)
-        .expect_err("irreducible degree-4 cyl×cyl must stay walled");
-    let text = format!("{err}");
+    let out = boolean_op(&mut a, c1, c2, BoolOp::Union)
+        .expect("M5: general cyl×cyl union is supported via the surface-pair curve");
+    validate_solid(&a, out).expect("watertight, 2-manifold solid");
+    let mesh = tessellate(&a, out).expect("tessellate");
     assert!(
-        text.contains("Ssi") || text.contains("SSI") || text.contains("AnalyticalSolution"),
-        "loud SSI wall, got {text}"
+        mesh.positions.iter().all(|c| c.is_finite()),
+        "no NaN/inf positions"
+    );
+    let vol = mesh_signed_volume(&mesh);
+    let v1 = std::f64::consts::PI * r1 * r1 * 1.0;
+    let v2 = std::f64::consts::PI * r2 * r2 * 1.0;
+    // Chord-inscribed mesh, so allow a small deficit below the analytic bounds.
+    assert!(
+        vol > 0.9 * v1 && vol < v1 + v2,
+        "union volume {vol} out of (0.9·V1={}, V1+V2={})",
+        0.9 * v1,
+        v1 + v2
     );
 }
 

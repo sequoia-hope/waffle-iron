@@ -509,6 +509,9 @@ fn curve_to_ssi(c: &Curve) -> Option<ssi_rs::SsiCurve> {
         // PR-YR23: likewise a Hyperbola has no closed `SsiCurve` form in this
         // yr9 helper; exhaustiveness arm forced by the new enum variant.
         Curve::Hyperbola { .. } => None,
+        // M5: a procedural surface-pair curve has no single closed-form
+        // `SsiCurve` this helper reconstructs; exhaustiveness arm.
+        Curve::SurfacePair { .. } => None,
     }
 }
 

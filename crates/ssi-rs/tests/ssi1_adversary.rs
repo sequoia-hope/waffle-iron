@@ -40,6 +40,9 @@ fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
 /// core anti-`√(negative)` / anti-`0/0` guard.
 fn assert_curve_finite(c: &SsiCurve) {
     match c {
+        SsiCurve::SurfacePair { .. } => unreachable!(
+            "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+        ),
         SsiCurve::Line { point, dir } => {
             for v in point.as_array().iter().chain(dir.as_array().iter()) {
                 assert!(v.is_finite(), "Line field non-finite: {c:?}");

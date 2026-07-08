@@ -85,6 +85,9 @@ fn assert_on_both_surfaces(curve: &SsiCurve, a: &QuadricSurface, b: &QuadricSurf
     const N: usize = 64;
     for i in 0..N {
         let t = match curve {
+            SsiCurve::SurfacePair { .. } => unreachable!(
+                "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+            ),
             SsiCurve::Circle { .. } => {
                 // [0, 2π)
                 (i as f64) / (N as f64) * std::f64::consts::TAU

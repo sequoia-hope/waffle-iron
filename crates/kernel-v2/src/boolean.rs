@@ -93,7 +93,7 @@ use std::collections::BTreeMap;
 
 use crate::arena::{
     BrepArena, Curve, Face, FaceId, HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId, LoopKind,
-    Plane, Shell, ShellId, Solid, SolidId, Surface, UnitVector3, Vertex, VertexId,
+    PairSurface, Plane, Shell, ShellId, Solid, SolidId, Surface, UnitVector3, Vertex, VertexId,
 };
 use crate::construct::finalize_solid;
 use crate::error::KernelV2Error;
@@ -871,6 +871,7 @@ fn edge_kind_tag(e: &EdgeKind) -> &'static str {
         EdgeKind::Full { .. } => "Full",
         EdgeKind::Arc { .. } => "Arc",
         EdgeKind::EllipseArc { .. } => "EllipseArc",
+        EdgeKind::SurfacePair { .. } => "SurfacePair",
     }
 }
 
@@ -902,6 +903,14 @@ enum EdgeKind {
         major_radius: f64,
         minor_radius: f64,
     },
+    /// Procedural surface-pair curve piece (M5, `start != end`): the general
+    /// degree-4 cyl×cyl intersection between the endpoints, defined implicitly
+    /// by its two `PairSurface`s. No directional normal (traversal is
+    /// endpoint-determined); twins carry identical `a`/`b`.
+    SurfacePair {
+        a: crate::arena::PairSurface,
+        b: crate::arena::PairSurface,
+    },
 }
 
 /// UNDIRECTED curve identity for manifold edge-pairing, so two DISTINCT curved
@@ -926,6 +935,45 @@ enum CurveKey {
         major_r: u64,
         minor_r: u64,
     },
+    /// M5: the ordered pair of defining-surface bit patterns. Distinct
+    /// quartics on the same vertex pair (different cylinder pairs) key
+    /// separately; genuine twins share the descriptor exactly.
+    SurfacePair {
+        a: PairSurfaceKey,
+        b: PairSurfaceKey,
+    },
+}
+
+/// Bit-exact key for a [`crate::arena::PairSurface`] (M5, K4).
+#[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Debug)]
+enum PairSurfaceKey {
+    Cylinder {
+        axis_point: [u64; 3],
+        axis_dir: [u64; 3],
+        radius: u64,
+    },
+}
+
+fn pair_surface_key(s: &crate::arena::PairSurface) -> PairSurfaceKey {
+    match *s {
+        crate::arena::PairSurface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => PairSurfaceKey::Cylinder {
+            axis_point: [
+                axis_point.x().to_bits(),
+                axis_point.y().to_bits(),
+                axis_point.z().to_bits(),
+            ],
+            axis_dir: [
+                axis_dir.x.to_bits(),
+                axis_dir.y.to_bits(),
+                axis_dir.z.to_bits(),
+            ],
+            radius: radius.to_bits(),
+        },
+    }
 }
 
 fn curve_key(ek: &EdgeKind) -> CurveKey {
@@ -950,6 +998,10 @@ fn curve_key(ek: &EdgeKind) -> CurveKey {
             major: vb(*major_axis),
             major_r: major_radius.to_bits(),
             minor_r: minor_radius.to_bits(),
+        },
+        EdgeKind::SurfacePair { a, b } => CurveKey::SurfacePair {
+            a: pair_surface_key(a),
+            b: pair_surface_key(b),
         },
     }
 }
@@ -1355,6 +1407,7 @@ pub fn from_yang_brep_indexed(
                     EdgeKind::Full { .. } => "Full",
                     EdgeKind::Arc { .. } => "Arc",
                     EdgeKind::EllipseArc { .. } => "EllArc",
+                    EdgeKind::SurfacePair { .. } => "SurfPair",
                 };
                 let p = yverts[va as usize].point.as_array();
                 eprintln!(
@@ -1432,6 +1485,21 @@ pub fn from_yang_brep_indexed(
                     {
                         return Err(KernelV2Error::InvalidBooleanOutput(
                             "twin output edges carry inconsistent arc curves",
+                        ));
+                    }
+                }
+                (
+                    EdgeKind::SurfacePair { a: a0, b: b0 },
+                    EdgeKind::SurfacePair { a: a1, b: b1 },
+                ) => {
+                    // M5 (K5): surface-pair twins carry BIT-IDENTICAL defining
+                    // surfaces (there is no directional normal to negate —
+                    // traversal is endpoint-determined). The undirected pairing
+                    // already keys by the ordered pair (CurveKey::SurfacePair),
+                    // so this only re-affirms exact agreement.
+                    if a0 != a1 || b0 != b1 {
+                        return Err(KernelV2Error::InvalidBooleanOutput(
+                            "twin output edges carry inconsistent surface-pair curves",
                         ));
                     }
                 }
@@ -1872,6 +1940,7 @@ pub fn from_yang_brep_indexed(
                         radius,
                     }
                 }
+                EdgeKind::SurfacePair { a, b } => Curve::SurfacePair { a, b },
             };
             let origin = vert_ids[a as usize].expect("referenced vertex was created");
             arena.half_edges.push(Some(HalfEdge {
@@ -2069,6 +2138,73 @@ fn classify_edge(
         yang_rs::Curve::Hyperbola { .. } => {
             Err(KernelV2Error::UnsupportedBooleanOutputCurve { curve: "Hyperbola" })
         }
+        // M5 (K1–K3): the procedural surface-pair curve. Both operands must be
+        // cylinders (the only producer today); K2 rejects a closed single-edge
+        // loop; K3 requires each endpoint on BOTH defining surfaces within the
+        // import band (the per-point certification contract, mirroring the
+        // circle/ellipse endpoint checks).
+        yang_rs::Curve::SurfacePair { a, b } => {
+            let pa = yang_surface_to_pair_surface(a)?;
+            let pb = yang_surface_to_pair_surface(b)?;
+            if e.start == e.end {
+                return Err(KernelV2Error::UnsupportedBooleanOutputCurve {
+                    curve: "closed surface-pair loop edge (no producer constructs them)",
+                });
+            }
+            let ps = yverts[from as usize].point;
+            let pe = yverts[to as usize].point;
+            for p in [ps, pe] {
+                let xa = [p.x(), p.y(), p.z()];
+                let mag = p.x().abs().max(p.y().abs()).max(p.z().abs());
+                for s in [&pa, &pb] {
+                    let Some((residual, _)) = crate::geom::pair_surface_residual_gradient(s, xa)
+                    else {
+                        return Err(KernelV2Error::InvalidBooleanOutput(
+                            "surface-pair endpoint lies on a defining surface's axis",
+                        ));
+                    };
+                    let band = 1e-9 * (1.0 + crate::geom::pair_surface_scale(s).max(mag));
+                    if residual.abs() > band {
+                        return Err(KernelV2Error::InvalidBooleanOutput(
+                            "output surface-pair endpoint does not lie on both surfaces",
+                        ));
+                    }
+                }
+            }
+            Ok(EdgeKind::SurfacePair { a: pa, b: pb })
+        }
+    }
+}
+
+/// M5 (K1): map a yang output `Surface` to a kernel-v2 [`PairSurface`]. Only
+/// `Cylinder` is a producer today (the general cyl×cyl curve); any other kind
+/// is a typed wall until the cone-pair producer lands (`#[non_exhaustive]`).
+fn yang_surface_to_pair_surface(s: yang_rs::Surface) -> Result<PairSurface, KernelV2Error> {
+    match s {
+        yang_rs::Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => {
+            if !(radius.is_finite() && radius > 0.0) {
+                return Err(KernelV2Error::InvalidBooleanOutput(
+                    "surface-pair cylinder operand has a non-positive radius",
+                ));
+            }
+            let ad = normalize3_arr(axis_dir.as_array());
+            Ok(PairSurface::Cylinder {
+                axis_point,
+                axis_dir: UnitVector3 {
+                    x: ad[0],
+                    y: ad[1],
+                    z: ad[2],
+                },
+                radius,
+            })
+        }
+        _ => Err(KernelV2Error::UnsupportedBooleanOutputCurve {
+            curve: "surface-pair with a non-cylinder operand (only cyl×cyl is produced in M5)",
+        }),
     }
 }
 

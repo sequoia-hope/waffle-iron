@@ -1074,6 +1074,9 @@ fn sample_curve(curve: &Curve, n_samples: usize) -> Vec<[f64; 3]> {
         // PR-YR23: likewise a Hyperbola yields no samples in this fuzz helper;
         // exhaustiveness arm forced by the new enum variant.
         Curve::Hyperbola { .. } => {}
+        // M5: surface-pair curves are not produced by this fuzz helper's
+        // inputs; exhaustiveness arm (no samples).
+        Curve::SurfacePair { .. } => {}
     }
     out
 }

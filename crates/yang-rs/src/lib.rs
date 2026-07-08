@@ -258,6 +258,17 @@ pub enum Curve {
         semi_transverse: f64,
         semi_conjugate: f64,
     },
+    /// Procedural surface-pair curve (M5, `specs/m5_surface_pair_curve.md`):
+    /// the general-position quadric-pair intersection (first producer:
+    /// unequal-radius / skew cylinder×cylinder) — a degree-4 space curve with
+    /// no conic closed form. Defined IMPLICITLY and exactly by its two analytic
+    /// surfaces `a`, `b` ([#24] Yang et al. 2025 §4.1.2/§4.3; Constitution P8
+    /// degree-4 clarification). Concrete points are certified by Newton
+    /// projection onto BOTH surfaces (`relocate_onto_implicit_pair`); the
+    /// operands are carried in ssi-call argument order. There is no closed-form
+    /// parameterization — endpoints come from the mesh edge, interior samples
+    /// from downstream (kernel-v2) projection.
+    SurfacePair { a: Surface, b: Surface },
 }
 
 // =========================================================================
@@ -1426,6 +1437,27 @@ impl BRep {
                         t,
                     ),
                     Curve::LineSegment => {
+                        let s = match self.vertices.get(e.start as usize) {
+                            Some(v) => v.point.as_array(),
+                            None => return Point3::new(0.0, 0.0, 0.0),
+                        };
+                        let en = match self.vertices.get(e.end as usize) {
+                            Some(v) => v.point.as_array(),
+                            None => return Point3::new(0.0, 0.0, 0.0),
+                        };
+                        Point3::new(
+                            s[0] + t * (en[0] - s[0]),
+                            s[1] + t * (en[1] - s[1]),
+                            s[2] + t * (en[2] - s[2]),
+                        )
+                    }
+                    // M5: a procedural surface-pair curve has no closed-form
+                    // parameterization, so its endpoints are `BRepVertex`
+                    // sources, never `BRepEdge { edge, t }` — this arm should
+                    // not be reached. Fall back to the endpoint lerp (identical
+                    // to `LineSegment`) rather than panic (P9 defensive; no
+                    // plausible-wrong analytic point).
+                    Curve::SurfacePair { .. } => {
                         let s = match self.vertices.get(e.start as usize) {
                             Some(v) => v.point.as_array(),
                             None => return Point3::new(0.0, 0.0, 0.0),
@@ -4917,6 +4949,45 @@ fn curve_tangent_at(curve: &ssi_rs::SsiCurve, x: Point3) -> Option<[f64; 3]> {
             ];
             Some(normalize3(tan))
         }
+        // M5 (Y3): the tangent of a transversal surface-pair curve at `x` is
+        // `n̂_a × n̂_b` (perpendicular to both surface normals). Parallel
+        // normals (tangency) → no finite tangent → `None`, so the candidate
+        // stays non-tie-breakable and the loud `AmbiguousCurve` stop stands.
+        ssi_rs::SsiCurve::SurfacePair { a, b } => {
+            let cyl_normal = |q: &ssi_rs::QuadricSurface| -> Option<[f64; 3]> {
+                match q {
+                    ssi_rs::QuadricSurface::Cylinder {
+                        axis_point,
+                        axis_dir,
+                        ..
+                    } => {
+                        let ap = axis_point.as_array();
+                        let ad = normalize3(axis_dir.as_array());
+                        let w = [x.x() - ap[0], x.y() - ap[1], x.z() - ap[2]];
+                        let along = w[0] * ad[0] + w[1] * ad[1] + w[2] * ad[2];
+                        let radial = [
+                            w[0] - along * ad[0],
+                            w[1] - along * ad[1],
+                            w[2] - along * ad[2],
+                        ];
+                        let rl =
+                            (radial[0] * radial[0] + radial[1] * radial[1] + radial[2] * radial[2])
+                                .sqrt();
+                        (rl > cad_primitives::MIN_FEATURE_SIZE)
+                            .then(|| [radial[0] / rl, radial[1] / rl, radial[2] / rl])
+                    }
+                    _ => None,
+                }
+            };
+            let (na, nb) = (cyl_normal(a)?, cyl_normal(b)?);
+            let cx = [
+                na[1] * nb[2] - na[2] * nb[1],
+                na[2] * nb[0] - na[0] * nb[2],
+                na[0] * nb[1] - na[1] * nb[0],
+            ];
+            let cl = (cx[0] * cx[0] + cx[1] * cx[1] + cx[2] * cx[2]).sqrt();
+            (cl > 1e-3).then(|| normalize3(cx))
+        }
         _ => None,
     }
 }
@@ -5649,6 +5720,29 @@ fn surface_to_quadric(s: Surface) -> Result<ssi_rs::QuadricSurface, SsiRefinemen
     }
 }
 
+/// M5 (Y1): map an `ssi_rs::QuadricSurface` back to a yang `Surface`, the
+/// inverse of `surface_to_quadric` for the operands of a `SurfacePair` curve.
+/// Only `Cylinder` is a producer today (the M5 cyl×cyl arm); the other quadric
+/// kinds cannot appear as a surface-pair operand yet and reject loudly (P9 —
+/// a `Plane`/`Sphere`/`Cone` here would be a producer fault, not a curve).
+fn quadric_to_surface(q: ssi_rs::QuadricSurface) -> Result<Surface, SsiRefinementError> {
+    match q {
+        ssi_rs::QuadricSurface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => Ok(Surface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        }),
+        // No surface-pair producer emits these operands yet (M5 = cyl×cyl).
+        ssi_rs::QuadricSurface::Plane { .. }
+        | ssi_rs::QuadricSurface::Sphere { .. }
+        | ssi_rs::QuadricSurface::Cone { .. } => Err(SsiRefinementError::UnsupportedSurfaceForSsi),
+    }
+}
+
 /// PR-YR9: convert an `ssi_rs::SsiCurve` into a yang `Curve` (spec §5.3).
 /// `Circle`/`Ellipse` map field-for-field; `Line` becomes `LineSegment`
 /// (the edge's endpoints trim it). `Parabola`/`Hyperbola` cannot arise for the
@@ -5707,6 +5801,12 @@ fn ssi_curve_to_curve(c: ssi_rs::SsiCurve) -> Result<Curve, SsiRefinementError> 
             major_axis,
             semi_transverse,
             semi_conjugate,
+        }),
+        // M5 (Y1): the general degree-4 cyl×cyl curve — carry both operands
+        // verbatim as a procedural surface-pair curve.
+        ssi_rs::SsiCurve::SurfacePair { a, b } => Ok(Curve::SurfacePair {
+            a: quadric_to_surface(a)?,
+            b: quadric_to_surface(b)?,
         }),
     }
 }
@@ -5880,6 +5980,39 @@ fn curve_contains_point(
                 implicit
             };
             geo_res <= tol && u > 0.0
+        }
+        // M5 (Y2): membership on a procedural surface-pair curve is the
+        // per-point on-BOTH-surfaces test — the point lies within `tol` of the
+        // implicit residual of EACH defining surface (the curve IS the common
+        // zero set). A non-cylinder operand cannot arise from the M5 producer
+        // and fails closed (defensive; there is no curve to be on).
+        ssi_rs::SsiCurve::SurfacePair { a, b } => {
+            let cyl_residual = |q: &ssi_rs::QuadricSurface| -> Option<f64> {
+                match q {
+                    ssi_rs::QuadricSurface::Cylinder {
+                        axis_point,
+                        axis_dir,
+                        radius,
+                    } => {
+                        let ap = axis_point.as_array();
+                        let ad = normalize3(axis_dir.as_array());
+                        let w = [x[0] - ap[0], x[1] - ap[1], x[2] - ap[2]];
+                        let along = w[0] * ad[0] + w[1] * ad[1] + w[2] * ad[2];
+                        let perp = [
+                            w[0] - along * ad[0],
+                            w[1] - along * ad[1],
+                            w[2] - along * ad[2],
+                        ];
+                        let r = (perp[0] * perp[0] + perp[1] * perp[1] + perp[2] * perp[2]).sqrt();
+                        Some((r - radius).abs())
+                    }
+                    _ => None,
+                }
+            };
+            match (cyl_residual(a), cyl_residual(b)) {
+                (Some(ra), Some(rb)) => ra <= tol && rb <= tol,
+                _ => false,
+            }
         }
     }
 }
@@ -8898,6 +9031,12 @@ fn stage4_relocate_and_correct(
     // off the cylinder) by up to the sagitta — they need relocation exactly
     // like the conic arms. Plane∩plane segments are exact and stay skipped.
     let mut vert_line: BTreeMap<u32, LineReloc> = BTreeMap::new();
+    // M5 (Y4): per-vertex procedural surface-pair relocation data — the TWO
+    // defining surfaces of a `Curve::SurfacePair` edge, carried on the curve
+    // itself (no incidence scan needed). Each endpoint is Newton-projected
+    // onto BOTH surfaces (`relocate_onto_implicit_pair`), the analog of the
+    // torus implicit-pair block but with the pair supplied directly.
+    let mut vert_surface_pair: BTreeMap<u32, (Surface, Surface)> = BTreeMap::new();
     // PR-KV9: a vertex shared by TWO DIFFERENT ellipse edges (the crossing
     // points of the Steinmetz cyl×cyl pair) must land on BOTH curves — the
     // exact junction is `(plane₁ ∩ plane₂) line ∩ cylinder`. Detected at
@@ -9333,6 +9472,17 @@ fn stage4_relocate_and_correct(
                             reason: Stage4InvalidReason::LocalRefinementRequired,
                         });
                     }
+                }
+            }
+            // M5 (Y4): a procedural surface-pair edge carries its two defining
+            // surfaces directly. Like the TORUS block, its endpoints are an
+            // implicit-pair (degree-4) relocation handled AFTER the conic
+            // audit below — NOT part of the conic `endpoints`/`relocations`
+            // bookkeeping (a procedural curve has no `t`). Only record the
+            // pair here.
+            Curve::SurfacePair { a, b } => {
+                for v in [s, e] {
+                    vert_surface_pair.insert(v, (a, b));
                 }
             }
             Curve::LineSegment => {
@@ -10276,6 +10426,32 @@ fn stage4_relocate_and_correct(
             vertex: u32::MAX,
             reason: Stage4InvalidReason::LocalRefinementRequired,
         });
+    }
+
+    // M5 (Y4): degree-4 surface-pair relocation via Newton on the two defining
+    // surfaces — a sibling of the TORUS block below (both are implicit-pair,
+    // not conic, so they are relocated AFTER the conic audit and are NOT part
+    // of the conic `endpoints`/`relocations` bookkeeping). Each endpoint keeps
+    // its `BRepVertex` source (a procedural curve has no `t`). A surface-pair
+    // endpoint that is ALSO a conic endpoint mixes closed-form and
+    // implicit-pair relocations — out of v1 scope, loud STOP (mirrors the
+    // torus block's `endpoint_set` guard). `None` is a loud STOP (tangency /
+    // parallel normals or non-convergence — never a partial move, P9).
+    for (&v, &(sa, sb)) in &vert_surface_pair {
+        if endpoint_set.contains(&v) {
+            return Err(YangError::Stage4RegionInvalid {
+                vertex: v,
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+            });
+        }
+        let p = mesh.verts[v as usize];
+        let proj =
+            relocate_onto_implicit_pair(p, sa, sb).ok_or(YangError::Stage4RegionInvalid {
+                vertex: v,
+                reason: Stage4InvalidReason::LocalRefinementRequired,
+            })?;
+        mesh.verts[v as usize] = proj;
+        moved.insert(v);
     }
 
     // (2t) KV6d Tier B — degree-4 (TORUS) relocation via Newton on the implicit
@@ -11395,6 +11571,9 @@ fn is_reversed(
             ])
         }
         Curve::LineSegment => return false,
+        // M5: a surface-pair curve is pre-filtered out before this match (only
+        // Circle/Ellipse reach here); defensive `false` like `LineSegment`.
+        Curve::SurfacePair { .. } => return false,
     };
     let t_tilde_u = normalize3(t_tilde);
     let dotv = (t_tilde_u[0] * tan_c[0] + t_tilde_u[1] * tan_c[1] + t_tilde_u[2] * tan_c[2])
@@ -11610,6 +11789,10 @@ fn reconstruct_topology_stage4(
                 | Curve::Ellipse { .. }
                 | Curve::Parabola { .. }
                 | Curve::Hyperbola { .. }
+                // M5: a surface-pair edge's endpoints sit on Stage-1 chords off
+                // the exact degree-4 curve and MUST be relocated in Stage 4 —
+                // register it so Stage 4 runs for pure surface-pair results.
+                | Curve::SurfacePair { .. }
         ) || (matches!(c, Curve::LineSegment)
             && incidence.get(key).is_some_and(|entries| {
                 entries
@@ -12468,6 +12651,95 @@ fn subdivide_loops_at_shared_vertices(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── M5 surface-pair plumbing (Y1–Y3) ─────────────────────────────────
+
+    fn qcyl(ap: [f64; 3], ad: [f64; 3], r: f64) -> ssi_rs::QuadricSurface {
+        ssi_rs::QuadricSurface::Cylinder {
+            axis_point: Point3::new(ap[0], ap[1], ap[2]),
+            axis_dir: Vector3::new(ad[0], ad[1], ad[2]),
+            radius: r,
+        }
+    }
+
+    /// Y1: `SsiCurve::SurfacePair` maps to `Curve::SurfacePair` carrying both
+    /// operands field-for-field as yang `Surface::Cylinder`s.
+    #[test]
+    fn m5_ssi_surface_pair_maps_to_curve_surface_pair() {
+        let a = qcyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0);
+        let b = qcyl([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], 0.5);
+        let curve = ssi_curve_to_curve(ssi_rs::SsiCurve::SurfacePair { a, b })
+            .expect("cyl×cyl surface pair maps");
+        match curve {
+            Curve::SurfacePair {
+                a: Surface::Cylinder { radius: ra, .. },
+                b: Surface::Cylinder { radius: rb, .. },
+            } => {
+                assert_eq!(ra, 1.0);
+                assert_eq!(rb, 0.5);
+            }
+            other => panic!("expected Curve::SurfacePair of two cylinders, got {other:?}"),
+        }
+    }
+
+    /// Y1: a non-cylinder operand (no producer yet) rejects loudly.
+    #[test]
+    fn m5_surface_pair_non_cylinder_operand_rejected() {
+        let cyl = qcyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0);
+        let plane = ssi_rs::QuadricSurface::Plane {
+            point: Point3::new(0.0, 0.0, 0.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+        };
+        assert!(ssi_curve_to_curve(ssi_rs::SsiCurve::SurfacePair { a: cyl, b: plane }).is_err());
+    }
+
+    /// Y2: on-both-surfaces membership — a point exactly on the perpendicular
+    /// unequal-R curve passes; a point off either cylinder by ≫ tol fails.
+    #[test]
+    fn m5_surface_pair_membership() {
+        // x²+y²=1 ∧ x²+z²=¼ : point (0, 1, ½) lies on both.
+        let a = qcyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0);
+        let b = qcyl([0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 0.5);
+        let sp = ssi_rs::SsiCurve::SurfacePair { a, b };
+        assert!(curve_contains_point(
+            &sp,
+            Point3::new(0.0, 1.0, 0.5),
+            1e-9,
+            None
+        ));
+        // Off cylinder b radially by 0.1 ≫ tol.
+        assert!(!curve_contains_point(
+            &sp,
+            Point3::new(0.0, 1.0, 0.6),
+            1e-9,
+            None
+        ));
+    }
+
+    /// Y3: the surface-pair tangent at a point is `n̂_a × n̂_b`. At (0, 1, ½)
+    /// the cylinder-a radial normal is +ŷ and cylinder-b radial normal is +ẑ,
+    /// so the tangent is ±x̂.
+    #[test]
+    fn m5_surface_pair_tangent_is_normal_cross() {
+        let a = qcyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0);
+        let b = qcyl([0.0, 0.0, 0.0], [0.0, 1.0, 0.0], 0.5);
+        let sp = ssi_rs::SsiCurve::SurfacePair { a, b };
+        let t = curve_tangent_at(&sp, Point3::new(0.0, 1.0, 0.5)).expect("transversal ⇒ tangent");
+        assert!(t[0].abs() > 0.999, "tangent should be ±x̂, got {t:?}");
+        assert!(t[1].abs() < 1e-9 && t[2].abs() < 1e-9);
+    }
+
+    /// Y3/Y4 failure mode: tangent (parallel normals) → no tangent (None), so
+    /// the candidate stays non-tie-breakable and the loud stop stands.
+    #[test]
+    fn m5_surface_pair_tangent_none_at_tangency() {
+        // Externally tangent unit cylinders touch along x=1,y=0: both normals
+        // are ±x̂ on the contact line ⇒ parallel ⇒ no finite tangent.
+        let a = qcyl([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0);
+        let b = qcyl([2.0, 0.0, 0.0], [0.0, 0.0, 1.0], 1.0);
+        let sp = ssi_rs::SsiCurve::SurfacePair { a, b };
+        assert!(curve_tangent_at(&sp, Point3::new(1.0, 0.0, 0.0)).is_none());
+    }
 
     // ── Case-IV phantom guard (spec `yang_case_iv_phantom_guard`) ────────
 

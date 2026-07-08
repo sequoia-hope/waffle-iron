@@ -180,6 +180,7 @@ fn survey(name: &str, r: &Result<BRep, yang_rs::YangError>) {
                     Curve::Ellipse { .. } => "Ellipse".to_string(),
                     Curve::Parabola { .. } => "Parabola".to_string(),
                     Curve::Hyperbola { .. } => "Hyperbola".to_string(),
+                    Curve::SurfacePair { .. } => "SurfacePair".to_string(),
                 };
                 *curves.entry(k).or_default() += 1;
             }

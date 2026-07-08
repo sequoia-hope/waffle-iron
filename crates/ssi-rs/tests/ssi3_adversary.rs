@@ -56,6 +56,9 @@ fn unit(a: [f64; 3]) -> [f64; 3] {
 /// Every field of a returned curve must be finite (no NaN/Inf), radii > 0.
 fn assert_curve_finite(c: &SsiCurve) {
     match c {
+        SsiCurve::SurfacePair { .. } => unreachable!(
+            "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+        ),
         SsiCurve::Line { point, dir } => {
             for v in point.as_array().iter().chain(dir.as_array().iter()) {
                 assert!(v.is_finite(), "Line field non-finite: {c:?}");
@@ -185,6 +188,9 @@ fn max_residual_on_both(curve: &SsiCurve, a: &QuadricSurface, b: &QuadricSurface
     let mut m = 0.0_f64;
     for i in 0..n {
         let t = match curve {
+            SsiCurve::SurfacePair { .. } => unreachable!(
+                "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+            ),
             SsiCurve::Circle { .. } | SsiCurve::Ellipse { .. } => {
                 (i as f64) / (n as f64) * std::f64::consts::TAU
             }

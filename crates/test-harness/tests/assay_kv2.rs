@@ -1050,8 +1050,12 @@ fn smoke_corpus_boundary_categories() {
             "C0048",
             Category::Unsupported(UnsupportedReason::CoplanarBoolean),
         ), // [M8] chained swiss-cheese plates
-        ("C0052", Category::Error), // [M5] unequal-R perpendicular CUT
-        ("C0058", Category::Error), // [M5] equal-R 30° oblique union
+        // M5 LANDED (specs/m5_surface_pair_curve.md): the general
+        // unequal-radius perpendicular cyl×cyl intersection is now carried by
+        // the procedural surface-pair curve — union then cut passes the
+        // exact-volume oracle end-to-end.
+        ("C0052", Category::SupportedCorrect), // [M5] unequal-R perpendicular CUT
+        ("C0058", Category::Error),            // [M5] equal-R 30° oblique union (tangency neck)
         // KV6 on-axis slice 2 increment B (task #66): the apex triangle now
         // BUILDS the solid cone; the case's real boundary is the OBLIQUE
         // slab cut (conic-bounded cone patch), which lands on the typed

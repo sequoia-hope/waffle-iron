@@ -828,7 +828,16 @@ swapped every consumer to `predicates::indirect`).
     **Non-coaxial (general degree-4) → `Err(AnalyticalSolutionNotAvailable)`** — a
     staged gap (the general degree-4 curve needs a new `SsiCurve` variant, deferred),
     never a fallback. Establishes the coaxial-detect→reduce-to-circles→general-ASNA
-    pattern for the other circle-reducible pairs. Adversary (15 attacks): no bugs;
+    pattern for the other circle-reducible pairs. **UPDATE (2026-07-08, M5 Option
+    B ✅ SHIPPED for cyl×cyl):** the staged ASNA is now resolved for
+    cylinder×cylinder — the general degree-4 curve is the **procedural
+    surface-pair curve** (`SsiCurve::SurfacePair{a,b}` → yang `Curve::SurfacePair`
+    → kernel-v2 `Curve::SurfacePair`), defined implicitly by its two exact
+    surfaces and certified by Newton projection onto both (P8 degree-4
+    clarification; `specs/m5_surface_pair_curve.md`). Stage-4 relocation reuses
+    `relocate_onto_implicit_pair` as a sibling of the torus block. Corpus C0052
+    ERROR→CORRECT; `unequal_perpendicular_now_supported` green. Cone-pair operand
+    (R0008/R0003 AmbiguousCurve class) is the next producer. Adversary (15 attacks): no bugs;
     clean tangent + coaxial-detection boundaries; two characterized absolute-`TAU`
     ceilings (on-surface ~1e9, coaxial-detection ~1e8 → conservatively NC). Spec
     `specs/ssi_pr_ssi6_sphere_cylinder_coaxial.md`; commits `16dca4a0`→`818f2882`

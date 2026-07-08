@@ -157,6 +157,9 @@ fn expect_two_lines(curves: &[SsiCurve]) -> [(Point3, Vector3); 2] {
     let mut out = [(Point3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 0.0)); 2];
     for (i, c) in curves.iter().enumerate() {
         match c {
+            SsiCurve::SurfacePair { .. } => unreachable!(
+                "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+            ),
             SsiCurve::Line { point, dir } => out[i] = (*point, *dir),
             other => panic!("expected Line, got {other:?}"),
         }
@@ -452,13 +455,14 @@ fn conc_concentric_is_empty() {
 // Contract migration (PR-SSI11): the original NP probe used two EQUAL-radius
 // perpendicular intersecting cylinders, which PR-SSI11 now solves analytically
 // (→ two ellipses). To preserve this test's intent — "a non-parallel cyl∩cyl
-// configuration the solver does NOT yet handle stays a loud ASNA" — the radii
-// are made UNEQUAL (2 vs 3): unequal-radius non-parallel axes remain the
-// general degree-4 curve, staged ASNA (A15.2). Every structural assertion
-// (both argument orders → ASNA) is unchanged; the input moves deeper into the
-// still-unhandled domain rather than weakening the check.
+// configuration the solver does NOT reduce to lines/ellipses" — the radii are
+// UNEQUAL (2 vs 3): unequal-radius non-parallel axes are the general degree-4
+// curve, now returned as the procedural surface-pair descriptor (M5,
+// specs/m5_surface_pair_curve.md; supersedes the staged ASNA). The descriptor
+// carries the two operands VERBATIM in argument order, so equality also pins
+// operand ordering (a = first arg, b = second).
 #[test]
-fn np_non_parallel_yields_not_available() {
+fn np_non_parallel_yields_surface_pair() {
     let cyl1 = QuadricSurface::Cylinder {
         axis_point: Point3::new(0.0, 0.0, 0.0),
         axis_dir: Vector3::new(0.0, 0.0, 1.0),
@@ -467,15 +471,15 @@ fn np_non_parallel_yields_not_available() {
     let cyl2 = QuadricSurface::Cylinder {
         axis_point: Point3::new(0.0, 0.0, 0.0),
         axis_dir: Vector3::new(1.0, 0.0, 0.0), // ⟂ cyl₁ axis ⇒ |û₁ × û₂| = 1
-        radius: 3.0,                           // ≠ cyl₁ r ⇒ still general degree-4 (ASNA)
+        radius: 3.0,                           // ≠ cyl₁ r ⇒ general degree-4 → SurfacePair
     };
     assert_eq!(
         intersect(&cyl1, &cyl2),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
+        Ok(vec![SsiCurve::SurfacePair { a: cyl1, b: cyl2 }])
     );
     assert_eq!(
         intersect(&cyl2, &cyl1),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
+        Ok(vec![SsiCurve::SurfacePair { a: cyl2, b: cyl1 }])
     );
 }
 

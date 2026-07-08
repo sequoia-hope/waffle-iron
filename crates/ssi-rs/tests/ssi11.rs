@@ -109,6 +109,9 @@ fn expect_two_ellipses(curves: &[SsiCurve]) -> Vec<EllipseParts> {
     let mut out = Vec::new();
     for c in curves {
         match c {
+            SsiCurve::SurfacePair { .. } => unreachable!(
+                "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+            ),
             SsiCurve::Ellipse {
                 center,
                 normal,
@@ -131,6 +134,9 @@ fn expect_two_ellipses(curves: &[SsiCurve]) -> Vec<EllipseParts> {
 /// Decompose an `Ellipse` curve into its parameters.
 fn ellipse_parts(c: &SsiCurve) -> EllipseParts {
     match c {
+        SsiCurve::SurfacePair { .. } => unreachable!(
+            "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+        ),
         SsiCurve::Ellipse {
             center,
             normal,
@@ -349,38 +355,40 @@ fn ssi11_non_perpendicular_60deg_radii_and_on_surface() {
 
 // ---------------------------------------------------------------------------
 // Equal-R but SKEW (perpendicular dirs, z-offset so axes do not intersect)
-// → ASNA, both argument orders.
+// → SurfacePair (S3), both argument orders. Not coplanar ⇒ not ellipses;
+// the degree-4 curve is the procedural surface-pair descriptor (M5).
 // ---------------------------------------------------------------------------
 
 #[test]
-fn ssi11_equal_r_skew_axes_asna() {
+fn ssi11_equal_r_skew_axes_surface_pair() {
     let c1 = cyl(0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 2.0);
     let c2 = cyl(0.0, 0.0, 5.0, 0.0, 1.0, 0.0, 2.0);
     assert_eq!(
         intersect(&c1, &c2),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
+        Ok(vec![SsiCurve::SurfacePair { a: c1, b: c2 }])
     );
     assert_eq!(
         intersect(&c2, &c1),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
+        Ok(vec![SsiCurve::SurfacePair { a: c2, b: c1 }])
     );
 }
 
 // ---------------------------------------------------------------------------
-// Unequal R intersecting axes → ASNA, both argument orders.
+// Unequal R intersecting axes → SurfacePair (S2), both argument orders.
+// Unequal radius breaks the equal-R ellipse reduction ⇒ degree-4 curve.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn ssi11_unequal_r_intersecting_asna() {
+fn ssi11_unequal_r_intersecting_surface_pair() {
     let c1 = cyl(0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 2.0);
     let c2 = cyl(0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 3.0);
     assert_eq!(
         intersect(&c1, &c2),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
+        Ok(vec![SsiCurve::SurfacePair { a: c1, b: c2 }])
     );
     assert_eq!(
         intersect(&c2, &c1),
-        Err(SsiError::AnalyticalSolutionNotAvailable)
+        Ok(vec![SsiCurve::SurfacePair { a: c2, b: c1 }])
     );
 }
 

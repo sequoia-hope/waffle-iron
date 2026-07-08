@@ -114,6 +114,9 @@ fn assert_on_both_surfaces(curve: &SsiCurve, a: &QuadricSurface, b: &QuadricSurf
     const N: usize = 64;
     for i in 0..N {
         let t = match curve {
+            SsiCurve::SurfacePair { .. } => unreachable!(
+                "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+            ),
             SsiCurve::Circle { .. } | SsiCurve::Ellipse { .. } => {
                 (i as f64) / (N as f64) * std::f64::consts::TAU
             }
@@ -162,6 +165,9 @@ fn expect_single_parabola(curves: &[SsiCurve]) -> (Point3, Vector3, Vector3, f64
 #[allow(clippy::type_complexity)]
 fn expect_hyperbola(c: &SsiCurve) -> (Point3, Vector3, Vector3, f64, f64) {
     match c {
+        SsiCurve::SurfacePair { .. } => unreachable!(
+            "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+        ),
         SsiCurve::Hyperbola {
             center,
             normal,

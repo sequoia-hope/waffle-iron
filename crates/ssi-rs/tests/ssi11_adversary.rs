@@ -110,6 +110,9 @@ fn expect_two_ellipses(curves: &[SsiCurve]) -> Vec<EllipseParts> {
     let mut out = Vec::new();
     for c in curves {
         match c {
+            SsiCurve::SurfacePair { .. } => unreachable!(
+                "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+            ),
             SsiCurve::Ellipse {
                 center,
                 normal,
@@ -131,6 +134,9 @@ fn expect_two_ellipses(curves: &[SsiCurve]) -> Vec<EllipseParts> {
 
 fn ellipse_parts(c: &SsiCurve) -> EllipseParts {
     match c {
+        SsiCurve::SurfacePair { .. } => unreachable!(
+            "this suite's solvers never produce a surface-pair curve (M5 cyl×cyl only)"
+        ),
         SsiCurve::Ellipse {
             center,
             normal,
@@ -419,19 +425,19 @@ fn attack3_coplanarity_band_edge() {
         }
     }
 
-    // line_gap = 2·TAU > TAU ⇒ skew ⇒ ASNA (both argument orders).
+    // line_gap = 2·TAU > TAU ⇒ skew ⇒ SurfacePair (both argument orders).
     {
         let dz = 2.0 * TAU_MODEL;
         let c2 = cyl(0.0, 0.0, dz, 0.0, 1.0, 0.0, r);
         assert_eq!(
             intersect(&c1, &c2),
-            Err(SsiError::AnalyticalSolutionNotAvailable),
-            "line_gap=2·TAU (skew) ⇒ ASNA"
+            Ok(vec![SsiCurve::SurfacePair { a: c1, b: c2 }]),
+            "line_gap=2·TAU (skew) ⇒ surface-pair"
         );
         assert_eq!(
             intersect(&c2, &c1),
-            Err(SsiError::AnalyticalSolutionNotAvailable),
-            "line_gap=2·TAU (skew) reversed ⇒ ASNA"
+            Ok(vec![SsiCurve::SurfacePair { a: c2, b: c1 }]),
+            "line_gap=2·TAU (skew) reversed ⇒ surface-pair"
         );
     }
 }
@@ -446,18 +452,18 @@ fn attack4_equal_r_band_edge() {
     let base_r = 2.0;
     let c1 = cyl(0.0, 0.0, 0.0, 1.0, 0.0, 0.0, base_r);
 
-    // |r₁−r₂| = 2·TAU > TAU ⇒ unequal ⇒ ASNA.
+    // |r₁−r₂| = 2·TAU > TAU ⇒ unequal ⇒ SurfacePair (S2).
     {
         let c2 = cyl(0.0, 0.0, 0.0, 0.0, 1.0, 0.0, base_r + 2.0 * TAU_MODEL);
         assert_eq!(
             intersect(&c1, &c2),
-            Err(SsiError::AnalyticalSolutionNotAvailable),
-            "|r₁−r₂|=2·TAU ⇒ ASNA"
+            Ok(vec![SsiCurve::SurfacePair { a: c1, b: c2 }]),
+            "|r₁−r₂|=2·TAU ⇒ surface-pair"
         );
         assert_eq!(
             intersect(&c2, &c1),
-            Err(SsiError::AnalyticalSolutionNotAvailable),
-            "|r₁−r₂|=2·TAU reversed ⇒ ASNA"
+            Ok(vec![SsiCurve::SurfacePair { a: c2, b: c1 }]),
+            "|r₁−r₂|=2·TAU reversed ⇒ surface-pair"
         );
     }
 
