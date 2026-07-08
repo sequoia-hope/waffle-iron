@@ -370,6 +370,155 @@ pub(crate) fn ellipse_interior_samples(
     Ok(samples)
 }
 
+/// Convergence tolerance of the surface-pair Newton projection — mirrors
+/// yang-rs's tested `relocate_onto_implicit_pair` contract (both residuals
+/// ≤ 1e-13; meters-scale models).
+const SURFACE_PAIR_PROJECT_TAU: f64 = 1e-13;
+
+/// Depth cap of the recursive chord refinement (2¹² sub-chords per edge —
+/// producer edges are sub-facet sized; hand-built edges spanning a large
+/// sweep still fit comfortably).
+const SURFACE_PAIR_REFINE_DEPTH: u32 = 12;
+
+/// Project `p` onto the intersection curve of the pair by Gauss–Newton on
+/// the two implicit residuals (Ref #24 Yang et al. 2025 §4.3 — the paper's
+/// local refinement; same operator as yang-rs `relocate_onto_implicit_pair`).
+/// With unit gradients g₁, g₂ the normal-equations step is
+/// `x ← x − (λ₁g₁ + λ₂g₂)`, `[1 c; c 1]·λ = f`, `c = g₁·g₂` — undefined
+/// (typed failure) when the normals are parallel (tangency; det = sin²θ).
+fn project_onto_surface_pair(
+    a: &crate::arena::PairSurface,
+    b: &crate::arena::PairSurface,
+    p: Point3,
+) -> Result<Point3, &'static str> {
+    let mut x = [p.x(), p.y(), p.z()];
+    for _ in 0..32 {
+        let Some((f1, g1)) = crate::geom::pair_surface_residual_gradient(a, x) else {
+            return Err("surface-pair projection hit a defining surface's axis");
+        };
+        let Some((f2, g2)) = crate::geom::pair_surface_residual_gradient(b, x) else {
+            return Err("surface-pair projection hit a defining surface's axis");
+        };
+        if f1.abs() <= SURFACE_PAIR_PROJECT_TAU && f2.abs() <= SURFACE_PAIR_PROJECT_TAU {
+            return Ok(Point3::new(x[0], x[1], x[2]));
+        }
+        let c = g1[0] * g2[0] + g1[1] * g2[1] + g1[2] * g2[2];
+        let det = 1.0 - c * c;
+        // NaN-safe gate: a NaN det must fail too, not fall through.
+        if det <= 1e-12 || det.is_nan() {
+            return Err("surface-pair projection at a tangency (parallel surface normals)");
+        }
+        let l1 = (f1 - c * f2) / det;
+        let l2 = (f2 - c * f1) / det;
+        for k in 0..3 {
+            x[k] -= l1 * g1[k] + l2 * g2[k];
+        }
+        if !x.iter().all(|v| v.is_finite()) {
+            return Err("surface-pair projection diverged (non-finite iterate)");
+        }
+    }
+    Err("surface-pair Newton projection did not converge")
+}
+
+/// Interior render samples of a procedural surface-pair curve piece between
+/// two CERTIFIED on-curve endpoints (M5, `specs/m5_surface_pair_curve.md`
+/// K9): recursive chord bisection, each midpoint Newton-projected onto BOTH
+/// surfaces, splitting while the chord sag exceeds `chord_tol`. Endpoints
+/// excluded; samples in `start → end` order. Typed failure (never a silent
+/// chord fallback, P9) on tangency, non-convergence, or a projection that
+/// leaves the chord's neighborhood (basin escape).
+pub fn surface_pair_interior_samples(
+    a: &crate::arena::PairSurface,
+    b: &crate::arena::PairSurface,
+    start: Point3,
+    end: Point3,
+    chord_tol: f64,
+) -> Result<Vec<Point3>, &'static str> {
+    if !(chord_tol.is_finite() && chord_tol > 0.0) {
+        return Err("surface-pair refinement needs a positive finite chord tolerance");
+    }
+    fn refine(
+        a: &crate::arena::PairSurface,
+        b: &crate::arena::PairSurface,
+        p0: Point3,
+        p1: Point3,
+        chord_tol: f64,
+        depth: u32,
+        out: &mut Vec<Point3>,
+    ) -> Result<(), &'static str> {
+        let m = Point3::new(
+            0.5 * (p0.x() + p1.x()),
+            0.5 * (p0.y() + p1.y()),
+            0.5 * (p0.z() + p1.z()),
+        );
+        let mp = project_onto_surface_pair(a, b, m)?;
+        let sag =
+            ((mp.x() - m.x()).powi(2) + (mp.y() - m.y()).powi(2) + (mp.z() - m.z()).powi(2)).sqrt();
+        if sag <= chord_tol {
+            return Ok(());
+        }
+        if depth == 0 {
+            return Err("surface-pair refinement depth cap exceeded");
+        }
+        let chord =
+            ((p1.x() - p0.x()).powi(2) + (p1.y() - p0.y()).powi(2) + (p1.z() - p0.z()).powi(2))
+                .sqrt();
+        // NaN-safe gate (a NaN sag/chord must fail, not recurse).
+        if sag >= chord || sag.is_nan() || chord.is_nan() {
+            return Err("surface-pair projection left the chord neighborhood");
+        }
+        refine(a, b, p0, mp, chord_tol, depth - 1, out)?;
+        out.push(mp);
+        refine(a, b, mp, p1, chord_tol, depth - 1, out)
+    }
+    let mut out = Vec::new();
+    refine(
+        a,
+        b,
+        start,
+        end,
+        chord_tol,
+        SURFACE_PAIR_REFINE_DEPTH,
+        &mut out,
+    )?;
+    Ok(out)
+}
+
+/// Interior sample points of a surface-pair half-edge at the render chord
+/// bound, endpoints excluded, in the half-edge's walk direction.
+/// Twin-canonical exactly like [`arc_interior_samples`] (computed on the
+/// lower-id half-edge, reversed for the other side). The absolute sag
+/// tolerance is the chord sag of the `2π/n_seg` circle step on the pair's
+/// SMALLER radius — the same density contract the circle sampling uses, so
+/// no new tolerance is introduced.
+pub(crate) fn surface_pair_edge_samples(
+    arena: &BrepArena,
+    h: crate::arena::HalfEdgeId,
+    n_seg: u32,
+) -> Result<Vec<Point3>, KernelV2Error> {
+    let he = arena.half_edge(h)?;
+    if !matches!(he.curve, Curve::SurfacePair { .. }) {
+        return Ok(Vec::new());
+    }
+    let canon = h.min(he.twin);
+    let che = arena.half_edge(canon)?;
+    let Curve::SurfacePair { a, b } = che.curve else {
+        return Err(KernelV2Error::CurveTwinMismatch { half_edge: canon });
+    };
+    let fid = arena.loop_(che.loop_id)?.face;
+    let start = arena.vertex(che.origin)?.point;
+    let end = arena.vertex(arena.half_edge(che.next)?.origin)?.point;
+    let r_scale = crate::geom::pair_surface_scale(&a).min(crate::geom::pair_surface_scale(&b));
+    let step = std::f64::consts::PI / f64::from(n_seg);
+    let tol = r_scale * (1.0 - step.cos());
+    let mut samples = surface_pair_interior_samples(&a, &b, start, end, tol)
+        .map_err(|reason| KernelV2Error::TessellationFailed { face: fid, reason })?;
+    if h != canon {
+        samples.reverse();
+    }
+    Ok(samples)
+}
+
 /// A loop's boundary polyline for planar tessellation: origin vertices in
 /// walk order, with arc edges (PR-KV5b) expanded to their chord-bound
 /// samples. Pure-segment loops come back exactly as `loop_points` (the
@@ -415,6 +564,14 @@ fn sampled_loop_points(
             }
         } else if matches!(he.curve, Curve::EllipseArc { .. }) {
             pts.extend(ellipse_interior_samples(arena, h, n_seg)?);
+        } else if matches!(he.curve, Curve::SurfacePair { .. }) {
+            // M5 K8: a transversal quadric-pair curve is never planar —
+            // loud, not an empty-sample fall-through.
+            let fid = arena.loop_(he.loop_id)?.face;
+            return Err(KernelV2Error::TessellationFailed {
+                face: fid,
+                reason: "surface-pair edge on a planar face (never planar)",
+            });
         } else {
             pts.extend(arc_interior_samples(arena, h, n_seg)?);
         }
@@ -2289,6 +2446,33 @@ fn tessellate_developable_patch(
                 }
                 Curve::Circle { .. } => {
                     return Err(fail("full-circle edge inside a partial cylinder patch"))
+                }
+                // M5: quartic boundary piece. Each certified sample advances
+                // the unroll azimuth by its own small wrapped Δθ (samples
+                // are chord-bound dense — every step is far below π, so
+                // `wrap_to_pi` is unambiguous; the uniform-fraction shortcut
+                // of the arc arms does not apply because the quartic's
+                // azimuth advance is non-uniform in arc length).
+                Curve::SurfacePair { .. } => {
+                    let samples = surface_pair_edge_samples(arena, h, n_seg)?;
+                    let mut theta_prev = theta_p;
+                    entries.push((origin_node, PatchEdgeKind::ArcSample));
+                    for sp in &samples {
+                        let (theta_s, sh) = theta_h(*sp, e1, e2)?;
+                        let delta = crate::geom::wrap_to_pi(theta_s - theta_prev);
+                        u_cur += sense * delta * r_unroll;
+                        total_theta += delta;
+                        theta_prev = theta_s;
+                        entries.push((nodes.len(), PatchEdgeKind::ArcSample));
+                        nodes.push(PatchNode {
+                            p2: Point2::new(u_cur, sh),
+                            pos: [sp.x(), sp.y(), sp.z()],
+                        });
+                    }
+                    let (theta_q, _) = theta_h(q, e1, e2)?;
+                    let delta = crate::geom::wrap_to_pi(theta_q - theta_prev);
+                    u_cur += sense * delta * r_unroll;
+                    total_theta += delta;
                 }
             }
         }

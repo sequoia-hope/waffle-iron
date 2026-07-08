@@ -286,6 +286,33 @@ pub enum Surface {
 pub enum Curve {
     /// Straight segment from the half-edge's origin to its destination.
     LineSegment,
+    /// Procedural surface-pair curve (M5, `specs/m5_surface_pair_curve.md`):
+    /// the general-position quadric-pair intersection piece between the
+    /// half-edge's origin and destination, defined IMPLICITLY and exactly by
+    /// its two analytic surfaces ([#24] Yang et al. 2025 §4.1.2/§4.3;
+    /// Constitution P8 degree-4 clarification — a procedural curve whose
+    /// defining surfaces are exact IS an analytical representation).
+    ///
+    /// Conventions:
+    /// - Both endpoints lie ON BOTH surfaces (validated per-point residual);
+    ///   interior render samples are minted by Newton projection onto both
+    ///   surfaces (`tessellate::surface_pair_interior_samples`), never
+    ///   carried as a stored point array (the certified point sequence of
+    ///   the paper is the boolean output's vertex chain itself).
+    /// - Twins carry BIT-IDENTICAL `a`/`b` (like `EllipseArc` twins share
+    ///   `major_axis`); traversal direction is endpoint-determined — there
+    ///   is no directional normal and no minor-arc derivation.
+    /// - A closed (`origin == dest`) surface-pair half-edge has no producer
+    ///   and is rejected by `validate_solid`.
+    /// - Placement on a `Plane` face is invalid: a transversal quadric-pair
+    ///   curve is never planar (degenerate configurations produce conics
+    ///   upstream in ssi-rs).
+    SurfacePair {
+        /// First defining surface (ssi call order, preserved verbatim).
+        a: PairSurface,
+        /// Second defining surface.
+        b: PairSurface,
+    },
     /// Full circle of `radius` about `center`, traversed counterclockwise
     /// around unit `normal`, anchored at the half-edge's origin vertex
     /// (which lies on the circle).
@@ -334,6 +361,27 @@ pub enum Curve {
         major_radius: f64,
         /// Semi-minor radius (meters, > 0, ≤ `major_radius`).
         minor_radius: f64,
+    },
+}
+
+/// Unsigned analytic surface descriptor for [`Curve::SurfacePair`] — the
+/// curve is a point set, so unlike [`Surface`] there is NO `reversed`
+/// cavity flag (orientation lives on faces, traversal on half-edges).
+///
+/// `#[non_exhaustive]`: `Cone` joins when the cone-pair producer lands
+/// (the R0008/R0003 `AmbiguousCurve` class); the first producer is
+/// general-position cylinder×cylinder (M5).
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
+pub enum PairSurface {
+    /// Infinite right-circular cylinder: `dist(x, axis) = radius`.
+    Cylinder {
+        /// Any point on the axis.
+        axis_point: Point3,
+        /// Unit axis direction.
+        axis_dir: UnitVector3,
+        /// Cylinder radius (meters, > 0).
+        radius: f64,
     },
 }
 

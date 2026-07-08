@@ -85,7 +85,8 @@ pub use adapter::KernelV2Adapter;
 
 pub use arena::{
     BrepArena, Curve, EulerCounts, Face, FaceId, HalfEdge, HalfEdgeId, Loop, LoopBoundary, LoopId,
-    LoopKind, Pid, Plane, Shell, ShellId, Solid, SolidId, Surface, UnitVector3, Vertex, VertexId,
+    LoopKind, PairSurface, Pid, Plane, Shell, ShellId, Solid, SolidId, Surface, UnitVector3,
+    Vertex, VertexId,
 };
 pub use boolean::{boolean_op, from_yang_brep, split_solid_into_bodies, to_yang_brep};
 pub use construct::{
@@ -99,7 +100,8 @@ pub use introspect::{extract_edges, extract_edges_with_chord_tolerance, face_pla
 pub use journal::{descendants, face_lineage, EvoKind, Evolution, FaceLineage, OpTag};
 pub use profile::{Profile, ProfileEdge, ProfileRegion};
 pub use tessellate::{
-    circle_segment_count, tessellate, tessellate_with_chord_tolerance, FaceRange, RenderMesh,
-    MIN_CIRCLE_SEGMENTS, RENDER_CHORD_TOLERANCE_REL,
+    circle_segment_count, surface_pair_interior_samples, tessellate,
+    tessellate_with_chord_tolerance, FaceRange, RenderMesh, MIN_CIRCLE_SEGMENTS,
+    RENDER_CHORD_TOLERANCE_REL,
 };
 pub use validate::{validate_solid, TopologyReport};

@@ -233,7 +233,11 @@ pub fn to_yang_brep_indexed(
                                 // sections) have no yang Stage-1 INPUT
                                 // tessellation yet — boolean outputs carrying
                                 // them are terminal for chaining (typed wall).
-                                Curve::EllipseArc { .. } => {
+                                // M5 K11: surface-pair (degree-4) boundaries
+                                // are the same wall — chained booleans on
+                                // quartic-bounded bodies are a later
+                                // milestone.
+                                Curve::EllipseArc { .. } | Curve::SurfacePair { .. } => {
                                     return Err(KernelV2Error::UnsupportedCurvedBoolean {
                                         face: f,
                                     });
@@ -425,7 +429,9 @@ pub fn to_yang_brep_indexed(
                                 match he.curve {
                                     // PR-KV9: no yang INPUT vocabulary for
                                     // ellipse arcs — typed re-entry wall.
-                                    Curve::EllipseArc { .. } => {
+                                    // M5 K11: same wall for surface-pair
+                                    // (degree-4) boundaries.
+                                    Curve::EllipseArc { .. } | Curve::SurfacePair { .. } => {
                                         return Err(KernelV2Error::UnsupportedCurvedBoolean {
                                             face: f,
                                         });

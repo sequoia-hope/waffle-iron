@@ -213,7 +213,9 @@ pub fn signed_volume(
                             normal,
                             radius,
                         } => circles.push((center, normal, radius)),
-                        Curve::Arc { .. } | Curve::EllipseArc { .. } => has_arcs = true,
+                        Curve::Arc { .. }
+                        | Curve::EllipseArc { .. }
+                        | Curve::SurfacePair { .. } => has_arcs = true,
                         Curve::LineSegment => {}
                     }
                 }
@@ -484,6 +486,16 @@ pub(crate) fn planar_face_signed_area2(
                     return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
                         face: f,
                         reason: "signed_volume: loop mixes full circles with arcs",
+                    });
+                }
+                // M5: a transversal quadric-pair curve is never planar
+                // (degenerate configurations produce conics upstream) —
+                // its presence on a planar face is a defect, not a
+                // missing closed form.
+                Curve::SurfacePair { .. } => {
+                    return Err(crate::error::KernelV2Error::CurvedGeometryMismatch {
+                        face: f,
+                        reason: "signed_volume: surface-pair edge on a planar face",
                     });
                 }
             }
@@ -767,6 +779,15 @@ fn cylinder_arc_patch_flux(
                         "signed_volume: cylinder patch mixes full circles with arcs",
                     ));
                 }
+                // M5: the degree-4 surface-pair boundary has NO closed-form
+                // flux (that is the point of the procedural representation)
+                // — loud, never a chord-polyline approximation (P9).
+                Curve::SurfacePair { .. } => {
+                    return Err(mismatch(
+                        "signed_volume: surface-pair (degree-4) patch boundary has no \
+                         closed form",
+                    ));
+                }
             }
         }
     }
@@ -913,10 +934,59 @@ fn cone_arc_patch_flux(
                         "signed_volume: cone patch mixes full circles with arcs",
                     ));
                 }
+                // M5: no closed-form flux for the degree-4 boundary (see the
+                // cylinder-patch arm).
+                Curve::SurfacePair { .. } => {
+                    return Err(mismatch(
+                        "signed_volume: surface-pair (degree-4) patch boundary has no \
+                         closed form",
+                    ));
+                }
             }
         }
     }
     Ok(tan_a * sum / 3.0)
+}
+
+/// Signed implicit residual and unit gradient of a [`PairSurface`] at `p`
+/// (M5 surface-pair curve, `specs/m5_surface_pair_curve.md`). For a
+/// cylinder: `f(p) = dist(p, axis) − r`, `∇f = radial unit direction`
+/// ([#24] Yang et al. 2025 §4.3 — the local Newton projection operates on
+/// exactly these implicit forms). `None` when the gradient is undefined
+/// (point on the axis).
+pub(crate) fn pair_surface_residual_gradient(
+    s: &crate::arena::PairSurface,
+    p: [f64; 3],
+) -> Option<(f64, [f64; 3])> {
+    match *s {
+        crate::arena::PairSurface::Cylinder {
+            axis_point,
+            axis_dir,
+            radius,
+        } => {
+            let a = [axis_dir.x, axis_dir.y, axis_dir.z];
+            let d = [
+                p[0] - axis_point.x(),
+                p[1] - axis_point.y(),
+                p[2] - axis_point.z(),
+            ];
+            let t = d[0] * a[0] + d[1] * a[1] + d[2] * a[2];
+            let r = [d[0] - t * a[0], d[1] - t * a[1], d[2] - t * a[2]];
+            let rl = (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt();
+            if !(rl.is_finite() && rl > 0.0) {
+                return None;
+            }
+            Some((rl - radius, [r[0] / rl, r[1] / rl, r[2] / rl]))
+        }
+    }
+}
+
+/// The characteristic length of a [`PairSurface`] (its radius) — the scale
+/// that enters residual bands, mirroring the circle/ellipse import bands.
+pub(crate) fn pair_surface_scale(s: &crate::arena::PairSurface) -> f64 {
+    match *s {
+        crate::arena::PairSurface::Cylinder { radius, .. } => radius,
+    }
 }
 
 /// `Σᵢ det[r, pᵢ, pᵢ₊₁]` (cyclic) — six times the signed volume contribution

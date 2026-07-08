@@ -225,12 +225,56 @@ pub fn validate_solid(arena: &BrepArena, solid: SolidId) -> Result<TopologyRepor
         if matches!(he.curve, Curve::Circle { .. }) && !closes {
             return Err(KernelV2Error::CurveTwinMismatch { half_edge: h });
         }
-        if matches!(he.curve, Curve::Arc { .. } | Curve::EllipseArc { .. }) && closes {
+        if matches!(
+            he.curve,
+            Curve::Arc { .. } | Curve::EllipseArc { .. } | Curve::SurfacePair { .. }
+        ) && closes
+        {
+            // A closed single-edge surface-pair loop has no producer (M5
+            // outputs are per-mesh-edge chains) — rejected like a closed arc.
             return Err(KernelV2Error::CurveTwinMismatch { half_edge: h });
         }
     }
     debug_assert_eq!(he_set.len() % 2, 0);
     let edges = he_set.len() / 2;
+
+    // ---- invariant 1b: surface-pair endpoint residuals (M5, K7) ----------
+    // Every endpoint of a surface-pair edge lies ON BOTH defining surfaces
+    // within the import band — the per-point certification contract of the
+    // procedural curve (specs/m5_surface_pair_curve.md; [#24] §4.1.2). The
+    // origin check per half-edge covers both endpoints across the twin pair.
+    for &h in &he_set {
+        let he = arena.half_edge(h)?;
+        let Curve::SurfacePair { a, b } = he.curve else {
+            continue;
+        };
+        let f = arena.loop_(he.loop_id)?.face;
+        let p = arena.vertex(he.origin)?.point;
+        for (s, which) in [
+            (a, "surface-pair-endpoint-a"),
+            (b, "surface-pair-endpoint-b"),
+        ] {
+            let Some((residual, _)) =
+                geom::pair_surface_residual_gradient(&s, [p.x(), p.y(), p.z()])
+            else {
+                return Err(KernelV2Error::CurvedGeometryMismatch {
+                    face: f,
+                    reason: "surface-pair endpoint on a defining surface's axis",
+                });
+            };
+            let band = import_band(geom::pair_surface_scale(&s), p);
+            if residual.abs() > band {
+                return Err(vertex_off_surface(
+                    f,
+                    which,
+                    p,
+                    residual.abs(),
+                    band,
+                    &format!("{s:?}"),
+                ));
+            }
+        }
+    }
 
     // ---- invariant 3: vertex manifoldness (single radial fan) ------------
     let mut fans: BTreeMap<VertexId, Vec<HalfEdgeId>> = BTreeMap::new();
@@ -372,6 +416,12 @@ fn curves_twin_consistent(a: Curve, b: Curve) -> bool {
                 && n2.x == -n1.x
                 && n2.y == -n1.y
                 && n2.z == -n1.z
+        }
+        (Curve::SurfacePair { a: a1, b: b1 }, Curve::SurfacePair { a: a2, b: b2 }) => {
+            // M5: twins carry BIT-IDENTICAL surface pairs — both are minted
+            // from the same ssi descriptor; there is no directional normal
+            // to negate (traversal is endpoint-determined).
+            a1 == a2 && b1 == b2
         }
         _ => false,
     }
@@ -659,6 +709,17 @@ fn validate_planar_face(
                     Curve::Arc { center, radius, .. } => (center, radius, true),
                     // EllipseArc handled (and continued) above.
                     Curve::LineSegment | Curve::EllipseArc { .. } => continue,
+                    // M5 K8: a transversal quadric-pair curve is never
+                    // planar — degenerate configurations produce conics
+                    // upstream in ssi-rs. Placement on a plane face is a
+                    // defect, typed and loud.
+                    Curve::SurfacePair { .. } => {
+                        return Err(KernelV2Error::CurvedGeometryMismatch {
+                            face: f,
+                            reason: "surface-pair edge on a planar face (a transversal \
+                                     quadric-pair curve is never planar)",
+                        });
+                    }
                 };
                 let plane_band = if is_arc {
                     import_band(radius, center)
@@ -1224,6 +1285,17 @@ fn validate_cone_patch(
                     // the canonical path. Loud, defensively.
                     return Err(mismatch("full-circle edge inside a partial cone patch"));
                 }
+                // M5: a surface-pair boundary piece advances the walk by its
+                // endpoint azimuths (endpoint-determined traversal; the
+                // on-surface certification is invariant 1b, and the endpoint
+                // residual against THIS face's surface is the shared
+                // off-surface sweep below).
+                Curve::SurfacePair { .. } => {
+                    let Some((theta_q, _)) = radial_theta_tau(q, e1, e2) else {
+                        return Err(mismatch("cone patch vertex lies on the axis"));
+                    };
+                    geom::wrap_to_pi(theta_q - theta_p)
+                }
             };
             u_cur += delta;
             total += delta;
@@ -1622,6 +1694,16 @@ fn validate_cylinder_patch(
                     // Unreachable: the dispatcher sends full-circle faces to
                     // the canonical path. Loud, defensively.
                     return Err(mismatch("full-circle edge inside a partial cylinder patch"));
+                }
+                // M5: a surface-pair boundary piece advances the walk by its
+                // endpoint azimuths (endpoint-determined traversal; on-curve
+                // certification is invariant 1b, per-vertex surface agreement
+                // is the shared off-surface sweep).
+                Curve::SurfacePair { .. } => {
+                    let Some((theta_q, _)) = radial_theta_h(q, e1, e2) else {
+                        return Err(mismatch("cylinder patch vertex lies on the axis"));
+                    };
+                    geom::wrap_to_pi(theta_q - theta_p)
                 }
             };
             u_cur += delta;
