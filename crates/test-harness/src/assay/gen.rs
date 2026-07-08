@@ -371,46 +371,64 @@ pub fn random_operation(rng: &mut impl Rng, scale: f64, is_first: bool) -> (Stri
 /// Compute the expected Euler characteristic from the operation list.
 ///
 /// A cut operation that fully penetrates the body creates a through-hole
-/// (genus += 1), so χ = 2 - 2g. Detection heuristic: if a cut's depth is
-/// >= the first boss's depth, assume it creates a through-hole.
+/// (genus += 1), so χ = 2 - 2g. Detection heuristic: a same-plane extrude cut
+/// whose depth is >= the first boss's depth creates a through-hole.
 ///
-/// Conservative: only predict through-holes for simple 2-op cases where a
-/// single extrude cut on the same sketch plane fully penetrates the boss.
+/// The through-hole PERSISTS through any number of trailing CUT operations —
+/// cuts remove material but do not re-close the ring. We only bail to the
+/// genus-0 default (χ=2) when a later BOSS appears, since a boss can refill
+/// the hole (topology we cannot model from metadata alone).
 ///
-/// We avoid predicting through-holes when:
-/// - Operations use different sketch planes (cut axis misaligned with boss)
-/// - The cut is a revolve (angle vs depth comparison is meaningless)
-/// - There are 3+ operations (subsequent bosses can fill holes)
+/// **Why the equality oracle demands this** (R0099, 2026-07-08): the euler
+/// oracle checks EXACT equality against this target. An earlier version
+/// returned χ=2 for every 3+-op case on the assumption that over-predicting
+/// was "lenient" — but for a boss + through-cut + (revolve-)cut sequence the
+/// TRUE topology is genus-1 (χ=0), so predicting 2 REJECTS correct geometry.
+/// R0099 (`extrude(circle,boss)+extrude(circle,through-cut)+revolve(rect,cut)`)
+/// is exactly this class: the concentric through-cut opens a genus-1 tube and
+/// the partial revolve-cut only notches the wall (verified genus-1 by
+/// point-in-solid analysis of the kernel output). See the
+/// `assay_baseline_207_r0099_wrong` investigation.
 ///
-/// When uncertain, predict χ=2 (no through-hole). A missed through-hole
-/// only makes the oracle lenient — it never rejects correct geometry.
+/// We still avoid predicting genus changes from:
+/// - Revolve cuts (angle vs depth comparison is meaningless — a revolve does
+///   not create a predictable through-hole; it only ever REMOVES material,
+///   which is why it cannot re-close an existing hole)
+/// - Multi-plane cuts (cut axis misaligned with boss → penetration unknown)
+/// - Any boss after the first (may refill a hole)
 pub fn compute_euler_target(ops: &[OpMeta]) -> i64 {
-    // Only predict through-holes for exactly 2-op cases (boss + cut)
-    if ops.len() != 2 {
+    // Must start with a boss.
+    let Some(boss) = ops.first() else {
         return 2;
-    }
-
-    let boss = &ops[0];
-    let cut = &ops[1];
-
-    // Must be boss then cut
-    if boss.is_cut || !cut.is_cut {
-        return 2;
-    }
-
-    // Only predict through-hole for extrude cuts (not revolves)
-    if cut.kind != "extrude" {
-        return 2;
-    }
-
-    // Only predict through-hole when cut shares the same plane normal
-    // as the boss (multi-plane cuts rarely penetrate fully)
-    let same_plane = match (boss.plane_normal, cut.plane_normal) {
-        (None, None) => true, // both use case-level plane
-        _ => false,           // different planes → can't predict
     };
+    if boss.is_cut {
+        return 2;
+    }
 
-    if same_plane && cut.depth_or_angle >= boss.depth_or_angle {
+    // Scan the trailing ops for a same-plane penetrating extrude-cut. A boss
+    // appearing after a detected through-hole may refill it → indeterminate.
+    let mut through_hole = false;
+    for op in &ops[1..] {
+        if !op.is_cut {
+            // A later boss can fill the hole we just opened — bail to the
+            // genus-0 default. (A boss before any hole is harmless additive
+            // geometry that keeps χ=2.)
+            if through_hole {
+                return 2;
+            }
+            continue;
+        }
+
+        // A cut. Only a same-plane extrude cut that fully penetrates the boss
+        // opens a through-hole; revolve/multi-plane cuts do not (and, being
+        // material-removal, never re-close an existing hole either).
+        let same_plane = boss.plane_normal.is_none() && op.plane_normal.is_none();
+        if op.kind == "extrude" && same_plane && op.depth_or_angle >= boss.depth_or_angle {
+            through_hole = true;
+        }
+    }
+
+    if through_hole {
         0 // genus=1 through-hole: χ = 2 - 2(1) = 0
     } else {
         2
@@ -4706,6 +4724,80 @@ mod tests {
                 profile_type: "rectangle".to_string(),
                 profile_size: 0.8,
                 depth_or_angle: 1.0,
+                is_cut: false,
+                plane_origin: None,
+                plane_normal: None,
+            },
+        ];
+        assert_eq!(compute_euler_target(&ops), 2);
+    }
+
+    #[test]
+    fn euler_target_boss_throughcut_revolvecut_persists_zero() {
+        // R0099 class: boss + same-plane penetrating extrude-cut (through-hole)
+        // + revolve-cut. The revolve-cut only removes material; it cannot
+        // re-close the genus-1 tube → χ stays 0. (Point-in-solid analysis of
+        // the kernel output confirms the ring is intact — the partial revolve
+        // merely notches the wall.)
+        let ops = vec![
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "circle".to_string(),
+                profile_size: 3.125,
+                depth_or_angle: 1.945,
+                is_cut: false,
+                plane_origin: None,
+                plane_normal: None,
+            },
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "circle".to_string(),
+                profile_size: 2.24,
+                depth_or_angle: 4.612,
+                is_cut: true,
+                plane_origin: None,
+                plane_normal: None,
+            },
+            OpMeta {
+                kind: "revolve".to_string(),
+                profile_type: "rectangle".to_string(),
+                profile_size: 6.24,
+                depth_or_angle: 323.7,
+                is_cut: true,
+                plane_origin: None,
+                plane_normal: None,
+            },
+        ];
+        assert_eq!(compute_euler_target(&ops), 0);
+    }
+
+    #[test]
+    fn euler_target_throughcut_then_boss_bails_to_2() {
+        // A boss AFTER a through-cut can refill the hole → indeterminate → 2.
+        let ops = vec![
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "rectangle".to_string(),
+                profile_size: 1.0,
+                depth_or_angle: 1.0,
+                is_cut: false,
+                plane_origin: None,
+                plane_normal: None,
+            },
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "circle".to_string(),
+                profile_size: 0.5,
+                depth_or_angle: 2.0,
+                is_cut: true,
+                plane_origin: None,
+                plane_normal: None,
+            },
+            OpMeta {
+                kind: "extrude".to_string(),
+                profile_type: "circle".to_string(),
+                profile_size: 0.4,
+                depth_or_angle: 2.0,
                 is_cut: false,
                 plane_origin: None,
                 plane_normal: None,

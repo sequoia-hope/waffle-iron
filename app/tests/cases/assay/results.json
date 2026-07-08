@@ -1,8 +1,8 @@
 {
   "errored": 41,
-  "failed": 1,
+  "failed": 0,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 207,
+  "passed": 208,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -593,10 +593,10 @@
       "status": "error"
     },
     {
-      "category": "SUPPORTED_WRONG",
-      "detail": "mesh_euler_characteristic: V(530) - E(1563) + F(1033) = 0 (expected 2 for 1 shell(s))",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0099",
-      "status": "fail"
+      "status": "pass"
     },
     {
       "category": "ERROR",
