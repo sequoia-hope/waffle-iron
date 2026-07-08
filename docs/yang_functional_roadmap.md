@@ -497,6 +497,31 @@ the roadmap's remaining work:
    Specs: `specs/n2_stage4_mesh_updating.md`, `specs/n2_stage4_dt_recompute.md`,
    `specs/n2_stage4_junction_cluster_merge.md` (amended ×2 — the grounding
    trail is recorded in its §0).
+   **§4.5.3 junction-protected collapse SHIPPED 2026-07-08 (spec
+   `specs/yang_453_junction_protected_collapse.md`):** the ERROR-census
+   ellipse-endpoint class (R0009/R0011/R0091,
+   `InvalidBooleanOutput("output ellipse-arc endpoint does not lie on its
+   ellipse")`) was TWO Stage-4 victim-selection bugs, both violating Yang's
+   "points along ONE curve C" scope. **(a) SHIPPED:** the §4.5.3 reversal
+   sweep collapsed the NEXT point even when it was a curve-JUNCTION vertex
+   (the exact shared endpoint of two conic sections — R0011's gear-flank ×
+   revolve-cylinder loop lost all seven junctions, merging arcs of different
+   ellipses into single output edges). Fix `reversal_collapse_direction`:
+   junction p_n survives; the overshooting p_r is the victim. R0011
+   ERROR(ellipse wall) → deeper loud render-CDT wall (R0072 class).
+   **(b) DIAGNOSED, BANKED-UNWIRED:** the §4.4.1(b) sub-feature merge picks
+   its survivor by LOWER INDEX, destroying an exactly-relocated conic
+   endpoint in favor of an unrelocated chord vertex (R0091 AND R0009's
+   ellipse walls — both micro scale). The ranked-survivor primitive
+   `sub_feature_merge_direction` (junction > conic endpoint > plain; equal
+   rank keeps the index rule) is banked with unit tests + mutation kills
+   but NOT wired: wiring it clears both ellipse walls (R0009 → 1
+   pre-existing non-2-manifold error, no WRONG) but flips R0091 ERROR →
+   SUPPORTED_WRONG (χ=−4 vs meta 2, unverifiable in-session — spec §3b
+   status has the unblock path: sidecar reference parity on the R0091
+   output, or refute the meta χ). Trackers
+   `test-harness/tests/s453_junction_collapse_campaign.rs`: R0011 GREEN;
+   R0009/R0091 documented `#[ignore]` RED (un-ignore when §3b wires).
 4. **N5 — Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2
    CDT framework** (per-surface ad-hoc Newell fans / rim rings instead).
 5. **N6 — §4.5.4 illegal-self-intersection detection/removal is absent.**

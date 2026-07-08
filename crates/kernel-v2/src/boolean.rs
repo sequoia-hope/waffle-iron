@@ -2010,10 +2010,13 @@ fn classify_edge(
                 if out_of_plane.abs() > band || (u.hypot(v) - 1.0).abs() * minor_radius > band {
                     if std::env::var("KV_ELLIPSE_PROBE").is_ok() {
                         eprintln!(
-                            "KV_ELLIPSE_PROBE reject: p={p:?} center={center:?} n={n:?} m={m:?} \
+                            "KV_ELLIPSE_PROBE reject: from={from} to={to} start={} end={} \
+                             p={p:?} center={center:?} n={n:?} m={m:?} \
                              a={major_radius:.17e} b={minor_radius:.17e} \
                              out_of_plane={out_of_plane:.3e} in_plane_resid={:.3e} band={band:.3e} \
                              u={u:.17} v={v:.17}",
+                            e.start,
+                            e.end,
                             (u.hypot(v) - 1.0).abs() * minor_radius,
                         );
                     }

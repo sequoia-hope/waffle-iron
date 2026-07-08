@@ -5791,6 +5791,22 @@ fn build_intersection_curves(
                 && signed_distance_to_surface(surf1, pt)?.abs() <= tol)
         };
         if !(on_both(p_s)? && on_both(p_e)?) {
+            if let Ok(list) = std::env::var("YANG_V_PROBE") {
+                if list
+                    .split(',')
+                    .any(|t| t.trim().parse::<u32>() == Ok(s) || t.trim().parse::<u32>() == Ok(e))
+                {
+                    eprintln!(
+                        "YANG_V_PROBE on-both gate SKIP edge ({s},{e}) tol={tol:.3e} \
+                         surf0={surf0:?} surf1={surf1:?} \
+                         d_s=({:.3e},{:.3e}) d_e=({:.3e},{:.3e})",
+                        signed_distance_to_surface(surf0, p_s)?.abs(),
+                        signed_distance_to_surface(surf1, p_s)?.abs(),
+                        signed_distance_to_surface(surf0, p_e)?.abs(),
+                        signed_distance_to_surface(surf1, p_e)?.abs(),
+                    );
+                }
+            }
             continue;
         }
 
@@ -8624,6 +8640,14 @@ fn stage4_relocate_and_correct(
         vert_ell_junction: &mut BTreeMap<u32, (EllipseReloc, EllipseReloc)>,
         endpoints: &mut Vec<u32>,
     ) {
+        if let Ok(list) = std::env::var("YANG_V_PROBE") {
+            if list.split(',').any(|t| t.trim().parse::<u32>() == Ok(v)) {
+                eprintln!(
+                    "YANG_V_PROBE insert_ellipse v={v} plane_n={:?} plane_d={:.17e} center={:?}",
+                    er.plane_n, er.plane_d, er.center,
+                );
+            }
+        }
         if let Some(prev) = vert_ellipse.get(&v).copied() {
             let same = prev.plane_d == er.plane_d
                 && prev.plane_n.as_array() == er.plane_n.as_array()
@@ -8676,6 +8700,17 @@ fn stage4_relocate_and_correct(
         endpoints.push(v);
     }
     let mut endpoints: Vec<u32> = Vec::new();
+    if let Ok(list) = std::env::var("YANG_V_PROBE") {
+        let probed: Vec<u32> = list
+            .split(',')
+            .filter_map(|t| t.trim().parse::<u32>().ok())
+            .collect();
+        for (&(s, e), curve) in &curves0 {
+            if probed.contains(&s) || probed.contains(&e) {
+                eprintln!("YANG_V_PROBE curves0 edge ({s},{e}) curve={curve:?}");
+            }
+        }
+    }
     for (&(s, e), curve) in &curves0 {
         match *curve {
             Curve::Parabola {
@@ -9343,6 +9378,44 @@ fn stage4_relocate_and_correct(
     // triangles touching THOSE verts are the ones Stage-4 validation gates
     // (spec §4.5 step 4: validate per RELOCATED triangle, not pre-existing
     // arrangement slivers that `boolean()` legitimately kept for watertightness).
+    if let Ok(list) = std::env::var("YANG_V_PROBE") {
+        for tok in list.split(',') {
+            let Ok(v) = tok.trim().parse::<u32>() else {
+                continue;
+            };
+            if let Some(er) = vert_ellipse.get(&v) {
+                eprintln!(
+                    "YANG_V_PROBE v={v} er plane_n={:?} plane_d={:.17e} center={:?} \
+                     normal={:?} major_axis={:?} a={:.17e} b={:.17e} second_cyl={:?}",
+                    er.plane_n,
+                    er.plane_d,
+                    er.center,
+                    er.normal,
+                    er.major_axis,
+                    er.major_radius,
+                    er.minor_radius,
+                    er.second_cyl,
+                );
+            }
+            eprintln!(
+                "YANG_V_PROBE v={v} p={:?} circle={} ellipse={} cone_ell={} parab={} hyp={} \
+                 line={} ell_junction={} circle_junction={} line_circle_junction={} \
+                 pp_planes={} endpoint={}",
+                mesh.verts.get(v as usize),
+                vert_circle.contains_key(&v),
+                vert_ellipse.contains_key(&v),
+                vert_cone_ellipse.contains_key(&v),
+                vert_parabola.contains_key(&v),
+                vert_cone_hyperbola.contains_key(&v),
+                vert_line.contains_key(&v),
+                vert_ell_junction.contains_key(&v),
+                vert_circle_junction.contains_key(&v),
+                vert_junction.contains_key(&v),
+                vert_pp_planes.contains_key(&v),
+                endpoints.contains(&v),
+            );
+        }
+    }
     let mut processed: HashSet<u32> = HashSet::new();
     let mut moved: HashSet<u32> = HashSet::new();
     let mut relocations: Vec<(u32, f64)> = Vec::new();
@@ -10140,6 +10213,15 @@ fn stage4_relocate_and_correct(
             .chain(vert_circle_junction.keys())
             .copied()
             .collect();
+        // Spec `yang_453_junction_protected_collapse` §3b: closed-form junction
+        // vertices (exact on TWO curves) outrank single-curve conic endpoints,
+        // which outrank plain mesh vertices, in merge-survivor selection.
+        let junction_verts: std::collections::BTreeSet<u32> = vert_ell_junction
+            .keys()
+            .chain(vert_circle_junction.keys())
+            .chain(vert_junction.keys())
+            .copied()
+            .collect();
         // Each pass collapses ≤1 sub-feature edge; bounded by the triangle count.
         let max_merge_passes = mesh.tris.len() + 1;
         let mut merge_passes = 0usize;
@@ -10185,6 +10267,16 @@ fn stage4_relocate_and_correct(
                     .min_by(|x, y| x.2.partial_cmp(&y.2).unwrap_or(std::cmp::Ordering::Equal))
                     .expect("3 edges");
                 if len < floor {
+                    // Spec `yang_453_junction_protected_collapse` §3b: the
+                    // exactness-ranked survivor (`sub_feature_merge_direction`,
+                    // Yang Fig. 11(b) — the exact vertex survives) is BANKED,
+                    // DELIBERATELY UNWIRED: wiring it flips R0091 from its
+                    // loud ellipse-endpoint ERROR to SUPPORTED_WRONG
+                    // (χ = −4 vs meta 2; unverifiable in-session — see spec
+                    // §3b status). The index rule stays until the R0091
+                    // output's true χ is verified (sidecar reference parity)
+                    // or the meta χ is refuted from the authored numbers.
+                    let _ = &junction_verts;
                     let survivor = u.min(v);
                     let victim = u.max(v);
                     to_merge = Some((victim, survivor));
@@ -10524,11 +10616,26 @@ fn sweep_reversed_intersections(
                 let p_r = verts[i];
                 let p_n = verts[(i + 1) % m];
                 if is_reversed(mesh, &curves, p_b, p_r, p_n, lo, hi) {
-                    // Collapse the next point p_n onto p_r (remove + reconnect).
-                    let dropped = collapse_vertex(mesh, attribution, p_n, p_r);
+                    // Spec `yang_453_junction_protected_collapse` §3: pick the
+                    // collapse victim so a curve-junction vertex (the exact
+                    // endpoint shared by two different conic sections) always
+                    // survives — Yang §4.5.3 removes points progressing along
+                    // ONE curve C, never C's endpoints.
+                    let p_after = verts[(i + 2) % m];
+                    let (victim, survivor) =
+                        reversal_collapse_direction(&curves, p_r, p_n, p_after);
+                    if std::env::var_os("YANG_V_PROBE").is_some() {
+                        eprintln!(
+                            "YANG_V_PROBE reversal collapse: p_b={p_b} p_r={p_r} p_n={p_n} \
+                             victim={victim} survivor={survivor} at {:?} <- {:?}",
+                            mesh.verts.get(survivor as usize),
+                            mesh.verts.get(victim as usize),
+                        );
+                    }
+                    let dropped = collapse_vertex(mesh, attribution, victim, survivor);
                     if dropped == 0 {
                         // Nothing collapsed ⇒ cannot make progress on this
-                        // reversal by removing the next point. LOUD STOP.
+                        // reversal. LOUD STOP.
                         return Err(YangError::Stage4ReversalUnresolved {
                             edge: if p_r < p_n { (p_r, p_n) } else { (p_n, p_r) },
                             vertex: p_r,
@@ -10545,6 +10652,77 @@ fn sweep_reversed_intersections(
             // Fixed point: no reversal remains.
             return Ok(collapsed_any);
         }
+    }
+}
+
+/// §4.5.3 collapse direction (spec `yang_453_junction_protected_collapse` §3):
+/// which loop vertex is REMOVED for a reversal detected at `p_r` with next
+/// point `p_n` (whose own next point is `p_after`)? Returns
+/// `(victim, survivor)` for [`collapse_vertex`].
+///
+/// Yang §4.5.3 (Fig. 15, `refs/text/yang2025_hybrid_boolean.txt:709-745`)
+/// removes `p_n` — but its setting is consecutive points progressing along ONE
+/// intersection curve C. When `p_n` is a curve JUNCTION (the loop's curve
+/// changes there: `curve(p_r,p_n) ≠ curve(p_n,p_after)`), `p_n` is C's exact
+/// closed-form endpoint and must survive; the out-of-order point is `p_r`
+/// itself, whose §4.4.1 relocation overshot C's end — so `p_r` collapses onto
+/// the junction. `is_reversed` returning true implies both edges at `p_r`
+/// carry the SAME curve (PR-KV11 guard), so `p_r` is never itself a junction
+/// here, and the victim always lies on the survivor's curve (spec I3).
+fn reversal_collapse_direction(
+    curves: &std::collections::BTreeMap<(u32, u32), Curve>,
+    p_r: u32,
+    p_n: u32,
+    p_after: u32,
+) -> (u32, u32) {
+    let key_n = if p_r < p_n { (p_r, p_n) } else { (p_n, p_r) };
+    let key_after = if p_n < p_after {
+        (p_n, p_after)
+    } else {
+        (p_after, p_n)
+    };
+    match (curves.get(&key_n), curves.get(&key_after)) {
+        (Some(cn), Some(ca)) if cn != ca => (p_r, p_n),
+        _ => (p_n, p_r),
+    }
+}
+
+/// §4.4.1(b) merge direction (spec `yang_453_junction_protected_collapse`
+/// §3b): which vertex of a sub-feature-floor edge `(u, v)` is REMOVED?
+/// Returns `(victim, survivor)` for [`collapse_vertex`].
+///
+/// Yang Fig. 11(b) merges the split-edge endpoint INTO the existing exact
+/// intersection point ("if an endpoint p of the split edge is too close to q,
+/// we merge p with q") — the exact vertex survives. Rank: closed-form
+/// junction (exact on TWO curves) > single-curve conic endpoint > plain mesh
+/// vertex; equal ranks keep the lower-index-survives rule byte-identical to
+/// the pre-fix behavior.
+///
+/// BANKED, DELIBERATELY UNWIRED (spec §3b status): wiring this at the (3c)
+/// merge call site flips R0091 ERROR → SUPPORTED_WRONG (χ = −4 vs meta 2,
+/// unverifiable in-session). Unit-tested + mutation-killed; wire it when the
+/// R0091 output's true χ is verified via sidecar reference parity or the
+/// meta χ is refuted.
+#[allow(dead_code)]
+fn sub_feature_merge_direction(
+    junction_verts: &std::collections::BTreeSet<u32>,
+    conic_endpoint: &std::collections::BTreeSet<u32>,
+    u: u32,
+    v: u32,
+) -> (u32, u32) {
+    let rank = |x: u32| -> u8 {
+        if junction_verts.contains(&x) {
+            2
+        } else if conic_endpoint.contains(&x) {
+            1
+        } else {
+            0
+        }
+    };
+    match rank(u).cmp(&rank(v)) {
+        std::cmp::Ordering::Greater => (v, u),
+        std::cmp::Ordering::Less => (u, v),
+        std::cmp::Ordering::Equal => (u.max(v), u.min(v)),
     }
 }
 
@@ -11992,6 +12170,96 @@ mod tests {
              the cluster band so the conformal weld never fuses it (no \
              tolerance-bucket masking)"
         );
+    }
+
+    // Spec `yang_453_junction_protected_collapse` §3: the §4.5.3 collapse
+    // victim is `p_n` on a same-curve run, but `p_r` when `p_n` is a curve
+    // junction (the loop's curve changes at `p_n`).
+    #[test]
+    fn s453_collapse_removes_p_n_on_same_curve_run() {
+        let circle = Curve::Circle {
+            center: p(0.0, 0.0, 0.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        };
+        let mut curves: std::collections::BTreeMap<(u32, u32), Curve> =
+            std::collections::BTreeMap::new();
+        curves.insert((1, 2), circle);
+        curves.insert((2, 3), circle);
+        assert_eq!(
+            reversal_collapse_direction(&curves, 1, 2, 3),
+            (2, 1),
+            "same curve beyond p_n ⇒ paper default: p_n is the victim"
+        );
+    }
+
+    #[test]
+    fn s453_collapse_protects_junction_p_n() {
+        let circle = Curve::Circle {
+            center: p(0.0, 0.0, 0.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        };
+        let other = Curve::Circle {
+            center: p(5.0, 0.0, 0.0),
+            normal: Vector3::new(0.0, 0.0, 1.0),
+            radius: 2.0,
+        };
+        let mut curves: std::collections::BTreeMap<(u32, u32), Curve> =
+            std::collections::BTreeMap::new();
+        curves.insert((1, 2), circle);
+        curves.insert((2, 3), other);
+        assert_eq!(
+            reversal_collapse_direction(&curves, 1, 2, 3),
+            (1, 2),
+            "curve changes at p_n ⇒ p_n is an exact curve-junction endpoint \
+             and must survive; the overshooting p_r is the victim"
+        );
+        // Canonical-key robustness: descending vertex ids on both edges.
+        let mut curves_rev: std::collections::BTreeMap<(u32, u32), Curve> =
+            std::collections::BTreeMap::new();
+        curves_rev.insert((7, 9), circle);
+        curves_rev.insert((3, 7), other);
+        assert_eq!(
+            reversal_collapse_direction(&curves_rev, 9, 7, 3),
+            (9, 7),
+            "junction protection must hold under canonical (min,max) edge keys"
+        );
+    }
+
+    // Spec §3b: §4.4.1(b) merge survivor ranking — junction > conic endpoint
+    // > plain vertex; equal ranks keep the lower-index rule.
+    #[test]
+    fn s453_merge_survivor_prefers_exact_vertex() {
+        use std::collections::BTreeSet;
+        let junction: BTreeSet<u32> = [15u32].into_iter().collect();
+        let conic: BTreeSet<u32> = [15u32, 20u32].into_iter().collect();
+
+        // Conic endpoint (higher index) survives over a plain vertex — the
+        // R0091 configuration, in BOTH argument orders.
+        assert_eq!(
+            sub_feature_merge_direction(&junction, &conic, 8, 20),
+            (8, 20)
+        );
+        assert_eq!(
+            sub_feature_merge_direction(&junction, &conic, 20, 8),
+            (8, 20)
+        );
+
+        // Junction survives over a plain single-curve conic endpoint.
+        assert_eq!(
+            sub_feature_merge_direction(&junction, &conic, 20, 15),
+            (20, 15)
+        );
+        assert_eq!(
+            sub_feature_merge_direction(&junction, &conic, 15, 20),
+            (20, 15)
+        );
+
+        // Equal rank (both plain): lower index survives — byte-identical to
+        // the pre-fix behavior.
+        assert_eq!(sub_feature_merge_direction(&junction, &conic, 4, 9), (9, 4));
+        assert_eq!(sub_feature_merge_direction(&junction, &conic, 9, 4), (9, 4));
     }
 
     #[test]
