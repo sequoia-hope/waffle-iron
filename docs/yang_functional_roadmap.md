@@ -559,6 +559,17 @@ the roadmap's remaining work:
    per-target diagnostics into engine_warnings. Campaign suite
    `test-harness/tests/cut_consumes_body_campaign.rs` (engine fixture +
    disjoint-volume intersect adversary + 4 corpus trackers) 6/6 GREEN.
+   **ERROR-census campaign 4 SHIPPED 2026-07-08 (spec
+   `kv9_f3_output_vertex_identity` §4 row E-V6):** the short-loop cluster
+   (R0046/F0064/R0088, `"output loop with fewer than 3 edges"`) was a
+   vocabulary gap — a genuine D-FACE (circular-segment face: chord + conic
+   arc between the same two vertices; R0046's plane∩cylinder cap fragment,
+   chord 0.197 on the r=0.130 circle). `from_yang_brep` now accepts 2-edge
+   loops with exactly one `Seg` + one conic arc (two `Seg`s and same-curve
+   arc pairs stay rejected; mutation-killed). R0046's long-standing
+   output-loop wall is GONE (→ typed UNSUPPORTED curved re-entry); F0064 →
+   face-normal/Newell disagreement wall; R0088 → render tessellation wall
+   (FaceId 492). Trackers `dface_bigon_campaign.rs` 3/3 GREEN.
 4. **N5 — Stage-1 discretization bypasses the unified §4.1 d_ε-iterate + §4.1.2
    CDT framework** (per-surface ad-hoc Newell fans / rim rings instead).
 5. **N6 — §4.5.4 illegal-self-intersection detection/removal is absent.**
