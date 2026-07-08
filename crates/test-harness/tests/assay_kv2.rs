@@ -978,11 +978,19 @@ fn smoke_corpus_boundary_categories() {
         // for the exact-volume version of this scenario).
         ("F0091", Category::SupportedCorrect),
         // PR-KV6a: revolve is implemented for axis-aligned polygon profiles
-        // (partial + full 360°). The self-intersection canaries now exercise
-        // the REAL validation: F0073/F0074 place the axis through the
-        // profile, and the typed RevolveAxisIntersectsProfile maps to the
-        // plain rebuild error their metas expect.
-        ("F0073", Category::ExpectedError),
+        // (partial + full 360°). The self-intersection canaries exercise the
+        // REAL validation: F0074 places the axis THROUGH the profile
+        // interior, and the typed RevolveAxisIntersectsProfile maps to the
+        // plain rebuild error its meta expects.
+        //
+        // F0073 PIN MOVED at KV6 slice 3 (spec
+        // `kv6_on_axis_revolve_partial_wedge.md`): its axis TOUCHES the
+        // profile boundary — the on-axis lathe wedge class, now a SUPPORTED
+        // construction (the meta's expected-error is stale the same way
+        // C0035-F1's was: authored against a since-closed capability gap).
+        // The case builds its wedge and marches to the next honest boundary,
+        // the M8 coplanar auto-union wall.
+        ("F0073", Category::Unsupported(UnsupportedReason::Revolve)),
         ("F0074", Category::ExpectedError),
         // F0075 is a VALID offset-rectangle revolve — the solid builds; the
         // case then hits the KV6b wall (auto-union over an arc-bearing
