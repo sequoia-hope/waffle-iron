@@ -2973,6 +2973,15 @@ fn tessellate_planar_face(
             [out.positions[i], out.positions[i + 1], out.positions[i + 2]]
         };
         if f32_render_degenerate(pos_of(tri[0]), pos_of(tri[1]), pos_of(tri[2])) {
+            if std::env::var_os("KV2_RENDER_GATE_PROBE").is_some() {
+                eprintln!(
+                    "[render-gate-probe] face {fid:?} planar collapse: \
+                     p0={:?} p1={:?} p2={:?}",
+                    pos_of(tri[0]),
+                    pos_of(tri[1]),
+                    pos_of(tri[2]),
+                );
+            }
             return Err(KernelV2Error::TessellationFailed {
                 face: fid,
                 reason: "planar triangle collapsed at render precision",
