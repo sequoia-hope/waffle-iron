@@ -1,16 +1,32 @@
 # Spec: Stage-4 general conic triple-surface junction relocation
 
-> **Status (2026-07-08): DESIGN — prototyped and reverted.** The handler below
-> was implemented and validated (0 WRONG, no CORRECT lost across 78/294 assay
-> cases; F0059 & R0019 junction vertices relocate cleanly onto all 3 surfaces)
-> but it converts ZERO cases alone — resolving the junction advances F0059 to a
-> Stage-6 `NonManifoldOutput` T-junction (the N2 CDT gap) and R0019 to a second
-> junction. Per P4/DoD (no green reproduction, 0 conversions) it was reverted.
-> **This handler MUST land together with the N2 Fig-11 CDT mesh-update**
-> (`stage4_update::stage4_mesh_update` + `stage4_dt::d_of_t`, both built &
-> unit-tested but unwired) so Stage 6 sees T-junction-free topology. See
-> `docs/yang_deviations.md` N2 for the full diagnosis and the combined
-> next-increment plan.
+> **Status (2026-07-08, REVISED): DESIGN — prototyped twice, reverted twice.
+> The original "land WITH N2 CDT" plan is DISPROVEN.** The handler below is
+> correct (0 WRONG, no CORRECT lost; F0059's 8 corner ellipse×circle junctions
+> relocate cleanly onto all 3 surfaces, ρ≈1e-2 ≪ gate 2.2e-2) but converts ZERO
+> cases alone. The 2nd session instrumented F0059's downstream wall on live code
+> and found it is **NOT a T-junction at the relocated junction** — it is a
+> PRE-EXISTING Stage-6 wall independent of the relocation:
+>
+> 1. `s6-wedge-walk-not-outgoing` at mesh vertex 85 = [0,0,0.35] (the TOP of the
+>    Steinmetz seam, on BOTH cylinders), caused by a **non-degenerate coincident
+>    opposite-oriented triangle pair** {31,48,85} in one cap-cylinder patch — a
+>    zero-volume double-cover membrane (count-4 non-manifold edges). Since Stage-4
+>    relocation moves POSITIONS only (never topology), this pair is present with or
+>    without the handler. **`stage4_mesh_update` on the relocated vertex's patch
+>    would never touch vertex 85's patch — wrong target.**
+> 2. Excluding coincident opposite pairs (generalizing `patch_fold_slivers`) clears
+>    the walk but exposes `s4-shell-euler chi=4` (two shells) — a Stage-5/6 seam-
+>    stitching gap where the cyl×cyl union assembles as two disconnected shells.
+>
+> The wall is ≥3 layers deep; NOT a clean red→green. **REAL fix order:** resolve
+> the Stage-6 double-cover origin (Stage-2 arrangement / Stage-5 flood-fill —
+> why one patch carries both windings of {31,48,85}) and the χ=4 two-shell
+> stitching FIRST; only then can this handler + a clean downstream convert F0059.
+> Also note R0004/R0017 still bail Stage-4 WITH the handler (their junction
+> vertices fall outside the "≥2 single-curve maps + exactly-3-surface" trigger).
+> Full trail: memory `stage4_lrr_conic_triple_junction_diagnosis` +
+> `docs/yang_deviations.md` N2.
 
 ## Goal
 
