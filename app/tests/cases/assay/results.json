@@ -1,8 +1,8 @@
 {
-  "errored": 30,
-  "failed": 0,
+  "errored": 41,
+  "failed": 1,
   "generated": "kernel-v2 (assay_kv2 categorized run)",
-  "passed": 194,
+  "passed": 207,
   "results": [
     {
       "category": "SUPPORTED_CORRECT",
@@ -11,26 +11,26 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: ea99c4e1-2d44-4776-a1f1-cfc64fd037e8: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0002",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 123feb17-ce9f-4b21-9efb-738804ee4ad2: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): 9bf3f664-2436-4144-9e52-9e07c56f21d4: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (4232, 4241): AmbiguousCurve { candidates: 1, matched: 0 }\")",
       "id": "R0003",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 19381549-8ecb-4a22-ba80-cdec94b6b9ae: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "ERROR",
+      "detail": "2 engine error(s): 63633bdd-9ad7-4f2e-b1e0-d195797e95aa: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile; f3f795d7-4b9d-4d45-8fd7-93be32b6585b: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 81 is invalid: LocalRefinementRequired\")",
       "id": "R0004",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: 0bead6cf-0a4e-4261-8c9b-60755ae1c4df: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 77a3e8b2-affb-4ec7-b0ae-db59a0accf23: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(595) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "R0005",
       "status": "unsupported"
     },
@@ -47,10 +47,10 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 7881d881-9651-4c6a-9e89-5cce683ff777: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (46, 66): AmbiguousCurve { candidates: 2, matched: 2 }\"). Body created as standalone.",
       "id": "R0008",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "ERROR",
@@ -59,10 +59,10 @@
       "status": "error"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 7af44ce1-ae17-4795-bf12-d7fb6717e824: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0010",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "ERROR",
@@ -95,32 +95,32 @@
       "status": "error"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 9019b316-6a4a-4ae9-9240-e61a4e650e51: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "ERROR",
+      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(1885), reason: \"ring rejected by CDT (degenerate/self-intersecting)\" }",
       "id": "R0016",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 4dd5e51a-775e-4d8e-a0ab-5d090c0b0f76: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Extrude 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 43 is invalid: LocalRefinementRequired\"). Body created as standalone.",
       "id": "R0017",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 0923a449-46a1-4f47-b75a-b4bb5fe62800: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0018",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 5091f85d-64c4-491b-bb6a-ad2a85adb80c: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): 5091f85d-64c4-491b-bb6a-ad2a85adb80c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 25 is invalid: LocalRefinementRequired\")",
       "id": "R0019",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 2d767b57-d3b2-4dc7-8df1-908e4e8675f2: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 767e7667-d14f-4017-9d73-e863a4d6f6e9: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(11) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "R0020",
       "status": "unsupported"
     },
@@ -191,26 +191,26 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 089554e1-2746-405d-9c0d-70e00e9097a2: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): 089554e1-2746-405d-9c0d-70e00e9097a2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 23 is invalid: LocalRefinementRequired\")",
       "id": "R0032",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: a48bab7b-1098-4734-8ec1-e8e917e220a2: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0033",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 58071b1c-c774-4650-8400-0cab5902a09d: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "ERROR",
+      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(299), reason: \"patch triangulation folded (inverted triangle) — KV9-F2: the                          unrolled ear-clip/refinement produced inward-facing geometry;                          loud instead of silently-wrong render output\" }",
       "id": "R0034",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 11cd1c66-a808-4aa5-b673-bf556336bd0e: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "UNSUPPORTED(multi-shell)",
+      "detail": "1 NotSupported boundary(ies); first: Extrude 3: Auto-union failed: kernel error: operation not supported: boolean_union: multi-shell operand (2 shells — an internal void or                      disjoint bodies cannot re-enter yang-rs reassembly yet). Body created as standalone.",
       "id": "R0035",
       "status": "unsupported"
     },
@@ -221,10 +221,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: f6b85cd1-3786-4649-90f6-d3d8517ab7cb: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0037",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "ERROR",
@@ -263,10 +263,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 04a3119b-145f-4cb2-b5ae-690ed262ae1b: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "ERROR",
+      "detail": "1 auto-union failure(s): Revolve 2: Auto-union failed: kernel error: boolean operation failed: kernel-v2 boolean_union failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 244 is invalid: LocalRefinementRequired\"). Body created as standalone.",
       "id": "R0044",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -281,10 +281,10 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 34f17562-4f26-450c-bb46-fd2e004b22a7: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): 34f17562-4f26-450c-bb46-fd2e004b22a7: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 16 is invalid: LocalRefinementRequired\")",
       "id": "R0047",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -293,10 +293,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 2d84f5bd-82b5-4840-86d9-66d597f4ce1e: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): d77f3528-7297-490c-abb3-74aee23c46f5: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 46 is invalid: LocalRefinementRequired\")",
       "id": "R0049",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "UNSUPPORTED(coplanar-boolean)",
@@ -311,28 +311,28 @@
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: d9355958-8380-4a33-882a-8feaf57e78a7: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0052",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: b94897b4-7f89-4a4a-8508-85959d97b454: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "detail": "1 NotSupported boundary(ies); first: Revolve 3: Auto-union failed: kernel error: operation not supported: boolean_union: curved partial-patch operand face FaceId(14) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet). Body created as standalone.",
       "id": "R0053",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 60bf9f53-5a1d-40ba-b547-c10debfc2246: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "ERROR",
+      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(548), reason: \"patch triangulation folded (inverted triangle) — KV9-F2: the                          unrolled ear-clip/refinement produced inward-facing geometry;                          loud instead of silently-wrong render output\" }",
       "id": "R0054",
-      "status": "unsupported"
+      "status": "error"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 94b5ac1d-556c-4884-b3d2-a65ad527e119: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0055",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -389,10 +389,10 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 627c5994-1f16-449b-afdb-81ec05227e09: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "ERROR",
+      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(1216), reason: \"patch triangulation folded (inverted triangle) — KV9-F2: the                          unrolled ear-clip/refinement produced inward-facing geometry;                          loud instead of silently-wrong render output\" }",
       "id": "R0065",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -407,26 +407,26 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: e36d39c4-9ef8-48a2-aba3-9c873c5fddc5: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0068",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 262d96b2-2140-48a4-8e40-e2ab9b6daba3: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0069",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "ERROR",
-      "detail": "2 engine error(s): fa84b5e5-66a1-4e8b-b1d4-e3991e3ea322: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 737 is invalid: LocalRefinementRequired\"); 67cb1e5c-5d7d-43e6-ab14-f986cb5715e2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (0, 89): IntersectFailed(AnalyticalSolutionNotAvailable)\")",
+      "detail": "2 engine error(s): fa84b5e5-66a1-4e8b-b1d4-e3991e3ea322: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 737 is invalid: LocalRefinementRequired\"); 67cb1e5c-5d7d-43e6-ab14-f986cb5715e2: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-4 relocation region around vertex 0 is invalid: LocalRefinementRequired\")",
       "id": "R0070",
       "status": "error"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 2c659565-295a-4d6d-9582-dc2859b55e11: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "UNSUPPORTED(coplanar-boolean)",
+      "detail": "1 NotSupported boundary(ies); first: 2c659565-295a-4d6d-9582-dc2859b55e11: operation error: kernel error: operation not supported: boolean_subtract: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented)",
       "id": "R0071",
       "status": "unsupported"
     },
@@ -479,14 +479,14 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: c54b273b-9f0d-4bc9-b234-91f97afcab2e: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "R0080",
-      "status": "unsupported"
+      "status": "pass"
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 4ce8979e-fe59-4d13-9562-f1d0b53eafd9: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "detail": "1 NotSupported boundary(ies); first: Revolve 3: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "R0081",
       "status": "unsupported"
     },
@@ -510,7 +510,7 @@
     },
     {
       "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: 2e29f9bc-15a6-4090-b5b3-ee3029252aa1: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "detail": "2 NotSupported boundary(ies); first: Revolve 2: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "R0085",
       "status": "unsupported"
     },
@@ -557,14 +557,14 @@
       "status": "pass"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: f34e875b-aa21-45ec-999c-b2a41a849c94: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 0af1f6a6-52d1-42e2-badf-2bcbcd271c7a: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(318) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "R0093",
       "status": "unsupported"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 05e21dc2-42d2-4fcb-8100-a72a1f6f5b73: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "UNSUPPORTED(curved-profile)",
+      "detail": "1 NotSupported boundary(ies); first: 33244152-c88e-4610-a26d-13646fd7f58a: operation error: kernel error: operation not supported: boolean_subtract: curved partial-patch operand face FaceId(287) (a previous curved boolean's result cannot re-enter yang-rs Stage 1 — no partial-patch tessellation yet)",
       "id": "R0094",
       "status": "unsupported"
     },
@@ -593,16 +593,16 @@
       "status": "error"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "1 NotSupported boundary(ies); first: 03c04280-8758-4d9b-8f37-b93314b3c217: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "SUPPORTED_WRONG",
+      "detail": "mesh_euler_characteristic: V(530) - E(1563) + F(1033) = 0 (expected 2 for 1 shell(s))",
       "id": "R0099",
-      "status": "unsupported"
+      "status": "fail"
     },
     {
-      "category": "UNSUPPORTED(revolve)",
-      "detail": "2 NotSupported boundary(ies); first: 2b3ff4ed-060a-4b1c-8529-908354de8285: operation error: kernel error: operation not supported: revolve_face: partial revolve of an oblique edge sweeps an arc-bounded CONE patch (kernel-v2 roadmap KV6c increment 5; full-turn cones are supported)",
+      "category": "ERROR",
+      "detail": "1 engine error(s): 35e46b10-8cdb-4b75-9d20-ea5fa0fc337c: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: UnsupportedBooleanOutputCurve { curve: \"Hyperbola\" }",
       "id": "R0100",
-      "status": "unsupported"
+      "status": "error"
     },
     {
       "category": "SUPPORTED_CORRECT",
@@ -948,7 +948,7 @@
     },
     {
       "category": "ERROR",
-      "detail": "no solid / tessellation failed: engine error: tessellation failed: kernel-v2 tessellation failed: TessellationFailed { face: FaceId(8), reason: \"no unblocked seam bridge for the wrapping patch loops\" }",
+      "detail": "1 engine error(s): 559e354e-a36a-4c6a-b998-fe93a4590c52: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: reassembled output would be non-2-manifold\")",
       "id": "F0058",
       "status": "error"
     },
@@ -1037,10 +1037,10 @@
       "status": "error"
     },
     {
-      "category": "EXPECTED_ERROR",
-      "detail": "expected rebuild error: 2e612f7b-d14f-41ee-b3c3-3cb8a015fa72: operation error: kernel error: kernel error: kernel-v2 revolve failed: RevolveAxisIntersectsProfile",
+      "category": "UNSUPPORTED(revolve)",
+      "detail": "1 NotSupported boundary(ies); first: Revolve Center: Auto-union failed: kernel error: operation not supported: boolean_union: coplanar input face pair (Yang Stage 0 coplanar preprocessing — roadmap M8 — not yet implemented). Body created as standalone.",
       "id": "F0073",
-      "status": "error"
+      "status": "unsupported"
     },
     {
       "category": "EXPECTED_ERROR",
@@ -1475,22 +1475,22 @@
       "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 92393712-b06b-440f-9b58-eda68ebfa0bf: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (22, 25): IntersectFailed(AnalyticalSolutionNotAvailable)\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0052",
-      "status": "error"
+      "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): 89308c12-ab32-4f50-9403-42a68af85080: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (22, 23): IntersectFailed(AnalyticalSolutionNotAvailable)\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0053",
-      "status": "error"
+      "status": "pass"
     },
     {
-      "category": "ERROR",
-      "detail": "1 engine error(s): c4f92d12-ccd1-45c9-8fcc-63a6ac97f079: operation error: kernel error: boolean operation failed: kernel-v2 boolean_subtract failed: BooleanFailed(\"yang-rs: Stage-3 SSI refinement failed for intersection edge (22, 25): IntersectFailed(AnalyticalSolutionNotAvailable)\")",
+      "category": "SUPPORTED_CORRECT",
+      "detail": "all checks passed",
       "id": "C0054",
-      "status": "error"
+      "status": "pass"
     },
     {
       "category": "SUPPORTED_CORRECT",
